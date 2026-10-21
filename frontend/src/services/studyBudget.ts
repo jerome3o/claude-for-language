@@ -3,7 +3,8 @@
  * device so the study queue works offline. The server copy lives on the user
  * row (`/api/auth/me` returns it; `PUT /api/profile/study-budget` changes it;
  * the tutor can change it too, and `/api/sync/changes` carries it, so the
- * tutor's numbers reach this device on the next sync the same day).
+ * tutor's numbers reach this device on the next sync the same day). The same
+ * info carries "Pause new cards on heavy days" (`readReviewLoadCap`).
  */
 import { DEFAULT_STUDY_BUDGET, type StudyBudget, type StudyBudgetInfo } from '@shared/decks';
 
@@ -31,6 +32,20 @@ export function readStudyBudgetInfo(): StudyBudgetInfo | null {
   try {
     const raw = localStorage.getItem(INFO_KEY);
     if (raw) return { ...(JSON.parse(raw) as StudyBudgetInfo), ...readStudyBudget() };
+  } catch { /* storage unavailable */ }
+  return null;
+}
+
+/**
+ * "Pause new cards on heavy days" (shared/decks/review-load.ts): the account's limit from
+ * the cached StudyBudgetInfo — null = off (or the server never said).
+ */
+export function readReviewLoadCap(): number | null {
+  try {
+    const raw = localStorage.getItem(INFO_KEY);
+    if (!raw) return null;
+    const v = (JSON.parse(raw) as Partial<StudyBudgetInfo>).pause_new_when_reviews_over;
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.round(v) : null;
   } catch { /* storage unavailable */ }
   return null;
 }

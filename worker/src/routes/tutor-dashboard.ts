@@ -26,6 +26,7 @@ import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
 import * as q from '../db/tutor-dashboard-queries';
 import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../services/tutor-dashboard';
+import { studentReviewLoad } from '../services/review-load';
 import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
 import { countOpenCardFlags } from '../services/card-flags';
@@ -95,6 +96,11 @@ async function loadOverview(
       listRelationshipAssignments(db, rel.id, 500).catch(() => []),
     ]);
   if (!student) return null;
+  // "Pause new cards on heavy days": only when the student has a limit (one query).
+  const reviewLoad = await studentReviewLoad(db, student, tzOffset, now).catch((err) => {
+    console.error('[tutor-dashboard] review load failed:', err);
+    return null;
+  });
 
   return buildStudentOverview({
     relationship_id: rel.id,
@@ -117,6 +123,7 @@ async function loadOverview(
     last_conversation_id: lastConversationId,
     has_profile: hasProfile,
     tz_offset_minutes: tzOffset,
+    review_load: reviewLoad,
     now,
   });
 }

@@ -387,7 +387,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, s
             coverage = { CoverageSection(name, coverage.data?.coverage, coverage.loading) },
             dailyBudget = {
                 val info = (budget.data?.budget ?: overview.data?.study_budget)?.toInfo()
-                DailyBudgetRow(info, budget.error ?: overview.error, onEdit = { budgetEditor = true }, onRetry = { vm.budget.resource.refresh() })
+                DailyBudgetRow(info, budget.error ?: overview.error, onEdit = { budgetEditor = true }, onRetry = { vm.budget.resource.refresh() }, reviewLoad = overview.data?.review_load?.toState())
             },
             recentHomework = library.data?.takeIf { it.isNotEmpty() }?.let { items ->
                 {
@@ -457,7 +457,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, s
     if (budgetEditor) {
         // The overview's copy is enough to edit with until GET …/student-study-budget (with the hint's top deck) arrives.
         val data = budget.data ?: overview.data?.study_budget?.let { dev.jeromeswannack.chineselearning.lab.data.api.StudentStudyBudgetDto(budget = it) }
-        if (data != null) DailyBudgetSheet(data, online, save = { n, sec, done -> vm.budget.save(n, sec, done) }, onDismiss = { budgetEditor = false })
+        if (data != null) DailyBudgetSheet(data, online, save = { n, sec, pause, numbers, done -> vm.budget.save(n, sec, pause, numbers, done) }, onDismiss = { budgetEditor = false })
         else budgetEditor = false
     }
     if (showNotesSheet) {

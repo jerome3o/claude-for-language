@@ -92,8 +92,10 @@ export async function buildDebugReport(): Promise<DebugReport> {
   }
 
   // ---- Home: exactly HomePage's numbers (per-deck rows use bonus 0; the total uses the "all" bonus + due readers) ----
-  const perDeck = allocateQueueCounts(rawByDeck, 0, budget);
-  const allocatedAll = allocateQueueCounts(rawByDeck, bonusAll, budget);
+  // Today's budget (0 + 0 while "Pause new cards on heavy days" holds) — what Home allocates with.
+  const todaysBudget = rawByDeck.budget ?? budget;
+  const perDeck = allocateQueueCounts(rawByDeck, 0, todaysBudget);
+  const allocatedAll = allocateQueueCounts(rawByDeck, bonusAll, todaysBudget);
   const cardTotals = sumQueueCounts(allocatedAll.values());
   const shown = { ...cardTotals };
   for (const reader of dueReaders) {
@@ -193,6 +195,7 @@ export async function buildDebugReport(): Promise<DebugReport> {
     budget: { ...budget },
     new_card_order: readNewCardOrder(),
     up_next: await loadQueueUpNext(),
+    ...(rawByDeck.reviewLoad ? { review_load: { threshold: rawByDeck.reviewLoad.threshold, load: rawByDeck.reviewLoad.load, paused: rawByDeck.reviewLoad.paused } } : {}),
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {
       sync_meta: syncMeta,

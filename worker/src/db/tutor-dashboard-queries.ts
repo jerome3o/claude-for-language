@@ -21,7 +21,7 @@ export async function fetchStudentUserRow(db: D1Database, studentId: string): Pr
     .prepare(
       `SELECT u.id, u.email, u.name, u.picture_url, u.last_login_at, u.install_kind, u.cached_audio_count, u.last_opened_at, u.created_at,
               u.new_cards_per_day, u.secondary_cards_per_day, u.study_budget_set_by, u.study_budget_set_at,
-              s.name AS study_budget_set_by_name
+              u.pause_new_when_reviews_over, u.time_zone, s.name AS study_budget_set_by_name
        FROM users u LEFT JOIN users s ON s.id = u.study_budget_set_by
        WHERE u.id = ?`
     )

@@ -21,6 +21,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.problems
 import dev.jeromeswannack.chineselearning.lab.data.api.regenerateFallbackAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.saveLandingPage
 import dev.jeromeswannack.chineselearning.lab.data.api.saveOwnStudyBudget
+import dev.jeromeswannack.chineselearning.lab.data.api.PauseChange
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudgetInfo
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore
@@ -46,6 +47,9 @@ data class SettingsUi(
     val budgetSavedFlash: Boolean = false,
     /** Who set the saved budget: "Set by Minghui · 3 Oct" while the numbers are the tutor's (TutorBudget.budgetSetByLabel). */
     val budgetInfo: StudyBudgetInfo? = null,
+    /** "Pause new cards on heavy days" (core ReviewLoad): the saved limit (null = off) and what the field shows. */
+    val reviewCap: Int? = null,
+    val reviewCapDraft: Int? = null,
     /** study | students | decks, null = automatic. */
     val landing: String? = null,
     val landingBusy: Busy = Busy(),
@@ -75,6 +79,8 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
             budget = app.prefs.budget,
             budgetDraft = app.prefs.budget,
             budgetInfo = app.prefs.budgetInfo,
+            reviewCap = app.prefs.reviewLoadCap,
+            reviewCapDraft = app.prefs.reviewLoadCap,
             landing = app.prefs.landingPage,
             lastExportAt = store.lastExportAt,
             lastExportSize = store.lastExportSize,
@@ -90,11 +96,14 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
         viewModelScope.launch {
             app.repo.dataVersion.collect {
                 val saved = app.prefs.budget
+                val savedCap = app.prefs.reviewLoadCap
                 _ui.update { u ->
                     u.copy(
                         budget = saved,
                         budgetInfo = app.prefs.budgetInfo,
                         budgetDraft = if (u.budgetDraft == u.budget) saved else u.budgetDraft,
+                        reviewCap = savedCap,
+                        reviewCapDraft = if (u.reviewCapDraft == u.reviewCap) savedCap else u.reviewCapDraft,
                         landing = if (u.landingBusy.busy) u.landing else app.prefs.landingPage,
                     )
                 }
@@ -113,15 +122,34 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
         _ui.update { it.copy(budgetDraft = clamped, budgetBusy = Busy()) }
     }
 
+    /** "Pause new cards on heavy days": null = off; saved with the budget. */
+    fun setReviewCapDraft(v: Int?) {
+        if (v != _ui.value.reviewCapDraft) app.haptics.tick()
+        _ui.update { it.copy(reviewCapDraft = v, budgetBusy = Busy()) }
+    }
+
     fun saveBudget() = viewModelScope.launch {
         val draft = _ui.value.budgetDraft
+        val capDraft = _ui.value.reviewCapDraft
+        val capChanged = capDraft != _ui.value.reviewCap
         _ui.update { it.copy(budgetBusy = Busy(busy = true)) }
         try {
             // Last write wins: saving here replaces a tutor's numbers (and clears "Set by …").
-            val info = call { app.repo.api.saveOwnStudyBudget(draft.newCardsPerDay, draft.secondaryCardsPerDay) }.toInfo()
+            val info = call {
+                // Only what changed: switching the pause alone leaves the numbers (and "Set by …") as they are.
+                val numbers = draft != _ui.value.budget || !capChanged
+                app.repo.api.saveOwnStudyBudget(draft.newCardsPerDay, draft.secondaryCardsPerDay, if (capChanged) PauseChange(capDraft) else null, numbers)
+            }.toInfo()
             val b = info.budget
             app.prefs.budgetInfo = info // the study queue reads prefs.budget (one source of truth, refreshed on sync)
-            _ui.update { it.copy(budget = b, budgetDraft = b, budgetInfo = info, budgetBusy = Busy(), budgetSavedFlash = true) }
+            if (capChanged) app.analytics.track("settings.change", mapOf("setting" to "review_load_cap", "value" to (info.pauseNewWhenReviewsOver ?: "off")))
+            app.repo.notifyLocalChange() // Home / the queue recount with today's budget
+            _ui.update {
+                it.copy(
+                    budget = b, budgetDraft = b, budgetInfo = info, budgetBusy = Busy(), budgetSavedFlash = true,
+                    reviewCap = info.pauseNewWhenReviewsOver, reviewCapDraft = info.pauseNewWhenReviewsOver,
+                )
+            }
             app.haptics.correct()
             delay(2500)
             _ui.update { it.copy(budgetSavedFlash = false) }

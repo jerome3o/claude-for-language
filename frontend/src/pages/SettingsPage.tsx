@@ -18,6 +18,7 @@ import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newChar
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
+import { ReviewLoadCapField, reviewLoadCapValid } from '../components/ReviewLoadCapField';
 import { BudgetStepper } from '../components/BudgetStepper';
 import type { FeatureRequest, FeatureRequestComment } from '../api/client';
 import { getAudioCacheStats } from '../services/audioCache';
@@ -796,23 +797,34 @@ function DailyBudgetSection() {
     new_cards_per_day: user?.new_cards_per_day ?? readStudyBudget().new_cards_per_day,
     secondary_cards_per_day: user?.secondary_cards_per_day ?? readStudyBudget().secondary_cards_per_day,
   }), [user?.new_cards_per_day, user?.secondary_cards_per_day]);
+  // "Set by Minghui · 3 Oct" while the numbers are the tutor's (they can still be changed here).
+  const info = user?.study_budget ?? readStudyBudgetInfo();
+  // "Pause new cards on heavy days" (shared/decks/review-load.ts): null = off.
+  const initialCap = info?.pause_new_when_reviews_over ?? null;
   const [primary, setPrimary] = useState(initial.new_cards_per_day);
   const [secondary, setSecondary] = useState(initial.secondary_cards_per_day);
+  const [cap, setCap] = useState<number | null>(initialCap);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { setPrimary(initial.new_cards_per_day); setSecondary(initial.secondary_cards_per_day); }, [initial]);
-  const dirty = primary !== initial.new_cards_per_day || secondary !== initial.secondary_cards_per_day;
-  // "Set by Minghui · 3 Oct" while the numbers are the tutor's (they can still be changed here).
-  const info = user?.study_budget ?? readStudyBudgetInfo();
+  useEffect(() => { setCap(initialCap); }, [initialCap]);
+  const capChanged = cap !== initialCap;
+  const dirty = primary !== initial.new_cards_per_day || secondary !== initial.secondary_cards_per_day || capChanged;
   const setBy = budgetSetByLabel(info, info?.set_at ? new Date(info.set_at).getTimezoneOffset() : 0);
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      const next = await updateStudyBudget({ new_cards_per_day: primary, secondary_cards_per_day: secondary });
-      track('settings.change', { setting: 'study_budget', value: primary });
+      const numbersChanged = primary !== initial.new_cards_per_day || secondary !== initial.secondary_cards_per_day;
+      // Only what changed: switching the pause alone leaves the numbers (and "Set by …") as they are.
+      const next = await updateStudyBudget({
+        ...(numbersChanged || !capChanged ? { new_cards_per_day: primary, secondary_cards_per_day: secondary } : {}),
+        ...(capChanged ? { pause_new_when_reviews_over: cap } : {}),
+      });
+      if (numbersChanged) track('settings.change', { setting: 'study_budget', value: primary });
+      if (capChanged) track('settings.change', { setting: 'review_load_cap', value: cap ?? 'off' });
       writeStudyBudget(next);
       await refreshUser();
       setSaved(true);
@@ -833,8 +845,15 @@ function DailyBudgetSection() {
       {setBy && <p className="settings-budget-set-by" data-testid="budget-set-by">{setBy}</p>}
       <BudgetStepper tone="primary" label="New words" hint="Words you have never seen (blue)" value={primary} onChange={setPrimary} disabled={saving} testId="budget-primary" />
       <BudgetStepper tone="secondary" label="Extra cards" hint="More card types of words you have started (purple)" value={secondary} onChange={setSecondary} disabled={saving} testId="budget-secondary" />
+      <ReviewLoadCapField
+        value={cap}
+        onChange={setCap}
+        disabled={saving}
+        testId="review-cap"
+        hint="On a day with more reviews due than this you get no new cards — nothing from Up next either — just the reviews. ⚡ bumps, homework and Study 10 more still work."
+      />
       <div className="feedback-actions">
-        <button className="btn btn-primary" onClick={save} disabled={saving || !dirty}>
+        <button className="btn btn-primary" onClick={save} disabled={saving || !dirty || !reviewLoadCapValid(cap)} data-testid="budget-save">
           {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
         </button>
       </div>

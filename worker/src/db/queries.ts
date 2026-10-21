@@ -591,6 +591,7 @@ export async function setStudyBudget(db: D1Database, userId: string, update: Stu
   const values: (number | null | string)[] = [];
   if (update.new_cards_per_day !== undefined) { sets.push('new_cards_per_day = ?'); values.push(update.new_cards_per_day); }
   if (update.secondary_cards_per_day !== undefined) { sets.push('secondary_cards_per_day = ?'); values.push(update.secondary_cards_per_day); }
+  if (update.pause_new_when_reviews_over !== undefined) { sets.push('pause_new_when_reviews_over = ?'); values.push(update.pause_new_when_reviews_over); }
   if (sets.length) {
     sets.push('study_budget_set_by = ?', 'study_budget_set_at = ?');
     values.push(setBy, new Date().toISOString());
@@ -604,7 +605,7 @@ export async function getStudyBudgetInfo(db: D1Database, userId: string): Promis
   const row = await db
     .prepare(
       `SELECT u.new_cards_per_day, u.secondary_cards_per_day, u.study_budget_set_by, u.study_budget_set_at,
-              s.name AS study_budget_set_by_name
+              u.pause_new_when_reviews_over, s.name AS study_budget_set_by_name
        FROM users u LEFT JOIN users s ON s.id = u.study_budget_set_by
        WHERE u.id = ?`
     )

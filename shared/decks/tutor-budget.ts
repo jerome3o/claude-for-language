@@ -20,6 +20,11 @@ export interface StudyBudgetInfo extends StudyBudget {
   set_by_tutor: boolean;
   /** When (server ISO time). */
   set_at: string | null;
+  /**
+   * "Pause new cards on heavy days" (review-load.ts): no new cards on a day with more than
+   * this many reviews due; null = off (users.pause_new_when_reviews_over).
+   */
+  pause_new_when_reviews_over: number | null;
 }
 
 /** The user-row columns `studyBudgetInfo` reads. */
@@ -30,6 +35,7 @@ export interface StudyBudgetRow {
   study_budget_set_at?: string | null;
   /** users.name of study_budget_set_by (joined). */
   study_budget_set_by_name?: string | null;
+  pause_new_when_reviews_over?: number | null;
 }
 
 export function studyBudgetInfo(row: StudyBudgetRow | null | undefined, ownerId: string): StudyBudgetInfo {
@@ -44,6 +50,7 @@ export function studyBudgetInfo(row: StudyBudgetRow | null | undefined, ownerId:
     set_by_name: setBy ? row?.study_budget_set_by_name ?? null : null,
     set_by_tutor: !!setBy && setBy !== ownerId,
     set_at: row?.study_budget_set_at ?? null,
+    pause_new_when_reviews_over: typeof row?.pause_new_when_reviews_over === 'number' ? row.pause_new_when_reviews_over : null,
   };
 }
 

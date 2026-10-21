@@ -247,6 +247,46 @@ own still charges what was already studied today in other decks against the glob
 
 When the daily new card limit is reached, the "All Done!" screen offers a **"Study More"** button to add 10 bonus new cards.
 
+### Pause new cards on heavy days (review-load cap)
+
+Jerome (Oct 2026): "I know enough words now but not many sentence structures … I'm getting too
+many cards a day. If I have over 100 cards to review today, give me no new cards, only the reviews;
+the next day if it's ~90, give me up to the configured amount." One optional per-account limit on
+the budget above — `users.pause_new_when_reviews_over` (migration 0131; NULL = off, 10–1000),
+carried in `StudyBudgetInfo.pause_new_when_reviews_over` on `/api/auth/me` and `/api/sync/changes`
+and cached on the device with the budget (web `services/studyBudget.ts` `readReviewLoadCap`, Lab
+`Prefs.reviewLoadCap`), so it applies offline:
+
+- **Rule** (`shared/decks/review-load.ts`, Lab `core/…/ReviewLoad.kt`, parity-tested by
+  `android-lab/parity/fixtures/review-load.ts`): **today's review load** = cards past NEW due by the
+  cutoff (the "due today" definition below) **+ cards already reviewed today**, never a card whose
+  first-ever review is today (a new card's learning steps aren't reviews). So the number does not
+  fall as he works through the day — a card that was due this morning and is now scheduled for next
+  week still counts. An early review of a not-due card (a ⚡ bump's) counts from then on. The load is
+  account-wide: a one-deck session counts every deck.
+- **Over the limit** (`load > limit`, `reviewLoadState`) → today's budget is **0 new words + 0 extra
+  cards** (`budgetForToday`); at or under it → the configured budget. No taper: it's a switch, as asked.
+- **Unaffected**: ⚡ bumps (outside the budget), homework passes, lessons / readers, learning and
+  review cards, and the new cards already introduced today (their learning steps go on). **Up next**
+  draws from the budget, so it waits too (said in Settings and on Home). **Study 10 more** (bonus)
+  still adds new cards — the manual override (deck caps still apply).
+- **Where**: web `loadStudyInputs` (`db/database.ts`) computes the load from today's review events
+  and gives every queue today's budget (`getRawQueueCounts` carries `budget` + `reviewLoad`, which
+  `allocateQueueCounts` uses by default); Lab `data/TodaysBudget.kt` at every `StudyQueue.build`.
+- **Settings → New cards a day** → "Pause new cards on heavy days" (switch + "when more than [100]
+  reviews are due" + one line), saved with the budget (`PUT /api/profile/study-budget`
+  `{ pause_new_when_reviews_over }`). The tutor's "Daily new cards" sheet has the same field
+  (`PUT …/student-study-budget`; the pause alone posts no chat message); MCP `set_student_study_budget`
+  takes it.
+- **Home** says why: "⏸ New cards paused — 124 reviews due today (limit 100)" + "Up next waits too.
+  ⚡ bumps and homework still come; Study 10 more adds new cards anyway." (`pausedNewCardsLabel`,
+  `PAUSED_NEW_CARDS_DETAIL`; analytics `study.new_cards_paused` once a local day). The tutor's student
+  card and "Daily new cards" row say "⏸ New cards paused today · 124 reviews due" from the overview's
+  `review_load` (the same rule in SQL over the server's card rows, `worker/src/services/review-load.ts`,
+  in the student's own time zone).
+- **Debug report**: `review_load: { threshold, load, paused }` (`budget` stays the configured numbers);
+  `compareDebugReports` diffs the limit, the load and which side is paused.
+
 ### What "due today" means — one definition for both apps
 
 `shared/decks/study-queue.ts` is the ONE definition of the study queue; the web app

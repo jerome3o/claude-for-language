@@ -118,6 +118,7 @@ class Prefs(context: Context) {
                 setByName = sp.getString("budget_set_by_name", null),
                 setByTutor = sp.getBoolean("budget_set_by_tutor", false),
                 setAt = sp.getString("budget_set_at", null),
+                pauseNewWhenReviewsOver = reviewLoadCap,
             )
         }
         set(v) = sp.edit()
@@ -128,7 +129,20 @@ class Prefs(context: Context) {
             .putString("budget_set_by_name", v.setByName)
             .putBoolean("budget_set_by_tutor", v.setByTutor)
             .putString("budget_set_at", v.setAt)
+            .putInt("budget_pause_over", v.pauseNewWhenReviewsOver ?: -1)
             .apply()
+
+    /**
+     * "Pause new cards on heavy days" (core ReviewLoad): the account's limit, null = off. Written with
+     * [budgetInfo] (every sync); TodaysBudget reads it for every study queue, offline too.
+     */
+    val reviewLoadCap: Int?
+        get() = sp.getInt("budget_pause_over", -1).takeIf { it >= 0 }
+
+    /** The local day (yyyy-MM-dd) the "New cards paused" analytics event was last sent. */
+    var newCardsPausedTrackedDay: String?
+        get() = sp.getString("new_cards_paused_tracked", null)
+        set(v) = sp.edit().putString("new_cards_paused_tracked", v).apply()
 
     /**
      * "Order new cards by" (Settings → New cards; core NewCardOrder): which new words come first.

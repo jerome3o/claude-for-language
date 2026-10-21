@@ -65,6 +65,7 @@ class TutorBudgetParityTest {
                     studyBudgetSetBy = it["study_budget_set_by"].str,
                     studyBudgetSetAt = it["study_budget_set_at"].str,
                     studyBudgetSetByName = it["study_budget_set_by_name"].str,
+                    pauseNewWhenReviewsOver = it["pause_new_when_reviews_over"].intOrNull,
                 )
             }
             val want = o["info"]!!.jsonObject
@@ -78,6 +79,7 @@ class TutorBudgetParityTest {
                     setByName = want["set_by_name"].str,
                     setByTutor = want["set_by_tutor"]!!.jsonPrimitive.boolean,
                     setAt = want["set_at"].str,
+                    pauseNewWhenReviewsOver = want["pause_new_when_reviews_over"].intOrNull,
                 ),
                 got,
                 "$row",
