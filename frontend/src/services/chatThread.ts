@@ -4,6 +4,7 @@
  * newest message, the "New messages" divider, image bubble sizing and the
  * conversation-list preview. Unit-tested in chatThread.test.ts.
  */
+import { systemMessageText } from '@shared/chats/system';
 
 export interface ThreadMessage {
   id: string;
@@ -164,12 +165,22 @@ export function formatDuration(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-/** What a conversation row shows for its last message. */
+/**
+ * What a conversation row shows for its last message. A system message reads from my
+ * side when `viewer` is given ("You set Jerome's new cards…"; docs/CHAT.md "System messages").
+ */
 export function lastMessagePreview(
-  last: { content?: string | null; deleted_at?: string | null; attachment?: unknown; attachment_kind?: string | null } | null | undefined,
+  last:
+    | { content?: string | null; deleted_at?: string | null; attachment?: unknown; attachment_kind?: string | null; sender_id?: string; system_kind?: string | null; system_data?: unknown }
+    | null
+    | undefined,
+  viewer?: { myId: string; otherName: string | null | undefined },
 ): string {
   if (!last) return '';
   if (last.deleted_at) return 'Message deleted';
+  if (last.system_kind && viewer) {
+    return systemMessageText(last, { viewerIsSender: last.sender_id === viewer.myId, otherName: viewer.otherName }).replace(/\s+/g, ' ').trim();
+  }
   let kind = last.attachment_kind ?? null;
   if (!kind && last.attachment) {
     let a: unknown = last.attachment;

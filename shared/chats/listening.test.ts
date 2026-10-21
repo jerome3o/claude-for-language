@@ -128,3 +128,11 @@ describe('placeholder', () => {
     }
   });
 });
+
+describe('listening mode — system messages', () => {
+  it('a line the app posted is never hidden, even with Chinese in it', () => {
+    const msg = { id: 's', sender_id: 'them', content: '🚩 Jerome flagged 银行 for you', created_at: '2026-10-01T10:00:00.000Z', system_kind: 'card_flag' };
+    expect(listeningCandidate(msg, 'me')).toBe(false);
+    expect(listeningCandidate({ ...msg, system_kind: null }, 'me')).toBe(true);
+  });
+});

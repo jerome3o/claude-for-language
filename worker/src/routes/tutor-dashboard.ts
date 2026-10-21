@@ -20,7 +20,8 @@ import {
   getMyRelationships,
   updateSharedDeckCopy,
 } from '../services/relationships';
-import { openRelationshipConversation, sendMessage } from '../services/conversations';
+import { openRelationshipConversation } from '../services/conversations';
+import { postSystemMessage } from '../services/chat/system';
 import { resolveFrontendUrl } from '../services/auth';
 import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
@@ -227,32 +228,16 @@ tutorDashboard.post('/relationships/:relId/conversations/open', async (c) => {
 
 // ============ Send how-to ============
 
-export function installHowToMessage(studentName: string | null, appUrl: string): string {
-  const hi = studentName ? `Hi ${studentName}! ` : 'Hi! ';
-  return (
-    `${hi}Here is how to get the app on your phone so it works offline (on the train, on a plane):\n\n` +
-    `Android app (recommended):\n` +
-    `1. Install Obtainium from the Play Store or https://github.com/ImranR98/Obtainium\n` +
-    `2. In Obtainium tap "Add App" and paste https://github.com/jerome3o/claude-for-language\n` +
-    `3. Install the app it finds, open it and sign in with Google once.\n\n` +
-    `Or add a home-screen shortcut: open ${appUrl} in Chrome, tap the ⋮ menu → "Add to Home screen" / "Install app".\n\n` +
-    `Once it is installed, open it while you have internet so your words and audio download. After that it works without a connection.`
-  );
-}
 
 tutorDashboard.post('/relationships/:relId/send-howto', async (c) => {
   try {
     const user = c.get('user');
     const relId = c.req.param('relId');
-    const { studentId } = await requireTutor(c.env.DB, relId, user.id);
-    const student = await q.fetchStudentUserRow(c.env.DB, studentId);
+    await requireTutor(c.env.DB, relId, user.id);
     const conversationId = (await openRelationshipConversation(c.env.DB, relId, user.id)).conversation.id;
-    const message = await sendMessage(
-      c.env.DB,
-      conversationId,
-      user.id,
-      installHowToMessage(student?.name ?? null, resolveFrontendUrl(c.req.raw))
-    );
+    // A system message on the tutor's behalf: "Minghui sent you how to install the app" + the steps
+    // (shared/chats/system.ts installHowToSteps; docs/CHAT.md "System messages").
+    const message = await postSystemMessage(c.env.DB, conversationId, user.id, 'install_howto', { app_url: resolveFrontendUrl(c.req.raw) }, { senderName: user.name ?? null });
     return c.json({ conversation_id: conversationId, message }, 201);
   } catch (error) {
     return errorResponse(c, error, 'Failed to send the how-to');

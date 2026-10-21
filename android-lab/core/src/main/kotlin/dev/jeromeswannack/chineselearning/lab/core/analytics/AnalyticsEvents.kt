@@ -99,6 +99,7 @@ object AnalyticsEvents {
         ev("chat.inbox_open", "chat", listOf("conversations", "unread")),
         ev("chat.album_sent", "chat", listOf("count", "offline")),
         ev("chat.album_viewer_open", "chat", listOf("count", "index")),
+        ev("chat.system_action", "chat", listOf("kind")),
         ev("call.start", "calls", listOf("solo")),
         ev("call.join", "calls", listOf("role")),
         ev("call.leave", "calls", listOf("duration_ms")),

@@ -94,7 +94,7 @@ export async function chatClipsFor(env: Pick<Env, 'DB'>, userId: string, perConv
            JOIN users u ON u.id = m.sender_id
            JOIN conversations cv ON cv.id = m.conversation_id AND COALESCE(cv.is_ai_conversation, 0) = 0
            JOIN tutor_relationships r ON r.id = cv.relationship_id AND r.status = 'active' AND (r.requester_id = ?1 OR r.recipient_id = ?1)
-          WHERE m.sender_id != ?1 AND m.sender_id != ?3 AND m.deleted_at IS NULL AND m.attachment IS NULL
+          WHERE m.sender_id != ?1 AND m.sender_id != ?3 AND m.deleted_at IS NULL AND m.attachment IS NULL AND m.system_kind IS NULL
        ) WHERE rn <= ?2`,
     )
     .bind(userId, perConversation * 3, CLAUDE_AI_USER_ID)

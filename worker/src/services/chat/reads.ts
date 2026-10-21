@@ -9,6 +9,8 @@
 import { CLAUDE_AI_USER_ID } from '../../types';
 import { messagePreviewText, parseStoredAttachment, type ChatMediaKind } from './media';
 import { chatMessagePreview, sortChatList, type ChatListResponse, type ChatListRow } from '@shared/chats/inbox';
+import { systemMessageText } from '@shared/chats/system';
+import { parseSystemData } from '../conversations';
 
 export interface ChatParticipants {
   conversation_id: string;
@@ -147,6 +149,8 @@ export interface ChatInboxMessage {
   /** A photo album's first photo stands for the whole album (docs/CHAT.md "Photo albums"). */
   album_id?: string;
   album_count?: number;
+  /** A line the app posted on the sender's behalf (docs/CHAT.md "System messages"); `content` is its third-person text. */
+  system_kind?: string;
 }
 
 export interface ChatInboxConversation {
@@ -188,7 +192,7 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
   const from = since ?? new Date(now.getTime() - INBOX_DEFAULT_DAYS * 86_400_000).toISOString();
   const messages = await db
     .prepare(
-      `SELECT m.id, m.conversation_id, c.relationship_id, m.content, m.created_at, m.attachment, m.album_id,
+      `SELECT m.id, m.conversation_id, c.relationship_id, m.content, m.created_at, m.attachment, m.album_id, m.system_kind,
               (SELECT COUNT(*) FROM messages am
                 WHERE am.conversation_id = m.conversation_id AND am.album_id = m.album_id AND am.sender_id = m.sender_id
                   AND am.deleted_at IS NULL) AS album_count,
@@ -204,7 +208,7 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
     .bind(userId, from)
     .all<{
       id: string; conversation_id: string; relationship_id: string; content: string; created_at: string; attachment: string | null;
-      album_id: string | null; album_count: number | null; sender_id: string; sender_name: string | null; sender_picture: string | null;
+      album_id: string | null; album_count: number | null; system_kind: string | null; sender_id: string; sender_name: string | null; sender_picture: string | null;
     }>();
 
   const convs = await db
@@ -254,6 +258,7 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
       attachment_kind: attachment?.kind ?? null,
       preview: messagePreviewText({ content: m.content, attachment, deleted_at: null }, albumCount),
       ...(m.album_id ? { album_id: m.album_id, album_count: albumCount } : {}),
+      ...(m.system_kind ? { system_kind: m.system_kind } : {}),
     });
   }
 
@@ -289,6 +294,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
               u.id AS other_id, u.name AS other_name, u.picture_url AS other_picture,
               m.id AS last_id, m.sender_id AS last_sender_id, m.content AS last_content, m.created_at AS last_created_at,
               m.deleted_at AS last_deleted_at, m.attachment AS last_attachment, cr.last_read_at AS my_read_at,
+              m.system_kind AS last_system_kind, m.system_data AS last_system_data,
               (SELECT COUNT(*) FROM messages am
                 WHERE am.conversation_id = c.id AND am.album_id = m.album_id AND am.sender_id = m.sender_id
                   AND am.deleted_at IS NULL) AS last_album_count,
@@ -319,17 +325,24 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
       last_id: string | null; last_sender_id: string | null; last_content: string | null; last_created_at: string | null;
       last_deleted_at: string | null; last_attachment: string | null; unread: number; my_read_at: string | null;
       last_album_count: number | null; last_album_caption: string | null;
+      last_system_kind: string | null; last_system_data: string | null;
     }>();
 
   const conversations: ChatListRow[] = (rows.results ?? []).map((r) => {
     const iAmRequester = r.requester_id === userId;
     const otherRole: 'tutor' | 'student' = iAmRequester ? (r.requester_role === 'tutor' ? 'student' : 'tutor') : r.requester_role;
     const attachment = parseStoredAttachment(r.last_attachment);
+    // A system message reads from MY side ("You set Jerome's new cards…"; docs/CHAT.md "System messages").
+    const system = r.last_system_kind && !r.last_deleted_at
+      ? { system_kind: r.last_system_kind, system_data: parseSystemData(r.last_system_data) }
+      : null;
     const lastMessage = r.last_id && r.last_sender_id && r.last_created_at
       ? {
           id: r.last_id,
           sender_id: r.last_sender_id,
-          preview: chatMessagePreview({
+          preview: system
+            ? systemMessageText({ content: r.last_content, ...system }, { viewerIsSender: r.last_sender_id === userId, otherName: r.other_name, relationshipId: r.relationship_id })
+            : chatMessagePreview({
             // An album shows its caption whichever photo carries it.
             content: (r.last_content ?? '').trim() ? r.last_content ?? '' : r.last_album_caption ?? '',
             attachment_kind: attachment?.kind ?? null,
@@ -340,6 +353,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
           }),
           created_at: r.last_created_at,
           attachment_kind: attachment?.kind ?? null,
+          ...(system ?? {}),
         }
       : null;
     return {

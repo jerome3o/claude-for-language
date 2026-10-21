@@ -194,6 +194,7 @@ chatMessages.post('/messages/:id/forward', async (c) => {
     return fail(c, err, 'Failed to forward the message');
   }
   if (src.deleted_at) return c.json({ error: 'That message was deleted' }, 409);
+  if (src.system_kind) return c.json({ error: 'A line the app wrote cannot be forwarded' }, 400);
   const participants = await getConversationParticipants(c.env.DB, targetId);
   if (!participants) return c.json({ error: 'Conversation not found' }, 404);
   if (!participants.user_ids.includes(userId) || participants.status !== 'active') return c.json({ error: 'Access denied' }, 403);

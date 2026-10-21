@@ -138,6 +138,7 @@ export const ANALYTICS_EVENTS = {
   'chat.inbox_open': e('chat', 'Opened the Chats tab.', ['conversations', 'unread']),
   'chat.album_sent': e('chat', 'Sent several photos at once as one album.', ['count', 'offline']),
   'chat.album_viewer_open': e('chat', 'Opened a photo album in the full-screen viewer.', ['count', 'index']),
+  'chat.system_action': e('chat', 'Tapped the button on a system message in the chat (Join, Open card…).', ['kind']),
 
   // ── calls ──────────────────────────────────────────────────────────────
   'call.start': e('calls', 'Started a video call.', ['solo']),

@@ -413,6 +413,9 @@ export interface Message {
   correction?: ChatCorrection | null;
   /** The background "check my Chinese" — only on my own messages (shared/chats/autoCheck.ts, docs/CHAT.md "Auto-check"). */
   auto_check?: AutoCheckResult | null;
+  /** A line the app posted on the sender's behalf (docs/CHAT.md "System messages", shared/chats/system.ts). */
+  system_kind?: string | null;
+  system_data?: Record<string, unknown> | null;
 }
 
 /** One word chip of a chat message (same shape as a reader page's words). */

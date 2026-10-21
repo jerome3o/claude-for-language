@@ -67,8 +67,19 @@ test('tutor sets 5 + 10 new cards a day; the student sees it with "Set by"', asy
   // ---- The chat message from the tutor
   const convs = await api<{ id: string }[] | { data: { id: string }[] }>(request, `/api/relationships/${relId}/conversations`, { token: student.token });
   const convId = (Array.isArray(convs) ? convs : convs.data)[0].id;
-  const msgs = await api<{ messages?: { content: string }[]; data?: { content: string }[] }>(request, `/api/conversations/${convId}/messages`, { token: student.token });
-  expect(JSON.stringify(msgs)).toContain("I've set your new cards to 5 a day (+10 extra) 📚");
+  const msgs = await api<{ messages?: { content: string; system_kind?: string }[]; data?: { content: string; system_kind?: string }[] }>(request, `/api/conversations/${convId}/messages`, { token: student.token });
+  // A system message on her behalf, third person (docs/CHAT.md "System messages").
+  expect(JSON.stringify(msgs)).toContain('📚 Minghui set your new cards to 5 a day (+10 extra)');
+  expect(JSON.stringify(msgs)).toContain('"system_kind":"study_budget"');
+  expect(JSON.stringify(msgs)).not.toContain("I've set");
+  // The student's chat shows it as a centred system row, not a bubble from her.
+  await page.goto(`/connections/${relId}/chat/${convId}?session_token=${student.token}`);
+  const line = page.getByTestId('chat-system-message').first();
+  await expect(line).toContainText('Minghui set your new cards to 5 a day (+10 extra)');
+  await expect(page.getByTestId('chat-message')).toHaveCount(0);
+  // And the tutor reads it from her side.
+  await page.goto(`/connections/${relId}/chat/${convId}?session_token=${tutor.token}`);
+  await expect(page.getByTestId('chat-system-message').first()).toContainText("You set Jerome's new cards to 5 a day (+10 extra)");
 
   // ---- Student: /auth/me and /sync/changes carry it, with who set it
   const me = await api<{ new_cards_per_day: number; secondary_cards_per_day: number; study_budget: { set_by_tutor: boolean; set_by_name: string } }>(request, '/api/auth/me', { token: student.token });

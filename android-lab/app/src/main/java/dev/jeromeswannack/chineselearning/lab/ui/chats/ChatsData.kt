@@ -90,7 +90,11 @@ object Chats {
      */
     fun applyLive(rows: List<ChatListRow>, event: LiveEvent, me: String?, showing: (String) -> Boolean): List<ChatListRow>? = when (event) {
         is LiveEvent.Message -> event.message?.let { m ->
-            val incoming = IncomingChatMessage(m.id, event.conversationId, m.sender_id.ifEmpty { m.sender.id }, previewOf(m), m.created_at, m.attachment?.kind?.takeIf { it.isNotEmpty() })
+            val incoming = IncomingChatMessage(
+                m.id, event.conversationId, m.sender_id.ifEmpty { m.sender.id }, previewOf(m), m.created_at, m.attachment?.kind?.takeIf { it.isNotEmpty() },
+                // A system message: the row reads it from my side (docs/CHAT.md "System messages").
+                systemKind = m.system_kind.takeIf { m.isSystem }, systemData = m.system_data.takeIf { m.isSystem },
+            )
             val next = ChatInbox.applyIncomingMessage(rows, incoming, me)
             // The chat on screen reads it at once (it marks it read on the server too).
             if (next != null && showing(event.conversationId)) ChatInbox.applyReadMarker(next, event.conversationId) else next
@@ -101,7 +105,14 @@ object Chats {
             val row = rows.firstOrNull { it.conversationId == event.conversationId }
             val m = event.message
             if (row == null || row.lastMessage?.id != m.id) rows
-            else ChatInbox.applyIncomingMessage(rows, IncomingChatMessage(m.id, event.conversationId, m.sender_id, previewOf(m), m.created_at, m.attachment?.kind?.takeIf { it.isNotEmpty() }), me)
+            else ChatInbox.applyIncomingMessage(
+                rows,
+                IncomingChatMessage(
+                    m.id, event.conversationId, m.sender_id, previewOf(m), m.created_at, m.attachment?.kind?.takeIf { it.isNotEmpty() },
+                    systemKind = m.system_kind.takeIf { m.isSystem }, systemData = m.system_data.takeIf { m.isSystem },
+                ),
+                me,
+            )
         }
         // My own read marker (another device, or the chat here); the other person's receipts don't touch my unread.
         is LiveEvent.Read -> if (me == null || event.userId == me) ChatInbox.applyReadMarker(rows, event.conversationId) else rows

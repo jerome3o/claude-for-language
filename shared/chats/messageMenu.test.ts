@@ -132,3 +132,12 @@ describe('bubbles', () => {
     expect(firstLink('HTTPS://Example.com/x!')).toBe('HTTPS://Example.com/x');
   });
 });
+
+describe('messageMenu — system messages', () => {
+  it('only Copy, no reactions (docs/CHAT.md "System messages")', () => {
+    const m = messageMenu({ sender_id: 'them', content: '🚩 Jerome flagged 银行 for you', system_kind: 'card_flag' }, 'tutor', false, 'me');
+    expect(m.reactions).toBe(false);
+    expect(ids(m)).toEqual(['copy']);
+    expect(ids(messageMenu({ sender_id: 'me', content: '📚 …', system_kind: 'study_budget' }, 'tutor', false, 'me'))).toEqual(['copy']);
+  });
+});

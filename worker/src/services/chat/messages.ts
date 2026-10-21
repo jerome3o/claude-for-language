@@ -88,6 +88,7 @@ export async function editMessage(db: D1Database, messageId: string, userId: str
   const msg = await loadMessageForMember(db, messageId, userId);
   if (msg.sender_id !== userId) throw new ChatMessageError('You can only edit your own messages', 403);
   if (msg.deleted_at) throw new ChatMessageError('This message was deleted', 409);
+  if (msg.system_kind) throw new ChatMessageError('This line was written by the app and cannot be edited', 409);
   if (typeof content !== 'string') throw new ChatMessageError('content is required', 400);
   const kind = msg.attachment?.kind ?? null;
   if (kind === 'voice') throw new ChatMessageError('A voice message cannot be edited', 400);

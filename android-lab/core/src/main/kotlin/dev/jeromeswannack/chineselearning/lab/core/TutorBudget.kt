@@ -62,13 +62,6 @@ object TutorBudget {
     fun budgetSummary(b: StudyBudget): String =
         "${plural(b.newCardsPerDay, "new word", "new words")} + ${b.secondaryCardsPerDay} extra a day"
 
-    /** `budgetChangeMessage`: the chat message the tutor's change posts as her. */
-    fun budgetChangeMessage(b: StudyBudget, isDefault: Boolean): String {
-        val extra = if (b.secondaryCardsPerDay > 0) " (+${b.secondaryCardsPerDay} extra)" else " (no extra cards)"
-        return if (isDefault) "I've set your new cards back to the usual ${b.newCardsPerDay} a day$extra 📚"
-        else "I've set your new cards to ${b.newCardsPerDay} a day$extra 📚"
-    }
-
     private const val JS_SPACE = "\t\n\u000B\u000C\r \u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF"
     private val JS_SPACE_RUN = Regex("[\\t\\n\\u000B\\u000C\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+")
 

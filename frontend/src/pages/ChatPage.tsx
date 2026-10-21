@@ -102,6 +102,8 @@ import {
 } from '../services/chatLearning';
 import { PhotoBubble, PhotoViewer } from '../components/chat/PhotoBubble';
 import { AlbumBubble, AlbumViewer, type AlbumPhoto } from '../components/chat/AlbumBubble';
+import { SystemMessageRow } from '../components/chat/SystemMessageRow';
+import { systemMessageView, systemViewText } from '@shared/chats/system';
 import { useBackLevels } from '../hooks/useBackLevels';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
 import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceComposer';
@@ -1191,11 +1193,26 @@ export function ChatPage() {
 
   const handleCopy = async (msg: MessageWithSender) => {
     try {
-      await navigator.clipboard.writeText(msg.content);
+      // A system message copies what this person reads ("You set Jerome's new cards…").
+      await navigator.clipboard.writeText(systemTextFor(msg) || msg.content);
       showSuccess('Copied.');
     } catch (error) {
       showError("Couldn't copy to the clipboard.", error);
     }
+  };
+
+  /** A system message as this viewer reads it (docs/CHAT.md "System messages"), else null. */
+  const systemViewFor = (msg: MessageWithSender) =>
+    msg.deleted_at || !relationshipQuery.data
+      ? null
+      : systemMessageView(msg, {
+          viewerIsSender: msg.sender_id === user?.id,
+          otherName: getOtherUserInRelationship(relationshipQuery.data, user!.id).name,
+          relationshipId: relId ?? null,
+        });
+  const systemTextFor = (msg: MessageWithSender): string => {
+    const view = systemViewFor(msg);
+    return view ? systemViewText(view) : '';
   };
 
   // ----- The message menu (docs/CHAT.md "Round 2") -----
@@ -1527,6 +1544,8 @@ export function ChatPage() {
       attachment_kind: m.attachment?.kind ?? null,
       content: m.content,
       album_id: m.album_id ?? null,
+      // A line the app posted on someone's behalf: its own centred row (docs/CHAT.md "System messages").
+      system_kind: m.system_kind ?? null,
     })),
     myId,
     isAIConversation ? null : thread.readState.other,
@@ -1609,6 +1628,7 @@ export function ChatPage() {
         auto_check: msg.auto_check ? { status: msg.auto_check.status, text: msg.auto_check.text } : null,
         has_discussion: msg.has_discussion,
         pinned_at: msg.pinned_at,
+        system_kind: msg.deleted_at ? null : msg.system_kind ?? null,
       },
       viewerRole,
       isAIConversation,
@@ -1783,6 +1803,35 @@ export function ChatPage() {
 
   const TICK_LABEL: Record<string, string> = { pending: 'Sending', sent: 'Sent', read: 'Seen', failed: 'Not sent' };
   const tickGlyph = (tick: string) => (tick === 'pending' ? '🕓' : tick === 'read' ? '✓✓' : tick === 'sent' ? '✓' : '!');
+
+  /** A system message: a centred row, not a bubble (docs/CHAT.md "System messages"). */
+  const renderSystemMessage = (msg: ChatMessage, layout: BubbleLayout) => {
+    const view = systemViewFor(msg);
+    if (!view) return null;
+    return (
+      <div key={msg.id} data-msg-id={msg.id}>
+        {layout.newDay && (
+          <div className="chat-date-divider">
+            <span>{formatDate(msg.created_at)}</span>
+          </div>
+        )}
+        {dividerId === msg.id && (
+          <div className="chat-unread-divider" data-unread-divider data-testid="chat-unread-divider">
+            <span>New messages</span>
+          </div>
+        )}
+        <SystemMessageRow
+          view={view}
+          time={formatTime(msg.created_at)}
+          onAction={(path) => {
+            track('chat.system_action', { kind: view.kind });
+            navigate(path);
+          }}
+          onMenu={(anchor) => openSheet(msg, anchor)}
+        />
+      </div>
+    );
+  };
 
   const renderMessage = (rawMsg: ChatMessage, layout: BubbleLayout, album: AlbumView | null = null) => {
     const msg = withCheckStatus(rawMsg);
@@ -2260,6 +2309,10 @@ export function ChatPage() {
             </div>
           ) : (
             layouts.map((l) => {
+              if (l.kind === 'system') {
+                const m = messageById.get(l.id);
+                return m ? renderSystemMessage(m, l) : null;
+              }
               const album = albumOf(l);
               const m = album ? album.head : messageById.get(l.id);
               return m ? renderMessage(m, l, album) : null;
@@ -2672,7 +2725,7 @@ export function ChatPage() {
               preview={
                 album
                   ? `📷 ${album.photos.length} photos${album.captionMsg?.content ? `: ${album.captionMsg.content}` : ''}`
-                  : menuText(sheet.message) || attachmentLabel(sheet.message.attachment)
+                  : systemTextFor(sheet.message) || menuText(sheet.message) || attachmentLabel(sheet.message.attachment)
               }
               items={menu.items}
               reactions={menu.reactions}

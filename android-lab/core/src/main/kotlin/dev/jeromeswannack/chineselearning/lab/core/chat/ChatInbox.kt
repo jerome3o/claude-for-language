@@ -25,6 +25,9 @@ data class ChatListLastMessage(
     @SerialName("created_at") val createdAt: String,
     /** 'image' | 'voice' | 'file' | 'video' when the message has an attachment (listening mode leaves those visible). */
     @SerialName("attachment_kind") val attachmentKind: String? = null,
+    /** A system message (core chat/SystemMessages.kt): the row reads it from MY side, never "You: …". */
+    @SerialName("system_kind") val systemKind: String? = null,
+    @SerialName("system_data") val systemData: kotlinx.serialization.json.JsonElement? = null,
 )
 
 /** `ChatListRow`: one conversation in the Chats inbox (`GET /api/me/chats`). */
@@ -55,7 +58,16 @@ data class ChatListResponse(
 )
 
 /** A live `message` for [ChatInbox.applyIncomingMessage]. */
-data class IncomingChatMessage(val id: String, val conversationId: String, val senderId: String, val preview: String, val createdAt: String, val attachmentKind: String? = null)
+data class IncomingChatMessage(
+    val id: String,
+    val conversationId: String,
+    val senderId: String,
+    val preview: String,
+    val createdAt: String,
+    val attachmentKind: String? = null,
+    val systemKind: String? = null,
+    val systemData: kotlinx.serialization.json.JsonElement? = null,
+)
 
 /**
  * Port of shared/chats/inbox.ts — the Chats inbox rules (the Chats tab), parity-tested
@@ -122,9 +134,19 @@ object ChatInbox {
         return RowTitle(name, if (many) title.ifEmpty { "Chat" } else null)
     }
 
-    /** Port of chatRowPreview(): "You: …" for my own last message, "No messages yet" for an empty chat. */
+    /**
+     * Port of chatRowPreview(): "You: …" for my own last message, "No messages yet" for an empty chat.
+     * A system message reads from my side in the third person, without "You:".
+     */
     fun rowPreview(row: ChatListRow, myUserId: String?): String {
         val m = row.lastMessage ?: return "No messages yet"
+        if (!m.systemKind.isNullOrEmpty()) {
+            val line = SystemMessages.text(
+                m.systemKind, m.systemData, m.preview,
+                SystemMessages.Context(viewerIsSender = m.senderId == myUserId, otherName = row.otherUser.name, relationshipId = row.relationshipId),
+            )
+            return NoteSearch.jsTrim(collapseWhitespace(line))
+        }
         val text = NoteSearch.jsTrim(collapseWhitespace(m.preview))
         return if (m.senderId == myUserId) "You: $text" else text
     }
@@ -211,7 +233,9 @@ object ChatInbox {
         val row = rows[idx]
         val last = row.lastMessage
         if (last != null && last.id == msg.id) {
-            return rows.toMutableList().also { it[idx] = row.copy(lastMessage = last.copy(preview = msg.preview)) }
+            val same = if (msg.systemKind.isNullOrEmpty()) last.copy(preview = msg.preview)
+            else last.copy(preview = msg.preview, systemKind = msg.systemKind, systemData = msg.systemData)
+            return rows.toMutableList().also { it[idx] = row.copy(lastMessage = same) }
         }
         val isNewer = last == null || run {
             val a = parse(msg.createdAt)
@@ -219,7 +243,13 @@ object ChatInbox {
             a != null && b != null && a >= b
         }
         val updated = row.copy(
-            lastMessage = if (isNewer) ChatListLastMessage(msg.id, msg.senderId, msg.preview, msg.createdAt, msg.attachmentKind) else last,
+            lastMessage = if (isNewer) {
+                ChatListLastMessage(
+                    msg.id, msg.senderId, msg.preview, msg.createdAt, msg.attachmentKind,
+                    systemKind = msg.systemKind?.ifEmpty { null },
+                    systemData = if (msg.systemKind.isNullOrEmpty()) null else msg.systemData,
+                )
+            } else last,
             lastActivityAt = if (isNewer) msg.createdAt else row.lastActivityAt,
             unread = if (msg.senderId != myUserId) row.unread + 1 else 0,
         )

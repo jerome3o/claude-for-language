@@ -27,7 +27,6 @@ import {
   archiveGroup,
   createGroup,
   getSession,
-  groupInviteMessage,
   listCandidateStudents,
   listGroups,
   markSessionEnded,
@@ -39,7 +38,8 @@ import {
 } from '../services/group-classes';
 import { createJoinTicket, verifyJoinTicket } from '../services/calls/ticket';
 import { getIceServers } from '../services/calls/ice';
-import { openRelationshipConversation, sendMessage } from '../services/conversations';
+import { openRelationshipConversation } from '../services/conversations';
+import { postSystemMessage } from '../services/chat/system';
 import { resolveFrontendUrl } from '../services/auth';
 
 const groups = new Hono<{ Bindings: Env }>();
@@ -157,14 +157,18 @@ groups.post('/group-sessions/:id/notify', async (c) => {
     if (role !== 'tutor') throw new GroupError('Only the tutor can send the link', 403);
     if (session.status !== 'live') throw new GroupError('This class has ended', 409);
     const url = `${resolveFrontendUrl(c.req.raw)}/group-class/${session.id}`;
-    const text = groupInviteMessage(group.name, url);
     let sent = 0;
     const failed: string[] = [];
     for (const m of group.members) {
       try {
         const conv = (await openRelationshipConversation(c.env.DB, m.relationship_id, user.id)).conversation;
         // client_id: sending twice for the same class doesn't post twice.
-        await sendMessage(c.env.DB, conv.id, user.id, text, undefined, { clientId: `group-${session.id}-${m.user_id}`.slice(0, 64) });
+        // A system message on the tutor's behalf (docs/CHAT.md "System messages"): "Minghui started the group class “…” · Join".
+        await postSystemMessage(c.env.DB, conv.id, user.id, 'group_class', { group_name: group.name, session_id: session.id }, {
+          url,
+          senderName: user.name ?? null,
+          clientId: `group-${session.id}-${m.user_id}`.slice(0, 64),
+        });
         sent++;
       } catch (err) {
         console.error('[group-classes] notify failed for a member:', err);

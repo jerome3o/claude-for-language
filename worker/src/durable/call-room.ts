@@ -96,6 +96,8 @@ import {
   type CallTimer,
 } from '@shared/calls';
 import { markCallEnded, saveRoomSnapshot } from '../services/calls/store';
+import { markCallMessageEnded } from '../services/chat/system';
+import { broadcastMessageUpdated } from '../services/chat/messages';
 import { loadMaterialAnnotations, notePresented, requireMaterial, saveMaterialAnnotations, shareMaterial } from '../services/materials';
 import { materialTarget, parseMaterialTarget, turnPage, type PresentedMaterial } from '@shared/materials';
 import { advanceCallProcessing } from '../services/calls/processing';
@@ -1360,6 +1362,15 @@ export class CallRoom extends DurableObject<Env> {
       return;
     }
     await this.ctx.storage.put('endPending', false);
+    // The chat line: "Video call ended" / "Missed video call from …" (docs/CHAT.md "System messages").
+    if (newlyEnded) {
+      try {
+        const changed = await markCallMessageEnded(this.env.DB, callId, (await this.ctx.storage.get<string[]>('joined')) ?? []);
+        for (const id of changed) await broadcastMessageUpdated(this.env, id);
+      } catch (err) {
+        console.error('[call-room] chat line update failed:', err);
+      }
+    }
     // "Missed video call" replaces the ringing notification — not for a room swept up hours later.
     const createdAt = (await this.ctx.storage.get<number>('createdAt')) ?? (await this.ctx.storage.get<number>('firstKnownAt')) ?? null;
     if (newlyEnded && shouldAlertMissed(createdAt, endedAt)) {

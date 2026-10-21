@@ -87,6 +87,21 @@ object Js {
         return if (m >= 2147483648.0) m - 4294967296.0 else m
     }
 
+    /**
+     * `encodeURIComponent`: everything but A–Z a–z 0–9 - _ . ! ~ * ' ( ) as UTF-8 %XX (upper-case hex).
+     * A lone surrogate (a URIError in JS) is encoded as U+FFFD.
+     */
+    fun encodeURIComponent(s: String): String {
+        val out = StringBuilder(s.length)
+        for (b in s.toByteArray(Charsets.UTF_8)) {
+            val c = b.toInt() and 0xFF
+            val ch = c.toChar()
+            if (c < 0x80 && (ch in 'A'..'Z' || ch in 'a'..'z' || ch in '0'..'9' || ch in "-_.!~*'()")) out.append(ch)
+            else out.append('%').append("0123456789ABCDEF"[c shr 4]).append("0123456789ABCDEF"[c and 0xF])
+        }
+        return out.toString()
+    }
+
     /** `String(x)` for a finite double (Number::toString, ECMA-262 §6.1.6.1.20). */
     fun numberToString(x: Double): String {
         if (x.isNaN()) return "NaN"

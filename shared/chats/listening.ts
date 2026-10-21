@@ -41,6 +41,8 @@ export interface ListeningMessage {
   deleted_at?: string | null;
   /** 'image' | 'voice' | 'file' | 'video' — anything with an attachment stays as is. */
   attachment_kind?: string | null;
+  /** A system message (shared/chats/system.ts) is never hidden. */
+  system_kind?: string | null;
 }
 
 export function hasHan(text: string): boolean {
@@ -62,6 +64,7 @@ export function listeningCandidate(msg: ListeningMessage, viewerId: string): boo
   if (msg.sender_id === viewerId) return false;
   if (msg.deleted_at) return false;
   if (msg.attachment_kind) return false;
+  if (msg.system_kind) return false;
   return hasHan(msg.content);
 }
 
@@ -112,7 +115,7 @@ export function addRevealed(revealed: readonly string[], id: string, max: number
 
 /** The inbox / notification line for a conversation's newest message. */
 export function listeningPreview(
-  last: { id: string; sender_id: string; created_at: string; preview: string; attachment_kind?: string | null; deleted?: boolean } | null,
+  last: { id: string; sender_id: string; created_at: string; preview: string; attachment_kind?: string | null; deleted?: boolean; system_kind?: string | null } | null,
   ctx: { viewerId: string; setting: ListeningSetting; readMarker?: string | null; revealed: HideContext['revealed'] },
 ): string | null {
   if (!last) return null;
@@ -123,6 +126,7 @@ export function listeningPreview(
     created_at: last.created_at,
     deleted_at: last.deleted ? last.created_at : null,
     attachment_kind: last.attachment_kind ?? null,
+    system_kind: last.system_kind ?? null,
   };
   return shouldHideMessage(msg, { viewerId: ctx.viewerId, setting: ctx.setting, readMarkerAtOpen: ctx.readMarker, revealed: ctx.revealed })
     ? LISTENING_PREVIEW

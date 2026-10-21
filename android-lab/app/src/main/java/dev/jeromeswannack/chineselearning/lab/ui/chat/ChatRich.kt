@@ -153,6 +153,22 @@ object ChatRich {
     )
 
     /** The one-line preview — the worker's wording (📷 Photo[: caption] / 🎤 Voice message / 📄 name / 🎬 Video / Message deleted). */
+    /**
+     * A conversation row's preview of a system message (docs/CHAT.md "System messages"), read from
+     * my side: "You set Jerome's new cards…" / "Minghui set your new cards…"; null for an ordinary message.
+     */
+    fun systemPreview(
+        systemKind: String?, systemData: kotlinx.serialization.json.JsonElement?, content: String, deletedAt: String?,
+        senderId: String, otherId: String?, otherName: String?, max: Int = 50,
+    ): String? {
+        if (!deletedAt.isNullOrEmpty() || systemKind.isNullOrEmpty()) return null
+        val ctx = dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.Context(
+            viewerIsSender = senderId.isNotEmpty() && otherId != null && senderId != otherId, otherName = otherName,
+        )
+        val text = dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.text(systemKind, systemData, content, ctx)
+        return ChatLogic.truncate(text.replace(Regex("\\s+"), " ").trim(), max)
+    }
+
     fun preview(content: String, attachmentKind: String?, deletedAt: String?, max: Int = 50, fileName: String? = null): String {
         if (!deletedAt.isNullOrEmpty()) return "Message deleted"
         return ChatLogic.truncate(dev.jeromeswannack.chineselearning.lab.data.chat.IncomingChat.previewText(content, attachmentKind, fileName).trim(), max)
@@ -201,6 +217,8 @@ sealed interface ChatRow {
     /** A message and where it sits in its group (chat round 2: ChatBubbles, parity-tested). */
     data class Msg(val message: ChatMessageDto, val layout: ChatBubbles.Layout) : ChatRow { override val key = message.id }
     data class Pending(val bubble: PendingBubble, val layout: ChatBubbles.Layout) : ChatRow { override val key = "p-" + bubble.clientId }
+    /** A line the app posted on someone's behalf: a centred row, not a bubble (docs/CHAT.md "System messages"). */
+    data class System(val message: ChatMessageDto, val layout: ChatBubbles.Layout) : ChatRow { override val key = message.id }
     /** Photos sent together drawn as ONE bubble (docs/CHAT.md "Photo albums"); some may still be in my outbox. */
     data class Album(val photos: List<AlbumPhoto>, val layout: ChatBubbles.Layout) : ChatRow {
         override val key = "album-" + layout.id
@@ -256,6 +274,7 @@ object ChatRows {
     fun bubbleOf(m: ChatMessageDto) = ChatBubbles.Message(
         m.id, m.sender_id, m.created_at, m.deleted_at, null,
         attachmentKind = m.attachment?.kind, content = m.content, albumId = m.album_id,
+        systemKind = m.system_kind,
     )
 
     /**
@@ -285,6 +304,7 @@ object ChatRows {
             val i = members.firstOrNull() ?: continue
             rows += when {
                 l.album -> ChatRow.Album(members.map(::photo), l)
+                l.system && i < messages.size -> ChatRow.System(messages[i], l)
                 i < messages.size -> ChatRow.Msg(messages[i], l)
                 else -> ChatRow.Pending(pending[i - messages.size], l)
             }

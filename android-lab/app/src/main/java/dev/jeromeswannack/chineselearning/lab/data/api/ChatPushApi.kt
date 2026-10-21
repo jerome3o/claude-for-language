@@ -33,6 +33,8 @@ data class InboxMessageDto(
     /** A photo album's first photo stands for it ("📷 3 photos", docs/CHAT.md "Photo albums"). */
     val album_id: String? = null,
     val album_count: Int? = null,
+    /** A line the app posted on the sender's behalf (docs/CHAT.md "System messages"); `content` is its third-person text. */
+    val system_kind: String? = null,
 )
 
 @Serializable

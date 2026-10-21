@@ -235,7 +235,11 @@ fun OneChatRow(conv: ChatConversationDto?, name: String, enabled: Boolean = true
                 val last = conv?.last_message
                 val unread = conv?.unread ?: 0
                 Text(
-                    if (last != null) dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(last.content, last.attachment_kind, last.deleted_at) else "Send a message to get started",
+                    if (last != null) {
+                        dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.systemPreview(
+                            last.system_kind, last.system_data, last.content, last.deleted_at, last.sender_id, conv.other_user?.id, conv.other_user?.name ?: name,
+                        ) ?: dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(last.content, last.attachment_kind, last.deleted_at)
+                    } else "Send a message to get started",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = if (unread > 0) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (unread > 0) Lab.colors.ink else Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -265,7 +269,9 @@ fun ConversationList(list: List<ChatConversationDto>, onOpen: (String) -> Unit) 
                     Text(c.title?.takeIf { it.isNotBlank() } ?: "Chat", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1)
                     c.last_message?.let {
                         Text(
-                            dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(it.content, it.attachment_kind, it.deleted_at),
+                            dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.systemPreview(
+                                it.system_kind, it.system_data, it.content, it.deleted_at, it.sender_id, c.other_user?.id, c.other_user?.name,
+                            ) ?: dev.jeromeswannack.chineselearning.lab.ui.chat.ChatRich.preview(it.content, it.attachment_kind, it.deleted_at),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = if (c.unread > 0) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (c.unread > 0) Lab.colors.ink else Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,

@@ -363,9 +363,24 @@ data class ChatUi(
             translation = m.translation, hasCorrection = m.correction != null, correctionText = m.correction?.text,
             checkStatus = checkStatus(m), autoCheckStatus = m.auto_check?.status, autoCheckText = m.auto_check?.text,
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
+            systemKind = m.system_kind.takeIf { m.isSystem },
         ),
         viewerRole, isAi, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
     )
+
+    /**
+     * A system message as I read it (docs/CHAT.md "System messages", core SystemMessages,
+     * parity-tested): third person, from my side; null for an ordinary message.
+     */
+    fun systemView(m: ChatMessageDto): dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.View? {
+        if (!m.isSystem) return null
+        return dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.view(
+            m.system_kind, m.system_data, m.content,
+            dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.Context(
+                viewerIsSender = m.sender_id.isNotEmpty() && m.sender_id == myId, otherName = otherName, relationshipId = conversation?.relationship_id,
+            ),
+        )
+    }
 
     /** "corrected" | "improvable" | null — the ✎ on my own bubble and the menu's ✨ ([SayBetter.state], parity-tested). */
     fun sayBetter(m: ChatMessageDto): String? = dev.jeromeswannack.chineselearning.lab.core.SayBetter.state(
@@ -386,7 +401,9 @@ data class ChatUi(
     )
 
     /** The text the learning tools work on (the voice transcript, else the message / caption). */
-    fun menuText(m: ChatMessageDto): String = MessageMenu.menuText(m.content, m.attachment?.kind, m.attachment?.transcript)
+    fun menuText(m: ChatMessageDto): String =
+        systemView(m)?.let { dev.jeromeswannack.chineselearning.lab.core.chat.SystemMessages.viewText(it) }
+            ?: MessageMenu.menuText(m.content, m.attachment?.kind, m.attachment?.transcript)
 
     /** The messages as the selection sees them. */
     fun pickable(): List<ChatLearning.Pickable> = messages.map { m ->

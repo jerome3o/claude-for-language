@@ -329,6 +329,8 @@ export interface MessageRow {
   translation: string | null;
   sender: { id: string; name: string | null };
   reply_to?: { id: string; content: string; sender: { id: string; name: string | null } } | null;
+  /** A line the app posted on the sender's behalf (docs/CHAT.md "System messages"). */
+  system_kind?: string | null;
 }
 
 // ---------- Homework decks ----------
