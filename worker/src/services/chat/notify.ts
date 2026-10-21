@@ -66,6 +66,8 @@ export function chatMessageFcmData(
     // Listening mode: "🎧 New message" instead of the text (docs/CHAT.md "Listening mode").
     content: preview.slice(0, FCM_CONTENT_MAX),
     attachment_kind: message.attachment?.kind ?? '',
+    // A line the app posted on the sender's behalf (docs/CHAT.md "System messages").
+    ...(message.system_kind ? { system_kind: message.system_kind } : {}),
     created_at: message.created_at,
     url: chatUrl(relationshipId, message.conversation_id),
   };

@@ -1,4 +1,5 @@
 import { autoCheckText, parseAutoCheck } from '@shared/chats/autoCheck';
+import type { SystemKind } from '@shared/chats/system';
 import { copyDeckForUser } from './content';
 import type { HomeworkPriority } from '@shared/decks';
 import { CARD_STANDARD } from '@shared/cards';
@@ -58,6 +59,7 @@ export async function getConversations(
       SELECT c.*, m.id as last_id, m.content as last_content, m.sender_id as last_sender_id, m.created_at as last_created_at,
              m.deleted_at as last_deleted_at, m.attachment as last_attachment, m.edited_at as last_edited_at,
              m.updated_at as last_updated_at, m.client_id as last_client_id,
+             m.system_kind as last_system_kind, m.system_data as last_system_data,
              (SELECT COUNT(*) FROM messages um
                WHERE um.conversation_id = c.id AND um.sender_id != ?2 AND um.deleted_at IS NULL
                  AND um.created_at > COALESCE((SELECT last_read_at FROM conversation_reads cr WHERE cr.conversation_id = c.id AND cr.user_id = ?2), '')) as unread
@@ -79,6 +81,8 @@ export async function getConversations(
       last_edited_at: string | null;
       last_updated_at: string | null;
       last_client_id: string | null;
+      last_system_kind: string | null;
+      last_system_data: string | null;
       unread: number;
     }>();
 
@@ -119,6 +123,8 @@ export async function getConversations(
         attachment,
         attachment_kind: attachment?.kind ?? null,
         media_url: attachment ? chatMediaUrl(conv.last_id!) : null,
+        system_kind: deleted ? null : conv.last_system_kind ?? null,
+        system_data: deleted || !conv.last_system_kind ? null : parseSystemData(conv.last_system_data),
       };
     })() : undefined,
   }));
@@ -317,6 +323,8 @@ type MessageRow = {
   words: string | null;
   correction: string | null;
   auto_check: string | null;
+  system_kind: string | null;
+  system_data: string | null;
   u_id: string;
   u_name: string | null;
   u_picture: string | null;
@@ -342,6 +350,7 @@ async function queryMessages(
            m.translation, m.segmentation, m.client_id,
            m.updated_at, m.edited_at, m.deleted_at, m.attachment, m.pinned_at, m.pinned_by,
            m.words, m.correction, m.forwarded_from, m.auto_check, m.album_id, m.album_index,
+           m.system_kind, m.system_data,
            u.id as u_id, u.name as u_name, u.picture_url as u_picture,
            rm.id as reply_id, rm.content as reply_content, rm.deleted_at as reply_deleted_at, rm.sender_id as reply_sender_id,
            ru.name as reply_sender_name, ru.picture_url as reply_sender_picture,
@@ -412,8 +421,21 @@ async function queryMessages(
       } : null,
       reactions: reactionsMap.get(row.id) || [],
       has_discussion: row.has_discussion === 1,
+      system_kind: row.system_kind ?? null,
+      system_data: row.system_kind ? parseSystemData(row.system_data) : null,
     };
   });
+}
+
+/** `messages.system_data` (JSON object), or null when missing / malformed. */
+export function parseSystemData(raw: string | null | undefined): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** One message as `viewerId` sees it (no access check), or null. */
@@ -431,15 +453,17 @@ export interface MessageRecord {
   created_at: string;
   deleted_at: string | null;
   attachment: StoredAttachment | null;
+  /** A line the platform posted (docs/CHAT.md "System messages"): never edited, corrected or enriched. */
+  system_kind?: string | null;
 }
 
 export async function getMessageRecord(db: D1Database, messageId: string): Promise<MessageRecord | null> {
   const row = await db
-    .prepare('SELECT id, conversation_id, sender_id, content, created_at, deleted_at, attachment FROM messages WHERE id = ?')
+    .prepare('SELECT id, conversation_id, sender_id, content, created_at, deleted_at, attachment, system_kind FROM messages WHERE id = ?')
     .bind(messageId)
     .first<Omit<MessageRecord, 'attachment'> & { attachment: string | null }>();
   if (!row) return null;
-  return { ...row, deleted_at: row.deleted_at ?? null, attachment: parseStoredAttachment(row.attachment) };
+  return { ...row, deleted_at: row.deleted_at ?? null, attachment: parseStoredAttachment(row.attachment), system_kind: row.system_kind ?? null };
 }
 
 /**
@@ -515,6 +539,11 @@ export async function sendMessage(
     forwardedFrom?: string | null;
     /** A photo album's id and this photo's place in it (docs/CHAT.md "Photo albums"). */
     album?: { id: string; index: number } | null;
+    /**
+     * A line the platform posts on the sender's behalf (docs/CHAT.md "System messages"):
+     * the apps draw it from the kind + data; `content` is the readable fallback.
+     */
+    system?: { kind: SystemKind; data: Record<string, unknown> } | null;
   } = {}
 ): Promise<SentMessage> {
   // Verify access
@@ -535,13 +564,14 @@ export async function sendMessage(
   try {
     await db
       .prepare(`
-        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment, forwarded_from, album_id, album_index)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, conversation_id, sender_id, content, created_at, reply_to_message_id, client_id, attachment, forwarded_from, album_id, album_index, system_kind, system_data)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .bind(
         id, conversationId, userId, content, now, replyToMessageId || null, clientId,
         opts.attachment ? JSON.stringify(opts.attachment) : null, opts.forwardedFrom ?? null,
         opts.album?.id ?? null, opts.album ? opts.album.index : null,
+        opts.system?.kind ?? null, opts.system ? JSON.stringify(opts.system.data) : null,
       )
       .run();
   } catch (err) {
@@ -593,6 +623,8 @@ export async function sendMessage(
     reply_to: null,
     reactions: [],
     has_discussion: false,
+    system_kind: opts.system?.kind ?? null,
+    system_data: opts.system?.data ?? null,
   };
 }
 

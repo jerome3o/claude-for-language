@@ -6,7 +6,8 @@
 
 import { generateId } from '../cards';
 import { verifyRelationshipAccess, getOtherUserId } from '../relationships';
-import { openRelationshipConversation, sendMessage } from '../conversations';
+import { openRelationshipConversation } from '../conversations';
+import { markCallMessageEnded, postSystemMessage } from '../chat/system';
 import type { BoardItem, CallChatMessage, CallDiagEntry } from '@shared/calls';
 import { CLAUDE_AI_USER_ID } from '../../types';
 import { lessonForNewCall, refreshLessonEnd } from './lessons';
@@ -146,7 +147,8 @@ export async function createCall(
   if (relId && opts.joinUrl) {
     try {
       const conversationId = (await openRelationshipConversation(db, relId, userId)).conversation.id;
-      await sendMessage(db, conversationId, userId, `📹 I started a video call — join here: ${opts.joinUrl(id)}`);
+      // A system message on the caller's behalf (docs/CHAT.md "System messages"): "Minghui started a video call · Join".
+      await postSystemMessage(db, conversationId, userId, 'call_started', { call_id: id }, { url: opts.joinUrl(id) });
     } catch (err) {
       console.error('[calls] chat notice failed:', err);
     }
@@ -242,6 +244,8 @@ export async function markCallEnded(db: D1Database, callId: string, endedAt = Da
   if (changed) {
     const row = await db.prepare('SELECT lesson_id FROM calls WHERE id = ?').bind(callId).first<{ lesson_id: string | null }>();
     if (row?.lesson_id) await refreshLessonEnd(db, row.lesson_id);
+    // The chat's "started a video call" line becomes "Video call ended" (docs/CHAT.md "System messages").
+    await markCallMessageEnded(db, callId).catch((err) => console.error('[calls] chat line update failed:', err));
   }
   return changed;
 }

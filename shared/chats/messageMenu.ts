@@ -59,6 +59,8 @@ export interface MenuMessage {
   auto_check?: { status: 'ok' | 'improvable'; text: string } | null;
   has_discussion?: boolean;
   pinned_at?: string | null;
+  /** A system message (shared/chats/system.ts): only Copy. */
+  system_kind?: string | null;
 }
 
 /** What is switched on for this message right now (the toggles show "Hide …"). */
@@ -119,6 +121,8 @@ export function messageMenu(
   state: MenuState = { pinyinOn: false, translateOn: false },
 ): MessageMenu {
   if (msg.deleted_at) return { reactions: false, items: [] };
+  // A line the app posted on someone's behalf: copy it, nothing else (docs/CHAT.md "System messages").
+  if (msg.system_kind) return { reactions: false, items: [ITEM.copy()] };
   const text = menuText(msg);
   const kind = msg.attachment?.kind ?? null;
   if (msg.pending) {

@@ -313,6 +313,8 @@ export function compactMessage(m: MessageRow, myUserId: string, apiBase: string)
     ...(m.check_status ? { check_status: m.check_status, check_feedback: m.check_feedback } : {}),
     ...(m.recording_url ? { audio_url: audioUrl(apiBase, m.recording_url) } : {}),
     ...(m.reply_to ? { reply_to: { message_id: m.reply_to.id, content: m.reply_to.content } } : {}),
+    // Posted by the app on the sender's behalf (a budget change, a call, a flag…), not typed by them.
+    ...(m.system_kind ? { automated: m.system_kind } : {}),
   };
 }
 

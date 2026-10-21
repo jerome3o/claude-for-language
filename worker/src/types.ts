@@ -649,6 +649,12 @@ export interface Message {
   words_source?: 'content' | 'transcript' | null;
   /** The tutor's corrected version of this (student's) message. */
   correction?: ChatCorrection | null;
+  /**
+   * A line the platform posted on the sender's behalf (docs/CHAT.md "System messages",
+   * shared/chats/system.ts): the apps draw it from the kind + data, third person.
+   */
+  system_kind?: string | null;
+  system_data?: Record<string, unknown> | null;
 }
 
 /** One segment of a chat message's text (same shape as a reader page's word chip). */

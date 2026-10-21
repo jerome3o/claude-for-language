@@ -110,6 +110,15 @@ describe('rows', () => {
     expect(chatRowPreview(theirs, ME)).toBe('🎤 Voice message');
     expect(chatRowPreview(row({ conversation_id: 'e' }), ME)).toBe('No messages yet');
   });
+  it('preview of a system message: third person from my side, never "You: …"', () => {
+    const data = { new_cards_per_day: 2, secondary_cards_per_day: 5 };
+    const theirs = row({ conversation_id: 's1', last_message: { id: '1', sender_id: 'u-1', preview: 'x', created_at: 'x', system_kind: 'study_budget', system_data: data } });
+    const mine = row({ conversation_id: 's2', other_user: { id: 'u-2', name: 'Jerome S', picture_url: null }, last_message: { id: '1', sender_id: ME, preview: 'x', created_at: 'x', system_kind: 'study_budget', system_data: data } });
+    expect(chatRowPreview(theirs, ME)).toBe('📚 Minghui set your new cards to 2 a day (+5 extra)');
+    expect(chatRowPreview(mine, ME)).toBe("📚 You set Jerome's new cards to 2 a day (+5 extra)");
+    const live = applyIncomingMessage([row({ conversation_id: 'c' })], { id: '9', conversation_id: 'c', sender_id: 'u-1', preview: 'p', created_at: '2026-10-02T00:00:00.000Z', system_kind: 'call_started', system_data: { call_id: 'k' } }, ME)!;
+    expect(chatRowPreview(live[0], ME)).toBe('📹 Minghui started a video call');
+  });
   it('search by name (accent-free), title and last message', () => {
     const withMsg = [...rows, row({ conversation_id: 'd', last_message: { id: '1', sender_id: 'u-1', preview: '明天见', created_at: 'x' } })];
     expect(filterChatList(withMsg, 'emile').map((r) => r.conversation_id)).toEqual(['c']);

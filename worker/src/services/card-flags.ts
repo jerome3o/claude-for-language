@@ -10,7 +10,8 @@
 import { sqliteToIso } from '@shared/chats';
 import type { TutorRelationship } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
-import { openRelationshipConversation, sendMessage } from './conversations';
+import { openRelationshipConversation } from './conversations';
+import { postSystemMessage } from './chat/system';
 
 export type CardFlagStatus = 'open' | 'resolved';
 
@@ -94,11 +95,21 @@ async function requireActiveRelationship(db: D1Database, relId: string, userId: 
   }
 }
 
-/** Post a line into the pair's one chat (created if none) as `senderId`. Best effort. */
-async function mirrorToChat(db: D1Database, relId: string, senderId: string, content: string): Promise<void> {
+/**
+ * Post a system message into the pair's one chat (created if none) on `senderId`'s behalf
+ * (docs/CHAT.md "System messages"). Best effort.
+ */
+async function mirrorToChat(
+  db: D1Database,
+  relId: string,
+  senderId: string,
+  senderName: string | null,
+  kind: 'card_flag' | 'flag_reply',
+  data: Record<string, unknown>,
+): Promise<void> {
   try {
     const conversationId = (await openRelationshipConversation(db, relId, senderId)).conversation.id;
-    await sendMessage(db, conversationId, senderId, content);
+    await postSystemMessage(db, conversationId, senderId, kind, data, { senderName });
   } catch (err) {
     console.error('[card-flags] chat mirror failed:', err);
   }
@@ -115,14 +126,14 @@ function validIso(value: string | undefined): string {
   return new Date(t).toISOString();
 }
 
-/** What the tutor sees in the chat when a flag arrives. */
-export function flagChatMessage(flag: Pick<CardFlag, 'hanzi' | 'pinyin' | 'english' | 'message'>): string {
-  return `🚩 Flagged ${flag.hanzi} (${flag.pinyin} · ${flag.english}): ${flag.message}`;
+/** The chat's system line when a flag arrives: "🚩 Jerome flagged 银行 for you: “…”" (shared/chats/system.ts). */
+export function flagSystemData(flag: Pick<CardFlag, 'id' | 'note_id' | 'hanzi' | 'pinyin' | 'english' | 'message'>): Record<string, unknown> {
+  return { flag_id: flag.id, note_id: flag.note_id, hanzi: flag.hanzi, pinyin: flag.pinyin, english: flag.english, message: flag.message };
 }
 
-/** What the student sees in the chat when the tutor replies. */
-export function replyChatMessage(flag: Pick<CardFlag, 'hanzi'>, reply: string): string {
-  return `🚩 About ${flag.hanzi}: ${reply}`;
+/** The chat's system line when the tutor replies: "🚩 Minghui replied about 银行: “…”". */
+export function replySystemData(flag: Pick<CardFlag, 'id' | 'note_id' | 'hanzi'>, reply: string): Record<string, unknown> {
+  return { flag_id: flag.id, note_id: flag.note_id, hanzi: flag.hanzi, reply };
 }
 
 /**
@@ -177,7 +188,7 @@ export async function createCardFlag(
 
   const flag = await getCardFlag(db, id);
   if (!flag) throw new Error('Failed to create the flag');
-  await mirrorToChat(db, rel.id, studentId, flagChatMessage(flag));
+  await mirrorToChat(db, rel.id, studentId, flag.student_name ?? null, 'card_flag', flagSystemData(flag));
   return { flag, created: true };
 }
 
@@ -232,7 +243,7 @@ export async function replyToCardFlag(db: D1Database, flagId: string, tutorId: s
     .bind(text, now, now, flagId)
     .run();
   const updated = (await getCardFlag(db, flagId))!;
-  await mirrorToChat(db, flag.relationship_id, tutorId, replyChatMessage(flag, text));
+  await mirrorToChat(db, flag.relationship_id, tutorId, flag.tutor_name ?? null, 'flag_reply', replySystemData(flag, text));
   return updated;
 }
 

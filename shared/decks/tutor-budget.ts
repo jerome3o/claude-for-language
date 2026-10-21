@@ -1,7 +1,8 @@
 /**
  * The daily new-card budget as the tutor and the learner both see it: who set it,
- * and the words both sides read (tutor's "Daily new cards" row and sheet, the chat
- * message the tutor's change posts, the learner's Settings "Set by …" line).
+ * and the words both sides read (tutor's "Daily new cards" row and sheet, the
+ * learner's Settings "Set by …" line). The chat line a change posts is a system
+ * message (shared/chats/system.ts, kind `study_budget`).
  *
  * The budget itself is shared/decks/budget.ts; this file is only presentation and
  * the one shape (`StudyBudgetInfo`) the API returns on /auth/me, /sync/changes, the
@@ -54,17 +55,6 @@ function plural(n: number, one: string, many: string): string {
 /** "3 new words + 6 extra a day" — the tutor's row and the dashboard chip. */
 export function budgetSummary(b: StudyBudget): string {
   return `${plural(b.new_cards_per_day, 'new word', 'new words')} + ${b.secondary_cards_per_day} extra a day`;
-}
-
-/**
- * The chat message the tutor's change posts as her (so the learner sees it, with the
- * unread badge and the push): "I've set your new cards to 5 a day (+10 extra) 📚".
- */
-export function budgetChangeMessage(b: StudyBudget, isDefault: boolean): string {
-  const extra = b.secondary_cards_per_day > 0 ? ` (+${b.secondary_cards_per_day} extra)` : ' (no extra cards)';
-  return isDefault
-    ? `I've set your new cards back to the usual ${b.new_cards_per_day} a day${extra} 📚`
-    : `I've set your new cards to ${b.new_cards_per_day} a day${extra} 📚`;
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

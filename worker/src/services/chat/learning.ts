@@ -46,6 +46,8 @@ export async function ensureMessageWords(
 ): Promise<MessageWordsResult> {
   const msg = await loadMessageForMember(env.DB, messageId, userId);
   if (msg.deleted_at) throw new ChatMessageError('This message was deleted', 409);
+  // A line the app posted (docs/CHAT.md "System messages") has no word chips.
+  if (msg.system_kind) return { words: null, source: null, cached: false, changed: false };
   const row = await env.DB
     .prepare('SELECT content, attachment, words FROM messages WHERE id = ?')
     .bind(messageId)
@@ -107,6 +109,7 @@ async function loadCorrectable(db: D1Database, messageId: string, userId: string
   if (msg.sender_id === userId) throw new ChatMessageError('You can only correct the other person’s messages', 403);
   if (msg.deleted_at) throw new ChatMessageError('This message was deleted', 409);
   if (msg.attachment) throw new ChatMessageError('Only text messages can be corrected', 400);
+  if (msg.system_kind) throw new ChatMessageError('This line was written by the app and cannot be corrected', 400);
   return msg;
 }
 

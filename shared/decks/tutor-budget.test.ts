@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { pickStudyBudget, pickStudyBudgetUpdate } from './budget';
-import { budgetChangeMessage, budgetFinishHint, budgetSetByLabel, budgetSummary, firstName, shortDay, studyBudgetInfo } from './tutor-budget';
+import { budgetFinishHint, budgetSetByLabel, budgetSummary, firstName, shortDay, studyBudgetInfo } from './tutor-budget';
 
 describe('pickStudyBudgetUpdate', () => {
   it('keeps numbers, null = reset, missing = untouched', () => {
@@ -29,11 +29,6 @@ describe('copy', () => {
   it('summary', () => {
     expect(budgetSummary({ new_cards_per_day: 3, secondary_cards_per_day: 6 })).toBe('3 new words + 6 extra a day');
     expect(budgetSummary({ new_cards_per_day: 1, secondary_cards_per_day: 0 })).toBe('1 new word + 0 extra a day');
-  });
-  it('chat message', () => {
-    expect(budgetChangeMessage({ new_cards_per_day: 5, secondary_cards_per_day: 10 }, false)).toBe("I've set your new cards to 5 a day (+10 extra) 📚");
-    expect(budgetChangeMessage({ new_cards_per_day: 3, secondary_cards_per_day: 6 }, true)).toBe("I've set your new cards back to the usual 3 a day (+6 extra) 📚");
-    expect(budgetChangeMessage({ new_cards_per_day: 2, secondary_cards_per_day: 0 }, false)).toBe("I've set your new cards to 2 a day (no extra cards) 📚");
   });
   it('set by', () => {
     const info = { set_by_tutor: true, set_by_name: 'Minghui Wang', set_at: '2026-10-02T23:30:00Z' };

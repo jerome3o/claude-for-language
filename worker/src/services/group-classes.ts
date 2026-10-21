@@ -228,7 +228,3 @@ export async function markSessionEnded(db: D1Database, sessionId: string, endedA
     .run();
 }
 
-/** The chat line each student gets when the tutor sends the link (through their existing 1:1 chat). */
-export function groupInviteMessage(groupName: string, url: string): string {
-  return `🧪 Group class "${groupName}" is starting now — join here: ${url}\n(This is an experimental group class: your tutor and a few other students on one video call.)`;
-}

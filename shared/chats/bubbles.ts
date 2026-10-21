@@ -37,6 +37,8 @@ export interface BubbleMessage {
   content?: string | null;
   /** Photos picked together share it (set by the sender's app). */
   album_id?: string | null;
+  /** A system message (shared/chats/system.ts): its own centred row, never in a group. */
+  system_kind?: string | null;
 }
 
 export type Tick = 'none' | 'pending' | 'failed' | 'sent' | 'read';
@@ -44,8 +46,8 @@ export type Tick = 'none' | 'pending' | 'failed' | 'sent' | 'read';
 export interface BubbleLayout {
   /** The (first shown) message's id. */
   id: string;
-  /** One message, or several photos drawn as one album bubble. */
-  kind: 'message' | 'album';
+  /** One message, several photos drawn as one album bubble, or a centred system row (no bubble, no tick). */
+  kind: 'message' | 'album' | 'system';
   /** The messages this bubble shows, oldest first: `[id]` for a message, the album's photos. */
   messageIds: string[];
   /** Album: the photo whose caption shows under the collage (the last one with a caption), else null. */
@@ -70,7 +72,7 @@ export function localDay(iso: string, offsetMinutes: number): string {
 }
 
 export function tickFor(msg: BubbleMessage, viewerId: string, otherReadAt: string | null | undefined): Tick {
-  if (msg.sender_id !== viewerId || msg.deleted_at) return 'none';
+  if (msg.sender_id !== viewerId || msg.deleted_at || msg.system_kind) return 'none';
   if (msg.pending === 'failed') return 'failed';
   if (msg.pending) return 'pending';
   return otherReadAt && msg.created_at <= otherReadAt ? 'read' : 'sent';
@@ -79,6 +81,10 @@ export function tickFor(msg: BubbleMessage, viewerId: string, otherReadAt: strin
 /** A photo that can be in an album: an image, not deleted. */
 function isPhoto(m: BubbleMessage): boolean {
   return m.attachment_kind === 'image' && !m.deleted_at;
+}
+
+function isSystem(m: BubbleMessage): boolean {
+  return !!m.system_kind && !m.deleted_at;
 }
 
 function hasCaption(m: BubbleMessage): boolean {
@@ -148,6 +154,8 @@ export function layoutBubbles(
     if (a < 0 || b >= items.length) return false;
     const x = messages[last(a)];
     const y = messages[first(b)];
+    // A system row stands alone: it ends the group before it and starts none after it.
+    if (isSystem(x) || isSystem(y)) return false;
     if (x.sender_id !== y.sender_id || days[last(a)] !== days[first(b)]) return false;
     const gap = Date.parse(y.created_at) - Date.parse(x.created_at);
     return gap >= 0 && gap <= GROUP_GAP_MS;
@@ -166,7 +174,7 @@ export function layoutBubbles(
     }
     return {
       id: head.id,
-      kind: album ? 'album' : 'message',
+      kind: album ? 'album' : isSystem(head) ? 'system' : 'message',
       messageIds: members.map((n) => messages[n].id),
       captionId,
       mine: head.sender_id === viewerId,

@@ -250,10 +250,12 @@ export interface ChatMessageLike {
   created_at: string;
   deleted_at?: string | null;
   attachment?: { kind: string } | null;
+  /** A line the app posted (docs/CHAT.md "System messages") is never hidden or read aloud. */
+  system_kind?: string | null;
 }
 
 export function toListeningMessage(m: ChatMessageLike): ListeningMessage {
-  return { id: m.id, sender_id: m.sender_id, content: m.content, created_at: m.created_at, deleted_at: m.deleted_at ?? null, attachment_kind: m.attachment?.kind ?? null };
+  return { id: m.id, sender_id: m.sender_id, content: m.content, created_at: m.created_at, deleted_at: m.deleted_at ?? null, attachment_kind: m.attachment?.kind ?? null, system_kind: m.system_kind ?? null };
 }
 
 /**

@@ -124,6 +124,9 @@ export function useChatList({ live = false }: { live?: boolean } = {}) {
             }),
             created_at: m.created_at,
             attachment_kind: m.attachment?.kind ?? null,
+            // A system message: the row reads it from my side (chatRowPreview; docs/CHAT.md "System messages").
+            system_kind: m.deleted_at ? null : m.system_kind ?? null,
+            system_data: m.system_data ?? null,
           },
           userId,
         );

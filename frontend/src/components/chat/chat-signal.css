@@ -1269,3 +1269,97 @@ body:has(.chat-page) .sync-badge-offline {
 .chat-round-btn.chat-dictate-stop:not(.finishing):hover:not(:disabled) {
   background: #e5484d;
 }
+
+/* ============ System messages (SystemMessageRow.tsx; docs/CHAT.md "System messages") ============
+   A line the app posted on someone's behalf: centred and muted like the day pills, never a bubble. */
+.chat-system {
+  display: flex;
+  justify-content: center;
+  margin: 0.6rem 0;
+  padding: 0 0.75rem;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.chat-system-card {
+  max-width: min(88%, 480px);
+  padding: 0.4rem 0.85rem;
+  border-radius: 14px;
+  background: #f1f1f3;
+  color: #4a4a50;
+  text-align: center;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+.chat-system.quiet .chat-system-card {
+  background: transparent;
+  color: #85858b;
+}
+.chat-system-line {
+  margin: 0;
+}
+.chat-system-icon {
+  margin-right: 0.3rem;
+}
+.chat-system-text {
+  font-weight: 600;
+}
+.chat-system-time {
+  margin-left: 0.4rem;
+  font-size: 0.6875rem;
+  color: #8e8e93;
+  white-space: nowrap;
+}
+.chat-system-quote {
+  margin: 0.3rem 0 0;
+  padding: 0;
+  font-size: 0.875rem;
+  color: #2a2a2e;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-system-body {
+  margin: 0.4rem 0 0;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8125rem;
+}
+.chat-system-more,
+.chat-system-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  margin: 0.35rem 0.2rem 0;
+  padding: 0 0.9rem;
+  border-radius: 18px;
+  border: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chat-system-more {
+  background: transparent;
+  color: var(--sig-mine);
+}
+.chat-system-action {
+  background: var(--sig-mine);
+  color: #fff;
+}
+.chat-system-action:active,
+.chat-system-more:active {
+  transform: scale(0.97);
+}
+@media (prefers-color-scheme: dark) {
+  .chat-system-card {
+    background: #2b2b2e;
+    color: #c7c7cc;
+  }
+  .chat-system.quiet .chat-system-card {
+    background: transparent;
+    color: #8e8e93;
+  }
+  .chat-system-quote {
+    color: #e5e5ea;
+  }
+}

@@ -12,14 +12,16 @@
  *
  * A change records the tutor as `study_budget_set_by` (the student's Settings shows
  * "Set by <tutor> · 3 Oct"; the student can still change it, last write wins) and
- * posts a short chat message from the tutor through the normal send path (unread
- * badge, live, push). The student's own decks and their caps are never touched.
+ * posts a system message in the chat through the normal send path (unread badge,
+ * live, push): "Minghui set your new cards to 5 a day (+10 extra) 📚" for the
+ * student, "You set Jerome's new cards to …" for her (docs/CHAT.md "System messages"). The student's own decks and their caps are never touched.
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { budgetChangeMessage, DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, type StudyBudgetInfo } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, type StudyBudgetInfo } from '@shared/decks';
 import { getStudyBudgetInfo, setStudyBudget } from '../db/queries';
-import { openRelationshipConversation, sendMessage } from '../services/conversations';
+import { openRelationshipConversation } from '../services/conversations';
+import { postSystemMessage } from '../services/chat/system';
 import { guardTutorOf } from './student-profile';
 import { background, deliverSentMessage } from './chat-live';
 
@@ -83,12 +85,19 @@ studentStudyBudget.put('/relationships/:relId/student-study-budget', async (c) =
   const budget = await setStudyBudget(c.env.DB, g.studentId, update, user.id);
   const changed = !sameNumbers(before, budget);
 
-  // Tell the student in the chat, as the tutor, through the normal send path.
+  // Tell the student in the chat: a system message on the tutor's behalf (docs/CHAT.md "System messages").
   let message_sent = false;
   if (changed) {
     try {
       const conversationId = (await openRelationshipConversation(c.env.DB, g.rel.id, user.id)).conversation.id;
-      const sent = await sendMessage(c.env.DB, conversationId, user.id, budgetChangeMessage(budget, budget.is_default));
+      const sent = await postSystemMessage(
+        c.env.DB,
+        conversationId,
+        user.id,
+        'study_budget',
+        { new_cards_per_day: budget.new_cards_per_day, secondary_cards_per_day: budget.secondary_cards_per_day, is_default: budget.is_default },
+        { senderName: user.name ?? null },
+      );
       const { duplicate: _duplicate, ...message } = sent;
       await background(c, deliverSentMessage(c.env, conversationId, user.id, message));
       message_sent = true;

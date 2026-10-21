@@ -150,3 +150,24 @@ describe('photo albums', () => {
     expect(albumCounter(0, 1)).toBe('');
   });
 });
+
+describe('system messages (docs/CHAT.md "System messages")', () => {
+  it('stand alone: own row, no group, no tick, the neighbours end / start their groups', () => {
+    const msgs: BubbleMessage[] = [
+      { id: 'a', sender_id: 'tutor', created_at: at(0), content: '你好' },
+      { id: 's', sender_id: 'tutor', created_at: at(10_000), content: '📚 …', system_kind: 'study_budget' },
+      { id: 'b', sender_id: 'tutor', created_at: at(20_000), content: '加油' },
+      { id: 'm', sender_id: 'me', created_at: at(30_000), content: '📹 …', system_kind: 'call_started' },
+    ];
+    const l = layoutBubbles(msgs, 'me', at(60_000), 0);
+    expect(l.map((x) => x.kind)).toEqual(['message', 'system', 'message', 'system']);
+    expect(l.map((x) => [x.firstInGroup, x.lastInGroup])).toEqual([[true, true], [true, true], [true, true], [true, true]]);
+    expect(l[3].tick).toBe('none');
+    expect(l[3].mine).toBe(true);
+  });
+
+  it('a deleted system message is an ordinary "Message deleted" bubble', () => {
+    const l = layoutBubbles([{ id: 's', sender_id: 'me', created_at: at(0), content: '', deleted_at: at(1), system_kind: 'study_budget' }], 'me', null, 0);
+    expect(l[0].kind).toBe('message');
+  });
+});

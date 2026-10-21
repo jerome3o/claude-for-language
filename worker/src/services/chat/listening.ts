@@ -98,11 +98,11 @@ export async function listeningFor(db: D1Database, userId: string, conversationI
 export async function notificationPreviewFor(
   db: D1Database,
   recipientId: string,
-  message: { id: string; conversation_id: string; sender_id: string; content: string; created_at: string; deleted_at?: string | null; attachment?: { kind: string } | null },
+  message: { id: string; conversation_id: string; sender_id: string; content: string; created_at: string; deleted_at?: string | null; attachment?: { kind: string } | null; system_kind?: string | null },
   preview: string,
 ): Promise<string> {
   const candidate = listeningCandidate(
-    { id: message.id, sender_id: message.sender_id, content: message.content, created_at: message.created_at, deleted_at: message.deleted_at, attachment_kind: message.attachment?.kind ?? null },
+    { id: message.id, sender_id: message.sender_id, content: message.content, created_at: message.created_at, deleted_at: message.deleted_at, attachment_kind: message.attachment?.kind ?? null, system_kind: message.system_kind ?? null },
     recipientId,
   );
   if (!candidate) return preview;

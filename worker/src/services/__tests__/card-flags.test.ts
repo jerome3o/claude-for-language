@@ -6,8 +6,8 @@ import {
   setCardFlagStatus,
   listCardFlags,
   CardFlagError,
-  flagChatMessage,
-  replyChatMessage,
+  flagSystemData,
+  replySystemData,
 } from '../card-flags';
 
 let seq = 0;
@@ -74,7 +74,10 @@ describe('createCardFlag', () => {
     expect(insert?.params).toEqual(['flag-1', 'rel-1', STUDENT, TUTOR, 'note-1', 'card-1', '我总是和很行搞混', '2026-09-25T10:00:00.000Z']);
     const message = db.getQueries().find((q) => q.sql.includes('INSERT INTO messages'));
     expect(message?.params[2]).toBe(STUDENT);
-    expect(message?.params[3]).toBe('🚩 Flagged 银行 (yínháng · bank): 我总是和很行搞混');
+    // A system message on the student's behalf, third person (docs/CHAT.md "System messages").
+    expect(message?.params[3]).toBe('🚩 Jerome flagged 银行 for you: “我总是和很行搞混”');
+    expect(message?.params[11]).toBe('card_flag');
+    expect(JSON.parse(String(message?.params[12]))).toMatchObject({ flag_id: 'flag-1', note_id: 'note-1', hanzi: '银行', message: '我总是和很行搞混' });
   });
 
   it('is idempotent: an existing id returns the row without inserting again', async () => {
@@ -126,7 +129,8 @@ describe('replyToCardFlag / setCardFlagStatus', () => {
     expect(update?.params[0]).toBe('银行的银是金属');
     const message = db.getQueries().find((q) => q.sql.includes('INSERT INTO messages'));
     expect(message?.params[2]).toBe(TUTOR);
-    expect(message?.params[3]).toBe('🚩 About 银行: 银行的银是金属');
+    expect(message?.params[3]).toBe('🚩 Wang replied about 银行: “银行的银是金属”');
+    expect(message?.params[11]).toBe('flag_reply');
   });
 
   it('only the tutor of the flag can reply; either party can resolve', async () => {
@@ -159,9 +163,11 @@ describe('listCardFlags', () => {
   });
 });
 
-describe('chat wording', () => {
-  it('reads as a flag / a reply about the word', () => {
-    expect(flagChatMessage({ hanzi: '银行', pinyin: 'yínháng', english: 'bank', message: 'confused' })).toBe('🚩 Flagged 银行 (yínháng · bank): confused');
-    expect(replyChatMessage({ hanzi: '银行' }, 'ok')).toBe('🚩 About 银行: ok');
+describe('chat system lines (docs/CHAT.md "System messages")', () => {
+  it('carries the flag / the reply, the student\'s and tutor\'s own words untouched', () => {
+    expect(flagSystemData({ id: 'f1', note_id: 'n1', hanzi: '银行', pinyin: 'yínháng', english: 'bank', message: 'confused' })).toEqual({
+      flag_id: 'f1', note_id: 'n1', hanzi: '银行', pinyin: 'yínháng', english: 'bank', message: 'confused',
+    });
+    expect(replySystemData({ id: 'f1', note_id: 'n1', hanzi: '银行' }, 'ok')).toEqual({ flag_id: 'f1', note_id: 'n1', hanzi: '银行', reply: 'ok' });
   });
 });

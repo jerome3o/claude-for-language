@@ -69,6 +69,7 @@ function formatConversationDate(dateStr: string) {
 }
 
 function ConversationsList({ relId, conversations, isLoading, onStart }: { relId: string; conversations: ConversationWithLastMessage[]; isLoading: boolean; onStart: () => void }) {
+  const { user } = useAuth();
   if (isLoading) return <Loading message="Loading conversations..." />;
   if (conversations.length === 0) {
     return (
@@ -83,7 +84,7 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
   return (
     <div className="conversations-list">
       {conversations.map((conv) => {
-        const preview = lastMessagePreview(conv.last_message);
+        const preview = lastMessagePreview(conv.last_message, user ? { myId: user.id, otherName: conv.other_user?.name } : undefined);
         const unread = conv.unread ?? 0;
         return (
           <Link
@@ -123,7 +124,8 @@ function ConversationsList({ relId, conversations, isLoading, onStart }: { relId
  * the last message and the unread count — no list of conversations.
  */
 function OneChatRow({ name, conversation, isLoading, onOpen }: { name: string; conversation: ConversationWithLastMessage | null; isLoading: boolean; onOpen: () => void }) {
-  const preview = conversation ? lastMessagePreview(conversation.last_message) : null;
+  const { user } = useAuth();
+  const preview = conversation ? lastMessagePreview(conversation.last_message, user ? { myId: user.id, otherName: conversation.other_user?.name } : undefined) : null;
   const unread = conversation?.unread ?? 0;
   const when = conversation ? conversation.last_message?.created_at ?? conversation.last_message_at ?? null : null;
 

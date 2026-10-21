@@ -8,6 +8,8 @@
  * so the list renders instantly offline.
  */
 
+import { systemMessageText } from './system';
+
 export interface ChatListPerson {
   id: string;
   name: string | null;
@@ -22,6 +24,9 @@ export interface ChatListLastMessage {
   created_at: string;
   /** 'image' | 'voice' | 'file' | 'video' when the message has an attachment (listening mode leaves those visible). */
   attachment_kind?: string | null;
+  /** A system message (shared/chats/system.ts): the row reads it from MY side, never "You: …". */
+  system_kind?: string | null;
+  system_data?: unknown;
 }
 
 export interface ChatListRow {
@@ -121,10 +126,21 @@ export function chatRowTitle(
   return { name, subtitle: many ? title || 'Chat' : null };
 }
 
-/** The one-line preview: "You: …" for my own last message, "No messages yet" for an empty chat. */
-export function chatRowPreview(row: Pick<ChatListRow, 'last_message'>, myUserId: string): string {
+/**
+ * The one-line preview: "You: …" for my own last message, "No messages yet" for an empty chat.
+ * A system message reads from my side in the third person ("You set Jerome's new cards…",
+ * "Minghui set your new cards…"), without "You:".
+ */
+export function chatRowPreview(row: Pick<ChatListRow, 'last_message'> & { other_user?: Pick<ChatListPerson, 'name'> | null; relationship_id?: string }, myUserId: string): string {
   const m = row.last_message;
   if (!m) return 'No messages yet';
+  if (m.system_kind) {
+    const line = systemMessageText(
+      { content: m.preview, system_kind: m.system_kind, system_data: m.system_data },
+      { viewerIsSender: m.sender_id === myUserId, otherName: row.other_user?.name ?? null, relationshipId: row.relationship_id ?? null },
+    );
+    return line.replace(/\s+/g, ' ').trim();
+  }
   const text = m.preview.replace(/\s+/g, ' ').trim();
   return m.sender_id === myUserId ? `You: ${text}` : text;
 }
@@ -195,7 +211,7 @@ export function groupChatList<T extends Pick<ChatListRow, 'is_ai' | 'last_activi
  */
 export function applyIncomingMessage<T extends ChatListRow>(
   rows: readonly T[],
-  msg: { id: string; conversation_id: string; sender_id: string; preview: string; created_at: string; attachment_kind?: string | null },
+  msg: { id: string; conversation_id: string; sender_id: string; preview: string; created_at: string; attachment_kind?: string | null; system_kind?: string | null; system_data?: unknown },
   myUserId: string,
 ): T[] | null {
   const idx = rows.findIndex((r) => r.conversation_id === msg.conversation_id);
@@ -204,14 +220,14 @@ export function applyIncomingMessage<T extends ChatListRow>(
   if (row.last_message?.id === msg.id) {
     // Same message again (an edit, a duplicate frame): refresh the preview only.
     const next = [...rows];
-    next[idx] = { ...row, last_message: { ...row.last_message, preview: msg.preview } };
+    next[idx] = { ...row, last_message: { ...row.last_message, preview: msg.preview, ...systemFields(msg) } };
     return next;
   }
   const isNewer = !row.last_message || Date.parse(msg.created_at) >= Date.parse(row.last_message.created_at);
   const updated: T = {
     ...row,
     last_message: isNewer
-      ? { id: msg.id, sender_id: msg.sender_id, preview: msg.preview, created_at: msg.created_at, attachment_kind: msg.attachment_kind ?? null }
+      ? { id: msg.id, sender_id: msg.sender_id, preview: msg.preview, created_at: msg.created_at, attachment_kind: msg.attachment_kind ?? null, ...systemFields(msg) }
       : row.last_message,
     last_activity_at: isNewer ? msg.created_at : row.last_activity_at,
     unread: msg.sender_id !== myUserId ? row.unread + 1 : 0,
@@ -219,6 +235,10 @@ export function applyIncomingMessage<T extends ChatListRow>(
   const next = [...rows];
   next[idx] = updated;
   return sortChatList(next);
+}
+
+function systemFields(msg: { system_kind?: string | null; system_data?: unknown }): Pick<ChatListLastMessage, 'system_kind' | 'system_data'> {
+  return msg.system_kind ? { system_kind: msg.system_kind, system_data: msg.system_data ?? null } : {};
 }
 
 /** A `read` event (me on another device, or opening the chat here): that conversation has nothing unread. */

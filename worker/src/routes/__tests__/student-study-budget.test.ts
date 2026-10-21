@@ -84,8 +84,10 @@ describe('tutor sets the student study budget', () => {
     expect(body).toMatchObject({ changed: true, message_sent: true });
     expect(body.budget).toMatchObject({ new_cards_per_day: 5, secondary_cards_per_day: 10, is_default: false, set_by_id: TUTOR, set_by_name: 'Minghui Wang', set_by_tutor: true });
 
-    const msgs = await rows<{ sender_id: string; content: string }>(db, 'SELECT m.sender_id, m.content FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.relationship_id = ?', ['rel-1']);
-    expect(msgs).toEqual([{ sender_id: TUTOR, content: "I've set your new cards to 5 a day (+10 extra) 📚" }]);
+    // A system message on the tutor's behalf, third person (docs/CHAT.md "System messages").
+    const msgs = await rows<{ sender_id: string; content: string; system_kind: string; system_data: string }>(db, 'SELECT m.sender_id, m.content, m.system_kind, m.system_data FROM messages m JOIN conversations c ON c.id = m.conversation_id WHERE c.relationship_id = ?', ['rel-1']);
+    expect(msgs.map((m) => [m.sender_id, m.content, m.system_kind])).toEqual([[TUTOR, '📚 Minghui set your new cards to 5 a day (+10 extra)', 'study_budget']]);
+    expect(JSON.parse(msgs[0].system_data)).toEqual({ new_cards_per_day: 5, secondary_cards_per_day: 10, is_default: false });
     expect(hubEvents.length).toBeGreaterThan(0);
 
     const deck = await rows<{ new_cards_per_day: number; secondary_cards_per_day: number }>(db, 'SELECT new_cards_per_day, secondary_cards_per_day FROM decks WHERE id = ?', ['d-1']);
@@ -103,7 +105,7 @@ describe('tutor sets the student study budget', () => {
     expect(body.budget).toMatchObject({ new_cards_per_day: 3, secondary_cards_per_day: 6, is_default: true, set_by_tutor: true });
     expect(await rows(db, 'SELECT new_cards_per_day, secondary_cards_per_day FROM users WHERE id = ?', [STUDENT])).toEqual([{ new_cards_per_day: null, secondary_cards_per_day: null }]);
     const last = (await rows<{ content: string }>(db, 'SELECT content FROM messages ORDER BY created_at DESC, rowid DESC LIMIT 1'))[0];
-    expect(last.content).toBe("I've set your new cards back to the usual 3 a day (+6 extra) 📚");
+    expect(last.content).toBe('📚 Minghui set your new cards back to the usual 3 a day (+6 extra)');
   });
 
   it("the student's own change wins and clears set_by back to them", async () => {
