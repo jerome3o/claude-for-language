@@ -1143,6 +1143,8 @@ export async function getDueCards(
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
+      -- Suspended / snoozed cards (card_holds, shared/decks/holds.ts) leave study.
+      AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
   `;
 
   const params: (string | number)[] = [userId];
