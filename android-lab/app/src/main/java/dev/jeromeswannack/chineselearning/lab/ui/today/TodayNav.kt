@@ -45,7 +45,6 @@ import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonPlayer
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.PlayerContext
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv
-import dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonResume
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader
