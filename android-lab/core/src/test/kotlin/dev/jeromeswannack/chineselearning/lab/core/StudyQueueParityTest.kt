@@ -84,7 +84,8 @@ class StudyQueueParityTest {
         assertTrue(check(cases, "bumped") >= 400)
         // The fixture exercises every state: active, done, NEW over a spent budget, an early review.
         assertTrue(cases.any { it["pocket"]!!.jsonObject["done"]!!.jsonArray.isNotEmpty() })
-        assertTrue(cases.any { it["pocket"]!!.jsonObject["active"]!!.jsonArray.isNotEmpty() })
+        assertTrue(cases.any { it["pocket"]!!.jsonObject["active"]!!.jsonArray.isNotEmpty() })        // …and card-level bumps ("Practise this word other ways…").
+        assertTrue(cases.count { c -> c["bumps"]!!.jsonArray.any { it.jsonObject["card_types"] != null } } >= 50)
     }
 
     /** "Up next" (shared/decks/up-next.ts): the list takes the budget first, in list order. */
@@ -164,7 +165,13 @@ class StudyQueueParityTest {
             val upNext = c["upNextList"]?.let { strings(it) }
             val bumps = c["bumps"]?.let { b ->
                 QueueBumps(
-                    b.jsonArray.map { it.jsonObject }.map { QueueBump(it["note_id"]!!.jsonPrimitive.content, it["created_ms"]!!.jsonPrimitive.long) },
+                    b.jsonArray.map { it.jsonObject }.map {
+                        QueueBump(
+                            it["note_id"]!!.jsonPrimitive.content,
+                            it["created_ms"]!!.jsonPrimitive.long,
+                            it["card_types"]?.let { t -> if (t is JsonNull) null else strings(t) },
+                        )
+                    },
                     c["lastReviewAt"]!!.jsonObject.mapValues { it.value.jsonPrimitive.long },
                     first,
                 )

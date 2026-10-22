@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { charWordRows, charWordsSummary, wordInCard } from './status';
+import { addOwnCardLabel, charChipLabel, charOwnCards, charWordRows, charWordsSummary, isSingleHan, ownCardLine, OWN_CARD_BADGE, wordInCard } from './status';
 
 const words = [
   { hanzi: '进行', pinyin: 'jìnxíng', english: 'to proceed' },
@@ -53,5 +53,44 @@ describe('character sheet word statuses', () => {
     const rows = charWordRows([...words, { hanzi: '银行', pinyin: '', english: '' }], [], []);
     expect(rows).toHaveLength(4);
     expect(charWordsSummary(rows)).toBe('0 of 4 known');
+  });
+});
+
+describe("a character's own card", () => {
+  const notes = [
+    { id: 'a', hanzi: '性' },
+    { id: 'b', hanzi: '人性' }, // a word with 性 is not 性's own card
+    { id: 'c', hanzi: '人。' }, // punctuation ignored
+    { id: 'd', hanzi: '性' },
+  ];
+  const cards = [
+    { note_id: 'a', queue: 1, stability: 2 },
+    { note_id: 'b', queue: 2, stability: 99 },
+    { note_id: 'c', queue: 2, stability: 30 },
+    { note_id: 'd', queue: 0, stability: 0 },
+  ];
+
+  it('known / in_decks / none per character; words and non-Han never match', () => {
+    const own = charOwnCards(['人', '性', '品', '人性', 'a', ''], notes, cards);
+    expect(own['人']).toEqual({ status: 'known', note_ids: ['c'] });
+    expect(own['性']).toEqual({ status: 'in_decks', note_ids: ['a', 'd'] });
+    expect(own['品']).toEqual({ status: 'none', note_ids: [] });
+    expect(own['人性']).toEqual({ status: 'none', note_ids: [] });
+    expect(own['a']).toEqual({ status: 'none', note_ids: [] });
+    expect(own['']).toEqual({ status: 'none', note_ids: [] });
+    expect(isSingleHan('性')).toBe(true);
+    expect(isSingleHan('人性')).toBe(false);
+    expect(isSingleHan('。')).toBe(false);
+  });
+
+  it('the status line, add label, badge and chip label', () => {
+    expect(ownCardLine('性', 'in_decks', ['HSK 5', 'HSK 5', 'Food'])).toBe('📚 You have 性 as a card in HSK 5, Food');
+    expect(ownCardLine('人', 'known', [])).toBe('✓ Known — you have 人 as a card in your decks');
+    expect(ownCardLine('品', 'none', ['x'])).toBe('');
+    expect(addOwnCardLabel('品')).toBe('+ Add 品 as a card');
+    expect(OWN_CARD_BADGE).toEqual({ known: '✓', in_decks: '📚', none: '' });
+    expect(charChipLabel('性', 'xìng', 'in_decks')).toBe('The character 性, xìng — you have it as a card');
+    expect(charChipLabel('人', null, 'known')).toBe('The character 人 — you have it as a card, known');
+    expect(charChipLabel('品', 'pǐn', 'none')).toBe('The character 品, pǐn');
   });
 });

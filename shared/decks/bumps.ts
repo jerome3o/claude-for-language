@@ -19,6 +19,13 @@
  *   - at most MAX_BUMPED_CARDS_PER_NOTE, in card-type order.
  * A bump is DONE when its pocket is empty (each bumped card reviewed since the bump);
  * an unfinished bump carries over to the next day.
+ *
+ * A CARD-LEVEL bump (`card_types`, study_bumps.card_types — "⋯ → Practise this word other
+ * ways…" on the study card, shared/decks/other-card-types.ts) puts ONLY those card types of the
+ * note in the pocket: each one not reviewed since the bump, whatever its state (a NEW card is
+ * introduced over the budget, a due card moves to the front, a started card not due yet gets
+ * its one early review). Done when every chosen card has been reviewed since the bump; from its
+ * first review the card follows FSRS like any other.
  */
 
 import type { QueueCardInput } from './study-queue';
@@ -46,6 +53,7 @@ export const BUMP_SOURCES = [
   'homework_pass',
   'deck',
   'up_next',
+  'study_card',
   'mcp',
   'tutor',
   'other',
@@ -61,6 +69,54 @@ export interface QueueBump {
   note_id: string;
   /** When it was bumped (epoch ms). Reviews at or after this cover a card. */
   created_ms: number;
+  /**
+   * A card-level bump: only these card types of the note (card-type order). Absent / null /
+   * empty = the whole note (the rule above).
+   */
+  card_types?: readonly string[] | null;
+}
+
+/**
+ * A `card_types` value as stored: the known card types, each once, in card-type order;
+ * null when nothing usable is left (= the whole note).
+ */
+export function normalizeBumpCardTypes(types: unknown): string[] | null {
+  if (!Array.isArray(types)) return null;
+  const out = (BUMP_CARD_TYPE_ORDER as readonly string[]).filter(t => types.includes(t));
+  return out.length ? out : null;
+}
+
+/** What a new bump request does to a note ('add' = no active bump: insert / re-open). */
+export interface BumpMerge {
+  action: 'add' | 'already' | 'replace';
+  /** The bump's card types afterwards (null = the whole note). */
+  card_types: string[] | null;
+}
+
+/**
+ * A bump request meets the note's ACTIVE bump (`existing`: undefined = none, null = a
+ * whole-note bump, a list = a card-level bump). `stillOpen` = the existing card types whose
+ * card has not been reviewed since that bump (the device knows; the server passes []
+ * and takes the device's merged list as it is).
+ *   - none → add the request as it is;
+ *   - a whole-note bump already covers the note → already;
+ *   - card-level + a whole-note request → replace with the whole note (a fresh bump);
+ *   - card-level + card-level → replace with (still open ∪ requested), re-dated to now by the
+ *     caller, so a type finished since the old bump never comes back; already when nothing new.
+ */
+export function mergeBumpCardTypes(
+  existing: readonly string[] | null | undefined,
+  stillOpen: readonly string[],
+  incoming: readonly string[] | null | undefined
+): BumpMerge {
+  const want = normalizeBumpCardTypes(incoming);
+  if (existing === undefined) return { action: 'add', card_types: want };
+  const have = normalizeBumpCardTypes(existing);
+  if (have === null) return { action: 'already', card_types: null };
+  if (want === null) return { action: 'replace', card_types: null };
+  const open = normalizeBumpCardTypes(stillOpen) ?? [];
+  if (want.every(t => open.includes(t))) return { action: 'already', card_types: have };
+  return { action: 'replace', card_types: normalizeBumpCardTypes([...open, ...want]) };
 }
 
 export interface QueueBumps {
@@ -102,6 +158,11 @@ export function bumpedCardsForNote<C extends QueueCardInput>(
     const last = lastReviewMs.get(c.id);
     return last !== undefined && last >= bump.created_ms;
   };
+  const chosen = normalizeBumpCardTypes(bump.card_types);
+  if (chosen) {
+    // Card-level: exactly the chosen cards still to review, whatever their state.
+    return sorted.filter(c => chosen.includes(c.card_type) && !reviewedSince(c)).slice(0, MAX_BUMPED_CARDS_PER_NOTE);
+  }
   const open = sorted.filter(c => !reviewedSince(c));
   const picks = open.filter(c => c.queue === 0 || isDue(c, cutoffMs));
   const earlyUsed =
@@ -155,6 +216,30 @@ export function bumpPocket<C extends QueueCardInput>(
     }
   }
   return out;
+}
+
+/**
+ * A card that is bumped this session waits until its note is out of the last
+ * BUMP_SIBLING_GAP rated notes: added from its sibling's ⋯ menu, it comes up a few cards
+ * later, never straight after the sibling. (The session's recent-notes filter — the last 5
+ * rated notes — already spaces it out while anything else is available; this keeps the gap
+ * when nothing else is.)
+ */
+export const BUMP_SIBLING_GAP = 3;
+
+/**
+ * The bumped card to show first, if any: the first of `candidates` (queue order) that is in
+ * `bumpedCardIds` and whose note is not among the last BUMP_SIBLING_GAP of `recentNoteIds`
+ * (oldest first, as the session keeps them). Null = no bumped card jumps the queue now.
+ */
+export function pickBumpedCard<C extends { id: string; note_id: string }>(
+  candidates: ReadonlyArray<C>,
+  bumpedCardIds: ReadonlySet<string> | null | undefined,
+  recentNoteIds: ReadonlyArray<string>
+): C | null {
+  if (!bumpedCardIds || bumpedCardIds.size === 0) return null;
+  const tooRecent = new Set(recentNoteIds.slice(-BUMP_SIBLING_GAP));
+  return candidates.find(c => bumpedCardIds.has(c.id) && !tooRecent.has(c.note_id)) ?? null;
 }
 
 /** Home's line: "⚡ 2 bumped for today" ('' when none). */

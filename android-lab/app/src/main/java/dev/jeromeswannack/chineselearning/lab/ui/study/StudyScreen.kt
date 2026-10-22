@@ -170,6 +170,8 @@ class StudyActions(
     val edit: EditCardActions = EditCardActions(),
     val ask: AskActions = AskActions(),
     val sentences: SentenceActions = SentenceActions(),
+    /** ⋯ → "Practise this word other ways…": other card types of the word into today (a card-level ⚡ bump). */
+    val otherCards: OtherCardsActions = OtherCardsActions(),
     // tap a character on the back → the character sheet (ui/chars)
     val chars: dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions = dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions(),
     // ---- Package B: mini lessons in the session ----
@@ -317,6 +319,7 @@ fun StudyRoute(
             onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,
+            otherCards = OtherCardsActions(open = vm::openOtherCards, toggle = vm::toggleOtherCard, add = vm::addOtherCards, close = vm::closeOtherCards),
             edit = EditCardActions(
                 save = vm::saveEdit,
                 delete = { vm.deleteCurrentNote() },

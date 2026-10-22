@@ -20,6 +20,8 @@ interface ApiBump {
   created_at: string;
   source: string;
   bumped_by_name: string | null;
+  /** A card-level bump ("Practise this word other ways…"): only these card types; null = the whole word. */
+  card_types?: string[] | null;
   hanzi: string;
   pinyin: string;
   english: string;
@@ -44,6 +46,7 @@ export function shapePocket(bumps: ApiBump[]) {
     deck: b.deck_name,
     bumped_at: b.created_at,
     ...(b.bumped_by_name ? { bumped_by: b.bumped_by_name } : {}),
+    ...(b.card_types && b.card_types.length ? { only_card_types: b.card_types } : {}),
   }));
 }
 

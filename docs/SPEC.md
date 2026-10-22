@@ -107,7 +107,11 @@ After completing a study session:
 - Deck-by-deck breakdown
 - Characters & words known (+ still learning), with a known-over-time chart and the newest known
   characters — "known" = a card remembered for 3+ weeks (stability > 21 days); computed on the
-  device, also shown on the tutor's view of a student
+  device, also shown on the tutor's view of a student. The chart toggles **Total | Per week**
+  (remembered per device): Per week shows newly known characters / words gained each week as bars
+  (net — a week can dip below zero when cards lapse; the current week is drawn fainter, "so far"),
+  tap a week for "Week of 6 Oct · +38 characters · +61 words", and the pace of the last 4 weeks
+  ("≈ 42 words / week", ↑ / ↓ vs the 4 weeks before)
 
 ### 7. AI Card Generation
 

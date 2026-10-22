@@ -252,3 +252,97 @@
     padding: 1.25rem;
   }
 }
+
+/* Total | Per week */
+.known-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 15rem;
+  max-width: 100%;
+  margin: 0.75rem 0 0;
+  padding: 3px;
+  gap: 3px;
+  border: 1px solid var(--btn-outline, #80868f);
+  border-radius: 999px;
+  background: var(--color-surface, #fff);
+}
+
+.known-mode-option {
+  min-height: 38px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--color-text, #1f2937);
+  cursor: pointer;
+}
+
+.known-mode-option.selected {
+  background: var(--color-text, #1f2937);
+  color: var(--color-surface, #fff);
+  font-weight: 600;
+}
+
+.known-pace {
+  margin-bottom: 0.5rem;
+}
+
+.known-pace-caption {
+  font-size: 0.75rem;
+  color: var(--color-text-light, #6b7280);
+  margin-bottom: 0.125rem;
+}
+
+.known-pace-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-text, #1f2937);
+}
+
+.known-pace-line .known-swatch {
+  margin-right: 0;
+}
+
+.known-pace-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.known-pace-trend {
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+  font-variant-numeric: tabular-nums;
+}
+
+.known-rate-panel {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--color-text-light, #6b7280);
+}
+
+.known-zero {
+  stroke: var(--color-text-light, #6b7280);
+  stroke-width: 1;
+}
+
+.known-bar--chars { fill: var(--known-chars); }
+.known-bar--words { fill: var(--known-words); }
+/* The current week, still running: fainter, the tooltip says "so far". */
+.known-bar--partial { opacity: 0.45; }
+
+.known-rate-band {
+  fill: var(--color-text, #1f2937);
+  opacity: 0.06;
+}
+
+/* Dark set (applies under data-theme="dark", like index.css): the Lab app's stepped hues. */
+:root[data-theme='dark'] .known-section {
+  --known-chars: #3987e5;
+  --known-words: #d95926;
+}

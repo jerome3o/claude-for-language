@@ -367,7 +367,8 @@ object StudyQueue {
         if (queue.isEmpty()) return null
         val available = queue.filter { CardQueue.isLearning(it.queue) || it.noteId !in recentNoteIds }
         val choose = available.ifEmpty { queue }
-        if (bumpedCardIds.isNotEmpty()) choose.firstOrNull { it.id in bumpedCardIds }?.let { return it }
+        // Bumped cards first — never within Bumps.BUMP_SIBLING_GAP cards of a sibling (pickBumpedCard).
+        Bumps.pickBumpedCard(choose, bumpedCardIds, recentNoteIds, { it.id }, { it.noteId })?.let { return it }
 
         val learningDue = choose.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp != null && it.state.dueTimestamp <= nowMs }
         if (learningDue.isNotEmpty()) return pickWeightedLearning(learningDue, nowMs, random)

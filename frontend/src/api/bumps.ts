@@ -8,6 +8,8 @@ export interface ApiStudyBump {
   source: string;
   bumped_by: string | null;
   bumped_by_name: string | null;
+  /** A card-level bump: only these card types of the note; null / absent = the whole note. */
+  card_types?: string[] | null;
   hanzi: string;
   pinyin: string;
   english: string;
@@ -46,7 +48,7 @@ export function listBumpsApi(): Promise<{ bumps: ApiStudyBump[] }> {
 }
 
 /** 404 (none of the notes are the account's any more) comes back as a normal result. */
-export function addBumpsApi(items: Array<{ id: string; note_id: string; created_at: string; source: string }>): Promise<BumpApiResult> {
+export function addBumpsApi(items: Array<{ id: string; note_id: string; created_at: string; source: string; card_types?: string[] | null }>): Promise<BumpApiResult> {
   return call('/me/bumps', { method: 'POST', body: JSON.stringify({ items }) });
 }
 

@@ -30,6 +30,22 @@ class ProgressScreenshots : LabScreenshotTest() {
 
     @Test fun knownExplain() = shoot("progress-10-known-explain") { ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownExplain = true) }
 
+    @Test fun knownRate() = shoot("progress-12-known-per-week") {
+        ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownMode = dev.jeromeswannack.chineselearning.lab.core.KnownChartMode.Rate)
+    }
+
+    @Test fun knownRateDark() = shoot("progress-13-known-per-week-dark", dark = true) {
+        ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownMode = dev.jeromeswannack.chineselearning.lab.core.KnownChartMode.Rate)
+    }
+
+    @Test fun knownRateScrub() = shoot("progress-14-known-per-week-scrub") {
+        ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownMode = dev.jeromeswannack.chineselearning.lab.core.KnownChartMode.Rate, knownRateScrub = 40)
+    }
+
+    @Test fun knownTotalDark() = shoot("progress-15-known-total-dark", dark = true) {
+        ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownMode = dev.jeromeswannack.chineselearning.lab.core.KnownChartMode.Total)
+    }
+
     @Test fun knownComputing() = shoot("progress-11-known-computing") { ProgressScreen(s.ui.copy(known = null), ProgressActions(), zone = s.zone) }
 
     @Test fun day() = shoot("progress-06-day") { DayScreen(s.day.date, s.day, onBack = {}, openCard = {}) }

@@ -42,6 +42,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -121,6 +124,8 @@ data class WordViewUi(
     val keyOpen: Boolean = false,
     /** A ready 成语 entry is on the phone (docs/IDIOMS.md). */
     val idiomKnown: Boolean = false,
+    /** Its characters that are cards of their own (core CharWords.ownCards; missing = none): the chip badges. */
+    val ownCards: Map<String, CharWordStatus> = emptyMap(),
 ) {
     /** Port of the web's `showIdiomLink`: four Han characters and a reason to think it's a 成语. */
     val showIdiom: Boolean get() = Idioms.showLink(item.hanzi, idiomKnown, resolved.senses)
@@ -261,16 +266,22 @@ fun WordViewContent(ui: WordViewUi, actions: WordViewActions, modifier: Modifier
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             for (wc in ui.wordChars) {
                 val meaning = charChipMeaning(ui.charRecords[wc.char], wc.syllable)
-                Column(
-                    Modifier.widthIn(min = 64.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint)
-                        .frequencyDecal(decalStyle(ui.decalOf?.invoke(wc.char, DecalKind.CHAR)), RoundedCornerShape(12.dp))
-                        .bouncyClickable { actions.onChar(wc.char) }.testTag(EXPLORER_WORD_CHAR_TAG)
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(wc.char, fontSize = 30.sp, lineHeight = 36.sp, color = toneColor(wc.tone).takeIf { wc.tone != null } ?: Lab.colors.ink)
-                    wc.syllable?.takeIf { it.isNotBlank() }?.let { syl -> Text(syl, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = toneColor(wc.tone)) }
-                    if (!meaning.isNullOrBlank()) Text(meaning, style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
+                val own = ui.ownCards[wc.char] ?: CharWordStatus.None
+                // The chip, with 📚 / ✓ in its corner when the character is a card of its own.
+                Box(Modifier.padding(top = 6.dp, end = 6.dp)) {
+                    Column(
+                        Modifier.widthIn(min = 64.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint)
+                            .frequencyDecal(decalStyle(ui.decalOf?.invoke(wc.char, DecalKind.CHAR)), RoundedCornerShape(12.dp))
+                            .bouncyClickable { actions.onChar(wc.char) }.testTag(EXPLORER_WORD_CHAR_TAG)
+                            .semantics(mergeDescendants = true) { contentDescription = CharWords.charChipLabel(wc.char, wc.syllable, own) }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(wc.char, fontSize = 30.sp, lineHeight = 36.sp, color = toneColor(wc.tone).takeIf { wc.tone != null } ?: Lab.colors.ink)
+                        wc.syllable?.takeIf { it.isNotBlank() }?.let { syl -> Text(syl, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = toneColor(wc.tone)) }
+                        if (!meaning.isNullOrBlank()) Text(meaning, style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 110.dp))
+                    }
+                    OwnCardChipBadge(own, Modifier.align(Alignment.TopEnd).offset(x = 6.dp, y = (-6).dp))
                 }
             }
         }

@@ -6,32 +6,55 @@
  */
 import { db } from '../db/database';
 import {
-  knownProgress, historyPoints,
-  type KnownProgress, type KnownNoteInput, type KnownCardInput, type KnownEventInput,
+  knownProgressWithRate, parseKnownChartMode,
+  type KnownProgressWithRate, type KnownNoteInput, type KnownCardInput, type KnownEventInput, type KnownChartMode,
 } from '@shared/progress';
+
+/** What the Progress page shows: the totals, their history and (since the Per week mode) the rate. */
+export type KnownProgressView = KnownProgressWithRate;
 
 export interface KnownInput {
   notes: KnownNoteInput[];
   cards: KnownCardInput[];
   events: KnownEventInput[];
   now_ms: number;
+  /** Minutes east of UTC at `now_ms` (weeks start Monday 00:00 local). */
+  tz_offset_minutes: number;
 }
 
-const CACHE_KEY = 'known-progress-v1';
+const CACHE_KEY = 'known-progress-v2';
+const MODE_KEY = 'known-chart-mode-v1';
 
-export function cachedKnownProgress(): KnownProgress | undefined {
+/** The chart's Total | Per week choice, remembered on this device. */
+export function loadKnownChartMode(): KnownChartMode {
+  try {
+    return parseKnownChartMode(localStorage.getItem(MODE_KEY));
+  } catch {
+    return 'total';
+  }
+}
+
+export function saveKnownChartMode(mode: KnownChartMode): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode);
+  } catch {
+    // Blocked storage: the choice just isn't remembered.
+  }
+}
+
+export function cachedKnownProgress(): KnownProgressView | undefined {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? (JSON.parse(raw) as KnownProgress) : undefined;
+    return raw ? (JSON.parse(raw) as KnownProgressView) : undefined;
   } catch {
     return undefined;
   }
 }
 
-function inWorker(input: KnownInput): Promise<KnownProgress> {
+function inWorker(input: KnownInput): Promise<KnownProgressView> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./knownProgress.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<{ ok: boolean; result?: KnownProgress; error?: string }>) => {
+    worker.onmessage = (e: MessageEvent<{ ok: boolean; result?: KnownProgressView; error?: string }>) => {
       worker.terminate();
       if (e.data.ok && e.data.result) resolve(e.data.result);
       else reject(new Error(e.data.error || 'Could not count known words'));
@@ -44,11 +67,11 @@ function inWorker(input: KnownInput): Promise<KnownProgress> {
   });
 }
 
-function inline(input: KnownInput): KnownProgress {
-  return knownProgress(input.notes, input.cards, input.events, historyPoints(input.events, input.now_ms));
+export function computeKnown(input: KnownInput): KnownProgressView {
+  return knownProgressWithRate(input.notes, input.cards, input.events, input.now_ms, input.tz_offset_minutes);
 }
 
-export async function loadKnownProgress(nowMs = Date.now()): Promise<KnownProgress> {
+export async function loadKnownProgress(nowMs = Date.now()): Promise<KnownProgressView> {
   const [notes, cards, events] = await Promise.all([
     db.notes.toArray(),
     db.cards.toArray(),
@@ -59,15 +82,16 @@ export async function loadKnownProgress(nowMs = Date.now()): Promise<KnownProgre
     cards: cards.map((c) => ({ id: c.id, note_id: c.note_id })),
     events: events.map((e) => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
     now_ms: nowMs,
+    tz_offset_minutes: -new Date(nowMs).getTimezoneOffset(),
   };
-  let result: KnownProgress;
+  let result: KnownProgressView;
   if (typeof Worker === 'undefined') {
-    result = inline(input);
+    result = computeKnown(input);
   } else {
     try {
       result = await inWorker(input);
     } catch {
-      result = inline(input);
+      result = computeKnown(input);
     }
   }
   try {

@@ -9,6 +9,9 @@ import {
   knownProgress, historyPoints, hanCharacters, noteKind, noteKey, knownCountsFromTiers,
   type KnownEventInput,
 } from '../../../shared/progress/known';
+import {
+  knownProgressWithRate, ratePoints, knownRate, weekStart, weekSummary, paceLabel, paceTrendLabel, signedCount,
+} from '../../../shared/progress/known-rate';
 import { computeCardTimeline, type ReviewEvent } from '../../../shared/scheduler/compute-state';
 
 const OUT = process.argv[2];
@@ -58,7 +61,25 @@ for (let c = 0; c < 50; c++) {
   if (events.length > 2 && r() < 0.3) events.push({ ...events[1], id: 'same-time' }); // identical timestamps
   const maxPoints = [60, 2, 10, 30][c % 4];
   const points = historyPoints(events, nowMs, maxPoints);
+  // Per week (known-rate.ts): an offset east of UTC and a cap on the weeks shown.
+  const tz = [0, 60, -300, 330, 540, -480, 345][c % 7];
+  const maxWeeks = [52, 4, 1, 52, 10][c % 5];
+  const rPoints = ratePoints(events, nowMs, tz, maxWeeks);
+  const parsed = events.map((e) => Date.parse(e.reviewed_at)).filter((ms) => !Number.isNaN(ms));
+  const firstMs = parsed.length ? Math.min(...parsed) : null;
+  const rate = knownRate(knownProgress(notes, cards, events, rPoints).history, firstMs, nowMs, tz, maxWeeks);
+  const withRate = knownProgressWithRate(notes, cards, events, nowMs, tz);
   cases.push({
+    tz_offset_minutes: tz,
+    max_weeks: maxWeeks,
+    first_ms: firstMs,
+    rate_points: rPoints,
+    rate,
+    with_rate: withRate,
+    week_summaries: withRate.rate.weeks.map((w) => weekSummary(w, tz)),
+    pace_labels: withRate.rate.pace
+      ? (['characters', 'words'] as const).map((k) => [paceLabel(withRate.rate.pace![k].per_week, k), paceTrendLabel(withRate.rate.pace![k])])
+      : null,
     now_ms: nowMs,
     max_points: maxPoints,
     notes,
@@ -85,8 +106,19 @@ for (let c = 0; c < 30; c++) {
 }
 
 const texts = HANZI.concat(['A跟B不一样', '一起写我们的结局', '我们可以用汉字打字!因为', '123', 'abc def', '你…好', '你；好', '你：好']);
+// weekStart over offsets, both sides of midnight and of Monday.
+const weekStarts = [];
+for (let c = 0; c < 60; c++) {
+  const r = rng(4200 + c);
+  const ms = Date.parse('2025-12-29T00:00:00.000Z') + Math.floor((r() - 0.3) * 400 * DAY);
+  const tz = [0, 60, -300, 330, 540, -480, 345, 780, -720][c % 9];
+  weekStarts.push({ ms, tz, start: weekStart(ms, tz) });
+}
+
 writeFileSync(join(OUT, 'known.json'), JSON.stringify({
   cases,
+  week_starts: weekStarts,
+  signed: [-1234567, -5, 0, 7, 1204].map((n) => ({ n, s: signedCount(n) })),
   timelines,
   texts: texts.map((t) => ({ text: t, chars: hanCharacters(t), kind: noteKind(t), key: noteKey(t) })),
   tiers: Array.from({ length: 20 }, (_, c) => {

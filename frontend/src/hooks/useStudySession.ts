@@ -39,7 +39,7 @@ import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '.
 import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { markDailyActivity, getLocalDateString } from '../api/client';
 import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
-import { isLeadCard } from '@shared/decks';
+import { isLeadCard, pickBumpedCard } from '@shared/decks';
 import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
@@ -177,11 +177,11 @@ export function selectNextItem(
   const cardsToChooseFrom = availableCards.length > 0 ? availableCards : queue;
 
   // Priority 0: bumped cards ("⚡ Study it today"), first in queue order — the learner
-  // asked for them. The recent-notes filter still spaces out a word's sibling cards.
-  if (bumpedCardIds && bumpedCardIds.size > 0) {
-    const bumped = cardsToChooseFrom.find(c => bumpedCardIds.has(c.id));
-    if (bumped) return { card: bumped };
-  }
+  // asked for them. The recent-notes filter still spaces out a word's sibling cards, and a
+  // bumped card never jumps the queue within BUMP_SIBLING_GAP cards of its sibling
+  // (shared/decks/bumps.ts pickBumpedCard).
+  const bumped = pickBumpedCard(cardsToChooseFrom, bumpedCardIds, recentNoteIds);
+  if (bumped) return { card: bumped };
 
   // Priority 1: Learning cards due NOW
   const learningDue = cardsToChooseFrom.filter(c =>
@@ -1146,6 +1146,24 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     presentNothing(updates);
   }, [queue, readerQueue, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
+  /**
+   * "Practise this word other ways…" (shared/decks/other-card-types.ts): cards just put in the
+   * ⚡ pocket by a card-level bump join THIS session at once — first in line once their note
+   * is out of the recent notes, i.e. a few cards after the sibling on screen. Cards outside the
+   * session's deck scope, or already in the queue, are only marked bumped.
+   */
+  const addBumpedCards = useCallback(async (cardIds: string[]) => {
+    const rows = (await db.cards.bulkGet(cardIds)).filter((c): c is LocalCard => !!c && (!deckId || c.deck_id === deckId));
+    if (rows.length === 0) return;
+    for (const c of rows) bumpedCardIdsRef.current.add(c.id);
+    setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+    setQueue(prev => {
+      const have = new Set(prev.map(c => c.id));
+      const extra = rows.filter(c => !have.has(c.id));
+      return extra.length ? [...prev, ...extra] : prev;
+    });
+  }, [deckId]);
+
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {
     initializedRef.current = false;
@@ -1198,6 +1216,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     completeGrammar,
     undoLastReview,
     reloadQueue,
+    addBumpedCards,
     selectNextCard,
     removeNoteFromSession,
     updateCurrentNote,
