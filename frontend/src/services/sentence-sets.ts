@@ -8,10 +8,13 @@ import {
   explainNoteSentence,
   explainSentenceText,
   ensureSentenceAudio as ensureSentenceAudioApi,
+  topUpSentenceSetsApi,
   GenerateSentenceSetOptions,
 } from '../api/client';
 import { SentenceBriefExplanation } from '../types';
 import { preCacheAudio } from './audioCache';
+import { isEffectivelyOffline } from './offlineMode';
+import { listenContextRows, needsSentenceTopUp } from '@shared/study/listenContext';
 
 /**
  * Sentence sets: offline-first storage + sync.
@@ -282,7 +285,64 @@ export async function topUpSentenceSets(): Promise<{ queued: number; remaining: 
   const priority = await getUpcomingNoteIds();
   const result = await prefetchSentenceSets(priority);
   localStorage.setItem(PREFETCH_LAST_RUN_KEY, String(Date.now()));
+  // The upcoming listening cards with fewer than five sentences get more added too.
+  await topUpListeningSentences(await getUpcomingListeningNoteIds()).catch((err) =>
+    console.error('[sentence-sets] Listening top-up failed:', err)
+  );
   return result;
+}
+
+/** Notes a listening top-up was asked for this session (the server keeps its own once-a-day rule). */
+const topUpAsked = new Set<string>();
+
+/** Card sentence + set rows, counted like the "Listen in context" list (a repeated card sentence once). */
+export async function countListenSentences(noteId: string, clue: string | null | undefined): Promise<number> {
+  const rows = await getLocalNoteSentences(noteId);
+  return listenContextRows(noteId, { hanzi: clue }, rows).length;
+}
+
+/**
+ * Listening cards ("Listen in context", shared/study/listenContext.ts): of these notes, the
+ * ones with fewer than five sentences on the device are sent to `POST /api/sentences/top-up`,
+ * which queues more (added after the set, never replacing it). Fire-and-forget: online only,
+ * once per note per session; the new rows come down with a later sentence sync.
+ */
+export async function topUpListeningSentences(noteIds: string[]): Promise<number> {
+  if (!navigator.onLine || isEffectivelyOffline() || noteIds.length === 0) return 0;
+  const ask: string[] = [];
+  for (const noteId of noteIds) {
+    if (topUpAsked.has(noteId)) continue;
+    const note = await db.notes.get(noteId);
+    if (!note) continue;
+    if (!needsSentenceTopUp(await countListenSentences(noteId, note.sentence_clue))) continue;
+    ask.push(noteId);
+  }
+  if (ask.length === 0) return 0;
+  ask.forEach((id) => topUpAsked.add(id));
+  try {
+    const result = await topUpSentenceSetsApi(ask.slice(0, 50));
+    return result.queued;
+  } catch (err) {
+    ask.forEach((id) => topUpAsked.delete(id));
+    throw err;
+  }
+}
+
+/** Upcoming listening cards' notes (due within a day, then new ones), soonest first. */
+async function getUpcomingListeningNoteIds(limit = 30): Promise<string[]> {
+  const now = Date.now();
+  const due = await db.cards
+    .where('due_timestamp')
+    .belowOrEqual(now + 24 * 60 * 60 * 1000)
+    .filter((c) => c.card_type === 'audio_to_hanzi')
+    .limit(limit)
+    .toArray();
+  const ordered = due.sort((a, b) => (a.due_timestamp ?? Infinity) - (b.due_timestamp ?? Infinity));
+  const ids: string[] = [];
+  for (const card of ordered) {
+    if (!ids.includes(card.note_id)) ids.push(card.note_id);
+  }
+  return ids.slice(0, limit);
 }
 
 /**

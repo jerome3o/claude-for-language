@@ -166,3 +166,19 @@ export async function enqueueSentenceSet(env: Env, noteId: string, count?: numbe
     console.error('[sentence-set] Failed to enqueue note', noteId, error);
   }
 }
+
+/**
+ * Queue a listening card's top-up: `count` more sentences added after the note's set
+ * (shared/study/listenContext.ts). Marked like a set job, so the one-a-day rule and the
+ * prefetch sweeps see it. Best-effort.
+ */
+export async function enqueueSentenceTopUp(env: Env, noteId: string, count: number): Promise<boolean> {
+  try {
+    await env.SENTENCE_SET_QUEUE.send({ noteId, count, kind: 'top_up' });
+    await db.markSentenceSetJobQueued(env.DB, noteId);
+    return true;
+  } catch (error) {
+    console.error('[sentence-set] Failed to enqueue top-up', noteId, error);
+    return false;
+  }
+}

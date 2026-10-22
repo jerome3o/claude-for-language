@@ -106,6 +106,8 @@ export const ANALYTICS_EVENTS = {
   'study.long_term_toggle': e('study', '"Add to my long-term review" switched for a word.', ['value']),
   'study.sentence_reveal': e('study', 'Tapped an example sentence row open.', ['step']),
   'study.sentence_explain': e('study', '"What\'s going on here?" on an example sentence.', []),
+  'study.listen_context': e('study', 'A listening card answered: its "Listen in context" question side — sentences played (incl. the auto-played first one), whether "Try the sentences first?" was shown, whether he chose "Play the word anyway".', ['sentences_played', 'word_first_prompt_shown', 'played_word_anyway']),
+  'study.listen_more_sentences': e('study', '"+ More sentences" on a listening card\'s question side (sentences before / after).', ['before', 'after']),
   'study.tutor_note_practice': e('study', 'Practised cards from a tutor note.', ['count']),
   'study.tutor_model_play': e('study', "Played the tutor's model recording on a tutor note, or their own take beside it.", ['where', 'which']),
   'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue.', ['source', 'count', 'already']),
@@ -403,6 +405,7 @@ export const VERBOSE_ONLY_EVENTS: readonly AnalyticsEventName[] = [
   'explorer.push',
   'reader.audio_block',
   'chat.listening_play',
+  'study.listen_context',
 ];
 
 export function parseAnalyticsLevel(raw: unknown): AnalyticsLevel {

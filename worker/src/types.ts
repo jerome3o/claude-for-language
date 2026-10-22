@@ -173,8 +173,10 @@ export interface SentenceSetMessage {
    * paths save a clue without audio, which leaves its ▶ silent.
    * 'note_audio' / 'sentence_audio' regenerate a clip that was produced by the
    * Google fallback, replacing it with MiniMax (see /api/audio/regenerate-fallback).
+   * 'top_up' ADDS sentences to a listening card's note with fewer than five in total
+   * (card sentence + set; shared/study/listenContext.ts), keeping the rows it has.
    */
-  kind?: 'set' | 'clue_audio' | 'note_audio' | 'sentence_audio';
+  kind?: 'set' | 'clue_audio' | 'note_audio' | 'sentence_audio' | 'top_up';
   /** For 'sentence_audio': the note_sentences row to regenerate. */
   sentenceId?: string;
   /** For 'clue_audio': replace existing audio rather than only filling a gap. */

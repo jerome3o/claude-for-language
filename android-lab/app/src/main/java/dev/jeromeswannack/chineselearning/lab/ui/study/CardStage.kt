@@ -96,6 +96,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
+import dev.jeromeswannack.chineselearning.lab.core.ListenContext
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
 import dev.jeromeswannack.chineselearning.lab.core.Rating
@@ -218,11 +219,23 @@ fun CardStage(
         label = "glow",
     )
 
+    // A listening card's question is "Listen in context" (ListenContextUi.kt): auto-play is the
+    // FIRST SENTENCE with a clip, the word only when no sentence has one (core ListenContext.autoplay).
+    val listen = remember(view.presentation) { ListenState() }
+    val currentView by rememberUpdatedState(view)
+    val currentUi by rememberUpdatedState(ui)
+    val isCurrent: () -> Boolean = { currentView.presentation == view.presentation }
     LaunchedEffect(view.presentation) {
         if (!autoplay) return@LaunchedEffect
         if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !revealed) {
             delay(250)
-            actions.onPlayWord(false)
+            val rows = listenRows(currentView)
+            val states = listenStates(rows, currentView, currentUi.aiAvailable)
+            when (val a = ListenContext.autoplay(true, states)) {
+                is ListenContext.Autoplay.Sentence -> listenPlay(rows[a.index], states[a.index], listen, actions, this, isCurrent)
+                ListenContext.Autoplay.Word -> actions.onPlayWord(false)
+                ListenContext.Autoplay.None -> Unit
+            }
         }
     }
     // The box gets the focus (keyboard up) only once it shows: ✏️ Type, offline, or a resumed answer.
@@ -236,6 +249,10 @@ fun CardStage(
         verdict = v
         revealed = true
         flipped = true
+        if (view.card.cardType == CardTypes.AUDIO_TO_HANZI && !listen.tracked) {
+            listen.tracked = true
+            actions.onListenContext(listen.playedCount, listen.promptShown, listen.anyway)
+        }
         actions.onReveal(v)
         if (v != null && answerIsSpoken(answer)) actions.onSpokenChecked(v, false, spokenReviewed)
         if (v != null && AnswerKey.isAccepted(v)) burst++
@@ -355,6 +372,8 @@ fun CardStage(
                     // Check / the grid — so a stray tap on the face never gives the answer away.
                     CardFront(
                         view, ui, playingKey, actions, start.showClue, revealed,
+                        listen = listen,
+                        isCurrent = isCurrent,
                         sayAgainDraft = sayAgainDraft,
                         onSayAgainDraft = { sayAgainDraft = it },
                         onTapToAnswer = {
@@ -571,6 +590,8 @@ private fun CardFront(
     actions: StudyActions,
     startShowClue: Boolean,
     revealed: Boolean,
+    listen: ListenState = remember(view.presentation) { ListenState() },
+    isCurrent: () -> Boolean = { true },
     sayAgainDraft: androidx.compose.ui.text.input.TextFieldValue = androidx.compose.ui.text.input.TextFieldValue(""),
     onSayAgainDraft: (androidx.compose.ui.text.input.TextFieldValue) -> Unit = {},
     onTapToAnswer: () -> Unit,
@@ -584,10 +605,14 @@ private fun CardFront(
     // Short card (a long multiple-choice grid below takes most of the screen): a tighter front
     // that scrolls rather than clipping — the prompt stays readable above the grid.
     val short = maxHeight < SHORT_FRONT
+    // A listening card's question holds its sentence list ("Listen in context"): it scrolls.
+    val listening = view.card.cardType == CardTypes.AUDIO_TO_HANZI
+    val scrolls = short || listening
+    val listenScope = rememberCoroutineScope()
     val frontHeight = maxHeight
     val frontScroll = rememberScrollState()
     Column(
-        (if (short) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
+        (if (scrolls) Modifier.fillMaxSize().verticalScroll(frontScroll).heightIn(min = maxHeight) else Modifier.fillMaxSize())
             // Peeking (revealed): a tap anywhere on the question turns back to the answer.
             // Unrevealed: the face is inert — only the controls below reveal.
             .then(if (revealed) Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToAnswer) else Modifier)
@@ -611,7 +636,7 @@ private fun CardFront(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).padding(10.dp).heightIn(max = 80.dp),
             )
         }
-        if (!short) Spacer(Modifier.weight(1f))
+        if (!scrolls) Spacer(Modifier.weight(1f)) else if (listening && !short) Spacer(Modifier.height(12.dp))
         when (view.card.cardType) {
             CardTypes.HANZI_TO_MEANING -> FrontHanzi(note.hanzi, rememberShimmerChars(view.newChars))
             CardTypes.MEANING_TO_HANZI -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -626,11 +651,15 @@ private fun CardFront(
                     textAlign = TextAlign.Center,
                 )
             }
-            else -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                BigPlayButton(playing = isWordPlaying(playingKey, view, ui), size = if (short) 76.dp else 132.dp, generating = ui.cardAudio.word == ClipState.GENERATING) { actions.onPlayWord(true) }
+            // Listen in context: the sentences (audio only), then ▶ The word (ListenContextUi.kt).
+            else -> ListenContextPanel(
+                view, ui, playingKey, actions, listen, listenScope, isCurrent,
+                wordPlaying = isWordPlaying(playingKey, view, ui),
+                wordGenerating = ui.cardAudio.word == ClipState.GENERATING,
+            ) {
                 val voices = ui.extras.voices
                 if (voices.size > 1) {
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
                     Text("Voice ${ui.extras.voiceIndex + 1}/${voices.size} · tap for the next", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
                 }
                 OfflineAudioNote(view, ui)
@@ -641,7 +670,7 @@ private fun CardFront(
                 }
             }
         }
-        if (!short) Spacer(Modifier.weight(1f))
+        if (!scrolls) Spacer(Modifier.weight(1f)) else if (listening && !short) Spacer(Modifier.height(12.dp))
         if (revealed && ui.extras.take.recording) {
             // Record again: the question while the new take records — a tap anywhere stops it.
             RecordingAgainPanel(actions)
@@ -659,7 +688,8 @@ private fun CardFront(
             AnimatedVisibility(showClue && clue != null && reading, enter = fadeIn() + expandVertically()) {
                 Text(clue.orEmpty(), style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 4.dp))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // A listening card has its sentences above ("Listen in context"): no clue button.
+            if (!listening) Row(verticalAlignment = Alignment.CenterVertically) {
                 val clueAudioBusy = clue != null && !reading && ui.cardAudio.sentence == ClipState.GENERATING
                 val clueEnabled = !generating && !clueAudioBusy && (clue != null || ui.aiAvailable)
                 TextButton(
@@ -1074,20 +1104,7 @@ private fun TypeChip(cardType: String) {
     )
 }
 
-@Composable
-private fun BigPlayButton(playing: Boolean, size: Dp = 132.dp, generating: Boolean = false, onClick: () -> Unit) {
-    val pulse by animateFloatAsState(if (playing) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow), label = "pulse")
-    Box(
-        Modifier.size(size).scale(pulse).clip(CircleShape).background(Lab.colors.accentSoft).clickable(onClick = onClick).testTag(PLAY_WORD_TAG),
-        contentAlignment = Alignment.Center,
-    ) {
-        // Auto-audio: the clip is being made — a ring round the speaker; it plays when it lands.
-        if (generating) CircularProgressIndicator(Modifier.fillMaxSize().padding(6.dp), color = Lab.colors.accent, strokeWidth = 3.dp)
-        Icon(Icons.AutoMirrored.Filled.VolumeUp, if (generating) CardAudioRules.GENERATING else "Play", Modifier.size(size * 0.42f), tint = Lab.colors.accent.copy(alpha = if (generating) 0.5f else 1f))
-    }
-}
-
-/** The word's Play button (front speaker or back pill), for tests. */
+/** The word's Play button (the listening card's "▶ The word" or the back's pill), for tests. */
 const val PLAY_WORD_TAG = "play-word"
 
 private fun hanziSize(hanzi: String): TextUnit = studyHanziSize(hanzi)
