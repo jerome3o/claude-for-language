@@ -56,9 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
-import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
-import dev.jeromeswannack.chineselearning.lab.core.Rating
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
+import dev.jeromeswannack.chineselearning.lab.core.LessonRun
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttempts
 import dev.jeromeswannack.chineselearning.lab.core.LessonExercise
@@ -68,7 +68,9 @@ import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRecording
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
-import dev.jeromeswannack.chineselearning.lab.ui.study.RatingBar
+import dev.jeromeswannack.chineselearning.lab.data.lessons.SavedLessonRun
+import dev.jeromeswannack.chineselearning.lab.data.lessons.SavedRecording
+import dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -82,83 +84,83 @@ fun flattenSpec(spec: CustomLessonSpec): List<FlatExercise> = spec.sections.flat
     }
 }
 
-/** What a finished run hands back (StudyCustomLesson's onComplete). */
+/** What a finished real run hands back (web StudyCustomLesson's `LessonRunResult`). */
 data class LessonResult(
     val correct: Int,
     val total: Int,
-    val rating: Int,
     val attempt: LessonAttemptData,
     val recordings: List<LessonRecording>,
-    /** "Done for good": finished (rated Good for the record) and never scheduled again. */
-    val retire: Boolean = false,
+    /** What it missed first time (core LessonRevision): decides done forever vs a revision in a week. */
+    val outcome: LessonRevision.Outcome = LessonRevision.Outcome(),
+    /** "full" | "revision". */
+    val mode: String = "full",
 )
 
-/** Where the player sits: the study session (counts), a homework pass, or a preview (nothing recorded). */
+/** Where the player sits: a mini lesson run, a homework pass, or a preview (nothing recorded). */
 sealed interface PlayerContext {
-    data class Session(val counts: QueueCounts) : PlayerContext
     data object Homework : PlayerContext
     data object Preview : PlayerContext
-    /** Lab "today split": a lesson started from Home / today's list (recorded exactly like the session). */
-    data object Today : PlayerContext
     /**
-     * "▶ Do it again" / "▶ Start" outside the session (Mini Lessons, a done row of today's list, a
-     * finished homework pass). A rating is a normal completion; [practice] (`replayIsPractice`: not
-     * due today) also offers Practice only, which records nothing.
+     * A mini lesson outside a homework pass — Home's homework / to-do rows, the Mini Lessons page
+     * (▶ Start / ▶ Revision / ▶ Continue / ▶ Do it again), the podcast player's companion card.
+     * Mini lessons are no longer part of the study session (Oct 2026). [source] = analytics.
      */
-    data class Replay(val practice: Boolean) : PlayerContext
+    data class Lesson(val source: String = "lessons_page") : PlayerContext
 }
 
 /**
- * A half-done run to continue ([saved], null = start fresh) and where to save the run after
- * every exercise (core LessonResume; data/lessons/LessonProgressStore). Never for previews.
+ * A half-done run to continue ([saved], null = start fresh) and where to save the run after every
+ * exercise (data/lessons/LessonProgressStore — never bounded by date). Never for previews.
  */
 class LessonResumeHandle(
-    val saved: dev.jeromeswannack.chineselearning.lab.core.LessonResume.Progress?,
-    /** Opened earlier today (and left before answering anything): "Back to today's lesson". */
-    val openedBefore: Boolean = false,
-    /** A real run opened: the lesson is today's (LessonProgressStore.markStarted). */
-    val onOpen: () -> Unit = {},
-    val onProgress: (index: Int, correct: Int, total: Int, startedAt: Long, attempts: List<ExerciseAttempt>, recordings: List<LessonRecording>) -> Unit = { _, _, _, _, _, _ -> },
+    val saved: SavedLessonRun?,
+    val onProgress: (SavedLessonRun) -> Unit = {},
     val onStartOver: () -> Unit = {},
 )
 
 /**
- * A custom mini lesson (the web's StudyCustomLesson): walks the flattened exercises,
- * builds the attempt (answer + time per exercise, recordings by media key) and ends with
- * the rating bar (its gap sets when the lesson comes back — "revisit later") and Done for good. [PlayerContext.Preview] records nothing
- * and offers Try again / Done instead of a rating.
- */
-/**
  * A preview that may be KEPT (the Sentence Coach's "🎯 Mini lesson on this mistake"; web
  * StudyCustomLesson `previewSave`): played with nothing recorded, then "Save to my mini lessons" —
- * the rating saves it with this run as its first completion, "＋ Save" in the top bar saves it
- * without one, "Not now" leaves.
+ * this run becomes its first completion (a lesson with mistakes comes back as a revision in a
+ * week), "＋ Save" in the top bar saves it without one, "Not now" leaves.
  */
 class PreviewSave(
-    /** Rating-bar labels for a lesson finished for the first time. */
-    val previews: List<IntervalPreview>,
-    /** Already in his mini lessons (saved before, or with ＋ Save just now): the end still asks for a rating. */
+    /** Already in his mini lessons (saved before, or with ＋ Save just now). */
     val saved: Boolean,
     val busy: Boolean = false,
     val error: String? = null,
     val onSaveNow: () -> Unit = {},
-    val onSaveRated: (LessonResult) -> Unit = {},
+    val onSaveDone: (LessonResult) -> Unit = {},
 )
 
 /** Test tags of the keepable preview. */
 const val PREVIEW_SAVE_NOW_TAG = "lesson-preview-save-now"
 const val PREVIEW_SAVE_TAG = "lesson-preview-save"
 const val PREVIEW_NOT_NOW_TAG = "lesson-preview-not-now"
+/** Test tags of the run: the progress bar, the retry line, the end line, Done. */
+const val LESSON_BAR_TAG = "lesson-run-bar"
+const val LESSON_RETRY_TAG = "lesson-retry-line"
+const val LESSON_END_TAG = "lesson-end-line"
+const val LESSON_DONE_TAG = "lesson-done"
 
 /** `lesson.start` / `lesson.complete` source: where the player sits. */
 private fun lessonSource(context: PlayerContext): String = when (context) {
-    is PlayerContext.Session -> "session"
     PlayerContext.Homework -> "homework"
     PlayerContext.Preview -> "preview"
-    PlayerContext.Today -> "today"
-    is PlayerContext.Replay -> "replay"
+    is PlayerContext.Lesson -> context.source
 }
 
+/**
+ * A custom mini lesson (the web's StudyCustomLesson): the whole lesson, or its REVISION
+ * ([revisionKeys]: what was missed last time + a few that were got; core LessonRevision). Walks the
+ * run's steps (core LessonRun), builds the attempt (answer + time per exercise, recordings by media
+ * key), then the RETRY ROUND: every scored exercise answered wrong on the main pass comes back until
+ * it is right — the bar grows an orange "owed" part at its right end that the blue catches up (the
+ * homework pass's retry bar). The end records the completion at once (its outcome decides: all
+ * right first time → done forever; otherwise a revision in a week) — no rating to give. A real run
+ * is saved after every exercise ([resume]) and continues next time; ✕ never records a completion.
+ * [PlayerContext.Preview] records nothing.
+ */
 @Composable
 fun LessonPlayer(
     title: String,
@@ -166,63 +168,100 @@ fun LessonPlayer(
     spec: CustomLessonSpec,
     env: ExerciseEnv,
     context: PlayerContext,
-    previews: List<IntervalPreview>?,
     onComplete: (LessonResult) -> Unit,
     onEnd: () -> Unit,
     onCelebrate: () -> Unit = {},
+    /** The editor preview's jump: the main-pass step to start on. */
     startAt: Int = 0,
-    /** False inside the study session, which keeps its own top bar (counts, ✕, undo). */
+    /** False inside a host with its own top bar. */
     showTopBar: Boolean = true,
-    /** The exercise now on screen (the editor preview's jump bar follows it); items.size = done. */
+    /** The main-pass step now on screen (the editor preview's jump bar follows it); steps.size = done. */
     onIndex: (Int) -> Unit = {},
     /** Continue a half-done run and save this one after every exercise (null: previews, nothing kept). */
     resume: LessonResumeHandle? = null,
-    /** [PlayerContext.Replay]'s "Practice only": the run ends with nothing recorded. */
-    onPracticeDone: () -> Unit = {},
+    /** A revision: its scored exercises (LessonRevision.revisionKeys); null = the whole lesson. */
+    revisionKeys: List<String>? = null,
     /** With [PlayerContext.Preview]: offer to keep the lesson ([PreviewSave]). */
     previewSave: PreviewSave? = null,
 ) {
-    val items = remember(spec) { flattenSpec(spec) }
+    val preview = context is PlayerContext.Preview
+    val shape = remember(spec) { LessonRun.shape(spec) }
     var run by remember { mutableIntStateOf(0) }
-    // A run saved earlier today continues where it stopped (the exercise on screen starts again).
-    val restored = remember(spec) { resume?.saved?.takeIf { context !is PlayerContext.Preview && it.index in 1..items.size } }
+    // A run saved earlier continues where it stopped (the exercise on screen starts again) — any day.
+    val restored = remember(spec) { resume?.saved?.takeIf { !preview } }
     var continuing by remember { mutableStateOf(restored != null) }
     fun from(run: Int) = if (run == 0) restored else null
-    var idx by remember(run) { mutableIntStateOf(from(run)?.index ?: startAt) }
+    val mode = remember(run) { from(run)?.mode ?: if (revisionKeys != null) "revision" else "full" }
+    val keys = remember(run) { if (from(run) != null) from(run)!!.keys else revisionKeys }
+    val exercises = remember(spec) {
+        val map = HashMap<String, Pair<LessonExercise, String?>>()
+        spec.sections.forEachIndexed { si, s -> s.exercises.forEachIndexed { i, ex -> map[LessonRun.exerciseKey(si, i)] = ex to s.title } }
+        map
+    }
+    val steps = remember(spec, keys) { LessonRun.steps(spec, keys).filter { exercises[it.key]?.first?.let(Lessons::isPlayable) == true } }
+    var state by remember(run) { mutableStateOf(from(run)?.state ?: LessonRun.State(pos = startAt.coerceIn(0, steps.size))) }
     var correct by remember(run) { mutableIntStateOf(from(run)?.correct ?: 0) }
     var total by remember(run) { mutableIntStateOf(from(run)?.total ?: 0) }
-    var rating by remember(run) { mutableStateOf(false) }
     val startedAt = remember(run) { from(run)?.startedAt ?: System.currentTimeMillis() }
     var exerciseStart by remember(run) { mutableLongStateOf(System.currentTimeMillis()) }
     val attempts = remember(run) { mutableStateListOf<ExerciseAttempt>().apply { from(run)?.let { addAll(it.attempts) } } }
     val recordings = remember(run) {
         mutableStateListOf<LessonRecording>().apply { from(run)?.let { p -> addAll(p.recordings.map { LessonRecording(it.mediaKey, java.io.File(it.path), it.mime) }) } }
     }
-    val preview = context is PlayerContext.Preview
-    val done = idx >= items.size
+    var endLine by remember(run) { mutableStateOf<String?>(null) }
+    var completed by remember(run) { mutableStateOf(false) }
+    val current = LessonRun.current(state, steps)
+    val done = current == null
+    val bar = LessonRun.retryBar(state, steps)
 
     LaunchedEffect(done) { if (done) onCelebrate() }
     // Usage analytics: a real run (previews record nothing — not even this).
-    LaunchedEffect(run) { if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.start", mapOf("source" to lessonSource(context), "exercises" to items.size)) }
-    // A real run makes the lesson today's: closing it (even on its intro) never drops it from today.
-    LaunchedEffect(Unit) { if (!preview) resume?.onOpen?.invoke() }
-    LaunchedEffect(idx) { onIndex(idx) }
+    LaunchedEffect(run) {
+        if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.start", mapOf("source" to lessonSource(context), "exercises" to steps.size, "mode" to mode))
+        if (!preview && run == 0 && restored != null) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.resume", mapOf("source" to lessonSource(context), "mode" to mode, "exercises" to steps.size, "at" to restored.state.pos))
+    }
+    LaunchedEffect(state.pos) { onIndex(state.pos) }
     // Every clip of the lesson fetched as it opens, the exercise on screen first (docs/AUDIO.md
     // "Lesson audio prefetch"); `lesson.audio` when it closes.
-    // (The env is rebuilt on every recomposition — keyed on the spec, read through the latest one.)
     val latestEnv by androidx.compose.runtime.rememberUpdatedState(env)
-    val audioIndex = remember(spec) { kotlinx.coroutines.flow.MutableStateFlow(idx) }
-    androidx.compose.runtime.SideEffect { audioIndex.value = idx }
+    val flatIndex = current?.let { c -> flattenSpec(spec).indexOfFirst { it.section == c.step.section && it.index == c.step.index } } ?: 0
+    val audioIndex = remember(spec) { kotlinx.coroutines.flow.MutableStateFlow(flatIndex.coerceAtLeast(0)) }
+    androidx.compose.runtime.SideEffect { audioIndex.value = flatIndex.coerceAtLeast(0) }
     DisposableEffect(spec) {
         latestEnv.lessonAudioOpened()
         onDispose { latestEnv.lessonAudioDone(lessonSource(context)) }
     }
     LaunchedEffect(spec) { latestEnv.prefetchLesson(spec, audioIndex) }
 
+    fun attemptData(): LessonAttemptData {
+        // A run continued on another day: the time spent on its exercises, not the days between.
+        val duration = if (restored != null && run == 0) attempts.sumOf { Math.max(0L, it.durationMs) } else System.currentTimeMillis() - startedAt
+        return LessonAttemptData(Js.toIsoString(startedAt), duration, attempts.toList())
+    }
+
+    fun finish() {
+        val attempt = attemptData()
+        val outcome = LessonRevision.runOutcome(attempt) ?: LessonRevision.Outcome()
+        endLine = LessonRevision.runEndLine(outcome, mode == "revision")
+        if (preview || completed) return
+        completed = true
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+            "lesson.complete",
+            mapOf(
+                "source" to lessonSource(context), "mode" to mode, "duration_ms" to attempt.durationMs,
+                "missed" to outcome.missed.size, "scored" to outcome.keys.size, "retries" to attempts.count { (it.retry ?: 0) > 0 },
+            ),
+        )
+        onComplete(LessonResult(correct, total, attempt, recordings.toList(), outcome, mode))
+    }
+
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
-        val item = items[idx]
-        val attempt = LessonAttempts.attemptFor(item.section, item.index, item.exercise, isCorrect, answer, System.currentTimeMillis() - exerciseStart)
-        if (isCorrect != null && attempt.maxPoints > 0) {
+        val cur = LessonRun.current(state, steps) ?: return
+        val ex = exercises[cur.step.key]?.first ?: return
+        val retry = if (cur.phase == "retry") LessonRun.retryNumber(attempts, cur.step.key) else 0
+        val base = LessonAttempts.attemptFor(cur.step.section, cur.step.index, ex, isCorrect, answer, System.currentTimeMillis() - exerciseStart)
+        val attempt = if (retry > 0) base.copy(retry = retry) else base
+        if (cur.phase == "main" && isCorrect != null && attempt.maxPoints > 0) {
             correct += attempt.points
             total += attempt.maxPoints
         }
@@ -232,9 +271,30 @@ fun LessonPlayer(
         exerciseStart = System.currentTimeMillis()
         // A clip still on its way never plays on the next exercise.
         env.exerciseChanged()
-        idx++
+        // Wrong = owed (main pass) / back of the queue (retry round): a conversation with a missed question too.
+        val wrong = LessonRun.verdictWrong(isCorrect, attempt.points, attempt.maxPoints)
+        val next = LessonRun.advance(state, steps, if (isCorrect == null) null else !wrong)
+        state = next
         continuing = false
-        if (!preview) resume?.onProgress(idx, correct, total, startedAt, attempts.toList(), recordings.toList())
+        if (cur.phase == "retry") {
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.retry", mapOf("type" to cur.step.type, "right" to !wrong, "left" to LessonRun.retryBar(next, steps).retries))
+        }
+        if (LessonRun.finished(next, steps)) finish()
+        else if (!preview) resume?.onProgress(
+            SavedLessonRun(
+                lessonId = restored?.lessonId ?: "", shape = shape, mode = mode, keys = keys, state = next, correct = correct, total = total,
+                startedAt = startedAt, savedAt = System.currentTimeMillis(), attempts = attempts.toList(),
+                recordings = recordings.map { SavedRecording(it.mediaKey, it.file.absolutePath, it.mime) },
+            ),
+        )
+    }
+
+    fun startOver() {
+        resume?.onStartOver()
+        continuing = false
+        env.exerciseChanged()
+        if (!preview) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.start_over", mapOf("source" to lessonSource(context)))
+        run++
     }
 
     Box(Modifier.fillMaxSize().background(Lab.colors.background).then(if (showTopBar) Modifier.safeDrawingPadding() else Modifier)) {
@@ -242,10 +302,8 @@ fun LessonPlayer(
             if (showTopBar) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f).padding(start = 12.dp)) {
                     when (context) {
-                        is PlayerContext.Session -> SessionCounts(context.counts)
-                        PlayerContext.Homework -> Text("Homework", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
-                        PlayerContext.Today -> Text("Today's mini lesson", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
-                        is PlayerContext.Replay -> Text("Mini lesson · again", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
+                        PlayerContext.Homework -> Text(if (mode == "revision") "Homework · revision" else "Homework", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
+                        is PlayerContext.Lesson -> Text(if (mode == "revision") "Mini lesson · revision" else "Mini lesson", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted)
                         PlayerContext.Preview -> Text(
                             when { previewSave == null -> "Preview · nothing is recorded"; previewSave.saved -> "✓ In your mini lessons"; else -> "Trying it · not saved yet" },
                             color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
@@ -255,7 +313,7 @@ fun LessonPlayer(
                 if (preview && previewSave != null && !previewSave.saved && !done) {
                     SecondaryPill(if (previewSave.busy) "Saving…" else "＋ Save", Modifier.heightIn(min = 44.dp).testTag(PREVIEW_SAVE_NOW_TAG), enabled = !previewSave.busy, onClick = previewSave.onSaveNow)
                 }
-                IconButton(onClick = onEnd) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "End session", tint = Lab.colors.muted) }
+                IconButton(onClick = onEnd) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "Close lesson", tint = Lab.colors.muted) }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -264,50 +322,52 @@ fun LessonPlayer(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${icon ?: "🎓"}  MINI LESSON", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp)
+                        Text("${icon ?: "🎓"}  ${if (mode == "revision") "REVISION" else "MINI LESSON"}", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp)
                         Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
                     }
-                    if (continuing && run == 0 && restored != null) {
-                        ContinueLine(dev.jeromeswannack.chineselearning.lab.core.LessonResume.continueLine(restored.index, items.size)) {
-                            resume?.onStartOver()
-                            continuing = false
-                            env.exerciseChanged()
-                            run++
-                        }
-                    } else if (restored == null && resume?.openedBefore == true && run == 0 && idx == 0 && !preview && items.isNotEmpty()) {
-                        // Opened earlier today and closed on the first exercise (nothing to restore).
-                        ContinueLine(dev.jeromeswannack.chineselearning.lab.core.LessonResume.reopenedLine(items.size), onStartOver = null)
+                    if (continuing && run == 0 && restored != null && !done) {
+                        ContinueLine(LessonRun.resumeLine(state, steps)) { startOver() }
                     }
                     if (!done) {
-                        val progress by animateFloatAsState(if (items.isEmpty()) 1f else idx.toFloat() / items.size, spring(dampingRatio = 0.9f, stiffness = 120f), label = "lessonProgress")
-                        Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
-                            Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).clip(CircleShape).background(Brush.horizontalGradient(listOf(Violet, Palette.Easy))))
-                        }
+                        RetryProgressBar(bar, Modifier.fillMaxWidth().testTag(LESSON_BAR_TAG), unit = LessonRun.EXERCISE_UNIT)
+                    }
+                    if (current?.phase == "retry") {
+                        Text(
+                            "🔁 ${LessonRun.retryLine(bar.retries)}",
+                            color = Palette.Hard, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
+                                .background(Palette.Hard.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 8.dp).testTag(LESSON_RETRY_TAG),
+                        )
                     }
                     AnimatedContent(
-                        targetState = idx,
+                        targetState = Triple(run, current?.phase, current?.step?.key to bar.answered),
                         transitionSpec = {
                             (slideInHorizontally(spring(dampingRatio = 0.85f, stiffness = 380f)) { it / 4 } + fadeIn(tween(180))) togetherWith
                                 (slideOutHorizontally(tween(200)) { -it / 4 } + fadeOut(tween(150)))
                         },
                         label = "exercise",
-                    ) { i ->
+                    ) { target ->
+                        val key = target.third.first
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (i >= items.size) {
-                                DoneBody(icon, title, correct, total, preview && previewSave == null)
+                            if (key == null) {
+                                DoneBody(icon, title, correct, total, preview && previewSave == null, mode == "revision", if (preview) null else endLine)
                             } else {
-                                val item = items[i]
-                                if (item.sectionStart) {
-                                    Text(item.sectionTitle.orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
+                                val (exercise, sectionTitle) = exercises[key] ?: return@Column
+                                val step = steps.first { it.key == key }
+                                val sectionStart = target.second == "main" && step.index == 0 && !sectionTitle.isNullOrBlank()
+                                if (sectionStart) {
+                                    Text(sectionTitle.orEmpty(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Lab.colors.ink)
                                 }
-                                if (Lessons.renderable(item.exercise)) {
+                                val stillHere = { current?.step?.key == key && bar.answered == target.third.second }
+                                val mediaKey = if (preview) null else LessonRun.retryMediaKey(step.section, step.index, if (target.second == "retry") LessonRun.retryNumber(attempts, key) else 0)
+                                if (Lessons.renderable(exercise)) {
                                     androidx.compose.runtime.CompositionLocalProvider(LocalLessonFocus provides title) {
-                                        ExerciseView(item.exercise, env, if (preview) null else LessonAttempts.mediaKey(item.section, item.index)) { c, a, r -> if (i == idx) advance(c, a, r) }
+                                        ExerciseView(exercise, env, mediaKey) { c, a, r -> if (stillHere()) advance(c, a, r) }
                                     }
                                 } else {
                                     // A half-typed exercise in the editor (the validator is the authority; this keeps it from crashing).
                                     Text("This exercise isn't complete yet — fill in its fields to preview it.", color = Lab.colors.muted)
-                                    SecondaryPill("Skip", Modifier.height(48.dp)) { if (i == idx) advance(null, null, null) }
+                                    SecondaryPill("Skip", Modifier.height(48.dp)) { if (stillHere()) advance(null, null, null) }
                                 }
                             }
                         }
@@ -317,45 +377,24 @@ fun LessonPlayer(
                 if (done) ConfettiRain(key = run, colors = Palette.Confetti)
             }
 
-            if (done && !preview && previews != null) {
-                Column(Modifier.fillMaxWidth().background(Lab.colors.card).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("How well do you know this material now?", color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    RatingBar(previews, enabled = !rating) { r ->
-                        if (rating) return@RatingBar
-                        rating = true
-                        val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
-                        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to listOf("again", "hard", "good", "easy").getOrNull(r), "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
-                        onComplete(LessonResult(correct, total, r, attempt, recordings.toList()))
-                    }
-                    // "Revisit later": or never again (web: RatingButtons onDoneForGood).
-                    dev.jeromeswannack.chineselearning.lab.ui.kit.DoneForGoodButton(enabled = !rating) {
-                        if (rating) return@DoneForGoodButton
-                        rating = true
-                        val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
-                        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.complete", mapOf("rating" to "good", "source" to lessonSource(context), "duration_ms" to System.currentTimeMillis() - startedAt))
-                        onComplete(LessonResult(correct, total, Rating.GOOD, attempt, recordings.toList(), retire = true))
-                    }
-                    if (context is PlayerContext.Replay && context.practice) {
-                        // Not due today: practise it without changing when it comes back (nothing recorded).
-                        SecondaryPill("Practice only", Modifier.fillMaxWidth().height(48.dp).testTag(PRACTICE_ONLY_TAG), enabled = !rating) {
-                            if (rating) return@SecondaryPill
-                            rating = true
-                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.replay_practice", mapOf("exercises" to items.size, "duration_ms" to System.currentTimeMillis() - startedAt))
-                            onPracticeDone()
-                        }
-                        Text("Nothing is recorded · it comes back when it was going to", color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    }
+            if (done && !preview) {
+                Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp)) {
+                    PrimaryPill("Done", Modifier.fillMaxWidth().height(54.dp).testTag(LESSON_DONE_TAG), onClick = onEnd)
                 }
             }
             if (done && preview && previewSave != null) {
                 Column(Modifier.fillMaxWidth().background(Lab.colors.card).padding(horizontal = 16.dp, vertical = 12.dp).testTag(PREVIEW_SAVE_TAG), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        if (previewSave.saved) "How well do you know this now? Your rating decides when it comes back." else "Save it to your mini lessons? How well do you know this now?",
+                        if (previewSave.saved) "Keep this run as done? Anything you missed comes back in a week as a revision."
+                        else "Save it to your mini lessons? Anything you missed comes back in a week as a revision.",
                         color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                     )
-                    RatingBar(previewSave.previews, enabled = !previewSave.busy) { r ->
-                        val attempt = LessonAttemptData(Js.toIsoString(startedAt), System.currentTimeMillis() - startedAt, attempts.toList())
-                        previewSave.onSaveRated(LessonResult(correct, total, r, attempt, emptyList()))
+                    PrimaryPill(
+                        if (previewSave.busy) "Saving…" else if (previewSave.saved) "Save this run" else "Save to my mini lessons",
+                        Modifier.fillMaxWidth().height(54.dp), enabled = !previewSave.busy,
+                    ) {
+                        val attempt = attemptData()
+                        previewSave.onSaveDone(LessonResult(correct, total, attempt, emptyList(), LessonRevision.runOutcome(attempt) ?: LessonRevision.Outcome(), mode))
                     }
                     previewSave.error?.let { Text(it, color = Palette.Again, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {

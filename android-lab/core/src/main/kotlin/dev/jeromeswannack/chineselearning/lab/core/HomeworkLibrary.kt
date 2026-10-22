@@ -100,13 +100,42 @@ object HomeworkLibrary {
 
     /**
      * Port of libraryStatus: a long-term deck is `long_term`; else Completed wins; then a due date
-     * before today → Overdue; then started → In progress.
+     * before today → Overdue; then started → In progress. [revising] = a lesson finished with
+     * mistakes, coming back as a revision: In progress, never Overdue.
      */
-    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String, longTerm: Boolean = false): String {
+    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String, longTerm: Boolean = false, revising: Boolean = false): String {
         if (longTerm) return LONG_TERM
         if (complete) return COMPLETED
+        if (revising) return IN_PROGRESS
         if (!dueDate.isNullOrEmpty() && Homework.daysBetween(today, dueDate) < 0) return OVERDUE
         return if (started) IN_PROGRESS else NOT_STARTED
+    }
+
+    /** Port of LessonRevisionSummary: [status] = "new" | "revision" | "done". */
+    data class LessonRevisionSummary(val status: String, val revision: Int, val dueDate: String?, val toGetRight: Int, val percent: Int)
+
+    private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+    /** Port of revisionProgressLabel: "Revision 2 due 29 Oct · 3 to get right" / "all right first time". */
+    fun revisionProgressLabel(r: LessonRevisionSummary, today: String): String {
+        if (r.status == "done") return "all right first time"
+        if (r.status == "new") return "not started"
+        val name = if (r.revision > 0) "Revision ${r.revision}" else "Revision"
+        var whenText = ""
+        if (!r.dueDate.isNullOrEmpty()) {
+            val days = Homework.daysBetween(today, r.dueDate)
+            whenText = when {
+                days <= 0 -> " due today"
+                days == 1 -> " due tomorrow"
+                else -> {
+                    val parts = r.dueDate.split("-")
+                    val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                    val d = parts.getOrNull(2)?.toIntOrNull() ?: 0
+                    " due $d ${MONTHS.getOrNull(m - 1) ?: ""}"
+                }
+            }
+        }
+        return "$name$whenText · ${r.toGetRight} to get right"
     }
 
     /** Port of statusTone: 'green' | 'blue' | 'amber' | 'red' | 'grey' (long-term: grey). */

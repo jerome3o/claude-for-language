@@ -17,6 +17,7 @@ import {
   type HomeworkAssignment,
   type HomeworkEvent,
   type LongTermHomework,
+  type HomeLesson,
 } from '../../../shared/homework';
 
 const OUT = process.argv[2];
@@ -95,9 +96,27 @@ const cases = Array.from({ length: 150 }, () => {
   });
   const limit = pick([4, 4, 2, 6]);
   const unreadFrom = r() < 0.3 ? pick(TUTORS) : null;
+  // Mini lessons on the device (revisions due, new ones, done / locked ones) and sizes by target id.
+  const lessons: HomeLesson[] = Array.from({ length: int(0, 5) }, (_, k) => {
+    const status = pick(['new', 'new', 'revision', 'revision', 'done'] as const);
+    return {
+      id: r() < 0.3 ? `lesson${int(0, 4)}` : `own${k}`,
+      title: pick(['把 sentences', '了 lesson', 'China trip 1']),
+      created_at: `2026-09-${String(int(10, 28)).padStart(2, '0')}T0${int(0, 9)}:00:00.000Z`,
+      status,
+      locked: r() < 0.15,
+      revision_due: status === 'revision' && r() < 0.7,
+      revision: status === 'revision' ? int(0, 3) : 0,
+      due_ms: status === 'revision' ? 1_790_000_000_000 + int(0, 10) * 86_400_000 : null,
+      size: pick(['18 exercises · ~12 min', '5 questions · ~4 min', '']),
+      tutor_name: r() < 0.5 ? pick(TUTORS) : null,
+    };
+  });
+  const sizes: Record<string, string> = {};
+  for (const a of assignments) if (r() < 0.6) sizes[a.target_id] = pick(['9 exercises · ~6 min', '6 pages', '3 questions · ~2 min']);
   const todo = sortHomeworkItems(toHomeworkItems(assignments, events, TODAY)).todo;
-  const card = homeHomework(todo, longTerm, { limit, unreadFrom });
-  return { assignments, events, longTerm, limit, unreadFrom, card, active: longTerm.map(longTermActive) };
+  const card = homeHomework(todo, longTerm, { limit, unreadFrom, lessons, sizes });
+  return { assignments, events, longTerm, limit, unreadFrom, lessons, sizes, card, active: longTerm.map(longTermActive) };
 });
 
 const due = Array.from({ length: 30 }, () => {

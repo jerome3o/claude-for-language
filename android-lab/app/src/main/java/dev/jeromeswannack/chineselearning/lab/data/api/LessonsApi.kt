@@ -25,7 +25,10 @@ data class LessonCompletionDto(
     val correct: Int = 0,
     val total: Int = 0,
     @SerialName("completed_at") val completedAt: String,
+    /** Legacy (lessons had a rating until Oct 2026): decides only a finish with no outcome. */
     val rating: Int? = null,
+    /** The run's outcome (core LessonRevision): scored exercises + those missed first time. */
+    val outcome: dev.jeromeswannack.chineselearning.lab.core.LessonRevision.Outcome? = null,
 )
 
 @Serializable
@@ -81,8 +84,11 @@ data class CompletionUpload(
     val correct: Int,
     val total: Int,
     @SerialName("completed_at") val completedAt: String,
-    val rating: Int?,
+    /** No rating since Oct 2026 (revise until right first time); kept for the wire shape. */
+    val rating: Int? = null,
     val attempt: LessonAttemptData? = null,
+    /** What the run missed first time (core LessonRevision) — decides done forever vs a revision. */
+    val outcome: dev.jeromeswannack.chineselearning.lab.core.LessonRevision.Outcome? = null,
 )
 
 @Serializable

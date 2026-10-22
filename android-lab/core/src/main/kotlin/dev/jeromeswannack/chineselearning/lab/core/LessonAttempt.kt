@@ -79,6 +79,8 @@ data class ExerciseAttempt(
     @SerialName("max_points") val maxPoints: Int = 0,
     @SerialName("duration_ms") val durationMs: Long = 0,
     val answer: ExerciseAnswer? = null,
+    /** Asked again in the retry round (LessonRun): 1 = the first retry…; null on the main pass. */
+    val retry: Int? = null,
 )
 
 @Serializable

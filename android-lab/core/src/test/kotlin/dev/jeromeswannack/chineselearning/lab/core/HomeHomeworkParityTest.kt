@@ -11,6 +11,7 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -44,7 +45,16 @@ class HomeHomeworkParityTest {
             }
             assertEquals(o["active"]!!.jsonArray.map { it.jsonPrimitive.boolean }, longTerm.map(HomeHomework::longTermActive), "case[$i] active")
             val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, today)).todo
-            val card = HomeHomework.build(todo, longTerm, o["limit"]!!.jsonPrimitive.int, o["unreadFrom"]!!.str)
+            val lessons = o["lessons"]!!.jsonArray.map {
+                val l = it.jsonObject
+                HomeLesson(
+                    l["id"]!!.str!!, l["title"]!!.str!!, l["created_at"]!!.str!!, l["status"]!!.str!!, l["locked"]!!.jsonPrimitive.boolean,
+                    l["revision_due"]!!.jsonPrimitive.boolean, l["revision"]!!.jsonPrimitive.int, l["due_ms"]!!.let { d -> if (d is JsonNull) null else d.jsonPrimitive.long },
+                    l["size"]!!.str!!, l["tutor_name"]!!.str,
+                )
+            }
+            val sizes = o["sizes"]!!.jsonObject.mapValues { it.value.str!! }
+            val card = HomeHomework.build(todo, longTerm, o["limit"]!!.jsonPrimitive.int, o["unreadFrom"]!!.str, sizes, lessons)
             val expected = o["card"]!!.jsonObject
             assertEquals(expected["heading"]!!.str, card.heading, "case[$i] heading")
             assertEquals(expected["more"]!!.jsonPrimitive.int, card.more, "case[$i] more")
@@ -59,6 +69,7 @@ class HomeHomeworkParityTest {
                 assertEquals(eo["icon"]!!.str, row.icon, "$where icon")
                 assertEquals(eo["title"]!!.str, row.title, "$where title")
                 assertEquals(eo["progress"]!!.str, row.progress, "$where progress")
+                assertEquals(eo["size"]!!.str, row.size, "$where size")
                 val fr = eo["fraction"]!!
                 if (fr is JsonNull) assertEquals(null, row.fraction, "$where fraction") else assertEquals(fr.jsonPrimitive.double, row.fraction, "$where fraction")
                 assertEquals(eo["due"]!!.str, row.due, "$where due")
