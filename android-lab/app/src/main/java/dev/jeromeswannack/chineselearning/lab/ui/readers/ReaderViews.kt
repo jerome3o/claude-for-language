@@ -254,7 +254,7 @@ private fun RevealBox(label: String, big: Boolean = false, onClick: () -> Unit) 
         textAlign = TextAlign.Center,
         fontSize = if (big) 16.sp else 15.sp,
         modifier = Modifier.fillMaxWidth().heightIn(min = if (big) 72.dp else 52.dp).bouncyClickable(onClick = onClick)
-            .clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).border(1.5.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).border(1.5.dp, Lab.colors.outline, RoundedCornerShape(16.dp))
             .padding(horizontal = 16.dp, vertical = if (big) 24.dp else 14.dp),
     )
 }

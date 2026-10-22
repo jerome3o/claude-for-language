@@ -120,7 +120,7 @@ fun ProfileScreen(ui: ProfileUi, env: ProfileEnv, actions: ProfileActions, listS
                         Box(Modifier.clickable(enabled = !ui.photoBusy && env.online, onClick = actions.pickPhoto)) {
                             ProfilePhoto(p.picture_url, p.name, p.email, size = 96.dp, preview = env.previewPhoto?.takeIf { p.picture_url != null })
                             Box(
-                                Modifier.align(Alignment.BottomEnd).size(32.dp).clip(CircleShape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, CircleShape),
+                                Modifier.align(Alignment.BottomEnd).size(32.dp).clip(CircleShape).background(Lab.colors.card).border(1.dp, Lab.colors.outline, CircleShape),
                                 contentAlignment = Alignment.Center,
                             ) { Text("📷", fontSize = 15.sp) }
                         }
@@ -178,7 +178,7 @@ fun ProfileScreen(ui: ProfileUi, env: ProfileEnv, actions: ProfileActions, listS
             item {
                 Field("Time zone", desc = "So $audience can see what time it is for you before they message.") {
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+                        Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.outline, RoundedCornerShape(12.dp))
                             .clickable { zonePicker = true }.padding(horizontal = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

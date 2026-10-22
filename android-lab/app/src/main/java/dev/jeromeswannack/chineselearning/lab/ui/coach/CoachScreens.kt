@@ -233,7 +233,7 @@ fun CoachHomeScreen(
                         )
                         if (VoiceDictation.voiceButtonShown(voiceUi.state.blocked)) {
                             Box(
-                                Modifier.padding(top = 4.dp).size(52.dp).clip(CircleShape).border(1.dp, Lab.colors.cardBorder, CircleShape).background(Lab.colors.card)
+                                Modifier.padding(top = 4.dp).size(52.dp).clip(CircleShape).border(1.dp, Lab.colors.outline, CircleShape).background(Lab.colors.card)
                                     .bouncyClickable(true, 0.92f, onClick = voiceActions.say).testTag(COACH_SENTENCE_MIC_TAG),
                                 contentAlignment = Alignment.Center,
                             ) { Text("🎤", fontSize = 22.sp) }

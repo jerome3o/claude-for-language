@@ -1415,7 +1415,7 @@ private fun SpokenMicButton(spoken: SpokenUi, online: Boolean, actions: StudyAct
             .scale(pulse)
             .clip(CircleShape)
             .background(if (spoken.listening) Palette.Again.copy(alpha = 0.16f) else Lab.colors.faint)
-            .border(1.dp, if (spoken.listening) Palette.Again.copy(alpha = 0.55f) else Lab.colors.cardBorder, CircleShape)
+            .border(1.dp, if (spoken.listening) Palette.Again.copy(alpha = 0.55f) else Lab.colors.outline, CircleShape)
             .clickable {
                 when {
                     finishing -> Unit

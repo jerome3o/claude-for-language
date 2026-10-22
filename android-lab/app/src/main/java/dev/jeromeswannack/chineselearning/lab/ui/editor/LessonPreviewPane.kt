@@ -131,7 +131,7 @@ fun LessonPreviewPane(spec: JsonObject, env: ExerciseEnv, errors: List<String> =
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MiniButton("‹", { go(if (finished) last else shown - 1) }, enabled = finished || shown > 0, description = "Previous exercise")
             Box(
-                Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+                Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.outline, RoundedCornerShape(12.dp))
                     .bouncyClickable { jumping = true }.padding(horizontal = 12.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
