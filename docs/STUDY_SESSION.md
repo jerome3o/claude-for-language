@@ -819,6 +819,20 @@ one or two lines, an example (the separable verb's split — 睡了一个好觉 
 word), and where it comes from. The pills are buttons, so they never peek the card. The question
 side has none. The same pills (minus how common) head the explorer's Word view.
 
+**Chinese in the sheet is explorable** (Oct 2026 — Jerome on 人性's ✨ Formal sheet: "when it
+suggests less formal words, I'd love to click those words … and add them as cards"). Every line of
+the sheet — the title (离合词), the body, the AI register note ("use 人品 or 脾气 in casual
+speech"), the example (睡了一个好觉, 一本书) — goes through `ExplorableText`, by WORD from the
+device segmenter (`shared/chinese/segment.ts`: web `useSegmentedWords`, Lab `DeviceWords`; by
+character until its lists are loaded), dotted / underlined, with a hint line "Tap any Chinese word to
+explore it or add it as a card." A tap opens the language explorer on it (source `word_tag`) where
++ Add as card / ⚡ Study it today / Open card already are; the sheet steps aside and comes back
+when the explorer closes (✕ / back) so the next suggested word is one tap away (web
+`ExplorerOpenOptions.onClosed`, Lab: waits for `ExplorerController.isOpen` to fall). Opened from
+the explorer's own Word view, a tap pushes onto the stack instead and the sheet stays closed (back
+returns to the Word view). Analytics `study.word_tag_word` (kind, tag_source, item, inside). Web
+`components/wordTags/WordTagPills.tsx` (`SheetChinese`), Lab `ui/study/WordTagsUi.kt` (`SheetText`).
+
 A sentence or phrase card gets only what applies: "Phrase" for 2–6 Han characters that aren't a
 dictionary word (not for a card ending in 。？！ or with a comma), and the register words found in it
 (您, 请问, 贵姓, 啥, 干嘛…, and 请 only at the start of a clause — 请坐, not 申请).

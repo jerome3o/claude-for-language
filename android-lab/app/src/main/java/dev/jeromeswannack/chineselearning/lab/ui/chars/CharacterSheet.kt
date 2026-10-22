@@ -228,6 +228,8 @@ fun CharacterSheetContent(
     onChar: ((String) -> Unit)? = null,
     /** The × in the glyph row (the explorer has its own header with ✕). */
     showClose: Boolean = true,
+    /** Right under the glyph row (the explorer: is the character itself one of his cards?). */
+    afterHead: (@Composable () -> Unit)? = null,
 ) {
     val record = ui.record
     val char = ui.char
@@ -258,6 +260,8 @@ fun CharacterSheetContent(
                 contentAlignment = Alignment.Center,
             ) { Text("×", fontSize = 26.sp, color = Lab.colors.muted) }
         }
+
+        afterHead?.invoke()
 
         // Looking up / offline / missing / error
         when (val l = ui.lookup) {
