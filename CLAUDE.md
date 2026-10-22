@@ -1769,6 +1769,12 @@ punctuation (else a sentence), counted once per spelling; a **character** is kno
 in any known note. The history chart replays every card with `computeCardTimeline`
 (`shared/scheduler`) — ~1 s of FSRS for 35k events, so the web runs it in a Web Worker
 (`services/knownProgress.worker.ts`) and shows the last result from localStorage meanwhile. The
+chart toggles **Total | Per week** (remembered per device: web localStorage `known-chart-mode-v1`, Lab
+`KnownChartModePref`; analytics `progress.known_mode`): Per week = `shared/progress/known-rate.ts` (Lab
+`core/…/KnownRate.kt`, parity-tested in the same `known` fixture) — the NET change of the known count per
+Monday-to-Monday local week (negative when cards lapse; the current week partial), drawn as weekly bars in two
+panels on one scale, and the pace of the last 4 weeks vs the 4 before (`knownProgressWithRate`: one replay
+for both views). The
 tutor's `GET /api/relationships/:relId/student-progress/daily` carries `known` (same grouping via
 `knownCountsFromTiers`, from the server's cached card state — `services/known-counts.ts`). No HSK
 list is in the repo, so there is no HSK coverage yet.
