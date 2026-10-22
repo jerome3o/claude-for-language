@@ -70,7 +70,7 @@ function chunks<T>(xs: T[], n = 90): T[][] {
 }
 
 /** The user's cards with these ids → note id. */
-async function ownedCards(db: D1Database, userId: string, cardIds: string[]): Promise<Map<string, { note_id: string; card_type: string }>> {
+export async function ownedCards(db: D1Database, userId: string, cardIds: string[]): Promise<Map<string, { note_id: string; card_type: string }>> {
   const out = new Map<string, { note_id: string; card_type: string }>();
   for (const chunk of chunks([...new Set(cardIds)])) {
     const res = await db
