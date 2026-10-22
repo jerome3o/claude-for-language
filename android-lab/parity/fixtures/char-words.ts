@@ -8,7 +8,18 @@
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { charWordRows, charWordsSummary, wordInCard, CHAR_STATUS_LABEL } from '../../../shared/chars/status';
+import {
+  addOwnCardLabel,
+  charChipLabel,
+  charOwnCards,
+  charWordRows,
+  charWordsSummary,
+  isSingleHan,
+  ownCardLine,
+  wordInCard,
+  CHAR_STATUS_LABEL,
+  OWN_CARD_BADGE,
+} from '../../../shared/chars/status';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: char-words <out-dir>');
@@ -74,5 +85,28 @@ const out = cases.map((c) => {
 });
 const inCard = [['银行', '我去银行'], ['银行卡', '银行'], ['', '银行'], ['银行', null], ['行', '“行！”']].map(([word, card]) => ({ word, card, result: wordInCard(word as string, card) }));
 
-writeFileSync(join(OUT, 'char-words.json'), JSON.stringify({ cases: out, in_card: inCard, labels: CHAR_STATUS_LABEL }));
+// A character's own card (the explorer's Character view line + the Word view chip badges):
+// single characters, words, Latin, punctuation, '' — over the same kind of random notes / cards.
+const OWN_INPUTS = ['行', '银', '人', '性', '品', '银行', 'a', '。', '', '钅', '𠀀'];
+const ownNotes = ['行', '行。', ' 银', '人', '性', '人性', '银行', '品格', '𠀀', 'a'];
+const own: Array<{ chars: string[]; notes: N[]; cards: C[]; result: unknown }> = [];
+for (let i = 0; i < 200; i++) {
+  const chars = Array.from({ length: int(0, 6) }, () => pick(OWN_INPUTS));
+  const notes: N[] = Array.from({ length: int(0, 8) }, (_, j) => ({ id: `o${i}-${j}`, hanzi: pick(ownNotes) }));
+  const cards: C[] = [];
+  for (const n of notes) {
+    for (let k = int(0, 3); k > 0; k--) cards.push({ note_id: n.id, queue: int(0, 3), stability: pick([0, 3, 21, 21.01, 40]) });
+  }
+  own.push({ chars, notes, cards, result: charOwnCards(chars, notes, cards) });
+}
+const STATUSES = ['known', 'in_decks', 'none'] as const;
+const ownCopy = {
+  lines: STATUSES.flatMap((s) => [[], ['HSK 5'], ['HSK 5', ' HSK 5 ', 'Food'], ['  ']].map((decks) => ({ char: '性', status: s, decks, line: ownCardLine('性', s, decks) }))),
+  add: addOwnCardLabel('性'),
+  badges: OWN_CARD_BADGE,
+  chip_labels: STATUSES.flatMap((s) => [null, 'xìng'].map((syl) => ({ char: '性', syllable: syl, status: s, label: charChipLabel('性', syl, s) }))),
+  single: ['性', '人性', '。', '', 'a', '𠀀', '钅'].map((t) => ({ text: t, single: isSingleHan(t) })),
+};
+
+writeFileSync(join(OUT, 'char-words.json'), JSON.stringify({ cases: out, in_card: inCard, labels: CHAR_STATUS_LABEL, own, own_copy: ownCopy }));
 console.log(`char-words: ${out.length} cases`);

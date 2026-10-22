@@ -26,6 +26,33 @@ vi.mock('../../services/wordFrequency', () => ({
   loadWordFrequency: () => Promise.resolve({ words: new Map([['睡觉', 900]]), chars: new Map([['书', 150]]) }),
 }));
 
+// The device segmenter (services/chineseSegmenter): a tiny greedy stand-in over a few words.
+const SEG_WORDS = ['人品', '脾气', '告诉', '见面', '睡觉'];
+vi.mock('../../services/chineseSegmenter', () => ({
+  useSegmentedWords: (text: string, enabled = true) => {
+    if (!enabled) return null;
+    const out: Array<{ text: string; pinyin: string; gloss: string }> = [];
+    let plain = '';
+    for (let i = 0; i < text.length; ) {
+      const w = SEG_WORDS.find((x) => text.startsWith(x, i));
+      const han = /[\u4e00-\u9fff]/.test(text[i]);
+      if (w || han) {
+        if (plain) out.push({ text: plain, pinyin: '', gloss: '' });
+        plain = '';
+        const t = w ?? text[i];
+        out.push({ text: t, pinyin: '', gloss: '' });
+        i += t.length;
+      } else plain += text[i++];
+    }
+    if (plain) out.push({ text: plain, pinyin: '', gloss: '' });
+    return out;
+  },
+}));
+
+// The app's explorer: open / push recorded; `inside` = the pills sit in the explorer's Word view.
+const explorer = vi.hoisted(() => ({ open: vi.fn(), push: vi.fn(), inside: false }));
+vi.mock('../explorer/ExplorerContext', () => ({ useExplorer: () => explorer }));
+
 import { WordTagPills } from './WordTagPills';
 import { writeWordTagsOn } from '../../services/wordTags';
 
@@ -42,6 +69,9 @@ describe('WordTagPills', () => {
     localStorage.clear();
     analytics.track.mockClear();
     parentClick.mockClear();
+    explorer.open.mockClear();
+    explorer.push.mockClear();
+    explorer.inside = false;
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -168,6 +198,73 @@ describe('WordTagPills', () => {
     it('Everyday speech at medium confidence changes nothing', async () => {
       await render('结账', { aiTags: JSON.stringify({ v: 2, spoken: 'everyday', spoken_confidence: 'medium', confidence: 'low' }) });
       expect(pills()).toEqual(['Verb', 'Separable verb', 'Rare']);
+    });
+  });
+
+  describe('Chinese in the sheet opens the explorer', () => {
+    const verdict = JSON.stringify({ v: 1, register: 'formal', register_note: 'Formal/literary; use 人品 or 脾气 in casual speech', confidence: 'high' });
+    const openFormal = async () => {
+      await render('告知', { aiTags: verdict });
+      act(() => (host.querySelector('[data-tag="register:F"]') as HTMLButtonElement).click());
+      return document.querySelector('[data-testid="word-tag-sheet"]')!;
+    };
+    const tapWord = (sheet: Element, word: string) => {
+      const piece = [...sheet.querySelectorAll('[data-testid="word-tag-sheet-note"] .xt-tap')].find((el) => el.textContent === word);
+      expect(piece, word).toBeTruthy();
+      act(() => (piece as HTMLElement).click());
+    };
+
+    it('the register note is tappable by WORD (人品, 脾气), the English stays plain', async () => {
+      const sheet = await openFormal();
+      const taps = [...sheet.querySelectorAll('[data-testid="word-tag-sheet-note"] .xt-tap')].map((el) => el.textContent);
+      expect(taps).toEqual(['人品', '脾气']);
+      expect(sheet.querySelector('[data-testid="word-tag-sheet-note"]')!.textContent).toBe('Formal/literary; use 人品 or 脾气 in casual speech');
+      expect(sheet.querySelector('[data-testid="word-tag-sheet-hint"]')).not.toBeNull();
+    });
+
+    it('a tap opens the explorer on the word, the sheet steps aside and comes back when it closes', async () => {
+      const sheet = await openFormal();
+      tapWord(sheet, '人品');
+      expect(explorer.open).toHaveBeenCalledTimes(1);
+      const [item, opts] = explorer.open.mock.calls[0];
+      expect(item).toMatchObject({ kind: 'word', hanzi: '人品' });
+      expect(opts.source).toBe('word_tag');
+      expect(document.querySelector('[data-testid="word-tag-sheet"]')).toBeNull();
+      expect(analytics.track).toHaveBeenCalledWith('study.word_tag_word', { kind: 'register', tag_source: 'ai', item: 'word', inside: false });
+      expect(parentClick).not.toHaveBeenCalled();
+      // ✕ / back in the explorer → the Formal sheet again, ready for 脾气.
+      act(() => opts.onClosed());
+      const again = document.querySelector('[data-testid="word-tag-sheet"]')!;
+      expect(again.textContent).toContain('Formal/literary; use 人品 or 脾气');
+      tapWord(again, '脾气');
+      expect(explorer.open.mock.calls[1][0]).toMatchObject({ kind: 'word', hanzi: '脾气' });
+    });
+
+    it('inside the explorer (the Word view pills) a tap pushes, and the sheet stays closed', async () => {
+      explorer.inside = true;
+      const sheet = await openFormal();
+      tapWord(sheet, '脾气');
+      expect(explorer.push).toHaveBeenCalledWith(expect.objectContaining({ kind: 'word', hanzi: '脾气' }));
+      expect(explorer.open).not.toHaveBeenCalled();
+      expect(document.querySelector('[data-testid="word-tag-sheet"]')).toBeNull();
+      expect(analytics.track).toHaveBeenCalledWith('study.word_tag_word', { kind: 'register', tag_source: 'ai', item: 'word', inside: true });
+    });
+
+    it('a lexicon sheet too: the separable example and the title (离合词)', async () => {
+      await render('睡觉');
+      act(() => (host.querySelector('[data-tag="separable"]') as HTMLButtonElement).click());
+      const sheet = document.querySelector('[data-testid="word-tag-sheet"]')!;
+      const example = [...sheet.querySelectorAll('[data-testid="word-tag-sheet-example"] .xt-tap')].map((el) => el.textContent);
+      expect(example.join('')).toBe('睡了一个好觉');
+      expect([...sheet.querySelectorAll('h2 .xt-tap')].length).toBeGreaterThan(0);
+      act(() => (sheet.querySelector('[data-testid="word-tag-sheet-example"] .xt-tap') as HTMLElement).click());
+      expect(explorer.open.mock.calls[0][0]).toMatchObject({ kind: 'char', char: '睡' });
+    });
+
+    it('a sheet with no Chinese has no hint', async () => {
+      await render('书');
+      act(() => (host.querySelector('[data-tag="hsk"]') as HTMLButtonElement).click());
+      expect(document.querySelector('[data-testid="word-tag-sheet-hint"]')).toBeNull();
     });
   });
 });

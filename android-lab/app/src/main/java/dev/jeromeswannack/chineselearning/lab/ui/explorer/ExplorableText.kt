@@ -13,6 +13,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.TextUnit
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorableSegments
@@ -46,12 +47,19 @@ fun ExplorableText(
     tint: Boolean = false,
     /** Highlight every occurrence of this word (the explored word in its context sentences). */
     highlight: String? = null,
+    /** Told about every tap before the explorer opens / pushes (a word tag sheet steps aside). */
+    onTap: ((ExplorerItem) -> Unit)? = null,
+    /** The tappable pieces are underlined — where tapping Chinese isn't otherwise expected (a sheet). */
+    underline: Boolean = false,
 ) {
-    val tap = rememberExplorerTap(source, context)
+    val explorerTap = rememberExplorerTap(source, context)
+    val tap: ((ExplorerItem) -> Unit)? = remember(explorerTap, onTap) {
+        explorerTap?.let { go -> { item: ExplorerItem -> onTap?.invoke(item); go(item) } }
+    }
     val pieces = remember(text, segments) { ExplorableSegments.explorableSegments(text, segments, sentenceOf) }
     val linkColor = if (tint) Lab.colors.accent else color
     val highlightColor = Lab.colors.accent
-    val annotated = remember(pieces, tap, linkColor, highlight) {
+    val annotated = remember(pieces, tap, linkColor, highlight, underline) {
         buildAnnotatedString {
             for (p in pieces) {
                 val item = p.item
@@ -59,7 +67,12 @@ fun ExplorableText(
                 else withLink(
                     LinkAnnotation.Clickable(
                         tag = explorerTag(item),
-                        styles = if (tint && highlight.isNullOrEmpty()) TextLinkStyles(style = SpanStyle(color = linkColor)) else null,
+                        styles = when {
+                            tint && highlight.isNullOrEmpty() ->
+                                TextLinkStyles(style = SpanStyle(color = linkColor, textDecoration = if (underline) TextDecoration.Underline else null))
+                            underline -> TextLinkStyles(style = SpanStyle(textDecoration = TextDecoration.Underline))
+                            else -> null
+                        },
                         linkInteractionListener = { tap(item) },
                     ),
                 ) { append(p.text) }

@@ -787,7 +787,12 @@ inputs, call board, games, the sentence rows' reveal). Word data: **`GET /api/wo
 records: { hanzi: WordRecord }, missing }` from `worker/char-dict/words/NNN.dat` (60,000 most frequent CC-CEDICT words,
 `npm run build:word-dict`, `buildWordDict` in `shared/chars/build.ts`, sharded by `wordShard`), cached on the device
 (IndexedDB `wordDict`, Dexie v30, `services/wordDict.ts`); offline the Word view builds from the character records + cards.
-**🎯 Quick drill** on both views (`shared/explorer/drill.ts` `buildDrill`: meaning / listen / tone / reverse / write, seeded so the Lab port is parity-tested) — practice only, never review events. Analytics `explorer.open / push / more / add_card / bump / write / drill_start / drill_finish`.
+**A character's own card**: the Character view says first whether the character ITSELF is a note (`charOwnCards` in
+`shared/chars/status.ts`, Lab `CharWords.ownCards`, parity-tested) — "📚 You have 性 as a card in <deck>" / "✓ Known — …"
+→ Open card / ⚡, else "+ Add 性 as a card" (web `components/explorer/CardTieIn.tsx`, shared with the Word view's footer;
+Lab `ui/explorer/OwnCardBlock.kt`) — and the Word view's character chips carry 📚 / ✓. **Word tag sheets** ("Word tags on the
+answer side") render their Chinese through ExplorableText by word (device segmenter): a tap opens the explorer (source
+`word_tag`), the sheet returns when it closes (`ExplorerOpenOptions.onClosed`). **🎯 Quick drill** on both views (`shared/explorer/drill.ts` `buildDrill`: meaning / listen / tone / reverse / write, seeded so the Lab port is parity-tested) — practice only, never review events. Analytics `explorer.open / push / more / add_card / bump / write / drill_start / drill_finish`.
 
 ### Character sheet (tap a character on the card back; docs/STUDY_SESSION.md "Character sheet")
 Card-INDEPENDENT dictionary data — readings, meaning, radical / components, strokes, frequency rank and

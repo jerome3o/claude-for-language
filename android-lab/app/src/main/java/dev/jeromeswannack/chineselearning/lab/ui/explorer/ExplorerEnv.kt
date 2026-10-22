@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
 import dev.jeromeswannack.chineselearning.lab.data.chars.CharDict
+import dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo
 import dev.jeromeswannack.chineselearning.lab.data.chars.WordDict
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi
@@ -55,6 +56,11 @@ class ExplorerEnv(
      * database again (after an add) instead of the warm in-memory index.
      */
     val myWord: suspend (hanzi: String, fresh: Boolean) -> MyWord = { _, _ -> MyWord() },
+    /**
+     * Which of these characters are cards of their OWN (性 itself, not 人性): the Character view's
+     * line and the Word view's chip badges (core CharWords.ownCards over Room).
+     */
+    val ownCards: suspend (chars: List<String>) -> Map<String, OwnCardInfo> = { emptyMap() },
     /** Rank in the shipped word-freq list (null = not listed). */
     val rank: (String) -> Int? = { null },
     /** Frequency decals (outlines on word / character tiles) from the shipped list; null = none. */
@@ -188,6 +194,7 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             prefetchChars = { list -> if (online()) runCatching { charDict.prefetch(list) } },
             wordLookup = wordDict::lookup,
             myWord = { h, fresh -> ExplorerData.myWord(app, h, fresh) },
+            ownCards = { cs -> CharDict.ownCards(app.repo.dao, cs) },
             rank = { h -> WordFrequency.shipped?.words?.get(h) },
             decal = shippedDecals(),
             online = online,

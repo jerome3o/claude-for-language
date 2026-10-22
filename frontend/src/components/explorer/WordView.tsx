@@ -1,25 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import type { CharRecord, CharWord, CharWordRow, WordRecord } from '@shared/chars';
+import { charChipLabel, OWN_CARD_BADGE, type CharRecord, type CharWord, type CharWordRow, type WordRecord } from '@shared/chars';
 import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
 import { hanCharacters } from '@shared/progress/known';
 import { isIdiomShaped, showIdiomLink } from '@shared/idioms';
 import { hasCachedIdiom } from '../../services/idioms';
 import type { ReaderWordExplanation } from '@shared/reader/words';
-import { charWordStatuses, lookupChar, prefetchChars } from '../../services/charDict';
+import { charWordStatuses, lookupChar, ownCardsFor, prefetchChars, type OwnCardInfo } from '../../services/charDict';
 import { lookupWord, type WordLookup } from '../../services/wordDict';
 import { loadWordFrequency } from '../../services/wordFrequency';
 import { findExistingNotes } from '../../services/studyBumps';
-import { cachedWordExplanation, getWordExplanation, invalidateKnownHanzi } from '../../services/readerWords';
+import { cachedWordExplanation, getWordExplanation } from '../../services/readerWords';
 import { getTTSWithCache } from '../../services/ttsCache';
 import { track } from '../../services/analytics';
 import { createAudioPlayer } from '../../utils/audioPlayback';
 import { useTTS } from '../../hooks/useAudio';
 import { db, type LocalNote } from '../../db/database';
-import { AddChunkModal } from '../AddChunkModal';
-import { BumpButton } from '../bumps/BumpButton';
 import { WordTagPills } from '../wordTags/WordTagPills';
+import { CardTieIn } from './CardTieIn';
 import { ExplorableText } from './ExplorableText';
 import { useExplorer } from './ExplorerContext';
 import { WordRows } from './CharacterView';
@@ -91,10 +90,9 @@ export function WordView({
   const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }> | null>(null);
   const [examples, setExamples] = useState<Example[]>([]);
   const [related, setRelated] = useState<CharWordRow<CharWord>[] | null>(null);
+  // Which of its characters he has as a card of their own (the chip badges).
+  const [ownCards, setOwnCards] = useState<Record<string, OwnCardInfo>>({});
   const [more, setMore] = useState<More>({ kind: 'idle' });
-  const [adding, setAdding] = useState(false);
-  const [addedTo, setAddedTo] = useState(false);
-  const [bumpMsg, setBumpMsg] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [idiomKnown, setIdiomKnown] = useState(false);
   const player = useRef(createAudioPlayer());
@@ -122,6 +120,7 @@ export function WordView({
       setRankOf(() => (w: string) => idx.words.get(w) ?? null);
     });
     void findExistingNotes(hanzi).then((e) => alive && setExisting(e)).catch(() => alive && setExisting([]));
+    void ownCardsFor(chars).then((o) => alive && setOwnCards(o)).catch(() => {});
     void examplesFor(hanzi).then((e) => alive && setExamples(e));
     if (isIdiomShaped(hanzi)) void hasCachedIdiom(hanzi).then((k) => alive && setIdiomKnown(k));
     void cachedWordExplanation(hanzi, sentence).then((c) => alive && c && setMore({ kind: 'ready', value: c }));
@@ -232,19 +231,29 @@ export function WordView({
 
       <section className="xp-section" aria-label="Characters">
         <div className="xp-char-chips">
-          {chars.map((c, i) => (
-            <button
-              key={`${c.char}-${i}`}
-              type="button"
-              className={`xp-char-chip${c.tone ? ` tone-${c.tone}` : ''}${decalClass(decalFor(freqIdx, c.char, 'char'))}`}
-              onClick={() => explorer.push({ kind: 'char', char: c.char })}
-              aria-label={`The character ${c.char}${c.syllable ? `, ${c.syllable}` : ''}`}
-            >
-              <span className="xp-char-chip-glyph" lang="zh-CN">{c.char}</span>
-              {c.syllable && <span className="xp-char-chip-pinyin">{c.syllable}</span>}
-              <span className="xp-char-chip-meaning">{charMeaning(charRecords.find((r) => r.char === c.char), c.syllable)}</span>
-            </button>
-          ))}
+          {chars.map((c, i) => {
+            const own = ownCards[c.char]?.status ?? 'none';
+            return (
+              <button
+                key={`${c.char}-${i}`}
+                type="button"
+                className={`xp-char-chip${c.tone ? ` tone-${c.tone}` : ''}${decalClass(decalFor(freqIdx, c.char, 'char'))}`}
+                onClick={() => explorer.push({ kind: 'char', char: c.char })}
+                aria-label={charChipLabel(c.char, c.syllable, own)}
+                data-own={own}
+                data-testid="explorer-char-chip"
+              >
+                {own !== 'none' && (
+                  <span className={`xp-char-chip-own xp-char-chip-own--${own}`} aria-hidden="true" data-testid="explorer-char-chip-own">
+                    {OWN_CARD_BADGE[own]}
+                  </span>
+                )}
+                <span className="xp-char-chip-glyph" lang="zh-CN">{c.char}</span>
+                {c.syllable && <span className="xp-char-chip-pinyin">{c.syllable}</span>}
+                <span className="xp-char-chip-meaning">{charMeaning(charRecords.find((r) => r.char === c.char), c.syllable)}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -314,75 +323,27 @@ export function WordView({
       <p className="char-sheet-credit">Dictionary: CC-CEDICT, wordfreq — see Settings → About.</p>
 
       {footer && createPortal(
-        <div className="xp-footer" data-testid="explorer-word-card">
-          {existing === null ? (
-            // Still reading this device's cards: a quiet placeholder — never nothing, never a
-            // "+ Add as card" for a word they already have.
-            <div className="xp-have-line xp-checking" role="status" data-testid="explorer-checking-cards">📚 Checking your cards…</div>
-          ) : existing.length > 0 ? (
-            <div className="xp-have">
-              <div className="xp-have-line">📚 You have this card in {decks.join(', ')}</div>
-              {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
-              <div className="xp-footer-row">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    onClose();
-                    navigate(`/cards/${existing[0].note.id}`);
-                  }}
-                >
-                  Open card →
-                </button>
-                <BumpButton
-                  noteIds={existing.map((e) => e.note.id)}
-                  source="explorer"
-                  label="⚡ Study it today"
-                  onBumped={(m) => {
-                    track('explorer.bump', {});
-                    setBumpMsg(m);
-                  }}
-                />
-              </div>
-            </div>
-          ) : addedTo ? (
-            <div className="xp-have-line" role="status">✓ Added — it will be in your decks after the next sync.</div>
-          ) : (
-            <button type="button" className="btn btn-primary xp-add" onClick={() => setAdding(true)} data-testid="explorer-add-card">
-              + Add as card
-            </button>
-          )}
-        </div>,
+        <CardTieIn
+          kind="word"
+          have={existing === null ? null : { noteIds: existing.map((e) => e.note.id), line: `📚 You have this card in ${decks.join(', ')}` }}
+          addLabel="+ Add as card"
+          chunk={() => ({
+            hanzi,
+            pinyin: explanation?.pinyin || word.pinyin,
+            english: explanation?.english || word.english,
+            ...(explanation?.fun_facts ? { fun_facts: explanation.fun_facts } : {}),
+            ...(explanation?.sentence_clue
+              ? {
+                  sentence_clue: explanation.sentence_clue,
+                  sentence_clue_pinyin: explanation.sentence_clue_pinyin,
+                  sentence_clue_translation: explanation.sentence_clue_translation,
+                }
+              : {}),
+          })}
+          onClose={onClose}
+          testIds={{ root: 'explorer-word-card', checking: 'explorer-checking-cards', add: 'explorer-add-card' }}
+        />,
         footer,
-      )}
-
-      {adding && createPortal(
-        // Its own layer above the explorer sheet (the add sheet's backdrop has a low z-index).
-        <div className="xp-modal-layer" onClick={(e) => e.stopPropagation()}>
-          <AddChunkModal
-            source="explorer"
-            chunk={{
-              hanzi,
-              pinyin: explanation?.pinyin || word.pinyin,
-              english: explanation?.english || word.english,
-              ...(explanation?.fun_facts ? { fun_facts: explanation.fun_facts } : {}),
-              ...(explanation?.sentence_clue
-                ? {
-                    sentence_clue: explanation.sentence_clue,
-                    sentence_clue_pinyin: explanation.sentence_clue_pinyin,
-                    sentence_clue_translation: explanation.sentence_clue_translation,
-                  }
-                : {}),
-            }}
-            onAdded={() => {
-              track('explorer.add_card', {});
-              invalidateKnownHanzi();
-              setAddedTo(true);
-            }}
-            onClose={() => setAdding(false)}
-          />
-        </div>,
-        document.body,
       )}
     </div>
   );

@@ -121,6 +121,20 @@ test('AI word tags: a ✨ pill where the lexicon has nothing, and its sheet says
   const sheet = page.getByTestId('word-tag-sheet');
   await expect(sheet.getByTestId('word-tag-sheet-ai')).toContainText('Suggested by AI — may be wrong');
   await expect(sheet.getByTestId('word-tag-sheet-note')).toHaveText('formal written; in speech use 告诉');
+
+  // The suggested word is tappable (by word, the device segmenter): the explorer opens on 告诉,
+  // the sheet steps aside, and ✕ brings the sheet back.
+  await expect(sheet.getByTestId('word-tag-sheet-hint')).toBeVisible();
+  await sheet.getByTestId('word-tag-sheet-note').getByRole('button', { name: '告诉' }).click();
+  const explorer = page.getByTestId('explorer');
+  await expect(explorer).toBeVisible();
+  await expect(explorer.getByRole('dialog', { name: 'The word 告诉' })).toBeVisible();
+  await expect(page.getByTestId('word-tag-sheet')).toHaveCount(0);
+  await expect(explorer.getByTestId('explorer-add-card')).toBeVisible({ timeout: 15000 });
+  await explorer.getByTestId('explorer-close').click();
+  await expect(explorer).toHaveCount(0);
+  await expect(page.getByTestId('word-tag-sheet')).toBeVisible();
+  await expect(page.getByTestId('study-card-back')).toBeVisible();
 });
 
 test('Everyday speech: 结账 loses its "Rare" pill (written text undercounts it)', async ({ page, request }) => {

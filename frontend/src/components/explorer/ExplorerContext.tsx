@@ -5,7 +5,7 @@ import { useBackLevels } from '../../hooks/useBackLevels';
 import { activeDrill, LanguageExplorer, type DrillRun } from './LanguageExplorer';
 
 /** Where the explorer was opened from (analytics `explorer.open` source). */
-export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'other';
+export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'other';
 
 export interface ExplorerOpenOptions {
   source: ExplorerSource;
@@ -13,6 +13,12 @@ export interface ExplorerOpenOptions {
   cardHanzi?: string | null;
   /** "✍️ Write it" on a Character view (the study card opens its own writing pad). */
   onWrite?: (char: string) => void;
+  /**
+   * Called once when this explorer closes (✕, the scrim, Escape, back on its first view) — e.g.
+   * a word tag's sheet comes back after a word tapped in it. Not called when another `open`
+   * replaces it.
+   */
+  onClosed?: () => void;
 }
 
 export interface ExplorerApi {
@@ -49,6 +55,7 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   stackRef.current = stack;
 
   const open = useCallback((item: ExplorerItem, o: ExplorerOpenOptions) => {
+    // A fresh stack replacing the one showing drops that one's onClosed (it never comes back).
     opts.current = o;
     track('explorer.open', { source: o.source, kind: item.kind });
     dispatch({ type: 'open', item });
@@ -62,6 +69,18 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false }), [open, push]);
+
+  // The stack emptied (closed): tell whoever opened it, once.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    const isOpen = stack.length > 0;
+    if (wasOpen.current && !isOpen) {
+      const done = opts.current.onClosed;
+      opts.current = { ...opts.current, onClosed: undefined };
+      done?.();
+    }
+    wasOpen.current = isOpen;
+  }, [stack.length]);
 
   // A quick drill over the top view; moving in the stack ends it.
   const [drill, setDrill] = useState<DrillRun | null>(null);

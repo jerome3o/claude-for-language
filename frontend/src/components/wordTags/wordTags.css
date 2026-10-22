@@ -179,6 +179,18 @@
   line-height: 1.45;
 }
 
+/* Chinese in the sheet opens the language explorer (a dotted underline, like every ExplorableText). */
+.word-tag-sheet .word-tag-xt {
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 1px;
+}
+
+.word-tag-sheet-hint {
+  margin: 0.625rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
 .word-tag-sheet-source {
   margin: 0.625rem 0 0;
   font-size: 0.8125rem;
