@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.coach
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -621,7 +622,7 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Lab.colors.ink,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(10.dp)).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
                 )
                 DropdownMenu(open, onDismissRequest = { open = false }) {
                     ui.decks.forEach { d -> DropdownMenuItem(text = { Text(d.name) }, onClick = { open = false; actions.onDeck(d.id) }) }

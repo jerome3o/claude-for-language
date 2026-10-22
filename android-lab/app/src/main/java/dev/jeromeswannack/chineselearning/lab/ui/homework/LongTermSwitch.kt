@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -45,7 +46,7 @@ fun LongTermSwitch(on: Boolean, started: Boolean, onChange: (Boolean) -> Unit, m
         return
     }
     val bg by animateColorAsState(if (on) Palette.Secondary.copy(alpha = 0.12f) else Color.Transparent, label = "longterm-bg")
-    val border by animateColorAsState(if (on) Palette.Secondary.copy(alpha = 0.45f) else Lab.colors.cardBorder, label = "longterm-border")
+    val border by animateColorAsState(if (on) Palette.Secondary else Lab.colors.outline, label = "longterm-border")
     Row(
         modifier
             .heightIn(min = 44.dp)

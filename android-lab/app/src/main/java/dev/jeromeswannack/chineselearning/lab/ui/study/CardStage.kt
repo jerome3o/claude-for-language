@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture
 import dev.jeromeswannack.chineselearning.lab.core.cards.NoteImage
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
@@ -781,7 +782,7 @@ private fun CardBack(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
-                    Modifier.testTag(PLAY_WORD_TAG).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.testTag(PLAY_WORD_TAG).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.faint).buttonBorder(CircleShape).clickable { actions.onPlayWord(true) }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (making) CircularProgressIndicator(Modifier.size(16.dp), color = Lab.colors.accent, strokeWidth = 2.dp)
@@ -1189,7 +1190,7 @@ private fun RecordAgainPill(take: TakeUi, actions: StudyActions) {
         label,
         color = color,
         style = MaterialTheme.typography.labelLarge,
-        modifier = Modifier.clip(CircleShape).background(if (take.recording) Palette.Again.copy(alpha = 0.12f) else Lab.colors.faint).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = Modifier.clip(CircleShape).background(if (take.recording) Palette.Again.copy(alpha = 0.12f) else Lab.colors.faint).buttonBorder(CircleShape, color = if (take.recording) Palette.Again else null).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
     )
 }
 
@@ -1217,6 +1218,7 @@ private fun SayAgainPill(online: Boolean, actions: StudyActions, practice: Boole
             .graphicsLayer { alpha = if (online) 1f else 0.45f }
             .clip(CircleShape)
             .background(Lab.colors.faint)
+            .buttonBorder(CircleShape, enabled = online)
             .clickable { if (online) start() else action() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
     )

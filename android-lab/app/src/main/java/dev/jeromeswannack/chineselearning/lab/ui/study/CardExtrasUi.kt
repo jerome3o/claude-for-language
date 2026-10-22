@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -81,21 +82,23 @@ fun StudyActionRow(aiAvailable: Boolean, onAskClaude: () -> Unit, onEditCard: ()
 
 @Composable
 private fun ActionButton(icon: String?, label: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier
             .height(46.dp)
-            .alpha(if (enabled) 1f else 0.5f)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(shape)
             .background(Lab.colors.faint)
+            // Outlined so it reads as a button in dark mode too (faint on the card is ~1.1:1); dashed = disabled.
+            .buttonBorder(shape, enabled)
             .bouncyClickable(enabled = enabled, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Text(icon, fontSize = 15.sp)
+            Text(icon, fontSize = 15.sp, modifier = Modifier.alpha(if (enabled) 1f else 0.5f))
             Spacer(Modifier.width(6.dp))
         }
-        Text(label, color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = if (icon == null) 20.sp else 14.sp, maxLines = 1)
+        Text(label, color = if (enabled) Lab.colors.ink else Lab.colors.muted, fontWeight = FontWeight.Medium, fontSize = if (icon == null) 20.sp else 14.sp, maxLines = 1)
     }
 }
 

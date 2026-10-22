@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -376,6 +377,7 @@ private fun MicButton(recorder: RecorderUi, actions: ChatActions, onTap: () -> U
             Modifier.offset { IntOffset(dragX.roundToInt().coerceAtMost(0), 0) }
                 .size(48.dp).scale(scale).clip(CircleShape)
                 .background(if (recording != null) Palette.Again else if (c.dark) Color(0xFF2C2C2E) else Color(0xFFEDEDF0))
+                .then(if (recording != null) Modifier else Modifier.buttonBorder(CircleShape))
                 .testTag("chat-mic")
                 .semantics { contentDescription = "Hold to record a voice message" }
                 .pointerInput(Unit) {
@@ -537,7 +539,7 @@ private fun DictationRow(
 @Composable
 private fun GreyCircle(label: String, description: String, bg: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.size(48.dp).clip(CircleShape).background(bg).bouncyClickable(pressedScale = 0.88f, onClick = onClick).semantics { contentDescription = description },
+        modifier.size(48.dp).clip(CircleShape).background(bg).buttonBorder(CircleShape).bouncyClickable(pressedScale = 0.88f, onClick = onClick).semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) { Text(label, fontSize = 19.sp, color = Lab.colors.ink) }
 }

@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -538,7 +539,7 @@ private fun DescribeBody(v: ActivityView) {
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 hints.forEach { h ->
-                    Text(h, color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).bouncyClickable { v.actions.speak(h) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    Text(h, color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(12.dp)).bouncyClickable { v.actions.speak(h) }.padding(horizontal = 12.dp, vertical = 8.dp))
                 }
             }
         }
