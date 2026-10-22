@@ -22,6 +22,7 @@ import { getOtherUserInRelationship, type CardType } from '../types';
 import type { NoteHub, NoteHubCard } from '../types/cardFlags';
 import '../components/cardFlags/cardFlags.css';
 import { NoteLongTermSwitch } from '../components/homework/LongTermSwitch';
+import { HubCardControls } from '../components/cardControls/HubCardControls';
 
 function queueLabel(card: NoteHubCard): string {
   if (card.queue === 0) return 'New';
@@ -99,6 +100,8 @@ export function CardHubPage() {
             ))}
           </div>
           {!tutorView && <div className="hub-longterm"><NoteLongTermSwitch noteId={hub.note.id} /></div>}
+          {/* Suspend & snooze (docs/STUDY_SESSION.md): the owner's own card only. */}
+          {!tutorView && <HubCardControls cards={hub.cards.map((c) => ({ id: c.id, note_id: hub.note.id, card_type: c.card_type }))} hanzi={hub.note.hanzi} />}
         </section>
 
         <section className="detail-section" id="flags">

@@ -82,12 +82,13 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
         // "Pause new cards on heavy days": today's budget (0 + 0 over the limit) and the load Home explains.
         val todays = dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, app.prefs, cards, first, now, zone)
+        val holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, app.prefs, now, zone)
         trackPaused(todays.reviewLoad, today)
         // The queue a session would get: the notes' hanzi + "Order new cards by" pick WHICH new words.
-        val all = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus("all", today), introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = dao.noteFormality(app.prefs.newCardOrder))
+        val all = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus("all", today), introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = dao.noteFormality(app.prefs.newCardOrder), holds = holds)
         val noteCounts = dao.noteCounts().associate { it.deckId to it.count }
         val summaries = decks.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
+            val q = StudyQueue.build(queueDecks, cards, todays.budget, app.prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext, holds = holds)
             DeckSummary(d.id, d.name, noteCounts[d.id] ?: 0, StudyQueue.counts(q.dueCards, q.reviewedNoteIds))
         }
         val snapshot = runCatching { todayData.snapshot(now, zone) }.getOrDefault(dev.jeromeswannack.chineselearning.lab.ui.today.TodaySnapshot.EMPTY)

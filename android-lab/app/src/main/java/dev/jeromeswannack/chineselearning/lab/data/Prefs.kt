@@ -152,6 +152,14 @@ class Prefs(context: Context) {
         get() = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(sp.getString("new_card_order", null))
         set(v) = sp.edit().putString("new_card_order", v.toJson()).apply()
 
+    /**
+     * "Don't show a word's other card types on the same day" (core CardHolds — Anki's sibling burying,
+     * off by default). From /api/auth/me, /api/sync/changes or a save; every StudyQueue.build reads it.
+     */
+    var burySiblings: Boolean
+        get() = sp.getBoolean("bury_siblings", false)
+        set(v) = sp.edit().putBoolean("bury_siblings", v).apply()
+
     /** Epoch ms of the last full sync (0 = never). */
     var lastFullSync: Long
         get() = sp.getLong("last_full_sync", 0)

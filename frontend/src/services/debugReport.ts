@@ -35,6 +35,17 @@ import { API_BASE, getAuthHeaders } from '../api/client';
 import { readBonus, bonusKey } from '../utils/bonusNewCards';
 import { readStudyBudget } from './studyBudget';
 import { readNewCardOrder } from './newCardOrder';
+import { readBurySiblings } from './burySiblings';
+import { activeHoldMap } from './cardHolds';
+import { db as holdsDb, localDateKey } from '../db/database';
+
+/** The holds this device applies today, [card_id, kind, until] sorted by card id (shared/debug/report.ts). */
+async function reportHolds(): Promise<Array<[string, 'suspend' | 'snooze', string | null]>> {
+  const rows = (await holdsDb.cardHolds.toArray()).filter((h) => h.pending !== 'clear');
+  return [...activeHoldMap(rows, localDateKey()).values()]
+    .map((h): [string, 'suspend' | 'snooze', string | null] => [h.card_id, h.kind, h.until])
+    .sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
+}
 import { getDueReaders } from './reader-study';
 import { loadHomeworkItems, sortHomeworkItems } from './homework';
 import { detectInstallKind } from './clientState';
@@ -195,6 +206,9 @@ export async function buildDebugReport(): Promise<DebugReport> {
     budget: { ...budget },
     new_card_order: readNewCardOrder(),
     up_next: await loadQueueUpNext(),
+    // Suspend & snooze as this device applies them today (shared/decks/holds.ts).
+    holds: await reportHolds(),
+    bury_siblings: readBurySiblings(),
     ...(rawByDeck.reviewLoad ? { review_load: { threshold: rawByDeck.reviewLoad.threshold, load: rawByDeck.reviewLoad.load, paused: rawByDeck.reviewLoad.paused } } : {}),
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {

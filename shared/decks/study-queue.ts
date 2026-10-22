@@ -30,6 +30,10 @@
  * unstarted note, the started notes' NEW cards from the purple budget — ignoring
  * deck caps but counting against them for the rest of the deck's words.
  *
+ * Held cards (holds.ts — suspended, snoozed, or a buried sibling of a card reviewed
+ * today) leave everything: the pocket, Up next, the pools (a held NEW card frees its
+ * budget slot) and the due cards. They still count as "started" for their notes.
+ *
  * "Introduced today" is derived from review events (a card counts on the day of
  * its first-ever review; secondary when a sibling card of the same note had
  * been reviewed before it) — never from a counter that can drift.
@@ -42,6 +46,7 @@ import { FORMALITY_NEUTRAL } from './formality';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
 import { bumpPocket, type QueueBumps } from './bumps';
 import { takeUpNext, upNextSlots } from './up-next';
+import { cardsInStudy, type QueueHolds } from './holds';
 import { isLeadCard, knownCharacterNotes, knownCharactersFrom, knownNoteIdsFrom, KNOWN_CHARACTERS_LEAD_CARD_TYPE } from './lead-card';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
@@ -243,19 +248,23 @@ export function selectStudyQueue<C extends QueueCardInput>(
   /** The active bumps ("⚡ Study it today") with their cards' review times. */
   bumps?: QueueBumps | null,
   /** The account's "Up next" list: note ids in order (up-next.ts). */
-  upNext?: ReadonlyArray<string> | null
+  upNext?: ReadonlyArray<string> | null,
+  /** Suspended / snoozed cards and "don't show a word's other card types on the same day" (holds.ts). */
+  holds?: QueueHolds | null
 ): StudyQueueResult<C> {
   const reviewed = collectReviewedNoteIds(cards);
+  // Held cards leave study (they still make their note "started" above, and known below).
+  const live = cardsInStudy(cards, holds, bumps?.bumps.map(b => b.note_id));
   const inScope = deckId ? decks.filter(d => d.id === deckId) : decks;
   const scopeIds = new Set(inScope.map(d => d.id));
   const inReview = new Map(inScope.map(d => [d.id, deckInDailyReview(d.cap_primary, d.cap_secondary)]));
-  const pocket = bumpPocket(cards.filter(c => scopeIds.has(c.deck_id)), bumps, cutoffMs);
+  const pocket = bumpPocket(live.filter(c => scopeIds.has(c.deck_id)), bumps, cutoffMs);
   const pocketIds = new Set(pocket.cards.map(c => c.id));
   // Up next: its notes never feed the regular pools; it takes the budget first.
-  const slots = upNextSlots(cards.filter(c => scopeIds.has(c.deck_id)), upNext, reviewed, pocketIds, longTerm);
+  const slots = upNextSlots(live.filter(c => scopeIds.has(c.deck_id)), upNext, reviewed, pocketIds, longTerm);
 
   const newByDeck = new Map<string, C[]>();
-  for (const c of cards) {
+  for (const c of live) {
     if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || pocketIds.has(c.id) || slots.noteIds.has(c.note_id)) continue;
     if (!admitsNewCards(longTerm?.get(c.note_id) ?? null, inReview.get(c.deck_id)!, reviewed.has(c.note_id))) continue;
     const list = newByDeck.get(c.deck_id);
@@ -292,7 +301,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
   }
   // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
   // known characters, lead-card.ts) — the pools' notes and Up next's alike.
-  const scopeNew = cards.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !pocketIds.has(c.id));
+  const scopeNew = live.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !pocketIds.has(c.id));
   const lead = knownCharacterNotesInQueue(scopeNew, reviewed, cards, noteText);
   const taken = takeUpNext({ primary: slots.primary.length, secondary: slots.secondary.length }, newBudgetLeft(budget, bonus, studiedAll));
   const upPrimary = withLeadCards(slots.primary.slice(0, taken.primary), scopeNew, lead);
@@ -347,7 +356,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
     }
     if (a.secondary > 0) due.push(...all.filter(c => reviewed.has(c.note_id)).sort(byTierThenId).slice(0, a.secondary));
   }
-  for (const c of cards) {
+  for (const c of live) {
     if (scopeIds.has(c.deck_id) && isDueByCutoff(c, cutoffMs) && !pocketIds.has(c.id)) due.push(c);
   }
 

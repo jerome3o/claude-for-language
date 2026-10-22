@@ -2,7 +2,7 @@ import type { Folder } from '@shared/folders';
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import Dexie, { Table } from 'dexie';
-import { bumpPocket, type QueueBump, type QueueBumps } from '@shared/decks';
+import { bumpPocket, cardsInStudy, heldCardIds, type QueueBump, type QueueBumps, type QueueHolds } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
@@ -10,6 +10,7 @@ import { budgetForToday, reviewLoadState, reviewLoadToday, type ReviewLoadState 
 import { seenCharactersOf } from '@shared/study/newCharacters';
 import { readReviewLoadCap, readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
+import { readBurySiblings } from '../services/burySiblings';
 import { loadWordFrequency } from '../services/wordFrequency';
 import { loadWordTagLexicon } from '../services/wordTags';
 import { noteFormalities } from '../services/noteFormality';
@@ -160,6 +161,24 @@ export interface LocalStudyBump {
   /** A card-level bump ("Practise this word other ways…"): only these card types; null / absent = the whole note. */
   card_types?: string[] | null;
   pending?: 'add' | 'clear' | null;
+}
+
+/**
+ * Suspend & snooze — one hold on one card (shared/decks/holds.ts, services/cardHolds.ts).
+ * Rows from the server are replaced whole by each sync; `pending` rows are this device's
+ * changes still to upload ('add' = POST /api/me/card-holds, 'clear' = POST …/clear).
+ */
+export interface LocalCardHold {
+  /** Client id (the server keeps it). */
+  id: string;
+  card_id: string;
+  kind: 'suspend' | 'snooze';
+  /** Snooze: the local date the card is back ("YYYY-MM-DD"); suspend: null. */
+  until: string | null;
+  created_at: string;
+  pending?: 'add' | 'clear' | null;
+  /** When the clear was made (ISO) — the server clears holds made at or before it. */
+  cleared_at?: string | null;
 }
 
 /**
@@ -759,6 +778,7 @@ export class ChineseLearningDB extends Dexie {
   // Folders (decks / lessons / readers), replaced whole on each sync
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
+  cardHolds!: Table<LocalCardHold, string>;
   upNext!: Table<LocalUpNext, string>;
   upNextOps!: Table<LocalUpNextOp, number>;
   revisitEvents!: Table<LocalRevisitEvent, string>;
@@ -1257,6 +1277,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(34).stores({
       lessonRuns: 'lesson_id',
     });
+
+    // Version 35: Suspend & snooze (shared/decks/holds.ts) — holds on cards, replaced by every
+    // sync with this device's not-yet-uploaded ones on top (services/cardHolds.ts).
+    this.version(35).stores({
+      cardHolds: 'id, card_id',
+    });
   }
 }
 
@@ -1551,6 +1577,8 @@ interface StudyInputs {
   bumps: QueueBumps | null;
   /** "Up next": the account's ordered list (note ids). */
   upNext: string[];
+  /** Suspended / snoozed cards + sibling burying (shared/decks/holds.ts): they leave study. */
+  holds: QueueHolds | null;
   /**
    * "Pause new cards on heavy days" (shared/decks/review-load.ts): today's review load over ALL
    * decks against the account's limit. `budget` is already today's (0 + 0 while paused).
@@ -1607,6 +1635,30 @@ export async function loadQueueBumps(): Promise<QueueBumps | null> {
   return { bumps, lastReviewMs, firstReviewMs };
 }
 
+/** Today's LOCAL date, "YYYY-MM-DD" (a snooze ends on a local date — shared/decks/holds.ts). */
+export function localDateKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Card ids held out of study today (suspended / snoozed; pending clears left out). */
+export async function loadHeldCardIds(today: string = localDateKey()): Promise<Set<string>> {
+  try {
+    return heldCardIds((await db.cardHolds.toArray()).filter((h) => h.pending !== 'clear'), today);
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * The queue's holds: suspended / snoozed cards, and — with "Don't show a word's other card types
+ * on the same day" on — the cards reviewed today (their NEW / REVIEW siblings wait). null = none.
+ */
+function queueHolds(held: Set<string>, reviewedToday: Set<string>): QueueHolds | null {
+  const bury = readBurySiblings();
+  if (held.size === 0 && !bury) return null;
+  return { held, reviewedToday: bury ? reviewedToday : null };
+}
+
 /** "Up next" (services/upNext.ts): the list's note ids in order, for selectStudyQueue / the Home counts. */
 export async function loadQueueUpNext(): Promise<string[]> {
   try {
@@ -1621,20 +1673,23 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
   const decks = deckId ? allDecks.filter(d => d.id === deckId) : allDecks;
   // The daily budget is shared by every deck, so a single-deck session still
   // has to know what was introduced elsewhere today.
-  const [cards, today, longTerm, bumps, upNext] = await Promise.all([
+  const [cards, today, longTerm, bumps, upNext, held] = await Promise.all([
     loadCards(deckId),
     computeTodayFromEvents(),
     loadLongTermPrefs(),
     loadQueueBumps(),
     loadQueueUpNext(),
+    loadHeldCardIds(),
   ]);
+  const holds = queueHolds(held, today.reviewedToday);
   const studied = new Map<string, NewCardsStudiedToday>();
   for (const d of allDecks) studied.set(d.id, today.introduced.get(d.id) ?? { primary: 0, secondary: 0 });
   for (const [id, v] of today.introduced) if (!studied.has(id)) studied.set(id, v);
   // Today's review load is account-wide: a one-deck session still counts every deck's reviews.
   const loadCardsAll = deckId ? await db.cards.where('queue').above(CardQueue.NEW).toArray() : cards;
+  // Held cards (suspended / snoozed) are no part of today's load.
   const reviewLoad = reviewLoadState(
-    reviewLoadToday(loadCardsAll.map(queueInput), today.reviewedToday, today.firstReviewMs, today.dayStartMs, getStudyCutoff().ts),
+    reviewLoadToday(loadCardsAll.filter(c => !held.has(c.id)).map(queueInput), today.reviewedToday, today.firstReviewMs, today.dayStartMs, getStudyCutoff().ts),
     readReviewLoadCap()
   );
   const spentElsewhere = { primary: 0, secondary: 0 };
@@ -1645,7 +1700,7 @@ async function loadStudyInputs(deckId?: string): Promise<StudyInputs> {
       spentElsewhere.secondary += s.secondary;
     }
   }
-  return { decks, cards, studied, budget: budgetForToday(readStudyBudget(), reviewLoad), spentElsewhere, deckId, longTerm, bumps, upNext, reviewLoad };
+  return { decks, cards, studied, budget: budgetForToday(readStudyBudget(), reviewLoad), spentElsewhere, deckId, longTerm, bumps, upNext, holds, reviewLoad };
 }
 
 /** Notes with at least one reviewed card (queue != NEW). */
@@ -1814,11 +1869,14 @@ export function sumQueueCounts(counts: Iterable<DeckQueueCounts>): DeckQueueCoun
  * can serve multiple views with different bonuses.
  */
 function countRawQueues(
-  { decks, cards, studied, longTerm, bumps, budget, upNext, spentElsewhere }: StudyInputs,
+  { decks, cards: allCards, studied, longTerm, bumps, budget, upNext, spentElsewhere, holds }: StudyInputs,
   reviewedNoteIds: Set<string>,
   cutoff: { iso: string; ts: number },
   noteText?: QueueNoteText | null
 ): Map<string, DeckQueueRaw> {
+  // Held cards (suspended, snoozed, a buried sibling) leave every count — the same cut
+  // selectStudyQueue makes. `reviewedNoteIds` stays over every card (a suspended card's word is started).
+  const cards = cardsInStudy(allCards, holds, bumps?.bumps.map(b => b.note_id));
   // The pocket over the decks in scope (the same rule selectStudyQueue applies).
   const deckIds = new Set(decks.map(d => d.id));
   const pocket = bumpPocket(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), bumps, cutoff.ts);
@@ -1903,7 +1961,7 @@ function countRawQueues(
 
   // Each unseen note's lead card (hanzi_to_meaning; meaning_to_hanzi for a word of known
   // characters, shared/decks/lead-card.ts) — the candidates of the global picks, like the session.
-  const lead = noteText ? knownCharacterNotesInQueue(unseenNew, reviewedNoteIds, cards, noteText) : new Set<string>();
+  const lead = noteText ? knownCharacterNotesInQueue(unseenNew, reviewedNoteIds, allCards, noteText) : new Set<string>();
   for (const row of unseenNew) {
     if (!isLeadCard(row, lead)) continue;
     const list = newByDeck.get(row.deck_id);
@@ -2024,7 +2082,7 @@ function selectDueCards(
   const rows = inputs.cards.map(c => ({ ...queueInput(c), card: c }));
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
-  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps, inputs.upNext);
+  const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps, inputs.upNext, inputs.holds);
   return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id), knownCharacterNoteIds: result.knownCharacterNoteIds };
 }
 
@@ -2141,7 +2199,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.upNext, db.upNextOps, db.revisitEvents], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.cardHolds, db.upNext, db.upNextOps, db.revisitEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -2160,6 +2218,7 @@ export async function clearAllData(): Promise<void> {
     await db.tutorNotes.clear();
     await db.boardPages.clear();
     await db.studyBumps.clear();
+    await db.cardHolds.clear();
     await db.upNext.clear();
     await db.upNextOps.clear();
     await db.revisitEvents.clear();

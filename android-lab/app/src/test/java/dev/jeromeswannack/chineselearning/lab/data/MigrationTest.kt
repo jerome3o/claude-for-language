@@ -303,4 +303,29 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v11 adds card_holds (Suspend & snooze, migration 0135): empty to start; unsynced events and the rest stay. */
+    @Test fun v10ToV11AddsCardHoldsAndKeepsEverything() {
+        createFromExportedSchema(10).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'HSK 2', NULL, 3, 6, 2, '2026-10-22 10:00:00', NULL)")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, imageKey) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank', '2026-10-22 10:00:00', 'note-images/x.png')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-22T08:00:00.000Z', 4200, NULL, 0)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals("note-images/x.png", dao.notes(listOf("n1")).single().imageKey)
+            assertEquals(emptyList<CardHoldEntity>(), dao.cardHolds())
+            dao.upsertCardHolds(listOf(CardHoldEntity("h1", "c1", "snooze", "2026-10-29", "2026-10-22T10:00:00.000Z", pending = "add", outboxId = "h1")))
+            assertEquals("2026-10-29", dao.cardHolds().single().until)
+            dao.deleteCardHolds(listOf("h1"))
+            assertEquals(0, dao.cardHolds().size)
+        }
+        room.close()
+    }
 }

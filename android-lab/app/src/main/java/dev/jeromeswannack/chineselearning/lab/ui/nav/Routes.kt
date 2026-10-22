@@ -45,6 +45,7 @@ object Routes {
     fun generate() = "/generate"
     fun cardHub(noteId: String) = "/cards/${seg(noteId)}"
     const val UP_NEXT = "/up-next"
+    const val HELD_CARDS = "/cards/held"
     /** The tutor's view of a student's Up next list ([name] shown in the title). */
     fun studentUpNext(relId: String, name: String?) = "/connections/${seg(relId)}/up-next" + (name?.let { "?name=" + java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") } ?: "")
 

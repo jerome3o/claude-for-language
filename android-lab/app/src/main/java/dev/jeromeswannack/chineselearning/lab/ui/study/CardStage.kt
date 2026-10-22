@@ -140,6 +140,8 @@ private sealed interface CardSheet {
     data object Flag : CardSheet
     data object Ask : CardSheet
     data object Write : CardSheet
+    /** Suspend… / Snooze… (core CardHolds): [kind] "suspend" | "snooze". */
+    data class Hold(val kind: String) : CardSheet
     /** ⋯ → "Practise this word other ways…" (core OtherCardTypes). */
     data object OtherCards : CardSheet
     /** "✍️ Write it" from the character sheet: one character's stroke-order practice. */
@@ -546,9 +548,19 @@ fun CardStage(
                 view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag },
                 onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") },
                 onOtherCards = { sheet = CardSheet.OtherCards; actions.otherCards.open() },
+                onHold = { kind -> sheet = CardSheet.Hold(kind) },
             ),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
+        )
+        is CardSheet.Hold -> dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.CardControlSheet(
+            kind = s.kind,
+            hanzi = note.hanzi,
+            cardType = view.card.cardType,
+            wordCardTypes = view.wordCardTypes,
+            today = java.time.LocalDate.now().toString(),
+            onApply = { length, wholeWord -> actions.onHold(s.kind, length, wholeWord) },
+            onDismiss = { if (sheet == s) sheet = null },
         )
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
         CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })

@@ -53,6 +53,7 @@ import { registerIdiomTools } from './tools/idioms.js';
 import { registerMemeReviewTools } from './tools/meme-review.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
+import { registerCardHoldTools } from './tools/card-holds.js';
 import { registerNoteImageTools } from './tools/note-images.js';
 import { registerUpNextTools } from './tools/up-next.js';
 import { registerPinyinScanTools } from './tools/pinyin-scan.js';
@@ -192,7 +193,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
                  JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))`
+                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))`
               ).bind(deck.id).first<{ count: number }>(),
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
@@ -1283,6 +1284,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           JOIN notes n ON c.note_id = n.id
           JOIN decks d ON n.deck_id = d.id
           WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+            AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
         `;
 
         const params: (string | number)[] = [userId];
@@ -1342,6 +1344,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
             JOIN notes n ON c.note_id = n.id
             JOIN decks d ON n.deck_id = d.id
             WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
           `).bind(userId).first<{ count: number }>(),
           this.env.DB.prepare(`
             SELECT COUNT(*) as count FROM review_events
@@ -1446,6 +1449,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
             JOIN notes n ON c.note_id = n.id
             WHERE n.deck_id = ?
               AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
+              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
             ORDER BY
               CASE WHEN c.queue IN (1, 3) THEN 0 ELSE 1 END,
               c.due_timestamp ASC NULLS LAST,
@@ -1978,6 +1982,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
+    registerCardHoldTools(ctx);
     registerNoteImageTools(ctx);
     registerUpNextTools(ctx);
     registerPinyinScanTools(ctx);

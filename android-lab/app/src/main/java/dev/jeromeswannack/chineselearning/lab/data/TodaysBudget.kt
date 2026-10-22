@@ -24,7 +24,10 @@ object TodaysBudget {
     suspend fun state(dao: LabDao, cap: Int?, cards: Collection<QueueCard>, firstReviewAt: Map<String, Long>, nowMs: Long, zone: ZoneId): ReviewLoadState {
         val dayStart = StudyQueue.startOfDay(nowMs, zone)
         val reviewed = dao.cardIdsReviewedSince(Js.toIsoString(dayStart)).toHashSet()
-        val load = ReviewLoad.loadOf(cards, reviewed, firstReviewAt, dayStart, StudyQueue.cutoff(nowMs, zone).ts)
+        // Suspended / snoozed cards are no part of today's load (core CardHolds, like the web).
+        val held = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.heldIds(dao, nowMs, zone)
+        val live = if (held.isEmpty()) cards else cards.filter { it.id !in held }
+        val load = ReviewLoad.loadOf(live, reviewed, firstReviewAt, dayStart, StudyQueue.cutoff(nowMs, zone).ts)
         return ReviewLoad.state(load, cap)
     }
 

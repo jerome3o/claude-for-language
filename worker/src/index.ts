@@ -151,12 +151,14 @@ import audioSettingsRoutes from './routes/audio-settings';
 import studyTimeRoutes from './routes/study-time';
 import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
+import cardHoldsRoutes from './routes/card-holds';
 import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
 import { backfillCompletionOutcomes, outcomeForUpload, setCompletionOutcome } from './services/lesson-revision';
 import { parseRunOutcome } from '@shared/study/lessonRevision';
 import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
 import { listActiveBumps } from './services/study-bumps';
+import { getBurySiblings, listActiveHolds } from './services/card-holds';
 import upNextRoutes from './routes/up-next';
 import { listUpNext } from './services/up-next';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
@@ -544,6 +546,8 @@ app.get('/api/auth/me', async (c) => {
     study_budget: await db.getStudyBudgetInfo(c.env.DB, user.id).catch(() => null),
     // "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts) — cached on the device.
     new_card_order: await getNewCardOrderInfo(c.env.DB, user.id).catch(() => null),
+    // "Don't show a word's other card types on the same day" (shared/decks/holds.ts) — cached on the device.
+    bury_siblings: await getBurySiblings(c.env.DB, user.id).catch(() => false),
     // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
     // The voices this account's conversation exercises use (its own selection,
@@ -667,6 +671,7 @@ app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
 app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', upNextRoutes); // "Up next" — GET/POST/DELETE /api/me/up-next, PUT /api/me/up-next/order, /api/relationships/:relId/student-up-next…
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
@@ -5473,6 +5478,11 @@ app.get('/api/sync/changes', async (c) => {
     // "Up next": the ordered list of chosen notes introduced first within the budget (sent whole,
     // in order; the device keeps its own not-yet-uploaded changes on top). shared/decks/up-next.ts.
     up_next: await listUpNext(c.env.DB, userId).catch(() => null),
+    // Suspend & snooze: every active hold (a short list, sent whole; the device keeps its own
+    // not-yet-uploaded ones on top and decides with its local date which are still on). shared/decks/holds.ts.
+    card_holds: await listActiveHolds(c.env.DB, userId).catch(() => null),
+    // "Don't show a word's other card types on the same day" (off by default).
+    bury_siblings: await getBurySiblings(c.env.DB, userId).catch(() => null),
     // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
     // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),

@@ -113,6 +113,17 @@ object LabMigrations {
         }
     }
 
+    /**
+     * v11: card_holds — Suspend & snooze (server card_holds, migration 0135; core CardHolds.kt): the
+     * holds on cards, server rows + this phone's pending changes. Empty to start (the next sync fills it).
+     */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `card_holds` (`id` TEXT NOT NULL, `cardId` TEXT NOT NULL, `kind` TEXT NOT NULL, `until` TEXT, `createdAt` TEXT NOT NULL, `pending` TEXT, `outboxId` TEXT, `clearedAt` TEXT, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_card_holds_cardId` ON `card_holds` (`cardId`)")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
 }

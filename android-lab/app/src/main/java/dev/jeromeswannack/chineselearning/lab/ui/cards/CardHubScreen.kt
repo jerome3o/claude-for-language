@@ -82,6 +82,8 @@ fun CardHubScreen(
     nowMs: Long = System.currentTimeMillis(),
     /** The card's Picture section (ui/cards/NotePictureSection.kt); null = none (screenshots). */
     picture: (@Composable () -> Unit)? = null,
+    /** Suspend & snooze per card (ui/cardcontrols/HubCardControls.kt); null = none. */
+    controls: (@Composable () -> Unit)? = null,
 ) {
     val note = ui.note
     LabScreen(
@@ -115,6 +117,7 @@ fun CardHubScreen(
                 for (c in ui.cards) CardStateTile(c, nowMs, Modifier.weight(1f))
             }
         }
+        if (controls != null) item { controls() }
         // "⚡ Study it today": bring this word to the front of today's study (or take it out again).
         if (ui.canBump) item {
             if (ui.bumped) {

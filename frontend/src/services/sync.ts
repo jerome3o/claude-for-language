@@ -1,6 +1,9 @@
 import type { Folder } from '@shared/folders';
 import { replaceLocalFolders, syncFolders } from './folders';
 import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
+import { replaceLocalHolds, syncHolds, uploadPendingHolds } from './cardHolds';
+import { writeBurySiblings } from './burySiblings';
+import type { ApiCardHold } from '../api/cardHolds';
 import { replaceLocalRevisitEvents, uploadRevisitEvents } from './lessonLearn';
 import type { ApiStudyBump } from '../api/bumps';
 import type { ApiUpNext } from '../api/upNext';
@@ -107,6 +110,10 @@ interface SyncChangesResponse {
   bumps?: ApiStudyBump[] | null;
   /** "Up next": the ordered list of chosen notes, sent whole (shared/decks/up-next.ts). */
   up_next?: ApiUpNext[] | null;
+  /** Suspend & snooze: every active hold, sent whole (shared/decks/holds.ts). */
+  card_holds?: ApiCardHold[] | null;
+  /** "Don't show a word's other card types on the same day" (off by default). */
+  bury_siblings?: boolean | null;
   /** The old "Done for good" / "Bring back" marks on lessons (a retire = done forever, shared/study/lessonRevision.ts). */
   revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
 }
@@ -450,6 +457,8 @@ class SyncService {
     await syncFolders();
     // "⚡ Study it today": pending bumps up, the pocket down (never throws).
     await syncBumps();
+    // Suspend & snooze: pending holds up, the list down (never throws).
+    await syncHolds();
     // "Up next": waiting changes up, the list down (never throws).
     await syncUpNext();
 
@@ -665,6 +674,7 @@ class SyncService {
     this.notifyProgress({ phase: 'decks', message: 'Fetching changes...' });
     // Bumps made offline go up first, so the list that comes back already has them.
     await uploadPendingBumps();
+    await uploadPendingHolds();
     await uploadPendingUpNext();
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
@@ -687,6 +697,9 @@ class SyncService {
     if (changes.folders) await replaceLocalFolders(changes.folders).catch(err => console.error('[Sync] Folders failed:', err));
     // "⚡ Study it today": the server's pocket, this device's pending changes on top.
     if (Array.isArray(changes.bumps)) await replaceLocalBumps(changes.bumps).catch(err => console.error('[Sync] Bumps failed:', err));
+    // Suspend & snooze: the server's holds, this device's pending changes on top.
+    if (Array.isArray(changes.card_holds)) await replaceLocalHolds(changes.card_holds).catch(err => console.error('[Sync] Holds failed:', err));
+    if (typeof changes.bury_siblings === 'boolean') writeBurySiblings(changes.bury_siblings);
     // "Up next": the server's list, unless a change made here is still waiting.
     if (Array.isArray(changes.up_next)) await replaceLocalUpNext(changes.up_next).catch(err => console.error('[Sync] Up next failed:', err));
     // The old Done-for-good marks (a retire = done forever; shared/study/lessonRevision.ts).

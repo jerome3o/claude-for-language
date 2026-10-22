@@ -51,6 +51,8 @@ data class MeDto(
     val study_budget: dev.jeromeswannack.chineselearning.lab.data.api.StudyBudgetInfoDto? = null,
     /** "Order new cards by" (shared/decks/new-card-order.ts → core NewCardOrder.parse); null from an older server. */
     val new_card_order: kotlinx.serialization.json.JsonObject? = null,
+    /** "Don't show a word's other card types on the same day" (core CardHolds); null from an older server. */
+    val bury_siblings: Boolean? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
     /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
@@ -130,6 +132,10 @@ data class ChangesDto(
     val bumps: List<dev.jeromeswannack.chineselearning.lab.data.api.StudyBumpDto>? = null,
     /** "Up next": the ordered list of chosen notes, sent whole (data/upnext/UpNextStore.kt). */
     val up_next: List<dev.jeromeswannack.chineselearning.lab.data.api.UpNextDto>? = null,
+    /** Suspend & snooze: every active hold, sent whole (data/holds/HoldStore.kt); null from an older server. */
+    val card_holds: List<dev.jeromeswannack.chineselearning.lab.data.api.CardHoldDto>? = null,
+    /** "Don't show a word's other card types on the same day"; null from an older server. */
+    val bury_siblings: Boolean? = null,
 )
 
 @Serializable

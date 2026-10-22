@@ -205,6 +205,7 @@ fun DeckScreen(ui: DeckUi, actions: DeckActions) {
                         Text(row.english, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (!row.sentenceClue.isNullOrEmpty()) Text(row.sentenceClue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (row.bumped) Text("⚡ First in today’s study", style = MaterialTheme.typography.labelSmall, color = dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpAmber, fontWeight = FontWeight.SemiBold)
+                        row.hold?.let { (icon, text) -> dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.HoldTag(icon, text, Modifier.padding(top = 3.dp).testTag("deck-note-hold")) }
                     }
                     Spacer(Modifier.width(6.dp))
                     RatingsGrid(row.ratings)

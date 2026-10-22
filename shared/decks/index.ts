@@ -16,3 +16,4 @@ export * from './new-card-order';
 export * from './up-next';
 export * from './lead-card';
 export * from './formality';
+export * from './holds';

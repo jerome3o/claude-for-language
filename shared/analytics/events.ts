@@ -118,6 +118,13 @@ export const ANALYTICS_EVENTS = {
   'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | mcp | tutor | other).', ['source', 'count', 'already']),
   'study.up_next_moved': e('study', 'Reordered the "Up next" list (how = drag | top | bottom | drop — a search result dragged into place).', ['how']),
   'study.up_next_removed': e('study', 'Took a word off the "Up next" list by hand (the card is kept).', ['source']),
+  'card.suspend': e('study', 'Suspended cards — out of all study until unsuspended (scope = card | word; source = study | card_hub | held_list | mcp).', ['scope', 'count', 'source']),
+  'card.unsuspend': e('study', 'Unsuspended cards (source = study | card_hub | held_list | deck | mcp).', ['count', 'source']),
+  'card.snooze': e('study', 'Snoozed cards — "not today" (length = tomorrow | week | month; scope = card | word).', ['scope', 'length', 'count', 'source']),
+  'card.wake': e('study', 'Woke snoozed cards now (source = card_hub | held_list | deck | mcp).', ['count', 'source']),
+  'card.forget': e('study', 'Forgot cards — reset to new with a forget event (scope = card | word; undone = the Undo right after).', ['scope', 'count', 'source', 'undone']),
+  'card.leech_open': e('study', 'Opened the "⚠ Missed N×" leech sheet on a card (lapses = how many times missed).', ['lapses', 'card_type']),
+  'settings.bury_siblings': e('settings', 'Turned "Don\'t show a word\'s other card types on the same day" on or off.', ['on']),
 
   // ── homework (student side) ────────────────────────────────────────────
   'homework.pass_start': e('homework', 'Opened a homework pass.', ['kind', 'items']),

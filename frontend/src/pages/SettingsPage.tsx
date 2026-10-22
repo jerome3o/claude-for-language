@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { CardControlsSettings } from '../components/cardControls/CardControlsSettings';
 import { setCardPicturesEnabled, useCardPicturesEnabled } from '../services/noteImages';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
@@ -691,6 +692,7 @@ function SpokenAnswerSection() {
       <WordTagsSetting />
       <CardPicturesSetting />
       <NewCharShimmerSetting />
+      <CardControlsSettings />
     </div>
   );
 }

@@ -26,6 +26,8 @@ class DecksEnv(
     val budget: () -> StudyBudget = { StudyBudget.DEFAULT },
     /** "Pause new cards on heavy days" (Prefs.reviewLoadCap, core ReviewLoad); null = off. */
     val reviewLoadCap: () -> Int? = { null },
+    /** "Don't show a word's other card types on the same day" (Prefs.burySiblings, core CardHolds). */
+    val burySiblings: () -> Boolean = { false },
     val bonus: (scope: String, day: String) -> Int = { _, _ -> 0 },
     val setBonus: (scope: String, day: String, value: Int) -> Unit = { _, _, _ -> },
     /** users.role = tutor: the deck page offers "Try it as a student" instead of Study. */
@@ -65,6 +67,7 @@ class DecksEnv(
                 dataVersion = app.repo.dataVersion,
                 budget = { app.prefs.budget },
                 reviewLoadCap = { app.prefs.reviewLoadCap },
+                burySiblings = { app.prefs.burySiblings },
                 bonus = { scope, day -> app.prefs.bonus(scope, day) },
                 setBonus = { scope, day, v -> app.prefs.setBonus(scope, day, v) },
                 isTutorAccount = { app.prefs.accountRole == "tutor" },

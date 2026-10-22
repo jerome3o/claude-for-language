@@ -136,8 +136,9 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         val cardsByDeck = entities.groupBy { it.deckId }
         val ordered = Budget.sortForQueue(decks, { it.studyPriority }, { it.createdAt })
         val budget = dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, env.budget(), env.reviewLoadCap(), cards, first, now, zone).budget
+        val holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, env.burySiblings(), now, zone)
         return ordered.map { d ->
-            val q = StudyQueue.build(queueDecks, cards, budget, env.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
+            val q = StudyQueue.build(queueDecks, cards, budget, env.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext, holds = holds)
             val completion = DeckStats.completion(cardsByDeck[d.id].orEmpty())
             DeckCardUi(
                 id = d.id, name = d.name, noteCount = noteCounts[d.id] ?: 0,

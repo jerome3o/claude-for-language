@@ -1,0 +1,311 @@
+/* Card controls: Suspend / Snooze / Forget sheets, the leech pill + sheet, hold tags
+   (docs/STUDY_SESSION.md "Suspend & snooze", "Leeches", "Forget"). Mobile first; every
+   state carries an icon + words, never colour alone. */
+
+.cc-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 950;
+}
+
+.cc-sheet {
+  --sheet-pad: 1rem;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0 auto;
+  max-width: 640px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.18);
+  padding: 0.375rem var(--sheet-pad) 0;
+  z-index: 951;
+  max-height: 85dvh;
+  overflow-y: auto;
+}
+
+.cc-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border);
+  margin: 0.25rem auto 0.75rem;
+}
+
+.cc-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+
+.cc-hanzi {
+  font-size: 1.25rem;
+  margin-left: 0.25rem;
+}
+
+.cc-explain {
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+  margin-bottom: 0.875rem;
+}
+
+.cc-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.875rem;
+}
+
+.cc-scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: var(--radius-lg);
+  background: var(--btn-bg);
+  color: var(--color-text);
+  text-align: left;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.cc-scope-option.is-on {
+  border-width: 2px;
+  border-color: var(--color-text);
+  padding: calc(0.625rem - 1px) calc(0.75rem - 1px);
+  font-weight: 600;
+}
+
+.cc-radio {
+  font-size: 1.125rem;
+  line-height: 1.4;
+}
+
+.cc-scope-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-scope-sub {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-text-light);
+}
+
+.cc-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.cc-option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 52px;
+  padding: 0.625rem 1rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: var(--radius-lg);
+  background: var(--btn-bg);
+  color: var(--color-text);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cc-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cc-option-sub {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--color-text-light);
+}
+
+.cc-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin: 0.5rem calc(-1 * var(--sheet-pad)) 0;
+  padding: 0.75rem var(--sheet-pad) max(var(--sheet-pad), env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface);
+}
+
+.cc-footer .btn {
+  min-height: 44px;
+}
+
+@media (max-width: 479px) {
+  .cc-footer .btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* "⏸ Suspended" / "💤 Snoozed · 29 Oct" — a quiet tag with an icon and words. */
+.cc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0.5rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface);
+  white-space: nowrap;
+}
+
+/* The "Suspended & snoozed cards" page. */
+.held-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.held-search {
+  width: 100%;
+  min-height: 44px;
+  font-size: 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.held-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.held-chip {
+  min-height: 40px;
+  padding: 0.375rem 0.875rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: 999px;
+  background: var(--btn-bg);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.held-chip.is-on {
+  border-width: 2px;
+  border-color: var(--color-text);
+  font-weight: 700;
+}
+
+.held-bulk {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.held-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.held-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.held-row input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
+.held-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.held-row-word {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.held-row-hanzi {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.held-row-meta {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin-top: 0.125rem;
+}
+
+.held-row .btn {
+  flex: none;
+  min-height: 44px;
+}
+
+.held-empty {
+  text-align: center;
+  color: var(--color-text-light);
+  padding: 2rem 1rem;
+  line-height: 1.5;
+}
+
+/* Card hub: one line per held card with its action. */
+.cc-hub-hold {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.375rem;
+}
+
+.cc-hub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  margin-top: 0.75rem;
+}
+
+.cc-hub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+}
+
+.cc-hub-actions .btn {
+  min-height: 44px;
+}
