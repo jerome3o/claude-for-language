@@ -248,11 +248,20 @@ for (let i = 0; i < 300; i++) {
       cards.push({ id, note_id: noteId, deck_id: deckId, card_type: t, queue, due_ms: due });
     }
   }
-  const bumpList = noteIds.filter(() => rand() < 0.45).map(note_id => ({
+  const bumpList: Array<{ note_id: string; created_ms: number; card_types?: string[] | null }> = noteIds.filter(() => rand() < 0.45).map(note_id => ({
     note_id,
     // today, earlier today, or carried over from a previous day; sometimes exactly at a review
     created_ms: pick([now - int(0, 5) * H, dayStart + int(0, 3) * H, dayStart - int(1, 3) * DAY]),
   }));
+  // Card-level bumps ("Practise this word other ways…"): chosen deterministically from the case and
+  // note index, so the random stream (and every later section) is unchanged.
+  bumpList.forEach((b, k) => {
+    const h = (i * 7 + k * 3) % 9;
+    if (h === 0) b.card_types = [TYPES[1]];
+    else if (h === 1) b.card_types = [TYPES[2], TYPES[1]];
+    else if (h === 2) b.card_types = [TYPES[0], 'bogus'];
+    else if (h === 3) b.card_types = [];
+  });
   if (rand() < 0.3) bumpList.push({ note_id: `unknown-${i}`, created_ms: now - H });
   if (bumpList.length && rand() < 0.15) {
     // a review exactly at the bump instant counts as "since the bump"

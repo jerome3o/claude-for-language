@@ -159,6 +159,11 @@ data class StudyBumpEntity(
     val bumpedByName: String? = null,
     val pending: String? = null,
     val outboxId: String? = null,
+    /**
+     * v10: a card-level bump ("Practise this word other ways…", server study_bumps.card_types):
+     * JSON array of the card types in the pocket; null = the whole note.
+     */
+    val cardTypes: String? = null,
 )
 
 /**
@@ -314,7 +319,7 @@ interface LabDao {
         // v8: "Up next".
         UpNextEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

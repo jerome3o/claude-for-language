@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CharWordRow
 import dev.jeromeswannack.chineselearning.lab.core.CharWordStatus
+import dev.jeromeswannack.chineselearning.lab.core.CharWords
+import dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo
 import dev.jeromeswannack.chineselearning.lab.core.explorer.Crumb
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
@@ -107,7 +109,7 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             onDismiss = { adding = null; refresh++ },
             bumpSource = "explorer",
             bump = env.bump,
-            onAdded = { controller.record("explorer.add_card") },
+            onAdded = { controller.record("explorer.add_card", mapOf("kind" to if (CharWords.isSingleHan(chunk.hanzi)) "char" else "word")) },
         )
     }
     writing?.let { text -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(text, onClose = { writing = null }) }
@@ -141,7 +143,7 @@ fun ExplorerStackView(
                 )
             }
         } else when (item) {
-            is ExplorerItem.Char -> CharacterViewHost(item.char, controller, env, onWrite)
+            is ExplorerItem.Char -> CharacterViewHost(item.char, controller, env, refresh, onWrite, onAdd)
             is ExplorerItem.Word -> WordViewHost(item, controller, env, refresh, onAdd)
         }
     }
@@ -215,12 +217,26 @@ private fun HeaderButton(glyph: String, label: String, tag: String, onClick: () 
 // ── Character view ─────────────────────────────────────────────────────────
 
 @Composable
-private fun CharacterViewHost(char: String, controller: ExplorerController, env: ExplorerEnv, onWrite: (String) -> Unit) {
+private fun CharacterViewHost(
+    char: String,
+    controller: ExplorerController,
+    env: ExplorerEnv,
+    refresh: Int,
+    onWrite: (String) -> Unit,
+    onAdd: (Chunk) -> Unit,
+) {
     val actions = env.chars
     var lookup by remember { mutableStateOf<CharDict.Lookup?>(null) }
     var rows by remember { mutableStateOf<List<CharWordRow<CharWordDto>>?>(null) }
     var more by remember { mutableStateOf<CharMore>(CharMore.Idle) }
+    // Is the character itself one of his cards (性, not 人性)? null = still reading Room.
+    var own by remember { mutableStateOf<OwnCardInfo?>(null) }
+    var bumped by remember { mutableStateOf<String?>(null) }
+    var bumping by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    LaunchedEffect(refresh) {
+        own = runCatching { env.ownCards(listOf(char))[char] }.getOrNull() ?: OwnCardInfo(CharWordStatus.None, emptyList(), emptyList())
+    }
     LaunchedEffect(Unit) {
         val r = actions.lookup(char)
         lookup = r
@@ -256,8 +272,37 @@ private fun CharacterViewHost(char: String, controller: ExplorerController, env:
         onRow = { row -> ExplorerStack.itemForText(row.word.hanzi, row.word.pinyin, row.word.english)?.let(controller::push) },
         onWrite = { onWrite(char) },
         onDrill = { t, pool -> controller.startDrill(t, pool) },
+        ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null),
+        onOpenCard = { own?.noteIds?.firstOrNull()?.let { id -> env.openCard?.invoke(id) } },
+        onBump = {
+            val bump = env.bump ?: return@CharacterView
+            bumping = true
+            scope.launch {
+                try {
+                    bumped = bump(listOf(char), null)
+                    controller.record("explorer.bump", mapOf("kind" to "char"))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    bumped = null
+                } finally { bumping = false }
+            }
+        },
+        onAdd = {
+            val r = (lookup as? CharDict.Lookup.Ok)?.record
+            onAdd(Chunk(char, r?.readings?.firstOrNull()?.pinyin.orEmpty(), r?.meaning.orEmpty(), null))
+        },
     )
 }
+
+/** The Character view's own-card block: null [own] = still reading this phone's cards. */
+data class OwnCardUi(
+    val own: OwnCardInfo? = null,
+    val bumped: String? = null,
+    val bumping: Boolean = false,
+    val canOpenCard: Boolean = true,
+    val canBump: Boolean = true,
+)
 
 /** The Character view in the explorer frame (stateless). */
 @Composable
@@ -274,6 +319,11 @@ fun CharacterView(
     onWrite: () -> Unit = {},
     /** "🎯 Quick drill" over this character and its words (null = not offered). */
     onDrill: ((dev.jeromeswannack.chineselearning.lab.core.explorer.DrillTarget, List<dev.jeromeswannack.chineselearning.lab.core.explorer.DictWord>) -> Unit)? = null,
+    /** Is the character itself a card of his? (null = no block: previews of other states). */
+    ownCard: OwnCardUi? = null,
+    onOpenCard: () -> Unit = {},
+    onBump: () -> Unit = {},
+    onAdd: () -> Unit = {},
 ) {
     val drill = remember(ui.char, ui.record) { if (onDrill == null) null else charDrill(ui.char, ui.record?.words) }
     ExplorerFrame(
@@ -282,7 +332,10 @@ fun CharacterView(
             { SecondaryPill("✍️ Write it", Modifier.weight(1f).height(52.dp).testTag("explorer-write"), onClick = onWrite) }
         },
     ) {
-        CharacterSheetContent(ui.copy(canWrite = false), onClose = onClose, onMore = onMore, onRow = onRow, onChar = onChar, showClose = false)
+        CharacterSheetContent(
+            ui.copy(canWrite = false), onClose = onClose, onMore = onMore, onRow = onRow, onChar = onChar, showClose = false,
+            afterHead = ownCard?.takeIf { CharWords.isSingleHan(ui.char) }?.let { o -> { OwnCardBlock(ui.char, o, onOpenCard, onBump, onAdd) } },
+        )
         if (drill != null && onDrill != null) {
             QuickDrillButton({ onDrill(drill.first, drill.second) }, Modifier.padding(start = 20.dp, top = 4.dp, bottom = 16.dp))
         }
@@ -322,6 +375,11 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             val rows = runCatching { env.chars.statuses(related.map { it.word }, null) }.getOrDefault(emptyList())
             update { it.copy(statuses = rows.associate { r -> r.word.hanzi to r.status }) }
         }
+    }
+    // Which of its characters are cards of their own (the chip badges); again after an add.
+    LaunchedEffect(refresh) {
+        val own = runCatching { env.ownCards(chars) }.getOrDefault(emptyMap())
+        update { it.copy(ownCards = own.mapValues { (_, o) -> o.status }) }
     }
     // A 成语 already on the phone (the "📜 Story & usage" row).
     LaunchedEffect(Unit) {
@@ -384,7 +442,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
                 try {
                     val message = bump(listOf(hanzi), null)
                     update { it.copy(bumped = message) }
-                    controller.record("explorer.bump")
+                    controller.record("explorer.bump", mapOf("kind" to "word"))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {

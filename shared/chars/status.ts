@@ -14,7 +14,7 @@
  * frequency order — known words stay in place, the sheet only dims them.
  */
 import { masteryLevel } from '../progress/mastery';
-import { noteKey } from '../progress/known';
+import { isHanCodePoint, noteKey } from '../progress/known';
 
 export type CharWordStatus = 'known' | 'in_decks' | 'none';
 
@@ -102,3 +102,71 @@ export const CHAR_STATUS_LABEL: Record<CharWordStatus, string> = {
   in_decks: '📚 In your decks',
   none: '',
 };
+
+/**
+ * A single character's OWN card (docs/LANGUAGE_EXPLORER.md "Character view"): does the learner
+ * have a note that IS this character (性 itself — not 性别 or 人性)? Same spelling rule as the
+ * "Words with 字" rows (`noteKey`: punctuation / spaces ignored, so a note "性。" counts) and the
+ * same statuses (known = a mature card, in_decks = any other card, none = no note).
+ */
+export interface OwnCard {
+  status: CharWordStatus;
+  /** The learner's notes that are this character (any deck), in input order. */
+  note_ids: string[];
+}
+
+/** True for exactly one Han character — the only thing that can have an own card. */
+export function isSingleHan(text: string): boolean {
+  const cps = [...text];
+  return cps.length === 1 && isHanCodePoint(cps[0].codePointAt(0)!);
+}
+
+/**
+ * The own card of each entry of `chars`, keyed by the entry. Anything that isn't exactly one Han
+ * character (a word, Latin, punctuation, '') is `none` with no notes.
+ */
+export function charOwnCards(chars: readonly string[], notes: readonly CharStatusNote[], cards: readonly CharStatusCard[]): Record<string, OwnCard> {
+  const out: Record<string, OwnCard> = {};
+  for (const c of chars) out[c] = { status: 'none', note_ids: [] };
+  const single = [...new Set(chars)].filter(isSingleHan);
+  for (const r of charWordRows(single.map((hanzi) => ({ hanzi })), notes, cards)) {
+    out[r.word.hanzi] = { status: r.status, note_ids: r.note_ids };
+  }
+  return out;
+}
+
+/** The deck list in a line: "HSK 5", "HSK 5, Food", else "your decks". */
+function deckList(decks: readonly string[]): string {
+  const names = [...new Set(decks.map((d) => d.trim()).filter(Boolean))];
+  return names.length ? names.join(', ') : 'your decks';
+}
+
+/**
+ * The Character view's status line: "✓ Known — you have 性 as a card in HSK 5" /
+ * "📚 You have 性 as a card in HSK 5"; '' when there is no card (the view offers
+ * `addOwnCardLabel` instead). Icon + words, never colour alone.
+ */
+export function ownCardLine(char: string, status: CharWordStatus, decks: readonly string[]): string {
+  if (status === 'known') return `✓ Known — you have ${char} as a card in ${deckList(decks)}`;
+  if (status === 'in_decks') return `📚 You have ${char} as a card in ${deckList(decks)}`;
+  return '';
+}
+
+/** "+ Add 性 as a card" — the Character view's button when the character has no card of its own. */
+export function addOwnCardLabel(char: string): string {
+  return `+ Add ${char} as a card`;
+}
+
+/** The small badge on a Word view character chip whose character has its own card. */
+export const OWN_CARD_BADGE: Record<CharWordStatus, string> = { known: '✓', in_decks: '📚', none: '' };
+
+/**
+ * A Word view character chip's accessible label: "The character 性, xìng — you have it as a
+ * card, known" / "… — you have it as a card" / just the character.
+ */
+export function charChipLabel(char: string, syllable: string | null | undefined, status: CharWordStatus): string {
+  const base = `The character ${char}${syllable ? `, ${syllable}` : ''}`;
+  if (status === 'known') return `${base} — you have it as a card, known`;
+  if (status === 'in_decks') return `${base} — you have it as a card`;
+  return base;
+}

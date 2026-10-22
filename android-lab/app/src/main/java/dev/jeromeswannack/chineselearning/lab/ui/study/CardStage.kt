@@ -139,6 +139,8 @@ private sealed interface CardSheet {
     data object Flag : CardSheet
     data object Ask : CardSheet
     data object Write : CardSheet
+    /** ⋯ → "Practise this word other ways…" (core OtherCardTypes). */
+    data object OtherCards : CardSheet
     /** "✍️ Write it" from the character sheet: one character's stroke-order practice. */
     data class WriteText(val text: String) : CardSheet
     /** Tap a character on the back: the card-independent dictionary sheet (ui/chars). */
@@ -521,11 +523,16 @@ fun CardStage(
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
-            items = studyMenuItems(view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag }, onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") }),
+            items = studyMenuItems(
+                view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag },
+                onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") },
+                onOtherCards = { sheet = CardSheet.OtherCards; actions.otherCards.open() },
+            ),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
         )
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
+        CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
         CardSheet.Ask -> AskClaudeSheet(

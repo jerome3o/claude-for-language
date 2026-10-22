@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bumpPocket, bumpedCardsForNote, bumpedLabel, bumpedMessage, normalizeBumpSource, type QueueBumps } from './bumps';
+import { bumpPocket, bumpedCardsForNote, bumpedLabel, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource, pickBumpedCard, type QueueBumps } from './bumps';
 import { selectStudyQueue, countQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
 
 const H = 3_600_000;
@@ -151,5 +151,94 @@ describe('copy', () => {
     expect(bumpedMessage([], 1)).toBe('Already in today’s pocket ⚡');
     expect(normalizeBumpSource('coach')).toBe('coach');
     expect(normalizeBumpSource('nope')).toBe('other');
+    expect(normalizeBumpSource('study_card')).toBe('study_card');
+  });
+});
+
+describe('card-level bumps ("Practise this word other ways…")', () => {
+  const noteCards = () => [
+    card('h', 'n', 2, NOW + 9 * DAY),
+    card('m', 'n', 0, null, 'meaning_to_hanzi'),
+    card('a', 'n', 2, NOW + 12 * DAY, 'audio_to_hanzi'),
+  ];
+
+  it('selects ONLY the chosen card types: a new sibling, not the early review of the whole-note rule', () => {
+    const got = bumpedCardsForNote(noteCards(), { note_id: 'n', created_ms: BUMP, card_types: ['meaning_to_hanzi'] }, new Map(), new Map(), CUTOFF);
+    expect(got.map(c => c.id)).toEqual(['m']);
+    // The whole-note bump of the same note brings h (early) and m.
+    expect(bumpedCardsForNote(noteCards(), { note_id: 'n', created_ms: BUMP }, new Map(), new Map(), CUTOFF).map(c => c.id)).toEqual(['h', 'm']);
+  });
+
+  it('a started card not due yet is reviewed early when chosen; several types in card-type order', () => {
+    const got = bumpedCardsForNote(noteCards(), { note_id: 'n', created_ms: BUMP, card_types: ['audio_to_hanzi', 'meaning_to_hanzi'] }, new Map(), new Map(), CUTOFF);
+    expect(got.map(c => c.id)).toEqual(['m', 'a']);
+  });
+
+  it('done when every chosen card has been reviewed since the bump (reviews before it do not count)', () => {
+    const bump = { note_id: 'n', created_ms: BUMP, card_types: ['meaning_to_hanzi', 'audio_to_hanzi'] };
+    expect(bumpedCardsForNote(noteCards(), bump, new Map([['m', NOW]]), new Map([['m', NOW]]), CUTOFF).map(c => c.id)).toEqual(['a']);
+    expect(bumpedCardsForNote(noteCards(), bump, new Map([['m', NOW], ['a', BUMP - H]]), new Map(), CUTOFF).map(c => c.id)).toEqual(['a']);
+    expect(bumpedCardsForNote(noteCards(), bump, new Map([['m', NOW], ['a', BUMP]]), new Map(), CUTOFF)).toEqual([]);
+    const p = bumpPocket(noteCards(), { bumps: [bump], lastReviewMs: new Map([['m', NOW], ['a', NOW]]), firstReviewMs: new Map() }, CUTOFF);
+    expect(p.doneNoteIds).toEqual(['n']);
+  });
+
+  it('a chosen type the note does not have: nothing to do (done)', () => {
+    const cards = [card('h', 'n', 0)];
+    expect(bumpedCardsForNote(cards, { note_id: 'n', created_ms: BUMP, card_types: ['audio_to_hanzi'] }, new Map(), new Map(), CUTOFF)).toEqual([]);
+  });
+
+  it('unknown / empty card types mean the whole note', () => {
+    expect(normalizeBumpCardTypes(['nope'])).toBeNull();
+    expect(normalizeBumpCardTypes([])).toBeNull();
+    expect(normalizeBumpCardTypes(null)).toBeNull();
+    expect(normalizeBumpCardTypes(['audio_to_hanzi', 'hanzi_to_meaning', 'audio_to_hanzi'])).toEqual(['hanzi_to_meaning', 'audio_to_hanzi']);
+    const got = bumpedCardsForNote(noteCards(), { note_id: 'n', created_ms: BUMP, card_types: [] }, new Map(), new Map(), CUTOFF);
+    expect(got.map(c => c.id)).toEqual(['h', 'm']);
+  });
+
+  it('the chosen NEW card comes first in the queue over a spent budget', () => {
+    const cards = [card('x', 'x', 0), card('h', 'n', 2, NOW + 9 * DAY), card('m', 'n', 0, null, 'meaning_to_hanzi')];
+    const q = selectStudyQueue([deck('d1')], cards, { new_cards_per_day: 0, secondary_cards_per_day: 0 }, 0, new Map(), CUTOFF, null, null, null,
+      { bumps: [{ note_id: 'n', created_ms: BUMP, card_types: ['meaning_to_hanzi'] }], lastReviewMs: new Map(), firstReviewMs: new Map() });
+    expect(q.bumped.map(c => c.id)).toEqual(['m']);
+    expect(q.due.map(c => c.id)).toEqual(['m']);
+  });
+});
+
+describe('mergeBumpCardTypes', () => {
+  it('no active bump: the request as it is', () => {
+    expect(mergeBumpCardTypes(undefined, [], ['audio_to_hanzi'])).toEqual({ action: 'add', card_types: ['audio_to_hanzi'] });
+    expect(mergeBumpCardTypes(undefined, [], null)).toEqual({ action: 'add', card_types: null });
+  });
+  it('a whole-note bump already covers the note', () => {
+    expect(mergeBumpCardTypes(null, [], ['audio_to_hanzi'])).toEqual({ action: 'already', card_types: null });
+    expect(mergeBumpCardTypes(null, [], null)).toEqual({ action: 'already', card_types: null });
+  });
+  it('card-level + whole-note request: the whole note', () => {
+    expect(mergeBumpCardTypes(['meaning_to_hanzi'], ['meaning_to_hanzi'], null)).toEqual({ action: 'replace', card_types: null });
+  });
+  it('card-level + card-level: still-open types plus the new ones; a finished type never comes back', () => {
+    expect(mergeBumpCardTypes(['meaning_to_hanzi'], ['meaning_to_hanzi'], ['audio_to_hanzi'])).toEqual({ action: 'replace', card_types: ['meaning_to_hanzi', 'audio_to_hanzi'] });
+    expect(mergeBumpCardTypes(['meaning_to_hanzi'], [], ['audio_to_hanzi'])).toEqual({ action: 'replace', card_types: ['audio_to_hanzi'] });
+    expect(mergeBumpCardTypes(['meaning_to_hanzi', 'audio_to_hanzi'], ['meaning_to_hanzi', 'audio_to_hanzi'], ['audio_to_hanzi'])).toEqual({ action: 'already', card_types: ['meaning_to_hanzi', 'audio_to_hanzi'] });
+    // The server trusts the device's merged list (stillOpen = []): a replace, idempotent.
+    expect(mergeBumpCardTypes(['meaning_to_hanzi'], [], ['meaning_to_hanzi'])).toEqual({ action: 'replace', card_types: ['meaning_to_hanzi'] });
+  });
+});
+
+describe('pickBumpedCard — spacing from the sibling', () => {
+  const q = [card('x', 'x', 0), card('m', 'n', 0, null, 'meaning_to_hanzi'), card('y', 'y', 2, NOW - DAY)];
+  it('a bumped card waits while its note is among the last 3 rated notes', () => {
+    const bumped = new Set(['m']);
+    expect(pickBumpedCard(q, bumped, ['a', 'b', 'c', 'd', 'n'])).toBeNull();
+    expect(pickBumpedCard(q, bumped, ['a', 'b', 'n', 'c', 'd'])).toBeNull();
+    expect(pickBumpedCard(q, bumped, ['a', 'n', 'b', 'c', 'd'])?.id).toBe('m');
+    expect(pickBumpedCard(q, bumped, [])?.id).toBe('m');
+  });
+  it('the first bumped card in queue order that is ready; none bumped → null', () => {
+    expect(pickBumpedCard(q, new Set(['m', 'y']), ['n'])?.id).toBe('y');
+    expect(pickBumpedCard(q, new Set(), [])).toBeNull();
+    expect(pickBumpedCard(q, null, [])).toBeNull();
   });
 });

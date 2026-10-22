@@ -44,6 +44,9 @@ data class CharWordRow<W>(
     val current: Boolean,
 )
 
+/** Port of OwnCard: a single character's own card (shared/chars/status.ts charOwnCards). */
+data class OwnCard(val status: CharWordStatus, val noteIds: List<String>)
+
 object CharWords {
     /** Port of CHAR_STATUS_LABEL. */
     fun label(status: CharWordStatus): String = when (status) {
@@ -102,6 +105,53 @@ object CharWords {
             )
         }
         return rows.filter { it.current } + rows.filter { !it.current }
+    }
+
+    /** Port of isSingleHan(): exactly one Han character — the only thing that can have an own card. */
+    fun isSingleHan(text: String): Boolean = text.codePointCount(0, text.length) == 1 && Known.isHan(text.codePointAt(0))
+
+    /**
+     * Port of charOwnCards(): does the learner have a note that IS this character (性 itself, not
+     * 性别)? Keyed by each entry of [chars]; anything that isn't one Han character is None.
+     */
+    fun ownCards(chars: List<String>, notes: List<CharStatusNote>, cards: List<CharStatusCard>): Map<String, OwnCard> {
+        val out = LinkedHashMap<String, OwnCard>()
+        for (c in chars) out[c] = OwnCard(CharWordStatus.None, emptyList())
+        val single = chars.distinct().filter(::isSingleHan)
+        for (r in rows(single, notes, cards, null) { it }) out[r.word] = OwnCard(r.status, r.noteIds)
+        return out
+    }
+
+    private fun deckList(decks: List<String>): String {
+        val names = decks.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        return if (names.isEmpty()) "your decks" else names.joinToString(", ")
+    }
+
+    /** Port of ownCardLine(): "✓ Known — you have 性 as a card in HSK 5" / "📚 You have 性 as a card in HSK 5" / "". */
+    fun ownCardLine(char: String, status: CharWordStatus, decks: List<String>): String = when (status) {
+        CharWordStatus.Known -> "✓ Known — you have $char as a card in ${deckList(decks)}"
+        CharWordStatus.InDecks -> "📚 You have $char as a card in ${deckList(decks)}"
+        CharWordStatus.None -> ""
+    }
+
+    /** Port of addOwnCardLabel(). */
+    fun addOwnCardLabel(char: String): String = "+ Add $char as a card"
+
+    /** Port of OWN_CARD_BADGE: the badge on a Word view character chip. */
+    fun ownCardBadge(status: CharWordStatus): String = when (status) {
+        CharWordStatus.Known -> "✓"
+        CharWordStatus.InDecks -> "📚"
+        CharWordStatus.None -> ""
+    }
+
+    /** Port of charChipLabel(): a Word view character chip's accessible label. */
+    fun charChipLabel(char: String, syllable: String?, status: CharWordStatus): String {
+        val base = "The character $char${if (!syllable.isNullOrEmpty()) ", $syllable" else ""}"
+        return when (status) {
+            CharWordStatus.Known -> "$base — you have it as a card, known"
+            CharWordStatus.InDecks -> "$base — you have it as a card"
+            CharWordStatus.None -> base
+        }
     }
 
     /** Port of charWordsSummary(): "3 of 20 known · 2 in your decks". */

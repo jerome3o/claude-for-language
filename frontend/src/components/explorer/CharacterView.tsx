@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { CHAR_STATUS_LABEL, charWordsSummary, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
+import { CHAR_STATUS_LABEL, addOwnCardLabel, charWordsSummary, ownCardLine, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
 import { buildDrill, type DrillTarget, type FrequencyDecal } from '@shared/explorer';
 import { isHanCodePoint } from '@shared/progress/known';
-import { charWordStatuses, explainChar, lookupChar, type CharLookup } from '../../services/charDict';
+import { charWordStatuses, explainChar, lookupChar, ownCardsFor, type CharLookup, type OwnCardInfo } from '../../services/charDict';
 import { track } from '../../services/analytics';
+import { CardTieIn } from './CardTieIn';
 import { useExplorer } from './ExplorerContext';
 import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useDecalIndex } from './FrequencyDecal';
 
@@ -35,6 +36,18 @@ export function CharacterView({
   const [more, setMore] = useState<{ state: 'idle' | 'loading' | 'done' | 'offline' | 'error'; text?: string }>({ state: 'idle' });
   const freq = useDecalIndex();
   const [keyOpen, setKeyOpen] = useState(false);
+  // Is the character itself one of his cards (性, not 人性)? null = still reading the device.
+  const [own, setOwn] = useState<OwnCardInfo | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    ownCardsFor([char])
+      .then((o) => alive && setOwn(o[char] ?? { status: 'none', note_ids: [], decks: [] }))
+      .catch(() => alive && setOwn({ status: 'none', note_ids: [], decks: [] }));
+    return () => {
+      alive = false;
+    };
+  }, [char]);
 
   useEffect(() => {
     let alive = true;
@@ -103,6 +116,19 @@ export function CharacterView({
           {record?.meaning && <div className="char-sheet-meaning">{record.meaning}</div>}
         </div>
       </div>
+
+      {/* Is 字 itself a card of his? Said first, in words (docs/LANGUAGE_EXPLORER.md "Character view"). */}
+      {isHan(char) && (
+        <CardTieIn
+          kind="char"
+          className="xp-own"
+          have={own && { noteIds: own.note_ids, line: ownCardLine(char, own.status, own.decks), status: own.status }}
+          addLabel={addOwnCardLabel(char)}
+          chunk={() => ({ hanzi: char, pinyin: record?.readings[0]?.pinyin ?? '', english: record?.meaning ?? '' })}
+          onClose={onClose}
+          testIds={{ root: 'explorer-char-own', checking: 'explorer-char-own-checking', add: 'explorer-char-add' }}
+        />
+      )}
 
       {lookup === null && <div className="char-sheet-status">Looking it up…</div>}
       {lookup?.status === 'offline' && (

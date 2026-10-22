@@ -12,6 +12,8 @@ import { createRoot, type Root } from 'react-dom/client';
 
 type Existing = Array<{ note: { id: string; hanzi: string; pinyin: string; english: string; deck_id: string }; deckName: string }>;
 let resolveExisting: (e: Existing) => void = () => {};
+// Characters of the word that are cards of their own (shared charOwnCards), per test.
+const ownCards = vi.hoisted(() => ({}) as Record<string, { status: string; note_ids: string[]; decks: string[] }>);
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
 vi.mock('../../services/studyBumps', async (importOriginal) => ({
@@ -23,6 +25,7 @@ vi.mock('../../services/charDict', () => ({
   lookupChar: vi.fn(async () => ({ status: 'missing' })),
   prefetchChars: vi.fn(async () => 0),
   charWordStatuses: vi.fn(async () => []),
+  ownCardsFor: vi.fn(async (chars: string[]) => Object.fromEntries(chars.map((c) => [c, ownCards[c] ?? { status: 'none', note_ids: [], decks: [] }]))),
 }));
 vi.mock('../../services/wordFrequency', () => ({ loadWordFrequency: vi.fn(async () => null) }));
 vi.mock('../../services/readerWords', () => ({
@@ -39,6 +42,7 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
 afterEach(() => {
+  for (const k of Object.keys(ownCards)) delete ownCards[k];
   act(() => root?.unmount());
   container?.remove();
   root = null;
@@ -83,5 +87,24 @@ describe('WordView card tie-in', () => {
     });
     expect(footer.querySelector('[data-testid="explorer-checking-cards"]')).toBeNull();
     expect(footer.querySelector('[data-testid="explorer-add-card"]')).not.toBeNull();
+  });
+
+  it('marks a character chip that is a card of its own (📚 / ✓, said in the label too)', async () => {
+    ownCards['学'] = { status: 'known', note_ids: ['c1'], decks: ['HSK 1'] };
+    ownCards['习'] = { status: 'in_decks', note_ids: ['c2'], decks: ['HSK 2'] };
+    await render();
+    const chips = [...container!.querySelectorAll('[data-testid="explorer-char-chip"]')];
+    expect(chips.map((c) => c.getAttribute('data-own'))).toEqual(['known', 'in_decks']);
+    expect(chips.map((c) => c.querySelector('[data-testid="explorer-char-chip-own"]')?.textContent)).toEqual(['✓', '📚']);
+    expect(chips[0].getAttribute('aria-label')).toBe('The character 学, xué — you have it as a card, known');
+    expect(chips[1].getAttribute('aria-label')).toBe('The character 习, xí — you have it as a card');
+  });
+
+  it('a character with no card of its own has no badge', async () => {
+    await render();
+    const chips = [...container!.querySelectorAll('[data-testid="explorer-char-chip"]')];
+    expect(chips).toHaveLength(2);
+    expect(container!.querySelector('[data-testid="explorer-char-chip-own"]')).toBeNull();
+    expect(chips[0].getAttribute('aria-label')).toBe('The character 学, xué');
   });
 });
