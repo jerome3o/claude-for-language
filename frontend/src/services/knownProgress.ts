@@ -72,15 +72,20 @@ export function computeKnown(input: KnownInput): KnownProgressView {
 }
 
 export async function loadKnownProgress(nowMs = Date.now()): Promise<KnownProgressView> {
-  const [notes, cards, events] = await Promise.all([
+  const [notes, cards, events, forgets] = await Promise.all([
     db.notes.toArray(),
     db.cards.toArray(),
     db.reviewEvents.toArray(),
+    db.cardForgets.toArray().catch(() => []),
   ]);
   const input: KnownInput = {
     notes: notes.map((n) => ({ id: n.id, hanzi: n.hanzi })),
     cards: cards.map((c) => ({ id: c.id, note_id: c.note_id })),
-    events: events.map((e) => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
+    events: [
+      ...events.map((e): KnownEventInput => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
+      // "Forget this card": the card is NEW again from then (not known, not seen).
+      ...forgets.filter((f) => f.pending !== 'undo').map((f): KnownEventInput => ({ id: f.id, card_id: f.card_id, rating: 0, reviewed_at: f.forgotten_at, kind: 'forget' })),
+    ],
     now_ms: nowMs,
     tz_offset_minutes: -new Date(nowMs).getTimezoneOffset(),
   };

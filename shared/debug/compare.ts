@@ -84,6 +84,8 @@ export interface DebugComparison {
     up_next: ValuePair<string>;
     /** Suspend & snooze: "<count>:<hash of the holds>" ("?" = not reported). */
     holds: ValuePair<string>;
+    /** "Forget this card": "<count>:<hash of the forgets>" ("?" = not reported). */
+    forgets: ValuePair<string>;
     /** "Don't show a word's other card types on the same day": "on" / "off" ("?" = not reported). */
     bury_siblings: ValuePair<string>;
     /** "Pause new cards on heavy days": "limit 100 · load 124 · paused" / "off · load 80" ("?" = not reported). */
@@ -215,6 +217,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     new_card_order: { a: orderLabel(a.new_card_order), b: orderLabel(b.new_card_order) },
     up_next: { a: upNextLabel(a.up_next), b: upNextLabel(b.up_next) },
     holds: { a: holdsLabel(a.holds), b: holdsLabel(b.holds) },
+    forgets: { a: forgetsLabel(a.forgets), b: forgetsLabel(b.forgets) },
     bury_siblings: { a: a.bury_siblings === undefined ? '?' : a.bury_siblings ? 'on' : 'off', b: b.bury_siblings === undefined ? '?' : b.bury_siblings ? 'on' : 'off' },
     review_load: { a: reviewLoadLabel(a.review_load), b: reviewLoadLabel(b.review_load) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
@@ -237,6 +240,13 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
       return (x ?? []).filter(h => !ys.has(h.join('|'))).length;
     };
     hints.push(`Suspended / snoozed cards differ: ${A} ${context.holds.a} vs ${B} ${context.holds.b} (${only(a.holds, b.holds)} only on ${A}, ${only(b.holds, a.holds)} only on ${B}) — a sync brings them together; a snooze ending today differs while the devices' dates differ.`);
+  }
+  if (context.forgets.a !== context.forgets.b && context.forgets.a !== '?' && context.forgets.b !== '?') {
+    const only = (x: DebugReport['forgets'], y: DebugReport['forgets']) => {
+      const ys = new Set((y ?? []).map(f => `${f[0]}@${f[1]}`));
+      return (x ?? []).filter(f => !ys.has(`${f[0]}@${f[1]}`)).length;
+    };
+    hints.push(`"Forget this card" resets differ: ${A} ${context.forgets.a} vs ${B} ${context.forgets.b} (${only(a.forgets, b.forgets)} only on ${A}, ${only(b.forgets, a.forgets)} only on ${B}) — those cards replay differently until a sync brings them together.`);
   }
   if (context.bury_siblings.a !== context.bury_siblings.b && context.bury_siblings.a !== '?' && context.bury_siblings.b !== '?') {
     hints.push(`"Don't show a word's other card types on the same day" is ${context.bury_siblings.a} on ${A} but ${context.bury_siblings.b} on ${B} — siblings of today's cards differ.`);
@@ -491,6 +501,14 @@ export function serverTruthFromRows(
 function upNextLabel(ids: DebugReport['up_next']): string {
   if (!ids) return '?';
   return ids.length === 0 ? '0' : `${ids.length}:${eventIdHash(ids.join(','))}`;
+}
+
+/** "Forget this card" as "<count>:<hash of the sorted forgets>"; "?" not in the report. */
+function forgetsLabel(forgets: DebugReport['forgets']): string {
+  if (!forgets) return '?';
+  if (forgets.length === 0) return '0';
+  const rows = forgets.map(f => `${f[0]}@${f[1]}`).sort();
+  return `${forgets.length}:${eventIdHash(rows.join(','))}`;
 }
 
 /** Suspend & snooze as "<count>:<hash of the sorted holds>"; "?" not in the report. */

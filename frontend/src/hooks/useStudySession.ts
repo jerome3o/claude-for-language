@@ -18,7 +18,7 @@ import {
   loadHeldCardIds,
   getStudyCutoff,
   createLocalReviewEvent,
-  getCardReviewEvents,
+  getCardReplayEvents,
   storePendingRecording,
   deleteCardCheckpoint,
   addPendingReviewDeletion,
@@ -625,8 +625,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   const replayWithRating = useCallback(async (cardId: string, event: ReviewEvent): Promise<ComputedCardState> => {
     let history = sessionEventsRef.current.get(cardId);
     if (!history) {
-      const stored = await getCardReviewEvents(cardId);
-      history = stored.map(e => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at }));
+      // Reviews + "Forget this card" resets (a forget = back to NEW).
+      history = await getCardReplayEvents(cardId);
     }
     const next = [...history.filter(e => e.id !== event.id), event];
     sessionEventsRef.current.set(cardId, next);
@@ -1167,6 +1167,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
     for (const id of ids) bumpedCardIdsRef.current.delete(id);
     setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+    // A forgotten card replays from its forget from now on: drop the cached history.
+    for (const id of ids) sessionEventsRef.current.delete(id);
     const newQueue = queue.filter(c => !ids.has(c.id));
     // A held NEW card frees its budget slot: the next new card comes into today's session.
     if (queue.some(c => ids.has(c.id) && c.queue === CardQueue.NEW)) {
@@ -1201,6 +1203,20 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     if (rows.length === 0) return;
     for (const c of rows) bumpedCardIdsRef.current.add(c.id);
     setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+    setQueue(prev => {
+      const have = new Set(prev.map(c => c.id));
+      const extra = rows.filter(c => !have.has(c.id));
+      return extra.length ? [...prev, ...extra] : prev;
+    });
+  }, [deckId]);
+
+  // Undo of "Forget this card": the cards are back as they were — those due today rejoin the session.
+  const restoreCardsToSession = useCallback(async (cardIds: string[]) => {
+    for (const id of cardIds) sessionEventsRef.current.delete(id);
+    const cutoff = getStudyCutoff().ts;
+    const rows = (await db.cards.bulkGet(cardIds)).filter((c): c is LocalCard =>
+      !!c && (!deckId || c.deck_id === deckId) && c.queue !== CardQueue.NEW && (c.due_timestamp ?? 0) <= cutoff);
+    if (rows.length === 0) return;
     setQueue(prev => {
       const have = new Set(prev.map(c => c.id));
       const extra = rows.filter(c => !have.has(c.id));
@@ -1264,6 +1280,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     selectNextCard,
     removeNoteFromSession,
     removeCardsFromSession,
+    restoreCardsToSession,
     updateCurrentNote,
   };
 }
