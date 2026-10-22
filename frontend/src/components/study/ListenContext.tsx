@@ -364,11 +364,11 @@ export function ListenContext({
           <p id="listen-word-prompt-title" className="listen-word-prompt-title">{COPY.promptTitle}</p>
           <p className="listen-word-prompt-body">{COPY.promptBody}</p>
           <div className="listen-word-prompt-actions">
-            <button type="button" className="btn btn-secondary" onClick={playAnyway} data-testid="listen-word-anyway">
-              {COPY.promptAnyway}
-            </button>
             <button type="button" className="btn btn-primary" onClick={playFirstSentence} data-testid="listen-word-sentence">
               {COPY.promptSentence}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={playAnyway} data-testid="listen-word-anyway">
+              {COPY.promptAnyway}
             </button>
           </div>
         </div>

@@ -200,13 +200,13 @@
 
 .listen-word-prompt-actions {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  flex-wrap: wrap;
 }
 
 .listen-word-prompt-actions .btn {
-  flex: 1 1 9rem;
-  min-height: 44px;
+  width: 100%;
+  min-height: 48px;
 }
 
 @keyframes listen-prompt-in {

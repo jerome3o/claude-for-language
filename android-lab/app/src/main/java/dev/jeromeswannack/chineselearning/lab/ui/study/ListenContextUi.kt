@@ -355,9 +355,10 @@ private fun WordFirstPrompt(onAnyway: () -> Unit, onSentence: () -> Unit) {
         Spacer(Modifier.height(2.dp))
         Text(ListenContext.Copy.PROMPT_BODY, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryPill(ListenContext.Copy.PROMPT_ANYWAY, Modifier.weight(1f).height(44.dp), horizontalPadding = 8.dp, fontSize = 14.sp, onClick = onAnyway)
-            PrimaryPill(ListenContext.Copy.PROMPT_SENTENCE, Modifier.weight(1f).height(44.dp), onClick = onSentence)
+        // Stacked, full width: the nudge (a sentence) first, the word still one tap away.
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryPill(ListenContext.Copy.PROMPT_SENTENCE, Modifier.fillMaxWidth().height(48.dp), onClick = onSentence)
+            SecondaryPill(ListenContext.Copy.PROMPT_ANYWAY, Modifier.fillMaxWidth().height(48.dp), onClick = onAnyway)
         }
     }
 }
