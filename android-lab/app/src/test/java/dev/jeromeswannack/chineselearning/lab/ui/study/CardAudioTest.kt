@@ -5,6 +5,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.github.takahirom.roborazzi.captureRoboImage
 import androidx.compose.ui.test.onRoot
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
@@ -73,7 +74,9 @@ class CardAudioTest : LabScreenshotTest() {
         screen(CardTypes.AUDIO_TO_HANZI, CardAudio(ClipState.COMING, ClipState.READY), shot = "study-audio-06-coming-front")
         compose.onNodeWithText(CardAudioRules.COMING_FRONT).assertExists()
         compose.onNodeWithContentDescription(CardAudioRules.GENERATING).assertDoesNotExist()
-        compose.onNodeWithTag(PLAY_WORD_TAG).performClick()
+        compose.onNodeWithTag(PLAY_WORD_TAG).performScrollTo().performClick()
+        // No sentence heard yet: "Try the sentences first?" — the word still plays.
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.ListenContext.Copy.PROMPT_ANYWAY).performClick()
         assertEquals(1, played)
     }
 
@@ -82,7 +85,8 @@ class CardAudioTest : LabScreenshotTest() {
         compose.onNodeWithText(CardAudioRules.GENERATING).assertExists()
         compose.onNodeWithContentDescription(CardAudioRules.GENERATING).assertExists()
         // The speaker still takes the tap: the session plays the clip the moment it lands.
-        compose.onNodeWithTag(PLAY_WORD_TAG).performClick()
+        compose.onNodeWithTag(PLAY_WORD_TAG).performScrollTo().performClick()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.ListenContext.Copy.PROMPT_ANYWAY).performClick()
         assertEquals(1, played)
     }
 
@@ -99,7 +103,7 @@ class CardAudioTest : LabScreenshotTest() {
         compose.onNodeWithText(CardAudioRules.WAITING).assertExists()
         compose.onNodeWithText(CardAudioRules.GENERATING).assertDoesNotExist()
         // Play still answers (the device voice) while it waits.
-        compose.onNodeWithTag(PLAY_WORD_TAG).performClick()
+        compose.onNodeWithTag(PLAY_WORD_TAG).performScrollTo().performClick()
         assertEquals(1, played)
     }
 

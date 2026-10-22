@@ -11,6 +11,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CARD_FLAGS_PATH
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ensureSentenceAudio
+import dev.jeromeswannack.chineselearning.lab.data.api.topUpSentences
 import dev.jeromeswannack.chineselearning.lab.data.api.FlashcardDraft
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateAudioOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateRecordingBody
@@ -170,6 +171,38 @@ class CardTools(private val app: LabApp) {
             generateSet(noteId, count = 6)
         } catch (e: Exception) {
             setStarted -= noteId
+        }
+    }
+
+    /** Notes a listening top-up was asked for in this run (the server keeps its own once-a-day rule). */
+    private val topUpAsked = HashSet<String>()
+
+    /**
+     * Web `topUpListeningSentences` ("Listen in context", core ListenContext): of these notes, the
+     * ones with fewer than five sentences on the device (card sentence + set) are sent to
+     * `POST /api/sentences/top-up`, which queues more — added after the set, never replacing it.
+     * Online only, once per note per run; the rows come down with a later sentence sync.
+     */
+    suspend fun topUpListening(noteIds: List<String>): Int {
+        if (!app.online.value || StudyPrefs.get(app).forcedOffline.value) return 0
+        val ask = withContext(Dispatchers.IO) {
+            noteIds.distinct().filter { it !in topUpAsked }.filter { id ->
+                val note = repo.dao.note(id) ?: return@filter false
+                val rows = dev.jeromeswannack.chineselearning.lab.core.ListenContext.rows(
+                    id,
+                    dev.jeromeswannack.chineselearning.lab.core.ListenContext.Clue(note.sentenceClue),
+                    repo.dao.sentencesFor(id).map { dev.jeromeswannack.chineselearning.lab.core.ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position) },
+                )
+                dev.jeromeswannack.chineselearning.lab.core.ListenContext.needsTopUp(rows.size)
+            }
+        }
+        if (ask.isEmpty()) return 0
+        topUpAsked += ask
+        return try {
+            api.topUpSentences(ask.take(50)).queued
+        } catch (e: Exception) {
+            topUpAsked -= ask.toSet()
+            throw e
         }
     }
 

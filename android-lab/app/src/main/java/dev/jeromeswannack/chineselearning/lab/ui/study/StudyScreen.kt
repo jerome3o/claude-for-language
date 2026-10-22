@@ -93,6 +93,10 @@ class StudyActions(
     val onPlay: (key: String?, text: String) -> Unit = { _, _ -> },
     /** The word itself: its recordings in turn ([advance] = next voice), else its own clip. */
     val onPlayWord: (advance: Boolean) -> Unit = {},
+    /** "Listen in context" (a listening card's question): its numbers once the card is answered (`study.listen_context`). */
+    val onListenContext: (sentencesPlayed: Int, promptShown: Boolean, playedWordAnyway: Boolean) -> Unit = { _, _, _ -> },
+    /** "+ More sentences" on a listening card's question wrote more ([before] = rows before; `study.listen_more_sentences`). */
+    val onListenMore: (before: Int) -> Unit = {},
     /** "Couldn't make audio — retry" (auto-audio). */
     val onRetryAudio: () -> Unit = {},
     val onStudyMore: () -> Unit = {},
@@ -258,6 +262,8 @@ fun StudyRoute(
             onRate = vm::rate,
             onPlay = vm::play,
             onPlayWord = vm::playWord,
+            onListenContext = vm::trackListenContext,
+            onListenMore = vm::trackListenMore,
             onRetryAudio = vm::retryAudio,
             onStudyMore = vm::studyMore,
             onToggleOffline = vm::toggleForcedOffline,

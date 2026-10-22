@@ -674,6 +674,48 @@ The same card is shown immediately and repeatedly, even if just rated, until it 
 ### Offline behavior
 All session logic works offline. Reviews are stored locally and synced when connectivity returns. The "Ask Claude" feature gracefully fails when offline.
 
+## Listen in context (the listening card's question)
+
+Jerome: *"On the listening cards, show all the example sentences so I can play them, and at the very
+bottom play the individual word … ideally I have to listen to the sentences before the word."*
+
+The question side of an **audio → hanzi** card is a list of the note's sentences — the card's own
+sentence first (shown once when the set repeats it), then the generated set in order — as
+**audio-only rows**: ▶, the row's number and a ✓ once heard. The Chinese, the pinyin and the English
+stay hidden (they would give the answer away); **EN** on a row shows just that row's English, a hint,
+never the characters. Under the list **+ More sentences** (online) writes more for the note
+(`POST /api/notes/:id/sentences/generate { count, keepExisting: true }`, enough to reach about 8, at
+least 3); the new rows appear when they are made, their clips through ensure-audio ("Audio coming…"
+on ▶ while one is being made). At the bottom **▶ The word** (the note's clip / voices in turn, as
+before). While no sentence has been played on the card, tapping it asks first, in the page (no
+browser dialog): **"Try the sentences first? Hearing the word in context helps."** —
+[Play the word anyway] [Play a sentence]. Once any sentence was heard (or "anyway" was chosen) the
+word plays at once. The answer box / multiple choice / voice-first controls below are unchanged; the
+old "Use in Sentence" button is gone from this card (its sentence is the list's row 1). The answer
+side's sentence list is unchanged.
+
+- **Auto-play** (the card used to read the word as it showed): the **first sentence whose clip is
+  ready** plays instead (it counts as heard, ✓); only when no sentence has a clip does the word play,
+  as before. Never on a peek back at the question.
+- **Offline**: a row plays when its clip is on the device; the others show "Not downloaded" and are
+  disabled. The card's own sentence with no clip yet uses the device voice online; a set row with no
+  clip waits for it. The word always plays (device voice when its clip isn't cached).
+- **Top-up**: a listening card shown with fewer than **five** sentences in total (card sentence +
+  set) asks the server for more in the background — `POST /api/sentences/top-up { note_ids }` (the
+  card shown now; the upcoming listening cards in the web's hourly sentence prefetch and the Lab
+  session's next ten). The server queues a `top_up` job on `sentence-set-queue` that ADDS sentences
+  after the set (rows, clips and breakdowns kept; `appendNoteSentences` touches every row so the sync
+  still hands the set out whole) — at most one job per note a day, never one given up on (3 failed
+  attempts), ≤ 50 notes a call. The card never waits for it; the rows arrive with a later sync.
+- **Rules** (`shared/study/listenContext.ts`, Lab `core/…/ListenContext.kt`, parity-tested by
+  `android-lab/parity/fixtures/listen-context.ts`): row order, row state (ready / fetch / device /
+  unavailable), the auto-play choice, the word-first ask, the top-up and "+ More" counts. Web
+  `components/study/ListenContext.tsx`; Lab `ui/study/ListenContextUi.kt` (state per card in
+  `ListenState`, the auto-play in `CardStage`).
+- **Analytics**: `study.listen_context { sentences_played, word_first_prompt_shown,
+  played_word_anyway }` once the card is answered (verbose level), `study.listen_more_sentences
+  { before, after }`.
+
 ## Card back layout
 
 The back of a card is: hanzi · pinyin · (tutor note) · meaning · the word tags (below) · **Play** · **Record

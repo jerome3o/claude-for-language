@@ -626,6 +626,10 @@ class StudyViewModel(
                     bumped = card.id in bumpedCardIds,
                     bumpedBy = bumpedBy[card.noteId],
                     newChars = NewCharacters.forCard(it.hanzi, seenChars, inStudySession = pass == null && practice == null),
+                    // "Listen in context": offline, only the sentence clips on the device play.
+                    cachedClips = if (card.cardType != dev.jeromeswannack.chineselearning.lab.core.CardTypes.AUDIO_TO_HANZI) emptySet() else
+                        (listOfNotNull(it.sentenceClueAudioUrl) + sentences.mapNotNull { s -> s.audioUrl })
+                            .filter { u -> u.isNotBlank() && repo.cachedAudio(u) != null }.toSet(),
                 )
             }
         }
@@ -678,6 +682,12 @@ class StudyViewModel(
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
             // Nothing cached but online: the set may exist server-side and not have synced yet.
             if (view.sentences.isEmpty()) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
+            // "Listen in context": this listening card and the next ones in the queue with fewer than
+            // five sentences get more queued in the background (POST /api/sentences/top-up).
+            if (view.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.AUDIO_TO_HANZI) {
+                val upcoming = queue.asSequence().filter { it.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.AUDIO_TO_HANZI }.map { it.noteId }.take(10).toList()
+                runCatching { tools.topUpListening(listOf(view.note.id) + upcoming) }
+            }
             backgroundFill(view.note)
         }
     }
@@ -1677,6 +1687,16 @@ class StudyViewModel(
             answer.status == "queued" -> SentenceAudioWait.COMING
             else -> null
         }
+    }
+
+    /** "Listen in context": the listening card's question-side numbers, once answered. */
+    fun trackListenContext(sentencesPlayed: Int, promptShown: Boolean, playedWordAnyway: Boolean) =
+        app.analytics.track("study.listen_context", dev.jeromeswannack.chineselearning.lab.core.ListenContext.props(sentencesPlayed, promptShown, playedWordAnyway))
+
+    /** "+ More sentences" on the listening card's question wrote more. */
+    fun trackListenMore(before: Int) {
+        val v = currentView() ?: return
+        app.analytics.track("study.listen_more_sentences", mapOf("before" to before, "after" to listenRows(v).size))
     }
 
     suspend fun clearSentences() {
