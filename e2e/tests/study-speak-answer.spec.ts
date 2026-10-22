@@ -167,12 +167,12 @@ async function nextTypingCard(page: Page) {
   await expect(mic).toBeVisible();
 }
 
-async function seed(page: Page, request: APIRequestContext) {
+async function seed(page: Page, request: APIRequestContext, note = { hanzi: '由', pinyin: 'yóu', english: 'from; by' }) {
   const email = `speak-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Speaker' } });
   const token = auth.session_token;
   const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: '说出答案' } });
-  await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token, data: { hanzi: '由', pinyin: 'yóu', english: 'from; by' } });
+  await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token, data: note });
   await page.goto(`/decks?session_token=${token}`);
   await expect(page.getByText('说出答案').first()).toBeVisible({ timeout: 30000 });
   await page.goto(`/study?deck=${deck.id}&autostart=true`);
@@ -214,15 +214,21 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   expect(sb!.height).toBeGreaterThanOrEqual(44);
   await page.getByTestId('spoken-review-submit').click();
 
-  const sound = page.getByTestId('spoken-answer-sound');
-  await expect(sound).toBeVisible({ timeout: 8000 });
-  await expect(sound).toContainText('Sounded right ✓ — written 由');
-  // The read card's "You said" box, green.
-  const said = page.getByTestId('you-said');
-  await expect(said).toHaveAttribute('data-state', 'match');
-  await expect(said.getByTestId('you-said-hanzi')).toHaveText('油');
-  await expect(said.getByTestId('you-said-pinyin')).toHaveText('yóu');
-  await expect(said.getByTestId('you-said-verdict')).toHaveText('Match');
+  // The card's answer once (green: it counts), then ONE compact "You said" row: 油 marked as
+  // written differently, the chip still ✓ (shared/cards/spoken-result.ts).
+  const answer = page.getByTestId('spoken-answer');
+  await expect(answer).toBeVisible({ timeout: 8000 });
+  await expect(answer).toHaveAttribute('data-verdict', 'sound');
+  await expect(answer).toHaveText('由');
+  const said = page.getByTestId('spoken-result');
+  await expect(said).toHaveAttribute('data-state', 'sound');
+  await expect(said.getByTestId('spoken-result-hanzi')).toHaveText('油');
+  await expect(said.getByTestId('spoken-result-pinyin')).toHaveText('yóu');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Sounded right — written differently');
+  await expect(said.locator('[data-mark="differs"]')).toHaveText('油');
+  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 油 (yóu). Sounded right — written differently (油); the card writes 由.');
+  // Nothing said twice: no diff, no second copy of the answer.
+  await expect(page.locator('.answer-diff')).toHaveCount(0);
   expect(uploads).toBe(0);
   const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; ended: boolean } }).__soniox);
   expect(stats.config).not.toHaveProperty('context'); // the answer never biases the recogniser
@@ -246,18 +252,58 @@ test('the answer said inside a sentence is right — the read card\'s yellow "Co
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
 
-  const contains = page.getByTestId('spoken-answer-contains');
+  const contains = page.getByTestId('spoken-answer');
   await expect(contains).toBeVisible({ timeout: 8000 });
-  await expect(contains).toContainText('由');
-  const said = page.getByTestId('you-said');
+  await expect(contains).toHaveAttribute('data-verdict', 'contains');
+  await expect(contains).toHaveText('由');
+  const said = page.getByTestId('spoken-result');
   await expect(said).toHaveAttribute('data-state', 'contains');
-  await expect(said.getByTestId('you-said-hanzi')).toHaveText('这件事由我负责'); // a word card: the recogniser's 。 is dropped
-  await expect(said.getByTestId('you-said-verdict')).toHaveText('Contains the answer');
-  await expect(page.getByTestId('study-card-back').locator('.diff-wrong')).toHaveCount(0);
+  await expect(said.getByTestId('spoken-result-hanzi')).toHaveText('这件事由我负责'); // a word card: the recogniser's 。 is dropped
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Contains the answer');
+  await expect(said.locator('[data-mark="right"]')).toHaveText('由');
+  await expect(page.getByTestId('study-card-back').locator('.diff-wrong, [data-mark="wrong"]')).toHaveCount(0);
   await expect(page.getByTestId('typed-answer-diff')).toHaveCount(0);
 });
 
-test('live and upload both failing: "Couldn’t transcribe — tap to retry", nothing submitted, the retry fills it', async ({ page, request }) => {
+test('Jerome\'s 狼 said 朗 (tones off): the answer once with its pinyin and meaning, ONE compact "You said" row — ≈ Close, 朗 marked — nothing said twice', async ({ page, request }) => {
+  await fakeSoniox(page, 'ok', ['朗']);
+  await seed(page, request, { hanzi: '狼', pinyin: 'láng', english: 'wolf' });
+
+  await nextTypingCard(page);
+  await page.getByTestId('spoken-mic').click();
+  await expect(page.getByTestId('spoken-live')).toContainText('朗', { timeout: 10000 });
+  await page.getByTestId('spoken-mic').click();
+  await page.getByTestId('spoken-review-submit').click();
+
+  const back = page.getByTestId('study-card-back');
+  const answer = page.getByTestId('spoken-answer');
+  await expect(answer).toHaveText('狼', { timeout: 8000 });
+  await expect(answer).toHaveAttribute('data-verdict', 'close');
+  const said = page.getByTestId('spoken-result');
+  await expect(said).toHaveAttribute('data-state', 'close');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Close — tones off');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveAttribute('data-icon', 'approx');
+  await expect(said.locator('[data-mark="wrong"]')).toHaveText('朗');
+  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.');
+  // Said once, the answer once, the card's pinyin straight under the answer: no diff, no ↓, no pill.
+  await expect(back.locator('.answer-diff, .answer-diff-arrow, .you-said')).toHaveCount(0);
+  await expect(back.getByText('朗', { exact: true })).toHaveCount(1);
+  const [a, py, meaning, row] = [
+    await answer.boundingBox(),
+    await back.locator('.pinyin').first().boundingBox(),
+    await back.locator('.study-back-meaning').boundingBox(),
+    await said.boundingBox(),
+  ];
+  expect(py!.y).toBeGreaterThan(a!.y);
+  expect(py!.y - (a!.y + a!.height)).toBeLessThan(16);
+  expect(meaning!.y).toBeGreaterThan(py!.y);
+  expect(row!.y).toBeGreaterThan(meaning!.y);
+  expect(row!.height).toBeLessThan(80); // one compact row (the old box alone was ≥ 88px)
+  await expect(said.getByTestId('you-said-play')).toBeVisible(); // ▶ the take
+  await expect(said.getByTestId('you-said-coach')).toBeVisible(); // ✎ Open in Coach
+});
+
+test('live and upload both failing:"Couldn’t transcribe — tap to retry", nothing submitted, the retry fills it', async ({ page, request }) => {
   await fakeSoniox(page, 'refuse');
   let fail = true;
   await page.route(/\/api\/transcribe$/, (route) => (fail
@@ -282,7 +328,7 @@ test('live and upload both failing: "Couldn’t transcribe — tap to retry", no
   await retry.click(); // the same take, uploaded again → the review
   await expect(page.getByTestId('spoken-review-text')).toHaveText('由', { timeout: 8000 });
   await page.getByTestId('spoken-review-submit').click();
-  await expect(page.getByTestId('typed-answer-diff').or(page.locator('.answer-diff')).first()).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'match', { timeout: 8000 });
 });
 
 test('voice first: one row — ✏️ Type, 👁 Show answer, the wide 🎤 Say it — no box and no keyboard; ✏️ Type opens the box for this card only', async ({ page, request }) => {
@@ -352,7 +398,7 @@ test('review: 🔁 Retry replaces the take; ✏️ Edit puts it in the box (focu
   await box.press('Enter');
   // Checked as typed: exact, no "sounded right" note.
   await expect(page.locator('.answer-diff').first()).toBeVisible({ timeout: 8000 });
-  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-result')).toHaveCount(0);
   await expect(page.getByTestId('spoken-say-again')).toHaveCount(0); // a typed answer has no Say it again
 
   await page.getByRole('button', { name: /^Good/ }).first().click();
@@ -371,7 +417,7 @@ test('"Skip the review" on (a choice kept from the old auto-submit switch): chec
   await page.getByTestId('spoken-mic').click();
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
-  await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'sound', { timeout: 8000 });
   await expect(page.getByTestId('spoken-review')).toHaveCount(0);
 });
 
@@ -408,8 +454,8 @@ test('say it again: the question while the new take is said, its review there, t
   await expect(page.getByTestId('spoken-live')).toContainText('油', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
-  await expect(page.getByTestId('spoken-answer-sound')).toBeVisible({ timeout: 8000 });
-  await expect(page.getByTestId('you-said-hanzi')).toHaveText('油');
+  await expect(page.locator('[data-testid="spoken-result"][data-state="sound"]')).toBeVisible({ timeout: 8000 });
+  await expect(page.getByTestId('spoken-result-hanzi')).toHaveText('油');
   // The reveal's auto-play has happened; from here on only "Say it again" may add one.
   await expect.poll(() => cardPlays(page)).toBeGreaterThan(0);
   await page.waitForTimeout(800);
@@ -419,7 +465,7 @@ test('say it again: the question while the new take is said, its review there, t
   await page.getByTestId('spoken-say-again').click();
   await expect(page.getByTestId('study-sayagain')).toBeVisible();
   await expect(page.getByTestId('study-card-back')).toBeHidden();
-  await expect(page.getByTestId('spoken-answer-sound')).toBeHidden();
+  await expect(page.locator('[data-testid="spoken-result"][data-state="sound"]')).toBeHidden();
   await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
   expect(await cardPlays(page)).toBe(afterReveal);
   // No ratings while re-recording: ⏹ Stop and ← Back where they were.
@@ -440,8 +486,9 @@ test('say it again: the question while the new take is said, its review there, t
   // The answer again, with the NEW verdict (exact — no "sounded right" note), and the clip once.
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('study-sayagain')).toHaveCount(0);
-  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
-  await expect(page.locator('.answer-diff').first()).toBeVisible();
+  await expect(page.locator('[data-testid="spoken-result"][data-state="sound"]')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'match');
+  await expect(page.getByTestId('spoken-answer')).toHaveAttribute('data-verdict', 'exact');
   // Submitted: the ratings are back, the bar is gone.
   await expect(page.getByRole('button', { name: /^Good/ }).first()).toBeVisible();
   await expect(page.getByTestId('study-rerecord-bar')).toHaveCount(0);
@@ -455,8 +502,7 @@ test('say it again: the question while the new take is said, its review there, t
   await page.getByTestId('rerecord-back').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Good/ }).first()).toBeVisible();
-  await expect(page.getByTestId('spoken-answer-sound')).toHaveCount(0);
-  await expect(page.locator('.answer-diff-spoken-note--close')).toHaveCount(0);
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'match');
   await page.waitForTimeout(800);
   expect(await cardPlays(page)).toBe(afterReveal + 1);
 
@@ -498,19 +544,20 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
 
   // Back on the answer: "You said" with the yellow decal; no answer diff, the card's clip once.
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
-  const said = page.getByTestId('practice-you-said').getByTestId('you-said');
+  const said = page.getByTestId('practice-you-said');
   await expect(said).toHaveAttribute('data-state', 'contains');
-  await expect(said.getByTestId('you-said-verdict')).toHaveText('Contains the answer');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Contains the answer');
   await expect(page.locator('.answer-diff')).toHaveCount(0);
   await expect.poll(() => cardPlays(page)).toBe(afterReveal + 1);
   await expect(practice).toHaveText(/Say it again$/);
 
-  // Again: a wrong word — red, still only "You said".
+  // Again: 有 (yǒu) — the tones are off: ≈ Close with 有 marked red, still only "You said".
   await practice.click();
   await expect(page.getByTestId('spoken-live')).toContainText('有', { timeout: 10000 });
   await page.getByTestId('rerecord-stop').click();
   await page.getByTestId('spoken-review-submit').click();
-  await expect(page.getByTestId('practice-you-said').getByTestId('you-said')).toHaveAttribute('data-state', 'miss', { timeout: 8000 });
+  await expect(page.getByTestId('practice-you-said')).toHaveAttribute('data-state', 'close', { timeout: 8000 });
+  await expect(page.getByTestId('practice-you-said').locator('[data-mark="wrong"]')).toHaveText('有');
   await expect(page.locator('.answer-diff')).toHaveCount(0);
 
   // He rates himself as usual: no answer on the review, the practice take kept as its recording.
@@ -536,7 +583,7 @@ test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence
   await expect(page.getByTestId('spoken-live')).toContainText('由我写', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
-  const said = page.getByTestId('you-said');
+  const said = page.getByTestId('spoken-result');
   await expect(said).toHaveAttribute('data-state', 'contains', { timeout: 8000 });
   const coach = said.getByTestId('you-said-coach');
   await expect(coach).toBeVisible();
@@ -548,9 +595,9 @@ test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence
   expect(box!.x + box!.width - (btn!.x + btn!.width)).toBeLessThan(12);
   expect(Math.abs(btn!.width - btn!.height)).toBeLessThan(1);
   expect(await coach.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%');
-  // The button never pushes what was said off-centre (equal side columns).
-  const hanzi = await said.getByTestId('you-said-hanzi').boundingBox();
-  expect(Math.abs((hanzi!.x + hanzi!.width / 2) - (box!.x + box!.width / 2))).toBeLessThan(2);
+  // The buttons never push what was said off-centre (equal side columns).
+  const body = await said.locator('.spoken-result-body').boundingBox();
+  expect(Math.abs((body!.x + body!.width / 2) - (box!.x + box!.width / 2))).toBeLessThan(2);
 
   await coach.click();
   await expect(page).toHaveURL(/\/coach/);
@@ -559,8 +606,8 @@ test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence
 
   await page.getByTestId('coach-back-to-card').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
-  // Still the spoken answer with its yellow box (not re-checked as typed).
-  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'contains');
+  // Still the spoken answer with its yellow row (not re-checked as typed).
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'contains');
   await expect(page.getByTestId('spoken-say-again')).toBeVisible();
 });
 
@@ -572,6 +619,7 @@ test('a match ("You said" green) has no coach button', async ({ page, request })
   await expect(page.getByTestId('spoken-live')).toContainText('由', { timeout: 10000 });
   await page.getByTestId('spoken-mic').click();
   await page.getByTestId('spoken-review-submit').click();
-  await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'match', { timeout: 8000 });
+  await expect(page.getByTestId('spoken-result')).toHaveAttribute('data-state', 'match', { timeout: 8000 });
+  await expect(page.getByTestId('spoken-answer')).toHaveAttribute('data-verdict', 'exact');
   await expect(page.getByTestId('you-said-coach')).toHaveCount(0);
 });

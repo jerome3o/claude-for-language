@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { YouSaid, YouSaidFailed, YouSaidPending, tidyPinyin } from './YouSaid';
+import { YouSaid, YouSaidFailed, YouSaidPending, YouSaidRow, tidyPinyin } from './YouSaid';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,5 +107,83 @@ describe('YouSaid', () => {
     expect(tidyPinyin('céng jīng 。')).toBe('céng jīng。');
     expect(tidyPinyin('nǐ hǎo ， wǒ shì ？')).toBe('nǐ hǎo， wǒ shì？');
     expect(tidyPinyin('shì')).toBe('shì');
+  });
+});
+
+/**
+ * The spoken answer's ONE compact row (YouSaidRow): what was said, marked per character, with its
+ * pinyin, and one verdict chip with its own icon and words; ▶ / ✎ round buttons; the whole row read
+ * out as one sentence.
+ */
+describe('YouSaidRow', () => {
+  const marks = (el: HTMLElement) => [...el.querySelectorAll<HTMLElement>('.spoken-mark')].map((m) => `${m.textContent}:${m.dataset.mark}`);
+  const chip = (el: HTMLElement) => q(el, 'spoken-result-chip')!;
+
+  it('exact: ✓ Match, nothing marked, ▶ but no ✎', () => {
+    const play = vi.fn();
+    const el = render(<YouSaidRow transcript="狼" correct="狼" verdict="exact" onPlay={play} onCoach={() => {}} />);
+    expect(q(el, 'spoken-result')!.dataset.state).toBe('match');
+    expect(chip(el).textContent).toBe('Match');
+    expect(chip(el).dataset.icon).toBe('check');
+    expect(marks(el)).toEqual(['狼:right']);
+    expect(q(el, 'spoken-result-pinyin')!.textContent).toBe('láng');
+    expect(q(el, 'you-said-coach')).toBeNull();
+    act(() => q(el, 'you-said-play')!.click());
+    expect(play).toHaveBeenCalledTimes(1);
+    // A lone ▶ is balanced by an empty column on the right, so the text stays centred.
+    expect(el.querySelectorAll('.spoken-result-side')).toHaveLength(1);
+    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 狼 (láng). Match.');
+  });
+
+  it('sounded right (友 for 有): ✓ still, the character written differently marked yellow', () => {
+    const el = render(<YouSaidRow transcript="友" correct="有" verdict="sound" onCoach={() => {}} />);
+    expect(q(el, 'spoken-result')!.dataset.state).toBe('sound');
+    expect(q(el, 'spoken-result')!.className).toContain('spoken-result--sound');
+    expect(chip(el).textContent).toBe('Sounded right — written differently');
+    expect(chip(el).dataset.icon).toBe('check');
+    expect(marks(el)).toEqual(['友:differs']);
+    expect(el.querySelector('.spoken-mark--differs')).not.toBeNull();
+  });
+
+  it('close (Jerome’s 狼 said 朗): ≈ Close — tones off, 朗 marked wrong, ✎ Open in Coach', () => {
+    const coach = vi.fn();
+    const el = render(<YouSaidRow transcript="朗" correct="狼" verdict="close" onPlay={() => {}} onCoach={coach} />);
+    expect(q(el, 'spoken-result')!.dataset.state).toBe('close');
+    expect(chip(el).textContent).toBe('Close — tones off');
+    expect(chip(el).dataset.icon).toBe('approx');
+    expect(chip(el).querySelector('svg')).not.toBeNull();
+    expect(marks(el)).toEqual(['朗:wrong']);
+    expect(q(el, 'spoken-result-pinyin')!.textContent).toBe('lǎng');
+    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.');
+    // Said once: the transcript appears in exactly one visible place.
+    expect(q(el, 'spoken-result-hanzi')!.textContent).toBe('朗');
+    const btn = q(el, 'you-said-coach')!;
+    expect(btn.getAttribute('aria-label')).toBe('Check in Coach');
+    act(() => btn.click());
+    expect(coach).toHaveBeenCalledTimes(1);
+    expect(el.querySelectorAll('.spoken-result-side')).toHaveLength(0);
+  });
+
+  it('didn’t match: ✕, only the characters not in the answer marked; punctuation plain', () => {
+    const el = render(<YouSaidRow transcript="我很好。" correct="你好" verdict="wrong" />);
+    expect(q(el, 'spoken-result')!.dataset.state).toBe('wrong');
+    expect(chip(el).textContent).toBe('Didn’t match');
+    expect(chip(el).dataset.icon).toBe('close');
+    expect(marks(el)).toEqual(['我:wrong', '很:wrong', '好:right', '。:plain']);
+    expect(q(el, 'you-said-play')).toBeNull();
+  });
+
+  it('contains: ≈ Contains the answer, the answer’s characters right, the words around it plain', () => {
+    const el = render(<YouSaidRow transcript="他长得很好" correct="长得" verdict="contains" />);
+    expect(q(el, 'spoken-result')!.dataset.state).toBe('contains');
+    expect(chip(el).textContent).toBe('Contains the answer');
+    expect(marks(el)).toEqual(['他:plain', '长:right', '得:right', '很:plain', '好:plain']);
+  });
+
+  it('the visible parts are hidden from screen readers; the label says it all', () => {
+    const el = render(<YouSaidRow transcript="猫" correct="狼" verdict="wrong" />);
+    expect(el.querySelector('.spoken-result-said')!.getAttribute('aria-hidden')).toBe('true');
+    expect(chip(el).getAttribute('aria-hidden')).toBe('true');
+    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 猫 (māo). Didn’t match. Not in the answer: 猫.');
   });
 });
