@@ -77,7 +77,7 @@ class SayItAgainUiTest : LabScreenshotTest() {
         var state by mutableStateOf(ui(answered))
         compose.setContent { LabTheme { StudyScreen(state, playingKey = null, actions = actions, autoplay = false) } }
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertIsDisplayed()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertIsDisplayed()
         compose.onNodeWithTag(SAY_AGAIN_TAG).performClick()
         assertEquals(listOf("sayAgain"), calls)
 
@@ -87,7 +87,7 @@ class SayItAgainUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SAY_AGAIN_FRONT_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(SPOKEN_LIVE_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Tap anywhere to stop").assertIsDisplayed()
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertDoesNotExist() // the hidden answer side is silent
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertDoesNotExist() // the hidden answer side is silent
         // No ratings while re-recording: ⏹ Stop and ← Back where they were.
         compose.onNodeWithText("Good").assertDoesNotExist()
         compose.onNodeWithTag(RERECORD_BAR_TAG).assertIsDisplayed()
@@ -119,7 +119,7 @@ class SayItAgainUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag(SAY_AGAIN_FRONT_TAG, useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(SPOKEN_REVIEW_TEXT_TAG, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertDoesNotExist()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertDoesNotExist()
         // The review's controls are in the footer, once, instead of the ratings.
         compose.onNodeWithText("Good").assertDoesNotExist()
         assertEquals(1, compose.onAllNodesWithTagCount(SPOKEN_REVIEW_SUBMIT_TAG))
@@ -152,7 +152,7 @@ class SayItAgainUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         state = ui(SpokenUi(result = first)) // the ViewModel's cancel
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertIsDisplayed()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertIsDisplayed()
         assertEquals(1, checked.size)
     }
 

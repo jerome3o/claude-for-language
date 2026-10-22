@@ -1200,7 +1200,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   words around it quiet; punctuation is never marked. A screen reader hears the whole row as one
   sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." Space: Jerome's
   狼 / 朗 card's answer block went from 499 to 305 px above the Play row on the web (412 px wide) and
-  from 401 to 254 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its
+  from 552 to 384 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its
   own pinyin line under an exact answer — the card's pinyin follows right under it, so it was shown
   twice. Web: `YouSaidRow` in `components/study/YouSaid.tsx` (`.spoken-result*` in `StudyPage.css`),
   `spokenBack` in `StudyPage.tsx`; Lab: `SpokenResultRow` in `ui/study/YouSaidBox.kt`, `CardBack` in

@@ -748,7 +748,7 @@ private fun CardBack(
                 // counts (the row under the meaning says why).
                 val color = if (spokenAnswer) spokenAnswerColor(AnswerKey.isAccepted(verdict!!)) else Lab.colors.ink
                 Box(if (spokenAnswer) Modifier.testTag("$SPOKEN_ANSWER_TAG-${AnswerKey.verdictName(verdict!!)}") else Modifier) {
-                    TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, color, onChar, newChars = newChars)
+                    TappableHanzi(note.hanzi, hanziSize(note.hanzi) * (if (spokenAnswer) 0.7f else 0.85f), color, onChar, newChars = newChars)
                 }
             }
             KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }

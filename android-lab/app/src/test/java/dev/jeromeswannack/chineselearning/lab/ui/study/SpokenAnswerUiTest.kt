@@ -35,7 +35,7 @@ import org.robolectric.Shadows.shadowOf
  * Say the answer on a typing card, the card's side (CardStage): 🎤 in the typing row, the live
  * transcript in place of the box (confirmed + grey tail), ✕ Cancel, the REVIEW step (the transcript
  * big with its pinyin, read-only; 🔁 Retry · ✏️ Edit · ✓ Submit), a spoken answer checked — a
- * homophone is "Sounded right ✓ — written 由" — or put in the box by ✏️ Edit (focused), the retry line
+ * homophone is "✓ Sounded right — written differently" in the compact "You said" row — or put in the box by ✏️ Edit (focused), the retry line
  * and 🔁 Retry / ✏️ Type when both transcription paths failed, the offline hint. Screenshots: study-s*.png.
  */
 class SpokenAnswerUiTest : LabScreenshotTest() {
@@ -176,7 +176,7 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.SOUND), reveals)
         assertTrue(calls.contains("checked-reviewed"))
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertExists()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertExists()
     }
 
     @Test fun editPutsTheTranscriptInTheFocusedBoxAndAnEditedAnswerIsCheckedAsTyped() {

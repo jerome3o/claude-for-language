@@ -503,14 +503,13 @@ fun SpokenResultRow(
                 .weight(1f)
                 .padding(vertical = 2.dp)
                 .semantics(mergeDescendants = true) { contentDescription = label },
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted)
-                SpokenMarkedText(r, 22.sp)
-                if (pinyin.isNotBlank()) Text(pinyin, fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted)
-            }
+            // Each part is its own item, so a long sentence wraps instead of squeezing its pinyin.
+            Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically))
+            Box(Modifier.align(Alignment.CenterVertically)) { SpokenMarkedText(r, 22.sp) }
+            if (pinyin.isNotBlank()) Text(pinyin, fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically))
             Row(
                 Modifier
                     .align(Alignment.CenterVertically)
