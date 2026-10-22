@@ -79,7 +79,7 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         val start = CardStartState(flipped = true, answer = sentence, spokenText = sentence, spokenReviewed = true)
         compose.setContent { LabTheme { StudyScreen(ui(CardTypes.MEANING_TO_HANZI, start = start), playingKey = null, actions = actions, autoplay = false) } }
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithTag("$YOU_SAID_TAG-contains", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-contains", useUnmergedTree = true).assertIsDisplayed()
         assertEquals(1, count(SAY_AGAIN_TAG))
     }
 

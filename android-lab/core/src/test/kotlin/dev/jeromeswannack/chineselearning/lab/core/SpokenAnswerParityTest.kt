@@ -87,4 +87,49 @@ class SpokenAnswerParityTest {
         assertTrue(!AnswerKey.isAccepted(AnswerKey.Verdict.CLOSE))
         assertTrue(!AnswerKey.isAccepted(AnswerKey.Verdict.WRONG))
     }
+
+    /** The answer side's compact "You said" row (shared/cards/spoken-result.ts → SpokenAnswerResult). */
+    @Test
+    fun spokenResultRowMatchesTypeScript() {
+        val cases = fixture["cases"]!!.jsonArray.map { it.jsonObject }
+        val states = mutableSetOf<String>()
+        val marks = mutableSetOf<String>()
+        for (c in cases) {
+            val transcript = c["transcript"]!!.jsonPrimitive.content
+            val correct = c["correct"]!!.jsonPrimitive.content
+            val alternatives = c["alternatives"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val notePinyin = c["note_pinyin"]!!.jsonPrimitive.content
+            val what = "'$transcript' for '$correct' $alternatives / '$notePinyin'"
+            val want = c["result"]!!.jsonObject
+            val r = SpokenAnswerResult.of(transcript, correct, AnswerKey.checkSpoken(transcript, correct, alternatives, notePinyin))
+            assertResult(want, r, what)
+            assertEquals(want["label"]!!.jsonPrimitive.content, SpokenAnswerResult.label(r, correct, notePinyin), "label $what")
+            states += SpokenAnswerResult.stateName(r.state)
+            r.chars.forEach { marks += SpokenAnswerResult.markName(it.mark) }
+        }
+        assertEquals(setOf("match", "sound", "contains", "close", "wrong"), states)
+        assertEquals(setOf("right", "differs", "wrong", "plain"), marks)
+        for (el in fixture["results_by_verdict"]!!.jsonArray) {
+            val o = el.jsonObject
+            val verdict = AnswerKey.Verdict.valueOf(o["verdict"]!!.jsonPrimitive.content.uppercase())
+            val r = SpokenAnswerResult.of(" 朗。", "狼 ", verdict)
+            assertResult(o, r, verdict.name)
+            assertEquals(o["label"]!!.jsonPrimitive.content, SpokenAnswerResult.label(r, "狼 ", " lǎng "), "label ${verdict.name}")
+        }
+        // Jerome's card: 狼 said 朗 — ≈ Close — tones off, 朗 marked.
+        val close = SpokenAnswerResult.of("朗", "狼", AnswerKey.checkSpoken("朗", "狼"))
+        assertEquals(SpokenAnswerResult.State.CLOSE, close.state)
+        assertEquals("Close — tones off", close.chip)
+        assertEquals(listOf(SpokenAnswerResult.Cell("朗", SpokenAnswerResult.Mark.WRONG)), close.chars)
+    }
+
+    private fun assertResult(want: JsonObject, r: SpokenAnswerResult.Result, what: String) {
+        assertEquals(want["state"]!!.jsonPrimitive.content, SpokenAnswerResult.stateName(r.state), "state $what")
+        assertEquals(want["accepted"]!!.jsonPrimitive.content.toBoolean(), r.accepted, "accepted $what")
+        assertEquals(want["chip"]!!.jsonPrimitive.content, r.chip, "chip $what")
+        assertEquals(want["icon"]!!.jsonPrimitive.content, r.icon, "icon $what")
+        assertEquals(want["coach"]!!.jsonPrimitive.content.toBoolean(), r.coach, "coach $what")
+        assertEquals(want["marks"]!!.jsonArray.map { it.jsonPrimitive.content }, r.chars.map { SpokenAnswerResult.markName(it.mark) }, "marks $what")
+        want["chars"]?.let { chars -> assertEquals(chars.jsonArray.map { it.jsonPrimitive.content }, r.chars.map { it.char }, "chars $what") }
+    }
 }

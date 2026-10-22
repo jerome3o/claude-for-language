@@ -734,25 +734,31 @@ private fun CardBack(
     val onChar: (String) -> Unit = { ch -> if (CardExtrasLogic.isLookupCharacter(ch)) onCharacter(ch) }
     // Never-seen characters shimmer (core NewCharacters; worked out when the card was shown).
     val newChars = rememberShimmerChars(view.newChars)
+    // A SPOKEN answer (🎤) or 🎤 Say it practice: the card's answer once, big, with its own pinyin and
+    // meaning, then ONE compact "You said" row (SpokenResultRow) — never a second copy of what was
+    // said or of the answer (docs/STUDY_SESSION.md "Say the answer"; web `spokenBack`).
+    val spokenAnswer = typed != null && verdict != null && canSayAgain
+    val spokenRow: Triple<String, AnswerKey.Verdict, String>? = when {
+        spokenAnswer -> Triple(typed!!, verdict!!, "spoken")
+        canSayPractice && practiceSaid != null -> Triple(practiceSaid, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin), "practice")
+        else -> null
+    }
     val main: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             if (typed != null && verdict != null && mcSlots != null && !MultipleChoice.allRight(mcSlots)) {
                 // A multiple-choice answer (possibly partial): row by row
                 KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar, newChars) }
-            } else if (typed != null && verdict != null) {
-                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, spoken = canSayAgain, onCoach = { actions.onYouSaidCoach(it, "spoken") }, newChars = newChars) }
+            } else if (typed != null && verdict != null && !spokenAnswer) {
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, newChars = newChars) }
             } else {
-                TappableHanzi(note.hanzi, hanziSize(note.hanzi) * 0.85f, Lab.colors.ink, onChar, newChars = newChars)
-            }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
-            if (canSayPractice && practiceSaid != null) {
-                Spacer(Modifier.height(6.dp))
-                Box(Modifier.testTag(PRACTICE_YOU_SAID_TAG)) {
-                    YouSaidBox(spokenComparison(practiceSaid, note.hanzi, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin))) {
-                        actions.onYouSaidCoach(practiceSaid, "practice")
-                    }
+                // The hanzi: non-typing cards, and a spoken answer — the card's answer once, green when it
+                // counts (the row under the meaning says why).
+                val color = if (spokenAnswer) spokenAnswerColor(AnswerKey.isAccepted(verdict!!)) else Lab.colors.ink
+                Box(if (spokenAnswer) Modifier.testTag("$SPOKEN_ANSWER_TAG-${AnswerKey.verdictName(verdict!!)}") else Modifier) {
+                    TappableHanzi(note.hanzi, hanziSize(note.hanzi) * (if (spokenAnswer) 0.7f else 0.85f), color, onChar, newChars = newChars)
                 }
             }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -761,6 +767,15 @@ private fun CardBack(
             }
             Spacer(Modifier.height(4.dp))
             Text(note.english, style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+            spokenRow?.let { (transcript, v, source) ->
+                Spacer(Modifier.height(10.dp))
+                KeepTaps {
+                    Box(if (source == "practice") Modifier.testTag(PRACTICE_YOU_SAID_TAG) else Modifier) {
+                        // ▶ the take (a spoken answer's / practice take is the card's take, uploaded with the review).
+                        SpokenResultRow(transcript, note.hanzi, v, onPlay = actions.onYouSaidPlay, onCoach = { actions.onYouSaidCoach(transcript, source) })
+                    }
+                }
+            }
             // Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off)
             KeepTaps { WordTagsFor(note.hanzi, source = "study", aiTags = note.wordTags, modifier = Modifier.padding(top = 8.dp)) }
             // The deck it came from: a small quiet line, answer side only (on the question it could
@@ -937,41 +952,23 @@ private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
 }
 
 /**
- * The web's AnswerDiff: accepted answers in green with their pinyin; otherwise a
+ * The web's AnswerDiff, for a TYPED answer: accepted answers in green; otherwise a
  * character-by-character diff with the pinyin of what was typed — wrong characters red and
  * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
- * A [spoken] answer also gets the read card's "You said" box ([YouSaidBox]) under it — the answer
- * said inside a sentence is the yellow "≈ Contains the answer" with the answer in green above,
- * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
+ * The card's own pinyin follows right under it, so an exact answer has no second pinyin line.
+ * A SPOKEN answer never comes here: the back shows the card's answer once and one compact
+ * "You said" row ([SpokenResultRow], core SpokenAnswerResult).
  */
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean = false, onCoach: ((String) -> Unit)? = null, newChars: Set<String> = emptySet()) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        AnswerDiffBody(typed, correct, verdict, onChar, spoken, newChars)
-        if (spoken) {
-            Spacer(Modifier.height(6.dp))
-            YouSaidBox(spokenComparison(typed, correct, verdict), onCoach?.let { open -> { open(typed) } })
-        }
-    }
-}
-
-/** What the "You said" box shows for a spoken answer: the read card's comparison, its match flags from the spoken verdict. */
-internal fun spokenComparison(transcript: String, correct: String, verdict: AnswerKey.Verdict): TranscriptionComparison {
-    val said = Transcription.compare(transcript, correct)
-    val contains = verdict == AnswerKey.Verdict.CONTAINS
-    return said.copy(isMatch = AnswerKey.isAccepted(verdict) && !contains, containsExpected = contains)
-}
-
-@Composable
-private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, spoken: Boolean, newChars: Set<String> = emptySet()) {
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, newChars: Set<String> = emptySet()) {
     val size = hanziSize(correct) * 0.7f
     val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
-        AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // (SOUND / CONTAINS are spoken verdicts — never a typed answer's — shown as the answer.)
+        AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY, AnswerKey.Verdict.SOUND, AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // A punctuation-only difference shows the canonical answer (with its punctuation).
             val shown = if (verdict == AnswerKey.Verdict.EXACT) typed else correct
             TappableHanzi(shown, size, Palette.Good, onChar, newChars = newChars)
-            Text(Pinyin.of(shown), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.ALTERNATIVE, AnswerKey.Verdict.EQUIVALENT -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             TappableHanzi(typed, size, Palette.Good, onChar, newChars = newChars)
@@ -980,26 +977,9 @@ private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Ve
             TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar, newChars = newChars)
             Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
-        AnswerKey.Verdict.SOUND -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_SOUND_TAG)) {
-            // Said right, written with other characters (speech can't tell 由 / 油 apart): the answer in green.
-            TappableHanzi(correct, size, Palette.Good, onChar, newChars = newChars)
-            Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
-            Text(AnswerKey.spokenVerdictNote(verdict, correct).orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Good, textAlign = TextAlign.Center)
-            // "You said" is the YouSaidBox under it (AnswerDiff).
-        }
-        AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.testTag(SPOKEN_CONTAINS_TAG)) {
-            // Said inside a sentence (他长得很好。 for 长得): the answer in green; the read card's orange
-            // "You said · Contains the answer" box follows — nothing marked red.
-            TappableHanzi(correct, size, Palette.Good, onChar, newChars = newChars)
-            // No automatic pinyin here (it may read 长得 otherwise): the card's own pinyin follows.
-        }
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            AnswerKey.spokenVerdictNote(verdict, correct)?.let {
-                SpokenCloseNote(it)
-            }
             // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
-            // A spoken answer is lined up with the answer (common characters kept), not position by position.
-            val diff = if (spoken) AnswerMarks.spokenDiff(typed, correct) else AnswerMarks.typedDiff(typed, correct)
+            val diff = AnswerMarks.typedDiff(typed, correct)
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)
@@ -1393,7 +1373,8 @@ const val VOICE_REVIEW_TAG = "study-voice-review"
 const val SPOKEN_MIC_TAG = "spoken-mic"
 const val SPOKEN_LIVE_TAG = "spoken-live"
 const val SPOKEN_RETRY_TAG = "spoken-retry"
-const val SPOKEN_SOUND_TAG = "spoken-answer-sound"
+/** Test tag prefix of the card's answer on the back of a spoken answer: `spoken-answer-<verdict>` (e.g. `spoken-answer-close`). */
+const val SPOKEN_ANSWER_TAG = "spoken-answer"
 const val SPOKEN_REVIEW_TAG = "spoken-review"
 const val SPOKEN_REVIEW_TEXT_TAG = "spoken-review-text"
 const val SPOKEN_REVIEW_PINYIN_TAG = "spoken-review-pinyin"
@@ -1403,7 +1384,6 @@ const val SPOKEN_REVIEW_SUBMIT_TAG = "spoken-review-submit"
 const val SPOKEN_FAILED_ROW_TAG = "spoken-failed-row"
 const val SPOKEN_EDIT_TAG = "spoken-edit-input"
 const val SPOKEN_EDIT_CHECK_TAG = "spoken-edit-check"
-const val SPOKEN_CONTAINS_TAG = "spoken-answer-contains"
 
 /**
  * 🎤 in the typing row (the web's `.study-mic-btn`): tap to say the answer, ⏹ to stop and use it.

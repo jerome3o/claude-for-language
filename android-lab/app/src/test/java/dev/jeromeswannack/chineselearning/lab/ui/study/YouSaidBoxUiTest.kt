@@ -49,9 +49,10 @@ class YouSaidBoxUiTest : LabScreenshotTest() {
         assertEquals(3, states.map { youSaidVerdictLabel(it) }.toSet().size)
     }
 
-    @Test fun theCloseNoteIsAYellowPill() {
-        compose.setContent { LabTheme { SpokenCloseNote("Close — the tones are off") } }
-        compose.onNodeWithTag(SPOKEN_CLOSE_NOTE_TAG, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Close — the tones are off", useUnmergedTree = true).assertIsDisplayed()
+    @Test fun closeIsAYellowRowWithTheApproxIcon() {
+        compose.setContent { LabTheme { SpokenResultRow("朗", "狼", dev.jeromeswannack.chineselearning.lab.core.AnswerKey.Verdict.CLOSE, onPlay = {}, onCoach = {}) } }
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-close", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Close — tones off", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("$YOU_SAID_VERDICT_TAG-approx", useUnmergedTree = true).assertIsDisplayed()
     }
 }
