@@ -132,7 +132,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── call-activities/   # In-call activities: two-person mini lessons (describe & guess, info gap, role-play, sentence building, quick quiz, dictation) — spec types, the state machine the CallRoom runs (engine.ts), the sample catalogue; parity-tested by the Lab app; prepared.ts = activities prepared for one student from their previous lessons (prepared:<id> ids, parseGeneratedActivity, ordering, preview)
 │   ├── materials/         # Lesson materials: kinds, limits, page text, `material:<id>:<page>` annotation targets, presented-material shape, PPTX_RENDER_NOTE
 │   ├── chats/             # system.ts = system messages (the platform's lines on someone's behalf, third person per viewer); groupQuestionThreads: Ask-Claude Q&A rows → per-card conversations (student + tutor pages, MCP); inbox.ts = the Chats tab rules (sort, preview, relative time, search, badge, live updates) — parity-tested by the Lab app
-│   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts), the "revisit later" schedule of mini lessons + "New lessons a day" (revisit.ts), graded readers read once / one a day / ▶ Play whole story (daily-reader.ts), never-seen characters shimmer on the card (newCharacters.ts; docs/STUDY_SESSION.md "New characters shimmer") — parity-tested by the Lab app
+│   ├── study/             # "Today is the session": active study time per day (activeTime.ts), resume the card left on screen (resume.ts), celebrate-once rule (celebration.ts), mini lesson runs — saved, the retry round (lessonRun.ts) — and revise until right first time (lessonRevision.ts), the legacy "revisit later" rules (revisit.ts), graded readers read once / one a day / ▶ Play whole story (daily-reader.ts), never-seen characters shimmer on the card (newCharacters.ts; docs/STUDY_SESSION.md "New characters shimmer") — parity-tested by the Lab app
 │   ├── progress/          # Progress numbers (daily 30-day summary, day cards, streak, mastery): the definition the server's /api/progress SQL follows (worker my-progress-parity test) and the Lab app ports
 │   ├── folders/           # Folders for decks / library lessons / readers: groupIntoFolders (any depth), nesting rule (parentProblem: ≤ MAX_FOLDER_DEPTH = 5 levels, no cycles), folderPath / findFolderByPath, name rules, spliceGroupOrder, collapsed keys, copy (deleteFolderMessage, movedMessage) — parity-tested by the Lab app
 │   ├── explorer/          # The language explorer (docs/LANGUAGE_EXPLORER.md): the view stack (stack.ts: open / push / pop / popTo / close, breadcrumbTrail, itemForText), Word view facts (word.ts: wordChars + tones, wordFrequencyLabel, resolveWord dictionary-first), related words (related.ts), ExplorableText's segments (segments.ts), quick drills (drill.ts) — parity-tested by the Lab app
@@ -145,7 +145,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── text/              # numberHanzi.ts: number ↔ hanzi normalisation (transcripts, typed answers)
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips; coverage.ts = "What <student> has covered" (coverageHeadline, coveragePrompt)
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, the retry progress bar (retry-bar.ts; web components/homework/RetryProgressBar.tsx, Lab ui/kit/RetryProgressBar.kt — reusable by any pass with retries), dedupe, load gauge, draft plan, Home's compact card rows (home.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts), the one-off headline + long-term decks (summary.ts) — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, the retry progress bar (retry-bar.ts; web components/homework/RetryProgressBar.tsx, Lab ui/kit/RetryProgressBar.kt — reusable by any pass with retries), dedupe, load gauge, draft plan, Home's compact card rows incl. mini lesson revisions + new lessons (home.ts), sizes "18 exercises · ~12 min" (size.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts), the one-off headline + long-term decks (summary.ts) — pure, unit-tested
 │   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -352,7 +352,8 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `picture_hunts` / `picture_hunt_plays` - Picture hunts (migration 0082): source upload|generated, prompt, deck_ids, `image_key` (R2 `picture-hunts/<id>.<ext>`, protected — personal photos), size, status generating/ready/error + `progress`, `objects` JSON (`shared/picture-hunt`), best_found / play_count (recomputed from plays); plays are client-id rows (found_ids, hints_used, gave_up, duration)
 - `custom_lessons` - Agent-authored custom mini lessons (`spec` JSON per shared/lesson; status active/done). `library_item_id` / `assigned_by` / `assigned_relationship_id` link a student's copy back to the tutor's library item
 - `custom_lesson_completions` - Idempotent offline completion events for custom lessons (the rating sets when it comes back)
-- `revisit_events` - "Done for good" / "Bring back" on a mini lesson (migration 0110; item_kind lesson|reader — `reader` rows are legacy and ignored since readers are read once —, item_id, action retire|restore, client id). With the ratings they make the "revisit later" schedule (`shared/study/revisit.ts`); `users.revisit_settings` = the account's gaps + `new_lessons_per_day` (JSON, NULL = defaults)
+- `revisit_events` - Legacy "Done for good" / "Bring back" on a mini lesson (migration 0110; item_kind lesson|reader, item_id, action retire|restore, client id): a retire (until a restore) = done forever in the revision rule (`shared/study/lessonRevision.ts`); still accepted from old apps. `users.revisit_settings` = legacy gaps + `new_lessons_per_day` (read by nothing since Oct 2026)
+- `custom_lesson_completions.outcome` - a mini lesson run's outcome JSON `{ keys, missed }` (migration 0133): decides done forever vs a revision in a week (`shared/study/lessonRevision.ts`); NULL = derive from the attempt (same id) / a legacy rated finish
 - `lesson_answer_checks` - Claude's check of a self-assessed lesson answer, cached for everyone by SHA-256 of `answerCheckCacheText` (migration 0127; no user ids). See "Claude checks your answer" in docs/STUDY_SESSION.md
 - `lesson_images` - describe_image pictures, ONE per scene description (`prompt_hash` = SHA-256 of the normalised `image_prompt`, status pending/ready/failed, `image_key` = R2 `lesson-images/<hash>.<ext>`, attempts, error). Migration 0079. See "Lesson pictures" below
 - `custom_lesson_attempts` / `custom_lesson_attempt_media` - Per-exercise answers + time of a lesson run (id = the completion event id, spec snapshot, `data` JSON per `shared/lesson/attempt.ts`) and the recordings made in it (R2 key, transcript). Migration 0074
@@ -1404,7 +1405,7 @@ add-as-card goes through `POST /api/decks/:id/notes` (content service). E2E seed
 - `POST /api/picture-hunts/:id/retry` · `DELETE /api/picture-hunts/:id` (plays + picture)
 - `POST /api/picture-hunts/plays` `{ plays }` → `{ accepted, stored, rejected, hunts }` (idempotent by play id)
 
-### Custom mini lessons (agent-authored, in the study session)
+### Custom mini lessons (agent-authored; Home's homework card + the Mini Lessons page)
 The generalized successor to the fixed-phase grammar lesson: a **schema-driven lesson**
 (`shared/lesson`) that agents author — sections in any order, each holding any number of
 exercises of any type. Exercise types: `note` (teaching text + example sentences with TTS),
@@ -1446,53 +1447,53 @@ registry / samples / doc cover every validated type. Specs are validated with
 agent can repair and retry.
 
 **Lesson audio is prefetched** (docs/AUDIO.md "Lesson audio prefetch"): every clip a lesson plays (`shared/lesson/audioClips.ts`) is fetched by the sync (today's, open homework, lockable, next new lessons), again when a lesson opens (exercise on screen first), and pre-generated server-side into R2 `tts-cache/` on every lesson write (`services/lesson-audio.ts`, tts-queue `lesson_audio`); a late clip never plays on a later exercise.
-Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline,
-**mixed into the study session's card flow** — one is offered every ~8 card reviews
-(`LESSON_MIX_INTERVAL` in useStudySession), leftovers run before the readers. NEW lessons are
-paced per local DAY: at most **"New lessons a day"** (default 1, Settings → "Lessons & readers",
-`new_lessons_per_day` in `users.revisit_settings`), oldest first, counted from completion events —
-a lesson whose first finish is today (`newLessonsIntroducedToday` / `pickNewLessonsForToday`,
-one-off homework left out). Lessons come back on the **"revisit later" schedule**, NOT
-FSRS (`shared/study/revisit.ts`, Lab `core/…/Revisit.kt` parity-tested; docs/STUDY_SESSION.md
-"Mini lessons"): the lesson ends with Again/Hard/Good/Easy (+ **✓ Done for good**), each
-completion event carries the rating, and the next gap is Again 1 day · Hard 2 · Good 14 · Easy 42,
-growing ×2 (Hard ×1.2) each later visit, capped at 180 (rating NULL on legacy events = Good). Done for
-good / Bring back are `revisit_events` (migration 0110, `POST /api/me/revisit-events`, `revisit_events`
-on `/api/sync/changes`); the gaps are per account (`users.revisit_settings`, Settings → "Lessons &
-readers", `PUT /api/profile/revisit-settings`, `revisit_settings` on `/api/auth/me` + sync). Due
-revisits re-enter the mix at most `MAX_LESSON_REVISITS_PER_DAY` (2) a day, most overdue first. Completions are
-offline events (idempotent by id) uploaded in sync; other devices' completions come down
-inside `GET /api/custom-lessons`. **Today's lessons are one rule**, `pickTodaysLessons` (`shared/study/revisit.ts`,
-Lab `LessonSchedule.todaysLessons`, parity-tested): due revisits, then NEW homework lessons (`both`) on TOP of the
-"New lessons a day" place (a homework finish never uses it up — `homeworkPassTargets`), then the queue's new lessons;
-a lesson opened today keeps its place (`services/lessonsStarted.ts`, Lab `LessonProgressStore.markStarted`). Closing a
-lesson never records anything — only the rating / Done for good. **▶ Do it again**: `/lessons/:id/play?from=`
-(`pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`) from every Mini Lessons card (▶ Start / ▶ Do it
-again), a finished homework lesson pass and the Lab's "Done today" rows — due today = a normal run; not due = the
-ratings plus **Practice only** (nothing recorded, `replayIsPractice`); docs/STUDY_SESSION.md. Authoring paths: the MCP `create_custom_lesson` tool, the in-app
+Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline. **They are NOT part of
+the study session** (Oct 2026: no lesson mix, no "New lessons a day", no Settings → "Lessons & readers"):
+they are done from **Home's homework / to-do card** (revisions due + new lessons, with sizes — `homeHomework`,
+`shared/homework/home.ts`) and the **Mini Lessons page**, through the player at `/lessons/:id/play?from=&mode=revision`
+(`pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`) or a homework pass (docs/STUDY_SESSION.md "Mini lessons"):
+- **A run is never lost** (`shared/study/lessonRun.ts`, Lab `core/…/LessonRun.kt` parity-tested): saved after every
+  exercise (where it stands, score, attempt rows with their checks, recordings) — web IndexedDB `lessonRuns` (Dexie v34,
+  `services/lessonRuns.ts`), Lab `LessonProgressStore` — keyed on the lesson's shape (exercise types), never bounded by
+  date: "Continue where you left off (7 of 18)" · Start over. (Before: the web kept it in memory, the Lab dropped it on
+  another day / an edited spec.) Closing records nothing.
+- **The retry round**: every scored exercise wrong on the main pass comes back after the last one until right
+  ("Let's put this one right · 2 left"); the bar is the homework pass's retry bar (`runRetryBar` → `retryBar`,
+  `components/homework/RetryProgressBar.tsx`, Lab `ui/kit/RetryProgressBar`). Retry rows carry `retry: n` in the attempt.
+- **Revise until right first time** (`shared/study/lessonRevision.ts`, Lab `core/…/LessonRevision.kt` parity-tested; no
+  rating, no Done for good): each completion carries its **outcome** (main-pass scored keys + those missed first time;
+  `custom_lesson_completions.outcome`, migration 0133; derived from the attempt when an older app sends none,
+  `services/lesson-revision.ts` `backfillCompletionOutcomes`). The latest run decides: nothing missed → done forever;
+  else a **revision** `LESSON_REVISION_GAP_DAYS` (7) later = the missed ones + ~20 % (1–3, seeded, across types) of the
+  ones got, with their notes — weekly until a run is all right first time. Legacy: a finish without an attempt follows
+  its rating (Again / Hard → a whole-lesson revision, else done); an old "Done for good" (`revisit_events` retire) = done.
+  The tutor's views show "Revision 2 due 29 Oct · 3 to get right" / "all right first time" (`revision_label`,
+  `revisionProgressLabel` in `shared/homework/library.ts`; Completed = all right first time).
+Completions are offline events (idempotent by id) uploaded in sync; other devices' completions (with their outcomes) come
+down inside `GET /api/custom-lessons`. Old apps' ratings, `revisit_events` and `PUT /api/profile/revisit-settings` are still
+accepted (`shared/study/revisit.ts` is legacy: the server's settings endpoint and the Lab's reader scheduling types). Authoring paths: the MCP `create_custom_lesson` tool, the in-app
 Ask Claude chat's `create_custom_lesson` tool, or the REST endpoint. The shared exercise
 views live in `frontend/src/components/lesson-exercises.tsx` (StudyGrammar reuses the
 scramble/choice/translate ones). The **Mini Lessons page** (`/lessons`, in the profile
-menu) inspects pending + completed lessons — full exercise listing per lesson, delete, and an
+menu) lists To do (▶ Continue / ▶ Revision / ▶ Start) / Revision coming / Done for good with sizes — full exercise listing per lesson, delete, and an
 **Edit** link into the lesson editor (see "Lesson library & editor" below).
 - `GET /api/custom-lessons` - Active lessons with parsed spec (`?status=done|all` for the rest)
 - `POST /api/custom-lessons` - Create from `{ spec }` (validated; queues describe_image illustrations)
 - `PUT /api/custom-lessons/:id` - Replace a lesson's spec in place (validated; same id so history/schedule carry over; keeps generated illustrations whose image_prompt is unchanged)
 - `DELETE /api/custom-lessons/:id` - Delete a lesson
-- `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id); an event may carry `attempt` (per-exercise answers + time), stored in `custom_lesson_attempts`
+- `POST /api/custom-lessons/offline-complete` - Upload completion events (idempotent by event id); an event may carry `attempt` (per-exercise answers + time, retry rows), stored in `custom_lesson_attempts`, and `outcome` `{ keys, missed }` (else derived from the attempt; `rating` accepted from old apps)
 - `POST /api/custom-lessons/unlock` - `{ events: [{ lesson_id, unlocked_at, via: auto|manual|player }] }` → `{ unlocked, already, not_found }` (idempotent; the earliest time wins)
 
 **Unlockable lessons — podcast companions** (`shared/lesson/unlock.ts`, Lab `core/…/LessonUnlock.kt`, parity-tested;
 `services/lesson-unlock.ts`, `services/companion-lesson.ts`, migration 0119; docs/STUDY_SESSION.md "Unlockable lessons",
 docs/AUDIO_LESSONS.md "Companion mini lesson"). A lesson may carry `unlock: { kind: 'audio_lesson', audio_lesson_id } |
 { kind: 'manual', prompt }` (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt / unlocked_at / unlocked_via`,
-`companion_of` = the podcast it was written for). LOCKED = never offered (`pickTodaysLessons`' `locked`: not in the session,
-today's lessons or the daily new-lesson place); unlocked = "I want this now": a NEW one comes today on top of the daily place
-(`unlocked`, like homework). Unlock: automatically when a listen reaches ≥ 85 % or the last chapter of its audio lesson
+`companion_of` = the podcast it was written for). LOCKED = never offered (not on Home's card or the Mini Lessons page's To do,
+only in "🔒 Ready to unlock"); unlocked = an ordinary new lesson. Unlock: automatically when a listen reaches ≥ 85 % or the last chapter of its audio lesson
 (`audioLessonListened`; web player / Lab `AudioLessonEngine` → `POST /api/audio-lessons/listened`, which also unlocks
 server-side — only at the moment of a listen, so a companion made for a podcast already heard waits for a tap), by hand
 ("✓ I've listened — unlock" / "✓ Done — unlock": web Mini Lessons page "🔒 Ready to unlock" + the locked gate on
-`/lessons/:id/play`; Lab Today's mini lessons + Mini Lessons), or from the player's companion card ("Mini lesson ready → ▶ Start").
+`/lessons/:id/play`; Lab Mini Lessons), or from the player's companion card ("Mini lesson ready → ▶ Start").
 Offline-first: web IndexedDB `lessonUnlocks` (Dexie v32), Lab `lessons/local-unlocks` + the Outbox. `POST /api/custom-lessons`
 takes `unlock`; `POST /api/audio-lessons/:id/companion-lesson { unlock?: audio|manual, prompt? }` writes the companion on
 audio-lesson-queue (`{ lessonId, companion: true }`; Claude + validateLessonSpec + 2 repair rounds + the 一/不 rule; one per
