@@ -273,6 +273,94 @@
   color: var(--color-text);
 }
 
+.xp-char-chip {
+  position: relative;
+}
+
+/* A character that has its own card: 📚 (in your decks) / ✓ (known) in the chip's corner —
+   a shape, not just a colour (shared/chars OWN_CARD_BADGE; the label says it in words). */
+.xp-char-chip-own {
+  position: absolute;
+  top: -0.5rem;
+  right: -0.4rem;
+  min-width: 1.375rem;
+  height: 1.375rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  line-height: 1;
+  font-weight: 700;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.xp-char-chip-own--known {
+  background: #dcfce7;
+  border-color: #86efac;
+  color: #166534;
+}
+
+.xp-char-chip-own--in_decks {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
+:root[data-theme='dark'] .xp-char-chip-own--known {
+  background: #143222;
+  border-color: #2f6b45;
+  color: #86efac;
+}
+
+:root[data-theme='dark'] .xp-char-chip-own--in_decks {
+  background: #172a45;
+  border-color: #2c4a75;
+}
+
+/* The Character view's own-card block under the glyph ("📚 You have 性 as a card in …"). */
+.xp-own {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-lg, 12px);
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+}
+
+.xp-own[data-status='in_decks'] {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.xp-own[data-status='known'] {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+:root[data-theme='dark'] .xp-own[data-status='in_decks'] {
+  background: #14223a;
+  border-color: #2c4a75;
+}
+
+:root[data-theme='dark'] .xp-own[data-status='known'] {
+  background: #12291c;
+  border-color: #2f6b45;
+}
+
+.xp-own .xp-have-line {
+  font-weight: 600;
+}
+
+.xp-own .xp-footer-row {
+  margin-top: 0.5rem;
+}
+
+.xp-own .btn {
+  min-height: 44px;
+}
+
 .xp-char-chip:active {
   transform: scale(0.97);
 }

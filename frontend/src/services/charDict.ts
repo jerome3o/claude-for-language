@@ -4,7 +4,7 @@
  * IndexedDB (`charDict`) the first time it is looked at and for the upcoming study queue
  * during sync, so the card back's character sheet works offline.
  */
-import { CHAR_BATCH_MAX, CHAR_DICT_VERSION, charWordRows, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
+import { CHAR_BATCH_MAX, CHAR_DICT_VERSION, charOwnCards, charWordRows, isSingleHan, type CharRecord, type CharWord, type CharWordRow, type OwnCard } from '@shared/chars';
 import { isHanCodePoint, noteKey } from '@shared/progress/known';
 import { apiErrorStatus, fetchCharExplanation, fetchCharRecord, fetchCharRecords } from '../api/client';
 import { db } from '../db/database';
@@ -126,7 +126,32 @@ export async function charWordStatuses(words: readonly CharWord[], cardHanzi?: s
   );
 }
 
-export type ExplainResult = { status: 'ok'; text: string } | { status: 'offline' } | { status: 'error'; message: string };
+/** A character's own card (shared charOwnCards) with the names of the decks it is in. */
+export type OwnCardInfo = OwnCard & { decks: string[] };
+
+/**
+ * Which of these characters the learner has as a card of its OWN (性 itself, not 人性): the
+ * explorer's Character view status line and the Word view chip badges. From this device's
+ * notes and cards (offline); live decks only, like `charWordStatuses`.
+ */
+export async function ownCardsFor(chars: readonly string[]): Promise<Record<string, OwnCardInfo>> {
+  const wanted = new Set(chars.filter(isSingleHan));
+  const deckRows = await db.decks.toArray();
+  const deckName = new Map(deckRows.map((d) => [d.id, d.name]));
+  const notes = wanted.size ? await db.notes.filter((n) => deckName.has(n.deck_id) && wanted.has(noteKey(n.hanzi ?? ''))).toArray() : [];
+  const cards = notes.length ? await db.cards.where('note_id').anyOf(notes.map((n) => n.id)).toArray() : [];
+  const own = charOwnCards(
+    chars,
+    notes.map((n) => ({ id: n.id, hanzi: n.hanzi })),
+    cards.map((c) => ({ note_id: c.note_id, queue: c.queue, stability: c.stability ?? 0 })),
+  );
+  const deckOf = new Map(notes.map((n) => [n.id, deckName.get(n.deck_id) ?? '']));
+  const out: Record<string, OwnCardInfo> = {};
+  for (const [c, o] of Object.entries(own)) out[c] = { ...o, decks: [...new Set(o.note_ids.map((id) => deckOf.get(id) ?? ''))].filter(Boolean) };
+  return out;
+}
+
+export type ExplainResult ={ status: 'ok'; text: string } | { status: 'offline' } | { status: 'error'; message: string };
 
 /** "More about 字": device cache, else the server (one answer per character for everyone). */
 export async function explainChar(char: string): Promise<ExplainResult> {

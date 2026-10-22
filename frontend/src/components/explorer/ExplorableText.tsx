@@ -21,6 +21,8 @@ export function ExplorableText({
   cardHanzi,
   onWrite,
   newChars,
+  onTap,
+  onClosed,
 }: {
   text: string;
   segments?: readonly WordSegmentInput[] | null;
@@ -34,6 +36,10 @@ export function ExplorableText({
   onWrite?: ExplorerOpenOptions['onWrite'];
   /** Never-seen characters to shimmer (the study card, services/newCharacters.ts). */
   newChars?: ReadonlySet<string>;
+  /** Told about every tap before the explorer opens / pushes (a word tag sheet closes itself). */
+  onTap?: (item: ExplorerItem) => void;
+  /** Outside the explorer: called when the explorer this text opened closes again. */
+  onClosed?: ExplorerOpenOptions['onClosed'];
 }) {
   const explorer = useExplorer();
   const pieces = explorableSegments(text, segments, (s, e) => sentenceAround(text, s, e));
@@ -50,8 +56,9 @@ export function ExplorableText({
   const go = (item: ExplorerItem, e: MouseEvent | KeyboardEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    onTap?.(item);
     if (explorer.inside) explorer.push(item);
-    else explorer.open(item, { source, cardHanzi, onWrite });
+    else explorer.open(item, { source, cardHanzi, onWrite, onClosed });
   };
 
   return (
