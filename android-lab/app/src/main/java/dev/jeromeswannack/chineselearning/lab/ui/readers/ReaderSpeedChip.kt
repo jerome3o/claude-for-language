@@ -44,7 +44,7 @@ fun ReaderSpeedChip(speed: Double, onClick: () -> Unit, minWidth: Dp = 60.dp) {
         Modifier.widthIn(min = minWidth).height(44.dp)
             .bouncyClickable(pressedScale = 0.9f, onClick = onClick)
             .clip(CircleShape).background(bg)
-            .border(1.dp, if (slowed) Color.Transparent else Lab.colors.cardBorder, CircleShape)
+            .border(1.dp, if (slowed) Color.Transparent else Lab.colors.outline, CircleShape)
             .padding(horizontal = 12.dp)
             .testTag("reader-speed-chip")
             .semantics { contentDescription = "Playback speed $label — tap for ${ReaderSpeed.label(ReaderSpeed.next(speed))}" },

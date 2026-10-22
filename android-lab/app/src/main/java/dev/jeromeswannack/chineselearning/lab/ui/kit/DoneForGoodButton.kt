@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.kit
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -40,8 +39,8 @@ fun DoneForGoodButton(enabled: Boolean, modifier: Modifier = Modifier, onClick: 
             .testTag(DONE_FOR_GOOD_TAG)
             .bouncyClickable(enabled, 0.97f, onClick = onClick)
             .clip(shape)
-            .border(1.dp, Lab.colors.cardBorder, shape)
-            .alpha(if (enabled) 1f else 0.5f)
+            .buttonBorder(shape, enabled)
+            .alpha(if (enabled) 1f else 0.6f)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {

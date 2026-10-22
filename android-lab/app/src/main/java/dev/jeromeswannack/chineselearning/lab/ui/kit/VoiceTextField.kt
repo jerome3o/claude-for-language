@@ -239,7 +239,7 @@ fun VoiceTextFieldContent(
                             .padding(top = 4.dp)
                             .size(52.dp)
                             .clip(CircleShape)
-                            .border(1.dp, Lab.colors.cardBorder, CircleShape)
+                            .border(1.dp, Lab.colors.outline, CircleShape)
                             .background(Lab.colors.card)
                             .bouncyClickable(enabled, 0.92f, onClick = actions.say)
                             .semantics { contentDescription = VoiceDictation.Copy.MIC_LABEL }

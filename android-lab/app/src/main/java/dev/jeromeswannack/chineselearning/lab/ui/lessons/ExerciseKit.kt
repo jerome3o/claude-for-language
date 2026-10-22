@@ -140,7 +140,7 @@ fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null)
         if (label != null) Explanation(label)
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)
-                .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp))
+                .border(1.dp, Lab.colors.outline, RoundedCornerShape(18.dp))
                 .bouncyClickable(pressedScale = 0.98f) { env.speak(sentence.hanzi) }
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -178,7 +178,7 @@ fun OptionButton(
     onClick: () -> Unit,
 ) {
     val border by animateColorAsState(
-        when (state) { OptionState.Correct -> Palette.Good; OptionState.Wrong -> Palette.Again; OptionState.Selected -> Lab.colors.accent; OptionState.Idle -> Lab.colors.cardBorder },
+        when (state) { OptionState.Correct -> Palette.Good; OptionState.Wrong -> Palette.Again; OptionState.Selected -> Lab.colors.accent; OptionState.Idle -> Lab.colors.outline },
         label = "option",
     )
     val bg = when (state) { OptionState.Correct -> Palette.Good.copy(alpha = 0.10f); OptionState.Wrong -> Palette.Again.copy(alpha = 0.10f); OptionState.Selected -> Lab.colors.accentSoft; OptionState.Idle -> Lab.colors.card }

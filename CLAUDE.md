@@ -1293,7 +1293,10 @@ sleep timer, Media Session. MCP `create_audio_lesson` / `get_audio_lesson` / `li
 - **Private podcast feed** (`routes/podcast.ts`, `services/podcast-feed.ts`, docs/AUDIO_LESSONS.md "Podcast feed"): public,
   mounted BEFORE the auth middleware — `GET /api/podcast/:token/feed.xml` (RSS 2.0 + iTunes + `podcast:chapters`, one item
   per ready lesson), `GET /api/podcast/:token/lessons/:id/:version/audio.mp3` (Range → 206, HEAD, 416),
-  `…/lessons/:id/chapters.json`; the token (32 random bytes) is the only credential and grants that user's lessons only;
+  `…/lessons/:id/chapters.json`, `…/lessons/:id/:version/transcript.vtt|srt|json` (`<podcast:transcript>`, one cue per
+  transcript row: hanzi / pinyin / English, a dialogue's speaker); each item's `content:encoded` = the whole transcript by
+  chapter (hanzi / pinyin / English; repeated listens point back; ~3 MB feed budget, then short notes), `description` =
+  the first ~4,000 characters (`services/podcast-transcript.ts`, docs/AUDIO_LESSONS.md "Transcripts in podcast apps"); the token (32 random bytes) is the only credential and grants that user's lessons only;
   stored as SHA-256 (lookup) + AES-GCM (key from `SESSION_SECRET`, so Settings shows it again); wrong / reset token = 404;
   rate-limited (`PODCAST_RATE_LIMITER` `[[ratelimits]]`, 120/min per token, per IP for unknown tokens); never logged (the
   request log carries the route pattern). Signed in: `GET /api/me/podcast-feed` (made on first use), `POST …/reset`,

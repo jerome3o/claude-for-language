@@ -459,11 +459,13 @@ Podcasts) — downloads, chapters, the app's own sleep timer. `worker/src/routes
 - **Public routes, before the auth middleware** (the token in the path is the only credential):
   `GET /api/podcast/<token>/feed.xml` — RSS 2.0 + iTunes tags + Podcasting 2.0 (`podcast:chapters`,
   `podcast:locked`, `itunes:block` so no directory lists it), one `<item>` per READY lesson, newest first:
-  title, description (format, the words, the chapters as `0:00 开始` timestamps — tappable in most apps),
+  title, description (format, the words, the chapters as `0:00 开始` timestamps — tappable in most apps — and the
+  transcript, see "Transcripts in podcast apps"), `content:encoded` (the whole transcript), `podcast:transcript` × 3,
   pubDate (finished_at), `itunes:duration`, `guid` = `audio-lesson-<id>-<version>` (a rebuilt lesson is a new
   episode), enclosure. `GET /api/podcast/<token>/lessons/<id>/<version>/audio.mp3` — `audio/mpeg`,
   `Accept-Ranges`, Content-Length; a valid Range is always 206 (end clamped to the file), past the end 416,
   HEAD supported. `GET /api/podcast/<token>/lessons/<id>/chapters.json` — JSON chapters.
+  `GET /api/podcast/<token>/lessons/<id>/<version>/transcript.vtt|srt|json` — the timed transcript (below).
 - **Token**: 32 random bytes, base64url (43 characters; anything else is refused before D1 is asked). Stored
   twice, never in clear: `token_hash` = SHA-256 (how a request finds its user) and `token_enc` = AES-GCM with a
   key derived from `SESSION_SECRET`, so Settings can show the same link again. If that secret ever changes the
@@ -484,6 +486,42 @@ Podcasts) — downloads, chapters, the app's own sleep timer. `worker/src/routes
   fetched it. Lab: the same section in Settings and as a sheet from the Audio lessons screen
   (`ui/audiolessons/PodcastFeed.kt`). MCP `get_audio_lesson_feed`. Analytics `audio_lesson.podcast_feed`
   (action), `server.podcast_feed_fetched` (items).
+
+### Transcripts in podcast apps
+
+Jerome (Oct 2026): "add all the text — hanzi, pinyin and English — so I can read the transcript in my podcast app."
+`worker/src/services/podcast-transcript.ts` (pure, `services/__tests__/podcast-transcript.test.ts`) builds it from the
+stored timeline (`timeline_json.transcript`, one line per clip, ms) grouped like the player's rows (`transcriptRows`: a
+line said ×3, its English and the line again is ONE row). A Chinese line stored without pinyin (a sleep lesson's
+explanations, a word's repeat) gets the app's automatic pinyin (pinyin-pro + the 一 / 不 rule, ASCII punctuation); a
+dialogue's lines carry their speaker's name (`json_extract(script_json, '$.speakers')` in the feed query); a story's lines
+already carry their label ("明慧：…").
+
+- **Show notes, HTML** (`content:encoded`, CDATA — `]]>` split): intro, the words, then the whole transcript by chapter —
+  `<h3>1:05 · 粗 cū — thick</h3>` (the time is tappable in most apps), each Chinese row as hanzi (+ speaker, + `×3 +1`) /
+  *pinyin* / English, narration as plain paragraphs. A chapter whose Chinese lines are exactly an earlier chapter's (a
+  dialogue's second / third / final listen and line by line, a story's "再听一遍") keeps its narration and says "(The same 6
+  lines as in “First listen”.)". Feed budget: newest first, the HTML of a whole feed stops carrying transcripts after
+  ~3 MB of notes (`FEED_NOTES_BUDGET_CHARS`; Jerome's ~50 lessons are ~1.5 MB); older episodes then get the short notes
+  (chapters + "the full transcript is in this episode's transcript").
+- **Show notes, plain** (`description`, `itunes:summary`): intro, words, chapters as `0:00 开始 kāi shǐ`, then the
+  transcript (hanzi / pinyin / English on their own lines) cut at 4,000 characters with a pointer to the rest — some apps
+  show only that much.
+- **Timed transcripts** (`<podcast:transcript>` × 3, `language="zh-cn"`): WebVTT (`text/vtt`, `rel="captions"`), SRT
+  (`application/x-subrip`, `rel="captions"`) and the namespace's JSON (`application/json`). Served from
+  `…/lessons/<id>/<version>/transcript.vtt|srt|json` with the feed's rules (token → that user's ready lessons only, wrong
+  token / lesson / version = 404, rate-limited as a file, `private, max-age=3600`); the version is the MP3's, so a
+  re-render (new timings) is a new URL. **One cue per row**, from its start to the next row's start: the hanzi / pinyin /
+  English stay on screen while the line is said three times, translated and said again, instead of flickering through four
+  identical cues; lines = hanzi, pinyin, English (narration: its one line). A dialogue speaker is a `<v Cook>` span (VTT),
+  `Cook: ` (SRT) or `speaker` (JSON). SRT: AntennaPod reads `Name: ` as the speaker and drops what follows a second colon,
+  so other `": "` in SRT text become `：`. A lesson without a stored transcript gets no tags (404).
+- **Which app shows what** (their docs, Oct 2026): Pocket Casts (Android / iOS) shows `podcast:transcript` — VTT, SRT,
+  JSON or HTML — and HTML show notes; AntennaPod ≥ 3.5 shows transcripts (JSON preferred, then VTT, SRT; its parser joins a
+  cue's lines with spaces and merges cues shorter than 5 s) and the HTML notes; Podcast Addict reads SRT / JSON / HTML
+  transcripts (not VTT) and the HTML notes; Apple Podcasts accepts VTT / SRT through the tag for catalogue shows — a private
+  feed added by URL shows the HTML show notes. After a deploy, a pull-to-refresh of the feed in the app picks up the notes
+  and transcript links of existing episodes (same guids, no duplicates).
 
 ## Chapter titles with pinyin
 

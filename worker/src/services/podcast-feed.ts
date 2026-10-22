@@ -4,6 +4,7 @@
  *   GET /api/podcast/<token>/feed.xml                          RSS 2.0 + iTunes + Podcasting 2.0 chapters
  *   GET /api/podcast/<token>/lessons/<id>/<version>/audio.mp3  the lesson's MP3 (Range → 206)
  *   GET /api/podcast/<token>/lessons/<id>/chapters.json        JSON chapters (podcast:chapters)
+ *   GET /api/podcast/<token>/lessons/<id>/<version>/transcript.vtt|srt|json   timed transcript (podcast:transcript)
  *
  * The token is the only credential (a podcast app cannot sign in), so:
  * - it is 32 random bytes (base64url, 43 characters) and never stored in clear: D1 keeps its
@@ -16,11 +17,12 @@
  *   module never prints it.
  */
 import type { Env } from '../types';
-import type { AudioLessonChapter, AudioLessonFormat, LessonWord, PodcastFeedInfo } from '@shared/audio-lesson';
+import type { AudioLessonChapter, AudioLessonFormat, AudioLessonTranscriptLine, LessonWord, PodcastFeedInfo, ScriptSpeaker } from '@shared/audio-lesson';
 
 export type { PodcastFeedInfo };
-import { chapterTitleWithPinyin, formatClock } from '@shared/audio-lesson';
+import { chapterTitleWithPinyin } from '@shared/audio-lesson';
 import { APP_BASE_URL } from './email';
+import { FEED_NOTES_BUDGET_CHARS, notesByChapter, showNotesHtml, showNotesText } from './podcast-transcript';
 
 export interface PodcastFeedRow {
   user_id: string;
@@ -109,6 +111,16 @@ export function enclosureUrl(origin: string, token: string, lessonId: string, ve
 
 export function chaptersUrl(origin: string, token: string, lessonId: string): string {
   return `${origin}/api/podcast/${token}/lessons/${encodeURIComponent(lessonId)}/chapters.json`;
+}
+
+export type TranscriptFormat = 'vtt' | 'srt' | 'json';
+
+/** Content types of the timed transcripts (the `type` of `<podcast:transcript>` and the response). */
+export const TRANSCRIPT_TYPES: Record<TranscriptFormat, string> = { vtt: 'text/vtt', srt: 'application/x-subrip', json: 'application/json' };
+
+/** Versioned like the MP3: a re-rendered lesson (new timings) gets new transcript URLs. */
+export function transcriptUrl(origin: string, token: string, lessonId: string, version: string, format: TranscriptFormat): string {
+  return `${origin}/api/podcast/${token}/lessons/${encodeURIComponent(lessonId)}/${encodeURIComponent(version)}/transcript.${format}`;
 }
 
 /** podcast://host/path (AntennaPod, Pocket Casts, Podcast Addict) and pcast://host/path (Apple Podcasts). */
@@ -235,8 +247,19 @@ export interface FeedLesson {
   duration_ms: number;
   words: LessonWord[];
   chapters: AudioLessonChapter[];
+  /** The timed lines (timeline_json.transcript); empty for a lesson without one. */
+  transcript: AudioLessonTranscriptLine[];
+  /** A dialogue's speakers (names for its lines). */
+  speakers: ScriptSpeaker[];
   /** ISO. */
   published_at: string;
+}
+
+/** `]]>` would end a CDATA section early: split it across two sections. */
+export function cdata(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '');
+  return `<![CDATA[${clean.replace(/]]>/g, ']]]]><![CDATA[>')}]]>`;
 }
 
 export function escapeXml(s: string): string {
@@ -261,29 +284,13 @@ export function itunesDuration(ms: number): string {
 }
 
 /**
- * The episode notes: what it teaches, then the chapters as timestamps (podcast apps make them
- * tappable). Chapter titles carry their pinyin ("打扰了 dǎrǎo le — sorry to bother you").
+ * The plain-text episode notes (`description` / `itunes:summary`): what it teaches, the chapters as
+ * timestamps (podcast apps make them tappable; titles with their pinyin, "打扰了 dǎrǎo le — sorry to
+ * bother you"), then the transcript's first lines as hanzi / pinyin / English, cut at ~4,000
+ * characters. The whole transcript is in `content:encoded` (services/podcast-transcript.ts).
  */
 export function episodeDescription(l: FeedLesson): string {
-  const lines: string[] = [];
-  lines.push(
-    l.format === 'sleep'
-      ? 'Sleep lesson — slow Chinese to fall asleep to.'
-      : l.format === 'story'
-        ? 'Listen & repeat — a story or conversation, each line three times slowly, then its English, then twice more.'
-        : 'Dialogue lesson — a Chinese conversation, explained in English.',
-  );
-  if (l.words.length) {
-    lines.push('');
-    lines.push(`Words (${l.words.length}):`);
-    for (const w of l.words.slice(0, 30)) lines.push(`${w.hanzi} ${w.pinyin} — ${w.english}`);
-  }
-  if (l.chapters.length) {
-    lines.push('');
-    lines.push('Chapters:');
-    for (const c of l.chapters) lines.push(`${formatClock(c.start_ms)} ${chapterTitleWithPinyin(c.title, l.words)}`);
-  }
-  return lines.join('\n');
+  return showNotesText(l);
 }
 
 /**
@@ -303,13 +310,23 @@ export function buildFeedXml(args: { origin: string; token: string; ownerName: s
   const summary = 'Your audio lessons from the Chinese learning app: dialogue lessons for the train, slow sleep lessons and stories to listen to and repeat. Private to you — do not share this feed link.';
   const lastBuild = lessons.length ? rfc822(lessons.reduce((a, l) => (l.published_at > a ? l.published_at : a), lessons[0].published_at)) : (args.now ?? new Date()).toUTCString();
   const image = `${APP_BASE_URL}/podcast-artwork.jpg`;
+  // Newest first: each episode carries its whole transcript in its HTML notes until the feed's
+  // budget is spent (a feed of dozens of 50-minute stories stays a few MB); older ones then get the
+  // short notes — their timed transcript is still linked.
+  let budget = FEED_NOTES_BUDGET_CHARS;
   const items = lessons.map((l) => {
-    const desc = episodeDescription(l);
+    const notes = notesByChapter(l);
+    const desc = showNotesText(l, undefined, notes);
+    let html = showNotesHtml(l, { notes });
+    if (html.length > budget) html = showNotesHtml(l, { notes, full: false });
+    budget = Math.max(0, budget - html.length);
+    const hasTranscript = l.transcript.length > 0;
     return [
       '    <item>',
       `      <title>${escapeXml(l.title)}</title>`,
       `      <description>${escapeXml(desc)}</description>`,
       `      <itunes:summary>${escapeXml(desc)}</itunes:summary>`,
+      `      <content:encoded>${cdata(html)}</content:encoded>`,
       `      <pubDate>${rfc822(l.published_at)}</pubDate>`,
       `      <guid isPermaLink="false">audio-lesson-${escapeXml(l.id)}-${escapeXml(l.version)}</guid>`,
       `      <link>${escapeXml(`${APP_BASE_URL}/audio-lessons/${encodeURIComponent(l.id)}`)}</link>`,
@@ -318,12 +335,20 @@ export function buildFeedXml(args: { origin: string; token: string; ownerName: s
       `      <itunes:episodeType>full</itunes:episodeType>`,
       `      <itunes:explicit>false</itunes:explicit>`,
       ...(l.chapters.length ? [`      <podcast:chapters url="${escapeXml(chaptersUrl(origin, token, l.id))}" type="application/json+chapters"/>`] : []),
+      // Timed transcripts: VTT and SRT as captions, the namespace's JSON (AntennaPod prefers it);
+      // Podcast Addict reads SRT / JSON, Pocket Casts and Apple VTT / SRT.
+      ...(hasTranscript
+        ? (['vtt', 'srt', 'json'] as const).map(
+            (f) =>
+              `      <podcast:transcript url="${escapeXml(transcriptUrl(origin, token, l.id, l.version, f))}" type="${TRANSCRIPT_TYPES[f]}" language="zh-cn"${f === 'json' ? '' : ' rel="captions"'}/>`,
+          )
+        : []),
       '    </item>',
     ].join('\n');
   });
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0">',
+    '<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:podcast="https://podcastindex.org/namespace/1.0">',
     '  <channel>',
     `    <title>${escapeXml(title)}</title>`,
     `    <link>${escapeXml(link)}</link>`,

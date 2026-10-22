@@ -24,6 +24,8 @@ import {
   FALLBACK_LIMIT_PER_MINUTE,
 } from '../../services/podcast-feed';
 import type { Env } from '../../types';
+import { buildTimeline, compileDialogueLesson, SAMPLE_DIALOGUE_PLAN, speechKey } from '@shared/audio-lesson';
+import { cueTimestamp } from '../../services/podcast-transcript';
 
 const ORIGIN = 'http://localhost';
 
@@ -47,10 +49,22 @@ function fakeBucket() {
   return { store, bucket: bucket as unknown as R2Bucket };
 }
 
-/** Strict enough for a feed: tags balanced and properly nested, every & an entity, attributes quoted. */
+/**
+ * Strict enough for a feed: CDATA sections closed (their HTML balanced too), then tags balanced
+ * and properly nested, every & an entity, attributes quoted.
+ */
 function assertWellFormedXml(xml: string): void {
   expect(xml.startsWith('<?xml version="1.0" encoding="UTF-8"?>')).toBe(true);
-  const body = xml.replace(/^<\?xml[^?]*\?>/, '');
+  const cdatas: string[] = [];
+  const withoutCdata = xml.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, inner: string) => (cdatas.push(inner), 'CDATA'));
+  expect(withoutCdata).not.toContain('<![CDATA[');
+  expect(withoutCdata).not.toContain(']]>');
+  for (const html of cdatas) assertBalancedMarkup(html);
+  assertBalancedMarkup(withoutCdata.replace(/^<\?xml[^?]*\?>/, ''));
+}
+
+/** Tags balanced and properly nested, every & an entity, attributes quoted. */
+function assertBalancedMarkup(body: string): void {
   expect(/&(?!(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)/.test(body)).toBe(false);
   const stack: string[] = [];
   const tag = /<(\/?)([A-Za-z_][\w:.-]*)((?:\s+[\w:.-]+="[^"<]*")*)\s*(\/?)>|<([^>]*)>/g;
@@ -123,6 +137,23 @@ describe('podcast feed', () => {
       ],
     );
     if (status === 'ready') r2.store.set(key, MP3);
+  }
+
+  /** A READY dialogue lesson with the sample plan's real script + timeline (each clip ~2 s). */
+  function addDialogue(id: string, userId: string, finished = '2026-10-09T08:00:00.000Z') {
+    const script = compileDialogueLesson(SAMPLE_DIALOGUE_PLAN);
+    const frames = new Map<string, number>();
+    for (const s of script.segments) if (s.kind === 'speech') frames.set(speechKey(s), 84);
+    const timeline = buildTimeline(script, frames, 24, 1);
+    const key = `audio-lessons/${userId}/${id}-v${id}.mp3`;
+    db.raw.run(
+      `INSERT INTO audio_lessons (id, user_id, title, format, status, audio_key, size_bytes, duration_ms, words_json, script_json, timeline_json, rounds, created_at, finished_at)
+       VALUES (?, ?, ?, 'dialogue', 'ready', ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [id, userId, 'Noodles', key, MP3.length, timeline.duration_ms, JSON.stringify(script.words), JSON.stringify(script),
+        JSON.stringify({ chapters: timeline.chapters, transcript: timeline.transcript }), '2026-10-09T07:00:00.000Z', finished],
+    );
+    r2.store.set(key, MP3);
+    return { script, timeline };
   }
 
   beforeEach(async () => {
@@ -262,9 +293,99 @@ describe('podcast feed', () => {
     });
   });
 
-  it('never writes the token into a log line', async () => {
+  it('each episode carries its transcript: hanzi / pinyin / English in the notes, and timed transcripts', async () => {
+    const { timeline } = addDialogue('d1', 'u1');
     const { url } = await myFeed();
     const token = feedPath(url).split('/')[3];
+    const xml = await (await call(null, 'GET', feedPath(url))).text();
+    assertWellFormedXml(xml);
+    expect(xml).toContain('xmlns:content="http://purl.org/rss/1.0/modules/content/"');
+    expect(xml).toContain('xmlns:podcast="https://podcastindex.org/namespace/1.0"');
+    expect(xml).toContain('<language>zh-cn</language>');
+    const item = xml.slice(xml.indexOf('<item>'), xml.indexOf('</item>'));
+    expect(item).toContain('<title>Noodles</title>');
+    // HTML show notes: the whole conversation with speakers, pinyin and English, chapter headings with times.
+    const html = item.slice(item.indexOf('<content:encoded><![CDATA['), item.indexOf(']]></content:encoded>'));
+    expect(html).toContain('<h3>0:00 · Introduction</h3>');
+    expect(html).toContain('<p><strong>Cook:</strong> 你好，吃什么？<br/><em>nǐ hǎo, chī shénme?</em><br/>Hi, what are you having?</p>');
+    expect(html).toContain('<p><strong>Customer:</strong> 我要一碗牛肉面。<br/><em>wǒ yào yì wǎn niúròu miàn.</em><br/>I&#39;d like a bowl of beef noodles.</p>');
+    expect(html).toContain('(The same 6 lines as in “First listen”.)');
+    expect(html).toMatch(/<h3>\d+:\d\d · 粗 cū — thick<\/h3>/);
+    // A word repeat the lesson stored without pinyin gets the automatic one.
+    expect(html).toContain('<p>粗<br/><em>cū</em></p>');
+    // Plain notes: the chapters, then the transcript's first lines; cut to ≤ 4000 characters.
+    const desc = item.match(/<description>([\s\S]*?)<\/description>/)![1];
+    expect(desc).toContain('Transcript:');
+    expect(desc).toContain('Cook: 你好，吃什么？\nnǐ hǎo, chī shénme?\nHi, what are you having?');
+    expect(desc.replace(/&[a-z]+;/g, '_').length).toBeLessThanOrEqual(4000);
+    // Three timed transcripts, versioned like the MP3.
+    const base = `http://localhost/api/podcast/${token}/lessons/d1/vd1/transcript`;
+    expect(item).toContain(`<podcast:transcript url="${base}.vtt" type="text/vtt" language="zh-cn" rel="captions"/>`);
+    expect(item).toContain(`<podcast:transcript url="${base}.srt" type="application/x-subrip" language="zh-cn" rel="captions"/>`);
+    expect(item).toContain(`<podcast:transcript url="${base}.json" type="application/json" language="zh-cn"/>`);
+    // A lesson without a stored transcript gets no transcript tags (and still well-formed notes).
+    const old = xml.slice(xml.indexOf('<title>Second</title>'));
+    expect(old.slice(0, old.indexOf('</item>'))).not.toContain('podcast:transcript');
+
+    const vtt = await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.vtt`);
+    expect(vtt.status).toBe(200);
+    expect(vtt.headers.get('Content-Type')).toBe('text/vtt; charset=utf-8');
+    expect(vtt.headers.get('Cache-Control')).toBe('private, max-age=3600');
+    const vttText = await vtt.text();
+    expect(vttText.startsWith('WEBVTT\n\n1\n')).toBe(true);
+    const firstLine = timeline.transcript.find((l) => l.text === '你好，吃什么？')!;
+    expect(vttText).toContain(`${cueTimestamp(firstLine.start_ms)} --> `);
+    expect(vttText).toMatch(/\n\d\d:\d\d:\d\d\.\d{3} --> \d\d:\d\d:\d\d\.\d{3}\n<v Cook>你好，吃什么？\nnǐ hǎo, chī shénme\?\nHi, what are you having\?\n/);
+
+    const srt = await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.srt`);
+    expect(srt.headers.get('Content-Type')).toBe('application/x-subrip; charset=utf-8');
+    const srtText = await srt.text();
+    expect(srtText.startsWith('1\n00:00:00,')).toBe(true);
+    expect(srtText).toMatch(/\n\d\d:\d\d:\d\d,\d{3} --> \d\d:\d\d:\d\d,\d{3}\nCook: 你好，吃什么？\nnǐ hǎo, chī shénme\?\nHi, what are you having\?\n/);
+
+    const json = await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.json`);
+    expect(json.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+    const doc = (await json.json()) as { version: string; segments: Array<{ speaker?: string; startTime: number; endTime: number; body: string }> };
+    expect(doc.version).toBe('1.0.0');
+    const seg = doc.segments.find((s) => s.body.startsWith('你好，吃什么？'))!;
+    expect(seg).toMatchObject({ speaker: 'Cook', startTime: firstLine.start_ms / 1000, body: '你好，吃什么？\nnǐ hǎo, chī shénme?\nHi, what are you having?' });
+    expect(seg.endTime).toBeGreaterThan(seg.startTime);
+    for (let i = 1; i < doc.segments.length; i++) expect(doc.segments[i].startTime).toBeGreaterThanOrEqual(doc.segments[i - 1].endTime - 1e-9);
+    expect(doc.segments[doc.segments.length - 1].endTime).toBeCloseTo(timeline.duration_ms / 1000, 3);
+
+    // Same token rules as the other files: a wrong / old version, another user's lesson, a wrong token, other names.
+    expect((await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vOLD/transcript.vtt`)).status).toBe(404);
+    expect((await call(null, 'GET', `/api/podcast/${token}/lessons/a1/va1/transcript.vtt`)).status).toBe(404); // no transcript stored
+    expect((await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.txt`)).status).toBe(404);
+    expect((await call(null, 'GET', `/api/podcast/${newFeedToken()}/lessons/d1/vd1/transcript.vtt`)).status).toBe(404);
+    addDialogue('d2', 'u2');
+    expect((await call(null, 'GET', `/api/podcast/${token}/lessons/d2/vd2/transcript.json`)).status).toBe(404);
+    await call('u1', 'POST', '/api/me/podcast-feed/reset');
+    expect((await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.srt`)).status).toBe(404);
+  });
+
+  it('a long feed keeps its size: older episodes get the short notes once the budget is spent', () => {
+    const line = (i: number) => ({ start_ms: i * 10_000, lang: 'zh' as const, voice: 'teacher' as const, text: `第${i}句话很长很长很长。`, pinyin: 'dì jù huà', english: `Sentence ${i}.`, chapter: 0 });
+    const lesson = (id: string, published_at: string) => ({
+      id, format: 'story' as const, title: id, version: 'v1', size_bytes: 1, duration_ms: 3_000_000, words: [],
+      chapters: [{ title: '故事', start_ms: 0 }], transcript: Array.from({ length: 300 }, (_, i) => line(i)), speakers: [], published_at,
+    });
+    const lessons = Array.from({ length: 200 }, (_, i) => lesson(`l${i}`, new Date(Date.UTC(2026, 0, 1) + (200 - i) * 86_400_000).toISOString()));
+    const xml = buildFeedXml({ origin: 'https://x.dev', token: 'T'.repeat(43), ownerName: '', lessons });
+    assertWellFormedXml(xml);
+    expect(xml.length).toBeLessThan(5_500_000);
+    const items = xml.split('<item>').slice(1);
+    expect(items[0]).toContain('Sentence 299.');
+    expect(items[199]).not.toContain('Sentence 299.');
+    expect(items[199]).toContain('The full transcript (hanzi, pinyin, English) is in this episode’s transcript');
+    expect(items[199]).toContain('podcast:transcript');
+  });
+
+  it('never writes the token into a log line', async () => {
+    addDialogue('d1', 'u1');
+    const { url } = await myFeed();
+    const token = feedPath(url).split('/')[3];
+    await call(null, 'GET', `/api/podcast/${token}/lessons/d1/vd1/transcript.vtt`);
     await call(null, 'GET', feedPath(url));
     await call(null, 'GET', `/api/podcast/${token}/lessons/a1/va1/audio.mp3`, { Range: 'bytes=0-9' });
     await call(null, 'GET', `/api/podcast/${token}/lessons/zzz/v/audio.mp3`);

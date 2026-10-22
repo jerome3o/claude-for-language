@@ -108,7 +108,7 @@ fun MiniButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
             .heightIn(min = 40.dp)
             .widthIn(min = 40.dp)
             .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(10.dp))
+            .border(1.dp, Lab.colors.outline, RoundedCornerShape(10.dp))
             .bouncyClickable(enabled, 0.9f, onClick = onClick)
             .alpha(if (enabled) 1f else 0.35f)
             .padding(horizontal = 8.dp)
@@ -225,7 +225,7 @@ fun CorrectMark(on: Boolean, onClick: () -> Unit) {
     val bg by animateColorAsState(if (on) Palette.Good else Color.Transparent, label = "correct")
     Box(
         Modifier.size(40.dp).clip(RoundedCornerShape(20.dp)).background(bg)
-            .border(1.5.dp, if (on) Palette.Good else Lab.colors.cardBorder, RoundedCornerShape(20.dp))
+            .border(1.5.dp, if (on) Palette.Good else Lab.colors.outline, RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .semantics { contentDescription = if (on) "Correct answer" else "Mark as the correct answer" },
         contentAlignment = Alignment.Center,

@@ -77,7 +77,7 @@ fun NoteView(ex: NoteExercise, env: ExerciseEnv, onNext: () -> Unit) {
     ex.sentences.orEmpty().forEach { s ->
         Column(
             Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { env.speak(s.hanzi) }
-                .clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.outline, RoundedCornerShape(16.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Text("${s.hanzi} 🔊", fontSize = 21.sp, color = Lab.colors.ink)
@@ -109,7 +109,7 @@ fun ScrambleView(ex: ScrambleExercise, env: ExerciseEnv, onNext: (Boolean, Exerc
             color = Lab.colors.muted,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable { showEnglish = true; env.onTap() }
-                .clip(RoundedCornerShape(14.dp)).border(1.5.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp)).padding(14.dp),
+                .clip(RoundedCornerShape(14.dp)).border(1.5.dp, Lab.colors.outline, RoundedCornerShape(14.dp)).padding(14.dp),
         )
     }
     // The answer row.
@@ -155,7 +155,7 @@ private fun Tile(text: String, ghost: Boolean, enabled: Boolean, onClick: () -> 
         color = Lab.colors.ink.copy(alpha = alpha),
         modifier = Modifier.heightIn(min = 48.dp).bouncyClickable(enabled, 0.9f, onClick = onClick)
             .clip(RoundedCornerShape(12.dp)).background(Lab.colors.card.copy(alpha = if (ghost) 0.4f else 1f))
-            .border(1.5.dp, Lab.colors.cardBorder.copy(alpha = alpha), RoundedCornerShape(12.dp))
+            .border(1.5.dp, Lab.colors.outline.copy(alpha = alpha), RoundedCornerShape(12.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }
@@ -301,7 +301,7 @@ fun MatchView(ex: MatchExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAns
 @Composable
 private fun MatchItem(text: String, sub: String?, state: OptionState, big: Boolean, onClick: () -> Unit) {
     val border by animateColorAsState(
-        when (state) { OptionState.Correct -> Palette.Good; OptionState.Wrong -> Palette.Again; OptionState.Selected -> Lab.colors.accent; OptionState.Idle -> Lab.colors.cardBorder },
+        when (state) { OptionState.Correct -> Palette.Good; OptionState.Wrong -> Palette.Again; OptionState.Selected -> Lab.colors.accent; OptionState.Idle -> Lab.colors.outline },
         label = "match",
     )
     val scale by animateFloatAsState(if (state == OptionState.Selected) 1.03f else 1f, label = "matchScale")

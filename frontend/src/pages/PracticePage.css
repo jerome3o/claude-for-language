@@ -215,8 +215,8 @@
 }
 
 .practice-btn {
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid var(--btn-outline);
+  background: var(--btn-bg);
   border-radius: 8px;
   padding: 0.75rem 1rem;
   font-size: 1rem;
@@ -224,8 +224,14 @@
   cursor: pointer;
 }
 
-.practice-btn:disabled {
-  opacity: 0.5;
+/* Disabled (e.g. Check before an answer): grey fill + grey label + dashed outline, the same
+ * for the primary — clearly off, still visible (index.css "Buttons"). */
+.practice-btn:disabled,
+.practice-btn.primary:disabled {
+  background: var(--btn-disabled-bg);
+  border: 1px dashed var(--btn-outline);
+  color: var(--btn-disabled-text);
+  cursor: not-allowed;
 }
 
 .practice-btn.primary {
@@ -329,7 +335,7 @@
 }
 
 .tile {
-  border: 1px solid #ccc;
+  border: 1px solid var(--btn-outline);
   background: #fff;
   border-radius: 6px;
   padding: 0.5rem 0.75rem;

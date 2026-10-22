@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.analyze
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -112,7 +113,7 @@ fun AnalyzeScreen(ui: AnalyzeUi, actions: AnalyzeActions) {
             Card {
                 Text("Example Sentences", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
                 ANALYZE_EXAMPLES.forEach { ex ->
-                    Text(ex, fontSize = 17.sp, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).clickable { actions.onDraft(ex) }.padding(12.dp))
+                    Text(ex, fontSize = 17.sp, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(12.dp)).clickable { actions.onDraft(ex) }.padding(12.dp))
                 }
             }
         }

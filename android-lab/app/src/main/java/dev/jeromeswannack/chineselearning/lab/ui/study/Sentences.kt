@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -454,6 +455,7 @@ fun SentenceRowView(
                     Box(
                         Modifier.size(34.dp).clip(CircleShape)
                             .background(if (en) Lab.colors.accentSoft else Lab.colors.card)
+                            .buttonBorder(CircleShape, enabled = translation != null)
                             .clickable(enabled = translation != null) { state.english[row.key] = !en; state.steps[row.key] = 0; if (!en) state.showAll = false },
                         contentAlignment = Alignment.Center,
                     ) { Text("EN", style = MaterialTheme.typography.labelSmall, color = if (en) Lab.colors.accent else Lab.colors.muted) }
@@ -498,7 +500,7 @@ fun SentenceRowView(
                     }
                 }
                 Box(
-                    Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).clickable(enabled = !audioBusy) { onPlay(row.audioUrl, row.hanzi) }.testTag(SENTENCE_PLAY_TAG),
+                    Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).buttonBorder(CircleShape).clickable(enabled = !audioBusy) { onPlay(row.audioUrl, row.hanzi) }.testTag(SENTENCE_PLAY_TAG),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (audioBusy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp).testTag(SENTENCE_AUDIO_BUSY_TAG), color = Lab.colors.accent, strokeWidth = 2.dp)

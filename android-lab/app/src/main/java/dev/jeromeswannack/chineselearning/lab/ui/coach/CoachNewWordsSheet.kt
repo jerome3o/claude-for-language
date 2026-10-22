@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.coach
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -166,7 +167,7 @@ private fun DeckPicker(ui: NewWordsSheetUi, actions: NewWordsActions) {
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Lab.colors.ink,
-                modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
+                modifier = Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(10.dp))
                     .clickable(enabled = !ui.saving) { open = true }.padding(horizontal = 12.dp, vertical = 12.dp),
             )
             DropdownMenu(open, onDismissRequest = { open = false }) {

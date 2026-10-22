@@ -256,7 +256,7 @@ private fun HandwritingCompare(hw: HandwritingAnswer?, model: LessonSentence, en
         }
         Column(
             Modifier.weight(1f).bouncyClickable { env.speak(model.hanzi) }.clip(RoundedCornerShape(14.dp)).background(Lab.colors.card)
-                .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp)).padding(12.dp),
+                .border(1.dp, Lab.colors.outline, RoundedCornerShape(14.dp)).padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(model.hanzi, fontSize = 40.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
