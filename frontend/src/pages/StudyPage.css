@@ -434,6 +434,137 @@
   margin-bottom: 0.5rem;
 }
 
+/* ---------- Practise this word other ways (⋯) ---------- */
+.study-other-sheet {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  --sheet-pad: 1rem;
+  --sheet-pad-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+.study-other-title {
+  font-weight: 600;
+  margin: 0.25rem 0 0.25rem;
+}
+
+.study-other-hanzi {
+  font-size: 1.25rem;
+}
+
+.study-other-help {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  margin: 0 0 0.75rem;
+}
+
+.study-other-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.study-other-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 56px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.study-other-row.is-actionable {
+  cursor: pointer;
+}
+
+.study-other-row.is-on {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.study-other-row input[type='checkbox'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  accent-color: #f59e0b;
+}
+
+.study-other-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.study-other-label {
+  font-size: 1rem;
+  color: var(--color-text);
+}
+
+.study-other-status {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+
+.study-other-status.is-current {
+  font-weight: 600;
+}
+
+.study-other-action {
+  flex: none;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  text-align: right;
+  max-width: 9rem;
+}
+
+.study-other-action.is-on {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.study-other-done {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.study-other-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.study-other-footer .btn {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 640px) {
+  .study-other-footer .btn {
+    flex: 0 0 auto;
+  }
+}
+
+:root[data-theme='dark'] .study-other-done {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.18);
+}
+
+:root[data-theme='dark'] .study-other-action.is-on {
+  color: #fbbf24;
+}
+
 /* Peek: a revealed card turned back to its question (tap empty space), and back again.
    A quick quarter turn so it reads as the same card flipping, not a new screen. */
 .study-card-main--peek {

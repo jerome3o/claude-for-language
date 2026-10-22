@@ -21,6 +21,9 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.PlatformDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import java.time.ZoneId
 import java.util.UUID
 
@@ -36,6 +39,8 @@ import java.util.UUID
  *    a row whose Outbox item is still pending stays on top as made here.
  *  - The queue's bumps ([queueBumps]): active rows (not pending clear) with their cards' first /
  *    latest review from the local events (events are the truth).
+ *  - A CARD-LEVEL bump ([bumpCardTypes], `cardTypes`): the study card's "Practise this word other
+ *    ways…" — only those card types of the note go in the pocket (core Bumps / OtherCardTypes).
  */
 object BumpStore {
     const val OUTBOX_ADD = "study-bump"
@@ -50,6 +55,15 @@ object BumpStore {
 
     private fun nowIso(nowMs: Long) = Js.toIsoString(nowMs)
 
+    private val typesSerializer = ListSerializer(String.serializer())
+    private val json = Json { ignoreUnknownKeys = true }
+
+    /** The stored JSON → a card-type list (null = the whole note). */
+    fun parseCardTypes(raw: String?): List<String>? =
+        if (raw.isNullOrBlank()) null else runCatching { Bumps.normalizeBumpCardTypes(json.decodeFromString(typesSerializer, raw)) }.getOrNull()
+
+    private fun encodeCardTypes(types: List<String>?): String? = types?.let { json.encodeToString(typesSerializer, it) }
+
     /** Active rows (a pending clear is hidden at once). */
     suspend fun active(dao: LabDao): List<StudyBumpEntity> = dao.studyBumps().filter { it.pending != PENDING_CLEAR }
 
@@ -62,7 +76,7 @@ object BumpStore {
         val cardIds = rows.map { it.noteId }.chunked(500).flatMap { dao.cardsOfNotes(it) }.map { it.id }
         val spans = cardIds.chunked(500).flatMap { dao.reviewSpans(it) }
         return QueueBumps(
-            bumps = rows.map { QueueBump(it.noteId, Js.parseDate(it.createdAt)) },
+            bumps = rows.map { QueueBump(it.noteId, Js.parseDate(it.createdAt), parseCardTypes(it.cardTypes)) },
             lastReviewMs = spans.associate { it.cardId to Js.parseDate(it.lastAt) },
             firstReviewMs = spans.associate { it.cardId to Js.parseDate(it.firstAt) },
         )
@@ -127,7 +141,8 @@ object BumpStore {
         for (id in noteIds.distinct()) {
             val note = notes[id] ?: continue
             val row = existing[id]
-            if (row != null && row.pending != PENDING_CLEAR && id in open) { already += note.hanzi; continue }
+            // A card-level bump of the word becomes a whole-note bump (Bumps.mergeBumpCardTypes).
+            if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += note.hanzi; continue }
             val clientId = UUID.randomUUID().toString()
             items += BumpItemBody(clientId, id, nowIso(nowMs), src)
             rows += StudyBumpEntity(id, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD)
@@ -145,6 +160,55 @@ object BumpStore {
         val result = Result(added, already, noteIds.distinct().count { it !in notes })
         if (track) track(app, src, result)
         return result
+    }
+
+    /** What [bumpCardTypes] did: [added] false = already in today; [cardTypes] afterwards (null = the whole note). */
+    data class CardTypesResult(val added: Boolean, val cardTypes: List<String>?)
+
+    /**
+     * "Practise this word other ways…" (core OtherCardTypes): put these card types of one note in
+     * today's pocket — a card-level bump, written here at once and sent through the Outbox. An open
+     * card-level bump keeps its types still to review and gains these (re-dated now); a finished one
+     * starts afresh; a whole-note bump already covers them. Port of bumpCardTypes() (web).
+     */
+    suspend fun bumpCardTypes(app: LabApp, noteId: String, cardTypes: List<String>, source: String = "study_card", nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): CardTypesResult {
+        val want = Bumps.normalizeBumpCardTypes(cardTypes) ?: return CardTypesResult(false, null)
+        val src = Bumps.normalizeBumpSource(source)
+        val dao = app.repo.dao
+        val row = dao.studyBumps().firstOrNull { it.noteId == noteId }?.takeIf { it.pending != PENDING_CLEAR }
+        var hasExisting = false
+        var existing: List<String>? = null
+        var stillOpen: List<String> = emptyList()
+        if (row != null) {
+            val cards = dao.cardsOfNotes(listOf(noteId))
+            val spans = dao.reviewSpans(cards.map { it.id })
+            val open = Bumps.bumpedCardsForNote(
+                cards.map { it.toQueueCard() },
+                QueueBump(noteId, Js.parseDate(row.createdAt), parseCardTypes(row.cardTypes)),
+                spans.associate { it.cardId to Js.parseDate(it.lastAt) },
+                spans.associate { it.cardId to Js.parseDate(it.firstAt) },
+                StudyQueue.cutoff(nowMs, zone).ts,
+            )
+            // A bump whose cards were all reviewed is finished: start afresh.
+            if (open.isNotEmpty()) {
+                hasExisting = true
+                existing = parseCardTypes(row.cardTypes)
+                stillOpen = open.map { it.cardType }
+            }
+        }
+        val merge = Bumps.mergeBumpCardTypes(hasExisting, existing, stillOpen, want)
+        val added = merge.action != "already"
+        if (added) {
+            val clientId = UUID.randomUUID().toString()
+            withContext(Dispatchers.IO) {
+                app.outbox.enqueueJson(OUTBOX_ADD, "POST", "/api/me/bumps", BumpBody(listOf(BumpItemBody(clientId, noteId, nowIso(nowMs), src, merge.cardTypes))), id = clientId)
+                dao.upsertStudyBumps(listOf(StudyBumpEntity(noteId, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD, outboxId = clientId, cardTypes = encodeCardTypes(merge.cardTypes))))
+            }
+            app.repo.notifyLocalChange()
+            send(app)
+        }
+        app.analytics.track("study.bump_added", mapOf("source" to src, "count" to (if (added) 1 else 0), "already" to (if (added) 0 else 1)))
+        return CardTypesResult(added, merge.cardTypes)
     }
 
     /** "Remove from today": hidden here at once, `DELETE /api/me/bumps/:noteId` through the Outbox. */
@@ -182,7 +246,10 @@ object BumpStore {
             val keep = local.filter { it.pending != null && it.outboxId != null && it.outboxId in pendingOutbox }
             val kept = keep.mapTo(HashSet()) { it.noteId }
             val fromServer = server.distinctBy { it.note_id }.filter { it.note_id !in kept }.map {
-                StudyBumpEntity(it.note_id, it.id, it.created_at, Bumps.normalizeBumpSource(it.source), it.bumped_by_name?.takeIf { n -> n.isNotBlank() })
+                StudyBumpEntity(
+                    it.note_id, it.id, it.created_at, Bumps.normalizeBumpSource(it.source), it.bumped_by_name?.takeIf { n -> n.isNotBlank() },
+                    cardTypes = encodeCardTypes(Bumps.normalizeBumpCardTypes(it.card_types)),
+                )
             }
             val drop = local.map { it.noteId }.filter { it !in kept }
             drop.chunked(500).forEach { dao.deleteStudyBumps(it) }

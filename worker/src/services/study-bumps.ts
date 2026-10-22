@@ -7,9 +7,14 @@
  * The server keeps the rows and writes `done_at` lazily (listActiveBumps) with
  * the same rule over its cached card state and review events, so finished bumps
  * stop travelling to devices. Every client derives the pocket itself, offline.
+ *
+ * `card_types` (migration 0134): a card-level bump — only those card types of the note
+ * ("Practise this word other ways…" on the study card). NULL = the whole note.
  */
 import {
   bumpedCardsForNote,
+  mergeBumpCardTypes,
+  normalizeBumpCardTypes,
   normalizeBumpSource,
   type BumpSource,
   type QueueCardInput,
@@ -26,6 +31,8 @@ export interface StudyBump {
   bumped_by: string | null;
   /** Set when a tutor bumped it ("⚡ from Minghui"); null when the learner did. */
   bumped_by_name: string | null;
+  /** A card-level bump: only these card types of the note; null = the whole note. */
+  card_types: string[] | null;
   hanzi: string;
   pinyin: string;
   english: string;
@@ -40,6 +47,8 @@ export interface BumpInputItem {
   /** When it was bumped on the device (ISO); default now. */
   created_at?: string;
   source?: string;
+  /** Only these card types of the note (a card-level bump); absent / null = the whole note. */
+  card_types?: string[] | null;
 }
 
 export interface BumpResult {
@@ -61,6 +70,17 @@ interface BumpRow {
   created_at: string;
   done_at: string | null;
   cleared_at: string | null;
+  card_types: string | null;
+}
+
+/** The stored JSON → a card-type list (null = the whole note). */
+export function parseBumpCardTypes(raw: string | null | undefined): string[] | null {
+  if (!raw) return null;
+  try {
+    return normalizeBumpCardTypes(JSON.parse(raw));
+  } catch {
+    return null;
+  }
 }
 
 const isoNow = () => new Date().toISOString();
@@ -106,6 +126,10 @@ export async function findNotesByHanzi(db: D1Database, userId: string, hanzi: st
  * Put notes in the pocket. `items` carry client ids (offline); `noteIds` / `hanzi`
  * are the agents' form (hanzi looked up in the user's notes). Idempotent: an active
  * bump stays as it is; a done / cleared one is re-opened with a fresh created_at.
+ * Card-level items (`card_types`, mergeBumpCardTypes): an active whole-note bump already
+ * covers them; an active card-level bump takes the device's merged list and time (the
+ * device knows which of its types are still open); a whole-note request on a card-level
+ * bump turns it into a fresh whole-note bump.
  */
 export async function addBumps(
   db: D1Database,
@@ -158,8 +182,19 @@ export async function addBumps(
     const createdAt = validIso(it.created_at) ?? isoNow();
     const source = it.source !== undefined ? normalizeBumpSource(it.source) : fallbackSource;
     const hanzi = hanziOf.get(noteId) ?? '';
+    const wantTypes = normalizeBumpCardTypes(it.card_types);
     if (row && !row.done_at && !row.cleared_at) {
-      already.push({ note_id: noteId, hanzi });
+      const merge = mergeBumpCardTypes(parseBumpCardTypes(row.card_types), [], wantTypes);
+      if (merge.action !== 'replace') {
+        already.push({ note_id: noteId, hanzi });
+        continue;
+      }
+      stmts.push(
+        db
+          .prepare(`UPDATE study_bumps SET created_at = ?, card_types = ?, source = ?, bumped_by = ?, updated_at = datetime('now') WHERE id = ?`)
+          .bind(createdAt, merge.card_types ? JSON.stringify(merge.card_types) : null, source, input.bumpedBy ?? userId, row.id)
+      );
+      added.push({ note_id: noteId, hanzi });
       continue;
     }
     if (row && it.id && row.id === it.id) {
@@ -171,18 +206,18 @@ export async function addBumps(
       stmts.push(
         db
           .prepare(
-            `UPDATE study_bumps SET created_at = ?, source = ?, bumped_by = ?, done_at = NULL, cleared_at = NULL, updated_at = datetime('now') WHERE id = ?`
+            `UPDATE study_bumps SET created_at = ?, card_types = ?, source = ?, bumped_by = ?, done_at = NULL, cleared_at = NULL, updated_at = datetime('now') WHERE id = ?`
           )
-          .bind(createdAt, source, input.bumpedBy ?? userId, row.id)
+          .bind(createdAt, wantTypes ? JSON.stringify(wantTypes) : null, source, input.bumpedBy ?? userId, row.id)
       );
     } else {
       stmts.push(
         db
           .prepare(
-            `INSERT INTO study_bumps (id, user_id, note_id, source, bumped_by, created_at) VALUES (?, ?, ?, ?, ?, ?)
+            `INSERT INTO study_bumps (id, user_id, note_id, source, bumped_by, created_at, card_types) VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(user_id, note_id) DO NOTHING`
           )
-          .bind(it.id || crypto.randomUUID(), userId, noteId, source, input.bumpedBy ?? userId, createdAt)
+          .bind(it.id || crypto.randomUUID(), userId, noteId, source, input.bumpedBy ?? userId, createdAt, wantTypes ? JSON.stringify(wantTypes) : null)
       );
     }
     added.push({ note_id: noteId, hanzi });
@@ -232,7 +267,7 @@ const sqlMs = (s: string) => Date.parse(s.includes('T') ? s : s.replace(' ', 'T'
 export async function listActiveBumps(db: D1Database, userId: string, nowMs = Date.now()): Promise<StudyBump[]> {
   const res = await db
     .prepare(
-      `SELECT b.id, b.note_id, b.created_at, b.source, b.bumped_by, u.name AS bumper_name,
+      `SELECT b.id, b.note_id, b.created_at, b.source, b.bumped_by, b.card_types, u.name AS bumper_name,
               n.hanzi, n.pinyin, n.english, n.deck_id, d.name AS deck_name
        FROM study_bumps b
        JOIN notes n ON n.id = b.note_id
@@ -243,7 +278,7 @@ export async function listActiveBumps(db: D1Database, userId: string, nowMs = Da
     )
     .bind(userId)
     .all<{
-      id: string; note_id: string; created_at: string; source: string | null; bumped_by: string | null; bumper_name: string | null;
+      id: string; note_id: string; created_at: string; source: string | null; bumped_by: string | null; card_types: string | null; bumper_name: string | null;
       hanzi: string; pinyin: string; english: string; deck_id: string; deck_name: string;
     }>();
   const rows = res.results ?? [];
@@ -286,7 +321,8 @@ export async function listActiveBumps(db: D1Database, userId: string, nowMs = Da
   const out: StudyBump[] = [];
   for (const r of rows) {
     const noteCards = byNote.get(r.note_id) ?? [];
-    const picks = bumpedCardsForNote(noteCards, { note_id: r.note_id, created_ms: sqlMs(r.created_at) }, last, first, cutoff);
+    const cardTypes = parseBumpCardTypes(r.card_types);
+    const picks = bumpedCardsForNote(noteCards, { note_id: r.note_id, created_ms: sqlMs(r.created_at), card_types: cardTypes }, last, first, cutoff);
     if (noteCards.length > 0 && picks.length === 0) {
       done.push(r.id);
       continue;
@@ -298,6 +334,7 @@ export async function listActiveBumps(db: D1Database, userId: string, nowMs = Da
       source: normalizeBumpSource(r.source),
       bumped_by: r.bumped_by,
       bumped_by_name: r.bumped_by && r.bumped_by !== userId ? r.bumper_name : null,
+      card_types: cardTypes,
       hanzi: r.hanzi,
       pinyin: r.pinyin,
       english: r.english,

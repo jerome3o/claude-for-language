@@ -351,6 +351,42 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
+### Other card types — "Practise this word other ways…" (a card-level bump)
+
+Jerome: "I've got the hanzi → spoken card and think 'I'd love to remember this when I think of the
+English too' — let me send the other version of this card into the current session. And the
+listening version, if I struggle to hear it." On the answer side, **⋯ → 🔀 Practise this word other
+ways…** (the flashcard session only, when the note has another card) opens a small sheet
+(`components/study/OtherCardTypesSheet.tsx`, Lab `ui/study/OtherCardsSheet.kt`; rules
+`shared/decks/other-card-types.ts`, Lab `OtherCardTypes.kt`, parity-tested):
+
+- one row per card type of the note, card-type order — **Read → meaning** · **English → 汉字** ·
+  **Listen → 汉字** — with its state: *this card*, *new*, *⚡ in today’s study*, *due today*,
+  *in review, due in 12 days* / *learning, due tomorrow* (days = ceil((due − today's cutoff) / 24 h));
+- a NEW sibling offers **⚡ Add to today** (the first one is ticked when the sheet opens); a started
+  sibling not due yet offers **Review it early today** (one early review, like the bump's); a card
+  already due today, or already in today's pocket, offers nothing; a word with a whole-note bump has
+  nothing to add; multi-select, pinned **⚡ Add N to today** + Close; after adding: "⚡ English → 汉字
+  comes up in a few cards", then the sheet closes.
+
+Adding is a **card-level bump**: the same `study_bumps` row with `card_types` (migration 0134, JSON;
+NULL = the whole note as before; Lab Room v10 `cardTypes`). The pocket then holds exactly those card
+types of the note, each until it is reviewed since the bump, whatever its state (a NEW card over the
+budget, a due card first, a started card its early review); done when every chosen card has been
+reviewed since. A request meeting an active bump (`mergeBumpCardTypes`): a whole-note bump already
+covers it; on a card-level bump the device sends its merged list — the types still open plus the new
+ones, re-dated to now, so a finished type never comes back — and the server takes it as it is; a
+whole-note bump of a word with a card-level one makes it whole-note. Offline-first like every bump
+(IndexedDB / Room at once, a NEW client id each change, uploaded with `card_types`).
+
+The cards join **the current session at once** (`useStudySession.addBumpedCards`, Lab
+`StudyViewModel.addBumpedCards`) but never straight after their sibling: the recent-notes filter
+(the last 5 rated notes) holds them while anything else is available, and a bumped card never jumps
+the queue while its note is among the last 3 rated (`pickBumpedCard`, `BUMP_SIBLING_GAP`). From its
+first review the card follows FSRS like any other — no events are invented. Analytics
+`study.other_card_types_open { from_type }`, `study.other_card_types { types, from_type, count, early }`
+(types joined with `/`); the bump itself is `study.bump_added` with `source: 'study_card'`.
+
 ## "Up next" — words chosen to come next
 
 Jerome (Oct 2026): "Add a way for my tutor and me to manually add stuff to the learning queue … see

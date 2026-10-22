@@ -73,6 +73,7 @@ import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
 import { getRememberedTutors, humanTutors, rememberTutors, type RememberedTutor } from '../services/cardFlags';
 import { FlagCardSheet } from '../components/study/FlagCardSheet';
+import { OtherCardTypesSheet } from '../components/study/OtherCardTypesSheet';
 import { WritingSheet } from '../components/strokes/WritingSheet';
 import { writableCharacters } from '@shared/strokes';
 import { useAuth } from '../contexts/AuthContext';
@@ -139,6 +140,7 @@ function canWriteHanzi(hanzi: string): boolean {
 
 
 const EMPTY_TUTOR_NOTES: LocalRecordingNote[] = [];
+const EMPTY_IDS: ReadonlySet<string> = new Set();
 
 /** Analytics names for a rating / a card's queue (shared/analytics/events.ts). */
 const RATING_KEYS = ['again', 'hard', 'good', 'easy'] as const;
@@ -394,6 +396,8 @@ export function StudyCard({
   bumped,
   pass,
   inStudySession = false,
+  sessionBumpedCardIds,
+  onAddOtherCards,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -424,6 +428,13 @@ export function StudyCard({
    * Off everywhere else that shows the card (homework pass, tutor-notes practice).
    */
   inStudySession?: boolean;
+  /** This session's ⚡ pocket cards ("Practise this word other ways…" shows them as already in today). */
+  sessionBumpedCardIds?: ReadonlySet<string>;
+  /**
+   * ⋯ → "Practise this word other ways…" (shared/decks/other-card-types.ts): the cards a card-level
+   * bump just put in the pocket, for the session to take in at once. Unset = the item is not offered.
+   */
+  onAddOtherCards?: (cardIds: string[]) => void;
 }) {
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
@@ -502,6 +513,12 @@ export function StudyCard({
   // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
   // mirrored to localStorage so the item is still there offline.
   const [showFlagSheet, setShowFlagSheet] = useState(false);
+  const [showOtherCards, setShowOtherCards] = useState(false);
+  // How many cards the note has: "Practise this word other ways…" needs a sibling.
+  const noteCardCount = useLiveQuery(
+    () => (onAddOtherCards && !pass ? db.cards.where('note_id').equals(card.note.id).count() : 0),
+    [card.note.id, !!onAddOtherCards, !!pass]
+  ) ?? 0;
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
   // What the writing sheet practises: the card's hanzi (⋯ → Write it) or one character (character sheet).
@@ -2180,6 +2197,14 @@ export function StudyCard({
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
+      ...(onAddOtherCards && !pass && noteCardCount > 1
+        ? [{
+            key: 'other-cards', label: 'Practise this word other ways…', icon: '🔀', onSelect: () => {
+              track('study.other_card_types_open', { from_type: card.card_type });
+              setShowOtherCards(true);
+            },
+          }]
+        : []),
       ...(canWriteHanzi(card.note.hanzi)
         ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => { track('study.write_it'); setShowWriting(true); } }]
         : []),
@@ -3031,6 +3056,19 @@ export function StudyCard({
         />
       )}
 
+      {/* Practise this word other ways (⋯ menu): a card-level ⚡ bump into this session */}
+      {showOtherCards && onAddOtherCards && (
+        <OtherCardTypesSheet
+          noteId={card.note.id}
+          hanzi={card.note.hanzi}
+          currentCardId={card.id}
+          currentCardType={card.card_type}
+          inToday={sessionBumpedCardIds ?? EMPTY_IDS}
+          onAdded={onAddOtherCards}
+          onClose={() => setShowOtherCards(false)}
+        />
+      )}
+
       {/* Flag for tutor (⋯ menu) */}
       {showFlagSheet && (
         <FlagCardSheet
@@ -3178,6 +3216,7 @@ export function StudyPage() {
     completeGrammar,
     undoLastReview,
     reloadQueue,
+    addBumpedCards,
     removeNoteFromSession,
     updateCurrentNote,
   } = useStudySession({
@@ -3403,6 +3442,8 @@ export function StudyPage() {
           resume={resume}
           scope={studyScope(deckId)}
           inStudySession
+          sessionBumpedCardIds={bumpedCardIds}
+          onAddOtherCards={addBumpedCards}
         />
       ) : dailyReaderPending || grammarPending ? (
         // Cards are done but today's story/lesson is still being generated —

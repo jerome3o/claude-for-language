@@ -16,6 +16,8 @@ data class StudyBumpDto(
     val bumped_by: String? = null,
     /** Set only when a tutor bumped it ("⚡ from Minghui"). */
     val bumped_by_name: String? = null,
+    /** A card-level bump ("Practise this word other ways…"): only these card types; null = the whole note. */
+    val card_types: List<String>? = null,
     val hanzi: String? = null,
     val pinyin: String? = null,
     val english: String? = null,
@@ -26,7 +28,14 @@ data class StudyBumpDto(
 @Serializable data class StudyBumpsDto(val bumps: List<StudyBumpDto> = emptyList())
 
 /** One bump made on this phone: the client id makes the POST idempotent, so it can wait in the Outbox. */
-@Serializable data class BumpItemBody(val id: String, val note_id: String, val created_at: String, val source: String)
+@Serializable data class BumpItemBody(
+    val id: String,
+    val note_id: String,
+    val created_at: String,
+    val source: String,
+    /** Only these card types of the note (a card-level bump); null = the whole note. */
+    val card_types: List<String>? = null,
+)
 
 @Serializable data class BumpBody(val items: List<BumpItemBody>)
 

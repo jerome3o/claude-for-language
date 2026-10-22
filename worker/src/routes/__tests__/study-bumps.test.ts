@@ -128,6 +128,35 @@ describe('study bumps', () => {
     expect((await client(env, OTHER)('POST', '/relationships/rel-1/student-bumps', { hanzi: ['苹果'] })).status).toBe(403);
   });
 
+  it('a card-level bump ("Practise this word other ways…"): only those cards, done once they are reviewed', async () => {
+    const r = await me('POST', '/me/bumps', {
+      items: [{ id: 'c1', note_id: 'n-bank', created_at: '2026-10-04T08:00:00.000Z', source: 'study_card', card_types: ['meaning_to_hanzi', 'bogus'] }],
+    });
+    expect(r.json.added).toEqual([{ note_id: 'n-bank', hanzi: '银行' }]);
+    expect(r.json.bumps[0]).toMatchObject({ id: 'c1', card_types: ['meaning_to_hanzi'], source: 'study_card' });
+    // Reviewing the OTHER card leaves it open; the chosen one ends it.
+    review(db, 'e5', 'c-bank-h', '2026-10-04T09:00:00.000Z');
+    expect(await listActiveBumps(db, ME)).toHaveLength(1);
+    review(db, 'e6', 'c-bank-m', '2026-10-04T09:05:00.000Z');
+    expect(await listActiveBumps(db, ME)).toEqual([]);
+    // Re-opened as a card-level bump of another type only.
+    const re = await me('POST', '/me/bumps', { items: [{ id: 'c2', note_id: 'n-bank', card_types: ['hanzi_to_meaning'] }] });
+    expect(re.json.bumps[0].card_types).toEqual(['hanzi_to_meaning']);
+  });
+
+  it('card-level meets an active bump: the device’s merged list replaces it; a whole-note request widens it; a whole-note bump covers it', async () => {
+    await me('POST', '/me/bumps', { items: [{ id: 'k1', note_id: 'n-bank', created_at: '2026-10-04T08:00:00.000Z', card_types: ['meaning_to_hanzi'] }] });
+    const more = await me('POST', '/me/bumps', { items: [{ id: 'k2', note_id: 'n-bank', created_at: '2026-10-04T08:10:00.000Z', card_types: ['hanzi_to_meaning', 'meaning_to_hanzi'] }] });
+    expect(more.json.added).toHaveLength(1);
+    expect(more.json.bumps[0]).toMatchObject({ id: 'k1', created_at: '2026-10-04T08:10:00.000Z', card_types: ['hanzi_to_meaning', 'meaning_to_hanzi'] });
+    const whole = await me('POST', '/me/bumps', { note_ids: ['n-bank'] });
+    expect(whole.json.added).toHaveLength(1);
+    expect(whole.json.bumps[0].card_types).toBeNull();
+    const covered = await me('POST', '/me/bumps', { items: [{ id: 'k3', note_id: 'n-bank', card_types: ['meaning_to_hanzi'] }] });
+    expect(covered.json.already).toHaveLength(1);
+    expect(covered.json.bumps[0].card_types).toBeNull();
+  });
+
   it('the in-app agents’ bump_cards tool bumps existing words and says what it could not find', async () => {
     expect(BUMP_CARDS_TOOL.name).toBe('bump_cards');
     const r = await executeBumpCardsTool({ hanzi: ['银行', '火车'] }, { db, userId: ME }, 'coach_chat');
