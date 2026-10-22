@@ -31,6 +31,8 @@ data class CardView(
     val newChars: List<String> = emptyList(),
     /** The word's card types (this card's included) — Suspend… / Snooze…'s "All card types of this word". */
     val wordCardTypes: List<String> = emptyList(),
+    /** Sentence clips (the card sentence + the set) on the device: offline, only these play ("Listen in context"). */
+    val cachedClips: Set<String> = emptySet(),
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */

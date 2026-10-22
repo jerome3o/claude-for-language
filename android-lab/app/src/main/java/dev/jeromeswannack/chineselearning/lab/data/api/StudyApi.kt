@@ -225,6 +225,16 @@ suspend fun Api.noteSentences(noteId: String): List<SentenceDto> = get<Sentences
 suspend fun Api.generateSentenceSet(noteId: String, body: GenerateSentencesBody): List<SentenceDto> =
     post<GenerateSentencesBody, SentencesAnswer>("/api/notes/${enc(noteId)}/sentences/generate", body).sentences
 
+@Serializable
+data class SentenceTopUpBody(val note_ids: List<String>)
+
+@Serializable
+data class SentenceTopUpAnswer(val queued: Int = 0, val note_ids: List<String> = emptyList())
+
+/** "Listen in context": notes with fewer than five sentences get more ADDED in the background (POST /api/sentences/top-up). */
+suspend fun Api.topUpSentences(noteIds: List<String>): SentenceTopUpAnswer =
+    post<SentenceTopUpBody, SentenceTopUpAnswer>("/api/sentences/top-up", SentenceTopUpBody(noteIds))
+
 suspend fun Api.deleteSentenceSet(noteId: String) {
     val res = send("DELETE", "/api/notes/${enc(noteId)}/sentences")
     if (!res.ok) throw dev.jeromeswannack.chineselearning.lab.data.HttpException(res.code, res.body.take(200), res.body)
