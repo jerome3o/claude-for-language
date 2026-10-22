@@ -47,6 +47,8 @@ export interface AudioLessonRow {
   started_at: string | null;
   finished_at: string | null;
   updated_at: string | null;
+  /** Only from `listReadyAudioLessons`: the script's `speakers` (the podcast feed names a dialogue's lines). */
+  speakers_json?: string | null;
 }
 
 /** R2: `audio-lessons/<user>/<lesson>-<version>.mp3`, parts under `audio-lessons/<user>/<lesson>/parts/`. */
@@ -167,7 +169,8 @@ export async function listReadyAudioLessons(db: D1Database, userId: string, limi
     .prepare(
       `SELECT id, user_id, title, format, status, NULL AS input_json, NULL AS progress, NULL AS progress_done, NULL AS progress_total, NULL AS error,
          NULL AS agent_transcript, rounds, NULL AS plan_json, NULL AS script_json, timeline_json, words_json, audio_key, duration_ms, size_bytes,
-         NULL AS usage_json, zh_provider, for_relationship_id, created_at, started_at, finished_at, updated_at
+         NULL AS usage_json, zh_provider, for_relationship_id, created_at, started_at, finished_at, updated_at,
+         CASE WHEN format = 'dialogue' AND json_valid(script_json) THEN json_extract(script_json, '$.speakers') END AS speakers_json
        FROM audio_lessons WHERE user_id = ? AND format IS NOT NULL AND status = 'ready' AND audio_key IS NOT NULL
        ORDER BY COALESCE(finished_at, created_at) DESC LIMIT ?`,
     )
