@@ -5,8 +5,7 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
  * - an unread daily reader is offered again in the next session and no new story is
  *   generated while it waits;
  * - "▶ Play whole story" plays page after page, turning the pages, and listening to the
- *   end finishes the story (it is never offered again);
- * - new mini lessons are paced per local day: one a day by default.
+ *   end finishes the story (it is never offered again).
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
@@ -129,40 +128,4 @@ test('▶ Play whole story turns the pages, and listening to the end finishes th
   await page.goto(`/study?autostart=true&session_token=${user.token}`);
   await page.waitForTimeout(3000);
   await expect(page.getByTestId('reader-play-story')).toHaveCount(0);
-});
-
-const lessonSpec = (title: string) => ({
-  title,
-  icon: '🧳',
-  sections: [{
-    exercises: [{
-      type: 'note',
-      title: '去 + place',
-      body: '去 + a place = go there: 我去北京。',
-      sentences: [{ hanzi: '我去北京。', pinyin: 'Wǒ qù Běijīng.', english: 'I go to Beijing.' }],
-    }],
-  }],
-});
-
-test('one new mini lesson a day: the next one waits for tomorrow', async ({ page, request }) => {
-  test.setTimeout(120_000);
-  const user = await seedUser(request, 'lessons');
-  await api(request, '/api/custom-lessons', { method: 'POST', token: user.token, data: { spec: lessonSpec('China trip 1: the train') } });
-  await api(request, '/api/custom-lessons', { method: 'POST', token: user.token, data: { spec: lessonSpec('China trip 2: the hotel') } });
-
-  await page.goto(`/study?autostart=true&session_token=${user.token}`);
-  // Both were created in the same second: whichever is the oldest comes first — just one of them.
-  const title = page.getByText(/China trip [12]: the (train|hotel)/).first();
-  await expect(title).toBeVisible({ timeout: 30_000 });
-  const first = (await title.textContent())!.trim();
-  const second = first.includes('train') ? 'China trip 2: the hotel' : 'China trip 1: the train';
-  await page.getByRole('button', { name: /next|continue|got it/i }).first().click();
-  await expect(page.getByText('How well do you know this material now?')).toBeVisible();
-  await page.locator('.study-rating-sticky').getByRole('button', { name: /Good/ }).click();
-  await expect(page.getByText('How well do you know this material now?')).toBeHidden({ timeout: 15_000 });
-
-  // Neither now nor in a new session today: the second lesson waits.
-  await page.goto(`/study?autostart=true&session_token=${user.token}`);
-  await page.waitForTimeout(3000);
-  await expect(page.getByText(second)).toHaveCount(0);
 });

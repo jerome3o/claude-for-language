@@ -23,6 +23,6 @@ fun rememberLessonResume(context: Context, lessonId: String, spec: CustomLessonS
 fun lessonResumeHandle(store: LessonProgressStore, lessonId: String, spec: CustomLessonSpec): LessonResumeHandle =
     LessonResumeHandle(
         saved = store.restore(lessonId, LessonProgressStore.shape(spec)),
-        onProgress = { store.save(it) },
+        onProgress = { store.save(it.copy(lessonId = lessonId)) },
         onStartOver = { store.clear(lessonId, deleteRecordings = true) },
     )

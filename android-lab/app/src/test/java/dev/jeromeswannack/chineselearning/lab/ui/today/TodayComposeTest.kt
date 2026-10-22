@@ -70,7 +70,7 @@ class TodayComposeTest {
         }
         compose.onNodeWithTag(EXTRAS_BREAK_TAG).assertIsDisplayed()
         compose.onNodeWithText("Flashcards done ✓").assertIsDisplayed()
-        compose.onNodeWithText("today's story left", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Today's story left").assertIsDisplayed()
         compose.onNodeWithTag(EXTRAS_CONTINUE_TAG).performClick()
         compose.onNodeWithText("Later").performClick()
         assertEquals(1, continued)

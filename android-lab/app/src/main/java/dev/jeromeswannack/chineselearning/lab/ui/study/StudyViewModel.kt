@@ -168,7 +168,7 @@ class StudyViewModel(
     private fun nextItem(lastRatedCardId: String?) =
         extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, knownCharacterNoteIds)
 
-    /** "Flashcards done ✓ — 2 mini lessons and today's story left · Continue / Later" (celebrates the cards once a day). */
+    /** "Flashcards done ✓ — Today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
         val wasBreak = _ui.value.phase is StudyPhase.Extras
         val left = todayLeft()

@@ -61,10 +61,10 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   const item = await api<{ id: string }>(request, '/api/lesson-library', { method: 'POST', token: tutor.token, data: { spec } });
   await api(request, `/api/lesson-library/${item.id}/assign`, { method: 'POST', token: tutor.token, data: { relationship_ids: [relId] } });
 
-  // ---- Student: the lesson comes up in study (no cards → lessons first)
+  // ---- Student: the lesson is on the Mini Lessons page (lessons are no longer in the study session)
   await page.goto(`/lessons?session_token=${student.token}`);
   await expect(page.getByText('练习 Practice types').first()).toBeVisible({ timeout: 30000 });
-  await page.goto('/study?autostart=true');
+  await page.locator('[data-testid^="lesson-play-"]').first().click();
 
   // Typed writing: one wrong character is marked, not just "wrong"
   // Voice first: ✏️ Type opens the keyboard box.
@@ -84,8 +84,16 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   await expect(page.getByText('✓ Every character right')).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
+  // The retry round: the typed writing missed first time comes back until it is right.
+  await expect(page.getByTestId('lesson-retry-line')).toBeVisible();
+  await page.getByTestId('lesson-voice-type').click();
+  await page.getByTestId('lesson-voice-text').fill('图书馆');
+  await page.getByRole('button', { name: 'Check', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue' }).click();
+
   await expect(page.getByText('Lesson complete')).toBeVisible();
-  await page.getByRole('button', { name: /Good/ }).first().click();
+  await expect(page.getByTestId('lesson-end-line')).toContainText('Back in a week as a revision');
+  await page.getByTestId('lesson-done').click();
 
   // ---- The attempt reaches the server with what was typed
   await expect.poll(async () => {
@@ -99,9 +107,10 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   const detail = await api<{ attempt: { data: { exercises: Array<{ type: string; answer?: { text?: string } }> } } }>(
     request, `/api/relationships/${relId}/lesson-attempts/${list.attempts[0].id}`, { token: tutor.token },
   );
-  expect(detail.attempt.data.exercises.map(e => [e.type, e.answer?.text, (e.answer as { input?: string } | undefined)?.input])).toEqual([
-    ['write_typed', '图书官', 'typed'],
-    ['dictation', '我喜欢喝茶', 'typed'],
+  expect(detail.attempt.data.exercises.map(e => [e.type, e.answer?.text, (e.answer as { input?: string } | undefined)?.input, (e as { retry?: number }).retry ?? 0])).toEqual([
+    ['write_typed', '图书官', 'typed', 0],
+    ['dictation', '我喜欢喝茶', 'typed', 0],
+    ['write_typed', '图书馆', 'typed', 1],
   ]);
 
   // ---- Tutor: the review page shows the answer with the wrong character

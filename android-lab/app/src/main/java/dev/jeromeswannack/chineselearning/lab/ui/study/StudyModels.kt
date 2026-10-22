@@ -63,7 +63,7 @@ sealed interface StudyPhase {
     data class Reader(val reader: dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader) : StudyPhase
     /**
      * Lab "today split": the flashcards ran out and mini lessons / today's story are left —
-     * "Flashcards done ✓ · 2 mini lessons and today's story left · Continue / Later".
+     * "Flashcards done ✓ · Today's story left · Continue / Later".
      */
     data class Extras(val lessons: Int, val reader: Boolean, val titles: List<String>) : StudyPhase
     data object Done : StudyPhase
