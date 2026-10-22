@@ -1,7 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.today
 
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.RevisitState
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.ReaderSchedule
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.core.TodayPlan
@@ -13,10 +13,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
-/** Today's lessons and reader with what the screens need to show them (titles, pages). */
+/** Today's reader with what the screens need to show it (titles, pages); the locked lessons. */
 data class TodaySnapshot(
-    val lessons: TodayPlan.Lessons,
-    val lessonEntries: Map<String, LessonEntry>,
     val reader: TodayPlan.Reader,
     /** Today's story when there is one to read. */
     val readerEntry: ReaderEntry?,
@@ -24,25 +22,21 @@ data class TodaySnapshot(
     val readerDone: ReaderEntry?,
     /** A story is being written (the daily reader or a generate request). */
     val writing: Boolean,
-    /** Locked lessons (core LessonUnlocks): "Ready to unlock" on today's lesson list. */
+    /** Locked lessons (core LessonUnlocks): "Ready to unlock". */
     val locked: List<LessonEntry> = emptyList(),
 ) {
-    val toDo: List<LessonEntry> get() = lessons.toDo.mapNotNull { lessonEntries[it.id] }
-    val done: List<LessonEntry> get() = lessons.done.mapNotNull { lessonEntries[it] }
-
     companion object {
-        val EMPTY = TodaySnapshot(TodayPlan.Lessons(emptyList(), emptyList()), emptyMap(), TodayPlan.Reader.None, null, null, false)
+        val EMPTY = TodaySnapshot(TodayPlan.Reader.None, null, null, false)
     }
 }
 
 /**
- * The lessons + reader half of today (Lab-only "today split"): the ONE place that works out
- * today's lessons / reader for Home, today's lesson list, the reader route and the session
- * (ui/lessons/StudyExtras), and the one place their completions are recorded — so doing a
- * lesson or the story from Home counts exactly as in the session: the completion event
- * (with its attempt + recordings, through the Outbox), the rating that sets when it comes back
- * ("revisit later") or Done for good, the reader's finish (read once — never again), the day's
- * reader mark (`markDailyReader`) and the homework `done`.
+ * The reader half of today (Lab-only "today split"): the ONE place that works out today's reader
+ * for Home, the reader route and the session (ui/lessons/StudyExtras), and the one place mini
+ * lesson / story completions are recorded — the completion event (with its attempt, outcome and
+ * recordings, through the Outbox; the outcome decides done forever vs a revision in a week), the
+ * reader's finish (read once — never again), the day's reader mark (`markDailyReader`) and the
+ * homework `done`. Mini lessons are no longer part of today's study (Oct 2026).
  */
 class TodayData(private val app: LabApp) {
     private val runtime get() = LessonRuntime.of(app)
@@ -54,22 +48,12 @@ class TodayData(private val app: LabApp) {
     private suspend fun snapshotNow(nowMs: Long, zone: ZoneId): TodaySnapshot {
         val cutoff = StudyQueue.cutoff(nowMs, zone)
         val entries = runtime.store.entries()
-        val oneOff = runtime.store.homework.oneOffOnly()
-        val homeworkPass = runtime.store.homework.homeworkPass()
-        val perDay = runtime.store.revisit.settings().newLessonsPerDayInt
-        // A lesson opened today and left half-way stays today's (LessonProgressStore.startedToday).
-        val started = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).startedToday(nowMs)
-        // Locked lessons wait; an unlocked new one comes on top of the daily place (shared/lesson/unlock.ts).
-        val (locked, unlocked) = dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks.lockSets(entries.map { it.unlockItem })
-        val plan = TodayPlan.lessons(entries.map { it.item }, entries.flatMap { it.events }, oneOff, cutoff, nowMs, zone, perDay, homeworkPass, started, locked, unlocked)
         val readers = runtime.readers.entries()
         val readerOneOff = runtime.readers.oneOffOnly()
         val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone)
         val picked = runtime.readers.todaysReader(nowMs, cutoff, zone)
         val readerDone = readers.filter { it.id in readToday }.maxByOrNull { r -> r.events.maxOfOrNull { it.at } ?: "" }
         return TodaySnapshot(
-            lessons = plan,
-            lessonEntries = entries.associateBy { it.id },
             reader = TodayPlan.reader(picked?.item, readToday.isNotEmpty()),
             readerEntry = picked,
             readerDone = readerDone,
@@ -78,10 +62,10 @@ class TodayData(private val app: LabApp) {
         )
     }
 
-    /** `completeCustomLesson` (+ upload soon); `result.retire` = Done for good. Null when it couldn't be written. */
-    suspend fun completeLesson(lessonId: String, result: LessonResult, source: String = "session"): RevisitState? {
+    /** `completeCustomLesson` (+ upload soon): its outcome decides done forever vs a revision. Null when it couldn't be written. */
+    suspend fun completeLesson(lessonId: String, result: LessonResult, source: String = "lessons_page"): LessonRevision.State? {
         val state = runCatching {
-            runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings, retire = result.retire, source = source)
+            runtime.store.complete(lessonId, result.correct, result.total, result.attempt, result.recordings, result.outcome, source = source)
         }.getOrNull()
         runtime.uploadSoon()
         return state

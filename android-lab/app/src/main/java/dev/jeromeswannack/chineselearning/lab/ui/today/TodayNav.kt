@@ -63,27 +63,11 @@ import kotlinx.coroutines.withContext
 import java.time.ZoneId
 
 /**
- * Lab-only "today split" routes (no web twin — android-lab/PARITY.md):
- * `/today/lessons` (today's mini lessons), `/today/lessons/:id` (one of them, recorded like
- * the session), `/today/reader` (today's story, rated like the session).
+ * Lab-only "today split" route (no web twin — android-lab/PARITY.md): `/today/reader` (today's
+ * story, finished like the session). Mini lessons are no longer today's study (Oct 2026): Home's
+ * homework / to-do card and the Mini Lessons page open them (`/lessons/:id/play`).
  */
 fun NavGraphBuilder.todayGraph(nav: LabNav) {
-    composable(Routes.route("/today/lessons")) {
-        val vm: TodayViewModel = viewModel(factory = factory { TodayViewModel(nav.app) })
-        val today by vm.ui.collectAsStateWithLifecycle()
-        TodayLessonsScreen(
-            today, onBack = nav::back, onOpen = { nav.open(Routes.todayLesson(it)) }, onAllLessons = { nav.open(Routes.lessons()) },
-            onAgain = { nav.open(Routes.lessonPlay(it, "today")) },
-            onUnlock = vm::unlock,
-            onListen = { nav.open(Routes.audioLesson(it)) },
-        )
-    }
-    composable(Routes.route("/today/lessons/{id}")) { entry ->
-        val id = entry.arguments?.getString("id").orEmpty()
-        val vm: TodayLessonViewModel = viewModel(key = "today-lesson-$id", factory = factory { TodayLessonViewModel(nav.app, id) })
-        val state by vm.state.collectAsStateWithLifecycle()
-        TodayLessonRoute(nav, state, vm)
-    }
     composable(Routes.route("/today/reader")) {
         val vm: TodayReaderViewModel = viewModel(factory = factory { TodayReaderViewModel(nav.app) })
         val state by vm.state.collectAsStateWithLifecycle()
@@ -96,34 +80,32 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
     override fun <T : ViewModel> create(modelClass: Class<T>): T = make() as T
 }
 
-/** Home's "Today" numbers: the card counts (the Study button's), today's lessons and story. Off the main thread. */
+/** Home's "Today" numbers: the card counts (the Study button's) and today's story. Off the main thread. */
 object TodayHomeLoader {
     suspend fun load(app: LabApp, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): TodayHome = withContext(Dispatchers.IO) {
         val counts = TodayCounts.compute(app, nowMs, zone)
         val reviewed = app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone)))
         val snapshot = runCatching { TodayData(app).snapshot(nowMs, zone) }.getOrDefault(TodaySnapshot.EMPTY)
-        val progress = LessonProgressStore.get(app)
         // Locked lessons' podcasts: their titles, and whether they were heard to the end (here or anywhere).
         val audio = runCatching { dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonStore(app.cache, app.repo.api, app.filesDir).cachedList() }.getOrDefault(emptyList()).associateBy { it.id }
         val store = LessonRuntime.of(app).store
         val heardHere = snapshot.locked.mapNotNull { it.unlock?.audioLessonId }.associateWith { store.listenedHere(it) != null }
-        TodayHome.from(snapshot, counts.total, reviewed, { progress.has(it) }) { id -> audio[id]?.title to (heardHere[id] == true || audio[id]?.listened_at != null) }.also { last.value = it }
+        TodayHome.from(snapshot, counts.total, reviewed) { id -> audio[id]?.title to (heardHere[id] == true || audio[id]?.listened_at != null) }.also { last.value = it }
     }
 
     /**
-     * The last "Today" worked out (Home or today's list): today's lesson list shows it at once
-     * while it is worked out again (that takes seconds — it decodes every lesson and reader), so
-     * opening the list never shows an empty page. Same process only; null at start.
+     * The last "Today" worked out: shown at once while it is worked out again (that takes seconds —
+     * it decodes every lesson and reader). Same process only; null at start.
      */
     val last = MutableStateFlow<TodayHome?>(null)
 
     /**
-     * After a lesson / the story from Home: when that was the last of today's work (cards,
-     * lessons and story all done), the second, smaller celebration — once a day.
+     * After the story from Home: when that was the last of today's work (cards and story done),
+     * the second, smaller celebration — once a day.
      */
     suspend fun celebrateIfAllClear(app: LabApp): Boolean {
         val home = load(app)
-        if (!home.allClear || (home.lessonsDone.isEmpty() && home.reader.state != TodayReaderRow.State.READ)) return false
+        if (!home.allClear || home.reader.state != TodayReaderRow.State.READ) return false
         if (!StudyDayStore.get(app).claimAllClear()) return false
         app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f)
         app.haptics.celebrate()
@@ -131,7 +113,7 @@ object TodayHomeLoader {
     }
 }
 
-/** Today's lessons / story, kept fresh as lessons are completed and synced. */
+/** Today's story (and locked lessons), kept fresh as things are completed and synced. */
 class TodayViewModel(private val app: LabApp) : ViewModel() {
     private val _ui = MutableStateFlow<TodayHome?>(TodayHomeLoader.last.value)
     val ui: StateFlow<TodayHome?> = _ui.asStateFlow()
@@ -161,31 +143,9 @@ class TodayViewModel(private val app: LabApp) : ViewModel() {
 sealed interface TodayItemState {
     data object Loading : TodayItemState
     data object Missing : TodayItemState
-    data class Lesson(val entry: LessonEntry) : TodayItemState
     data class Reader(val entry: ReaderEntry) : TodayItemState
     /** Rated: going back to where it was opened from. */
     data object Finished : TodayItemState
-}
-
-class TodayLessonViewModel(private val app: LabApp, private val id: String) : ViewModel() {
-    private val _state = MutableStateFlow<TodayItemState>(TodayItemState.Loading)
-    val state: StateFlow<TodayItemState> = _state.asStateFlow()
-
-    init {
-        viewModelScope.launch { _state.value = LessonRuntime.of(app).store.entry(id)?.let { TodayItemState.Lesson(it) } ?: TodayItemState.Missing }
-    }
-
-    /** Rated: recorded exactly like the session (TodayData), then back. */
-    fun complete(result: LessonResult, then: () -> Unit) {
-        if (_state.value !is TodayItemState.Lesson) return
-        _state.value = TodayItemState.Finished
-        app.haptics.rated(result.rating)
-        viewModelScope.launch {
-            TodayData(app).completeLesson(id, result)
-            TodayHomeLoader.celebrateIfAllClear(app)
-            then()
-        }
-    }
 }
 
 class TodayReaderViewModel(private val app: LabApp) : ViewModel() {
@@ -209,31 +169,6 @@ class TodayReaderViewModel(private val app: LabApp) : ViewModel() {
             TodayHomeLoader.celebrateIfAllClear(app)
             then()
         }
-    }
-}
-
-@Composable
-private fun TodayLessonRoute(nav: LabNav, state: TodayItemState, vm: TodayLessonViewModel) {
-    val app = nav.app
-    val env = rememberExerciseEnv(app)
-    when (state) {
-        is TodayItemState.Lesson -> {
-            val e = state.entry
-            val previews = remember(e) { dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings) }
-            LessonPlayer(
-                title = e.lesson.title,
-                icon = e.lesson.icon,
-                spec = e.lesson.spec,
-                env = env,
-                context = PlayerContext.Today,
-                previews = previews,
-                onComplete = { vm.complete(it) { nav.back() } },
-                onEnd = nav::back,
-                resume = rememberLessonResume(LocalContext.current, e.id, e.lesson.spec),
-            )
-        }
-        TodayItemState.Missing -> MissingItem("Mini lesson", "This lesson isn't on this phone yet — it comes with the next sync.", nav)
-        else -> Box(Modifier.fillMaxSize().background(Lab.colors.background))
     }
 }
 

@@ -212,6 +212,8 @@ class PassActions(
     val onAllHomework: () -> Unit = {},
     /** Lesson: the rated run (completion + attempt + recordings, then the homework `done`). */
     val onLessonComplete: (LessonResult) -> Unit = {},
+    /** The lesson player's ✕ / Done: the pass's end when it was finished here, else close. */
+    val onLessonEnd: () -> Unit = {},
     /** Reader: rated on its last page. */
     val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
     /** Link homework: open the link outside the app. */
@@ -224,8 +226,8 @@ class PassActions(
     val onUndo: () -> Unit = {},
 )
 
-/** The lesson a pass plays (the web's `db.customLessons.get(target_id)` + its interval previews). */
-data class PassLesson(val id: String, val title: String, val icon: String?, val spec: CustomLessonSpec, val previews: List<IntervalPreview>)
+/** The lesson a pass plays (the web's `db.customLessons.get(target_id)`). */
+data class PassLesson(val id: String, val title: String, val icon: String?, val spec: CustomLessonSpec)
 
 /** The one-off pass (web: HomeworkPassPage) — full screen like a study session. */
 @Composable
@@ -378,9 +380,9 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
                 spec = lesson.spec,
                 env = lessonEnv,
                 context = PlayerContext.Homework,
-                previews = lesson.previews,
                 onComplete = actions.onLessonComplete,
-                onEnd = actions.onClose,
+                // Finished here: Done shows the pass's end; a close mid-run just leaves — the run waits.
+                onEnd = actions.onLessonEnd,
                 resume = if (lesson.id.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonResume(androidx.compose.ui.platform.LocalContext.current, lesson.id, lesson.spec) else null,
             )
         else -> MissingTarget(ui.title, actions.onClose)

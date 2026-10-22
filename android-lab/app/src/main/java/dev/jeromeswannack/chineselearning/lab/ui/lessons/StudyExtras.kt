@@ -7,9 +7,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
-import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
-import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.ScheduledItem
 import dev.jeromeswannack.chineselearning.lab.core.SessionItem
@@ -18,32 +15,25 @@ import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.api.sentenceFeedback
 import dev.jeromeswannack.chineselearning.lab.data.api.checkLessonAnswer
 import dev.jeromeswannack.chineselearning.lab.data.api.askAboutLessonAnswer
-import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-/** A mini lesson presented in the session. [key] changes when the same lesson comes back. */
-data class SessionLesson(val entry: LessonEntry, val previews: List<IntervalPreview>, val key: Int)
-
 /**
- * Package B's part of the study session (the web's useStudySession lesson / reader queues):
- * the due mini lessons and today's reader of an all-decks session, and recording a finished
- * lesson / story. StudyViewModel (package A) calls it instead of StudyQueue.selectNext — see
- * the "Package B" blocks there.
+ * Package B's part of the study session (the web's useStudySession reader queue): today's
+ * reader of an all-decks session, and recording a finished story. StudyViewModel (package A)
+ * calls it instead of StudyQueue.selectNext — see the "Package B" blocks there.
  *
- * Lab "today split" experiment (core TodayPlan, android-lab/PARITY.md): no lesson break every
- * [LessonSchedule.MIX_INTERVAL] reviews any more — the flashcards come first, then (after the
- * session's "Flashcards done" pause) the leftover lessons and the reader, in the same
- * [SessionMix] order. Today's lessons / reader are the ones Home shows (TodayData), re-read
- * with [reload] so what was done from Home isn't offered again.
+ * Mini lessons are NOT part of the session any more (Oct 2026, docs/STUDY_SESSION.md "Mini
+ * lessons"): they are done from Home's homework / to-do card and the Mini Lessons page. The
+ * flashcards come first, then (after the session's "Flashcards done" pause) the reader. Today's
+ * reader is the one Home shows (TodayData), re-read with [reload].
  */
 class StudyExtras(private val app: LabApp, private val deckId: String?) {
     private val runtime by lazy { LessonRuntime.of(app) }
     private val today by lazy { dev.jeromeswannack.chineselearning.lab.ui.today.TodayData(app) }
     private val zone = java.time.ZoneId.systemDefault()
-    private var lessons: List<LessonEntry> = emptyList()
     private var readers: List<dev.jeromeswannack.chineselearning.lab.data.readers.ReaderEntry> = emptyList()
     private var shown = 0
     private var lastRatedReaderId: String? = null
@@ -55,7 +45,7 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
      * (`ensureDailyReader`) and polled for every 20 s until it lands ([onReaderArrived]).
      */
     suspend fun load(cutoff: StudyCutoff, dueNoteIds: List<String> = emptyList(), scope: kotlinx.coroutines.CoroutineScope? = null, onReaderArrived: () -> Unit = {}) {
-        if (deckId != null) { lessons = emptyList(); readers = emptyList(); return }
+        if (deckId != null) { readers = emptyList(); return }
         reload()
         val now = System.currentTimeMillis()
         if (scope != null && readers.isEmpty() && app.online.value && dailyPoll?.isActive != true) {
@@ -80,15 +70,14 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         }
     }
 
-    /** Today's lessons and reader as they stand now (some may have been done from Home). */
+    /** Today's reader as it stands now (it may have been read from Home). */
     suspend fun reload() {
         if (deckId != null) return
         val snap = runCatching { today.snapshot(System.currentTimeMillis(), zone) }.getOrNull() ?: return
-        lessons = snap.toDo
         readers = listOfNotNull(snap.readerEntry)
     }
 
-    /** `selectNextItem` without the lesson break: a card, else a leftover lesson, else the reader. */
+    /** `selectNextItem`: a card, else the reader (no mini lessons). */
     fun next(
         queue: List<QueueCard>,
         reviewedNoteIds: Set<String>,
@@ -100,7 +89,7 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         bumpedCardIds: Set<String> = emptySet(),
         knownCharacterNoteIds: Set<String> = emptySet(),
     ): SessionItem? = SessionMix.next(
-        queue, lessons.map { it.item }, readers.map { it.item }, false,
+        queue, emptyList(), readers.map { it.item }, false,
         reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, knownCharacterNoteIds,
     )
 
@@ -120,30 +109,10 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         today.finishReader(readerId, timeSpentMs, how)
     }
 
-    /** The lesson for a [SessionItem.Lesson]. */
-    fun present(item: ScheduledItem): SessionLesson? {
-        val entry = lessons.firstOrNull { it.id == item.id } ?: return null
-        return SessionLesson(entry, ItemSchedule.previews(entry.state, entry.settings), ++shown)
-    }
-
-    val remainingLessons: Int get() = lessons.size
-
-    /** Whether [lessonId] is still one of today's lessons (not finished from Home / the list meanwhile). */
-    fun stillToDo(lessonId: String): Boolean = lessons.any { it.id == lessonId }
     val readerLeft: Boolean get() = readers.isNotEmpty()
 
-    /** Titles for the "Flashcards done" pause: lessons in order, then the story. */
-    fun titles(): List<String> =
-        lessons.map { "${it.lesson.icon ?: "📘"} ${it.lesson.title}" } + readers.map { "📖 ${it.reader.titleChinese.ifBlank { it.reader.titleEnglish }}" }
-
-    /**
-     * Records the rated completion (or Done for good, `result.retire`). The rating sets when it
-     * comes back — a day at the soonest — so it always leaves the session.
-     */
-    suspend fun complete(lesson: SessionLesson, result: LessonResult) {
-        lessons = lessons.filter { it.id != lesson.entry.id }
-        today.completeLesson(lesson.entry.id, result)
-    }
+    /** Titles for the "Flashcards done" pause: the story. */
+    fun titles(): List<String> = readers.map { "📖 ${it.reader.titleChinese.ifBlank { it.reader.titleEnglish }}" }
 
     fun stopAudio() {
         dailyPoll?.cancel()
@@ -192,28 +161,5 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
         onWrong = { app.sounds.play(Sounds.Sfx.WRONG, 0.6f); app.haptics.wrong() },
         onTap = { app.haptics.tick() },
         strokeLoader = remember(app) { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore.of(app)::get },
-    )
-}
-
-/** A mini lesson inside the study screen (under the session's own top bar). */
-@Composable
-fun SessionLessonView(
-    lesson: SessionLesson,
-    counts: dev.jeromeswannack.chineselearning.lab.core.QueueCounts,
-    env: ExerciseEnv,
-    onComplete: (LessonResult) -> Unit,
-) {
-    val l = lesson.entry.lesson
-    LessonPlayer(
-        title = l.title,
-        icon = l.icon,
-        spec = l.spec,
-        env = env,
-        context = PlayerContext.Session(counts),
-        previews = lesson.previews,
-        onComplete = onComplete,
-        onEnd = {},
-        showTopBar = false,
-        resume = rememberLessonResume(androidx.compose.ui.platform.LocalContext.current, l.id, l.spec),
     )
 }

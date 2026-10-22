@@ -435,18 +435,20 @@ const val CONTINUE_TAG = "lesson-continue"
 const val PRACTICE_ONLY_TAG = "lesson-practice-only"
 
 @Composable
-private fun DoneBody(icon: String?, title: String, correct: Int, total: Int, preview: Boolean) {
+private fun DoneBody(icon: String?, title: String, correct: Int, total: Int, preview: Boolean, revision: Boolean = false, endLine: String? = null) {
     var shown by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { shown = true }
     val scale by animateFloatAsState(if (shown) 1f else 0.3f, spring(dampingRatio = 0.45f, stiffness = 200f), label = "lessonTrophy")
     Column(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(icon ?: "🎓", fontSize = 76.sp, modifier = Modifier.scale(scale))
-        Text("Lesson complete", style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
+        Text(if (revision) "Revision complete" else "Lesson complete", style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink)
         Text(title, style = MaterialTheme.typography.titleMedium, color = Lab.colors.muted, textAlign = TextAlign.Center)
         if (total > 0) {
             val pct = Math.round(correct * 100.0 / total)
-            Text("$correct/$total correct ($pct%)", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = if (pct >= 80) Palette.Good else if (pct >= 50) Palette.Hard else Palette.Again)
+            Text("$correct/$total right first time ($pct%)", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = if (pct >= 80) Palette.Good else if (pct >= 50) Palette.Hard else Palette.Again)
         }
+        // All right first time → done for good; otherwise back in a week as a revision (core LessonRevision).
+        endLine?.let { Text(it, color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp).testTag(LESSON_END_TAG)) }
         if (preview) Text("Preview — nothing was recorded.", color = Lab.colors.muted)
     }
 }

@@ -42,6 +42,8 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
     composable(Routes.route("/lessons")) {
         val vm: MiniLessonsViewModel = viewModel(factory = MiniLessonsViewModel.Factory(nav.app))
         val ui by vm.ui.collectAsStateWithLifecycle()
+        // Back from a lesson: its run may have moved on or finished.
+        androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { vm.refreshRuns(); onPauseOrDispose { } }
         MiniLessonsScreen(
             ui,
             MiniLessonsActions(
@@ -50,9 +52,7 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
                 onAnswers = { nav.open(Routes.lessonAttempts() + "?lesson=" + Routes.seg(it)) },
                 onDelete = vm::delete,
                 onRetry = vm::refresh,
-                onDoneForGood = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RETIRE) },
-                onBringBack = { vm.revisit(it, dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.RESTORE) },
-                onPlay = { nav.open(Routes.lessonPlay(it, "lessons_page")) },
+                onPlay = { id, revision -> nav.open(Routes.lessonPlay(id, "lessons_page", revision)) },
                 onUnlock = vm::unlock,
                 onListen = { nav.open(Routes.audioLesson(it)) },
             ),
@@ -131,6 +131,7 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
             val cached = runtime.store.hasCache()
             if (!cached) _ui.update { it.copy(lessons = null) }
             runtime.store.observe().collect { list ->
+                refreshRuns()
                 if (list.isNotEmpty() || runtime.store.hasCache()) _ui.update { it.copy(lessons = list, updatedAt = app.cache.updatedAt(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonStore.LIST)) }
                 // The locked lessons' podcasts (title, heard to the end) from the audio lessons cache.
                 val ids = list.mapNotNull { e -> e.unlock?.takeIf { e.locked && it.isAudio }?.audioLessonId }
@@ -172,13 +173,10 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
         }
     }
 
-    /** ✓ Done for good / ↩ Bring back: written here at once, uploaded through the outbox. */
-    fun revisit(id: String, action: String) {
-        viewModelScope.launch {
-            runtime.store.markRevisit(id, action)
-            app.haptics.tick()
-            runtime.uploadSoon()
-        }
+    /** Runs in progress on this phone ("▶ Continue"); re-read whenever the list is shown again. */
+    fun refreshRuns() {
+        val runs = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).inProgress()
+        _ui.update { it.copy(inProgress = runs.mapValues { e -> e.value.mode }, cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault())) }
     }
 
     fun delete(id: String) {

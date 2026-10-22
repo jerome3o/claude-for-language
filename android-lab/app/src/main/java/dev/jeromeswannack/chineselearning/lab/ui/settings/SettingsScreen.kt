@@ -109,7 +109,7 @@ fun SettingsScreen(
     callAlerts: @Composable () -> Unit = {},
     /** Advanced → "Share usage data" (AnalyticsSettings.kt). */
     shareUsage: @Composable () -> Unit = {},
-    /** "Lessons & readers": when finished lessons / stories come back (RevisitSettings.kt). */
+    /** Study extras: Ask Claude language, spoken answers (the old "Lessons & readers" gaps are gone, Oct 2026). */
     revisitSettings: @Composable () -> Unit = {},
     /** "Order new cards by": which new words come first (NewCardOrderSettings.kt). */
     newCardOrder: @Composable () -> Unit = {},
