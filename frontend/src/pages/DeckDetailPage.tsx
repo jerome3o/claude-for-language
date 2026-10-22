@@ -1,3 +1,5 @@
+import { FORGET_HISTORY_LABEL } from '@shared/cards/leech';
+import '../components/cardControls/cardControls.css';
 import { BumpButton } from '../components/bumps/BumpButton';
 import { UpNextButton } from '../components/upNext/UpNextButton';
 import { noteHoldTag } from '@shared/decks';
@@ -228,6 +230,13 @@ function NoteHistoryModal({
                     </span>
                   </div>
                 </div>
+                {(cardHistory.forgets ?? []).map((f) => (
+                  // A forget is not a review: shown as a marker line, newest first above the reviews it reset.
+                  <div key={f.id} className="forget-history-row" data-testid="history-forget">
+                    {FORGET_HISTORY_LABEL} · <span className="text-light">{formatDate(f.forgotten_at)}</span>
+                    <span className="text-light" style={{ fontWeight: 400 }}> — reviews before this no longer count for its schedule</span>
+                  </div>
+                ))}
                 {cardHistory.reviews.length === 0 ? (
                   <p className="text-light" style={{ fontSize: '0.875rem', fontStyle: 'italic' }}>
                     Not yet reviewed

@@ -1309,11 +1309,15 @@ app.get('/api/notes/:id/history', async (c) => {
     return c.json({ error: 'Note not found' }, 404);
   }
   // "Forget this card": when each card was reset to New (shown in the history, never counted as a review).
+  // Per card type, newest first like the reviews; older clients ignore the field.
   const forgets = await c.env.DB.prepare(
-    `SELECT f.id, f.card_id, f.forgotten_at FROM card_forgets f JOIN cards c ON c.id = f.card_id
-     WHERE f.user_id = ? AND f.undone_at IS NULL AND c.note_id = ? ORDER BY f.forgotten_at ASC`
-  ).bind(userId, id).all<{ id: string; card_id: string; forgotten_at: string }>().then(r => r.results ?? []).catch(() => []);
-  return c.json({ ...history, forgets });
+    `SELECT f.id, f.forgotten_at, c.card_type FROM card_forgets f JOIN cards c ON c.id = f.card_id
+     WHERE f.user_id = ? AND f.undone_at IS NULL AND c.note_id = ? ORDER BY f.forgotten_at DESC`
+  ).bind(userId, id).all<{ id: string; forgotten_at: string; card_type: string }>().then(r => r.results ?? []).catch(() => []);
+  return c.json(history.map(h => ({
+    ...h,
+    forgets: forgets.filter(f => f.card_type === h.card_type).map(f => ({ id: f.id, forgotten_at: f.forgotten_at })),
+  })));
 });
 
 // POST /api/notes/:id/ask lives in routes/ask-claude.ts (Ask Claude, immersion: Chinese answers, word chips, the auto-check).
