@@ -58,7 +58,6 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                     onSignIn = nav.onSignIn,
                     onAllDecks = { nav.open(Routes.DECKS) },
                     onUpNext = { nav.open(Routes.UP_NEXT) },
-                    onTodayLessons = { nav.open(Routes.todayLessons()) },
                     onTodayReader = {
                         // Today's story to read → read it; otherwise the readers list.
                         if (ui.today?.readerLeft == true) nav.open(Routes.todayReader()) else nav.open(Routes.readers())

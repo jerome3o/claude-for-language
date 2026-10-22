@@ -154,7 +154,6 @@ export function CatalogueTrialPage() {
       <StudyCustomLesson
         lesson={{ title: sample.spec.title, icon: sample.spec.icon ?? null, spec: sample.spec }}
         preview
-        onComplete={() => {}}
         onEnd={() => navigate(`/library/catalogue#type-${sample.type}`)}
       />
     </div>

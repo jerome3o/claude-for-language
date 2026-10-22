@@ -13,4 +13,5 @@ export * from './link';
 export * from './send';
 export * from './summary';
 export * from './pass-card';
+export * from './size';
 export * from './retry-bar';

@@ -125,12 +125,11 @@ internal val Violet = androidx.compose.ui.graphics.Color(0xFF7C3AED)
 data class CoachLessonUi(
     val loading: Boolean = true,
     val content: CoachMistakeLesson.Content? = null,
-    val previews: List<IntervalPreview> = emptyList(),
     val savedHere: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
-    /** Saved with a rating at the end: the done screen ("comes back in 2 wk"). */
-    val finishedRating: Int? = null,
+    /** Saved with this run as its completion: the done screen, with the run's end line. */
+    val finishedLine: String? = null,
 ) {
     val saved: Boolean get() = savedHere || content?.lessonId != null
 }
@@ -142,15 +141,13 @@ class CoachLessonViewModel(private val app: LabApp, private val conversationId: 
 
     init {
         viewModelScope.launch {
-            val settings = app.safely("coach lesson settings") { LessonRuntime.of(app).store.revisit.settings() }
-            val previews = if (settings != null) ItemSchedule.previews(RevisitState.INITIAL, settings) else ItemSchedule.previews(RevisitState.INITIAL)
             // The conversation as this phone has it (offline too), else fetched.
             var thread = app.safely("coach lesson cache") { app.cache.get<CoachThreadDto>(key) }
             if (lessonOf(thread) == null && app.online.value) {
                 thread = app.safely("coach lesson load") { app.repo.api.coachConversation(conversationId).also { app.cache.put(key, "coach-thread", it) } } ?: thread
             }
             val content = lessonOf(thread)
-            _ui.value = CoachLessonUi(loading = false, content = content, previews = previews)
+            _ui.value = CoachLessonUi(loading = false, content = content)
             if (content != null) app.analytics.track("coach.mistake_lesson_play", mapOf("exercises" to CoachMistakeLesson.exerciseCount(content.spec), "saved" to (content.lessonId != null)))
         }
     }
@@ -158,7 +155,7 @@ class CoachLessonViewModel(private val app: LabApp, private val conversationId: 
     private fun lessonOf(t: CoachThreadDto?): CoachMistakeLesson.Content? =
         t?.messages?.firstOrNull { it.id == messageId && it.content_type == CoachMistakeLesson.CONTENT_TYPE && it.status == null }?.let { CoachMistakeLesson.parse(it.content) }
 
-    /** "＋ Save" (no completion) or the rating at the end ([result]: this run is its first completion). */
+    /** "＋ Save" (no completion) or "Save to my mini lessons" at the end ([result]: this run is its first completion). */
     fun save(result: LessonResult?) {
         if (_ui.value.busy) return
         if (!app.online.value) {
@@ -168,13 +165,13 @@ class CoachLessonViewModel(private val app: LabApp, private val conversationId: 
         _ui.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
-                val completion = result?.let { CompletionUpload(UUID.randomUUID().toString(), "", it.correct, it.total, Js.toIsoString(System.currentTimeMillis()), it.rating, it.attempt) }
+                val completion = result?.let { CompletionUpload(UUID.randomUUID().toString(), "", it.correct, it.total, Js.toIsoString(System.currentTimeMillis()), null, it.attempt, it.outcome) }
                 val res = app.repo.api.saveCoachMistakeLesson(conversationId, messageId, completion)
                 res.message?.let { m -> app.cache.get<CoachThreadDto>(key)?.let { t -> app.cache.put(key, "coach-thread", t.copy(messages = t.messages.map { if (it.id == m.id) m else it })) } }
-                app.analytics.track("coach.mistake_lesson_save", mapOf("done" to (result != null), "rating" to result?.let { listOf("again", "hard", "good", "easy").getOrNull(it.rating) }))
+                app.analytics.track("coach.mistake_lesson_save", mapOf("done" to (result != null), "missed" to result?.outcome?.missed?.size))
                 app.haptics.correct()
                 if (result != null) app.sounds.play(Sounds.Sfx.CORRECT, 0.6f)
-                _ui.update { it.copy(busy = false, savedHere = true, finishedRating = result?.rating) }
+                _ui.update { it.copy(busy = false, savedHere = true, finishedLine = result?.let { r -> dev.jeromeswannack.chineselearning.lab.core.LessonRevision.runEndLine(r.outcome, false) }) }
                 // Onto the phone now (with its completion), so it is scheduled — and works offline.
                 app.scope.launch { app.safely("coach lesson sync") { LessonRuntime.of(app).store.sync(online = true) } }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -205,7 +202,6 @@ fun NavGraphBuilder.coachLessonGraph(nav: LabNav) {
                 spec = content.spec,
                 env = env,
                 context = PlayerContext.Preview,
-                previews = null,
                 onComplete = {},
                 onEnd = nav::back,
                 previewSave = previewSave,
@@ -228,13 +224,13 @@ fun CoachLessonScreen(
         content == null -> LabScreen("Mini lesson", onBack = onBack) {
             item { InlineNotice("This lesson isn't on this phone — open it from the conversation when you're online.") }
         }
-        ui.finishedRating != null -> CoachLessonSaved(content, ui.previews.getOrNull(ui.finishedRating)?.intervalText.orEmpty(), onBack)
-        else -> player(content, PreviewSave(ui.previews, saved = ui.saved, busy = ui.busy, error = ui.error, onSaveNow = { onSave(null) }, onSaveRated = { onSave(it) }))
+        ui.finishedLine != null -> CoachLessonSaved(content, ui.finishedLine, onBack)
+        else -> player(content, PreviewSave(saved = ui.saved, busy = ui.busy, error = ui.error, onSaveNow = { onSave(null) }, onSaveDone = { onSave(it) }))
     }
 }
 
 @Composable
-private fun CoachLessonSaved(content: CoachMistakeLesson.Content, gap: String, onBack: () -> Unit) {
+private fun CoachLessonSaved(content: CoachMistakeLesson.Content, endLine: String, onBack: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding().testTag(CoachLessonTags.DONE)) {
         ConfettiRain(key = 1, colors = Palette.Confetti)
         Column(
@@ -244,7 +240,7 @@ private fun CoachLessonSaved(content: CoachMistakeLesson.Content, gap: String, o
         ) {
             Text(content.spec.icon ?: "🎯", fontSize = 64.sp)
             Text("Saved to your mini lessons", style = MaterialTheme.typography.headlineSmall, color = Lab.colors.ink, textAlign = TextAlign.Center)
-            Text("It comes back in $gap — your rating decides when.", color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(endLine, color = Lab.colors.muted, textAlign = TextAlign.Center)
             PrimaryPill("Back to the coach", Modifier.fillMaxWidth().height(54.dp), onClick = onBack)
         }
     }

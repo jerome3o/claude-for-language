@@ -3,8 +3,9 @@ import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test
 /**
  * "🎯 Mini lesson on this mistake" (Sentence Coach; shared/coach/mistakeLesson.ts). E2E_TEST_MODE's
  * fake check corrects 我昨天去了商店买东西了 and the fake writer returns a short lesson:
- * - check → the chip → the lesson card → ▶ Do it plays it in the player (nothing recorded) → a
- *   rating at the end saves it WITH that run as its completion → it is in Mini Lessons, scheduled;
+ * - check → the chip → the lesson card → ▶ Do it plays it in the player (nothing recorded) →
+ *   "Save to my mini lessons" at the end keeps it WITH that run as its completion (anything missed
+ *   comes back as a revision in a week) → it is in Mini Lessons;
  * - "Save to my mini lessons" without doing it → a NEW lesson in Mini Lessons, no completion;
  * - a sentence that was already right gets no chip.
  */
@@ -41,7 +42,7 @@ async function shoot(page: Page, name: string) {
   await page.screenshot({ path: `../docs/pr-screenshots/coach-mistake-lesson/${name}.png` });
 }
 
-type LessonList = { lessons: Array<{ id: string; title: string; source: string; completions: Array<{ rating: number | null }> }> };
+type LessonList = { lessons: Array<{ id: string; title: string; source: string; completions: Array<{ rating: number | null; outcome?: { keys: string[]; missed: string[] } | null }> }> };
 
 async function check(page: Page, sentence: string) {
   await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
@@ -50,7 +51,7 @@ async function check(page: Page, sentence: string) {
   await expect(page).toHaveURL(/\/coach\?c=/);
 }
 
-test('check → 🎯 chip → play the lesson → a rating saves it with its completion', async ({ browser, request }) => {
+test('check → 🎯 chip → play the lesson → Save keeps it with this run as its completion', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const user = await seedUser(request, 'rated');
   const page = await openAs(browser, user, '/coach');
@@ -85,18 +86,19 @@ test('check → 🎯 chip → play the lesson → a rating saves it with its com
   await page.getByTestId('lesson-show-answer').click();
   await page.getByRole('button', { name: '✓ Got it' }).click();
 
-  // The end: save it with a rating.
+  // The end: save it (no rating — this run is its first completion).
   const save = page.getByTestId('lesson-preview-save');
   await expect(save).toContainText('Save it to your mini lessons?');
   await shoot(page, 'web-04-save-step');
-  await save.getByRole('button', { name: /Good/ }).click();
+  await page.getByTestId('lesson-preview-save-done').click();
   await expect(page.getByTestId('coach-lesson-saved')).toContainText('Saved to your mini lessons');
   await shoot(page, 'web-05-saved');
 
   const list = await api<LessonList>(request, '/api/custom-lessons?status=all', user.token);
   const lesson = list.lessons.find((l) => l.title === '(E2E) One 了 is enough');
   expect(lesson).toMatchObject({ source: 'coach' });
-  expect(lesson!.completions.map((c) => c.rating)).toEqual([2]);
+  expect(lesson!.completions.map((c) => c.rating ?? null)).toEqual([null]);
+  expect(lesson!.completions.map((c) => (c as { outcome?: { missed: string[] } }).outcome?.missed)).toEqual([[]]);
 
   // Back in the conversation the card says so; Mini Lessons has it.
   await page.getByTestId('coach-lesson-back').click();

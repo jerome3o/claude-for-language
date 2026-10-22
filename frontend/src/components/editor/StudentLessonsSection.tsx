@@ -13,7 +13,6 @@ import { Loading } from '../Loading';
 import { OverflowMenu } from '../tutor/OverflowMenu';
 import { removalMenuLabel } from '@shared/homework';
 
-const RATING_LABELS: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
 
 function when(iso: string | null): string {
   if (!iso) return '';
@@ -65,7 +64,7 @@ export function StudentLessonsSection({
                 <span className="shared-deck-meta">
                   {l.assigned_by_me ? 'Assigned by you' : l.assigned_by ? 'Assigned by another tutor' : `From ${l.source}`}
                   {' • '}{l.exercise_count} exercises
-                  {' • '}{l.completions === 0 ? 'not studied yet' : `studied ${l.completions}× · last ${l.last_rating !== null ? RATING_LABELS[l.last_rating] : ''} ${when(l.last_completed_at)}`}
+                  {' • '}{l.completions === 0 ? 'not studied yet' : `studied ${l.completions}×${l.last_score && l.last_score.total > 0 ? ` · last ${l.last_score.correct}/${l.last_score.total} right first time` : ''} ${when(l.last_completed_at)}`}
                   {nextRevisitLabel(l) && ` • ${nextRevisitLabel(l)}`}
                 </span>
               </div>

@@ -99,7 +99,6 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         }
         val reviewedToday = dao.reviewsSince(Js.toIsoString(dayStart))
         val due = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
-        val progress = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app)
         val ordered = dev.jeromeswannack.chineselearning.lab.core.Budget.sortForQueue(summaries, { s -> decks.first { it.id == s.id }.studyPriority }, { s -> decks.first { it.id == s.id }.createdAt })
         return HomeUi(
             loaded = true,
@@ -107,7 +106,7 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
             due = due,
             decks = ordered,
             reviewedToday = reviewedToday,
-            today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday, inProgress = { progress.has(it) })
+            today = dev.jeromeswannack.chineselearning.lab.ui.today.TodayHome.from(snapshot, due.total, reviewedToday)
                 .also { dev.jeromeswannack.chineselearning.lab.ui.today.TodayHomeLoader.last.value = it },
             bumped = all.bumpedNoteIds.size,
             upNextCount = upNext?.size ?: 0,

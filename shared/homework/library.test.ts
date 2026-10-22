@@ -8,6 +8,7 @@ import {
   libraryStatus,
   mostRecentHomework,
   statusTone,
+  revisionProgressLabel,
   type LibraryInput,
 } from './library';
 import { cleanLinkNote, linkSiteName, linkThumbnail, normalizeLinkUrl, pickLinkHomework, youtubeVideoId } from './link';
@@ -162,6 +163,25 @@ describe('buildHomeworkLibrary — lessons, readers, links', () => {
     );
     expect(items[0]).toMatchObject({ kind: 'lesson', source_id: 'lib1', status: 'completed', percent: 100, progress: 'done 2×' });
     expect(items[1]).toMatchObject({ kind: 'lesson', status: 'overdue', percent: 0, due_assignment_id: 'aL2' });
+  });
+
+  it('with the revision state: Completed only when all right first time; a revision is In progress, never overdue', () => {
+    const base = { library_item_id: 'lib1', created_at: '2026-10-01T00:00:00Z', completions: 1, last_completed_at: '2026-10-02T10:00:00Z' };
+    const items = buildHomeworkLibrary(
+      input({
+        lessons: [
+          { ...base, lesson_id: 'L1', title: 'Revising', revision: { status: 'revision', revision: 2, due_date: '2026-10-29', to_get_right: 3, percent: 70 } },
+          { ...base, lesson_id: 'L2', title: 'Perfect', revision: { status: 'done', revision: 0, due_date: null, to_get_right: 0, percent: 100 } },
+          { ...base, lesson_id: 'L3', title: 'Due', revision: { status: 'revision', revision: 1, due_date: TODAY, to_get_right: 1, percent: 90 } },
+        ],
+        assignments: [assignment({ id: 'aL1', kind: 'lesson', target_id: 'L1', item_count: 1, due_date: '2026-10-02', status: 'done' })],
+      })
+    );
+    const byId = Object.fromEntries(items.map((i) => [i.target_id, i]));
+    expect(byId.L1).toMatchObject({ status: 'in_progress', percent: 70, progress: 'Revision 2 due 29 Oct · 3 to get right', due_assignment_id: null, completed_at: null });
+    expect(byId.L2).toMatchObject({ status: 'completed', percent: 100, progress: 'all right first time' });
+    expect(byId.L3.progress).toBe('Revision 1 due today · 1 to get right');
+    expect(revisionProgressLabel({ status: 'revision', revision: 1, due_date: '2026-10-07', to_get_right: 2, percent: 0 }, '2026-10-06')).toBe('Revision 1 due tomorrow · 2 to get right');
   });
 
   it('a reader is complete once read', () => {

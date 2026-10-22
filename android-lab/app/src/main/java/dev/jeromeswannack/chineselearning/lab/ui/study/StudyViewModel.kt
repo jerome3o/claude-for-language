@@ -145,7 +145,7 @@ class StudyViewModel(
      */
     private var extrasMode = false
 
-    private fun todayLeft() = TodayLeft(extras.remainingLessons, extras.readerLeft)
+    private fun todayLeft() = TodayLeft(0, extras.readerLeft)
 
     /** Shows what [StudyExtras.next] picked: a card, a lesson, or nothing. */
     private suspend fun presentNext(item: dev.jeromeswannack.chineselearning.lab.core.SessionItem?) {
@@ -156,10 +156,6 @@ class StudyViewModel(
             return showExtrasBreak()
         }
         when (item) {
-            is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Lesson -> {
-                val lesson = extras.present(item.lesson) ?: return present(null)
-                _ui.update { it.copy(phase = StudyPhase.Lesson(lesson), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
-            }
             is dev.jeromeswannack.chineselearning.lab.core.SessionItem.Reader -> {
                 val reader = extras.presentReader(item.reader) ?: return present(null)
                 _ui.update { it.copy(phase = StudyPhase.Reader(reader), counts = StudyQueue.counts(queue, reviewedNoteIds)) }
@@ -172,7 +168,7 @@ class StudyViewModel(
     private fun nextItem(lastRatedCardId: String?) =
         extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, knownCharacterNoteIds)
 
-    /** "Flashcards done ✓ — 2 mini lessons and today's story left · Continue / Later" (celebrates the cards once a day). */
+    /** "Flashcards done ✓ — Today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
         val wasBreak = _ui.value.phase is StudyPhase.Extras
         val left = todayLeft()
@@ -190,29 +186,6 @@ class StudyViewModel(
         viewModelScope.launch { presentNext(nextItem(null)) }
     }
 
-    /** A finished mini lesson was rated: record it, count it in the session, move on. */
-    fun completeLesson(result: dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) {
-        val lesson = (_ui.value.phase as? StudyPhase.Lesson)?.lesson ?: return
-        if (busy) return
-        busy = true
-        val before = _ui.value.stats
-        val correct = result.rating >= 2
-        _ui.update {
-            it.copy(lastRating = result.rating, stats = before.copy(
-                reviews = before.reviews + 1, correct = before.correct + if (correct) 1 else 0,
-                againCount = before.againCount + if (result.rating == 0) 1 else 0,
-            ))
-        }
-        app.haptics.rated(result.rating)
-        viewModelScope.launch {
-            extras.complete(lesson, result)
-            _ui.update { it.copy(todayLeft = todayLeft()) }
-            var next = nextItem(null)
-            if (next == null) next = findDelayedLearningCard()?.also { queue.add(it) }?.let { dev.jeromeswannack.chineselearning.lab.core.SessionItem.Card(it) }
-            presentNext(next)
-            busy = false
-        }
-    }
     /** Today's reader was finished (Finish, or listened to the end): record it, count it, move on. Read once — never again. */
     fun finishReader(timeSpentMs: Long, how: String = "finish") {
         val reader = (_ui.value.phase as? StudyPhase.Reader)?.reader ?: return
@@ -545,15 +518,9 @@ class StudyViewModel(
         knownCharacterNoteIds = built.knownCharacterNoteIds
         // Lessons / the story may have been done from Home meanwhile (Lab today split).
         val phase = _ui.value.phase
-        if (phase is StudyPhase.Showing || phase is StudyPhase.Lesson) extras.reload()
+        if (phase is StudyPhase.Showing) extras.reload()
         _ui.update { it.copy(hasMoreNew = built.hasMoreNew, counts = StudyQueue.counts(queue, reviewedNoteIds), todayLeft = todayLeft()) }
-        if (phase is StudyPhase.Lesson && !extras.stillToDo(phase.lesson.entry.id)) {
-            // The lesson on screen was finished elsewhere (Home, today's list, ▶ Do it again): move on,
-            // so Study and Today never disagree about what's left (one rule: pickTodaysLessons).
-            presentNext(nextItem(null))
-            return
-        }
-        if (showing == null) return // a lesson / reader stays as it is
+        if (showing == null) return // a reader stays as it is
         if (queue.none { it.id == showing.card.id }) {
             dayStore.clearResumePoint(showing.card.id)
             presentNext(nextItem(null))
@@ -1839,18 +1806,17 @@ class StudyViewModel(
                 app.sounds.play(Sounds.Sfx.FANFARE, 0.8f)
                 app.haptics.celebrate()
             }
-            // Lab today split: the lessons / story done today, and — the session over with
-            // everything done — the second, smaller celebration (once a day; never on top of the first).
+            // Lab today split: the story read today, and — the session over with everything done —
+            // the second, smaller celebration (once a day; never on top of the first).
             val snap = if (deckId == null) runCatching { todayData.snapshot() }.getOrNull() else null
-            val lessonsDone = snap?.lessons?.done?.size ?: 0
             val readerDone = snap?.reader == dev.jeromeswannack.chineselearning.lab.core.TodayPlan.Reader.Done
-            val finished = _ui.value.phase is StudyPhase.Done && snap != null && snap.lessons.toDo.isEmpty() && snap.readerEntry == null
-            val allClear = finished && (lessonsDone > 0 || readerDone) && dayStore.claimAllClear() && !celebrate
+            val finished = _ui.value.phase is StudyPhase.Done && snap != null && snap.readerEntry == null
+            val allClear = finished && readerDone && dayStore.claimAllClear() && !celebrate
             if (allClear) {
                 app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f)
                 app.haptics.correct()
             }
-            _ui.update { it.copy(today = TodaySummary(dayStore.activeToday(), summary.reviews, summary.correct, celebrate, lessonsDone, readerDone, allClear)) }
+            _ui.update { it.copy(today = TodaySummary(dayStore.activeToday(), summary.reviews, summary.correct, celebrate, readerDone, allClear)) }
             if (app.online.value) {
                 dayStore.report(repo.api, force = true)
                 _ui.update { u -> u.copy(today = u.today?.copy(activeMs = dayStore.activeToday())) }

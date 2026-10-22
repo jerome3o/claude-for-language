@@ -37,16 +37,18 @@ assignments                        assignment_events (append-only, idempotent by
     at the end of the pass until they are right. Done when every item has a `right` event. The pass writes
     **homework events only, never review events** — in `both` mode it is NOT the first FSRS review; the words
     are introduced later by the daily budget like any other deck (decision 1 in §7).
-  - lesson / reader: complete it once (a `done` event). The existing player records its usual completion
-    event too, so for a single lesson / reader in `both` mode the pass is also its first FSRS review (one item,
-    no pile-up — decision 1 is about words).
+  - lesson / reader: complete it once (a `done` event). The player records its usual completion event too.
+    A lesson's completion carries its outcome: everything right first time → done forever; otherwise it
+    comes back a week later as a REVISION (what was missed + a few that were got), weekly until a run is all
+    right first time (docs/STUDY_SESSION.md "Mini lessons"). The assignment's own `done` is unaffected.
 - **How the modes are made real** (no new columns on decks / lessons / readers):
   - deck `one_off`: the student gets a normal copy (notes, audio, sentence sets sync as usual) with its
     per-deck caps set to **0 new + 0 secondary**, so the FSRS budget never introduces it. The deck page
     says so and offers *Add to my daily review* (caps back to the defaults). `fsrs` / `both`: a normal copy
     at the top (`core`) or bottom (`non_urgent`) of their queue — exactly the old share.
-  - lesson / reader `one_off`: a normal copy; the client leaves any target of a `one_off` assignment out of
-    the study-session lesson mix and the daily-reader pick.
+  - lesson / reader `one_off`: a normal copy; the client leaves a `one_off` reader out of the daily-reader
+    pick. (Mini lessons are no longer in the study session at all since Oct 2026: they are done from Home's
+    card and the Mini Lessons page.)
 - **Split over N days** (`split_days`): one deck copy, N assignments, each covering a consecutive slice of
   the words (`item_ids`), due on consecutive days from the first due date (`splitIntoDays`).
 - **Due labels** (`dueLabel`): `overdue` · `due today` · `due in 1 day` · `due in N days`. Overdue items stay
@@ -81,12 +83,16 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   `homeworkAssignments` (+ server events from other devices). Everything below works offline.
 - **Home**: ONE compact card (web `components/home/HomeworkHomeCard.tsx`, Lab `ui/homework/HomeHomework.kt`;
   rows from the shared `homeHomework`, `shared/homework/home.ts`, parity-tested) headed "From <tutor>" — one slim
-  row per active item: title, "5 / 12" words (thin bar) and a due label (overdue · due today · **due tomorrow** ·
-  due in N days). One-off / both items come first, overdue first; then a lesson the tutor sent outside an
-  assignment ("next session"). A long-term (fsrs-only) deck is NOT a row — it is a deck in the queue (Home's
-  "Next up", the Decks tab; §11). A tap opens the pass `/homework/:id` for one-off / both items (for a lesson /
-  reader that IS its player), `/lessons` for a legacy lesson. At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one
-  small line. Nothing active → the card is not shown.
+  row per active item: title, "5 / 12" words (thin bar), **its size** ("18 exercises · ~12 min", "12 words",
+  "6 pages"; `shared/homework/size.ts`) and a due label (overdue · due today · **due tomorrow** · due in N days).
+  One-off / both items come first, overdue first; then mini lesson **revisions due** ("🔁 <title> · Revision 1 ·
+  5 questions · ~4 min · due today" → `/lessons/:id/play?mode=revision`), then **new mini lessons** not in an
+  assignment row (sent for long-term review, his own / agent-made ones, unlocked companions; "🎓 … new" →
+  `/lessons/:id/play`). Heading "From <tutor>" when every row is hers, "To do" when none is a tutor's, else
+  "Homework". A long-term (fsrs-only) deck is NOT a row — it is a deck in the queue (Home's "Next up", the Decks
+  tab; §11). A tap opens the pass `/homework/:id` for one-off / both items (for a lesson / reader that IS its
+  player). At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one small line. Nothing active
+  → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: each word is the **study card**
   (web `StudyCard` with its `pass` prop in `pages/StudyPage.tsx`, Lab `StudyRoute(pass = PassCardUi)` →
   `StudyViewModel` pass mode, `CardStage`): its read card (hanzi → meaning, `PASS_CARD_TYPE` / `passCardId` in
@@ -200,7 +206,7 @@ words, so a *Not yet* moved nothing.
 - **Undo** (§3b) is free: the counts come from the live events, so an undone *Not yet* takes its slot and its orange
   back, and an undone *Got it* gives the word back to the track (or the orange).
 - **Rules**: `shared/homework/retry-bar.ts` — `retryBar(counts)` (pure counts, reusable by any pass with retries:
-  mini-lesson homework next), `passRetryBar(itemIds, events)` (a pass's events, the same reading as `passProgress`:
+  mini lessons' retry round too — `runRetryBar`, shared/study/lessonRun.ts), `passRetryBar(itemIds, events)` (a pass's events, the same reading as `passProgress`:
   repeated rights count once, other items ignored), `retryBarLabel` ("5 of 12 words done · 3 to retry", any unit),
   `retryBarBadge` ("↺ 3"), `retryBarNote`. Lab core `RetryBar.kt` (`RetryBars`), parity-tested by
   `android-lab/parity/fixtures/retry-bar.ts` → `RetryBarParityTest`.
@@ -356,7 +362,7 @@ kind, progress % and status — **Completed** (green) · **In progress** (blue; 
 |---|---|---|
 | deck with a pass (one_off / both) | pass words right / words in the pass (all day-parts) | every part done |
 | deck, long-term only (fsrs / shared before assignments) | — status **In long-term review** (grey, no %); progress "8 / 20 words met" | never: it is a deck in the queue (§11) |
-| lesson | 0 / 100 | completed once (or its assignment done) |
+| lesson | right first time on the last run (100 when done) | **Completed** = all right first time (done forever); finished with mistakes = **In progress**, "Revision 2 due 29 Oct · 3 to get right" (never Overdue — the homework itself was done; `revisionProgressLabel`, from the student's runs server-side); before any run: not started. Older rows without revision state: completed once (or its assignment done) |
 | reader | 0 / 100 | read once (or its assignment done) |
 | link | 0 / 100 | the student marked it done |
 

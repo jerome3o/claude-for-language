@@ -1,27 +1,22 @@
 /**
  * Custom mini lesson study service.
  *
- * Custom lessons are agent-authored (MCP tools, the in-app chats), cached
- * whole in IndexedDB for fully offline study, and come back on the "revisit
- * later" schedule (shared/study/revisit.ts) — a lesson is a
- * big chunk, not a flashcard, so Good means "in two weeks", not "in 10 min":
- * - Completion events are the source of truth (append-only, deduped by id),
- *   each carrying the learner's Again/Hard/Good/Easy rating; "Done for good"
- *   is a revisit event (services/revisit.ts).
- * - The lesson row caches the schedule computed from those events.
- * - Events upload via POST /api/custom-lessons/offline-complete (idempotent
- *   by id); other devices' events come down inside GET /api/custom-lessons
- *   (a lesson has only a handful, so they ride along with the content).
+ * Custom lessons are agent-authored (MCP tools, the in-app chats, the tutor's homework), cached
+ * whole in IndexedDB for fully offline study, and revise until right first time
+ * (shared/study/lessonRevision.ts): everything right first time → done forever; otherwise the
+ * lesson comes back a week later as a revision (what was missed + a few that were got). They are
+ * done from Home's homework / to-do card and the Mini Lessons page — no longer mixed into the
+ * study session (Oct 2026).
+ * - Completion events are the source of truth (append-only, deduped by id), each carrying the
+ *   run's OUTCOME (scored exercises + those missed first time) and its attempt.
+ * - The lesson row caches the state computed from them (services/lessonLearn.ts).
+ * - Events upload via POST /api/custom-lessons/offline-complete (idempotent by id); other
+ *   devices' events come down inside GET /api/custom-lessons with their outcomes.
  */
 
-import { CustomLessonSpec, LessonAttemptData, lessonAudioClips, lessonsToPrefetch, lessonLockStatus, lockSets, type LessonUnlock } from '@shared/lesson';
+import { CustomLessonSpec, LessonAttemptData, lessonAudioClips, lessonsToPrefetch, lessonLockStatus, type LessonUnlock } from '@shared/lesson';
+import { runOutcome, type LessonLearnState, type LessonRunOutcome } from '@shared/study/lessonRevision';
 import { applyLocalUnlocks, uploadLessonUnlocks, uploadListened } from './lessonUnlock';
-import {
-  pickTodaysLessons,
-  newLessonsIntroducedToday,
-  type RevisitState,
-} from '@shared/study/revisit';
-import { lessonsStartedToday } from './lessonsStarted';
 import { audioForConversation } from './conversationAudio';
 import {
   db,
@@ -29,25 +24,16 @@ import {
   LocalCustomLesson,
   LocalCustomLessonCompletionEvent,
 } from '../db/database';
-import { Rating, IntervalPreview } from '../types';
 import { API_BASE, getAuthHeaders } from '../api/client';
-import { homeworkPassTargetIds, oneOffOnlyTargetIds, recordTargetDone } from './homework';
+import { recordTargetDone } from './homework';
 import { getLessonClip, isLessonClipCached } from './ttsCache';
 import { createClipPrefetcher } from './lessonAudio';
 import { describeImageKeys } from '@shared/lesson/images';
 import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
 import { getAudioWithCache, isAudioCached } from './audioCache';
-import {
-  computeItemRevisitState,
-  markRevisit,
-  recomputeAllRevisitStates,
-  refreshRevisitRow,
-  revisitButtonPreviews,
-  readRevisitSettings,
-  revisitRowFields,
-  rowRevisitState,
-} from './revisit';
+import { homeLessonOf, learnOf, recomputeAllLessonLearn, refreshLessonLearn } from './lessonLearn';
+import { clearLessonRun } from './lessonRuns';
 
 interface ServerCompletion {
   id: string;
@@ -56,6 +42,7 @@ interface ServerCompletion {
   total: number;
   completed_at: string;
   rating: number | null;
+  outcome?: LessonRunOutcome | null;
 }
 
 interface CustomLessonListResponse {
@@ -75,35 +62,25 @@ interface CustomLessonListResponse {
   }>;
 }
 
-/** Scheduling fields of LocalCustomLesson derived from a revisit state. */
-export const lessonSchedulingFields = revisitRowFields;
-
-/** A lesson's schedule from its full history (completions + Done for good / Bring back). */
-export function computeLessonState(lessonId: string): Promise<RevisitState> {
-  return computeItemRevisitState('lesson', lessonId);
-}
-
-/**
- * Record a completed run of a lesson: append the rated completion event and
- * update the cached scheduling state. Mirrors the card/reader flow (event
- * first, state derived from events).
- */
 /** A recording made in one exercise of an attempt, keyed like the attempt data. */
 export interface LessonRecording {
   media_key: string;
   blob: Blob;
 }
 
+/**
+ * Record a finished run of a lesson: the completion event (with its outcome and attempt), the
+ * recordings queued for upload, the saved run cleared, the cached state recomputed, and the
+ * homework done. Mirrors the card flow (event first, state derived from events).
+ */
 export async function completeCustomLesson(
   lessonId: string,
   correct: number,
   total: number,
-  rating: Rating,
   attempt?: LessonAttemptData,
   recordings: LessonRecording[] = [],
-  /** "Done for good": finished, and never scheduled again. */
-  opts: { retire?: boolean; source?: string } = {},
-): Promise<{ event: LocalCustomLessonCompletionEvent; newState: RevisitState }> {
+  opts: { source?: string; outcome?: LessonRunOutcome | null } = {},
+): Promise<{ event: LocalCustomLessonCompletionEvent; newState: LessonLearnState }> {
   const now = new Date().toISOString();
 
   const event: LocalCustomLessonCompletionEvent = {
@@ -112,7 +89,8 @@ export async function completeCustomLesson(
     correct,
     total,
     completed_at: now,
-    rating,
+    rating: null,
+    outcome: opts.outcome ?? runOutcome(attempt),
     attempt,
     _synced: 0,
   };
@@ -131,93 +109,25 @@ export async function completeCustomLesson(
       _synced: 0,
     });
   }
-  if (opts.retire) await markRevisit('lesson', lessonId, 'retire', opts.source);
-  const newState = await refreshRevisitRow('lesson', lessonId);
+  await clearLessonRun(lessonId);
+  const newState = await refreshLessonLearn(lessonId);
   // Finishing a lesson anywhere completes its homework (docs/HOMEWORK.md).
   await recordTargetDone('lesson', lessonId);
 
   return { event, newState };
 }
 
-/** "Back in 2 wk"-style labels for the lesson rating buttons (shared/study/revisit.ts). */
-export function getCustomLessonIntervalPreviews(lesson: LocalCustomLesson): Record<Rating, IntervalPreview> {
-  return revisitButtonPreviews(lesson);
-}
-
-/** Whether a stored UTC ISO timestamp falls on today's LOCAL date. */
-function isTodayLocal(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
-}
-
-/** How many lessons were REVISITED today (finished today after an earlier finish). */
-export async function lessonRevisitsToday(): Promise<number> {
-  const events = await db.customLessonCompletionEvents.toArray();
-  const first = new Map<string, string>();
-  for (const e of events) {
-    const f = first.get(e.lesson_id);
-    if (!f || e.completed_at < f) first.set(e.lesson_id, e.completed_at);
-  }
-  const revisited = new Set<string>();
-  for (const e of events) {
-    if (isTodayLocal(e.completed_at) && e.completed_at > (first.get(e.lesson_id) ?? '')) revisited.add(e.lesson_id);
-  }
-  return revisited.size;
-}
-
-/** Local midnight today (ms) — the start of "today" for the new-lesson count. */
-function localDayStartMs(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-/** How many NEW lessons were introduced today (first-ever finish today), one-off homework left out. */
-export async function newLessonsToday(exclude?: ReadonlySet<string>): Promise<number> {
-  const events = await db.customLessonCompletionEvents.toArray();
-  return newLessonsIntroducedToday(events, localDayStartMs(), exclude ?? await oneOffOnlyTargetIds());
-}
-
 /**
- * Today's mini lessons, mixed into the session's card flow (the ONE rule,
- * `pickTodaysLessons` in shared/study/revisit.ts):
- * - revisits due by the study cutoff (end of today), most overdue first, at
- *   most MAX_LESSON_REVISITS_PER_DAY a day; they never count against the
- *   new-lesson budget;
- * - NEW lessons, oldest first, paced per local DAY: at most "New lessons a
- *   day" (Settings → Lessons & readers, default 1) minus the lessons already
- *   introduced today (from completion events). A homework lesson the tutor
- *   sent (both) comes on top: it doesn't take that place, and finishing it
- *   doesn't use it up. A lesson opened today and left half-way keeps its place.
- * Done-for-good lessons and one-off-only homework are never offered, nor are LOCKED lessons
- * (shared/lesson/unlock.ts); an unlocked one still new comes on top of the daily place.
+ * The lessons Home's card offers (shared/homework/home.ts): due revisions and new lessons that
+ * aren't locked — in the order Home shows them (revisions most overdue first, then new oldest first).
  */
-export async function getDueCustomLessons(): Promise<LocalCustomLesson[]> {
-  const cutoff = getStudyCutoff();
-  const [allLessons, events, oneOffOnly, homeworkPass, revisitedToday] = await Promise.all([
-    db.customLessons.toArray(),
-    db.customLessonCompletionEvents.toArray(),
-    oneOffOnlyTargetIds(),
-    homeworkPassTargetIds(),
-    lessonRevisitsToday(),
-  ]);
-  // Locked lessons wait; unlocked ones come today on top of the daily place (shared/lesson/unlock.ts).
-  const { locked, unlocked } = lockSets(allLessons);
-  const picked = pickTodaysLessons({
-    lessons: allLessons.map(l => ({ id: l.id, created_at: l.created_at, state: rowRevisitState(l), row: l })),
-    locked,
-    unlocked,
-    events,
-    dayStartMs: localDayStartMs(),
-    cutoffMs: cutoff.ts,
-    oneOffOnly,
-    homeworkPass,
-    startedToday: lessonsStartedToday(),
-    revisitedToday,
-    perDay: readRevisitSettings().new_lessons_per_day,
-  });
-  return picked.map(p => p.row);
+export async function lessonsToDo(): Promise<LocalCustomLesson[]> {
+  const cutoff = getStudyCutoff().ts;
+  const all = await db.customLessons.toArray();
+  const info = all.map(l => ({ row: l, home: homeLessonOf(l, cutoff) })).filter(x => !x.home.locked);
+  const revisions = info.filter(x => x.home.revision_due).sort((a, b) => (a.home.due_ms ?? 0) - (b.home.due_ms ?? 0));
+  const fresh = info.filter(x => x.home.status === 'new').sort((a, b) => a.row.created_at.localeCompare(b.row.created_at));
+  return [...revisions, ...fresh].map(x => x.row);
 }
 
 /**
@@ -254,26 +164,23 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
             correct: completion.correct,
             total: completion.total,
             completed_at: completion.completed_at,
-            rating: (completion.rating ?? null) as Rating | null,
+            rating: (completion.rating ?? null) as LocalCustomLessonCompletionEvent['rating'],
+            outcome: completion.outcome ?? null,
             _synced: 1,
           });
+        } else if (!exists.outcome && completion.outcome) {
+          await db.customLessonCompletionEvents.update(completion.id, { outcome: completion.outcome });
         }
       }
     }
 
-    // Rebuild the lesson cache, recomputing scheduling from the full event set
+    // Rebuild the lesson cache, recomputing the state from the full event set
     const serverIds = new Set(data.lessons.map(l => l.id));
-    // A lesson already on the device keeps its schedule until recomputeAllRevisitStates() below
-    // (outside this transaction) puts the merged one in. Writing every row as "new" here left a
-    // window in which a reader saw finished lessons as new — "▶ Do it again" opened in that window
-    // decided it was due and offered no "Practice only" (lesson-replay.spec, flaky in CI).
-    const NEW_STATE = revisitRowFields({ status: 'new', due_ms: null, gap_days: 0, last_ms: null, finishes: 0 });
+    // A lesson already on the device keeps its state until recomputeAllLessonLearn() below
+    // (outside this transaction) puts the merged one in — never a window in which a finished
+    // lesson reads as new.
     const previous = new Map((await db.customLessons.toArray()).map(r => [r.id, r]));
-    const schedulingOf = (id: string) => {
-      const prev = previous.get(id);
-      if (!prev) return NEW_STATE;
-      return Object.fromEntries(Object.keys(NEW_STATE).map(k => [k, (prev as unknown as Record<string, unknown>)[k]])) as typeof NEW_STATE;
-    };
+    const LEGACY = { queue: 0, stability: 0, difficulty: 0, lapses: 0, interval: 0, repetitions: 0, next_review_at: null, due_timestamp: null, last_reviewed_at: null } as const;
     await db.customLessons.clear();
     for (const lesson of data.lessons) {
       await db.customLessons.put({
@@ -288,7 +195,8 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
         unlock: lesson.unlock ?? null,
         unlocked_at: lesson.unlocked_at ?? null,
         companion_of: lesson.companion_of ?? null,
-        ...schedulingOf(lesson.id),
+        ...LEGACY,
+        learn: previous.get(lesson.id)?.learn,
         _synced_at: Date.now(),
       });
     }
@@ -302,8 +210,8 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
   });
   // This device's unlocks not on the server yet stay unlocked.
   await applyLocalUnlocks();
-  // The schedule from the merged history (+ Done for good / Bring back).
-  await recomputeAllRevisitStates();
+  // Done forever / a revision, from the merged history (+ the old Done-for-good marks).
+  await recomputeAllLessonLearn();
 
   return { synced: data.lessons.length };
 }
@@ -324,6 +232,7 @@ export async function uploadCustomLessonCompletions(): Promise<{ uploaded: numbe
         total: e.total,
         completed_at: e.completed_at,
         rating: e.rating,
+        ...(e.outcome ? { outcome: e.outcome } : {}),
         ...(e.attempt ? { attempt: e.attempt } : {}),
       })),
     }),
@@ -389,13 +298,13 @@ export function lessonHandwritingText(spec: CustomLessonSpec): string {
 const SYNC_PREFETCH_CONCURRENCY = 3;
 
 /**
- * The lessons whose audio the sync keeps on the device (`lessonsToPrefetch`): today's,
- * every lesson with open homework (a one-off pass is never in today's rotation), the
- * locked / unlocked ones and the next few new ones.
+ * The lessons whose audio the sync keeps on the device (`lessonsToPrefetch`): the ones to do
+ * (Home's due revisions + new ones), every lesson with open homework, the locked / unlocked
+ * ones and the next few new ones.
  */
 export async function lessonsForPrefetch(): Promise<LocalCustomLesson[]> {
   const [due, all, homework] = await Promise.all([
-    getDueCustomLessons(),
+    lessonsToDo(),
     db.customLessons.toArray(),
     db.homeworkAssignments.toArray().catch(() => []),
   ]);
@@ -404,8 +313,8 @@ export async function lessonsForPrefetch(): Promise<LocalCustomLesson[]> {
     todays: due.map((l) => l.id),
     homework,
     lessons: all.map((l) => {
-      const state = rowRevisitState(l);
-      return { id: l.id, created_at: l.created_at, finishes: state.finishes, retired: state.status === 'retired', lock: lessonLockStatus(l.unlock, l.unlocked_at) };
+      const state = learnOf(l);
+      return { id: l.id, created_at: l.created_at, finishes: state.runs, retired: state.status === 'done', lock: lessonLockStatus(l.unlock, l.unlocked_at) };
     }),
   });
   return ids.map((id) => byId.get(id)!).filter(Boolean);

@@ -169,8 +169,6 @@ class StudyActions(
     // tap a character on the back → the character sheet (ui/chars)
     val chars: dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions = dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions(),
     // ---- Package B: mini lessons in the session ----
-    val lessonEnv: dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.ExerciseEnv(),
-    val onLessonComplete: (dev.jeromeswannack.chineselearning.lab.ui.lessons.LessonResult) -> Unit = {},
     val readerEnv: @Composable (readerId: String) -> dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv = { dev.jeromeswannack.chineselearning.lab.ui.readers.ReaderEnv() },
     /** Today's reader was finished (Finish, or listened to the end — `how` = finish | listened). */
     val onReaderFinished: (timeSpentMs: Long, how: String) -> Unit = { _, _ -> },
@@ -354,8 +352,6 @@ fun StudyRoute(
                 addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
             ),
             chars = dev.jeromeswannack.chineselearning.lab.ui.chars.rememberCharSheetActions(app, onOpenCard = { id -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.cardHub(id)) }),
-            lessonEnv = dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberExerciseEnv(app), // Package B
-            onLessonComplete = vm::completeLesson, // Package B
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
             onReaderFinished = vm::finishReader, // Package B
             onContinueExtras = vm::continueToExtras, // Lab today split
@@ -398,14 +394,13 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
                     targetState = ui.phase,
-                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Lesson -> "lesson-${p.lesson.key}"; is StudyPhase.Reader -> "reader-${p.reader.key}"; is StudyPhase.Extras -> "extras"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
+                    contentKey = { p -> when (p) { is StudyPhase.Showing -> p.view.presentation; is StudyPhase.Reader -> "reader-${p.reader.key}"; is StudyPhase.Extras -> "extras"; StudyPhase.Done -> "done"; StudyPhase.Loading -> "loading" } },
                     transitionSpec = { cardTransition(ui.lastRating) },
                     label = "card",
                 ) { phase ->
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
                         is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay, pass = pass)
-                        is StudyPhase.Lesson -> dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLessonView(phase.lesson, ui.counts, actions.lessonEnv, actions.onLessonComplete) // Package B
                         is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished) // Package B
                         is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
                         StudyPhase.Done -> DoneView(ui, actions)
@@ -596,14 +591,13 @@ private fun DoneView(ui: StudyUi, actions: StudyActions) {
     }
 }
 
-/** "Flashcards ✓ · 2 mini lessons ✓ · Today's story ✓" under today's numbers (Lab today split). */
+/** "Flashcards ✓ · Today's story ✓" under today's numbers (Lab today split). */
 @Composable
 private fun TodayDoneLine(today: TodaySummary) {
-    if (today.lessonsDone == 0 && !today.readerDone) return
+    if (!today.readerDone) return
     Spacer(Modifier.height(8.dp))
     val parts = listOfNotNull(
         "Flashcards ✓",
-        if (today.lessonsDone > 0) "${today.lessonsDone} mini lesson${if (today.lessonsDone == 1) "" else "s"} ✓" else null,
         if (today.readerDone) "Today's story ✓" else null,
     )
     Text(

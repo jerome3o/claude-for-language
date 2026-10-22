@@ -4,6 +4,7 @@
  * `buildHomeworkLibrary` from what already exists: share rows + assignments.
  */
 
+import { lessonRevisionSummaries } from './lesson-revision';
 import type { Env, TutorRelationshipWithUsers } from '../types';
 import { buildHomeworkLibrary, sortLibrary, type LibraryItem, type LibraryKind } from '@shared/homework';
 import * as hw from '../db/homework-queries';
@@ -38,7 +39,16 @@ async function fetchLibraryLessons(db: D1Database, relationshipId: string, tutor
     )
     .bind(studentId, tutorId, relationshipId)
     .all<{ lesson_id: string; library_item_id: string | null; title: string; created_at: string; completions: number; last_completed_at: string | null }>();
-  return res.results || [];
+  const rows = res.results || [];
+  // Completed = all right first time; else "Revision 2 due 29 Oct · 3 to get right" (shared/study/lessonRevision.ts).
+  const revisions = await lessonRevisionSummaries(db, studentId, rows.map((r) => r.lesson_id)).catch(() => null);
+  return rows.map((r) => {
+    const info = revisions?.get(r.lesson_id);
+    return {
+      ...r,
+      revision: info ? { status: info.status, revision: info.revision, due_date: info.due_date, to_get_right: info.to_get_right, percent: info.percent } : null,
+    };
+  });
 }
 
 /** Every item this tutor sent one student, newest first. */

@@ -67,7 +67,6 @@ fun LessonTrialScreen(title: String, spec: JsonObject?, error: String?, env: Exe
             spec = decoded,
             env = env,
             context = PlayerContext.Preview,
-            previews = null,
             onComplete = {},
             onEnd = onFinished,
         )
@@ -148,7 +147,6 @@ fun LessonPreviewPane(spec: JsonObject, env: ExerciseEnv, errors: List<String> =
                     spec = decoded,
                     env = env,
                     context = PlayerContext.Preview,
-                    previews = null,
                     onComplete = {},
                     onEnd = { go(0) },
                     startAt = start,

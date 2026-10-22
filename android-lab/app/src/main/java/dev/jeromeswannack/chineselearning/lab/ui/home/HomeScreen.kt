@@ -71,7 +71,6 @@ class HomeActions(
     /** "↑ 4 up next" → the Up next screen. */
     val onUpNext: () -> Unit = {},
     /** Lab "today split": today's mini lessons (`/today/lessons`) and today's story (`/today/reader`). */
-    val onTodayLessons: () -> Unit = {},
     val onTodayReader: () -> Unit = {},
 )
 
@@ -114,7 +113,7 @@ fun HomeScreen(
                 item(key = "today") {
                     dev.jeromeswannack.chineselearning.lab.ui.today.TodaySection(
                         t,
-                        dev.jeromeswannack.chineselearning.lab.ui.today.TodayActions(onFlashcards = actions.onStudyAll, onLessons = actions.onTodayLessons, onReader = actions.onTodayReader),
+                        dev.jeromeswannack.chineselearning.lab.ui.today.TodayActions(onFlashcards = actions.onStudyAll, onReader = actions.onTodayReader),
                     )
                 }
             }
@@ -193,8 +192,8 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hero")
     val empty = ui.loaded && due.total == 0 && !sync.running
-    // Lab "today split": cards done but lessons / the story left → the hero says so (Study → Continue).
-    val extras = ui.today?.let { dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(it.lessonsToDo.size, it.readerLeft) }.orEmpty()
+    // Lab "today split": cards done but the story left → the hero says so (Study → Continue).
+    val extras = ui.today?.let { dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(0, it.readerLeft) }.orEmpty()
     Column(
         Modifier
             .fillMaxWidth()

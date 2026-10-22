@@ -31,7 +31,7 @@ const spec = {
   }],
 };
 
-test('a locked lesson waits in Ready to unlock; unlocking puts it in today; it plays', async ({ page, request }) => {
+test('a locked lesson waits in Ready to unlock; unlocking makes it playable; it plays', async ({ page, request }) => {
   test.setTimeout(150_000);
   const email = `unlock-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ user: { id: string }; session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
@@ -71,11 +71,11 @@ test('a locked lesson waits in Ready to unlock; unlocking puts it in today; it p
     return !!list.lessons.find(l => l.id === id)?.unlocked_at;
   }, { timeout: 30_000 }).toBe(true);
 
-  // Today's session offers it; rating it records a completion.
-  await page.goto(`/study?autostart=true&session_token=${token}`);
+  // ▶ Start plays it; finishing records a completion (no rating any more).
+  await page.getByTestId(`lesson-play-${id}`).click();
   await expect(page.getByText('打包 · Taking food home').first()).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: /next|continue|got it/i }).first().click();
-  await page.locator('.study-rating-sticky').getByRole('button', { name: /Good/ }).click();
+  await expect(page.getByTestId('lesson-done')).toBeVisible();
   await expect.poll(async () => {
     const list = await api<{ lessons: Array<{ id: string; completions?: unknown[] }> }>(request, '/api/custom-lessons?status=all', { token });
     return list.lessons.find(l => l.id === id)?.completions?.length ?? 0;

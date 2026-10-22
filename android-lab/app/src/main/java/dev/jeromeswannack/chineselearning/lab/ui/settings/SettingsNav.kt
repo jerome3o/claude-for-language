@@ -48,7 +48,6 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         SettingsScreen(
             revisitSettings = {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
-                    RevisitSettingsCard(app)
                     dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeLanguageSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.study.SpokenAnswerSettings(app)
                 }

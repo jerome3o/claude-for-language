@@ -1,8 +1,7 @@
 import type { Folder } from '@shared/folders';
 import { replaceLocalFolders, syncFolders } from './folders';
 import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
-import { replaceLocalRevisitEvents, syncRevisit, uploadRevisitEvents, writeRevisitSettings } from './revisit';
-import type { RevisitSettingsInfo } from '@shared/study/revisit';
+import { replaceLocalRevisitEvents, uploadRevisitEvents } from './lessonLearn';
 import type { ApiStudyBump } from '../api/bumps';
 import type { ApiUpNext } from '../api/upNext';
 import { replaceLocalUpNext, syncUpNext, uploadPendingUpNext } from './upNext';
@@ -108,8 +107,7 @@ interface SyncChangesResponse {
   bumps?: ApiStudyBump[] | null;
   /** "Up next": the ordered list of chosen notes, sent whole (shared/decks/up-next.ts). */
   up_next?: ApiUpNext[] | null;
-  /** "Revisit later" for lessons: the gaps, new lessons a day and every Done-for-good / Bring-back event. */
-  revisit_settings?: RevisitSettingsInfo | null;
+  /** The old "Done for good" / "Bring back" marks on lessons (a retire = done forever, shared/study/lessonRevision.ts). */
   revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
 }
 
@@ -497,9 +495,9 @@ class SyncService {
    * sync — this content is additive to the core deck/note/card data.
    */
   private async syncReaders(): Promise<void> {
-    // "Revisit later" (lessons): Done-for-good / Bring-back up, the settings + events down (never throws);
-    // the reader and lesson syncs below recompute every schedule from the merged history.
-    await syncRevisit();
+    // The old Done-for-good marks made here before the update go up (never throws); the lesson sync
+    // below recomputes every lesson's revision state from the merged history.
+    await uploadRevisitEvents().catch(err => console.warn('[Sync] Revisit marks upload failed:', err));
     try {
       await syncReadersFromServer();
       prefetchReaderMedia().catch(err =>
@@ -691,8 +689,7 @@ class SyncService {
     if (Array.isArray(changes.bumps)) await replaceLocalBumps(changes.bumps).catch(err => console.error('[Sync] Bumps failed:', err));
     // "Up next": the server's list, unless a change made here is still waiting.
     if (Array.isArray(changes.up_next)) await replaceLocalUpNext(changes.up_next).catch(err => console.error('[Sync] Up next failed:', err));
-    // "Revisit later": the gaps (recomputes the schedules when changed) and the Done-for-good events.
-    if (changes.revisit_settings) writeRevisitSettings(changes.revisit_settings);
+    // The old Done-for-good marks (a retire = done forever; shared/study/lessonRevision.ts).
     if (Array.isArray(changes.revisit_events)) await replaceLocalRevisitEvents(changes.revisit_events).catch(err => console.error('[Sync] Revisit events failed:', err));
     const insertedCardIds: string[] = [];
     this.lastSyncDetails.decks_synced = changes.decks.length;

@@ -6,12 +6,10 @@ import { getLibraryItem } from '../../api/lessonEditor';
 import { StudyCustomLesson } from '../../components/StudyCustomLesson';
 import { Loading } from '../../components/Loading';
 import type { LocalCustomLesson } from '../../db/database';
-import { CardQueue, IntervalPreview, Rating } from '../../types';
+import { CardQueue } from '../../types';
 import '../StudyPage.css';
 import '../DeckTryPage.css';
 
-const NO_PREVIEWS = {} as Record<Rating, IntervalPreview>;
-const NO_COUNTS = { new: 0, secondaryNew: 0, learning: 0, review: 0 };
 
 /**
  * "Try it" for a library lesson: the real lesson player the student gets, in
@@ -62,9 +60,6 @@ export function LessonTryPage() {
     <div className="study-page-fullscreen">
       <StudyCustomLesson
         lesson={lesson}
-        intervalPreviews={NO_PREVIEWS}
-        counts={NO_COUNTS}
-        onComplete={back}
         onEnd={back}
         preview
       />

@@ -63,10 +63,12 @@ export interface LibraryAssignment {
   last_score: { correct: number; total: number } | null;
   /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
   last_attempt_id?: string | null;
-  /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+  /** When the student's revision is due (legacy name); null before the first finish or when done. */
   next_revisit_at?: string | null;
-  /** The student marked it "Done for good". */
+  /** Legacy: true = done (all right first time, or an old "Done for good"). */
   retired?: boolean;
+  /** "Revision 2 due 29 Oct · 3 to get right" / "all right first time" (shared/homework/library.ts `revisionProgressLabel`); null before the first run. */
+  revision_label?: string | null;
   up_to_date: boolean;
 }
 
@@ -100,10 +102,12 @@ export interface StudentLessonSummary {
   last_score: { correct: number; total: number } | null;
   /** The newest attempt with per-exercise answers (null before any, or for runs recorded before attempts existed). */
   last_attempt_id?: string | null;
-  /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
+  /** When the student's revision is due (legacy name); null before the first finish or when done. */
   next_revisit_at?: string | null;
-  /** The student marked it "Done for good". */
+  /** Legacy: true = done (all right first time, or an old "Done for good"). */
   retired?: boolean;
+  /** "Revision 2 due 29 Oct · 3 to get right" / "all right first time" (shared/homework/library.ts `revisionProgressLabel`); null before the first run. */
+  revision_label?: string | null;
 }
 
 /** What an editor chat is about: a student's lesson, a tutor's library item,

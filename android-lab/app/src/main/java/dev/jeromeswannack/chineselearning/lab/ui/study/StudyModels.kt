@@ -37,8 +37,7 @@ data class TodaySummary(
     val reviews: Int,
     val correct: Int,
     val celebrate: Boolean,
-    /** Lab "today split": the extras finished today (the Done screen's "2 mini lessons ✓ · Today's story ✓"). */
-    val lessonsDone: Int = 0,
+    /** Lab "today split": the story read today (the Done screen's "Today's story ✓"). */
     val readerDone: Boolean = false,
     /** Lab "today split": everything for today is done and this is the moment (the second, smaller celebration). */
     val allClear: Boolean = false,
@@ -61,11 +60,10 @@ sealed interface StudyPhase {
     data object Loading : StudyPhase
     data class Showing(val view: CardView) : StudyPhase
     // ---- Package B: a mini lesson in the card flow (ui/lessons/StudyExtras.kt) ----
-    data class Lesson(val lesson: dev.jeromeswannack.chineselearning.lab.ui.lessons.SessionLesson) : StudyPhase
     data class Reader(val reader: dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader) : StudyPhase
     /**
      * Lab "today split": the flashcards ran out and mini lessons / today's story are left —
-     * "Flashcards done ✓ · 2 mini lessons and today's story left · Continue / Later".
+     * "Flashcards done ✓ · Today's story left · Continue / Later".
      */
     data class Extras(val lessons: Int, val reader: Boolean, val titles: List<String>) : StudyPhase
     data object Done : StudyPhase

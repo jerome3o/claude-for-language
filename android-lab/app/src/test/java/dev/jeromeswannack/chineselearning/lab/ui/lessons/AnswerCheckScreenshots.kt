@@ -69,7 +69,7 @@ class AnswerCheckScreenshots : LabScreenshotTest() {
     private fun env(check: suspend (AnswerCheckInput) -> AnswerCheckResult) = ExerciseEnv(random = Random(7), answerCheck = check)
 
     private fun player(ex: TranslateExercise, env: ExerciseEnv, onDone: (ExerciseAnswer?) -> Unit = {}): @Composable () -> Unit = {
-        LessonPlayer("即使…也 — even if", "🧱", LessonSamples.lesson(ex), env, PlayerContext.Homework, ItemScheduleSamples.previews, {}, {})
+        LessonPlayer("即使…也 — even if", "🧱", LessonSamples.lesson(ex), env, PlayerContext.Homework, {}, {})
     }
 
     private fun answerWith(text: String) {

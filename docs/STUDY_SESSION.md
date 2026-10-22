@@ -401,81 +401,91 @@ the deck queue and "Order new cards by". It is persistent (not just today) — t
   and the tutor's `get_student_up_next`, `add_to_student_up_next`, `move_in_student_up_next`,
   `remove_from_student_up_next`.
 
-## Mini lessons: "revisit later", not FSRS
+## Mini lessons: never lost, a retry round, revise until right first time
 
-Mini lessons are big chunks, not flashcards: FSRS's short learning steps brought a Hard / Good
-one back within minutes or a day. They follow one simple schedule (`shared/study/revisit.ts`;
-Lab `core/…/Revisit.kt`, parity-tested). (Graded readers were on it too until Oct 2026 — now a
-story is read once, see "Graded readers" below.)
+Mini lessons are big chunks, not flashcards — and since Oct 2026 they are **not part of the study
+session** (Jerome: "go all in on homework/assignments"). They are done from **Home's homework / to-do
+card** and the **Mini Lessons page** (`/lessons`); `/lessons/:id/play?from=&mode=revision` plays one
+(web `pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`). The old lesson mix
+(`LESSON_MIX_INTERVAL`, `pickTodaysLessons`), "New lessons a day" and the Settings → "Lessons &
+readers" section are gone (the server still accepts their old settings / events from older apps).
 
-| After finishing | Next visit |
-|---|---|
-| Again | 1 day (and the gap resets) |
-| Hard | 2 days, then ×1.2 each later visit |
-| Good | 14 days, then ×2 each later visit |
-| Easy | 42 days (~6 weeks), then ×2 |
+### A run is never lost (`shared/study/lessonRun.ts`; Lab `core/…/LessonRun.kt`, parity-tested)
 
-Next gap = max(the rating's base gap, previous gap × growth), capped at 180 days. Nothing comes
-back the same day — even Again is tomorrow. **✓ Done for good** under the rating buttons records
-the finish (as Good) and retires the lesson: never scheduled again, still listed on the Mini
-Lessons page under "Done for good", where **↩ Bring back** puts it back in rotation
-(due at once, the gap it had is kept).
+Jerome (Oct 2026): "Make sure homework progress isn't lost over multiple days." He half-did a homework
+lesson, opened it the next day, and it had reset. Root causes: the **web player kept the run in memory
+only** (`useState(0)`), and **the Lab app dropped a saved run on another local day, after 18 h, or when
+the spec's JSON changed at all** (a picture drawn later, a pinyin fix — `LessonResume`, deleted).
 
-- **Event-sourced**: the schedule is replayed from the history — the completion events (their
-  ratings; a legacy completion with no rating = Good) plus `revisitEvents` (retire / restore; D1
-  `revisit_events`, migration 0110, `POST /api/me/revisit-events` idempotent by id, the whole list on
-  `/api/sync/changes` as `revisit_events`; old `reader` rows are ignored). The lesson row caches the
-  result (`queue` NEW / REVIEW, `next_review_at`, `due_timestamp`, `interval` = gap, `retired`),
-  recomputed after every finish, sync and settings change (`services/revisit.ts`).
-- **New lessons are paced per local DAY**: at most **"New lessons a day"** (default **1**) NEW
-  lessons join the study session per day, oldest first (`pickNewLessonsForToday`), counted from the
-  completion events like cards' introduced-today — a lesson whose FIRST finish is at/after local
-  midnight (`newLessonsIntroducedToday`). So a batch of 12 "China trip" lessons arrives one a day,
-  whether in one session or across several. Revisits never count against it (they have their own
-  pacing below).
-- **Today's lessons are ONE rule** — `pickTodaysLessons` (`shared/study/revisit.ts`; Lab
-  `LessonSchedule.todaysLessons`, parity-tested): the web session (`getDueCustomLessons`), and in the
-  Lab the session, Home's "Today" row and `/today/lessons` all read it, so Study and Today can't
-  disagree about what's left. Due revisits first (capped), then:
-  - **homework comes on top of the daily place.** A lesson the tutor sent with a pass (`both`; a
-    `one_off`-only one is never in the rotation) is offered while NEW without taking the place, and
-    finishing it — in its pass or anywhere — doesn't use the place up (`homeworkPassTargets`,
-    `shared/homework/items.ts`). Oct 2026: Jerome finished his tutor's lesson in its homework pass;
-    that used up the one place, so Today said "All done" while Study (which still had China trip 1
-    on screen) kept opening China trip 1;
-  - **a lesson opened today keeps its place** until it's finished, whatever else is finished
-    meanwhile (`startedToday`: web `services/lessonsStarted.ts` in localStorage, Lab
-    `LessonProgressStore.markStarted` — set when a real run opens, previews never).
-- **Closing never completes.** ✕ / back / leaving Study / leaving a homework pass record nothing —
-  only the rating (or ✓ Done for good) writes the completion event, the attempt and the homework
-  `done`. Checked against production on 8 Oct: every completion carries a rating and an attempt with
-  a real duration. Coming back to a lesson continues it: the Lab restores a half-done run
-  ("Continuing where you left off · 3 of 4"), and a lesson opened earlier today and left on its first
-  exercise says "Back to today's lesson · 1 of 6" (`LessonResume.reopenedLine`). If the lesson on
-  screen in Study was finished elsewhere meanwhile, Study moves on (`StudyExtras.stillToDo`).
-- **▶ Do it again** (`/lessons/:id/play?from=`, web `pages/LessonReplayPage.tsx`, Lab
-  `ui/lessons/LessonReplay.kt`; immersive): every lesson on the Mini Lessons page has **▶ Start**
-  (new) / **▶ Do it again**, as do a finished homework lesson pass and (Lab) the "Done today" rows of
-  `/today/lessons`. The real player; the rule is `/tutor-notes/practice`'s, for lessons
-  (`replayIsPractice`): a lesson **due today** (new, or due by the cutoff) replays as a normal run —
-  the rating records the completion (attempt for the tutor, "revisit later" pacing, homework done);
-  a lesson **not due** (coming back later, or Done for good) gets the same ratings plus **Practice
-  only** ("Nothing is recorded · it comes back when it was going to"). Rating it anyway is a normal
-  completion, re-scheduled from now. Analytics `lesson.replay { from, practice }`,
-  `lesson.replay_practice`, `lesson.complete { source: 'replay' }`.
-- **Settings → "Lessons & readers"**: New lessons a day (0–20), the Hard / Good / Easy gaps (days),
-  growth and longest gap, Reset to defaults — `users.revisit_settings` (JSON, NULL = defaults),
-  `PUT /api/profile/revisit-settings` (validated by `pickRevisitSettingsUpdate`: days 1–365 whole,
-  growth 1–5, cap 1–3650, `new_lessons_per_day` 0–20 whole, Hard ≤ Good ≤ Easy; 400 + `problems`),
-  on `/api/auth/me` and `/api/sync/changes` as `revisit_settings`, mirrored in localStorage (Lab:
-  JsonCache) for offline study. `settings.revisit_changed { fields, reset, new_lessons_per_day }`.
-- **No flood**: an overdue backlog trickles back — revisits are capped at
-  `MAX_LESSON_REVISITS_PER_DAY` (2, most overdue first; finished revisits today count).
-- **The tutor** sees "next revisit 20 Oct" / "done for good" on the student's lessons and the
-  library item's assignments (`next_revisit_at`, `retired` from the student's own gaps); a shared
-  reader shows "not read yet" / "read 3 Oct".
-- One-off homework passes are unchanged (not scheduled); a lesson finished in a pass records the
-  same rated event, and "Done for good" is offered there too.
+- A real run is **saved after every exercise** — where it stands (main pass / retry round), the
+  score, every answer (the attempt rows with their answer checks), the time and the recordings
+  already made — web IndexedDB `lessonRuns` (Dexie v34, `services/lessonRuns.ts`, recordings as
+  blobs), Lab `LessonProgressStore` (SharedPreferences, recordings as files).
+- It **continues until it is finished or "Start over"** — across days, app restarts, offline;
+  never bounded by date. Opening the lesson from anywhere (Home, the homework pass, Mini Lessons)
+  shows **"Continue where you left off (7 of 18)"** (or "(2 mistakes to put right)" in the retry
+  round) with **Start over**. A run continued on another day reports the time spent on its
+  exercises, not the days between.
+- Keyed on the lesson's **shape** (`lessonShape`: the exercise types in order): content fixes and
+  pictures keep it; an added / removed exercise starts fresh.
+- Closing (✕) records nothing — the run waits. Previews ("Try it", the catalogue, the coach's
+  mistake lesson before it is saved) never save one.
+
+### The retry round
+
+Every **scored** exercise answered wrong on the main pass — auto-checked wrong, self-assessed "Missed
+it" / "Not quite", a conversation with any question missed (`verdictWrong`) — is **owed**. After the
+last exercise the owed ones come back one by one ("🔁 Let's put this one right · 2 left") until each is
+right; wrong again → to the back. Notes and other unscored exercises never are. The progress bar is the
+homework pass's **retry bar** (`shared/homework/retry-bar.ts`, web `components/homework/RetryProgressBar.tsx`,
+Lab `ui/kit/RetryProgressBar`; `runRetryBar`): one slot per showing — blue = answered, orange at the
+RIGHT end = still owed ("↺ 2"); a mistake adds a slot so the blue never runs backwards, and once the main
+pass is through the blue meets the orange and each fix eats one orange slot. Retry rows go into the
+attempt with `retry: 1, 2…` (recordings `s0e1r1`), so the tutor sees them; only main-pass rows decide
+"right first time". Analytics `lesson.retry { type, right, left }`.
+
+### Revise until right first time (`shared/study/lessonRevision.ts`; Lab `core/…/LessonRevision.kt`, parity-tested)
+
+No rating at the end any more (no Again / Hard / Good / Easy, no ✓ Done for good). Jerome: "100 % first
+time → done forever. Otherwise it comes back 1 week later as a revision: all the questions you didn't get
+first time last time, plus a very small subset of the ones you did get. Keep doing the weekly revision
+cycle until you get all the questions right first time."
+
+- Each finished run's **outcome** = its main-pass scored exercises and the ones missed first time
+  (`runOutcome`), sent with the completion (`outcome` on `POST /api/custom-lessons/offline-complete`,
+  D1 `custom_lesson_completions.outcome`, migration 0133) and listed back on `GET /api/custom-lessons`.
+- The **latest run decides**: nothing missed → **done forever**; else a **revision** due
+  `LESSON_REVISION_GAP_DAYS` (7) after it (`isRevisionDue` against the end of today).
+- A revision (`revisionKeys`) = every exercise missed last time + `REVISION_EXTRA_SHARE` (20 %, at
+  least 1, at most 3) of the ones got right — picked by an FNV-1a hash seeded with the lesson + last
+  run id (every device picks the same), round-robin across exercise types — each with the note right
+  before it in its section (context, unscored). It is a run like any other: the same retry round, the
+  same rule. "Revision 1, 2…" counts the weeks in a row with mistakes.
+- Applies to every lesson: tutor homework, his own / agent-made ones, unlocked podcast companions.
+  The homework assignment's own `done` event is unchanged (finishing the lesson anywhere completes it).
+- **Existing data** (no outcome stored): a run with an attempt gets its outcome derived from the
+  attempt (`backfillCompletionOutcomes` on the server, `runOutcome` on the device); a finish without
+  an attempt (Sep 2026) follows its rating — **Again / Hard → a revision of the whole lesson, Good /
+  Easy / none → done** (he said then that he knew it); an old **"Done for good"** (a `revisit_events`
+  retire, until a "Bring back") = done forever. Old apps' ratings / revisit events are still accepted
+  and stored; a rating no longer decides anything when the run has answers.
+
+**Where**: Home's card lists, after the homework rows, **revisions due** ("🔁 <title> · Revision 1 ·
+5 questions · ~4 min · due today" → the revision run) and **new lessons** ("🎓 … · new · 18 exercises ·
+~12 min"); locked ones wait (`shared/homework/home.ts`). The Mini Lessons page: **To do** (a run in
+progress — ▶ Continue —, revisions due — ▶ Revision —, new — ▶ Start), **Revision coming** (▶ Revise now /
+Whole lesson), **Done for good** (▶ Do it again), each with its size. The end of a run says "All right
+first time — done for good! 🎉" or "Back in a week as a revision: the 3 you missed first time + a few
+you got". **The tutor** sees "Revision 2 due 29 Oct · 3 to get right" / "all right first time" on the
+student's lessons, the library item's assignments and the homework library (`revisionProgressLabel`,
+`shared/homework/library.ts`; Completed = all right first time, a lesson being revised is In progress
+and never Overdue) — computed server-side from the student's runs (`services/lesson-revision.ts`).
+
+### Sizes (`shared/homework/size.ts`; Lab `core/…/HomeworkSize.kt`, parity-tested)
+
+Every Home homework row says how big it is: a lesson "18 exercises · ~12 min" (`EXERCISE_SECONDS` per
+type: a choice ~20 s, a translation ~50 s, a conversation ~2 min…), a revision "5 questions · ~4 min",
+a deck pass "12 words", a reader "6 pages".
 
 ### Claude checks your answer (self-assessed exercises)
 
@@ -515,17 +525,15 @@ Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson dr
 sentences and meanings — queued, but LOCKED until he has listened to the podcast (or done some other
 real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `shared/lesson/unlock.ts`
 (Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts` + the `locked` /
-`unlocked` sets in `parity/fixtures/revisit.ts`).
+`unlocked` sets in `parity/fixtures/revisit.ts`, legacy).
 
 - **The condition**: `unlock: { kind: 'audio_lesson', audio_lesson_id } | { kind: 'manual', prompt }` on
   the lesson (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt`, migration 0119);
   `unlocked_at` (+ `unlocked_via` auto | manual | player) once met; `companion_of` = the podcast a
   companion was written for. Synced with the lesson list (`GET /api/custom-lessons`).
-- **Locked = never offered**: `pickTodaysLessons(…, locked)` drops it from the session, Today's mini
-  lessons and the daily new-lesson place (it neither takes nor waits for it).
-- **Unlocked = "I want this now"**: `pickTodaysLessons(…, unlocked)` — a NEW unlocked lesson comes
-  right after the revisits, before homework and the daily place, which it neither takes nor uses up
-  when finished. After its first finish it is an ordinary revisit.
+- **Locked = never offered**: not on Home's card nor in the Mini Lessons page's To do — only in
+  "🔒 Ready to unlock".
+- **Unlocked**: an ordinary new lesson (Home, To do); after its first run it revises like any other.
 - **Unlocking** (offline-first; the earliest time wins, `POST /api/custom-lessons/unlock` idempotent):
   automatically when a listen reaches ≥ 85 % or the last chapter ("Final listen") of its audio lesson
   (`audioLessonListened`; web player tick / Lab `AudioLessonEngine`, recorded per device and uploaded
@@ -536,21 +544,20 @@ real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `s
   carries it (`services/lessonUnlock.ts`). Lab: `lessons/local-unlocks` + the Outbox (`LessonStore.unlock`,
   `markAudioListened`).
 - **Where**: web `/lessons` "🔒 Ready to unlock" (▶ Listen = the podcast, the unlock button) and a
-  locked gate on `/lessons/:id/play`; Lab Today's mini lessons (the section replaces the lone "All mini
-  lessons ›", which stays as a smaller link below), the Mini Lessons list and the same gate. Locked
+  locked gate on `/lessons/:id/play`; Lab: the Mini Lessons list and the same gate. Locked
   lessons' media is prefetched too (one is often unlocked on the train).
 - Analytics `lesson.unlock { via, kind }`; `lesson.companion_created` (server).
 
 
 **Audio plays the moment it's asked for** (docs/AUDIO.md "Lesson audio prefetch"): every clip a
-lesson can play is on the device before it opens — the sync fetches today's lessons, every lesson
+lesson can play is on the device before it opens — the sync fetches the lessons to do (Home's), every lesson
 with open homework, locked / unlocked ones and the next few new ones; opening a lesson fetches
 whatever is still missing, the exercise on screen first; the server makes a lesson's clips when it
 is created / assigned / updated. A clip that arrives after the learner moved on is dropped, never
 played over the next exercise.
 ## Graded readers: read once, one a day, listen-first
 
-Graded readers close out an all-decks session (after the cards and any mini lessons). A story is
+Graded readers close out an all-decks session (after the cards). A story is
 **read ONCE and never repeated** (`shared/study/daily-reader.ts`; Lab `core/…/DailyReader.kt`,
 parity-tested by `parity/fixtures/daily-reader.ts`):
 

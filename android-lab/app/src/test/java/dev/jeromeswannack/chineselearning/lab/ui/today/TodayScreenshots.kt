@@ -7,7 +7,6 @@ import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.LessonResume
 import dev.jeromeswannack.chineselearning.lab.core.LessonSection
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.QueueCounts
@@ -78,11 +77,6 @@ class TodayScreenshots : LabScreenshotTest() {
     @Config(qualifiers = UNFOLDED)
     @Test fun thePauseUnfolded() = shoot("today-09-pause-unfolded") { pause(celebrate = false) }
 
-    @Test fun lessonList() = shoot("today-10-lesson-list") { TodayLessonsScreen(TodaySamples.midDay, {}, {}, {}) }
-    @Test fun lessonListDark() = shoot("today-11-lesson-list-dark", dark = true) { TodayLessonsScreen(TodaySamples.someDone, {}, {}, {}) }
-    @Config(qualifiers = UNFOLDED)
-    @Test fun lessonListUnfolded() = shoot("today-12-lesson-list-unfolded") { TodayLessonsScreen(TodaySamples.midDay, {}, {}, {}) }
-
     private val note = NoteEntity(
         id = "n1", deckId = "d1", hanzi = "打算", pinyin = "dǎsuàn", english = "to plan; to intend", audioUrl = null,
         funFacts = "**打** (dǎ) to hit, to do · **算** (suàn) to calculate", context = null,
@@ -90,35 +84,21 @@ class TodayScreenshots : LabScreenshotTest() {
         sentenceClueAudioUrl = null, alternatives = null, createdAt = "2026-09-01 10:00:00",
     )
 
-    /** A card mid-session: the top bar's "📘2 📖1" says what's waiting after the cards. */
+    /** A card mid-session: the top bar's "📖1" says the story is waiting after the cards. */
     @Test fun studyChip() = shoot("today-13-study-chip") {
         var state = CardScheduler.initialCardState()
         state = CardScheduler.applyReview(state, 2, "2026-09-10T08:00:00.000Z")
         state = CardScheduler.applyReview(state, 2, "2026-09-10T08:12:00.000Z")
         val card = QueueCard("c1", "n1", "d1", CardTypes.HANZI_TO_MEANING, state)
         val view = CardView(card, note, emptyList(), CardScheduler.intervalPreviews(state, Js.parseDate("2026-09-27T09:30:00.000Z")), emptyList(), 1, "HSK 3 · Plans & time")
-        StudyScreen(StudyUi(StudyPhase.Showing(view), QueueCounts(3, 2, 1, 18), SessionStats(reviews = 9, correct = 8), canUndo = true, todayLeft = TodayLeft(2, true)), playingKey = null, actions = StudyActions(), autoplay = false)
+        StudyScreen(StudyUi(StudyPhase.Showing(view), QueueCounts(3, 2, 1, 18), SessionStats(reviews = 9, correct = 8), canUndo = true, todayLeft = TodayLeft(0, true)), playingKey = null, actions = StudyActions(), autoplay = false)
     }
 
     /** The session over with everything done today: "Everything for today ✓" and the smaller burst. */
     @Test fun allClear() = shoot("today-14-done-all-clear", settleMs = 400) {
         StudyScreen(
-            StudyUi(StudyPhase.Done, none, SessionStats(reviews = 26, correct = 23), today = TodaySummary(31 * 60_000L, 142, 121, celebrate = false, lessonsDone = 2, readerDone = true, allClear = true)),
+            StudyUi(StudyPhase.Done, none, SessionStats(reviews = 26, correct = 23), today = TodaySummary(31 * 60_000L, 142, 121, celebrate = false, readerDone = true, allClear = true)),
             playingKey = null, actions = StudyActions(), autoplay = false,
         )
-    }
-
-    /** A lesson opened again the same day: "Continuing where you left off · Start over". */
-    @Test fun lessonContinues() = shoot("today-15-lesson-continues") {
-        val spec = CustomLessonSpec("把 sentences", sections = listOf(LessonSection(exercises = listOf(LessonSamples.note, LessonSamples.scramble, LessonSamples.choice, LessonSamples.translate))))
-        val saved = LessonResume.Progress("L1", "h", "2026-09-27", 0, 0, index = 2, correct = 1, total = 1,
-            attempts = listOf(ExerciseAttempt(0, 0, "note"), ExerciseAttempt(0, 1, "scramble", correct = true, points = 1, maxPoints = 1)))
-        LessonPlayer("把 sentences", "🧱", spec, ExerciseEnv(), PlayerContext.Today, previews = null, onComplete = {}, onEnd = {}, resume = LessonResumeHandle(saved))
-    }
-
-    @Test fun lessonContinuesDark() = shoot("today-16-lesson-continues-dark", dark = true) {
-        val spec = CustomLessonSpec("把 sentences", sections = listOf(LessonSection(exercises = listOf(LessonSamples.note, LessonSamples.scramble, LessonSamples.choice, LessonSamples.translate))))
-        val saved = LessonResume.Progress("L1", "h", "2026-09-27", 0, 0, index = 2, correct = 1, total = 1)
-        LessonPlayer("把 sentences", "🧱", spec, ExerciseEnv(), PlayerContext.Today, previews = null, onComplete = {}, onEnd = {}, resume = LessonResumeHandle(saved))
     }
 }

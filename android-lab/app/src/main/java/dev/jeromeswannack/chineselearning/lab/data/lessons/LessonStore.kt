@@ -1,10 +1,11 @@
 package dev.jeromeswannack.chineselearning.lab.data.lessons
 
-import dev.jeromeswannack.chineselearning.lab.core.ItemEvent
-import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
-import dev.jeromeswannack.chineselearning.lab.core.LessonSchedule
+import dev.jeromeswannack.chineselearning.lab.core.HomeLesson
+import dev.jeromeswannack.chineselearning.lab.core.HomeworkSize
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
+import dev.jeromeswannack.chineselearning.lab.core.LessonRun
 import dev.jeromeswannack.chineselearning.lab.core.LessonUnlock
 import dev.jeromeswannack.chineselearning.lab.core.LessonUnlocks
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
@@ -14,9 +15,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ListenedBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ListenedEvent
 import dev.jeromeswannack.chineselearning.lab.core.Lessons
 import dev.jeromeswannack.chineselearning.lab.core.RevisitMark
-import dev.jeromeswannack.chineselearning.lab.core.RevisitSettings
-import dev.jeromeswannack.chineselearning.lab.core.RevisitState
-import dev.jeromeswannack.chineselearning.lab.core.ScheduledItem
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.api.CompletionUpload
@@ -50,7 +48,10 @@ data class LocalCompletion(
     val correct: Int,
     val total: Int,
     val completedAt: String,
-    val rating: Int?,
+    /** Legacy (before Oct 2026 lessons were rated); null now. */
+    val rating: Int? = null,
+    /** What the run missed first time (core LessonRevision). */
+    val outcome: LessonRevision.Outcome? = null,
 )
 
 /** An unlock of a locked lesson made on this phone (web: IndexedDB `lessonUnlocks`), kept until the server's list carries it. */
@@ -77,26 +78,53 @@ data class PendingMedia(
 /** A recording handed over by the player. */
 data class LessonRecording(val mediaKey: String, val file: File, val mime: String)
 
-/** A cached lesson with its merged completion history and replayed "revisit later" state. */
+/**
+ * A cached lesson with its merged completion history and its state — new / a revision (when,
+ * which exercises) / done forever (core LessonRevision, replayed from the runs + the old Done for
+ * good marks; never stored).
+ */
 data class LessonEntry(
     val lesson: CustomLessonDto,
-    val events: List<ItemEvent>,
-    val state: RevisitState,
-    /** The account's gaps the state was replayed with (for the rating buttons' labels). */
-    val settings: RevisitSettings = dev.jeromeswannack.chineselearning.lab.core.Revisit.DEFAULT,
+    val runs: List<LessonRevision.RunRecord>,
+    val learn: LessonRevision.State,
     /** When it was unlocked: the server's, or this phone's pending unlock (the earliest). */
     val unlockedAt: String? = lesson.unlockedAt,
 ) {
     val id: String get() = lesson.id
-    val item: ScheduledItem get() = ScheduledItem(lesson.id, lesson.createdAt, state)
-    val reps: Int get() = state.finishes
-    val retired: Boolean get() = state.isRetired
+    val reps: Int get() = learn.runs
+    /** Done forever (everything right first time, or an old "Done for good"). */
+    val retired: Boolean get() = learn.status == "done"
+    val isNew: Boolean get() = learn.status == "new"
+    val isRevision: Boolean get() = learn.status == "revision"
     /** Unlockable lessons (core LessonUnlocks): the condition, null = none. */
     val unlock: LessonUnlock? get() = lesson.unlockCondition
     /** "none" | "locked" | "unlocked". */
     val lockStatus: String get() = LessonUnlocks.status(unlock, unlockedAt)
     val locked: Boolean get() = lockStatus == "locked"
     val unlockItem: LessonUnlocks.Item get() = LessonUnlocks.Item(id, unlock, unlockedAt)
+
+    /** The scored exercises of its next revision (`revisionKeys`), in lesson order. */
+    fun revisionKeys(): List<String> = LessonRevision.revisionKeys(learn, LessonRun.steps(lesson.spec), id)
+
+    fun revisionDue(cutoffMs: Long): Boolean = LessonRevision.isDue(learn, cutoffMs)
+
+    /** "18 exercises · ~12 min" — the whole lesson. */
+    fun lessonSize(): String = HomeworkSize.lessonSizeLabel(LessonRun.steps(lesson.spec).map { it.type })
+
+    /** "5 questions · ~4 min" — its revision as it would be played now. */
+    fun revisionSize(): String {
+        val keys = revisionKeys()
+        return HomeworkSize.revisionSizeLabel(keys.size, LessonRun.steps(lesson.spec, keys).map { it.type })
+    }
+
+    /** As Home's card sees it (web `homeLessonOf`). */
+    fun homeLesson(cutoffMs: Long, tutorName: String? = null): HomeLesson {
+        val due = revisionDue(cutoffMs)
+        return HomeLesson(
+            id, lesson.title.ifBlank { lesson.spec.title }, lesson.createdAt, learn.status, locked, due, learn.revision, learn.dueMs,
+            if (due) revisionSize() else lessonSize(), tutorName,
+        )
+    }
 }
 
 /**
@@ -104,9 +132,10 @@ data class LessonEntry(
  * the Lab platform: the lesson list (spec + server completions) lives in the JsonCache,
  * completions made here are appended locally and sent through the Outbox
  * (`POST /api/custom-lessons/offline-complete`, idempotent by event id, carrying the
- * attempt), recordings queue in their own list and go up by media key once their
- * attempt is on the server (a 404 means "not yet"). The "revisit later" schedule is always
- * replayed from the merged events + the Done-for-good / Bring-back marks ([RevisitStore]).
+ * attempt and its outcome), recordings queue in their own list and go up by media key once their
+ * attempt is on the server (a 404 means "not yet"). Each lesson's state (new / revision / done,
+ * core LessonRevision) is always replayed from the merged runs + the old Done-for-good / Bring-back
+ * marks ([RevisitStore], read only now).
  */
 class LessonStore(
     private val cache: JsonCache,
@@ -125,59 +154,47 @@ class LessonStore(
     private val listSerializer = ListSerializer(CustomLessonDto.serializer())
     private val localSerializer = ListSerializer(LocalCompletion.serializer())
     private val mediaSerializer = ListSerializer(PendingMedia.serializer())
-    /** Done for good / Bring back and the account's gaps ("revisit later"). */
+    /** The old Done for good / Bring back marks (before Oct 2026; a retire = done forever). */
     val revisit = RevisitStore(cache, outbox, api)
 
     private val unlocksSerializer = ListSerializer(LocalUnlock.serializer())
     private val listensSerializer = ListSerializer(LocalListen.serializer())
 
     fun observe(): Flow<List<LessonEntry>> =
-        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), revisit.observeSettings(), cache.observe(UNLOCKS, unlocksSerializer)) { list, local, marks, settings, unlocks ->
-            merge(list.orEmpty(), local.orEmpty(), marks, settings, unlocks.orEmpty())
+        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), cache.observe(UNLOCKS, unlocksSerializer)) { list, local, marks, unlocks ->
+            merge(list.orEmpty(), local.orEmpty(), marks, unlocks.orEmpty())
         }.flowOn(Dispatchers.Default)
 
     suspend fun entries(): List<LessonEntry> =
-        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), revisit.settings(), cache.get(UNLOCKS, unlocksSerializer).orEmpty())
+        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), cache.get(UNLOCKS, unlocksSerializer).orEmpty())
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
     suspend fun entry(id: String): LessonEntry? = entries().firstOrNull { it.id == id }
 
     /**
-     * `getDueCustomLessons` over the cache — `pickTodaysLessons` (LessonSchedule.todaysLessons):
-     * revisits capped per day, homework lessons on top of "New lessons a day", lessons opened
-     * today ([startedToday]) kept, Done-for-good out.
+     * `lessonsToDo`: the lessons Home's card offers — revisions due by [cutoff] (most overdue
+     * first), then new lessons (oldest first); locked ones wait.
      */
-    suspend fun dueLessons(
-        cutoff: StudyCutoff,
-        nowMs: Long = System.currentTimeMillis(),
-        zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
-        startedToday: Set<String> = emptySet(),
-    ): List<LessonEntry> {
-        val all = entries()
-        val byId = all.associateBy { it.id }
-        val oneOff = homework.oneOffOnly()
-        val events = all.flatMap { it.events }
-        val revisited = LessonSchedule.revisitsToday(events, nowMs, zone)
-        val dayStart = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
-        val perDay = revisit.settings().newLessonsPerDayInt
-        // Locked lessons wait; unlocked new ones come today on top of the daily place.
-        val (locked, unlocked) = LessonUnlocks.lockSets(all.map { it.unlockItem })
-        return LessonSchedule.todaysLessons(all.map { it.item }, events, dayStart, cutoff, oneOff, homework.homeworkPass(), startedToday, revisited, perDay, locked, unlocked)
-            .mapNotNull { byId[it.id] }
+    suspend fun lessonsToDo(cutoff: StudyCutoff): List<LessonEntry> {
+        val open = entries().filter { !it.locked }
+        val revisions = open.filter { it.revisionDue(cutoff.ts) }.sortedBy { it.learn.dueMs ?: 0L }
+        val fresh = open.filter { it.isNew }.sortedWith(compareBy({ it.lesson.createdAt }, { it.id }))
+        return revisions + fresh
     }
 
-    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, settings: RevisitSettings, unlocks: List<LocalUnlock> = emptyList()): List<LessonEntry> {
+    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, unlocks: List<LocalUnlock> = emptyList()): List<LessonEntry> {
         val localByLesson = local.groupBy { it.lessonId }
         val marksByLesson = marks.filter { it.itemKind == "lesson" }.groupBy { it.itemId }
         val unlockByLesson = unlocks.associateBy { it.lessonId }
         return list.map { lesson ->
-            val server = lesson.completions.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
+            val server = lesson.completions.map { LessonRevision.RunRecord(it.id, it.completedAt, LessonRevision.clean(it.outcome), it.rating) }
             val seen = server.mapTo(HashSet()) { it.id }
-            val mine = localByLesson[lesson.id].orEmpty().filter { it.id !in seen }.map { ItemEvent(it.id, it.lessonId, it.rating, it.completedAt) }
-            val events = server + mine
+            val mine = localByLesson[lesson.id].orEmpty().filter { it.id !in seen }.map { LessonRevision.RunRecord(it.id, it.completedAt, it.outcome, it.rating) }
+            val runs = server + mine
+            val marksHere = marksByLesson[lesson.id].orEmpty().map { LessonRevision.MarkRecord(it.id, it.createdAt, it.action) }
             val unlockedAt = if (lesson.unlock == null) null else LessonUnlocks.earlier(lesson.unlockedAt, unlockByLesson[lesson.id]?.unlockedAt)
-            LessonEntry(lesson, events, ItemSchedule.state(events, marksByLesson[lesson.id].orEmpty(), settings), settings, unlockedAt)
+            LessonEntry(lesson, runs, LessonRevision.state(runs, marksHere), unlockedAt)
         }
     }
 
@@ -219,46 +236,40 @@ class LessonStore(
 
     fun observeListens(): Flow<List<LocalListen>> = cache.observe(LISTENS, listensSerializer).map { it.orEmpty() }
 
-    /** "✓ Done for good" / "↩ Bring back" from the Mini Lessons list (`markRevisit`). */
-    suspend fun markRevisit(lessonId: String, action: String, source: String = "list") {
-        revisit.mark("lesson", lessonId, action, source)
-    }
-
     /**
-     * `completeCustomLesson`: append the rated completion (with its attempt) and queue it for
-     * upload; recordings wait in the media queue; the homework assignment is marked done.
-     * [retire] = "Done for good": finished, and never scheduled again (a retire event too).
-     * Returns the new "revisit later" state.
+     * `completeCustomLesson`: append the completion (with its attempt and outcome) and queue it for
+     * upload; recordings wait in the media queue; the homework assignment is marked done; the
+     * half-done run is cleared. Returns the lesson's new state: done forever (all right first time)
+     * or a revision in a week.
      */
     suspend fun complete(
         lessonId: String,
         correct: Int,
         total: Int,
-        rating: Int,
         attempt: LessonAttemptData?,
         recordings: List<LessonRecording>,
+        outcome: LessonRevision.Outcome?,
         nowMs: Long = System.currentTimeMillis(),
-        retire: Boolean = false,
-        source: String = "session",
-    ): RevisitState = lock.withLock {
+        source: String = "lessons_page",
+    ): LessonRevision.State = lock.withLock {
         val now = Js.toIsoString(nowMs)
         val id = UUID.randomUUID().toString()
-        val event = LocalCompletion(id, lessonId, correct, total, now, rating)
+        val runOutcome = outcome ?: LessonRevision.runOutcome(attempt)
+        val event = LocalCompletion(id, lessonId, correct, total, now, null, runOutcome)
         cache.put(LOCAL, KIND, cache.get(LOCAL, localSerializer).orEmpty() + event, localSerializer)
         outbox.enqueueJson(
             "lessons", "POST", "/api/custom-lessons/offline-complete",
-            CompletionUploadBody(listOf(CompletionUpload(id, lessonId, correct, total, now, rating, attempt))),
+            CompletionUploadBody(listOf(CompletionUpload(id, lessonId, correct, total, now, null, attempt, runOutcome))),
             id = id,
         )
         if (recordings.isNotEmpty()) {
             val queued = cache.get(MEDIA, mediaSerializer).orEmpty() + recordings.map { PendingMedia(id, it.mediaKey, it.file.absolutePath, it.mime, nowMs) }
             cache.put(MEDIA, KIND, queued, mediaSerializer)
         }
-        if (retire) revisit.mark("lesson", lessonId, RevisitStore.RETIRE, source, nowMs)
         homework.recordDone("lesson", lessonId)
-        // Completed: the half-done run is over (its recordings now wait in the media queue).
+        // Finished: the half-done run is over (its recordings now wait in the media queue).
         progress?.clear(lessonId, deleteRecordings = false)
-        entries().firstOrNull { it.id == lessonId }?.state ?: RevisitState.INITIAL
+        entries().firstOrNull { it.id == lessonId }?.learn ?: LessonRevision.NEW
     }
 
     /** Where the player records an oral answer (moved into the media queue on completion). */
@@ -341,9 +352,9 @@ class LessonStore(
         val all = entries()
         val byId = all.associateBy { it.id }
         val ids = dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.lessonsToPrefetch(
-            todays = dueLessons(cutoff).map { it.id },
+            todays = lessonsToDo(cutoff).map { it.id },
             homework = homework.refs(),
-            lessons = all.map { dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.PrefetchRow(it.id, it.lesson.createdAt, it.state.finishes, it.retired, it.lockStatus) },
+            lessons = all.map { dev.jeromeswannack.chineselearning.lab.core.LessonAudioClips.PrefetchRow(it.id, it.lesson.createdAt, it.learn.runs, it.retired, it.lockStatus) },
         )
         return ids.mapNotNull { byId[it] }
     }

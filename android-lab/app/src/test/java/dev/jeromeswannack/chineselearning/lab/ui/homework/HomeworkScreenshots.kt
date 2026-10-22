@@ -142,7 +142,7 @@ class HomeworkScreenshots : LabScreenshotTest() {
         dev.jeromeswannack.chineselearning.lab.core.CardScheduler.initialCardState(), java.time.Instant.parse("2026-09-27T09:00:00Z").toEpochMilli(),
     )
     private val lessonSpec = LessonSamples.lesson(LessonSamples.choice, LessonSamples.scramble)
-    private val passLesson = PassLesson("t-a4", lessonSpec.title, lessonSpec.icon, lessonSpec, previews)
+    private val passLesson = PassLesson("t-a4", lessonSpec.title, lessonSpec.icon, lessonSpec)
     private val env = ExerciseEnv(random = kotlin.random.Random(7))
     private val reader = GradedReaderDto(
         "t-a5", "小明在巴黎", "Xiaoming in Paris", "beginner", "travel", emptyList(), "ready", null, "2026-09-26T08:00:00Z",

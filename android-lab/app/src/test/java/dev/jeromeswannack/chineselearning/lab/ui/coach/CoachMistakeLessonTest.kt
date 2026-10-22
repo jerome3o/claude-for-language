@@ -69,15 +69,15 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
         compose.onNodeWithTag(CoachLessonTags.SAVED).assertExists()
     }
 
-    @Test fun previewEndsWithSaveAndARating() {
+    @Test fun previewEndsWithSave() {
         var rated: LessonResult? = null
         var savedNow = 0
         compose.setContent {
             LabTheme {
                 LessonPlayer(
                     title = "One 了 is enough", icon = "🎯", spec = CoachMistakeLessonSamples.oneNote, env = ExerciseEnv(),
-                    context = PlayerContext.Preview, previews = null, onComplete = {}, onEnd = {},
-                    previewSave = PreviewSave(CoachMistakeLessonSamples.previews, saved = false, onSaveNow = { savedNow++ }, onSaveRated = { rated = it }),
+                    context = PlayerContext.Preview, onComplete = {}, onEnd = {},
+                    previewSave = PreviewSave(saved = false, onSaveNow = { savedNow++ }, onSaveDone = { rated = it }),
                 )
             }
         }
@@ -87,9 +87,10 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
         compose.onNodeWithText("Continue", substring = true, ignoreCase = true).performClick()
         compose.onNodeWithTag(PREVIEW_SAVE_TAG).assertExists()
         compose.onNodeWithTag(PREVIEW_NOT_NOW_TAG).assertExists()
-        compose.onNodeWithText("Good", substring = true).performClick()
+        // No rating any more: "Save to my mini lessons" keeps this run (a note only: nothing missed).
+        compose.onNodeWithText("Save to my mini lessons").performClick()
         assertNotNull(rated)
-        assertEquals(2, rated!!.rating)
+        assertEquals(emptyList<String>(), rated!!.outcome.missed)
     }
 }
 
@@ -107,9 +108,6 @@ object CoachMistakeLessonSamples {
 
     val content = CoachMistakeLesson.parse(CONTENT)!!
     val oneNote = content.spec.copy(sections = listOf(content.spec.sections[0]))
-    val previews = listOf(
-        IntervalPreview(0, "1 day", 1.0, 2), IntervalPreview(1, "2 days", 2.0, 2), IntervalPreview(2, "2 wk", 14.0, 2), IntervalPreview(3, "6 wk", 42.0, 2),
-    )
 
     private fun withLesson(m: CoachMessageDto) = B.quickActions.copy(thread = Loadable(B.ready.copy(messages = B.ready.messages + m)))
 

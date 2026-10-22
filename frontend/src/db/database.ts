@@ -354,10 +354,10 @@ export interface LocalGrammarCompletionEvent {
 
 /**
  * A custom mini lesson (agent-authored, schema-driven — see shared/lesson),
- * cached whole for offline study. Lessons come back on the "revisit later"
- * schedule (shared/study/revisit.ts), like readers: completion events (each
- * carrying an Again/Hard/Good/Easy rating) + revisitEvents are the source of
- * truth, and the scheduling fields here are the cached state computed from them.
+ * cached whole for offline study. Lessons revise until right first time
+ * (shared/study/lessonRevision.ts): the completion events (each with its run's
+ * outcome) + the old Done-for-good marks are the source of truth; `learn` is the
+ * cached state computed from them (services/lessonLearn.ts).
  */
 export interface LocalCustomLesson {
   id: string;
@@ -369,7 +369,9 @@ export interface LocalCustomLesson {
   status: 'active' | 'done';
   created_at: string;
   spec: import('@shared/lesson').CustomLessonSpec;
-  // Revisit schedule (computed from completion events + revisitEvents)
+  /** Done forever / a revision (when, which) / new — computed from the completion events. */
+  learn?: import('@shared/study/lessonRevision').LessonLearnState;
+  // Legacy "revisit later" fields (before Oct 2026) — no longer read.
   queue: CardQueue;
   stability: number;
   difficulty: number;
@@ -390,15 +392,17 @@ export interface LocalCustomLesson {
   _synced_at: number | null;
 }
 
-/** One completed run of a lesson — its rating sets when it comes back (shared/study/revisit.ts). */
+/** One completed run of a lesson — its outcome decides done forever vs a revision (shared/study/lessonRevision.ts). */
 export interface LocalCustomLessonCompletionEvent {
   id: string;
   lesson_id: string;
   correct: number;
   total: number;
   completed_at: string;
-  // Again/Hard/Good/Easy; null on legacy events (treated as Good)
+  // Again/Hard/Good/Easy on runs before Oct 2026 (decides only when there is no outcome); null since
   rating: Rating | null;
+  /** The run's outcome: scored exercises + those missed first time (from the server, or `attempt`). */
+  outcome?: import('@shared/study/lessonRevision').LessonRunOutcome | null;
   /** What was answered in each exercise and how long it took (uploaded with
    * the event; absent on events from before attempts were recorded and on
    * events downloaded from other devices). */
@@ -757,6 +761,8 @@ export class ChineseLearningDB extends Dexie {
   upNextOps!: Table<LocalUpNextOp, number>;
   revisitEvents!: Table<LocalRevisitEvent, string>;
   lessonUnlocks!: Table<LocalLessonUnlock, string>;
+  /** Half-done mini lesson runs, one per lesson (services/lessonRuns.ts). */
+  lessonRuns!: Table<import('../services/lessonRuns').SavedLessonRun, string>;
   // The character dictionary (services/charDict.ts): records + "More about 字" per character
   charDict!: Table<LocalCharDictEntry, string>;
   charExplanations!: Table<LocalCharExplanation, string>;
@@ -1242,6 +1248,12 @@ export class ChineseLearningDB extends Dexie {
     this.version(33).stores({
       upNext: 'note_id, position',
       upNextOps: '++seq',
+    });
+
+    // Version 34: half-done mini lesson runs (shared/study/lessonRun.ts, services/lessonRuns.ts) —
+    // where a run stands, its answers and recordings, kept until it is finished or started over.
+    this.version(34).stores({
+      lessonRuns: 'lesson_id',
     });
   }
 }

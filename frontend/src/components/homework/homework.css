@@ -565,6 +565,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+.hw-slim-size {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+  font-variant-numeric: tabular-nums;
+}
+
 .hw-slim-bar {
   display: block;
   height: 3px;

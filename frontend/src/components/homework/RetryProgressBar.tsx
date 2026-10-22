@@ -3,7 +3,7 @@
  * = "Not yet" items still owed at the RIGHT end, the track between = items not shown yet. When the
  * blue reaches the orange he is on cards he has already seen. The numbers come from the pure
  * `retryBar` / `passRetryBar` (shared/homework/retry-bar.ts), so any pass with retries can use it
- * (homework word passes; mini-lesson homework next). Lab: ui/kit `RetryProgressBar`.
+ * (homework word passes; mini lessons' retry round — StudyCustomLesson). Lab: ui/kit `RetryProgressBar`.
  *
  * Colour-blind safe: blue vs orange, the orange is hatched, and "↺ 3" sits at its right end, so it
  * reads without colour. The slot for "↺ N" is always kept so the track never shrinks (the blue

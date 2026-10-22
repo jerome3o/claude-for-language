@@ -222,6 +222,9 @@ fun libraryMeta(item: LibraryItem, today: String, showStudent: Boolean, now: Ins
     when {
         // A long-term deck has no end: its words met instead of a due date (web LibraryRow).
         item.status == HomeworkLibrary.LONG_TERM -> item.progress.ifBlank { null }
+        // A mini lesson being revised: "Revision 2 due 29 Oct · 3 to get right" (core LessonRevision).
+        item.progress.startsWith("Revision") -> item.progress
+        item.status == HomeworkLibrary.COMPLETED && item.kind == "lesson" && item.progress.isNotBlank() -> item.progress
         item.status == HomeworkLibrary.COMPLETED && item.due_date == null -> null
         else -> HomeworkLibrary.libraryDueText(item.due_date, today)
     },

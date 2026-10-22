@@ -299,22 +299,60 @@
   flex: 2;
 }
 
-/* "Practice only" under a replayed lesson's ratings (StudyCustomLesson `replay`). */
-.lesson-practice-only {
+/* The mini lesson run (StudyCustomLesson): progress with the retry round's owed part, the
+   "Continue where you left off" line, the retry line and the end line. */
+.lesson-run-bar {
+  margin-bottom: 0.75rem;
+}
+.lesson-resume-line {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.5rem 1rem 0.75rem;
-}
-.lesson-practice-only .practice-btn {
-  min-height: 44px;
-  min-width: 12rem;
-}
-.lesson-practice-only-hint {
-  font-size: 0.8125rem;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  padding: 0 0.25rem 0 0.85rem;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.08);
   color: var(--color-text-light, #6b7280);
+  font-size: 0.85rem;
+}
+.lesson-resume-line > span {
+  flex: 1;
+}
+.lesson-resume-over {
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: none;
+  background: none;
+  color: #7c3aed;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.lesson-retry-line {
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #c2410c;
+  font-weight: 600;
+  font-size: 0.9rem;
   text-align: center;
+}
+:root[data-theme='dark'] .lesson-retry-line {
+  background: rgba(251, 146, 60, 0.14);
+  color: #fdba74;
+}
+:root[data-theme='dark'] .lesson-resume-line {
+  background: rgba(167, 139, 250, 0.14);
+}
+:root[data-theme='dark'] .lesson-resume-over {
+  color: #c4b5fd;
+}
+.lesson-end-line {
+  margin: 0.75rem auto 0;
+  max-width: 26rem;
+  font-size: 0.95rem;
+  color: var(--color-text, #374151);
 }
 
 /* A preview that may be kept (Sentence Coach mistake lessons, StudyCustomLesson `previewSave`). */

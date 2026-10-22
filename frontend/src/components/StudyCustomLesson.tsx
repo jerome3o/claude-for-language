@@ -1,31 +1,30 @@
 /**
- * A custom mini lesson inside the study session.
+ * The mini lesson player: the whole lesson, or its REVISION (shared/study/lessonRevision.ts).
  *
- * The lesson spec (shared/lesson) is a list of sections, each holding any
- * number of exercises of any type in any order — this player just walks the
- * flattened list and renders each exercise with ExerciseView. Fully offline:
- * TTS comes from the cache-first speak hook, images from the blob cache, and
- * production exercises are self-assessed (Claude checks made sentences when
- * online).
+ * The lesson spec (shared/lesson) is a list of sections, each holding any number of exercises of
+ * any type — the run walks its steps (shared/study/lessonRun.ts `lessonSteps`) and renders each
+ * with ExerciseView. Fully offline: TTS comes from the cache-first speak hook, images from the
+ * blob cache, production exercises are self-assessed (Claude checks answers when online).
  *
- * While the learner works it builds the attempt — what they answered in each
- * exercise and how long it took — handed to onComplete with the rating so it
- * travels with the completion event (and any recordings) for the tutor.
+ * - **The retry round**: every scored exercise answered wrong on the main pass is owed; after the
+ *   last exercise the owed ones come back until each is right ("Let's put this one right · 2
+ *   left"). The progress bar grows an orange "owed" part at its right end that the blue catches up.
+ * - **Never lost**: a real run (`lessonId`) is saved after every exercise (services/lessonRuns.ts)
+ *   and continues next time — another day, after a restart, offline: "Continue where you left off
+ *   (7 of 18)" · Start over.
+ * - **The end** records the completion at once — its attempt (answers, checks, time, retries) for
+ *   the tutor and its outcome (what was missed first time), which decides: all right first time →
+ *   done forever; otherwise it comes back in a week as a revision. No rating to give.
  *
- * `preview` runs the same lesson with nothing recorded: no rating, no event —
- * a tutor trying a library lesson or a catalogue sample.
+ * `preview` runs the same lesson with nothing recorded (a tutor trying a library lesson or a
+ * catalogue sample); with `previewSave` (the Sentence Coach's mistake lesson) the end offers
+ * "Save to my mini lessons" with this run as its first completion.
  *
- * `replay` is "▶ Do it again" from the Mini Lessons page or a finished homework
- * pass: the same rating footer (a rating is a normal completion — attempt for
- * the tutor, "revisit later" pacing), plus, when the lesson isn't due today,
- * "Practice only", which records nothing (`replayIsPractice`).
- *
- * Closing (✕) never records anything: only the rating / Done for good does.
+ * Closing (✕) never records a completion; the run waits, saved.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  exerciseMediaKey,
   exercisePoints,
   type CustomLessonSpec,
   type ExerciseAnswer,
@@ -33,43 +32,34 @@ import {
   type LessonAttemptData,
   type LessonExercise,
 } from '@shared/lesson';
-import { QueueCounts, Rating, IntervalPreview } from '../types';
-import { QueueCountsHeader } from './QueueCountsHeader';
+import {
+  NEW_RUN,
+  advanceRun,
+  lessonShape,
+  lessonSteps,
+  resumeLine,
+  retryLine,
+  retryMediaKey,
+  retryNumber,
+  runCurrent,
+  runRetryBar,
+  EXERCISE_UNIT,
+  verdictWrong,
+  type LessonRunMode,
+  type LessonRunState,
+} from '@shared/study/lessonRun';
+import { runEndLine, runOutcome, type LessonRunOutcome } from '@shared/study/lessonRevision';
 import { track } from '../services/analytics';
-import { RatingButtons } from './RatingButtons';
-import { markLessonStarted } from '../services/lessonsStarted';
 import { ExerciseView } from './ExerciseView';
 import { getTTSWithCache } from '../services/ttsCache';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { useLessonAudio } from '../hooks/useLessonAudio';
 import type { LessonRecording } from '../services/custom-lesson-study';
+import { clearLessonRun, loadLessonRun, saveLessonRun } from '../services/lessonRuns';
+import { Confetti } from './Confetti';
+import { RetryProgressBar } from './homework/RetryProgressBar';
 import '../pages/PracticePage.css';
 import './StudyReader.css';
-
-interface FlatExercise {
-  exercise: LessonExercise;
-  section: number;
-  index: number;
-  sectionTitle: string | null;
-  /** True for the first exercise of a section — shows the section heading. */
-  sectionStart: boolean;
-}
-
-function flattenSpec(spec: CustomLessonSpec): FlatExercise[] {
-  const items: FlatExercise[] = [];
-  spec.sections.forEach((section, si) => {
-    section.exercises.forEach((exercise, i) => {
-      items.push({
-        exercise,
-        section: si,
-        index: i,
-        sectionTitle: section.title ?? null,
-        sectionStart: i === 0 && !!section.title,
-      });
-    });
-  });
-  return items;
-}
 
 export function useOfflineSpeak(): (text: string) => void {
   const playerRef = useRef(createAudioPlayer());
@@ -95,15 +85,23 @@ export interface PlayableLesson {
   spec: CustomLessonSpec;
 }
 
+/** What a finished real run hands back. */
+export interface LessonRunResult {
+  correct: number;
+  total: number;
+  attempt: LessonAttemptData;
+  recordings: LessonRecording[];
+  outcome: LessonRunOutcome;
+  mode: LessonRunMode;
+}
+
 /**
  * A preview that may be KEPT (the Sentence Coach's "🎯 Mini lesson on this mistake"): played with
- * nothing recorded, then "Save to my mini lessons" — the rating saves it with this run as its
- * first completion (so it comes back when the rating says), or Save without a rating / Not now.
+ * nothing recorded, then "Save to my mini lessons" — this run becomes its first completion (so a
+ * lesson with mistakes comes back as a revision in a week), or Not now.
  */
 export interface PreviewSave {
-  /** Rating-button labels for a lesson finished for the first time. */
-  intervalPreviews: Record<Rating, IntervalPreview>;
-  /** Already in his mini lessons (saved before, or with ＋ Save just now): the end still asks for a rating — this run's completion. */
+  /** Already in his mini lessons (saved before, or with ＋ Save just now). */
   saved: boolean;
   busy: boolean;
   /** Why the last save failed (offline, the server…). */
@@ -111,238 +109,281 @@ export interface PreviewSave {
   /** Save from the top bar, mid-lesson (no completion). */
   onSaveNow: () => void;
   /** Save at the end with this run as its completion. */
-  onSaveRated: (result: { correct: number; total: number; rating: Rating; attempt: LessonAttemptData }) => void;
+  onSaveDone: (result: { correct: number; total: number; attempt: LessonAttemptData; outcome: LessonRunOutcome }) => void;
 }
 
 export function StudyCustomLesson({
   lesson,
-  intervalPreviews,
-  counts,
+  lessonId,
+  revisionKeys = null,
+  label = 'Mini lesson',
+  source = 'lessons_page',
   onComplete,
   onEnd,
   preview = false,
-  lessonId,
-  replay,
-  onPracticeDone,
   previewSave,
 }: {
   lesson: PlayableLesson;
-  intervalPreviews?: Record<Rating, IntervalPreview>;
-  /** The session's queue counts; omitted in the homework pass (a "Homework" label instead). */
-  counts?: QueueCounts;
-  /** `retire` = "Done for good": finished, and never scheduled again. */
-  onComplete: (correct: number, total: number, rating: Rating, attempt: LessonAttemptData, recordings: LessonRecording[], retire?: boolean) => void;
-  onEnd: () => void;
-  /** "Try it" for a tutor (library item, catalogue sample): no queue counts, no rating, no attempt — nothing is recorded. */
-  preview?: boolean;
-  /** The lesson's id for a real run: opening it pins it to today's lessons (services/lessonsStarted). */
+  /** A real run of this lesson: saved after every exercise, completed at the end. */
   lessonId?: string;
-  /** "▶ Do it again" outside the session; `practice` = the lesson isn't due today (offer Practice only). */
-  replay?: { practice: boolean };
-  /** "Practice only": the replay ends with nothing recorded. */
-  onPracticeDone?: () => void;
+  /** A revision: its scored exercises (`revisionKeys`); null = the whole lesson. */
+  revisionKeys?: string[] | null;
+  /** The top bar's label ("Homework", "Mini lesson"…). */
+  label?: string;
+  /** Analytics: where the lesson is taken. */
+  source?: string;
+  /** A real run finished (the completion is recorded by the caller). */
+  onComplete?: (result: LessonRunResult) => void | Promise<void>;
+  onEnd: () => void;
+  /** "Try it": nothing is recorded or kept. */
+  preview?: boolean;
   /** With `preview`: offer to keep the lesson (PreviewSave). */
   previewSave?: PreviewSave;
 }) {
-  const items = useMemo(() => flattenSpec(lesson.spec), [lesson]);
-  const [idx, setIdx] = useState(0);
-  const [score, setScore] = useState({ correct: 0, total: 0 });
-  const [isRating, setIsRating] = useState(false);
-  const done = idx >= items.length;
+  const real = !preview && !!lessonId;
+  const shape = useMemo(() => lessonShape(lesson.spec), [lesson.spec]);
 
-  // The attempt, built as the learner goes (refs: nothing here re-renders).
+  // The run: loaded once (a saved one continues), then kept in step with every answer.
+  const [loaded, setLoaded] = useState(!real);
+  const [mode, setMode] = useState<LessonRunMode>(revisionKeys ? 'revision' : 'full');
+  const [keys, setKeys] = useState<string[] | null>(revisionKeys);
+  const [state, setState] = useState<LessonRunState>(NEW_RUN);
+  const [score, setScore] = useState({ correct: 0, total: 0 });
+  const [resumed, setResumed] = useState(false);
+  const [finishedLine, setFinishedLine] = useState<string | null>(null);
   const startedAt = useRef(new Date());
   const exerciseStart = useRef(Date.now());
   const attempts = useRef<ExerciseAttempt[]>([]);
   const recordings = useRef<LessonRecording[]>([]);
-  // Analytics: where this lesson is taken (session / homework pass / a tutor's preview).
-  const lessonSource = preview ? 'preview' : replay ? 'replay' : counts ? 'session' : 'homework';
+  const completedRef = useRef(false);
+  const [runKey, setRunKey] = useState(0);
+
+  const steps = useMemo(() => lessonSteps(lesson.spec, keys), [lesson.spec, keys]);
+  const exercises = useMemo(() => {
+    const map = new Map<string, { exercise: LessonExercise; sectionTitle: string | null }>();
+    lesson.spec.sections.forEach((s, si) => s.exercises.forEach((ex, i) => map.set(`s${si}e${i}`, { exercise: ex, sectionTitle: s.title ?? null })));
+    return map;
+  }, [lesson.spec]);
+
+  useEffect(() => {
+    if (!real || !lessonId) return;
+    let cancelled = false;
+    void loadLessonRun(lessonId, shape).then(saved => {
+      if (cancelled) return;
+      if (saved) {
+        setMode(saved.mode);
+        setKeys(saved.keys);
+        setState(saved.state);
+        setScore({ correct: saved.correct, total: saved.total });
+        startedAt.current = new Date(saved.started_at);
+        attempts.current = saved.attempts ?? [];
+        recordings.current = saved.recordings ?? [];
+        setResumed(true);
+        track('lesson.resume', { source, mode: saved.mode, exercises: lessonSteps(lesson.spec, saved.keys).length, at: saved.state.pos });
+      }
+      setLoaded(true);
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [real, lessonId, shape]);
+
+  const current = loaded ? runCurrent(state, steps) : null;
+  const done = loaded && !current;
+  const bar = runRetryBar(state, steps);
+  const flatIndex = current ? steps.findIndex(s => s.key === current.step.key) : steps.length;
+
+  // Analytics: where this lesson is taken (Home / homework pass / Mini Lessons / a tutor's preview).
+  useEffect(() => {
+    if (!loaded) return;
+    track('lesson.start', { source: preview ? 'preview' : source, exercises: steps.length, mode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, runKey]);
+
   // Every clip of the lesson is fetched as it opens (current exercise first); a late clip never
   // plays on a later exercise (docs/AUDIO.md "Lesson audio prefetch").
-  const { speak, cancelPending } = useLessonAudio(lesson.spec, idx, lessonSource);
-  useEffect(() => {
-    track('lesson.start', { source: lessonSource, exercises: items.length });
-    // A real run makes the lesson today's: leaving it half-way never drops it from today.
-    if (!preview && lessonId) markLessonStarted(lessonId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lesson]);
-
-  function advance(correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) {
-    const item = items[idx];
-    const maxPoints = exercisePoints(item.exercise);
-    // A conversation scores one point per question; everything else 0/1.
-    const points = answer?.questions
-      ? answer.questions.filter(q => q.correct).length
-      : correct ? maxPoints : 0;
-    if (correct !== null && maxPoints > 0) {
-      setScore(s => ({ correct: s.correct + Math.min(points, maxPoints), total: s.total + maxPoints }));
-    }
-    attempts.current.push({
-      section: item.section,
-      index: item.index,
-      type: item.exercise.type,
-      correct,
-      points: correct === null ? 0 : Math.min(points, maxPoints),
-      max_points: correct === null ? 0 : maxPoints,
-      duration_ms: Date.now() - exerciseStart.current,
-      answer,
-    });
-    if (recording && answer?.recording) {
-      recordings.current.push({ media_key: answer.recording.media_key, blob: recording });
-    }
-    exerciseStart.current = Date.now();
-    cancelPending();
-    setIdx(i => i + 1);
-  }
+  const { speak, cancelPending } = useLessonAudio(lesson.spec, Math.max(0, flatIndex), preview ? 'preview' : source);
 
   function attemptData(): LessonAttemptData {
+    const resumedRun = resumed;
+    const total = attempts.current.reduce((s, a) => s + Math.max(0, a.duration_ms), 0);
     return {
       started_at: startedAt.current.toISOString(),
-      duration_ms: Date.now() - startedAt.current.getTime(),
+      // A run continued on another day: the time spent on its exercises, not the days between.
+      duration_ms: resumedRun ? total : Date.now() - startedAt.current.getTime(),
       exercises: attempts.current,
     };
   }
 
-  function restart() {
+  function persist(next: LessonRunState, nextScore: { correct: number; total: number }) {
+    if (!real || !lessonId) return;
+    void saveLessonRun({
+      lesson_id: lessonId,
+      shape,
+      mode,
+      keys,
+      state: next,
+      correct: nextScore.correct,
+      total: nextScore.total,
+      started_at: startedAt.current.toISOString(),
+      saved_at: new Date().toISOString(),
+      attempts: attempts.current,
+      recordings: recordings.current,
+    });
+  }
+
+  function finish(nextScore: { correct: number; total: number }) {
+    const attempt = attemptData();
+    const outcome = runOutcome(attempt) ?? { keys: [], missed: [] };
+    setFinishedLine(runEndLine(outcome, mode === 'revision'));
+    if (preview || completedRef.current) return;
+    completedRef.current = true;
+    track('lesson.complete', {
+      source, mode, duration_ms: attempt.duration_ms,
+      missed: outcome.missed.length, scored: outcome.keys.length, retries: attempts.current.filter(a => (a.retry ?? 0) > 0).length,
+    });
+    if (real && onComplete) {
+      void Promise.resolve(onComplete({ correct: nextScore.correct, total: nextScore.total, attempt, recordings: recordings.current, outcome, mode }));
+    }
+  }
+
+  function advance(correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) {
+    if (!current) return;
+    const { step, phase } = current;
+    const ex = exercises.get(step.key)?.exercise;
+    const maxPoints = ex ? exercisePoints(ex) : 0;
+    // A conversation scores one point per question; everything else 0/1.
+    const points = answer?.questions ? answer.questions.filter(q => q.correct).length : correct ? maxPoints : 0;
+    const scoredPoints = correct === null ? 0 : Math.min(points, maxPoints);
+    const retry = phase === 'retry' ? retryNumber(attempts.current, step.key) : 0;
+    let nextScore = score;
+    if (phase === 'main' && correct !== null && maxPoints > 0) {
+      nextScore = { correct: score.correct + scoredPoints, total: score.total + maxPoints };
+      setScore(nextScore);
+    }
+    attempts.current = [...attempts.current, {
+      section: step.section,
+      index: step.index,
+      type: step.type,
+      correct,
+      points: scoredPoints,
+      max_points: correct === null ? 0 : maxPoints,
+      duration_ms: Date.now() - exerciseStart.current,
+      answer,
+      ...(retry > 0 ? { retry } : {}),
+    }];
+    if (recording && answer?.recording) {
+      recordings.current = [...recordings.current, { media_key: answer.recording.media_key, blob: recording }];
+    }
+    exerciseStart.current = Date.now();
+    cancelPending();
+    // Wrong = owed (main pass) / back of the queue (retry round): a conversation with a missed question too.
+    const wrong = verdictWrong(correct, scoredPoints, correct === null ? 0 : maxPoints);
+    const next = advanceRun(state, steps, correct === null ? null : !wrong);
+    setState(next);
+    if (phase === 'retry') track('lesson.retry', { type: step.type, right: !wrong, left: runRetryBar(next, steps).retries });
+    if (!runCurrent(next, steps)) finish(nextScore);
+    else persist(next, nextScore);
+  }
+
+  function startOver() {
     attempts.current = [];
     recordings.current = [];
     startedAt.current = new Date();
     exerciseStart.current = Date.now();
+    completedRef.current = false;
     setScore({ correct: 0, total: 0 });
+    setState(NEW_RUN);
+    setMode(revisionKeys ? 'revision' : 'full');
+    setKeys(revisionKeys);
+    setResumed(false);
+    setFinishedLine(null);
     cancelPending();
-    setIdx(0);
+    if (real && lessonId) {
+      void clearLessonRun(lessonId);
+      track('lesson.start_over', { source });
+    }
+    setRunKey(k => k + 1);
   }
 
-  const body = (() => {
-    if (done) {
-      const pct = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 100;
-      return (
-        <div className="practice-page center" style={{ minHeight: 'auto' }}>
-          <div className="done-emoji">{lesson.icon || '🎓'}</div>
-          <h2>Lesson complete</h2>
-          <h3>{lesson.title}</h3>
-          {score.total > 0 && (
-            <div className="done-score">
-              {score.correct}/{score.total} correct ({pct}%)
-            </div>
-          )}
-          {preview && !previewSave && <p className="text-light">Preview — nothing was recorded.</p>}
-          {preview && previewSave?.saved && <p className="text-light" data-testid="lesson-preview-saved">✓ In your mini lessons.</p>}
-        </div>
-      );
-    }
-    const item = items[idx];
-    return (
-      <ExerciseView
-        key={`ex-${idx}`}
-        exercise={item.exercise}
-        speak={speak}
-        mediaKey={preview ? undefined : exerciseMediaKey(item.section, item.index)}
-        focus={lesson.title}
-        onDone={advance}
-      />
-    );
-  })();
+  if (!loaded) return <div className="study-fullscreen" />;
 
-  const current = done ? null : items[idx];
+  const pct = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 100;
+  const item = current ? exercises.get(current.step.key) : null;
+  const sectionStart = current?.phase === 'main' && item?.sectionTitle && (flatIndex === 0 || steps[flatIndex - 1]?.section !== current.step.section);
+  const mediaKey = current && !preview ? retryMediaKey(current.step.section, current.step.index, current.phase === 'retry' ? retryNumber(attempts.current, current.step.key) : 0) : undefined;
 
   return (
     <div className="study-fullscreen">
       <div className="study-topbar">
         {preview && previewSave ? (
           <span className="lesson-preview-badge">{previewSave.saved ? '✓ In your mini lessons' : 'Trying it · not saved yet'}</span>
-        ) : preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : replay ? <span className="study-topbar-label">Mini lesson · again</span> : counts ? <QueueCountsHeader counts={counts} /> : <span className="study-topbar-label">Homework</span>}
+        ) : preview ? <span className="lesson-preview-badge">Preview · nothing is recorded</span> : <span className="study-topbar-label">{mode === 'revision' ? `${label} · revision` : label}</span>}
         <div className="study-topbar-controls">
           {preview && previewSave && !previewSave.saved && !done && (
-            <button
-              type="button"
-              className="lesson-preview-save"
-              onClick={previewSave.onSaveNow}
-              disabled={previewSave.busy}
-              data-testid="lesson-preview-save-now"
-            >
+            <button type="button" className="lesson-preview-save" onClick={previewSave.onSaveNow} disabled={previewSave.busy} data-testid="lesson-preview-save-now">
               {previewSave.busy ? 'Saving…' : '＋ Save'}
             </button>
           )}
-          <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'End session'}>
-            ✕
-          </button>
+          <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'Close lesson'}>✕</button>
         </div>
       </div>
 
       <div className="study-card-content study-reader-content">
         <div style={{ textAlign: 'center', marginBottom: '0.5rem' }}>
           <div style={{ fontSize: '0.75rem', color: '#8b5cf6', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-            {lesson.icon || '🎓'} Mini Lesson
+            {lesson.icon || '🎓'} {mode === 'revision' ? 'Revision' : 'Mini Lesson'}
           </div>
           <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>{lesson.title}</div>
         </div>
 
-        {!done && (
-          <div className="reader-progress-bar" style={{ marginBottom: '0.75rem' }}>
-            <div
-              className="reader-progress-fill"
-              style={{ width: `${(idx / items.length) * 100}%` }}
-            />
+        {resumed && !done && (
+          <div className="lesson-resume-line" data-testid="lesson-resume">
+            <span>{resumeLine(state, steps)}</span>
+            <button type="button" className="lesson-resume-over" onClick={startOver} data-testid="lesson-start-over">Start over</button>
           </div>
         )}
 
-        {current?.sectionStart && (
-          <div className="lesson-section-title">{current.sectionTitle}</div>
+        {!done && <RetryProgressBar bar={bar} unit={EXERCISE_UNIT} className="lesson-run-bar" testId="lesson-run-bar" />}
+
+        {current?.phase === 'retry' && (
+          <div className="lesson-retry-line" data-testid="lesson-retry-line">🔁 {retryLine(bar.retries)}</div>
         )}
+        {sectionStart && <div className="lesson-section-title">{item?.sectionTitle}</div>}
 
         <div className="practice-page" style={{ padding: 0, minHeight: 'auto' }}>
-          {body}
+          {done ? (
+            <div className="practice-page center" style={{ minHeight: 'auto' }} data-testid="lesson-complete">
+              {!preview && <Confetti />}
+              <div className="done-emoji">{lesson.icon || '🎓'}</div>
+              <h2>{mode === 'revision' ? 'Revision complete' : 'Lesson complete'}</h2>
+              <h3>{lesson.title}</h3>
+              {score.total > 0 && (
+                <div className="done-score">
+                  {score.correct}/{score.total} right first time ({pct}%)
+                </div>
+              )}
+              {finishedLine && !preview && <p className="lesson-end-line" data-testid="lesson-end-line">{finishedLine}</p>}
+              {preview && !previewSave && <p className="text-light">Preview — nothing was recorded.</p>}
+              {preview && previewSave?.saved && <p className="text-light" data-testid="lesson-preview-saved">✓ In your mini lessons.</p>}
+            </div>
+          ) : item && current ? (
+            <ExerciseView
+              key={`ex-${runKey}-${current.phase}-${current.step.key}-${bar.answered}`}
+              exercise={item.exercise}
+              speak={speak}
+              mediaKey={mediaKey}
+              focus={lesson.title}
+              onDone={advance}
+            />
+          ) : null}
         </div>
       </div>
 
-      {/* Fixed rating footer once the lesson is finished — the rating sets when
-          it comes back ("revisit later"), or Done for good; pinned to the bottom. */}
-      {done && !preview && intervalPreviews && (
+      {done && !preview && (
         <div className="study-rating-sticky">
-          <div className="study-reader-rating-header">
-            {/* marginRight 0: the shared prompt class offsets for a Back
-                button that this footer doesn't have */}
-            <div className="study-reader-rating-prompt" style={{ marginRight: 0 }}>
-              How well do you know this material now?
-            </div>
+          <div className="exercise-actions" style={{ padding: '0 1rem 1rem' }}>
+            <button className="practice-btn primary" onClick={onEnd} data-testid="lesson-done">Done</button>
           </div>
-          <RatingButtons
-            intervalPreviews={intervalPreviews}
-            onRate={rating => {
-              if (isRating) return;
-              setIsRating(true);
-              track('lesson.complete', { rating: (['again', 'hard', 'good', 'easy'] as const)[rating], source: lessonSource, duration_ms: Date.now() - startedAt.current.getTime() });
-              onComplete(score.correct, score.total, rating, attemptData(), recordings.current);
-            }}
-            onDoneForGood={() => {
-              if (isRating) return;
-              setIsRating(true);
-              track('lesson.complete', { rating: 'good', source: lessonSource, duration_ms: Date.now() - startedAt.current.getTime() });
-              // Finished (counts as Good for the record) and retired.
-              onComplete(score.correct, score.total, 2, attemptData(), recordings.current, true);
-            }}
-            disabled={isRating}
-          />
-          {replay?.practice && onPracticeDone && (
-            <div className="lesson-practice-only">
-              <button
-                type="button"
-                className="practice-btn"
-                data-testid="lesson-practice-only"
-                disabled={isRating}
-                onClick={() => {
-                  if (isRating) return;
-                  setIsRating(true);
-                  track('lesson.replay_practice', { exercises: items.length, duration_ms: Date.now() - startedAt.current.getTime() });
-                  onPracticeDone();
-                }}
-              >
-                Practice only
-              </button>
-              <span className="lesson-practice-only-hint">Nothing is recorded · it comes back when it was going to</span>
-            </div>
-          )}
         </div>
       )}
       {done && preview && previewSave && (
@@ -350,18 +391,26 @@ export function StudyCustomLesson({
           <div className="study-reader-rating-header">
             <div className="study-reader-rating-prompt" style={{ marginRight: 0 }}>
               {previewSave.saved
-                ? 'How well do you know this now? Your rating decides when it comes back.'
-                : 'Save it to your mini lessons? How well do you know this now?'}
+                ? 'Keep this run as done? Anything you missed comes back in a week as a revision.'
+                : 'Save it to your mini lessons? Anything you missed comes back in a week as a revision.'}
             </div>
           </div>
-          <RatingButtons
-            intervalPreviews={previewSave.intervalPreviews}
-            onRate={rating => previewSave.onSaveRated({ correct: score.correct, total: score.total, rating, attempt: attemptData() })}
-            disabled={previewSave.busy}
-          />
+          <div className="exercise-actions" style={{ padding: '0.5rem 1rem 0' }}>
+            <button
+              className="practice-btn primary"
+              disabled={previewSave.busy}
+              data-testid="lesson-preview-save-done"
+              onClick={() => {
+                const attempt = attemptData();
+                previewSave.onSaveDone({ correct: score.correct, total: score.total, attempt, outcome: runOutcome(attempt) ?? { keys: [], missed: [] } });
+              }}
+            >
+              {previewSave.busy ? 'Saving…' : previewSave.saved ? 'Save this run' : 'Save to my mini lessons'}
+            </button>
+          </div>
           {previewSave.error && <div className="lesson-preview-save-error" role="alert">{previewSave.error}</div>}
           <div className="exercise-actions" style={{ padding: '0.5rem 1rem 0' }}>
-            <button className="practice-btn" onClick={restart} disabled={previewSave.busy}>↻ Try again</button>
+            <button className="practice-btn" onClick={startOver} disabled={previewSave.busy}>↻ Try again</button>
             <button className="practice-btn" onClick={onEnd} disabled={previewSave.busy} data-testid="lesson-preview-not-now">
               {previewSave.saved ? 'Done' : 'Not now'}
             </button>
@@ -371,7 +420,7 @@ export function StudyCustomLesson({
       {done && preview && !previewSave && (
         <div className="study-rating-sticky">
           <div className="exercise-actions" style={{ padding: '0 1rem 1rem' }}>
-            <button className="practice-btn" onClick={restart}>↻ Try again</button>
+            <button className="practice-btn" onClick={startOver}>↻ Try again</button>
             <button className="practice-btn primary" onClick={onEnd}>Done</button>
           </div>
         </div>

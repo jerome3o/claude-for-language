@@ -1,9 +1,10 @@
 /**
- * Mini Lessons — inspect the agent-authored custom lessons (shared/lesson):
- * what's waiting in the study queue, what's been completed, and exactly which
- * exercises each lesson holds. Lessons are created by agents (MCP tools, the
- * in-app chats); this page is for looking, pruning and playing: every lesson
- * has ▶ Start / ▶ Do it again (`/lessons/:id/play`, LessonReplayPage).
+ * Mini Lessons — every mini lesson (shared/lesson): what is to do (new ones and revisions due),
+ * revisions coming later, and the ones done for good — with how big each is and exactly which
+ * exercises it holds. Lessons revise until right first time (shared/study/lessonRevision.ts):
+ * everything right first time → done forever; otherwise a revision a week later. They are done
+ * from here and from Home's homework / to-do card (not the study session): ▶ Start / ▶ Revision /
+ * ▶ Continue / ▶ Do it again (`/lessons/:id/play`, LessonReplayPage).
  *
  * Online it lists everything from the server (including completed lessons);
  * offline it falls back to the locally cached pending lessons.
@@ -14,10 +15,13 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CustomLessonSpec, LessonExercise, countScoreable, EXERCISE_TYPE_INFO, exercisePrimaryText } from '@shared/lesson';
-import { computeRevisitState, type RevisitEvent, type RevisitSettings, type RevisitState } from '@shared/study/revisit';
+import { computeLessonLearnState, isRevisionDue, revisionKeys, type LessonLearnState } from '@shared/study/lessonRevision';
+import { lessonSteps, type SavedLessonRunCore } from '@shared/study/lessonRun';
+import { lessonSizeLabel, revisionSizeLabel } from '@shared/homework';
 import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
 import { db, getStudyCutoff, type LocalRevisitEvent } from '../db/database';
-import { markRevisit, readRevisitSettings, revisitChip } from '../services/revisit';
+import { learnChip, runRecord } from '../services/lessonLearn';
+import { lessonRunsInProgress } from '../services/lessonRuns';
 import { Loading } from '../components/Loading';
 import { ReadyToUnlock, type LockedLessonItem } from '../components/lesson/ReadyToUnlock';
 import { earlierUnlock, lessonLockStatus } from '@shared/lesson';
@@ -25,12 +29,11 @@ import { LESSON_UNLOCKED_EVENT, listenedHere, unlockLesson } from '../services/l
 import { cachedLessonList } from '../services/audioLessons';
 import './MiniLessonsPage.css';
 
-/** The lesson's "revisit later" schedule (shared/study/revisit.ts) from its
- * completions + this device's Done-for-good / Bring-back events. */
-function scheduleFor(lesson: CustomLessonListItem, marks: LocalRevisitEvent[], settings: RevisitSettings): RevisitState {
-  const history: RevisitEvent[] = (lesson.completions ?? []).map(c => ({ id: c.id, at: c.completed_at, kind: 'rating' as const, rating: c.rating ?? null }));
-  for (const m of marks) if (m.item_kind === 'lesson' && m.item_id === lesson.id) history.push({ id: m.id, at: m.created_at, kind: m.action });
-  return computeRevisitState(history, settings);
+/** The lesson's state (shared/study/lessonRevision.ts) from its runs + the old Done-for-good marks. */
+function learnFor(lesson: CustomLessonListItem, marks: LocalRevisitEvent[]): LessonLearnState {
+  const runs = (lesson.completions ?? []).map(c => ({ id: c.id, at: c.completed_at, rating: c.rating ?? null, outcome: c.outcome ?? null }));
+  const own = marks.filter(m => m.item_kind === 'lesson' && m.item_id === lesson.id).map(m => ({ id: m.id, at: m.created_at, action: m.action }));
+  return computeLessonLearnState(runs, own);
 }
 
 const EXERCISE_LABELS = Object.fromEntries(
@@ -66,16 +69,28 @@ function exerciseCount(spec: CustomLessonSpec): number {
   return spec.sections.reduce((sum, s) => sum + s.exercises.length, 0);
 }
 
-function LessonCard({ lesson, schedule, onDelete, deleting }: {
+function LessonCard({ lesson, learn, run, onDelete, deleting }: {
   lesson: CustomLessonListItem;
-  schedule: RevisitState;
+  learn: LessonLearnState;
+  /** A run in progress on this device. */
+  run: SavedLessonRunCore | undefined;
   onDelete: (lesson: CustomLessonListItem) => void;
   deleting: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const created = new Date(lesson.created_at + (lesson.created_at.endsWith('Z') ? '' : 'Z'));
-  const chip = revisitChip(schedule, getStudyCutoff().ts);
-  const retired = schedule.status === 'retired';
+  const cutoff = getStudyCutoff().ts;
+  const chip = learnChip(learn, cutoff);
+  const revision = learn.status === 'revision';
+  const due = isRevisionDue(learn, cutoff);
+  const steps = lessonSteps(lesson.spec);
+  const revKeys = revision ? revisionKeys(learn, steps, lesson.id) : [];
+  const size = revision ? revisionSizeLabel(revKeys.length, lessonSteps(lesson.spec, revKeys).map(s => s.type)) : lessonSizeLabel(steps.map(s => s.type));
+  const play = run
+    ? { to: `/lessons/${lesson.id}/play?from=lessons_page${run.mode === 'revision' ? '&mode=revision' : ''}`, label: '▶ Continue' }
+    : revision
+      ? { to: `/lessons/${lesson.id}/play?from=lessons_page&mode=revision`, label: due ? '▶ Revision' : '▶ Revise now' }
+      : { to: `/lessons/${lesson.id}/play?from=lessons_page`, label: learn.status === 'new' ? '▶ Start' : '▶ Do it again' };
 
   return (
     <div className="mini-lesson-card">
@@ -84,25 +99,30 @@ function LessonCard({ lesson, schedule, onDelete, deleting }: {
         <div className="mini-lesson-titles">
           <div className="mini-lesson-title">{lesson.title}</div>
           {lesson.description && <div className="mini-lesson-desc">{lesson.description}</div>}
-          <div className="mini-lesson-meta">
-            {exerciseCount(lesson.spec)} exercises ({countScoreable(lesson.spec)} scored)
-            {schedule.finishes > 0 && ` · studied ${schedule.finishes}×`}
+          <div className="mini-lesson-meta" data-testid="mini-lesson-size">
+            {size || `${exerciseCount(lesson.spec)} exercises (${countScoreable(lesson.spec)} scored)`}
+            {learn.runs > 0 && ` · done ${learn.runs}×`}
             {' · '}from {lesson.source}
             {' · '}{created.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
           </div>
         </div>
         <span className={`mini-lesson-status ${chip.cls}`}>{chip.label}</span>
       </div>
-      {/* Play it from here: the real player (LessonReplayPage) — a new lesson starts,
-          a finished one is "Do it again" (Practice only when it isn't due). */}
+      {/* Play it from here: the real player (LessonReplayPage) — a run in progress continues, a
+          revision plays what was missed (+ a few), a new lesson starts, a done one is "Do it again". */}
       <div className="mini-lesson-play-row">
         <Link
-          to={`/lessons/${lesson.id}/play?from=lessons_page`}
+          to={play.to}
           className="btn btn-primary btn-sm mini-lesson-play"
           data-testid={`lesson-play-${lesson.id}`}
         >
-          {schedule.status === 'new' ? '▶ Start' : '▶ Do it again'}
+          {play.label}
         </Link>
+        {revision && !run && (
+          <Link to={`/lessons/${lesson.id}/play?from=lessons_page`} className="mini-lesson-parts" data-testid={`lesson-whole-${lesson.id}`}>
+            Whole lesson
+          </Link>
+        )}
         <button type="button" className="mini-lesson-parts" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}>
           {expanded ? 'Hide the parts' : 'See the parts'}
         </button>
@@ -123,16 +143,7 @@ function LessonCard({ lesson, schedule, onDelete, deleting }: {
           ))}
           <div className="mini-lesson-actions">
             <Link to={`/lessons/${lesson.id}/edit`} className="btn btn-primary btn-sm">✏️ Edit</Link>
-            {retired ? (
-              <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('lesson', lesson.id, 'restore')} data-testid="lesson-bring-back">
-                ↩ Bring back
-              </button>
-            ) : schedule.finishes > 0 && (
-              <button className="btn btn-secondary btn-sm" onClick={() => void markRevisit('lesson', lesson.id, 'retire', 'list')}>
-                ✓ Done for good
-              </button>
-            )}
-            {schedule.finishes > 0 && (
+            {learn.runs > 0 && (
               <Link to={`/lesson-attempts?lesson=${lesson.id}`} className="btn btn-secondary btn-sm">📝 My answers</Link>
             )}
             <button
@@ -176,12 +187,15 @@ export function MiniLessonsPage() {
           total: e.total,
           completed_at: e.completed_at,
           rating: e.rating,
+          outcome: runRecord(e).outcome,
         })),
     }));
   }, []);
 
-  // Done for good / Bring back (this device's events, pending ones included) and the gaps.
+  // The old Done-for-good marks (a retire = done forever).
   const marks = useLiveQuery(() => db.revisitEvents.toArray(), []) ?? [];
+  // Runs in progress on this device ("▶ Continue").
+  const runs = useLiveQuery(() => lessonRunsInProgress(), []) ?? new Map<string, SavedLessonRunCore>();
   // This device's unlocks (pending ones count at once, before the server list has them).
   const localUnlocks = useLiveQuery(() => db.lessonUnlocks.toArray(), []) ?? [];
   const [unlocking, setUnlocking] = useState<string | null>(null);
@@ -190,7 +204,6 @@ export function MiniLessonsPage() {
     window.addEventListener(LESSON_UNLOCKED_EVENT, refresh);
     return () => window.removeEventListener(LESSON_UNLOCKED_EVENT, refresh);
   }, [queryClient]);
-  const settings = readRevisitSettings();
 
   const deleteMutation = useMutation({
     mutationFn: async (lesson: CustomLessonListItem) => {
@@ -257,19 +270,22 @@ export function MiniLessonsPage() {
     }
   };
 
-  // Lessons come back on the "revisit later" schedule: split into up next
-  // (new / due today), scheduled out, and done for good.
+  // Revise until right first time: to do (a run in progress, revisions due, new ones), revisions
+  // coming later, and done for good (everything right first time).
   const cutoff = getStudyCutoff();
-  const withSchedule = lessons.filter(l => !lockedIds.has(l.id)).map(lesson => ({ lesson, schedule: scheduleFor(lesson, marks, settings) }));
-  const upNext = withSchedule.filter(x => x.schedule.status === 'new' || (x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) <= cutoff.ts));
-  const scheduled = withSchedule.filter(x => x.schedule.status === 'scheduled' && (x.schedule.due_ms ?? 0) > cutoff.ts)
-    .sort((a, b) => (a.schedule.due_ms ?? 0) - (b.schedule.due_ms ?? 0));
-  const retired = withSchedule.filter(x => x.schedule.status === 'retired');
-  const card = ({ lesson, schedule }: { lesson: CustomLessonListItem; schedule: RevisitState }) => (
+  const withLearn = lessons.filter(l => !lockedIds.has(l.id)).map(lesson => ({ lesson, learn: learnFor(lesson, marks) }));
+  const toDo = withLearn.filter(x => runs.has(x.lesson.id) || x.learn.status === 'new' || isRevisionDue(x.learn, cutoff.ts))
+    .sort((a, b) => Number(runs.has(b.lesson.id)) - Number(runs.has(a.lesson.id)) || (a.learn.status === 'revision' ? 0 : 1) - (b.learn.status === 'revision' ? 0 : 1));
+  const toDoIds = new Set(toDo.map(x => x.lesson.id));
+  const later = withLearn.filter(x => !toDoIds.has(x.lesson.id) && x.learn.status === 'revision')
+    .sort((a, b) => (a.learn.due_ms ?? 0) - (b.learn.due_ms ?? 0));
+  const done = withLearn.filter(x => !toDoIds.has(x.lesson.id) && x.learn.status === 'done');
+  const card = ({ lesson, learn }: { lesson: CustomLessonListItem; learn: LessonLearnState }) => (
     <LessonCard
       key={lesson.id}
       lesson={lesson}
-      schedule={schedule}
+      learn={learn}
+      run={runs.get(lesson.id)}
       onDelete={handleDelete}
       deleting={deleteMutation.isPending && deleteMutation.variables?.id === lesson.id}
     />
@@ -280,9 +296,8 @@ export function MiniLessonsPage() {
       <div className="container mini-lessons-page">
         <h1>🎓 Mini Lessons</h1>
         <p className="text-light mini-lessons-sub">
-          Custom lessons authored by Claude (from chat or MCP). They mix into
-          your study sessions; once finished, your rating decides when one comes
-          back (Good: in two weeks, then longer each time — Settings → Lessons &amp; readers).
+          Lessons from your tutor and from Claude. Get everything right first time and a lesson is
+          done for good; anything you miss comes back a week later as a short revision.
         </p>
         {!serverLessons && (
           <p className="mini-lessons-offline-note">
@@ -292,27 +307,27 @@ export function MiniLessonsPage() {
 
         <ReadyToUnlock items={locked} onUnlock={item => void handleUnlock(item)} busyId={unlocking} />
 
-        <h2 className="mini-lessons-heading">Up next ({upNext.length})</h2>
-        {upNext.length === 0 && (
+        <h2 className="mini-lessons-heading">To do ({toDo.length})</h2>
+        {toDo.length === 0 && (
           <p className="text-light">
             Nothing waiting. Ask Claude for one — during study, in the Sentence
             Coach, or from any connected Claude chat: “make me a mini lesson on …”
           </p>
         )}
-        {upNext.map(card)}
+        {toDo.map(card)}
 
-        {scheduled.length > 0 && (
+        {later.length > 0 && (
           <>
-            <h2 className="mini-lessons-heading">Coming back later ({scheduled.length})</h2>
-            {scheduled.map(card)}
+            <h2 className="mini-lessons-heading">Revision coming ({later.length})</h2>
+            {later.map(card)}
           </>
         )}
 
-        {retired.length > 0 && (
+        {done.length > 0 && (
           <>
-            <h2 className="mini-lessons-heading">Done for good ({retired.length})</h2>
-            <p className="text-light" style={{ fontSize: '0.875rem' }}>Never offered again. Bring one back to put it in rotation.</p>
-            {retired.map(card)}
+            <h2 className="mini-lessons-heading">Done for good ({done.length})</h2>
+            <p className="text-light" style={{ fontSize: '0.875rem' }}>Everything right first time. Do one again any time.</p>
+            {done.map(card)}
           </>
         )}
       </div>

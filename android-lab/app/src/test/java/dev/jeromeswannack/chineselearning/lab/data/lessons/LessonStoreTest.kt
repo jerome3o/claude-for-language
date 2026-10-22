@@ -5,8 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
-import dev.jeromeswannack.chineselearning.lab.core.Rating
-import dev.jeromeswannack.chineselearning.lab.core.RevisitState
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.AttemptRecording
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.Api
@@ -40,10 +39,11 @@ import java.time.ZoneId
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * The offline lesson flow against a fake server: a completion is scheduled locally at once,
- * goes up through the Outbox with its attempt, its recording waits until the attempt has
- * landed (404 → retry), local events are dropped once the server lists them, and one-off
- * homework lessons stay out of the rotation and get their `done` event.
+ * The offline lesson flow against a fake server: a completion decides the lesson's state locally
+ * at once (all right first time → done forever; a miss → a revision in a week), goes up through
+ * the Outbox with its attempt and outcome, its recording waits until the attempt has landed
+ * (404 → retry), local events are dropped once the server lists them, and homework lessons get
+ * their `done` event.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
@@ -121,10 +121,13 @@ class LessonStoreTest {
 
     private val cutoff get() = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.of("UTC"))
 
-    @Test fun completionIsScheduledLocallyThenUploadedWithItsAttemptAndRecording() = runBlocking {
+    private fun row(index: Int, correct: Boolean, retry: Int? = null) =
+        ExerciseAttempt(0, index, "choice", correct, if (correct) 1 else 0, 1, 1_000, retry = retry)
+
+    @Test fun completionDecidesLocallyThenUploadsItsAttemptOutcomeAndRecording() = runBlocking {
         store.sync(prefetch = false)
-        // One new lesson a day (the default): the oldest.
-        assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
+        // Both new lessons are to do (Home's card / the Mini Lessons page), oldest first — no daily place any more.
+        assertEquals(listOf("L1", "L2"), store.lessonsToDo(cutoff).map { it.id })
         assertEquals("unknown exercise types still decode", 2, store.entry("L1")!!.lesson.spec.sections[0].exercises.size)
 
         val rec = store.recordingFile().apply { writeBytes(ByteArray(64) { 1 }) }
@@ -132,13 +135,12 @@ class LessonStoreTest {
             "2026-09-27T10:00:00.000Z", 60_000,
             listOf(ExerciseAttempt(0, 0, "oral_expression", true, 1, 1, 30_000, ExerciseAnswer(selfAssessed = true, recording = AttemptRecording("s0e0", 12_000, "audio/mp4")))),
         )
-        val state = store.complete("L1", 1, 1, Rating.AGAIN, attempt, listOf(LessonRecording("s0e0", rec, "audio/mp4")))
+        val state = store.complete("L1", 1, 1, attempt, listOf(LessonRecording("s0e0", rec, "audio/mp4")), null)
 
-        // Offline right now: the new state is local — Again = back tomorrow ("revisit later").
-        assertEquals(RevisitState.SCHEDULED, state.status)
-        assertEquals(1.0, state.gapDays, 0.0)
-        assertTrue(store.dueLessons(cutoff).none { it.id == "L1" })
-        assertEquals(1, store.entry("L1")!!.events.size)
+        // Offline right now: the new state is local — everything right first time = done forever.
+        assertEquals("done", state.status)
+        assertTrue(store.lessonsToDo(cutoff).none { it.id == "L1" })
+        assertEquals(1, store.entry("L1")!!.runs.size)
         assertEquals(1, outbox.pendingCount())
         assertEquals(1, store.pendingMediaCount())
 
@@ -146,67 +148,54 @@ class LessonStoreTest {
         store.uploadMedia()
         assertEquals(1, store.pendingMediaCount())
 
-        // Sync: the outbox sends the completion (with the attempt), then the recording goes up.
+        // Sync: the outbox sends the completion (attempt + outcome, no rating), then the recording goes up.
         outbox.drain()
         store.sync(prefetch = false)
         val upload = requests.first { it.first == "POST /api/custom-lessons/offline-complete" }.second
-        assertTrue(upload.contains("\"attempt\"") && upload.contains("\"media_key\":\"s0e0\"") && upload.contains("\"rating\":0"))
+        assertTrue(upload.contains("\"attempt\"") && upload.contains("\"media_key\":\"s0e0\"") && upload.contains("\"outcome\""))
+        assertTrue(!upload.contains("\"rating\":0") && !upload.contains("\"rating\":2"))
         assertEquals(0, store.pendingMediaCount())
         assertTrue(requests.any { it.first.startsWith("PUT /api/lesson-attempts/") && it.first.endsWith("/media/s0e0") })
 
-        // The server now lists the completion; the local copy is dropped without double counting.
+        // The server now lists the completion (its legacy fake carries rating 2 and no outcome → done
+        // too); the local copy is dropped without double counting.
         val entry = store.entry("L1")!!
-        assertEquals(1, entry.events.size)
-        assertEquals(state.status, entry.state.status)
+        assertEquals(1, entry.runs.size)
+        assertEquals("done", entry.learn.status)
     }
 
-    @Test fun doneForGoodRetiresUploadsAndBringBackRestores() = runBlocking {
+    @Test fun aMistakeComesBackAsARevisionInAWeek() = runBlocking {
         store.sync(prefetch = false)
-        val state = store.complete("L1", 1, 1, Rating.GOOD, null, emptyList(), retire = true)
-        assertEquals(RevisitState.RETIRED, state.status)
-        assertTrue(store.entry("L1")!!.retired)
-        // L1 was today's new lesson: L2 waits for tomorrow.
-        assertEquals(emptyList<String>(), store.dueLessons(cutoff).map { it.id })
-        // The completion and the retire event both wait in the outbox, in that order.
-        assertEquals(listOf("lessons", "revisit"), outbox.all().map { it.kind })
-
-        // A sync before the upload keeps the pending retire on top of the server's (empty) list.
-        store.revisit.sync()
-        assertTrue(store.entry("L1")!!.retired)
-
-        outbox.drain()
-        val up = requests.first { it.first == "POST /api/me/revisit-events" }.second
-        assertTrue(up.contains("\"item_kind\":\"lesson\"") && up.contains("\"item_id\":\"L1\"") && up.contains("\"action\":\"retire\""))
-        // Now the server lists it; Bring back puts it in rotation, due at once.
-        store.revisit.sync()
-        assertTrue(store.entry("L1")!!.retired)
-        store.markRevisit("L1", "restore")
-        val back = store.entry("L1")!!.state
-        assertEquals(RevisitState.SCHEDULED, back.status)
-        assertTrue(store.dueLessons(cutoff).any { it.id == "L1" })
+        val now = System.currentTimeMillis()
+        val attempt = LessonAttemptData("2026-10-01T10:00:00.000Z", 1, listOf(row(0, false), row(0, true, retry = 1)))
+        val state = store.complete("L1", 0, 1, attempt, emptyList(), null, nowMs = now)
+        assertEquals("revision", state.status)
+        assertEquals(1, state.revision)
+        assertEquals(listOf("s0e0"), state.missed)
+        assertEquals(now + LessonRevision.GAP_DAYS * 86_400_000L, state.dueMs)
+        // Not due today: off Home's to-do list until then; a week later it is the revision.
+        assertTrue(store.lessonsToDo(cutoff).none { it.id == "L1" })
+        val later = StudyQueue.cutoff(now + 8 * 86_400_000L, ZoneId.of("UTC"))
+        assertEquals("L1", store.lessonsToDo(later).first().id)
+        assertEquals(listOf("s0e0"), store.entry("L1")!!.revisionKeys())
+        assertEquals("1 question · ~1 min", store.entry("L1")!!.revisionSize())
+        // The revision put right first time: done forever.
+        store.complete("L1", 1, 1, LessonAttemptData("", 1, listOf(row(0, true))), emptyList(), null, nowMs = now + 8 * 86_400_000L)
+        assertEquals("done", store.entry("L1")!!.learn.status)
     }
 
-    @Test fun theAccountsGapsComeWithTheSync() = runBlocking {
-        settingsJson = """{"hard_days":1,"good_days":7,"easy_days":21,"growth":1.5,"cap_days":90,"is_default":false}"""
-        store.sync(prefetch = false)
-        store.revisit.sync()
-        store.complete("L1", 1, 1, Rating.GOOD, null, emptyList())
-        val e = store.entry("L1")!!
-        assertEquals(7.0, e.state.gapDays, 0.0)
-        assertEquals(listOf("1 day", "8 days", "11 days", "3 wk"), dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(e.state, e.settings).map { it.intervalText })
-    }
-
-    @Test fun oneOffHomeworkLessonsStayOutAndGetTheirDoneEvent() = runBlocking {
+    @Test fun homeworkLessonsGetTheirDoneEvent() = runBlocking {
         // The homework mirror (package E's HomeworkSync fills it on every sync).
         cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, listOf(
             HomeworkAssignment(id = "A1", kind = "lesson", target_id = "L2", mode = "one_off", status = "active"),
             HomeworkAssignment(id = "A2", kind = "lesson", target_id = "L1", mode = "both", status = "active"),
         ))
         store.sync(prefetch = false)
-        assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
+        // Home's card lists every new lesson (the homework rows cover the assigned ones).
+        assertEquals(listOf("L1", "L2"), store.lessonsToDo(cutoff).map { it.id })
 
-        store.complete("L1", 1, 1, Rating.GOOD, null, emptyList())
-        store.complete("L1", 1, 1, Rating.GOOD, null, emptyList()) // a second finish doesn't queue again
+        store.complete("L1", 1, 1, null, emptyList(), null)
+        store.complete("L1", 1, 1, null, emptyList(), null) // a second finish doesn't queue again
         outbox.drain()
         val done = requests.filter { it.first == "POST /api/me/homework/events" }
         assertEquals(1, done.size)
@@ -216,13 +205,13 @@ class LessonStoreTest {
         assertEquals(listOf("A2" to "done"), events.map { it.assignment_id to it.result })
     }
 
-    @Test fun syncPrefetchesEveryClipOfTodaysAndHomeworkLessonsOnce() = runBlocking {
-        // L2 is one-off homework: never in today's rotation, but its pass opens it — its audio comes down too.
+    @Test fun syncPrefetchesEveryClipOfLessonsToDoAndHomeworkLessonsOnce() = runBlocking {
+        // L2 is one-off homework: its pass opens it — its audio comes down too.
         cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, listOf(
             HomeworkAssignment(id = "A1", kind = "lesson", target_id = "L2", mode = "one_off", status = "active"),
         ))
         store.sync(prefetch = true, online = true)
-        assertEquals(listOf("L1"), store.dueLessons(cutoff).map { it.id })
+        assertEquals(listOf("L1", "L2"), store.lessonsToDo(cutoff).map { it.id })
         assertEquals(setOf("对", "错", "即使他很忙，也每天复习中文。"), ttsTexts.toSet())
         assertEquals("each clip asked for once", 3, ttsTexts.size)
         val scramble = dev.jeromeswannack.chineselearning.lab.core.LessonAudioClip("tts", "即使他很忙，也每天复习中文。", exercise = 0)

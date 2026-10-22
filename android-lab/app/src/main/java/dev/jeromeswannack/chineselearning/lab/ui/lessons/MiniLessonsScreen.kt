@@ -33,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.Revisit
 import dev.jeromeswannack.chineselearning.lab.core.RevisitState
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseTypes
@@ -68,6 +69,8 @@ data class MiniLessonsUi(
     val deleting: String? = null,
     /** Audio lessons by id (title + heard to the end) for the locked rows. */
     val audio: Map<String, Pair<String?, Boolean>> = emptyMap(),
+    /** Runs in progress on this phone: lesson id → "full" | "revision" ("▶ Continue"). */
+    val inProgress: Map<String, String> = emptyMap(),
 )
 
 class MiniLessonsActions(
@@ -76,12 +79,8 @@ class MiniLessonsActions(
     val onAnswers: (id: String) -> Unit = {},
     val onDelete: (id: String) -> Unit = {},
     val onRetry: () -> Unit = {},
-    /** "✓ Done for good" on a finished lesson (never offered again). */
-    val onDoneForGood: (id: String) -> Unit = {},
-    /** "↩ Bring back" on a lesson done for good (due again at once). */
-    val onBringBack: (id: String) -> Unit = {},
-    /** "▶ Start" / "▶ Do it again": the real player outside the session (`/lessons/:id/play`). */
-    val onPlay: (id: String) -> Unit = {},
+    /** "▶ Start" / "▶ Revision" / "▶ Continue" / "▶ Do it again": the player (`/lessons/:id/play`); [revision] = its revision. */
+    val onPlay: (id: String, revision: Boolean) -> Unit = { _, _ -> },
     /** "Ready to unlock": unlock a locked lesson / open its podcast. */
     val onUnlock: (id: String) -> Unit = {},
     val onListen: (audioLessonId: String) -> Unit = {},
@@ -92,8 +91,19 @@ private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
 private fun shortDate(iso: String?, zone: ZoneId = ZoneId.systemDefault()): String =
     iso?.let { runCatching { DAY.format(Instant.ofEpochMilli(Js.parseDate(it)).atZone(zone)) }.getOrNull() } ?: ""
 
-/** `revisitChip`: New / Due today / Next revisit 20 Oct / Done for good. */
-fun scheduleChip(entry: LessonEntry, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> = revisitChip(entry.state, cutoff)
+/** `learnChip`: New · 🔁 Revision 2 · due today · 🔁 Revision 1 · in 5 days · ✓ Done. */
+fun learnChip(learn: LessonRevision.State, cutoff: StudyCutoff): Pair<String, androidx.compose.ui.graphics.Color> = when (learn.status) {
+    "new" -> "New" to Palette.New
+    "done" -> "✓ Done" to RetiredGrey
+    else -> {
+        val name = LessonRevision.title(learn)
+        if (LessonRevision.isDue(learn, cutoff.ts)) "🔁 $name · due today" to Palette.Hard
+        else {
+            val days = LessonRevision.daysAway(learn, cutoff.ts)
+            "🔁 $name · ${if (days == 1) "tomorrow" else "in $days days"}" to Palette.Good
+        }
+    }
+}
 
 /** "Done for good" — the web's grey `retired` chip. */
 val RetiredGrey = androidx.compose.ui.graphics.Color(0xFF6B7280)
@@ -110,11 +120,13 @@ fun revisitChip(s: RevisitState, cutoff: StudyCutoff): Pair<String, androidx.com
 }
 
 /**
- * `/lessons` — the web's MiniLessonsPage: Up next (new / due today), Coming back later (the
- * "revisit later" schedule, soonest first) and Done for good (↩ Bring back), every exercise of
- * a lesson, Edit, ✓ Done for good, My answers and Delete — and on every card ▶ Start (new) /
- * ▶ Do it again (`/lessons/:id/play`, LessonReplay.kt). Renders the cached lessons at once and
- * refreshes behind them.
+ * `/lessons` — the web's MiniLessonsPage: To do (a run in progress, revisions due, new lessons),
+ * Revision coming (soonest first) and Done for good (everything right first time), with how big
+ * each is ("18 exercises · ~12 min", a revision "5 questions · ~4 min") and every exercise of a
+ * lesson; ▶ Start / ▶ Revision / ▶ Continue / ▶ Do it again (`/lessons/:id/play`, LessonReplay.kt),
+ * Edit, My answers, Delete. Lessons revise until right first time (core LessonRevision) and are
+ * done from here and Home's homework card — not the study session. Renders the cached lessons at
+ * once and refreshes behind them.
  */
 @Composable
 fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
@@ -122,13 +134,15 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
     // Locked lessons (shared/lesson/unlock.ts) wait in "Ready to unlock" and nowhere else.
     val locked = ui.lessons.orEmpty().filter { it.locked }
     val lessons = ui.lessons?.filter { !it.locked }
-    val upNext = lessons.orEmpty().filter { LessonSchedule.isUpNext(it.state, ui.cutoff) }
-    val scheduled = lessons.orEmpty().filter { it.state.isScheduled && !LessonSchedule.isUpNext(it.state, ui.cutoff) }.sortedBy { it.state.dueMs ?: 0L }
-    val retired = lessons.orEmpty().filter { it.retired }
+    val toDo = lessons.orEmpty().filter { it.id in ui.inProgress || it.isNew || it.revisionDue(ui.cutoff.ts) }
+        .sortedWith(compareBy({ if (it.id in ui.inProgress) 0 else 1 }, { if (it.isRevision) 0 else 1 }))
+    val toDoIds = toDo.mapTo(HashSet()) { it.id }
+    val later = lessons.orEmpty().filter { it.id !in toDoIds && it.isRevision }.sortedBy { it.learn.dueMs ?: 0L }
+    val done = lessons.orEmpty().filter { it.id !in toDoIds && it.retired }
     LabScreen("🎓 Mini Lessons", onBack = actions.onBack) {
         item {
             Text(
-                "Custom lessons authored by Claude (from chat or MCP). They mix into your study sessions; once finished, your rating decides when one comes back (Good: in two weeks, then longer each time — Settings → Lessons & readers).",
+                "Lessons from your tutor and from Claude. Get everything right first time and a lesson is done for good; anything you miss comes back a week later as a short revision.",
                 style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
             )
         }
@@ -140,7 +154,7 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
         }
         if (locked.isNotEmpty()) {
             item { SectionHeader("🔒 Ready to unlock (${locked.size})") }
-            item { Text("These wait until you've done the real thing — then they come today.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            item { Text("These wait until you've done the real thing.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
             item(key = "locked") {
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp))) {
                     locked.forEachIndexed { i, e ->
@@ -156,24 +170,24 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
                 }
             }
         }
-        item { SectionHeader("Up next (${upNext.size})") }
-        if (upNext.isEmpty()) {
+        item { SectionHeader("To do (${toDo.size})") }
+        if (toDo.isEmpty()) {
             item {
                 Text(
-                    "Nothing waiting. Ask Claude for one — during study, in the Sentence Coach, or from any connected Claude chat: “make me a mini lesson on …”",
+                    "Nothing waiting. Ask Claude for one — in the Sentence Coach, or from any connected Claude chat: “make me a mini lesson on …”",
                     style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
                 )
             }
         }
-        items(upNext, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
-        if (scheduled.isNotEmpty()) {
-            item { SectionHeader("Coming back later (${scheduled.size})") }
-            items(scheduled, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        items(toDo, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        if (later.isNotEmpty()) {
+            item { SectionHeader("Revision coming (${later.size})") }
+            items(later, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
         }
-        if (retired.isNotEmpty()) {
-            item { SectionHeader("Done for good (${retired.size})") }
-            item { Text("Never offered again. Bring one back to put it in rotation.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
-            items(retired, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        if (done.isNotEmpty()) {
+            item { SectionHeader("Done for good (${done.size})") }
+            item { Text("Everything right first time. Do one again any time.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            items(done, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
         }
     }
     confirm?.let { id ->
@@ -187,7 +201,11 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
 private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLessonsActions, onDelete: () -> Unit) {
     var expanded by rememberSaveable(entry.id) { mutableStateOf(false) }
     val l = entry.lesson
-    val (chip, chipColor) = scheduleChip(entry, ui.cutoff)
+    val (chip, chipColor) = learnChip(entry.learn, ui.cutoff)
+    val running = ui.inProgress[entry.id]
+    val revision = entry.isRevision
+    val due = entry.revisionDue(ui.cutoff.ts)
+    val size = if (revision) entry.revisionSize() else entry.lessonSize()
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp)),
     ) {
@@ -197,21 +215,30 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
                 Text(l.title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = Lab.colors.ink)
                 l.description?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
                 val meta = buildString {
-                    append("${Lessons.exerciseCount(l.spec)} exercises (${Lessons.countScoreable(l.spec)} scored)")
-                    if (entry.reps > 0) append(" · studied ${entry.reps}×")
+                    append(size.ifEmpty { "${Lessons.exerciseCount(l.spec)} exercises (${Lessons.countScoreable(l.spec)} scored)" })
+                    if (entry.reps > 0) append(" · done ${entry.reps}×")
                     append(" · from ${l.source}")
                     shortDate(l.createdAt).takeIf { it.isNotEmpty() }?.let { append(" · $it") }
                 }
-                Text(meta, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+                Text(meta, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.testTag("mini-lesson-size"))
             }
             StatusPill(chip, chipColor, Modifier.padding(start = 8.dp))
         }
-        // Play it from here (the real player): a new lesson starts, a finished one is "Do it again".
+        // Play it from here (the real player): a run in progress continues, a revision plays what was
+        // missed (+ a few), a new lesson starts, a done one is "Do it again".
         Row(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill(
-                if (entry.state.isNew) "▶ Start" else "▶ Do it again",
-                Modifier.height(44.dp).testTag("lesson-play-${l.id}"),
-            ) { actions.onPlay(l.id) }
+            val (label, asRevision) = when {
+                running != null -> "▶ Continue" to (running == "revision")
+                revision -> (if (due) "▶ Revision" else "▶ Revise now") to true
+                entry.isNew -> "▶ Start" to false
+                else -> "▶ Do it again" to false
+            }
+            dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill(label, Modifier.height(44.dp).testTag("lesson-play-${l.id}")) { actions.onPlay(l.id, asRevision) }
+            if (revision && running == null) {
+                androidx.compose.material3.TextButton(onClick = { actions.onPlay(l.id, false) }, modifier = Modifier.heightIn(min = 44.dp).testTag("lesson-whole-${l.id}")) {
+                    Text("Whole lesson", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                }
+            }
             androidx.compose.material3.TextButton(onClick = { expanded = !expanded }, modifier = Modifier.heightIn(min = 44.dp)) {
                 Text(if (expanded) "Hide the parts" else "See the parts", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
@@ -231,8 +258,6 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SecondaryPill("✏️ Edit") { actions.onEdit(l.id) }
-                    if (entry.retired) SecondaryPill("↩ Bring back") { actions.onBringBack(l.id) }
-                    else if (entry.reps > 0) SecondaryPill("✓ Done for good") { actions.onDoneForGood(l.id) }
                     if (entry.reps > 0) SecondaryPill("📝 My answers") { actions.onAnswers(l.id) }
                     SecondaryPill(if (ui.deleting == l.id) "Deleting…" else "🗑 Delete lesson", enabled = ui.deleting == null, danger = true, onClick = onDelete)
                 }

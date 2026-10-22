@@ -177,6 +177,7 @@ private fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
                 Spacer(Modifier.width(8.dp))
                 if (row.progress.isNotEmpty()) Text(row.progress, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             }
+            if (row.size.isNotEmpty()) Text(row.size, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag("hw-size"))
             row.fraction?.let { ProgressBar(it.toFloat(), Modifier.fillMaxWidth(), color = HOMEWORK_PURPLE, height = 3.dp) }
         }
         if (row.due.isNotEmpty()) {
@@ -214,13 +215,17 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
         app.cache.observe<TutorCardSources>(HomeworkKeys.TUTOR_CARD),
         app.cache.observe<List<NotificationDto>>(ConnectionsKeys.NOTIFICATIONS),
         app.repo.dataVersion,
-    ) { hw, rel, sources, notes, _ -> Inputs(hw, rel, sources, notes) }.mapLatest { withContext(Dispatchers.IO) { build(it) } }
+    ) { hw, rel, sources, notes, _ -> Inputs(hw, rel, sources, notes) }
+        // Every mini lesson on the phone: due revisions + new ones are rows (not the study session any more).
+        .combine(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.observe()) { inputs, lessons -> inputs.copy(lessons = lessons) }
+        .mapLatest { withContext(Dispatchers.IO) { build(it) } }
 
     private data class Inputs(
         val homework: Pair<List<HomeworkAssignment>, List<dev.jeromeswannack.chineselearning.lab.core.HomeworkEvent>>?,
         val rel: MyRelationshipsDto?,
         val sources: TutorCardSources?,
         val notifications: List<NotificationDto>?,
+        val lessons: List<dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry> = emptyList(),
     )
 
     val ui: StateFlow<HomeHomeworkUi> = combine(card, notesLine) { c, line -> c.copy(notesLine = line) }
@@ -262,8 +267,20 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
             longTerm += LongTermHomework("lesson", item.lessonId, item.title, p?.tutorName, item.sentAt, null, null)
         }
         val unread = p?.unreadMessage
+        // Sizes ("18 exercises · ~12 min", "5 questions · ~4 min" for a revision due, "6 pages") and
+        // the lessons as Home sees them (web HomeworkHomeCard's useHomeLessons).
+        val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault()).ts
+        val tutorOf = assignments.filter { it.kind == "lesson" && !it.tutor_name.isNullOrEmpty() }.associate { it.target_id to it.tutor_name }
+        val sizes = HashMap<String, String>()
+        val lessons = input.lessons.map { e ->
+            val home = e.homeLesson(cutoff, tutorOf[e.id])
+            sizes[e.id] = home.size
+            home
+        }
+        runCatching { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).readers.entries() }.getOrDefault(emptyList())
+            .forEach { r -> sizes[r.id] = dev.jeromeswannack.chineselearning.lab.core.HomeworkSize.readerSizeLabel(r.reader.pages.size) }
         return HomeHomeworkUi(
-            card = HomeHomework.build(todo, longTerm, unreadFrom = if (unread != null) p.tutorName else null),
+            card = HomeHomework.build(todo, longTerm, unreadFrom = if (unread != null) p.tutorName else null, sizes = sizes, lessons = lessons),
             unread = unread,
             unreadRelId = p?.relationshipId,
             unreadFrom = p?.tutorName,

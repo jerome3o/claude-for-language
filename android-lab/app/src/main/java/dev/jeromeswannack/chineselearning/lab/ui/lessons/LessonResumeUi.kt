@@ -7,26 +7,22 @@ import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore
 
 /**
- * The [LessonResumeHandle] for a real run of [lessonId] (session, Home / today's list,
- * homework pass): the run saved earlier today, if it can still be continued, and saving
- * after every exercise. Read once per lesson + spec, so a recomposition (leaving Study and
- * coming back, a new process) picks the saved run up again. Previews never use this.
+ * The [LessonResumeHandle] for a real run of [lessonId] (Home, the Mini Lessons page, a homework
+ * pass): the half-done run saved on this phone — another day, after a restart, offline — and
+ * saving after every exercise. Read once per lesson + shape, so a recomposition (a new process)
+ * picks the saved run up again. Previews never use this.
  */
 @Composable
 fun rememberLessonResume(context: Context, lessonId: String, spec: CustomLessonSpec): LessonResumeHandle {
     val store = remember(context) { LessonProgressStore.get(context) }
-    val hash = remember(spec) { LessonProgressStore.specHash(spec) }
-    return remember(lessonId, hash) { lessonResumeHandle(store, lessonId, spec, hash) }
+    val shape = remember(spec) { LessonProgressStore.shape(spec) }
+    return remember(lessonId, shape) { lessonResumeHandle(store, lessonId, spec) }
 }
 
 /** Same, outside composition (tests). */
-fun lessonResumeHandle(store: LessonProgressStore, lessonId: String, spec: CustomLessonSpec, hash: String = LessonProgressStore.specHash(spec)): LessonResumeHandle {
-    val count = flattenSpec(spec).size
-    return LessonResumeHandle(
-        saved = store.restore(lessonId, hash, count),
-        openedBefore = store.startedTodayBefore(lessonId),
-        onOpen = { store.markStarted(lessonId) },
-        onProgress = { index, correct, total, startedAt, attempts, recordings -> store.save(lessonId, hash, index, correct, total, startedAt, attempts, recordings) },
+fun lessonResumeHandle(store: LessonProgressStore, lessonId: String, spec: CustomLessonSpec): LessonResumeHandle =
+    LessonResumeHandle(
+        saved = store.restore(lessonId, LessonProgressStore.shape(spec)),
+        onProgress = { store.save(it.copy(lessonId = lessonId)) },
         onStartOver = { store.clear(lessonId, deleteRecordings = true) },
     )
-}

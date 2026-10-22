@@ -166,7 +166,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     private fun playerUi(a: HomeworkAssignment, complete: Boolean, targets: Targets?, finished: Boolean): PassUi.Player {
         val title = a.title.ifEmpty { if (a.kind == "reader") "Reader" else "Mini lesson" }
         val lesson = targets?.lessons?.get(a.target_id)?.takeIf { a.kind == "lesson" }?.let {
-            PassLesson(it.id, it.lesson.title, it.lesson.icon, it.lesson.spec, dev.jeromeswannack.chineselearning.lab.core.ItemSchedule.previews(it.state, it.settings))
+            PassLesson(it.id, it.lesson.title, it.lesson.icon, it.lesson.spec)
         }
         val reader = targets?.readers?.get(a.target_id)?.takeIf { a.kind == "reader" }?.let {
             SessionReader(it.reader, key = 1)
@@ -214,18 +214,26 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         app.haptics.tick()
     }
 
+    /** Finished in this pass's player (its Done then shows the pass's end). */
+    private var lessonCompletedHere = false
+
     /**
-     * `completeCustomLesson` from the pass: the rated completion with its attempt and
-     * recordings (queued like a session's), which also records the homework `done`; then
-     * uploaded straight away when online.
+     * `completeCustomLesson` from the pass: the completion with its attempt, outcome and recordings,
+     * which also records the homework `done` (the outcome decides: all right first time → done
+     * forever, else a revision in a week); then uploaded straight away when online.
      */
     fun completeLesson(result: LessonResult) {
         val lessonId = (ui.value as? PassUi.Player)?.lesson?.id ?: return
+        lessonCompletedHere = true
         viewModelScope.launch {
-            runCatching { runtime.store.complete(lessonId, result.correct, result.total, result.rating, result.attempt, result.recordings, retire = result.retire, source = "homework") }
-            local.value = local.value.copy(finished = true)
+            runCatching { runtime.store.complete(lessonId, result.correct, result.total, result.attempt, result.recordings, result.outcome, source = "homework") }
             runtime.uploadSoon()
         }
+    }
+
+    /** The player's Done / ✕: the pass's end when the lesson was finished here, else [close]. */
+    fun lessonEnded(close: () -> Unit) {
+        if (lessonCompletedHere) local.value = local.value.copy(finished = true) else close()
     }
 
     /** `recordReaderFinish` from the pass (also records the homework `done`). */

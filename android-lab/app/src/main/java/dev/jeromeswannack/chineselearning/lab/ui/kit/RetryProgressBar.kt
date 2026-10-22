@@ -56,7 +56,7 @@ private val DarkBar = RetryBarColors(Color(0xFF60A5FA), Color(0xFFFB923C), Color
  * blue = steps done from the left, orange (hatched) = "Not yet" items still owed at the RIGHT end,
  * the track between = items not shown yet. When the blue reaches the orange the learner is on cards
  * already seen. The numbers come from core [RetryBars] (`passRetryBar` for a pass, `retryBar` from
- * counts), so any pass with retries can use it — homework word passes; mini-lesson homework next.
+ * counts), so any pass with retries can use it — homework word passes and mini lessons' retry round (LessonPlayer).
  *
  * Colour-blind safe: blue vs orange, the orange is hatched, and "↺ 3" sits at its right end. The
  * badge's slot is always kept (when [showBadge]) so the track never shrinks — the blue would look

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { db, type LocalCustomLesson } from '../db/database';
 import { CardQueue } from '../types';
-import { getDueCustomLessons, completeCustomLesson } from './custom-lesson-study';
+import { lessonsToDo, completeCustomLesson } from './custom-lesson-study';
 import { applyLocalUnlocks, listenedHere, markAudioLessonListened, unlockLesson, uploadLessonUnlocks } from './lessonUnlock';
 
 function makeLesson(overrides: Partial<LocalCustomLesson> = {}): LocalCustomLesson {
@@ -34,16 +34,16 @@ beforeEach(() => {
 describe('unlockable lessons on the device', () => {
   it('a locked lesson is never offered, not even as the oldest new lesson', async () => {
     await db.customLessons.bulkPut([companion(), makeLesson({ id: 'a', created_at: '2026-08-02T00:00:00Z' })]);
-    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['a']);
+    expect((await lessonsToDo()).map(l => l.id)).toEqual(['a']);
   });
 
-  it('unlocking puts it in today on top of the daily lesson; finishing it leaves the daily place', async () => {
+  it('unlocking puts it on the to-do list (oldest first); finishing it all right takes it off', async () => {
     await db.customLessons.bulkPut([companion(), makeLesson({ id: 'a', created_at: '2026-08-02T00:00:00Z' })]);
     expect(await unlockLesson('companion', 'manual')).toBe(true);
     expect((await db.lessonUnlocks.get('companion'))?._synced).toBe(0);
-    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['companion', 'a']);
-    await completeCustomLesson('companion', 3, 3, 2);
-    expect((await getDueCustomLessons()).map(l => l.id)).toEqual(['a']);
+    expect((await lessonsToDo()).map(l => l.id)).toEqual(['companion', 'a']);
+    await completeCustomLesson('companion', 3, 3);
+    expect((await lessonsToDo()).map(l => l.id)).toEqual(['a']);
     // A second unlock is a no-op.
     expect(await unlockLesson('companion', 'manual')).toBe(false);
   });

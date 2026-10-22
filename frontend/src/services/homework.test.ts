@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { db, type LocalHomeworkAssignment, type LocalCustomLesson } from '../db/database';
 import { oneOffOnlyTargetIds, recordTargetDone, sortHomeworkItems, syncHomework, toHomeworkItems, recordPassEvent, recordPassUndo } from './homework';
-import { getDueCustomLessons, completeCustomLesson } from './custom-lesson-study';
+import { lessonsToDo, completeCustomLesson } from './custom-lesson-study';
 import { CardQueue } from '../types';
-import { writeRevisitSettings } from './revisit';
-import { markLessonStarted, lessonsStartedToday } from './lessonsStarted';
 
 function assignment(over: Partial<LocalHomeworkAssignment> = {}): LocalHomeworkAssignment {
   return {
@@ -92,65 +90,36 @@ describe('toHomeworkItems / sortHomeworkItems', () => {
   });
 });
 
-describe('one-off lessons and readers stay out of FSRS', () => {
-  it('excludes a one-off-only lesson from the session mix, keeps one that is also long-term', async () => {
+describe('homework lessons', () => {
+  it('one-off-only lessons are still known as such (readers leave them out of the daily pick)', async () => {
     await db.customLessons.bulkPut([lesson('once'), lesson('both'), lesson('mine')]);
     await db.homeworkAssignments.bulkPut([
       assignment({ id: 'a1', kind: 'lesson', target_id: 'once', item_ids: null, item_count: 1 }),
       assignment({ id: 'a2', kind: 'lesson', target_id: 'both', mode: 'both', item_ids: null, item_count: 1 }),
     ]);
     expect(await oneOffOnlyTargetIds()).toEqual(new Set(['once']));
-    // Room for every new lesson today (the default is one a day).
-    writeRevisitSettings({ new_lessons_per_day: 5 } as never);
-    const due = await getDueCustomLessons();
-    expect(due.map((l) => l.id).sort()).toEqual(['both', 'mine']);
+    // Every new lesson is on Home's list (the homework rows themselves cover the assigned ones).
+    expect((await lessonsToDo()).map((l) => l.id).sort()).toEqual(['both', 'mine', 'once']);
   });
 
   it('finishing a lesson records the homework as done (once) and uploads it', async () => {
     await db.customLessons.put(lesson('l1'));
     await db.homeworkAssignments.put(assignment({ id: 'a1', kind: 'lesson', target_id: 'l1', item_ids: null, item_count: 1 }));
-    await completeCustomLesson('l1', 3, 3, 2);
+    await completeCustomLesson('l1', 3, 3);
     await recordTargetDone('lesson', 'l1');
     const events = await db.homeworkEvents.toArray();
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ assignment_id: 'a1', item_id: 'l1', result: 'done' });
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/me/homework/events'), expect.objectContaining({ method: 'POST' }));
   });
-});
 
-describe("homework lessons and today's new-lesson place (Jerome, 8 Oct)", () => {
-  beforeEach(() => {
-    try { localStorage.removeItem('lessons-started-v1'); } catch { /* no storage */ }
-  });
-
-  it('finishing the homework lesson in its pass does not use up the new lesson of the day', async () => {
-    // China trip 1 is older than the homework lesson; one new lesson a day (the default).
-    await db.customLessons.bulkPut([
-      { ...lesson('trip1'), created_at: '2026-08-01T00:00:00Z' },
-      { ...lesson('trip2'), created_at: '2026-08-02T00:00:00Z' },
-      { ...lesson('hw'), created_at: '2026-09-20T00:00:00Z' },
-    ]);
-    await db.homeworkAssignments.put(assignment({ id: 'a-hw', kind: 'lesson', target_id: 'hw', mode: 'both', item_ids: null, item_count: 1 }));
-    // The homework lesson rides on top of today's place.
-    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['hw', 'trip1']);
-    // Done in the pass (rating Hard) — China trip 1 is still today's lesson.
-    await completeCustomLesson('hw', 14, 28, 1, undefined, [], { source: 'homework' });
-    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['trip1']);
-  });
-
-  it('a lesson opened and closed (no rating) records nothing and stays today\'s lesson', async () => {
-    await db.customLessons.bulkPut([{ ...lesson('trip1'), created_at: '2026-08-01T00:00:00Z' }, { ...lesson('trip2'), created_at: '2026-08-02T00:00:00Z' }]);
-    markLessonStarted('trip1'); // the player opened it; ✕ calls nothing else
-    expect(await db.customLessonCompletionEvents.count()).toBe(0);
-    expect(lessonsStartedToday()).toEqual(new Set(['trip1']));
-    // trip2 is then done from the Mini Lessons page: trip1 doesn't vanish from today.
-    await completeCustomLesson('trip2', 1, 1, 2, undefined, [], { source: 'replay' });
-    expect((await getDueCustomLessons()).map((l) => l.id)).toEqual(['trip1']);
-  });
-
-  it('a lesson opened on an earlier day is not pinned today', async () => {
-    markLessonStarted('old', new Date(Date.now() - 2 * 86_400_000));
-    expect(lessonsStartedToday().has('old')).toBe(false);
+  it('a lesson finished with mistakes is done as homework AND comes back as a revision', async () => {
+    await db.customLessons.put(lesson('l2'));
+    await db.homeworkAssignments.put(assignment({ id: 'a2', kind: 'lesson', target_id: 'l2', item_ids: null, item_count: 1 }));
+    const attempt = { started_at: '', duration_ms: 1, exercises: [{ section: 0, index: 0, type: 'match', correct: false, points: 0, max_points: 1, duration_ms: 1 }] };
+    const { newState } = await completeCustomLesson('l2', 0, 1, attempt);
+    expect(newState.status).toBe('revision');
+    expect((await db.homeworkEvents.toArray()).some((e) => e.assignment_id === 'a2' && e.result === 'done')).toBe(true);
   });
 });
 

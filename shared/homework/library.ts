@@ -12,7 +12,10 @@
  *  - deck in long-term review only (fsrs, or shared before assignments): status
  *    "In long-term review" whatever its progress — it is a deck in the queue, not homework
  *    with an end; `percent` / progress still say words met / words (minus left out).
- *  - lesson: completed at least once (or its assignment done) → 100 %.
+ *  - lesson: Completed once everything was right first time (shared/study/lessonRevision.ts —
+ *    "done forever"); finished with mistakes → In progress, "Revision 2 due 29 Oct · 3 to get
+ *    right" (never Overdue: the homework itself was done), % = right first time on the last run.
+ *    Without the revision state (older rows): completed at least once (or its assignment done).
  *  - reader: read at least once (or its assignment done) → 100 %.
  *  - link: the student marked it done → 100 %.
  *
@@ -58,9 +61,10 @@ export type StatusTone = 'green' | 'blue' | 'amber' | 'red' | 'grey';
  * The status of one item. Completed wins; then a due date before today makes
  * it Overdue; then anything started is In progress.
  */
-export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string; long_term?: boolean }): LibraryStatus {
+export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string; long_term?: boolean; revising?: boolean }): LibraryStatus {
   if (input.long_term) return 'long_term';
   if (input.complete) return 'completed';
+  if (input.revising) return 'in_progress';
   if (input.due_date && daysBetween(input.today, input.due_date) < 0) return 'overdue';
   return input.started ? 'in_progress' : 'not_started';
 }
@@ -139,6 +143,41 @@ export interface LibraryLessonRow {
   created_at: string;
   completions: number;
   last_completed_at: string | null;
+  /** The student's revision state (shared/study/lessonRevision.ts); absent = unknown (older servers). */
+  revision?: LessonRevisionSummary | null;
+}
+
+/** A lesson's revision state as the tutor sees it (the worker computes it from the student's runs). */
+export interface LessonRevisionSummary {
+  status: 'new' | 'revision' | 'done';
+  /** The revision's number (1, 2…); 0 when not a revision. */
+  revision: number;
+  /** The student's calendar day it is due ('YYYY-MM-DD'); null when not a revision. */
+  due_date: string | null;
+  /** Exercises to get right in it. */
+  to_get_right: number;
+  /** Right first time on the last run, 0..100. */
+  percent: number;
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Revision 2 due 29 Oct · 3 to get right" / "Revision 1 due today · 5 to get right" / "all right first time". */
+export function revisionProgressLabel(r: LessonRevisionSummary, today: string): string {
+  if (r.status === 'done') return 'all right first time';
+  if (r.status === 'new') return 'not started';
+  const name = r.revision > 0 ? `Revision ${r.revision}` : 'Revision';
+  let when = '';
+  if (r.due_date) {
+    const days = daysBetween(today, r.due_date);
+    if (days <= 0) when = ' due today';
+    else if (days === 1) when = ' due tomorrow';
+    else {
+      const [, m, d] = r.due_date.split('-').map(Number);
+      when = ` due ${d} ${MONTHS[m - 1] ?? ''}`;
+    }
+  }
+  return `${name}${when} · ${r.to_get_right} to get right`;
 }
 
 export interface LibraryReaderRow {
@@ -228,6 +267,8 @@ interface RowCore {
   completed_at: string | null;
   /** A deck in long-term review only: status `long_term`. */
   long_term?: boolean;
+  /** A lesson finished with mistakes, coming back as a revision: In progress, never Overdue. */
+  revising?: boolean;
 }
 
 /** Every item sent in one relationship, newest first. */
@@ -249,17 +290,17 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
   ) => {
     const oneOff = list.filter((a) => hasOneOff(a.mode));
     const { due, dueId } = dueOf(oneOff);
-    const { complete, started, completed_at, long_term, ...rest } = partial;
+    const { complete, started, completed_at, long_term, revising, ...rest } = partial;
     rest.sent_at = isoTime(rest.sent_at);
     const details = list.find((a) => a.details)?.details ?? null;
     items.push({
       ...base,
       ...rest,
       due_date: due,
-      due_assignment_id: complete ? null : dueId,
+      due_assignment_id: complete || revising ? null : dueId,
       mode: modeOf(list),
       assignment_ids: list.map((a) => a.id),
-      status: libraryStatus({ complete, started, due_date: due, today, long_term }),
+      status: libraryStatus({ complete, started, due_date: due, today, long_term, revising }),
       completed_at: complete ? isoTime(completed_at ?? latest(list.map((a) => a.completed_at))) : null,
       url: details?.url ?? null,
       instructions: details?.instructions ?? null,
@@ -314,6 +355,30 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
 
   for (const l of input.lessons) {
     const list = byTarget.get(`lesson:${l.lesson_id}`) ?? [];
+    const rev = l.revision ?? null;
+    if (rev && rev.status !== 'new') {
+      const done = rev.status === 'done';
+      finish(
+        {
+          key: `lesson:${l.lesson_id}`,
+          kind: 'lesson',
+          title: l.title,
+          source_id: l.library_item_id,
+          target_id: l.lesson_id,
+          share_id: null,
+          sent_at: l.created_at,
+          percent: done ? 100 : Math.max(0, Math.min(99, rev.percent)),
+          progress: revisionProgressLabel(rev, today),
+          behind: 0,
+          complete: done,
+          started: true,
+          completed_at: l.last_completed_at,
+          revising: !done,
+        },
+        list
+      );
+      continue;
+    }
     const complete = l.completions > 0 || (list.length > 0 && list.some((a) => a.status === 'done'));
     finish(
       {

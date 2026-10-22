@@ -37,9 +37,6 @@ import dev.jeromeswannack.chineselearning.lab.core.TodayPlan
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
-/** One of today's mini lessons as a row. [status]: New / Review / Again today; [done] = finished today. */
-data class TodayLessonRow(val id: String, val title: String, val icon: String?, val status: String, val done: Boolean = false, val inProgress: Boolean = false)
-
 /** A locked lesson in "Ready to unlock": what unlocks it and whether its podcast was heard already. */
 data class TodayLockedRow(
     val id: String,
@@ -57,44 +54,33 @@ data class TodayReaderRow(val state: State, val title: String? = null, val pages
     enum class State { TO_READ, READ, WRITING, NONE }
 }
 
-/** Home's "Today": flashcards, mini lessons and the graded reader side by side (Lab "today split"). */
+/**
+ * Home's "Today": flashcards and the graded reader side by side (Lab "today split"). Mini lessons
+ * are not today's study any more (Oct 2026): they are on Home's homework / to-do card.
+ */
 data class TodayHome(
     val cardsDue: Int = 0,
     val cardsReviewed: Int = 0,
-    val lessonsToDo: List<TodayLessonRow> = emptyList(),
-    val lessonsDone: List<TodayLessonRow> = emptyList(),
     val reader: TodayReaderRow = TodayReaderRow(TodayReaderRow.State.NONE),
     /** "Ready to unlock" (locked lessons; never counted as today's work). */
     val locked: List<TodayLockedRow> = emptyList(),
 ) {
     val cardsDone: Boolean get() = cardsDue == 0
-    val lessonsTotal: Int get() = lessonsToDo.size + lessonsDone.size
     val readerLeft: Boolean get() = reader.state == TodayReaderRow.State.TO_READ
-    val extrasLeft: Int get() = lessonsToDo.size + if (readerLeft) 1 else 0
+    val extrasLeft: Int get() = if (readerLeft) 1 else 0
     val allClear: Boolean get() = cardsDue == 0 && extrasLeft == 0
     /** Kinds of work today that aren't finished ("2 to go"). */
-    val kindsLeft: Int get() = (if (cardsDue > 0) 1 else 0) + (if (lessonsToDo.isNotEmpty()) 1 else 0) + (if (readerLeft) 1 else 0)
+    val kindsLeft: Int get() = (if (cardsDue > 0) 1 else 0) + (if (readerLeft) 1 else 0)
 
     companion object {
-        /** From the plan: lesson titles in session order, the story, the card numbers. */
+        /** From the plan: the story, the card numbers, the locked lessons. */
         fun from(
             snapshot: TodaySnapshot,
             cardsDue: Int,
             cardsReviewed: Int,
-            inProgress: (String) -> Boolean = { false },
             /** An audio lesson's title and whether it was heard to the end (for the locked rows). */
             audio: (String) -> Pair<String?, Boolean> = { null to false },
         ): TodayHome {
-            fun row(e: dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry, done: Boolean) = TodayLessonRow(
-                e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, e.lesson.icon,
-                when {
-                    done -> "Done"
-                    e.state.isNew -> "New"
-                    else -> "Review"
-                },
-                done,
-                inProgress = !done && inProgress(e.id),
-            )
             val reader = when {
                 snapshot.readerEntry != null -> TodayReaderRow(TodayReaderRow.State.TO_READ, snapshot.readerEntry.reader.titleChinese.ifBlank { snapshot.readerEntry.reader.titleEnglish }, snapshot.readerEntry.reader.pages.size)
                 snapshot.reader == TodayPlan.Reader.Done -> TodayReaderRow(TodayReaderRow.State.READ, snapshot.readerDone?.reader?.let { it.titleChinese.ifBlank { it.titleEnglish } })
@@ -106,22 +92,21 @@ data class TodayHome(
                 val (audioTitle, heard) = if (unlock.isAudio) audio(unlock.audioLessonId.orEmpty()) else (null to false)
                 TodayLockedRow(e.id, e.lesson.title.ifBlank { e.lesson.spec.title }, unlock, audioTitle, heard)
             }
-            return TodayHome(cardsDue, cardsReviewed, snapshot.toDo.map { row(it, false) }, snapshot.done.map { row(it, true) }, reader, locked)
+            return TodayHome(cardsDue, cardsReviewed, reader, locked)
         }
     }
 }
 
 class TodayActions(
     val onFlashcards: () -> Unit = {},
-    val onLessons: () -> Unit = {},
     val onReader: () -> Unit = {},
 )
 
 val LessonViolet = Color(0xFF8B5CF6)
 
 /**
- * Home's "Today" card: three compact rows (the #453 deck-queue style) — Flashcards, Mini
- * lessons, Graded reader — each with its count, a thin progress bar and ✓ when done.
+ * Home's "Today" card: compact rows (the #453 deck-queue style) — Flashcards, Graded reader —
+ * each with its count, a thin progress bar and ✓ when done.
  */
 @Composable
 fun TodaySection(today: TodayHome, actions: TodayActions, modifier: Modifier = Modifier) {
@@ -144,24 +129,6 @@ fun TodaySection(today: TodayHome, actions: TodayActions, modifier: Modifier = M
                 done = today.cardsDone && reviewed > 0,
                 progress = if (reviewed + today.cardsDue == 0) null else reviewed.toFloat() / (reviewed + today.cardsDue),
                 tag = TAG_CARDS, onClick = actions.onFlashcards,
-            )
-            HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
-            val left = today.lessonsToDo
-            TodayRow(
-                icon = "📘", tint = LessonViolet, title = "Mini lessons",
-                subtitle = when {
-                    left.isNotEmpty() -> left.joinToString(" · ") { it.title }
-                    today.lessonsDone.isNotEmpty() -> today.lessonsDone.joinToString(" · ") { it.title }
-                    else -> "None today"
-                },
-                trailing = when {
-                    left.isNotEmpty() -> "${left.size} to do" + if (today.lessonsDone.isNotEmpty()) " · ${today.lessonsDone.size} done" else ""
-                    else -> null
-                },
-                done = left.isEmpty() && today.lessonsDone.isNotEmpty(),
-                progress = if (today.lessonsTotal == 0) null else today.lessonsDone.size.toFloat() / today.lessonsTotal,
-                muted = today.lessonsTotal == 0,
-                tag = TAG_LESSONS, onClick = actions.onLessons,
             )
             HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
             val r = today.reader
@@ -225,97 +192,8 @@ private fun TodayRow(
 }
 
 const val TAG_CARDS = "today-cards"
-const val TAG_LESSONS = "today-lessons"
 const val TAG_READER = "today-reader"
 
-/**
- * `/today/lessons` — today's mini lessons: the ones to do (session order, tap to start) and
- * the ones finished today (✓). Starting one here counts exactly as in the session.
- */
-@Composable
-fun TodayLessonsScreen(
-    today: TodayHome?,
-    onBack: () -> Unit,
-    onOpen: (String) -> Unit,
-    onAllLessons: () -> Unit,
-    onAgain: (String) -> Unit = {},
-    /** "Ready to unlock": unlock a locked lesson / open its podcast. */
-    onUnlock: (String) -> Unit = {},
-    onListen: (String) -> Unit = {},
-) {
-    val left = today?.lessonsToDo.orEmpty()
-    val done = today?.lessonsDone.orEmpty()
-    dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen(
-        "Today's mini lessons",
-        onBack = onBack,
-        subtitle = when {
-            today == null -> null
-            left.isEmpty() && done.isNotEmpty() -> "All done for today ✓"
-            left.isEmpty() -> "Nothing for today"
-            else -> "${left.size} to do" + if (done.isNotEmpty()) " · ${done.size} done" else ""
-        },
-    ) {
-        // Still working today out (the first open after a process start): a spinner, never an empty page.
-        if (today == null) item(key = "loading") { dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState() }
-        if (today != null && left.isEmpty() && done.isEmpty()) {
-            item {
-                Text(
-                    "No mini lessons are due today. New ones come two a day; the rest come back when they're due.",
-                    style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.padding(vertical = 8.dp),
-                )
-            }
-        }
-        if (left.isNotEmpty()) {
-            item(key = "todo") {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
-                    left.forEachIndexed { i, l ->
-                        if (i > 0) HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
-                        LessonRow(l, index = i + 1) { onOpen(l.id) }
-                    }
-                }
-            }
-        }
-        if (done.isNotEmpty()) {
-            item(key = "done-h") { Text("Done today", style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted, modifier = Modifier.padding(top = 8.dp)) }
-            item(key = "done") {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
-                    done.forEachIndexed { i, l ->
-                        if (i > 0) HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
-                        LessonRow(l, index = null) { onAgain(l.id) }
-                    }
-                }
-            }
-        }
-        // Locked lessons wait here until the real-world thing is done (shared/lesson/unlock.ts).
-        val locked = today?.locked.orEmpty()
-        if (locked.isNotEmpty()) {
-            item(key = "locked-h") {
-                Column(Modifier.padding(top = 8.dp)) {
-                    Text("🔒 Ready to unlock", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
-                    Text("These wait until you've done the real thing — then they come today.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-                }
-            }
-            item(key = "locked") {
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)) {
-                    locked.forEachIndexed { i, l ->
-                        if (i > 0) HorizontalDivider(Modifier.padding(start = 64.dp, end = 16.dp), color = Lab.colors.faint)
-                        LockedLessonRow(l, onUnlock = { onUnlock(l.id) }, onListen = l.unlock.audioLessonId?.takeIf { l.unlock.isAudio }?.let { id -> { onListen(id) } })
-                    }
-                }
-            }
-        }
-        item(key = "all") {
-            Text(
-                "All mini lessons ›",
-                color = Lab.colors.accent, fontWeight = if (locked.isEmpty()) FontWeight.SemiBold else FontWeight.Normal,
-                style = if (locked.isEmpty()) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp).heightIn(min = 44.dp).clickable(onClick = onAllLessons).testTag("today-all-lessons").padding(vertical = 12.dp),
-            )
-        }
-    }
-}
-
-/** A locked lesson: 🔒, its title, what unlocks it, ▶ Listen (its podcast) and the unlock button. */
 @Composable
 fun LockedLessonRow(l: TodayLockedRow, onUnlock: () -> Unit, onListen: (() -> Unit)?) {
     Row(
@@ -350,31 +228,3 @@ fun LockedLessonRow(l: TodayLockedRow, onUnlock: () -> Unit, onListen: (() -> Un
     }
 }
 
-@Composable
-private fun LessonRow(l: TodayLessonRow, index: Int?, onClick: (() -> Unit)?) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 60.dp).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .testTag("today-lesson-${l.id}").padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(38.dp).clip(CircleShape).background(LessonViolet.copy(alpha = if (l.done) 0.08f else 0.14f)), contentAlignment = Alignment.Center) {
-            Text(l.icon ?: "📘", fontSize = 18.sp)
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(l.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = if (l.done) Lab.colors.muted else Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                when {
-                    index == null -> "Done today · tap to do it again"
-                    l.inProgress -> "${l.status} · half done"
-                    else -> "${l.status} · lesson $index"
-                },
-                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1,
-            )
-        }
-        if (l.done) {
-            Text("✓", color = Palette.Good, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            if (onClick != null) Text("  Again ›", color = LessonViolet, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
-        } else Text(if (l.inProgress) "Continue ›" else "Start ›", color = LessonViolet, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)
-    }
-}

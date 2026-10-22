@@ -28,8 +28,10 @@ object Routes {
     fun homework() = "/homework"
     fun homeworkPass(id: String) = "/homework/${seg(id)}"
     /** Lab-only "today split" (no web route): today's mini lessons, one of them, today's story. */
-    fun todayLessons() = "/today/lessons"
-    fun todayLesson(id: String) = "/today/lessons/${seg(id)}"
+    /** Mini lessons are no longer today's study (Oct 2026): the Mini Lessons page. */
+    fun todayLessons() = "/lessons"
+    /** Mini lessons are no longer today's study (Oct 2026): a lesson opens its run. */
+    fun todayLesson(id: String) = lessonPlay(id, "home")
     fun todayReader() = "/today/reader"
     fun tutorNotes() = "/tutor-notes"
     /** Practise the cards a tutor left notes on (a focused mini session; ids comma-separated). */
@@ -90,7 +92,7 @@ object Routes {
     fun lessons() = "/lessons"
     fun lessonEdit(id: String) = "/lessons/${seg(id)}/edit"
     /** "▶ Do it again" / "▶ Start" outside the session; [from] = lessons_page | today | homework (analytics). */
-    fun lessonPlay(id: String, from: String = "lessons_page") = "/lessons/${seg(id)}/play?from=$from"
+    fun lessonPlay(id: String, from: String = "lessons_page", revision: Boolean = false) = "/lessons/${seg(id)}/play?from=$from" + (if (revision) "&mode=revision" else "")
     fun lessonAttempts(attemptId: String? = null) = "/lesson-attempts" + (attemptId?.let { "/${seg(it)}" } ?: "")
     fun readers() = "/readers"
     fun reader(id: String) = "/readers/${seg(id)}"
