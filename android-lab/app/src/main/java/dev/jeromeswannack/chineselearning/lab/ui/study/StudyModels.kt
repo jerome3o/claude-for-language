@@ -160,6 +160,8 @@ data class StudyUi(
     val cardControls: Boolean = false,
     /** A short confirmation at the bottom ("Snoozed until tomorrow."), cleared after a few seconds. */
     val toast: String? = null,
+    /** The toast is "Card reset to New." — a tap on it undoes the forget (the only way back). */
+    val forgetUndoable: Boolean = false,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

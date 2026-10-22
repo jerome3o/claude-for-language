@@ -328,4 +328,35 @@ class MigrationTest {
         }
         room.close()
     }
+
+    /** v12 adds card_forgets ("Forget this card", migration 0136); first reviews start after a live forget. */
+    @Test fun v11ToV12AddsCardForgetsAndKeepsEverything() {
+        createFromExportedSchema(11).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'HSK 2', NULL, 3, 6, 2, '2026-10-22 10:00:00', NULL)")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, imageKey) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank', '2026-10-22 10:00:00', NULL)")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-20T08:00:00.000Z', 4200, NULL, 1)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e2', 'c1', 2, '2026-10-22T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO card_holds (id, cardId, kind, until, createdAt) VALUES ('h1', 'c1', 'suspend', NULL, '2026-10-22T10:00:00.000Z')")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            assertEquals(1, dao.cardHolds().size)
+            assertEquals(emptyList<CardForgetEntity>(), dao.cardForgets())
+            assertEquals("2026-10-20T08:00:00.000Z", dao.firstReviews().single().firstAt)
+            dao.upsertCardForgets(listOf(CardForgetEntity("f1", "c1", "2026-10-21T00:00:00.000Z", pending = "add", outboxId = "f1")))
+            // A forget: the first review that counts is the first one after it.
+            assertEquals("2026-10-22T08:00:00.000Z", dao.firstReviews().single().firstAt)
+            assertEquals(1, dao.liveForgetsForCards(listOf("c1")).size)
+            dao.upsertCardForgets(listOf(CardForgetEntity("f1", "c1", "2026-10-21T00:00:00.000Z", pending = "undo")))
+            assertEquals(0, dao.liveForgetsForCards(listOf("c1")).size)
+            assertEquals("2026-10-20T08:00:00.000Z", dao.firstReviews().single().firstAt)
+        }
+        room.close()
+    }
 }

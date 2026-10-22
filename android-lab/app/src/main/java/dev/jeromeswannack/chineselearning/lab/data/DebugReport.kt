@@ -114,6 +114,7 @@ object DebugReportBuilder {
         // Suspend & snooze as this phone applies them today (core CardHolds).
         val holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, prefs.burySiblings, nowMs, zone)
         val heldRows = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.activeByCard(dao, nowMs, zone).values.sortedBy { it.cardId }
+        val forgetRows = dao.cardForgets().filter { it.pending != "undo" }.sortedBy { it.cardId + it.forgottenAt }
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
         // The queue a session would get: with the notes' hanzi and "Order new cards by" (HomeViewModel's `all`).
         val order = prefs.newCardOrder
@@ -181,6 +182,10 @@ object DebugReportBuilder {
             putJsonArray("up_next") { for (id in upNext.orEmpty()) add(id) }
             putJsonArray("holds") { for (h in heldRows) addJsonArray { add(h.cardId); add(h.kind); add(h.until) } }
             put("bury_siblings", prefs.burySiblings)
+            // "Forget this card": every live forget, [card_id, forgotten_at], sorted (shared/debug/report.ts `forgets`).
+            putJsonArray("forgets") {
+                for (f in forgetRows) addJsonArray { add(f.cardId); add(f.forgottenAt) }
+            }
             putJsonObject("review_load") {
                 put("threshold", todays.reviewLoad.threshold)
                 put("load", todays.reviewLoad.load)
