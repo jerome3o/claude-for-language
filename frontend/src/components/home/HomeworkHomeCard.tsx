@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { homeHomework, type HomeHomeworkRow, type LongTermHomework } from '@shared/homework';
+import { homeHomework, readerSizeLabel, type HomeHomeworkRow, type HomeLesson, type LongTermHomework } from '@shared/homework';
 import { tutorNotesHomeLine } from '@shared/tutor-notes';
-import { db } from '../../db/database';
 import { useHomeworkItems } from '../homework/useHomeworkItems';
 import type { HomeworkView } from './useHomework';
+import { homeLessonOf, lessonSize, revisionSize } from '../../services/lessonLearn';
+import { db, getStudyCutoff } from '../../db/database';
 import '../homework/homework.css';
 
 function truncate(text: string, max: number): string {
@@ -34,15 +35,42 @@ function useLongTerm(view: HomeworkView): LongTermHomework[] | undefined {
   }, [legacyKey]);
 }
 
+/**
+ * Every mini lesson on the device as Home sees it (due revisions + new ones; shared/homework/home.ts)
+ * and the size of each homework lesson / reader by target id ("18 exercises · ~12 min", "6 pages").
+ */
+function useHomeLessons(): { lessons: HomeLesson[]; sizes: Record<string, string> } | undefined {
+  return useLiveQuery(async () => {
+    const cutoff = getStudyCutoff().ts;
+    const [rows, assignments, readers] = await Promise.all([
+      db.customLessons.toArray(),
+      db.homeworkAssignments.toArray(),
+      db.readers.toArray().catch(() => []),
+    ]);
+    const tutorOf = new Map<string, string | null>();
+    for (const a of assignments) if (a.kind === 'lesson' && a.tutor_name) tutorOf.set(a.target_id, a.tutor_name);
+    const sizes: Record<string, string> = {};
+    const lessons = rows.map((row) => {
+      const home = homeLessonOf(row, cutoff, tutorOf.get(row.id) ?? null);
+      // A homework row of a lesson whose revision is due plays the revision: its size, else the whole lesson's.
+      sizes[row.id] = home.revision_due ? revisionSize(row) : lessonSize(row.spec);
+      return home;
+    });
+    for (const r of readers) sizes[r.id] = readerSizeLabel(r.pages?.length ?? 0);
+    return { lessons, sizes };
+  }, []);
+}
+
 function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
   return (
-    <Link to={row.route} className="hw-slim" data-testid="home-hw-row" aria-label={`${row.title}, ${row.progress}${row.due ? `, ${row.due}` : ''}`}>
+    <Link to={row.route} className="hw-slim" data-testid="home-hw-row" aria-label={`${row.title}, ${row.progress}${row.size ? `, ${row.size}` : ''}${row.due ? `, ${row.due}` : ''}`}>
       <span className="hw-slim-icon" aria-hidden="true">{row.icon}</span>
       <span className="hw-slim-main">
         <span className="hw-slim-line">
           <span className="hw-slim-title" lang="zh">{row.title}</span>
           {row.progress && <span className="hw-slim-progress">{row.progress}</span>}
         </span>
+        {row.size && <span className="hw-slim-size" data-testid="hw-size">{row.size}</span>}
         {row.fraction !== null && (
           <span className="hw-slim-bar" aria-hidden="true">
             <span style={{ width: `${Math.round(row.fraction * 100)}%` }} />
@@ -55,18 +83,26 @@ function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
 }
 
 /**
- * Home's homework card, compact: one slim row per active item (title, "5 / 12", due label, a thin
- * bar); a tap opens it — the pass for one-off / both items (the lesson / reader player for those
+ * Home's homework card, compact: one slim row per active item (title, "5 / 12", its size —
+ * "18 exercises · ~12 min", "12 words", "6 pages" —, due label, a thin bar), then mini lesson
+ * revisions due ("🔁 Revision 1 · 5 questions · ~4 min · due today") and new mini lessons (they
+ * are no longer in the study session); a tap opens it — the pass for one-off / both items (the lesson / reader player for those
  * kinds). An unread tutor message is one small line.
  * Hidden when there is nothing. Rows come from the shared `homeHomework` (Lab app: same rules).
  */
 export function HomeworkHomeCard({ view }: { view: HomeworkView }) {
   const items = useHomeworkItems();
   const longTerm = useLongTerm(view);
+  const homeLessons = useHomeLessons();
   const unread = view.pick?.unreadMessage ?? null;
   const model = useMemo(
-    () => homeHomework(items?.todo ?? [], longTerm ?? [], { unreadFrom: unread ? view.pick?.tutorName ?? null : null }),
-    [items, longTerm, unread, view.pick?.tutorName]
+    () =>
+      homeHomework(items?.todo ?? [], longTerm ?? [], {
+        unreadFrom: unread ? view.pick?.tutorName ?? null : null,
+        lessons: homeLessons?.lessons ?? [],
+        sizes: homeLessons?.sizes ?? {},
+      }),
+    [items, longTerm, unread, view.pick?.tutorName, homeLessons]
   );
   if (!items || (model.rows.length === 0 && !unread)) return null;
 

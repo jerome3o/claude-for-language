@@ -11,7 +11,7 @@ import {
   retryNumber,
   runCurrent,
   runFinished,
-  runProgress,
+  runRetryBar,
   verdictWrong,
   type LessonRunState,
   type SavedLessonRunCore,
@@ -49,16 +49,16 @@ describe('the retry round', () => {
     let st: LessonRunState = { ...NEW_RUN, owed: [] };
     const verdicts = [null, false, true, null, false, true];
     for (const v of verdicts) st = advanceRun(st, steps, v);
-    expect(st).toEqual({ pos: 6, owed: ['s0e1', 's1e1'], fixed: 0 });
+    expect(st).toEqual({ pos: 6, owed: ['s0e1', 's1e1'], fixed: 0, retried: 0 });
     expect(runCurrent(st, steps)).toMatchObject({ phase: 'retry', step: { key: 's0e1' } });
-    expect(runProgress(st, steps)).toEqual({ done: 6, total: 8, owed: 2 });
+    expect(runRetryBar(st, steps)).toMatchObject({ answered: 6, slots: 8, retries: 2, fresh: 0, onRetries: true, itemsDone: 4 });
     st = advanceRun(st, steps, false); // wrong again → to the back
     expect(st.owed).toEqual(['s1e1', 's0e1']);
     st = advanceRun(st, steps, true);
     st = advanceRun(st, steps, true);
-    expect(st).toEqual({ pos: 6, owed: [], fixed: 2 });
+    expect(st).toEqual({ pos: 6, owed: [], fixed: 2, retried: 3 });
     expect(runFinished(st, steps)).toBe(true);
-    expect(runProgress(st, steps)).toEqual({ done: 8, total: 8, owed: 0 });
+    expect(runRetryBar(st, steps)).toMatchObject({ answered: 9, slots: 9, retries: 0, complete: true, itemsDone: 6 });
   });
   it('an unscored exercise is never owed', () => {
     const st = advanceRun(NEW_RUN, steps, false);
@@ -69,9 +69,9 @@ describe('the retry round', () => {
     let last = 0;
     for (const v of [null, false, false, null, false, false, false, true, false, true, true, true, true]) {
       st = advanceRun(st, steps, v);
-      const p = runProgress(st, steps);
-      expect(p.done).toBeGreaterThanOrEqual(last);
-      last = p.done;
+      const p = runRetryBar(st, steps);
+      expect(p.doneFraction).toBeGreaterThanOrEqual(last);
+      last = p.doneFraction;
     }
   });
   it('verdictWrong: a conversation with a missed question is wrong', () => {

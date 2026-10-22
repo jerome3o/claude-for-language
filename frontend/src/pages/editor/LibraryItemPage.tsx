@@ -17,7 +17,6 @@ import { useToast } from './LessonEditorPage';
 import { track } from '../../services/analytics';
 import './LessonLibraryPage.css';
 
-const RATING_LABELS: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
 
 function when(iso: string | null): string {
   if (!iso) return '—';
@@ -110,7 +109,7 @@ export function LibraryItemPage() {
                     <td>
                       {r.last_completed_at ? (
                         <>
-                          <div>{r.last_rating !== null ? RATING_LABELS[r.last_rating] ?? '' : ''}{r.last_score ? ` ${r.last_score.correct}/${r.last_score.total}` : ''}</div>
+                          <div>{r.last_score ? `${r.last_score.correct}/${r.last_score.total} right first time` : ''}</div>
                           <div className="lib-cell-sub">{when(r.last_completed_at)}</div>
                           {nextRevisitLabel(r) && <div className="lib-cell-sub">{nextRevisitLabel(r)}</div>}
                         </>

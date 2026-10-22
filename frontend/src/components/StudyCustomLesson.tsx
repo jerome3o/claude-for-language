@@ -42,7 +42,8 @@ import {
   retryMediaKey,
   retryNumber,
   runCurrent,
-  runProgress,
+  runRetryBar,
+  EXERCISE_UNIT,
   verdictWrong,
   type LessonRunMode,
   type LessonRunState,
@@ -56,6 +57,7 @@ import { useLessonAudio } from '../hooks/useLessonAudio';
 import type { LessonRecording } from '../services/custom-lesson-study';
 import { clearLessonRun, loadLessonRun, saveLessonRun } from '../services/lessonRuns';
 import { Confetti } from './Confetti';
+import { RetryProgressBar } from './homework/RetryProgressBar';
 import '../pages/PracticePage.css';
 import './StudyReader.css';
 
@@ -187,7 +189,7 @@ export function StudyCustomLesson({
 
   const current = loaded ? runCurrent(state, steps) : null;
   const done = loaded && !current;
-  const progress = runProgress(state, steps);
+  const bar = runRetryBar(state, steps);
   const flatIndex = current ? steps.findIndex(s => s.key === current.step.key) : steps.length;
 
   // Analytics: where this lesson is taken (Home / homework pass / Mini Lessons / a tutor's preview).
@@ -278,7 +280,7 @@ export function StudyCustomLesson({
     const wrong = verdictWrong(correct, scoredPoints, correct === null ? 0 : maxPoints);
     const next = advanceRun(state, steps, correct === null ? null : !wrong);
     setState(next);
-    if (phase === 'retry') track('lesson.retry', { type: step.type, right: !wrong, left: runProgress(next, steps).owed });
+    if (phase === 'retry') track('lesson.retry', { type: step.type, right: !wrong, left: runRetryBar(next, steps).retries });
     if (!runCurrent(next, steps)) finish(nextScore);
     else persist(next, nextScore);
   }
@@ -341,10 +343,10 @@ export function StudyCustomLesson({
           </div>
         )}
 
-        {!done && <LessonRunBar done={progress.done} total={progress.total} owed={progress.owed} />}
+        {!done && <RetryProgressBar bar={bar} unit={EXERCISE_UNIT} className="lesson-run-bar" testId="lesson-run-bar" />}
 
         {current?.phase === 'retry' && (
-          <div className="lesson-retry-line" data-testid="lesson-retry-line">🔁 {retryLine(progress.owed)}</div>
+          <div className="lesson-retry-line" data-testid="lesson-retry-line">🔁 {retryLine(bar.retries)}</div>
         )}
         {sectionStart && <div className="lesson-section-title">{item?.sectionTitle}</div>}
 
@@ -366,7 +368,7 @@ export function StudyCustomLesson({
             </div>
           ) : item && current ? (
             <ExerciseView
-              key={`ex-${runKey}-${current.phase}-${current.step.key}-${progress.done}`}
+              key={`ex-${runKey}-${current.phase}-${current.step.key}-${bar.answered}`}
               exercise={item.exercise}
               speak={speak}
               mediaKey={mediaKey}
@@ -423,21 +425,6 @@ export function StudyCustomLesson({
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * The lesson's progress: blue = done, orange at the right end = retries still owed (every
- * mistake adds a slot there, so the bar never runs backwards and the blue catches up).
- */
-function LessonRunBar({ done, total, owed }: { done: number; total: number; owed: number }) {
-  const doneW = total > 0 ? (done / total) * 100 : 0;
-  const owedW = total > 0 ? (owed / total) * 100 : 0;
-  return (
-    <div className="reader-progress-bar lesson-run-bar" style={{ marginBottom: '0.75rem' }} role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} data-testid="lesson-run-bar">
-      <div className="reader-progress-fill" style={{ width: `${doneW}%` }} />
-      {owed > 0 && <div className="lesson-run-bar-owed" style={{ width: `${owedW}%` }} data-testid="lesson-run-bar-owed" />}
     </div>
   );
 }

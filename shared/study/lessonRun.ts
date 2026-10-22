@@ -20,6 +20,7 @@
  */
 import type { CustomLessonSpec, LessonExercise } from '../lesson/types';
 import { isScoreable } from '../lesson/types';
+import { retryBar, type RetryBar, type RetryBarUnit } from '../homework/retry-bar';
 
 /** The key of an exercise in a lesson: its place (section, index) — like exerciseMediaKey. */
 export function exerciseKey(section: number, index: number): string {
@@ -72,11 +73,13 @@ export interface LessonRunState {
   pos: number;
   /** The retry round: keys still to get right, the first comes next. */
   owed: string[];
-  /** Retries answered right so far (the progress bar's catch-up). */
+  /** Retries answered right so far. */
   fixed: number;
+  /** Retries answered so far, right or wrong — each is a step of the progress bar (0 when absent). */
+  retried?: number;
 }
 
-export const NEW_RUN: Readonly<LessonRunState> = Object.freeze({ pos: 0, owed: [], fixed: 0 });
+export const NEW_RUN: Readonly<LessonRunState> = Object.freeze({ pos: 0, owed: [], fixed: 0, retried: 0 });
 
 export type LessonRunPhase = 'main' | 'retry';
 
@@ -109,22 +112,34 @@ export function advanceRun(state: LessonRunState, steps: readonly LessonRunStep[
   if (!cur) return state;
   if (cur.phase === 'main') {
     const owe = cur.step.scored && correct === false && !state.owed.includes(cur.step.key);
-    return { pos: state.pos + 1, owed: owe ? [...state.owed, cur.step.key] : [...state.owed], fixed: state.fixed };
+    return { pos: state.pos + 1, owed: owe ? [...state.owed, cur.step.key] : [...state.owed], fixed: state.fixed, retried: state.retried ?? 0 };
   }
   const rest = state.owed.filter(k => k !== cur.step.key);
-  if (correct === false) return { pos: state.pos, owed: [...rest, cur.step.key], fixed: state.fixed };
-  return { pos: state.pos, owed: rest, fixed: state.fixed + 1 };
+  const retried = (state.retried ?? 0) + 1;
+  if (correct === false) return { pos: state.pos, owed: [...rest, cur.step.key], fixed: state.fixed, retried };
+  return { pos: state.pos, owed: rest, fixed: state.fixed + 1, retried };
 }
 
+/** What an exercise is called in the bar's label. */
+export const EXERCISE_UNIT: RetryBarUnit = { one: 'exercise', other: 'exercises' };
+
 /**
- * The progress bar: `done` slots out of `total`, `owed` of them still to put right (drawn in
- * orange at the right end). Every mistake adds a slot, so the bar never runs backwards: the
- * blue part catches up as the owed ones are fixed.
+ * The progress bar — the homework pass's retry bar (shared/homework/retry-bar.ts), one slot per
+ * showing of an exercise: blue = exercises answered (main pass + every retry), the track = those
+ * not shown yet, orange at the RIGHT end = the ones still owed. A mistake adds a slot, so the
+ * blue never runs backwards; once the main pass is through the blue meets the orange and each
+ * retry put right eats one orange slot.
  */
-export function runProgress(state: LessonRunState, steps: readonly LessonRunStep[]): { done: number; total: number; owed: number } {
+export function runRetryBar(state: LessonRunState, steps: readonly LessonRunStep[]): RetryBar {
   const owed = state.owed.filter(k => steps.some(s => s.key === k)).length;
-  const done = Math.min(state.pos, steps.length) + state.fixed;
-  return { done, total: steps.length + state.fixed + owed, owed };
+  const pos = Math.min(Math.max(0, state.pos), steps.length);
+  return retryBar({
+    answered: pos + (state.retried ?? state.fixed),
+    fresh: steps.length - pos,
+    retries: owed,
+    itemsDone: pos - owed,
+    items: steps.length,
+  });
 }
 
 /** Whether a verdict counts as wrong for the retry round (a conversation with any question missed is). */
@@ -170,7 +185,7 @@ export function canResumeRun(saved: SavedLessonRunCore | null | undefined, lesso
  */
 export function resumeLine(state: LessonRunState, steps: readonly LessonRunStep[]): string {
   if (state.pos < steps.length) return `Continue where you left off (${state.pos + 1} of ${steps.length})`;
-  const owed = runProgress(state, steps).owed;
+  const owed = runRetryBar(state, steps).retries;
   if (owed === 0) return 'Continue where you left off (all done)';
   return `Continue where you left off (${owed} ${owed === 1 ? 'mistake' : 'mistakes'} to put right)`;
 }

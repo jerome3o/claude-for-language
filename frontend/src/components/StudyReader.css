@@ -302,19 +302,7 @@
 /* The mini lesson run (StudyCustomLesson): progress with the retry round's owed part, the
    "Continue where you left off" line, the retry line and the end line. */
 .lesson-run-bar {
-  display: flex;
-  height: 6px;
-  border-radius: 999px;
-  overflow: hidden;
-}
-.lesson-run-bar .reader-progress-fill {
-  border-radius: 999px 0 0 999px;
-}
-.lesson-run-bar-owed {
-  margin-left: auto;
-  height: 100%;
-  background-color: #f97316;
-  transition: width 0.3s;
+  margin-bottom: 0.75rem;
 }
 .lesson-resume-line {
   display: flex;
@@ -349,6 +337,16 @@
   font-weight: 600;
   font-size: 0.9rem;
   text-align: center;
+}
+:root[data-theme='dark'] .lesson-retry-line {
+  background: rgba(251, 146, 60, 0.14);
+  color: #fdba74;
+}
+:root[data-theme='dark'] .lesson-resume-line {
+  background: rgba(167, 139, 250, 0.14);
+}
+:root[data-theme='dark'] .lesson-resume-over {
+  color: #c4b5fd;
 }
 .lesson-end-line {
   margin: 0.75rem auto 0;
