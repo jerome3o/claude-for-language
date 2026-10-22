@@ -329,6 +329,13 @@
   background: var(--color-background);
 }
 
+/* No card yet: just the "+ Add 字 as a card" button, no box around it. */
+.xp-own[data-status='none'] {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
 .xp-own[data-status='in_decks'] {
   background: #eff6ff;
   border-color: #bfdbfe;
