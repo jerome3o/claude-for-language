@@ -90,12 +90,12 @@ class SayItPracticeUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SPOKEN_REVIEW_SUBMIT_TAG).performClick()
         assertEquals(listOf("practice", "retake", "submit"), calls)
 
-        // The result: "You said" with the orange "Contains the answer", nothing else changes.
+        // The result: the compact "You said" row with the yellow "Contains the answer", nothing else changes.
         state = ui(SpokenUi(result = SpokenResult("这件事由他负责", submit = true, seq = 1, again = true, reviewed = true, practice = true)))
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag(PRACTICE_YOU_SAID_TAG, useUnmergedTree = true).assertIsDisplayed()
-        assertEquals(1, count("$YOU_SAID_TAG-contains"))
+        assertEquals(1, count("$SPOKEN_RESULT_TAG-contains"))
         assertEquals(listOf<AnswerKey.Verdict?>(null), reveals) // no new verdict: practice is not an answer
         assertEquals(emptyList<AnswerKey.Verdict>(), checked)
         compose.onNodeWithTag(SAY_PRACTICE_TAG).assertTextContains("🎤 Say it again")
