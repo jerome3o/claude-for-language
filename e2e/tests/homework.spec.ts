@@ -101,14 +101,26 @@ test('tutor sends a one-off deck with a due date; the student does the pass; the
   await page.getByTestId('hw-notyet').click();
   // The missed word comes back after the other one
   await expect(word).not.toHaveText(first!);
+  // The retry bar (docs/HOMEWORK.md §3c): the Not yet is a step done AND one owed at the right end.
+  const bar = page.getByTestId('hw-pass-progress');
+  await expect(bar).toHaveAttribute('data-answered', '1');
+  await expect(bar).toHaveAttribute('data-slots', '3');
+  await expect(bar).toHaveAttribute('data-retries', '1');
+  await expect(page.getByTestId('hw-pass-progress-badge')).toHaveText('↺ 1');
+  await expect(page.getByTestId('hw-pass-retry')).toHaveText('1 to try again');
   await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
   await expect(word).toHaveText(first!);
+  // Every word shown once: the blue has reached the orange.
+  await expect(bar).toHaveAttribute('data-answered', '2');
+  await expect(bar).toHaveAttribute('aria-label', '1 of 2 words done · 1 to retry');
+  await expect(page.getByTestId('hw-pass-retry')).toHaveText('Trying again · 1 left');
   // ↺ in the top bar (docs/HOMEWORK.md §3b): the Got it just given is taken back — that word is
   // on screen again, not done; Got it once more puts it back.
   await page.getByTestId('study-undo').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('0/2');
+  await expect(bar).toHaveAttribute('data-answered', '1');
   await expect(word).not.toHaveText(first!);
   await page.getByTestId('skip-recording').click();
   await page.getByTestId('hw-gotit').click();
