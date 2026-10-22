@@ -44,6 +44,7 @@ object AnalyticsEvents {
         ev("study.flag_card", "study", emptyList()),
         ev("study.sentence_coach", "study", emptyList()),
         ev("study.write_it", "study", emptyList()),
+        ev("progress.known_mode", "study", listOf("mode")),
         ev("study.take_transcribed", "study", listOf("via", "live_error", "ms", "where")),
         ev("study.answer_spoken", "study", listOf("card_type", "result", "via", "live_error", "speech_ms", "ms", "auto_submit", "retry", "reviewed", "edited", "practice", "where")),
         ev("study.spoken_answer_checked", "study", listOf("card_type", "verdict", "retry", "reviewed", "practice", "where")),

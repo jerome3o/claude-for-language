@@ -1,7 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { KnownProgress, KnownPoint, KnownCounts } from '@shared/progress';
-import { cachedKnownProgress, loadKnownProgress } from '../../services/knownProgress';
+import {
+  weekDayLabel, weekLabel, signedCount, paceLabel, paceTrendLabel,
+  type KnownProgress, type KnownPoint, type KnownCounts, type KnownRate, type KnownChartMode, type SeriesPace, type WeekGain,
+} from '@shared/progress';
+import {
+  cachedKnownProgress, loadKnownProgress, loadKnownChartMode, saveKnownChartMode,
+} from '../../services/knownProgress';
+import { track } from '../../services/analytics';
 import './KnownCounts.css';
 
 /**
@@ -53,15 +59,32 @@ function KnownHeader({ explain, onToggle }: { explain: boolean; onToggle: () => 
   );
 }
 
-export function KnownCountsView({ data, explain, onToggleExplain }: {
-  data: KnownProgress;
+export function KnownCountsView({ data, explain, onToggleExplain, initialMode, tzOffsetMinutes }: {
+  data: KnownProgress & { rate?: KnownRate };
   explain: boolean;
   onToggleExplain: () => void;
+  /** Tests / screenshots; otherwise the mode remembered on this device. */
+  initialMode?: KnownChartMode;
+  /** Minutes east of UTC for the week labels (defaults to this device's). */
+  tzOffsetMinutes?: number;
 }) {
+  const [mode, setMode] = useState<KnownChartMode>(() => initialMode ?? loadKnownChartMode());
+  const rate = data.rate && data.rate.weeks.length > 0 ? data.rate : null;
+  const showChart = data.history.length >= 2;
+  const choose = (next: KnownChartMode) => {
+    if (next === mode) return;
+    setMode(next);
+    saveKnownChartMode(next);
+    track('progress.known_mode', { mode: next });
+  };
+  const offset = tzOffsetMinutes ?? -new Date().getTimezoneOffset();
   return (
     <section className="known-section">
       <KnownHeadline counts={data} explain={explain} onToggleExplain={onToggleExplain} />
-      {data.history.length >= 2 && <KnownChart history={data.history} />}
+      {showChart && rate && <KnownModeToggle mode={mode} onChange={choose} />}
+      {showChart && (mode === 'rate' && rate
+        ? <KnownRateView rate={rate} tzOffsetMinutes={offset} />
+        : <KnownChart history={data.history} />)}
       {data.recent_characters.length > 0 && (
         <div className="known-recent">
           <h3>Newest known characters</h3>
@@ -241,5 +264,185 @@ export function KnownChart({ history }: { history: KnownPoint[] }) {
         )}
       </div>
     </figure>
+  );
+}
+
+/** "Total | Per week" — which view of the chart, remembered on this device. */
+function KnownModeToggle({ mode, onChange }: { mode: KnownChartMode; onChange: (m: KnownChartMode) => void }) {
+  const options: { id: KnownChartMode; label: string }[] = [
+    { id: 'total', label: 'Total' },
+    { id: 'rate', label: 'Per week' },
+  ];
+  return (
+    <div className="known-mode" role="group" aria-label="Chart shows">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          className={`known-mode-option${mode === o.id ? ' selected' : ''}`}
+          aria-pressed={mode === o.id}
+          onClick={() => onChange(o.id)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Per week: the pace of the last 4 weeks (vs the 4 before) and the weekly bars. */
+export function KnownRateView({ rate, tzOffsetMinutes }: { rate: KnownRate; tzOffsetMinutes: number }) {
+  return (
+    <figure className="known-chart known-rate">
+      <div className="known-pace">
+        {rate.pace ? (
+          <>
+            <div className="known-pace-caption">Lately (last 4 weeks)</div>
+            <PaceLine pace={rate.pace.words} noun="words" />
+            <PaceLine pace={rate.pace.characters} noun="characters" />
+          </>
+        ) : (
+          <div className="known-pace-caption">Your pace shows after 4 weeks of reviews.</div>
+        )}
+      </div>
+      <KnownRateChart weeks={rate.weeks} tzOffsetMinutes={tzOffsetMinutes} />
+    </figure>
+  );
+}
+
+function PaceLine({ pace, noun }: { pace: SeriesPace; noun: 'characters' | 'words' }) {
+  const trend = paceTrendLabel(pace);
+  return (
+    <div className="known-pace-line">
+      <i className={`known-swatch known-swatch--${noun === 'words' ? 'words' : 'chars'}`} />
+      <span className="known-pace-value">{paceLabel(pace.per_week, noun)}</span>
+      {trend && (
+        <span className={`known-pace-trend known-pace-trend--${pace.trend}`} title="vs the 4 weeks before">
+          {trend}
+        </span>
+      )}
+    </div>
+  );
+}
+
+const RW = 340;
+const RPAD = { left: 36, right: 8, top: 18, bottom: 22 };
+const PANEL_H = 72;
+const PANEL_GAP = 22;
+const RH = RPAD.top + PANEL_H * 2 + PANEL_GAP + RPAD.bottom;
+
+/**
+ * Newly known per week as two small multiples on ONE count scale (characters above, words
+ * below), a bar per week, a zero line for the weeks that went down; tap / hover a week.
+ */
+export function KnownRateChart({ weeks, tzOffsetMinutes }: { weeks: WeekGain[]; tzOffsetMinutes: number }) {
+  const [active, setActive] = useState<number | null>(null);
+  const geo = useMemo(() => {
+    const values = weeks.flatMap((w) => [w.characters, w.words]);
+    const top = niceMax(Math.max(0, ...values));
+    const lowest = Math.min(0, ...values);
+    // A week that went down gets room below the zero line: at least a quarter of the top, so
+    // a small dip is visible and its axis label clears the 0.
+    const bottom = lowest < 0 ? -niceMax(Math.max(-lowest, top / 4)) : 0;
+    const span = top - bottom;
+    const plotW = RW - RPAD.left - RPAD.right;
+    const slot = plotW / weeks.length;
+    const barW = Math.max(1, Math.min(16, slot - 2));
+    const panelTop = (k: number) => RPAD.top + k * (PANEL_H + PANEL_GAP);
+    const y = (k: number, v: number) => panelTop(k) + ((top - v) / span) * PANEL_H;
+    const cx = (i: number) => RPAD.left + slot * (i + 0.5);
+    return { top, bottom, slot, barW, panelTop, y, cx };
+  }, [weeks]);
+
+  const pick = (clientX: number, rect: DOMRect) => {
+    const sx = ((clientX - rect.left) / rect.width) * RW;
+    const i = Math.floor((sx - RPAD.left) / geo.slot);
+    setActive(Math.min(weeks.length - 1, Math.max(0, i)));
+  };
+  const shown = active == null ? null : weeks[active];
+  const last = weeks[weeks.length - 1];
+  const panels: { key: 'characters' | 'words'; label: string; cls: string }[] = [
+    { key: 'characters', label: 'Characters', cls: 'chars' },
+    { key: 'words', label: 'Words', cls: 'words' },
+  ];
+  const ticks = geo.bottom < 0 ? [geo.top, 0, geo.bottom] : [geo.top, 0];
+
+  return (
+    <>
+      <figcaption className="known-legend">
+        <span><i className="known-swatch known-swatch--chars" />Characters</span>
+        <span><i className="known-swatch known-swatch--words" />Words</span>
+        <span className="known-legend-note">newly known, per week</span>
+      </figcaption>
+      <div className="known-chart-frame">
+        <svg
+          viewBox={`0 0 ${RW} ${RH}`}
+          role="img"
+          aria-label={`Newly known per week. This week so far: ${signedCount(last.characters)} characters, ${signedCount(last.words)} words`}
+          onPointerMove={(e) => pick(e.clientX, e.currentTarget.getBoundingClientRect())}
+          onPointerDown={(e) => pick(e.clientX, e.currentTarget.getBoundingClientRect())}
+          onPointerLeave={(e) => { if (e.pointerType === 'mouse') setActive(null); }}
+        >
+          {shown && active != null && (
+            <rect
+              className="known-rate-band"
+              x={geo.cx(active) - geo.slot / 2}
+              width={geo.slot}
+              y={RPAD.top - 14}
+              height={PANEL_H * 2 + PANEL_GAP + 14}
+              rx={3}
+            />
+          )}
+          {panels.map((panel, k) => (
+            <g key={panel.key}>
+              <text className="known-rate-panel" x={RPAD.left} y={geo.panelTop(k) - 6}>{panel.label}</text>
+              {ticks.map((t) => (
+                <g key={t}>
+                  <line
+                    className={t === 0 ? 'known-zero' : 'known-grid'}
+                    x1={RPAD.left} x2={RW - RPAD.right} y1={geo.y(k, t)} y2={geo.y(k, t)}
+                  />
+                  <text className="known-axis" x={RPAD.left - 6} y={geo.y(k, t) + 3.5} textAnchor="end">
+                    {t < 0 ? `−${(-t).toLocaleString('en-US')}` : t.toLocaleString('en-US')}
+                  </text>
+                </g>
+              ))}
+              {weeks.map((w, i) => {
+                const v = w[panel.key];
+                if (v === 0) return null;
+                const y0 = geo.y(k, 0);
+                const y1 = geo.y(k, v);
+                return (
+                  <rect
+                    key={w.start_ms}
+                    className={`known-bar known-bar--${panel.cls}${w.partial ? ' known-bar--partial' : ''}${v < 0 ? ' known-bar--down' : ''}`}
+                    x={geo.cx(i) - geo.barW / 2}
+                    width={geo.barW}
+                    y={Math.min(y0, y1)}
+                    height={Math.max(2, Math.abs(y1 - y0))}
+                    rx={Math.min(2, geo.barW / 2)}
+                  />
+                );
+              })}
+            </g>
+          ))}
+          <text className="known-axis" x={RPAD.left} y={RH - 6} textAnchor="start">
+            {weekDayLabel(weeks[0].start_ms, tzOffsetMinutes)}
+          </text>
+          <text className="known-axis" x={RW - RPAD.right} y={RH - 6} textAnchor="end">This week</text>
+        </svg>
+        {shown && active != null && (
+          <div
+            className="known-tooltip"
+            style={{ left: `${Math.min(74, Math.max(26, (geo.cx(active) / RW) * 100))}%` }}
+            role="status"
+          >
+            <div className="known-tooltip-date">{weekLabel(shown, tzOffsetMinutes)}</div>
+            <div><i className="known-swatch known-swatch--chars" />{signedCount(shown.characters)} characters</div>
+            <div><i className="known-swatch known-swatch--words" />{signedCount(shown.words)} words</div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

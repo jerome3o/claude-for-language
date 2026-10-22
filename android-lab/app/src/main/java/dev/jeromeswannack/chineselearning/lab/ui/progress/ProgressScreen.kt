@@ -77,6 +77,8 @@ fun ProgressScreen(
     zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
     knownScrub: Int? = null,
     knownExplain: Boolean = false,
+    knownMode: dev.jeromeswannack.chineselearning.lab.core.KnownChartMode? = null,
+    knownRateScrub: Int? = null,
 ) {
     val snap = ui.snapshot
     LabScreen(title = "Progress") {
@@ -86,7 +88,12 @@ fun ProgressScreen(
                 EmptyState("📅", "No activity yet", body = "Start studying to see your progress here", actionLabel = "Study", onAction = actions.study)
             }
             else -> {
-                item { KnownCard(ui.known, zone, actions.onPick, initialScrub = knownScrub, initialExplain = knownExplain) }
+                item {
+                    KnownCard(
+                        ui.known, zone, actions.onPick, initialScrub = knownScrub, initialExplain = knownExplain,
+                        rate = ui.knownRate, initialMode = knownMode, initialRateScrub = knownRateScrub,
+                    )
+                }
                 item {
                     BoxWithConstraints {
                         if (maxWidth >= 600.dp) {

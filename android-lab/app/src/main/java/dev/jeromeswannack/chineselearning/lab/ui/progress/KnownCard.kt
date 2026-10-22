@@ -49,13 +49,16 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.KnownChartMode
 import dev.jeromeswannack.chineselearning.lab.core.KnownCounts
+import dev.jeromeswannack.chineselearning.lab.core.KnownRate
 import dev.jeromeswannack.chineselearning.lab.core.KnownPoint
 import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
@@ -87,8 +90,15 @@ fun KnownCard(
     initialExplain: Boolean = false,
     /** Whose numbers: "you" on the Progress tab, "they" on a tutor's student page. */
     subject: String = "you",
+    /** Per week (core KnownRates); null = no Total | Per week toggle. */
+    rate: KnownRate? = null,
+    /** Screenshots / tests; otherwise the mode remembered on this device. */
+    initialMode: KnownChartMode? = null,
+    initialRateScrub: Int? = null,
 ) {
     var explain by rememberSaveable { mutableStateOf(initialExplain) }
+    val context = LocalContext.current
+    var mode by rememberSaveable { mutableStateOf(initialMode ?: KnownChartModePref.load(context)) }
     LabCard {
         Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -131,8 +141,20 @@ fun KnownCard(
                 )
             }
             if (known != null && known.history.size >= 2) {
+                val hasRate = rate != null && rate.weeks.isNotEmpty()
+                if (hasRate) {
+                    Spacer(Modifier.height(12.dp))
+                    KnownModeToggle(mode) { next ->
+                        if (next != mode) {
+                            mode = next
+                            KnownChartModePref.save(context, next)
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("progress.known_mode", mapOf("mode" to next.id))
+                        }
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
-                KnownHistory(known.history, zone, onPick, initialScrub)
+                if (hasRate && mode == KnownChartMode.Rate) KnownRateHistory(rate!!, zone, onPick, initialRateScrub)
+                else KnownHistory(known.history, zone, onPick, initialScrub)
             }
             if (known != null && known.recentCharacters.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))

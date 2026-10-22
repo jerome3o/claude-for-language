@@ -3,7 +3,12 @@ package dev.jeromeswannack.chineselearning.lab.ui.progress
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.KnownCounts
 import dev.jeromeswannack.chineselearning.lab.core.KnownPoint
+import dev.jeromeswannack.chineselearning.lab.core.KnownPace
 import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.KnownRate
+import dev.jeromeswannack.chineselearning.lab.core.KnownRates
+import dev.jeromeswannack.chineselearning.lab.core.SeriesPace
+import dev.jeromeswannack.chineselearning.lab.core.WeekGain
 import dev.jeromeswannack.chineselearning.lab.core.RecentCharacter
 import dev.jeromeswannack.chineselearning.lab.core.Mastery
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCard
@@ -87,7 +92,39 @@ object ProgressSamples {
         KnownProgress(KnownCounts(1184, 213), KnownCounts(1342, 377), KnownCounts(128, 96), recent, history)
     }
 
-    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, NOW), known = known)
+    /** Per week from the same curve: one bar per week (the last 52), this week partial, the spring dip below zero. */
+    val knownRate: KnownRate = run {
+        val h = known.history
+        val tz = zone.rules.getOffset(java.time.Instant.ofEpochMilli(NOW)).totalSeconds / 60
+        val thisWeek = KnownRates.weekStart(NOW, tz)
+        val weeks = (1 until h.size).map { k ->
+            val partial = k == h.size - 1
+            val start = thisWeek - (h.size - 1 - k) * KnownRates.WEEK_MS
+            WeekGain(
+                start, if (partial) NOW else start + KnownRates.WEEK_MS, partial,
+                h[k].characters.known - h[k - 1].characters.known - (if (partial) 9 else 0),
+                h[k].words.known - h[k - 1].words.known - (if (partial) 12 else 0),
+            )
+        }.takeLast(KnownRates.MAX_WEEKS).mapIndexed { i, w ->
+            // A rough week in spring: more cards lapsed than matured (below the zero line).
+            if (i == 22) w.copy(characters = -7, words = -12) else w
+        }
+        fun pace(now: Int, a4: Int, a8: Int): SeriesPace {
+            val per = Math.floor((now - a4) / 4.0 + 0.5).toInt()
+            val prev = Math.floor((a4 - a8) / 4.0 + 0.5).toInt()
+            return SeriesPace(per, prev, if (per > prev) "up" else if (per < prev) "down" else "same")
+        }
+        val n = h.size - 1
+        KnownRate(
+            weeks,
+            KnownPace(
+                pace(h[n].characters.known, h[n - 4].characters.known, h[n - 8].characters.known),
+                pace(h[n].words.known, h[n - 4].words.known, h[n - 8].words.known),
+            ),
+        )
+    }
+
+    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, NOW), known = known, knownRate = knownRate)
 
     val day = Progress.dayCards(events, cards, snapshot.daily.days[1].date)
 
