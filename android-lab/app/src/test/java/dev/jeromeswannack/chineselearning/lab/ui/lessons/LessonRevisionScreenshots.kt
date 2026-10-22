@@ -79,6 +79,20 @@ class LessonRevisionScreenshots : LabScreenshotTest() {
         LessonPlayer(homework, "🍜", spec, ExerciseEnv(), PlayerContext.Lesson("home"), onComplete = {}, onEnd = {}, revisionKeys = listOf("s0e1", "s0e3", "s0e4"))
     }
 
+    /** Home's card: a revision due and a new lesson, each with its size (no tutor rows: "To do"). */
+    private val homeUi = dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkUi(
+        card = dev.jeromeswannack.chineselearning.lab.core.HomeHomework.build(
+            emptyList(), emptyList(),
+            lessons = lessonsUi.lessons!!.map { it.homeLesson(lessonsUi.cutoff.ts) },
+        ),
+    )
+    @Test fun home() = shoot("lesson-run-09-home-card") {
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen("Home") { item { dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkSection(homeUi, dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkActions()) } }
+    }
+    @Test fun homeDark() = shoot("lesson-run-10-home-card-dark", dark = true) {
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreen("Home") { item { dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkSection(homeUi, dev.jeromeswannack.chineselearning.lab.ui.homework.HomeHomeworkActions()) } }
+    }
+
     /** A finished homework pass: ▶ Do it again. */
     @Test fun homeworkPassDone() = shoot("lesson-run-08-homework-done", settleMs = 600) {
         HomeworkPassScreen(PassUi.Player("lesson", homework, complete = true, loaded = true, lesson = PassLesson("hw", homework, "🍜", spec)), PassActions())

@@ -59,8 +59,10 @@ data class LibraryAssignmentDto(
     val up_to_date: Boolean = true,
     /** When the student's copy comes back ("revisit later"); null before the first finish or when done for good. */
     val next_revisit_at: String? = null,
-    /** The student marked it "Done for good". */
+    /** Legacy: true = done (all right first time, or an old "Done for good"). */
     val retired: Boolean = false,
+    /** "Revision 2 due 29 Oct · 3 to get right" / "all right first time" (core LessonRevision); null before the first run. */
+    val revision_label: String? = null,
 )
 
 @Serializable

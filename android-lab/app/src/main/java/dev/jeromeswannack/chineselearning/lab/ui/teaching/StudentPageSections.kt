@@ -554,7 +554,6 @@ fun longTermIntro(studentName: String): String {
     return "Decks in $first’s daily review, introduced at their daily new-card budget. Not counted as homework."
 }
 
-private val RATING_LABELS = mapOf(0 to "Again", 1 to "Hard", 2 to "Good", 3 to "Easy")
 
 /** "Mini Lessons": the student's lessons with completions, Answers / Edit (web: StudentLessonsSection). */
 @Composable
@@ -588,8 +587,8 @@ fun StudentLessonsCard(
                             MutedLine(
                                 (if (l.assigned_by_me) "Assigned by you" else if (l.assigned_by != null) "Assigned by another tutor" else "From ${l.source}") +
                                     " • ${l.exercise_count} exercises • " +
-                                    (if (l.completions == 0) "not studied yet" else "studied ${l.completions}× · last ${l.last_rating?.let { RATING_LABELS[it] }.orEmpty()} ${TeachingFormat.shortDate(l.last_completed_at, now)}") +
-                                    (dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(l.next_revisit_at, l.retired, now.toEpochMilli())?.let { " • $it" } ?: ""),
+                                    (if (l.completions == 0) "not studied yet" else "studied ${l.completions}× · last ${TeachingFormat.shortDate(l.last_completed_at, now)}") +
+                                    ((l.revision_label ?: dev.jeromeswannack.chineselearning.lab.core.Revisit.tutorLabel(l.next_revisit_at, l.retired, now.toEpochMilli()))?.let { " • $it" } ?: ""),
                             )
                         }
                         if (l.last_attempt_id != null) InlineButton("📝 Answers") { open(Routes.studentLessonAttempts(relId, l.last_attempt_id)) }

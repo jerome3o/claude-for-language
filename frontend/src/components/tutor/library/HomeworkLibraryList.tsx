@@ -47,7 +47,7 @@ export function LibraryRow({ item, today, showStudent, onOpen }: { item: Library
         <span className="hl-row-title" lang="zh">{item.title}</span>
         <span className="hl-row-meta">
           {showStudent ? `${item.student_name} · ` : ''}
-          {sentText(item.sent_at)} · {item.status === 'completed' || item.status === 'long_term' ? item.progress : libraryDueText(item.due_date, today)}
+          {sentText(item.sent_at)} · {item.status === 'completed' || item.status === 'long_term' || /^Revision/.test(item.progress) ? item.progress : libraryDueText(item.due_date, today)}
         </span>
         {/* A long-term deck has no end, so no % bar (docs/HOMEWORK.md §11) */}
         {item.status !== 'long_term' && (

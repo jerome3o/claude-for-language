@@ -245,7 +245,7 @@ class LessonScreenshots : LabScreenshotTest() {
         compose.onNodeWithText("The 把 sentence").performClick()
     }
     /** To do / Revision coming / Done for good. */
-    @Test fun miniLessonsRevision() = shootAfter("lessons-43-mini-lessons-revision", content = { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }) {
+    @Test fun miniLessonsRevision() = shootAfter("lessons-44-mini-lessons-revision", content = { MiniLessonsScreen(lessonsUi, MiniLessonsActions(onBack = {})) }) {
         compose.onNode(androidx.compose.ui.test.hasScrollToNodeAction()).performScrollToNode(androidx.compose.ui.test.hasText("Numbers 1–10"))
     }
     @Test fun miniLessonsOffline() = shoot("lessons-42-mini-lessons-offline") {
