@@ -34,19 +34,20 @@ class UnlockableLessonsTest {
         val unlocked = mutableListOf<String>()
         val listened = mutableListOf<String>()
         show {
-            run {
-                TodayLessonsScreen(UnlockSamples.withLocked, onBack = {}, onOpen = {}, onAllLessons = {}, onUnlock = { unlocked += it }, onListen = { listened += it })
+            // The Mini Lessons page's "🔒 Ready to unlock" rows.
+            androidx.compose.foundation.layout.Column {
+                for (row in UnlockSamples.withLocked.locked) {
+                    LockedLessonRow(row, onUnlock = { unlocked += row.id }, onListen = row.unlock.audioLessonId?.takeIf { row.unlock.isAudio }?.let { id -> { listened += id } })
+                }
             }
         }
-        compose.onNodeWithText("🔒 Ready to unlock").assertIsDisplayed()
         compose.onNodeWithTag("unlock-C1").performClick()
         compose.onNodeWithTag("locked-listen-C1").performClick()
         compose.onNodeWithTag("unlock-M1").performClick()
         assertEquals(listOf("C1", "M1"), unlocked)
         assertEquals(listOf("al1"), listened)
-        // The manual one has no podcast to listen to; "All mini lessons ›" stays, below.
+        // The manual one has no podcast to listen to.
         compose.onNodeWithText("✓ Done — unlock").assertIsDisplayed()
-        compose.onNodeWithTag("today-all-lessons").assertIsDisplayed()
     }
 
     @Test

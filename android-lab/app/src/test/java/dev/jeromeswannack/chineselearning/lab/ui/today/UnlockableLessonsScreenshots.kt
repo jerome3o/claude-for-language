@@ -1,6 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.today
 
-import dev.jeromeswannack.chineselearning.lab.core.ItemSchedule
+import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.api.AudioLessonCompanionDto
@@ -23,19 +23,17 @@ import org.junit.Test
 
 /**
  * Unlockable lessons (`./gradlew :app:recordRoborazziDebug` → app/screenshots/unlock-*.png):
- * today's lesson list with "Ready to unlock" (light / dark), the Mini Lessons list's 🔒 group,
+ * the Mini Lessons list's 🔒 group,
  * the locked gate, the audio lesson list's companion badges, and the player's companion card
  * (waiting / "Mini lesson ready → Start").
  */
 class UnlockableLessonsScreenshots : LabScreenshotTest() {
     private val s = UnlockSamples
 
-    @Test fun todayReadyToUnlock() = shoot("unlock-01-today-ready-to-unlock") { TodayLessonsScreen(s.withLockedListened, {}, {}, {}) }
-    @Test fun todayReadyToUnlockDark() = shoot("unlock-02-today-ready-to-unlock-dark", dark = true) { TodayLessonsScreen(s.withLockedListened, {}, {}, {}) }
 
     private fun entry(id: String, title: String, icon: String, created: String, unlock: LessonUnlockDto? = null, unlockedAt: String? = null): LessonEntry {
         val spec = LessonSamples.lesson(LessonSamples.note, LessonSamples.choice, LessonSamples.translate).copy(title = title, icon = icon, description = null)
-        return LessonEntry(CustomLessonDto(id, title, null, icon, "companion", "active", created, null, spec, emptyList(), unlock, unlockedAt, unlock?.audioLessonId), emptyList(), ItemSchedule.state(emptyList()))
+        return LessonEntry(CustomLessonDto(id, title, null, icon, "companion", "active", created, null, spec, emptyList(), unlock, unlockedAt, unlock?.audioLessonId), emptyList(), LessonRevision.NEW)
     }
 
     private val lessonsUi = MiniLessonsUi(

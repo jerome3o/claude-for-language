@@ -2,7 +2,6 @@ package dev.jeromeswannack.chineselearning.lab.data.lessons
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
-import dev.jeromeswannack.chineselearning.lab.core.Rating
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
@@ -97,11 +96,11 @@ class LessonUnlockStoreTest {
     }
 
     private val cutoff get() = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.of("UTC"))
-    private suspend fun due() = store.dueLessons(cutoff, zone = ZoneId.of("UTC")).map { it.id }
+    private suspend fun due() = store.lessonsToDo(cutoff).map { it.id }
 
     @Test fun lockedLessonsAreNeverOfferedThenUnlockingPutsItOnTopAndUploads() = runBlocking {
         store.sync(prefetch = false)
-        // C1 and M1 are the oldest new lessons, but locked: today's one new lesson is L1.
+        // C1 and M1 are the oldest new lessons, but locked: only L1 is to do.
         assertEquals(listOf("L1"), due())
         assertTrue(store.entry("C1")!!.locked)
         assertEquals("manual", store.entry("M1")!!.unlock!!.kind)
@@ -109,7 +108,7 @@ class LessonUnlockStoreTest {
         assertTrue(store.unlock("C1", "manual"))
         assertFalse("a second unlock is a no-op", store.unlock("C1", "manual"))
         assertFalse("no condition, nothing to unlock", store.unlock("L1", "manual"))
-        // Unlocked = "I want this now": on top of the daily new lesson.
+        // Unlocked: to do with the others (oldest first).
         assertEquals(listOf("C1", "L1"), due())
 
         outbox.drain()
@@ -122,8 +121,8 @@ class LessonUnlockStoreTest {
         assertEquals("unlocked", store.entry("C1")!!.lockStatus)
         assertEquals(listOf("C1", "L1"), due())
 
-        // Finishing it doesn't use up the daily place.
-        store.complete("C1", 3, 3, Rating.GOOD, null, emptyList())
+        // Finished (no answers kept, no rating): done.
+        store.complete("C1", 3, 3, null, emptyList(), null)
         assertEquals(listOf("L1"), due())
     }
 

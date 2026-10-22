@@ -41,9 +41,10 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * The Lab "today split" in the real session: flashcards only (no lesson every 8 reviews),
- * then the "Flashcards done" pause, then the leftover lessons and today's story in the usual
- * order; lessons / the story done from Home are not offered again and the session just ends.
+ * The Lab "today split" in the real session: flashcards only, then the "Flashcards done" pause,
+ * then today's story. Mini lessons are never part of the session any more (Oct 2026) — even with
+ * new lessons on the phone; they are done from Home's homework card and the Mini Lessons page.
+ * The story read from Home is not offered again and the session just ends.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = LabApp::class)
@@ -87,65 +88,48 @@ class TodaySplitStudyTest {
         error("timed out waiting for $what: ${vm.ui.value.phase}")
     }
 
-    private fun result(rating: Int) = LessonResult(1, 1, rating, LessonAttemptData(Js.toIsoString(now), 1_000, emptyList()), emptyList())
+    private fun result() = LessonResult(1, 1, LessonAttemptData(Js.toIsoString(now), 1_000, emptyList()), emptyList())
 
     @Test
-    fun flashcardsOnlyThenThePauseThenLessonsAndTheStory() {
+    fun flashcardsOnlyThenThePauseThenTheStoryNeverALesson() {
         val vm = StudyViewModel(app, null)
-        // 12 cards, well past the old 8-review lesson break: never a lesson in between.
         var rated = 0
         while (true) {
             val u = awaitUi(vm, "a card or the pause") { it.phase is StudyPhase.Showing || it.phase is StudyPhase.Extras }
             if (u.phase is StudyPhase.Extras) break
-            assertEquals(TodayLeft(2, true), u.todayLeft) // the top bar's 📘2 📖1
+            assertEquals(TodayLeft(0, true), u.todayLeft) // the top bar's 📖1 — no 📘
             val presentation = (u.phase as StudyPhase.Showing).view.presentation
             vm.rate(Rating.GOOD, 2_000, null)
             rated++
             awaitUi(vm, "the next item") { n ->
-                assertFalse(n.phase is StudyPhase.Lesson || n.phase is StudyPhase.Reader, "no lesson / reader between the cards")
+                assertFalse(n.phase is StudyPhase.Reader, "no reader between the cards")
                 (n.phase as? StudyPhase.Showing)?.view?.presentation != presentation
             }
         }
         assertEquals(12, rated)
         val pause = awaitUi(vm, "the pause with today's numbers") { it.phase is StudyPhase.Extras && it.today != null }
         val extras = pause.phase as StudyPhase.Extras
-        assertEquals(2, extras.lessons)
+        assertEquals(0, extras.lessons)
         assertTrue(extras.reader)
-        assertEquals(listOf("🧱 把 sentences", "📘 有 vs 又", "📖 小明在巴黎"), extras.titles)
+        assertEquals(listOf("📖 小明在巴黎"), extras.titles)
         assertTrue(pause.today!!.celebrate) // the cards' celebration, once a day
 
-        // Continue: the leftover lessons (oldest new first), then the story.
+        // Continue: the story, then done.
         vm.continueToExtras()
-        val first = awaitUi(vm, "lesson 1") { it.phase is StudyPhase.Lesson }.phase as StudyPhase.Lesson
-        assertEquals("L1", first.lesson.entry.id)
-        vm.completeLesson(result(Rating.EASY))
-        val second = awaitUi(vm, "lesson 2") { (it.phase as? StudyPhase.Lesson)?.lesson?.entry?.id == "L2" }
-        assertEquals(TodayLeft(1, true), second.todayLeft)
-        vm.completeLesson(result(Rating.EASY))
         awaitUi(vm, "the story") { it.phase is StudyPhase.Reader }
         vm.finishReader(30_000)
         val done = awaitUi(vm, "done with today's numbers") { it.phase is StudyPhase.Done && it.today != null }
-        assertEquals(2, done.today!!.lessonsDone)
         assertTrue(done.today!!.readerDone)
         assertTrue(done.today!!.allClear) // the second, smaller celebration
         assertFalse(done.today!!.celebrate)
-        // Recorded like any session lesson / story.
-        runBlocking {
-            assertEquals(1, app.cache.get(LessonStore.LOCAL, ListSerializer(dev.jeromeswannack.chineselearning.lab.data.lessons.LocalCompletion.serializer()))!!.count { it.lessonId == "L1" })
-            assertTrue(app.outbox.all().any { it.path == "/api/reader-reviews" })
-        }
+        runBlocking { assertTrue(app.outbox.all().any { it.path == "/api/reader-reviews" }) }
     }
 
     @Test
-    fun extrasDoneFromHomeAreNotOfferedAgain() {
+    fun theStoryReadFromHomeIsNotOfferedAgain() {
         runBlocking {
-            val today = TodayData(app)
-            today.completeLesson("L1", result(Rating.EASY))
-            today.completeLesson("L2", result(Rating.EASY))
-            today.finishReader("R1", 20_000)
+            TodayData(app).finishReader("R1", 20_000)
             val home = TodayHomeLoader.load(app)
-            assertEquals(0, home.lessonsToDo.size)
-            assertEquals(2, home.lessonsDone.size)
             assertEquals(TodayReaderRow.State.READ, home.reader.state)
             assertEquals(12, home.cardsDue)
         }
@@ -160,12 +144,11 @@ class TodaySplitStudyTest {
         // No pause: the session just ends, with the usual celebration.
         val done = awaitUi(vm, "done") { it.phase is StudyPhase.Done && it.today != null }
         assertTrue(done.today!!.celebrate)
-        assertEquals(2, done.today!!.lessonsDone)
         assertTrue(done.today!!.readerDone)
     }
 
     @Test
-    fun noCardsDueOpensOnThePause() {
+    fun noCardsDueOpensOnThePauseWithTheStory() {
         runBlocking {
             // Every card reviewed today already: nothing due.
             val dao = app.repo.dao
@@ -181,33 +164,8 @@ class TodaySplitStudyTest {
         val vm = StudyViewModel(app, null)
         val u = awaitUi(vm, "the pause") { it.phase is StudyPhase.Extras }
         assertIs<StudyPhase.Extras>(u.phase)
-        assertEquals(2, (u.phase as StudyPhase.Extras).lessons)
-    }
-
-    @Test
-    fun aNewLessonStartedTodayTakesOneOfTheDaysSlots() {
-        runBlocking {
-            seedExtras(app, lessons = 3)
-            assertEquals(listOf("L1", "L2"), TodayHomeLoader.load(app).lessonsToDo.map { it.id })
-            TodayData(app).completeLesson("L1", result(Rating.EASY))
-            val after = TodayHomeLoader.load(app)
-            // L3 isn't pulled in: "New lessons a day" = 2 here.
-            assertEquals(listOf("L2"), after.lessonsToDo.map { it.id })
-            assertEquals(listOf("L1"), after.lessonsDone.map { it.id })
-        }
-    }
-
-    @Test
-    fun oneNewLessonADayByDefault() {
-        runBlocking {
-            seedExtras(app, lessons = 3, newLessonsPerDay = null)
-            assertEquals(listOf("L1"), TodayHomeLoader.load(app).lessonsToDo.map { it.id })
-            TodayData(app).completeLesson("L1", result(Rating.GOOD))
-            val after = TodayHomeLoader.load(app)
-            // The day's one new lesson is done: L2 waits for tomorrow.
-            assertEquals(emptyList<String>(), after.lessonsToDo.map { it.id })
-            assertEquals(listOf("L1"), after.lessonsDone.map { it.id })
-        }
+        assertEquals(0, (u.phase as StudyPhase.Extras).lessons)
+        assertTrue((u.phase as StudyPhase.Extras).reader)
     }
 
     @Test
@@ -215,28 +173,18 @@ class TodaySplitStudyTest {
         runBlocking {
             val progress = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app)
             val entry = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.entry("L1")!!
-            val hash = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.specHash(entry.lesson.spec)
-            progress.save("L1", hash, 1, 1, 1, now, emptyList(), emptyList())
+            val shape = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.shape(entry.lesson.spec)
+            progress.save(dev.jeromeswannack.chineselearning.lab.data.lessons.SavedLessonRun("L1", shape, state = dev.jeromeswannack.chineselearning.lab.core.LessonRun.State(pos = 1), startedAt = now, savedAt = now))
             assertTrue(progress.has("L1"))
-            assertEquals(listOf(true), TodayHomeLoader.load(app).lessonsToDo.filter { it.id == "L1" }.map { it.inProgress })
-            TodayData(app).completeLesson("L1", result(Rating.GOOD))
+            assertEquals(setOf("L1"), progress.inProgress().keys)
+            TodayData(app).completeLesson("L1", result())
             assertFalse(progress.has("L1"))
         }
     }
 
     companion object {
-        /**
-         * Two new lessons (+ a third when asked) and today's story on the phone, as a sync leaves
-         * them; "New lessons a day" = [newLessonsPerDay] (null = the default, one a day).
-         */
-        suspend fun seedExtras(app: LabApp, lessons: Int = 2, newLessonsPerDay: Int? = 2) {
-            app.cache.put(
-                dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.SETTINGS,
-                dev.jeromeswannack.chineselearning.lab.data.revisit.RevisitStore.KIND,
-                newLessonsPerDay?.let { dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto(new_lessons_per_day = it.toDouble(), is_default = false) }
-                    ?: dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto(),
-                dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto.serializer(),
-            )
+        /** Two new lessons (+ a third when asked) and today's story on the phone, as a sync leaves them. */
+        suspend fun seedExtras(app: LabApp, lessons: Int = 2) {
             val spec = CustomLessonSpec("把 sentences", sections = listOf(LessonSection(exercises = listOf(LessonSamples.choice))))
             val all = listOf(
                 CustomLessonDto("L1", "把 sentences", icon = "🧱", createdAt = "2026-09-01T00:00:00Z", spec = spec),

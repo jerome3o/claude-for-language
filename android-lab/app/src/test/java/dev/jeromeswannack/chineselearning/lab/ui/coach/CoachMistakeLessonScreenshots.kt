@@ -19,20 +19,20 @@ class CoachMistakeLessonScreenshots : LabScreenshotTest() {
     @Test fun exercise() = shoot("coach-mistake-04-exercise") {
         LessonPlayer(
             title = M.content.spec.title, icon = "🎯", spec = M.content.spec, env = ExerciseEnv(), context = PlayerContext.Preview,
-            previews = null, onComplete = {}, onEnd = {}, startAt = 1,
-            previewSave = PreviewSave(M.previews, saved = false),
+            onComplete = {}, onEnd = {}, startAt = 1,
+            previewSave = PreviewSave(saved = false),
         )
     }
 
     @Test fun saveStep() = shoot("coach-mistake-05-save-step", settleMs = 400) {
         LessonPlayer(
             title = M.content.spec.title, icon = "🎯", spec = M.oneNote, env = ExerciseEnv(), context = PlayerContext.Preview,
-            previews = null, onComplete = {}, onEnd = {}, startAt = 1,
-            previewSave = PreviewSave(M.previews, saved = false),
+            onComplete = {}, onEnd = {}, startAt = 1,
+            previewSave = PreviewSave(saved = false),
         )
     }
 
     @Test fun saved() = shoot("coach-mistake-06-saved", settleMs = 400) {
-        CoachLessonScreen(CoachLessonUi(loading = false, content = M.content, previews = M.previews, savedHere = true, finishedRating = 2), onSave = {}, onBack = {}) { _, _ -> }
+        CoachLessonScreen(CoachLessonUi(loading = false, content = M.content, savedHere = true, finishedLine = "Back in a week as a revision: the 1 you missed first time + a few you got"), onSave = {}, onBack = {}) { _, _ -> }
     }
 }
