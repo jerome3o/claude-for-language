@@ -29,6 +29,8 @@ data class CardView(
     val picturePreview: androidx.compose.ui.graphics.ImageBitmap? = null,
     /** Never-seen characters of the hanzi (core NewCharacters), worked out when shown: they shimmer. */
     val newChars: List<String> = emptyList(),
+    /** Sentence clips (the card sentence + the set) on the device: offline, only these play ("Listen in context"). */
+    val cachedClips: Set<String> = emptySet(),
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */

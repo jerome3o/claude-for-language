@@ -586,6 +586,17 @@ export async function prefetchSentenceSets(
   });
 }
 
+/**
+ * Listening cards: notes with fewer than five sentences get more ADDED in the
+ * background (shared/study/listenContext.ts); the rows arrive with a later sync.
+ */
+export async function topUpSentenceSetsApi(noteIds: string[]): Promise<{ queued: number; note_ids: string[] }> {
+  return fetchJSON<{ queued: number; note_ids: string[] }>('/sentences/top-up', {
+    method: 'POST',
+    body: JSON.stringify({ note_ids: noteIds }),
+  });
+}
+
 /** Brief breakdown of one sentence. Cached server-side after the first call. */
 export async function explainNoteSentence(
   sentenceId: string

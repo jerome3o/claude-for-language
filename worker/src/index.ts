@@ -12,7 +12,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Env, Rating, User, CardQueue, SentenceBriefExplanation, SentenceSetMessage, QuestGenerationMessage, PictureHuntJobMessage, TutorNotesJobMessage, CreateConversationRequest, CLAUDE_AI_USER_ID, AIRespondResponse, ConversationTTSRequest, ConversationTTSResponse, CheckMessageResponse, GenerateReaderRequest, DifficultyLevel, ImageGenerationMessage, CustomLessonImageMessage, StoryGenerationMessage, VocabularyItem } from './types';
 import * as db from './db/queries';
 import * as content from './services/content';
-import { enqueueSentenceSet, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
+import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
+import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
@@ -1836,6 +1837,38 @@ app.post('/api/sentences/prefetch', async (c) => {
   const remaining = await db.countNotesWithoutSentenceSets(c.env.DB, userId);
   console.log('[sentence-set] Prefetch queued', notes.length, 'notes;', remaining, 'still without a set');
   return c.json({ queued: notes.length, remaining });
+});
+
+/**
+ * Listening cards ("Listen in context", shared/study/listenContext.ts): a note with fewer
+ * than five sentences in total (its card sentence + the set) gets more ADDED in the
+ * background — the card shown now, or the upcoming listening cards in the client's prefetch.
+ * At most one job per note a day (any job: set, top-up), never one given up on, ≤ 50 notes
+ * a call; the rows arrive with the next sentence sync.
+ */
+app.post('/api/sentences/top-up', async (c) => {
+  const userId = c.get('user').id;
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ error: 'AI service is not configured' }, 503);
+  }
+  let noteIds: string[] = [];
+  try {
+    const body = await c.req.json<{ note_ids?: unknown }>();
+    if (Array.isArray(body?.note_ids)) {
+      noteIds = [...new Set(body.note_ids.filter((id): id is string => typeof id === 'string'))];
+    }
+  } catch {
+    // No body
+  }
+  if (noteIds.length === 0) return c.json({ error: 'note_ids is required' }, 400);
+
+  const notes = await db.getNotesForSentenceTopUp(c.env.DB, userId, noteIds, LISTEN_CONTEXT_MIN_SENTENCES);
+  const queued: string[] = [];
+  for (const note of notes) {
+    if (await enqueueSentenceTopUp(c.env, note.id, topUpCount(note.total))) queued.push(note.id);
+  }
+  if (queued.length > 0) console.log('[sentence-set] Top-up queued for', queued.length, 'notes');
+  return c.json({ queued: queued.length, note_ids: queued });
 });
 
 /**
@@ -6881,6 +6914,50 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           const note = await db.getNoteByIdUnscoped(env.DB, noteId);
           if (!note) {
             console.log('[Queue] Sentence set: note gone, skipping', noteId);
+            message.ack();
+            continue;
+          }
+
+          // A listening card's top-up: ADD sentences after the set (the rows it has stay —
+          // ids, clips, breakdowns), only while the note still has fewer than five in total.
+          if (kind === 'top_up') {
+            const current = await db.getNoteSentences(env.DB, noteId);
+            const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
+            const total = current.length + (clue && !current.some((s) => s.hanzi === clue) ? 1 : 0);
+            if (!needsSentenceTopUp(total)) {
+              await db.markSentenceSetJobDone(env.DB, noteId);
+              message.ack();
+              continue;
+            }
+            const bio = await db.getUserBioForNote(env.DB, noteId);
+            const generated = await generateSentenceSet(
+              env.ANTHROPIC_API_KEY,
+              {
+                hanzi: note.hanzi,
+                pinyin: note.pinyin,
+                english: note.english,
+                existing: [...(clue ? [clue] : []), ...current.map((s) => s.hanzi)],
+                bio,
+              },
+              count ?? topUpCount(total)
+            );
+            const known = new Set([...(clue ? [clue] : []), ...current.map((s) => s.hanzi)]);
+            const fresh = generated.filter((s) => !known.has(s.hanzi));
+            const stored = await db.appendNoteSentences(
+              env.DB,
+              noteId,
+              fresh.map((s) => ({
+                hanzi: s.hanzi,
+                pinyin: s.pinyin,
+                translation: s.translation,
+                audioUrl: null,
+                focus: s.focus,
+                focusNote: s.focusNote,
+              }))
+            );
+            await attachSentenceSetAudio(env, stored.filter((s) => !s.audio_url), 'batch');
+            await db.markSentenceSetJobDone(env.DB, noteId);
+            console.log('[Queue] Sentence top-up done:', noteId, fresh.length, 'added');
             message.ack();
             continue;
           }

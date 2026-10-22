@@ -64,6 +64,8 @@ import { StudyActionRow, NEEDS_INTERNET } from '../components/study/StudyActionR
 import { StudyCardFooter, type ReRecordBarProps } from '../components/study/ReRecordBar';
 import { StudyMenuItem } from '../components/study/StudyMoreMenu';
 import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
+import { ListenContext, type ListenContextStats } from '../components/study/ListenContext';
+import { listenContextProps } from '@shared/study/listenContext';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
 import { YouSaid, YouSaidFailed, YouSaidOffline, YouSaidPending, YouSaidRow } from '../components/study/YouSaid';
 import { WordTagPills } from '../components/wordTags/WordTagPills';
@@ -830,21 +832,22 @@ export function StudyCard({
     }
   }, [isTypingCard, flipped, typingMode, aiAvailable]);
 
-  // Play audio for audio cards on front
-  // Note: useStudySession guarantees card.note_id === card.note.id (data consistency)
+  // Listening cards: the question is "Listen in context" (components/study/ListenContext.tsx),
+  // which auto-plays the FIRST SENTENCE as the card shows (the word only when no sentence has a
+  // clip) — once per card (playedAudioForRef). Its numbers go out as study.listen_context once
+  // the card is answered.
+  const listenStatsRef = useRef<{ cardId: string; stats: ListenContextStats } | null>(null);
+  const onListenStats = useCallback((stats: ListenContextStats) => {
+    listenStatsRef.current = { cardId: card.id, stats };
+  }, [card.id]);
+  const listenTrackedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (card.card_type === 'audio_to_hanzi' && !flipped) {
-      // Only play if we haven't already played for this card
-      if (playedAudioForRef.current !== card.id) {
-        console.log('[StudyCard] Auto-playing audio for card', {
-          cardId: card.id,
-          hanzi: card.note.hanzi,
-        });
-        playedAudioForRef.current = card.id;
-        playRecordingAtIndex(0);
-      }
-    }
-  }, [card.id, card.card_type, card.note.hanzi, flipped, playRecordingAtIndex]);
+    if (!flipped || card.card_type !== 'audio_to_hanzi' || listenTrackedRef.current === card.id) return;
+    const entry = listenStatsRef.current;
+    if (!entry || entry.cardId !== card.id) return;
+    listenTrackedRef.current = card.id;
+    track('study.listen_context', listenContextProps(entry.stats));
+  }, [flipped, card.id, card.card_type]);
 
   // Reset the played audio ref when card changes
   useEffect(() => {
@@ -1428,22 +1431,37 @@ export function StudyCard({
           <div className="text-center">
             {renderContext()}
             <p className="text-light mb-1" style={{ fontSize: '0.875rem' }}>{cardInfo.prompt}</p>
-            <div className="study-audio-controls">
-              <button
-                className={`btn btn-secondary${isPlaying ? ' playing' : ''}`}
-                onClick={cycleAndPlay}
-                disabled={isPlaying}
-              >
-                Play Audio{recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
-              </button>
-            </div>
-            {wordAudioComing && recordings.length === 0 && (
-              <p className="audio-coming-note" role="status">
-                <span className="audio-coming-dot" aria-hidden="true" /> Audio coming… (the device voice plays meanwhile)
-              </p>
-            )}
-            {/* "+ New Voice" lives in the ⋯ menu on the back now (D8) */}
-            <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
+            {/* Listen in context: the sentences (audio only), then ▶ The word — "Try the
+                sentences first?" before any sentence was heard (shared/study/listenContext.ts). */}
+            <ListenContext
+              key={card.id}
+              noteId={card.note.id}
+              cardSentence={{
+                hanzi: card.note.sentence_clue,
+                translation: card.note.sentence_clue_translation,
+                audio_url: card.note.sentence_clue_audio_url,
+              }}
+              online={aiAvailable}
+              playAudio={(url, text) => playAudio(url, text, API_BASE)}
+              isPlaying={isPlaying}
+              onPlayWord={cycleAndPlay}
+              onAutoplayWord={() => playRecordingAtIndex(0)}
+              wordSuffix={recordings.length > 1 ? ` (${recordingIndex + 1}/${recordings.length})` : ''}
+              autoplay={!flipped && playedAudioForRef.current !== card.id}
+              onAutoplayed={() => { playedAudioForRef.current = card.id; }}
+              onStats={onListenStats}
+              wordNote={
+                <>
+                  {wordAudioComing && recordings.length === 0 && (
+                    <p className="audio-coming-note" role="status">
+                      <span className="audio-coming-dot" aria-hidden="true" /> Audio coming… (the device voice plays meanwhile)
+                    </p>
+                  )}
+                  {/* "+ New Voice" lives in the ⋯ menu on the back now (D8) */}
+                  <OfflineAudioNote audioUrl={card.note.audio_url} effectiveOffline={effectiveOffline} />
+                </>
+              }
+            />
           </div>
         );
     }
@@ -2853,6 +2871,8 @@ export function StudyCard({
                 <div className="mt-3 mb-3" style={{ textAlign: 'center' }}>
                   {!showSentenceClue ? (
                     <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {/* A listening card has its sentences above (Listen in context). */}
+                      {card.card_type !== 'audio_to_hanzi' && (
                       <button
                         className="btn btn-secondary btn-sm"
                         onClick={() => {
@@ -2867,6 +2887,7 @@ export function StudyCard({
                       >
                         {isGeneratingSentence ? 'Generating...' : 'Use in Sentence'}
                       </button>
+                      )}
                       {(card.card_type === 'meaning_to_hanzi' || card.card_type === 'audio_to_hanzi') && !showMultipleChoice && (
                         <button
                           className="btn btn-secondary btn-sm"
