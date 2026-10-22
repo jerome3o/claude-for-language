@@ -104,7 +104,7 @@ object LabMigrations {
     }
 
     /**
-     * v10: card_holds — Suspend & snooze (server card_holds, migration 0133; core CardHolds.kt): the
+     * v10: card_holds — Suspend & snooze (server card_holds, migration 0134; core CardHolds.kt): the
      * holds on cards, server rows + this phone's pending changes. Empty to start (the next sync fills it).
      */
     val MIGRATION_9_10 = object : Migration(9, 10) {

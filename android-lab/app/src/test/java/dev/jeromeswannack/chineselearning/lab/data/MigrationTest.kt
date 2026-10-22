@@ -280,7 +280,7 @@ class MigrationTest {
         room.close()
     }
 
-    /** v10 adds card_holds (Suspend & snooze, migration 0133): empty to start; unsynced events and the rest stay. */
+    /** v10 adds card_holds (Suspend & snooze, migration 0134): empty to start; unsynced events and the rest stay. */
     @Test fun v9ToV10AddsCardHoldsAndKeepsEverything() {
         createFromExportedSchema(9).use { db ->
             db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'HSK 2', NULL, 3, 6, 2, '2026-10-22 10:00:00', NULL)")

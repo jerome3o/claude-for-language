@@ -434,7 +434,7 @@ Jerome (Oct 2026): Anki's card controls, "with no fake reviews and without bendi
   and **Undo**. The card hub shows each card type with its hold and the same actions
   (`components/cardControls/HubCardControls.tsx`); deck page rows carry a quiet tag — "⏸ Suspended",
   "⏸ 1 of 3 suspended", "💤 Snoozed · 29 Oct" (`noteHoldTag`) — always an icon and words, never colour alone.
-- **Storage & sync** — `card_holds` (migration 0133): one row per hold (client id, card, kind, until,
+- **Storage & sync** — `card_holds` (migration 0134): one row per hold (client id, card, kind, until,
   created_at, cleared_at). A new hold on a card clears its older ones; a clear covers holds made at or
   before it (a hold made later on another device survives). Offline-first: web IndexedDB `cardHolds`
   (Dexie v35, `services/cardHolds.ts`), Lab Room `card_holds` (v10, `data/holds/HoldStore.kt`) + the
