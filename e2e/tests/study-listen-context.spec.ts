@@ -48,7 +48,8 @@ async function untilListeningCard(page: Page) {
     await reveal.waitFor({ timeout: 30000 });
     if (await listen.isVisible().catch(() => false)) return;
     await reveal.click();
-    await page.getByRole('button', { name: /^Easy/ }).first().click();
+    // (dispatchEvent: the feedback button floats over the rating row at phone width)
+    await page.getByRole('button', { name: /^Easy/ }).first().dispatchEvent('click');
     await page.waitForTimeout(400);
   }
   await expect(listen).toBeVisible();
@@ -124,7 +125,7 @@ test('a listening card: the sentences first, the word last — "Try the sentence
   await expect(page.getByTestId('listen-word-prompt')).toHaveCount(0);
 });
 
-test('screenshots: the question, the ask, dark', async ({ page, request }) => {
+test('screenshots: the question and the ask', async ({ page, request }) => {
   test.skip(!SHOTS, 'screenshots only');
   test.setTimeout(120_000);
   const email = `listen-shot-${Date.now()}@test.e2e`;
@@ -150,8 +151,4 @@ test('screenshots: the question, the ask, dark', async ({ page, request }) => {
   await page.getByTestId('listen-word').click();
   await page.waitForTimeout(400);
   if (await page.getByTestId('listen-word-prompt').isVisible()) await page.screenshot({ path: `${SHOTS}/web-02-try-sentences-first.png` });
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await page.getByTestId('listen-row-en').nth(2).click();
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: `${SHOTS}/web-04-dark.png` });
 });
