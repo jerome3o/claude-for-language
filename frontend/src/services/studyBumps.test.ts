@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { db, getStudyQueue, getRawQueueCounts, allocateQueueCounts, sumQueueCounts, createLocalReviewEvent, type LocalCard } from '../db/database';
 import { CardQueue } from '../types';
-import { bumpNotes, clearBump, replaceLocalBumps, findExistingNotes, flushPendingBumps } from './studyBumps';
+import { bumpNotes, bumpCardTypes, clearBump, replaceLocalBumps, findExistingNotes, flushPendingBumps } from './studyBumps';
 import { addBumpsApi, clearBumpApi } from '../api/bumps';
 import { writeStudyBudget } from './studyBudget';
 
@@ -98,5 +98,62 @@ describe('study bumps on the device', () => {
     expect(clearBumpApi).toHaveBeenCalledWith('n-bank');
     expect(await db.studyBumps.where('note_id').equals('n-bank').count()).toBe(0);
     expect((await getStudyQueue()).dueCards).toEqual([]);
+  });
+
+  describe('card-level bumps ("Practise this word other ways…")', () => {
+    const sibling = (id: string, type: string, queue = CardQueue.NEW, dueMs: number | null = null): LocalCard => ({
+      id, note_id: 'n-bank', deck_id: 'd1', card_type: type, queue, stability: queue ? 20 : 0, difficulty: 5, lapses: 0,
+      learning_step: 0, ease_factor: 2.5, interval: queue ? 12 : 0, repetitions: queue ? 3 : 0,
+      next_review_at: dueMs ? new Date(dueMs).toISOString() : null, due_timestamp: dueMs,
+      created_at: iso(), updated_at: iso(), _synced_at: null,
+    } as LocalCard);
+
+    beforeEach(async () => {
+      await db.cards.bulkPut([
+        sibling('c-bank-m', 'meaning_to_hanzi'),
+        sibling('c-bank-a', 'audio_to_hanzi', CardQueue.REVIEW, Date.now() + 12 * 86_400_000),
+      ]);
+    });
+
+    it('only the chosen card enters the queue — first, over a spent budget — and leaves once reviewed', async () => {
+      const out = await bumpCardTypes('n-bank', ['meaning_to_hanzi']);
+      expect(out).toEqual({ added: true, cardTypes: ['meaning_to_hanzi'] });
+      const row = await db.studyBumps.where('note_id').equals('n-bank').first();
+      expect(row).toMatchObject({ card_types: ['meaning_to_hanzi'], pending: 'add', source: 'study_card' });
+      const q = await getStudyQueue();
+      expect(q.dueCards.map(c => c.id)).toEqual(['c-bank-m']);
+      expect([...q.bumpedCardIds]).toEqual(['c-bank-m']);
+      expect((await bumpCardTypes('n-bank', ['meaning_to_hanzi'])).added).toBe(false);
+      await new Promise(r => setTimeout(r, 5));
+      await createLocalReviewEvent({ id: 'e-m', card_id: 'c-bank-m', rating: 2, time_spent_ms: null, user_answer: null, reviewed_at: iso(), _synced: 0 });
+      await db.cards.update('c-bank-m', { queue: CardQueue.LEARNING, due_timestamp: Date.now() + 600_000 });
+      expect((await getStudyQueue()).bumpedCardIds.size).toBe(0);
+    });
+
+    it('a started sibling not due yet is reviewed early; adding a second type keeps the open one', async () => {
+      await bumpCardTypes('n-bank', ['meaning_to_hanzi']);
+      const firstId = (await db.studyBumps.where('note_id').equals('n-bank').first())!.id;
+      const out = await bumpCardTypes('n-bank', ['audio_to_hanzi']);
+      expect(out).toEqual({ added: true, cardTypes: ['meaning_to_hanzi', 'audio_to_hanzi'] });
+      const row = (await db.studyBumps.where('note_id').equals('n-bank').first())!;
+      expect(row.id).not.toBe(firstId); // a new client id: an upload on its way never marks it sent
+      expect([...(await getStudyQueue()).bumpedCardIds].sort()).toEqual(['c-bank-a', 'c-bank-m']);
+    });
+
+    it('uploads card_types; a whole-note bump replaces a card-level one; the sync keeps card_types', async () => {
+      await bumpCardTypes('n-bank', ['meaning_to_hanzi']);
+      vi.mocked(addBumpsApi).mockResolvedValueOnce({ bumps: [], added: [], already: [], not_found: [] } as never);
+      Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      await flushPendingBumps();
+      expect(vi.mocked(addBumpsApi).mock.calls.at(-1)![0][0]).toMatchObject({ note_id: 'n-bank', card_types: ['meaning_to_hanzi'], source: 'study_card' });
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      await replaceLocalBumps([{ id: 's2', note_id: 'n-bank', created_at: iso(), source: 'study_card', bumped_by: null, bumped_by_name: null, card_types: ['audio_to_hanzi'], hanzi: '银行', pinyin: '', english: '', deck_id: 'd1', deck_name: 'HSK 2' }]);
+      expect((await db.studyBumps.get('s2'))?.card_types).toEqual(['audio_to_hanzi']);
+      const whole = await bumpNotes(['n-bank'], 'coach');
+      expect(whole.added).toEqual(['n-bank']);
+      expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.card_types ?? null).toBeNull();
+      // Now the whole word is in: a card-level request is already covered.
+      expect((await bumpCardTypes('n-bank', ['audio_to_hanzi'])).added).toBe(false);
+    });
   });
 });

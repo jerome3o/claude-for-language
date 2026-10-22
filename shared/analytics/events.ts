@@ -111,6 +111,8 @@ export const ANALYTICS_EVENTS = {
   'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue.', ['source', 'count', 'already']),
   'study.bump_studied': e('study', 'Rated a card from the ⚡ bump pocket.', ['card_type', 'queue']),
   'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
+  'study.other_card_types_open': e('study', 'Opened ⋯ → "Practise this word other ways…" on the study card.', ['from_type']),
+  'study.other_card_types': e('study', '"Practise this word other ways…": sent other card types of the word into today (a card-level ⚡ bump). types = the chosen card types joined with /.', ['types', 'from_type', 'count', 'early']),
   'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | mcp | tutor | other).', ['source', 'count', 'already']),
   'study.up_next_moved': e('study', 'Reordered the "Up next" list (how = drag | top | bottom | drop — a search result dragged into place).', ['how']),
   'study.up_next_removed': e('study', 'Took a word off the "Up next" list by hand (the card is kept).', ['source']),
