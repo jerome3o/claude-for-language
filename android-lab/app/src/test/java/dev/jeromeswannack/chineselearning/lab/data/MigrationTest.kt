@@ -280,9 +280,33 @@ class MigrationTest {
         room.close()
     }
 
-    /** v10 adds card_holds (Suspend & snooze, migration 0134): empty to start; unsynced events and the rest stay. */
-    @Test fun v9ToV10AddsCardHoldsAndKeepsEverything() {
+    /** v10 adds study_bumps.cardTypes (card-level bumps, migration 0134): existing bumps stay whole-note; events stay. */
+    @Test fun v9ToV10AddsBumpCardTypesAndKeepsEverything() {
         createFromExportedSchema(9).use { db ->
+            db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'Fruit', NULL, 3, 6, 2, '2026-10-13 10:00:00', NULL)")
+            db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt) VALUES ('n1', 'd1', '苹果', 'píngguǒ', 'apple', '2026-10-13 10:00:00')")
+            db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'meaning_to_hanzi', 2, 5, 5, 5, 2, 0, 1.3)")
+            db.execSQL("INSERT INTO review_events (id, cardId, rating, reviewedAt, timeSpentMs, userAnswer, synced) VALUES ('e1', 'c1', 2, '2026-10-13T08:00:00.000Z', 4200, NULL, 0)")
+            db.execSQL("INSERT INTO study_bumps (noteId, id, createdAt, source, bumpedByName, pending, outboxId) VALUES ('n1', 'b1', '2026-10-13 09:00:00', 'coach', NULL, NULL, NULL)")
+        }
+        val room = Room.databaseBuilder(context, LabDatabase::class.java, name)
+            .addMigrations(*LabMigrations.ALL)
+            .allowMainThreadQueries()
+            .build()
+        runBlocking {
+            val dao = room.dao()
+            assertEquals(1, dao.unsyncedCount())
+            val bump = dao.studyBumps().single()
+            assertEquals(null, bump.cardTypes)
+            dao.upsertStudyBumps(listOf(bump.copy(cardTypes = "[\"meaning_to_hanzi\"]")))
+            assertEquals("[\"meaning_to_hanzi\"]", dao.studyBumps().single().cardTypes)
+        }
+        room.close()
+    }
+
+    /** v11 adds card_holds (Suspend & snooze, migration 0135): empty to start; unsynced events and the rest stay. */
+    @Test fun v10ToV11AddsCardHoldsAndKeepsEverything() {
+        createFromExportedSchema(10).use { db ->
             db.execSQL("INSERT INTO decks (id, name, description, newCardsPerDay, secondaryCardsPerDay, studyPriority, createdAt, folderId) VALUES ('d1', 'HSK 2', NULL, 3, 6, 2, '2026-10-22 10:00:00', NULL)")
             db.execSQL("INSERT INTO notes (id, deckId, hanzi, pinyin, english, createdAt, imageKey) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank', '2026-10-22 10:00:00', 'note-images/x.png')")
             db.execSQL("INSERT INTO cards (id, noteId, deckId, cardType, queue, stability, difficulty, scheduledDays, reps, lapses, easeFactor) VALUES ('c1', 'n1', 'd1', 'hanzi_to_meaning', 2, 5, 5, 5, 2, 0, 1.3)")

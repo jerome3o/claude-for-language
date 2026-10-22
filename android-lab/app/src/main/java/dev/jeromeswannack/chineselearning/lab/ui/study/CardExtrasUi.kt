@@ -115,10 +115,11 @@ data class StudyMenuItem(
 
 /**
  * The card's ⋯ items, in the web's order (`renderBackActions`): fun fact (only when the
- * note has none), regenerate audio, new voice, roleplay (with a Claude tutor), Write it,
+ * note has none), regenerate audio, new voice, roleplay (with a Claude tutor), Practise this
+ * word other ways… (the flashcard session, a note with another card), Write it,
  * flag for tutor (human tutors only), play my recording (when there is one).
  */
-fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecording: Boolean, onFlag: () -> Unit, onWrite: () -> Unit = {}, onHold: (kind: String) -> Unit = {}): List<StudyMenuItem> {
+fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecording: Boolean, onFlag: () -> Unit, onWrite: () -> Unit = {}, onOtherCards: () -> Unit = {}, onHold: (kind: String) -> Unit = {}): List<StudyMenuItem> {
     val needsInternet = if (ui.aiAvailable) null else NEEDS_INTERNET
     val busy = ui.extras.busy
     return buildList {
@@ -129,6 +130,8 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
         // To the coach and back: the card stays exactly as it is (the session keeps it) and the
         // coach's back returns to it. Prefilled with the card's sentence, not sent (web: same item).
         add(StudyMenuItem("coach", "Sentence coach", "✏️", needsInternet, onSelect = { actions.onOpenCoach(view.note.sentenceClue?.takeIf { it.isNotBlank() } ?: view.note.hanzi) }))
+        // A card-level ⚡ bump of the word's other card types into this session (core OtherCardTypes).
+        if (ui.extras.hasOtherCardTypes) add(StudyMenuItem("other-cards", "Practise this word other ways…", "🔀", onSelect = onOtherCards))
         if (CardExtrasLogic.canWriteHanzi(view.note.hanzi)) add(StudyMenuItem("write", "Write it", "✍️", "Preview", onSelect = onWrite))
         if (ui.extras.flagTutors.isNotEmpty()) add(StudyMenuItem("flag", "Flag for tutor", "🚩", onSelect = onFlag))
         // Anki's card controls (docs/STUDY_SESSION.md "Suspend & snooze") — never a review event.

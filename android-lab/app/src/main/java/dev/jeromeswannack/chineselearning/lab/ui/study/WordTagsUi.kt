@@ -55,7 +55,21 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.dropWhile
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.TextUnit
+import dev.jeromeswannack.chineselearning.lab.core.Known
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
+import dev.jeromeswannack.chineselearning.lab.core.explorer.WordSegmentInput
+import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalInExplorer
 
 /*
  * Word tags (docs/STUDY_SESSION.md "Word tags"; web components/wordTags/WordTagPills.tsx):
@@ -70,6 +84,8 @@ const val WORD_TAGS_TAG = "word-tags"
 const val WORD_TAG_SHEET_TAG = "word-tag-sheet"
 const val WORD_TAG_SHEET_AI_TAG = "word-tag-sheet-ai"
 const val WORD_TAG_SHEET_NOTE_TAG = "word-tag-sheet-note"
+const val WORD_TAG_SHEET_EXAMPLE_TAG = "word-tag-sheet-example"
+const val WORD_TAG_SHEET_HINT_TAG = "word-tag-sheet-hint"
 fun wordTagTestTag(id: String) = "word-tag-$id"
 
 /** The web's tone tints (wordTags.css): background + text, light and dark. */
@@ -145,20 +161,55 @@ fun WordTagPillsRow(tags: List<WordTag>, onTap: (WordTag) -> Unit, centred: Bool
 
 /** The tiny explanation sheet: the pill, what it means, one example, where it comes from. */
 @Composable
-fun WordTagSheet(tag: WordTag, explanation: WordTagExplanation, onDismiss: () -> Unit) {
+fun WordTagSheet(tag: WordTag, explanation: WordTagExplanation, onExplore: ((ExplorerItem) -> Unit)? = null, onDismiss: () -> Unit) {
     LabBottomSheet(onDismiss = onDismiss) {
-        WordTagSheetContent(tag, explanation, onDismiss)
+        WordTagSheetContent(tag, explanation, onExplore, onDismiss)
     }
+}
+
+private fun hasHan(text: String): Boolean = text.codePoints().anyMatch { Known.isHan(it) }
+
+/**
+ * A line of the sheet: plain without Chinese, else explorable by WORD (the device segmenter,
+ * [DeviceWords]; by character until its lists are loaded) — the register note's "use 人品 or
+ * 脾气 in casual speech" → tap 人品 → the explorer (web WordTagPills SheetChinese).
+ */
+@Composable
+private fun SheetText(
+    text: String,
+    onExplore: ((ExplorerItem) -> Unit)?,
+    style: TextStyle = LocalTextStyle.current,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    modifier: Modifier = Modifier,
+) {
+    if (!hasHan(text)) {
+        Text(text, style = style, fontSize = fontSize, fontWeight = fontWeight, color = Lab.colors.ink, modifier = modifier)
+        return
+    }
+    val words = DeviceWords.of(text)
+    ExplorableText(
+        text,
+        source = "word_tag",
+        segments = words?.map { WordSegmentInput(it.text, it.pinyin.ifBlank { null }, it.gloss.ifBlank { null }) },
+        style = style,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        underline = true,
+        onTap = onExplore,
+        modifier = modifier,
+    )
 }
 
 /** The sheet's body (stateless; screenshot tests render it without the modal). */
 @Composable
-fun WordTagSheetContent(tag: WordTag, explanation: WordTagExplanation, onDismiss: () -> Unit) {
+fun WordTagSheetContent(tag: WordTag, explanation: WordTagExplanation, onExplore: ((ExplorerItem) -> Unit)? = null, onDismiss: () -> Unit) {
+    val tappable = remember(explanation) { listOf(explanation.title, explanation.body, explanation.note, explanation.example).any(::hasHan) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).testTag(WORD_TAG_SHEET_TAG)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             WordTagPill(tag, onClick = null)
             Spacer(Modifier.width(10.dp))
-            Text(explanation.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+            SheetText(explanation.title, onExplore, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         if (explanation.ai) {
             Spacer(Modifier.height(12.dp))
@@ -173,20 +224,28 @@ fun WordTagSheetContent(tag: WordTag, explanation: WordTagExplanation, onDismiss
             )
         }
         Spacer(Modifier.height(12.dp))
-        Text(explanation.body, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+        SheetText(explanation.body, onExplore, style = MaterialTheme.typography.bodyLarge)
         if (explanation.note.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             Row(Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min).testTag(WORD_TAG_SHEET_NOTE_TAG)) {
                 Box(Modifier.width(3.dp).fillMaxHeight().background(Lab.colors.faint))
                 Spacer(Modifier.width(10.dp))
-                Text(explanation.note, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
+                SheetText(explanation.note, onExplore, style = MaterialTheme.typography.bodyLarge)
             }
         }
         if (explanation.example.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
+            SheetText(
+                explanation.example, onExplore, fontSize = 18.sp,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).padding(horizontal = 12.dp, vertical = 8.dp)
+                    .testTag(WORD_TAG_SHEET_EXAMPLE_TAG),
+            )
+        }
+        if (tappable) {
+            Spacer(Modifier.height(10.dp))
             Text(
-                explanation.example, fontSize = 18.sp, color = Lab.colors.ink,
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).padding(horizontal = 12.dp, vertical = 8.dp),
+                "Tap any Chinese word to explore it or add it as a card.",
+                style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag(WORD_TAG_SHEET_HINT_TAG),
             )
         }
         Spacer(Modifier.height(10.dp))
@@ -242,6 +301,31 @@ fun WordTagsFor(
             mapOf("kind" to t.kind, "tag" to t.id, "source" to source, "tag_source" to if (t.ai) "ai" else "lexicon"),
         )
     }, centred = centred, modifier = modifier)
+    // A word tapped in the sheet: the sheet steps aside for the explorer and — when the explorer
+    // was opened from here, not pushed inside one — comes back when it closes (web: onClosed).
+    val explorer = LocalExplorer.current
+    val inside = LocalInExplorer.current
+    var parked by rememberSaveable(hanzi) { mutableStateOf<String?>(null) }
+    LaunchedEffect(parked, explorer) {
+        val p = parked ?: return@LaunchedEffect
+        val ex = explorer ?: return@LaunchedEffect
+        snapshotFlow { ex.isOpen }.dropWhile { !it }.first { !it }
+        open = p
+        parked = null
+    }
     val tag = tags.firstOrNull { it.id == open }
-    if (tag != null) WordTagSheet(tag, WordTagsAi.explanation(tag, hanzi, lexicon, ai)) { open = null }
+    if (tag != null) {
+        WordTagSheet(
+            tag,
+            WordTagsAi.explanation(tag, hanzi, lexicon, ai),
+            onExplore = { item ->
+                (context.applicationContext as? LabApp)?.analytics?.track(
+                    "study.word_tag_word",
+                    mapOf("kind" to tag.kind, "tag_source" to if (tag.ai) "ai" else "lexicon", "item" to item.kind, "inside" to inside),
+                )
+                open = null
+                if (!inside) parked = tag.id
+            },
+        ) { open = null }
+    }
 }

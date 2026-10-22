@@ -159,6 +159,11 @@ data class StudyBumpEntity(
     val bumpedByName: String? = null,
     val pending: String? = null,
     val outboxId: String? = null,
+    /**
+     * v10: a card-level bump ("Practise this word other ways…", server study_bumps.card_types):
+     * JSON array of the card types in the pocket; null = the whole note.
+     */
+    val cardTypes: String? = null,
 )
 
 /**
@@ -167,7 +172,7 @@ data class StudyBumpEntity(
  * local change still on its way: "add" (POST /api/me/card-holds in the Outbox as [outboxId]) or
  * "clear" (POST /api/me/card-holds/clear, made at [clearedAt]); a pending row wins over the server
  * list until its Outbox item has gone (data/holds/HoldStore.kt). A "clear" row is out of the queue's
- * holds at once. v10.
+ * holds at once. v11.
  */
 @Entity(tableName = "card_holds", indices = [Index("cardId")])
 data class CardHoldEntity(
@@ -338,10 +343,10 @@ interface LabDao {
         StudyBumpEntity::class,
         // v8: "Up next".
         UpNextEntity::class,
-        // v10: Suspend & snooze.
+        // v11: Suspend & snooze.
         CardHoldEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

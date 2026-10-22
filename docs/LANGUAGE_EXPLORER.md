@@ -40,6 +40,20 @@ Today's character sheet: readings, meaning, radical, strokes, "#N most common", 
 (`shared/chars/status.ts`). New: the radical and components are tappable (→ Character view), and
 a word row opens the **Word view** (which has Add / ⚡ Study it today) instead of the add sheet.
 
+**Is the character itself a card?** (Oct 2026 — "it's hard to tell if I already have a card for a
+single character"). Right under the glyph, before anything else: **📚 You have 性 as a card in
+<deck>** (or **✓ Known — you have 性 as a card in <deck>** when a card of it is mature) with
+**Open card →** (the card hub) and **⚡ Study it today**; else **+ Add 性 as a card** (the add-card
+sheet, the character's first reading and meaning filled in); "📚 Checking your cards…" while the
+device is read. The rule is `charOwnCards` (`shared/chars/status.ts`, Lab `CharWords.ownCards`,
+parity-tested in `parity/fixtures/char-words.ts`): a note whose spelling (`noteKey`: punctuation /
+spaces ignored) is exactly that ONE Han character — 性, not 人性 — in a live deck; known = a mature
+card (Review, stability > 21 d), like the "Words with 字" rows. Copy: `ownCardLine`,
+`addOwnCardLabel`. Web: the Word view's card tie-in, extracted as `components/explorer/CardTieIn.tsx`,
+used by both views; data `ownCardsFor` (`services/charDict.ts`). Lab: `ui/explorer/OwnCardBlock.kt`
+(`CharacterSheetContent(afterHead = …)`), `CharDict.ownCards` → `ExplorerEnv.ownCards`. Icon +
+words; the tint only repeats them.
+
 ## Word view (`shared/explorer/word.ts`, `related.ts`)
 
 - **Head**: hanzi, ▶ (the practice TTS path, cached on the device — `getTTSWithCache` / Lab
@@ -51,7 +65,10 @@ a word row opens the **Word view** (which has Add / ⚡ Study it today) instead 
   minus how common (the chip above already says it). Web `components/wordTags/WordTagPills.tsx`
   (`exclude={['frequency']}`), Lab `WordTagsFor(…, exclude = {"frequency"})`.
 - **Characters**: one chip per character with its syllable, coloured by tone (`wordChars`) → the
-  Character view.
+  Character view. A character that is a card of its own carries a small badge in the chip's corner —
+  **📚** (in your decks) or **✓** (known), `OWN_CARD_BADGE` — and says it in the chip's label
+  (`charChipLabel`: "The character 学, xué — you have it as a card, known"); same rule as the
+  Character view's line.
 - **Your card**: "📚 You have this in <deck>" → Open card (the card hub) and ⚡ Study it today; else
   **+ Add as card** (`AddChunkModal`, the top deck of the queue preselected; the "More about"
   explanation's fun facts / sentence go with it when it was loaded).
@@ -214,5 +231,5 @@ stroke data once cached).
 
 ## Analytics (`shared/analytics/events.ts`)
 
-`explorer.open` (source, kind), `explorer.push` (kind, from), `explorer.more` (kind),
-`explorer.add_card`, `explorer.bump`, `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.
+`explorer.open` (source, kind — source `word_tag` from a word tag's sheet), `explorer.push` (kind, from), `explorer.more` (kind),
+`explorer.add_card` (kind = word | char), `explorer.bump` (kind = word | char), `study.word_tag_word` (a tap on Chinese in a word tag's sheet), `explorer.write`, `explorer.drill_start` (kind, items), `explorer.drill_finish` (kind, items, correct, duration_ms). Ids / enums / counts only.

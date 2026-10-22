@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { FrequencyIndex } from '@shared/decks';
+import type { ExplorerItem } from '@shared/explorer';
+import { isHanCodePoint } from '@shared/progress/known';
+import { useSegmentedWords } from '../../services/chineseSegmenter';
+import { ExplorableText } from '../explorer/ExplorableText';
+import { useExplorer } from '../explorer/ExplorerContext';
 import { wordTagKey, type WordTag, type WordTagKind, type WordTagLexicon } from '@shared/cards/word-tags';
 import { AI_WORD_TAG_NOTICE, explainWordTag, parseAiWordTags, wordTagsWithAi, type AiWordTags } from '@shared/cards/word-tags-ai';
 import { loadWordTagLexicon, onWordTagsPrefChange, readWordTagsOn } from '../../services/wordTags';
@@ -69,9 +74,18 @@ export function WordTagPills({
     return wordTagsWithAi(hanzi, lexicon, ai, { rank, exclude: excludeKey ? (excludeKey.split(',') as WordTagKind[]) : [] });
   }, [hanzi, key, lexicon, freq, excludeKey, ai]);
 
+  const hanziRef = useRef(hanzi);
+  hanziRef.current = hanzi;
   useEffect(() => {
     setOpen(null);
   }, [hanzi]);
+
+  // A word tapped in the sheet: the sheet steps aside for the explorer and, when the explorer
+  // was opened from here (not pushed inside one), comes back when it closes.
+  const explore = (tag: WordTag, item: ExplorerItem, inside: boolean) => {
+    track('study.word_tag_word', { kind: tag.kind, tag_source: tag.ai ? 'ai' : 'lexicon', item: item.kind, inside });
+    setOpen(null);
+  };
 
   if (!on || tags.length === 0) return null;
   return (
@@ -96,8 +110,57 @@ export function WordTagPills({
           </button>
         ))}
       </div>
-      {open && <WordTagSheet tag={open} hanzi={hanzi} lexicon={lexicon} ai={ai} onClose={() => setOpen(null)} />}
+      {open && (
+        <WordTagSheet
+          tag={open}
+          hanzi={hanzi}
+          lexicon={lexicon}
+          ai={ai}
+          onClose={() => setOpen(null)}
+          onExplore={(item, inside) => explore(open, item, inside)}
+          onExplorerClosed={() => {
+            // Only back to the same card's sheet (never an old word's after the card moved on).
+            if (hanziRef.current === hanzi) setOpen(open);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function hasHan(text: string): boolean {
+  for (const ch of text) if (isHanCodePoint(ch.codePointAt(0)!)) return true;
+  return false;
+}
+
+/**
+ * A line of the explanation sheet: plain when it has no Chinese, else explorable by word —
+ * the device segmenter's words once its lists are loaded, by character until then.
+ */
+function SheetChinese({
+  text,
+  className,
+  onTap,
+  onClosed,
+}: {
+  text: string;
+  className?: string;
+  onTap: (item: ExplorerItem) => void;
+  onClosed?: () => void;
+}) {
+  const zh = hasHan(text);
+  const words = useSegmentedWords(text, zh);
+  if (!zh) return <>{text}</>;
+  return (
+    <ExplorableText
+      text={text}
+      segments={words}
+      source="word_tag"
+      className={className}
+      tapClassName="xt-tap word-tag-xt"
+      onTap={onTap}
+      onClosed={onClosed}
+    />
   );
 }
 
@@ -117,14 +180,32 @@ function WordTagSheet({
   lexicon,
   ai,
   onClose,
+  onExplore,
+  onExplorerClosed,
 }: {
   tag: WordTag;
   hanzi: string;
   lexicon: WordTagLexicon | null;
   ai: AiWordTags | null;
   onClose: () => void;
+  /** Chinese in the sheet was tapped (before the explorer opens / pushes). */
+  onExplore: (item: ExplorerItem, inside: boolean) => void;
+  /** The explorer opened from the sheet closed again: the sheet comes back. */
+  onExplorerClosed: () => void;
 }) {
   const e = explainWordTag(tag, hanzi, lexicon, ai);
+  const explorer = useExplorer();
+  // Every line with Chinese is explorable, by word (the device segmenter) — e.g. the register
+  // note's "use 人品 or 脾气 in casual speech" → tap 人品 → the explorer → + Add as card.
+  const zh = (text: string, className?: string) => (
+    <SheetChinese
+      text={text}
+      className={className}
+      onTap={(item) => onExplore(item, explorer.inside)}
+      onClosed={explorer.inside ? undefined : onExplorerClosed}
+    />
+  );
+  const tappable = [e.title, e.body, e.note ?? '', e.example].some(hasHan);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') {
@@ -153,7 +234,7 @@ function WordTagSheet({
             {tag.ai && <AiMark />}
             {tag.label}
           </span>
-          <h2 className="word-tag-sheet-title">{e.title}</h2>
+          <h2 className="word-tag-sheet-title">{zh(e.title)}</h2>
         </div>
         {e.ai && (
           <p className="word-tag-sheet-ai" data-testid="word-tag-sheet-ai">
@@ -161,15 +242,20 @@ function WordTagSheet({
             {AI_WORD_TAG_NOTICE}
           </p>
         )}
-        <p className="word-tag-sheet-body">{e.body}</p>
+        <p className="word-tag-sheet-body">{zh(e.body)}</p>
         {e.note && (
           <p className="word-tag-sheet-note" data-testid="word-tag-sheet-note">
-            {e.note}
+            {zh(e.note)}
           </p>
         )}
         {e.example && (
-          <p className="word-tag-sheet-example" lang="zh-CN">
-            {e.example}
+          <p className="word-tag-sheet-example" lang="zh-CN" data-testid="word-tag-sheet-example">
+            {zh(e.example)}
+          </p>
+        )}
+        {tappable && (
+          <p className="word-tag-sheet-hint" data-testid="word-tag-sheet-hint">
+            Tap any Chinese word to explore it or add it as a card.
           </p>
         )}
         <p className="word-tag-sheet-source">Source: {e.source}</p>

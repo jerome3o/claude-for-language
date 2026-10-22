@@ -351,6 +351,42 @@ today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-teste
   every word of a sentence; the MCP server has `bump_cards`, `list_bumped_cards`,
   `clear_bumped_card` and the tutor's `bump_student_cards`.
 
+### Other card types — "Practise this word other ways…" (a card-level bump)
+
+Jerome: "I've got the hanzi → spoken card and think 'I'd love to remember this when I think of the
+English too' — let me send the other version of this card into the current session. And the
+listening version, if I struggle to hear it." On the answer side, **⋯ → 🔀 Practise this word other
+ways…** (the flashcard session only, when the note has another card) opens a small sheet
+(`components/study/OtherCardTypesSheet.tsx`, Lab `ui/study/OtherCardsSheet.kt`; rules
+`shared/decks/other-card-types.ts`, Lab `OtherCardTypes.kt`, parity-tested):
+
+- one row per card type of the note, card-type order — **Read → meaning** · **English → 汉字** ·
+  **Listen → 汉字** — with its state: *this card*, *new*, *⚡ in today’s study*, *due today*,
+  *in review, due in 12 days* / *learning, due tomorrow* (days = ceil((due − today's cutoff) / 24 h));
+- a NEW sibling offers **⚡ Add to today** (the first one is ticked when the sheet opens); a started
+  sibling not due yet offers **Review it early today** (one early review, like the bump's); a card
+  already due today, or already in today's pocket, offers nothing; a word with a whole-note bump has
+  nothing to add; multi-select, pinned **⚡ Add N to today** + Close; after adding: "⚡ English → 汉字
+  comes up in a few cards", then the sheet closes.
+
+Adding is a **card-level bump**: the same `study_bumps` row with `card_types` (migration 0134, JSON;
+NULL = the whole note as before; Lab Room v10 `cardTypes`). The pocket then holds exactly those card
+types of the note, each until it is reviewed since the bump, whatever its state (a NEW card over the
+budget, a due card first, a started card its early review); done when every chosen card has been
+reviewed since. A request meeting an active bump (`mergeBumpCardTypes`): a whole-note bump already
+covers it; on a card-level bump the device sends its merged list — the types still open plus the new
+ones, re-dated to now, so a finished type never comes back — and the server takes it as it is; a
+whole-note bump of a word with a card-level one makes it whole-note. Offline-first like every bump
+(IndexedDB / Room at once, a NEW client id each change, uploaded with `card_types`).
+
+The cards join **the current session at once** (`useStudySession.addBumpedCards`, Lab
+`StudyViewModel.addBumpedCards`) but never straight after their sibling: the recent-notes filter
+(the last 5 rated notes) holds them while anything else is available, and a bumped card never jumps
+the queue while its note is among the last 3 rated (`pickBumpedCard`, `BUMP_SIBLING_GAP`). From its
+first review the card follows FSRS like any other — no events are invented. Analytics
+`study.other_card_types_open { from_type }`, `study.other_card_types { types, from_type, count, early }`
+(types joined with `/`); the bump itself is `study.bump_added` with `source: 'study_card'`.
+
 ## "Up next" — words chosen to come next
 
 Jerome (Oct 2026): "Add a way for my tutor and me to manually add stuff to the learning queue … see
@@ -434,10 +470,10 @@ Jerome (Oct 2026): Anki's card controls, "with no fake reviews and without bendi
   and **Undo**. The card hub shows each card type with its hold and the same actions
   (`components/cardControls/HubCardControls.tsx`); deck page rows carry a quiet tag — "⏸️ Suspended",
   "⏸️ 1 of 3 suspended", "💤 Snoozed · 29 Oct" (`noteHoldTag`) — always an icon and words, never colour alone.
-- **Storage & sync** — `card_holds` (migration 0134): one row per hold (client id, card, kind, until,
+- **Storage & sync** — `card_holds` (migration 0135): one row per hold (client id, card, kind, until,
   created_at, cleared_at). A new hold on a card clears its older ones; a clear covers holds made at or
   before it (a hold made later on another device survives). Offline-first: web IndexedDB `cardHolds`
-  (Dexie v35, `services/cardHolds.ts`), Lab Room `card_holds` (v10, `data/holds/HoldStore.kt`) + the
+  (Dexie v35, `services/cardHolds.ts`), Lab Room `card_holds` (v11, `data/holds/HoldStore.kt`) + the
   Outbox; `/api/sync/changes` carries the whole active list as `card_holds` (+ `bury_siblings`).
   API: `GET|POST /api/me/card-holds`, `POST /api/me/card-holds/clear`, `PUT /api/profile/bury-siblings`.
   MCP (the signed-in user's own cards only): `suspend_cards`, `unsuspend_cards`, `list_suspended_cards`.
@@ -863,6 +899,20 @@ as the explorer's decals) and **Trad. 長得**. A tap on a pill opens a tiny she
 one or two lines, an example (the separable verb's split — 睡了一个好觉 — or 一本书 built from the
 word), and where it comes from. The pills are buttons, so they never peek the card. The question
 side has none. The same pills (minus how common) head the explorer's Word view.
+
+**Chinese in the sheet is explorable** (Oct 2026 — Jerome on 人性's ✨ Formal sheet: "when it
+suggests less formal words, I'd love to click those words … and add them as cards"). Every line of
+the sheet — the title (离合词), the body, the AI register note ("use 人品 or 脾气 in casual
+speech"), the example (睡了一个好觉, 一本书) — goes through `ExplorableText`, by WORD from the
+device segmenter (`shared/chinese/segment.ts`: web `useSegmentedWords`, Lab `DeviceWords`; by
+character until its lists are loaded), dotted / underlined, with a hint line "Tap any Chinese word to
+explore it or add it as a card." A tap opens the language explorer on it (source `word_tag`) where
++ Add as card / ⚡ Study it today / Open card already are; the sheet steps aside and comes back
+when the explorer closes (✕ / back) so the next suggested word is one tap away (web
+`ExplorerOpenOptions.onClosed`, Lab: waits for `ExplorerController.isOpen` to fall). Opened from
+the explorer's own Word view, a tap pushes onto the stack instead and the sheet stays closed (back
+returns to the Word view). Analytics `study.word_tag_word` (kind, tag_source, item, inside). Web
+`components/wordTags/WordTagPills.tsx` (`SheetChinese`), Lab `ui/study/WordTagsUi.kt` (`SheetText`).
 
 A sentence or phrase card gets only what applies: "Phrase" for 2–6 Han characters that aren't a
 dictionary word (not for a card ending in 。？！ or with a comma), and the register words found in it

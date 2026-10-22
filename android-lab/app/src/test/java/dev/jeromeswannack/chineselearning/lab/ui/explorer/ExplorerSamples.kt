@@ -71,6 +71,7 @@ object ExplorerSamples {
         myWord: (suspend (String, Boolean) -> MyWord)? = null,
         play: (String) -> Unit = {},
         drillFx: DrillFx = DrillFx(),
+        ownCards: Map<String, dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo> = emptyMap(),
     ) = ExplorerEnv(
         chars = CharSheetActions(
             lookup = { c -> records[c]?.let { CharDict.Lookup.Ok(it) } ?: CharDict.Lookup.Missing },
@@ -78,6 +79,7 @@ object ExplorerSamples {
         ),
         wordLookup = { word },
         myWord = myWord ?: { _, _ -> mine },
+        ownCards = { cs -> cs.associateWith { ownCards[it] ?: dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo(CharWordStatus.None, emptyList(), emptyList()) } },
         rank = { ranks[it] },
         decal = decals,
         online = { online },

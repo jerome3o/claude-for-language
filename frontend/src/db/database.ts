@@ -158,6 +158,8 @@ export interface LocalStudyBump {
   source: string;
   /** Set when the tutor bumped it ("⚡ from Minghui"). */
   bumped_by_name: string | null;
+  /** A card-level bump ("Practise this word other ways…"): only these card types; null / absent = the whole note. */
+  card_types?: string[] | null;
   pending?: 'add' | 'clear' | null;
 }
 
@@ -1617,7 +1619,7 @@ export function bumpTimeMs(at: string): number {
 export async function loadQueueBumps(): Promise<QueueBumps | null> {
   const rows = (await db.studyBumps.toArray()).filter((b) => b.pending !== 'clear');
   if (rows.length === 0) return null;
-  const bumps: QueueBump[] = rows.map((r) => ({ note_id: r.note_id, created_ms: bumpTimeMs(r.created_at) }));
+  const bumps: QueueBump[] = rows.map((r) => ({ note_id: r.note_id, created_ms: bumpTimeMs(r.created_at), card_types: r.card_types ?? null }));
   const cardIds = (await db.cards.where('note_id').anyOf(rows.map((r) => r.note_id)).primaryKeys()) as string[];
   const lastReviewMs = new Map<string, number>();
   const firstReviewMs = new Map<string, number>();

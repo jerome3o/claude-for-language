@@ -8,7 +8,8 @@ import dev.jeromeswannack.chineselearning.lab.core.Known
 import dev.jeromeswannack.chineselearning.lab.core.KnownCard
 import dev.jeromeswannack.chineselearning.lab.core.KnownEvent
 import dev.jeromeswannack.chineselearning.lab.core.KnownNote
-import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.KnownProgressWithRate
+import dev.jeromeswannack.chineselearning.lab.core.KnownRates
 import dev.jeromeswannack.chineselearning.lab.core.Mastery
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCard
 import dev.jeromeswannack.chineselearning.lab.core.MasteryCounts
@@ -78,9 +79,11 @@ class ProgressStore(private val db: LabDatabase) {
     /**
      * Characters / words known and their history (core `Known`, port of
      * shared/progress/known.ts): every card's events replayed with FSRS, so it reads the
-     * whole review history — off the main thread, after the snapshot has drawn.
+     * whole review history — off the main thread, after the snapshot has drawn. The same
+     * replay also gives the Per week view (core `KnownRates`, port of known-rate.ts):
+     * weeks start Monday 00:00 in [zone].
      */
-    suspend fun known(nowMs: Long): KnownProgress {
+    suspend fun known(nowMs: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): KnownProgressWithRate {
         val (notes, cards, events) = withContext(Dispatchers.IO) {
             val r = db.openHelper.readableDatabase
             val notes = r.query("SELECT id, hanzi FROM notes").use { c ->
@@ -95,7 +98,8 @@ class ProgressStore(private val db: LabDatabase) {
             Triple(notes, cards, events)
         }
         return withContext(Dispatchers.Default) {
-            Known.progress(notes, cards, events, Known.historyPoints(events, nowMs))
+            val tz = zone.rules.getOffset(java.time.Instant.ofEpochMilli(nowMs)).totalSeconds / 60
+            KnownRates.progressWithRate(notes, cards, events, nowMs, tz)
         }
     }
 

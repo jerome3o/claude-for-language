@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 10,
-    "identityHash": "208fff740f63226a413390df85b0cf57",
+    "identityHash": "417f9c972c87c80961c0a21880090082",
     "entities": [
       {
         "tableName": "decks",
@@ -686,7 +686,7 @@
       },
       {
         "tableName": "study_bumps",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`noteId` TEXT NOT NULL, `id` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `source` TEXT NOT NULL, `bumpedByName` TEXT, `pending` TEXT, `outboxId` TEXT, PRIMARY KEY(`noteId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`noteId` TEXT NOT NULL, `id` TEXT NOT NULL, `createdAt` TEXT NOT NULL, `source` TEXT NOT NULL, `bumpedByName` TEXT, `pending` TEXT, `outboxId` TEXT, `cardTypes` TEXT, PRIMARY KEY(`noteId`))",
         "fields": [
           {
             "fieldPath": "noteId",
@@ -727,6 +727,12 @@
           {
             "fieldPath": "outboxId",
             "columnName": "outboxId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cardTypes",
+            "columnName": "cardTypes",
             "affinity": "TEXT",
             "notNull": false
           }
@@ -789,84 +795,12 @@
         },
         "indices": [],
         "foreignKeys": []
-      },
-      {
-        "tableName": "card_holds",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `cardId` TEXT NOT NULL, `kind` TEXT NOT NULL, `until` TEXT, `createdAt` TEXT NOT NULL, `pending` TEXT, `outboxId` TEXT, `clearedAt` TEXT, PRIMARY KEY(`id`))",
-        "fields": [
-          {
-            "fieldPath": "id",
-            "columnName": "id",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "cardId",
-            "columnName": "cardId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "kind",
-            "columnName": "kind",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "until",
-            "columnName": "until",
-            "affinity": "TEXT",
-            "notNull": false
-          },
-          {
-            "fieldPath": "createdAt",
-            "columnName": "createdAt",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "pending",
-            "columnName": "pending",
-            "affinity": "TEXT",
-            "notNull": false
-          },
-          {
-            "fieldPath": "outboxId",
-            "columnName": "outboxId",
-            "affinity": "TEXT",
-            "notNull": false
-          },
-          {
-            "fieldPath": "clearedAt",
-            "columnName": "clearedAt",
-            "affinity": "TEXT",
-            "notNull": false
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "id"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_card_holds_cardId",
-            "unique": false,
-            "columnNames": [
-              "cardId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_card_holds_cardId` ON `${TABLE_NAME}` (`cardId`)"
-          }
-        ],
-        "foreignKeys": []
       }
     ],
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '208fff740f63226a413390df85b0cf57')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '417f9c972c87c80961c0a21880090082')"
     ]
   }
 }

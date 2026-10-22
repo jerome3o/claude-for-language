@@ -11,11 +11,18 @@
  *     keeping this device's pending rows on top.
  * Which cards are in the pocket and whether a bump is done is derived from the
  * local review events every time (never stored).
+ *
+ * A CARD-LEVEL bump (`card_types`, bumpCardTypes) is the study card's "Practise this word
+ * other ways…": only those card types of the note go in the pocket. A row that changes
+ * gets a NEW client id, so an upload already on its way never marks the newer row sent.
  */
 import { useLiveQuery } from 'dexie-react-hooks';
-import { bumpedMessage, normalizeBumpSource, sentenceBumps, type BumpSource, type SentenceBumps } from '@shared/decks';
+import {
+  bumpedCardsForNote, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource, sentenceBumps,
+  type BumpSource, type SentenceBumps,
+} from '@shared/decks';
 import { normalizeHanzi } from '@shared/import/parse';
-import { db, type LocalNote, type LocalStudyBump } from '../db/database';
+import { db, bumpTimeMs, getStudyCutoff, queueInput, type LocalNote, type LocalStudyBump } from '../db/database';
 export { bumpTimeMs, loadQueueBumps } from '../db/database';
 import { addBumpsApi, clearBumpApi, listBumpsApi, type ApiStudyBump } from '../api/bumps';
 import { track } from './analytics';
@@ -62,7 +69,8 @@ export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById
   await db.transaction('rw', db.studyBumps, async () => {
     for (const noteId of ids) {
       const row = await db.studyBumps.where('note_id').equals(noteId).first();
-      if (row && row.pending !== 'clear') {
+      // A card-level bump of the word becomes a whole-note bump (mergeBumpCardTypes).
+      if (row && row.pending !== 'clear' && !normalizeBumpCardTypes(row.card_types)) {
         already.push(noteId);
         continue;
       }
@@ -78,6 +86,70 @@ export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById
   track('study.bump_added', { source, count: added.length, already: already.length });
   if (added.length && online()) void flushPendingBumps().catch(() => undefined);
   return { added, already, message: bumpedMessage(await names(added), already.length) };
+}
+
+/** Card review times of one note (local events; refused ones left out). */
+async function noteReviewSpans(cardIds: string[]): Promise<{ last: Map<string, number>; first: Map<string, number> }> {
+  const last = new Map<string, number>();
+  const first = new Map<string, number>();
+  if (cardIds.length === 0) return { last, first };
+  await db.reviewEvents.where('card_id').anyOf(cardIds).each((e) => {
+    if ((e as { _synced?: number })._synced === -1) return;
+    const ms = Date.parse(e.reviewed_at);
+    if (!Number.isFinite(ms)) return;
+    if (ms > (last.get(e.card_id) ?? -Infinity)) last.set(e.card_id, ms);
+    if (ms < (first.get(e.card_id) ?? Infinity)) first.set(e.card_id, ms);
+  });
+  return { last, first };
+}
+
+export interface CardTypesBumpOutcome {
+  /** True when the pocket changed (false = these cards were already in today's study). */
+  added: boolean;
+  /** The bump's card types afterwards (null = the whole note is bumped). */
+  cardTypes: string[] | null;
+}
+
+/**
+ * "Practise this word other ways…" (shared/decks/other-card-types.ts): put these card types
+ * of one note in today's ⚡ pocket — a card-level bump, local at once, uploaded when online.
+ * An open card-level bump of the note keeps its types still to review and gains these (re-dated
+ * now); a finished one starts afresh; a whole-note bump already covers them.
+ */
+export async function bumpCardTypes(noteId: string, cardTypes: string[], source: BumpSource = 'study_card'): Promise<CardTypesBumpOutcome> {
+  const want = normalizeBumpCardTypes(cardTypes);
+  if (!want) return { added: false, cardTypes: null };
+  const cards = await db.cards.where('note_id').equals(noteId).toArray();
+  const { last, first } = await noteReviewSpans(cards.map((c) => c.id));
+  const cutoff = getStudyCutoff().ts;
+  const now = new Date().toISOString();
+  let outcome: CardTypesBumpOutcome = { added: false, cardTypes: want };
+  await db.transaction('rw', db.studyBumps, async () => {
+    const row = await db.studyBumps.where('note_id').equals(noteId).first();
+    let existing: string[] | null | undefined;
+    let stillOpen: string[] = [];
+    if (row && row.pending !== 'clear') {
+      const open = bumpedCardsForNote(cards.map(queueInput), { note_id: noteId, created_ms: bumpTimeMs(row.created_at), card_types: row.card_types ?? null }, last, first, cutoff);
+      // A bump whose cards were all reviewed is finished: start afresh.
+      if (open.length > 0) {
+        existing = normalizeBumpCardTypes(row.card_types);
+        stillOpen = open.map((c) => c.card_type);
+      }
+    }
+    const merge = mergeBumpCardTypes(existing, stillOpen, want);
+    if (merge.action === 'already') {
+      outcome = { added: false, cardTypes: merge.card_types };
+      return;
+    }
+    if (row) await db.studyBumps.delete(row.id);
+    await db.studyBumps.put({
+      id: crypto.randomUUID(), note_id: noteId, created_at: now, source, bumped_by_name: null, card_types: merge.card_types, pending: 'add',
+    });
+    outcome = { added: true, cardTypes: merge.card_types };
+  });
+  track('study.bump_added', { source, count: outcome.added ? 1 : 0, already: outcome.added ? 0 : 1 });
+  if (outcome.added && online()) void flushPendingBumps().catch(() => undefined);
+  return outcome;
 }
 
 /** Take a note out of today's pocket (local at once). */
@@ -123,7 +195,7 @@ async function doFlush(): Promise<void> {
   let latest: ApiStudyBump[] | null = null;
   const adds = pending.filter((b) => b.pending === 'add');
   if (adds.length) {
-    const r = await addBumpsApi(adds.map((b) => ({ id: b.id, note_id: b.note_id, created_at: b.created_at, source: b.source })));
+    const r = await addBumpsApi(adds.map((b) => ({ id: b.id, note_id: b.note_id, created_at: b.created_at, source: b.source, card_types: b.card_types ?? null })));
     latest = r.bumps ?? null;
     await db.transaction('rw', db.studyBumps, async () => {
       for (const b of adds) {
@@ -150,7 +222,10 @@ export async function replaceLocalBumps(server: ApiStudyBump[]): Promise<void> {
     if (stale.length) await db.studyBumps.bulkDelete(stale);
     const rows: LocalStudyBump[] = server
       .filter((b) => !pendingNotes.has(b.note_id))
-      .map((b) => ({ id: b.id, note_id: b.note_id, created_at: b.created_at, source: b.source, bumped_by_name: b.bumped_by_name ?? null, pending: null }));
+      .map((b) => ({
+        id: b.id, note_id: b.note_id, created_at: b.created_at, source: b.source, bumped_by_name: b.bumped_by_name ?? null,
+        card_types: normalizeBumpCardTypes(b.card_types), pending: null,
+      }));
     if (rows.length) await db.studyBumps.bulkPut(rows);
   });
 }

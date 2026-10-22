@@ -25,6 +25,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import java.io.IOException
+import dev.jeromeswannack.chineselearning.lab.core.CharWordStatus
+
+/** A character's own card (core CharWords.ownCards) with the names of the decks it is in (web OwnCardInfo). */
+data class OwnCardInfo(val status: CharWordStatus, val noteIds: List<String>, val decks: List<String>)
 
 /**
  * The character dictionary on the device — port of frontend/src/services/charDict.ts
@@ -188,6 +192,22 @@ class CharDict(
                 cards.map { CharStatusCard(it.noteId, it.queue, it.stability) },
                 cardHanzi,
             ) { it.hanzi }
+        }
+
+        /**
+         * `ownCardsFor`: which of [chars] the learner has as a card of its OWN (性 itself, not
+         * 人性) — core CharWords.ownCards over this device's notes in live decks + their cards,
+         * with the decks they are in (the Character view's line, the Word view's chip badges).
+         */
+        suspend fun ownCards(dao: LabDao, chars: List<String>): Map<String, OwnCardInfo> = withContext(Dispatchers.IO) {
+            val wanted = chars.filter(CharWords::isSingleHan).toSet()
+            val deckName = dao.decks().associate { it.id to it.name }
+            val notes = if (wanted.isEmpty()) emptyList() else dao.allNotes().filter { it.deckId in deckName && Known.noteKey(it.hanzi) in wanted }
+            val ids = notes.map { it.id }.toSet()
+            val cards = if (ids.isEmpty()) emptyList() else dao.cards().filter { it.noteId in ids }
+            val deckOf = notes.associate { it.id to deckName[it.deckId].orEmpty() }
+            CharWords.ownCards(chars, notes.map { CharStatusNote(it.id, it.hanzi) }, cards.map { CharStatusCard(it.noteId, it.queue, it.stability) })
+                .mapValues { (_, o) -> OwnCardInfo(o.status, o.noteIds, o.noteIds.mapNotNull { deckOf[it]?.ifBlank { null } }.distinct()) }
         }
 
         fun of(app: LabApp) = CharDict(app.repo.api, app.cache, online = {

@@ -1,5 +1,5 @@
 /**
- * Suspend & snooze (migration 0134 `card_holds`, shared/decks/holds.ts; docs/STUDY_SESSION.md
+ * Suspend & snooze (migration 0135 `card_holds`, shared/decks/holds.ts; docs/STUDY_SESSION.md
  * "Suspend & snooze"). The server only keeps the rows: every device derives which cards are
  * held TODAY from its own local date and leaves them out of its queue (shared rule). Holds
  * never write a review event and never touch a card's state.

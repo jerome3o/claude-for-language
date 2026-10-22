@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { db, createLocalReviewEvent, type LocalCard, type LocalNote } from '../db/database';
 import { CardQueue } from '../types';
-import { loadKnownProgress, cachedKnownProgress } from './knownProgress';
+import { loadKnownProgress, cachedKnownProgress, loadKnownChartMode, saveKnownChartMode } from './knownProgress';
 
 function note(id: string, hanzi: string): LocalNote {
   return {
@@ -46,5 +46,17 @@ describe('loadKnownProgress', () => {
     expect(p.history.length).toBeGreaterThan(2);
     expect(p.history[p.history.length - 1].characters.known).toBe(2);
     expect(cachedKnownProgress()).toEqual(p);
+    // Per week: the weeks add up to the known total; the last one is this (partial) week.
+    expect(p.rate.weeks.reduce((n, w) => n + w.words, 0)).toBe(1);
+    expect(p.rate.weeks[p.rate.weeks.length - 1].partial).toBe(true);
+    expect(p.rate.pace).not.toBeNull();
+  });
+});
+
+describe('chart mode', () => {
+  it('is Total until Per week is chosen, then remembered', () => {
+    expect(loadKnownChartMode()).toBe('total');
+    saveKnownChartMode('rate');
+    expect(loadKnownChartMode()).toBe('rate');
   });
 });

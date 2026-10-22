@@ -676,7 +676,11 @@ class StudyViewModel(
             // Practising from the notes page: the tutor's note stays on the back even though it was seen.
             val pinned = pinnedNotes.filter { n -> (if (n.kind == "recording") n.cardId == view.card.id else n.noteId == view.note.id) && unseen.none { it.id == n.id } }
             val notes = unseen + pinned
-            updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
+            // ⋯ → "Practise this word other ways…": the flashcard session only, when the note has another card.
+            val otherTypes = pass == null && practice == null && withContext(Dispatchers.IO) {
+                dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.hasOtherCardTypes(repo.dao.cardsOfNotes(listOf(view.note.id)).map { it.id }, view.card.id)
+            }
+            updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel), hasOtherCardTypes = otherTypes) }
             setUpMc(view)
             // Auto-audio: a missing or 404ing clip is made now (queued while offline).
             app.noteAudio.checkCard(view.note)
@@ -1730,6 +1734,92 @@ class StudyViewModel(
     suspend fun flag(tutor: FlagTutor, message: String): Boolean {
         val v = currentView() ?: return false
         return tools.flag(tutor, v.note.id, v.card.id, message).also { app.haptics.correct(); app.analytics.track("study.flag_card") }
+    }
+
+    // ---------------- ⋯ → "Practise this word other ways…" (core OtherCardTypes) ----------------
+
+    /** The sheet opens: the note's card types with their state, the first NEW sibling ticked. */
+    fun openOtherCards() {
+        val v = currentView() ?: return
+        app.analytics.track("study.other_card_types_open", mapOf("from_type" to v.card.cardType))
+        updateExtras(v) { it.copy(otherCards = OtherCardsUi()) }
+        viewModelScope.launch {
+            val rows = withContext(Dispatchers.IO) {
+                val cards = repo.dao.cardsOfNotes(listOf(v.note.id)).map { it.toQueueCard() }
+                val bump = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(repo.dao).firstOrNull { it.noteId == v.note.id }
+                // A whole-note bump still open today (some of its cards in this session's pocket) covers the word.
+                val wholeNote = bump != null && dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.parseCardTypes(bump.cardTypes) == null &&
+                    cards.any { it.id in bumpedCardIds }
+                dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.rows(cards, v.card.id, cutoff.ts, bumpedCardIds.toSet(), wholeNote)
+            }
+            updateExtras(v) { it.copy(otherCards = OtherCardsUi(rows, dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.defaultPicks(rows).toSet(), loading = false)) }
+        }
+    }
+
+    fun toggleOtherCard(cardId: String) {
+        val v = currentView() ?: return
+        app.haptics.tick()
+        updateExtras(v) { e ->
+            val o = e.otherCards ?: return@updateExtras e
+            e.copy(otherCards = o.copy(picked = if (cardId in o.picked) o.picked - cardId else o.picked + cardId))
+        }
+    }
+
+    /** "⚡ Add N to today": a card-level bump of the ticked types; the cards join this session a few cards later. */
+    fun addOtherCards() {
+        val v = currentView() ?: return
+        val o = _ui.value.extras.otherCards ?: return
+        val chosen = o.chosen
+        if (chosen.isEmpty() || o.busy) return
+        updateExtras(v) { it.copy(otherCards = o.copy(busy = true, error = null)) }
+        viewModelScope.launch {
+            try {
+                val types = chosen.map { it.cardType }
+                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpCardTypes(app, v.note.id, types, "study_card")
+                addBumpedCards(chosen.map { it.cardId })
+                app.analytics.track(
+                    "study.other_card_types",
+                    mapOf(
+                        "types" to dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.typesProp(types),
+                        "from_type" to v.card.cardType,
+                        "count" to chosen.size,
+                        "early" to chosen.count { it.action == dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.ACTION_EARLY },
+                    ),
+                )
+                app.haptics.correct()
+                val message = dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.addedMessage(chosen.map { it.label })
+                updateExtras(v) { it.copy(otherCards = it.otherCards?.copy(busy = false, done = message)) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateExtras(v) { it.copy(otherCards = it.otherCards?.copy(busy = false, error = e.message ?: "Could not add the card")) }
+            }
+        }
+    }
+
+    fun closeOtherCards() {
+        val v = currentView() ?: return
+        updateExtras(v) { it.copy(otherCards = null) }
+    }
+
+    /**
+     * Cards a card-level bump just put in the ⚡ pocket join THIS session at once: first in line once
+     * their note is out of the recent notes (core Bumps.pickBumpedCard) — a few cards after the sibling
+     * on screen. Port of useStudySession's addBumpedCards. Outside the deck scope: nothing.
+     */
+    suspend fun addBumpedCards(cardIds: List<String>) {
+        val ids = cardIds.toSet()
+        val rows = withContext(Dispatchers.IO) {
+            repo.dao.cardsByIds(ids.toList())
+                .filter { deckId == null || it.deckId == deckId }
+                .map { it.toQueueCard() }
+        }
+        if (rows.isEmpty()) return
+        for (c in rows) {
+            bumpedCardIds += c.id
+            if (queue.none { it.id == c.id }) queue += c
+        }
+        _ui.update { it.copy(counts = StudyQueue.counts(queue, reviewedNoteIds)) }
     }
 
     /** Typed answer checked (or the answer revealed): feedback only, nothing recorded yet. */

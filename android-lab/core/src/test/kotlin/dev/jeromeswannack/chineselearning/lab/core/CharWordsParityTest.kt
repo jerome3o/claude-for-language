@@ -61,6 +61,51 @@ class CharWordsParityTest {
     }
 
     @Test
+    fun ownCardsMatchTypeScript() {
+        val cases = fixture["own"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 200, "expected the seeded own-card cases")
+        val seen = HashSet<String>()
+        for ((i, c) in cases.withIndex()) {
+            val chars = c["chars"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val notes = c["notes"]!!.jsonArray.map { it.jsonObject }.map { CharStatusNote(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content) }
+            val cards = c["cards"]!!.jsonArray.map { it.jsonObject }.map {
+                CharStatusCard(it["note_id"]!!.jsonPrimitive.content, it["queue"]!!.jsonPrimitive.int, it["stability"]!!.jsonPrimitive.double)
+            }
+            val expected = c["result"]!!.jsonObject
+            val got = CharWords.ownCards(chars, notes, cards)
+            assertEquals(expected.keys, got.keys, "keys, case $i")
+            for ((k, v) in expected) {
+                val e = v.jsonObject
+                assertEquals(e["status"]!!.jsonPrimitive.content, got[k]!!.status.wire, "status of '$k', case $i")
+                assertEquals(e["note_ids"]!!.jsonArray.map { it.jsonPrimitive.content }, got[k]!!.noteIds, "note ids of '$k', case $i")
+                seen += got[k]!!.status.wire
+            }
+        }
+        assertEquals(setOf("known", "in_decks", "none"), seen, "the own-card vectors cover every status")
+    }
+
+    @Test
+    fun ownCardCopyMatchesTypeScript() {
+        val copy = fixture["own_copy"]!!.jsonObject
+        for (e in copy["lines"]!!.jsonArray.map { it.jsonObject }) {
+            val decks = e["decks"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val status = CharWordStatus.fromWire(e["status"]!!.jsonPrimitive.content)
+            assertEquals(e["line"]!!.jsonPrimitive.content, CharWords.ownCardLine(e["char"]!!.jsonPrimitive.content, status, decks), "line $status $decks")
+        }
+        assertEquals(copy["add"]!!.jsonPrimitive.content, CharWords.addOwnCardLabel("性"))
+        val badges = copy["badges"]!!.jsonObject
+        for (s in CharWordStatus.entries) assertEquals(badges[s.wire]!!.jsonPrimitive.content, CharWords.ownCardBadge(s))
+        for (e in copy["chip_labels"]!!.jsonArray.map { it.jsonObject }) {
+            val syl = e["syllable"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            val status = CharWordStatus.fromWire(e["status"]!!.jsonPrimitive.content)
+            assertEquals(e["label"]!!.jsonPrimitive.content, CharWords.charChipLabel(e["char"]!!.jsonPrimitive.content, syl, status))
+        }
+        for (e in copy["single"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(e["single"]!!.jsonPrimitive.boolean, CharWords.isSingleHan(e["text"]!!.jsonPrimitive.content), "isSingleHan(${e["text"]})")
+        }
+    }
+
+    @Test
     fun labelsMatchTypeScript() {
         val labels = fixture["labels"]!!.jsonObject
         for (s in CharWordStatus.entries) assertEquals(labels[s.wire]!!.jsonPrimitive.content, CharWords.label(s))
