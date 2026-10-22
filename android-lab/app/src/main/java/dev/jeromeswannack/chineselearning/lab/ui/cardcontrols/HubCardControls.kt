@@ -74,16 +74,23 @@ fun HubCardControls(app: LabApp, noteId: String, hanzi: String) {
 fun HubCardControlsView(rows: List<HubHoldRow>, today: String, toast: String?, onRelease: (HubHoldRow) -> Unit, onHold: (kind: String, HubHoldRow) -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("hub-card-controls"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (r in rows) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(cardTypeLabel(r.cardType), color = Lab.colors.ink, modifier = Modifier.width(132.dp))
+            // One card type per block: its name + hold on one line, the actions under it (412dp wide).
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val hold = r.hold
-                if (hold != null) {
-                    val (icon, text) = CardHolds.tag(hold.kind, hold.until, today)
-                    HoldTag(icon, text, Modifier.weight(1f, fill = false))
-                    SecondaryPill(if (hold.kind == CardHolds.SNOOZE) "Wake now" else "Unsuspend", onClick = { onRelease(r) }, modifier = Modifier.testTag("hub-release"))
-                } else {
-                    SecondaryPill("💤 Snooze…", onClick = { onHold(CardHolds.SNOOZE, r) }, modifier = Modifier.testTag("hub-snooze"))
-                    SecondaryPill("⏸️ Suspend…", onClick = { onHold(CardHolds.SUSPEND, r) }, modifier = Modifier.testTag("hub-suspend"))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(cardTypeLabel(r.cardType), color = Lab.colors.ink, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    if (hold != null) {
+                        val (icon, text) = CardHolds.tag(hold.kind, hold.until, today)
+                        HoldTag(icon, text)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (hold != null) {
+                        SecondaryPill(if (hold.kind == CardHolds.SNOOZE) "Wake now" else "Unsuspend", onClick = { onRelease(r) }, modifier = Modifier.testTag("hub-release"))
+                    } else {
+                        SecondaryPill("💤 Snooze…", onClick = { onHold(CardHolds.SNOOZE, r) }, modifier = Modifier.testTag("hub-snooze"))
+                        SecondaryPill("⏸️ Suspend…", onClick = { onHold(CardHolds.SUSPEND, r) }, modifier = Modifier.testTag("hub-suspend"))
+                    }
                 }
             }
         }

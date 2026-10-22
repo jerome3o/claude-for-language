@@ -229,4 +229,19 @@ describe('compareDebugReports', () => {
     expect(old.context.review_load.a).toBe('?');
     expect('review_load' in old.headline).toBe(false);
   });
+
+  it('diffs Suspend & snooze holds and the sibling switch', () => {
+    const lab = report('lab', { holds: [['c1', 'suspend', null], ['c2', 'snooze', '2026-09-29']], bury_siblings: true });
+    const web = report('web', { holds: [['c1', 'suspend', null]], bury_siblings: false });
+    const cmp = compareDebugReports(lab, web);
+    expect(cmp.context.holds.a).toMatch(/^2:/);
+    expect(cmp.context.holds.b).toMatch(/^1:/);
+    const hints = cmp.hints.join('\n');
+    expect(hints).toContain('Suspended / snoozed cards differ');
+    expect(hints).toContain('(1 only on LAB, 0 only on WEB)');
+    expect(hints).toContain("is on on LAB but off on WEB");
+    const same = compareDebugReports(lab, report('web', { holds: [['c2', 'snooze', '2026-09-29'], ['c1', 'suspend', null]], bury_siblings: true }));
+    expect(same.context.holds.a).toBe(same.context.holds.b);
+    expect(compareDebugReports(report('lab'), web).context.holds.a).toBe('?');
+  });
 });

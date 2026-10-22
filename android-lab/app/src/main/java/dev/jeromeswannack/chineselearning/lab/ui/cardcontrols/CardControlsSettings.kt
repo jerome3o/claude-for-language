@@ -15,7 +15,18 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
-import dev.jeromeswannack.chineselearning.lab.ui.kit.ToggleRow
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -43,12 +54,23 @@ fun CardControlsSettingsCard(app: LabApp, open: (String) -> Unit) {
 @Composable
 fun CardControlsSettingsView(on: Boolean, suspended: Int, snoozed: Int, onToggle: (Boolean) -> Unit, onOpen: () -> Unit) {
     LabCard {
-        ToggleRow(
-            "🃏", "Don't show a word's other card types on the same day", on,
-            desc = if (on) "Once you review one card of a word, its other new and review cards wait until tomorrow. Cards you're still learning, and words you bumped to today (⚡), still come."
-            else "Off — a word can come up as several card types on the same day.",
-            onChange = onToggle,
-        )
+        // The whole sentence is the setting (it wraps; ToggleRow would cut it to one line).
+        androidx.compose.foundation.layout.Row(
+            androidx.compose.ui.Modifier.fillMaxWidth().bouncyClickable { onToggle(!on) }.padding(horizontal = 16.dp, vertical = 12.dp)
+                .testTag("bury-siblings-toggle"),
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Text("🃏", fontSize = 22.sp, modifier = androidx.compose.ui.Modifier.width(44.dp))
+            androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.weight(1f)) {
+                Text("Don't show a word's other card types on the same day", style = MaterialTheme.typography.titleMedium, color = Lab.colors.ink)
+                Text(
+                    if (on) "Once you review one card of a word, its other new and review cards wait until tomorrow. Cards you're still learning, and words you bumped to today (⚡), still come."
+                    else "Off — a word can come up as several card types on the same day.",
+                    style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
+                )
+            }
+            Switch(checked = on, onCheckedChange = onToggle, colors = SwitchDefaults.colors(checkedTrackColor = Lab.colors.accent))
+        }
         RowDivider()
         NavRow(
             "⏸️", "Suspended & snoozed cards",

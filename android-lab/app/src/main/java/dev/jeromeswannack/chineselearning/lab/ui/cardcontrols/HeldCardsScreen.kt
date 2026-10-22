@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
@@ -179,14 +180,14 @@ fun HeldCardsScreen(ui: HeldCardsUi, actions: HeldCardsActions) {
                 )
             }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     for ((id, label) in FILTERS) {
                         val on = ui.filter == id
                         val shape = RoundedCornerShape(50)
                         Text(
                             (if (on) "✓ " else "") + "$label (${ui.count(id)})",
                             fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                            color = Lab.colors.ink,
+                            color = Lab.colors.ink, maxLines = 1, softWrap = false,
                             modifier = Modifier.clip(shape).border(if (on) 2.dp else 1.dp, if (on) Lab.colors.ink else Lab.colors.outline, shape)
                                 .bouncyClickable { actions.onFilter(id) }.heightIn(min = 40.dp).padding(horizontal = 14.dp, vertical = 9.dp)
                                 .testTag("held-filter-$id"),
