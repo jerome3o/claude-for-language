@@ -3630,6 +3630,90 @@ export async function replaceNoteSentences(
   return getNoteSentences(db, noteId);
 }
 
+/**
+ * Add rows after a note's set, keeping the rows (ids, clips, cached breakdowns) it has.
+ * Every existing row of the note is touched too: `/api/sentences/changes` hands sets out
+ * whole (the client replaces a note's rows with the ones in the response), so the old rows
+ * must travel with the new ones.
+ */
+export async function appendNoteSentences(
+  db: D1Database,
+  noteId: string,
+  sentences: NoteSentenceInput[]
+): Promise<NoteSentence[]> {
+  const now = new Date().toISOString();
+  const last = await db
+    .prepare('SELECT MAX(position) AS position FROM note_sentences WHERE note_id = ?')
+    .bind(noteId)
+    .first<{ position: number | null }>();
+  const start = (last?.position ?? -1) + 1;
+  const statements: D1PreparedStatement[] = [
+    db.prepare('UPDATE note_sentences SET updated_at = ? WHERE note_id = ?').bind(now, noteId),
+  ];
+  sentences.forEach((sentence, index) => {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO note_sentences
+             (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, focus_note, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          crypto.randomUUID(),
+          noteId,
+          start + index,
+          sentence.hanzi,
+          sentence.pinyin,
+          sentence.translation,
+          sentence.audioUrl,
+          sentence.focus,
+          sentence.focusNote,
+          now,
+          now
+        )
+    );
+  });
+  await db.batch(statements);
+  return getNoteSentences(db, noteId);
+}
+
+/**
+ * Listening cards' background top-up (shared/study/listenContext.ts): of these notes (the
+ * caller's), the ones with fewer than `min` sentences in total — the card's own sentence
+ * (unless the set repeats it) plus the set — that may be asked for again: no job for the
+ * note in the last day (queued, done or failed — at most one top-up a day, so a model that
+ * keeps returning too few never loops) and not given up on (3 failed attempts).
+ */
+export async function getNotesForSentenceTopUp(
+  db: D1Database,
+  userId: string,
+  noteIds: string[],
+  min: number
+): Promise<Array<{ id: string; total: number }>> {
+  const ids = noteIds.slice(0, 50);
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db
+    .prepare(`
+      SELECT n.id,
+        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id)
+        + CASE WHEN TRIM(COALESCE(n.sentence_clue, '')) <> ''
+            AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.hanzi = n.sentence_clue)
+          THEN 1 ELSE 0 END AS total
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.id IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM note_sentence_jobs j
+          WHERE j.note_id = n.id
+            AND (j.updated_at > datetime('now', '-1 day') OR (j.status = 'error' AND j.attempts >= 3))
+        )
+    `)
+    .bind(userId, ...ids)
+    .all<{ id: string; total: number }>();
+  return rows.results.filter((r) => r.total < min);
+}
+
 export async function deleteNoteSentences(db: D1Database, noteId: string): Promise<void> {
   await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId).run();
 }

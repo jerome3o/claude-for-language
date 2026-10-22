@@ -69,6 +69,8 @@ object AnalyticsEvents {
         ev("study.long_term_toggle", "study", listOf("value")),
         ev("study.sentence_reveal", "study", listOf("step")),
         ev("study.sentence_explain", "study", emptyList()),
+        ev("study.listen_context", "study", listOf("sentences_played", "word_first_prompt_shown", "played_word_anyway")),
+        ev("study.listen_more_sentences", "study", listOf("before", "after")),
         ev("study.tutor_note_practice", "study", listOf("count")),
         ev("study.tutor_model_play", "study", listOf("where", "which")),
         ev("study.bump_added", "study", listOf("source", "count", "already")),
@@ -319,6 +321,7 @@ object AnalyticsEvents {
         "explorer.push",
         "reader.audio_block",
         "chat.listening_play",
+        "study.listen_context",
     )
 
     /** Port of parseAnalyticsLevel (anything unknown = verbose). */
