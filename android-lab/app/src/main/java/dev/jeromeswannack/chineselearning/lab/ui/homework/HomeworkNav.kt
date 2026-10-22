@@ -104,6 +104,7 @@ fun passCardUi(deck: PassUi.Deck, word: PassNote): PassCardUi = PassCardUi(
     done = deck.progress.done,
     total = deck.progress.total,
     retrying = deck.progress.retrying,
+    bar = deck.bar,
     longTermOn = LongTerm.isLongTerm(word.longTerm, deck.deckInReview, word.started),
     started = word.started,
     bumped = deck.bumped,

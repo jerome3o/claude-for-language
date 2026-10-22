@@ -9,7 +9,8 @@ ALTER TABLE messages ADD COLUMN system_data TEXT;
 CREATE INDEX IF NOT EXISTS idx_messages_system ON messages(system_kind) WHERE system_kind IS NOT NULL;
 
 -- Existing automated messages, tagged by the exact templates the code wrote. Anything that
--- doesn't match stays an ordinary message.
+-- doesn't match stays an ordinary message. Prefixes are compared with substr / instr, not LIKE:
+-- D1 refuses long LIKE patterns ("LIKE or GLOB pattern too complex").
 
 -- 1. "I've set your new cards to 5 a day (+10 extra) 📚" / "… (no extra cards) 📚"
 UPDATE messages
@@ -19,7 +20,7 @@ UPDATE messages
          'secondary_cards_per_day', CASE WHEN instr(content, '(+') > 0 THEN CAST(substr(content, instr(content, '(+') + 2) AS INTEGER) ELSE 0 END,
          'is_default', json('false'))
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE 'I''ve set your new cards to % a day (%) 📚'
+   AND substr(content, 1, 27) = 'I''ve set your new cards to ' AND substr(content, -3) = ') 📚'
    AND CAST(substr(content, 28) AS INTEGER) || ' a day (' = substr(content, 28, length(CAST(substr(content, 28) AS INTEGER) || ' a day ('));
 
 -- "I've set your new cards back to the usual 3 a day (+6 extra) 📚"
@@ -30,7 +31,7 @@ UPDATE messages
          'secondary_cards_per_day', CASE WHEN instr(content, '(+') > 0 THEN CAST(substr(content, instr(content, '(+') + 2) AS INTEGER) ELSE 0 END,
          'is_default', json('true'))
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE 'I''ve set your new cards back to the usual % a day (%) 📚'
+   AND substr(content, 1, 42) = 'I''ve set your new cards back to the usual ' AND substr(content, -3) = ') 📚'
    AND CAST(substr(content, 43) AS INTEGER) || ' a day (' = substr(content, 43, length(CAST(substr(content, 43) AS INTEGER) || ' a day ('));
 
 -- 2. "📹 I started a video call — join here: https://…/calls/<id>" (ended when the call row is)
@@ -42,7 +43,8 @@ UPDATE messages
             SELECT 1 FROM calls c WHERE c.id = substr(messages.content, instr(messages.content, '/calls/') + 7) AND c.status = 'live'
           ) THEN 'false' ELSE 'true' END))
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE '📹 I started a video call — join here: %/calls/%'
+   AND substr(content, 1, length('📹 I started a video call — join here: ')) = '📹 I started a video call — join here: '
+   AND instr(content, '/calls/') > 0
    AND instr(substr(content, instr(content, '/calls/') + 7), '/') = 0
    AND instr(substr(content, instr(content, '/calls/') + 7), ' ') = 0
    AND length(substr(content, instr(content, '/calls/') + 7)) > 0;
@@ -57,7 +59,7 @@ UPDATE messages
             AND messages.content = '🚩 Flagged ' || n.hanzi || ' (' || n.pinyin || ' · ' || n.english || '): ' || f.message
           ORDER BY f.created_at LIMIT 1)
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE '🚩 Flagged % (% · %): %'
+   AND substr(content, 1, 10) = '🚩 Flagged '
    AND EXISTS (
      SELECT 1 FROM card_flags f JOIN notes n ON n.id = f.note_id
       WHERE f.student_id = messages.sender_id
@@ -72,7 +74,7 @@ UPDATE messages
          'english', substr(content, instr(content, ' · ') + 3, instr(content, '): ') - instr(content, ' · ') - 3),
          'message', substr(content, instr(content, '): ') + 3))
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE '🚩 Flagged % (% · %): %'
+   AND substr(content, 1, 10) = '🚩 Flagged '
    AND instr(content, ' (') > 11
    AND instr(content, ' · ') > instr(content, ' (')
    AND instr(content, '): ') > instr(content, ' · ');
@@ -90,7 +92,7 @@ UPDATE messages
          'hanzi', substr(content, 9, instr(content, ': ') - 9),
          'reply', substr(content, instr(content, ': ') + 2))
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE '🚩 About %: %'
+   AND substr(content, 1, 8) = '🚩 About '
    AND instr(content, ': ') > 9;
 
 -- 5. The install how-to ("Hi …! Here is how to get the app on your phone so it works offline …").
@@ -101,8 +103,9 @@ UPDATE messages
                          THEN substr(content, instr(content, 'shortcut: open ') + 15, instr(content, ' in Chrome') - instr(content, 'shortcut: open ') - 15)
                          ELSE NULL END)
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE 'Hi %Here is how to get the app on your phone so it works offline (on the train, on a plane):%'
-   AND content LIKE '%After that it works without a connection.';
+   AND substr(content, 1, 3) = 'Hi '
+   AND instr(content, 'Here is how to get the app on your phone so it works offline (on the train, on a plane):') > 0
+   AND substr(content, -length('After that it works without a connection.')) = 'After that it works without a connection.';
 
 -- 6. The group-class link "🧪 Group class "<name>" is starting now — join here: …/group-class/<id>\n(…)".
 UPDATE messages
@@ -113,5 +116,5 @@ UPDATE messages
                             THEN substr(content, instr(content, '/group-class/') + 13, instr(substr(content, instr(content, '/group-class/') + 13), char(10)) - 1)
                             ELSE NULL END)
  WHERE system_kind IS NULL AND deleted_at IS NULL
-   AND content LIKE '🧪 Group class "%" is starting now — join here: %'
+   AND substr(content, 1, 15) = '🧪 Group class "'
    AND instr(content, '" is starting now — join here: ') > 16;

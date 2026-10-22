@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
+import dev.jeromeswannack.chineselearning.lab.core.RetryBars
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderEntry
@@ -85,7 +86,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, combine(local, bumped) { l, b -> l to b }, app.online, targets) { data, notes, lb, online, targets ->
         val (l, bumpedNotes) = lb
         val a = data?.first?.firstOrNull { it.id == id } ?: return@combine if (data == null) PassUi.Loading else PassUi.Missing
-        val progress = Homework.passProgress(Homework.passItemIds(a), data.second.filter { it.assignment_id == a.id })
+        val passEvents = data.second.filter { it.assignment_id == a.id }
+        val progress = Homework.passProgress(Homework.passItemIds(a), passEvents)
         val items = Homework.passItemIds(a).size
         if (!startTracked) {
             startTracked = true
@@ -104,6 +106,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             part = parts.part,
             due = Homework.dueLabel(a.due_date, Homework.localDate()),
             progress = progress,
+            bar = RetryBars.passRetryBar(Homework.passItemIds(a), passEvents),
             note = current?.let { notes?.get(it) },
             attempt = attempt,
             assignmentId = a.id,

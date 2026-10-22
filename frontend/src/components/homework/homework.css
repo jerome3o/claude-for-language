@@ -197,19 +197,9 @@
   padding: 0 0.25rem;
 }
 
+/* The pass's RetryProgressBar (§3c): blue answers given, orange "Not yet" words owed at the right. */
 .hw-pass-progress {
-  height: 6px;
   margin: 0 1rem;
-  border-radius: 3px;
-  background: #ede9fe;
-  overflow: hidden;
-}
-
-.hw-pass-progress span {
-  display: block;
-  height: 100%;
-  background: #8b5cf6;
-  transition: width 0.25s ease;
 }
 
 .hw-pass-meta {
@@ -230,6 +220,12 @@
 .hw-pass-retry {
   font-size: 0.8125rem;
   color: var(--color-text-light);
+}
+
+/* The blue has reached the orange: the words he missed, again. */
+.hw-pass-retry--on {
+  color: #c2410c;
+  font-weight: 600;
 }
 
 /* "Add to my long-term review": a compact pill with a switch under the meaning. The input

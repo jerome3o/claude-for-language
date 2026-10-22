@@ -112,6 +112,13 @@ data class PassCardUi(
     val busy: Boolean = false,
     /** ↺ in the top bar: a Got it / Not yet to take back (docs/HOMEWORK.md §3b). */
     val canUndo: Boolean = false,
+    /**
+     * The retry progress bar (docs/HOMEWORK.md §3c): blue = answers given, orange at the right end =
+     * "Not yet" words still owed. Default = what [done] / [total] / [retrying] alone allow (one Not
+     * yet per retry); the pass passes the real one (core `RetryBars.passRetryBar`).
+     */
+    val bar: dev.jeromeswannack.chineselearning.lab.core.RetryBar =
+        dev.jeromeswannack.chineselearning.lab.core.RetryBars.retryBar(done + retrying, total - done - retrying, retrying, done, total),
 )
 
 data class StudyUi(

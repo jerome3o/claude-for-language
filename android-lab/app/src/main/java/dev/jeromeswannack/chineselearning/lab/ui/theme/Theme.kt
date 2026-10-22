@@ -24,6 +24,19 @@ object Palette {
     val Learning = Color(0xFFEF4444)
     val Review = Color(0xFF22C55E)
     val Gold = Color(0xFFEAB308)
+
+    /**
+     * "Partly right" — the "You said · ≈ Contains the answer" box and "≈ Close — the tones are off":
+     * lemon YELLOW, never orange (Jerome is red / green colour-blind: orange read as the red "wrong").
+     * Web: index.css `--color-partial*`. Light: [PartialSoft] tint, [Partial] border, a SOLID
+     * [PartialStrong] chip with [PartialInk] words (6.9:1, AA). Dark: [PartialStrong] border / icons
+     * (12.9:1 on the card), the chip still solid lemon with [PartialInkDark] words.
+     */
+    val Partial = Color(0xFFFACC15)
+    val PartialSoft = Color(0xFFFEF9C3)
+    val PartialStrong = Color(0xFFFDE047)
+    val PartialInk = Color(0xFF713F12)
+    val PartialInkDark = Color(0xFF422006)
     val Confetti = listOf(Color(0xFF22C55E), Color(0xFF3B82F6), Color(0xFFF97316), Color(0xFFEF4444), Color(0xFFA855F7), Color(0xFFEAB308))
 }
 

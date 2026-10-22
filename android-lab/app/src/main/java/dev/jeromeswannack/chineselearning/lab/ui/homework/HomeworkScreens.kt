@@ -13,6 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTile
+import dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnswerTileHeight
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StudyCardFlip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardSurface
@@ -67,6 +68,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.readers.SessionReader
 import dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkItemView
 import dev.jeromeswannack.chineselearning.lab.core.PassProgress
+import dev.jeromeswannack.chineselearning.lab.core.RetryBar
+import dev.jeromeswannack.chineselearning.lab.core.RetryBars
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
@@ -178,6 +181,8 @@ sealed interface PassUi {
         val deckInReview: Boolean = !oneOffOnly,
         /** What the pass decided, for the finish screen ("12 words added to daily review · 4 left out"). */
         val longTermSummary: LongTerm.Summary? = null,
+        /** The retry progress bar (core `RetryBars.passRetryBar`, docs/HOMEWORK.md §3c). */
+        val bar: RetryBar = RetryBars.retryBar(progress.done + progress.retrying, progress.total - progress.done - progress.retrying, progress.retrying, progress.done, progress.total),
     ) : PassUi
 
     /**
@@ -278,11 +283,11 @@ private fun DeckPass(ui: PassUi.Deck, actions: PassActions) {
         return
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        ProgressBar(if (p.total > 0) p.done.toFloat() / p.total else 0f, Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp))
+        RetryProgressBar(ui.bar, Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp))
         Row(Modifier.padding(horizontal = 4.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (ui.part != null) Text(ui.part.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             DueChip(ui.due)
-            if (p.retrying > 0) StatusPill("${p.retrying} to try again", Palette.Hard)
+            RetryBars.note(ui.bar)?.let { StatusPill(it, Palette.Hard) }
         }
         if (ui.note == null) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

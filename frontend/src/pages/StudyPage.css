@@ -727,20 +727,35 @@
   margin: 0 0 0.5rem;
   padding: 0.625rem 0.5rem;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--ys-tone) 24%, transparent);
-  background: color-mix(in srgb, var(--ys-tone) 8%, var(--color-surface));
+  border: 1px solid var(--ys-border, color-mix(in srgb, var(--ys-tone) 24%, transparent));
+  background: var(--ys-bg, color-mix(in srgb, var(--ys-tone) 8%, var(--color-surface)));
   color: var(--color-text);
   font: inherit;
   text-align: center;
 }
 .you-said--sides { grid-template-columns: 44px minmax(0, 1fr) 44px; }
 .you-said--match { --ys-tone: var(--color-success); --ys-ink: #15803d; }
-.you-said--contains { --ys-tone: var(--color-warning); --ys-ink: #c2410c; }
+/* Contains the answer = YELLOW (index.css --color-partial*): a lemon box, a solid lemon chip and
+   round buttons with dark words / icons on them — never orange, which red / green colour-blind eyes
+   can't tell from the red "Didn't match". */
+.you-said--contains {
+  --ys-tone: var(--color-partial);
+  --ys-ink: var(--color-partial-ink);
+  --ys-bg: var(--color-partial-soft);
+  --ys-border: var(--color-partial);
+  --ys-chip-bg: var(--color-partial-strong);
+  --ys-round-bg: var(--color-partial-strong);
+  --ys-round-ink: var(--color-partial-ink);
+  border-width: 1.5px;
+}
 .you-said--miss,
 .you-said--failed { --ys-tone: var(--color-error); --ys-ink: #b91c1c; }
 .you-said--pending { --ys-tone: #3b82f6; --ys-ink: #1d4ed8; }
 :root[data-theme='dark'] .you-said--match { --ys-ink: #4ade80; }
-:root[data-theme='dark'] .you-said--contains { --ys-ink: #fb923c; }
+:root[data-theme='dark'] .you-said--contains {
+  --ys-round-bg: color-mix(in srgb, var(--color-partial) 20%, transparent);
+  --ys-round-ink: var(--color-partial);
+}
 :root[data-theme='dark'] .you-said--miss,
 :root[data-theme='dark'] .you-said--failed { --ys-ink: #f87171; }
 :root[data-theme='dark'] .you-said--pending { --ys-ink: #93c5fd; }
@@ -775,7 +790,7 @@
   gap: 0.2rem;
   padding: 0.125rem 0.5rem 0.125rem 0.375rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ys-tone) 14%, transparent);
+  background: var(--ys-chip-bg, color-mix(in srgb, var(--ys-tone) 14%, transparent));
   color: var(--ys-ink);
   font-weight: 600;
   white-space: nowrap;
@@ -807,8 +822,8 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--ys-tone) 16%, transparent);
-  color: var(--ys-ink);
+  background: var(--ys-round-bg, color-mix(in srgb, var(--ys-tone) 16%, transparent));
+  color: var(--ys-round-ink, var(--ys-ink));
   cursor: pointer;
   transition: transform 0.1s ease, background-color 0.15s ease;
 }
@@ -817,9 +832,11 @@
   height: 22px;
 }
 button.you-said-round:hover { background: color-mix(in srgb, var(--ys-tone) 24%, transparent); }
+.you-said--contains button.you-said-round:hover { background: var(--color-partial); }
+:root[data-theme='dark'] .you-said--contains button.you-said-round:hover { background: color-mix(in srgb, var(--color-partial) 30%, transparent); }
 button.you-said-round:active { transform: scale(0.94); }
 button.you-said-round:focus-visible {
-  outline: 2px solid var(--ys-ink);
+  outline: 2px solid var(--ys-round-ink, var(--ys-ink));
   outline-offset: 2px;
 }
 
@@ -1078,7 +1095,22 @@ button.you-said-round:focus-visible {
   font-weight: 600;
   color: #15803d;
 }
-.answer-diff-spoken-note--close { color: #c2410c; }
+/* "Close — the tones are off": the partly-right yellow (index.css --color-partial*), a lemon pill
+   with dark words and ≈ — the same yellow as the "Contains the answer" box, never orange. */
+.answer-diff-spoken-note--close {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 auto 0.25rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: 999px;
+  background: var(--color-partial-strong);
+  color: var(--color-partial-ink);
+}
+.answer-diff-spoken-note--close::before {
+  content: '≈';
+  font-weight: 700;
+}
 
 /* Say it again (typing card answered by speaking): the take is said from the question side, the
    live transcript in the answer box's place; ✕ Cancel goes back to the answer as it was. */
