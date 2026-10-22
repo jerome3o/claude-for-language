@@ -99,6 +99,11 @@ class StudyActions(
     val onToggleOffline: () -> Unit = {},
     val onDismissExplainer: () -> Unit = {},
     val onDismissNotice: () -> Unit = {},
+    /**
+     * Suspend… / Snooze… (core CardHolds): [kind] "suspend" | "snooze", [length] "tomorrow" | "week" | "month"
+     * (snooze), [wholeWord] = every card type of the word, else this card only.
+     */
+    val onHold: (kind: String, length: String?, wholeWord: Boolean) -> Unit = { _, _, _ -> },
     // ⋯ menu
     val onGenerateFunFact: () -> Unit = {},
     val onRegenerateAudio: () -> Unit = {},
@@ -263,6 +268,7 @@ fun StudyRoute(
             onToggleOffline = vm::toggleForcedOffline,
             onDismissExplainer = vm::dismissExplainer,
             onDismissNotice = vm::dismissNotice,
+            onHold = vm::holdCurrent,
             onGenerateFunFact = vm::generateFunFact,
             onRegenerateAudio = vm::regenerateAudio,
             onNewVoice = vm::newVoice,
@@ -414,6 +420,8 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
         AnimatedVisibility(ui.showExplainer && pass == null && ui.phase is StudyPhase.Showing, enter = fadeIn(), exit = fadeOut()) {
             FirstCardExplainer(actions.onDismissExplainer)
         }
+        // "Snoozed until tomorrow." after ⋯ → Snooze… / Suspend….
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast(ui.toast, Modifier.align(Alignment.BottomCenter))
     }
 }
 

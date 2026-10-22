@@ -70,6 +70,9 @@ class CardHoldsParityTest {
             assertEquals(strings(c["labels"]), holds.map { CardHolds.statusLabel(it.kind, it.until, today) }, "$n labels")
             val tags = c["tags"]!!.jsonArray.map { it.jsonObject.let { t -> t["icon"]!!.jsonPrimitive.content to t["text"]!!.jsonPrimitive.content } }
             assertEquals(tags, holds.map { CardHolds.tag(it.kind, it.until, today) }, "$n tags")
+            val byCard = holds.associateBy { it.cardId }
+            val noteTag = c["noteTag"]!!.let { if (it is JsonNull) null else it.jsonObject.let { t -> t["icon"]!!.jsonPrimitive.content to t["text"]!!.jsonPrimitive.content } }
+            assertEquals(noteTag, CardHolds.noteTag(strings(c["noteCards"]), byCard, today), "$n note tag")
             val count = c["count"]!!.jsonPrimitive.int
             assertEquals(c["suspendMessage"]!!.jsonPrimitive.content, CardHolds.message(CardHolds.SUSPEND, count), "$n suspend message")
             assertEquals(c["snoozeMessage"]!!.jsonPrimitive.content, CardHolds.message(CardHolds.SNOOZE, count, c["length"]!!.jsonPrimitive.content), "$n snooze message")

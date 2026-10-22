@@ -111,15 +111,18 @@ object DebugReportBuilder {
         val bonusAll = prefs.bonus("all", today)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
+        // Suspend & snooze as this phone applies them today (core CardHolds).
+        val holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, prefs.burySiblings, nowMs, zone)
+        val heldRows = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.activeByCard(dao, nowMs, zone).values.sortedBy { it.cardId }
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
         // The queue a session would get: with the notes' hanzi and "Order new cards by" (HomeViewModel's `all`).
         val order = prefs.newCardOrder
         // "Pause new cards on heavy days": today's budget (0 + 0 over the limit), as Home builds with.
         val todays = TodaysBudget.of(dao, prefs, cards, first, nowMs, zone)
-        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, todays.budget, bonusAll, introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = order, frequency = WordFrequency.shipped, formality = dao.noteFormality(order))
+        val all: BuiltQueue = StudyQueue.build(queueDecks, cards, todays.budget, bonusAll, introduced, cutoff, null, dao.noteHanzi(), longTerm = longTerm, bumps = bumps, upNext = upNext, order = order, frequency = WordFrequency.shipped, formality = dao.noteFormality(order), holds = holds)
         val homeCounts = StudyQueue.counts(all.dueCards, all.reviewedNoteIds)
         val perDeck = decks.associate { d ->
-            val q = StudyQueue.build(queueDecks, cards, todays.budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext)
+            val q = StudyQueue.build(queueDecks, cards, todays.budget, prefs.bonus(d.id, today), introduced, cutoff, d.id, longTerm = longTerm, bumps = bumps, upNext = upNext, holds = holds)
             d.id to (StudyQueue.counts(q.dueCards, q.reviewedNoteIds) to q.hasMoreNew)
         }
 
@@ -176,6 +179,8 @@ object DebugReportBuilder {
                 put("everyday_first", order.everydayFirst)
             }
             putJsonArray("up_next") { for (id in upNext.orEmpty()) add(id) }
+            putJsonArray("holds") { for (h in heldRows) addJsonArray { add(h.cardId); add(h.kind); add(h.until) } }
+            put("bury_siblings", prefs.burySiblings)
             putJsonObject("review_load") {
                 put("threshold", todays.reviewLoad.threshold)
                 put("load", todays.reviewLoad.load)

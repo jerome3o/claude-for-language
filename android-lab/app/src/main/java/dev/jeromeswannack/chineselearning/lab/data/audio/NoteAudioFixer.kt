@@ -221,8 +221,9 @@ class NoteAudioFixer(
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao)
         val formality = repo.dao.noteFormality(repo.prefs.newCardOrder)
         val budget = dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(repo.dao, repo.prefs, cards, first, nowMs, z).budget
-        val today = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, upNext = upNext, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = formality).dueCards
-        val ahead = StudyQueue.build(decks, cards, budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, upNext = upNext, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = formality).dueCards
+        val holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(repo.dao, repo.prefs)
+        val today = StudyQueue.build(decks, cards, budget, bonus, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, upNext = upNext, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = formality, holds = holds).dueCards
+        val ahead = StudyQueue.build(decks, cards, budget, bonus + NEXT_NEW, introduced, cutoff, null, hanzi, longTerm = longTerm, bumps = bumps, upNext = upNext, order = repo.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped, formality = formality, holds = holds).dueCards
         return (today + ahead).map { it.noteId }.distinct()
     }
 

@@ -162,6 +162,26 @@ data class StudyBumpEntity(
 )
 
 /**
+ * Suspend & snooze (core CardHolds.kt, server card_holds): one hold on one card — "suspend" (until
+ * unsuspended, [until] null) or "snooze" (until the LOCAL date [until], "YYYY-MM-DD"). [pending] = a
+ * local change still on its way: "add" (POST /api/me/card-holds in the Outbox as [outboxId]) or
+ * "clear" (POST /api/me/card-holds/clear, made at [clearedAt]); a pending row wins over the server
+ * list until its Outbox item has gone (data/holds/HoldStore.kt). A "clear" row is out of the queue's
+ * holds at once. v10.
+ */
+@Entity(tableName = "card_holds", indices = [Index("cardId")])
+data class CardHoldEntity(
+    @PrimaryKey val id: String,
+    val cardId: String,
+    val kind: String,
+    val until: String? = null,
+    val createdAt: String,
+    val pending: String? = null,
+    val outboxId: String? = null,
+    val clearedAt: String? = null,
+)
+
+/**
  * "Up next" (core UpNext.kt, server up_next): one entry of the account's ORDERED list of chosen
  * notes, introduced first within the daily budget. Changes made here are applied at once and wait
  * in the Outbox (kinds `up-next-*`, data/upnext/UpNextStore.kt); the server's list replaces these
@@ -293,6 +313,11 @@ interface LabDao {
     suspend fun reviewSpans(cardIds: List<String>): List<ReviewSpan>
     @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)") suspend fun cardsOfNotes(noteIds: List<String>): List<CardEntity>
 
+    // Suspend & snooze (data/holds/HoldStore.kt)
+    @Query("SELECT * FROM card_holds") suspend fun cardHolds(): List<CardHoldEntity>
+    @Upsert suspend fun upsertCardHolds(rows: List<CardHoldEntity>)
+    @Query("DELETE FROM card_holds WHERE id IN (:ids)") suspend fun deleteCardHolds(ids: List<String>)
+
     // "Up next" (data/upnext/UpNextStore.kt)
     @Query("SELECT * FROM up_next ORDER BY position") suspend fun upNext(): List<UpNextEntity>
     @Query("DELETE FROM up_next") suspend fun clearUpNext()
@@ -313,8 +338,10 @@ interface LabDao {
         StudyBumpEntity::class,
         // v8: "Up next".
         UpNextEntity::class,
+        // v10: Suspend & snooze.
+        CardHoldEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

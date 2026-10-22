@@ -37,6 +37,7 @@ fun NavGraphBuilder.cardsGraph(nav: LabNav) {
                 onRemoveUpNext = vm::removeUpNext,
             ),
             picture = { NotePictureSection(nav.app, noteId, "hub") },
+            controls = { dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.HubCardControls(nav.app, noteId, ui.note?.hanzi.orEmpty()) },
         )
         NoteEditorSheets(vm.editor, nav)
     }

@@ -187,6 +187,31 @@ object CardHolds {
         return "💤" to "Snoozed · tomorrow"
     }
 
+    /**
+     * Port of noteHoldTag(): a deck page row's tag for a word — "⏸ Suspended" (every card), "⏸ 1 of 3
+     * suspended", "💤 Snoozed · 29 Oct" (every card snoozed), "💤 2 of 3 snoozed"; null when nothing is held.
+     */
+    fun noteTag(cardIds: List<String>, holds: Map<String, CardHold>, today: String): Pair<String, String>? {
+        var suspended = 0
+        var snoozed = 0
+        var latest: CardHold? = null
+        for (id in cardIds) {
+            val h = holds[id] ?: continue
+            if (!isActive(h, today)) continue
+            if (h.kind == SUSPEND) suspended++
+            else {
+                snoozed++
+                if (latest == null || (h.until ?: "") > (latest.until ?: "")) latest = h
+            }
+        }
+        val total = cardIds.size
+        if (suspended == 0 && snoozed == 0) return null
+        if (suspended == total) return "⏸" to "Suspended"
+        if (suspended > 0) return "⏸" to "$suspended of $total suspended"
+        if (snoozed == total && latest != null) return tag(latest.kind, latest.until, today)
+        return "💤" to "$snoozed of $total snoozed"
+    }
+
     private fun plural(n: Int, one: String, many: String = "${one}s") = "$n ${if (n == 1) one else many}"
 
     /** Port of holdMessage(). */

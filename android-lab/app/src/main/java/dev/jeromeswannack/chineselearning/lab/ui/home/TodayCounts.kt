@@ -35,6 +35,7 @@ object TodayCounts {
             upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao),
             order = prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
             formality = dao.noteFormality(prefs.newCardOrder),
+            holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, prefs, nowMs, zone),
         )
     }
 }

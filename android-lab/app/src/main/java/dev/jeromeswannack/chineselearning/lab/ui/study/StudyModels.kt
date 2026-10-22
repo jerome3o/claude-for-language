@@ -29,6 +29,8 @@ data class CardView(
     val picturePreview: androidx.compose.ui.graphics.ImageBitmap? = null,
     /** Never-seen characters of the hanzi (core NewCharacters), worked out when shown: they shimmer. */
     val newChars: List<String> = emptyList(),
+    /** The word's card types (this card's included) — Suspend… / Snooze…'s "All card types of this word". */
+    val wordCardTypes: List<String> = emptyList(),
 )
 
 /** Today's numbers where the old session recap was: "Today: 23 min · 142 reviews", N% right. */
@@ -152,6 +154,10 @@ data class StudyUi(
     val askListen: dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi = dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi(),
     /** A hidden answer that couldn't play (offline, never fetched): the line under it. */
     val askListenNotice: AskListenNotice? = null,
+    /** Suspend… / Snooze… in the ⋯ menu (core CardHolds): the regular session only, never a homework pass / practice. */
+    val cardControls: Boolean = false,
+    /** A short confirmation at the bottom ("Snoozed until tomorrow."), cleared after a few seconds. */
+    val toast: String? = null,
 ) {
     /** The top-bar count the item on screen belongs to (QueueCountsHeader `activeQueue`). */
     val activeBucket: CountBucket? get() = (phase as? StudyPhase.Showing)?.view?.let { CountBucket.of(it.card.queue, it.isSecondaryNew) }

@@ -76,6 +76,7 @@ class StudyViewModel(
     ).also { it.start() }
 
     private var queue: MutableList<QueueCard> = ArrayList()
+    private var toastJob: kotlinx.coroutines.Job? = null
     private var reviewedNoteIds: MutableSet<String> = HashSet()
     private var recentNoteIds: List<String> = emptyList()
     /** "⚡ Study it today": the pocket's cards still to rate this session (core Bumps.kt), and who bumped which note. */
@@ -397,6 +398,8 @@ class StudyViewModel(
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
                 formality = repo.dao.noteFormality(app.prefs.newCardOrder),
+                // Suspended / snoozed cards and sibling burying (core CardHolds).
+                holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(repo.dao, app.prefs, now, zone),
             )
         }
         queue = built.dueCards.toMutableList()
@@ -411,7 +414,7 @@ class StudyViewModel(
         if (resetRecent) recentNoteIds = emptyList()
         loadedDay = today()
         extrasMode = false // every visit starts with the cards (Lab today split)
-        _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }, today = null) }
+        _ui.update { it.copy(hasMoreNew = built.hasMoreNew, bonus = bonus, deckName = deckId?.let { id -> deckNames[id] }, today = null, cardControls = true) }
         extras.load(cutoff, queue.map { it.noteId }.distinct(), viewModelScope, ::onReaderArrived) // Package B
         _ui.update { it.copy(todayLeft = todayLeft()) }
         // The card left on screen (even by a process that's gone) comes back first, as it was.
@@ -510,6 +513,8 @@ class StudyViewModel(
                 upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(repo.dao),
                 order = app.prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,
                 formality = repo.dao.noteFormality(app.prefs.newCardOrder),
+                // Suspended / snoozed cards and sibling burying (core CardHolds).
+                holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(repo.dao, app.prefs, now, zone),
             )
         }
         queue = built.dueCards.toMutableList()
@@ -600,6 +605,8 @@ class StudyViewModel(
         val view = withContext(Dispatchers.IO) {
             val note = repo.dao.note(card.noteId)
             val sentences = repo.dao.sentencesFor(card.noteId)
+            val wordTypes = repo.dao.cardsOfNotes(listOf(card.noteId)).map { it.cardType }
+                .sortedBy { listOf("hanzi_to_meaning", "meaning_to_hanzi", "audio_to_hanzi").indexOf(it).let { i -> if (i < 0) 9 else i } }
             val alternatives = note?.alternatives?.let {
                 runCatching { repo.api.json.decodeFromString(ListSerializer(String.serializer()), it) }.getOrDefault(emptyList())
             }.orEmpty()
@@ -626,6 +633,7 @@ class StudyViewModel(
                     bumped = card.id in bumpedCardIds,
                     bumpedBy = bumpedBy[card.noteId],
                     newChars = NewCharacters.forCard(it.hanzi, seenChars, inStudySession = pass == null && practice == null),
+                    wordCardTypes = wordTypes,
                 )
             }
         }
@@ -889,6 +897,36 @@ class StudyViewModel(
             undo = null
             _ui.update { it.copy(canUndo = false, lastRating = null) }
             presentAfterRemoval()
+        }
+    }
+
+    /**
+     * Suspend… / Snooze… (core CardHolds; web removeCardsFromSession): the hold is written, then the
+     * cards leave the queue; the next card comes up when the one on screen is among them.
+     */
+    fun holdCurrent(kind: String, length: String?, wholeWord: Boolean) {
+        val card = currentView()?.card ?: return
+        viewModelScope.launch {
+            val ids = if (wholeWord) withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(card.noteId)).map { it.id } }.ifEmpty { listOf(card.id) } else listOf(card.id)
+            holdCards(ids, kind, length, if (ids.size > 1) "word" else "card")
+        }
+    }
+
+    fun holdCards(cardIds: List<String>, kind: String, length: String?, scope: String) {
+        viewModelScope.launch {
+            val message = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.hold(app, cardIds, kind, length, scope, "study")
+            val ids = cardIds.toSet()
+            val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
+            queue.removeAll { it.id in ids }
+            bumpedCardIds.removeAll(ids)
+            if (undo?.card?.id in ids) { undo = null; _ui.update { it.copy(canUndo = false) } }
+            _ui.update { it.copy(toast = message, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+            toastJob?.cancel()
+            toastJob = viewModelScope.launch { kotlinx.coroutines.delay(3500); _ui.update { it.copy(toast = null) } }
+            if (onScreen != null && onScreen in ids) {
+                dayStore.clearResumePoint(onScreen)
+                presentAfterRemoval()
+            }
         }
     }
 
@@ -1761,8 +1799,14 @@ class StudyViewModel(
             val (eventId, updated) = repo.recordReview(card.id, rating, timeSpentMs, userAnswer)
             queueTake(eventId)
             undo = UndoSnapshot(eventId, card, snapshotQueue, snapshotReviewed, snapshotRecent, before, wasBumped = card.id in bumpedCardIds)
+            val wasBumped = card.id in bumpedCardIds || queue.any { it.noteId == card.noteId && it.id in bumpedCardIds }
             bumpedCardIds.remove(card.id)
             queue.removeAll { it.id == card.id }
+            // "Don't show a word's other card types on the same day" (core CardHolds): the word's NEW /
+            // REVIEW siblings wait until tomorrow — not for a ⚡ bumped word.
+            if (app.prefs.burySiblings && !wasBumped) {
+                queue.removeAll { it.noteId == card.noteId && (it.queue == CardQueue.NEW || it.queue == CardQueue.REVIEW) }
+            }
             val next = updated?.toQueueCard()
             if (next != null && CardQueue.isLearning(next.queue)) queue.add(next)
             reviewedNoteIds.add(card.noteId)
@@ -1780,9 +1824,11 @@ class StudyViewModel(
     /** `findDelayedLearningCard`: a learning card due before the cutoff that isn't queued. */
     private suspend fun findDelayedLearningCard(): QueueCard? = withContext(Dispatchers.IO) {
         val queued = queue.mapTo(HashSet()) { it.id }
+        // Suspended / snoozed cards stay out (core CardHolds).
+        val held = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.heldIds(repo.dao, System.currentTimeMillis(), zone)
         repo.dao.cards().asSequence()
             .map { it.toQueueCard() }
-            .filter { (deckId == null || it.deckId == deckId) && it.id !in queued && CardQueue.isLearning(it.queue) }
+            .filter { (deckId == null || it.deckId == deckId) && it.id !in queued && it.id !in held && CardQueue.isLearning(it.queue) }
             .filter { it.state.dueTimestamp == null || it.state.dueTimestamp!! <= cutoff.ts }
             .minByOrNull { it.state.dueTimestamp ?: 0L }
     }

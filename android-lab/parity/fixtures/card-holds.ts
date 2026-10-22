@@ -23,6 +23,7 @@ import {
   holdTag,
   isHoldActive,
   isLocalDate,
+  noteHoldTag,
   releaseMessage,
   siblingBuriedCardIds,
   snoozeUntil,
@@ -82,8 +83,12 @@ for (let i = 0; i < 300; i++) {
   }
   const length = pick(LENGTHS);
   const count = pick([1, 1, 2, 3, 12]);
+  const byCard = new Map(list.map(h => [h.card_id, h] as const));
+  const noteCards = ['c0', 'c1', 'c2', 'c3'].slice(0, int(1, 4));
   holds.push({
     today,
+    noteCards,
+    noteTag: noteHoldTag(noteCards, byCard, today),
     holds: list,
     active: list.map(h => isHoldActive(h, today)),
     held: [...heldCardIds(list, today)],

@@ -118,7 +118,7 @@ data class StudyMenuItem(
  * note has none), regenerate audio, new voice, roleplay (with a Claude tutor), Write it,
  * flag for tutor (human tutors only), play my recording (when there is one).
  */
-fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecording: Boolean, onFlag: () -> Unit, onWrite: () -> Unit = {}): List<StudyMenuItem> {
+fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecording: Boolean, onFlag: () -> Unit, onWrite: () -> Unit = {}, onHold: (kind: String) -> Unit = {}): List<StudyMenuItem> {
     val needsInternet = if (ui.aiAvailable) null else NEEDS_INTERNET
     val busy = ui.extras.busy
     return buildList {
@@ -131,6 +131,11 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
         add(StudyMenuItem("coach", "Sentence coach", "✏️", needsInternet, onSelect = { actions.onOpenCoach(view.note.sentenceClue?.takeIf { it.isNotBlank() } ?: view.note.hanzi) }))
         if (CardExtrasLogic.canWriteHanzi(view.note.hanzi)) add(StudyMenuItem("write", "Write it", "✍️", "Preview", onSelect = onWrite))
         if (ui.extras.flagTutors.isNotEmpty()) add(StudyMenuItem("flag", "Flag for tutor", "🚩", onSelect = onFlag))
+        // Anki's card controls (docs/STUDY_SESSION.md "Suspend & snooze") — never a review event.
+        if (ui.cardControls && ui.practice == null) {
+            add(StudyMenuItem("snooze", "Snooze…", "💤", "Not today", onSelect = { onHold("snooze") }))
+            add(StudyMenuItem("suspend", "Suspend…", "⏸", onSelect = { onHold("suspend") }))
+        }
         if (hasRecording) add(StudyMenuItem("my-recording", "Play my recording", "🎙️", onSelect = actions.onPlayMyRecording))
     }
 }

@@ -11,6 +11,7 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.LabPlatform
 import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import dev.jeromeswannack.chineselearning.lab.data.api.folders
 import dev.jeromeswannack.chineselearning.lab.data.api.studyBumps
+import dev.jeromeswannack.chineselearning.lab.data.api.cardHolds
 import dev.jeromeswannack.chineselearning.lab.data.api.upNext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -200,6 +201,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         else prefs.budget = StudyBudget(me.new_cards_per_day.coerceIn(0, StudyBudget.MAX), me.secondary_cards_per_day.coerceIn(0, StudyBudget.MAX))
         // "Order new cards by": every queue the app builds reads prefs.newCardOrder (offline too).
         me.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
+        me.bury_siblings?.let { prefs.burySiblings = it }
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
         me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
@@ -278,6 +280,16 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         } catch (e: Exception) {
             android.util.Log.w("LabSync", "bumps not synced", e)
         }
+        // Suspend & snooze: the active holds, whole (an older server without them must not fail the sync).
+        try {
+            dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.replaceFromServer(db, db.platform(), api.cardHolds())
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("LabSync", "card holds not synced", e)
+        }
         // "Up next": the ordered list, whole (an older server without it must not fail the sync).
         try {
             dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), api.upNext())
@@ -312,6 +324,8 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
         changes.bumps?.let { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), it) }
         changes.up_next?.let { dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), it) }
+        changes.card_holds?.let { dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.replaceFromServer(db, db.platform(), it) }
+        changes.bury_siblings?.let { prefs.burySiblings = it }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }

@@ -50,6 +50,8 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
                     dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeLanguageSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.study.SpokenAnswerSettings(app)
+                    // Suspend & snooze: sibling burying + the held cards list (core CardHolds).
+                    dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.CardControlsSettingsCard(app) { nav.open(it) }
                 }
             },
             newCardOrder = { NewCardOrderSettingsCard(app) },

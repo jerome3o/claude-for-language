@@ -54,6 +54,8 @@ data class NoteRowUi(
     val canUpNext: Boolean = false,
     /** The note's picture (pictures on cards): a thumbnail on the row. */
     val imageKey: String? = null,
+    /** Suspend & snooze: "⏸ Suspended" / "💤 Snoozed · 29 Oct" (core CardHolds.noteTag), null = not held. */
+    val hold: Pair<String, String>? = null,
 )
 
 data class DeckHeaderUi(
@@ -249,18 +251,26 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
         val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone))
         val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, env.budget(), env.reviewLoadCap(), queueCards, first, now, zone).budget, env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao))
+        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, env.budget(), env.reviewLoadCap(), queueCards, first, now, zone).budget, env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao), holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, env.burySiblings(), now, zone))
 
         val bumpedNotes = env.bumps?.let { b -> runCatching { b.openNoteIds() }.getOrDefault(emptySet()) }.orEmpty()
         val places = env.upNext?.let { u -> runCatching { u.places() }.getOrDefault(emptyMap()) }.orEmpty()
         val freshNotes = queueCards.filter { it.queue == dev.jeromeswannack.chineselearning.lab.core.CardQueue.NEW }.mapTo(HashSet()) { it.noteId }
+        val held = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.activeByCard(dao, now, zone)
+        val holdToday = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.today(now, zone)
+        val cardIdsByNote = allCards.groupBy({ it.noteId }, { it.id })
         return DeckUi(
             loaded = true,
             deck = DeckHeaderUi(d.id, d.name, d.description, d.newCardsPerDay, d.secondaryCardsPerDay),
             due = q.dueCards.size,
             completion = DeckStats.completion(cards),
             breakdown = DeckStats.breakdown(cards),
-            notes = rows.map { r -> r.copy(bumped = r.id in bumpedNotes, upNextPlace = places[r.id] ?: 0, canUpNext = env.upNext != null && r.id in freshNotes) },
+            notes = rows.map { r ->
+                r.copy(
+                    bumped = r.id in bumpedNotes, upNextPlace = places[r.id] ?: 0, canUpNext = env.upNext != null && r.id in freshNotes,
+                    hold = if (held.isEmpty()) null else dev.jeromeswannack.chineselearning.lab.core.CardHolds.noteTag(cardIdsByNote[r.id].orEmpty(), held, holdToday),
+                )
+            },
             isTutorAccount = env.isTutorAccount(),
         )
     }
