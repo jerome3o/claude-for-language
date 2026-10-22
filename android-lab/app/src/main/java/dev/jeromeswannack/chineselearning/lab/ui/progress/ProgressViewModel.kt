@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.DayCards
 import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.KnownRate
 import dev.jeromeswannack.chineselearning.lab.core.Progress
 import dev.jeromeswannack.chineselearning.lab.data.progress.CardDay
 import dev.jeromeswannack.chineselearning.lab.data.progress.ProgressSnapshot
@@ -27,6 +28,8 @@ data class ProgressUi(
     val bars: List<BarDay> = emptyList(),
     /** Characters & words known (null until the replay of every event is done). */
     val known: KnownProgress? = null,
+    /** Per week: newly known per week + pace (same replay as [known]). */
+    val knownRate: KnownRate? = null,
 )
 
 /** Builds the chart's 30 bars from the daily rows; days without reviews are empty bars. */
@@ -61,9 +64,9 @@ class ProgressViewModel(private val app: LabApp) : ViewModel() {
             val now = System.currentTimeMillis()
             val snap = app.safely("progress") { store.snapshot(now, zone) } ?: return@launch
             // Keep the last known counts on screen while they are recomputed.
-            _ui.value = ProgressUi(true, snap, LocalDate.now(zone), barsFor(snap, now), known = _ui.value.known)
-            val known = app.safely("known counts") { store.known(now) } ?: return@launch
-            _ui.value = _ui.value.copy(known = known)
+            _ui.value = ProgressUi(true, snap, LocalDate.now(zone), barsFor(snap, now), known = _ui.value.known, knownRate = _ui.value.knownRate)
+            val known = app.safely("known counts") { store.known(now, zone) } ?: return@launch
+            _ui.value = _ui.value.copy(known = known.progress, knownRate = known.rate)
         }
     }
 
