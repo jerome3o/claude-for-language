@@ -53,6 +53,7 @@ import { registerIdiomTools } from './tools/idioms.js';
 import { registerMemeReviewTools } from './tools/meme-review.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
+import { registerCardHoldTools } from './tools/card-holds.js';
 import { registerNoteImageTools } from './tools/note-images.js';
 import { registerUpNextTools } from './tools/up-next.js';
 import { registerPinyinScanTools } from './tools/pinyin-scan.js';
@@ -1981,6 +1982,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
+    registerCardHoldTools(ctx);
     registerNoteImageTools(ctx);
     registerUpNextTools(ctx);
     registerPinyinScanTools(ctx);

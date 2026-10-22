@@ -82,6 +82,10 @@ export interface DebugComparison {
     new_card_order: ValuePair<string>;
     /** "Up next": "<count>:<hash of the ordered ids>" ("?" = not reported). */
     up_next: ValuePair<string>;
+    /** Suspend & snooze: "<count>:<hash of the holds>" ("?" = not reported). */
+    holds: ValuePair<string>;
+    /** "Don't show a word's other card types on the same day": "on" / "off" ("?" = not reported). */
+    bury_siblings: ValuePair<string>;
     /** "Pause new cards on heavy days": "limit 100 · load 124 · paused" / "off · load 80" ("?" = not reported). */
     review_load: ValuePair<string>;
     bonus_all: ValuePair<number>;
@@ -210,6 +214,8 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     },
     new_card_order: { a: orderLabel(a.new_card_order), b: orderLabel(b.new_card_order) },
     up_next: { a: upNextLabel(a.up_next), b: upNextLabel(b.up_next) },
+    holds: { a: holdsLabel(a.holds), b: holdsLabel(b.holds) },
+    bury_siblings: { a: a.bury_siblings === undefined ? '?' : a.bury_siblings ? 'on' : 'off', b: b.bury_siblings === undefined ? '?' : b.bury_siblings ? 'on' : 'off' },
     review_load: { a: reviewLoadLabel(a.review_load), b: reviewLoadLabel(b.review_load) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
     introduced_basis: { a: a.introduced_basis, b: b.introduced_basis },
@@ -224,6 +230,16 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
   }
   if (context.up_next.a !== context.up_next.b && context.up_next.a !== '?' && context.up_next.b !== '?') {
     hints.push(`The "Up next" list differs: ${A} ${context.up_next.a} vs ${B} ${context.up_next.b} (count:order hash) — a sync brings them together.`);
+  }
+  if (context.holds.a !== context.holds.b && context.holds.a !== '?' && context.holds.b !== '?') {
+    const only = (x: DebugReport['holds'], y: DebugReport['holds']) => {
+      const ys = new Set((y ?? []).map(h => h.join('|')));
+      return (x ?? []).filter(h => !ys.has(h.join('|'))).length;
+    };
+    hints.push(`Suspended / snoozed cards differ: ${A} ${context.holds.a} vs ${B} ${context.holds.b} (${only(a.holds, b.holds)} only on ${A}, ${only(b.holds, a.holds)} only on ${B}) — a sync brings them together; a snooze ending today differs while the devices' dates differ.`);
+  }
+  if (context.bury_siblings.a !== context.bury_siblings.b && context.bury_siblings.a !== '?' && context.bury_siblings.b !== '?') {
+    hints.push(`"Don't show a word's other card types on the same day" is ${context.bury_siblings.a} on ${A} but ${context.bury_siblings.b} on ${B} — siblings of today's cards differ.`);
   }
   if (a.bonus.all !== b.bonus.all) hints.push(`"Study 10 more" bonus differs: ${A} ${a.bonus.all} vs ${B} ${b.bonus.all}.`);
   if (a.review_load && b.review_load) {
@@ -475,6 +491,14 @@ export function serverTruthFromRows(
 function upNextLabel(ids: DebugReport['up_next']): string {
   if (!ids) return '?';
   return ids.length === 0 ? '0' : `${ids.length}:${eventIdHash(ids.join(','))}`;
+}
+
+/** Suspend & snooze as "<count>:<hash of the sorted holds>"; "?" not in the report. */
+function holdsLabel(holds: DebugReport['holds']): string {
+  if (!holds) return '?';
+  if (holds.length === 0) return '0';
+  const rows = holds.map(h => `${h[0]}:${h[1]}:${h[2] ?? ''}`).sort();
+  return `${holds.length}:${eventIdHash(rows.join(','))}`;
 }
 
 /** "Pause new cards on heavy days" as "limit 100 · load 124 · paused"; "?" not in the report. */

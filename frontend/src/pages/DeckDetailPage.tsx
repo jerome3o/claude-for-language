@@ -1,5 +1,8 @@
 import { BumpButton } from '../components/bumps/BumpButton';
 import { UpNextButton } from '../components/upNext/UpNextButton';
+import { noteHoldTag } from '@shared/decks';
+import { localDateKey, useCardHolds } from '../services/cardHolds';
+import '../components/cardControls/cardControls.css';
 import { OneOffDeckBanner } from '../components/homework/OneOffDeckBanner';
 import { UpdateCopiesPrompt } from '../components/tutor/library/UpdateCopiesSheet';
 import { useQuery, useMutation, useQueryClient, QueryClient } from '@tanstack/react-query';
@@ -1605,6 +1608,9 @@ export function DeckDetailPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set());
   const [toast, showToast] = useToast();
+  // Suspended / snoozed cards (shared/decks/holds.ts) — a quiet tag on their rows.
+  const cardHolds = useCardHolds();
+  const holdsToday = localDateKey();
 
   const deckQuery = useQuery({
     queryKey: ['deck', id],
@@ -1743,6 +1749,8 @@ export function DeckDetailPage() {
         english: note.english,
         mastery_percent: masteryPercent,
         recent_ratings: recentRatings,
+        // Suspend & snooze: the row's "⏸ Suspended" tag reads the word's cards.
+        card_ids: cards.map(c => c.id),
       };
     });
 
@@ -2267,6 +2275,14 @@ export function DeckDetailPage() {
                         <span className="deck-note-hanzi">{noteProgress.hanzi}</span>
                         <span className="deck-note-pinyin">{noteProgress.pinyin}</span>
                         <span className="deck-note-english">{noteProgress.english}</span>
+                        {(() => {
+                          const tag = noteHoldTag((noteProgress as { card_ids?: string[] }).card_ids ?? [], cardHolds, holdsToday);
+                          return tag ? (
+                            <span className="cc-tag deck-note-hold" data-testid="deck-note-hold" style={{ alignSelf: 'flex-start', marginTop: '0.25rem' }}>
+                              <span aria-hidden="true">{tag.icon}</span> {tag.text}
+                            </span>
+                          ) : null;
+                        })()}
                         {noteData?.sentence_clue && (
                           <span className="deck-note-sentence-clue">{noteData.sentence_clue}</span>
                         )}

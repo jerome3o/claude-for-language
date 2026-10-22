@@ -82,6 +82,19 @@ export async function holdCards(
   return { count: ids.length, message: holdMessage(kind, ids.length, opts.length) };
 }
 
+/** Undo of a release: the same holds again (new client ids, same kind and end date). */
+export async function restoreHolds(holds: Array<Pick<LocalCardHold, 'card_id' | 'kind' | 'until'>>): Promise<void> {
+  const now = new Date().toISOString();
+  await db.transaction('rw', db.cardHolds, async () => {
+    for (const h of holds) {
+      const old = await db.cardHolds.where('card_id').equals(h.card_id).toArray();
+      for (const r of old) if (r.pending !== 'clear') await db.cardHolds.delete(r.id);
+      await db.cardHolds.put({ id: crypto.randomUUID(), card_id: h.card_id, kind: h.kind, until: h.until, created_at: now, pending: 'add' });
+    }
+  });
+  if (holds.length && online()) void flushPendingHolds().catch(() => undefined);
+}
+
 /** Unsuspend / Wake now (local at once). */
 export async function releaseCards(cardIds: string[], source: HoldSource): Promise<HoldOutcome> {
   const ids = [...new Set(cardIds.filter(Boolean))];

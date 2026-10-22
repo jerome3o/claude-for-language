@@ -241,6 +241,36 @@ export function holdTag(hold: Pick<CardHold, 'kind' | 'until'>, today: string): 
   return { icon: '💤', text: 'Snoozed · tomorrow' };
 }
 
+/**
+ * A deck page row's tag for a word: "⏸ Suspended" (every card), "⏸ 1 of 3 suspended",
+ * "💤 Snoozed · 29 Oct" (every card snoozed), "💤 2 of 3 snoozed"; null when nothing is held.
+ * `holds` = the active hold per card id (any map from card id to a hold).
+ */
+export function noteHoldTag(
+  cardIds: ReadonlyArray<string>,
+  holds: ReadonlyMap<string, Pick<CardHold, 'kind' | 'until'>>,
+  today: string
+): { icon: string; text: string } | null {
+  let suspended = 0;
+  let latest: Pick<CardHold, 'kind' | 'until'> | null = null;
+  let snoozed = 0;
+  for (const id of cardIds) {
+    const h = holds.get(id);
+    if (!h || !isHoldActive(h, today)) continue;
+    if (h.kind === 'suspend') suspended++;
+    else {
+      snoozed++;
+      if (!latest || (h.until ?? '') > (latest.until ?? '')) latest = h;
+    }
+  }
+  const total = cardIds.length;
+  if (suspended === 0 && snoozed === 0) return null;
+  if (suspended === total) return { icon: '⏸', text: 'Suspended' };
+  if (suspended > 0) return { icon: '⏸', text: `${suspended} of ${total} suspended` };
+  if (snoozed === total && latest) return holdTag(latest, today);
+  return { icon: '💤', text: `${snoozed} of ${total} snoozed` };
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The toast after a hold: "Suspended — it stays out of study until you unsuspend it." */

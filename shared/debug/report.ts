@@ -106,6 +106,13 @@ export interface DebugReport {
   review_load?: { threshold: number | null; load: number; paused: boolean };
   /** "Up next" (shared/decks/up-next.ts): the list's note ids in order as this device holds it; absent in older reports. */
   up_next?: string[];
+  /**
+   * Suspend & snooze (shared/decks/holds.ts): the holds this device applies today, as
+   * [card_id, kind, until] sorted by card id; absent in older reports.
+   */
+  holds?: Array<[string, 'suspend' | 'snooze', string | null]>;
+  /** "Don't show a word's other card types on the same day" as this device applies it; absent in older reports. */
+  bury_siblings?: boolean;
   /** "Study 10 more" bonuses in effect: all-decks bonus + per deck, and the day key they are stored under. */
   bonus: { all: number; by_deck: Record<string, number>; day_key: string };
   /** Client-specific sync cursors / state (free-form). */
