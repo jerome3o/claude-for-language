@@ -245,7 +245,7 @@ tutor also studies). Their **Students** tab is the dashboard in section 7. Under
 1. **Your name** — tap to open **Settings** (section 12).
 2. **Practice** — **Sentence Coach** (check a sentence you wrote), **Sentence
    Breakdown** (split any sentence into words), **Readers** (short stories at your
-   level), **Mini Lessons** (lessons made for you, mixed into study), **Claude
+   level), **Mini Lessons** (lessons made for you — also on Home's homework card), **Claude
    conversations** (everything you have asked Claude about your cards), **Quests** (carry
    out Chinese instructions in a tiny world) — all in sections 9 and 10.
 3. **From your tutor** — **Lesson Notes**: paste what the tutor sent after a lesson;
@@ -417,8 +417,8 @@ alternatives** when editing the card (section 6) and they will be marked correct
 
 ### Between cards
 
-- Every ~8 cards the session may slot in a **Mini Lesson** (if one is waiting) and at the
-  end of the session it offers **today's Reader** story (section 10).
+- At the end of the session it offers **today's Reader** story (section 10). Mini lessons
+  are not part of the study session: they are on Home's homework card and the Mini Lessons page.
 - Rating a card **Again** quietly prepares example sentences for it, so they are ready
   when the card returns a minute later.
 
@@ -1220,11 +1220,16 @@ scrambles, multiple choice, translation, matching, picture description, speaking
 listening discrimination (e.g. 有 yǒu vs 又 yòu). Students can ask for one anywhere
 Claude is present — "make me a mini lesson on 把 sentences" in Ask Claude or the
 Sentence Coach — and tutors assign them with **Send homework → A lesson** (section 8).
-Lessons are mixed into study sessions and repeat on the same spaced schedule as cards.
-**Mini Lessons** (More → Practice) lists what is waiting and what was completed; tap a
-lesson to see its exercises:
+New lessons and revisions show on Home's homework card with their size ("18 exercises ·
+~12 min"). A half-done lesson is never lost: it continues where it was left, even days later.
+Anything answered wrong comes back at the end of the lesson until it is right. Everything right
+first time → the lesson is done for good; otherwise it comes back a week later as a short
+**revision** (what was missed, plus a few that were right), every week until a run is all
+right first time. The tutor sees "Revision 2 due 29 Oct · 3 to get right" on the student's
+lessons. **Mini Lessons** (More → Practice) lists *To do*, *Revision coming* and *Done for
+good*; tap a lesson to see its exercises:
 
-1. The status chip — *New*, *Learning*, *Due* — and how often it was studied.
+1. The status chip — *New*, *🔁 Revision 1 · due today*, *✓ Done* — and how often it was done.
 2. **Edit** opens the lesson in the editor (below). A student may edit their own copy of
    an assigned lesson too.
 

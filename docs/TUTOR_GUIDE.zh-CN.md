@@ -157,7 +157,7 @@
 <img src="guide-images/more.png" width="300">
 
 1. **你的名字** —— 点击进入 **Settings（设置）**（第 12 节）。
-2. **Practice（练习）** —— **Sentence Coach**（句子教练：检查你写的句子）、**Sentence Breakdown**（句子分析：把任意句子拆成词）、**Readers**（分级读物：适合你水平的小故事）、**Mini Lessons**（迷你课程：为你定制、穿插在学习中的小课程）、**Claude conversations**（Claude 对话：你问过 Claude 的所有关于卡片的问题）、**Quests**（任务游戏：在一个小世界里执行中文指令）——都在第 9、10 节。
+2. **Practice（练习）** —— **Sentence Coach**（句子教练：检查你写的句子）、**Sentence Breakdown**（句子分析：把任意句子拆成词）、**Readers**（分级读物：适合你水平的小故事）、**Mini Lessons**（迷你课程：为你定制的小课程，也显示在首页的作业卡片上）、**Claude conversations**（Claude 对话：你问过 Claude 的所有关于卡片的问题）、**Quests**（任务游戏：在一个小世界里执行中文指令）——都在第 9、10 节。
 3. **From your tutor（来自老师）** —— **Lesson Notes（课堂笔记）**：粘贴老师课后发的内容，作为 AI 功能的上下文。
 4. **Settings（设置）** 和 **Sign out（退出登录）**。
 5. **Advanced（高级）**（默认折叠）—— Duplicate Finder（重复查找）、Sentence Coverage（例句覆盖）、Full Sync（完整同步）、Update App（更新应用）和调试工具。平时很少用到。
@@ -273,7 +273,7 @@
 
 ### 卡片之间
 
-- 大约每 8 张卡片，学习中可能插入一节 **迷你课程**（如果有待学的），学习结束时会推荐**今天的读物**故事（见第 10 节）。
+- 学习结束时会推荐**今天的读物**故事（见第 10 节）。迷你课程不再穿插在学习中：它们在首页的作业卡片和 Mini Lessons 页面上。
 - 给一张卡片评 **Again** 时，应用会悄悄为它准备例句，一分钟后卡片再出现时例句已经就绪。
 
 ### 提前结束
@@ -793,9 +793,9 @@
 
 <img src="guide-images/mini-lessons.png" width="300">
 
-迷你课程是简短的课程：带例句的讲解、词序排列、选择题、翻译、连线配对、看图说话、口语，以及听力辨析（例如 有 yǒu 和 又 yòu）。学生在任何有 Claude 的地方都可以要一节——在 Ask Claude 或句子教练里说"给我做一节关于把字句的迷你课程"；老师则用 **Send homework → A lesson**（布置作业 → 课程）布置（第 8 节）。课程会穿插在学习中，并按和卡片一样的间隔重复安排复习。**Mini Lessons**（More → Practice）列出待学和已完成的课程；点某节课可以看到它的练习：
+迷你课程是简短的课程：带例句的讲解、词序排列、选择题、翻译、连线配对、看图说话、口语，以及听力辨析（例如 有 yǒu 和 又 yòu）。学生在任何有 Claude 的地方都可以要一节——在 Ask Claude 或句子教练里说"给我做一节关于把字句的迷你课程"；老师则用 **Send homework → A lesson**（布置作业 → 课程）布置（第 8 节）。新课程和复习课显示在首页的作业卡片上，并写明大小（"18 exercises · ~12 min"，18 道练习 · 约 12 分钟）。做到一半的课程不会丢失：哪怕隔了几天，也会从上次停下的地方继续。答错的题会在课程最后重新出现，直到答对。第一次就全部答对 → 这节课永久完成；否则一周后会以简短的**复习课**（Revision）回来（错过的题，再加几道答对过的），每周一次，直到某一遍第一次就全部答对。老师在学生的课程上会看到"Revision 2 due 29 Oct · 3 to get right"（第 2 次复习 · 10 月 29 日到期 · 还有 3 道要答对）。**Mini Lessons**（More → Practice）列出 *To do*（待做）、*Revision coming*（即将复习）和 *Done for good*（已永久完成）；点某节课可以看到它的练习：
 
-1. 状态标签——*New*（新）、*Learning*（学习中）、*Due*（到期）——以及学过几次。
+1. 状态标签——*New*（新）、*🔁 Revision 1 · due today*（第 1 次复习 · 今天到期）、*✓ Done*（已完成）——以及做过几次。
 2. **Edit（编辑）** 用编辑器打开这节课（见下文）。学生也可以编辑老师布置给自己的副本。
 
 ### 课程库与编辑器（Lesson Library & Editor）
