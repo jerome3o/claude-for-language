@@ -9,7 +9,9 @@
  * one character swapped for a homophone, a same-syllable / other-tone character or any other,
  * punctuation added, digits for numbers, the word (or a homophone / other-tone version) said
  * inside a sentence, the note's pinyin with one neutral syllable — with `spokenAnswerWithin`
- * (typing card + read card) and `spokenSyllables`. Writes spoken-answer.json into process.argv[2];
+ * (typing card + read card) and `spokenSyllables`; plus the answer side's compact "You said" row
+ * for each case (shared/cards/spoken-result.ts: state, chip, icon, ✎, per-character marks, the
+ * screen-reader sentence → core SpokenAnswerResult). Writes spoken-answer.json into process.argv[2];
  * SpokenAnswerParityTest asserts the Kotlin port gives exactly the same answers.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -26,6 +28,7 @@ import {
   tidySpokenTranscript,
   tonelessPinyin,
 } from '../../../shared/cards/answer';
+import { spokenResult, spokenResultLabel } from '../../../shared/cards/spoken-result';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: spoken-answer <out-dir>');
@@ -171,7 +174,22 @@ const out = cases.map((c) => ({
   within_read: spokenAnswerWithin(c.transcript, c.correct),
   syllables: spokenSyllables(c.transcript),
   tidy: tidySpokenTranscript(c.transcript, c.correct),
+  // The answer side's compact "You said" row (shared/cards/spoken-result.ts) for the spoken verdict.
+  result: (() => {
+    const r = spokenResult(c.transcript, c.correct, checkSpokenAnswer(c.transcript, c.correct, c.alternatives, c.note_pinyin));
+    return {
+      state: r.state, accepted: r.accepted, chip: r.chip, icon: r.icon, coach: r.coach,
+      chars: r.chars.map((x) => x.char), marks: r.chars.map((x) => x.mark),
+      // The label with the note's pinyin standing in for the transcript's (any text: it is only echoed).
+      label: spokenResultLabel(r, c.correct, c.note_pinyin),
+    };
+  })(),
 }));
+// Every verdict's row, with the same transcript and answer: the state mapping, chips and icons.
+const resultsByVerdict = (['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const).map((v) => {
+  const r = spokenResult(' 朗。', '狼 ', v);
+  return { verdict: v, state: r.state, accepted: r.accepted, chip: r.chip, icon: r.icon, coach: r.coach, marks: r.chars.map((x) => x.mark), label: spokenResultLabel(r, '狼 ', ' lǎng ') };
+});
 const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const;
 const notes = verdicts.map((v) => ({ verdict: v, correct: '由', note: spokenVerdictNote(v, ' 由 ') }));
 const counts = Object.fromEntries(verdicts.map((v) => [v, out.filter((c) => c.spoken === v).length]));
@@ -182,4 +200,4 @@ const TIDY: [string, string][] = [
   ['Hello.', 'hello'], ['撤销 。', ' 撤销 '], ['撤。销', '撤销'], ['撤销。', '撤销！ '], ['好', ''],
 ];
 const tidy = TIDY.map(([transcript, correct]) => ({ transcript, correct, tidy: tidySpokenTranscript(transcript, correct) }));
-writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts, tidy }));
+writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts, tidy, results_by_verdict: resultsByVerdict }));

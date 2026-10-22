@@ -1,7 +1,8 @@
 /**
- * "You said" — ONE box for what was said aloud, on the read card's back (the pronunciation take),
- * under a spoken answer on a typing card and for 🎤 Say it practice, so all of them look the same
- * (docs/STUDY_SESSION.md "You said"). Lab: `YouSaidBox` in ui/study/CardStage.kt.
+ * "You said" — the box for what was said aloud on the read card's back (the pronunciation take)
+ * (docs/STUDY_SESSION.md "You said"). Lab: `YouSaidBox` in ui/study/YouSaidBox.kt. A spoken answer
+ * on a typing card and 🎤 Say it practice use the compact `YouSaidRow` (end of this file) under the
+ * card's own answer instead.
  *
  *   ( ▶ )      You said · ✓ Match       ( ✎ )
  *                   曾经。
@@ -19,7 +20,8 @@
  */
 import type { ReactNode } from 'react';
 import { compareTranscription } from '@shared/recordings/transcript';
-import { isAcceptedVerdict, type AnswerVerdict } from '@shared/cards/answer';
+import type { AnswerVerdict } from '@shared/cards/answer';
+import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 
 export type YouSaidState = 'match' | 'contains' | 'miss';
 
@@ -179,14 +181,65 @@ export function YouSaidFailed({ onRetry, note = 'Your recording is saved', testI
   );
 }
 
-/** The box's props for a spoken answer on a typing card: the read card's comparison, the match flags from the spoken verdict. */
-export function spokenYouSaid(transcript: string, correct: string, verdict: AnswerVerdict): YouSaidProps {
-  const c = compareTranscription(transcript, correct, '');
-  const contains = verdict === 'contains';
-  return {
-    hanzi: c.transcribedHanzi,
-    pinyin: c.transcribedPinyin,
-    isMatch: isAcceptedVerdict(verdict) && !contains,
-    containsExpected: contains,
-  };
+export interface YouSaidRowProps {
+  /** What was said (the spoken answer / practice take's transcript). */
+  transcript: string;
+  /** The card's answer (hanzi). */
+  correct: string;
+  verdict: AnswerVerdict;
+  /** ▶ on the left: play the take. */
+  onPlay?: () => void;
+  /** ✎ on the right (every state but a plain match): the sentence in the Sentence Coach. */
+  onCoach?: () => void;
+  testId?: string;
+}
+
+/**
+ * The spoken answer's result on a typing card (and 🎤 Say it practice) — ONE compact row under the
+ * card's own answer, pinyin and meaning (docs/STUDY_SESSION.md "Say the answer"):
+ *
+ *   ( ▶ )  You said 朗 lǎng  [≈ Close — tones off]  ( ✎ )
+ *
+ * What was said is marked character by character (shared/cards/spoken-result.ts): "Sounded right"
+ * marks the characters written differently in yellow with a dotted underline (the chip stays ✓);
+ * close / didn't match mark the characters not in the answer red with a solid underline. The chip
+ * has its own icon and words; a screen reader hears the whole row as one sentence
+ * (`spokenResultLabel`). Lab: `SpokenResultRow` in ui/study/YouSaidBox.kt.
+ */
+export function YouSaidRow({ transcript, correct, verdict, onPlay, onCoach, testId = 'spoken-result' }: YouSaidRowProps) {
+  const r = spokenResult(transcript, correct, verdict);
+  const pinyin = tidyPinyin(compareTranscription(transcript, correct, '').transcribedPinyin);
+  const coach = r.coach ? onCoach : undefined;
+  return (
+    <div
+      className={`spoken-result spoken-result--${r.state}`}
+      data-testid={testId}
+      data-state={r.state}
+      data-verdict={verdict}
+    >
+      {/* ▶ / ✎ in equal side columns (an empty one balances a lone button) so the text stays centred. */}
+      {onPlay
+        ? <RoundButton icon={ICON.play} label={YOU_SAID_PLAY_LABEL} onClick={onPlay} testId="you-said-play" />
+        : coach && <span className="spoken-result-side" aria-hidden="true" />}
+      <div className="spoken-result-body">
+        <span className="spoken-result-sr" data-testid="spoken-result-label">{spokenResultLabel(r, correct, pinyin)}</span>
+        <span className="spoken-result-said" aria-hidden="true">
+          <span className="spoken-result-label">You said</span>
+          <span className="spoken-result-hanzi" lang="zh-CN" data-testid="spoken-result-hanzi">
+            {r.chars.length === 0 ? '…' : r.chars.map((c, i) => (
+              <span key={i} className={`spoken-mark spoken-mark--${c.mark}`} data-mark={c.mark}>{c.char}</span>
+            ))}
+          </span>
+          {pinyin && <span className="spoken-result-pinyin" data-testid="spoken-result-pinyin">{pinyin}</span>}
+        </span>
+        <span className="spoken-result-chip" aria-hidden="true" data-testid="spoken-result-chip" data-icon={r.icon}>
+          <Icon d={ICON[r.icon]} />
+          {r.chip}
+        </span>
+      </div>
+      {coach
+        ? <RoundButton icon={ICON.edit} label={YOU_SAID_COACH_LABEL} onClick={coach} testId="you-said-coach" />
+        : onPlay && <span className="spoken-result-side" aria-hidden="true" />}
+    </div>
+  );
 }

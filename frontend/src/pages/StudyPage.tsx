@@ -53,7 +53,7 @@ import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
-import { checkSpokenAnswer, checkTypedAnswer, spokenVerdictNote, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
+import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
@@ -67,7 +67,7 @@ import { OfflineAudioNote } from '../components/study/OfflineAudioNote';
 import { ListenContext, type ListenContextStats } from '../components/study/ListenContext';
 import { listenContextProps } from '@shared/study/listenContext';
 import { TutorNoteLine } from '../components/study/TutorNoteLine';
-import { YouSaid, YouSaidFailed, YouSaidOffline, YouSaidPending, spokenYouSaid } from '../components/study/YouSaid';
+import { YouSaid, YouSaidFailed, YouSaidOffline, YouSaidPending, YouSaidRow } from '../components/study/YouSaid';
 import { WordTagPills } from '../components/wordTags/WordTagPills';
 import { OfflineModeToggle } from '../components/study/OfflineModeToggle';
 import { isPeekTap, type PressPoint } from '../components/study/peekFlip';
@@ -130,7 +130,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
-import { spokenAnswerDiff, typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
+import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 
@@ -159,34 +159,22 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
 /**
  * Character diff for typed answers (Anki-style). The decision is shared/cards/answer.ts:
  * exact / punctuation-only → one green row; equivalent (numbers, 两 / 二) or a listed
- * alternative → green + the canonical answer; otherwise the character diff. A SPOKEN answer
- * (🎤, `spoken`) is also right by sound: a homophone transcript (油 for 由) shows the expected
- * characters green with "Sounded right ✓ — written 由"; other tones are `close` (the diff + a note).
- * The answer said inside a sentence (`contains`: 他长得很好。 for 长得) shows the answer green —
- * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: yellow
- * "Contains the answer" for `contains`), and a wrong one's diff is lined up, not positional.
+ * alternative → green + the canonical answer; otherwise the character diff. The card's own
+ * pinyin follows right under it (renderBackMain), so an exact answer has no second pinyin line.
+ * A SPOKEN answer (🎤) never comes here: the back shows the card's answer once and one compact
+ * "You said" row (`YouSaidRow`, shared/cards/spoken-result.ts).
  */
-function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string; onCoach?: (sentence: string) => void; newChars?: ReadonlySet<string> }) {
-  const { userAnswer, correctAnswer, alternatives, spoken, notePinyin, onCoach } = props;
-  const verdict = spoken
-    ? checkSpokenAnswer(userAnswer, correctAnswer, alternatives ?? [], notePinyin ?? '')
-    : checkTypedAnswer(userAnswer, correctAnswer, alternatives ?? []);
-  if (!spoken) return <AnswerDiffBody {...props} verdict={verdict} />;
-  return (
-    <>
-      <AnswerDiffBody {...props} verdict={verdict} />
-      <YouSaid {...spokenYouSaid(userAnswer, correctAnswer, verdict)} onCoach={onCoach ? () => onCoach(userAnswer) : undefined} />
-    </>
-  );
+function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; newChars?: ReadonlySet<string> }) {
+  const verdict = checkTypedAnswer(props.userAnswer, props.correctAnswer, props.alternatives ?? []);
+  return <AnswerDiffBody {...props} verdict={verdict} />;
 }
 
-function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, verdict, newChars }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void; spoken?: boolean; verdict: AnswerVerdict; newChars?: ReadonlySet<string> }) {
+function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, verdict, newChars }: { userAnswer: string; correctAnswer: string; onCharacterClick?: (char: string) => void; verdict: AnswerVerdict; newChars?: ReadonlySet<string> }) {
   const isFullyCorrect = verdict === 'exact';
   // A punctuation-only difference (e.g. a missing trailing 。) is functionally correct.
   const isPunctuationOnlyMatch = verdict === 'punctuation_only';
   // Matched up to number / punctuation equivalence, or an acceptable alternative.
   const matchedAlternative = verdict === 'equivalent' || verdict === 'alternative' ? correctAnswer : null;
-  const spokenNote = spokenVerdictNote(verdict, correctAnswer);
 
   const userChars = [...userAnswer];
 
@@ -198,9 +186,9 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
 
   if (isFullyCorrect || isPunctuationOnlyMatch) {
     // Single green row. For a punctuation-only difference, show the canonical
-    // answer (with its proper punctuation) rather than the user's variant.
+    // answer (with its proper punctuation) rather than the user's variant. No pinyin
+    // line of its own: the card's pinyin follows right under it.
     const greenChars = isFullyCorrect ? userChars : [...correctAnswer];
-    const greenPinyin = isFullyCorrect ? userPinyin : canonicalPinyin;
     return (
       <div className="answer-diff">
         <div className="answer-diff-row">
@@ -208,37 +196,6 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
             <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(ch)}>{shimmerText(ch, newChars, i)}</span>
           ))}
         </div>
-        <div className="answer-diff-pinyin">{greenPinyin}</div>
-      </div>
-    );
-  }
-
-  if (verdict === 'sound') {
-    // Said right, written with other characters (speech can't tell 由 / 油 apart): the answer in green.
-    const canonicalChars = [...correctAnswer];
-    return (
-      <div className="answer-diff" data-testid="spoken-answer-sound" data-verdict="sound">
-        <div className="answer-diff-row">
-          {canonicalChars.map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
-          ))}
-        </div>
-        <div className="answer-diff-pinyin">{canonicalPinyin}</div>
-        <div className="answer-diff-spoken-note">{spokenNote}</div>
-      </div>
-    );
-  }
-
-  if (verdict === 'contains') {
-    // Said inside a sentence: the answer in green; the yellow "You said" box follows (AnswerDiff).
-    return (
-      <div className="answer-diff" data-testid="spoken-answer-contains" data-verdict="contains">
-        <div className="answer-diff-row">
-          {[...correctAnswer].map((c, i) => (
-            <span key={i} className={`diff-char diff-correct${clickable}`} onClick={() => onCharacterClick?.(c)}>{shimmerText(c, newChars, i)}</span>
-          ))}
-        </div>
-        {/* No automatic pinyin here (it reads 长得 cháng dé): the card's own pinyin follows. */}
       </div>
     );
   }
@@ -266,11 +223,9 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
   }
 
   // A wrong answer: character by character against the canonical answer
-  // A spoken answer is lined up with the answer (common characters kept), not position by position.
-  const diff = spoken ? spokenAnswerDiff(userAnswer, correctAnswer) : typedAnswerDiff(userAnswer, correctAnswer);
+  const diff = typedAnswerDiff(userAnswer, correctAnswer);
   return (
     <div className="answer-diff" data-testid="typed-answer-diff" data-verdict={verdict}>
-      {spokenNote && <div className="answer-diff-spoken-note answer-diff-spoken-note--close">{spokenNote}</div>}
       <div className="answer-diff-row">
         {diff.typed.map((c, i) => <DiffCellView key={i} cell={c} clickable={clickable} onCharacterClick={onCharacterClick} />)}
       </div>
@@ -1642,6 +1597,21 @@ export function StudyCard({
     pass.onAnswer(right, { cardType: card.card_type, answered: passAnswered, suggested: passSuggested, timeMs: Date.now() - startTime });
   };
 
+  // A SPOKEN answer (🎤 on a typing card) or 🎤 Say it practice: the card's answer once, big, with
+  // its own pinyin and meaning, then ONE compact "You said" row (YouSaidRow) — never a second copy
+  // of what was said or of the answer (docs/STUDY_SESSION.md "Say the answer").
+  const spokenBack: { transcript: string; verdict: AnswerVerdict; source: 'spoken' | 'practice' } | null = (() => {
+    if (!isTypingCard || mcBackSlots) return null;
+    const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
+    if (userAnswer.trim() && answerWasSpoken) {
+      const transcript = userAnswer.trim();
+      return { transcript, verdict: checkSpokenAnswer(transcript, card.note.hanzi, alts, card.note.pinyin), source: 'spoken' };
+    }
+    if (canSayPractice && practiceSaid && practiceVerdict) return { transcript: practiceSaid, verdict: practiceVerdict, source: 'practice' };
+    return null;
+  })();
+  const spokenAnswerAccepted = !!spokenBack && spokenBack.source === 'spoken' && isAcceptedVerdict(spokenBack.verdict);
+
   const renderBackMain = () => {
     return (
       <div className="text-center">
@@ -1650,7 +1620,7 @@ export function StudyCard({
           <div className="mb-3">
             <McAnswerDiff slots={mcBackSlots} onCharacterClick={handleCharacterClick} newChars={newChars} />
           </div>
-        ) : isTypingCard && userAnswer ? (
+        ) : isTypingCard && userAnswer && !(spokenBack?.source === 'spoken') ? (
           // Show character-by-character diff for typed answers
           <div className="mb-3">
             <AnswerDiff
@@ -1658,15 +1628,17 @@ export function StudyCard({
                 correctAnswer={card.note.hanzi}
                 alternatives={card.note.alternatives ? JSON.parse(card.note.alternatives) : undefined}
                 onCharacterClick={handleCharacterClick}
-                spoken={answerWasSpoken}
-                notePinyin={card.note.pinyin}
-                onCoach={(sentence) => openYouSaidInCoach(sentence, 'spoken')}
                 newChars={newChars}
               />
           </div>
         ) : (
-          // Show just the hanzi for non-typing cards - each character is clickable
-          <div className="hanzi hanzi-large mb-1">
+          // The hanzi (each character tappable): non-typing cards, and a spoken answer — the
+          // card's answer once, green when it counts as right (the row under the meaning says why).
+          <div
+            className={`hanzi hanzi-large mb-1${spokenBack?.source === 'spoken' ? ` spoken-answer-hanzi spoken-answer-hanzi--${spokenAnswerAccepted ? 'right' : 'wrong'}` : ''}`}
+            data-testid={spokenBack?.source === 'spoken' ? 'spoken-answer' : undefined}
+            data-verdict={spokenBack?.source === 'spoken' ? spokenBack.verdict : undefined}
+          >
             <ExplorableText
               text={card.note.hanzi}
               source="study"
@@ -1680,15 +1652,20 @@ export function StudyCard({
         <NewCharsLabel newChars={newChars} />
 
         {renderTranscriptionResult()}
-        {canSayPractice && practiceSaid && practiceVerdict && (
-          <div data-testid="practice-you-said">
-            <YouSaid {...spokenYouSaid(practiceSaid, card.note.hanzi, practiceVerdict)} onCoach={() => openYouSaidInCoach(practiceSaid, 'practice')} />
-          </div>
-        )}
 
         <div className="pinyin mb-1">{card.note.pinyin}</div>
         <TutorNoteLine notes={tutorNotes} where={pinnedTutorNotes?.length ? 'practice' : 'card'} />
         <div className="study-back-meaning">{card.note.english}</div>
+        {spokenBack && (
+          <YouSaidRow
+            transcript={spokenBack.transcript}
+            correct={card.note.hanzi}
+            verdict={spokenBack.verdict}
+            testId={spokenBack.source === 'practice' ? 'practice-you-said' : 'spoken-result'}
+            onPlay={audioBlob ? () => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); } : undefined}
+            onCoach={() => openYouSaidInCoach(spokenBack.transcript, spokenBack.source)}
+          />
+        )}
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
         <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
         {/* The deck it came from: a small quiet line on the answer side only (on the question it

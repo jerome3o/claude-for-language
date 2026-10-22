@@ -1249,13 +1249,13 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   spoken answer whose hanzi differ but whose pinyin WITH TONES matches the card's (the app's
   automatic pinyin over the answer key — numbers → hanzi, 两 → 二, punctuation dropped — then the
   一 / 不 tone changes; the note's own written pinyin and the alternatives count as targets too) is
-  **right by sound**: the expected characters in green with "Sounded right ✓ — written 由" and "You
-  said: 油". The same syllables with other tones is **close** — still wrong (the diff, plus "Close —
-  the tones are off"). Exact hanzi = right, as typed. Edited after speaking = a typed answer again.
+  **right by sound**: the answer in green and "You said 油" with 油 marked yellow and "✓ Sounded right —
+  written differently". The same syllables with other tones is **close** — still wrong ("≈ Close —
+  tones off", the characters marked red). Exact hanzi = right, as typed. Edited after speaking = a typed answer again.
   The expected answer is never sent to Soniox (no context) — it would bias recognition.
 - **Said inside a sentence** (`contains`, the read card's rule — Jerome said 他长得很好。 for
   长得 and got every character red): a spoken answer that CONTAINS the answer is right, exactly like
-  the read card's yellow "You said · Contains the answer". `spokenAnswerWithin`
+  the read card's yellow "Contains the answer" (the "You said" row's ≈ chip). `spokenAnswerWithin`
   (`shared/cards/answer.ts`, Lab `AnswerKey.answerWithin`, parity-tested) finds it either by hanzi —
   the answer's (or an alternative's) answer key as one contiguous stretch of the transcript's
   (numbers → hanzi, 两 → 二, punctuation / spaces dropped, common traditional characters →
@@ -1268,11 +1268,41 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   is not 吗), nor does pinyin written without any tone mark. The read card's `compareTranscription`
   (web) / `Transcription.compare` (Lab) uses `spokenAnswerWithin` too, so both card types follow one
   rule (it also feeds the worker's recording check). Typed (keyboard) answers keep exact matching.
-- **One "You said" box for both card types** (web `components/study/YouSaid.tsx` `YouSaid` +
-  `spokenYouSaid`; Lab `YouSaidBox.kt`): the read card's box is now shared, and a
-  spoken answer on a typing card shows it under the answer — green "✓ Match" when right, the read
-  card's yellow "≈ Contains the answer" for `contains` (the answer above in green, nothing red), red
-  "✕ Didn't match" when wrong. **Design** (Oct 2026, "less janky"): what he said is the hero — the
+- **The spoken result on the answer side — the answer once, ONE compact "You said" row** (Oct 2026;
+  Jerome: "it takes way too much of the screen; my wrong answer is shown twice, the correct answer
+  twice, and the correct answer is disconnected from its pinyin"). A spoken answer on a typing card
+  (and 🎤 Say it practice) shows, top to bottom: the card's answer big (green when the verdict counts,
+  ink otherwise — the card's border colour is unchanged), its own pinyin directly under it, the
+  meaning, then ONE row attached under the meaning:
+
+      ( ▶ )  You said 朗 lǎng  [≈ Close — tones off]  ( ✎ )
+
+  ▶ plays the take (`study.you_said_play`), then what was said (hanzi, its automatic pinyin small),
+  the verdict chip and ✎ Open in Coach (Check my sentence; every state but a plain match). No second
+  copy of what was said, no ↓ arrow diff, no "Close" pill, no separate box. The row's rule is shared:
+  `shared/cards/spoken-result.ts` (`spokenResult`, `spokenResultLabel`; Lab core
+  `SpokenAnswerResult`, parity-tested in `parity/fixtures/spoken-answer.ts`) — five states with their
+  own icon + words: **✓ Match** (exact / punctuation / equivalent / alternative), **✓ Sounded right —
+  written differently** (`sound`: still a tick — he SAID it right), **≈ Contains the answer**
+  (`contains`), **≈ Close — tones off** (`close`, wrong), **✕ Didn't match** (`wrong`); green, yellow
+  (the partial token) or red. Each character of the transcript is marked (lined up with the answer by
+  longest common subsequence, so words around it never push everything red): **written differently**
+  (`sound`: 友 said for 有) = YELLOW highlight + dotted underline; **not in the answer** (close / didn't
+  match: 朗 for 狼) = red + solid underline; in `contains` the answer's characters stay ink and the
+  words around it quiet; punctuation is never marked. A screen reader hears the whole row as one
+  sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." Space: Jerome's
+  狼 / 朗 card's answer block went from 499 to 305 px above the Play row on the web (412 px wide) and
+  from 552 to 384 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its
+  own pinyin line under an exact answer — the card's pinyin follows right under it, so it was shown
+  twice. Web: `YouSaidRow` in `components/study/YouSaid.tsx` (`.spoken-result*` in `StudyPage.css`),
+  `spokenBack` in `StudyPage.tsx`; Lab: `SpokenResultRow` in `ui/study/YouSaidBox.kt`, `CardBack` in
+  `CardStage.kt`. The read card's "You said" box (`YouSaid` / `YouSaidBox`) is unchanged. Tests: unit
+  `spoken-result.test.ts`, `YouSaid.test.tsx` (`YouSaidRow` per state); e2e `study-speak-answer.spec.ts`
+  ("狼 said 朗"); Lab `SpokenAnswerParityTest`, `SpokenAnswerUiTest`, `SpokenResultRowTest`, Roborazzi
+  `SpokenResultScreenshots` (`study-spoken-result-*`, light + dark).
+- **The read card's "You said" box** (web `components/study/YouSaid.tsx` `YouSaid`; Lab
+  `YouSaidBox.kt`): green "✓ Match", the yellow "≈ Contains the answer", red "✕ Didn't match".
+  **Design** (Oct 2026, "less janky"): what he said is the hero — the
   hanzi (22 px) with the pinyin under it — and "You said" + the verdict chip (icon + short label in the
   tone's colour) sit small above it; a softly tinted 14 px rounded box in the theme's success / warning /
   error colours (light and dark). Round 44 px buttons sit in EQUAL side columns, so the text stays centred:
@@ -1280,20 +1310,17 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   `study.you_said_play`) and **✎ Check in Coach** on the right of the yellow box. "Transcribing…" (three
   pulsing dots), "Recording saved, will transcribe when online" and "Couldn't transcribe · Tap to retry"
   (↻ circle on the left, the whole box is the button — also the say-it flow's retry) are the same shell
-  with the same minimum height (88 px), so the result replaces them without a jump. A wrong
-  spoken answer's character diff is lined up with the answer by longest common subsequence
-  (`spokenAnswerDiff` / `AnswerMarks.spokenDiff`), so extra words around it don't push every
-  character red; typed answers keep the positional diff. Tests: unit `answer.test.ts`,
-  `answerDiff.test.ts`, `useTranscription.test.ts`; e2e `study-speak-answer.spec.ts` "inside a
-  sentence"; Lab `SpokenAnswerUiTest`, `AnswerMarksTest`, `TranscriptionTest`, `SpokenAnswerParityTest`.
+  with the same minimum height (88 px), so the result replaces them without a jump. Tests: unit
+  `answer.test.ts`, `useTranscription.test.ts`; Lab `TranscriptionTest`, `YouSaidBoxUiTest`.
 - **"Partly right" is YELLOW, never orange** (Oct 2026, Jerome is red / green colour-blind: the dark
   orange "Contains the answer" chip read as the red "Didn't match"). One partial colour per app — web
   `--color-partial` / `-soft` / `-strong` / `-ink` (index.css, a dark set under `data-theme="dark"`),
   Lab `Palette.Partial*` — used by the "You said · ≈ Contains the answer" box (lemon border + pale lemon
   tint, a SOLID lemon chip and ▶ / ✎ circles with dark brown words / icons: #713f12 on #fde047 = 6.9:1;
   dark theme: the chip stays solid lemon with #422006, the circles a lemon wash with lemon icons) and the
-  typing card's "≈ Close — the tones are off" note (a lemon pill). Every verdict also differs without
-  colour: ✓ Match · ≈ Contains the answer · ✕ Didn't match (`YOU_SAID_VERDICT_ICON` / `youSaidVerdictIcon`).
+  spoken result row's "≈ Close — tones off" and characters "written differently". Every verdict also
+  differs without colour: ✓ Match · ≈ Contains the answer · ✕ Didn't match (`YOU_SAID_VERDICT_ICON` /
+  `youSaidVerdictIcon`; the spoken row's `SPOKEN_RESULT_ICON`).
   Tests: `YouSaid.test.tsx` (class + icon + words per state), Lab `YouSaidBoxScreenshots`, `YouSaidBoxUiTest`.
 - **🎤 Say it again** (answer side, beside Play — Record again's place on a read card; only when the
   answer on the back was spoken): Record again for a spoken answer. The card turns back to the
@@ -1350,8 +1377,8 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   revealed the card with nothing typed, said or picked): Jerome wants to say the word in situ even
   when he didn't know it. It runs the Say it again flow (question side, live transcript, ⏹, the
   review — without ✏️ Edit, since it is shown as said — 🔁 Retry, ✕ Cancel), and the result is
-  shown ONLY as the read card's "You said" box under the hanzi, checked with `checkSpokenAnswer`
-  (green Match / yellow Contains the answer / red Didn't match). It is never the card's answer: no
+  shown ONLY as the compact "You said" row under the meaning (the spoken result above), checked with
+  `checkSpokenAnswer` (✓ Match / ✓ Sounded right / ≈ Contains / ≈ Close / ✕ Didn't match). It is never the card's answer: no
   verdict, no diff, no glow, `user_answer` stays empty and the rating buttons work as usual
   (revealing already says he didn't know it). The pill then reads "Say it again" (practice) and can
   be used any number of times; the card's clip plays once after each, like Say it again. **The
@@ -1374,7 +1401,8 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   transcribed again), a spoken answer's transcript (still checked in spoken mode) and the practice
   transcript (web `services/studyResume.ts` `ResumeExtras`; Lab `CardStartState.spokenText` /
   `practiceSaid` via `StudyViewModel.onCardSpoken`). Offline the coach opens with the text in the box.
-  Green / red boxes have no button. Analytics `study.you_said_coach` (card_type, source = read |
+  On the spoken result row ✎ shows for every state but a plain ✓ Match; the read card's green / red
+  boxes have no button. Analytics `study.you_said_coach` (card_type, source = read |
   spoken | practice). Tests: e2e `study-speak-answer.spec.ts` "yellow You said box"; Lab `YouSaidCoachUiTest`.
 - Analytics: `study.answer_spoken` (result submitted / filled = ✏️ Edit / retaken = 🔁 Retry on the
   review / failed / empty / cancelled, via, live_error, speech_ms, ms, auto_submit = "Skip the
