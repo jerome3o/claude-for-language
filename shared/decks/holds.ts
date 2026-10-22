@@ -305,6 +305,17 @@ const TONE_MARKS: Record<string, string> = {
   ō: 'o', ó: 'o', ǒ: 'o', ò: 'o', ū: 'u', ú: 'u', ǔ: 'u', ù: 'u', ǖ: 'ü', ǘ: 'ü', ǚ: 'ü', ǜ: 'ü',
 };
 
+/** The card types as the hold sheets / lists name them. */
+export const CARD_TYPE_LABELS: Record<string, string> = {
+  hanzi_to_meaning: 'Hanzi → Meaning',
+  meaning_to_hanzi: 'Meaning → Hanzi',
+  audio_to_hanzi: 'Audio → Hanzi',
+};
+
+export function cardTypeLabel(type: string): string {
+  return CARD_TYPE_LABELS[type] ?? type;
+}
+
 /** Pinyin without tone marks (ü kept). */
 export function foldToneMarks(s: string): string {
   let out = '';

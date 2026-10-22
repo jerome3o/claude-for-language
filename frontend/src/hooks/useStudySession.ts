@@ -15,6 +15,7 @@ import {
   LocalReader,
   LocalGrammarLesson,
   getStudyQueue,
+  loadHeldCardIds,
   getStudyCutoff,
   createLocalReviewEvent,
   getCardReviewEvents,
@@ -37,6 +38,7 @@ import {
 import { getTodaysGrammarLesson, completeGrammarLesson, syncGrammarLessons, grammarGenerationPending, prefetchGrammarMedia, GRAMMAR_LESSONS_ENABLED } from '../services/grammar-study';
 import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '../services/readerSync';
 import { ensureSentenceSetForNote } from '../services/sentence-sets';
+import { readBurySiblings } from '../services/burySiblings';
 import { markDailyActivity, getLocalDateString } from '../api/client';
 import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
 import { isLeadCard } from '@shared/decks';
@@ -488,10 +490,13 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const collection = deckId
       ? db.cards.where('deck_id').equals(deckId)
       : db.cards.toCollection();
+    // Suspended / snoozed cards stay out (shared/decks/holds.ts).
+    const held = await loadHeldCardIds();
     const delayed = await collection
       .filter(c =>
         (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
-        (!excludeNoteId || c.note_id !== excludeNoteId)
+        (!excludeNoteId || c.note_id !== excludeNoteId) &&
+        !held.has(c.id)
       )
       .toArray();
     if (delayed.length === 0) return null;
@@ -822,8 +827,14 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const reviewedAt = new Date().toISOString();
     const result = await replayWithRating(cardId, { id: reviewId, card_id: cardId, rating, reviewed_at: reviewedAt });
 
-    // Build the new queue
-    const newQueue = queue.filter(c => c.id !== cardId);
+    // Build the new queue. "Don't show a word's other card types on the same day" (holds.ts):
+    // the word's NEW / REVIEW siblings wait until tomorrow — not for a ⚡ bumped word.
+    const wasBumped = bumpedCardIdsRef.current.has(cardId) || queue.some(c => c.note_id === noteId && bumpedCardIdsRef.current.has(c.id));
+    const burySiblings = readBurySiblings() && !wasBumped;
+    const newQueue = queue.filter(c =>
+      c.id !== cardId &&
+      !(burySiblings && c.note_id === noteId && (c.queue === CardQueue.NEW || c.queue === CardQueue.REVIEW))
+    );
 
     // If card is still in learning, add it back with updated state
     if (result.queue === CardQueue.LEARNING || result.queue === CardQueue.RELEARNING) {
@@ -1146,6 +1157,30 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     presentNothing(updates);
   }, [queue, readerQueue, grammarLesson, recentNoteIds, presentCard, presentSelection, presentNothing, findDelayedLearningCard]);
 
+  // Suspend / snooze (shared/decks/holds.ts): take these cards out of the session and move on
+  // when the one on screen is among them. Call after the hold is written to IndexedDB.
+  const removeCardsFromSession = useCallback(async (cardIds: string[]) => {
+    const ids = new Set(cardIds);
+    if (undoSnapshotRef.current && ids.has(undoSnapshotRef.current.card.id)) {
+      undoSnapshotRef.current = null;
+      setCanUndo(false);
+    }
+    for (const id of ids) bumpedCardIdsRef.current.delete(id);
+    setBumpedCardIds(new Set(bumpedCardIdsRef.current));
+    const newQueue = queue.filter(c => !ids.has(c.id));
+    const updates = { queue: newQueue, recentNoteIds };
+    const onScreen = currentCardState.card?.id;
+    if (!onScreen || !ids.has(onScreen)) {
+      applyQueueUpdates(updates);
+      return;
+    }
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    if (selection && await presentSelection(selection, updates)) return;
+    const delayed = await findDelayedLearningCard();
+    if (delayed && !ids.has(delayed.id) && await presentCard(delayed, updates)) return;
+    presentNothing(updates);
+  }, [queue, readerQueue, grammarLesson, recentNoteIds, currentCardState, applyQueueUpdates, presentCard, presentSelection, presentNothing, findDelayedLearningCard, setCanUndo]);
+
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {
     initializedRef.current = false;
@@ -1200,6 +1235,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     reloadQueue,
     selectNextCard,
     removeNoteFromSession,
+    removeCardsFromSession,
     updateCurrentNote,
   };
 }

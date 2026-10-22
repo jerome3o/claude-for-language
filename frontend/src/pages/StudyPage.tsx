@@ -129,6 +129,8 @@ import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
 import { spokenAnswerDiff, typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
+import { CardControlSheet, type CardControlMode } from '../components/cardControls/CardControlSheet';
+import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
@@ -394,6 +396,7 @@ export function StudyCard({
   bumped,
   pass,
   inStudySession = false,
+  onCardsHeld,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -424,6 +427,11 @@ export function StudyCard({
    * Off everywhere else that shows the card (homework pass, tutor-notes practice).
    */
   inStudySession?: boolean;
+  /**
+   * Suspend… / Snooze… in the ⋯ menu (shared/decks/holds.ts): called once the hold is written,
+   * with the cards it covers and the toast line. Unset = no card controls (homework pass).
+   */
+  onCardsHeld?: (cardIds: string[], message: string) => void;
 }) {
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
@@ -502,6 +510,8 @@ export function StudyCard({
   // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
   // mirrored to localStorage so the item is still there offline.
   const [showFlagSheet, setShowFlagSheet] = useState(false);
+  // Suspend… / Snooze… (components/cardControls, shared/decks/holds.ts).
+  const [controlSheet, setControlSheet] = useState<CardControlMode | null>(null);
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
   // What the writing sheet practises: the card's hanzi (⋯ → Write it) or one character (character sheet).
@@ -2186,6 +2196,13 @@ export function StudyCard({
       ...(flagTutors.length > 0
         ? [{ key: 'flag', label: 'Flag for tutor', icon: '🚩', onSelect: () => setShowFlagSheet(true) }]
         : []),
+      // Anki's card controls (docs/STUDY_SESSION.md "Suspend & snooze") — never a review event.
+      ...(onCardsHeld
+        ? [
+            { key: 'snooze', label: 'Snooze…', icon: '💤', hint: 'Not today', onSelect: () => setControlSheet('snooze') },
+            { key: 'suspend', label: 'Suspend…', icon: '⏸', onSelect: () => setControlSheet('suspend') },
+          ]
+        : []),
       ...(audioBlob
         ? [{ key: 'my-recording', label: 'Play my recording', icon: '🎙️', onSelect: playUserRecording }]
         : []),
@@ -3031,6 +3048,25 @@ export function StudyCard({
         />
       )}
 
+      {/* Suspend… / Snooze… (⋯ menu) */}
+      {controlSheet && onCardsHeld && (
+        <CardControlSheet
+          mode={controlSheet}
+          card={{ id: card.id, note_id: card.note.id, card_type: card.card_type }}
+          hanzi={card.note.hanzi}
+          source="study"
+          onDone={(ids, message) => {
+            if (ids.includes(card.id)) {
+              // The card leaves the session: nothing to resume on it.
+              doneWithCardRef.current = true;
+              clearResumePoint(card.id);
+            }
+            onCardsHeld(ids, message);
+          }}
+          onClose={() => setControlSheet(null)}
+        />
+      )}
+
       {/* Flag for tutor (⋯ menu) */}
       {showFlagSheet && (
         <FlagCardSheet
@@ -3179,6 +3215,7 @@ export function StudyPage() {
     undoLastReview,
     reloadQueue,
     removeNoteFromSession,
+    removeCardsFromSession,
     updateCurrentNote,
   } = useStudySession({
     deckId,
@@ -3187,6 +3224,8 @@ export function StudyPage() {
   });
   // Bumped notes (for the ⚡ badge's "from <tutor>").
   const bumps = useBumps();
+  // "Snoozed until tomorrow." after ⋯ → Snooze / Suspend.
+  const [holdToast, showHoldToast] = useToast();
 
   // Active study time: counted while this screen is in front and used (docs/STUDY_SESSION.md "Time").
   useActiveStudyTime(studyStarted);
@@ -3400,6 +3439,10 @@ export function StudyPage() {
           onEnd={leaveStudy}
           onUpdateNote={updateCurrentNote}
           onDeleteCurrentCard={() => removeNoteFromSession(currentCard.note.id)}
+          onCardsHeld={(ids, message) => {
+            showHoldToast(message);
+            void removeCardsFromSession(ids);
+          }}
           resume={resume}
           scope={studyScope(deckId)}
           inStudySession
@@ -3424,6 +3467,7 @@ export function StudyPage() {
         </div>
       ) : null}
 
+      <Toast message={holdToast} />
     </div>
   );
 }
