@@ -34,11 +34,13 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import org.junit.Test
 
 /**
- * The read card's "You said" box in every state, light and dark: green "Match", orange "Contains the
- * answer" with ▶ and the round ✎ Check in Coach, red "Didn't match", "Couldn't transcribe — tap to
- * retry" and "Transcribing…". `study-yousaid-NN-*` = the whole study card; `study-yousaid-box-*` = the
- * box on a minimal card back, beside `study-yousaid-before-*` (the box as it was until Oct 2026, kept
- * here only for the before / after comparison).
+ * The read card's "You said" box in every state, light and dark: green "✓ Match", YELLOW "≈ Contains
+ * the answer" with ▶ and the round ✎ Check in Coach (yellow since Oct 2026 — the orange read as the red
+ * miss to Jerome's red / green colour-blind eyes), red "✕ Didn't match", "Couldn't transcribe — tap to
+ * retry" and "Transcribing…"; plus Jerome's own case (一生救了他的命 for 救) and the typing card's yellow
+ * "≈ Close — the tones are off". `study-yousaid-NN-*` = the whole study card; `study-yousaid-box-*` =
+ * the box on a minimal card back, beside `study-yousaid-before-*` (the box as it was until early Oct
+ * 2026, kept here only for that redesign's before / after comparison).
  */
 class YouSaidBoxScreenshots : LabScreenshotTest() {
     private val now = Js.parseDate("2026-10-11T09:30:00.000Z")
@@ -47,14 +49,28 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
         funFacts = "**曾** (céng) marks something that happened before, often with 过: 我曾去过中国 = I once went to China.\n- 曾经 céngjīng is the more common two-character form in speech.",
     )
 
-    private fun ui(transcription: TranscriptionUi): StudyUi {
+    /** Jerome's case: he said 一生救了他的命 for 救. */
+    private val jiu = Samples.note.copy(
+        hanzi = "救", pinyin = "jiù", english = "to save; to rescue",
+        funFacts = "**救** (jiù) to save, to rescue: 救命 save a life, 救人 rescue someone.\n- 救命！= Help!",
+    )
+
+    private fun ui(transcription: TranscriptionUi, n: dev.jeromeswannack.chineselearning.lab.data.NoteEntity = note): StudyUi {
         val state = CardScheduler.initialCardState()
-        val card = QueueCard("c1", note.id, "d1", CardTypes.HANZI_TO_MEANING, state)
-        val view = CardView(card, note, Samples.sentences, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 4 · Words", true, start = CardStartState(flipped = true))
+        val card = QueueCard("c1", n.id, "d1", CardTypes.HANZI_TO_MEANING, state)
+        val view = CardView(card, n, Samples.sentences, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 4 · Words", true, start = CardStartState(flipped = true))
         return StudyUi(StudyPhase.Showing(view), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = true, forcedOffline = false, extras = CardExtras(take = TakeUi(hasTake = true, transcription = transcription)))
     }
 
-    private fun done(text: String) = TranscriptionUi.Done(Transcription.compare(text, note.hanzi))
+    /** A typing card answered by speaking with the right sound but the wrong tone: "≈ Close — the tones are off". */
+    private fun closeUi(): StudyUi {
+        val state = CardScheduler.initialCardState()
+        val card = QueueCard("c1", note.id, "d1", CardTypes.MEANING_TO_HANZI, state)
+        val view = CardView(card, note, Samples.sentences, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 4 · Words", true, start = CardStartState())
+        return StudyUi(StudyPhase.Showing(view), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = true, forcedOffline = false, extras = CardExtras(spoken = SpokenUi(result = SpokenResult("蹭", submit = true, seq = 1))))
+    }
+
+    private fun done(text: String, hanzi: String = note.hanzi) = TranscriptionUi.Done(Transcription.compare(text, hanzi))
     private val states = listOf(
         "match" to done("曾"),
         "contains" to done("我曾经去过中国。"),
@@ -71,6 +87,14 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
     @Test fun matchDark() = card("study-yousaid-02-match-dark", done("曾"), dark = true)
     @Test fun contains() = card("study-yousaid-03-contains", done("我曾经去过中国。"), dark = false)
     @Test fun containsDark() = card("study-yousaid-04-contains-dark", done("我曾经去过中国。"), dark = true)
+    @Test fun jiuContains() = shoot("study-yousaid-11-jiu-contains") {
+        StudyScreen(ui(done("一生救了他的命", jiu.hanzi), jiu), playingKey = null, actions = StudyActions(onYouSaidCoach = { _, _ -> }, onYouSaidPlay = {}), autoplay = false)
+    }
+    @Test fun jiuContainsDark() = shoot("study-yousaid-12-jiu-contains-dark", dark = true) {
+        StudyScreen(ui(done("一生救了他的命", jiu.hanzi), jiu), playingKey = null, actions = StudyActions(onYouSaidCoach = { _, _ -> }, onYouSaidPlay = {}), autoplay = false)
+    }
+    @Test fun close() = shoot("study-yousaid-13-close") { StudyScreen(closeUi(), playingKey = null, actions = StudyActions(), autoplay = false) }
+    @Test fun closeDark() = shoot("study-yousaid-14-close-dark", dark = true) { StudyScreen(closeUi(), playingKey = null, actions = StudyActions(), autoplay = false) }
     @Test fun miss() = card("study-yousaid-05-miss", done("已经"), dark = false)
     @Test fun missDark() = card("study-yousaid-06-miss-dark", done("已经"), dark = true)
     @Test fun failed() = card("study-yousaid-07-failed", TranscriptionUi.Failed, dark = false)

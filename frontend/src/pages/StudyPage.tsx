@@ -160,7 +160,7 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
  * (🎤, `spoken`) is also right by sound: a homophone transcript (油 for 由) shows the expected
  * characters green with "Sounded right ✓ — written 由"; other tones are `close` (the diff + a note).
  * The answer said inside a sentence (`contains`: 他长得很好。 for 长得) shows the answer green —
- * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: orange
+ * nothing red. Every spoken answer then gets the read card's "You said" box (`YouSaid`: yellow
  * "Contains the answer" for `contains`), and a wrong one's diff is lined up, not positional.
  */
 function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; spoken?: boolean; notePinyin?: string; onCoach?: (sentence: string) => void; newChars?: ReadonlySet<string> }) {
@@ -227,7 +227,7 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, spoken, v
   }
 
   if (verdict === 'contains') {
-    // Said inside a sentence: the answer in green; the orange "You said" box follows (AnswerDiff).
+    // Said inside a sentence: the answer in green; the yellow "You said" box follows (AnswerDiff).
     return (
       <div className="answer-diff" data-testid="spoken-answer-contains" data-verdict="contains">
         <div className="answer-diff-row">
@@ -669,7 +669,7 @@ export function StudyCard({
     where,
     onResult: ({ text, transcript, submit, again, reviewed, practice }) => {
       if (practice) {
-        // Practice: shown as "You said" (spoken check, the orange decal for a sentence), then the
+        // Practice: shown as "You said" (spoken check, the yellow decal for a sentence), then the
         // card's own clip once — like Say it again. The answer and the rating are left alone.
         setPracticeSaid(transcript);
         spokenReviewedRef.current = reviewed;
@@ -1543,7 +1543,7 @@ export function StudyCard({
     setSayAgainHint(false);
     spoken.startPractice();
   };
-  // ✎ (Check in Coach) on the orange "You said" box (a sentence said around the answer): that sentence in the
+  // ✎ (Check in Coach) on the yellow "You said" box (a sentence said around the answer): that sentence in the
   // Sentence Coach's ✏️ Check my sentence, then "Back to your card" — the same resume path as
   // ⋯ → Sentence coach (resume point + in-memory extras keep the card revealed with its "You said").
   const openYouSaidInCoach = (sentence: string, source: 'read' | 'spoken' | 'practice') => {

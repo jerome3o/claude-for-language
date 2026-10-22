@@ -150,7 +150,7 @@ class StudyActions(
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
-     * ✎ Check in Coach on the orange "You said · Contains the answer" box: [text] (the hanzi said)
+     * ✎ Check in Coach on the yellow "You said · Contains the answer" box: [text] (the hanzi said)
      * in the Sentence Coach's Check my sentence; [source] = read | spoken | practice (analytics).
      */
     val onYouSaidCoach: (text: String, source: String) -> Unit = { _, _ -> },

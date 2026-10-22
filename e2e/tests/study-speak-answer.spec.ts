@@ -235,7 +235,7 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   expect(typed.recording).toBe(true);
 });
 
-test('the answer said inside a sentence is right — the read card\'s orange "Contains the answer", nothing red', async ({ page, request }) => {
+test('the answer said inside a sentence is right — the read card\'s yellow "Contains the answer", nothing red', async ({ page, request }) => {
   // Jerome said 他长得很好。 for 长得 and every character came back red; same rule here with 由.
   await fakeSoniox(page, 'ok', ['这件事由我负责。']);
   await seed(page, request);
@@ -468,7 +468,7 @@ test('say it again: the question while the new take is said, its review there, t
   expect(typed.recording).toBe(true);
 });
 
-test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "You said" only (orange in a sentence), the clip once, Retry any number of times; the answer stays empty and the take goes up', async ({ page, request }) => {
+test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "You said" only (yellow in a sentence), the clip once, Retry any number of times; the answer stays empty and the take goes up', async ({ page, request }) => {
   // First practice take: the answer inside a sentence; the next one: a wrong word.
   await fakeSoniox(page, 'ok', ['这件事由我负责。', '有']);
   await countCardPlays(page);
@@ -496,7 +496,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   await expect(page.getByTestId('spoken-review-edit')).toHaveCount(0);
   await page.getByTestId('spoken-review-submit').click();
 
-  // Back on the answer: "You said" with the orange decal; no answer diff, the card's clip once.
+  // Back on the answer: "You said" with the yellow decal; no answer diff, the card's clip once.
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 8000 });
   const said = page.getByTestId('practice-you-said').getByTestId('you-said');
   await expect(said).toHaveAttribute('data-state', 'contains');
@@ -521,7 +521,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   expect(typed.recording).toBe(true);
 });
 
-test('the orange "You said" box: the round ✎ Check in Coach opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
+test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
   await fakeSoniox(page, 'ok', ['它的作业由我写的。']);
   const started: Array<{ text?: string; action?: string }> = [];
   await page.route(/\/api\/coach\/conversations$/, (route) => {
@@ -559,7 +559,7 @@ test('the orange "You said" box: the round ✎ Check in Coach opens the sentence
 
   await page.getByTestId('coach-back-to-card').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
-  // Still the spoken answer with its orange box (not re-checked as typed).
+  // Still the spoken answer with its yellow box (not re-checked as typed).
   await expect(page.getByTestId('you-said')).toHaveAttribute('data-state', 'contains');
   await expect(page.getByTestId('spoken-say-again')).toBeVisible();
 });
