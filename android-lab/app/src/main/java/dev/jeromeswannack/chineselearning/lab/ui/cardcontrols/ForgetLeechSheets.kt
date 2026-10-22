@@ -170,20 +170,6 @@ fun LeechSheet(
                 Stat("${missed}×", "missed after learning it", Modifier.weight(1f))
                 Stat(last?.let(::dateLabel) ?: "—", "last missed", Modifier.weight(1f))
             }
-            info?.recent?.takeIf { it.isNotEmpty() }?.let { recent ->
-                Text("Recent ratings", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
-                Column(Modifier.testTag("leech-recent")) {
-                    for (r in recent) {
-                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                            Text(
-                                Leech.ratingTag(r.rating) + if (r.lapse) " — missed" else "",
-                                fontWeight = if (r.lapse) FontWeight.Bold else FontWeight.Normal, color = Lab.colors.ink, modifier = Modifier.weight(1f),
-                            )
-                            Text(dateLabel(r.reviewedAt), color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-            }
             Text("What helps", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
             val buttons = listOfNotNull(
                 actions.onEdit?.let { Triple("✏️ Edit card", "leech-edit", it) },
@@ -199,6 +185,20 @@ fun LeechSheet(
                         .bouncyClickable { onDismiss(); act() }.padding(horizontal = 16.dp, vertical = 12.dp).testTag(tag),
                     contentAlignment = Alignment.CenterStart,
                 ) { Text(label, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink) }
+            }
+            info?.recent?.takeIf { it.isNotEmpty() }?.let { recent ->
+                Text("Recent ratings", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                Column(Modifier.testTag("leech-recent")) {
+                    for (r in recent) {
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                            Text(
+                                Leech.ratingTag(r.rating) + if (r.lapse) " — missed" else "",
+                                fontWeight = if (r.lapse) FontWeight.Bold else FontWeight.Normal, color = Lab.colors.ink, modifier = Modifier.weight(1f),
+                            )
+                            Text(dateLabel(r.reviewedAt), color = Lab.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
             }
             Spacer(Modifier.width(1.dp))
         }

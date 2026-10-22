@@ -22,7 +22,9 @@ const dateLabel = (iso: string) =>
  */
 export function LeechPill({ cardId, cardType, lapses, actions }: { cardId: string; cardType: string; lapses: number | null | undefined; actions: LeechActions }) {
   const [open, setOpen] = useState(false);
-  useEffect(() => setOpen(false), [cardId]);
+  useEffect(() => {
+    setOpen(false);
+  }, [cardId]);
   const pill = leechPill(lapses);
   if (!pill) return null;
   return (
@@ -94,23 +96,6 @@ export function LeechSheet({ cardId, lapses, actions, onClose }: { cardId: strin
           </div>
         </div>
 
-        {info && info.recent.length > 0 && (
-          <>
-            <div className="leech-section-title">Recent ratings</div>
-            <ul className="leech-recent" data-testid="leech-recent">
-              {info.recent.map((r, i) => (
-                <li key={`${r.reviewed_at}-${i}`}>
-                  <span className={r.lapse ? 'leech-lapse' : undefined}>
-                    {ratingTag(r.rating)}
-                    {r.lapse ? ' — missed' : ''}
-                  </span>
-                  <span className="text-light">{dateLabel(r.reviewed_at)}</span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-
         <div className="leech-section-title">What helps</div>
         <div className="leech-actions">
           {actions.onEdit && (
@@ -129,6 +114,23 @@ export function LeechSheet({ cardId, lapses, actions, onClose }: { cardId: strin
             <button type="button" className="btn btn-secondary" onClick={act(actions.onForget)} data-testid="leech-forget">↺ Forget this card…</button>
           )}
         </div>
+
+        {info && info.recent.length > 0 && (
+          <>
+            <div className="leech-section-title">Recent ratings</div>
+            <ul className="leech-recent" data-testid="leech-recent">
+              {info.recent.map((r, i) => (
+                <li key={`${r.reviewed_at}-${i}`}>
+                  <span className={r.lapse ? 'leech-lapse' : undefined}>
+                    {ratingTag(r.rating)}
+                    {r.lapse ? ' — missed' : ''}
+                  </span>
+                  <span className="text-light">{dateLabel(r.reviewed_at)}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
 
         <div className="cc-footer">
           <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>

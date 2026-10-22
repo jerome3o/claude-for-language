@@ -11,6 +11,7 @@
 
 .cc-sheet {
   --sheet-pad: 1rem;
+  text-align: left;
   position: fixed;
   left: 0;
   right: 0;
@@ -448,4 +449,8 @@
 
 .cc-hub-card .leech-pill-row {
   justify-content: flex-start;
+}
+
+.cc-hub {
+  margin-bottom: 1.25rem;
 }

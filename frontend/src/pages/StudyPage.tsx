@@ -3423,6 +3423,27 @@ export function StudyPage() {
     return <Loading />;
   }
 
+  // Hold / forget toasts: also on the "All done" screen (the last card may just have left).
+  const sessionToasts = (
+    <>
+      <Toast message={holdToast} />
+      {forgetToast && (
+        <UndoToast
+          text={forgetToast.message}
+          onUndo={() => {
+            const t = forgetToast;
+            setForgetToast(null);
+            void undoForget(t.ids, 'study').then((msg) => {
+              showHoldToast(msg);
+              void restoreCardsToSession(t.cardIds);
+            });
+          }}
+          onDone={() => setForgetToast(null)}
+        />
+      )}
+    </>
+  );
+
   // Today's queue is empty - check that ALL queues are empty, not just that currentCard is null
   if (isAllDone) {
     // Number of bonus cards to add each time the user clicks "Study More"
@@ -3489,6 +3510,7 @@ export function StudyPage() {
             </div>
           </div>
         </div>
+        {sessionToasts}
       </div>
     );
   }
@@ -3566,21 +3588,7 @@ export function StudyPage() {
         </div>
       ) : null}
 
-      <Toast message={holdToast} />
-      {forgetToast && (
-        <UndoToast
-          text={forgetToast.message}
-          onUndo={() => {
-            const t = forgetToast;
-            setForgetToast(null);
-            void undoForget(t.ids, 'study').then((msg) => {
-              showHoldToast(msg);
-              void restoreCardsToSession(t.cardIds);
-            });
-          }}
-          onDone={() => setForgetToast(null)}
-        />
-      )}
+      {sessionToasts}
     </div>
   );
 }
