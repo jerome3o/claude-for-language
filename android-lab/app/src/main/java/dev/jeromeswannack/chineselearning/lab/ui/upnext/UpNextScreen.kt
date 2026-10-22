@@ -295,7 +295,7 @@ private fun IconAction(text: String, description: String, color: Color = Lab.col
 @Composable
 private fun SmallPill(text: String, description: String, onClick: () -> Unit) {
     Box(
-        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(22.dp))
+        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).border(1.dp, Lab.colors.outline, RoundedCornerShape(22.dp))
             .background(Lab.colors.card).bouncyClickable(onClick = onClick).padding(horizontal = 12.dp)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,

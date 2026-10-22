@@ -50,6 +50,17 @@ data class LabColors(
     val faint: Color,
     val accent: Color,
     val accentSoft: Color,
+    /**
+     * A button's outline: every non-primary button (secondary pills, chips, the study card's
+     * Ask Claude · Edit card · ⋯, grey circles) draws it at 1dp, ≥ 3:1 against [background],
+     * [card] and [faint] (WCAG 1.4.11; `ThemeContrastTest`). Disabled buttons draw it DASHED
+     * ([buttonBorder]). Never [cardBorder], which is a quiet card edge (~1.2:1).
+     */
+    val outline: Color,
+    /** The outline of an accent-labelled secondary button (SecondaryPill), ≥ 3:1 on every surface. */
+    val accentOutline: Color,
+    /** The label on an [accent] fill (PrimaryPill, a selected chip), ≥ 4.5:1 on it. */
+    val onAccent: Color,
 )
 
 private val Light = LabColors(
@@ -61,6 +72,9 @@ private val Light = LabColors(
     faint = Color(0xFFEDE7DA),
     accent = Color(0xFFC2410C),
     accentSoft = Color(0xFFFFEDD5),
+    outline = Color(0xFF857F74),
+    accentOutline = Color(0xFFC2410C),
+    onAccent = Color.White,
 )
 
 private val Dark = LabColors(
@@ -72,7 +86,14 @@ private val Dark = LabColors(
     faint = Color(0xFF26262C),
     accent = Color(0xFFFB923C),
     accentSoft = Color(0xFF3A2416),
+    outline = Color(0xFF7C7C86),
+    accentOutline = Color(0xFFC4743A),
+    onAccent = Color(0xFF1C1209),
 )
+
+/** The two token sets, for the contrast test (`ThemeContrastTest`). */
+internal val LabLightColors: LabColors get() = Light
+internal val LabDarkColors: LabColors get() = Dark
 
 val LocalLabColors = staticCompositionLocalOf { Light }
 
@@ -84,9 +105,9 @@ object Lab {
 fun LabTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val c = if (dark) Dark else Light
     val scheme = if (dark) {
-        darkColorScheme(primary = c.accent, background = c.background, surface = c.card, onBackground = c.ink, onSurface = c.ink)
+        darkColorScheme(primary = c.accent, onPrimary = c.onAccent, background = c.background, surface = c.card, onBackground = c.ink, onSurface = c.ink, outline = c.outline)
     } else {
-        lightColorScheme(primary = c.accent, background = c.background, surface = c.card, onBackground = c.ink, onSurface = c.ink)
+        lightColorScheme(primary = c.accent, onPrimary = c.onAccent, background = c.background, surface = c.card, onBackground = c.ink, onSurface = c.ink, outline = c.outline)
     }
     val base = Typography()
     val typography = base.copy(

@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.coach
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -232,7 +233,7 @@ fun CoachHomeScreen(
                         )
                         if (VoiceDictation.voiceButtonShown(voiceUi.state.blocked)) {
                             Box(
-                                Modifier.padding(top = 4.dp).size(52.dp).clip(CircleShape).border(1.dp, Lab.colors.cardBorder, CircleShape).background(Lab.colors.card)
+                                Modifier.padding(top = 4.dp).size(52.dp).clip(CircleShape).border(1.dp, Lab.colors.outline, CircleShape).background(Lab.colors.card)
                                     .bouncyClickable(true, 0.92f, onClick = voiceActions.say).testTag(COACH_SENTENCE_MIC_TAG),
                                 contentAlignment = Alignment.Center,
                             ) { Text("🎤", fontSize = 22.sp) }
@@ -621,7 +622,7 @@ private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActio
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Lab.colors.ink,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(10.dp)).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
                 )
                 DropdownMenu(open, onDismissRequest = { open = false }) {
                     ui.decks.forEach { d -> DropdownMenuItem(text = { Text(d.name) }, onClick = { open = false; actions.onDeck(d.id) }) }

@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.picturehunt
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -527,7 +528,7 @@ fun ObjectSheetContent(obj: HuntObject, found: Boolean, online: Boolean, actions
         }
         obj.sentenceClue?.takeIf { it.isNotBlank() }?.let { clue ->
             Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).bouncyClickable { actions.onSpeak(clue) }.padding(12.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(12.dp)).bouncyClickable { actions.onSpeak(clue) }.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text("▶ $clue", color = Lab.colors.ink, fontSize = 17.sp)

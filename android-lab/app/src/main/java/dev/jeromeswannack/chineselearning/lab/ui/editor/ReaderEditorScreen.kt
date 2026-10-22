@@ -178,7 +178,7 @@ fun ReaderPreview(spec: JsonObject, speak: Speak) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             MiniButton("◀", { index = current - 1 }, enabled = current > 0, description = "Previous page")
             Box(
-                Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+                Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).border(1.dp, Lab.colors.outline, RoundedCornerShape(12.dp))
                     .bouncyClickable { jumping = true }.padding(horizontal = 12.dp),
                 contentAlignment = Alignment.CenterStart,
             ) { Text("Page ${current + 1} of ${pages.size} — ${pages[current].text("content_chinese").take(18).ifEmpty { "…" }}", maxLines = 1, color = Lab.colors.ink) }

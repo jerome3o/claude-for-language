@@ -143,6 +143,14 @@ class LessonScreenshots : LabScreenshotTest() {
     @Test fun oral() = shoot("lessons-26-oral", content = player(LessonSamples.oral))
     @Test fun conversation() = shoot("lessons-28-conversation", content = player(LessonSamples.conversation))
 
+    // ---- dark mode buttons: Check disabled (nothing placed) vs enabled, options, Secondary ----
+    @Test fun scrambleDarkCheckDisabled() = shoot("lessons-02d-scramble-dark-check-disabled", dark = true, content = player(LessonSamples.scramble))
+    @Test fun scrambleDarkCheckEnabled() = shootAfter("lessons-02e-scramble-dark-check-enabled", dark = true, content = player(LessonSamples.scramble)) {
+        listOf("我", "门", "把", "关上了").forEach(::tap)
+    }
+    @Test fun choiceDark() = shoot("lessons-04d-choice-dark", dark = true, content = player(LessonSamples.choice))
+    @Test fun speakDark() = shoot("lessons-12d-speak-dark", dark = true, content = player(LessonSamples.speak))
+
     // ---- answered ----
     @Test fun scrambleAnswered() = shootAfter("lessons-03-scramble-answered", content = player(LessonSamples.scramble)) {
         listOf("我", "门", "把", "关上了").forEach(::tap)

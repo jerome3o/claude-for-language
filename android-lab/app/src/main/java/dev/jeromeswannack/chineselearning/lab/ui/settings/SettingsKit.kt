@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.settings
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -101,6 +102,7 @@ private fun StepButton(symbol: String, description: String, enabled: Boolean, on
             .size(48.dp)
             .clip(CircleShape)
             .background(Lab.colors.faint)
+            .buttonBorder(CircleShape, enabled)
             .alpha(if (enabled) 1f else 0.4f)
             .semantics { contentDescription = description; role = Role.Button }
             .pointerInput(Unit) {

@@ -331,7 +331,7 @@ fun SendHomeworkContent(
 private fun OptionRow(title: String, meta: String, enabled: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(16.dp)).bouncyClickable(enabled, 0.98f, onClick = onClick)
-            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
+            .border(1.dp, Lab.colors.outline, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -347,7 +347,7 @@ fun OptionTile(title: String, sub: String, selected: Boolean, modifier: Modifier
     Column(
         modifier.heightIn(min = 64.dp).clip(RoundedCornerShape(14.dp)).bouncyClickable(pressedScale = 0.96f, onClick = onClick)
             .background(if (selected) Lab.colors.accentSoft else Lab.colors.card)
-            .border(if (selected) 2.dp else 1.dp, if (selected) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .border(if (selected) 2.dp else 1.dp, if (selected) Lab.colors.accent else Lab.colors.outline, RoundedCornerShape(14.dp))
             .padding(10.dp),
     ) {
         Text(title, fontWeight = FontWeight.SemiBold, color = if (selected) Lab.colors.accent else Lab.colors.ink, style = MaterialTheme.typography.bodyMedium)

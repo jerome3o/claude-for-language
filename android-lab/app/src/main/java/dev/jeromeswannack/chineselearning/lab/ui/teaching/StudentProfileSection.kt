@@ -123,7 +123,7 @@ private fun ExampleRow(ex: StudentProfileExample, onClick: () -> Unit) {
         Modifier.fillMaxWidth().heightIn(min = 56.dp)
             .bouncyClickable(pressedScale = 0.98f, onClick = onClick)
             .clip(RoundedCornerShape(14.dp))
-            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .border(1.dp, Lab.colors.outline, RoundedCornerShape(14.dp))
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -184,7 +184,7 @@ fun ProfileHintPill(onClick: () -> Unit) {
             .heightIn(min = 36.dp)
             .bouncyClickable(pressedScale = 0.93f, onClick = onClick)
             .clip(RoundedCornerShape(50))
-            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(50))
+            .border(1.dp, Lab.colors.outline, RoundedCornerShape(50))
             .padding(horizontal = 12.dp, vertical = 7.dp),
     )
 }

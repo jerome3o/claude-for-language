@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.bumps
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
@@ -111,6 +112,7 @@ fun BumpToggle(on: Boolean, bumpedBy: String?, onChange: (Boolean) -> Unit, modi
             .heightIn(min = 44.dp)
             .clip(CircleShape)
             .background(if (on) BumpAmber else BumpAmber.copy(alpha = 0.10f))
+            .then(if (on) Modifier else Modifier.buttonBorder(CircleShape, enabled, color = BumpAmber))
             .toggleable(value = on, enabled = enabled, role = Role.Switch, onValueChange = onChange)
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .testTag(BUMP_TOGGLE_TAG),

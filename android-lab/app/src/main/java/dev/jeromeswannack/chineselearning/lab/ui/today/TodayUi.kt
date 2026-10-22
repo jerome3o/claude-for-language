@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.today
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -334,7 +335,7 @@ fun LockedLessonRow(l: TodayLockedRow, onUnlock: () -> Unit, onListen: (() -> Un
             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (onListen != null) {
                     Box(
-                        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(Lab.colors.faint).clickable(onClick = onListen)
+                        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(22.dp)).clickable(onClick = onListen)
                             .testTag("locked-listen-${l.id}").padding(horizontal = 14.dp, vertical = 10.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text("▶ Listen", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge) }

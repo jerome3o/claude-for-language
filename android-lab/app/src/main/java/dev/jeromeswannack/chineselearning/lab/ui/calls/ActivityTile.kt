@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.calls
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
@@ -538,7 +539,7 @@ private fun DescribeBody(v: ActivityView) {
             @OptIn(ExperimentalLayoutApi::class)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 hints.forEach { h ->
-                    Text(h, color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).bouncyClickable { v.actions.speak(h) }.padding(horizontal = 12.dp, vertical = 8.dp))
+                    Text(h, color = Lab.colors.ink, fontSize = 17.sp, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(12.dp)).bouncyClickable { v.actions.speak(h) }.padding(horizontal = 12.dp, vertical = 8.dp))
                 }
             }
         }
@@ -641,7 +642,7 @@ private fun InfoGapBody(v: ActivityView, seedCell: String?) {
                                 Box(
                                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                                         .background(if (got.isNullOrEmpty()) Lab.colors.faint else Lab.colors.accentSoft)
-                                        .border(1.5.dp, if (got.isNullOrEmpty()) Lab.colors.cardBorder else Lab.colors.accent, RoundedCornerShape(12.dp))
+                                        .border(1.5.dp, if (got.isNullOrEmpty()) Lab.colors.outline else Lab.colors.accent, RoundedCornerShape(12.dp))
                                         .bouncyClickable(enabled = canFill) { sheetFor = key; v.actions.feel(ActivityFeel.TICK) }
                                         .testTag("cell-$key"),
                                     contentAlignment = Alignment.Center,
@@ -807,7 +808,7 @@ private fun TileChip(label: String, placed: Boolean, enabled: Boolean, onClick: 
     Box(
         Modifier.heightIn(min = 52.dp).widthIn(min = 52.dp).clip(RoundedCornerShape(12.dp))
             .background(if (placed) Lab.colors.accentSoft else Lab.colors.card)
-            .border(1.5.dp, if (placed) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+            .border(1.5.dp, if (placed) Lab.colors.accent else Lab.colors.outline, RoundedCornerShape(12.dp))
             .bouncyClickable(enabled = enabled, onClick = onClick).padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = Lab.colors.ink, fontSize = 22.sp, fontWeight = FontWeight.Medium) }
@@ -1014,7 +1015,7 @@ private fun ReviewList(v: ActivityView, modifier: Modifier, maxHeight: Dp) {
             val bg by animateColorAsState(if (on) Lab.colors.accentSoft else Lab.colors.card, label = "review-row")
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).background(bg)
-                    .border(if (on) 2.dp else 1.dp, if (on) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(12.dp))
+                    .border(if (on) 2.dp else 1.dp, if (on) Lab.colors.accent else Lab.colors.outline, RoundedCornerShape(12.dp))
                     .bouncyClickable(enabled = canSelect, pressedScale = 0.98f) { v.act(ActivityAction.Select(i)) }
                     .padding(horizontal = 12.dp, vertical = 6.dp).testTag("review-row-$i"),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1131,7 +1132,7 @@ private fun ReviewMarkButton(label: String, on: Boolean, tint: Color, enabled: B
     val bg by animateColorAsState(if (on) tint.copy(alpha = 0.16f) else Lab.colors.card, label = "review-mark")
     Box(
         modifier.heightIn(min = 52.dp).clip(RoundedCornerShape(14.dp)).background(bg)
-            .border(if (on) 2.dp else 1.dp, if (on) tint else Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .border(if (on) 2.dp else 1.dp, if (on) tint else Lab.colors.outline, RoundedCornerShape(14.dp))
             .alpha(if (enabled || on) 1f else 0.6f)
             .bouncyClickable(enabled = enabled, onClick = onClick).padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,

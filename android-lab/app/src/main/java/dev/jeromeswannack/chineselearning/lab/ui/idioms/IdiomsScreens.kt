@@ -404,7 +404,7 @@ private fun Toggle(label: String, on: Boolean, modifier: Modifier = Modifier, on
         color = if (on) Color.White else Lab.colors.muted,
         fontSize = 13.sp,
         modifier = modifier.heightIn(min = 36.dp).bouncyClickable(pressedScale = 0.94f, onClick = onClick).clip(RoundedCornerShape(50))
-            .background(if (on) IdiomColors.ink() else Lab.colors.card).border(1.dp, if (on) IdiomColors.ink() else Lab.colors.cardBorder, RoundedCornerShape(50))
+            .background(if (on) IdiomColors.ink() else Lab.colors.card).border(1.dp, if (on) IdiomColors.ink() else Lab.colors.outline, RoundedCornerShape(50))
             .padding(horizontal = 14.dp, vertical = 9.dp),
     )
 }

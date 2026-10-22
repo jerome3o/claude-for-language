@@ -19,6 +19,16 @@
   --color-partial-strong: #fde047;
   --color-partial-ink: #713f12;
 
+  /* Buttons (index.css "Buttons"; tested by src/theme/buttonContrast.test.ts). Every
+   * non-primary button carries a 1px outline that is ≥ 3:1 against the page, a card and a
+   * button's own fill (WCAG 1.4.11), so a quiet button still reads as a button — Jerome is
+   * somewhat colour-blind and lost the dark-mode ones in the Lab app. A disabled button is a
+   * grey fill + grey label + a DASHED outline: clearly off, still visible, no colour needed. */
+  --btn-outline: #80868f;
+  --btn-bg: #ffffff;
+  --btn-disabled-bg: #f3f4f6;
+  --btn-disabled-text: #6b7280;
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -36,9 +46,16 @@
 }
 
 /* The dark set (the web is light-only today; applies under an explicit data-theme="dark", like the
-   explorer's decals): lemon #fde047 border / icons (12.9:1 on #1c1c20), the chip stays solid lemon
-   with near-black brown words (#422006, 13:1), the box a faint lemon wash. */
+   explorer's decals).
+   Buttons: matching the Lab app's dark theme (surfaces #111113 / #1c1c20, button fill #26262c —
+   android-lab ui/theme/Theme.kt).
+   Partly right: lemon #fde047 border / icons (12.9:1 on #1c1c20), the chip stays solid lemon with
+   near-black brown words (#422006, 13:1), the box a faint lemon wash. */
 :root[data-theme='dark'] {
+  --btn-outline: #7c7c86;
+  --btn-bg: #26262c;
+  --btn-disabled-bg: #1c1c20;
+  --btn-disabled-text: #a19d94;
   --color-partial: #fde047;
   --color-partial-soft: rgba(253, 224, 71, 0.1);
   --color-partial-strong: #fde047;
@@ -149,6 +166,15 @@ a:hover {
   cursor: not-allowed;
 }
 
+/* Disabled = grey fill, grey label, dashed outline (not just a faded colour). */
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 1;
+  background-color: var(--btn-disabled-bg);
+  color: var(--btn-disabled-text);
+  border: 1px dashed var(--btn-outline);
+}
+
 .btn.playing {
   background-color: var(--color-primary);
   color: white;
@@ -164,9 +190,9 @@ a:hover {
 }
 
 .btn-secondary {
-  background-color: var(--color-surface);
+  background-color: var(--btn-bg);
   color: var(--color-text);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--btn-outline);
 }
 
 .btn-secondary:hover:not(:disabled) {
