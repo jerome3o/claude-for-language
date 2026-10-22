@@ -41,7 +41,7 @@ import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services
 import { getStudentProfile } from '../db/student-profile-queries';
 import { getUserBrief } from '../db/tutor-notes-queries';
 import { studentProfilePrompt } from '@shared/students';
-import { revisitSummaries, type RevisitSummary } from '../services/revisit';
+import { lessonRevisionSummaries, type LessonRevisionInfo } from '../services/lesson-revision';
 
 type AppEnv = { Bindings: Env };
 type Ctx = Context<AppEnv>;
@@ -424,6 +424,12 @@ lessonEditor.post('/lesson-library/:id/assign', async (c) => {
   return c.json({ assigned, already_had, errors });
 });
 
+/** The revision summary of a lesson for the tutor's views (null before the student's first run). */
+function revisionOf(info: LessonRevisionInfo | undefined) {
+  if (!info || info.status === 'new') return null;
+  return { status: info.status, revision: info.revision, due_date: info.due_date, to_get_right: info.to_get_right, percent: info.percent };
+}
+
 lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
   const userId = c.get('user').id;
   const item = await lib.getLibraryItem(c.env.DB, c.req.param('id'), userId);
@@ -432,10 +438,10 @@ lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
   const rows = await lib.listAssignmentsForItem(c.env.DB, item.id);
   const aggregates = await lib.aggregateCompletions(c.env.DB, rows.map(r => r.id));
   const attempts = await latestAttemptIds(c.env.DB, rows.map(r => r.id));
-  // When each lesson comes back for the student ("Revisit later", their own gaps).
-  const revisits = new Map<string, RevisitSummary>();
+  // Revise until right first time (shared/study/lessonRevision.ts): each student's revision state.
+  const revisits = new Map<string, LessonRevisionInfo>();
   for (const studentId of new Set(rows.map(r => r.user_id))) {
-    const own = await revisitSummaries(c.env.DB, studentId, 'lesson', rows.filter(r => r.user_id === studentId).map(r => r.id)).catch(() => null);
+    const own = await lessonRevisionSummaries(c.env.DB, studentId, rows.filter(r => r.user_id === studentId).map(r => r.id)).catch(() => null);
     for (const [id, v] of own ?? []) revisits.set(id, v);
   }
   return c.json({
@@ -459,6 +465,8 @@ lessonEditor.get('/lesson-library/:id/assignments', async (c) => {
         last_attempt_id: attempts.get(row.id) ?? null,
         next_revisit_at: revisits.get(row.id)?.next_revisit_at ?? null,
         retired: revisits.get(row.id)?.retired ?? false,
+        revision: revisionOf(revisits.get(row.id)),
+        revision_label: revisits.get(row.id)?.revision_label ?? null,
       };
     }),
   });
@@ -533,8 +541,8 @@ lessonEditor.get('/relationships/:relId/student-lessons', async (c) => {
   const rows = await lib.listLessonsForUser(c.env.DB, studentId);
   const aggregates = await lib.aggregateCompletions(c.env.DB, rows.map(r => r.id));
   const attempts = await latestAttemptIds(c.env.DB, rows.map(r => r.id));
-  // When each lesson comes back for the student ("Revisit later", their own gaps).
-  const revisits = await revisitSummaries(c.env.DB, studentId, 'lesson', rows.map(r => r.id)).catch(() => new Map<string, RevisitSummary>());
+  // Revise until right first time (shared/study/lessonRevision.ts): the student's revision state.
+  const revisits = await lessonRevisionSummaries(c.env.DB, studentId, rows.map(r => r.id)).catch(() => new Map<string, LessonRevisionInfo>());
   return c.json({
     lessons: rows.map(row => {
       const agg = aggregates.get(row.id);
@@ -557,6 +565,8 @@ lessonEditor.get('/relationships/:relId/student-lessons', async (c) => {
         last_attempt_id: attempts.get(row.id) ?? null,
         next_revisit_at: revisits.get(row.id)?.next_revisit_at ?? null,
         retired: revisits.get(row.id)?.retired ?? false,
+        revision: revisionOf(revisits.get(row.id)),
+        revision_label: revisits.get(row.id)?.revision_label ?? null,
       };
     }),
   });

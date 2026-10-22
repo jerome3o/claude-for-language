@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
-import { writeRevisitSettings } from '../services/revisit';
 import { writeNewCardOrder } from '../services/newCardOrder';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
@@ -38,7 +37,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = await getCurrentUser();
       setUser(userData);
       writeStudyBudget(userData);
-      writeRevisitSettings(userData as { revisit_settings?: unknown });
       writeNewCardOrder(userData as { new_card_order?: unknown });
       writeConversationVoices(userData.conversation_voices);
       writeConversationAudio(userData.conversation_audio);
@@ -96,7 +94,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Private recordings / photos play with a media token (api/mediaToken.ts).
         void refreshMediaTokenIfDue();
         writeStudyBudget(userData);
-        writeRevisitSettings(userData as { revisit_settings?: unknown });
         writeNewCardOrder(userData as { new_card_order?: unknown });
         writeConversationVoices(userData.conversation_voices);
         writeConversationAudio(userData.conversation_audio);

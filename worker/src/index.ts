@@ -152,6 +152,8 @@ import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
 import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
+import { backfillCompletionOutcomes, outcomeForUpload, setCompletionOutcome } from './services/lesson-revision';
+import { parseRunOutcome } from '@shared/study/lessonRevision';
 import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
 import { listActiveBumps } from './services/study-bumps';
 import upNextRoutes from './routes/up-next';
@@ -5931,6 +5933,8 @@ app.post('/api/practice/offline-complete', async (c) => {
 app.get('/api/custom-lessons', async (c) => {
   const userId = c.get('user').id;
   const status = c.req.query('status');
+  // Older runs' outcomes from their attempts (revise until right first time, migration 0133).
+  await backfillCompletionOutcomes(c.env.DB, userId).catch(err => console.warn('[custom-lessons] outcome backfill failed:', err));
   const [rows, completions] = await Promise.all([
     db.listCustomLessons(
       c.env.DB,
@@ -5959,7 +5963,8 @@ app.get('/api/custom-lessons', async (c) => {
       // Unlockable lessons (shared/lesson/unlock.ts): the condition, when it was met, the podcast it goes with.
       ...lessonUnlockFields(row),
       spec: JSON.parse(row.spec),
-      completions: completionsByLesson.get(row.id) ?? [],
+      // Each run's outcome (shared/study/lessonRevision.ts) decides done forever vs a revision.
+      completions: (completionsByLesson.get(row.id) ?? []).map(({ outcome, ...rest }) => ({ ...rest, outcome: parseRunOutcome(outcome) })),
     })),
   });
 });
@@ -6018,7 +6023,7 @@ app.delete('/api/custom-lessons/:id', async (c) => {
 app.post('/api/custom-lessons/offline-complete', async (c) => {
   const userId = c.get('user').id;
   const { events } = await c.req.json<{
-    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null; attempt?: unknown }>;
+    events: Array<{ id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null; attempt?: unknown; outcome?: unknown }>;
   }>();
   if (!events || !Array.isArray(events)) {
     return c.json({ error: 'events array is required' }, 400);
@@ -6028,12 +6033,17 @@ app.post('/api/custom-lessons/offline-complete', async (c) => {
   let attempts = 0;
   for (const event of events) {
     if (!event.id || !event.lesson_id || !event.completed_at) continue;
-    if (await db.applyCustomLessonCompletion(c.env.DB, userId, event)) {
-      applied++;
-    }
     // Per-exercise answers ride on the completion (same id); stored even when
     // the completion itself was already there (a re-upload is a no-op).
     const attempt = event.attempt === undefined ? null : sanitizeAttemptData(event.attempt);
+    // The run's outcome: the device's, else from the attempt (older apps send ratings + attempts;
+    // the rating is kept but no longer decides anything when there is an attempt).
+    const outcome = outcomeForUpload(event.outcome, attempt);
+    if (await db.applyCustomLessonCompletion(c.env.DB, userId, event, outcome)) {
+      applied++;
+    } else if (outcome) {
+      await setCompletionOutcome(c.env.DB, userId, event.id, outcome).catch(() => {});
+    }
     if (attempt && await insertLessonAttempt(c.env.DB, userId, event, attempt)) attempts++;
   }
   return c.json({ applied, skipped: events.length - applied, attempts });

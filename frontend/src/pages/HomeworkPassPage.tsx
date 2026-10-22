@@ -10,7 +10,7 @@ import { LongTermSwitch, longTermLine } from '../components/homework/LongTermSwi
 import { db, type LocalCard, type LocalHomeworkEvent, type LocalNote } from '../db/database';
 import { recordPassEvent, recordPassUndo, syncHomework, titleParts } from '../services/homework';
 import { track } from '../services/analytics';
-import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
+import { completeCustomLesson, syncCustomLessons } from '../services/custom-lesson-study';
 import { recordReaderFinish } from '../services/reader-study';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { StudyReader } from '../components/StudyReader';
@@ -443,8 +443,9 @@ function PassDone({
 function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmentTitle: string; targetId: string; complete: boolean; onExit: () => void }) {
   const navigate = useNavigate();
   const lesson = useLiveQuery(() => db.customLessons.get(targetId), [targetId]);
-  const previews = useMemo(() => (lesson ? getCustomLessonIntervalPreviews(lesson) : null), [lesson]);
   const [finished, setFinished] = useState(false);
+  // Finished in this player (its Done shows the pass's end); a close mid-run just leaves — the run waits.
+  const completedHere = useRef(false);
   // Finished (now or earlier): "▶ Do it again" opens the real player outside the pass (LessonReplayPage).
   const again = lesson ? () => navigate(`/lessons/${lesson.id}/play?from=homework`) : undefined;
   if (complete && !finished) {
@@ -456,7 +457,7 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
     );
   }
   if (lesson === undefined) return <div className="study-fullscreen" />;
-  if (!lesson || !previews) return <Missing title={assignmentTitle} onExit={onExit} />;
+  if (!lesson) return <Missing title={assignmentTitle} onExit={onExit} />;
   if (finished) {
     return (
       <div className="study-fullscreen hw-pass">
@@ -469,16 +470,19 @@ function LessonPass({ assignmentTitle, targetId, complete, onExit }: { assignmen
     <StudyCustomLesson
       lesson={lesson}
       lessonId={lesson.id}
-      intervalPreviews={previews}
-      onComplete={(correct, total, rating, attempt, recordings, retire) => {
-        // The per-exercise attempt (and any recordings) travels with the completion, as in a study session.
-        void completeCustomLesson(lesson.id, correct, total, rating, attempt, recordings, { retire, source: 'homework' })
+      label="Homework"
+      source="homework"
+      onComplete={({ correct, total, attempt, recordings, outcome }) => {
+        completedHere.current = true;
+        // The per-exercise attempt (and any recordings) travels with the completion; its outcome
+        // decides done forever vs a revision in a week (shared/study/lessonRevision.ts).
+        completeCustomLesson(lesson.id, correct, total, attempt, recordings, { source: 'homework', outcome })
           .then(() => {
-            setFinished(true);
             if (navigator.onLine) void syncCustomLessons().catch(() => {});
-          });
+          })
+          .catch(err => console.error('[homework] lesson completion failed:', err));
       }}
-      onEnd={onExit}
+      onEnd={() => (completedHere.current ? setFinished(true) : onExit())}
     />
   );
 }

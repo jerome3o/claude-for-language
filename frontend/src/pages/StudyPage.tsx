@@ -99,7 +99,6 @@ import { RatingButtons } from '../components/RatingButtons';
 import { PassAnswerButtons } from '../components/homework/PassAnswerButtons';
 import { StudyReader } from '../components/StudyReader';
 import { StudyGrammar } from '../components/StudyGrammar';
-import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { SentenceSet } from '../components/SentenceSet';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { syncService } from '../services/sync';
@@ -1395,8 +1394,8 @@ export function StudyCard({
         }
         case 'create_custom_lesson': {
           // The lesson is already created server-side — pull it into the
-          // local cache (and prefetch its media) so it can join a session
-          // right away instead of waiting for the next background sync.
+          // local cache (and prefetch its media) so it is on Home and the
+          // Mini Lessons page right away, offline too.
           syncCustomLessons()
             .then(() => prefetchCustomLessonMedia())
             .catch(console.error);
@@ -3162,7 +3161,6 @@ export function StudyPage() {
     currentCard,
     currentReader,
     currentGrammar,
-    currentCustomLesson,
     currentCardIsSecondaryNew,
     bumpedCardIds,
     cardVersion,
@@ -3170,7 +3168,6 @@ export function StudyPage() {
     dailyReaderPending,
     grammarPending,
     intervalPreviews,
-    customLessonIntervalPreviews,
     hasMoreNewCards,
     isRating,
     resume,
@@ -3179,7 +3176,6 @@ export function StudyPage() {
     rateCard,
     finishReader,
     completeGrammar,
-    completeCustomLesson,
     undoLastReview,
     reloadQueue,
     removeNoteFromSession,
@@ -3196,7 +3192,7 @@ export function StudyPage() {
   useActiveStudyTime(studyStarted);
 
   // Today is the session: the queue is always today's, so there is nothing to "end".
-  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && !currentCustomLesson && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
+  const isAllDone = !isLoading && !currentCard && !currentReader && !currentGrammar && counts.new === 0 && counts.secondaryNew === 0 && counts.learning === 0 && counts.review === 0;
 
   // Today's numbers for the All done screen, and the celebration: once a day, again only
   // when more cards became due and were cleared too (shared/study/celebration.ts).
@@ -3371,16 +3367,6 @@ export function StudyPage() {
       {!isLoading && currentCard && <FirstCardExplainer />}
       {isLoading ? (
         <Loading />
-      ) : currentCustomLesson && customLessonIntervalPreviews ? (
-        <StudyCustomLesson
-          key={`${currentCustomLesson.id}-${cardVersion}`}
-          lesson={currentCustomLesson}
-          lessonId={currentCustomLesson.id}
-          intervalPreviews={customLessonIntervalPreviews}
-          counts={counts}
-          onComplete={completeCustomLesson}
-          onEnd={leaveStudy}
-        />
       ) : currentGrammar ? (
         <StudyGrammar
           key={`${currentGrammar.grammar_point_id}-${cardVersion}`}

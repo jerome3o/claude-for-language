@@ -1,54 +1,52 @@
 /**
- * `/lessons/:id/play` — "▶ Do it again" / "▶ Start" on a mini lesson outside the
- * study session (the Mini Lessons page, a finished homework pass; `?from=`).
+ * `/lessons/:id/play?from=&mode=revision` — a mini lesson outside any session: Home's homework /
+ * to-do rows ("🎓 new", "🔁 Revision"), the Mini Lessons page (▶ Start / ▶ Revision / ▶ Do it
+ * again), a finished homework pass, the podcast player's companion card.
  *
- * The real player (StudyCustomLesson) with the replay rule (`replayIsPractice`,
- * shared/study/revisit.ts — the /tutor-notes/practice rule for lessons):
- * - due today (new, or due by the cutoff): a normal run — the rating records the
- *   completion (the attempt reaches the tutor, "revisit later" pacing, homework done);
- * - not due (finished, coming back later, or Done for good): the same ratings plus
- *   "Practice only", which records nothing. Rating it anyway is a normal completion.
- * Closing (✕) records nothing either way. Works offline for cached lessons.
+ * The real player (StudyCustomLesson): a run saved as it goes (it continues next time), the
+ * retry round at the end, the completion recorded at the end — its outcome decides done forever
+ * vs a revision in a week (shared/study/lessonRevision.ts). `mode=revision` plays the lesson's
+ * revision (what was missed last time + a few that were got) while one is waiting; otherwise the
+ * whole lesson. Closing (✕) records nothing — the run waits. Works offline for cached lessons.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { replayIsPractice } from '@shared/study/revisit';
-import { db, getStudyCutoff } from '../db/database';
+import { db } from '../db/database';
 import { StudyCustomLesson } from '../components/StudyCustomLesson';
-import { completeCustomLesson, getCustomLessonIntervalPreviews, syncCustomLessons } from '../services/custom-lesson-study';
-import { rowRevisitState } from '../services/revisit';
+import { completeCustomLesson, syncCustomLessons } from '../services/custom-lesson-study';
+import { learnOf, revisionKeysFor } from '../services/lessonLearn';
 import { track } from '../services/analytics';
 import { lockedLessonLine, unlockButtonLabel } from '@shared/lesson';
 import { lockStatusOf, unlockLesson } from '../services/lessonUnlock';
-import { Confetti } from '../components/Confetti';
 import './StudyPage.css';
 
-const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach']);
+const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach', 'home']);
 
 export function LessonReplayPage() {
   const { id = '' } = useParams();
   const [params] = useSearchParams();
   const from = FROM.has(params.get('from') ?? '') ? (params.get('from') as string) : 'lessons_page';
+  const wantsRevision = params.get('mode') === 'revision';
   const navigate = useNavigate();
   const lesson = useLiveQuery(async () => (await db.customLessons.get(id)) ?? null, [id]);
-  const previews = useMemo(() => (lesson ? getCustomLessonIntervalPreviews(lesson) : null), [lesson]);
-  // Decided once, when the lesson is first read: a rating mid-page doesn't flip it.
-  const [practice, setPractice] = useState<boolean | null>(null);
-  const [finished, setFinished] = useState<'rated' | 'practice' | null>(null);
+  // Decided once, when the lesson is first read: the finish mid-page doesn't change what is played.
+  const [plan, setPlan] = useState<{ keys: string[] | null } | null>(null);
 
   useEffect(() => {
-    if (!lesson || practice !== null) return;
-    const p = replayIsPractice(rowRevisitState(lesson), getStudyCutoff().ts);
-    setPractice(p);
-    track('lesson.replay', { from, practice: p });
-  }, [lesson, practice, from]);
+    if (!lesson || plan) return;
+    const learn = learnOf(lesson);
+    const revision = wantsRevision && learn.status === 'revision';
+    const keys = revision ? revisionKeysFor(lesson) : null;
+    setPlan({ keys });
+    track('lesson.replay', { from, revision, status: learn.status });
+  }, [lesson, plan, from, wantsRevision]);
 
   const exit = () => navigate(-1);
 
-  if (lesson === undefined || (lesson && practice === null)) return <div className="study-fullscreen" />;
-  if (!lesson || !previews) {
+  if (lesson === undefined || (lesson && !plan)) return <div className="study-fullscreen" />;
+  if (!lesson || !plan) {
     return (
       <div className="study-fullscreen">
         <div className="study-topbar">
@@ -87,44 +85,20 @@ export function LessonReplayPage() {
     );
   }
 
-  if (finished) {
-    return (
-      <div className="study-fullscreen" data-testid="lesson-replay-done">
-        {finished === 'rated' && <Confetti />}
-        <div className="study-topbar">
-          <span className="study-topbar-label">Mini lesson · again</span>
-          <div className="study-topbar-controls">
-            <button className="study-close-btn" onClick={exit} aria-label="Close">✕</button>
-          </div>
-        </div>
-        <div className="study-card-content" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
-          <div style={{ fontSize: '3.5rem' }}>{lesson.icon || '🎓'}</div>
-          <h2>{finished === 'rated' ? 'Saved' : 'Practice done'}</h2>
-          <p className="text-light">
-            {finished === 'rated'
-              ? 'Your answers are saved and your rating decides when it comes back.'
-              : 'Nothing was recorded — it comes back when it was going to.'}
-          </p>
-          <button className="btn btn-primary" style={{ minHeight: 44 }} onClick={exit}>Done</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <StudyCustomLesson
       lesson={lesson}
       lessonId={lesson.id}
-      intervalPreviews={previews}
-      replay={{ practice: practice === true }}
-      onPracticeDone={() => setFinished('practice')}
-      onComplete={(correct, total, rating, attempt, recordings, retire) => {
-        void completeCustomLesson(lesson.id, correct, total, rating, attempt, recordings, { retire, source: 'replay' })
+      revisionKeys={plan.keys}
+      label="Mini lesson"
+      source={from === 'homework' ? 'homework' : from === 'home' ? 'home' : 'replay'}
+      onComplete={({ correct, total, attempt, recordings, outcome }) =>
+        completeCustomLesson(lesson.id, correct, total, attempt, recordings, { source: from, outcome })
           .then(() => {
-            setFinished('rated');
             if (navigator.onLine) void syncCustomLessons().catch(() => {});
-          });
-      }}
+          })
+          .catch(err => console.error('[lesson] completion failed:', err))
+      }
       onEnd={exit}
     />
   );

@@ -255,16 +255,19 @@ export const ANALYTICS_EVENTS = {
   'podcast.lesson_created': e('lessons', 'A mini lesson was written from a podcast episode (exercises, segments it was written from).', ['exercises', 'segments'], { server: true }),
 
   // ── lessons ────────────────────────────────────────────────────────────
-  'lesson.start': e('lessons', 'Started a mini lesson.', ['source', 'exercises']),
-  'lesson.complete': e('lessons', 'Finished a mini lesson.', ['rating', 'source', 'duration_ms']),
-  'lesson.replay': e('lessons', '▶ Do it again / ▶ Start on a mini lesson outside the session (from: lessons_page, today, homework; practice = not due today, Practice only offered).', ['from', 'practice']),
+  'lesson.start': e('lessons', 'Started a mini lesson run (mode full / revision).', ['source', 'exercises', 'mode']),
+  'lesson.complete': e('lessons', 'Finished a mini lesson run, retry round included (mode full / revision; missed = scored exercises missed first time — 0 = done for good, else a revision in a week; retries = exercises asked again; rating only from apps before Oct 2026).', ['rating', 'source', 'duration_ms', 'mode', 'missed', 'scored', 'retries']),
+  'lesson.replay': e('lessons', 'Opened a mini lesson outside a homework pass (from: home, lessons_page, homework, player, coach; revision = its revision; status = new / revision / done).', ['from', 'practice', 'revision', 'status']),
+  'lesson.resume': e('lessons', 'A mini lesson run left half-way continued (docs/STUDY_SESSION.md "Mini lessons": saved after every exercise, across days; at = the next exercise).', ['source', 'mode', 'exercises', 'at']),
+  'lesson.retry': e('lessons', 'An exercise asked again in a lesson\'s retry round (right = put right, left = retries still owed).', ['type', 'right', 'left']),
+  'lesson.start_over': e('lessons', '"Start over" on a mini lesson run that was continuing.', ['source']),
   'lesson.audio': e('lessons', 'How a mini lesson\'s audio played this run, sent when it closes (docs/AUDIO.md "Lesson audio prefetch"): hits = clips played straight from the device, misses = fetched when asked for, stale = late clips dropped because the learner had moved on, max_wait_ms = the longest wait, clips = clips in the lesson, prefetched = clips the player fetched as it opened.', ['source', 'hits', 'misses', 'stale', 'max_wait_ms', 'clips', 'prefetched']),
-  'lesson.replay_practice': e('lessons', 'Ended a replayed mini lesson with Practice only (nothing recorded).', ['exercises', 'duration_ms']),
+  'lesson.replay_practice': e('lessons', 'Ended a replayed mini lesson with Practice only (nothing recorded) — apps before Oct 2026.', ['exercises', 'duration_ms'], { replacedBy: 'lesson.complete' }),
   'lesson.unlock': e('lessons', 'Unlocked a locked mini lesson (docs/STUDY_SESSION.md "Unlockable lessons"; via auto = the linked audio lesson was listened to, manual = the unlock button, player = the audio player\'s "Mini lesson ready" card; kind audio_lesson / manual).', ['via', 'kind']),
   'lesson.companion_created': e('lessons', 'A companion mini lesson of an audio lesson was written (docs/AUDIO_LESSONS.md "Companion mini lesson"; unlock audio_lesson / manual, replaced = a not-yet-started one rewritten).', ['unlock', 'format', 'exercises', 'rounds', 'replaced'], { server: true }),
   'lesson.companion_request': e('lessons', 'Asked for an audio lesson\'s companion mini lesson from the app (✨ Make its mini lesson).', ['format']),
-  'study.done_for_good': e('study', '"Done for good" on a finished lesson: never scheduled again (readers until Oct 2026; now read once).', ['kind', 'source']),
-  'study.bring_back': e('study', '"Bring back" a lesson that was done for good.', ['kind']),
+  'study.done_for_good': e('study', '"Done for good" on a finished lesson — apps before Oct 2026 (now a lesson is done for good when everything was right first time).', ['kind', 'source'], { replacedBy: 'lesson.complete' }),
+  'study.bring_back': e('study', '"Bring back" a lesson that was done for good — apps before Oct 2026.', ['kind'], { replacedBy: 'lesson.replay' }),
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),
   'lesson.editor_save': e('lessons', 'Saved a lesson in the editor.', []),
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
@@ -287,7 +290,7 @@ export const ANALYTICS_EVENTS = {
   'coach.sentence_card': e('coach', '"🃏 Card for this sentence": opened the add-card sheet with the whole sentence.', []),
   'coach.mistake_lesson_generate': e('coach', '"🎯 Mini lesson on this mistake": asked for a lesson on the mistake a check found (existing = the conversation already had one).', ['existing']),
   'coach.mistake_lesson_play': e('coach', 'Played a coach mistake lesson in the player (preview: nothing recorded while playing).', ['exercises', 'saved']),
-  'coach.mistake_lesson_save': e('coach', '"Save to my mini lessons" on a coach mistake lesson (done = saved right after doing it, its completion + rating recorded).', ['done', 'rating']),
+  'coach.mistake_lesson_save': e('coach', '"Save to my mini lessons" on a coach mistake lesson (done = saved right after doing it, its completion recorded; missed = exercises missed first time; rating from apps before Oct 2026).', ['done', 'rating', 'missed']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
@@ -320,7 +323,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
-  'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" settings — revisit gaps / new lessons a day (or reset them).', ['fields', 'reset', 'new_lessons_per_day']),
+  'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" settings — revisit gaps / new lessons a day (or reset them) — apps before Oct 2026; the settings are gone (lessons revise until right first time).', ['fields', 'reset', 'new_lessons_per_day'], { replacedBy: 'lesson.complete' }),
   'settings.new_card_order': e('settings', 'Changed "Order new cards by" (Settings → New cards): which new words come first (incl. everyday words before formal ones), and whether a word of known characters starts with English → Chinese (or reset it). Props = the switch changed and the switches after the change.', ['field', 'reset', 'new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first']),
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),

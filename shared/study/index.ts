@@ -5,3 +5,5 @@ export * from './revisit';
 export * from './daily-reader';
 export * from './askClaude';
 export * from './newCharacters';
+export * from './lessonRun';
+export * from './lessonRevision';

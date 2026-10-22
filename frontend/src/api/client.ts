@@ -1682,9 +1682,10 @@ export interface CoachLessonCompletion {
   id: string;
   correct: number;
   total: number;
-  rating: number;
   completed_at: string;
   attempt?: unknown;
+  /** The run's outcome (shared/study/lessonRevision.ts): done forever vs a revision in a week. */
+  outcome?: { keys: string[]; missed: string[] };
 }
 
 /** "Save to my mini lessons": the lesson into the queue (once), with its completion when he just did it. */
@@ -2187,6 +2188,8 @@ export interface CustomLessonCompletion {
   total: number;
   completed_at: string;
   rating: number | null;
+  /** The run's outcome (shared/study/lessonRevision.ts); null on finishes with no answers kept. */
+  outcome?: { keys: string[]; missed: string[] } | null;
 }
 
 export interface CustomLessonListItem {
@@ -2201,7 +2204,7 @@ export interface CustomLessonListItem {
   assigned_by?: string | null;
   assigned_relationship_id?: string | null;
   spec: import('@shared/lesson').CustomLessonSpec;
-  /** The lesson's FSRS review events (absent on locally cached fallbacks). */
+  /** The lesson's finished runs (their outcomes decide done forever vs a revision). */
   completions?: CustomLessonCompletion[];
   /** Unlockable lessons (shared/lesson/unlock.ts): the condition (null = none) and when it was met. */
   unlock?: import('@shared/lesson').LessonUnlock | null;

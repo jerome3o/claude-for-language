@@ -24,6 +24,7 @@
  *
  * docs/CHAT.md "Chat ↔ Coach".
  */
+import { outcomeForUpload } from '../services/lesson-revision';
 import { Hono } from 'hono';
 import type { CoachAnalysis, CoachMessage, Env } from '../types';
 import * as db from '../db/queries';
@@ -324,7 +325,7 @@ coach.post('/coach/conversations/:id/messages/:messageId/save-lesson', async (c)
   const body = await c.req.json<{ completion?: unknown }>().catch(() => ({} as { completion?: unknown }));
   const completion = parseCompletion(body.completion);
   if (body.completion !== undefined && body.completion !== null && !completion) {
-    return c.json({ error: 'completion needs id, correct, total and a rating 0–3' }, 400);
+    return c.json({ error: 'completion needs id, correct and total (a rating 0–3 is optional)' }, 400);
   }
 
   let lessonId = content.lesson_id ?? null;
@@ -342,8 +343,9 @@ coach.post('/coach/conversations/:id/messages/:messageId/save-lesson', async (c)
   }
   if (completion) {
     const event = { ...completion, lesson_id: lessonId };
-    await db.applyCustomLessonCompletion(c.env.DB, userId, event);
     const attempt = completion.attempt === undefined ? null : sanitizeAttemptData(completion.attempt);
+    // The run's outcome decides done forever vs a revision (shared/study/lessonRevision.ts).
+    await db.applyCustomLessonCompletion(c.env.DB, userId, event, outcomeForUpload(completion.outcome, attempt));
     if (attempt) await insertLessonAttempt(c.env.DB, userId, event, attempt);
     content.completed = true;
   }
@@ -352,16 +354,18 @@ coach.post('/coach/conversations/:id/messages/:messageId/save-lesson', async (c)
   return c.json({ lesson_id: lessonId, title, completed: content.completed === true, message: publicCoachMessage(saved) });
 });
 
-function parseCompletion(raw: unknown): { id: string; correct: number; total: number; rating: number; completed_at: string; attempt?: unknown } | null {
+function parseCompletion(raw: unknown): { id: string; correct: number; total: number; rating: number | null; completed_at: string; attempt?: unknown; outcome?: unknown } | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : null);
   const correct = num(r.correct);
   const total = num(r.total);
-  const rating = num(r.rating);
-  if (typeof r.id !== 'string' || !r.id || r.id.length > 100 || correct === null || total === null || rating === null || rating > 3) return null;
+  // Lessons have no rating since Oct 2026 (revise until right first time); older apps still send one.
+  const rating = r.rating === undefined || r.rating === null ? null : num(r.rating);
+  if (typeof r.id !== 'string' || !r.id || r.id.length > 100 || correct === null || total === null) return null;
+  if (r.rating !== undefined && r.rating !== null && (rating === null || rating > 3)) return null;
   const at = typeof r.completed_at === 'string' && !Number.isNaN(Date.parse(r.completed_at)) ? new Date(r.completed_at).toISOString() : new Date().toISOString();
-  return { id: r.id, correct: Math.min(correct, total), total, rating, completed_at: at, attempt: r.attempt };
+  return { id: r.id, correct: Math.min(correct, total), total, rating, completed_at: at, attempt: r.attempt, outcome: r.outcome };
 }
 
 /** A coach message as the client sees it (no checkpoint / attempts bookkeeping). */

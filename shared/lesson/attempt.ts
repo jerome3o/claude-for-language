@@ -108,6 +108,11 @@ export interface ExerciseAttempt {
   /** Time on this exercise, first render to Continue. */
   duration_ms: number;
   answer?: ExerciseAnswer;
+  /**
+   * Asked again in the lesson's retry round (shared/study/lessonRun.ts): 1 = the first retry,
+   * 2 = the second… Absent on the main pass — only main-pass rows decide "right first time".
+   */
+  retry?: number;
 }
 
 export interface LessonAttemptData {
@@ -157,7 +162,7 @@ export function formatDuration(ms: number): string {
 
 // ============ Server-side shape check ============
 
-const MAX_EXERCISES = 60;
+const MAX_EXERCISES = 120;
 const MAX_TEXT = 2000;
 const MAX_STROKE_NUMBERS = 12000;
 const MAX_DURATION_MS = 6 * 60 * 60 * 1000;
@@ -334,6 +339,7 @@ export function sanitizeAttemptData(input: unknown): LessonAttemptData | null {
       max_points: maxPoints,
       duration_ms: int(raw.duration_ms, 0, MAX_DURATION_MS) ?? 0,
       answer: cleanAnswer(raw.answer),
+      ...(typeof raw.retry === 'number' && raw.retry >= 1 ? { retry: int(raw.retry, 1, 50)! } : {}),
     });
   }
   return {

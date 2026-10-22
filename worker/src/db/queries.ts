@@ -4585,6 +4585,8 @@ export async function applyCustomLessonCompletion(
   db: D1Database,
   userId: string,
   event: { id: string; lesson_id: string; correct: number; total: number; completed_at: string; rating?: number | null },
+  /** The run's outcome (shared/study/lessonRevision.ts): scored exercises + those missed first time. */
+  outcome: { keys: string[]; missed: string[] } | null = null,
 ): Promise<boolean> {
   // Ownership check via the lesson row: never record events against someone
   // else's (or a deleted) lesson.
@@ -4596,9 +4598,9 @@ export async function applyCustomLessonCompletion(
     ? event.rating
     : null;
   const inserted = await db.prepare(`
-    INSERT OR IGNORE INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at, rating)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).bind(event.id, userId, event.lesson_id, event.correct, event.total, event.completed_at, rating).run();
+    INSERT OR IGNORE INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at, rating, outcome)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(event.id, userId, event.lesson_id, event.correct, event.total, event.completed_at, rating, outcome ? JSON.stringify(outcome) : null).run();
   return (inserted.meta?.changes ?? 0) > 0;
 }
 
@@ -4609,6 +4611,8 @@ export interface CustomLessonCompletionRow {
   total: number;
   completed_at: string;
   rating: number | null;
+  /** JSON { keys, missed } (migration 0133); null = derive from the attempt / a legacy finish. */
+  outcome: string | null;
 }
 
 /** All completion events for the user's lessons — the client computes each
@@ -4618,7 +4622,7 @@ export async function listCustomLessonCompletions(
   userId: string,
 ): Promise<CustomLessonCompletionRow[]> {
   const r = await db.prepare(`
-    SELECT id, lesson_id, correct, total, completed_at, rating
+    SELECT id, lesson_id, correct, total, completed_at, rating, outcome
     FROM custom_lesson_completions WHERE user_id = ? ORDER BY completed_at
   `).bind(userId).all<CustomLessonCompletionRow>();
   return r.results;
