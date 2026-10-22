@@ -933,7 +933,7 @@ private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
  * character-by-character diff with the pinyin of what was typed — wrong characters red and
  * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
  * A [spoken] answer also gets the read card's "You said" box ([YouSaidBox]) under it — the answer
- * said inside a sentence is the orange "Contains the answer" with the answer in green above,
+ * said inside a sentence is the yellow "≈ Contains the answer" with the answer in green above,
  * never a red diff; a wrong spoken answer's diff is aligned (AnswerMarks.spokenDiff), not positional.
  */
 @Composable
@@ -987,7 +987,7 @@ private fun AnswerDiffBody(typed: String, correct: String, verdict: AnswerKey.Ve
         }
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnswerKey.spokenVerdictNote(verdict, correct)?.let {
-                Text(it, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Palette.Hard, textAlign = TextAlign.Center)
+                SpokenCloseNote(it)
             }
             // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
             // A spoken answer is lined up with the answer (common characters kept), not position by position.

@@ -150,7 +150,7 @@ class StudyActions(
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
-     * ✎ Check in Coach on the orange "You said · Contains the answer" box: [text] (the hanzi said)
+     * ✎ Check in Coach on the yellow "You said · Contains the answer" box: [text] (the hanzi said)
      * in the Sentence Coach's Check my sentence; [source] = read | spoken | practice (analytics).
      */
     val onYouSaidCoach: (text: String, source: String) -> Unit = { _, _ -> },
@@ -469,10 +469,8 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last answer", tint = if (pass.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
             }
         }
-        val progress by animateFloatAsState(if (pass.total > 0) pass.done.toFloat() / pass.total else 0f, spring(dampingRatio = 0.9f, stiffness = 120f), label = "pass-progress")
-        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
-            Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).clip(CircleShape).background(Palette.Secondary))
-        }
+        // Blue = answers given, orange at the right end = "Not yet" words still owed (docs/HOMEWORK.md §3c).
+        dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar(pass.bar, Modifier.fillMaxWidth().padding(horizontal = 12.dp))
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
@@ -480,10 +478,23 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
         ) {
             pass.part?.let { Text(it.replaceFirstChar { c -> c.uppercase() }, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted) }
             if (pass.due.text.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.homework.DueChip(pass.due)
-            if (pass.retrying > 0) Text("${pass.retrying} to try again", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+            dev.jeromeswannack.chineselearning.lab.core.RetryBars.note(pass.bar)?.let { note ->
+                Text(
+                    note, style = MaterialTheme.typography.bodySmall,
+                    color = if (pass.bar.onRetries) PASS_RETRY_INK else Lab.colors.muted,
+                    fontWeight = if (pass.bar.onRetries) FontWeight.SemiBold else null,
+                    modifier = Modifier.testTag(PASS_RETRY_TAG),
+                )
+            }
         }
     }
 }
+
+/** Test tag of the pass's "2 to try again" / "Trying again · 2 left" under its bar. */
+const val PASS_RETRY_TAG = "hw-pass-retry"
+
+/** "Trying again · 2 left" once the blue has reached the orange: the bar's orange, readable on both themes. */
+private val PASS_RETRY_INK = Color(0xFFEA580C)
 
 /** Test tag of the pass's "3/12" on the study card. */
 const val PASS_COUNT_TAG = "hw-pass-count"

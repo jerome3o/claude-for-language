@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { dueLabel, lastPassAnswer, localDate, nextPassItem, passCardId, passItemIds, passProgress, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
+import { dueLabel, lastPassAnswer, localDate, nextPassItem, passCardId, passItemIds, passProgress, passRetryBar, retryBarNote, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
 import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
 import { CardQueue, type CardWithNote, type IntervalPreview, type QueueCounts, type Rating } from '../types';
 import { setNoteLongTerm } from '../services/longTerm';
@@ -17,6 +17,7 @@ import { StudyReader } from '../components/StudyReader';
 import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
 import { LinkPass } from '../components/homework/LinkPass';
+import { RetryProgressBar } from '../components/homework/RetryProgressBar';
 import { BumpButton } from '../components/bumps/BumpButton';
 import { getMyRelationships, updateDeckSettings } from '../api/client';
 import { getIntervalPreviewLocal } from '../hooks/useStudySession';
@@ -262,15 +263,16 @@ function DeckPass({
   }
 
   const due = dueLabel(dueDate, localDate());
+  const retryBar = passRetryBar(itemIds, events);
+  const retryNote = retryBarNote(retryBar);
   const meta = (
     <>
-      <div className="hw-pass-progress" aria-hidden="true">
-        <span style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
-      </div>
+      {/* Blue = answers given, orange at the right end = "Not yet" words still owed (§3c). */}
+      <RetryProgressBar bar={retryBar} className="hw-pass-progress" testId="hw-pass-progress" />
       <div className="hw-pass-meta">
         {part && <span className="hw-pass-part">{part.replace(/^d/, 'D')}</span>}
         <DueChip due={due} />
-        {progress.retrying > 0 && <span className="hw-pass-retry">{progress.retrying} to try again</span>}
+        {retryNote && <span className={`hw-pass-retry${retryBar.onRetries ? ' hw-pass-retry--on' : ''}`} data-testid="hw-pass-retry">{retryNote}</span>}
       </div>
     </>
   );

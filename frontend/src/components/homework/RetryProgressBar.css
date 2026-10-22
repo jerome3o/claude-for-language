@@ -1,0 +1,76 @@
+/* The retry progress bar (RetryProgressBar.tsx, docs/HOMEWORK.md §3c). */
+.retry-bar {
+  --retry-bar-done: #3b82f6;
+  --retry-bar-retry: #f97316;
+  --retry-bar-retry-light: #fdba74;
+  --retry-bar-track: #e8e2d6;
+  --retry-bar-badge: #c2410c;
+  --retry-bar-height: 8px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.retry-bar-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: var(--retry-bar-height);
+  border-radius: calc(var(--retry-bar-height) / 2);
+  background: var(--retry-bar-track);
+  overflow: hidden;
+}
+
+.retry-bar-done,
+.retry-bar-retry {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  transition: width 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), min-width 0.35s ease;
+}
+
+.retry-bar-done {
+  left: 0;
+  background: var(--retry-bar-done);
+  border-radius: inherit;
+}
+
+/* The owed retries, from the right end leftwards: orange with a light diagonal hatch. */
+.retry-bar-retry {
+  right: 0;
+  background: repeating-linear-gradient(-45deg, var(--retry-bar-retry) 0 4px, var(--retry-bar-retry-light) 4px 6px);
+}
+
+/* One retry in a long pass still shows. */
+.retry-bar-retry--shown {
+  min-width: 8px;
+}
+
+.retry-bar-badge {
+  flex: none;
+  min-width: 2.1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+  color: var(--retry-bar-badge);
+  white-space: nowrap;
+}
+
+/* The web app is light; a dark theme (data-theme, as StudyPage.css) gets its own tones. */
+:root[data-theme='dark'] .retry-bar {
+  --retry-bar-done: #60a5fa;
+  --retry-bar-retry: #fb923c;
+  --retry-bar-retry-light: #9a3412;
+  --retry-bar-track: #2c2c33;
+  --retry-bar-badge: #fdba74;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .retry-bar-done,
+  .retry-bar-retry {
+    transition: none;
+  }
+}
