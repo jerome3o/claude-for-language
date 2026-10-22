@@ -138,6 +138,8 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
         if (ui.cardControls && ui.practice == null) {
             add(StudyMenuItem("snooze", "Snooze…", "💤", "Not today", onSelect = { onHold("snooze") }))
             add(StudyMenuItem("suspend", "Suspend…", "⏸️", onSelect = { onHold("suspend") }))
+            // "Forget this card…": back to New, the warning first (docs/STUDY_SESSION.md "Forget").
+            add(StudyMenuItem("forget", "Forget this card…", "↺", "Back to New", onSelect = { onHold("forget") }))
         }
         if (hasRecording) add(StudyMenuItem("my-recording", "Play my recording", "🎙️", onSelect = actions.onPlayMyRecording))
     }

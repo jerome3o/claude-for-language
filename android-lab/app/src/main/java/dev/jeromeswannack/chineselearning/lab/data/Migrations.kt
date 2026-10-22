@@ -124,6 +124,14 @@ object LabMigrations {
         }
     }
 
+    /** v12: "Forget this card" — the account's forgets (data/forgets/ForgetStore.kt). */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `card_forgets` (`id` TEXT NOT NULL, `cardId` TEXT NOT NULL, `forgottenAt` TEXT NOT NULL, `pending` TEXT, `outboxId` TEXT, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_card_forgets_cardId` ON `card_forgets` (`cardId`)")
+        }
+    }
+
     /** Every migration, oldest first. Append new ones here. */
-    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+    val ALL: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
 }

@@ -53,6 +53,8 @@ data class CardHubUi(
     val threads: List<List<QuestionDto>> = emptyList(),
     val reviews: List<HubReviewDto> = emptyList(),
     val reviewCount: Int = 0,
+    /** "Forget this card" resets on this phone: (card type, forgotten at ISO), newest first. */
+    val forgets: List<Pair<String, String>> = emptyList(),
     /** Flags and Claude chats come from the server: false when only Room could answer. */
     val fromServer: Boolean = false,
     val loadable: Loadable<NoteHubDto> = Loadable(),
@@ -119,7 +121,7 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
         }
     }
 
-    private data class LocalHub(val note: HubNoteUi, val cards: List<HubCardDto>, val reviews: List<HubReviewDto>, val count: Int)
+    private data class LocalHub(val note: HubNoteUi, val cards: List<HubCardDto>, val reviews: List<HubReviewDto>, val count: Int, val forgets: List<Pair<String, String>> = emptyList())
 
     /** Room's answer: the note (with this phone's edits), the cards' computed state, the last reviews. */
     private suspend fun localHub(): LocalHub? {
@@ -136,6 +138,7 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
             },
             full.take(RECENT).map { e -> HubReviewDto(e.id, e.cardId, typeOf[e.cardId].orEmpty(), e.rating, e.reviewedAt, e.timeSpentMs, e.userAnswer, null) },
             events.size,
+            env.dao.liveForgetsForCards(cards.map { it.id }).sortedByDescending { it.forgottenAt }.map { (typeOf[it.cardId].orEmpty()) to it.forgottenAt },
         )
     }
 
@@ -157,6 +160,7 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
             // Server reviews carry recordings; fall back to Room's when the server hasn't answered.
             reviews = server?.recent_reviews ?: local?.reviews.orEmpty(),
             reviewCount = maxOf(server?.review_count ?: 0, local?.count ?: 0),
+            forgets = local?.forgets.orEmpty(),
             fromServer = server != null,
             loadable = state,
         )

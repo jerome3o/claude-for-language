@@ -25,7 +25,34 @@ object CardQueue {
     fun isLearning(queue: Int) = queue == LEARNING || queue == RELEARNING
 }
 
-data class ReviewEventInput(val id: String, val cardId: String, val rating: Int, val reviewedAt: String)
+/**
+ * A review event. [forget] = "Forget this card" (shared/scheduler `kind: 'forget'`): the card is NEW
+ * again from [reviewedAt] and every earlier event stops counting; [rating] is ignored.
+ */
+data class ReviewEventInput(val id: String, val cardId: String, val rating: Int, val reviewedAt: String, val forget: Boolean = false)
+
+/** One stored "Forget this card" (shared/scheduler `CardForget`). */
+data class CardForget(val id: String, val cardId: String, val forgottenAt: String)
+
+/** Port of shared/scheduler's forget helpers. */
+object Forgets {
+    fun asEvent(f: CardForget): ReviewEventInput = ReviewEventInput(f.id, f.cardId, 0, f.forgottenAt, forget = true)
+
+    /** `withForgetEvents`: reviews + forgets sorted by time; at the same instant a forget comes after the reviews. */
+    fun merge(events: List<ReviewEventInput>, forgets: List<CardForget>): List<ReviewEventInput> {
+        if (forgets.isEmpty()) return events
+        return (events + forgets.map(::asEvent)).sortedWith(
+            compareBy<ReviewEventInput>({ it.reviewedAt }, { if (it.forget) 1 else 0 }, { it.id })
+        )
+    }
+
+    /** `lastForgetAt`. */
+    fun lastAt(forgets: List<CardForget>): String? = forgets.maxOfOrNull { it.forgottenAt }
+
+    /** `reviewsSinceForget`: the events strictly after [forgottenAt] (all of them when null). */
+    fun <E> since(events: List<E>, forgottenAt: String?, at: (E) -> String): List<E> =
+        if (forgottenAt == null) events else events.filter { at(it) > forgottenAt }
+}
 
 data class ComputedCardState(
     val queue: Int,
@@ -160,10 +187,19 @@ object CardScheduler {
         if (events.isEmpty()) return initialCardState()
         var card = toFsrsCard(initialCardState(), events[0].reviewedAt)
         var lastReviewedAt: String? = null
+        var forgotten = false
         for (event in events) {
+            if (event.forget) {
+                card = toFsrsCard(initialCardState(), event.reviewedAt)
+                lastReviewedAt = null
+                forgotten = true
+                continue
+            }
             card = fsrs.next(card, Js.parseDate(event.reviewedAt), event.rating + 1)
             lastReviewedAt = event.reviewedAt
+            forgotten = false
         }
+        if (forgotten) return initialCardState()
         return toComputed(card, lastReviewedAt)
     }
 
@@ -179,6 +215,11 @@ object CardScheduler {
         var card = toFsrsCard(initialCardState(), events[0].reviewedAt)
         val out = ArrayList<TimelinePoint>(events.size)
         for (event in events) {
+            if (event.forget) {
+                card = toFsrsCard(initialCardState(), event.reviewedAt)
+                out += TimelinePoint(event.reviewedAt, 0, 0.0)
+                continue
+            }
             card = fsrs.next(card, Js.parseDate(event.reviewedAt), event.rating + 1)
             out += TimelinePoint(event.reviewedAt, card.state.value, card.stability)
         }

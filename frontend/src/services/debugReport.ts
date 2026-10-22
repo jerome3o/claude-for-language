@@ -28,6 +28,7 @@ import {
   getStudyQueue,
   getStudyCutoff,
   introducedTodayFromEvents,
+  lastForgetByCard,
   type DeckQueueCounts,
   type LocalCard,
 } from '../db/database';
@@ -131,12 +132,15 @@ export async function buildDebugReport(): Promise<DebugReport> {
   // ---- Events per card (compound index keys: [card_id, reviewed_at], sorted) ----
   const eventCount = new Map<string, number>();
   const firstReview = new Map<string, number>();
+  // "Forget this card": the first review that counts is the first one after the last forget.
+  const forgotAt = await lastForgetByCard();
   let earliest: string | null = null;
   let latest: string | null = null;
   for (const key of eventKeys) {
     const [cardId, reviewedAt] = key as [string, string];
     const n = eventCount.get(cardId) ?? 0;
-    if (n === 0) firstReview.set(cardId, Date.parse(reviewedAt));
+    const forgot = forgotAt.get(cardId);
+    if (!firstReview.has(cardId) && (forgot === undefined || reviewedAt > forgot)) firstReview.set(cardId, Date.parse(reviewedAt));
     eventCount.set(cardId, n + 1);
     if (!earliest || reviewedAt < earliest) earliest = reviewedAt;
     if (!latest || reviewedAt > latest) latest = reviewedAt;
@@ -209,6 +213,10 @@ export async function buildDebugReport(): Promise<DebugReport> {
     // Suspend & snooze as this device applies them today (shared/decks/holds.ts).
     holds: await reportHolds(),
     bury_siblings: readBurySiblings(),
+    forgets: (await db.cardForgets.toArray().catch(() => []))
+      .filter((f) => f.pending !== 'undo')
+      .map((f): [string, string] => [f.card_id, f.forgotten_at])
+      .sort((x, y) => (x[0] + x[1] < y[0] + y[1] ? -1 : 1)),
     ...(rawByDeck.reviewLoad ? { review_load: { threshold: rawByDeck.reviewLoad.threshold, load: rawByDeck.reviewLoad.load, paused: rawByDeck.reviewLoad.paused } } : {}),
     bonus: { all: bonusAll, by_deck: byDeckBonus, day_key: bonusKey(undefined).split('_').pop() ?? '' },
     sync: {

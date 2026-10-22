@@ -142,6 +142,10 @@ private sealed interface CardSheet {
     data object Write : CardSheet
     /** Suspend… / Snooze… (core CardHolds): [kind] "suspend" | "snooze". */
     data class Hold(val kind: String) : CardSheet
+    /** "Forget this card…" (core Leech): the warning first. */
+    data object Forget : CardSheet
+    /** The leech sheet ("⚠️ Missed 8×" on the answer side). */
+    data object Leech : CardSheet
     /** ⋯ → "Practise this word other ways…" (core OtherCardTypes). */
     data object OtherCards : CardSheet
     /** "✍️ Write it" from the character sheet: one character's stroke-order practice. */
@@ -399,7 +403,11 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, onCharacter = { ch ->
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass,
+                            onLeech = {
+                                sheet = CardSheet.Leech
+                                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("card.leech_open", mapOf("lapses" to view.card.state.lapses, "card_type" to view.card.cardType))
+                            }, onCharacter = { ch ->
                             if (explore != null) explore(dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem.Char(ch)) else sheet = CardSheet.Character(ch)
                         })
                     }
@@ -548,7 +556,7 @@ fun CardStage(
                 view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag },
                 onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") },
                 onOtherCards = { sheet = CardSheet.OtherCards; actions.otherCards.open() },
-                onHold = { kind -> sheet = CardSheet.Hold(kind) },
+                onHold = { kind -> sheet = if (kind == "forget") CardSheet.Forget else CardSheet.Hold(kind) },
             ),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
@@ -562,6 +570,31 @@ fun CardStage(
             onApply = { length, wholeWord -> actions.onHold(s.kind, length, wholeWord) },
             onDismiss = { if (sheet == s) sheet = null },
         )
+        CardSheet.Forget -> dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.ForgetSheet(
+            hanzi = note.hanzi,
+            cardType = view.card.cardType,
+            wordCardTypes = view.wordCardTypes,
+            onApply = { wholeWord -> actions.onForget(wholeWord) },
+            onDismiss = { if (sheet == CardSheet.Forget) sheet = null },
+        )
+        CardSheet.Leech -> {
+            val controls = ui.cardControls && ui.practice == null
+            dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.LeechSheet(
+                lapses = view.card.state.lapses,
+                load = { actions.leechInfo(view.card.id) },
+                actions = dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.LeechSheetActions(
+                    onEdit = { sheet = CardSheet.Edit },
+                    onMemoryHook = if (ui.aiAvailable) ({
+                        sheet = CardSheet.Ask
+                        actions.ask.ask(dev.jeromeswannack.chineselearning.lab.core.Leech.memoryHookQuestion(note.hanzi, note.english, view.card.state.lapses), false, null)
+                    }) else null,
+                    onSnooze = if (controls) ({ sheet = CardSheet.Hold("snooze") }) else null,
+                    onSuspend = if (controls) ({ sheet = CardSheet.Hold("suspend") }) else null,
+                    onForget = if (controls) ({ sheet = CardSheet.Forget }) else null,
+                ),
+                onDismiss = { if (sheet == CardSheet.Leech) sheet = null },
+            )
+        }
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
         CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
@@ -769,6 +802,8 @@ private fun CardBack(
     practiceSaid: String? = null,
     /** A homework pass word: the long-term switch and ⚡ under Play; the pass's calm sentence rows. */
     pass: PassCardUi? = null,
+    /** "⚠️ Missed 8×" tapped (a leech; never on a homework pass). */
+    onLeech: () -> Unit = {},
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -817,6 +852,10 @@ private fun CardBack(
                         SpokenResultRow(transcript, note.hanzi, v, onPlay = actions.onYouSaidPlay, onCoach = { actions.onYouSaidCoach(transcript, source) })
                     }
                 }
+            }
+            // A card missed 8+ times after it was learned (Anki's leech): "⚠️ Missed 8×" → what helps.
+            if (pass == null && dev.jeromeswannack.chineselearning.lab.core.Leech.isLeech(view.card.state.lapses)) {
+                KeepTaps { dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.LeechPill(view.card.state.lapses, Modifier.padding(top = 8.dp), onOpen = onLeech) }
             }
             // Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off)
             KeepTaps { WordTagsFor(note.hanzi, source = "study", aiTags = note.wordTags, modifier = Modifier.padding(top = 8.dp)) }

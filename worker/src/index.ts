@@ -152,6 +152,8 @@ import studyTimeRoutes from './routes/study-time';
 import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
 import cardHoldsRoutes from './routes/card-holds';
+import cardForgetsRoutes from './routes/card-forgets';
+import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
 import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
 import { backfillCompletionOutcomes, outcomeForUpload, setCompletionOutcome } from './services/lesson-revision';
@@ -671,6 +673,7 @@ app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
 app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
 app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', upNextRoutes); // "Up next" — GET/POST/DELETE /api/me/up-next, PUT /api/me/up-next/order, /api/relationships/:relId/student-up-next…
@@ -1305,7 +1308,16 @@ app.get('/api/notes/:id/history', async (c) => {
   if (!history) {
     return c.json({ error: 'Note not found' }, 404);
   }
-  return c.json(history);
+  // "Forget this card": when each card was reset to New (shown in the history, never counted as a review).
+  // Per card type, newest first like the reviews; older clients ignore the field.
+  const forgets = await c.env.DB.prepare(
+    `SELECT f.id, f.forgotten_at, c.card_type FROM card_forgets f JOIN cards c ON c.id = f.card_id
+     WHERE f.user_id = ? AND f.undone_at IS NULL AND c.note_id = ? ORDER BY f.forgotten_at DESC`
+  ).bind(userId, id).all<{ id: string; forgotten_at: string; card_type: string }>().then(r => r.results ?? []).catch(() => []);
+  return c.json(history.map(h => ({
+    ...h,
+    forgets: forgets.filter(f => f.card_type === h.card_type).map(f => ({ id: f.id, forgotten_at: f.forgotten_at })),
+  })));
 });
 
 // POST /api/notes/:id/ask lives in routes/ask-claude.ts (Ask Claude, immersion: Chinese answers, word chips, the auto-check).
@@ -5099,8 +5111,10 @@ app.post('/api/reviews', async (c) => {
       WHERE id = ?
     `);
 
+    // "Forget this card": the cards' forgets replay with their reviews (a forget = back to NEW).
+    const replayByCard = mergeForgets(eventsByCard, await forgetsByCard(c.env.DB, userId, [...eventsByCard.keys()]).catch(() => new Map()));
     const statements: D1PreparedStatement[] = [];
-    for (const [cardId, cardEvents] of eventsByCard) {
+    for (const [cardId, cardEvents] of replayByCard) {
       try {
         const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
         statements.push(updateStmt.bind(
@@ -5187,48 +5201,8 @@ app.delete('/api/reviews/:id', async (c) => {
   await c.env.DB.prepare('DELETE FROM review_events WHERE id = ? AND user_id = ?')
     .bind(eventId, userId).run();
 
-  const rows = await c.env.DB.prepare(`
-    SELECT id, card_id, rating, reviewed_at FROM review_events
-    WHERE user_id = ? AND card_id = ?
-    ORDER BY reviewed_at ASC
-  `).bind(userId, event.card_id).all<{ id: string; card_id: string; rating: number; reviewed_at: string }>();
-
-  const cardEvents: SchedulerReviewEvent[] = rows.results.map(e => ({
-    id: e.id,
-    card_id: e.card_id,
-    rating: e.rating as 0 | 1 | 2 | 3,
-    reviewed_at: e.reviewed_at,
-  }));
-
-  const newState = cardEvents.length > 0
-    ? computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS)
-    : initialCardState(FSRS_DEFAULT_SETTINGS);
-
-  await c.env.DB.prepare(`
-    UPDATE cards SET
-      queue = ?,
-      stability = ?,
-      difficulty = ?,
-      lapses = ?,
-      ease_factor = ?,
-      interval = ?,
-      repetitions = ?,
-      next_review_at = ?,
-      due_timestamp = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `).bind(
-    newState.queue,
-    newState.stability,
-    newState.difficulty,
-    newState.lapses,
-    newState.ease_factor,
-    newState.interval,
-    newState.repetitions,
-    newState.next_review_at,
-    newState.due_timestamp,
-    event.card_id
-  ).run();
+  // The card's state from its remaining reviews + live forgets (a card with neither is NEW).
+  await recomputeCards(c.env.DB, userId, [event.card_id]);
 
   return c.json({ deleted: true });
 });
@@ -5316,10 +5290,12 @@ app.post('/api/cards/recompute-states', async (c) => {
   let errors = 0;
   const statements: D1PreparedStatement[] = [];
 
-  for (const [cardId, cardEvents] of eventsByCard) {
+  // "Forget this card": forgets replay with the reviews (withForgetEvents sorts each card's list).
+  const replayByCard = mergeForgets(eventsByCard, await forgetsByCard(c.env.DB, userId).catch(() => new Map()));
+  for (const [cardId, cardEvents] of replayByCard) {
     try {
       // computeCardState expects events sorted by reviewed_at ascending
-      cardEvents.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
+      cardEvents.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : (a.kind === 'forget' ? 1 : 0) - (b.kind === 'forget' ? 1 : 0)));
       const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
 
       // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
@@ -5483,6 +5459,9 @@ app.get('/api/sync/changes', async (c) => {
     card_holds: await listActiveHolds(c.env.DB, userId).catch(() => null),
     // "Don't show a word's other card types on the same day" (off by default).
     bury_siblings: await getBurySiblings(c.env.DB, userId).catch(() => null),
+    // "Forget this card": every live forget (a short list, sent whole; the device keeps its own
+    // not-yet-uploaded ones on top and replays the cards whose forgets changed). shared/scheduler.
+    card_forgets: await listForgets(c.env.DB, userId).catch(() => null),
     // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
     // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),

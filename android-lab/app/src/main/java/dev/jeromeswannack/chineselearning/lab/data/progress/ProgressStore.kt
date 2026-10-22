@@ -95,6 +95,10 @@ class ProgressStore(private val db: LabDatabase) {
             val events = r.query("SELECT id, cardId, rating, reviewedAt FROM review_events").use { c ->
                 ArrayList<KnownEvent>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownEvent(c.getString(0), c.getString(1), c.getInt(2), c.getString(3)) }
             }
+            // "Forget this card": the card is NEW again from then (not known, not seen).
+            r.query("SELECT id, cardId, forgottenAt FROM card_forgets WHERE pending IS NULL OR pending != 'undo'").use { c ->
+                while (c.moveToNext()) events += KnownEvent(c.getString(0), c.getString(1), 0, c.getString(2), forget = true)
+            }
             Triple(notes, cards, events)
         }
         return withContext(Dispatchers.Default) {

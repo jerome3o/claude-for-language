@@ -672,6 +672,8 @@ export interface NoteReviewHistory {
     recording_url: string | null;
     reviewed_at: string;
   }>;
+  /** "Forget this card": when this card was reset to New (newest first; absent from older servers). */
+  forgets?: Array<{ id: string; forgotten_at: string }>;
 }
 
 export async function getNoteHistory(noteId: string): Promise<NoteReviewHistory[]> {

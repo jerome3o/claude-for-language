@@ -944,6 +944,51 @@ class StudyViewModel(
         }
     }
 
+    // ---- Forget this card (core Leech / Forgets; web onCardsForgotten) ----
+    private var lastForget: dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.Outcome? = null
+
+    /**
+     * "Forget this card…": the cards are NEW again (replayed from their events + the forget); they
+     * leave this session (back in the new-card queue for a later one) and the toast offers Undo.
+     */
+    fun forgetCurrent(wholeWord: Boolean) {
+        val card = currentView()?.card ?: return
+        viewModelScope.launch {
+            val ids = if (wholeWord) withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(card.noteId)).map { it.id } }.ifEmpty { listOf(card.id) } else listOf(card.id)
+            val outcome = dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.forget(app, ids, if (ids.size > 1) "note" else "card", "study")
+            lastForget = outcome
+            val gone = ids.toSet()
+            val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
+            queue.removeAll { it.id in gone }
+            bumpedCardIds.removeAll(gone)
+            if (undo?.card?.id in gone) { undo = null; _ui.update { it.copy(canUndo = false) } }
+            _ui.update { it.copy(toast = outcome.message, forgetUndoable = true, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+            toastJob?.cancel()
+            toastJob = viewModelScope.launch { kotlinx.coroutines.delay(6000); _ui.update { it.copy(toast = null, forgetUndoable = false) }; lastForget = null }
+            if (onScreen != null && onScreen in gone) {
+                dayStore.clearResumePoint(onScreen)
+                presentAfterRemoval()
+            }
+        }
+    }
+
+    /** The toast's Undo: the forget stops counting; the cards are back as they were (due ones rejoin today). */
+    fun undoForget() {
+        val outcome = lastForget ?: return
+        lastForget = null
+        viewModelScope.launch {
+            val message = dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.undo(app, outcome.ids, "study")
+            _ui.update { it.copy(toast = message, forgetUndoable = false) }
+            toastJob?.cancel()
+            toastJob = viewModelScope.launch { kotlinx.coroutines.delay(3500); _ui.update { it.copy(toast = null) } }
+            refreshKeepingCard()
+        }
+    }
+
+    /** The leech sheet's numbers (core Leech.info over the card's events + forgets). */
+    suspend fun leechInfo(cardId: String): dev.jeromeswannack.chineselearning.lab.core.Leech.Info? =
+        withContext(Dispatchers.IO) { runCatching { dev.jeromeswannack.chineselearning.lab.core.Leech.info(repo.replayEvents(cardId)) }.getOrNull() }
+
     /** The note changed outside the form (its picture, saved at once): show the stored note. */
     fun noteChanged(noteId: String) {
         viewModelScope.launch { withContext(Dispatchers.IO) { repo.dao.note(noteId) }?.let(::showNote) }

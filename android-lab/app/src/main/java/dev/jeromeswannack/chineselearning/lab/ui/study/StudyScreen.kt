@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.platform.testTag
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.padding
@@ -108,6 +109,12 @@ class StudyActions(
      * (snooze), [wholeWord] = every card type of the word, else this card only.
      */
     val onHold: (kind: String, length: String?, wholeWord: Boolean) -> Unit = { _, _, _ -> },
+    /** "Forget this card…" (core Leech / Forgets): [wholeWord] = every card type of the word. */
+    val onForget: (wholeWord: Boolean) -> Unit = {},
+    /** The toast's Undo after a forget. */
+    val onForgetUndo: () -> Unit = {},
+    /** The leech sheet's numbers: the card's events + forgets replayed (Leech.info); null = unavailable. */
+    val leechInfo: suspend (cardId: String) -> dev.jeromeswannack.chineselearning.lab.core.Leech.Info? = { null },
     // ⋯ menu
     val onGenerateFunFact: () -> Unit = {},
     val onRegenerateAudio: () -> Unit = {},
@@ -277,6 +284,9 @@ fun StudyRoute(
             onDismissExplainer = vm::dismissExplainer,
             onDismissNotice = vm::dismissNotice,
             onHold = vm::holdCurrent,
+            onForget = vm::forgetCurrent,
+            onForgetUndo = vm::undoForget,
+            leechInfo = vm::leechInfo,
             onGenerateFunFact = vm::generateFunFact,
             onRegenerateAudio = vm::regenerateAudio,
             onNewVoice = vm::newVoice,
@@ -430,7 +440,11 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
             FirstCardExplainer(actions.onDismissExplainer)
         }
         // "Snoozed until tomorrow." after ⋯ → Snooze… / Suspend….
-        dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast(ui.toast, Modifier.align(Alignment.BottomCenter))
+        // After ↺ Forget: "Card reset to New.  ·  Undo" — a tap undoes it.
+        dev.jeromeswannack.chineselearning.lab.ui.kit.LabToast(
+            ui.toast?.let { if (ui.forgetUndoable) "$it  ·  Undo" else it },
+            Modifier.align(Alignment.BottomCenter).bouncyClickable(enabled = ui.forgetUndoable) { actions.onForgetUndo() }.testTag("study-toast"),
+        )
     }
 }
 

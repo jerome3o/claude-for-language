@@ -12,7 +12,8 @@ data class KnownNote(val id: String, val hanzi: String)
 
 data class KnownCard(val id: String, val noteId: String)
 
-data class KnownEvent(val id: String?, val cardId: String, val rating: Int, val reviewedAt: String)
+/** A review event; [forget] = "Forget this card" (the card is NEW again from then: not seen). */
+data class KnownEvent(val id: String?, val cardId: String, val rating: Int, val reviewedAt: String, val forget: Boolean = false)
 
 data class KnownCounts(val known: Int = 0, val learning: Int = 0)
 
@@ -146,11 +147,12 @@ object Known {
         }
         val changes = ArrayList<Change>()
         for ((cardId, list) in byCard) {
-            val sorted = list.sortedWith(compareBy<KnownEvent>({ it.reviewedAt }, { it.id ?: "" }))
-            val timeline = CardScheduler.computeCardTimeline(sorted.map { ReviewEventInput(it.id ?: "", it.cardId, it.rating, it.reviewedAt) })
+            val sorted = list.sortedWith(compareBy<KnownEvent>({ it.reviewedAt }, { if (it.forget) 1 else 0 }, { it.id ?: "" }))
+            val timeline = CardScheduler.computeCardTimeline(sorted.map { ReviewEventInput(it.id ?: "", it.cardId, it.rating, it.reviewedAt, it.forget) })
             var prev = 0
             timeline.forEachIndexed { seq, p ->
-                val tier = if (Mastery.level(p.queue, p.stability) == MasteryLevel.Mastered) 2 else 1
+                // A forgotten card is NEW again: not known, not seen.
+                val tier = if (p.queue == 0) 0 else if (Mastery.level(p.queue, p.stability) == MasteryLevel.Mastered) 2 else 1
                 if (tier != prev) changes += Change(Js.parseDate(p.reviewedAt), cardId, seq, tier, p.reviewedAt)
                 prev = tier
             }

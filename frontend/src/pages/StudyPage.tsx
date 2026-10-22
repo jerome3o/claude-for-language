@@ -133,6 +133,11 @@ import { devicePinyinLine } from '../utils/autoPinyin';
 import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
 import { CardControlSheet, type CardControlMode } from '../components/cardControls/CardControlSheet';
+import { ForgetSheet } from '../components/cardControls/ForgetSheet';
+import { LeechPill } from '../components/cardControls/LeechPill';
+import { memoryHookQuestion } from '@shared/cards/leech';
+import { undoForget, type ForgetOutcome } from '../services/cardForgets';
+import { UndoToast } from '../components/upNext/UpNextBoard';
 import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 
@@ -356,6 +361,7 @@ export function StudyCard({
   pass,
   inStudySession = false,
   onCardsHeld,
+  onCardsForgotten,
   sessionBumpedCardIds,
   onAddOtherCards,
 }: {
@@ -393,6 +399,11 @@ export function StudyCard({
    * with the cards it covers and the toast line. Unset = no card controls (homework pass).
    */
   onCardsHeld?: (cardIds: string[], message: string) => void;
+  /**
+   * ⋯ → "Forget this card…" (docs/STUDY_SESSION.md "Forget"): called once the forget is written —
+   * the cards are NEW again; the toast offers Undo. Unset = not offered (homework pass, practice).
+   */
+  onCardsForgotten?: (outcome: ForgetOutcome) => void;
   /** This session's ⚡ pocket cards ("Practise this word other ways…" shows them as already in today). */
   sessionBumpedCardIds?: ReadonlySet<string>;
   /**
@@ -480,6 +491,8 @@ export function StudyCard({
   const [showFlagSheet, setShowFlagSheet] = useState(false);
   // Suspend… / Snooze… (components/cardControls, shared/decks/holds.ts).
   const [controlSheet, setControlSheet] = useState<CardControlMode | null>(null);
+  // Forget this card… (components/cardControls/ForgetSheet).
+  const [showForget, setShowForget] = useState(false);
   const [showOtherCards, setShowOtherCards] = useState(false);
   // How many cards the note has: "Practise this word other ways…" needs a sibling.
   const noteCardCount = useLiveQuery(
@@ -1677,6 +1690,26 @@ export function StudyCard({
           />
         )}
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
+        {/* A card missed 8+ times after it was learned (Anki's leech): "⚠️ Missed 8×" → what helps. */}
+        {!pass && (
+          <LeechPill
+            cardId={card.id}
+            cardType={card.card_type}
+            lapses={card.lapses}
+            actions={{
+              onEdit: () => { track('study.edit_card'); setShowEditModal(true); },
+              onMemoryHook: aiAvailable && !cardDeleted
+                ? () => {
+                    setShowAskClaude(true);
+                    void askChat.ask(memoryHookQuestion(card.note.hanzi, card.note.english, card.lapses ?? 0));
+                  }
+                : undefined,
+              onSnooze: onCardsHeld ? () => setControlSheet('snooze') : undefined,
+              onSuspend: onCardsHeld ? () => setControlSheet('suspend') : undefined,
+              onForget: onCardsForgotten ? () => setShowForget(true) : undefined,
+            }}
+          />
+        )}
         <WordTagPills hanzi={card.note.hanzi} aiTags={card.note.word_tags} source="study" />
         {/* The deck it came from: a small quiet line on the answer side only (on the question it
             could hint the answer). A tap shows the full name + Open deck →. */}
@@ -2222,6 +2255,9 @@ export function StudyCard({
             { key: 'snooze', label: 'Snooze…', icon: '💤', hint: 'Not today', onSelect: () => setControlSheet('snooze') },
             { key: 'suspend', label: 'Suspend…', icon: '⏸️', onSelect: () => setControlSheet('suspend') },
           ]
+        : []),
+      ...(onCardsForgotten
+        ? [{ key: 'forget', label: 'Forget this card…', icon: '↺', hint: 'Back to New', onSelect: () => setShowForget(true) }]
         : []),
       ...(audioBlob
         ? [{ key: 'my-recording', label: 'Play my recording', icon: '🎙️', onSelect: playUserRecording }]
@@ -3090,6 +3126,23 @@ export function StudyCard({
         />
       )}
 
+      {/* Forget this card… (⋯ menu / leech sheet): the warning first, then ↺ Forget */}
+      {showForget && onCardsForgotten && (
+        <ForgetSheet
+          card={{ id: card.id, note_id: card.note.id, card_type: card.card_type }}
+          hanzi={card.note.hanzi}
+          source="study"
+          onDone={(outcome) => {
+            if (outcome.cardIds.includes(card.id)) {
+              doneWithCardRef.current = true;
+              clearResumePoint(card.id);
+            }
+            onCardsForgotten(outcome);
+          }}
+          onClose={() => setShowForget(false)}
+        />
+      )}
+
       {/* Practise this word other ways (⋯ menu): a card-level ⚡ bump into this session */}
       {showOtherCards && onAddOtherCards && (
         <OtherCardTypesSheet
@@ -3253,6 +3306,7 @@ export function StudyPage() {
     addBumpedCards,
     removeNoteFromSession,
     removeCardsFromSession,
+    restoreCardsToSession,
     updateCurrentNote,
   } = useStudySession({
     deckId,
@@ -3263,6 +3317,8 @@ export function StudyPage() {
   const bumps = useBumps();
   // "Snoozed until tomorrow." after ⋯ → Snooze / Suspend.
   const [holdToast, showHoldToast] = useToast();
+  // "Forget this card": the toast with Undo (the only way back).
+  const [forgetToast, setForgetToast] = useState<ForgetOutcome | null>(null);
 
   // Active study time: counted while this screen is in front and used (docs/STUDY_SESSION.md "Time").
   useActiveStudyTime(studyStarted);
@@ -3367,6 +3423,27 @@ export function StudyPage() {
     return <Loading />;
   }
 
+  // Hold / forget toasts: also on the "All done" screen (the last card may just have left).
+  const sessionToasts = (
+    <>
+      <Toast message={holdToast} />
+      {forgetToast && (
+        <UndoToast
+          text={forgetToast.message}
+          onUndo={() => {
+            const t = forgetToast;
+            setForgetToast(null);
+            void undoForget(t.ids, 'study').then((msg) => {
+              showHoldToast(msg);
+              void restoreCardsToSession(t.cardIds);
+            });
+          }}
+          onDone={() => setForgetToast(null)}
+        />
+      )}
+    </>
+  );
+
   // Today's queue is empty - check that ALL queues are empty, not just that currentCard is null
   if (isAllDone) {
     // Number of bonus cards to add each time the user clicks "Study More"
@@ -3433,6 +3510,7 @@ export function StudyPage() {
             </div>
           </div>
         </div>
+        {sessionToasts}
       </div>
     );
   }
@@ -3480,6 +3558,10 @@ export function StudyPage() {
             showHoldToast(message);
             void removeCardsFromSession(ids);
           }}
+          onCardsForgotten={(outcome) => {
+            void removeCardsFromSession(outcome.cardIds);
+            setForgetToast(outcome);
+          }}
           resume={resume}
           scope={studyScope(deckId)}
           inStudySession
@@ -3506,7 +3588,7 @@ export function StudyPage() {
         </div>
       ) : null}
 
-      <Toast message={holdToast} />
+      {sessionToasts}
     </div>
   );
 }

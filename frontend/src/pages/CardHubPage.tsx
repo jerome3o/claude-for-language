@@ -1,3 +1,5 @@
+import { FORGET_HISTORY_LABEL } from '@shared/cards/leech';
+import '../components/cardControls/cardControls.css';
 import { BumpButton } from '../components/bumps/BumpButton';
 import { NoteImage } from '../components/noteImage/NoteImage';
 import { NotePictureSection } from '../components/noteImage/NotePictureSection';
@@ -131,6 +133,13 @@ export function CardHubPage() {
 
         <section className="detail-section">
           <h2>Recent reviews{hub.review_count > 0 ? ` (${hub.review_count})` : ''}</h2>
+          {(hub.forgets ?? []).map((f) => (
+            // "Forget this card": a marker, never a review — the reviews before it no longer count for its schedule.
+            <div key={f.id} className="forget-history-row" data-testid="history-forget">
+              {FORGET_HISTORY_LABEL} · <CardTypeChip cardType={f.card_type as CardType} />{' '}
+              <span className="text-light" title={shortDateTime(f.forgotten_at)}>{relativeDay(f.forgotten_at)}</span>
+            </div>
+          ))}
           {hub.recent_reviews.length === 0 ? (
             <div className="cf-empty">Not reviewed yet.</div>
           ) : (

@@ -12,6 +12,9 @@ import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import dev.jeromeswannack.chineselearning.lab.data.api.folders
 import dev.jeromeswannack.chineselearning.lab.data.api.studyBumps
 import dev.jeromeswannack.chineselearning.lab.data.api.cardHolds
+import dev.jeromeswannack.chineselearning.lab.data.api.cardForgets
+import dev.jeromeswannack.chineselearning.lab.core.CardForget
+import dev.jeromeswannack.chineselearning.lab.core.Forgets
 import dev.jeromeswannack.chineselearning.lab.data.api.upNext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -290,6 +293,16 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         } catch (e: Exception) {
             android.util.Log.w("LabSync", "card holds not synced", e)
         }
+        // "Forget this card": the live forgets, whole; the full sync replays every card anyway.
+        try {
+            dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.replaceFromServer(db, db.platform(), api.cardForgets())
+        } catch (e: UnauthorizedException) {
+            throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.w("LabSync", "card forgets not synced", e)
+        }
         // "Up next": the ordered list, whole (an older server without it must not fail the sync).
         try {
             dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), api.upNext())
@@ -325,6 +338,8 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.bumps?.let { dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.replaceFromServer(db, db.platform(), it) }
         changes.up_next?.let { dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.replaceFromServer(db, db.platform(), it) }
         changes.card_holds?.let { dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.replaceFromServer(db, db.platform(), it) }
+        // "Forget this card": the server's forgets; the cards whose forgets changed are replayed.
+        changes.card_forgets?.let { dirty.ids.addAll(dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.replaceFromServer(db, db.platform(), it)) }
         changes.bury_siblings?.let { prefs.burySiblings = it }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
@@ -431,8 +446,11 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             stateMutex.withLock {
                 val cards = dao.cardsByIds(chunk)
                 val events = dao.replayEventsForCards(chunk).groupBy { it.cardId }
+                // "Forget this card": a forget = back to NEW, merged into the card's events.
+                val forgets = dao.liveForgetsForCards(chunk).groupBy { it.cardId }
                 val changed = cards.mapNotNull { c ->
-                    val replayed = c.withState(CardScheduler.computeCardState(events[c.id].orEmpty().map { ReviewEventInput(it.id, it.cardId, it.rating, it.reviewedAt) }))
+                    val reviews = events[c.id].orEmpty().map { ReviewEventInput(it.id, it.cardId, it.rating, it.reviewedAt) }
+                    val replayed = c.withState(CardScheduler.computeCardState(Forgets.merge(reviews, forgets[c.id].orEmpty().map(::forget))))
                     replayed.takeIf { it != c }
                 }
                 if (changed.isNotEmpty()) db.withTransaction { dao.upsertCards(changed) }
@@ -446,11 +464,22 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
 
     private suspend fun recomputeCard(cardId: String): CardEntity? {
         val card = dao.card(cardId) ?: return null
-        val state = CardScheduler.computeCardState(dao.eventsForCard(cardId).map(::input))
+        val state = CardScheduler.computeCardState(replayEvents(cardId))
         return card.withState(state).also { dao.upsertCards(listOf(it)) }
     }
 
+    /** A card's reviews with its live forgets merged in — what its state is replayed from (Forgets.merge). */
+    suspend fun replayEvents(cardId: String): List<ReviewEventInput> =
+        Forgets.merge(dao.eventsForCard(cardId).map(::input), dao.liveForgetsForCards(listOf(cardId)).map(::forget))
+
+    /** Replay these cards now (a forget / its undo on this phone, or a forget a sync brought). */
+    suspend fun replayCards(cardIds: Collection<String>) = withContext(Dispatchers.IO) {
+        stateMutex.withLock { for (id in cardIds.distinct()) recomputeCard(id) }
+        notifyLocalChange()
+    }
+
     private fun input(e: ReviewEventEntity) = ReviewEventInput(e.id, e.cardId, e.rating, e.reviewedAt)
+    private fun forget(f: CardForgetEntity) = CardForget(f.id, f.cardId, f.forgottenAt)
 
     // ---------------- study writes ----------------
 
