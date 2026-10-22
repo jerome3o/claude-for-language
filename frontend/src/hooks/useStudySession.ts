@@ -1168,6 +1168,16 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     for (const id of ids) bumpedCardIdsRef.current.delete(id);
     setBumpedCardIds(new Set(bumpedCardIdsRef.current));
     const newQueue = queue.filter(c => !ids.has(c.id));
+    // A held NEW card frees its budget slot: the next new card comes into today's session.
+    if (queue.some(c => ids.has(c.id) && c.queue === CardQueue.NEW)) {
+      try {
+        const fresh = await getStudyQueue(deckId, bonusNewCards);
+        const have = new Set(newQueue.map(c => c.id));
+        for (const c of fresh.dueCards) if (c.queue === CardQueue.NEW && !have.has(c.id) && !ids.has(c.id)) newQueue.push(c);
+      } catch (err) {
+        console.warn('[useStudySession] refilling the freed new-card slot failed:', err);
+      }
+    }
     const updates = { queue: newQueue, recentNoteIds };
     const onScreen = currentCardState.card?.id;
     if (!onScreen || !ids.has(onScreen)) {
@@ -1179,7 +1189,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const delayed = await findDelayedLearningCard();
     if (delayed && !ids.has(delayed.id) && await presentCard(delayed, updates)) return;
     presentNothing(updates);
-  }, [queue, readerQueue, grammarLesson, recentNoteIds, currentCardState, applyQueueUpdates, presentCard, presentSelection, presentNothing, findDelayedLearningCard, setCanUndo]);
+  }, [queue, readerQueue, grammarLesson, recentNoteIds, currentCardState, applyQueueUpdates, presentCard, presentSelection, presentNothing, findDelayedLearningCard, setCanUndo, deckId, bonusNewCards]);
 
   // Reload queue (for "Study More" button)
   const reloadQueue = useCallback(() => {

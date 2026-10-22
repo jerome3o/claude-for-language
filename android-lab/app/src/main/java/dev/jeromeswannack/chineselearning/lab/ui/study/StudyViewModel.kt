@@ -923,10 +923,10 @@ class StudyViewModel(
             _ui.update { it.copy(toast = message, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
             toastJob?.cancel()
             toastJob = viewModelScope.launch { kotlinx.coroutines.delay(3500); _ui.update { it.copy(toast = null) } }
-            if (onScreen != null && onScreen in ids) {
-                dayStore.clearResumePoint(onScreen)
-                presentAfterRemoval()
-            }
+            if (onScreen != null && onScreen in ids) dayStore.clearResumePoint(onScreen)
+            // Rebuild today's queue: a held NEW card frees its budget slot for the next new card, and the
+            // card on screen moves on when it was held (refreshKeepingCard presents the next one).
+            refreshKeepingCard()
         }
     }
 

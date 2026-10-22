@@ -401,6 +401,51 @@ the deck queue and "Order new cards by". It is persistent (not just today) — t
   and the tutor's `get_student_up_next`, `add_to_student_up_next`, `move_in_student_up_next`,
   `remove_from_student_up_next`.
 
+## Suspend & snooze — Anki's card controls, with clearer words
+
+Jerome (Oct 2026): Anki's card controls, "with no fake reviews and without bending FSRS" — and a
+"not today" with wording that makes it obvious. One rule for both apps, `shared/decks/holds.ts`
+(Lab `core/…/CardHolds.kt`, parity-tested by `android-lab/parity/fixtures/card-holds.ts`):
+
+- **Suspend** (⋯ → *Suspend…* on the answer side, the card hub): the card leaves ALL study — the
+  queue, the new-card pools (a held NEW card frees its budget slot, so the next new card takes its place
+  today), the ⚡ pocket, Up next, Home and deck counts, "Pause new cards on heavy days"'s load, the
+  server's due list (MCP / study app). Its review history and FSRS state are untouched — a hold is never
+  a review event and never a state write. Unsuspended, it comes back exactly as it was: an overdue review
+  is simply due, and ts-fsrs schedules it from the real elapsed time.
+- **Snooze** (Anki's bury, named for what it does — ⋯ → *Snooze…* "Not today"): *Until tomorrow · For a
+  week · For a month*. Hidden until the LOCAL date it ends (`snoozeUntil`: + 1 day, + 7 days, same day
+  next month clamped to the month's end), the schedule unchanged, a snoozed new card frees its slot today.
+  Each device decides with its own local date ("YYYY-MM-DD" in `card_holds.until`).
+- **This card only / All card types of this word** — one toggle on both sheets (`holdTargets`).
+- **"Don't show a word's other card types on the same day"** (Anki's sibling burying; Settings → Study,
+  per account, **off** by default — `users.bury_siblings`): once a card of a word was reviewed today, the
+  word's NEW and REVIEW cards wait until tomorrow (`siblingBuriedCardIds`, applied by `selectStudyQueue`
+  and live in the session after a rating). Learning / relearning cards are never held back, and a word
+  bumped to today (⚡) is exempt — that is an explicit "show me this now".
+- **Homework one-off passes are NOT affected** — a pass is not FSRS: it is the tutor's checklist,
+  answered with Not yet / Got it and no review event. Suspending a card in study doesn't take a word out
+  of the tutor's homework; the pass still shows it (the long-term review of the same card stays held).
+- **Where to manage them** — Jerome: "people hardly ever look into the decks". Settings → Study →
+  *⏸ Suspended & snoozed cards* (and More → Decks → the same row) opens `/cards/held`
+  (`pages/HeldCardsPage.tsx`; Lab `ui/cardcontrols/HeldCardsScreen.kt`): a searchable list (hanzi, pinyin
+  with or without tones, English — `filterHoldRows`) with All / ⏸ Suspended / 💤 Snoozed chips, each row
+  with its card type, deck and since / until, *Unsuspend* / *Wake now* per row and for the ticked ones,
+  and **Undo**. The card hub shows each card type with its hold and the same actions
+  (`components/cardControls/HubCardControls.tsx`); deck page rows carry a quiet tag — "⏸ Suspended",
+  "⏸ 1 of 3 suspended", "💤 Snoozed · 29 Oct" (`noteHoldTag`) — always an icon and words, never colour alone.
+- **Storage & sync** — `card_holds` (migration 0133): one row per hold (client id, card, kind, until,
+  created_at, cleared_at). A new hold on a card clears its older ones; a clear covers holds made at or
+  before it (a hold made later on another device survives). Offline-first: web IndexedDB `cardHolds`
+  (Dexie v35, `services/cardHolds.ts`), Lab Room `card_holds` (v10, `data/holds/HoldStore.kt`) + the
+  Outbox; `/api/sync/changes` carries the whole active list as `card_holds` (+ `bury_siblings`).
+  API: `GET|POST /api/me/card-holds`, `POST /api/me/card-holds/clear`, `PUT /api/profile/bury-siblings`.
+  MCP (the signed-in user's own cards only): `suspend_cards`, `unsuspend_cards`, `list_suspended_cards`.
+- **Debug reports** carry `holds` ([card, kind, until] as the device applies them today) and
+  `bury_siblings`; `compareDebugReports` says when the two apps hold different cards.
+- **Analytics**: `card.suspend`, `card.unsuspend`, `card.snooze`, `card.wake`, `settings.bury_siblings`.
+- **E2E**: `e2e/tests/card-holds.spec.ts` — suspend from the card, gone from study, unsuspend from Settings.
+
 ## Mini lessons: never lost, a retry round, revise until right first time
 
 Mini lessons are big chunks, not flashcards — and since Oct 2026 they are **not part of the study
