@@ -1,6 +1,6 @@
 /**
  * The "You said" box: what was said (hanzi, tidy pinyin) with a verdict chip; ▶ / ✎ as round
- * buttons in equal side columns (✎ Check in Coach only on the orange box); every waiting state uses
+ * buttons in equal side columns (✎ Check in Coach only on the yellow box); every waiting state uses
  * the same shell; Couldn't transcribe retries the take.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
@@ -41,7 +41,7 @@ describe('YouSaid', () => {
     expect(el.querySelectorAll('.you-said-side')).toHaveLength(2);
   });
 
-  it('the orange box: "Contains the answer" and a round, named Check in Coach button', () => {
+  it('the yellow box: "Contains the answer" and a round, named Check in Coach button', () => {
     const coach = vi.fn();
     const play = vi.fn();
     const el = render(<YouSaid hanzi="我曾经去过中国。" pinyin="wǒ céng jīng qù guò zhōng guó 。" isMatch={false} containsExpected onCoach={coach} onPlay={play} />);
@@ -78,6 +78,29 @@ describe('YouSaid', () => {
     expect(box.textContent).toContain('Tap to retry · your recording is saved');
     act(() => box.click());
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('each state has its own class, icon and words — the yellow "contains" never relies on colour alone', () => {
+    const cases = [
+      { props: { isMatch: true, containsExpected: false }, state: 'match', icon: 'check', words: 'Match' },
+      { props: { isMatch: false, containsExpected: true }, state: 'contains', icon: 'approx', words: 'Contains the answer' },
+      { props: { isMatch: false, containsExpected: false }, state: 'miss', icon: 'close', words: 'Didn’t match' },
+    ] as const;
+    const seen = new Set<string>();
+    for (const c of cases) {
+      const el = render(<YouSaid hanzi="一生救了他的命" pinyin="yì shēng jiù le tā de mìng" {...c.props} onPlay={() => {}} />);
+      const box = q(el, 'you-said')!;
+      expect(box.classList.contains(`you-said--${c.state}`)).toBe(true);
+      expect(box.dataset.state).toBe(c.state);
+      const chip = q(el, 'you-said-verdict')!;
+      expect(chip.dataset.icon).toBe(c.icon);
+      expect(chip.querySelector('svg')).not.toBeNull();
+      expect(chip.textContent).toBe(c.words);
+      seen.add(`${c.icon}|${c.words}`);
+      act(() => root?.unmount());
+      root = null;
+    }
+    expect(seen.size).toBe(3);
   });
 
   it('tidyPinyin drops the space before punctuation', () => {

@@ -10,6 +10,14 @@
   --color-success: #22c55e;
   --color-warning: #f97316;
   --color-error: #ef4444;
+  /* "Partly right" (the "You said · Contains the answer" box, "Close — the tones are off"): YELLOW,
+     never orange — orange next to the red "wrong" reads the same to red / green colour-blind eyes.
+     Lemon, not amber: a pale lemon tint + lemon border on the box, a solid lemon chip with dark
+     brown words on it (#713f12 on #fde047 = 6.9:1, AA). Lab: Palette.Partial*. */
+  --color-partial: #facc15;
+  --color-partial-soft: #fef9c3;
+  --color-partial-strong: #fde047;
+  --color-partial-ink: #713f12;
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -25,6 +33,16 @@
   font-weight: 400;
   color: var(--color-text);
   background-color: var(--color-background);
+}
+
+/* The dark set (the web is light-only today; applies under an explicit data-theme="dark", like the
+   explorer's decals): lemon #fde047 border / icons (12.9:1 on #1c1c20), the chip stays solid lemon
+   with near-black brown words (#422006, 13:1), the box a faint lemon wash. */
+:root[data-theme='dark'] {
+  --color-partial: #fde047;
+  --color-partial-soft: rgba(253, 224, 71, 0.1);
+  --color-partial-strong: #fde047;
+  --color-partial-ink: #422006;
 }
 
 * {

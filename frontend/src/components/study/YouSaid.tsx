@@ -8,10 +8,13 @@
  *                  céng jīng
  *
  * What he said is the hero (hanzi, the device's pinyin under it); the verdict is a small chip:
- * green "Match", orange "Contains the answer" (the answer said inside a longer sentence —
- * `spokenAnswerWithin` in shared/cards/answer.ts), red "Didn't match". Round 44px buttons sit in
- * equal side columns so the text stays centred: ▶ plays the take (read cards, `onPlay`), ✎ opens the
- * sentence in the Sentence Coach's Check my sentence (orange box only, `onCoach`). The waiting /
+ * green "✓ Match", YELLOW "≈ Contains the answer" (the answer said inside a longer sentence —
+ * `spokenAnswerWithin` in shared/cards/answer.ts), red "✗ Didn't match". Each verdict has its own
+ * icon and words, so no state relies on colour alone (Jerome is red / green colour-blind: the old
+ * orange "contains" read as the red "miss"); the yellow is index.css `--color-partial*`. Round 44px
+ * buttons sit in equal side columns so the text stays centred: ▶ plays the take (read cards,
+ * `onPlay`), ✎ opens the sentence in the Sentence Coach's Check my sentence (yellow box only,
+ * `onCoach`). The waiting /
  * offline / failed states use the same shell and height, so the result replaces them without a jump.
  */
 import type { ReactNode } from 'react';
@@ -34,7 +37,7 @@ export interface YouSaidProps {
   pinyin: string;
   isMatch: boolean;
   containsExpected: boolean;
-  /** Only on the orange (contains) box: open `hanzi` in the Sentence Coach's Check my sentence. */
+  /** Only on the yellow (contains) box: open `hanzi` in the Sentence Coach's Check my sentence. */
   onCoach?: () => void;
   /** ▶ on the left: play the take this was transcribed from (read cards). */
   onPlay?: () => void;
@@ -45,9 +48,10 @@ export function tidyPinyin(pinyin: string): string {
   return pinyin.replace(/\s+(?=[。，、！？；：.,!?;:])/g, '').trim();
 }
 
-/** Material icons (Apache 2.0), drawn in currentColor. */
+/** Material icons (Apache 2.0), drawn in currentColor; `approx` (≈: two waves, Lab `YouSaidApproxIcon`) is stroked. */
 const ICON = {
   check: 'M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z',
+  approx: 'M4 9.5c2.67-2.67 5.33-2.67 8 0s5.33 2.67 8 0M4 15.5c2.67-2.67 5.33-2.67 8 0s5.33 2.67 8 0',
   close: 'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
   play: 'M8 5v14l11-7z',
   edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
@@ -57,10 +61,19 @@ const ICON = {
 function Icon({ d }: { d: string }) {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d={d} fill="currentColor" />
+      {d === ICON.approx
+        ? <path d={d} fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" />
+        : <path d={d} fill="currentColor" />}
     </svg>
   );
 }
+
+/** The verdict chip's icon: ✓ match, ≈ contains, ✗ miss — never colour alone (Lab: `youSaidVerdictIcon`). */
+export const YOU_SAID_VERDICT_ICON: Record<YouSaidState, 'check' | 'approx' | 'close'> = {
+  match: 'check',
+  contains: 'approx',
+  miss: 'close',
+};
 
 /** The shell every state shares: optional round buttons in equal side columns, the text centred between. */
 function Shell({ tone, state, left, right, children, testId = 'you-said' }: {
@@ -112,8 +125,8 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, onCoach, onP
     >
       <div className="you-said-head">
         <span className="you-said-label">You said</span>
-        <span className="you-said-verdict" data-testid="you-said-verdict">
-          <Icon d={state === 'miss' ? ICON.close : ICON.check} />
+        <span className="you-said-verdict" data-testid="you-said-verdict" data-icon={YOU_SAID_VERDICT_ICON[state]}>
+          <Icon d={ICON[YOU_SAID_VERDICT_ICON[state]]} />
           {YOU_SAID_VERDICT[state]}
         </span>
       </div>
