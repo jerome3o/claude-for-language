@@ -87,14 +87,17 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.SOUND), reveals)
         assertEquals(listOf(AnswerKey.Verdict.SOUND), checked)
-        compose.onNodeWithTag(SPOKEN_SOUND_TAG).assertExists()
-        compose.onNodeWithText("Sounded right ✓ — written 由").assertExists()
-        // The read card's "You said" box, green.
-        compose.onNodeWithTag("$YOU_SAID_TAG-match").assertExists()
-        val inBox = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-match"))
-        compose.onNode(androidx.compose.ui.test.hasText("油") and inBox).assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("yóu") and inBox).assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("Match") and inBox).assertExists()
+        // The card's answer once (green), then ONE compact "You said" row: 油, ✓ Sounded right — written differently.
+        compose.onNodeWithTag("$SPOKEN_ANSWER_TAG-sound").assertExists()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound").assertExists()
+        compose.onNodeWithContentDescription("You said 油 (yóu). Sounded right — written differently (油); the card writes 由.").assertExists()
+        val inRow = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-sound"))
+        compose.onNode(androidx.compose.ui.test.hasText("油") and inRow, useUnmergedTree = true).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("yóu") and inRow, useUnmergedTree = true).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("Sounded right — written differently") and inRow, useUnmergedTree = true).assertExists()
+        // Nothing said twice: no "You said" box, no diff.
+        assertEquals(0, compose.onAllNodes(hasTestTag("$YOU_SAID_TAG-match"), useUnmergedTree = true).fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodes(hasTestTag(EXPECTED_CHAR_TAG), useUnmergedTree = true).fetchSemanticsNodes().size)
     }
 
     // Jerome's card: 长得 said inside 他长得很好。 came back with every character red.
@@ -117,11 +120,11 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.CONTAINS), reveals)
         assertEquals(listOf(AnswerKey.Verdict.CONTAINS), checked)
-        compose.onNodeWithTag(SPOKEN_CONTAINS_TAG).assertExists()
-        compose.onNodeWithTag("$YOU_SAID_TAG-contains").assertExists()
-        val inBox = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-contains"))
-        compose.onNode(androidx.compose.ui.test.hasText("Contains the answer") and inBox).assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("他长得很好。") and inBox).assertExists()
+        compose.onNodeWithTag("$SPOKEN_ANSWER_TAG-contains").assertExists()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-contains").assertExists()
+        val inRow = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-contains"))
+        compose.onNode(androidx.compose.ui.test.hasText("Contains the answer") and inRow, useUnmergedTree = true).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("他长得很好。") and inRow, useUnmergedTree = true).assertExists()
         // Nothing marked wrong: no red diff at all.
         assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasContentDescription(", wrong", substring = true)).fetchSemanticsNodes().size)
         assertEquals(0, compose.onAllNodes(hasTestTag(EXPECTED_CHAR_TAG)).fetchSemanticsNodes().size)
@@ -134,8 +137,10 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.waitForIdle()
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.WRONG), reveals)
-        compose.onNodeWithTag("$YOU_SAID_TAG-miss").assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("Didn’t match") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$YOU_SAID_TAG-miss"))).assertExists()
+        compose.onNodeWithTag("$SPOKEN_RESULT_TAG-wrong").assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("Didn’t match") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-wrong")), useUnmergedTree = true).assertExists()
+        // Lined up with the answer, not positional: only 他 / 很 / 高 are "not in the answer".
+        compose.onNodeWithContentDescription("You said 他很高 (tā hěn gāo). Didn’t match. Not in the answer: 他很高.").assertExists()
     }
 
     @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {

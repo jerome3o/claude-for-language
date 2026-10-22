@@ -102,7 +102,8 @@ class SayItAgainUiTest : LabScreenshotTest() {
         assertEquals(listOf(AnswerKey.Verdict.SOUND, AnswerKey.Verdict.EXACT), reveals)
         assertEquals(listOf(AnswerKey.Verdict.SOUND to false, AnswerKey.Verdict.EXACT to true), checked)
         assertEquals(0, compose.onAllNodesWithTagCount(SAY_AGAIN_FRONT_TAG))
-        assertEquals(0, compose.onAllNodesWithTagCount(SPOKEN_SOUND_TAG))
+        assertEquals(0, compose.onAllNodesWithTagCount("$SPOKEN_ANSWER_TAG-sound"))
+        assertEquals(1, compose.onAllNodesWithTagCount("$SPOKEN_ANSWER_TAG-exact"))
         compose.onNodeWithTag(SAY_AGAIN_TAG).assertIsDisplayed()
         // Submitted: the ratings are back, the bar gone.
         compose.onNodeWithText("Good").assertIsDisplayed()

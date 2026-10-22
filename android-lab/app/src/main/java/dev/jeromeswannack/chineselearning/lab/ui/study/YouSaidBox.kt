@@ -57,6 +57,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
+import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -357,28 +370,168 @@ fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifi
     }
 }
 
-/** Test tag of the "≈ Close — the tones are off" note on a spoken typing-card answer. */
-const val SPOKEN_CLOSE_NOTE_TAG = "spoken-close-note"
+/** Test tag prefix of the spoken result row: `spoken-result-match` / `-sound` / `-contains` / `-close` / `-wrong`. */
+const val SPOKEN_RESULT_TAG = "spoken-result"
+
+/** The card's answer on the back of a spoken answer: green when the verdict counts (web `.spoken-answer-hanzi--right`). */
+@Composable
+fun spokenAnswerColor(accepted: Boolean): Color = if (accepted) toneInk(YouSaidTone.MATCH) else Lab.colors.ink
+
+/** One mark's look (the web's `.spoken-mark--*`): the colour, the yellow highlight, the underline. */
+private data class SpokenMarkStyle(val color: Color, val background: Color, val underline: Color?, val dotted: Boolean)
+
+@Composable
+private fun spokenMarkStyle(mark: SpokenAnswerResult.Mark): SpokenMarkStyle {
+    val dark = isDarkCard()
+    return when (mark) {
+        SpokenAnswerResult.Mark.RIGHT -> SpokenMarkStyle(Lab.colors.ink, Color.Transparent, null, false)
+        SpokenAnswerResult.Mark.PLAIN -> SpokenMarkStyle(Lab.colors.muted, Color.Transparent, null, false)
+        SpokenAnswerResult.Mark.DIFFERS -> if (dark) {
+            SpokenMarkStyle(Palette.PartialStrong, Palette.PartialStrong.copy(alpha = 0.22f), Palette.PartialStrong, dotted = true)
+        } else {
+            SpokenMarkStyle(Palette.PartialInk, Palette.PartialStrong, Palette.PartialInk, dotted = true)
+        }
+        SpokenAnswerResult.Mark.WRONG -> {
+            val red = toneInk(YouSaidTone.MISS)
+            SpokenMarkStyle(red, Color.Transparent, red, dotted = false)
+        }
+    }
+}
 
 /**
- * "≈ Close — the tones are off" over a wrong spoken answer's diff: the partly-right yellow of the
- * "Contains the answer" box (a solid lemon pill with dark brown words), never orange. Web:
- * `.answer-diff-spoken-note--close`.
+ * What was said with each character marked (`shared/cards/spoken-result.ts`): written differently =
+ * yellow highlight + a DOTTED underline, not in the answer = red + a SOLID underline, the words around
+ * a contained answer muted. Compose has no dotted underline, so both underlines are drawn under the
+ * glyphs from the text layout.
  */
 @Composable
-fun SpokenCloseNote(text: String) {
-    val ink = if (isDarkCard()) Palette.PartialInkDark else Palette.PartialInk
+private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.compose.ui.unit.TextUnit) {
+    val styles = SpokenAnswerResult.Mark.entries.associateWith { spokenMarkStyle(it) }
+    // UTF-16 ranges of each cell, for the underlines.
+    val ranges = mutableListOf<Pair<IntRange, SpokenMarkStyle>>()
+    val text = buildAnnotatedString {
+        if (r.chars.isEmpty()) append("…")
+        for (cell in r.chars) {
+            val st = styles.getValue(cell.mark)
+            val start = length
+            withStyle(SpanStyle(color = st.color, background = st.background)) { append(cell.char) }
+            if (st.underline != null) ranges += (start until length) to st
+        }
+    }
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val density = LocalDensity.current
+    Text(
+        text,
+        fontSize = fontSize,
+        lineHeight = fontSize * 1.3f,
+        fontWeight = FontWeight.Medium,
+        onTextLayout = { layout = it },
+        modifier = Modifier.testTag(SPOKEN_RESULT_HANZI_TAG).drawBehind {
+            val l = layout ?: return@drawBehind
+            val stroke = with(density) { 2.dp.toPx() }
+            for ((range, st) in ranges) {
+                val first = l.getBoundingBox(range.first)
+                val last = l.getBoundingBox(range.last)
+                val y = first.bottom - stroke
+                val inset = (last.right - first.left) * 0.08f
+                drawLine(
+                    st.underline!!,
+                    Offset(first.left + inset, y),
+                    Offset(last.right - inset, y),
+                    strokeWidth = stroke,
+                    cap = if (st.dotted) StrokeCap.Round else StrokeCap.Butt,
+                    pathEffect = if (st.dotted) PathEffect.dashPathEffect(floatArrayOf(0.1f, stroke * 2f)) else null,
+                )
+            }
+        },
+    )
+}
+
+/** Test tags inside the spoken result row (the row itself is one node for a screen reader). */
+const val SPOKEN_RESULT_HANZI_TAG = "spoken-result-hanzi"
+const val SPOKEN_RESULT_CHIP_TAG = "spoken-result-chip"
+
+/**
+ * The spoken answer's result on a typing card (and 🎤 Say it practice) — ONE compact row under the
+ * card's own answer, pinyin and meaning (docs/STUDY_SESSION.md "Say the answer"; the web's
+ * `YouSaidRow`):
+ *
+ *   ( ▶ )  You said 朗 lǎng  [≈ Close — tones off]  ( ✎ )
+ *
+ * The state, chip, icon, ✎ and marks come from core [SpokenAnswerResult] (parity-tested with
+ * shared/cards/spoken-result.ts); a screen reader hears the whole row as one sentence.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+fun SpokenResultRow(
+    transcript: String,
+    correct: String,
+    verdict: AnswerKey.Verdict,
+    onPlay: (() -> Unit)? = null,
+    onCoach: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val r = SpokenAnswerResult.of(transcript, correct, verdict)
+    val pinyin = tidyYouSaidPinyin(Transcription.compare(transcript, correct).transcribedPinyin)
+    val state = SpokenAnswerResult.stateName(r.state)
+    val tone = when (r.state) {
+        SpokenAnswerResult.State.MATCH, SpokenAnswerResult.State.SOUND -> YouSaidTone.MATCH
+        SpokenAnswerResult.State.CONTAINS, SpokenAnswerResult.State.CLOSE -> YouSaidTone.CONTAINS
+        SpokenAnswerResult.State.WRONG -> YouSaidTone.MISS
+    }
+    val style = toneStyle(tone)
+    val coach = onCoach?.takeIf { r.coach }
+    val sides = onPlay != null || coach != null
+    val label = SpokenAnswerResult.label(r, correct, pinyin)
+    val shape = RoundedCornerShape(14.dp)
     Row(
-        Modifier
-            .padding(bottom = 4.dp)
-            .clip(RoundedCornerShape(50))
-            .background(Palette.PartialStrong)
-            .padding(horizontal = 10.dp, vertical = 3.dp)
-            .testTag(SPOKEN_CLOSE_NOTE_TAG),
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(style.box)
+            .border(style.borderWidth.dp, style.border, shape)
+            .padding(4.dp)
+            .testTag("$SPOKEN_RESULT_TAG-$state"),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Icon(YouSaidApproxIcon, contentDescription = null, tint = ink, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(text, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, color = ink, textAlign = TextAlign.Center)
+        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            onPlay?.let { YouSaidRound(Icons.Rounded.PlayArrow, YOU_SAID_PLAY_LABEL, tone, YOU_SAID_PLAY_TAG, it) }
+        }
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier
+                .weight(1f)
+                .padding(vertical = 2.dp)
+                .semantics(mergeDescendants = true) { contentDescription = label },
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Row(Modifier.align(Alignment.CenterVertically), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted)
+                SpokenMarkedText(r, 22.sp)
+                if (pinyin.isNotBlank()) Text(pinyin, fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted)
+            }
+            Row(
+                Modifier
+                    .align(Alignment.CenterVertically)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(style.chip)
+                    .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp)
+                    .testTag(SPOKEN_RESULT_CHIP_TAG),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    when (r.icon) { "check" -> Icons.Rounded.Check; "approx" -> YouSaidApproxIcon; else -> Icons.Rounded.Close },
+                    contentDescription = null,
+                    tint = style.chipInk,
+                    modifier = Modifier.size(14.dp).testTag("$YOU_SAID_VERDICT_TAG-${r.icon}"),
+                )
+                Spacer(Modifier.width(3.dp))
+                Text(r.chip, fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = style.chipInk, textAlign = TextAlign.Center)
+            }
+        }
+        if (sides) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            coach?.let { YouSaidRound(Icons.Rounded.Edit, YOU_SAID_COACH_LABEL, tone, YOU_SAID_COACH_TAG, it) }
+        }
     }
 }
