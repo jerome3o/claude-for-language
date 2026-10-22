@@ -182,13 +182,13 @@ object CardHolds {
 
     /** Port of holdTag(): icon + text, never colour alone. */
     fun tag(kind: String, until: String?, today: String): Pair<String, String> {
-        if (kind == SUSPEND) return "⏸" to "Suspended"
+        if (kind == SUSPEND) return "⏸️" to "Suspended"
         if (isLocalDate(until) && until!! > addDays(today, 1)) return "💤" to "Snoozed · ${shortDate(until, today)}"
         return "💤" to "Snoozed · tomorrow"
     }
 
     /**
-     * Port of noteHoldTag(): a deck page row's tag for a word — "⏸ Suspended" (every card), "⏸ 1 of 3
+     * Port of noteHoldTag(): a deck page row's tag for a word — "⏸️ Suspended" (every card), "⏸️ 1 of 3
      * suspended", "💤 Snoozed · 29 Oct" (every card snoozed), "💤 2 of 3 snoozed"; null when nothing is held.
      */
     fun noteTag(cardIds: List<String>, holds: Map<String, CardHold>, today: String): Pair<String, String>? {
@@ -206,8 +206,8 @@ object CardHolds {
         }
         val total = cardIds.size
         if (suspended == 0 && snoozed == 0) return null
-        if (suspended == total) return "⏸" to "Suspended"
-        if (suspended > 0) return "⏸" to "$suspended of $total suspended"
+        if (suspended == total) return "⏸️" to "Suspended"
+        if (suspended > 0) return "⏸️" to "$suspended of $total suspended"
         if (snoozed == total && latest != null) return tag(latest.kind, latest.until, today)
         return "💤" to "$snoozed of $total snoozed"
     }

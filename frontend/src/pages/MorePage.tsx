@@ -118,7 +118,7 @@ export function MorePage() {
             <NavRow icon="↑" label="Up next" desc="The words you learn next, in your order · today’s ⚡" to="/up-next" />
           )}
           {!role.isTutorAccount && (
-            <NavRow icon="⏸" label="Suspended & snoozed cards" desc="Cards you took out of study for now" to="/cards/held" />
+            <NavRow icon="⏸️" label="Suspended & snoozed cards" desc="Cards you took out of study for now" to="/cards/held" />
           )}
         </NavSection>
 

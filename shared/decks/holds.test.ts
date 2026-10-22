@@ -91,7 +91,7 @@ describe('holds', () => {
     expect(holdStatusLabel(hold('x', 'snooze', '2026-10-23'), '2026-10-22')).toBe('Snoozed until tomorrow');
     expect(holdStatusLabel(hold('x', 'snooze', '2026-11-22'), '2026-10-22')).toBe('Snoozed until 22 Nov');
     expect(holdStatusLabel(hold('x', 'snooze', '2027-01-05'), '2026-12-30')).toBe('Snoozed until 5 Jan 2027');
-    expect(holdTag(hold('x', 'suspend'), '2026-10-22')).toEqual({ icon: '⏸', text: 'Suspended' });
+    expect(holdTag(hold('x', 'suspend'), '2026-10-22')).toEqual({ icon: '⏸️', text: 'Suspended' });
     expect(holdTag(hold('x', 'snooze', '2026-10-29'), '2026-10-22')).toEqual({ icon: '💤', text: 'Snoozed · 29 Oct' });
     expect(holdMessage('snooze', 3, 'week')).toBe('3 cards snoozed for a week.');
     expect(holdMessage('suspend', 1)).toMatch(/^Suspended/);

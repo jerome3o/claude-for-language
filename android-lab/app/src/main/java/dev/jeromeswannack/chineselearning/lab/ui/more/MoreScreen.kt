@@ -104,7 +104,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                     ),
                 ) + (if (role.isTutorAccount) emptyList() else listOf(
                     row("↑", "Up next", "The words you learn next, in your order · today’s ⚡", Routes.UP_NEXT),
-                    row("⏸", "Suspended & snoozed cards", "Cards you took out of study for now", Routes.HELD_CARDS),
+                    row("⏸️", "Suspended & snoozed cards", "Cards you took out of study for now", Routes.HELD_CARDS),
                 )),
             )
         }

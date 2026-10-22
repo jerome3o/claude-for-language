@@ -51,7 +51,7 @@ fun CardControlsSettingsView(on: Boolean, suspended: Int, snoozed: Int, onToggle
         )
         RowDivider()
         NavRow(
-            "⏸", "Suspended & snoozed cards",
+            "⏸️", "Suspended & snoozed cards",
             desc = if (suspended + snoozed == 0) "None" else listOfNotNull(if (suspended > 0) "$suspended suspended" else null, if (snoozed > 0) "$snoozed snoozed" else null).joinToString(" · "),
             onClick = onOpen,
         )

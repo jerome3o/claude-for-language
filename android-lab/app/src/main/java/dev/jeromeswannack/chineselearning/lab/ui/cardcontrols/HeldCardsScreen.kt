@@ -159,7 +159,7 @@ class HeldCardsViewModel(private val app: LabApp) : ViewModel() {
     }
 }
 
-private val FILTERS = listOf("all" to "All", "suspended" to "⏸ Suspended", "snoozed" to "💤 Snoozed")
+private val FILTERS = listOf("all" to "All", "suspended" to "⏸️ Suspended", "snoozed" to "💤 Snoozed")
 
 @Composable
 fun HeldCardsScreen(ui: HeldCardsUi, actions: HeldCardsActions) {

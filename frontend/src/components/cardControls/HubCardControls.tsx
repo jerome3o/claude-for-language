@@ -6,8 +6,8 @@ import { Toast, useToast } from '../Toast';
 import './cardControls.css';
 
 /**
- * The card hub's controls (the owner's own card): each card type with its hold — ⏸ Suspended /
- * 💤 Snoozed · 29 Oct and Unsuspend / Wake now — or 💤 Snooze… / ⏸ Suspend… (the same sheet as the
+ * The card hub's controls (the owner's own card): each card type with its hold — ⏸️ Suspended /
+ * 💤 Snoozed · 29 Oct and Unsuspend / Wake now — or 💤 Snooze… / ⏸️ Suspend… (the same sheet as the
  * study card's ⋯ menu, docs/STUDY_SESSION.md "Suspend & snooze").
  */
 export function HubCardControls({ cards, hanzi }: { cards: CardControlTarget[]; hanzi: string }) {
@@ -42,7 +42,7 @@ export function HubCardControls({ cards, hanzi }: { cards: CardControlTarget[]; 
                   💤 Snooze…
                 </button>
                 <button type="button" className="btn btn-secondary btn-sm" style={{ minHeight: 44 }} onClick={() => setSheet({ mode: 'suspend', card: c })} data-testid="hub-suspend">
-                  ⏸ Suspend…
+                  ⏸️ Suspend…
                 </button>
               </>
             )}

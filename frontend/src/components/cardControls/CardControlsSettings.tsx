@@ -43,7 +43,7 @@ export function CardControlsSettings() {
       </p>
       {error && <p className="settings-section-desc" role="alert">{error}</p>}
       <Link to="/cards/held" className="settings-link-row" data-testid="held-cards-link" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 44, marginTop: '0.75rem' }}>
-        <span>⏸ Suspended &amp; snoozed cards</span>
+        <span>⏸️ Suspended &amp; snoozed cards</span>
         <span className="settings-section-desc" style={{ margin: 0 }}>
           {held.size === 0 ? 'None' : [suspended ? `${suspended} suspended` : '', snoozed ? `${snoozed} snoozed` : ''].filter(Boolean).join(' · ')} ›
         </span>

@@ -47,7 +47,7 @@ fun cardTypeLabel(type: String): String = when (type) {
  * Suspend… / Snooze… (web components/cardControls/CardControlSheet.tsx; docs/STUDY_SESSION.md
  * "Suspend & snooze"): this card only, or every card type of the word, then
  *   - snooze ("not today"): Until tomorrow · For a week · For a month — a tap applies it;
- *   - suspend: the explanation and ⏸ Suspend.
+ *   - suspend: the explanation and ⏸️ Suspend.
  * Never a review event, never a change to the card's schedule.
  * [onApply] gets (length — null for suspend, wholeWord).
  */
@@ -67,7 +67,7 @@ fun CardControlSheet(
     LabBottomSheet(onDismiss = onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp).testTag("card-$kind-sheet"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                (if (suspend) "⏸ Suspend " else "💤 Snooze — not today ") + hanzi,
+                (if (suspend) "⏸️ Suspend " else "💤 Snooze — not today ") + hanzi,
                 style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink,
             )
             Text(CardHolds.EXPLANATION.getValue(kind), style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
@@ -97,7 +97,7 @@ fun CardControlSheet(
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     PrimaryPill(
-                        if (wholeWord && wordCardTypes.size > 1) "⏸ Suspend ${wordCardTypes.size} cards" else "⏸ Suspend card",
+                        if (wholeWord && wordCardTypes.size > 1) "⏸️ Suspend ${wordCardTypes.size} cards" else "⏸️ Suspend card",
                         onClick = { onApply(null, wholeWord); onDismiss() },
                         modifier = Modifier.testTag("cc-suspend-confirm"),
                     )
@@ -130,7 +130,7 @@ private fun ScopeOption(on: Boolean, label: String, sub: String, tag: String, on
     }
 }
 
-/** "⏸ Suspended" / "💤 Snoozed · 29 Oct" — icon + words (CardHolds.tag), never colour alone. */
+/** "⏸️ Suspended" / "💤 Snoozed · 29 Oct" — icon + words (CardHolds.tag), never colour alone. */
 @Composable
 fun HoldTag(icon: String, text: String, modifier: Modifier = Modifier) {
     Text(

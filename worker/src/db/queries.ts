@@ -1562,7 +1562,7 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
       SELECT COUNT(*) as count FROM cards c
       JOIN notes n ON c.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
+      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
     `).bind(userId).first<{ count: number }>(),
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events
@@ -1609,7 +1609,7 @@ export async function getDeckStats(
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
          JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))`
+         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))`
       )
       .bind(deckId)
       .first<{ count: number }>(),

@@ -79,7 +79,7 @@ test('Suspend a card from the study card: gone from study (its slot goes to the 
   await page.getByTestId('held-cards-link').click();
   await expect(page.getByTestId('held-row')).toHaveCount(1);
   await expect(page.getByTestId('held-row')).toContainText(first);
-  await expect(page.getByTestId('held-row')).toContainText('⏸ Suspended');
+  await expect(page.getByTestId('held-row')).toContainText('⏸️ Suspended');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-held-list.png` });
   await page.getByTestId('held-release').click();
   await expect(page.getByTestId('upnext-toast')).toContainText('Back in study.');

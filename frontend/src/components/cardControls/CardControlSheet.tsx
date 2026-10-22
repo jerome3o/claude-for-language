@@ -30,7 +30,7 @@ export interface CardControlTarget {
  * sheet from the card's ⋯ menu / the card hub. One toggle — this card only, or every card type of
  * the word — then:
  *   - Snooze: Until tomorrow · For a week · For a month (a tap applies it);
- *   - Suspend: an explanation and ⏸ Suspend.
+ *   - Suspend: an explanation and ⏸️ Suspend.
  * Nothing here writes a review event or touches the card's schedule.
  */
 export function CardControlSheet({
@@ -94,7 +94,7 @@ export function CardControlSheet({
       <div className="cc-sheet" role="dialog" aria-label={`${title}: ${hanzi}`} data-testid={`card-${mode}-sheet`}>
         <div className="cc-grip" aria-hidden="true" />
         <div className="cc-title">
-          <span aria-hidden="true">{mode === 'suspend' ? '⏸' : '💤'}</span> {title}{' '}
+          <span aria-hidden="true">{mode === 'suspend' ? '⏸️' : '💤'}</span> {title}{' '}
           <span className="cc-hanzi" lang="zh-CN">{hanzi}</span>
         </div>
         <p className="cc-explain">{HOLD_EXPLANATION[mode]}</p>
@@ -147,7 +147,7 @@ export function CardControlSheet({
           <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
           {mode === 'suspend' && (
             <button type="button" className="btn btn-primary" onClick={() => void apply()} disabled={busy} data-testid="cc-suspend-confirm">
-              ⏸ Suspend {targets.length > 1 ? `${targets.length} cards` : 'card'}
+              ⏸️ Suspend {targets.length > 1 ? `${targets.length} cards` : 'card'}
             </button>
           )}
         </div>

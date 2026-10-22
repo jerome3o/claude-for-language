@@ -8,7 +8,7 @@ import '../components/cardControls/cardControls.css';
 
 const FILTERS: Array<{ id: HoldFilter; label: string }> = [
   { id: 'all', label: 'All' },
-  { id: 'suspended', label: '⏸ Suspended' },
+  { id: 'suspended', label: '⏸️ Suspended' },
   { id: 'snoozed', label: '💤 Snoozed' },
 ];
 
@@ -45,7 +45,7 @@ export function HeldCardsPage() {
 
   return (
     <div className="page">
-      <div className="held-page" data-testid="held-cards-page">
+      <div className="container held-page" data-testid="held-cards-page">
         <h1>Suspended &amp; snoozed cards</h1>
         <p className="settings-section-desc" style={{ margin: '0.25rem 0 0.75rem' }}>
           These cards are out of study for now. Their history and schedule are kept — bring one back and it carries on where it was.

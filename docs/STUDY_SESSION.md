@@ -278,10 +278,10 @@ and cached on the device with the budget (web `services/studyBudget.ts` `readRev
   `{ pause_new_when_reviews_over }`). The tutor's "Daily new cards" sheet has the same field
   (`PUT …/student-study-budget`; the pause alone posts no chat message); MCP `set_student_study_budget`
   takes it.
-- **Home** says why: "⏸ New cards paused — 124 reviews due today (limit 100)" + "Up next waits too.
+- **Home** says why: "⏸️ New cards paused — 124 reviews due today (limit 100)" + "Up next waits too.
   ⚡ bumps and homework still come; Study 10 more adds new cards anyway." (`pausedNewCardsLabel`,
   `PAUSED_NEW_CARDS_DETAIL`; analytics `study.new_cards_paused` once a local day). The tutor's student
-  card and "Daily new cards" row say "⏸ New cards paused today · 124 reviews due" from the overview's
+  card and "Daily new cards" row say "⏸️ New cards paused today · 124 reviews due" from the overview's
   `review_load` (the same rule in SQL over the server's card rows, `worker/src/services/review-load.ts`,
   in the student's own time zone).
 - **Debug report**: `review_load: { threshold, load, paused }` (`budget` stays the configured numbers);
@@ -427,13 +427,13 @@ Jerome (Oct 2026): Anki's card controls, "with no fake reviews and without bendi
   answered with Not yet / Got it and no review event. Suspending a card in study doesn't take a word out
   of the tutor's homework; the pass still shows it (the long-term review of the same card stays held).
 - **Where to manage them** — Jerome: "people hardly ever look into the decks". Settings → Study →
-  *⏸ Suspended & snoozed cards* (and More → Decks → the same row) opens `/cards/held`
+  *⏸️ Suspended & snoozed cards* (and More → Decks → the same row) opens `/cards/held`
   (`pages/HeldCardsPage.tsx`; Lab `ui/cardcontrols/HeldCardsScreen.kt`): a searchable list (hanzi, pinyin
-  with or without tones, English — `filterHoldRows`) with All / ⏸ Suspended / 💤 Snoozed chips, each row
+  with or without tones, English — `filterHoldRows`) with All / ⏸️ Suspended / 💤 Snoozed chips, each row
   with its card type, deck and since / until, *Unsuspend* / *Wake now* per row and for the ticked ones,
   and **Undo**. The card hub shows each card type with its hold and the same actions
-  (`components/cardControls/HubCardControls.tsx`); deck page rows carry a quiet tag — "⏸ Suspended",
-  "⏸ 1 of 3 suspended", "💤 Snoozed · 29 Oct" (`noteHoldTag`) — always an icon and words, never colour alone.
+  (`components/cardControls/HubCardControls.tsx`); deck page rows carry a quiet tag — "⏸️ Suspended",
+  "⏸️ 1 of 3 suspended", "💤 Snoozed · 29 Oct" (`noteHoldTag`) — always an icon and words, never colour alone.
 - **Storage & sync** — `card_holds` (migration 0134): one row per hold (client id, card, kind, until,
   created_at, cleared_at). A new hold on a card clears its older ones; a clear covers holds made at or
   before it (a hold made later on another device survives). Offline-first: web IndexedDB `cardHolds`

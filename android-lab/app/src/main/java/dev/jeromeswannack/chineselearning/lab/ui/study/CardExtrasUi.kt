@@ -134,7 +134,7 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
         // Anki's card controls (docs/STUDY_SESSION.md "Suspend & snooze") — never a review event.
         if (ui.cardControls && ui.practice == null) {
             add(StudyMenuItem("snooze", "Snooze…", "💤", "Not today", onSelect = { onHold("snooze") }))
-            add(StudyMenuItem("suspend", "Suspend…", "⏸", onSelect = { onHold("suspend") }))
+            add(StudyMenuItem("suspend", "Suspend…", "⏸️", onSelect = { onHold("suspend") }))
         }
         if (hasRecording) add(StudyMenuItem("my-recording", "Play my recording", "🎙️", onSelect = actions.onPlayMyRecording))
     }

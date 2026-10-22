@@ -236,13 +236,13 @@ export function holdStatusLabel(hold: Pick<CardHold, 'kind' | 'until'>, today: s
 
 /** The small tag on a deck page row / the card hub: icon + text, never colour alone. */
 export function holdTag(hold: Pick<CardHold, 'kind' | 'until'>, today: string): { icon: string; text: string } {
-  if (hold.kind === 'suspend') return { icon: '⏸', text: 'Suspended' };
+  if (hold.kind === 'suspend') return { icon: '⏸️', text: 'Suspended' };
   if (isLocalDate(hold.until) && hold.until > addLocalDays(today, 1)) return { icon: '💤', text: `Snoozed · ${shortDate(hold.until, today)}` };
   return { icon: '💤', text: 'Snoozed · tomorrow' };
 }
 
 /**
- * A deck page row's tag for a word: "⏸ Suspended" (every card), "⏸ 1 of 3 suspended",
+ * A deck page row's tag for a word: "⏸️ Suspended" (every card), "⏸️ 1 of 3 suspended",
  * "💤 Snoozed · 29 Oct" (every card snoozed), "💤 2 of 3 snoozed"; null when nothing is held.
  * `holds` = the active hold per card id (any map from card id to a hold).
  */
@@ -265,8 +265,8 @@ export function noteHoldTag(
   }
   const total = cardIds.length;
   if (suspended === 0 && snoozed === 0) return null;
-  if (suspended === total) return { icon: '⏸', text: 'Suspended' };
-  if (suspended > 0) return { icon: '⏸', text: `${suspended} of ${total} suspended` };
+  if (suspended === total) return { icon: '⏸️', text: 'Suspended' };
+  if (suspended > 0) return { icon: '⏸️', text: `${suspended} of ${total} suspended` };
   if (snoozed === total && latest) return holdTag(latest, today);
   return { icon: '💤', text: `${snoozed} of ${total} snoozed` };
 }

@@ -33,7 +33,7 @@ data class HubHoldRow(val cardId: String, val cardType: String, val hold: CardHo
 
 /**
  * The card hub's controls (web components/cardControls/HubCardControls.tsx): each card type with its
- * hold — ⏸ Suspended / 💤 Snoozed · 29 Oct and Unsuspend / Wake now — or 💤 Snooze… / ⏸ Suspend…
+ * hold — ⏸️ Suspended / 💤 Snoozed · 29 Oct and Unsuspend / Wake now — or 💤 Snooze… / ⏸️ Suspend…
  * (the study card's sheet). From Room, offline.
  */
 @Composable
@@ -83,7 +83,7 @@ fun HubCardControlsView(rows: List<HubHoldRow>, today: String, toast: String?, o
                     SecondaryPill(if (hold.kind == CardHolds.SNOOZE) "Wake now" else "Unsuspend", onClick = { onRelease(r) }, modifier = Modifier.testTag("hub-release"))
                 } else {
                     SecondaryPill("💤 Snooze…", onClick = { onHold(CardHolds.SNOOZE, r) }, modifier = Modifier.testTag("hub-snooze"))
-                    SecondaryPill("⏸ Suspend…", onClick = { onHold(CardHolds.SUSPEND, r) }, modifier = Modifier.testTag("hub-suspend"))
+                    SecondaryPill("⏸️ Suspend…", onClick = { onHold(CardHolds.SUSPEND, r) }, modifier = Modifier.testTag("hub-suspend"))
                 }
             }
         }

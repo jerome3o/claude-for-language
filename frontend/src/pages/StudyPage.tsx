@@ -2200,7 +2200,7 @@ export function StudyCard({
       ...(onCardsHeld
         ? [
             { key: 'snooze', label: 'Snooze…', icon: '💤', hint: 'Not today', onSelect: () => setControlSheet('snooze') },
-            { key: 'suspend', label: 'Suspend…', icon: '⏸', onSelect: () => setControlSheet('suspend') },
+            { key: 'suspend', label: 'Suspend…', icon: '⏸️', onSelect: () => setControlSheet('suspend') },
           ]
         : []),
       ...(audioBlob
