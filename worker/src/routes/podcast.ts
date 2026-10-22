@@ -6,6 +6,7 @@
  *   GET /api/podcast/:token/feed.xml                          RSS of the token's user's ready lessons
  *   GET /api/podcast/:token/lessons/:id/:version/audio.mp3    the MP3 (Range → 206, HEAD)
  *   GET /api/podcast/:token/lessons/:id/chapters.json         Podcasting 2.0 chapters
+ *   GET /api/podcast/:token/lessons/:id/:version/transcript.vtt|srt|json   the timed transcript
  * A wrong / reset / malformed token is a plain 404 (the same answer as a missing lesson).
  * Rate-limited per token (and per IP for unknown tokens). The token never appears in a
  * log line: the request log records the route pattern, and nothing here prints the path.
@@ -30,11 +31,14 @@ import {
   findFeedByToken,
   noteFeedFetched,
   resetFeed,
+  TRANSCRIPT_TYPES,
   type FeedLesson,
   type PodcastFeedRow,
+  type TranscriptFormat,
 } from '../services/podcast-feed';
+import { toPodcastJson, toSrt, toWebVtt, transcriptCues } from '../services/podcast-transcript';
 import { trackServer } from '../services/analytics/server-events';
-import type { AudioLessonChapter, LessonWord } from '@shared/audio-lesson';
+import type { AudioLessonChapter, AudioLessonTranscriptLine, LessonWord, ScriptSpeaker } from '@shared/audio-lesson';
 
 export const podcastPublic = new Hono<{ Bindings: Env }>();
 
@@ -67,10 +71,17 @@ function parseJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
+/** A dialogue's speakers: from `speakers_json` (the feed's list query) or the whole script (one lesson). */
+function speakersOf(row: q.AudioLessonRow): ScriptSpeaker[] {
+  const raw = row.speakers_json ?? null;
+  const list = raw ? parseJson<unknown>(raw, []) : parseJson<{ speakers?: unknown }>(row.script_json, {}).speakers;
+  return Array.isArray(list) ? (list as ScriptSpeaker[]).filter((s) => s && typeof s.name === 'string' && typeof s.role === 'string') : [];
+}
+
 function feedLesson(row: q.AudioLessonRow): FeedLesson | null {
   const version = q.audioVersion(row);
   if (row.status !== 'ready' || !row.audio_key || !version) return null;
-  const timeline = parseJson<{ chapters?: AudioLessonChapter[] }>(row.timeline_json, {});
+  const timeline = parseJson<{ chapters?: AudioLessonChapter[]; transcript?: AudioLessonTranscriptLine[] }>(row.timeline_json, {});
   return {
     id: row.id,
     format: row.format,
@@ -80,6 +91,8 @@ function feedLesson(row: q.AudioLessonRow): FeedLesson | null {
     duration_ms: row.duration_ms ?? 0,
     words: parseJson<LessonWord[]>(row.words_json, []),
     chapters: timeline.chapters ?? [],
+    transcript: Array.isArray(timeline.transcript) ? timeline.transcript : [],
+    speakers: speakersOf(row),
     published_at: row.finished_at ?? row.created_at,
   };
 }
@@ -118,6 +131,32 @@ podcastPublic.get('/:token/lessons/:id/chapters.json', async (c) => {
   if (!lesson) return NOT_FOUND();
   return new Response(JSON.stringify(chaptersJson(lesson)), {
     headers: { 'Content-Type': 'application/json+chapters; charset=utf-8', 'Cache-Control': 'private, max-age=3600', 'X-Robots-Tag': 'noindex' },
+  });
+});
+
+const TRANSCRIPT_FORMATS: readonly TranscriptFormat[] = ['vtt', 'srt', 'json'];
+
+// The timed transcript (podcast:transcript), versioned like the MP3: the version in the path must be
+// the lesson's current one, so a re-rendered lesson (new timings) is a new URL and an old one 404s.
+podcastPublic.get('/:token/lessons/:id/:version/:file{transcript\\.(?:vtt|srt|json)}', async (c) => {
+  const format = c.req.param('file').slice('transcript.'.length) as TranscriptFormat;
+  if (!TRANSCRIPT_FORMATS.includes(format)) return NOT_FOUND();
+  const feed = await resolveFeed(c, 'file');
+  if (feed instanceof Response) return feed;
+  const row = await q.getAudioLesson(c.env.DB, c.req.param('id'), feed.user_id);
+  const lesson = row ? feedLesson(row) : null;
+  if (!lesson || lesson.version !== c.req.param('version') || !lesson.transcript.length) return NOT_FOUND();
+  const cues = transcriptCues(lesson);
+  const body = format === 'vtt' ? toWebVtt(cues) : format === 'srt' ? toSrt(cues) : JSON.stringify(toPodcastJson(cues));
+  return new Response(c.req.method === 'HEAD' ? null : body, {
+    headers: {
+      'Content-Type': `${TRANSCRIPT_TYPES[format]}; charset=utf-8`,
+      'Cache-Control': 'private, max-age=3600',
+      'X-Robots-Tag': 'noindex',
+      'Referrer-Policy': 'no-referrer',
+      // Players fetch it from their own web views too.
+      'Access-Control-Allow-Origin': '*',
+    },
   });
 });
 
