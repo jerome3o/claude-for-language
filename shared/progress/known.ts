@@ -94,7 +94,8 @@ export function noteKey(hanzi: string): string {
 
 export interface KnownNoteInput { id: string; hanzi: string }
 export interface KnownCardInput { id: string; note_id: string }
-export interface KnownEventInput { id?: string; card_id: string; rating: number; reviewed_at: string }
+/** A review event; `kind: 'forget'` = "Forget this card" (the card is NEW again from then: not seen). */
+export interface KnownEventInput { id?: string; card_id: string; rating: number; reviewed_at: string; kind?: 'forget' }
 
 export interface KnownCounts { known: number; learning: number }
 
@@ -203,13 +204,15 @@ export function knownProgress(
   }
   const changes: Change[] = [];
   for (const [cardId, list] of byCard) {
-    list.sort((a, b) => cmp(a.reviewed_at, b.reviewed_at) || cmp(a.id ?? '', b.id ?? ''));
+    list.sort((a, b) => cmp(a.reviewed_at, b.reviewed_at) || ((a.kind === 'forget' ? 1 : 0) - (b.kind === 'forget' ? 1 : 0)) || cmp(a.id ?? '', b.id ?? ''));
     const timeline = computeCardTimeline(list.map((e): ReviewEvent => ({
       id: e.id ?? '', card_id: e.card_id, rating: e.rating as Rating, reviewed_at: e.reviewed_at,
+      ...(e.kind === 'forget' ? { kind: 'forget' as const } : {}),
     })));
     let prev: Tier = 0;
     timeline.forEach((p, seq) => {
-      const tier: Tier = masteryLevel(p.queue, p.stability) === 'mastered' ? 2 : 1;
+      // A forgotten card is NEW again: not known, not seen.
+      const tier: Tier = p.queue === 0 ? 0 : masteryLevel(p.queue, p.stability) === 'mastered' ? 2 : 1;
       if (tier !== prev) changes.push({ ms: Date.parse(p.reviewed_at), card: cardId, seq, tier, at: p.reviewed_at });
       prev = tier;
     });

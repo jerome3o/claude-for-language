@@ -39,6 +39,57 @@ export interface ReviewEvent {
   card_id: string;
   rating: Rating;
   reviewed_at: string; // ISO timestamp
+  /**
+   * 'forget' = "Forget this card" (docs/STUDY_SESSION.md "Forget"): the card starts again from
+   * NEW at this moment and every earlier event stops counting for its schedule (the history is
+   * kept). Its `rating` is ignored. Absent = an ordinary review. Forgets are stored apart from
+   * reviews (`card_forgets`), so no review count / streak / stat ever sees one; they are merged
+   * into a card's events only to replay its state (`withForgetEvents`).
+   */
+  kind?: 'forget';
+}
+
+/** One "Forget this card" as stored (D1 / IndexedDB / Room `card_forgets`). */
+export interface CardForget {
+  id: string;
+  card_id: string;
+  forgotten_at: string; // ISO timestamp
+}
+
+export function isForgetEvent(e: Pick<ReviewEvent, 'kind'>): boolean {
+  return e.kind === 'forget';
+}
+
+/** A stored forget as the event the replay understands. */
+export function forgetAsEvent(f: CardForget): ReviewEvent {
+  return { id: f.id, card_id: f.card_id, rating: 0, reviewed_at: f.forgotten_at, kind: 'forget' };
+}
+
+/**
+ * A card's review events with its forgets merged in, sorted by time. At the same instant a
+ * forget comes AFTER the reviews (it was pressed on a card already reviewed then).
+ */
+export function withForgetEvents<E extends ReviewEvent>(events: readonly E[], forgets: readonly CardForget[]): Array<E | ReviewEvent> {
+  if (forgets.length === 0) return [...events];
+  const out: Array<E | ReviewEvent> = [...events, ...forgets.map(forgetAsEvent)];
+  return out.sort((a, b) =>
+    a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1
+      : (isForgetEvent(a) ? 1 : 0) - (isForgetEvent(b) ? 1 : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+/** When the card was last forgotten (ISO), or null. */
+export function lastForgetAt(forgets: readonly Pick<CardForget, 'forgotten_at'>[]): string | null {
+  let last: string | null = null;
+  for (const f of forgets) if (last === null || f.forgotten_at > last) last = f.forgotten_at;
+  return last;
+}
+
+/**
+ * The reviews that still count for the schedule: those strictly after the last forget (all of
+ * them when the card was never forgotten). "Introduced today" and "first review" read these.
+ */
+export function reviewsSinceForget<E extends Pick<ReviewEvent, 'reviewed_at'>>(events: readonly E[], forgottenAt: string | null): E[] {
+  return forgottenAt === null ? [...events] : events.filter(e => e.reviewed_at > forgottenAt);
 }
 
 /**
@@ -352,12 +403,22 @@ export function computeCardState(
   let lastReviewedAt: string | undefined;
 
   // Replay each event to compute final state
+  let forgotten = false;
   for (let i = startIdx; i < events.length; i++) {
     const event = events[i];
+    if (isForgetEvent(event)) {
+      // "Forget this card": back to a NEW card; nothing before counts any more.
+      fsrsCard = computedStateToFsrsCard(initialCardState(settings), event.reviewed_at);
+      lastReviewedAt = undefined;
+      forgotten = true;
+      continue;
+    }
     fsrsCard = applyReviewToFsrsCard(fsrsCard, event.rating, event.reviewed_at, f);
     lastReviewedAt = event.reviewed_at;
+    forgotten = false;
   }
 
+  if (forgotten) return initialCardState(settings);
   return fsrsCardToComputedState(fsrsCard, lastReviewedAt);
 }
 
@@ -371,7 +432,8 @@ export interface CardTimelinePoint {
 /**
  * The same replay as `computeCardState(events)` (no checkpoint), keeping the state after
  * EVERY event — what a progress history needs ("was this card mature on day X?"). The last
- * point always equals `computeCardState(events)`'s queue / stability. Events must be sorted
+ * point always equals `computeCardState(events)`'s queue / stability. A forget event gives a NEW
+ * point (stability 0) and the replay restarts from it. Events must be sorted
  * by reviewed_at ascending, as for computeCardState.
  */
 export function computeCardTimeline(
@@ -383,6 +445,11 @@ export function computeCardTimeline(
   let fsrsCard = computedStateToFsrsCard(initialCardState(settings), events[0].reviewed_at);
   const out: CardTimelinePoint[] = [];
   for (const event of events) {
+    if (isForgetEvent(event)) {
+      fsrsCard = computedStateToFsrsCard(initialCardState(settings), event.reviewed_at);
+      out.push({ reviewed_at: event.reviewed_at, queue: CardQueue.NEW, stability: 0 });
+      continue;
+    }
     fsrsCard = applyReviewToFsrsCard(fsrsCard, event.rating, event.reviewed_at, f);
     out.push({ reviewed_at: event.reviewed_at, queue: toCardQueue(fsrsCard.state), stability: fsrsCard.stability });
   }

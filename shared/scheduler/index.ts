@@ -18,6 +18,7 @@ export {
   type CardCheckpoint,
   type IntervalPreview,
   type CardTimelinePoint,
+  type CardForget,
 
   // Constants
   DEFAULT_DECK_SETTINGS,
@@ -27,6 +28,11 @@ export {
   applyReview,
   computeCardState,
   computeCardTimeline,
+  isForgetEvent,
+  forgetAsEvent,
+  withForgetEvents,
+  lastForgetAt,
+  reviewsSinceForget,
   createCheckpoint,
   isCheckpointStale,
 

@@ -106,6 +106,16 @@ describe('knownProgress', () => {
     expect(p.characters).toEqual({ known: 2, learning: 0 });
   });
 
+  it('a forgotten card is not known (nor seen) from the forget on', () => {
+    seq = 0;
+    const forget: KnownEventInput = { id: 'f1', card_id: 'n1a', rating: 0, reviewed_at: at(20), kind: 'forget' };
+    const p = knownProgress(notes, cards, [...mature('n1a', 0), forget], [T0 + 10 * DAY, T0 + 21 * DAY]);
+    expect(p.words).toEqual({ known: 0, learning: 0 });
+    expect(p.characters).toEqual({ known: 0, learning: 0 });
+    expect(p.history[0].words).toEqual({ known: 1, learning: 0 });
+    expect(p.history[1].words).toEqual({ known: 0, learning: 0 });
+  });
+
   it('a sentence makes its characters known but is not a word', () => {
     seq = 0;
     const p = knownProgress(notes, cards, mature('n3c', 0));

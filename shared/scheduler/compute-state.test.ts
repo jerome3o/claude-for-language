@@ -19,6 +19,12 @@ import {
   ReviewEvent,
   type ComputedCardState,
   DEFAULT_DECK_SETTINGS,
+  computeCardTimeline,
+  withForgetEvents,
+  isForgetEvent,
+  lastForgetAt,
+  reviewsSinceForget,
+  type CardForget,
 } from './compute-state';
 
 // Test helpers
@@ -691,5 +697,49 @@ describe('unusable stored state (corrupt / legacy rows)', () => {
     const state = computeCardState(events);
     const next = applyReview(state, 2, DEFAULT_DECK_SETTINGS, '2026-10-01T10:00:00.000Z');
     expect(computeCardState([...events, createEvent('c', 2, '2026-10-01T10:00:00.000Z')])).toEqual(next);
+  });
+});
+
+describe('forget events ("Forget this card")', () => {
+  const ev = (id: string, rating: 0 | 1 | 2 | 3, at: string): ReviewEvent => ({ id, card_id: 'c', rating, reviewed_at: at });
+  const history = [
+    ev('a', 2, '2026-01-01T10:00:00.000Z'),
+    ev('b', 2, '2026-01-01T10:15:00.000Z'),
+    ev('c', 2, '2026-01-03T10:00:00.000Z'),
+    ev('d', 0, '2026-01-10T10:00:00.000Z'),
+  ];
+  const forget: CardForget = { id: 'f', card_id: 'c', forgotten_at: '2026-01-12T09:00:00.000Z' };
+
+  it('a forget as the last event leaves a NEW card', () => {
+    const state = computeCardState(withForgetEvents(history, [forget]));
+    expect(state).toEqual(initialCardState());
+  });
+
+  it('reviews after a forget replay as if the earlier ones never happened', () => {
+    const after = [ev('e', 2, '2026-01-12T10:00:00.000Z'), ev('g', 3, '2026-01-12T10:20:00.000Z')];
+    const withForget = computeCardState(withForgetEvents([...history, ...after], [forget]));
+    const fresh = computeCardState(after);
+    expect(withForget).toEqual(fresh);
+    expect(withForget.lapses).toBe(0);
+  });
+
+  it('the timeline drops to NEW at the forget', () => {
+    const tl = computeCardTimeline(withForgetEvents(history, [forget]));
+    expect(tl).toHaveLength(5);
+    expect(tl[4]).toEqual({ reviewed_at: forget.forgotten_at, queue: CardQueue.NEW, stability: 0 });
+  });
+
+  it('merges a forget after reviews at the same instant', () => {
+    const same = { ...forget, forgotten_at: history[3].reviewed_at };
+    const merged = withForgetEvents(history, [same]);
+    expect(merged.map(e => e.id)).toEqual(['a', 'b', 'c', 'd', 'f']);
+    expect(isForgetEvent(merged[4])).toBe(true);
+  });
+
+  it('reviewsSinceForget / lastForgetAt', () => {
+    expect(lastForgetAt([])).toBeNull();
+    expect(lastForgetAt([forget, { ...forget, forgotten_at: '2026-01-02T00:00:00.000Z' }])).toBe(forget.forgotten_at);
+    expect(reviewsSinceForget(history, null)).toHaveLength(4);
+    expect(reviewsSinceForget(history, '2026-01-03T10:00:00.000Z').map(e => e.id)).toEqual(['d']);
   });
 });
