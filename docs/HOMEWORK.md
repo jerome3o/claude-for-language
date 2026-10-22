@@ -181,6 +181,36 @@ daily review* on a one-off deck still takes every word not singled out). Rules, 
   assignment at once (web `recordPassUndo`, Lab `HomeworkStore.recordPassUndo`), then uploads (outbox / sync).
 - Analytics: `homework.pass_undo { result: right | wrong, reopened }`.
 
+## 3c. The retry progress bar (Jerome, 22 Oct 2026)
+
+"When I click Not yet, an orange bar should accumulate on the RIGHT-hand side of the progress bar, until my blue
+line catches up with the orange — then I'm reviewing cards I've already seen." Before, the bar was words right /
+words, so a *Not yet* moved nothing.
+
+- **Slots, not words.** The bar is a row of slots, one per showing of a card: `slots = answered + fresh + retries`
+  (= items + every *Not yet* given so far). **Blue** = `answered / slots` from the left — every *Got it* AND every
+  *Not yet* is a step done. The grey **track** = items not shown yet. **Orange** = `retries / slots`, drawn from the
+  RIGHT end leftwards — words answered *Not yet* and not right since, each owed one more showing.
+- **Never backwards on a Not yet.** A *Not yet* turns `answered/slots` into `(answered+1)/(slots+1)`, which is
+  never smaller: the blue still moves a step and the orange grows (the track got longer), rather than progress
+  being lost. When every word has been shown once, `answered + retries = slots`: the blue meets the orange
+  (`onRetries`) — he is on words he has already seen, and the line under the bar says "Trying again · 3 left"
+  (before: "3 to try again"). A *Got it* on a retry eats one orange slot; another *Not yet* adds a slot and keeps the
+  orange the same size. Finished = no fresh, no retries = full blue.
+- **Undo** (§3b) is free: the counts come from the live events, so an undone *Not yet* takes its slot and its orange
+  back, and an undone *Got it* gives the word back to the track (or the orange).
+- **Rules**: `shared/homework/retry-bar.ts` — `retryBar(counts)` (pure counts, reusable by any pass with retries:
+  mini-lesson homework next), `passRetryBar(itemIds, events)` (a pass's events, the same reading as `passProgress`:
+  repeated rights count once, other items ignored), `retryBarLabel` ("5 of 12 words done · 3 to retry", any unit),
+  `retryBarBadge` ("↺ 3"), `retryBarNote`. Lab core `RetryBar.kt` (`RetryBars`), parity-tested by
+  `android-lab/parity/fixtures/retry-bar.ts` → `RetryBarParityTest`.
+- **Component**: web `components/homework/RetryProgressBar.tsx` (+ `.css`; props `bar`, `unit`, `showBadge`,
+  `testId`), Lab `ui/kit/RetryProgressBar.kt` (`RetryProgressBar(bar, modifier, unit, showBadge, height)`). Blue vs
+  orange (colour-blind safe), the orange is hatched and "↺ N" sits at its right end so it reads without colour; the
+  badge's slot is always kept so the track never shrinks; `role="progressbar"` / semantics with the label; widths
+  animate (none with `prefers-reduced-motion` / the system's "remove animations"). Used by the pass on both apps (web
+  `DeckPass`'s banner, Lab `StudyScreen` `PassTopBar` + `HomeworkScreens` `DeckPass`).
+
 ## 4. Tutor flow (student page)
 
 1. **Lesson notes** (replaces "Session notes"): one entry per lesson — date, title, and its homework
