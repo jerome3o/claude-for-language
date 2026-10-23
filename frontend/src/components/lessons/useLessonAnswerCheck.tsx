@@ -25,6 +25,9 @@ export function useLessonAnswerCheck(ctx: {
   modelAnswer: string;
   modelPinyin?: string | null;
   focus?: string;
+  /** Free speaking: the task's useful words (hanzi) and the question played in Chinese. */
+  hints?: string[];
+  question?: string;
   /** 🔁 Try again: the exercise clears its answer and shows its input again. */
   onRetry: () => void;
 }) {
@@ -48,6 +51,8 @@ export function useLessonAnswerCheck(ctx: {
       input: source ?? 'typed',
       focus: ctx.focus,
     };
+    if (ctx.hints?.length) next.hints = ctx.hints;
+    if (ctx.question) next.question_audio = ctx.question;
     setInput(next);
     start(next, tries.length + 1);
   }

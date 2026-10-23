@@ -356,15 +356,14 @@ fun DescribeImageView(ex: DescribeImageExercise, env: ExerciseEnv, onNext: (Bool
 
 @Composable
 fun SpeakView(ex: SpeakExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
-    var finished by remember { mutableStateOf(false) }
     PhaseLabel("Say it out loud")
     PromptText(ex.prompt)
-    if (!finished) {
-        ActionRow { Primary("🎤 I've said my sentence") { finished = true; env.onTap() } }
-    } else {
-        ex.example?.let { Reference(it, env, label = "One way to say it:") }
-        SelfAssess("Was your sentence grammatical and on task?", yes = "✓ Yes") { ok -> onNext(ok, ExerciseAnswer(selfAssessed = true)) }
-    }
+    // Record it and Claude checks the transcript (docs/STUDY_SESSION.md "Claude checks your speaking");
+    // nothing is kept — or say it without recording, as before.
+    SpeakingAnswerView(
+        exerciseType = "speak", prompt = ex.prompt, hints = null, question = null, example = ex.example,
+        targetSeconds = 15, mediaKey = null, env = env, gotItLabel = "✓ Yes", allowWithoutRecording = true,
+    ) { ok, answer, _ -> onNext(ok, answer) }
 }
 
 // ============ Listening: pick what you heard ============

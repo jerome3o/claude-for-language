@@ -146,7 +146,14 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
     case 'describe_image':
       return <Row label="Reference"><span lang="zh-CN">{exercise.reference_hanzi}</span></Row>;
     case 'speak':
-      return <Row label="Prompt">{exercise.prompt}</Row>;
+      return (
+        <>
+          <Row label="Prompt">{exercise.prompt}</Row>
+          <CheckRows a={a} />
+          {a.text && <Row label="🎤 Said"><span lang="zh-CN">{a.text}</span></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+        </>
+      );
     case 'sentence_making':
       return (
         <>
@@ -212,7 +219,10 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           ) : (
             <p className="att-muted">No recording (said it without recording).</p>
           )}
-          {media?.transcript && (
+          <CheckRows a={a} />
+          {a.text && <Row label="🎤 Said"><span lang="zh-CN">{a.text}</span></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+          {!a.text && media?.transcript && (
             <div className="att-transcript">
               <span lang="zh-CN">{media.transcript}</span>
               {media.transcript_translation && <span className="att-english"> — {media.transcript_translation}</span>}

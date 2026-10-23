@@ -1453,7 +1453,9 @@ words, typed or handwritten; Claude checks it online via `POST /api/lessons/sent
 handwriting runs on the stroke-order pad `components/strokes/WritingExercise.tsx` with a free
 sketch-pad fallback when the stroke data isn't on the device), `dictation` (hear it, write it;
 `input: type | handwrite`), `oral_expression` (answer out loud, RECORDED for the tutor,
-transcribed server-side when a transcriber is configured) and `conversation` (a 2–3 speaker
+transcribed live as it is spoken and checked by Claude at Done — parts ①②③ covered, a cleaner version,
+≤ 4 tips; gracious about restarts / fillers / English / punctuation; offline = checked by the server when
+the recording uploads — docs/STUDY_SESSION.md "Claude checks your speaking", `shared/lesson/speakingTake.ts`) and `conversation` (a 2–3 speaker
 dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
 on `/api/practice/tts`, cached per voice + speed for offline — then comprehension questions, one point
 each, transcript revealed at the end). Conversation lines are spoken at the provider's own

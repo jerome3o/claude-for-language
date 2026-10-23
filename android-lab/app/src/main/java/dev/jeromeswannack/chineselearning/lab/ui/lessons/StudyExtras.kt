@@ -156,6 +156,7 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
             app.repo.api.askAboutLessonAnswer(input, check, history, question)
         },
         recorder = recorder,
+        speaking = remember(app) { AppSpeakingTranscriber(app, scope) },
         playFile = { runtime.audio.playFile(it) },
         onCorrect = { app.sounds.play(Sounds.Sfx.CORRECT); app.haptics.correct() },
         onWrong = { app.sounds.play(Sounds.Sfx.WRONG, 0.6f); app.haptics.wrong() },

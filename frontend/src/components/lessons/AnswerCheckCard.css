@@ -214,3 +214,71 @@ mark.answer-check-quote,
   cursor: pointer;
 }
 .answer-ask-error { color: #b91c1c; font-size: 0.875rem; margin: 0.25rem 0; }
+
+/* Speaking (docs/STUDY_SESSION.md "Claude checks your speaking"): parts, the cleaner version, a tip's fix. */
+.answer-check-parts {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.answer-check-part {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.answer-check-part-mark {
+  flex: none;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.answer-check-part-mark.good { background: #dcfce7; color: #15803d; }
+.answer-check-part-mark.warn { background: #fef3c7; color: #b45309; }
+.answer-check-part-mark.bad { background: #fee2e2; color: #b91c1c; }
+.answer-check-part-label { font-weight: 600; color: var(--color-text, #1f2937); }
+.answer-check-part-missing { color: #b91c1c; font-weight: 600; font-size: 0.875rem; }
+.answer-check-part-note { color: var(--color-text-light, #4b5563); font-size: 0.875rem; }
+.answer-check-cleaner-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light, #6b7280);
+}
+.answer-check-fix-line.speaking { font-size: 1.0625rem; line-height: 1.6; }
+.answer-check-tip-fix { margin-top: 0.125rem; }
+.answer-check-tip-arrow { color: #15803d; font-weight: 700; }
+.answer-check-tip-fix-hanzi { font-size: 1.0625rem; color: #15803d; font-weight: 600; }
+
+/* The speaking take: live words while recording, then "🎤 You said". */
+.speaking-live {
+  margin-top: 0.5rem;
+  min-height: 1.5rem;
+  color: var(--color-text-light, #6b7280);
+  font-size: 1rem;
+  line-height: 1.5;
+  text-align: left;
+}
+.speaking-transcript-state { color: var(--color-text-light, #6b7280); font-size: 0.9375rem; }
+.speaking-transcript-retry {
+  min-height: 44px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  width: 100%;
+  text-align: left;
+}
+.oral-recorder .speak-transcript { width: 100%; align-self: stretch; text-align: left; }
+.answer-check-tip-fix .answer-check-pinyin { display: block; }

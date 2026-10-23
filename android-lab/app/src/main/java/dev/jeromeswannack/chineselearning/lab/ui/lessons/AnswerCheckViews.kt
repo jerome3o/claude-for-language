@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -96,6 +97,9 @@ class LessonAnswerCheckState(
     private val env: ExerciseEnv,
     private val scope: CoroutineScope,
     private val onRetry: () -> Unit,
+    /** Free speaking: the task's useful words and the question played in Chinese. */
+    private val hints: List<String>? = null,
+    private val question: String? = null,
 ) {
     var ui by mutableStateOf<AnswerCheckUi>(AnswerCheckUi.Idle)
         private set
@@ -116,7 +120,10 @@ class LessonAnswerCheckState(
             ui = AnswerCheckUi.Idle
             return
         }
-        val next = AnswerCheckInput(promptEn, modelAnswer, modelPinyin?.ifBlank { null }, text.trim(), exerciseType, source ?: "typed", focus?.ifBlank { null })
+        val next = AnswerCheckInput(
+            promptEn, modelAnswer, modelPinyin?.ifBlank { null }, text.trim(), exerciseType, source ?: "typed", focus?.ifBlank { null },
+            hints = hints?.filter { it.isNotBlank() }?.ifEmpty { null }, questionAudio = question?.ifBlank { null },
+        )
         input = next
         val tryNumber = tries.size + 1
         // The model answer itself ("✓ Exact match"): nothing for Claude to add — shown at once, offline too.
@@ -176,11 +183,13 @@ fun rememberLessonAnswerCheck(
     modelAnswer: String,
     modelPinyin: String?,
     env: ExerciseEnv,
+    hints: List<String>? = null,
+    question: String? = null,
     onRetry: () -> Unit,
 ): LessonAnswerCheckState {
     val scope = rememberCoroutineScope()
     val focus = LocalLessonFocus.current
-    return remember(exerciseType, promptEn, modelAnswer) { LessonAnswerCheckState(exerciseType, promptEn, modelAnswer, modelPinyin, focus, env, scope, onRetry) }
+    return remember(exerciseType, promptEn, modelAnswer) { LessonAnswerCheckState(exerciseType, promptEn, modelAnswer, modelPinyin, focus, env, scope, onRetry, hints, question) }
 }
 
 /** The card under "You said" + the 💬 sheet. */
@@ -237,7 +246,7 @@ fun AnswerCheckBody(
     onAsk: (() -> Unit)? = null,
     compact: Boolean = false,
 ) {
-    val chip = LessonAnswerCheck.chip(check.verdict)
+    val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
     val shape = RoundedCornerShape(14.dp)
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(shape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, shape)) {
@@ -250,7 +259,9 @@ fun AnswerCheckBody(
                 )
                 Text(check.headline, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
-            if (check.corrected.isNotEmpty()) {
+            check.parts?.takeIf { it.isNotEmpty() }?.let { SpeakingParts(it) }
+            if (!check.cleaned.isNullOrEmpty()) CleanerVersionBlock(check, onPlay, compact)
+            if (check.corrected.isNotEmpty() && check.cleaned.isNullOrEmpty()) {
                 val diff = remember(answer, check.corrected) { ChatLearning.correctionDiff(answer, check.corrected) }
                 Column(
                     Modifier.fillMaxWidth().then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(check.corrected) } else Modifier),
@@ -279,6 +290,16 @@ fun AnswerCheckBody(
                             highlight = tip.quote?.takeIf { segs.quoteInText },
                             fontSize = 15.sp, color = Lab.colors.ink,
                         )
+                        tip.fix?.let { fix ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("→ ", color = Palette.Good, fontWeight = FontWeight.Bold)
+                                ExplorableText(fix, source = "lesson", fontSize = 17.sp, color = Palette.Good, fontWeight = FontWeight.SemiBold)
+                                if (onPlay != null) {
+                                    Box(Modifier.size(44.dp).bouncyClickable { onPlay(fix) }.semantics { contentDescription = "Play the better version" }, contentAlignment = Alignment.Center) { Text("🔊", fontSize = 16.sp) }
+                                }
+                            }
+                            tip.fixPinyin?.let { Text(it, color = Lab.colors.accent, fontSize = 14.sp) }
+                        }
                     }
                 }
             }
@@ -367,7 +388,7 @@ fun AskAboutAnswerContent(
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(input.promptEn, color = Lab.colors.muted, fontSize = 14.sp)
-            Text("You: ${input.answer}", color = Lab.colors.ink, fontSize = 15.sp)
+            Text("You: ${check?.cleaned?.ifEmpty { null } ?: input.answer}", color = Lab.colors.ink, fontSize = 15.sp)
             if (check?.corrected?.isNotEmpty() == true) Text("Fix: ${check.corrected}", color = Lab.colors.ink, fontSize = 15.sp)
         }
         for (t in turns) {
@@ -386,7 +407,7 @@ fun AskAboutAnswerContent(
         error?.let { Text(it, color = Palette.Again, style = MaterialTheme.typography.bodyMedium) }
         if (turns.isEmpty() && !busy) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                for (q in LessonAnswerCheck.askQuickQuestions(check?.verdict)) {
+                for (q in LessonAnswerCheck.askQuickQuestions(check?.verdict, input.exerciseType)) {
                     Text(
                         q, color = Color(0xFF6B21A8), fontSize = 14.sp,
                         modifier = Modifier.heightIn(min = 40.dp).bouncyClickable { onSend(q) }.clip(RoundedCornerShape(50))
@@ -405,3 +426,72 @@ fun AskAboutAnswerContent(
 
 /** Builds the check from the device cache, else the API (online). */
 typealias AnswerCheckFn = suspend (AnswerCheckInput) -> AnswerCheckResult
+
+/** Speaking: the task's parts — ✓ used, ~ used with a slip, ✗ missing — each with its note. */
+@Composable
+private fun SpeakingParts(parts: List<dev.jeromeswannack.chineselearning.lab.core.AnswerCheckPart>) {
+    Column(Modifier.fillMaxWidth().testTag("answer-check-parts"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        for (p in parts) {
+            val mark = LessonAnswerCheck.partMark(p.status)
+            val tone = toneColor(mark.tone)
+            Row(verticalAlignment = Alignment.Top) {
+                Box(Modifier.size(22.dp).clip(CircleShape).background(tone.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                    Text(mark.icon, color = tone, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+                Column(Modifier.padding(start = 8.dp)) {
+                    Row {
+                        Text(p.label, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        if (p.status == "missing") Text("  missing", color = Palette.Again, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                    p.note?.let { ExplorableText(it, source = "lesson", fontSize = 14.sp, color = Lab.colors.muted) }
+                }
+            }
+        }
+    }
+}
+
+/** Speaking: "A cleaner version" — what they meant, the real fixes marked. */
+@Composable
+private fun CleanerVersionBlock(check: AnswerCheck, onPlay: ((String) -> Unit)?, compact: Boolean) {
+    val v = LessonAnswerCheck.cleanerVersion(check)
+    if (v.hanzi.isEmpty()) return
+    Column(
+        Modifier.fillMaxWidth().then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(v.hanzi) } else Modifier),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(if (v.diffFrom != null) "A CLEANER VERSION" else "WHAT YOU SAID, TIDIED UP", color = Lab.colors.muted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val from = v.diffFrom
+            if (from != null) {
+                val text = remember(from, v.hanzi) { cleanerWithFixes(from, v.hanzi) }
+                Text(text, color = Lab.colors.ink, fontSize = if (compact) 15.sp else 17.sp, modifier = Modifier.weight(1f, fill = false))
+            } else {
+                Text(v.hanzi, color = Lab.colors.ink, fontSize = if (compact) 15.sp else 17.sp, modifier = Modifier.weight(1f, fill = false))
+            }
+            if (onPlay != null) Text(" 🔊", fontSize = 16.sp)
+        }
+        if (v.pinyin.isNotEmpty()) Text(v.pinyin, color = Lab.colors.accent, fontSize = 14.sp)
+    }
+}
+
+
+/**
+ * The cleaner version with the real fixes in green: the character diff (punctuation-blind, like the
+ * web's correctionDiff) re-threaded through the text as written, so its punctuation stays.
+ */
+private fun cleanerWithFixes(from: String, corrected: String): androidx.compose.ui.text.AnnotatedString {
+    val flat = ChatLearning.correctionDiff(from, corrected).corrected.flatMap { r -> r.text.codePoints().toArray().map { String(Character.toChars(it)) to r.same } }
+    var p = 0
+    return androidx.compose.ui.text.buildAnnotatedString {
+        for (cp in corrected.codePoints().toArray()) {
+            val ch = String(Character.toChars(cp))
+            val hit = flat.getOrNull(p)?.takeIf { it.first.equals(ch, ignoreCase = true) }
+            if (hit != null) p++
+            if (hit != null && !hit.second) {
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Good, fontWeight = FontWeight.Bold, background = Palette.Good.copy(alpha = 0.16f)))
+                append(ch)
+                pop()
+            } else append(ch)
+        }
+    }
+}

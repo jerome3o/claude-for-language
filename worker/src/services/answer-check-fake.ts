@@ -49,6 +49,28 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
   },
 ];
 
+/** Jerome's "Annie" speaking task (docs/STUDY_SESSION.md "Claude checks your speaking"): a realistic transcript. */
+export const SPEAKING_FIXTURE = {
+  prompt: "A new colleague, Annie, arrives at your office. Guess who she is (① 就是…吧), tell her where two places are (② 就在), what today's meeting is about (③ 是关于…的), and how busy the team is (④ 形容词 + 到…).",
+  transcript: '嗯，你好，你就是……sorry，你就是新来的Annie吧？欢迎欢迎！洗手间在……wait，洗手间就在电梯的旁边，打印机就在我的办公桌后面。今天的会议是关于下个月的活动。我们团队最近忙到……忙到没有时间吃午饭了。',
+  result: {
+    verdict: 'acceptable',
+    headline: 'All four parts are there — just close 是关于…的 with 的.',
+    cleaned: '你好，你就是新来的Annie吧？欢迎欢迎！洗手间就在电梯的旁边，打印机就在我的办公桌后面。今天的会议是关于下个月的活动。我们团队最近忙到没有时间吃午饭了。',
+    corrected: '你好，你就是新来的Annie吧？欢迎欢迎！洗手间就在电梯旁边，打印机就在我的办公桌后面。今天的会议是关于下个月的活动的。我们团队最近忙到没有时间吃午饭了。',
+    parts: [
+      { label: '① 就是…吧', status: 'used', note: '你就是新来的Annie吧 — a perfect friendly guess.' },
+      { label: '② 就在', status: 'used', note: 'Two places: 洗手间就在… and 打印机就在….' },
+      { label: '③ 是关于…的', status: 'used_with_issue', note: 'The closing 的 is missing.' },
+      { label: '④ 形容词 + 到…', status: 'used', note: '忙到没有时间吃午饭 — great use.' },
+    ],
+    tips: [
+      { text: '是关于…的 needs its closing 的: 是关于下个月的活动的 (shì guānyú xià ge yuè de huódòng de).', quote: '是关于下个月的活动', fix: '是关于下个月的活动的' },
+      { text: 'With 旁边 the 的 is usually dropped: 电梯旁边 (diàntī pángbiān) sounds more natural.', quote: '电梯的旁边', fix: '电梯旁边' },
+    ],
+  },
+};
+
 function lineValue(text: string, label: RegExp): string {
   const m = text.match(label);
   return m ? m[1].trim() : '';
@@ -65,6 +87,23 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
             stop_reason: 'tool_use',
             usage: { input_tokens: 300 + text.length, output_tokens: 40 },
             content: [{ type: 'tool_use', id: 'fake', name: 'reply', input: { text: '别 makes it a command ("don\'t…"); 不 only describes. So 也别着急 tells them not to worry, while 也不着急 says they aren\'t worried.' } }],
+          };
+        }
+        if (params.tool_choice?.name === 'check_speaking') {
+          const said = lineValue(text, /Transcript of their recording[^:]*: (.+)/);
+          const known = normalizeHanziAnswer(said) === normalizeHanziAnswer(SPEAKING_FIXTURE.transcript);
+          const result = known ? SPEAKING_FIXTURE.result : {
+            verdict: 'acceptable',
+            headline: 'Clear and on task — nicely done.',
+            cleaned: said.replace(/(sorry|wait|嗯)[，,]?/gi, ''),
+            corrected: '',
+            parts: [],
+            tips: [],
+          };
+          return {
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 900 + text.length, output_tokens: 400 },
+            content: [{ type: 'tool_use', id: 'fake', name: 'check_speaking', input: result }],
           };
         }
         const answer = lineValue(text, /Learner's answer[^:]*: (.+)/);

@@ -13,6 +13,12 @@
  * `exactAnswerCheck` makes its check locally, in both apps and in the worker.
  * Lab port: core `LessonAnswerCheck.kt`, parity-tested (parity/fixtures/lesson-answer-check.ts).
  * docs/STUDY_SESSION.md "Mini lessons" → "Claude checks your answer".
+ *
+ * Free SPEAKING ("口语 · Speaking — recorded", `oral_expression`, and "Say it out loud", `speak`)
+ * gets the same check of the recording's transcript, graciously: disfluencies, restarts, "sorry" /
+ * "wait", English asides, repeats and the recogniser's punctuation never count against the learner.
+ * Its check adds `cleaned` (what they meant), `parts` (the task's ① ② ③ covered or missing) and a
+ * better version per tip (`fix`). docs/STUDY_SESSION.md "Claude checks your speaking".
  */
 import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 
@@ -29,6 +35,22 @@ export interface AnswerCheckTip {
   text: string;
   /** The exact Chinese the tip is about (tappable into the language explorer). */
   quote?: string;
+  /** Speaking: the better version of the quoted words (Chinese). */
+  fix?: string;
+  /** Pinyin of `fix` (the app's pinyin path). */
+  fix_pinyin?: string;
+}
+
+/** Speaking: one part of the task (① ② ③… or a main ask) — covered, covered with a slip, or missing. */
+export type AnswerCheckPartStatus = 'used' | 'used_with_issue' | 'missing';
+export const ANSWER_CHECK_PART_STATUSES: readonly AnswerCheckPartStatus[] = ['used', 'used_with_issue', 'missing'];
+
+export interface AnswerCheckPart {
+  /** "① 就是…吧" — the task's own marker + structure. */
+  label: string;
+  status: AnswerCheckPartStatus;
+  /** One short line: what they said for it / what is missing. */
+  note?: string;
 }
 
 export interface AnswerCheckAlternative {
@@ -51,6 +73,11 @@ export interface AnswerCheck {
   alternative?: AnswerCheckAlternative;
   /** The button to pre-select. */
   suggested: AnswerCheckSuggestion;
+  /** Speaking: what they meant — the transcript without false starts, fillers, asides and repeats. */
+  cleaned?: string;
+  cleaned_pinyin?: string;
+  /** Speaking: the task's parts, in the task's order. */
+  parts?: AnswerCheckPart[];
 }
 
 /** What is checked. */
@@ -66,12 +93,35 @@ export interface AnswerCheckInput {
   input?: 'spoken' | 'edited' | 'typed';
   /** The lesson's title / grammar point, so the tips stay on topic. */
   focus?: string;
+  /** Speaking: the task's "Useful words" (hanzi). */
+  hints?: string[];
+  /** Speaking: the question played in Chinese, when there is one. */
+  question_audio?: string;
 }
 
 /** Exercise types whose answer gets the check (sentence_making has its own, POST /api/lessons/sentence-feedback). */
 export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_translate'];
 
-export const ANSWER_CHECK_LIMITS = { prompt: 400, model: 300, answer: 300, focus: 200, tip: 220, quote: 60, headline: 160, alternative: 200 } as const;
+/** Free speaking: the recording's transcript is checked (model answer = only "one way to say it"). */
+export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'speak'];
+
+/** Bump when the speaking prompt or its shape changes (its cache texts start `s<version>`). */
+export const SPEAKING_CHECK_VERSION = 1;
+
+export function isSpeakingCheckType(exerciseType: string | null | undefined): boolean {
+  return SPEAKING_CHECK_TYPES.includes(exerciseType ?? '');
+}
+
+export const ANSWER_CHECK_LIMITS = {
+  prompt: 400, model: 300, answer: 300, focus: 200, tip: 220, quote: 60, headline: 160, alternative: 200,
+  /** A minute or two of speech, said with fillers and restarts. */
+  speech: 1500, speechPrompt: 1000, hint: 40, hints: 12, question: 200, part: 80, partNote: 160, parts: 8, speakingTips: 4,
+} as const;
+
+/** The longest answer an exercise type takes. */
+export function answerLimitFor(exerciseType: string | null | undefined): number {
+  return isSpeakingCheckType(exerciseType) ? ANSWER_CHECK_LIMITS.speech : ANSWER_CHECK_LIMITS.answer;
+}
 
 const HAN = /\p{Script=Han}/u;
 
@@ -82,7 +132,7 @@ export function hasHan(text: string): boolean {
 
 /** Does this exercise's answer get Claude's check? Only an answer in Chinese (a listening answer in English is not). */
 export function answerCheckApplies(exerciseType: string, answer: string | null | undefined): boolean {
-  if (!ANSWER_CHECK_TYPES.includes(exerciseType)) return false;
+  if (!ANSWER_CHECK_TYPES.includes(exerciseType) && !isSpeakingCheckType(exerciseType)) return false;
   const a = (answer ?? '').trim();
   return a.length > 0 && hasHan(a) && normalizeHanziAnswer(a).length > 0;
 }
@@ -96,6 +146,18 @@ const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
  * a typed one (leniency), so the input mode is part of it.
  */
 export function answerCheckCacheText(input: AnswerCheckInput): string {
+  if (isSpeakingCheckType(input.exercise_type)) {
+    return [
+      `s${SPEAKING_CHECK_VERSION}`,
+      input.exercise_type,
+      collapse(input.prompt_en.normalize('NFKC')).toLowerCase(),
+      normalizeHanziAnswer(input.model_answer),
+      normalizeHanziAnswer(input.answer),
+      collapse((input.focus ?? '').normalize('NFKC')).toLowerCase(),
+      (input.hints ?? []).map((h) => normalizeHanziAnswer(h)).filter(Boolean).join(','),
+      normalizeHanziAnswer(input.question_audio ?? ''),
+    ].join('|');
+  }
   const mode = input.input === 'spoken' ? 'spoken' : 'typed';
   return [
     `v${ANSWER_CHECK_VERSION}`,
@@ -114,18 +176,26 @@ const str = (v: unknown, max: number): string => (typeof v === 'string' ? collap
 export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } | { problems: string[] } {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const L = ANSWER_CHECK_LIMITS;
+  const exerciseType = str(r.exercise_type, 40) || 'translate';
+  const speaking = isSpeakingCheckType(exerciseType);
   const input: AnswerCheckInput = {
-    prompt_en: str(r.prompt_en, L.prompt),
+    prompt_en: str(r.prompt_en, speaking ? L.speechPrompt : L.prompt),
     model_answer: str(r.model_answer, L.model),
     model_pinyin: str(r.model_pinyin, L.model * 3) || undefined,
-    answer: str(r.answer, L.answer),
-    exercise_type: str(r.exercise_type, 40) || 'translate',
+    answer: str(r.answer, answerLimitFor(exerciseType)),
+    exercise_type: exerciseType,
     input: r.input === 'spoken' || r.input === 'edited' || r.input === 'typed' ? r.input : undefined,
     focus: str(r.focus, L.focus) || undefined,
   };
+  if (speaking) {
+    const hints = (Array.isArray(r.hints) ? r.hints : []).map((h) => str(h, L.hint)).filter(Boolean).slice(0, L.hints);
+    if (hints.length) input.hints = hints;
+    const questionAudio = str(r.question_audio, L.question);
+    if (questionAudio) input.question_audio = questionAudio;
+  }
   const problems: string[] = [];
   if (!input.prompt_en) problems.push('prompt_en is required');
-  if (!input.model_answer) problems.push('model_answer is required');
+  if (!input.model_answer && !speaking) problems.push('model_answer is required');
   if (!input.answer) problems.push('answer is required');
   else if (!hasHan(input.answer)) problems.push('answer has no Chinese to check');
   return problems.length ? { problems } : { input };
@@ -148,17 +218,19 @@ export const EXACT_ANSWER_HEADLINE = 'Exactly right — nice!';
  */
 export function exactAnswerCheck(input: Pick<AnswerCheckInput, 'exercise_type' | 'answer' | 'model_answer'>): AnswerCheck | null {
   if (!answerCheckApplies(input.exercise_type, input.answer)) return null;
+  // Free speaking has no single right answer: its model answer is only "one way to say it".
+  if (isSpeakingCheckType(input.exercise_type)) return null;
   if (!isExactHanziMatch(input.answer, input.model_answer)) return null;
   return { verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it' };
 }
 
 export type AnswerCheckTone = 'good' | 'warn' | 'bad';
 
-/** The verdict chip. */
-export function answerCheckChip(verdict: AnswerCheckVerdict): { label: string; tone: AnswerCheckTone } {
+/** The verdict chip (`speaking`: a free-speaking check — there is no single right answer to be "also" right next to). */
+export function answerCheckChip(verdict: AnswerCheckVerdict, speaking = false): { label: string; tone: AnswerCheckTone } {
   switch (verdict) {
-    case 'correct': return { label: '✓ Correct', tone: 'good' };
-    case 'acceptable': return { label: '✓ Also right', tone: 'good' };
+    case 'correct': return { label: speaking ? '✓ Well said' : '✓ Correct', tone: 'good' };
+    case 'acceptable': return { label: speaking ? '✓ Good' : '✓ Also right', tone: 'good' };
     case 'almost': return { label: '~ Almost', tone: 'warn' };
     case 'wrong': return { label: '✗ Not quite', tone: 'bad' };
   }
@@ -179,17 +251,30 @@ export function normalizeAnswerCheck(raw: unknown, answer: string): AnswerCheck 
   const headline = str(r.headline, L.headline);
   if (!verdict || !headline) throw new Error('Invalid answer check');
   const mine = normalizeHanziAnswer(answer);
-  let corrected = verdict === 'correct' || verdict === 'acceptable' ? '' : str(r.corrected, L.answer * 2);
-  if (corrected && (!hasHan(corrected) || normalizeHanziAnswer(corrected) === mine)) corrected = '';
-  const correctedPinyin = corrected ? str(r.corrected_pinyin, L.answer * 6) : '';
+  // A speaking check is the one with `cleaned` (what they meant): its "cleaner version" may fix an
+  // acceptable answer too, and it is compared with what they meant, not the raw transcript.
+  const cleanedRaw = str(r.cleaned, L.speech);
+  const speaking = !!cleanedRaw && hasHan(cleanedRaw);
+  const meant = speaking ? normalizeHanziAnswer(cleanedRaw) : mine;
+  const noFix = verdict === 'correct' || (verdict === 'acceptable' && !speaking);
+  let corrected = noFix ? '' : str(r.corrected, speaking ? L.speech : L.answer * 2);
+  if (corrected && (!hasHan(corrected) || normalizeHanziAnswer(corrected) === mine || normalizeHanziAnswer(corrected) === meant)) corrected = '';
+  const correctedPinyin = corrected ? str(r.corrected_pinyin, (speaking ? L.speech : L.answer) * 6) : '';
   const tips: AnswerCheckTip[] = [];
   for (const t of Array.isArray(r.tips) ? r.tips : []) {
     const o = (t && typeof t === 'object' ? t : { text: t }) as Record<string, unknown>;
     const text = str(o.text, L.tip);
     if (!text) continue;
     const quote = str(o.quote, L.quote);
-    tips.push(quote && hasHan(quote) ? { text, quote } : { text });
-    if (tips.length === 3) break;
+    const tip: AnswerCheckTip = quote && hasHan(quote) ? { text, quote } : { text };
+    const fix = str(o.fix, L.alternative);
+    if (fix && hasHan(fix) && normalizeHanziAnswer(fix) !== normalizeHanziAnswer(quote)) {
+      tip.fix = fix;
+      const fp = str(o.fix_pinyin, L.alternative * 6);
+      if (fp) tip.fix_pinyin = fp;
+    }
+    tips.push(tip);
+    if (tips.length === (speaking ? L.speakingTips : 3)) break;
   }
   let alternative: AnswerCheckAlternative | undefined;
   const a = (r.alternative && typeof r.alternative === 'object' ? r.alternative : null) as Record<string, unknown> | null;
@@ -206,6 +291,95 @@ export function normalizeAnswerCheck(raw: unknown, answer: string): AnswerCheck 
   }
   const out: AnswerCheck = { verdict, headline, corrected, corrected_pinyin: correctedPinyin, tips, suggested: suggestedFor(verdict) };
   if (alternative) out.alternative = alternative;
+  if (speaking) {
+    out.cleaned = cleanedRaw;
+    const cp = str(r.cleaned_pinyin, L.speech * 6);
+    if (cp) out.cleaned_pinyin = cp;
+    const parts: AnswerCheckPart[] = [];
+    for (const p of Array.isArray(r.parts) ? r.parts : []) {
+      const o = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+      const label = str(o.label, L.part);
+      const status = (ANSWER_CHECK_PART_STATUSES as readonly unknown[]).includes(o.status) ? o.status as AnswerCheckPartStatus : null;
+      if (!label || !status) continue;
+      const note = str(o.note, L.partNote);
+      parts.push(note ? { label, status, note } : { label, status });
+      if (parts.length === L.parts) break;
+    }
+    out.parts = parts;
+  }
+  return out;
+}
+
+/** The text shown as "A cleaner version": the correction, else what they meant ('' when neither). */
+export function cleanerVersion(check: AnswerCheck): { hanzi: string; pinyin: string; diffFrom: string | null } {
+  if (check.corrected) return { hanzi: check.corrected, pinyin: check.corrected_pinyin, diffFrom: check.cleaned || null };
+  if (check.cleaned) return { hanzi: check.cleaned, pinyin: check.cleaned_pinyin ?? '', diffFrom: null };
+  return { hanzi: '', pinyin: '', diffFrom: null };
+}
+
+/** A part's mark: ✓ used, ~ used with a slip, ✗ missing. */
+export function speakingPartMark(status: AnswerCheckPartStatus): { icon: string; tone: AnswerCheckTone } {
+  switch (status) {
+    case 'used': return { icon: '✓', tone: 'good' };
+    case 'used_with_issue': return { icon: '~', tone: 'warn' };
+    case 'missing': return { icon: '✗', tone: 'bad' };
+  }
+}
+
+export interface SpeakingTaskPart {
+  /** ① ② ③ … as written in the task. */
+  marker: string;
+  /** The structure / ask after the marker: "就是…吧". */
+  structure: string;
+  /** What that part asks for, when the marker sits in brackets after it: "Guess who she is". */
+  description: string;
+}
+
+const CIRCLED = /[\u2460-\u2473\u3251-\u325F\u32B1-\u32BF]/;
+const OPEN_PARENS = ['(', '（'];
+const CLOSE_PARENS = [')', '）'];
+const lastIndexOfAny = (s: string, chars: string[]) => Math.max(...chars.map((c) => s.lastIndexOf(c)));
+const firstIndexOfAny = (s: string, chars: string[]) => {
+  const found = chars.map((c) => s.indexOf(c)).filter((i) => i >= 0);
+  return found.length ? Math.min(...found) : -1;
+};
+const trimPart = (s: string) => collapse(s).replace(/^[,，;；:：、.。\s]+/, '').replace(/[,，;；:：、.。\s]+$/, '');
+
+/**
+ * The task's numbered parts (① ② ③…) — "Guess who she is (① 就是…吧), tell her where two places
+ * are (② 就在)…" → [{ marker: '①', structure: '就是…吧', description: 'Guess who she is' }, …].
+ * A marker inside brackets takes the bracket's text as the structure and the clause before the
+ * bracket as the description; otherwise the text up to the next marker. [] when unnumbered.
+ */
+export function speakingTaskParts(prompt: string | null | undefined): SpeakingTaskPart[] {
+  const text = (prompt ?? '').normalize('NFC');
+  const marks: number[] = [];
+  for (let i = 0; i < text.length; i++) if (CIRCLED.test(text[i])) marks.push(i);
+  const out: SpeakingTaskPart[] = [];
+  let prevEnd = 0;
+  marks.forEach((at, k) => {
+    const next = k + 1 < marks.length ? marks[k + 1] : text.length;
+    const marker = text[at];
+    const before = text.slice(0, at);
+    const openAt = lastIndexOfAny(before, OPEN_PARENS);
+    const inParen = openAt >= 0 && openAt > lastIndexOfAny(before, CLOSE_PARENS) && text.slice(openAt + 1, at).trim() === '';
+    const seg = text.slice(at + 1, next);
+    let structure: string;
+    let description = '';
+    if (inParen) {
+      const close = firstIndexOfAny(seg, CLOSE_PARENS);
+      structure = close >= 0 ? seg.slice(0, close) : seg;
+      const clause = text.slice(Math.min(prevEnd, openAt), openAt);
+      const pieces = clause.split(/[.。:：;；!?！？]/);
+      description = trimPart(pieces[pieces.length - 1]).replace(/^(and|then|also)(\s+|$)/i, '');
+      prevEnd = close >= 0 ? at + 1 + close + 1 : next;
+    } else {
+      structure = seg.replace(/\s+(and|then)\s*$/i, '');
+      prevEnd = next;
+    }
+    structure = trimPart(structure).slice(0, 60);
+    if (structure && !out.some((p) => p.marker === marker)) out.push({ marker, structure, description: description.slice(0, 120) });
+  });
   return out;
 }
 
@@ -256,7 +430,8 @@ export function tipSegments(tip: AnswerCheckTip): { segments: TipSegment[]; quot
 }
 
 /** 💬 Ask about this: the one-tap questions offered before anything is asked. */
-export function askQuickQuestions(verdict: AnswerCheckVerdict | null | undefined): string[] {
+export function askQuickQuestions(verdict: AnswerCheckVerdict | null | undefined, exerciseType?: string | null): string[] {
+  if (isSpeakingCheckType(exerciseType)) return ['How could I say it more naturally?', 'Explain the grammar', 'What did I leave out?'];
   return verdict === 'correct' || verdict === 'acceptable'
     ? ['Why does mine work?', 'How is it different from the model?', 'Other ways to say it?']
     : ['Why is mine wrong?', 'Explain the grammar', 'Other ways to say it?'];

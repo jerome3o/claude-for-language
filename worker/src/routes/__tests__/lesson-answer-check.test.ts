@@ -9,9 +9,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import type Anthropic from '@anthropic-ai/sdk';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
-import lessonAttempts from '../lesson-attempts';
-import { ANSWER_CHECK_FIXTURES, fakeAnswerCheckClient } from '../../services/answer-check-fake';
-import { answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM } from '../../services/answer-check';
+import lessonAttempts, { checkAttemptSpeaking } from '../lesson-attempts';
+import { ANSWER_CHECK_FIXTURES, SPEAKING_FIXTURE, fakeAnswerCheckClient } from '../../services/answer-check-fake';
+import {
+  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL,
+} from '../../services/answer-check';
 import type { Env } from '../../types';
 
 function client(env: Env) {
@@ -140,5 +142,87 @@ describe('answer check service', () => {
     // The fake answers an exact match as correct.
     const ok = await checkLessonAnswer(db, { prompt_en: 'hello', model_answer: '你好', answer: '你好！', exercise_type: 'translate' }, { apiKey: 'k', client: fakeAnswerCheckClient() });
     expect(ok.check.verdict).toBe('correct');
+  });
+});
+
+describe('free speaking (oral_expression / speak)', () => {
+  let db: SqliteD1;
+  let post: ReturnType<typeof client>;
+  const speaking = (extra: Record<string, unknown> = {}) => ({
+    prompt_en: SPEAKING_FIXTURE.prompt, model_answer: '', answer: SPEAKING_FIXTURE.transcript, exercise_type: 'oral_expression',
+    input: 'spoken', hints: ['就是', '就在', '关于'], ...extra,
+  });
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+  });
+
+  it('the Annie answer: all four parts, 是关于…的 with a slip, a cleaner version, tips with the better words + pinyin', async () => {
+    const r = await post('/lessons/answer-check', speaking());
+    expect(r.status).toBe(200);
+    const c = r.json.check;
+    expect(c.verdict).toBe('acceptable');
+    expect(c.suggested).toBe('got_it');
+    expect(c.cleaned).not.toContain('sorry');
+    expect(c.cleaned).not.toContain('wait');
+    expect(c.corrected).toContain('是关于下个月的活动的');
+    expect(c.corrected_pinyin).toMatch(/guān ?yú/);
+    expect(c.cleaned_pinyin).toMatch(/nǐ hǎo/);
+    expect(c.parts.map((p: { status: string }) => p.status)).toEqual(['used', 'used', 'used_with_issue', 'used']);
+    expect(c.tips[0]).toMatchObject({ quote: '是关于下个月的活动', fix: '是关于下个月的活动的' });
+    expect(c.cleaned_pinyin).toContain('Annie ba?');
+    expect(c.tips[0].fix_pinyin).toMatch(/huó ?dòng de$/);
+    const again = await post('/lessons/answer-check', speaking({ answer: SPEAKING_FIXTURE.transcript.replace(/[，。？！]/g, ' ') }));
+    expect(again.json.cached).toBe(true);
+  });
+
+  it('takes a long transcript (up to 1500 characters) without a model answer', async () => {
+    const r = await post('/lessons/answer-check', speaking({ answer: '我们团队最近很忙。'.repeat(150), exercise_type: 'speak' }));
+    expect(r.status).toBe(200);
+    expect(r.json.check.cleaned.length).toBeGreaterThan(300);
+  });
+
+  it('the prompt: gracious, punctuation ignored, numbered parts listed, the larger model first', async () => {
+    expect(SPEAKING_CHECK_SYSTEM).toMatch(/false starts/);
+    expect(SPEAKING_CHECK_SYSTEM).toMatch(/PUNCTUATION/);
+    expect(SPEAKING_CHECK_SYSTEM).toMatch(/在\/再/);
+    expect(SPEAKING_CHECK_SYSTEM).toMatch(/at most 4/);
+    const turn = answerCheckUserTurn({ ...speaking(), question_audio: '她是谁？' } as never);
+    expect(turn).toContain('① 就是…吧 — Guess who she is');
+    expect(turn).toContain('④ 形容词 + 到… — how busy the team is');
+    expect(turn).toContain('Useful words shown: 就是、就在、关于');
+    expect(turn).toContain('Question played to them in Chinese: 她是谁？');
+    expect(turn).not.toContain('One way to say it');
+    const seen: Array<{ model: string; tool: string }> = [];
+    const spy = {
+      messages: {
+        create: async (p: { model: string; tool_choice: { name: string } }) => {
+          seen.push({ model: p.model, tool: p.tool_choice.name });
+          return fakeAnswerCheckClient().messages.create(p as never);
+        },
+      },
+    } as unknown as Pick<Anthropic, 'messages'>;
+    await runAnswerCheck(speaking() as never, { apiKey: 'k', client: spy });
+    expect(seen).toEqual([{ model: ANSWER_CHECK_FALLBACK_MODEL, tool: 'check_speaking' }]);
+  });
+
+  it('a recording uploaded later (made offline) is checked server-side and the check lands in the attempt', async () => {
+    await db.prepare('INSERT INTO users (id, email, name, role) VALUES (?, ?, ?, ?)').bind('user-1', 'u@example.com', 'U', 'student').run();
+    const spec = { title: 'At the office', sections: [{ title: 's', exercises: [{ type: 'oral_expression', prompt: SPEAKING_FIXTURE.prompt, hints: [{ hanzi: '就是' }] }] }] };
+    await db.prepare('INSERT INTO custom_lessons (id, user_id, title, spec) VALUES (?, ?, ?, ?)').bind('lesson-1', 'user-1', 'At the office', JSON.stringify(spec)).run();
+    const data = { started_at: '', duration_ms: 1, exercises: [{ section: 0, index: 0, type: 'oral_expression', correct: true, points: 1, max_points: 1, duration_ms: 1, answer: { self_assessed: true, recording: { media_key: 'm0', duration_ms: 40000 } } }] };
+    await db.prepare('INSERT INTO custom_lesson_attempts (id, user_id, lesson_id, completed_at, duration_ms, spec, data) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .bind('att-1', 'user-1', 'lesson-1', new Date().toISOString(), 1, JSON.stringify(spec), JSON.stringify(data)).run();
+    const env = { DB: db, E2E_TEST_MODE: 'true' } as unknown as Env;
+    expect(await checkAttemptSpeaking(env, 'user-1', 'att-1', 'm0', SPEAKING_FIXTURE.transcript)).toBe(true);
+    const row = db.rows('SELECT data FROM custom_lesson_attempts WHERE id = ?', ['att-1'])[0] as { data: string };
+    const answer = JSON.parse(row.data).exercises[0].answer;
+    expect(answer.text).toBe(SPEAKING_FIXTURE.transcript);
+    expect(answer.input).toBe('spoken');
+    expect(answer.check.parts).toHaveLength(4);
+    // Already checked → nothing more.
+    expect(await checkAttemptSpeaking(env, 'user-1', 'att-1', 'm0', SPEAKING_FIXTURE.transcript)).toBe(false);
+    expect(await checkAttemptSpeaking(env, 'user-2', 'att-1', 'm0', SPEAKING_FIXTURE.transcript)).toBe(false);
   });
 });

@@ -55,7 +55,7 @@ export function AskAboutAnswerSheet({ input, check, onClose }: {
         <div className="answer-ask-body">
           <div className="answer-ask-context">
             <div>{input.prompt_en}</div>
-            <div>You: <strong lang="zh-CN">{input.answer}</strong></div>
+            <div>You: <strong lang="zh-CN">{check?.cleaned || input.answer}</strong></div>
             {check?.corrected && <div>Fix: <strong lang="zh-CN">{check.corrected}</strong></div>}
           </div>
           {turns.map((t, i) => (
@@ -67,7 +67,7 @@ export function AskAboutAnswerSheet({ input, check, onClose }: {
           {error && <div className="answer-ask-error" role="alert">{error}</div>}
           {turns.length === 0 && !busy && (
             <div className="answer-ask-chips">
-              {askQuickQuestions(check?.verdict).map((q) => (
+              {askQuickQuestions(check?.verdict, input.exercise_type).map((q) => (
                 <button key={q} type="button" className="answer-ask-chip" onClick={() => send(q)}>{q}</button>
               ))}
             </div>

@@ -238,6 +238,7 @@ object AnalyticsEvents {
         ev("lesson.answer_check", "lessons", listOf("verdict", "ms", "cached", "local", "exercise_type", "input", "try")),
         ev("lesson.answer_retry", "lessons", listOf("verdict", "exercise_type", "try")),
         ev("lesson.answer_ask", "lessons", listOf("verdict", "exercise_type", "turn")),
+        ev("lesson.speaking_transcribed", "lessons", listOf("via", "live_error", "ms", "seconds", "exercise_type")),
         ev("lesson.conversation_audio_open", "lessons", listOf("provider")),
         ev("lesson.conversation_audio_speed", "lessons", listOf("speed", "provider", "source")),
         ev("lesson.conversation_audio_voice", "lessons", listOf("provider", "gender", "automatic")),
