@@ -163,7 +163,7 @@ class LessonScreenshots : LabScreenshotTest() {
         for ((h, e) in listOf("门" to "door", "窗户" to "window", "桌子" to "table", "作业" to "homework")) { tap(h); tap(e) }
     }
     @Test fun describeAnswered() = shootAfter("lessons-11-describe-answered", content = player(LessonSamples.describe, pictureEnv(dev.jeromeswannack.chineselearning.lab.core.LessonImages.State.Ready))) { tap("🎤 I've described it") }
-    @Test fun speakAnswered() = shootAfter("lessons-13-speak-answered", content = player(LessonSamples.speak)) { tap("🎤 I've said my sentence") }
+    @Test fun speakAnswered() = shootAfter("lessons-13-speak-answered", content = player(LessonSamples.speak)) { tap("Say it without recording") }
     @Test fun listenChoiceAnswered() = shootAfter("lessons-15-listen-choice-answered", content = player(LessonSamples.listenChoice)) { tap("有") }
     @Test fun listenTranslateAnswered() = shootAfter("lessons-17-listen-translate-answered", content = player(LessonSamples.listenTranslate)) {
         type("Where did you put the keys?")
@@ -216,7 +216,7 @@ class LessonScreenshots : LabScreenshotTest() {
     @Test fun preview() = shootAfter("lessons-32-preview-finished", content = {
         LessonPlayer("The 把 sentence", "🧱", LessonSamples.lesson(LessonSamples.speak), env(), PlayerContext.Preview, {}, {})
     }) {
-        tap("🎤 I've said my sentence")
+        tap("Say it without recording")
         tap("✓ Yes")
     }
     @Test fun dark() = shootAfter("lessons-33-choice-dark", dark = true, content = player(LessonSamples.choice)) { tap("请把窗户关上。") }
