@@ -9,6 +9,8 @@
  * The worker answers it on `POST /api/lessons/answer-check` (services/answer-check.ts: a forced
  * tool, thinking off, Haiku); both apps start it the moment the answer is final, cache it on the
  * device and show it under "You said". Offline / failed → no card, the old self-assessment.
+ * An answer that IS the model answer (the "✓ Exact match" chip) never reaches the model:
+ * `exactAnswerCheck` makes its check locally, in both apps and in the worker.
  * Lab port: core `LessonAnswerCheck.kt`, parity-tested (parity/fixtures/lesson-answer-check.ts).
  * docs/STUDY_SESSION.md "Mini lessons" → "Claude checks your answer".
  *
@@ -18,7 +20,7 @@
  * Its check adds `cleaned` (what they meant), `parts` (the task's ① ② ③ covered or missing) and a
  * better version per tip (`fix`). docs/STUDY_SESSION.md "Claude checks your speaking".
  */
-import { normalizeHanziAnswer } from './answer-check';
+import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 
 /** Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it. */
 export const ANSWER_CHECK_VERSION = 1;
@@ -202,6 +204,24 @@ export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } 
 /** Correct / acceptable → Got it; almost / wrong → Missed it. */
 export function suggestedFor(verdict: AnswerCheckVerdict): AnswerCheckSuggestion {
   return verdict === 'correct' || verdict === 'acceptable' ? 'got_it' : 'missed_it';
+}
+
+/** The headline of an answer that IS the model answer (no model call). */
+export const EXACT_ANSWER_HEADLINE = 'Exactly right — nice!';
+
+/**
+ * The check of an answer that IS the model answer, made on the device with no model call: the
+ * same rule as the "✓ Exact match" chip under "You said" (`isExactHanziMatch`: whitespace and
+ * sentence punctuation ignored), so the chip and the skipped call always agree. Correct, Got it,
+ * nothing to fix. Null when the check doesn't apply or the answer differs (→ ask Claude). The
+ * apps show it at once (offline too); the worker answers it the same way without a call.
+ */
+export function exactAnswerCheck(input: Pick<AnswerCheckInput, 'exercise_type' | 'answer' | 'model_answer'>): AnswerCheck | null {
+  if (!answerCheckApplies(input.exercise_type, input.answer)) return null;
+  // Free speaking has no single right answer: its model answer is only "one way to say it".
+  if (isSpeakingCheckType(input.exercise_type)) return null;
+  if (!isExactHanziMatch(input.answer, input.model_answer)) return null;
+  return { verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it' };
 }
 
 export type AnswerCheckTone = 'good' | 'warn' | 'bad';

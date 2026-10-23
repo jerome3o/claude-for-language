@@ -12,7 +12,7 @@ import java.text.Normalizer
  * Port of shared/lesson/answerCheck.ts: Claude's check of a self-assessed lesson answer ("Say it
  * in Chinese", "Listen and translate" answered in Chinese) — which answers get it, the cache text,
  * the shape rules a reply must follow, the verdict chip, the suggested button, the tip segments
- * (the quote one tappable word) and the 💬 quick questions. Parity-tested by
+ * (the quote one tappable word), the 💬 quick questions and the local check of an exact answer. Parity-tested by
  * LessonAnswerCheckParityTest (parity/fixtures/lesson-answer-check.ts).
  *
  * Free speaking (oral_expression / speak; docs/STUDY_SESSION.md "Claude checks your speaking"): the
@@ -149,6 +149,23 @@ object LessonAnswerCheck {
             collapse(nfkc(input.focus ?: "")).lowercase(),
         ).joinToString("|")
     }
+
+    /** Port of EXACT_ANSWER_HEADLINE. */
+    const val EXACT_HEADLINE = "Exactly right — nice!"
+
+    /**
+     * Port of exactAnswerCheck(): an answer that IS the model answer (the "✓ Exact match" chip's
+     * rule, LessonAnswers.isExactHanziMatch) is checked locally — correct, Got it, no model call.
+     */
+    fun exact(exerciseType: String, answer: String, modelAnswer: String): AnswerCheck? {
+        if (!applies(exerciseType, answer)) return null
+        // Free speaking has no single right answer: its model answer is only "one way to say it".
+        if (isSpeaking(exerciseType)) return null
+        if (!LessonAnswers.isExactHanziMatch(answer, modelAnswer)) return null
+        return AnswerCheck(verdict = "correct", headline = EXACT_HEADLINE, corrected = "", correctedPinyin = "", tips = emptyList(), suggested = "got_it")
+    }
+
+    fun exact(input: AnswerCheckInput): AnswerCheck? = exact(input.exerciseType, input.answer, input.modelAnswer)
 
     fun suggestedFor(verdict: String): String = if (verdict == "correct" || verdict == "acceptable") "got_it" else "missed_it"
 

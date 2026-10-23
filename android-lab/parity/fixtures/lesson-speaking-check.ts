@@ -9,7 +9,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   answerCheckApplies, answerCheckCacheText, askQuickQuestions, cleanerVersion, normalizeAnswerCheck,
-  speakingPartMark, speakingTaskParts, answerCheckChip, ANSWER_CHECK_PART_STATUSES, ANSWER_CHECK_VERDICTS,
+  speakingPartMark, speakingTaskParts, answerCheckChip, exactAnswerCheck, ANSWER_CHECK_PART_STATUSES, ANSWER_CHECK_VERDICTS,
 } from '../../../shared/lesson/answerCheck';
 import {
   speakingClock, speakingTakeLine, SPEAKING_FINISH_TIMEOUT_MS, SPEAKING_LIVE_KEY_MARGIN_MS, SPEAKING_MAX_SECONDS,
@@ -79,6 +79,7 @@ writeFileSync(join(OUT, 'lesson-speaking-check.json'), JSON.stringify({
   cacheTexts,
   normalized,
   parts,
+  exact: ['oral_expression', 'speak', 'translate'].map((type) => ({ type, answer: '你就是Annie吧？', model: '你就是Annie吧', exact: exactAnswerCheck({ exercise_type: type, answer: '你就是Annie吧？', model_answer: '你就是Annie吧' }) !== null })),
   chips: ANSWER_CHECK_VERDICTS.map((v) => ({ verdict: v, chip: answerCheckChip(v, true) })),
   marks: ANSWER_CHECK_PART_STATUSES.map((status) => ({ status, mark: speakingPartMark(status) })),
   quick: ['oral_expression', 'speak', 'translate', null].map((type) => ({ type, questions: askQuickQuestions('almost', type) })),

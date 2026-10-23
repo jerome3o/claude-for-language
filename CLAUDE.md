@@ -145,7 +145,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── text/              # numberHanzi.ts: number ↔ hanzi normalisation (transcripts, typed answers)
 │   ├── students/          # The tutor's private student profile: validation, the prompt block every tutor-side content agent reads (studentProfilePrompt), examples, chips; coverage.ts = "What <student> has covered" (coverageHeadline, coveragePrompt)
 │   ├── profile/           # Editable profile: pickProfileUpdate (name / bio / about / time zone → problems), limits, localTimeLabel
-│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, the retry progress bar (retry-bar.ts; web components/homework/RetryProgressBar.tsx, Lab ui/kit/RetryProgressBar.kt — reusable by any pass with retries), dedupe, load gauge, draft plan, Home's compact card rows incl. mini lesson revisions + new lessons (home.ts), sizes "18 exercises · ~12 min" (size.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts), the one-off headline + long-term decks (summary.ts) — pure, unit-tested
+│   ├── homework/          # Homework assignments (docs/HOMEWORK.md): due labels, split over days, the one-off pass, the retry progress bar (retry-bar.ts; web components/homework/RetryProgressBar.tsx, Lab ui/kit/RetryProgressBar.kt — reusable by any pass with retries), dedupe, load gauge, draft plan, Home's compact card rows incl. mini lesson revisions due + new tutor-sent lessons — never his own never-started or cancelled ones; /homework lists the same lesson rows (home.ts), sizes "18 exercises · ~12 min" (size.ts), the tutor's homework library + statuses (library.ts), link homework (link.ts), the one-off headline + long-term decks (summary.ts) — pure, unit-tested
 │   ├── tutor-notes/       # "Notes from your tutor": new / earlier merge, Home line, the practice rule (a rating counts only when the card is due) — parity-tested by the Lab app
 │   ├── debug/             # Study-state debug reports: ONE report shape (web + Lab app), eventIdHash, compareDebugReports (pure diff)
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
@@ -1482,7 +1482,7 @@ agent can repair and retry.
 **Lesson audio is prefetched** (docs/AUDIO.md "Lesson audio prefetch"): every clip a lesson plays (`shared/lesson/audioClips.ts`) is fetched by the sync (today's, open homework, lockable, next new lessons), again when a lesson opens (exercise on screen first), and pre-generated server-side into R2 `tts-cache/` on every lesson write (`services/lesson-audio.ts`, tts-queue `lesson_audio`); a late clip never plays on a later exercise.
 Lessons are cached whole in IndexedDB (`customLessons`) and studied fully offline. **They are NOT part of
 the study session** (Oct 2026: no lesson mix, no "New lessons a day", no Settings → "Lessons & readers"):
-they are done from **Home's homework / to-do card** (revisions due + new lessons, with sizes — `homeHomework`,
+they are done from **Home's homework / to-do card** (revisions due + new lessons a tutor sent for long-term review, with sizes — `homeHomework`,
 `shared/homework/home.ts`) and the **Mini Lessons page**, through the player at `/lessons/:id/play?from=&mode=revision`
 (`pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`) or a homework pass (docs/STUDY_SESSION.md "Mini lessons"):
 - **A run is never lost** (`shared/study/lessonRun.ts`, Lab `core/…/LessonRun.kt` parity-tested): saved after every
@@ -2109,7 +2109,7 @@ role switch (student / tutor), device & sync state, links, decks incl. deleted o
 
 ### Tutor accounts (users.role = 'tutor')
 Set by the admin (sheet or `admin_set_role`). `useNavRole` exposes `isTutorAccount` (from the signed-in user, never waits
-for relationships): tabs **Students · Decks · Library · More** (`tabsFor`), landing always Students unless "Start on" says
+for relationships): tabs **Students · Chats · Decks · Library · More** (`tabsFor`; a `/decks` page lights Decks, not More), landing always Students unless "Start on" says
 otherwise (`resolveLanding`), `/` renders `components/home/TutorHome.tsx` (students, Make, "Try it as your student") instead
 of the study home — no streak, due-card button, homework card or learner onboarding; More shows Teaching / Tools; the
 background sync generates no daily story (`services/accountRole.ts`). **Try it** previews record nothing:
@@ -2771,7 +2771,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Decks · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up — for a tutor account its own Decks tab). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/chats` - Chats tab: every conversation (tutors + students, Claude role-play in its own section), Signal-style rows with avatar / last message / time / unread, search, ✏️ new chat; cached offline, live while open (`pages/ChatsPage.tsx`, `hooks/useChatList.ts`)
 - `/decks` - Deck list (grouped in folders when there are any) + card search (`?q=`; `/search` redirects here) — More → Decks, Home "All decks →"

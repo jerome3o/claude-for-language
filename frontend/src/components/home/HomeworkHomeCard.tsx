@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { homeHomework, readerSizeLabel, type HomeHomeworkRow, type HomeLesson, type LongTermHomework } from '@shared/homework';
+import { homeHomework, homeHomeworkRows, isLessonRow, readerSizeLabel, type HomeHomeworkRow, type HomeLesson, type LongTermHomework } from '@shared/homework';
 import { tutorNotesHomeLine } from '@shared/tutor-notes';
 import { useHomeworkItems } from '../homework/useHomeworkItems';
 import type { HomeworkView } from './useHomework';
@@ -61,7 +61,21 @@ function useHomeLessons(): { lessons: HomeLesson[]; sizes: Record<string, string
   }, []);
 }
 
-function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
+/**
+ * The card's lesson rows — revisions due + new lessons a tutor sent for long-term review — all of
+ * them, for /homework's "Mini lessons" section (what Home's "+N more" also counts).
+ */
+export function useHomeworkLessonRows(view: HomeworkView): HomeHomeworkRow[] | undefined {
+  const items = useHomeworkItems();
+  const longTerm = useLongTerm(view);
+  const homeLessons = useHomeLessons();
+  return useMemo(() => {
+    if (!items || !longTerm || !homeLessons) return undefined;
+    return homeHomeworkRows(items.todo, longTerm, { lessons: homeLessons.lessons, sizes: homeLessons.sizes }).filter(isLessonRow);
+  }, [items, longTerm, homeLessons]);
+}
+
+export function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
   return (
     <Link to={row.route} className="hw-slim" data-testid="home-hw-row" aria-label={`${row.title}, ${row.progress}${row.size ? `, ${row.size}` : ''}${row.due ? `, ${row.due}` : ''}`}>
       <span className="hw-slim-icon" aria-hidden="true">{row.icon}</span>
@@ -85,8 +99,10 @@ function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
 /**
  * Home's homework card, compact: one slim row per active item (title, "5 / 12", its size —
  * "18 exercises · ~12 min", "12 words", "6 pages" —, due label, a thin bar), then mini lesson
- * revisions due ("🔁 Revision 1 · 5 questions · ~4 min · due today") and new mini lessons (they
- * are no longer in the study session); a tap opens it — the pass for one-off / both items (the lesson / reader player for those
+ * revisions due ("🔁 Revision 1 · 5 questions · ~4 min · due today") and new mini lessons a tutor
+ * sent for long-term review (they are no longer in the study session; his own never-started
+ * lessons and cancelled ones stay on Mini Lessons only); "+N more" → /homework, which lists the
+ * same rows; a tap opens it — the pass for one-off / both items (the lesson / reader player for those
  * kinds). An unread tutor message is one small line.
  * Hidden when there is nothing. Rows come from the shared `homeHomework` (Lab app: same rules).
  */

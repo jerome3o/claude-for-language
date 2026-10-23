@@ -3,7 +3,9 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
 /**
  * Mini lessons: runs that are never lost, a retry round, revise until right first time
  * (shared/study/lessonRun.ts, shared/study/lessonRevision.ts; docs/STUDY_SESSION.md "Mini lessons").
- * - Home lists a new lesson with its size; a half-done run survives a reload the NEXT DAY
+ * - his own new lesson is NOT on Home (only open homework, revisions due and new lessons a tutor
+ *   sent are — shared/homework/home.ts); the Mini Lessons page lists it with its size; a half-done
+ *   run survives a reload the NEXT DAY
  *   ("Continue where you left off (2 of 3)"); a miss comes back in the retry round with the
  *   orange part of the bar; the completion's outcome keeps the miss → "Revision coming";
  * - a revision due shows on Home ("🔁 … Revision 1 · 1 question"), plays only what was missed
@@ -74,12 +76,15 @@ test('a run survives the next day, the miss comes back in the retry round, and t
   const start = Date.now();
   await page.clock.install({ time: new Date(start) });
 
-  // Home: the new lesson with its size.
-  await page.goto(`/?session_token=${user.token}`);
-  const row = page.getByTestId('home-hw-row').filter({ hasText: TITLE });
-  await expect(row).toBeVisible({ timeout: 30_000 });
-  await expect(row.getByTestId('hw-size')).toHaveText('3 exercises · ~1 min');
-  await row.click();
+  // His own new lesson is not homework: Mini Lessons lists it with its size, Home doesn't.
+  await page.goto(`/lessons?session_token=${user.token}`);
+  await expect(page.getByTestId(`lesson-play-${id}`)).toHaveText('▶ Start', { timeout: 30_000 });
+  await expect(page.getByTestId('mini-lesson-size').first()).toContainText('3 exercises · ~1 min');
+  await page.goto('/');
+  await expect(page.getByText('+ Add a deck').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('home-hw-row').filter({ hasText: TITLE })).toHaveCount(0);
+  await page.goto('/lessons');
+  await page.getByTestId(`lesson-play-${id}`).click();
 
   // The note, then a wrong answer — then close.
   await page.getByRole('button', { name: /next|continue|got it/i }).first().click();

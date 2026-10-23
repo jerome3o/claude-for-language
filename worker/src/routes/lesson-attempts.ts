@@ -3,8 +3,8 @@
  * helpers that need the server. Mounted under /api after the auth middleware.
  *
  *   POST /lessons/sentence-feedback                      Claude checks a sentence_making answer (503 retryable / 502)
- *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate, and a
- *                                                        free-speaking transcript: oral_expression / speak; cached)
+ *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached; the model answer itself → no call)
+ *                                                        and a free-speaking transcript (oral_expression / speak; never short-circuited)
  *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
  *   PUT  /lesson-attempts/:id/media/:key                 upload a recording made in an attempt (raw body; owner only)
  *   GET  /lesson-attempts[?lesson_id]                    my attempts, newest first
@@ -30,7 +30,7 @@ import { storeAudio } from '../services/audio';
 import { checkMadeSentence } from '../services/sentence-making';
 import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
 import { fakeAnswerCheckClient } from '../services/answer-check-fake';
-import { pickAnswerCheckInput, parseAnswerCheck, answerCheckApplies, isSpeakingCheckType, type AnswerCheckInput } from '@shared/lesson/answerCheck';
+import { exactAnswerCheck, pickAnswerCheckInput, parseAnswerCheck, answerCheckApplies, isSpeakingCheckType, type AnswerCheckInput } from '@shared/lesson/answerCheck';
 import { aiSpendToday, dailyCostCap } from '../middleware/cost-guard';
 import { StructuredCallError } from '../services/structured-call';
 import { transcribeAudio, pickTranscriber } from '../services/calls/transcribe';
@@ -84,10 +84,14 @@ function structuredFailure(c: Context<AppEnv>, error: unknown, what: string) {
 }
 
 lessonAttempts.post('/lessons/answer-check', async (c) => {
-  const deps = answerCheckDeps(c.env);
-  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
   const picked = pickAnswerCheckInput(await c.req.json().catch(() => ({})));
   if ('problems' in picked) return c.json({ error: picked.problems.join('; '), problems: picked.problems }, 400);
+  // The model answer itself ("✓ Exact match"): nothing for Claude to add — no call, no cost
+  // (the apps already skip it; this covers older clients).
+  const exact = exactAnswerCheck(picked.input);
+  if (exact) return c.json({ check: exact, cached: false, local: true, ms: 0 });
+  const deps = answerCheckDeps(c.env);
+  if (!deps) return c.json({ error: 'Claude isn’t set up on this server.', retryable: false }, 503);
   const started = Date.now();
   try {
     const { check, cached } = await checkLessonAnswer(c.env.DB, picked.input, deps);

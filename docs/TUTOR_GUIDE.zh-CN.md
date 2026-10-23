@@ -150,7 +150,7 @@
 | **Progress（进度）** | 30 天统计和每日记录（第 11 节） |
 | **More（更多）** | 其他所有功能——见下文 |
 
-老师的标签栏是 **Students · Chats · Study · More**（学生 · 聊天 · 学习 · 更多）（如果老师自己也学习，还会多一个 **Progress**）。老师的 **Students** 标签就是第 7 节的学生总览。在 **Settings → Start on**（设置 → 启动时打开）里，任何人都可以选择应用打开时停在哪个标签。
+老师账号的标签栏是 **Students · Chats · Decks · Library · More**（学生 · 聊天 · 卡组 · 课程库 · 更多）——卡组一点就到（**More** 的第一行也有）。自己也在学习、同时有学生的账号看到的是 **Students · Chats · Study · More**（学生 · 聊天 · 学习 · 更多）（还在学习的话会多一个 **Progress**）。老师的 **Students** 标签就是第 7 节的学生总览。在 **Settings → Start on**（设置 → 启动时打开）里，任何人都可以选择应用打开时停在哪个标签。
 
 ### More（更多）页面
 

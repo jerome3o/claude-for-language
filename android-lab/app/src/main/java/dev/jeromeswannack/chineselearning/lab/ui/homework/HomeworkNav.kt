@@ -25,7 +25,7 @@ fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
     composable(Routes.route(Routes.homework())) {
         val vm: HomeworkListViewModel = viewModel(factory = HomeworkListViewModel.Factory(nav.app))
         val ui by vm.ui.collectAsStateWithLifecycle()
-        HomeworkListScreen(ui, onBack = nav::back, onOpen = { nav.open(Routes.homeworkPass(it)) })
+        HomeworkListScreen(ui, onBack = nav::back, onOpen = { nav.open(Routes.homeworkPass(it)) }, onOpenRoute = { nav.open(it) })
     }
     composable(Routes.route("/homework/{id}")) { entry ->
         val id = entry.arguments?.getString("id").orEmpty()

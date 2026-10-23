@@ -6,7 +6,7 @@
  * exercise is then self-assessed exactly as before.
  */
 import {
-  answerCheckCacheText, parseAnswerCheck, type AnswerCheck, type AnswerCheckInput,
+  answerCheckCacheText, exactAnswerCheck, parseAnswerCheck, type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { API_BASE, getAuthHeaders } from '../api/client';
 
@@ -80,6 +80,9 @@ export interface AnswerCheckResult {
 }
 
 export async function checkLessonAnswer(input: AnswerCheckInput): Promise<AnswerCheckResult> {
+  // The model answer itself: no call (useAnswerCheck shows it before ever getting here).
+  const exact = exactAnswerCheck(input);
+  if (exact) return { check: exact, cached: false };
   const local = cachedAnswerCheck(input);
   if (local) return { check: local, cached: true };
   const r = await postJson<{ check: unknown; cached?: boolean }>('/lessons/answer-check', input);

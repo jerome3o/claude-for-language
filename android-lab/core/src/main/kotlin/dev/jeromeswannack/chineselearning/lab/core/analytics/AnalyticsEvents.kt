@@ -235,7 +235,7 @@ object AnalyticsEvents {
         ev("lesson.grammar_start", "lessons", emptyList(), replacedBy = "lesson.start"),
         ev("lesson.editor_save", "lessons", emptyList()),
         ev("lesson.catalogue_try", "lessons", listOf("exercise_type")),
-        ev("lesson.answer_check", "lessons", listOf("verdict", "ms", "cached", "exercise_type", "input", "try")),
+        ev("lesson.answer_check", "lessons", listOf("verdict", "ms", "cached", "local", "exercise_type", "input", "try")),
         ev("lesson.answer_retry", "lessons", listOf("verdict", "exercise_type", "try")),
         ev("lesson.answer_ask", "lessons", listOf("verdict", "exercise_type", "turn")),
         ev("lesson.speaking_transcribed", "lessons", listOf("via", "live_error", "ms", "seconds", "exercise_type")),

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  answerCheckApplies, answerCheckCacheText, answerCheckChip, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
-  suggestedFor, tipSegments,
+  answerCheckApplies, answerCheckCacheText, answerCheckChip, exactAnswerCheck, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
+  suggestedFor, tipSegments, EXACT_ANSWER_HEADLINE,
 } from './answerCheck';
+import { isExactHanziMatch } from './answer-check';
 import { sanitizeAttemptData } from './attempt';
 
 describe('answerCheckApplies', () => {
@@ -112,6 +113,7 @@ describe('attempt data keeps the check and every try', () => {
   });
 });
 
+<<<<<<< HEAD
 // ============ Free speaking ============
 
 import {
@@ -220,5 +222,33 @@ describe('speaking: marks, quick questions, take numbers', () => {
     expect(speakingClock(65)).toBe('1:05');
     expect(speakingClock(-3)).toBe('0:00');
     expect(speakingTakeLine('failed')).toBe('Couldn’t transcribe — tap to retry');
+=======
+describe('exactAnswerCheck', () => {
+  const base = { exercise_type: 'translate', model_answer: '车站就在我家对面。' };
+  it('the model answer itself → a local correct check (no call), the same rule as the Exact match chip', () => {
+    for (const answer of ['车站就在我家对面。', '车站就在我家对面', ' 车站 就在我家对面 ！', '车站就在我家对面.']) {
+      expect(isExactHanziMatch(answer, base.model_answer)).toBe(true);
+      expect(exactAnswerCheck({ ...base, answer })).toEqual({
+        verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it',
+      });
+    }
+    expect(exactAnswerCheck({ ...base, exercise_type: 'listen_translate', answer: '车站就在我家对面' })?.verdict).toBe('correct');
+  });
+  it('anything else is left to Claude (or isn\'t checked at all)', () => {
+    expect(exactAnswerCheck({ ...base, answer: '车站在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '车站就在我家对面吗' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, exercise_type: 'sentence_making', answer: '车站就在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
+>>>>>>> origin/main
+  });
+});
+
+describe('speaking: never the exact-match short-circuit', () => {
+  it('a transcript equal to the model answer still goes to Claude', async () => {
+    const { exactAnswerCheck } = await import('./answerCheck');
+    expect(exactAnswerCheck({ exercise_type: 'oral_expression', answer: '你就是Annie吧？', model_answer: '你就是Annie吧' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'speak', answer: '你好', model_answer: '你好' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'translate', answer: '你好', model_answer: '你好' })?.verdict).toBe('correct');
   });
 });

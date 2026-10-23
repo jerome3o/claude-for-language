@@ -620,8 +620,11 @@ cycle until you get all the questions right first time."
   and stored; a rating no longer decides anything when the run has answers.
 
 **Where**: Home's card lists, after the homework rows, **revisions due** ("🔁 <title> · Revision 1 ·
-5 questions · ~4 min · due today" → the revision run) and **new lessons** ("🎓 … · new · 18 exercises ·
-~12 min"); locked ones wait (`shared/homework/home.ts`). The Mini Lessons page: **To do** (a run in
+5 questions · ~4 min · due today" → the revision run) and **new lessons a tutor sent for long-term review**
+("🎓 … · new · 18 exercises · ~12 min"); locked ones wait; his own / agent-made / companion lessons never
+started and lessons whose assignments were cancelled are NOT on Home — only on the Mini Lessons page
+(`shared/homework/home.ts`). `/homework` lists the same lesson rows under **Mini lessons**, so Home's
+"+N more" lands on them. The Mini Lessons page: **To do** (a run in
 progress — ▶ Continue —, revisions due — ▶ Revision —, new — ▶ Start), **Revision coming** (▶ Revise now /
 Whole lesson), **Done for good** (▶ Do it again), each with its size. The end of a run says "All right
 first time — done for good! 🎉" or "Back in a week as a revision: the 3 you missed first time + a few
@@ -656,6 +659,15 @@ thinking off; `worker/src/services/answer-check.ts`) while the reveal is read:
   attempt review shows them;
 - **💬 Ask about this** opens a short chat inside the lesson about this exercise, the answer and the
   check (`POST /api/lessons/answer-check/ask`), with one-tap questions (`askQuickQuestions`).
+
+**The model answer itself is never sent to Claude.** When the answer matches the model answer by the
+same rule as the "✓ Exact match" chip under "You said" (`isExactHanziMatch`, `shared/lesson/answer-check.ts`:
+whitespace and sentence punctuation ignored), `exactAnswerCheck` (`shared/lesson/answerCheck.ts`, Lab
+`LessonAnswerCheck.exact`, parity-tested) makes the check on the device — **✓ Correct · Exactly right —
+nice!**, Got it ringed, nothing to fix — shown at once with no "Checking…" row, offline too; 🔁 Try again
+and 💬 Ask about this stay. The worker answers such a request the same way without a model call (older
+clients). Analytics: `lesson.answer_check` with `local: true`, `ms: 0`. A homophone ("✓ Sounds right") is
+not exact and is still checked.
 
 The prompt never marks different-but-valid wording wrong (optional 很 / 了 / 的, a dropped subject) and
 reads a spoken answer as a speech-recognition transcript (homophones, punctuation). Checks are cached for

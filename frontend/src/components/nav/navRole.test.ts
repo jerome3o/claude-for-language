@@ -132,10 +132,19 @@ describe('tutor account (users.role = tutor)', () => {
     expect(role).toMatchObject({ isTutorAccount: true, isTutorOnly: true, hasStudents: false });
   });
 
-  it('gets Students · Chats · Library · More, with no Study or Progress tab', () => {
+  it('gets Students · Chats · Decks · Library · More, with no Study or Progress tab', () => {
     const role = deriveNavRole({ relationships: relationships({ students: [rel('active')] }), deckCount: 2, dueCount: 5, accountRole: 'tutor' });
-    expect(tabsFor(role).map((t) => t.id)).toEqual(['students', 'chats', 'library', 'more']);
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['students', 'chats', 'decks', 'library', 'more']);
     expect(activeTab(tabsFor(role), '/library/abc')).toBe('library');
+  });
+
+  it('a deck page lights the Decks tab (not More) for a tutor account', () => {
+    const tabs = tabsFor({ hasStudents: true, isTutorOnly: true, isTutorAccount: true });
+    expect(activeTab(tabs, '/decks')).toBe('decks');
+    expect(activeTab(tabs, '/decks/d1')).toBe('decks');
+    expect(activeTab(tabs, '/generate')).toBe('decks');
+    expect(activeTab(tabs, '/more')).toBe('more');
+    expect(activeTab(tabs, '/settings')).toBe('more');
   });
 
   it('a student account is unchanged', () => {

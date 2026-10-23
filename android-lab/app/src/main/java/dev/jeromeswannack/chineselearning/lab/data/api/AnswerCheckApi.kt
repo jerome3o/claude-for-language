@@ -76,6 +76,8 @@ private suspend fun <T> retryBusy(block: suspend () -> T): T {
 }
 
 suspend fun Api.checkLessonAnswer(input: AnswerCheckInput, cache: JsonCache, online: Boolean): AnswerCheckResult {
+    // The model answer itself: no call (LessonAnswerCheckState shows it before ever getting here).
+    LessonAnswerCheck.exact(input)?.let { return AnswerCheckResult(it, cached = false) }
     val key = cacheKey(input)
     runCatching { cache.get<AnswerCheck>(key) }.getOrNull()?.let { return AnswerCheckResult(it, cached = true) }
     if (!online) throw AnswerCheckUnavailable("offline", offline = true)

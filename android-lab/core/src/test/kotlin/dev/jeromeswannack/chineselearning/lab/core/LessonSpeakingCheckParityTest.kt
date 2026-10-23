@@ -68,6 +68,9 @@ class LessonSpeakingCheckParityTest {
 
     @Test
     fun marksAndQuickQuestions() {
+        val exact = list("exact")
+        assertTrue(exact.any { it["exact"]!!.jsonPrimitive.boolean } && exact.any { !it["exact"]!!.jsonPrimitive.boolean })
+        for (c in exact) assertEquals(c["exact"]!!.jsonPrimitive.boolean, LessonAnswerCheck.exact(c["type"].str!!, c["answer"].str!!, c["model"].str!!) != null, c.toString())
         for (c in list("chips")) {
             val chip = c["chip"]!!.jsonObject
             assertEquals(LessonAnswerCheck.Chip(chip["label"].str!!, chip["tone"].str!!), LessonAnswerCheck.chip(c["verdict"].str!!, speaking = true))
