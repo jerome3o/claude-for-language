@@ -113,7 +113,26 @@ describe('attempt data keeps the check and every try', () => {
   });
 });
 
-<<<<<<< HEAD
+describe('exactAnswerCheck', () => {
+  const base = { exercise_type: 'translate', model_answer: '车站就在我家对面。' };
+  it('the model answer itself → a local correct check (no call), the same rule as the Exact match chip', () => {
+    for (const answer of ['车站就在我家对面。', '车站就在我家对面', ' 车站 就在我家对面 ！', '车站就在我家对面.']) {
+      expect(isExactHanziMatch(answer, base.model_answer)).toBe(true);
+      expect(exactAnswerCheck({ ...base, answer })).toEqual({
+        verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it',
+      });
+    }
+    expect(exactAnswerCheck({ ...base, exercise_type: 'listen_translate', answer: '车站就在我家对面' })?.verdict).toBe('correct');
+  });
+  it('anything else is left to Claude (or isn\'t checked at all)', () => {
+    expect(exactAnswerCheck({ ...base, answer: '车站在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '车站就在我家对面吗' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, exercise_type: 'sentence_making', answer: '车站就在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
+  });
+});
+
 // ============ Free speaking ============
 
 import {
@@ -222,25 +241,6 @@ describe('speaking: marks, quick questions, take numbers', () => {
     expect(speakingClock(65)).toBe('1:05');
     expect(speakingClock(-3)).toBe('0:00');
     expect(speakingTakeLine('failed')).toBe('Couldn’t transcribe — tap to retry');
-=======
-describe('exactAnswerCheck', () => {
-  const base = { exercise_type: 'translate', model_answer: '车站就在我家对面。' };
-  it('the model answer itself → a local correct check (no call), the same rule as the Exact match chip', () => {
-    for (const answer of ['车站就在我家对面。', '车站就在我家对面', ' 车站 就在我家对面 ！', '车站就在我家对面.']) {
-      expect(isExactHanziMatch(answer, base.model_answer)).toBe(true);
-      expect(exactAnswerCheck({ ...base, answer })).toEqual({
-        verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it',
-      });
-    }
-    expect(exactAnswerCheck({ ...base, exercise_type: 'listen_translate', answer: '车站就在我家对面' })?.verdict).toBe('correct');
-  });
-  it('anything else is left to Claude (or isn\'t checked at all)', () => {
-    expect(exactAnswerCheck({ ...base, answer: '车站在我家对面。' })).toBeNull();
-    expect(exactAnswerCheck({ ...base, answer: '车站就在我家对面吗' })).toBeNull();
-    expect(exactAnswerCheck({ ...base, answer: '' })).toBeNull();
-    expect(exactAnswerCheck({ ...base, exercise_type: 'sentence_making', answer: '车站就在我家对面。' })).toBeNull();
-    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
->>>>>>> origin/main
   });
 });
 
