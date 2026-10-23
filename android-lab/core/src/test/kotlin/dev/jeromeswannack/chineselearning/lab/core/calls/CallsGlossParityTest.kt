@@ -2,6 +2,10 @@ package dev.jeromeswannack.chineselearning.lab.core.calls
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -79,6 +83,50 @@ class CallsGlossParityTest {
             assertEquals(o["zh"]!!.jsonPrimitive.content, CallGloss.storeKey(s, CallGloss.ZH))
             assertEquals(o["en"]!!.jsonPrimitive.content, CallGloss.storeKey(s, CallGloss.EN))
             assertEquals(o["direction"]!!.jsonPrimitive.content, CallGloss.directionOf(s))
+        }
+    }
+
+    @Test
+    fun reliability() {
+        assertEquals(root["localAfter"]!!.jsonPrimitive.long, CallGloss.LOCAL_AFTER_MS)
+        assertEquals(root["retryAfterFailure"]!!.jsonPrimitive.long, CallGloss.RETRY_AFTER_FAILURE_MS)
+        assertEquals(root["rateLimitWait"]!!.jsonPrimitive.long, CallGloss.RATE_LIMIT_WAIT_MS)
+        assertEquals(root["maxWait"]!!.jsonPrimitive.long, CallGloss.MAX_WAIT_MS)
+        for (c in root["backoff"]!!.jsonArray) {
+            val o = c.jsonObject
+            val status = o["status"]!!.jsonPrimitive.intOrNull
+            val ra = o["retryAfter"]!!.jsonPrimitive.doubleOrNull
+            assertEquals(o["ms"]!!.jsonPrimitive.long, CallGloss.backoffMs(status, ra), "backoff $o")
+        }
+        for (c in root["outcomes"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["outcome"]!!.jsonPrimitive.content, CallGloss.outcomeForStatus(o["status"]!!.jsonPrimitive.intOrNull))
+        }
+    }
+
+    @Test
+    fun deviceGloss() {
+        val cases = root["locals"]!!.jsonArray
+        assertTrue(cases.size > 200)
+        var withLocal = 0
+        for ((i, c) in cases.withIndex()) {
+            val o = c.jsonObject
+            val words = o["words"]!!.jsonArray.map { w -> CallGloss.Word(w.jsonObject["text"]!!.jsonPrimitive.content, w.jsonObject["pinyin"]!!.jsonPrimitive.content) }
+            assertEquals(o["pinyin"]!!.jsonPrimitive.content, CallGloss.localPinyin(words), "pinyin $i")
+            assertEquals((o["lookup"] as? JsonPrimitive)?.contentOrNull, CallGloss.lookupWord(words), "lookup $i")
+            val dict = o["dict"] as? JsonObject
+            val got = CallGloss.localGloss(words, (dict?.get("pinyin") as? JsonPrimitive)?.contentOrNull, (dict?.get("english") as? JsonPrimitive)?.contentOrNull)
+            val want = o["local"] as? JsonObject
+            if (want == null) assertEquals(null, got, "local $i")
+            else {
+                withLocal++
+                assertEquals(CallGloss.Local(want["pinyin"]!!.jsonPrimitive.content, want["english"]!!.jsonPrimitive.content), got, "local $i")
+            }
+        }
+        assertTrue(withLocal > 50, "enough device glosses ($withLocal)")
+        for (c in root["dictMeanings"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["short"]!!.jsonPrimitive.content, CallGloss.shortDictMeaning(o["raw"]!!.jsonPrimitive.content), "meaning $o")
         }
     }
 }

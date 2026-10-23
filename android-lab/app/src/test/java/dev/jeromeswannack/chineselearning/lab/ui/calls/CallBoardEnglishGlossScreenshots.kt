@@ -20,7 +20,7 @@ class CallBoardEnglishGlossScreenshots : LabScreenshotTest() {
         val board = TextBoardUi(text = notes, version = 2)
         val offer = GlossSuggestion("to take a shower", notes.codePointCount(0, notes.length), BoardGloss("xǐzǎo", "", "洗澡"))
         Column(Modifier.fillMaxSize()) {
-            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { null }, previewSuggestion = offer)
+            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { BoardGlossFetcher.Result(null, "failed") }, previewSuggestion = offer)
         }
     }
 

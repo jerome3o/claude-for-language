@@ -11,6 +11,15 @@ import {
   isHanChar,
   GLOSS_CACHE_VERSION,
   GLOSS_MAX_SEGMENT,
+  GLOSS_MAX_WAIT_MS,
+  GLOSS_RATE_LIMIT_WAIT_MS,
+  GLOSS_RETRY_AFTER_FAILURE_MS,
+  glossBackoffMs,
+  glossLookupWord,
+  glossOutcomeForStatus,
+  localGloss,
+  localGlossPinyin,
+  shortDictMeaning,
 } from './gloss';
 
 /** Caret at the end of `text` (in characters). */
@@ -228,5 +237,66 @@ describe('cleanGloss — Claude reply → board text', () => {
     expect(cleanGloss({ pinyin: '你好', english: 'hello' })).toBeNull();
     expect(cleanGloss({ pinyin: 'nǐ hǎo', english: '  ' })).toBeNull();
     expect(cleanGloss({ pinyin: 'nǐ hǎo', english: '你好' })).toBeNull();
+  });
+});
+
+describe('reliability helpers', () => {
+  it('formats a gloss without a meaning as pinyin only', () => {
+    expect(formatGloss({ pinyin: 'nǐ hǎo', english: '' })).toBe(' - nǐ hǎo');
+    expect(glossChipLabel({ pinyin: 'nǐ hǎo', english: '' })).toBe('⇥ nǐ hǎo');
+    expect(formatGloss({ pinyin: '', english: '' })).toBe('');
+  });
+
+  it('backs off for seconds, not a minute', () => {
+    expect(glossBackoffMs(429, 4)).toBe(4_000);
+    expect(glossBackoffMs(429, 0.2)).toBe(1_000);
+    expect(glossBackoffMs(429, 600)).toBe(GLOSS_MAX_WAIT_MS);
+    expect(glossBackoffMs(429, null)).toBe(GLOSS_RATE_LIMIT_WAIT_MS);
+    expect(glossBackoffMs(503)).toBe(GLOSS_RETRY_AFTER_FAILURE_MS);
+    expect(glossBackoffMs(502)).toBe(GLOSS_RETRY_AFTER_FAILURE_MS);
+    expect(glossBackoffMs(null)).toBe(GLOSS_RETRY_AFTER_FAILURE_MS);
+    expect(glossBackoffMs(400)).toBe(0);
+    expect(glossBackoffMs(404)).toBe(0);
+    expect(GLOSS_MAX_WAIT_MS).toBeLessThan(60_000);
+  });
+
+  it('maps statuses to outcomes', () => {
+    expect(glossOutcomeForStatus(null)).toBe('offline');
+    expect(glossOutcomeForStatus(429)).toBe('rate_limited');
+    expect(glossOutcomeForStatus(503)).toBe('unavailable');
+    expect(glossOutcomeForStatus(502)).toBe('failed');
+    expect(glossOutcomeForStatus(400)).toBe('failed');
+  });
+
+  it('builds the device pinyin from the segmenter words', () => {
+    expect(localGlossPinyin([{ text: '我', pinyin: 'wǒ' }, { text: '想', pinyin: 'xiǎng' }, { text: '去', pinyin: 'qù' }, { text: '银行', pinyin: 'yínháng' }])).toBe('wǒ xiǎng qù yínháng');
+    expect(localGlossPinyin([{ text: '你好', pinyin: 'nǐhǎo' }, { text: '，', pinyin: '' }, { text: '谢谢', pinyin: 'xièxie' }, { text: '！', pinyin: '' }])).toBe('nǐhǎo, xièxie!');
+    expect(localGlossPinyin([{ text: '“', pinyin: '' }, { text: '好', pinyin: 'hǎo' }, { text: '”。', pinyin: '' }])).toBe('hǎo');
+    expect(localGlossPinyin([{ text: '好', pinyin: '' }])).toBe('');
+    expect(localGlossPinyin([])).toBe('');
+  });
+
+  it('looks up only a single word', () => {
+    expect(glossLookupWord([{ text: '你好', pinyin: 'nǐhǎo' }, { text: '！', pinyin: '' }])).toBe('你好');
+    expect(glossLookupWord([{ text: '我', pinyin: 'wǒ' }, { text: '好', pinyin: 'hǎo' }])).toBeNull();
+    expect(glossLookupWord(null)).toBeNull();
+  });
+
+  it('shortens a dictionary meaning', () => {
+    expect(shortDictMeaning('to like; to be fond of')).toBe('to like');
+    expect(shortDictMeaning('bank')).toBe('bank');
+    expect(shortDictMeaning('a very long sense that keeps going on and on and on forever')).toBe('a very long sense that keeps going on');
+    expect(shortDictMeaning('cut off…')).toBe('cut off');
+    expect(shortDictMeaning('A - B')).toBe('A, B');
+    expect(shortDictMeaning('see 你好')).toBe('');
+    expect(shortDictMeaning('')).toBe('');
+  });
+
+  it('makes the device gloss: dictionary pinyin + meaning for a word, segmenter pinyin for a phrase', () => {
+    expect(localGloss([{ text: '银行', pinyin: 'yínxíng' }], { pinyin: 'yínháng', english: 'bank; CL:家[jia1]' })).toEqual({ pinyin: 'yínháng', english: 'bank' });
+    expect(localGloss([{ text: '你好', pinyin: 'nǐhǎo' }, { text: '！', pinyin: '' }], { pinyin: 'nǐ hǎo', english: 'hello' })).toEqual({ pinyin: 'nǐ hǎo!', english: 'hello' });
+    expect(localGloss([{ text: '我', pinyin: 'wǒ' }, { text: '想', pinyin: 'xiǎng' }], null)).toEqual({ pinyin: 'wǒ xiǎng', english: '' });
+    expect(localGloss([{ text: '好', pinyin: '' }], null)).toBeNull();
+    expect(localGloss(null)).toBeNull();
   });
 });

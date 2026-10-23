@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -81,6 +82,7 @@ import dev.jeromeswannack.chineselearning.lab.core.calls.BoardField
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallGloss
 import dev.jeromeswannack.chineselearning.lab.core.calls.CallTextDoc
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -93,7 +95,14 @@ private fun parseColor(hex: String): Color = Color(0xFF000000 or hex.removePrefi
  * The board's tab-complete answer (web: POST /api/calls/:id/gloss): pinyin + a short meaning for
  * Chinese on the board, or — when [chinese] is set — the Chinese for English typed, with its pinyin.
  */
-data class BoardGloss(val pinyin: String, val english: String, val chinese: String? = null) {
+data class BoardGloss(
+    val pinyin: String,
+    val english: String,
+    val chinese: String? = null,
+    /** The device's own (segmenter pinyin + a dictionary meaning), shown until the server's comes. */
+    val local: Boolean = false,
+) {
+    val direction: String get() = if (chinese != null) CallGloss.EN else CallGloss.ZH
     /** What Tab / the chip inserts: " - pīnyīn - meaning", or " - 中文 - pīnyīn" after English. */
     val text: String get() = if (chinese != null) CallGloss.formatEn(chinese, pinyin) else CallGloss.format(pinyin, english)
     /** "⇥ pīnyīn - meaning" / "⇥ 中文 - pīnyīn". */
@@ -104,6 +113,23 @@ data class BoardGloss(val pinyin: String, val english: String, val chinese: Stri
 data class GlossSuggestion(val segment: String, val end: Int, val gloss: BoardGloss) {
     val text: String get() = gloss.text
 }
+
+/** One settled lookup, for the `call.board_gloss_lookup` analytics event (web: GlossLookupReport) — no text in it. */
+data class GlossLookupReport(val direction: String, val outcome: String, val status: Int, val ms: Long, val shown: String)
+
+/** The running wait + lookup of the board's tab-complete (outlives the effect that started it). */
+private class GlossLookupState {
+    var key: String? = null
+    var job: kotlinx.coroutines.Job? = null
+    fun cancel() {
+        job?.cancel()
+        job = null
+        key = null
+    }
+}
+
+private fun glossKey(c: CallGloss.Check.Ok) = "${c.direction}:${c.segment}"
+private fun glossKey(s: GlossSuggestion) = "${s.gloss.direction}:${s.segment}"
 
 /**
  * Glosses fetched this run of the app (a lesson repeats words): a repeat is instant and free. Keyed by
@@ -142,7 +168,11 @@ private fun checkAt(v: TextFieldValue): CallGloss.Check = CallGloss.findSegment(
  *
  * Tab-complete (web: useBoardGloss): after typing Chinese and pausing CallGloss.DEBOUNCE_MS with no
  * composition open, " - pīnyīn - meaning" shows grey after the caret with a "⇥ …" chip under it
- * (after an English word or short phrase: " - 中文 - pīnyīn");
+ * (after an English word or short phrase: " - 中文 - pīnyīn"). Reliable first (23 Oct 2026): a
+ * change that leaves MY segment as it was (the other person typing, my line moving) keeps the wait,
+ * the answer on its way and the offer shown; for Chinese the device's own gloss ([localGloss]) shows
+ * at once with a dictionary meaning, else after CallGloss.LOCAL_AFTER_MS or when the server can't
+ * help, and the server's replaces it;
  * a tap on the chip (or Tab on a hardware keyboard) types it in like any edit, so the other person
  * gets it through the CRDT. Typing on moves past it; Esc dismisses. Only I see the offer.
  *
@@ -160,8 +190,12 @@ fun TextBoardPanel(
     modifier: Modifier = Modifier,
     explain: (suspend (String) -> String?)? = null,
     pinyinOf: (String) -> String = { dev.jeromeswannack.chineselearning.lab.core.ToneChange.autoPinyin(it) },
-    /** The tab-complete lookup; null = the feature is off for this board. */
-    gloss: (suspend (String) -> BoardGloss?)? = null,
+    /** The tab-complete lookup (BoardGlossFetcher); null = the feature is off for this board. */
+    gloss: (suspend (String) -> BoardGlossFetcher.Result)? = null,
+    /** The device's own gloss of Chinese, shown while the server's is on its way (LocalBoardGloss). */
+    localGloss: (suspend (String) -> BoardGloss?)? = null,
+    /** Each settled lookup (analytics). */
+    onGlossLookup: (GlossLookupReport) -> Unit = {},
     glossOn: Boolean = true,
     onGlossOn: (Boolean) -> Unit = {},
     /** Screenshots: an offer already on screen (caret at the end of the text). */
@@ -228,38 +262,94 @@ fun TextBoardPanel(
             if (f.composing) TextRange(f.compStart, f.compEnd) else null,
         )
     }
-    // Tab-complete: any change drops an offer that no longer fits; after a quiet pause, ask. The
-    // effect restarts on every change, which cancels a wait or a request in flight.
+    // Tab-complete: a change that leaves my segment as it was keeps the offer (at its new place) and
+    // any wait / lookup for it; another segment drops them and, after a quiet pause, asks. The lookup
+    // runs in [glossScope], not in this effect, so the effect restarting never cancels it.
+    val glossScope = rememberCoroutineScope()
+    val lookup = remember { GlossLookupState() }
+    val currentFocused by rememberUpdatedState(focused)
+    val currentGlossOn by rememberUpdatedState(glossOn)
+    val currentGloss by rememberUpdatedState(gloss)
+    val currentLocal by rememberUpdatedState(localGloss)
+    val currentOnLookup by rememberUpdatedState(onGlossLookup)
+    DisposableEffect(Unit) { onDispose { lookup.cancel() } }
     LaunchedEffect(value.text, value.selection, value.composition, focused, glossOn) {
         if (previewSuggestion != null) return@LaunchedEffect
         val c = checkAt(value)
         val cur = suggestion
-        if (cur != null && c is CallGloss.Check.Ok && c.segment == cur.segment && c.end == cur.end && glossOn && focused) return@LaunchedEffect
+        if (cur != null && c is CallGloss.Check.Ok && glossKey(c) == glossKey(cur) && glossOn && focused) {
+            if (c.end != cur.end) suggestion = cur.copy(end = c.end)
+            return@LaunchedEffect
+        }
+        if (cur == null && c is CallGloss.Check.Ok && glossOn && focused && lookup.key == glossKey(c) && lookup.job?.isActive == true) return@LaunchedEffect
+        lookup.cancel()
         suggestion = null
-        if (!glossOn || gloss == null || !focused || c !is CallGloss.Check.Ok) return@LaunchedEffect
-        val key = "${c.segment}@${c.end}"
+        val fetch = gloss
+        if (!glossOn || fetch == null || !focused || c !is CallGloss.Check.Ok) return@LaunchedEffect
+        val key = glossKey(c)
         if (dismissed != null && dismissed != key) dismissed = null
         if (dismissed == key) return@LaunchedEffect
-        delay(CallGloss.DEBOUNCE_MS)
-        val g = BoardGlossCache.get(c.segment) ?: runCatching { gloss(CallGloss.cacheKey(c.segment)) }.getOrNull()?.also { BoardGlossCache.put(c.segment, it) } ?: return@LaunchedEffect
-        val now = checkAt(currentValue)
-        if (now is CallGloss.Check.Ok && now.segment == c.segment && now.end == c.end) suggestion = GlossSuggestion(c.segment, c.end, g)
+        lookup.key = key
+        lookup.job = glossScope.launch {
+            delay(CallGloss.DEBOUNCE_MS)
+            val segment = c.segment
+            val direction = c.direction
+            val started = System.currentTimeMillis()
+            fun show(g: BoardGloss): Boolean {
+                val now = checkAt(currentValue)
+                if (!currentFocused || !currentGlossOn || now !is CallGloss.Check.Ok || glossKey(now) != key) return false
+                suggestion = GlossSuggestion(segment, now.end, g)
+                return true
+            }
+            var serverDone = false
+            var localShown = false
+            val local = currentLocal
+            val localAsk = if (direction == CallGloss.ZH && local != null) async { runCatching { local(segment) }.getOrNull() } else null
+            val localShow = localAsk?.let { ask ->
+                launch {
+                    val lg = ask.await() ?: return@launch
+                    val wait = (if (lg.english.isNotEmpty()) 0L else CallGloss.LOCAL_AFTER_MS) - (System.currentTimeMillis() - started)
+                    if (wait > 0) delay(wait)
+                    if (!serverDone && show(lg)) localShown = true
+                }
+            }
+            var r = BoardGlossFetcher.Result(null, "failed")
+            try {
+                r = (currentGloss ?: fetch).invoke(segment)
+                serverDone = true
+                localShow?.cancel()
+                val shown = if (r.gloss != null && show(r.gloss!!)) "server" else {
+                    val lg = if (localShown) null else localAsk?.await()
+                    if (lg != null && show(lg)) localShown = true
+                    if (localShown) "local" else "none"
+                }
+                currentOnLookup(GlossLookupReport(direction, r.outcome, r.status, System.currentTimeMillis() - started, shown))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // My segment changed: the request itself goes on (BoardGlossFetcher) and is cached.
+                if (!serverDone) currentOnLookup(GlossLookupReport(direction, "superseded", 0, System.currentTimeMillis() - started, "none"))
+                throw e
+            } finally {
+                localAsk?.cancel()
+                if (lookup.key == key) lookup.key = null
+            }
+        }
     }
     /** [via] "tab" (hardware keyboard) | "chip" — analytics only. */
     fun accept(via: String) {
         val s = suggestion ?: return
         val c = checkAt(value)
         suggestion = null
-        if (c !is CallGloss.Check.Ok || c.segment != s.segment || c.end != s.end) return
+        lookup.cancel()
+        if (c !is CallGloss.Check.Ok || glossKey(c) != glossKey(s)) return
         val ins = s.text
-        val pos = CallTextDoc.charToCodeUnitIndex(value.text, s.end)
+        val pos = CallTextDoc.charToCodeUnitIndex(value.text, c.end)
         val next = value.text.substring(0, pos) + ins + value.text.substring(pos)
         val v = TextFieldValue(next, TextRange(pos + ins.length))
         value = v
         onChange(v.text, v.selection.min, v.selection.max, null)
         haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
-            "call.board_gloss", mapOf("direction" to (if (s.gloss.chinese != null) CallGloss.EN else CallGloss.ZH), "via" to via),
+            "call.board_gloss", mapOf("direction" to s.gloss.direction, "via" to via, "source" to (if (s.gloss.local) "local" else "server")),
         )
     }
     val padX = 16.dp
@@ -323,7 +413,7 @@ fun TextBoardPanel(
                         if (e.type != KeyEventType.KeyDown || suggestion == null || value.composition != null) false
                         else when (e.key) {
                             Key.Tab -> { accept("tab"); true }
-                            Key.Escape -> { dismissed = suggestion?.let { "${it.segment}@${it.end}" }; suggestion = null; true }
+                            Key.Escape -> { dismissed = suggestion?.let { glossKey(it) }; suggestion = null; lookup.cancel(); true }
                             else -> false
                         }
                     },

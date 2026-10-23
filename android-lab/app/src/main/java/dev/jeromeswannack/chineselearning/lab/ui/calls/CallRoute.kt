@@ -298,6 +298,9 @@ fun CallRoute(nav: LabNav, id: String) {
     var confirmLeave by remember { mutableStateOf(false) }
     // Tab-complete on the text board: on by default, remembered per user on this phone (web: localStorage).
     val glossPrefs = remember { context.getSharedPreferences("lab-calls", Context.MODE_PRIVATE) }
+    // The device gloss's dictionaries (cache first, the static files online).
+    val glossWords = remember { dev.jeromeswannack.chineselearning.lab.data.chars.WordDict.of(nav.app) }
+    val glossChars = remember { dev.jeromeswannack.chineselearning.lab.data.chars.CharDict.of(nav.app) }
     var glossOn by remember(myId) { mutableStateOf(glossPrefs.getBoolean("board-gloss:$myId", true)) }
     BackHandler(enabled = s.phase == CallPhase.LIVE) { confirmLeave = true }
 
@@ -366,7 +369,14 @@ fun CallRoute(nav: LabNav, id: String) {
                 nav.app.repo.api.explainSentenceText(dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody(hanzi)).words
                     .joinToString(" · ") { "${it.hanzi} ${it.gloss}" }.ifBlank { null }
             },
-            gloss = { text -> BoardGlossFetcher.fetch(nav.app.repo.api, id, text) },
+            gloss = { text -> BoardGlossFetcher.fetch(nav.app.repo.api, id, text, online = { nav.app.online.value }) },
+            localGloss = { text -> LocalBoardGloss.of(text, glossWords, glossChars) },
+            onGlossLookup = { r ->
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+                    "call.board_gloss_lookup",
+                    mapOf("direction" to r.direction, "outcome" to r.outcome, "status" to r.status, "ms" to r.ms, "shown" to r.shown),
+                )
+            },
             onBoardGlossOn = { on -> glossOn = on; glossPrefs.edit().putBoolean("board-gloss:$myId", on).apply() },
             pages = BoardPageActions(
                 onOpen = vm.controller::openPage,

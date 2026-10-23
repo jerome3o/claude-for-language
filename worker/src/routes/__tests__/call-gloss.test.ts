@@ -17,7 +17,8 @@ vi.mock('@anthropic-ai/sdk', () => {
 
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import calls from '../calls';
-import { resetBoardGlossState, cachedGloss, BOARD_GLOSS_RATE_PER_MIN, BOARD_GLOSS_MAX_TOKENS, glossBoardText } from '../../services/calls/gloss';
+import { resetBoardGlossState, cachedGloss, BOARD_GLOSS_RATE_PER_MIN, BOARD_GLOSS_MAX_TOKENS, BOARD_GLOSS_TIMEOUT_MS, glossBoardText, hedgedCall } from '../../services/calls/gloss';
+import { StructuredCallError } from '../../services/structured-call';
 import { GLOSS_CACHE_VERSION, glossStoreKey } from '@shared/calls';
 import type { Env } from '../../types';
 
@@ -171,8 +172,109 @@ describe('POST /api/calls/:id/gloss', () => {
     }
     expect(statuses.slice(0, BOARD_GLOSS_RATE_PER_MIN).every((s) => s === 200)).toBe(true);
     expect(statuses[BOARD_GLOSS_RATE_PER_MIN]).toBe(429);
+    // The board is told when to ask again (seconds, not a blanket minute of silence).
+    const limited = await post('c1', { text: '二三' });
+    expect(limited.status).toBe(429);
+    const retryAfter = Number(limited.headers.get('Retry-After'));
+    expect(retryAfter).toBeGreaterThanOrEqual(1);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+    expect(await limited.json()).toMatchObject({ retry_after: retryAfter });
+    // A cache hit is never limited.
+    expect((await post('c1', { text: '一丁' })).status).toBe(200);
     // Another user is not affected.
     expect((await makeApp(db, { id: 't1' })('c1', { text: '好的' })).status).toBe(200);
+  });
+});
+
+describe('reliability', () => {
+  let db: SqliteD1;
+  beforeEach(async () => {
+    create.mockReset();
+    resetBoardGlossState();
+    db = await createSqliteD1();
+    db.raw.run("INSERT INTO users (id, email, name) VALUES ('t1', 't@x.test', 'Tutor'), ('s1', 's@x.test', 'Student')");
+    db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('r1', 't1', 's1', 'tutor', 'active')");
+    db.raw.run("INSERT INTO calls (id, relationship_id, created_by) VALUES ('c1', 'r1', 't1')");
+  });
+
+  it('asks the first model first, with a short timeout', async () => {
+    create.mockResolvedValueOnce(toolReply({ pinyin: 'nǐ hǎo', english: 'hello' }));
+    expect((await makeApp(db, { id: 's1' })('c1', { text: '你好' })).status).toBe(200);
+    // Primary first; the request options carry no extra time.
+    expect(create.mock.calls[0][0].model).toMatch(/sonnet/);
+    expect(BOARD_GLOSS_TIMEOUT_MS).toBeLessThanOrEqual(6_000);
+  });
+
+  it('a failing first model (overloaded) → the quick one answers at once', async () => {
+    create.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Overloaded'), { status: 529 });
+    });
+    create.mockResolvedValueOnce(toolReply({ pinyin: 'zàijiàn', english: 'goodbye' }));
+    const res = await makeApp(db, { id: 's1' })('c1', { text: '再见' });
+    expect(res.status).toBe(200);
+    expect(create.mock.calls.map((c) => c[0].model)).toEqual([expect.stringMatching(/sonnet/), expect.stringMatching(/haiku/)]);
+  });
+
+  it('both models failing → 503 (retryable), logged without the text', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    create.mockImplementation(async () => {
+      throw Object.assign(new Error('Overloaded'), { status: 529 });
+    });
+    const res = await makeApp(db, { id: 's1' })('c1', { text: '谢谢你' });
+    expect(res.status).toBe(503);
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith('[call-gloss]'));
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toMatch(/failed \(zh, 3 chars\)/);
+    expect(lines.join(' ')).not.toContain('谢谢你');
+    warn.mockRestore();
+  });
+
+  it('the same text asked twice at once shares one model call and one token', async () => {
+    let answer: (v: unknown) => void = () => {};
+    create.mockImplementationOnce(() => new Promise((r) => (answer = r)));
+    const post = makeApp(db, { id: 's1' });
+    const a = post('c1', { text: '咖啡' });
+    await new Promise((r) => setTimeout(r, 50));
+    const b = post('c1', { text: '咖啡' });
+    await new Promise((r) => setTimeout(r, 50));
+    answer(toolReply({ pinyin: 'kāfēi', english: 'coffee' }));
+    const [ra, rb] = await Promise.all([a, b]);
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+    expect(await rb.json()).toMatchObject({ pinyin: 'kāfēi' });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('hedgedCall', () => {
+  it('asks the quick model when the first is slow; the first good answer wins', async () => {
+    const calls: string[] = [];
+    const result = await hedgedCall(async (model) => {
+      calls.push(model);
+      if (/sonnet/.test(model)) return new Promise<string>((r) => setTimeout(() => r('slow'), 200));
+      return 'quick';
+    }, 20);
+    expect(result).toBe('quick');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a fast first answer never starts the second', async () => {
+    const calls: string[] = [];
+    expect(await hedgedCall(async (m) => (calls.push(m), 'first'), 50)).toBe('first');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(calls).toHaveLength(1);
+  });
+
+  it('the first answer still wins when it comes before the hedge', async () => {
+    const result = await hedgedCall(async (model) => (/sonnet/.test(model) ? new Promise<string>((r) => setTimeout(() => r('first'), 10)) : 'second'), 100);
+    expect(result).toBe('first');
+  });
+
+  it('rejects only when every call failed; two refusals are not retryable', async () => {
+    await expect(hedgedCall(async () => { throw new Error('boom'); }, 10)).rejects.toMatchObject({ retryable: true });
+    await expect(hedgedCall(async () => { throw new StructuredCallError('declined', false); }, 10)).rejects.toMatchObject({ retryable: false });
+    // One fails, the other answers.
+    expect(await hedgedCall(async (m) => { if (/haiku/.test(m)) return 'ok'; throw new Error('x'); }, 1_000)).toBe('ok');
   });
 });
 

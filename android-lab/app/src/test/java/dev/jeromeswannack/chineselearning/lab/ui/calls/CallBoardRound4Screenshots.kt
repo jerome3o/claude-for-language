@@ -25,7 +25,7 @@ class CallBoardRound4Screenshots : LabScreenshotTest() {
             remote = listOf(RemoteCaret("c-a", CallsSamples.TUTOR, "Minghui", "#e11d48", at, at, at, compose = "你kafei")),
         )
         Column(Modifier.fillMaxSize()) {
-            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { null }, previewHighlight = "c-a")
+            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { BoardGlossFetcher.Result(null, "failed") }, previewHighlight = "c-a")
         }
     }
 
@@ -36,7 +36,7 @@ class CallBoardRound4Screenshots : LabScreenshotTest() {
             remote = listOf(RemoteCaret("c-a", CallsSamples.TUTOR, "Minghui", "#2563eb", s, s + 2, s + 2)),
         )
         Column(Modifier.fillMaxSize()) {
-            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { null })
+            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { BoardGlossFetcher.Result(null, "failed") })
         }
     }
 
@@ -48,7 +48,7 @@ class CallBoardRound4Screenshots : LabScreenshotTest() {
             BoardGloss("fúwùyuán, wǒ xiǎng yào yì bēi bù jiā táng de rè niúnǎi kāfēi", "Waiter, I would like a cup of hot milk coffee without any sugar, please"),
         )
         Column(Modifier.fillMaxSize()) {
-            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { null }, previewSuggestion = offer)
+            TextBoardPanel(board, { _, _, _, _ -> }, { _, _ -> }, {}, Modifier.fillMaxWidth().weight(1f), gloss = { BoardGlossFetcher.Result(null, "failed") }, previewSuggestion = offer)
         }
     }
 }

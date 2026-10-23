@@ -29,10 +29,11 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { charToCodeUnitIndex, codeUnitToCharIndex, glossChipLabel, type CharId } from '@shared/calls';
 import { COMPOSE_IDLE_MS, type RemoteCaret, type TextBoardSession } from '../../services/calls/textBoard';
-import { boardGlossEnabled, fetchBoardGloss, setBoardGlossEnabled } from '../../services/calls/boardGloss';
+import { boardGlossEnabled, fetchBoardGloss, localBoardGloss, setBoardGlossEnabled } from '../../services/calls/boardGloss';
+import { preloadSegmenter } from '../../services/chineseSegmenter';
 import { explainSentenceText } from '../../api/client';
 import type { SentenceBriefExplanation } from '../../types';
-import { useBoardGloss, type GlossFetcher, type GlossSuggestion } from './useBoardGloss';
+import { useBoardGloss, type GlossFetcher, type GlossSuggestion, type LocalGlossFetcher } from './useBoardGloss';
 import { BoardPageStrip } from './BoardPageStrip';
 import { track } from '../../services/analytics';
 
@@ -168,7 +169,7 @@ export function GhostLayer({
   return (
     <div className="tb-mirror tb-ghost-layer" ref={layerRef} aria-hidden="true" lang="zh">
       {before}
-      <span className="tb-ghost" ref={ghostRef} data-testid="text-board-ghost">
+      <span className="tb-ghost" ref={ghostRef} data-testid="text-board-ghost" data-source={suggestion.source}>
         {suggestion.text}
         {showKey && <kbd className="tb-ghost-key">Tab</kbd>}
       </span>
@@ -184,8 +185,11 @@ export function TextBoard({
 }: {
   session: TextBoardSession;
   placeholder?: string;
-  /** Tab-complete for this call (off when absent). */
-  gloss?: { callId: string; userId: string; fetchGloss?: GlossFetcher };
+  /**
+   * Tab-complete for this call (off when absent). Tests pass their own `fetchGloss` (and
+   * `localGloss`; with a custom fetcher the device gloss is off unless given).
+   */
+  gloss?: { callId: string; userId: string; fetchGloss?: GlossFetcher; localGloss?: LocalGlossFetcher | null };
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
@@ -240,6 +244,7 @@ export function TextBoard({
 
   const callId = gloss?.callId;
   const customFetch = gloss?.fetchGloss;
+  const localGloss: LocalGlossFetcher | null = gloss?.localGloss !== undefined ? gloss.localGloss : customFetch ? null : localBoardGloss;
   const fetchGloss = useMemo<GlossFetcher | null>(
     () => customFetch ?? (callId ? (segment, signal, direction) => fetchBoardGloss(callId, segment, signal, direction) : null),
     [callId, customFetch],
@@ -251,6 +256,8 @@ export function TextBoard({
     isComposing: () => imeOpen.current,
     enabled: glossOn,
     fetchGloss,
+    localGloss,
+    onLookup: (r) => track('call.board_gloss_lookup', { direction: r.direction, outcome: r.outcome, status: r.status, ms: r.ms, shown: r.shown }),
     onInserted: () => {
       const ta = taRef.current;
       if (!ta) return;
@@ -259,6 +266,10 @@ export function TextBoard({
     },
   });
   const suggestion = suggest.suggestion;
+  // The device gloss's word lists, loaded before the first pause (once per page; precached).
+  useEffect(() => {
+    if (glossOn && localGloss) preloadSegmenter();
+  }, [glossOn, localGloss]);
   const pokeRef = useRef(suggest.poke);
   pokeRef.current = suggest.poke;
   const clearRef = useRef(suggest.clear);
@@ -460,10 +471,10 @@ export function TextBoard({
           onKeyDown={(e) => {
             if (!suggestion || e.nativeEvent.isComposing || imeOpen.current) return;
             if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
-              const direction = suggestion.direction;
+              const { direction, source } = suggestion;
               if (suggest.accept()) {
                 e.preventDefault();
-                track('call.board_gloss', { direction, via: 'tab' });
+                track('call.board_gloss', { direction, via: 'tab', source });
               }
             } else if (e.key === 'Escape') {
               e.preventDefault();
@@ -504,8 +515,8 @@ export function TextBoard({
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
-              const direction = suggestion.direction;
-              if (suggest.accept()) track('call.board_gloss', { direction, via: 'chip' });
+              const { direction, source } = suggestion;
+              if (suggest.accept()) track('call.board_gloss', { direction, via: 'chip', source });
             }}
             aria-label={`Add${suggestion.text}`}
           >

@@ -39,6 +39,8 @@ export interface StructuredCallOptions<T> {
   validate: (input: unknown) => T;
   attempts?: number;
   timeoutMs?: number;
+  /** The SDK's own retries per attempt (default 1). 0 for a call that must answer fast or not at all. */
+  maxRetries?: number;
   /** Called with each successful reply's token usage (cost accounting). */
   onUsage?: (usage: { input_tokens: number; output_tokens: number }, model: string) => void;
   /** Test seam: supply a client instead of constructing one. */
@@ -56,7 +58,7 @@ export async function structuredCall<T>(opts: StructuredCallOptions<T>): Promise
   const attempts = Math.max(1, opts.attempts ?? 3);
   const fallback = opts.fallbackModel === undefined ? DEFAULT_FALLBACK_MODEL : opts.fallbackModel;
   const sleep = opts.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
-  const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey, timeout: opts.timeoutMs ?? 45_000, maxRetries: 1 });
+  const client = opts.client ?? new Anthropic({ apiKey: opts.apiKey, timeout: opts.timeoutMs ?? 45_000, maxRetries: opts.maxRetries ?? 1 });
   let maxTokens = opts.maxTokens;
   let lastError: unknown;
 

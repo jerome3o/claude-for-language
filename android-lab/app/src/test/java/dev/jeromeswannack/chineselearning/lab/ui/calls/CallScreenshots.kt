@@ -163,16 +163,16 @@ class CallScreenshots : LabScreenshotTest() {
     private val glossOffer = GlossSuggestion("我想喝一杯咖啡", glossNotes.codePointCount(0, glossNotes.length), BoardGloss("wǒ xiǎng hē yì bēi kāfēi", "I want to drink a cup of coffee"))
 
     @Test fun textBoardGlossChip() = shoot("calls-28-live-text-board-gloss-chip") {
-        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { BoardGlossFetcher.Result(null, "failed") }), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun textBoardGlossChipUnfolded() = shoot("calls-29-live-text-board-gloss-chip-unfolded") {
-        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossPreview = glossOffer), CallActions(gloss = { BoardGlossFetcher.Result(null, "failed") }), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
     @Test fun textBoardGlossOff() = shoot("calls-30-live-text-board-gloss-off") {
-        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossOn = false), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+        CallScreen(live.copy(textBoard = glossBoard), info.copy(boardGlossOn = false), CallActions(gloss = { BoardGlossFetcher.Result(null, "failed") }), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
     // ---- drawing on a shared screen (shared/calls/annotate.ts)
@@ -214,11 +214,11 @@ class CallScreenshots : LabScreenshotTest() {
     private val composeOffer = GlossSuggestion("我想喝一杯咖啡", composeNotes.codePointCount(0, composeNotes.length), BoardGloss("wǒ xiǎng hē yì bēi kāfēi", "I want to drink a cup of coffee"))
 
     @Test fun textBoardComposeLight() = shoot("calls-34-text-board-compose-light") {
-        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { BoardGlossFetcher.Result(null, "failed") }), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
     @Test fun textBoardComposeDark() = shoot("calls-35-text-board-compose-dark", dark = true) {
-        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { null }), fakeVideo, now, initialPanel = CallPanel.TEXT)
+        CallScreen(live.copy(textBoard = composeBoard), info.copy(boardGlossPreview = composeOffer), CallActions(gloss = { BoardGlossFetcher.Result(null, "failed") }), fakeVideo, now, initialPanel = CallPanel.TEXT)
     }
 
     @Test fun drawBoardDark() = shoot("calls-36-draw-board-dark", dark = true) {

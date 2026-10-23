@@ -212,24 +212,29 @@ export function oneLine(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-/** The two parts after the typed text: [pinyin, english] after Chinese, [chinese, pinyin] after English. */
-function glossParts(g: AnyGloss): [string, string] {
-  return isChineseGloss(g) ? [oneLine(g.chinese), oneLine(g.pinyin)] : [oneLine(g.pinyin), oneLine(g.english)];
+/**
+ * The parts after the typed text: [pinyin, english] after Chinese, [chinese, pinyin] after
+ * English — an empty part left out (the device's own gloss may have pinyin and no meaning).
+ */
+function glossParts(g: AnyGloss): string[] {
+  const parts = isChineseGloss(g) ? [oneLine(g.chinese), oneLine(g.pinyin)] : [oneLine(g.pinyin), oneLine(g.english)];
+  return parts.filter((p) => p !== '');
 }
 
 /**
  * What Tab inserts after the typed text — always exactly one line:
- * " - nǐ hǎo - hello" after Chinese, " - 苹果 - píngguǒ" after English.
+ * " - nǐ hǎo - hello" after Chinese, " - 苹果 - píngguǒ" after English,
+ * " - nǐ hǎo" for pinyin without a meaning.
  */
 export function formatGloss(g: AnyGloss): string {
-  const [a, b] = glossParts(g);
-  return `${GLOSS_SEPARATOR}${a}${GLOSS_SEPARATOR}${b}`;
+  return glossParts(g)
+    .map((p) => `${GLOSS_SEPARATOR}${p}`)
+    .join('');
 }
 
-/** The chip on a touch screen: "⇥ nǐ hǎo - hello" / "⇥ 苹果 - píngguǒ". */
+/** The chip on a touch screen: "⇥ nǐ hǎo - hello" / "⇥ 苹果 - píngguǒ" / "⇥ nǐ hǎo". */
 export function glossChipLabel(g: AnyGloss): string {
-  const [a, b] = glossParts(g);
-  return `⇥ ${a}${GLOSS_SEPARATOR}${b}`;
+  return `⇥ ${glossParts(g).join(GLOSS_SEPARATOR)}`;
 }
 
 /** The text of a segment as sent to the server: trimmed NFC. */
@@ -294,4 +299,149 @@ export function cleanChineseGloss(input: unknown): ChineseGloss | null {
   const pinyin = cleanPinyin(o.pinyin);
   if (!pinyin) return null;
   return { chinese, pinyin };
+}
+
+// ---------- reliability: the device's own gloss, and how long to wait after a failure
+
+/**
+ * A pinyin-only suggestion from the device waits this long for the server's gloss (which has
+ * the meaning) before it is shown; one with a dictionary meaning shows at once. Either is
+ * replaced as soon as the server's arrives (Oct 2026: a slow or failed model call used to
+ * mean no suggestion at all).
+ */
+export const GLOSS_LOCAL_AFTER_MS = 900;
+/** After a 502 / 503 / 5xx or a network failure: the next new lookup waits this long. */
+export const GLOSS_RETRY_AFTER_FAILURE_MS = 3_000;
+/** After a 429 without a usable Retry-After. */
+export const GLOSS_RATE_LIMIT_WAIT_MS = 10_000;
+/** A Retry-After is honoured up to this long (never "a minute of silence" again). */
+export const GLOSS_MAX_WAIT_MS = 30_000;
+/** The words of the device's meaning, at most. */
+export const GLOSS_LOCAL_MAX_WORDS = 8;
+
+/**
+ * How long the board stays quiet (no new lookups; cached and device glosses still show) after
+ * a failed one. `status` = the HTTP status, null for a network failure / timeout; 4xx other
+ * than 429 concern that text only → 0. It used to be 60 s after any 429 / 502 / 503, so one
+ * blip — or a tutor typing a lot — switched the feature off for a minute at a time.
+ */
+export function glossBackoffMs(status: number | null, retryAfterSeconds?: number | null): number {
+  if (status === 429) {
+    if (typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+      return Math.min(GLOSS_MAX_WAIT_MS, Math.max(1_000, Math.round(retryAfterSeconds * 1000)));
+    }
+    return GLOSS_RATE_LIMIT_WAIT_MS;
+  }
+  if (status === null || status >= 500) return GLOSS_RETRY_AFTER_FAILURE_MS;
+  return 0;
+}
+
+/** A word of the typed segment as the device's segmenter cut it (shared/chinese/segment.ts). */
+export interface GlossWord {
+  text: string;
+  pinyin: string;
+}
+
+/** Chinese punctuation → what the pinyin line shows for it (nothing for the rest). */
+const PINYIN_PUNCT: Record<string, string> = { '，': ',', '、': ',', '？': '?', '！': '!', '；': ';', '：': ':' };
+
+/**
+ * The device's pinyin for a segment from its words: one word = its syllables joined
+ * (yínháng), words spaced, ，→ , ？→ ? ！→ ! after the word before, the rest of the
+ * punctuation left out. '' when a Chinese word has no pinyin.
+ */
+export function localGlossPinyin(words: readonly GlossWord[]): string {
+  const out: string[] = [];
+  for (const w of words) {
+    const chars = Array.from(w.text);
+    if (chars.some(isHanChar)) {
+      const p = oneLine(w.pinyin).replace(/ /g, '');
+      if (!p) return '';
+      out.push(p);
+    } else if (out.length > 0) {
+      const mark = chars.map((ch) => PINYIN_PUNCT[ch] ?? '').join('');
+      if (mark) out[out.length - 1] += mark;
+    }
+  }
+  return out.join(' ');
+}
+
+/**
+ * The one word to look up in the device's dictionary for a segment: its only Chinese word
+ * ("你好！" → 你好), or null for a phrase of several words (the server's translation is needed).
+ */
+export function glossLookupWord(words: readonly GlossWord[] | null): string | null {
+  if (!words) return null;
+  const han = words.filter((w) => Array.from(w.text).some(isHanChar));
+  return han.length === 1 ? han[0].text : null;
+}
+
+/**
+ * A dictionary gloss → one short meaning: its first sense ("to like; to be fond of" →
+ * "to like"), one line, no " - ", no trailing ellipsis / full stop, at most
+ * GLOSS_LOCAL_MAX_WORDS words, '' when it holds Chinese.
+ */
+export function shortDictMeaning(raw: string): string {
+  let s = oneLine(raw.split(';')[0] ?? '')
+    .replace(/ [-–—] /g, ', ')
+    .replace(/[….。]+$/, '')
+    .trim();
+  const words = s.split(' ').filter(Boolean);
+  if (words.length > GLOSS_LOCAL_MAX_WORDS) s = words.slice(0, GLOSS_LOCAL_MAX_WORDS).join(' ').replace(/[,;:]+$/, '');
+  if (!s || Array.from(s).some(isHanChar)) return '';
+  return s;
+}
+
+/**
+ * The device's own gloss for a Chinese segment — shown while the server's contextual one is
+ * on its way, or when it can't come (offline, slow, failed). `words` = the segment as the
+ * device's segmenter cut it (with the app's auto-pinyin + the 一 / 不 tone changes);
+ * `dict` = the dictionary entry of its only word (glossLookupWord), when the device has one:
+ * its pinyin (a word's, words joined) replaces the segmenter's, its meaning is shortened.
+ * null when there is no pinyin.
+ */
+export function localGloss(words: readonly GlossWord[] | null, dict?: { pinyin?: string | null; english?: string | null } | null): Gloss | null {
+  if (!words || words.length === 0) return null;
+  const dictPinyin = dict?.pinyin ? oneLine(dict.pinyin) : '';
+  const pinyin = dictPinyin && !Array.from(dictPinyin).some(isHanChar) ? withTrailingMarks(dictPinyin, words) : localGlossPinyin(words);
+  if (!pinyin || pinyin.length > GLOSS_MAX_PINYIN_CHARS) return null;
+  return { pinyin, english: shortDictMeaning(dict?.english ?? '') };
+}
+
+/** A word's dictionary pinyin with the segment's trailing punctuation ("你好！" → "nǐhǎo!"). */
+function withTrailingMarks(pinyin: string, words: readonly GlossWord[]): string {
+  let tail = '';
+  for (let i = words.length - 1; i >= 0; i--) {
+    const chars = Array.from(words[i].text);
+    if (chars.some(isHanChar)) break;
+    tail = chars.map((ch) => PINYIN_PUNCT[ch] ?? '').join('') + tail;
+  }
+  return pinyin + tail;
+}
+
+/** What became of one lookup — the `outcome` of the `call.board_gloss_lookup` analytics event. */
+export type GlossOutcome =
+  /** The server answered (a model call or its cache). */
+  | 'server'
+  /** This device had it already (no request). */
+  | 'cached'
+  /** 429: asked too often. */
+  | 'rate_limited'
+  /** 503: no key / the model busy or down. */
+  | 'unavailable'
+  /** 502 / another HTTP error / an unusable reply. */
+  | 'failed'
+  /** No connection, or the request never came back. */
+  | 'offline'
+  /** Not asked: waiting after an earlier failure. */
+  | 'backoff'
+  /** The text changed before the answer came (the request still finishes and is cached). */
+  | 'superseded';
+
+/** The HTTP status of a failed lookup → its outcome. */
+export function glossOutcomeForStatus(status: number | null): GlossOutcome {
+  if (status === null) return 'offline';
+  if (status === 429) return 'rate_limited';
+  if (status === 503) return 'unavailable';
+  return 'failed';
 }

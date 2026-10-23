@@ -18,7 +18,12 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw Object.assign(new Error(error.error || `HTTP ${response.status}`), { status: response.status });
+    // retryAfter: a 429's Retry-After (seconds), so a caller can wait just that long.
+    const retryAfter = Number(response.headers.get('Retry-After') ?? error.retry_after);
+    throw Object.assign(new Error(error.error || `HTTP ${response.status}`), {
+      status: response.status,
+      ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfter } : {}),
+    });
   }
   return response.json();
 }
