@@ -71,7 +71,8 @@ object CoachBackgroundSamples {
         listOf(CoachMessageDto("r1", "c9", "user", "text", SENTENCE), CoachMessageDto("r2", "c9", "assistant", "analysis", ANALYSIS)),
     )
 
-    val quickActions = CoachChatUi(thread = Loadable(ready), decks = CoachSamples.decks, deckId = "d1", breakdown = breakdown, newWords = newWords)
+    /** A check whose answer is ready (the bottom has only the follow-up box). */
+    val quickActions = CoachChatUi(thread = Loadable(ready))
 
     val sheet = NewWordsSheetUi(newWords, CoachSamples.decks)
 }

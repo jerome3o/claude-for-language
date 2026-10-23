@@ -140,8 +140,12 @@ test('Chinese offers Check and Explain; Explain shows the translation and word r
   expect(body).toMatchObject({ text: EXPLAINED, action: 'explain' });
   await expect(page.getByText(breakdown.translation)).toBeVisible();
   await expect(page.locator('.coach-explain .sentence-set-word')).toHaveCount(6);
-  // The follow-up chips still work after Explain.
-  await expect(page.getByTestId('coach-quick-actions')).toBeVisible();
+  // No quick-action chips, no deck picker, no whole-sentence card; the sentence can be practised.
+  await expect(page.getByTestId('coach-quick-actions')).toHaveCount(0);
+  await expect(page.getByText('Cards go to')).toHaveCount(0);
+  await expect(page.getByTestId('coach-add-sentence')).toHaveCount(0);
+  await expect(page.getByTestId('coach-practise-mic')).toContainText('Practise saying it');
+  await expect(page.getByTestId('coach-followup-say')).toContainText('Respond');
 
   await page.getByRole('button', { name: 'Explore 商店' }).click();
   await page.getByRole('dialog', { name: 'The word 商店' }).getByTestId('explorer-add-card').click();

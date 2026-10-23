@@ -170,40 +170,24 @@ test('a Coach reply keeps going when you leave: start, leave, come back; follow-
   await page.context().close();
 });
 
-test('Add new words: only words in no deck, nothing ticked, the ticked ones added in one batch', async ({ browser, request }) => {
+test('the coach has no chips or deck picker: a word of the answer opens the explorer, the sentence can be practised', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const user = await seedUser(request, 'words', 'Jerome');
-  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'HSK 2' } });
-  await api(request, `/api/decks/${deck.body.id}/notes`, { method: 'POST', token: user.token, data: { hanzi: '我', pinyin: 'wǒ', english: 'I' } });
-
+  await api(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'HSK 2' } });
   const page = await openAs(browser, user, '/decks');
-  // Let the first sync bring the deck and its note to the device.
   await expect(page.getByText('HSK 2').first()).toBeVisible({ timeout: 30000 });
   await page.goto(`/coach?text=${encodeURIComponent('我昨天去银行取钱了')}&action=explain`);
   await expect(page).toHaveURL(/\/coach\?c=/, { timeout: 15000 });
-  // The E2E Explain: 我 (known) 昨天 去 银行 取钱 了 (a particle, never offered) → four new words.
-  const chip = page.getByTestId('coach-quick-new-words');
-  await expect(chip).toHaveText('➕ Add new words (4)', { timeout: 20000 });
-  await expect(page.getByTestId('coach-quick-sentence-card')).toBeVisible();
-  await page.getByTestId('coach-quick-actions').scrollIntoViewIfNeeded();
-  await page.evaluate(() => window.scrollBy(0, 200));
-  await shoot(page, 'web-06-quick-actions');
-  await chip.click();
-  const sheet = page.getByTestId('coach-new-words-sheet');
-  await expect(sheet.getByTestId('coach-new-word-row')).toHaveCount(4);
-  await expect(sheet.locator('input[type=checkbox]:checked')).toHaveCount(0);
-  await expect(sheet.getByTestId('coach-new-words-add')).toBeDisabled();
-  await sheet.getByRole('checkbox', { name: '银行' }).check();
-  await sheet.getByRole('checkbox', { name: '取钱' }).check();
-  await expect(sheet.getByTestId('coach-new-words-add')).toHaveText('➕ Add 2 words');
-  await shoot(page, 'web-07-new-words-sheet');
-  await sheet.getByTestId('coach-new-words-add').click();
-  await expect(sheet.getByTestId('coach-new-words-done')).toContainText('Added 2 cards to HSK 2', { timeout: 20000 });
-  await shoot(page, 'web-08-new-words-done');
-  const d = await api<{ notes: Array<{ hanzi: string }> }>(request, `/api/decks/${deck.body.id}`, { token: user.token });
-  expect(d.body.notes.map((n) => n.hanzi).sort()).toEqual(['我', '取钱', '银行'].sort());
-  await sheet.getByTestId('coach-new-words-close').click();
-  // The chip now offers only what is left.
-  await expect(chip).toHaveText('➕ Add new words (2)', { timeout: 10000 });
+  await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByTestId('coach-quick-actions')).toHaveCount(0);
+  await expect(page.getByText('Cards go to')).toHaveCount(0);
+  await expect(page.getByTestId('coach-practise-mic')).toContainText('Practise saying it');
+  await expect(page.getByTestId('coach-followup-say')).toContainText('Respond');
+  await shoot(page, 'web-06-no-chips');
+  // The big sentence: its words open the language explorer (+ Add as card there).
+  await page.locator('.coach-sentence [data-testid="explorable-text"] [role="button"]', { hasText: '银行' }).first().click();
+  const word = page.getByRole('dialog', { name: 'The word 银行' });
+  await expect(word).toBeVisible();
+  await expect(word.getByTestId('explorer-add-card')).toBeVisible();
   await page.context().close();
 });

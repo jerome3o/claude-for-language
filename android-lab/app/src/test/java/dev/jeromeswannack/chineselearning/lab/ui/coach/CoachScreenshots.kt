@@ -34,30 +34,30 @@ class CoachScreenshots : LabScreenshotTest() {
     }
 
     @Test fun conversation() = shoot("coach-04-conversation") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     @Test fun translationSending() = shoot("coach-05-translation-sending", settleMs = 600) {
         CoachChatScreen(
-            CoachChatUi(thread = Loadable(CoachSamples.translationThread), decks = CoachSamples.decks, sending = true, pendingMessage = "Show me 2–3 other natural ways to say \"我昨天去买茶了。\""),
+            CoachChatUi(thread = Loadable(CoachSamples.translationThread), sending = true, pendingMessage = "Show me 2–3 other natural ways to say \"我昨天去买茶了。\""),
             CoachChatActions(),
         )
     }
 
     @Test fun sendError() = shoot("coach-06-send-error") {
         CoachChatScreen(
-            CoachChatUi(thread = Loadable(CoachSamples.translationThread), decks = CoachSamples.decks, followUp = "Why 了 at the end?", sendError = "Couldn't send that — the connection dropped. Try again."),
+            CoachChatUi(thread = Loadable(CoachSamples.translationThread), followUp = "Why 了 at the end?", sendError = "Couldn't send that — the connection dropped. Try again."),
             CoachChatActions(),
         )
     }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("coach-07-unfolded") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     @Test fun dark() = shoot("coach-08-dark", dark = true) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     private val breakdown = SentenceBreakdownDto(

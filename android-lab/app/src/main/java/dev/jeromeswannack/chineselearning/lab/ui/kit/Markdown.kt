@@ -65,9 +65,11 @@ fun MarkdownText(
     modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyLarge,
     color: Color = Lab.colors.ink,
+    /** Chinese in the text tappable (the coach's replies → the language explorer); keep it stable (remember it). */
+    chinese: MdChinese? = null,
 ) {
     val blocks = remember(src) { MarkdownParser.parse(src.trim('\n')) }
-    val theme = rememberMdTheme(style, color)
+    val theme = rememberMdTheme(style, color, chinese)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(theme.blockGap)) {
         for (b in blocks) MdBlockView(b, theme, depth = 0)
     }
@@ -103,7 +105,13 @@ fun markdownAnnotated(src: String, linkColor: Color = Color.Unspecified): Annota
 
 // ---------------------------------------------------------------- theme
 
-private class MdInlineStyles(val codeBackground: Color, val linkColor: Color)
+private class MdInlineStyles(val codeBackground: Color, val linkColor: Color, val chinese: MdChinese? = null)
+
+/**
+ * Tappable Chinese inside Markdown text: [pieces] splits a text run into plain / tappable parts
+ * (e.g. the device segmenter + core ExplorableSegments), [onTap] gets the tapped part's [T].
+ */
+class MdChinese(val pieces: (String) -> List<Pair<String, Any?>>, val onTap: (Any) -> Unit)
 
 private class MdTheme(
     val style: TextStyle,
@@ -120,11 +128,11 @@ private class MdTheme(
 )
 
 @Composable
-private fun rememberMdTheme(style: TextStyle, color: Color): MdTheme {
+private fun rememberMdTheme(style: TextStyle, color: Color, chinese: MdChinese? = null): MdTheme {
     val colors = Lab.colors
     val density = LocalDensity.current
     val base = if (color.isSpecified()) color else colors.ink
-    return remember(style, base, colors, density) {
+    return remember(style, base, colors, density, chinese) {
         val fontSize = if (style.fontSize.isSpecified) style.fontSize else 16.sp
         val fontDp = with(density) { fontSize.toDp() }
         val ink = colors.ink
@@ -137,7 +145,7 @@ private fun rememberMdTheme(style: TextStyle, color: Color): MdTheme {
             headerFill = ink.copy(alpha = 0.07f),
             stripeFill = ink.copy(alpha = 0.03f),
             codeFill = ink.copy(alpha = 0.07f),
-            inline = MdInlineStyles(codeBackground = ink.copy(alpha = 0.08f), linkColor = colors.accent),
+            inline = MdInlineStyles(codeBackground = ink.copy(alpha = 0.08f), linkColor = colors.accent, chinese = chinese),
             blockGap = fontDp * 0.6f,
             fontSizeDp = fontDp,
         )
@@ -148,7 +156,14 @@ private fun Color.isSpecified(): Boolean = this != Color.Unspecified
 
 private fun AnnotatedString.Builder.appendInlines(inlines: List<MdInline>, s: MdInlineStyles) {
     for (n in inlines) when (n) {
-        is MdInline.Text -> append(n.text)
+        is MdInline.Text -> {
+            val zh = s.chinese
+            if (zh == null) append(n.text)
+            else for ((text, item) in zh.pieces(n.text)) {
+                if (item == null) append(text)
+                else withLink(LinkAnnotation.Clickable(tag = "zh:$text", linkInteractionListener = { zh.onTap(item) })) { append(text) }
+            }
+        }
         is MdInline.Strong -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { appendInlines(n.children, s) }
         is MdInline.Emphasis -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { appendInlines(n.children, s) }
         is MdInline.Strike -> withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) { appendInlines(n.children, s) }

@@ -52,15 +52,6 @@ class CoachRulesTest {
     }
 
     @Test
-    fun quickActionsPutTheCardInTheChosenDeck() {
-        val deck = CoachDeck("d1", "HSK 3")
-        val msg = COACH_QUICK_ACTIONS.first { it.key == "card-word" }.message("我打算学中文。", deck)
-        assertTrue(msg.startsWith("Make a flashcard for the key word or phrase in \"我打算学中文。\""))
-        assertTrue(msg.contains("Put it in my deck \"HSK 3\" (deck_id d1)."))
-        assertEquals(listOf("card-word", "card-sentence", "examples", "alternatives", "grammar"), COACH_QUICK_ACTIONS.map { it.key })
-    }
-
-    @Test
     fun parsesAnalysesAndToolResults() {
         val zh = CoachAnalysisDto.parse(CoachSamples.ANALYSIS_ZH)!!
         assertEquals("我昨天去商店买了苹果。", zh.sentence)

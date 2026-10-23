@@ -7,7 +7,6 @@ import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueBump
 import dev.jeromeswannack.chineselearning.lab.core.QueueBumps
-import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.LabDao
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
@@ -103,19 +102,6 @@ object BumpStore {
             out.putIfAbsent(original, n.id)
         }
         return out
-    }
-
-    /** A note the Coach's "⚡ Study … today" chip offers: hanzi · pinyin · meaning. */
-    data class BumpWord(val noteId: String, val hanzi: String, val pinyin: String, val english: String)
-
-    /**
-     * The Coach's chip (core SentenceBumps, web findSentenceBumps): the note [sentence] IS
-     * (bump only it), else the notes found inside it in picker order (nothing ticked).
-     */
-    suspend fun sentenceBumps(dao: LabDao, sentence: String): SentenceBumps.Result<BumpWord> {
-        if (WordListParser.normalizeHanzi(sentence).isEmpty()) return SentenceBumps.Result(null, emptyList())
-        val notes = dao.allNotes().map { BumpWord(it.id, it.hanzi, it.pinyin, it.english) }
-        return SentenceBumps.match(sentence, notes) { it.hanzi }
     }
 
     /** Bump the local notes spelled [hanzi] (the add-card sheets, the Coach). */

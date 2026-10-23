@@ -1,10 +1,9 @@
 /**
- * The Sentence Coach's "➕ Add new words (N)" chip (docs/CHAT.md "Chat ↔ Coach"):
- * which words of the sentence are NOT in any of the learner's decks yet, and the
- * cards the picker adds for the ones he ticks. Pure; the web page
- * (pages/SentenceCoachPage.tsx) and the Lab app (core CoachNewWords.kt,
- * parity-tested through parity/fixtures/coach.ts) both call it with the
- * sentence's word breakdown and the hanzi of their local notes.
+ "➕ Add new words (N)" (docs/CHAT.md "Chat ↔ Coach"): which words of a sentence are
+ * NOT in any of the learner's decks yet, and the cards the picker adds for the ones
+ * he ticks. Pure; ported to the Lab app (core CoachNewWords.kt, parity-tested through
+ * parity/fixtures/coach.ts), whose podcast episodes use it. (The Sentence Coach's
+ * chip that first used it was removed in Oct 2026 — its words open the explorer.)
  *
  * Rules:
  *   - a word counts when it has a Han character; it is matched like the bump

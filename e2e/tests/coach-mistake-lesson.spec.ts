@@ -57,7 +57,7 @@ test('check → 🎯 chip → play the lesson → Save keeps it with this run as
   const page = await openAs(browser, user, '/coach');
   await check(page, WRONG);
   await expect(page.getByText('Needs a little work')).toBeVisible({ timeout: 20_000 });
-  const chip = page.getByTestId('coach-quick-mistake-lesson');
+  const chip = page.getByTestId('coach-mistake-lesson');
   await expect(chip).toHaveText('🎯 Mini lesson on this mistake');
   await shoot(page, 'web-01-chip-after-correction');
 
@@ -113,7 +113,7 @@ test('Save without doing it: a new lesson in Mini Lessons; a correct sentence ge
   const user = await seedUser(request, 'plain');
   const page = await openAs(browser, user, '/coach');
   await check(page, WRONG);
-  await page.getByTestId('coach-quick-mistake-lesson').click();
+  await page.getByTestId('coach-mistake-lesson').click();
   const card = page.getByTestId('coach-lesson-card');
   await expect(card).toBeVisible({ timeout: 30_000 });
   await card.getByTestId('coach-lesson-save').click();
@@ -129,6 +129,6 @@ test('Save without doing it: a new lesson in Mini Lessons; a correct sentence ge
   await page.goto('/coach');
   await check(page, '我们明天一起去公园吧');
   await expect(page.getByText('(E2E) Looks fine.')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('coach-quick-mistake-lesson')).toHaveCount(0);
+  await expect(page.getByTestId('coach-mistake-lesson')).toHaveCount(0);
   await page.context().close();
 });

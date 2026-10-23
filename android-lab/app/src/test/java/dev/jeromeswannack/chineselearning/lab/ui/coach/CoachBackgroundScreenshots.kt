@@ -20,27 +20,27 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.junit.Test
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachBackgroundSamples as B
 
-/** docs/CHAT.md "Chat ↔ Coach": replies that keep going in the background, and the new-words quick actions. */
+/** docs/CHAT.md "Chat ↔ Coach": replies that keep going in the background; the new-words picker. */
 class CoachBackgroundScreenshots : LabScreenshotTest() {
     @Test fun pendingAnalysis() = shoot("coach-bg-01-pending-analysis", settleMs = 600) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingAnalysis), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingAnalysis)), CoachChatActions())
     }
 
     @Test fun pendingReply() = shoot("coach-bg-02-thinking", settleMs = 600) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply)), CoachChatActions())
     }
 
     @Test fun failedReply() = shoot("coach-bg-03-failed-retry") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply)), CoachChatActions())
     }
 
     @Test fun listThinking() = shoot("coach-bg-04-list-thinking", settleMs = 300) {
         CoachHomeScreen(CoachHomeUi(conversations = Loadable(B.conversations)), CoachHomeActions(onBack = {}))
     }
 
-    @Test fun quickActions() = shoot("coach-bg-05-quick-actions") { CoachChatScreen(B.quickActions, CoachChatActions()) }
+    @Test fun readyNoChips() = shoot("coach-bg-05-no-chips") { CoachChatScreen(B.quickActions, CoachChatActions()) }
 
-    /** The picker over the conversation (the dialog window itself isn't captured). */
+    /** The new-words picker (the podcast episodes' "➕ Add new words") over a conversation (the dialog window itself isn't captured). */
     @Composable
     private fun SheetOver(ui: NewWordsSheetUi) {
         Box(Modifier.fillMaxSize()) {

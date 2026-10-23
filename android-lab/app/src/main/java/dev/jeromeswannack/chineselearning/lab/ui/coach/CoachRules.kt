@@ -5,32 +5,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.serverMessage
 import kotlinx.coroutines.delay
 import java.io.IOException
 
-/** A deck the "Cards go to" picker offers. */
+/** A deck a words picker offers (the podcast episode's "➕ Add new words"). */
 data class CoachDeck(val id: String, val name: String)
-
-/** One tap → a prepared message into the follow-up chat (the web's QUICK_ACTIONS). */
-data class CoachQuickAction(val key: String, val label: String, val needsDeck: Boolean, val message: (hanzi: String, deck: CoachDeck?) -> String)
-
-private fun deckClause(deck: CoachDeck?) = if (deck != null) " Put it in my deck \"${deck.name}\" (deck_id ${deck.id})." else ""
-
-/** Word for word the web's prompts, so both apps get the same cards from Claude. */
-val COACH_QUICK_ACTIONS = listOf(
-    CoachQuickAction("card-word", "🃏 Make a card", true) { hanzi, deck ->
-        "Make a flashcard for the key word or phrase in \"$hanzi\" — the one most worth learning from this sentence.${deckClause(deck)} Check search_cards first so you don't duplicate a card I already have (if I have it, tell me and offer to improve it instead). Follow the card standard fully: one clean hanzi form, pinyin with tone marks, one clear English meaning, a fun_facts explanation (each character, then usage, the common mistake or contrast), and a short natural example sentence with pinyin and translation as the sentence_clue."
-    },
-    CoachQuickAction("card-sentence", "📝 Card for the whole sentence", true) { hanzi, deck ->
-        "Make a flashcard for the whole sentence \"$hanzi\".${deckClause(deck)} Follow the card standard: hanzi is the clean sentence, pinyin with tone marks, one natural English meaning, and fun_facts that gloss every word in order (汉字 (pīnyīn) meaning) then explain the structure and the common mistake. Check search_cards first so it is not a duplicate."
-    },
-    CoachQuickAction("examples", "💬 More examples", false) { hanzi, _ ->
-        "Give me 3 more example sentences using the key word or pattern from \"$hanzi\", easiest first, each with pinyin (tone marks) and English."
-    },
-    CoachQuickAction("alternatives", "🔀 Other ways to say it", false) { hanzi, _ ->
-        "Show me 2–3 other natural ways to say \"$hanzi\" — more casual, more formal, more idiomatic — each with pinyin and English, and when you would use each."
-    },
-    CoachQuickAction("grammar", "🔍 Explain the grammar", false) { hanzi, _ ->
-        "Explain \"$hanzi\" word by word: each word with pinyin and its meaning here, then the structure and any grammar pattern in it, briefly."
-    },
-)
 
 object CoachRules {
     /** The offline notice (the typed text is kept). */

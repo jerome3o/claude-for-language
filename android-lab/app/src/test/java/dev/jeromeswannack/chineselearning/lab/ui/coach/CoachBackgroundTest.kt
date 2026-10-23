@@ -10,16 +10,13 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
 import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachBackgroundSamples as B
 
-/** Coach replies written in the background + the new-words quick actions (docs/CHAT.md "Chat ↔ Coach"). */
+/** Coach replies written in the background, no quick actions; the new-words picker the podcast episodes use (docs/CHAT.md "Chat ↔ Coach"). */
 class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest() {
 
     @Test fun pendingAnalysisIsTheLoadingCard() {
-        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingAnalysis), decks = CoachSamples.decks), CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingAnalysis)), CoachChatActions()) } }
         compose.onNodeWithTag(COACH_REPLY_PENDING_TAG).assertIsDisplayed()
         compose.onNodeWithText("Checking your sentence…").assertIsDisplayed()
     }
@@ -27,7 +24,7 @@ class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabSc
     @Test fun pendingReplyDisablesSend() {
         var sent = 0
         compose.setContent {
-            LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), decks = CoachSamples.decks, followUp = "And 去了?"), CoachChatActions(onSend = { sent++ }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) }
+            LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), followUp = "And 去了?"), CoachChatActions(onSend = { sent++ }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) }
         }
         compose.onNodeWithTag(COACH_REPLY_PENDING_TAG).assertIsDisplayed()
         compose.onNodeWithTag(COACH_SEND_TAG).assertIsNotEnabled()
@@ -36,7 +33,7 @@ class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabSc
 
     @Test fun failedReplyRetries() {
         var retried: String? = null
-        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), decks = CoachSamples.decks, followUp = "x"), CoachChatActions(onRetryReply = { retried = it }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) } }
+        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), followUp = "x"), CoachChatActions(onRetryReply = { retried = it }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) } }
         compose.onNodeWithText("Claude is busy right now — try again in a moment.").assertIsDisplayed()
         compose.onNodeWithTag(COACH_SEND_TAG).assertIsEnabled()
         compose.onNodeWithText("Retry").performClick()
@@ -49,23 +46,14 @@ class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabSc
         compose.onNodeWithTag(COACH_CONV_FAILED_TAG, useUnmergedTree = true).assertExists()
     }
 
-    @Test fun quickActionsOfferNewWordsAndTheSentenceCard() {
-        var opened = 0
-        compose.setContent { LabTheme { CoachChatScreen(B.quickActions, CoachChatActions(onOpenNewWords = { opened++ })) } }
-        compose.onNodeWithText("➕ Add new words (2)").assertIsDisplayed().performClick()
-        assertEquals(1, opened)
-        compose.onNodeWithTag(CoachNewWordsTags.SENTENCE_CARD).assertIsDisplayed()
-        // The chat-prompt version of the sentence card is replaced by the direct one.
-        assertTrue(compose.onAllNodesWithTextCount("📝 Card for the whole sentence") == 0)
-    }
-
-    @Test fun sentenceCardOnlyWhenTheSentenceIsNotACard() {
-        assertNotNull(B.quickActions.sentenceCard)
-        assertNull(B.quickActions.copy(bumpExact = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.BumpWord("n1", B.SENTENCE, "", "")).sentenceCard)
-        assertNull(B.quickActions.copy(breakdown = B.breakdown.copy(translation = " ")).sentenceCard)
-        val card = B.quickActions.sentenceCard!!
-        assertEquals(B.SENTENCE, card.hanzi)
-        assertTrue(card.funFacts!!.startsWith("我 (wǒ) I\n昨天 (zuótiān) yesterday"))
+    @Test fun noQuickActionsOrDeckPicker() {
+        compose.setContent { LabTheme { CoachChatScreen(B.quickActions, CoachChatActions()) } }
+        compose.onNodeWithText("Yesterday I went to the shop to buy things.").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTextCount("Cards go to"))
+        assertEquals(0, compose.onAllNodesWithTextCount("➕ Add new words (2)"))
+        assertEquals(0, compose.onAllNodesWithTextCount("🃏 Card for this sentence"))
+        assertEquals(0, compose.onAllNodesWithTextCount("💬 More examples"))
+        assertEquals(0, compose.onAllNodesWithTextCount("📝 Card for the whole sentence"))
     }
 
     @Test fun pickerStartsWithNothingTicked() {
