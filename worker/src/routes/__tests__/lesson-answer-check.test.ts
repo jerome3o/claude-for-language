@@ -80,6 +80,18 @@ describe('POST /api/lessons/answer-check', () => {
     expect(typed.json.cached).toBe(false);
   });
 
+  it('the model answer itself (the "Exact match" chip) never reaches the model, even without a key', async () => {
+    const exact = { prompt_en: 'The station is right opposite my home.', model_answer: '车站就在我家对面。', answer: '车站就在我家对面', exercise_type: 'translate', input: 'spoken' };
+    const noKey = client({ DB: db } as unknown as Env);
+    const r = await noKey('/lessons/answer-check', exact);
+    expect(r.status).toBe(200);
+    expect(r.json.local).toBe(true);
+    expect(r.json.check).toMatchObject({ verdict: 'correct', suggested: 'got_it', corrected: '', tips: [] });
+    expect(db.rows('SELECT * FROM lesson_answer_checks')).toHaveLength(0);
+    // One character off is not exact: Claude is asked (here: no key → 503).
+    expect((await noKey('/lessons/answer-check', { ...exact, answer: '车站在我家对面' })).status).toBe(503);
+  });
+
   it('400 without an answer in Chinese', async () => {
     const r = await post('/lessons/answer-check', body(cheap, { answer: 'cheap' }));
     expect(r.status).toBe(400);

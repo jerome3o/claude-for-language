@@ -22,6 +22,7 @@ import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckAlternative
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckTip
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
+import dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.TranslateExercise
 import dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckResult
 import dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable
@@ -103,6 +104,15 @@ class AnswerCheckScreenshots : LabScreenshotTest() {
 
     @Test fun offline() = shootAnswered("answer-check-05-offline", cheap, "即使便宜，我也不买。", env { throw AnswerCheckUnavailable("offline", offline = true) })
 
+    /** The model answer itself (Jerome's 车站就在我家对面): "✓ Exact match" and the local check, no call. */
+    @Test fun exactMatchNoCall() {
+        var calls = 0
+        val station = TranslateExercise("The station is right across from my home.", "车站就在我家对面。", "Chēzhàn jiù zài wǒ jiā duìmiàn.")
+        shootAnswered("answer-check-07-exact", station, "车站就在我家对面。", env { calls++; throw AnswerCheckUnavailable("must not be called") })
+        assertEquals(0, calls)
+        compose.onAllNodesWithText(LessonAnswerCheck.EXACT_HEADLINE).onFirst().assertExists()
+    }
+
     @Test fun askSheet() = shoot("answer-check-06-ask") {
         Column(Modifier.fillMaxSize().background(Lab.colors.card).padding(top = 24.dp)) {
             AskAboutAnswerContent(
@@ -135,8 +145,10 @@ class AnswerCheckScreenshots : LabScreenshotTest() {
         compose.onAllNodesWithText("✓ Got it").onLast().performClick()
         compose.mainClock.advanceTimeBy(500)
         val a = assertNotNull(answer)
-        assertEquals(2, n)
+        // The second answer IS the model answer: checked locally, never sent (LessonAnswerCheck.exact).
+        assertEquals(1, n)
         assertEquals("correct", a.check?.verdict)
+        assertEquals(LessonAnswerCheck.EXACT_HEADLINE, a.check?.headline)
         assertEquals(listOf("医生让我吃药和好好休息。"), a.tries?.map { it.text })
         assertEquals("almost", a.tries?.first()?.check?.verdict)
     }

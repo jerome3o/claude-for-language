@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
  * Claude's check of a self-assessed lesson answer — the Lab twin of the web's
  * components/lessons/AnswerCheckCard.tsx, AskAboutAnswerSheet.tsx and useLessonAnswerCheck.tsx
  * (rules in core LessonAnswerCheck; docs/STUDY_SESSION.md "Claude checks your answer"):
- * started the moment the answer is final, a slim "Checking…" row that never blocks the buttons,
+ * started the moment the answer is final (the model answer itself is checked locally, no call), a slim "Checking…" row that never blocks the buttons,
  * then the verdict chip, the headline, the red-pen fix of the learner's OWN sentence, tips with
  * the quoted Chinese tappable into the explorer, a natural alternative with 🔊, the suggested
  * button ringed, 🔁 Try again and 💬 Ask about this. Offline / failed: nothing.
@@ -81,7 +81,8 @@ val LocalLessonFocus = staticCompositionLocalOf<String?> { null }
 sealed interface AnswerCheckUi {
     data object Idle : AnswerCheckUi
     data object Checking : AnswerCheckUi
-    data class Done(val check: AnswerCheck, val cached: Boolean) : AnswerCheckUi
+    /** local = the answer IS the model answer: checked on the device, no call (LessonAnswerCheck.exact). */
+    data class Done(val check: AnswerCheck, val cached: Boolean, val local: Boolean = false) : AnswerCheckUi
     data class Unavailable(val offline: Boolean) : AnswerCheckUi
 }
 
@@ -117,8 +118,14 @@ class LessonAnswerCheckState(
         }
         val next = AnswerCheckInput(promptEn, modelAnswer, modelPinyin?.ifBlank { null }, text.trim(), exerciseType, source ?: "typed", focus?.ifBlank { null })
         input = next
-        ui = AnswerCheckUi.Checking
         val tryNumber = tries.size + 1
+        // The model answer itself ("✓ Exact match"): nothing for Claude to add — shown at once, offline too.
+        LessonAnswerCheck.exact(next)?.let { exact ->
+            ui = AnswerCheckUi.Done(exact, cached = false, local = true)
+            Analytics.track("lesson.answer_check", mapOf("verdict" to exact.verdict, "ms" to 0L, "cached" to false, "local" to true, "exercise_type" to exerciseType, "input" to next.input, "try" to tryNumber))
+            return
+        }
+        ui = AnswerCheckUi.Checking
         val began = System.currentTimeMillis()
         job = scope.launch {
             ui = try {

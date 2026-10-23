@@ -17,6 +17,7 @@ import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage'
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
+import { isExactHanziMatch } from '@shared/lesson/answer-check';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import './lesson-exercises.css';
 
@@ -200,12 +201,9 @@ export function ChoiceExercise(props: {
 // ============ Translate (self-assessed) ============
 
 /** Compare a typed answer to the reference ignoring whitespace and
- * punctuation, so 蛋糕被妹妹吃掉了 matches 蛋糕被妹妹吃掉了。 */
-export function isExactHanziMatch(answer: string, reference: string): boolean {
-  const normalize = (s: string) => s.replace(/[\s。，！？；：、．…,.!?;:'"''""()（）]/g, '');
-  const a = normalize(answer);
-  return a.length > 0 && a === normalize(reference);
-}
+ * punctuation, so 蛋糕被妹妹吃掉了 matches 蛋糕被妹妹吃掉了。 (now in shared/lesson/answer-check.ts,
+ * where Claude's answer check reads it too). */
+export { isExactHanziMatch };
 
 export function TranslateExercise(props: {
   label?: string;

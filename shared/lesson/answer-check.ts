@@ -20,6 +20,18 @@ export function isHanziAnswerCorrect(answer: string, expected: string, alternati
   return [expected, ...alternatives].some(e => normalizeHanziAnswer(e) === a);
 }
 
+/**
+ * The translate exercises' green "✓ Exact match": the answer IS the reference once whitespace and
+ * sentence punctuation are dropped (蛋糕被妹妹吃掉了 = 蛋糕被妹妹吃掉了。). The same rule decides
+ * when Claude's answer check is skipped (`exactAnswerCheck`, answerCheck.ts), so the chip and the
+ * skipped call always agree. Lab: `LessonAnswers.isExactHanziMatch` (parity-tested).
+ */
+export function isExactHanziMatch(answer: string, reference: string): boolean {
+  const normalize = (s: string) => s.replace(/[\s。，！？；：、．…,.!?;:'"''""()（）]/g, '');
+  const a = normalize(answer);
+  return a.length > 0 && a === normalize(reference);
+}
+
 export interface CharMark {
   ch: string;
   /** In the other string at this aligned position. */

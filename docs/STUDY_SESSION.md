@@ -657,6 +657,15 @@ thinking off; `worker/src/services/answer-check.ts`) while the reveal is read:
 - **💬 Ask about this** opens a short chat inside the lesson about this exercise, the answer and the
   check (`POST /api/lessons/answer-check/ask`), with one-tap questions (`askQuickQuestions`).
 
+**The model answer itself is never sent to Claude.** When the answer matches the model answer by the
+same rule as the "✓ Exact match" chip under "You said" (`isExactHanziMatch`, `shared/lesson/answer-check.ts`:
+whitespace and sentence punctuation ignored), `exactAnswerCheck` (`shared/lesson/answerCheck.ts`, Lab
+`LessonAnswerCheck.exact`, parity-tested) makes the check on the device — **✓ Correct · Exactly right —
+nice!**, Got it ringed, nothing to fix — shown at once with no "Checking…" row, offline too; 🔁 Try again
+and 💬 Ask about this stay. The worker answers such a request the same way without a model call (older
+clients). Analytics: `lesson.answer_check` with `local: true`, `ms: 0`. A homophone ("✓ Sounds right") is
+not exact and is still checked.
+
 The prompt never marks different-but-valid wording wrong (optional 很 / 了 / 的, a dropped subject) and
 reads a spoken answer as a speech-recognition transcript (homophones, punctuation). Checks are cached for
 everyone (`lesson_answer_checks`, SHA-256 of `answerCheckCacheText`: version, type, spoken / typed,

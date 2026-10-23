@@ -80,6 +80,18 @@ class LessonAnswerCheckParityTest {
     }
 
     @Test
+    fun exactMatches() {
+        val cases = data["exact"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.count { it["check"] !is JsonNull } >= 3)
+        for (c in cases) {
+            val i = c["input"]!!.jsonObject
+            val got = LessonAnswerCheck.exact(i["exercise_type"].str!!, i["answer"].str!!, i["model_answer"].str!!)
+            val want = c["check"]?.takeIf { it !is JsonNull }?.let { json.decodeFromJsonElement(AnswerCheck.serializer(), it) }
+            assertEquals(want, got, c.toString())
+        }
+    }
+
+    @Test
     fun quickQuestions() {
         for (c in data["quick"]!!.jsonArray.map { it.jsonObject }) {
             assertEquals(c["questions"]!!.jsonArray.map { it.str!! }, LessonAnswerCheck.askQuickQuestions(c["verdict"].str), c.toString())
