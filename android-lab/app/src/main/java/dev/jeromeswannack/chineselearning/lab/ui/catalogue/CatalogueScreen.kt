@@ -51,8 +51,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 // The exercise catalogue: every lesson exercise type from the shared registry (bundled, so it
 // works offline), what it trains, how it's checked, and a sample lesson to try or copy.
 
-/** Types added with the practice set — badged "New" (the web's NEW_TYPES). */
-val NEW_TYPES = setOf("sentence_making", "write_typed", "write_handwriting", "dictation", "oral_expression", "conversation")
+/** The newest types — badged "New" (the web's NEW_TYPES). */
+val NEW_TYPES = setOf("judge", "gap_choice")
 
 /** The web's SKILL_ORDER. */
 val SKILL_ORDER = listOf("listening", "speaking", "writing", "reading", "teaching")

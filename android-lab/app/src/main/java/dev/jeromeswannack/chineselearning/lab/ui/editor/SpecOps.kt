@@ -90,6 +90,13 @@ fun fillMissingPinyin(ex: JsonObject): JsonObject = when (ex.str("type")) {
     "write_typed", "write_handwriting" -> ex.mapObj("answer", ::fillSentence)
     "oral_expression" -> ex.mapList("hints", ::fillSentence).mapObj("question_audio", ::fillSentence).mapObj("example", ::fillSentence)
     "conversation" -> ex.mapList("lines", ::fillSentence)
+    "judge" -> ex.mapList("sentences") { s -> fillSentence(s).mapObj("correction", ::fillSentence) }
+    "gap_choice" -> ex.mapList("items") { item ->
+        val sentence = item.text("sentence")
+        val answer = item.text("answer")
+        if (JsJson.truthy(item["pinyin"]) || JsJson.trim(answer).isEmpty() || dev.jeromeswannack.chineselearning.lab.core.JudgeGap.gapCount(sentence) != 1) item
+        else item.with("pinyin", toPinyin(dev.jeromeswannack.chineselearning.lab.core.JudgeGap.fillGap(sentence, answer)))
+    }
     else -> ex
 }
 

@@ -11,6 +11,8 @@ import dev.jeromeswannack.chineselearning.lab.core.ConversationExercise
 import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
+import dev.jeromeswannack.chineselearning.lab.core.GapChoiceExercise
+import dev.jeromeswannack.chineselearning.lab.core.JudgeExercise
 import dev.jeromeswannack.chineselearning.lab.core.LessonExercise
 import dev.jeromeswannack.chineselearning.lab.core.ListenChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.ListenTranslateExercise
@@ -118,6 +120,8 @@ fun ExerciseView(exercise: LessonExercise, env: ExerciseEnv, mediaKey: String?, 
             is DictationExercise -> DictationView(exercise, env, onNext)
             is OralExpressionExercise -> OralExpressionView(exercise, env, mediaKey, onDone)
             is ConversationExercise -> ConversationView(exercise, env, onNext)
+            is JudgeExercise -> JudgeView(exercise, env, onNext)
+            is GapChoiceExercise -> GapChoiceView(exercise, env, onNext)
             is UnknownExercise -> UnknownView(exercise) { onDone(null, null, null) }
         }
     }

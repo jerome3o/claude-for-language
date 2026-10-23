@@ -173,6 +173,26 @@
       "summary": "A dialogue in two voices; listen, then answer comprehension questions.",
       "description": "A dialogue between two people in a situation (booking a hotel, ordering food, at the doctor…) played with a different voice for each speaker and the text hidden. The learner listens (and replays) the whole conversation, then answers questions about what happened. The transcript with pinyin and English is revealed at the end.",
       "checking": "Multiple-choice questions automatic; free answers self-assessed. One point per question."
+    },
+    {
+      "type": "judge",
+      "icon": "⚖️",
+      "name": "Judge each sentence",
+      "label": "judge each sentence",
+      "skill": "reading",
+      "summary": "Mark each sentence Correct ✓ or Incorrect ✗ (3–8 sentences).",
+      "description": "A short list of sentences, some right and some with a mistake. The learner marks every one Correct or Incorrect, then sees which they judged right and, for each wrong sentence, the corrected version with one line on why. Use it instead of \"which one is wrong?\" multiple choice when testing a structure.",
+      "checking": "Automatic — one point per sentence judged right."
+    },
+    {
+      "type": "gap_choice",
+      "icon": "🔀",
+      "name": "Choose the word",
+      "label": "choose the word",
+      "skill": "reading",
+      "summary": "Pick the right word for the gap in each sentence (刚 or 刚才?).",
+      "description": "Several sentences, each with one gap, and 2–4 words to choose from — near-synonyms and confusable words (刚 / 刚才, 再 / 在, 的 / 得 / 地, where 了 goes). The learner picks one per sentence; Check shows the full sentence with pinyin, audio and your explanation.",
+      "checking": "Automatic — one point per sentence."
     }
   ],
   "samples": [
@@ -900,6 +920,150 @@
           }
         ]
       }
+    },
+    {
+      "id": "judge",
+      "type": "judge",
+      "spec": {
+        "title": "Where does 了 go?",
+        "icon": "⚖️",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "judge",
+                "question": "Is 了 in the right place?",
+                "sentences": [
+                  {
+                    "hanzi": "我昨天买了一本书。",
+                    "pinyin": "Wǒ zuótiān mǎi le yì běn shū.",
+                    "english": "I bought a book yesterday.",
+                    "correct": true
+                  },
+                  {
+                    "hanzi": "他了去北京。",
+                    "pinyin": "Tā le qù Běijīng.",
+                    "english": "He went to Beijing.",
+                    "correct": false,
+                    "correction": {
+                      "hanzi": "他去北京了。",
+                      "pinyin": "Tā qù Běijīng le.",
+                      "english": "He went to Beijing."
+                    },
+                    "explanation": "了 comes after the verb or at the end of the sentence — never before the verb."
+                  },
+                  {
+                    "hanzi": "我已经吃饭了。",
+                    "pinyin": "Wǒ yǐjīng chīfàn le.",
+                    "english": "I have already eaten.",
+                    "correct": true
+                  },
+                  {
+                    "hanzi": "我每天喝了咖啡。",
+                    "pinyin": "Wǒ měitiān hē le kāfēi.",
+                    "english": "I drink coffee every day.",
+                    "correct": false,
+                    "correction": {
+                      "hanzi": "我每天喝咖啡。",
+                      "pinyin": "Wǒ měitiān hē kāfēi.",
+                      "english": "I drink coffee every day."
+                    },
+                    "explanation": "A habit (每天) is not a finished action, so it takes no 了."
+                  },
+                  {
+                    "hanzi": "她买了三个苹果。",
+                    "pinyin": "Tā mǎi le sān ge píngguǒ.",
+                    "english": "She bought three apples.",
+                    "correct": true,
+                    "explanation": "Verb + 了 + a number: a finished action with an amount."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "gap_choice",
+      "type": "gap_choice",
+      "spec": {
+        "title": "刚 or 刚才?",
+        "icon": "🔀",
+        "sections": [
+          {
+            "exercises": [
+              {
+                "type": "gap_choice",
+                "question": "刚 or 刚才?",
+                "options": [
+                  "刚",
+                  "刚才"
+                ],
+                "items": [
+                  {
+                    "sentence": "___你说什么？我没听清楚。",
+                    "answer": "刚才",
+                    "pinyin": "Gāngcái nǐ shuō shénme? Wǒ méi tīng qīngchu.",
+                    "english": "What did you say just now? I didn’t catch it.",
+                    "explanation": "刚才 is a time word (“a moment ago”) and can go before the subject; 刚 must go right before the verb."
+                  },
+                  {
+                    "sentence": "他___来北京两个月。",
+                    "answer": "刚",
+                    "pinyin": "Tā gāng lái Běijīng liǎng ge yuè.",
+                    "english": "He only came to Beijing two months ago.",
+                    "explanation": "刚 + verb + a length of time: only that long ago. 刚才 means minutes ago."
+                  },
+                  {
+                    "sentence": "我___没听见，你再说一遍。",
+                    "answer": "刚才",
+                    "pinyin": "Wǒ gāngcái méi tīngjiàn, nǐ zài shuō yí biàn.",
+                    "english": "I didn’t hear you just now — say it again.",
+                    "explanation": "刚 can’t be followed by 没 or 不; 刚才 can."
+                  },
+                  {
+                    "sentence": "我___到家，就下雨了。",
+                    "answer": "刚",
+                    "pinyin": "Wǒ gāng dào jiā, jiù xià yǔ le.",
+                    "english": "I had just got home when it started to rain.",
+                    "explanation": "刚…就… = no sooner … than …; 刚才 doesn’t fit this pattern."
+                  }
+                ]
+              },
+              {
+                "type": "gap_choice",
+                "question": "Pick the right word for each gap.",
+                "items": [
+                  {
+                    "sentence": "明天___来吧。",
+                    "options": [
+                      "再",
+                      "在"
+                    ],
+                    "answer": "再",
+                    "pinyin": "Míngtiān zài lái ba.",
+                    "english": "Come again tomorrow.",
+                    "explanation": "再 = again (later); 在 = at / in, or “-ing”."
+                  },
+                  {
+                    "sentence": "他跑___很快。",
+                    "options": [
+                      "的",
+                      "得",
+                      "地"
+                    ],
+                    "answer": "得",
+                    "pinyin": "Tā pǎo de hěn kuài.",
+                    "english": "He runs fast.",
+                    "explanation": "Verb + 得 + how it is done (跑得很快)."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "defaults": {
@@ -1047,6 +1211,46 @@
             ""
           ],
           "correct": 0
+        }
+      ]
+    },
+    "judge": {
+      "type": "judge",
+      "question": "",
+      "sentences": [
+        {
+          "hanzi": "",
+          "correct": true
+        },
+        {
+          "hanzi": "",
+          "correct": false,
+          "correction": {
+            "hanzi": ""
+          },
+          "explanation": ""
+        },
+        {
+          "hanzi": "",
+          "correct": true
+        }
+      ]
+    },
+    "gap_choice": {
+      "type": "gap_choice",
+      "question": "",
+      "options": [
+        "",
+        ""
+      ],
+      "items": [
+        {
+          "sentence": "___",
+          "answer": ""
+        },
+        {
+          "sentence": "___",
+          "answer": ""
         }
       ]
     }

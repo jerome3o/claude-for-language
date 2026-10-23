@@ -62,6 +62,10 @@ object LessonDiff {
             else (ex["words"] as? JsonArray).orEmpty().joinToString(" · ") { joinPart((it as? JsonObject)?.get("hanzi")) }
         "write_typed", "write_handwriting" -> text((ex["answer"] as? JsonObject)?.get("hanzi"))
         "conversation" -> text(ex["situation"])
+        "judge" -> if (truthy(ex["question"])) JsJson.jsString(ex["question"])
+            else (ex["sentences"] as? JsonArray).orEmpty().joinToString(" · ") { joinPart((it as? JsonObject)?.get("hanzi")) }
+        "gap_choice" -> if (truthy(ex["question"])) JsJson.jsString(ex["question"])
+            else (ex["items"] as? JsonArray).orEmpty().joinToString(" · ") { joinPart((it as? JsonObject)?.get("sentence")) }
         else -> ""
     }
 
@@ -89,6 +93,8 @@ object LessonDiff {
         "dictation" -> listOf("audio")
         "oral_expression" -> listOf("prompt", "question_audio")
         "conversation" -> listOf("situation", "lines")
+        "judge" -> listOf("question", "sentences")
+        "gap_choice" -> listOf("question", "items")
         else -> emptyList()
     }
 

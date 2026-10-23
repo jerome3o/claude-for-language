@@ -32,6 +32,9 @@ import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseTypes
+import dev.jeromeswannack.chineselearning.lab.core.GapChoiceExercise
+import dev.jeromeswannack.chineselearning.lab.core.JudgeExercise
+import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttempts
 import dev.jeromeswannack.chineselearning.lab.core.LessonExercise
@@ -281,6 +284,36 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
                     Text(
                         mark + (picked ?: "—") + if (qa?.correct == false && options != null && right != null) " (answer: ${options.getOrNull(right)})" else "",
                         color = when (qa?.correct) { true -> Palette.Good; false -> Palette.Again; null -> Lab.colors.muted },
+                    )
+                }
+            }
+        }
+        is JudgeExercise -> {
+            exercise.question?.takeIf { it.isNotBlank() }?.let { AttRow("Question", it) }
+            exercise.sentences.forEachIndexed { i, st ->
+                val it = a?.items?.getOrNull(i)
+                val said = when (it?.judged) { true -> "✓ Correct"; false -> "✗ Incorrect"; null -> "—" }
+                val verdict = when (it?.correct) { true -> "Right: "; false -> "Wrong: "; null -> "" }
+                Column {
+                    Text("${i + 1}. ${st.hanzi}", color = Lab.colors.ink)
+                    Text(
+                        "${verdict}said $said (it ${if (st.correct) "is correct" else "has a mistake"})",
+                        color = when (it?.correct) { true -> Palette.Good; false -> Palette.Again; null -> Lab.colors.muted },
+                    )
+                    if (!st.correct) st.correction?.let { Text("→ ${it.hanzi}", color = Lab.colors.muted) }
+                }
+            }
+        }
+        is GapChoiceExercise -> {
+            exercise.question?.takeIf { it.isNotBlank() }?.let { AttRow("Question", it) }
+            exercise.items.forEachIndexed { i, item ->
+                val it = a?.items?.getOrNull(i)
+                val mark = when (it?.correct) { true -> "✓ "; false -> "✗ "; null -> "" }
+                Column {
+                    Text("${i + 1}. ${JudgeGap.fillGap(item.sentence, item.answer)}", color = Lab.colors.ink)
+                    Text(
+                        "${mark}chose ${it?.pick?.takeIf { p -> p.isNotEmpty() } ?: "—"}" + if (it?.correct == false) " (answer: ${item.answer})" else "",
+                        color = when (it?.correct) { true -> Palette.Good; false -> Palette.Again; null -> Lab.colors.muted },
                     )
                 }
             }

@@ -24,6 +24,8 @@ object HomeworkSize {
         "dictation" to 45,
         "oral_expression" to 60,
         "conversation" to 120,
+        "judge" to 45,
+        "gap_choice" to 40,
     )
 
     const val DEFAULT_EXERCISE_SECONDS = 40
