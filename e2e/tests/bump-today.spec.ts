@@ -79,8 +79,6 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
   await page.getByTestId('coach-action-explain').click();
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 15000 });
-  // The sentence's word I already have also gets the quick chip.
-  await expect(page.getByTestId('coach-quick-bump')).toBeVisible();
   // The word opens the language explorer's Word view, which knows I have it.
   await page.getByRole('button', { name: 'Explore 银行' }).click();
   const word = page.getByRole('dialog', { name: 'The word 银行' });

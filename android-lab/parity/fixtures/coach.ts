@@ -11,6 +11,9 @@ import {
   newWordsInSentence, newWordCards, addNewWordsButton, COACH_NEW_WORDS_LABEL, COACH_SENTENCE_CARD_LABEL, COACH_SKIP_WORDS, MAX_COACH_NEW_WORDS,
   coachMistakeLessonOffered, sentenceCore, mistakeLessonCardLine, parseMistakeLessonContent,
   COACH_MISTAKE_LESSON_LABEL, COACH_MISTAKE_LESSON_BUSY, MISTAKE_LESSON_CONTENT_TYPE,
+  practiseSentence, practiseOutcome, practiseBlockNote, practiseMicEnabled,
+  COACH_RESPOND_LABEL, COACH_PRACTISE_LABEL, COACH_PRACTISE_STOP, COACH_PRACTISE_AGAIN, COACH_PRACTISE_LISTEN,
+  COACH_PRACTISE_LISTENING, COACH_PRACTISE_CHECKING, COACH_PRACTISE_OFFLINE, COACH_PRACTISE_EMPTY,
 } from '../../../shared/coach';
 
 const OUT = process.argv[2];
@@ -133,7 +136,37 @@ const mistakeContents = [
   return { raw, parsed: c ? { lesson_id: c.lesson_id ?? null, completed: c.completed === true, title: c.spec.title, exercises: c.spec.sections.reduce((n, s) => n + s.exercises.length, 0) } : null };
 });
 
+// "🎤 Practise saying it": a take against the coach's sentence (shared/coach/practise.ts).
+const practiseCases: Array<[string, string]> = [
+  ['他在沙发上占了很多地方', '他在沙发上占了很多地方。'],
+  ['他在沙发上站了很多地方。', '他在沙发上占了很多地方。'],
+  ['他在沙发上放了很多东西', '他在沙发上占了很多地方。'],
+  ['他在沙发上', '他在沙发上占了很多地方。'],
+  ['你好。', '你好'],
+  ['你号', '你好'],
+  ['我昨天去了商店买东西。', '我昨天去商店买东西了。'],
+  ['我很喜欢吃面条，你呢？', '我很喜欢吃面条，你呢？'],
+  ['', '你好'],
+  ['hello', '你好'],
+  ['我想去一趟银行', '我想去趟银行。'],
+  ['他长得很好看', '长得'],
+];
+const practise = practiseCases.map(([transcript, target]) => {
+  const p = practiseSentence(transcript, target);
+  return { transcript, target, said: p.said, verdict: p.verdict, state: p.result.state, chars: p.result.chars, outcome: practiseOutcome(p, null) };
+});
+const practiseBlocks = [null, 'offline', 'denied', 'no_mic', 'unsupported', 'mic_error'].map((blocked) => ({
+  blocked, note: practiseBlockNote(blocked as never), mic: practiseMicEnabled(blocked as never),
+}));
+const practiseOutcomes = [null, 'failed', 'offline', 'empty'].map((failure) => ({ failure, outcome: practiseOutcome(null, failure as never) }));
+const practiseCopy = {
+  respond: COACH_RESPOND_LABEL, label: COACH_PRACTISE_LABEL, stop: COACH_PRACTISE_STOP, again: COACH_PRACTISE_AGAIN,
+  listen: COACH_PRACTISE_LISTEN, listening: COACH_PRACTISE_LISTENING, checking: COACH_PRACTISE_CHECKING,
+  offline: COACH_PRACTISE_OFFLINE, empty: COACH_PRACTISE_EMPTY,
+};
+
 writeFileSync(join(OUT, 'coach.json'), JSON.stringify({
+  practise, practiseBlocks, practiseOutcomes, practiseCopy,
   mistakeChecks, mistakeCardLines, mistakeContents,
   mistakeLabel: COACH_MISTAKE_LESSON_LABEL, mistakeBusy: COACH_MISTAKE_LESSON_BUSY, mistakeContentType: MISTAKE_LESSON_CONTENT_TYPE,
   buttons, actions, cards, deepLinks, newWords, wordCards, newWordLabels,

@@ -9,7 +9,6 @@ export * from './novelty';
 export * from './long-term';
 export * from './tutor-budget';
 export * from './bumps';
-export * from './sentence-bumps';
 export * from './other-card-types';
 export * from './frequency';
 export * from './new-card-order';

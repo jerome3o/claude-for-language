@@ -67,12 +67,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.CoachBreakdownWord
-import dev.jeromeswannack.chineselearning.lab.core.CoachNewWords
-import dev.jeromeswannack.chineselearning.lab.core.CoachSentenceCard
 import dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson
-import dev.jeromeswannack.chineselearning.lab.core.SentenceBumps
-import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
-import dev.jeromeswannack.chineselearning.lab.ui.bumps.SentenceBumpSheet
+import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachAnalysisDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachBreakdownDto
 import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkSheet
@@ -348,43 +344,22 @@ data class CoachChatUi(
     /** What was sent and is waiting for the reply (shown as the user's bubble). */
     val pendingMessage: String? = null,
     val sendError: String? = null,
-    val decks: List<CoachDeck> = emptyList(),
-    val deckId: String? = null,
     val online: Boolean = true,
-    /** "⚡ Study this today": the sentence itself is one of his cards (core SentenceBumps). */
-    val bumpExact: BumpStore.BumpWord? = null,
-    /** Else "⚡ Study words from this today…": its words that are cards, in picker order. */
-    val bumpWords: List<BumpStore.BumpWord> = emptyList(),
-    /** Notes already in today's pocket (⚡, can't be ticked). */
-    val bumpedNoteIds: Set<String> = emptySet(),
-    /** The words picker is open. */
-    val bumpPicker: Boolean = false,
-    /** The bump's confirmation ("⚡ 银行 will come first in today’s study"), shown for a moment. */
-    val bumpMessage: String? = null,
     /** A failed reply's Retry is on its way. */
     val retrying: Boolean = false,
-    /**
-     * The sentence's word breakdown for the quick actions (Explain's own, else the device's cached
-     * explain-text, else fetched once): "➕ Add new words" and "🃏 Card for this sentence".
-     */
-    val breakdown: CoachBreakdownDto? = null,
-    /** The words of it in none of his decks (core CoachNewWords) — "➕ Add new words (N)" when any. */
-    val newWords: List<CoachBreakdownWord> = emptyList(),
-    /** The new-words picker, while open. */
-    val newWordsSheet: NewWordsSheetUi? = null,
     /** "🎯 Mini lesson on this mistake": the request is on its way. */
     val lessonRequesting: Boolean = false,
     /** The lesson message being saved ("Save to my mini lessons"). */
     val lessonSaving: String? = null,
     val lessonError: String? = null,
 ) {
-    /** A reply is being written in the background: Send and the quick actions wait for it (a mini lesson being written doesn't). */
+    /** A reply is being written in the background: Send waits for it (a mini lesson being written doesn't). */
     val replyPending: Boolean get() = thread.data?.messages?.any { it.isPending && it.content_type != CoachMistakeLesson.CONTENT_TYPE } == true
 
     /** The conversation's lesson message (one per conversation), if any. */
     val lessonMessage: CoachMessageDto? get() = thread.data?.messages?.firstOrNull { it.content_type == CoachMistakeLesson.CONTENT_TYPE }
 
-    /** The check found a mistake (core CoachMistakeLesson.offered): the 🎯 chip shows. */
+    /** The check found a mistake (core CoachMistakeLesson.offered): the 🎯 button shows on the check's card. */
     val mistakeLessonOffered: Boolean get() {
         val messages = thread.data?.messages.orEmpty()
         val coach = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content) }?.takeIf { it.kind == "chinese" }?.coach ?: return false
@@ -392,12 +367,6 @@ data class CoachChatUi(
         return CoachMistakeLesson.offered(wrote, coach.isCorrect, coach.corrected.hanzi)
     }
 
-    /** "🃏 Card for this sentence": the whole sentence as one card, unless it already is one (⚡ then). */
-    val sentenceCard: CoachSentenceCard? get() {
-        val b = breakdown ?: return null
-        if (b.translation.isNullOrBlank() || bumpExact != null) return null
-        return CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
-    }
 }
 
 data class CoachChatActions(
@@ -405,17 +374,9 @@ data class CoachChatActions(
     val onNew: () -> Unit = {},
     val onFollowUp: (String) -> Unit = {},
     val onSend: (String) -> Unit = {},
-    val onDeck: (String) -> Unit = {},
     val onRetryLoad: () -> Unit = {},
-    /** Explain's word rows / whole sentence → a card (the study card's AddChunkSheet). */
+    /** Explain's word rows → a card (the study card's AddChunkSheet, when there is no explorer). */
     val cards: SentenceActions = SentenceActions(),
-    /** "⚡ Study this today": bump the sentence's own card (only it). */
-    val onBumpExact: () -> Unit = {},
-    /** "⚡ Study words from this today…": open / close the picker. */
-    val onOpenBumpPicker: () -> Unit = {},
-    val onCloseBumpPicker: () -> Unit = {},
-    /** The picker's "⚡ Add N to today": exactly the ticked notes. */
-    val onBumpPicked: (List<String>) -> Unit = {},
     /** The add-card sheet's "⚡ Study it today" (null = the app's real bump). */
     val bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = null,
     /** Retry a reply that failed (its message id). */
@@ -426,12 +387,9 @@ data class CoachChatActions(
     val onPlayLesson: (String, CoachMistakeLesson.Content) -> Unit = { _, _ -> },
     /** "Save to my mini lessons" on the lesson card (message id). */
     val onSaveLesson: (String) -> Unit = {},
-    /** "➕ Add new words (N)": open the picker, and its actions. */
-    val onOpenNewWords: () -> Unit = {},
-    val newWords: NewWordsActions = NewWordsActions(),
 )
 
-/** `/coach?c=<id>` — the conversation: the analysis, the chat, quick actions, the follow-up box. */
+/** `/coach?c=<id>` — the conversation: the analysis (tappable words, 🎤 Practise saying it), the chat, the follow-up box. */
 @Composable
 fun CoachChatScreen(
     ui: CoachChatUi,
@@ -441,7 +399,7 @@ fun CoachChatScreen(
 ) {
     val thread = ui.thread.data
     val messages = thread?.messages.orEmpty()
-    val sentence = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.let { CoachAnalysisDto.parse(it.content)?.sentence }
+    val firstAnalysisId = messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.id
     val convAction = thread?.conversation?.let { CoachActions.conversationAction(it.action, it.input_language) } ?: CoachAction.CHECK
     val listState = rememberLazyListState()
     var adding by remember { mutableStateOf<Chunk?>(null) }
@@ -495,7 +453,7 @@ fun CoachChatScreen(
                         actionLabel = when { ui.retrying -> "Retrying…"; ui.online -> "Retry"; else -> null },
                         onAction = { if (!ui.retrying) actions.onRetryReply(m.id) },
                     )
-                    else -> MessageView(m, ui.online) { adding = it }
+                    else -> MessageView(m, ui.online, lesson = if (m.id == firstAnalysisId) ({ MistakeLessonButton(ui, actions) }) else null) { adding = it }
                 }
             }
             ui.pendingMessage?.let { p ->
@@ -511,7 +469,6 @@ fun CoachChatScreen(
                     .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (sentence != null) QuickActions(sentence, ui, actions) { adding = it }
                 // The follow-up, voice first like the sentence box (Send instead of Submit).
                 VoiceTextFieldContent(
                     ui = voicePreview ?: followUpUi,
@@ -519,9 +476,10 @@ fun CoachChatScreen(
                     onValueChange = actions.onFollowUp,
                     actions = followUpActions,
                     submitLabel = if (ui.sending) "…" else "Send",
-                    placeholder = "Ask a follow-up… (grammar, usage, add words to a deck)",
+                    placeholder = "Ask a follow-up… (grammar, usage, more examples)",
                     multiline = true,
                     enabled = !ui.sending && !ui.replyPending,
+                    sayLabel = CoachPractise.RESPOND_LABEL,
                 )
             }
         }
@@ -529,118 +487,42 @@ fun CoachChatScreen(
     }
     adding?.let { chunk ->
         AddChunkSheet(
-            chunk, preferredDeck = ui.deckId.orEmpty(), actions.cards, onDismiss = { adding = null },
+            chunk, preferredDeck = "", actions.cards, onDismiss = { adding = null },
             bumpSource = "coach", bump = actions.bump ?: dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("coach"),
         )
     }
-    if (ui.bumpPicker && ui.bumpWords.isNotEmpty()) {
-        SentenceBumpSheet(ui.bumpWords, ui.bumpedNoteIds, onAdd = actions.onBumpPicked, onDismiss = actions.onCloseBumpPicker)
-    }
-    ui.newWordsSheet?.let { CoachNewWordsSheet(it, actions.newWords) }
 }
 
+/**
+ * "🎯 Mini lesson on this mistake" on the check's card: write one, open the one there is, or say
+ * it's being written (core CoachMistakeLesson).
+ */
 @Composable
-private fun QuickActions(hanzi: String, ui: CoachChatUi, actions: CoachChatActions, onSentenceCard: (Chunk) -> Unit) {
-    // While a reply is being written (or a message is on its way) the chips wait.
-    val busy = ui.sending || ui.replyPending
-    val sentenceCard = ui.sentenceCard
-    val deck = ui.decks.firstOrNull { it.id == ui.deckId } ?: ui.decks.firstOrNull()
-    ui.bumpMessage?.let { InlineNotice(it, kind = NoticeKind.Success) }
-    // The ⚡ chip arrives after the row is drawn (the local lookup is async): a lazy row keeps its
-    // first item in place, which would leave the new chip scrolled off to the left — show it.
-    val rowState = rememberLazyListState()
-    val hasBumpChip = ui.bumpExact != null || ui.bumpWords.isNotEmpty()
-    LaunchedEffect(hasBumpChip) { if (hasBumpChip && rowState.firstVisibleItemIndex <= 1) rowState.scrollToItem(0) }
-    // "🎯 Mini lesson on this mistake": its own row above the chips (write one, open the one there is,
-    // or say it's being written) — first, and never pushing the direct actions off the row.
-    if (ui.mistakeLessonOffered) {
-        val lesson = ui.lessonMessage
-        val writing = ui.lessonRequesting || lesson?.isPending == true
-        val ready = lesson != null && lesson.status == null
-        LabChip(
-            if (writing) CoachMistakeLesson.BUSY else CoachMistakeLesson.LABEL,
-            modifier = Modifier.testTag(CoachLessonTags.CHIP).alpha(if (writing) 0.6f else 1f),
-            selected = true,
-            enabled = !writing,
-        ) {
-            val content = if (ready) CoachMistakeLesson.parse(lesson!!.content) else null
-            if (content != null) actions.onPlayLesson(lesson!!.id, content) else actions.onMistakeLesson()
-        }
-    }
-    androidx.compose.foundation.lazy.LazyRow(state = rowState, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // "⚡ Study … today" (core SentenceBumps): the sentence's own card, else a picker over its
-        // words he already has (nothing ticked) — one tap never bumps a pile of words.
-        val exact = ui.bumpExact
-        if (exact != null) {
-            item(key = "bump") {
-                val done = exact.noteId in ui.bumpedNoteIds
-                LabChip(
-                    if (done) SentenceBumps.DONE_LABEL else SentenceBumps.EXACT_LABEL,
-                    modifier = Modifier.testTag("coach-bump"),
-                    selected = true,
-                    enabled = !done,
-                    onClick = actions.onBumpExact,
-                )
-            }
-        } else if (ui.bumpWords.isNotEmpty()) {
-            item(key = "bump") {
-                LabChip(SentenceBumps.WORDS_LABEL, modifier = Modifier.testTag("coach-bump"), selected = true, onClick = actions.onOpenBumpPicker)
-            }
-        }
-        // "➕ Add new words (N)": the words of the sentence in none of his decks (core CoachNewWords).
-        if (ui.newWords.isNotEmpty()) {
-            item(key = "new-words") {
-                val enabled = !busy && ui.decks.isNotEmpty()
-                LabChip(CoachNewWords.label(ui.newWords.size), modifier = Modifier.testTag(CoachNewWordsTags.CHIP).alpha(if (enabled) 1f else 0.5f), enabled = enabled, onClick = actions.onOpenNewWords)
-            }
-        }
-        // "🃏 Card for this sentence": the whole sentence as one card, straight to the add-card sheet.
-        if (sentenceCard != null) {
-            item(key = "sentence-card") {
-                LabChip(CoachNewWords.SENTENCE_CARD_LABEL, modifier = Modifier.testTag(CoachNewWordsTags.SENTENCE_CARD).alpha(if (busy) 0.5f else 1f), enabled = !busy) {
-                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.sentence_card")
-                    onSentenceCard(Chunk(sentenceCard.hanzi, sentenceCard.pinyin, sentenceCard.english, sentenceCard.funFacts))
-                }
-            }
-        }
-        // The chat-prompt "📝 Card for the whole sentence" stays only as the fallback without a breakdown.
-        items(COACH_QUICK_ACTIONS.filter { !(it.key == "card-sentence" && sentenceCard != null) }, key = { it.key }) { a ->
-            LabChip(a.label, enabled = !busy && !(a.needsDeck && deck == null), modifier = Modifier.alpha(if (busy || (a.needsDeck && deck == null)) 0.5f else 1f)) {
-                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("coach.quick_action", mapOf("action" to a.key))
-                actions.onSend(a.message(hanzi, deck))
-            }
-        }
-    }
-    if (ui.decks.isNotEmpty()) {
-        var open by remember { mutableStateOf(false) }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Cards go to", fontSize = 13.sp, color = Lab.colors.muted)
-            Spacer(Modifier.width(8.dp))
-            Box {
-                Text(
-                    "${deck?.name ?: "—"} ▾",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Lab.colors.ink,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).buttonBorder(RoundedCornerShape(10.dp)).clickable(enabled = !busy) { open = true }.padding(horizontal = 10.dp, vertical = 8.dp),
-                )
-                DropdownMenu(open, onDismissRequest = { open = false }) {
-                    ui.decks.forEach { d -> DropdownMenuItem(text = { Text(d.name) }, onClick = { open = false; actions.onDeck(d.id) }) }
-                }
-            }
-        }
+private fun MistakeLessonButton(ui: CoachChatUi, actions: CoachChatActions) {
+    if (!ui.mistakeLessonOffered) return
+    val lesson = ui.lessonMessage
+    val writing = ui.lessonRequesting || lesson?.isPending == true
+    val ready = lesson != null && lesson.status == null
+    SecondaryPill(
+        if (writing) CoachMistakeLesson.BUSY else CoachMistakeLesson.LABEL,
+        Modifier.fillMaxWidth().padding(top = 8.dp).height(48.dp).testTag(CoachLessonTags.CHIP),
+        enabled = !writing,
+        fontSize = 15.sp,
+    ) {
+        val content = if (ready) CoachMistakeLesson.parse(lesson!!.content) else null
+        if (content != null) actions.onPlayLesson(lesson!!.id, content) else actions.onMistakeLesson()
     }
 }
 
 @Composable
-private fun MessageView(m: CoachMessageDto, online: Boolean, onAdd: (Chunk) -> Unit) {
+private fun MessageView(m: CoachMessageDto, online: Boolean, lesson: (@Composable () -> Unit)? = null, onAdd: (Chunk) -> Unit) {
     if (m.role == "user") return UserBubble(m.content)
     if (m.content_type == "analysis") {
         val a = CoachAnalysisDto.parse(m.content)
-        if (a != null) return AnalysisView(a, online, onAdd)
+        if (a != null) return AnalysisView(a, online, lesson, onAdd)
     }
     Column(Modifier.fillMaxWidth(0.94f).clip(RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp, 18.dp, 18.dp, 6.dp)).padding(14.dp)) {
-        MarkdownText(m.content)
+        CoachMarkdown(m.content)
         val tools = CoachAnalysisDto.toolResults(m.tool_results)
         if (tools.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
@@ -683,25 +565,26 @@ private fun ToolChip(r: CoachToolResultDto) {
 }
 
 @Composable
-private fun AnalysisView(a: CoachAnalysisDto, online: Boolean, onAdd: (Chunk) -> Unit) {
-    if (a.kind == "explain" && a.breakdown != null) return ExplainResult(a.breakdown, enabled = online, onAdd = onAdd)
+private fun AnalysisView(a: CoachAnalysisDto, online: Boolean, lesson: (@Composable () -> Unit)?, onAdd: (Chunk) -> Unit) {
+    if (a.kind == "explain" && a.breakdown != null) return ExplainResult(a.breakdown, enabled = online, onAdd = onAdd, sentenceCard = false)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (a.kind == "chinese" && a.coach != null) {
             val r = a.coach
-            Card {
+            SentenceCard {
                 Badge(if (r.isCorrect) "✓ Looks good!" else "Needs a little work", if (r.isCorrect) Palette.Good else Palette.Hard)
-                Headline(r.corrected)
-                if (r.critique.isNotBlank()) MarkdownText(r.critique, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp))
+                Headline(r.corrected, it)
+                if (r.critique.isNotBlank()) CoachMarkdown(r.critique, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp))
+                lesson?.invoke()
             }
             Alternatives(r.alternatives)
             a.explanation?.let { Explanation(it) }
         } else if (a.translation != null) {
             val t = a.translation
-            Card {
+            SentenceCard {
                 Badge("Translation", Palette.Good)
-                Headline(t.primary)
-                t.primary.note?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
-                t.usage_note?.let { MarkdownText(it, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)) }
+                Headline(t.primary, it)
+                t.primary.note?.let { n -> CoachZh(n, fontSize = 13.sp, color = Lab.colors.muted) }
+                t.usage_note?.let { n -> CoachMarkdown(n, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 15.sp)) }
             }
             Alternatives(t.alternatives)
         }
@@ -726,7 +609,7 @@ private fun CoachActionPill(label: String, primary: Boolean, enabled: Boolean, m
     }
 }
 
-/** Test tag on Explain's "+ Add whole sentence as card". */
+/** Test tag on Explain's "+ Add whole sentence as card" (the chat's Explain sheet; the coach has none). */
 const val COACH_ADD_SENTENCE_TAG = "coach-add-sentence"
 
 /**
@@ -735,14 +618,28 @@ const val COACH_ADD_SENTENCE_TAG = "coach-add-sentence"
  * that word as a card) and the whole sentence as a card, its fun_facts glossing every word.
  */
 @Composable
-internal fun ExplainResult(b: CoachBreakdownDto, enabled: Boolean, onAdd: (Chunk) -> Unit, offlineNote: String? = null) {
+internal fun ExplainResult(
+    b: CoachBreakdownDto,
+    enabled: Boolean,
+    onAdd: (Chunk) -> Unit,
+    offlineNote: String? = null,
+    /** "+ Add whole sentence as card" (the chat's Explain sheet); the coach has 🎤 Practise saying it instead. */
+    sentenceCard: Boolean = true,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card {
+        if (sentenceCard) Card {
             Badge("🔍 Explained", Palette.Secondary)
             offlineNote?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
             Text(b.hanzi, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
             if (b.pinyin.isNotBlank()) Text(b.pinyin, fontSize = 16.sp, color = Lab.colors.accent)
             b.translation?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 17.sp, color = Lab.colors.ink.copy(alpha = 0.85f)) }
+        } else SentenceCard { stop ->
+            Badge("🔍 Explained", Palette.Secondary)
+            offlineNote?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
+            CoachZh(b.hanzi, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+            if (b.pinyin.isNotBlank()) Text(b.pinyin, fontSize = 16.sp, color = Lab.colors.accent)
+            b.translation?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 17.sp, color = Lab.colors.ink.copy(alpha = 0.85f)) }
+            PractiseSentenceRow(b.hanzi, stop = stop)
         }
         Card {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -750,46 +647,63 @@ internal fun ExplainResult(b: CoachBreakdownDto, enabled: Boolean, onAdd: (Chunk
                 if (enabled) Text("Tap a word to explore it", fontSize = 12.sp, color = Lab.colors.muted)
             }
             SentenceBreakdown(b.asExplanation().copy(translation = null), enabled = enabled, onWord = { w -> onAdd(Chunk(w.hanzi, w.pinyin, w.gloss)) }, sentence = b.hanzi)
-            val card = CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
-            SecondaryPill(
-                "+ Add whole sentence as card",
-                Modifier.fillMaxWidth().padding(top = 6.dp).height(48.dp).testTag(COACH_ADD_SENTENCE_TAG),
-                enabled = enabled && card.english.isNotEmpty(),
-            ) { onAdd(Chunk(card.hanzi, card.pinyin, card.english, card.funFacts)) }
-        }
-    }
-}
-
-@Composable
-private fun Headline(l: CoachLine) {
-    Text(l.hanzi, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
-    Text(l.pinyin, fontSize = 16.sp, color = Lab.colors.accent)
-    Text(l.english, fontSize = 15.sp, color = Lab.colors.muted)
-}
-
-@Composable
-private fun Alternatives(alts: List<CoachLine>) {
-    if (alts.isEmpty()) return
-    Card {
-        Text("Other ways to say it", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
-        alts.forEach { alt ->
-            Column(Modifier.padding(top = 4.dp)) {
-                Text(alt.hanzi, fontSize = 19.sp, color = Lab.colors.ink)
-                Text("${alt.pinyin} — ${alt.english}", fontSize = 14.sp, color = Lab.colors.muted)
-                alt.note?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
+            if (sentenceCard) {
+                val card = CoachActions.sentenceCard(b.hanzi, b.pinyin, b.translation, b.words.map { CoachBreakdownWord(it.hanzi, it.pinyin, it.gloss) }, b.construction)
+                SecondaryPill(
+                    "+ Add whole sentence as card",
+                    Modifier.fillMaxWidth().padding(top = 6.dp).height(48.dp).testTag(COACH_ADD_SENTENCE_TAG),
+                    enabled = enabled && card.english.isNotEmpty(),
+                ) { onAdd(Chunk(card.hanzi, card.pinyin, card.english, card.funFacts)) }
             }
         }
     }
 }
 
+/** A coach answer's big sentence: its words tappable into the explorer, then ▶ and 🎤 Practise saying it. */
+@Composable
+private fun Headline(l: CoachLine, stop: PractiseStop) {
+    CoachZh(l.hanzi, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+    Text(l.pinyin, fontSize = 16.sp, color = Lab.colors.accent)
+    Text(l.english, fontSize = 15.sp, color = Lab.colors.muted)
+    PractiseSentenceRow(l.hanzi, stop = stop)
+}
+
+/** "Other ways to say it": each one tappable by word, with its own ▶ / 🎤. */
+@Composable
+private fun Alternatives(alts: List<CoachLine>) {
+    if (alts.isEmpty()) return
+    SentenceCard { stop ->
+        Text("Other ways to say it", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+        alts.forEachIndexed { i, alt ->
+            Column(Modifier.padding(top = 4.dp)) {
+                CoachZh(alt.hanzi, fontSize = 19.sp)
+                Text("${alt.pinyin} — ${alt.english}", fontSize = 14.sp, color = Lab.colors.muted)
+                alt.note?.let { CoachZh(it, fontSize = 13.sp, color = Lab.colors.muted) }
+                PractiseSentenceRow(alt.hanzi, tag = "${CoachPractiseTags.ROOT}-alt-$i", stop = stop)
+            }
+        }
+    }
+}
+
+/** A [Card] that stops a take in progress on any tap inside it (the web's "tap the card to stop"). */
+@Composable
+private fun SentenceCard(content: @Composable ColumnScope.(PractiseStop) -> Unit) {
+    val stop = remember { PractiseStop() }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp))
+            .practiseTapToStop(stop).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) { content(stop) }
+}
+
 /** Legacy conversations still carry the full breakdown. */
 @Composable
 private fun Explanation(e: CoachExplanationDto) {
-    if (e.overview.isNotBlank()) Card { Text("Overview", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); MarkdownText(e.overview) }
+    if (e.overview.isNotBlank()) Card { Text("Overview", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); CoachMarkdown(e.overview) }
     if (e.words.isNotEmpty()) Card {
         Text("Word by word", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         e.words.forEach { w ->
-            Text(w.hanzi + (w.role?.let { "  · $it" }.orEmpty()), fontSize = 18.sp, color = Lab.colors.ink)
+            CoachZh(w.hanzi + (w.role?.let { "  · $it" }.orEmpty()), fontSize = 18.sp)
             Text("${w.pinyin} — ${w.english}", fontSize = 14.sp, color = Lab.colors.muted)
             w.notes?.let { Text(it, fontSize = 13.sp, color = Lab.colors.muted) }
         }
@@ -798,14 +712,14 @@ private fun Explanation(e: CoachExplanationDto) {
         Text("Grammar", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
         e.grammar_points.forEach { g ->
             Text(g.pattern, fontWeight = FontWeight.SemiBold, color = Lab.colors.accent)
-            MarkdownText(g.explanation, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp))
-            g.example?.let { Text("e.g. $it", fontSize = 13.sp, color = Lab.colors.muted) }
+            CoachMarkdown(g.explanation, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp))
+            g.example?.let { CoachZh("e.g. $it", fontSize = 13.sp, color = Lab.colors.muted) }
         }
     }
-    e.nuance?.let { Card { Text("Nuance & usage", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); MarkdownText(it) } }
+    e.nuance?.let { Card { Text("Nuance & usage", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink); CoachMarkdown(it) } }
     if (e.similar_examples.isNotEmpty()) Card {
         Text("Similar sentences", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
-        e.similar_examples.forEach { Text(it.hanzi, fontSize = 18.sp, color = Lab.colors.ink); Text("${it.pinyin} — ${it.english}", fontSize = 14.sp, color = Lab.colors.muted) }
+        e.similar_examples.forEach { CoachZh(it.hanzi, fontSize = 18.sp); Text("${it.pinyin} — ${it.english}", fontSize = 14.sp, color = Lab.colors.muted) }
     }
 }
 

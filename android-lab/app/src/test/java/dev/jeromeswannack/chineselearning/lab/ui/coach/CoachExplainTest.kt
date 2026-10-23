@@ -46,16 +46,16 @@ class CoachExplainTest : LabScreenshotTest() {
     }
 
     @Test fun explainResult() = shoot("coach-13-explain-result") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     @Test fun explainResultDark() = shoot("coach-14-explain-result-dark", dark = true) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun explainResultUnfolded() = shoot("coach-15-explain-unfolded") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread), decks = CoachSamples.decks, deckId = "d1"), CoachChatActions())
+        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.explainThread)), CoachChatActions())
     }
 
     /** Offline: Explain answers from the breakdown saved on the device. */

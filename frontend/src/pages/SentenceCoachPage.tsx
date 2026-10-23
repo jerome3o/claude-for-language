@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import {
   startCoachConversation,
   getCoachConversations,
@@ -12,8 +10,6 @@ import {
   requestCoachMistakeLesson,
   saveCoachMistakeLesson,
   deleteCoachConversation,
-  explainSentenceText,
-  getDecks,
   apiErrorStatus,
 } from '../api/client';
 import {
@@ -21,7 +17,6 @@ import {
   CoachBreakdown,
   CoachMessage,
   CoachToolResult,
-  Deck,
   SentenceCoachResult,
   SentenceExplanation,
   SentenceTranslation,
@@ -30,12 +25,9 @@ import {
   COACH_ACTION_ICONS,
   COACH_ACTION_LABELS,
   COACH_ACTION_BUSY,
-  breakdownSentenceCard,
+  COACH_RESPOND_LABEL,
   coachDeepLinkAction,
   conversationAction,
-  newWordsInSentence,
-  COACH_NEW_WORDS_LABEL,
-  COACH_SENTENCE_CARD_LABEL,
   coachButtons,
   hasHan,
   coachMistakeLessonOffered,
@@ -46,25 +38,14 @@ import {
   COACH_MISTAKE_LESSON_BUSY,
   MISTAKE_LESSON_CONTENT_TYPE,
   type CoachAction,
-  type CoachWord,
   type MistakeLessonContent,
 } from '@shared/coach';
 import { cachedCoachLesson, rememberCoachLesson } from '../services/coachLessons';
-import { NewWordsSheet } from '../components/coach/NewWordsSheet';
-import { db, type LocalDeck } from '../db/database';
-import { orderDecksForQueue } from '../services/deckOrder';
+import { db } from '../db/database';
 import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
-import { AddChunkModal, type Chunk } from '../components/AddChunkModal';
-import { bumpNotes, findSentenceBumps, syncBumps, useBumps } from '../services/studyBumps';
-import { SentenceBumpSheet } from '../components/bumps/SentenceBumpSheet';
-import {
-  SENTENCE_BUMP_DONE_LABEL,
-  SENTENCE_BUMP_EXACT_LABEL,
-  SENTENCE_BUMP_WORDS_LABEL,
-  type SentenceBumps,
-} from '@shared/decks';
-import type { LocalNote } from '../db/database';
-import '../components/bumps/bumps.css';
+import { syncBumps } from '../services/studyBumps';
+import { CoachMarkdown, CoachZh } from '../components/coach/CoachText';
+import { PractiseSentence } from '../components/coach/PractiseSentence';
 import { cacheTextExplanation, getCachedTextExplanation } from '../services/sentence-sets';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom-lesson-study';
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
@@ -76,64 +57,9 @@ import { devicePinyinLine } from '../utils/autoPinyin';
 import { DICTATION_COPY, voiceBlockReason, voiceButtonShown, type VoiceBlock } from '@shared/voice/dictation';
 import './SentenceCoachPage.css';
 
-const LAST_DECK_KEY = 'coach-last-deck-id';
-
-// ============ Quick actions: one tap prompts the coach chat ============
-
-/**
- * The first reply is deliberately short. Everything deeper — a proper
- * flashcard to the card standard, more examples, other phrasings, the
- * grammar — is one tap away: each chip sends a prepared message into the
- * follow-up chat, where Claude has the card standard and the tools.
- */
-interface QuickAction {
-  key: string;
-  label: string;
-  message: (ctx: { hanzi: string; deck: Deck | null }) => string;
-}
-
-const deckClause = (deck: Deck | null) => (deck ? ` Put it in my deck "${deck.name}" (deck_id ${deck.id}).` : '');
-
-const QUICK_ACTIONS: QuickAction[] = [
-  {
-    key: 'card-word',
-    label: '🃏 Make a card',
-    message: ({ hanzi, deck }) =>
-      `Make a flashcard for the key word or phrase in "${hanzi}" — the one most worth learning from this sentence.${deckClause(deck)} Check search_cards first so you don't duplicate a card I already have (if I have it, don't make a duplicate: bump it with bump_cards so it comes first in today's study, tell me, and offer to improve it). Follow the card standard fully: one clean hanzi form, pinyin with tone marks, one clear English meaning, a fun_facts explanation (each character, then usage, the common mistake or contrast), and a short natural example sentence with pinyin and translation as the sentence_clue.`,
-  },
-  {
-    key: 'card-sentence',
-    label: '📝 Card for the whole sentence',
-    message: ({ hanzi, deck }) =>
-      `Make a flashcard for the whole sentence "${hanzi}".${deckClause(deck)} Follow the card standard: hanzi is the clean sentence, pinyin with tone marks, one natural English meaning, and fun_facts that gloss every word in order (汉字 (pīnyīn) meaning) then explain the structure and the common mistake. Check search_cards first so it is not a duplicate (if I already have it, bump it with bump_cards instead).`,
-  },
-  {
-    key: 'examples',
-    label: '💬 More examples',
-    message: ({ hanzi }) => `Give me 3 more example sentences using the key word or pattern from "${hanzi}", easiest first, each with pinyin (tone marks) and English.`,
-  },
-  {
-    key: 'alternatives',
-    label: '🔀 Other ways to say it',
-    message: ({ hanzi }) => `Show me 2–3 other natural ways to say "${hanzi}" — more casual, more formal, more idiomatic — each with pinyin and English, and when you would use each.`,
-  },
-  {
-    key: 'grammar',
-    label: '🔍 Explain the grammar',
-    message: ({ hanzi }) => `Explain "${hanzi}" word by word: each word with pinyin and its meaning here, then the structure and any grammar pattern in it, briefly.`,
-  },
-];
-
-/** The Chinese sentence the latest analysis settled on (corrected, explained or translated). */
 /** Why speaking is off, in the coach's words (the box is for a sentence, not an answer). */
 function voiceBlockReasonFor(blocked: VoiceBlock): string {
   return voiceBlockReason(blocked).replace('type your answer', 'type it');
-}
-
-function analysisSentence(analysis: CoachAnalysis): string {
-  if (analysis.kind === 'chinese') return analysis.coach.corrected.hanzi;
-  if (analysis.kind === 'explain') return analysis.breakdown.hanzi;
-  return analysis.translation.primary.hanzi;
 }
 
 /** A button's label: "✏️ Check my sentence", "🔍 Explain", "Translate". */
@@ -147,23 +73,6 @@ const ACTION_LOADING: Record<CoachAction, string> = {
   translate: 'Translating your sentence…',
 };
 
-/** The sentence's word breakdown the direct quick actions work from (Explain's own, else "What's going on here?"). */
-interface SentenceBreakdownView {
-  hanzi: string;
-  pinyin: string;
-  translation: string;
-  words: CoachWord[];
-  construction: string;
-}
-
-/** The hanzi of every note in a live deck on this device, and the decks in study-queue order. */
-async function loadLocalVocabulary(): Promise<{ hanzi: string[]; decks: LocalDeck[] }> {
-  const decks = await db.decks.toArray();
-  const live = new Set(decks.map((d) => d.id));
-  const notes = await db.notes.toArray();
-  return { hanzi: notes.filter((n) => live.has(n.deck_id)).map((n) => n.hanzi), decks: orderDecksForQueue(decks) };
-}
-
 /** The "🎯 Mini lesson on this mistake" chip: write one, open the one there is, or say it's being written. */
 interface MistakeLessonChip {
   label: string;
@@ -171,196 +80,74 @@ interface MistakeLessonChip {
   onClick: () => void;
 }
 
-function QuickActions({ hanzi, decks, selectedDeckId, onDeckChange, onSend, disabled, breakdown, onAddSentenceCard, mistakeLesson }: {
-  mistakeLesson: MistakeLessonChip | null;
+// ============ Structured analysis blocks ============
+
+/**
+ * A coach answer's big sentence (the corrected sentence, the translation, an Explain's sentence):
+ * its words tappable into the language explorer, pinyin and English under it, then ▶ and
+ * "🎤 Practise saying it" (components/coach/PractiseSentence.tsx).
+ */
+function CoachSentence({ hanzi, pinyin, english, testId = 'coach-practise' }: {
   hanzi: string;
-  decks: Deck[] | undefined;
-  selectedDeckId: string;
-  onDeckChange: (deckId: string) => void;
-  onSend: (message: string) => void;
-  disabled: boolean;
-  breakdown: SentenceBreakdownView | null;
-  onAddSentenceCard: (chunk: Chunk) => void;
+  pinyin?: string | null;
+  english?: string | null;
+  testId?: string;
 }) {
-  const deck = decks?.find((d) => d.id === selectedDeckId) ?? decks?.[0] ?? null;
-  // "⚡ Study … today" (shared/decks/sentence-bumps.ts): the sentence itself when it is a
-  // card (bumps only it), else a picker over the words of it he already has (none ticked).
-  const [matches, setMatches] = useState<SentenceBumps<LocalNote>>({ exact: null, words: [] });
-  const [picking, setPicking] = useState(false);
-  const [bumpMsg, setBumpMsg] = useState<string | null>(null);
-  const bumps = useBumps();
-  useEffect(() => {
-    setBumpMsg(null);
-    setPicking(false);
-    findSentenceBumps(hanzi).then(setMatches).catch(() => setMatches({ exact: null, words: [] }));
-  }, [hanzi]);
-  const exact = matches.exact;
-  const exactBumped = !!exact && bumps.has(exact.id);
-  // "➕ Add new words (N)": the words of the sentence in none of his decks (shared/coach/newWords.ts).
-  const [newWords, setNewWords] = useState<CoachWord[]>([]);
-  const [queueDecks, setQueueDecks] = useState<LocalDeck[]>([]);
-  const [addingWords, setAddingWords] = useState(false);
-  const [vocabKey, setVocabKey] = useState(0);
-  const justAdded = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!breakdown) {
-      setNewWords([]);
-      return;
-    }
-    let cancelled = false;
-    loadLocalVocabulary()
-      .then(({ hanzi: known, decks: ordered }) => {
-        if (cancelled) return;
-        setQueueDecks(ordered);
-        setNewWords(newWordsInSentence(breakdown.words, [...known, ...justAdded.current]));
-      })
-      .catch(() => setNewWords([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [breakdown, vocabKey]);
-  // "🃏 Card for this sentence": the whole sentence as one card, unless it already is one (⚡ then).
-  const sentenceCard = breakdown && breakdown.translation && !exact ? breakdownSentenceCard(breakdown) : null;
   return (
-    <div className="coach-quick" data-testid="coach-quick-actions">
-      {/* Direct actions (⚡ / ➕ / 🃏) wrap so none hides off-screen; the chat prompts scroll below. */}
-      {(mistakeLesson || exact || matches.words.length > 0 || newWords.length > 0 || sentenceCard) && (
-      <div className="coach-quick-row coach-quick-row--direct" role="group" aria-label="Words and cards">
-        {mistakeLesson && (
-          <button
-            type="button"
-            className="coach-quick-chip coach-quick-chip--lesson"
-            disabled={mistakeLesson.busy}
-            onClick={mistakeLesson.onClick}
-            data-testid="coach-quick-mistake-lesson"
-          >
-            {mistakeLesson.busy && <span className="spinner" style={{ width: '14px', height: '14px' }} />}
-            {mistakeLesson.label}
-          </button>
-        )}
-        {exact ? (
-          <button
-            type="button"
-            className={`coach-quick-chip coach-quick-chip--bump${exactBumped ? ' on' : ''}`}
-            disabled={exactBumped}
-            onClick={async () => {
-              const out = await bumpNotes([exact.id], 'coach');
-              setBumpMsg(out.message);
-            }}
-            data-testid="coach-quick-bump"
-            title={`You already have ${exact.hanzi}`}
-          >
-            {exactBumped ? SENTENCE_BUMP_DONE_LABEL : SENTENCE_BUMP_EXACT_LABEL}
-          </button>
-        ) : matches.words.length > 0 && (
-          <button
-            type="button"
-            className="coach-quick-chip coach-quick-chip--bump"
-            onClick={() => { setBumpMsg(null); setPicking(true); }}
-            data-testid="coach-quick-bump"
-            aria-haspopup="dialog"
-          >
-            {SENTENCE_BUMP_WORDS_LABEL}
-          </button>
-        )}
-        {newWords.length > 0 && (
-          <button
-            type="button"
-            className="coach-quick-chip coach-quick-chip--new"
-            disabled={disabled || queueDecks.length === 0}
-            onClick={() => setAddingWords(true)}
-            data-testid="coach-quick-new-words"
-            aria-haspopup="dialog"
-          >
-            {COACH_NEW_WORDS_LABEL(newWords.length)}
-          </button>
-        )}
-        {sentenceCard && (
-          <button
-            type="button"
-            className="coach-quick-chip coach-quick-chip--new"
-            disabled={disabled}
-            onClick={() => { track('coach.sentence_card'); onAddSentenceCard(sentenceCard); }}
-            data-testid="coach-quick-sentence-card"
-          >
-            {COACH_SENTENCE_CARD_LABEL}
-          </button>
-        )}
-      </div>
-      )}
-      <div className="coach-quick-row" role="group" aria-label="Quick actions">
-        {QUICK_ACTIONS.filter((a) => !(a.key === 'card-sentence' && sentenceCard)).map((a) => (
-          <button
-            key={a.key}
-            type="button"
-            className="coach-quick-chip"
-            disabled={disabled || (a.key.startsWith('card') && !deck)}
-            onClick={() => { track('coach.quick_action', { action: a.key }); onSend(a.message({ hanzi, deck })); }}
-            data-testid={`coach-quick-${a.key}`}
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
-      {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
-      {picking && (
-        <SentenceBumpSheet notes={matches.words} source="coach" onClose={() => setPicking(false)} onBumped={setBumpMsg} />
-      )}
-      {addingWords && breakdown && (
-        <NewWordsSheet
-          words={newWords}
-          sentence={{ hanzi: breakdown.hanzi, pinyin: breakdown.pinyin, translation: breakdown.translation }}
-          decks={queueDecks}
-          onAdded={(added) => added.forEach((h) => justAdded.current.add(h))}
-          onClose={() => { setAddingWords(false); setVocabKey((k) => k + 1); }}
-        />
-      )}
-      {decks && decks.length > 0 && (
-        <label className="coach-quick-deck">
-          <span>Cards go to</span>
-          <select className="coach-deck-select" value={deck?.id ?? ''} onChange={(e) => onDeckChange(e.target.value)} disabled={disabled}>
-            {decks.map((d) => (
-              <option key={d.id} value={d.id}>{d.name}</option>
-            ))}
-          </select>
-        </label>
-      )}
+    <div className="coach-sentence">
+      <div className="coach-corrected-hanzi" lang="zh"><CoachZh text={hanzi} /></div>
+      {pinyin && <div className="coach-corrected-pinyin">{pinyin}</div>}
+      {english && <div className="coach-corrected-english">{english}</div>}
+      <PractiseSentence hanzi={hanzi} testId={testId} />
     </div>
   );
 }
 
-// ============ Structured analysis blocks ============
+/** "Other ways to say it": each one tappable by word, with its own ▶ / 🎤. */
+function AlternativesCard({ alternatives }: { alternatives: Array<{ hanzi: string; pinyin: string; english: string; note?: string | null }> }) {
+  if (alternatives.length === 0) return null;
+  return (
+    <div className="card mt-3">
+      <h3 className="mb-2">Other ways to say it</h3>
+      {alternatives.map((alt, i) => (
+        <div key={i} className="coach-vocab-item coach-alternative-item">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className="coach-vocab-hanzi" lang="zh"><CoachZh text={alt.hanzi} /></div>
+            <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
+            {alt.note && <div className="coach-vocab-reason"><CoachZh text={alt.note} /></div>}
+            <PractiseSentence hanzi={alt.hanzi} testId={`coach-practise-alt-${i}`} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-// The first reply, kept short on purpose: the correction + a short
-// explanation, then a couple of example phrasings. Cards, examples and the
-// word-by-word breakdown are one quick-action tap away in the chat.
-function CoachResultBlock({ result }: { result: SentenceCoachResult }) {
+// The first reply, kept short on purpose: the correction + a short explanation, then a couple of
+// example phrasings. Anything deeper is a question in the follow-up chat.
+function CoachResultBlock({ result, mistakeLesson }: { result: SentenceCoachResult; mistakeLesson: MistakeLessonChip | null }) {
   return (
     <>
       <div className="card">
         <span className={`coach-badge ${result.isCorrect ? 'coach-badge-correct' : 'coach-badge-needs-work'}`}>
           {result.isCorrect ? '✓ Looks good!' : 'Needs a little work'}
         </span>
-        <div className="coach-corrected-hanzi">{result.corrected.hanzi}</div>
-        <div className="coach-corrected-pinyin">{result.corrected.pinyin}</div>
-        <div className="coach-corrected-english">{result.corrected.english}</div>
-        {result.critique && <p className="coach-critique">{result.critique}</p>}
+        <CoachSentence hanzi={result.corrected.hanzi} pinyin={result.corrected.pinyin} english={result.corrected.english} />
+        {result.critique && <p className="coach-critique"><CoachZh text={result.critique} /></p>}
+        {mistakeLesson && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-block coach-mistake-lesson-btn"
+            disabled={mistakeLesson.busy}
+            onClick={mistakeLesson.onClick}
+            data-testid="coach-mistake-lesson"
+          >
+            {mistakeLesson.busy && <span className="spinner" style={{ width: '14px', height: '14px' }} />}
+            {mistakeLesson.label}
+          </button>
+        )}
       </div>
-
-      {result.alternatives.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Other ways to say it</h3>
-          {result.alternatives.map((alt, i) => (
-            <div key={i} className="coach-vocab-item">
-              <div style={{ minWidth: 0 }}>
-                <div className="coach-vocab-hanzi">{alt.hanzi}</div>
-                <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
-                {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <AlternativesCard alternatives={result.alternatives} />
     </>
   );
 }
@@ -373,7 +160,7 @@ function ExplanationBlock({ explanation, showHeader = true }: {
     <>
       {showHeader && (
         <div className="card mt-3">
-          <div className="coach-corrected-hanzi">{explanation.hanzi}</div>
+          <div className="coach-corrected-hanzi" lang="zh"><CoachZh text={explanation.hanzi} /></div>
           <div className="coach-corrected-pinyin">{explanation.pinyin}</div>
           <div className="coach-corrected-english">{explanation.english}</div>
         </div>
@@ -381,7 +168,7 @@ function ExplanationBlock({ explanation, showHeader = true }: {
 
       <div className="card mt-3">
         <h3 className="mb-2">Overview</h3>
-        <p>{explanation.overview}</p>
+        <p><CoachZh text={explanation.overview} /></p>
       </div>
 
       {explanation.words.length > 0 && (
@@ -391,11 +178,11 @@ function ExplanationBlock({ explanation, showHeader = true }: {
             <div key={i} className="coach-vocab-item">
               <div style={{ minWidth: 0 }}>
                 <div className="coach-vocab-hanzi">
-                  {word.hanzi}
+                  <CoachZh text={word.hanzi} />
                   {word.role && <span className="coach-word-role">{word.role}</span>}
                 </div>
                 <div className="coach-vocab-detail">{word.pinyin} — {word.english}</div>
-                {word.notes && <div className="coach-vocab-reason">{word.notes}</div>}
+                {word.notes && <div className="coach-vocab-reason"><CoachZh text={word.notes} /></div>}
               </div>
             </div>
           ))}
@@ -407,11 +194,11 @@ function ExplanationBlock({ explanation, showHeader = true }: {
           <h3 className="mb-2">Grammar</h3>
           {explanation.grammar_points.map((point, i) => (
             <div key={i} className="coach-issue coach-grammar-point">
-              <span className="coach-issue-type">{point.pattern}</span>
-              <div className="coach-issue-explanation">{point.explanation}</div>
+              <span className="coach-issue-type"><CoachZh text={point.pattern} /></span>
+              <div className="coach-issue-explanation"><CoachZh text={point.explanation} /></div>
               {point.example && (
                 <div className="coach-vocab-reason" style={{ marginTop: '0.25rem' }}>
-                  e.g. {point.example}
+                  e.g. <CoachZh text={point.example} />
                 </div>
               )}
             </div>
@@ -422,7 +209,7 @@ function ExplanationBlock({ explanation, showHeader = true }: {
       {explanation.nuance && (
         <div className="card mt-3">
           <h3 className="mb-2">Nuance &amp; usage</h3>
-          <p>{explanation.nuance}</p>
+          <p><CoachZh text={explanation.nuance} /></p>
         </div>
       )}
 
@@ -431,7 +218,7 @@ function ExplanationBlock({ explanation, showHeader = true }: {
           <h3 className="mb-2">Similar sentences</h3>
           {explanation.similar_examples.map((ex, i) => (
             <div key={i} className="coach-alternative">
-              <div className="coach-vocab-hanzi">{ex.hanzi}</div>
+              <div className="coach-vocab-hanzi"><CoachZh text={ex.hanzi} /></div>
               <div className="coach-vocab-detail">{ex.pinyin} — {ex.english}</div>
             </div>
           ))}
@@ -442,26 +229,22 @@ function ExplanationBlock({ explanation, showHeader = true }: {
 }
 
 /**
- * Explain: the translation (instead of Google Translate), then the SAME
- * word-by-word breakdown as the example sentences' "What's going on here?" —
- * every word row adds that word as a card — and the whole sentence as a card.
+ * Explain: the translation (instead of Google Translate), then the SAME word-by-word breakdown as
+ * the example sentences' "What's going on here?" — every word opens the explorer, where it is
+ * added as a card.
  */
-function ExplainResultBlock({ breakdown, onAdd, offlineNote, disabled = false }: {
+function ExplainResultBlock({ breakdown, offlineNote, disabled = false }: {
   breakdown: CoachBreakdown;
-  onAdd: (chunk: Chunk) => void;
   /** Shown when this is the device's saved copy (offline). */
   offlineNote?: string;
   disabled?: boolean;
 }) {
-  const sentenceCard = breakdownSentenceCard(breakdown);
   return (
     <div className="coach-explain" data-testid="coach-explain-result">
       <div className="card">
         <span className="coach-badge coach-badge-explain">🔍 Explained</span>
         {offlineNote && <div className="coach-explain-offline">{offlineNote}</div>}
-        <div className="coach-corrected-hanzi" lang="zh">{breakdown.hanzi}</div>
-        {breakdown.pinyin && <div className="coach-corrected-pinyin">{breakdown.pinyin}</div>}
-        {breakdown.translation && <div className="coach-corrected-english coach-explain-translation">{breakdown.translation}</div>}
+        <CoachSentence hanzi={breakdown.hanzi} pinyin={breakdown.pinyin} english={breakdown.translation} />
       </div>
       <div className="card mt-3">
         <div className="coach-explain-head">
@@ -469,15 +252,6 @@ function ExplainResultBlock({ breakdown, onAdd, offlineNote, disabled = false }:
           {!disabled && <span className="coach-explain-tip">Tap a word to explore it</span>}
         </div>
         <SentenceWordBreakdown explanation={breakdown} sentence={breakdown.hanzi} source="coach" disabled={disabled} />
-        <button
-          type="button"
-          className="btn btn-secondary btn-block coach-explain-add-sentence"
-          disabled={disabled || !sentenceCard.english}
-          onClick={() => onAdd(sentenceCard)}
-          data-testid="coach-add-sentence"
-        >
-          + Add whole sentence as card
-        </button>
       </div>
     </div>
   );
@@ -488,31 +262,15 @@ function TranslationBlock({ translation }: { translation: SentenceTranslation })
     <>
       <div className="card">
         <span className="coach-badge coach-badge-correct">Translation</span>
-        <div className="coach-corrected-hanzi">{translation.primary.hanzi}</div>
-        <div className="coach-corrected-pinyin">{translation.primary.pinyin}</div>
-        <div className="coach-corrected-english">{translation.primary.english}</div>
+        <CoachSentence hanzi={translation.primary.hanzi} pinyin={translation.primary.pinyin} english={translation.primary.english} />
         {translation.primary.note && (
-          <div className="coach-vocab-reason" style={{ marginTop: '0.5rem' }}>{translation.primary.note}</div>
+          <div className="coach-vocab-reason" style={{ marginTop: '0.5rem' }}><CoachZh text={translation.primary.note} /></div>
         )}
         {translation.usage_note && (
-          <p className="coach-critique">{translation.usage_note}</p>
+          <p className="coach-critique"><CoachZh text={translation.usage_note} /></p>
         )}
       </div>
-
-      {translation.alternatives.length > 0 && (
-        <div className="card mt-3">
-          <h3 className="mb-2">Other ways to say it</h3>
-          {translation.alternatives.map((alt, i) => (
-            <div key={i} className="coach-vocab-item">
-              <div style={{ minWidth: 0 }}>
-                <div className="coach-vocab-hanzi">{alt.hanzi}</div>
-                <div className="coach-vocab-detail">{alt.pinyin} — {alt.english}</div>
-                {alt.note && <div className="coach-vocab-reason">{alt.note}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <AlternativesCard alternatives={translation.alternatives} />
     </>
   );
 }
@@ -642,12 +400,13 @@ function MistakeLessonCard({ conversationId, messageId, content, offlineNote }: 
   );
 }
 
-function CoachMessageView({ message, onAdd, action, onRetry, retrying, conversationId, onRetryLesson }: {
+function CoachMessageView({ message, action, onRetry, retrying, conversationId, onRetryLesson, mistakeLesson }: {
   conversationId: string;
   /** A failed mistake lesson: ask for it again (same message). */
   onRetryLesson: () => void;
+  /** "🎯 Mini lesson on this mistake" on the check's card (the first analysis only). */
+  mistakeLesson: MistakeLessonChip | null;
   message: CoachMessage;
-  onAdd: (chunk: Chunk) => void;
   /** The conversation's action (what a pending first reply is doing). */
   action: CoachAction;
   onRetry: (messageId: string) => void;
@@ -722,14 +481,14 @@ function CoachMessageView({ message, onAdd, action, onRetry, retrying, conversat
     if (analysis.kind === 'explain') {
       return (
         <div className="coach-analysis">
-          <ExplainResultBlock breakdown={analysis.breakdown} onAdd={onAdd} />
+          <ExplainResultBlock breakdown={analysis.breakdown} />
         </div>
       );
     }
     if (analysis.kind === 'chinese') {
       return (
         <div className="coach-analysis">
-          <CoachResultBlock result={analysis.coach} />
+          <CoachResultBlock result={analysis.coach} mistakeLesson={mistakeLesson} />
           {/* Legacy conversations still carry the full breakdown; new ones omit it. */}
           {analysis.explanation && (
             <ExplanationBlock explanation={analysis.explanation} showHeader={false} />
@@ -747,56 +506,10 @@ function CoachMessageView({ message, onAdd, action, onRetry, retrying, conversat
   const toolResults = parseToolResults(message.tool_results);
   return (
     <div className="coach-bubble coach-bubble-assistant claude-response">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+      <CoachMarkdown>{message.content}</CoachMarkdown>
       <ToolResultChips results={toolResults} />
     </div>
   );
-}
-
-// ============ The sentence's breakdown (for the direct quick actions) ============
-
-/**
- * The words of the conversation's sentence: Explain's own breakdown, else the one this device
- * keeps for the text ("What's going on here?" — shared with the card's example sentences), else
- * asked once (Haiku, cached by text) when online. null until there is one.
- */
-function useSentenceBreakdown(analysis: CoachAnalysis | null): SentenceBreakdownView | null {
-  const [view, setView] = useState<SentenceBreakdownView | null>(null);
-  const hanzi = analysis ? analysisSentence(analysis) : '';
-  const pinyin = !analysis ? '' : analysis.kind === 'chinese' ? analysis.coach.corrected.pinyin : analysis.kind === 'english' ? analysis.translation.primary.pinyin : analysis.breakdown.pinyin;
-  const english = !analysis ? '' : analysis.kind === 'chinese' ? analysis.coach.corrected.english : analysis.kind === 'english' ? analysis.translation.primary.english : analysis.breakdown.translation ?? '';
-  const own = analysis?.kind === 'explain' ? analysis.breakdown : null;
-  useEffect(() => {
-    let cancelled = false;
-    setView(null);
-    if (!hanzi) return;
-    const show = (b: { words: CoachWord[]; construction?: string | null; translation?: string | null }) => {
-      if (cancelled) return;
-      setView({
-        hanzi,
-        pinyin: pinyin || b.words.map((w) => w.pinyin).filter(Boolean).join(' '),
-        translation: (english || b.translation || '').trim(),
-        words: b.words,
-        construction: b.construction ?? '',
-      });
-    };
-    if (own) {
-      show(own);
-      return;
-    }
-    (async () => {
-      const cached = await getCachedTextExplanation(hanzi);
-      if (cached) return show(cached);
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-      const fresh = await explainSentenceText({ hanzi, pinyin: pinyin || null, translation: english || null });
-      void cacheTextExplanation(hanzi, fresh);
-      show(fresh);
-    })().catch((err) => console.warn('[coach] no breakdown for the quick actions', err));
-    return () => {
-      cancelled = true;
-    };
-  }, [hanzi, pinyin, english, own]);
-  return view;
 }
 
 // ============ Page ============
@@ -846,13 +559,8 @@ export function SentenceCoachPage() {
   const [startTyping] = useState(() => !!(searchParams.get('text') || searchParams.get('draft') || searchParams.get('focus') === '1'));
   /** The coach action a spoken / typed sentence goes to (set just before `sentenceVoice.submit()`). */
   const pendingCoachAction = useRef<CoachAction | null>(null);
-  const [selectedDeckId, setSelectedDeckId] = useState<string>(
-    () => localStorage.getItem(LAST_DECK_KEY) ?? ''
-  );
   const autoSubmittedRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
-
-  const { data: decks } = useQuery({ queryKey: ['decks'], queryFn: getDecks });
 
   const conversationsQuery = useQuery({
     queryKey: ['coach-conversations'],
@@ -871,7 +579,6 @@ export function SentenceCoachPage() {
 
   // Explain's result the device already had, shown when the coach can't be reached.
   const [savedBreakdown, setSavedBreakdown] = useState<CoachBreakdown | null>(null);
-  const [adding, setAdding] = useState<Chunk | null>(null);
 
   const startMutation = useMutation({
     mutationFn: async ({ text, action, chatMessageId }: { text: string; action: CoachAction; chatMessageId?: string | null }) => {
@@ -1010,13 +717,6 @@ export function SentenceCoachPage() {
     el.setSelectionRange(el.value.length, el.value.length);
   }, [conversationId]);
 
-  // Default the deck picker to the remembered deck, else the first deck
-  useEffect(() => {
-    if (!decks || decks.length === 0) return;
-    if (selectedDeckId && decks.some((d) => d.id === selectedDeckId)) return;
-    setSelectedDeckId(decks[0].id);
-  }, [decks, selectedDeckId]);
-
   // Keep the newest message in view while chatting
   const messageCount = conversationQuery.data?.messages.length ?? 0;
   useEffect(() => {
@@ -1025,17 +725,10 @@ export function SentenceCoachPage() {
     }
   }, [messageCount, replyMutation.isPending]);
 
-  const handleDeckChange = (deckId: string) => {
-    setSelectedDeckId(deckId);
-    localStorage.setItem(LAST_DECK_KEY, deckId);
-  };
-
   /** The Chinese sentence this conversation is about (its first analysis). */
   const firstAnalysisJson = conversationQuery.data?.messages.find((m) => m.content_type === 'analysis' && !m.status)?.content ?? null;
-  // Parsed once per answer (the breakdown hook and the quick actions key on it).
   const firstAnalysis = useMemo(() => (firstAnalysisJson ? parseAnalysis(firstAnalysisJson) : null), [firstAnalysisJson]);
-  const latestSentence = firstAnalysis ? analysisSentence(firstAnalysis) : null;
-  const breakdown = useSentenceBreakdown(firstAnalysis);
+  const firstAnalysisId = conversationQuery.data?.messages.find((m) => m.content_type === 'analysis' && !m.status)?.id ?? null;
   // A mini lesson being written doesn't hold up the chat.
   const replyPending = !!conversationQuery.data?.messages.some((m) => m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE);
 
@@ -1070,11 +763,6 @@ export function SentenceCoachPage() {
         : { label: COACH_MISTAKE_LESSON_LABEL, busy: false, onClick: askForLesson };
   // Offline (the conversation couldn't be fetched): the lesson this device kept for it.
   const keptLesson = conversationId && conversationQuery.isError ? cachedCoachLesson(conversationId) : null;
-
-  const sendQuickAction = (message: string) => {
-    if (!conversationId || replyMutation.isPending || replyPending) return;
-    replyMutation.mutate({ id: conversationId, message });
-  };
 
   const trimmed = sentence.trim();
   // The sentence box, voice first: what was said lands on the review, and the action buttons
@@ -1208,7 +896,7 @@ export function SentenceCoachPage() {
                 <CoachMessageView
                   key={m.id}
                   message={m}
-                  onAdd={setAdding}
+                  mistakeLesson={m.id === firstAnalysisId ? lessonChip : null}
                   action={conversationAction(data.conversation)}
                   onRetry={(messageId) => retryMutation.mutate({ id: data.conversation.id, messageId })}
                   retrying={retryMutation.isPending || lessonMutation.isPending}
@@ -1235,27 +923,14 @@ export function SentenceCoachPage() {
             </div>
           )}
 
-          {data && latestSentence && (
-            <QuickActions
-              hanzi={latestSentence}
-              decks={decks}
-              selectedDeckId={selectedDeckId}
-              onDeckChange={handleDeckChange}
-              onSend={sendQuickAction}
-              disabled={replyMutation.isPending || replyPending}
-              breakdown={breakdown}
-              onAddSentenceCard={setAdding}
-              mistakeLesson={lessonChip}
-            />
-          )}
-
           {data && (
             <div className="coach-followup-form" data-testid="coach-followup" onKeyDown={enterToSubmit(followUpVoice.submit)}>
               <VoiceTextInputView
                 value={followUp}
                 onChange={setFollowUp}
-                placeholder="Ask a follow-up… (grammar, usage, add words to a deck)"
+                placeholder="Ask a follow-up… (grammar, usage, more examples)"
                 listeningPlaceholder="Listening… ask anything, in Chinese or English"
+                sayLabel={COACH_RESPOND_LABEL}
                 submitLabel={replyMutation.isPending || replyPending ? '…' : 'Send'}
                 multiline
                 disabled={replyMutation.isPending || replyPending}
@@ -1269,7 +944,6 @@ export function SentenceCoachPage() {
               />
             </div>
           )}
-          {adding && <AddChunkModal source="coach" chunk={adding} onClose={() => setAdding(null)} />}
         </div>
       </div>
     );
@@ -1420,14 +1094,11 @@ export function SentenceCoachPage() {
           <div className="mt-4">
             <ExplainResultBlock
               breakdown={savedBreakdown}
-              onAdd={setAdding}
               disabled={typeof navigator !== 'undefined' && navigator.onLine === false}
               offlineNote="Saved on this device — the follow-up chat needs a connection."
             />
           </div>
         )}
-        {adding && <AddChunkModal source="coach" chunk={adding} onClose={() => setAdding(null)} />}
-
         {conversations.length > 0 && (
           <div className="card mt-4">
             <h3 className="mb-2">Recent conversations</h3>
@@ -1471,10 +1142,11 @@ export function SentenceCoachPage() {
           <h3 className="mb-2">How it works</h3>
           <ul style={{ paddingLeft: '1.25rem', color: 'var(--color-text-light)' }}>
             <li>✏️ Check my sentence → corrected, with a short explanation of what changed</li>
-            <li>🔍 Explain → the translation and every word with pinyin and meaning — tap a word to add it as a card</li>
+            <li>🔍 Explain → the translation and every word with pinyin and meaning</li>
             <li>English → translated, with alternatives</li>
-            <li>Then one tap: make a card (to the card standard), more examples, other ways to say it, the grammar</li>
-            <li>Or ask anything — the coach can also add cards and build a mini lesson</li>
+            <li>Tap any Chinese word to explore it — add it as a card or study it today from there</li>
+            <li>🎤 Practise saying it → say the sentence and see if it sounded right</li>
+            <li>Then 🎤 Respond (or type) to ask anything — the coach can also add cards and build a mini lesson</li>
             <li>Conversations are saved, so you can come back and continue</li>
             <li>Tip: select text anywhere on your phone and choose "Sentence Coach" (Android app)</li>
           </ul>

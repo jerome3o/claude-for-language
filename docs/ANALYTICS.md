@@ -315,8 +315,9 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | Event | Props | Meaning |
 |---|---|---|
 | `coach.start` | `action` | Started a Sentence Coach conversation. |
-| `coach.quick_action` | `action` | Used a quick-action chip. |
+| `coach.quick_action` | `action` | Used a quick-action chip — apps before Oct 2026 (the chips are gone; ask in the chat). **Old path → `coach.follow_up`.** |
 | `coach.follow_up` | — | Sent a follow-up message in the coach chat. |
+| `coach.practise_say` | `result` | "🎤 Practise saying it" beside a coach answer's sentence: a take checked against it (match / sound / contains / close / wrong, or failed / empty). Nothing is stored. |
 
 ### decks
 

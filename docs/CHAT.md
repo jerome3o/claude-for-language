@@ -740,26 +740,47 @@ voice transcripts get the mark and the sheet ("You wrote" = the caption / transc
   a conversation still thinking from an earlier visit), `coach.reply_retry`.
 - E2E_TEST_MODE: a stand-in model (2.5 s per answer, a tiny lexicon for Explain) so tests can leave the page first.
 
-**Coach quick actions** (a wrapping row of direct actions above the scrolling chat-prompt chips):
-- "⚡ Study … today" (#525, unchanged).
-- "➕ Add new words (N)": the sentence's words (Explain's breakdown, else the device's cached "What's going on here?"
-  breakdown, else fetched once via `/api/sentences/explain-text`) that are in NONE of my decks — `newWordsInSentence`
-  (`shared/coach/newWords.ts`; normalised hanzi like the bump picker, particles 的 了 吗 … never offered, one row per
-  spelling, ≤ 20). A picker with NOTHING ticked, a deck picker defaulting to the top of the study queue; Add = missing
-  pinyin from the device / meanings from gloss-words, `newWordCards` (the sentence as the example when it contains the
-  word), fun_facts + a short example via `enrich-words` (saved without when Claude can't be reached), ONE
-  `POST /api/decks/:id/notes/batch?skip_existing=1` — a word already in a deck comes back in `existing` and gets
-  "⚡ Study it today" instead. Analytics `coach.add_new_words { count, existing }`.
-- "🃏 Card for this sentence": `breakdownSentenceCard` → the add-card sheet (replaces the chat prompt "📝 Card for the
-  whole sentence" when a breakdown with a translation exists; not shown when the sentence already is a card).
-  Analytics `coach.sentence_card`.
-- Lab: core `SayBetter.kt` / `MessageMenu.kt` / `CoachActions.kt` / `CoachNewWords.kt`, parity-tested
+**The Coach conversation — no chips, tappable words, 🎤 Practise saying it** (Jerome, Oct 2026: "The Say it button is
+confusing — it looks like I should practise the sentence above … Get rid of the 'Cards go to' selector and all the other
+buttons here. I'm not going to add full sentences as flashcards anymore … Make the text clickable so I can go into the
+character / word graph … When there's the big text at the top, I want to practise saying it"):
+- **No quick-action row and no "Cards go to" deck picker** (web + Lab). Gone: the chat-prompt chips (🃏 Make a card ·
+  📝 Card for the whole sentence · 💬 More examples · 🔀 Other ways to say it · 🔍 Explain the grammar), "⚡ Study … today"
+  (the sentence-bump picker, `shared/decks/sentence-bumps.ts`, deleted with its Lab port), "➕ Add new words (N)" and
+  "🃏 Card for this sentence" — and Explain's "+ Add whole sentence as card" in the coach (the chat's Explain sheet keeps
+  it). Claude still makes cards / bumps / lessons through its chat tools when asked. Analytics `coach.quick_action`,
+  `coach.add_new_words`, `coach.sentence_card` are now old paths. (`shared/coach/newWords.ts` + the Lab's
+  `CoachNewWordsSheet` stay: the Lab's podcast episodes use them.)
+- **"🎯 Mini lesson on this mistake"** moved from the chip row onto the check's own card (a full-width button under the
+  critique, `coach-mistake-lesson`); same rules as below.
+- **The follow-up composer's 🎤 says "🎤 Respond"** (`COACH_RESPOND_LABEL`; `sayLabel` on the web's `VoiceTextInputView`,
+  the Lab's `VoiceTextFieldContent`) — only there: the other voice-first boxes keep "Say it".
+- **Every Chinese text is tappable into the language explorer** (by word, the device segmenter; web
+  `components/coach/CoachText.tsx` `CoachZh` / `CoachMarkdown`, Lab `ui/coach/CoachText.kt`): the big sentence (the
+  correction, the translation, Explain's sentence), each "Other ways to say it", the critique / usage note / notes, the
+  legacy explanation blocks and Claude's Markdown replies (text nodes inside paragraphs, lists, bold… — code and links
+  untouched; the Lab's `MarkdownText(chinese = MdChinese(…))`). A word → the Word view (+ Add as card / ⚡ Study it today /
+  Open card there).
+- **🎤 Practise saying it** beside each big sentence and each alternative (`shared/coach/practise.ts`, Lab
+  `core/…/CoachPractise.kt`, parity-tested; web `components/coach/PractiseSentence.tsx`, Lab `ui/coach/CoachPractise.kt`):
+  ▶ plays the sentence (the lessons' cache-first practice TTS, `useLessonSpeak` / `LessonSpeaker`); 🎤 records a take
+  through the voice boxes' pipeline (`useVoiceDictation` / `rememberVoiceDictation`, surface `coach_practise`,
+  `autoSubmit`: live Soniox words while speaking, the upload fallback, "Couldn't transcribe — tap to retry" with the same
+  take); ⏹ / 🎤 again, Enter, or a tap anywhere on the card (web: any pointer-down outside 🎤 while recording; Lab:
+  `practiseTapToStop` on the card, which never consumes the tap) stops it. The take is checked like a spoken answer on a
+  typing card: `tidySpokenTranscript` then `checkSpokenAnswer` (punctuation ignored, homophones by sound, other tones =
+  close), shown in the compact "You said" row (`YouSaidRow` / `SpokenResultRow`: ✓ Match · ✓ Sounded right — written
+  differently · ≈ Contains / Close — tones off · ✕ Didn't match, the differing characters marked), then 🔁 Try again. No
+  review event, no recording kept. Offline: "Practising needs a connection." (🎤 disabled); a refused microphone says
+  so and stays tappable. Analytics `coach.practise_say { result: match | sound | contains | close | wrong | failed | empty }`
+  (+ `voice_input.used { surface: coach_practise }`).
+- Lab: core `SayBetter.kt` / `MessageMenu.kt` / `CoachActions.kt` / `CoachPractise.kt`, parity-tested
   (`parity/fixtures/chat-round2.ts`, `coach.ts`).
 
 **"🎯 Mini lesson on this mistake"** (Jerome: "From the coach menu, I want to start a mini lesson that's just for the
 thing I typed in wrong … a few variants, a few different exercise types … then optionally save that to my mini lesson
 queue"; `shared/coach/mistakeLesson.ts`, `worker/src/services/mistake-lesson.ts`):
-- The chip leads the Coach's direct quick actions after a ✏️ Check my sentence that found a mistake —
+- The button sits on the check's card (under the critique) after a ✏️ Check my sentence that found a mistake —
   `coachMistakeLessonOffered`: not `isCorrect` and the correction differs from what he wrote beyond spaces / punctuation
   (a seeded "Open in Coach" check counts too). Nothing for a sentence that was already right, for Explain or Translate.
 - `POST /api/coach/conversations/:id/mistake-lesson` → 202 with a pending assistant message `content_type =

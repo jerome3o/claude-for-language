@@ -65,12 +65,7 @@ class BumpScreenshots : LabScreenshotTest() {
         }
     }
 
-    private val coachUi = CoachChatUi(thread = Loadable(CoachSamples.thread), decks = CoachSamples.decks, deckId = "d1",
-        bumpWords = listOf(
-            dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.BumpWord("n1", "商店", "shāngdiàn", "shop; store"),
-            dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.BumpWord("n2", "苹果", "píngguǒ", "apple"),
-        ),
-    )
+    private val coachUi = CoachChatUi(thread = Loadable(CoachSamples.thread))
 
     /** The Coach: 商店 is already a card → "⚡ Study it today" first, "Add anyway" second. */
     @Test fun coachDuplicate() = shoot("bump-01-coach") {
@@ -123,10 +118,5 @@ class BumpScreenshots : LabScreenshotTest() {
             StudyUi(StudyPhase.Showing(view), QueueCounts(3, 2, 2, 17), SessionStats(reviews = 4, correct = 4), canUndo = true),
             playingKey = null, actions = StudyActions(), autoplay = false,
         )
-    }
-
-    /** The Coach's quick-action chip once the sentence's words are cards, just after tapping it. */
-    @Test fun coachChip() = shoot("bump-05-coach-chip") {
-        CoachChatScreen(coachUi.copy(bumpMessage = "⚡ 商店 and 苹果 will come first in today’s study"), CoachChatActions())
     }
 }

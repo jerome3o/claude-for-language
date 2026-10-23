@@ -209,6 +209,8 @@ fun VoiceTextFieldContent(
     lang: String = "zh",
     enabled: Boolean = true,
     filledFromVoice: String? = null,
+    /** The wide 🎤's word (default "Say it"; the coach's follow-up says "Respond"). */
+    sayLabel: String = VoiceDictation.Copy.SAY,
 ) {
     val state = ui.state
     val controls = VoiceDictation.controls(state)
@@ -292,7 +294,7 @@ fun VoiceTextFieldContent(
             for (c in controls) {
                 when (c) {
                     "type" -> Side("✏️ ${VoiceDictation.Copy.TYPE}", VoiceTextFieldTags.TYPE, "Type instead", enabled, actions.type)
-                    "say" -> Wide("🎤  ${VoiceDictation.Copy.SAY}", VoiceTextFieldTags.SAY, enabled, Lab.colors.accent, actions.say)
+                    "say" -> Wide("🎤  $sayLabel", VoiceTextFieldTags.SAY, enabled, Lab.colors.accent, actions.say)
                     "cancel" -> Side("✕ ${VoiceDictation.Copy.CANCEL}", VoiceTextFieldTags.CANCEL, VoiceDictation.Copy.CANCEL, enabled, actions.cancel)
                     "stop" -> Wide("⏹  ${VoiceDictation.Copy.STOP}", VoiceTextFieldTags.STOP, enabled, Palette.Again, actions.stop, "Stop and use what I said")
                     "finishing" -> Wide(VoiceDictation.Copy.FINISHING, VoiceTextFieldTags.STOP, false, Lab.colors.accent, {})

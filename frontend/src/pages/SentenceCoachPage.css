@@ -115,17 +115,6 @@
   border-bottom: none;
 }
 
-.coach-deck-select {
-  width: 100%;
-  min-height: 44px;
-  padding: 0.5rem 0.75rem;
-  font-size: 1rem;
-  border: 1px solid var(--color-border, #d1d5db);
-  border-radius: 8px;
-  background: var(--color-card-bg, #fff);
-  margin-bottom: 0.75rem;
-}
-
 .coach-mode-toggle {
   display: flex;
   gap: 0.5rem;
@@ -378,63 +367,6 @@
   opacity: 1;
 }
 
-/* ---------- Quick actions (one tap → a prepared follow-up) ---------- */
-.coach-quick {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.coach-quick-row {
-  display: flex;
-  gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.coach-quick-row::-webkit-scrollbar {
-  display: none;
-}
-
-.coach-quick-chip {
-  flex: 0 0 auto;
-  min-height: 44px;
-  padding: 0 0.875rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 0.9375rem;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.coach-quick-chip:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.coach-quick-chip:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.coach-quick-deck {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.8125rem;
-  color: var(--color-text-light);
-}
-
-.coach-quick-deck .coach-deck-select {
-  flex: 1;
-  margin: 0;
-}
-
 /* Opened from a study card (⋯ → Sentence coach): the way back to that card, kept as it was */
 .coach-back-to-card {
   margin-bottom: 0.75rem;
@@ -539,25 +471,6 @@
   padding: 0 0.5rem;
 }
 
-.coach-explain-add-sentence {
-  margin-top: 0.75rem;
-  min-height: 44px;
-}
-
-/* "⚡ Study today": words of the sentence the learner already has (shared/decks/bumps.ts). */
-.coach-quick-chip.coach-quick-chip--bump {
-  background: #f59e0b;
-  border-color: #f59e0b;
-  color: #1f1300;
-  font-weight: 600;
-}
-
-.coach-quick-chip.coach-quick-chip--bump.on {
-  background: #fef3c7;
-  border-color: #fcd34d;
-  color: #92400e;
-}
-
 /* ---------- Replies written in the background (docs/CHAT.md "Chat ↔ Coach") ---------- */
 .coach-pending-note {
   margin-top: 0.25rem;
@@ -576,50 +489,7 @@
   font-weight: 600;
 }
 
-/* ---------- Direct quick actions: ➕ Add new words (N) · 🃏 Card for this sentence ---------- */
-.coach-quick-chip--new {
-  border-color: rgba(34, 139, 84, 0.55);
-  background: #ecfdf3;
-  color: #14643a;
-  font-weight: 600;
-}
-.coach-new-words-deck {
-  margin: 0.75rem 0 0.25rem;
-}
-.coach-new-words-done {
-  margin: 0.5rem 0 0.75rem;
-  font-weight: 600;
-  color: #14643a;
-}
-.coach-new-words-existing {
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-.coach-new-words-existing .btn {
-  width: auto;
-  min-height: 40px;
-  white-space: nowrap;
-}
-.coach-quick-row--direct {
-  flex-wrap: wrap;
-  overflow-x: visible;
-  margin-bottom: 0.5rem;
-}
-
 /* ---------- "🎯 Mini lesson on this mistake" (shared/coach/mistakeLesson.ts) ---------- */
-.coach-quick-chip.coach-quick-chip--lesson {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.375rem;
-  border-color: rgba(124, 58, 237, 0.55);
-  background: #f5f3ff;
-  color: #5b21b6;
-  font-weight: 600;
-}
-.coach-quick-chip.coach-quick-chip--lesson:disabled {
-  opacity: 0.75;
-}
-
 .coach-lesson-card {
   border-left: 4px solid #8b5cf6;
 }
@@ -673,4 +543,84 @@
   margin-top: 0.5rem;
   font-size: 0.8125rem;
   color: var(--color-text-light);
+}
+
+/* ---------- The mistake lesson, on the check's card ---------- */
+.coach-mistake-lesson-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  margin-top: 0.75rem;
+  min-height: 44px;
+}
+
+/* ---------- A coach answer's sentence: tappable words, ▶ and 🎤 Practise saying it ---------- */
+.coach-sentence .xt-tap,
+.coach-vocab-hanzi .xt-tap {
+  border-radius: 4px;
+}
+.coach-practise {
+  margin-top: 0.625rem;
+}
+.coach-practise-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.coach-practise-listen {
+  flex: none;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+}
+.coach-practise-mic {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  font-weight: 600;
+}
+.coach-practise-mic.is-listening {
+  animation: coach-practise-pulse 1.4s ease-in-out infinite;
+}
+@keyframes coach-practise-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-error) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-practise-mic.is-listening { animation: none; }
+}
+.coach-practise-spinner {
+  width: 16px;
+  height: 16px;
+}
+.coach-practise-live {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  background: var(--color-background);
+  font-size: 1.125rem;
+  line-height: 1.4;
+  min-height: 2.75rem;
+}
+.coach-practise-partial {
+  color: var(--color-text-light);
+}
+.coach-practise-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+.coach-practise .spoken-result,
+.coach-practise .you-said {
+  margin: 0.5rem 0 0;
+}
+.coach-alternative-item .coach-practise {
+  margin-bottom: 0.25rem;
 }

@@ -152,4 +152,47 @@ class CoachParityTest {
             assertEquals(w["exercises"]!!.jsonPrimitive.content.toInt(), got?.let { CoachMistakeLesson.exerciseCount(it.spec) })
         }
     }
+
+    @Test
+    fun practiseMatchesTypeScript() {
+        val f = fixture()
+        val cases = f["practise"]!!.jsonArray
+        assertTrue(cases.size >= 10)
+        for (c in cases) {
+            val o = c.jsonObject
+            val transcript = o["transcript"]!!.str!!
+            val target = o["target"]!!.str!!
+            val p = CoachPractise.practise(transcript, target)
+            val what = "'$transcript' for '$target'"
+            assertEquals(o["said"]!!.str, p.said, "said $what")
+            assertEquals(o["verdict"]!!.str, AnswerKey.verdictName(p.verdict), "verdict $what")
+            assertEquals(o["state"]!!.str, SpokenAnswerResult.stateName(p.result.state), "state $what")
+            assertEquals(
+                o["chars"]!!.jsonArray.map { it.jsonObject["char"]!!.str + ":" + it.jsonObject["mark"]!!.str },
+                p.result.chars.map { it.char + ":" + SpokenAnswerResult.markName(it.mark) },
+                "marks $what",
+            )
+            assertEquals(o["outcome"]!!.str, CoachPractise.outcome(p, null), "outcome $what")
+        }
+        for (c in f["practiseBlocks"]!!.jsonArray) {
+            val o = c.jsonObject
+            val blocked = o["blocked"]?.str
+            assertEquals(o["note"]?.str, CoachPractise.blockNote(blocked), "note $blocked")
+            assertEquals(o["mic"]!!.jsonPrimitive.boolean, CoachPractise.micEnabled(blocked), "mic $blocked")
+        }
+        for (c in f["practiseOutcomes"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["outcome"]!!.str, CoachPractise.outcome(null, o["failure"]?.str))
+        }
+        val copy = f["practiseCopy"]!!.jsonObject
+        assertEquals(copy["respond"]!!.str, CoachPractise.RESPOND_LABEL)
+        assertEquals(copy["label"]!!.str, CoachPractise.LABEL)
+        assertEquals(copy["stop"]!!.str, CoachPractise.STOP)
+        assertEquals(copy["again"]!!.str, CoachPractise.AGAIN)
+        assertEquals(copy["listen"]!!.str, CoachPractise.LISTEN)
+        assertEquals(copy["listening"]!!.str, CoachPractise.LISTENING)
+        assertEquals(copy["checking"]!!.str, CoachPractise.CHECKING)
+        assertEquals(copy["offline"]!!.str, CoachPractise.OFFLINE)
+        assertEquals(copy["empty"]!!.str, CoachPractise.EMPTY)
+    }
 }
