@@ -9,6 +9,7 @@
 import { useLocation, useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { CustomLessonSpec, LessonExercise } from '@shared/lesson';
+import { fillGap } from '@shared/lesson';
 import { getEditableLesson, getLibraryItem } from '../../api/lessonEditor';
 import type { EditorTargetType } from '../../types/lessonEditor';
 import { Loading, ErrorMessage } from '../../components/Loading';
@@ -151,6 +152,25 @@ function Body({ ex }: { ex: LessonExercise }) {
           </ol>
         </>
       );
+    case 'judge':
+      return (
+        <>
+          <div className="pr-instr">{ex.question || 'Correct or incorrect?'} <span className="pr-hint">(tick ✓ or ✗ for each sentence)</span></div>
+          <ol className="pr-options">
+            {ex.sentences.map((st, i) => <li key={i}>{st.hanzi}　✓ / ✗</li>)}
+          </ol>
+        </>
+      );
+    case 'gap_choice':
+      return (
+        <>
+          <div className="pr-instr">{ex.question || 'Choose the word for each gap.'}</div>
+          {ex.options?.length ? <div className="pr-tiles">{ex.options.map((w, i) => <span key={i} className="pr-tile">{w}</span>)}</div> : null}
+          <ol className="pr-options">
+            {ex.items.map((item, i) => <li key={i}>{item.sentence}{item.options ? <span className="pr-hint"> ({item.options.join(' / ')})</span> : null}</li>)}
+          </ol>
+        </>
+      );
   }
 }
 
@@ -191,6 +211,10 @@ function answer(ex: LessonExercise): React.ReactNode {
           Answers: {ex.questions.map((q, i) => `${i + 1}) ${q.options && typeof q.correct === 'number' ? `${letter(q.correct)}. ${q.options[q.correct] ?? ''}` : q.answer ?? ''}`).join('; ')}
         </>
       );
+    case 'judge':
+      return <>{ex.sentences.map((st, i) => (st.correct ? `${i + 1}) ✓` : `${i + 1}) ✗ → ${st.correction?.hanzi ?? ''}${st.explanation ? ` (${st.explanation})` : ''}`)).join('; ')}</>;
+    case 'gap_choice':
+      return <>{ex.items.map((item, i) => `${i + 1}) ${item.answer} — ${fillGap(item.sentence, item.answer)}`).join('; ')}</>;
     default:
       return null;
   }

@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   exercisePoints,
+  partPoints,
   type CustomLessonSpec,
   type ExerciseAnswer,
   type ExerciseAttempt,
@@ -251,8 +252,8 @@ export function StudyCustomLesson({
     const { step, phase } = current;
     const ex = exercises.get(step.key)?.exercise;
     const maxPoints = ex ? exercisePoints(ex) : 0;
-    // A conversation scores one point per question; everything else 0/1.
-    const points = answer?.questions ? answer.questions.filter(q => q.correct).length : correct ? maxPoints : 0;
+    // A conversation scores one point per question, judge / gap_choice one per sentence; everything else 0/1.
+    const points = partPoints(answer) ?? (correct ? maxPoints : 0);
     const scoredPoints = correct === null ? 0 : Math.min(points, maxPoints);
     const retry = phase === 'retry' ? retryNumber(attempts.current, step.key) : 0;
     let nextScore = score;

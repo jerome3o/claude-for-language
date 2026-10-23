@@ -129,7 +129,9 @@ export type LessonExercise =
   | WriteHandwritingExerciseSpec
   | DictationExerciseSpec
   | OralExpressionExerciseSpec
-  | ConversationExerciseSpec;
+  | ConversationExerciseSpec
+  | JudgeExerciseSpec
+  | GapChoiceExerciseSpec;
 
 export type ExerciseType = LessonExercise['type'];
 
@@ -270,6 +272,62 @@ export interface ConversationExerciseSpec {
   questions: ConversationQuestion[];
 }
 
+// ============ Reading & grammar: judge each sentence, choose the word for the gap ============
+
+/** One sentence to judge. A WRONG one carries its correction and why — shown after Check. */
+export interface JudgeSentence {
+  hanzi: string;
+  pinyin?: string;
+  english?: string;
+  /** true = right as written; false = it has a mistake. */
+  correct: boolean;
+  /** The right version — required when "correct" is false. */
+  correction?: LessonSentence;
+  /** One line: why it is wrong (required when "correct" is false), or a note on a right one. */
+  explanation?: string;
+}
+
+/** Judge each sentence: the learner marks every sentence Correct ✓ / Incorrect ✗, then Check
+ * shows per sentence whether they judged it right, and for the wrong ones the corrected version
+ * and why. Replaces "which sentence is wrong?" multiple choice. One point per sentence. */
+export interface JudgeExerciseSpec {
+  type: 'judge';
+  /** What to look at, e.g. "Is 了 in the right place?" (default: "Correct or incorrect?"). */
+  question?: string;
+  /** 3-8 sentences, ideally a mix of right and wrong. */
+  sentences: JudgeSentence[];
+}
+
+/** One gapped sentence of a gap_choice exercise. */
+export interface GapChoiceItem {
+  /** The Chinese sentence with ONE gap "___" where the word goes. The gap is never spoken: the
+   * full sentence (fillGap with the answer) is what is shown and played after Check. */
+  sentence: string;
+  /** This sentence's options (overrides the exercise's shared "options"). */
+  options?: string[];
+  /** The word that fills the gap — one of the options. */
+  answer: string;
+  /** Pinyin of the FULL sentence (with the answer in the gap). */
+  pinyin?: string;
+  english?: string;
+  /** Why this word and not the other(s), shown after Check. */
+  explanation?: string;
+}
+
+/** Choose the word for the gap: near-synonyms / confusable words (刚 vs 刚才, 再 vs 在, 的 / 得 / 地,
+ * where 了 goes…). Each sentence has one gap and 2-4 options the author chose (shared by the
+ * exercise, or per sentence); the learner picks one per sentence, Check marks each. One point
+ * per sentence. */
+export interface GapChoiceExerciseSpec {
+  type: 'gap_choice';
+  /** The instruction, e.g. "刚 or 刚才?" (default: "Choose the word for each gap"). */
+  question?: string;
+  /** Options shared by every sentence (2-4 words), unless a sentence gives its own. */
+  options?: string[];
+  /** 2-8 gapped sentences. */
+  items: GapChoiceItem[];
+}
+
 export interface LessonSection {
   title?: string;
   exercises: LessonExercise[];
@@ -287,6 +345,7 @@ export interface CustomLessonSpec {
 const SCOREABLE = new Set<string>([
   'scramble', 'choice', 'translate', 'match', 'describe_image', 'speak', 'listen_choice', 'listen_translate',
   'sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation',
+  'judge', 'gap_choice',
 ]);
 
 export function isScoreable(exercise: LessonExercise): boolean {
@@ -357,6 +416,18 @@ export function exerciseTtsTexts(ex: LessonExercise): string[] {
     case 'conversation':
       // Lines are spoken in per-speaker voices — see lessonTtsClips.
       break;
+    case 'judge':
+      // Played after Check: a right sentence as it is, a wrong one only as its correction
+      // (the mistake is never read aloud as a model).
+      for (const s of ex.sentences) {
+        const text = judgeSpokenText(s);
+        if (text) texts.push(text);
+      }
+      break;
+    case 'gap_choice':
+      // The full sentence with the answer in the gap — the "___" is never spoken.
+      for (const item of ex.items) texts.push(fillGap(item.sentence, item.answer));
+      break;
   }
   return texts;
 }
@@ -400,8 +471,45 @@ export function lessonTtsClips(
 }
 
 /** Points an exercise is worth in the lesson score: a conversation scores
- * one per question, every other scoreable exercise one. */
+ * one per question, judge / gap_choice one per sentence, every other scoreable exercise one. */
 export function exercisePoints(exercise: LessonExercise): number {
   if (!isScoreable(exercise)) return 0;
-  return exercise.type === 'conversation' ? Math.max(1, exercise.questions.length) : 1;
+  if (exercise.type === 'conversation') return Math.max(1, exercise.questions.length);
+  if (exercise.type === 'judge') return Math.max(1, exercise.sentences.length);
+  if (exercise.type === 'gap_choice') return Math.max(1, exercise.items.length);
+  return 1;
+}
+
+// ============ The gap marker (gap_choice) ============
+
+/** The gap in a gap_choice sentence: a run of two or more underscores, written "___". */
+export const GAP_MARKER = '___';
+const GAP_RE = /_{2,}/g;
+
+/** How many gaps a sentence has (a valid gap_choice sentence has exactly one). */
+export function gapCount(sentence: string): number {
+  return (sentence.match(GAP_RE) ?? []).length;
+}
+
+/** The text before and after the (first) gap; no gap → the whole sentence before, '' after. */
+export function gapParts(sentence: string): { before: string; after: string } {
+  const m = /_{2,}/.exec(sentence);
+  if (!m) return { before: sentence, after: '' };
+  return { before: sentence.slice(0, m.index), after: sentence.slice(m.index + m[0].length) };
+}
+
+/** The full sentence with `word` in the gap — what is shown and spoken after Check. */
+export function fillGap(sentence: string, word: string): string {
+  const { before, after } = gapParts(sentence);
+  return gapCount(sentence) === 0 ? sentence : `${before}${word}${after}`;
+}
+
+/** A gap_choice sentence's options: its own, else the exercise's shared ones. */
+export function gapItemOptions(ex: Pick<GapChoiceExerciseSpec, 'options'>, item: Pick<GapChoiceItem, 'options'>): string[] {
+  return item.options ?? ex.options ?? [];
+}
+
+/** What a judge sentence plays after Check: a right one as written, a wrong one as its correction ('' when it has none). */
+export function judgeSpokenText(s: Pick<JudgeSentence, 'hanzi' | 'correct' | 'correction'>): string {
+  return s.correct ? s.hanzi : s.correction?.hanzi ?? '';
 }

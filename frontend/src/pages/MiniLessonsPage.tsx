@@ -60,6 +60,10 @@ function exerciseSummary(ex: LessonExercise): string {
       return ex.question || ex.audio.hanzi;
     case 'listen_translate':
       return ex.audio.hanzi;
+    case 'judge':
+      return `${ex.question || 'Correct or incorrect?'} · ${ex.sentences.length} sentences`;
+    case 'gap_choice':
+      return `${ex.question || 'Choose the word'} · ${ex.items.length} sentences`;
     default:
       return exercisePrimaryText(ex);
   }

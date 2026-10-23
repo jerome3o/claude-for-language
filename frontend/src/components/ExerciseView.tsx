@@ -22,6 +22,7 @@ import {
   OralExpressionExercise,
   ConversationExercise,
 } from './lesson-exercises';
+import { JudgeExercise, GapChoiceExercise } from './judge-gap-exercises';
 
 /** correct is null for unscored exercises (notes). */
 export type ExerciseDone = (correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) => void;
@@ -90,5 +91,9 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
       );
     case 'conversation':
       return <ConversationExercise situation={exercise.situation} speakers={exercise.speakers} lines={exercise.lines} questions={exercise.questions} onNext={onNext} />;
+    case 'judge':
+      return <JudgeExercise exercise={exercise} speak={speak} onNext={onNext} />;
+    case 'gap_choice':
+      return <GapChoiceExercise exercise={exercise} speak={speak} onNext={onNext} />;
   }
 }

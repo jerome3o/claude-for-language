@@ -94,6 +94,22 @@ export interface ExerciseAnswer {
   tries?: AnswerTry[];
   /** Conversation: one entry per question. */
   questions?: Array<{ choice?: number; text?: string; correct: boolean | null }>;
+  /** Judge / gap_choice: one entry per sentence — what the learner said (judged: true = "Correct ✓"; pick = the word chosen for the gap) and whether that was right. */
+  items?: ExerciseItemAnswer[];
+}
+
+/** One sentence of a judge / gap_choice exercise in an attempt. */
+export interface ExerciseItemAnswer {
+  judged?: boolean;
+  pick?: string;
+  correct: boolean | null;
+}
+
+/** Points scored by an exercise answer with per-part results (conversation questions, judge / gap sentences); null = not a per-part answer. */
+export function partPoints(answer: ExerciseAnswer | undefined): number | null {
+  if (answer?.questions) return answer.questions.filter(q => q.correct).length;
+  if (answer?.items) return answer.items.filter(i => i.correct).length;
+  return null;
 }
 
 export interface ExerciseAttempt {
@@ -310,6 +326,16 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
         text: str(r.text, 1000),
         correct: typeof r.correct === 'boolean' ? r.correct : null,
       };
+    });
+  }
+  if (Array.isArray(v.items)) {
+    out.items = v.items.slice(0, 10).map(it => {
+      const r = isRecord(it) ? it : {};
+      const item: ExerciseItemAnswer = { correct: typeof r.correct === 'boolean' ? r.correct : null };
+      if (typeof r.judged === 'boolean') item.judged = r.judged;
+      const pick = str(r.pick, 20);
+      if (pick !== undefined) item.pick = pick;
+      return item;
     });
   }
   return out;

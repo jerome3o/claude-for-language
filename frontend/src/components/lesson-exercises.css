@@ -680,3 +680,172 @@
   opacity: 1;
   color: var(--color-text);
 }
+
+/* ---- Judge each sentence / Choose the word (judge-gap-exercises.tsx) ----
+ * Every state is an icon + words, never colour alone (red / green colour-blind): the chosen
+ * button is FILLED (dark), a right row says "✓ Right", a missed one "✗ Not quite" with a thick
+ * left bar — the colours only back that up. */
+
+.jg-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0;
+  width: 100%;
+}
+
+.jg-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: var(--color-surface);
+}
+
+.jg-row.right {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.jg-row.miss {
+  border-color: #dc2626;
+  border-left-width: 8px;
+  background: #fef2f2;
+}
+
+.jg-sentence {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.jg-num {
+  color: var(--color-text-light);
+  font-size: 0.9rem;
+  padding-top: 0.25rem;
+  min-width: 1.4rem;
+}
+
+.jg-hanzi {
+  flex: 1;
+  font-size: 1.3rem;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.jg-gap {
+  display: inline-block;
+  min-width: 2.6em;
+  margin: 0 0.15em;
+  padding: 0 0.2em;
+  border-bottom: 3px solid var(--btn-outline);
+  text-align: center;
+  color: var(--color-text-light);
+}
+
+.jg-gap.filled {
+  color: var(--color-text);
+  font-weight: 700;
+  border-bottom-color: var(--color-text);
+}
+
+.jg-play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--btn-outline);
+  border-radius: 50%;
+  background: var(--btn-bg);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.jg-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.jg-opt {
+  flex: 1;
+  min-height: 48px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--btn-outline);
+  border-radius: 8px;
+  background: var(--btn-bg);
+  color: var(--color-text);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.jg-opt.jg-word {
+  font-size: 1.2rem;
+}
+
+/* Chosen: filled dark with white words (+ aria-pressed) — reads without colour. */
+.jg-opt.on {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #fff;
+}
+
+.jg-opt:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.jg-opt:disabled:not(.on):not(.answer) {
+  color: var(--btn-disabled-text);
+  border-style: dashed;
+}
+
+/* After Check, the right word: a thick solid outline (and "✓ word"). */
+.jg-opt.answer {
+  border: 3px solid #16a34a;
+}
+
+.jg-result {
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.jg-result.right { color: #166534; }
+.jg-result.miss { color: #991b1b; }
+
+.jg-fix {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.jg-fix-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light);
+}
+
+.jg-detail {
+  padding-left: 1.8rem;
+}
+
+.jg-why {
+  margin: 0;
+}
+
+:root[data-theme='dark'] .jg-row { background: #1c1c20; border-color: #3f3f46; }
+:root[data-theme='dark'] .jg-row.right { background: rgba(34, 197, 94, 0.12); border-color: #4ade80; }
+:root[data-theme='dark'] .jg-row.miss { background: rgba(239, 68, 68, 0.12); border-color: #f87171; }
+:root[data-theme='dark'] .jg-opt.on { background: #f4f4f5; border-color: #f4f4f5; color: #111113; }
+:root[data-theme='dark'] .jg-result.right { color: #86efac; }
+:root[data-theme='dark'] .jg-result.miss { color: #fca5a5; }
+:root[data-theme='dark'] .jg-fix { background: #111113; border-color: #3f3f46; }

@@ -37,6 +37,10 @@ describe('exerciseAudioClips — every exercise type', () => {
       [{ type: 'write_handwriting', answer: s('人') }, ['人']],
       [{ type: 'dictation', audio: s('今天很冷。') }, ['今天很冷。']],
       [{ type: 'oral_expression', prompt: 'p', question_audio: s('你周末做什么？'), hints: [s('周末')], example: s('我周末看书。') }, ['你周末做什么？', '周末', '我周末看书。']],
+      // judge: a right sentence as written, a wrong one only as its correction (never the mistake).
+      [{ type: 'judge', sentences: [{ hanzi: '我吃了饭。', correct: true }, { hanzi: '我了吃饭。', correct: false, correction: s('我吃饭了。'), explanation: 'x' }, { hanzi: '他来了。', correct: true }] }, ['我吃了饭。', '我吃饭了。', '他来了。']],
+      // gap_choice: the full sentence with the answer in the gap — the "___" is never spoken.
+      [{ type: 'gap_choice', options: ['刚', '刚才'], items: [{ sentence: '他___走。', answer: '刚' }, { sentence: '___你说什么？', answer: '刚才' }] }, ['他刚走。', '刚才你说什么？']],
     ] as unknown as Array<[LessonExercise, string[]]>;
     for (const [ex, texts] of cases) {
       const clips = only(ex);
