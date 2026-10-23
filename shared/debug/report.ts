@@ -113,6 +113,11 @@ export interface DebugReport {
   holds?: Array<[string, 'suspend' | 'snooze', string | null]>;
   /** "Don't show a word's other card types on the same day" as this device applies it; absent in older reports. */
   bury_siblings?: boolean;
+  /**
+   * "Forget this card" (shared/scheduler forget events): every live forget this device replays
+   * with, as [card_id, forgotten_at ISO], sorted; absent in older reports.
+   */
+  forgets?: Array<[string, string]>;
   /** "Study 10 more" bonuses in effect: all-decks bonus + per deck, and the day key they are stored under. */
   bonus: { all: number; by_deck: Record<string, number>; day_key: string };
   /** Client-specific sync cursors / state (free-form). */

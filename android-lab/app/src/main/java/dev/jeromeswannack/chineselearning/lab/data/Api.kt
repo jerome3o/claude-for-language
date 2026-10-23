@@ -134,6 +134,8 @@ data class ChangesDto(
     val up_next: List<dev.jeromeswannack.chineselearning.lab.data.api.UpNextDto>? = null,
     /** Suspend & snooze: every active hold, sent whole (data/holds/HoldStore.kt); null from an older server. */
     val card_holds: List<dev.jeromeswannack.chineselearning.lab.data.api.CardHoldDto>? = null,
+    /** "Forget this card": every live forget (the whole list). */
+    val card_forgets: List<dev.jeromeswannack.chineselearning.lab.data.api.CardForgetDto>? = null,
     /** "Don't show a word's other card types on the same day"; null from an older server. */
     val bury_siblings: Boolean? = null,
 )

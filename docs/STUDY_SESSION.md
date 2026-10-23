@@ -476,6 +476,80 @@ Jerome (Oct 2026): Anki's card controls, "with no fake reviews and without bendi
 - **Analytics**: `card.suspend`, `card.unsuspend`, `card.snooze`, `card.wake`, `settings.bury_siblings`.
 - **E2E**: `e2e/tests/card-holds.spec.ts` — suspend from the card, gone from study, unsuspend from Settings.
 
+## Leeches — "⚠️ Missed 8×"
+
+A **leech** is a card you keep forgetting after you had learned it. The count is Anki's **lapse**:
+pressing *Again* on a card that was in **Review** (graduated). This is exactly what FSRS counts as `lapses`
+(ts-fsrs adds one only for Again in the Review state), so the number already exists on every card.
+*Again* on a NEW or learning card is not a lapse, because that card was never learned yet. We do **not**
+count "missed 8 times in a row", for two reasons. Anki's own rule is total lapses, and one lucky Good
+between misses shouldn't hide a card that keeps failing. Anki's default leech threshold is **8**, and
+that is ours too (`LEECH_THRESHOLD`, `shared/cards/leech.ts`; Lab `core/…/Leech.kt`, parity-tested by
+`android-lab/parity/fixtures/card-forget.ts`).
+
+- **On the answer side**, a leech shows **"⚠️ Missed 8×"** as a pill under the meaning, next to the word
+  tags. It always has an icon and words, never colour alone. It never shows on a homework pass.
+- **Tapping it** opens the leech sheet (`components/cardControls/LeechPill.tsx`; Lab
+  `ui/cardcontrols/ForgetLeechSheets.kt`). The sheet shows how many misses and when the last one was,
+  plus the last 10 ratings (✗ Again — missed, ~ Hard, ✓ Good, ✓✓ Easy). These come from the card's own
+  events on the device (`leechInfo`), so they work offline. It then offers **What helps**: ✏️ Edit card ·
+  💡 Ask Claude for a memory hook (opens Ask Claude with a prepared question, `memoryHookQuestion`) ·
+  💤 Snooze… · ⏸️ Suspend… · ↺ Forget this card….
+- **Nothing happens automatically.** A leech is never suspended by itself. Anki's default auto-suspend
+  is exactly what Jerome didn't want.
+- The card hub shows the pill on the leech's card type too.
+- Analytics: `card.leech_open { lapses, card_type }`.
+
+## Forget — "reset to New", as an event
+
+⋯ → **Forget this card…** (also from the leech sheet and the card hub) puts a card back to **New**:
+
+- **The warning comes first**, before anything happens: "This card goes back to New: its schedule
+  restarts from scratch and it re-enters your new-card queue. Its review history is kept but no longer
+  counts toward scheduling. Can't be undone except by Undo right now." (`FORGET_WARNING`; a plural form
+  is used for several cards). Then the same *This card only / All card types of this word* toggle as
+  Suspend, and **↺ Forget card**.
+- **It is an event, not a state write.** A forget is stored as `{ id, card_id, forgotten_at }` and the
+  replay treats it as a reset. `computeCardState` (shared/scheduler) and Lab `CardScheduler.computeCardState`
+  start again from a NEW card at a `kind: 'forget'` event and ignore everything before it.
+  `computeCardTimeline` puts a NEW point there. Reviews made after the forget replay exactly as on a fresh
+  card (lapses start again from 0). The two ports are parity-tested over random histories with forgets
+  mixed in, including a forget at the same instant as a review: the forget sorts after the reviews
+  (`withForgetEvents` / Lab `Forgets.merge`).
+- **Stored apart from reviews**, in `card_forgets` (migration 0136; web IndexedDB `cardForgets` in
+  Dexie v36; Lab Room `card_forgets` in v12). `review_events.rating` stays 0–3. Because forgets are a
+  separate table, no review count, streak, daily stat, study time, insight, tutor dashboard or progress
+  number ever sees one as a review: the history is kept and still counts as history. Forgets are merged
+  into a card's events ONLY when its state is replayed. That happens on the server (`POST /api/reviews`,
+  `DELETE /api/reviews/:id`, `/api/cards/recompute-states`, the forget endpoints), on the web
+  (`getCardReplayEvents`, `recomputeCardFromEvents`, the bulk repair, the session's replay) and in the Lab
+  (`Repository.recompute` / `replayEvents`).
+- **What it changes:** the card becomes NEW. "Introduced today" and "first review" read only the reviews
+  after the last forget (`reviewsSinceForget`: web `getFirstReviewedAtMap`, Lab `LabDao.firstReviews`).
+  So when the card is studied again it is a new card introduced that day and counts against the budget.
+  A forgotten card whose word still has a started card is a secondary (purple) new card. When every card
+  of the word was forgotten, the word is unseen again and becomes a primary (blue) new card. Known
+  characters / words (`shared/progress/known.ts`) treat the card as not seen from the forget on.
+- **Undo** is the toast's button right after: "Card reset to New. · Undo". A forget not sent yet is
+  dropped. A sent one is marked `undone_at` (`POST /api/me/card-forgets/undo`), stops counting
+  everywhere, and the card is replayed back to exactly where it was. Due cards rejoin the session.
+- **Shown in the history:** the card hub's Recent reviews (web `CardHubPage`, the tutor's view too,
+  through `forgets` on the hub API; Lab card hub from Room) shows "↺ Forgotten — back to New · <card type>
+  · <date>" as a marker line, never as a review.
+- **Sync & older clients:** offline-first, like holds. A forget is applied locally at once and sent
+  straight away when online (idempotent by client id), otherwise in the next sync.
+  `/api/sync/changes` carries the whole live list as `card_forgets`, and each device replays the cards
+  whose forgets changed. An older app that doesn't know forgets ignores the list. It keeps replaying from
+  its own events (it simply doesn't see the reset) and nothing breaks.
+- API: `GET|POST /api/me/card-forgets` (`items` with client ids, or `card_ids` / `note_ids` +
+  `card_types`), `POST /api/me/card-forgets/undo { ids }`. Debug reports carry `forgets`
+  ([card, forgotten_at]) and `compareDebugReports` says when the two apps replay different forgets.
+- Analytics: `card.forget { scope, count, source, undone }`.
+- Tests: shared scheduler + `leech.test.ts`, the Lab `CardForgetParityTest`, the worker
+  `card-forgets.test.ts` (real SQLite), the web `cardForgets.test.ts`, Lab `ForgetLeechUiTest` +
+  `MigrationTest` v11→v12, and E2E `e2e/tests/card-forget.spec.ts` (leech pill → sheet → Forget, warning
+  first → New on the server → Undo).
+
 ## Mini lessons: never lost, a retry round, revise until right first time
 
 Mini lessons are big chunks, not flashcards — and since Oct 2026 they are **not part of the study

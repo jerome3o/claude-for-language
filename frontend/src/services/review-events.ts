@@ -16,6 +16,8 @@ import {
   type LocalCard,
   createLocalReviewEvent,
   getCardReviewEvents,
+  getCardReplayEvents,
+  forgetsByCard,
   getUnsyncedReviewEvents,
   markReviewEventsSynced,
   markReviewEventsRejected,
@@ -36,6 +38,8 @@ import {
   DeckSettings,
   ComputedCardState,
   DEFAULT_DECK_SETTINGS,
+  withForgetEvents,
+  type ReviewEvent,
 } from '@shared/scheduler';
 import { API_BASE } from '../api/client';
 
@@ -189,7 +193,8 @@ export async function recomputeCardState(
   cardId: string,
   deckSettings?: DeckSettings
 ): Promise<ComputedCardState> {
-  const events = await getCardReviewEvents(cardId);
+  // Reviews + "Forget this card" resets (a forget = back to NEW).
+  const events = await getCardReplayEvents(cardId);
 
   if (events.length === 0) {
     return initialCardState(deckSettings || DEFAULT_DECK_SETTINGS);
@@ -207,10 +212,7 @@ export async function recomputeCardState(
     }
   }
 
-  return computeCardState(
-    events.map(e => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
-    settings
-  );
+  return computeCardState(events, settings);
 }
 
 /**
@@ -676,12 +678,10 @@ function stateColumns(computed: ComputedCardState) {
  * row alone — when the card has no events locally.
  */
 export async function recomputeCardFromEvents(cardId: string): Promise<ComputedCardState | null> {
-  const events = await getCardReviewEvents(cardId);
+  // Reviews + "Forget this card" resets: a card with only a forget is NEW (and written as such).
+  const events = await getCardReplayEvents(cardId);
   if (events.length === 0) return null;
-  const computed = computeCardState(
-    events.map(e => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
-    DEFAULT_DECK_SETTINGS
-  );
+  const computed = computeCardState(events, DEFAULT_DECK_SETTINGS);
   await deleteCardCheckpoint(cardId);
   await db.cards.update(cardId, { ...stateColumns(computed), updated_at: new Date().toISOString() });
   return computed;
@@ -716,18 +716,20 @@ export async function recomputeCardsWithEvents(cardIds: string[]): Promise<numbe
 export async function repairCardStatesFromEvents(): Promise<{ checked: number; fixed: number }> {
   // One read-write transaction: a rating made meanwhile (event + row) waits
   // for it, so the repair can never write back a row computed without it.
-  return db.transaction('rw', [db.reviewEvents, db.cards, db.cardCheckpoints], () => repairInTransaction());
+  return db.transaction('rw', [db.reviewEvents, db.cards, db.cardCheckpoints, db.cardForgets], () => repairInTransaction());
 }
 
 async function repairInTransaction(): Promise<{ checked: number; fixed: number }> {
-  const [events, cards] = await Promise.all([db.reviewEvents.toArray(), db.cards.toArray()]);
-  const byCard = new Map<string, Array<{ id: string; card_id: string; rating: Rating; reviewed_at: string }>>();
+  const [events, cards, forgets] = await Promise.all([db.reviewEvents.toArray(), db.cards.toArray(), forgetsByCard()]);
+  const byCard = new Map<string, ReviewEvent[]>();
   for (const e of events) {
     const list = byCard.get(e.card_id);
-    const ev = { id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at };
+    const ev: ReviewEvent = { id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at };
     if (list) list.push(ev);
     else byCard.set(e.card_id, [ev]);
   }
+  // "Forget this card": each forgotten card replays from its forgets too (withForgetEvents sorts).
+  for (const [cardId, list] of forgets) byCard.set(cardId, withForgetEvents(byCard.get(cardId) ?? [], list));
   const updates: LocalCard[] = [];
   const now = new Date().toISOString();
   const unreviewed = stateColumns(initialCardState(DEFAULT_DECK_SETTINGS));
@@ -735,7 +737,7 @@ async function repairInTransaction(): Promise<{ checked: number; fixed: number }
     const list = byCard.get(card.id);
     let cols = unreviewed;
     if (list && list.length > 0) {
-      list.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
+      if (!forgets.has(card.id)) list.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
       cols = stateColumns(computeCardState(list, DEFAULT_DECK_SETTINGS));
     }
     const same =

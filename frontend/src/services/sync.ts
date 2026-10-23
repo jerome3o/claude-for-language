@@ -2,6 +2,8 @@ import type { Folder } from '@shared/folders';
 import { replaceLocalFolders, syncFolders } from './folders';
 import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
 import { replaceLocalHolds, syncHolds, uploadPendingHolds } from './cardHolds';
+import { replaceLocalForgets, syncForgets, uploadPendingForgets } from './cardForgets';
+import type { ApiCardForget } from '../api/cardForgets';
 import { writeBurySiblings } from './burySiblings';
 import type { ApiCardHold } from '../api/cardHolds';
 import { replaceLocalRevisitEvents, uploadRevisitEvents } from './lessonLearn';
@@ -112,6 +114,8 @@ interface SyncChangesResponse {
   up_next?: ApiUpNext[] | null;
   /** Suspend & snooze: every active hold, sent whole (shared/decks/holds.ts). */
   card_holds?: ApiCardHold[] | null;
+  /** "Forget this card": every live forget (the whole list). */
+  card_forgets?: ApiCardForget[] | null;
   /** "Don't show a word's other card types on the same day" (off by default). */
   bury_siblings?: boolean | null;
   /** The old "Done for good" / "Bring back" marks on lessons (a retire = done forever, shared/study/lessonRevision.ts). */
@@ -459,6 +463,8 @@ class SyncService {
     await syncBumps();
     // Suspend & snooze: pending holds up, the list down (never throws).
     await syncHolds();
+    // "Forget this card": pending forgets up, the list down; changed cards replayed (never throws).
+    await syncForgets();
     // "Up next": waiting changes up, the list down (never throws).
     await syncUpNext();
 
@@ -675,6 +681,7 @@ class SyncService {
     // Bumps made offline go up first, so the list that comes back already has them.
     await uploadPendingBumps();
     await uploadPendingHolds();
+    await uploadPendingForgets();
     await uploadPendingUpNext();
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
@@ -700,6 +707,8 @@ class SyncService {
     // Suspend & snooze: the server's holds, this device's pending changes on top.
     if (Array.isArray(changes.card_holds)) await replaceLocalHolds(changes.card_holds).catch(err => console.error('[Sync] Holds failed:', err));
     if (typeof changes.bury_siblings === 'boolean') writeBurySiblings(changes.bury_siblings);
+    // "Forget this card": the server's forgets, this device's pending ones on top; changed cards replayed.
+    if (Array.isArray(changes.card_forgets)) await replaceLocalForgets(changes.card_forgets).catch(err => console.error('[Sync] Forgets failed:', err));
     // "Up next": the server's list, unless a change made here is still waiting.
     if (Array.isArray(changes.up_next)) await replaceLocalUpNext(changes.up_next).catch(err => console.error('[Sync] Up next failed:', err));
     // The old Done-for-good marks (a retire = done forever; shared/study/lessonRevision.ts).

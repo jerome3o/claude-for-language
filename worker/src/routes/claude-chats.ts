@@ -68,6 +68,8 @@ export interface NoteHub {
   owner: { id: string; name: string | null };
   cards: NoteHubCard[];
   recent_reviews: NoteHubReview[];
+  /** "Forget this card": when a card of the note was reset to New (newest first). Never a review. */
+  forgets: Array<{ id: string; card_id: string; card_type: string; forgotten_at: string }>;
   review_count: number;
   questions: ClaudeChatQuestion[];
   flags: CardFlag[];
@@ -151,7 +153,7 @@ export async function loadNoteHub(db: D1Database, ownerId: string, noteId: strin
   if (!note) return null;
   const { deck_name, ...noteRow } = note;
 
-  const [owner, cards, reviews, reviewCount, questions, flags] = await Promise.all([
+  const [owner, cards, reviews, reviewCount, questions, flags, forgets] = await Promise.all([
     db.prepare('SELECT id, name FROM users WHERE id = ?').bind(ownerId).first<{ id: string; name: string | null }>(),
     db
       .prepare('SELECT id, card_type, queue, stability, difficulty, lapses, repetitions AS reps, next_review_at FROM cards WHERE note_id = ? ORDER BY card_type')
@@ -172,6 +174,14 @@ export async function loadNoteHub(db: D1Database, ownerId: string, noteId: strin
       .first<{ n: number }>(),
     db.prepare(`${QUESTION_SELECT} WHERE nq.note_id = ? ORDER BY nq.asked_at DESC LIMIT 200`).bind(noteId).all<ClaudeChatQuestion>(),
     listCardFlagsForNote(db, noteId, ownerId),
+    db
+      .prepare(
+        `SELECT f.id, f.card_id, c.card_type, f.forgotten_at FROM card_forgets f JOIN cards c ON c.id = f.card_id
+         WHERE c.note_id = ? AND f.user_id = ? AND f.undone_at IS NULL ORDER BY f.forgotten_at DESC`
+      )
+      .bind(noteId, ownerId)
+      .all<{ id: string; card_id: string; card_type: string; forgotten_at: string }>()
+      .catch(() => ({ results: [] as Array<{ id: string; card_id: string; card_type: string; forgotten_at: string }> })),
   ]);
 
   return {
@@ -180,6 +190,7 @@ export async function loadNoteHub(db: D1Database, ownerId: string, noteId: strin
     owner: { id: ownerId, name: owner?.name ?? null },
     cards: cards.results || [],
     recent_reviews: reviews.results || [],
+    forgets: forgets.results || [],
     review_count: reviewCount?.n ?? 0,
     questions: (questions.results || []).map(normalizeQuestion),
     flags,

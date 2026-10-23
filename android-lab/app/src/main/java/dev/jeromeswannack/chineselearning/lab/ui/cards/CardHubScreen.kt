@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -165,6 +166,14 @@ fun CardHubScreen(
         }
 
         item { SectionHeader("Recent reviews" + if (ui.reviewCount > 0) " (${ui.reviewCount})" else "") }
+        // "Forget this card": never a review — a marker line; reviews before it no longer count for the schedule.
+        for ((i, f) in ui.forgets.withIndex()) item(key = "forget-$i") {
+            Text(
+                "${dev.jeromeswannack.chineselearning.lab.core.Leech.FORGET_HISTORY_LABEL} · ${DeckStats.SHORT[f.first] ?: f.first} · ${relativeDay(f.second, nowMs)}",
+                style = MaterialTheme.typography.labelLarge, color = Lab.colors.ink,
+                modifier = Modifier.padding(vertical = 4.dp).testTag("history-forget"),
+            )
+        }
         if (ui.reviews.isEmpty()) {
             item { Muted("Not reviewed yet.") }
         } else {

@@ -187,6 +187,22 @@ data class CardHoldEntity(
 )
 
 /**
+ * "Forget this card" (shared/scheduler forget events, server card_forgets): the card went back to NEW
+ * at [forgottenAt]; merged into the card's events only to replay its state (core Forgets.merge),
+ * never a review. [pending] = a local change still on its way: "add" (POST /api/me/card-forgets in the
+ * Outbox as [outboxId]) or "undo" (POST …/undo — out of the replay at once). A pending row wins over
+ * the server list until its Outbox item has gone (data/forgets/ForgetStore.kt). v12.
+ */
+@Entity(tableName = "card_forgets", indices = [Index("cardId")])
+data class CardForgetEntity(
+    @PrimaryKey val id: String,
+    val cardId: String,
+    val forgottenAt: String,
+    val pending: String? = null,
+    val outboxId: String? = null,
+)
+
+/**
  * "Up next" (core UpNext.kt, server up_next): one entry of the account's ORDERED list of chosen
  * notes, introduced first within the daily budget. Changes made here are applied at once and wait
  * in the Outbox (kinds `up-next-*`, data/upnext/UpNextStore.kt); the server's list replaces these
@@ -294,7 +310,16 @@ interface LabDao {
     @Query("SELECT COUNT(*) FROM review_events WHERE synced = -1") suspend fun rejectedCount(): Int
     @Query("DELETE FROM review_events WHERE id = :id") suspend fun deleteEvent(id: String)
     @Query("SELECT * FROM review_events WHERE id = :id") suspend fun event(id: String): ReviewEventEntity?
-    @Query("SELECT cardId, MIN(reviewedAt) AS firstAt FROM review_events GROUP BY cardId") suspend fun firstReviews(): List<FirstReview>
+    /**
+     * Each card's first review — after its last live forget ("Forget this card": a forgotten card is
+     * new again, introduced anew; shared/scheduler reviewsSinceForget).
+     */
+    @Query(
+        "SELECT e.cardId AS cardId, MIN(e.reviewedAt) AS firstAt FROM review_events e " +
+            "LEFT JOIN (SELECT cardId, MAX(forgottenAt) AS f FROM card_forgets WHERE pending IS NULL OR pending != 'undo' GROUP BY cardId) g ON g.cardId = e.cardId " +
+            "WHERE g.f IS NULL OR e.reviewedAt > g.f GROUP BY e.cardId"
+    )
+    suspend fun firstReviews(): List<FirstReview>
     @Query("SELECT COUNT(*) FROM review_events WHERE reviewedAt >= :sinceIso") suspend fun reviewsSince(sinceIso: String): Int
     /** Cards with a review since [sinceIso] — today's review load ("Pause new cards on heavy days", core ReviewLoad). */
     @Query("SELECT DISTINCT cardId FROM review_events WHERE reviewedAt >= :sinceIso") suspend fun cardIdsReviewedSince(sinceIso: String): List<String>
@@ -319,6 +344,14 @@ interface LabDao {
     @Query("SELECT * FROM cards WHERE noteId IN (:noteIds)") suspend fun cardsOfNotes(noteIds: List<String>): List<CardEntity>
 
     // Suspend & snooze (data/holds/HoldStore.kt)
+    // "Forget this card" (data/forgets/ForgetStore.kt)
+    @Query("SELECT * FROM card_forgets") suspend fun cardForgets(): List<CardForgetEntity>
+    /** The forgets that count (not being undone) of these cards — merged into their replay. */
+    @Query("SELECT * FROM card_forgets WHERE cardId IN (:cardIds) AND (pending IS NULL OR pending != 'undo')")
+    suspend fun liveForgetsForCards(cardIds: List<String>): List<CardForgetEntity>
+    @Upsert suspend fun upsertCardForgets(rows: List<CardForgetEntity>)
+    @Query("DELETE FROM card_forgets WHERE id IN (:ids)") suspend fun deleteCardForgets(ids: List<String>)
+
     @Query("SELECT * FROM card_holds") suspend fun cardHolds(): List<CardHoldEntity>
     @Upsert suspend fun upsertCardHolds(rows: List<CardHoldEntity>)
     @Query("DELETE FROM card_holds WHERE id IN (:ids)") suspend fun deleteCardHolds(ids: List<String>)
@@ -345,8 +378,9 @@ interface LabDao {
         UpNextEntity::class,
         // v11: Suspend & snooze.
         CardHoldEntity::class,
+        CardForgetEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

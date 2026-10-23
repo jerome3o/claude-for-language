@@ -78,6 +78,8 @@ export interface NoteHub {
   owner: { id: string; name: string | null };
   cards: NoteHubCard[];
   recent_reviews: NoteHubReview[];
+  /** "Forget this card": when a card of the note was reset to New (newest first; absent from older servers). */
+  forgets?: Array<{ id: string; card_id: string; card_type: string; forgotten_at: string }>;
   review_count: number;
   questions: ClaudeChatQuestion[];
   flags: CardFlag[];

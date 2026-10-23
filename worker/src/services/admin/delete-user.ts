@@ -173,6 +173,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'folders', sql: `DELETE FROM folders WHERE user_id = ?1` },
   { label: 'study_bumps', sql: `DELETE FROM study_bumps WHERE user_id = ?1 OR note_id IN ${NOTES}` },
   { label: 'card_holds', sql: `DELETE FROM card_holds WHERE user_id = ?1` },
+  { label: 'card_forgets', sql: `DELETE FROM card_forgets WHERE user_id = ?1` },
   { label: 'homework_email_log', sql: `DELETE FROM homework_email_log WHERE student_id = ?1` },
   { label: 'up_next', sql: `DELETE FROM up_next WHERE user_id = ?1 OR note_id IN ${NOTES}` },
   { label: 'revisit_events', sql: `DELETE FROM revisit_events WHERE user_id = ?1` },

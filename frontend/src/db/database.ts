@@ -1,6 +1,7 @@
 import type { Folder } from '@shared/folders';
 import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
+import { withForgetEvents, type ReviewEvent as SchedulerReviewEvent } from '@shared/scheduler';
 import Dexie, { Table } from 'dexie';
 import { bumpPocket, cardsInStudy, heldCardIds, type QueueBump, type QueueBumps, type QueueHolds } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
@@ -179,6 +180,19 @@ export interface LocalCardHold {
   pending?: 'add' | 'clear' | null;
   /** When the clear was made (ISO) — the server clears holds made at or before it. */
   cleared_at?: string | null;
+}
+
+/**
+ * "Forget this card" — the card went back to NEW at `forgotten_at` (shared/scheduler forget events,
+ * services/cardForgets.ts). Merged into the card's events only when its state is replayed; never a
+ * review. Rows from the server are replaced whole by each sync; `pending` = this device's change
+ * still to upload ('add' = POST /api/me/card-forgets, 'undo' = POST …/undo — the row is gone once it is).
+ */
+export interface LocalCardForget {
+  id: string;
+  card_id: string;
+  forgotten_at: string;
+  pending?: 'add' | 'undo' | null;
 }
 
 /**
@@ -779,6 +793,7 @@ export class ChineseLearningDB extends Dexie {
   folders!: Table<Folder, string>;
   studyBumps!: Table<LocalStudyBump, string>;
   cardHolds!: Table<LocalCardHold, string>;
+  cardForgets!: Table<LocalCardForget, string>;
   upNext!: Table<LocalUpNext, string>;
   upNextOps!: Table<LocalUpNextOp, number>;
   revisitEvents!: Table<LocalRevisitEvent, string>;
@@ -1283,6 +1298,11 @@ export class ChineseLearningDB extends Dexie {
     this.version(35).stores({
       cardHolds: 'id, card_id',
     });
+    // v36: "Forget this card" — the account's forgets (a short list, replaced whole by each sync,
+    // with this device's not-yet-uploaded ones on top; services/cardForgets.ts).
+    this.version(36).stores({
+      cardForgets: 'id, card_id',
+    });
   }
 }
 
@@ -1339,6 +1359,9 @@ async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, str
   const result = new Map<string, string>();
   const ids = [...new Set(cardIds)];
   if (ids.length === 0) return result;
+  // "Forget this card": a forgotten card's first review is its first one AFTER the (last) forget —
+  // it is a new card again, introduced anew (shared/scheduler reviewsSinceForget).
+  const forgotAt = await lastForgetByCard();
   if (!db.isOpen()) await db.open();
   const tx = db.backendDB().transaction('reviewEvents', 'readonly');
   const index = tx.objectStore('reviewEvents').index('[card_id+reviewed_at]');
@@ -1347,8 +1370,12 @@ async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, str
       id =>
         new Promise<void>((resolve, reject) => {
           // getAll (not getAllKeys: an index's keys are the primary keys) —
-          // one record, the earliest event of this card.
-          const req = index.getAll(IDBKeyRange.bound([id, ''], [id, '\uffff']), 1);
+          // one record, the earliest event of this card (after its last forget).
+          const after = forgotAt.get(id);
+          const range = after === undefined
+            ? IDBKeyRange.bound([id, ''], [id, '\uffff'])
+            : IDBKeyRange.bound([id, after], [id, '\uffff'], true);
+          const req = index.getAll(range, 1);
           req.onsuccess = () => {
             const first = req.result[0] as LocalReviewEvent | undefined;
             if (first) result.set(id, first.reviewed_at);
@@ -1359,6 +1386,39 @@ async function getFirstReviewedAtMap(cardIds: string[]): Promise<Map<string, str
     )
   );
   return result;
+}
+
+/** Each forgotten card's last live forget (ISO) — the forgets list is short, read whole. */
+export async function lastForgetByCard(): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  try {
+    for (const f of await db.cardForgets.toArray()) {
+      if (f.pending === 'undo') continue;
+      const cur = out.get(f.card_id);
+      if (cur === undefined || f.forgotten_at > cur) out.set(f.card_id, f.forgotten_at);
+    }
+  } catch {
+    // The table may not exist yet mid-upgrade: no forgets.
+  }
+  return out;
+}
+
+/** Every live forget of these cards (all cards when omitted), as the scheduler's CardForget. */
+export async function forgetsByCard(cardIds?: Iterable<string>): Promise<Map<string, Array<{ id: string; card_id: string; forgotten_at: string }>>> {
+  const out = new Map<string, Array<{ id: string; card_id: string; forgotten_at: string }>>();
+  try {
+    const rows = cardIds ? await db.cardForgets.where('card_id').anyOf([...new Set(cardIds)]).toArray() : await db.cardForgets.toArray();
+    for (const f of rows) {
+      if (f.pending === 'undo') continue;
+      const list = out.get(f.card_id);
+      const row = { id: f.id, card_id: f.card_id, forgotten_at: f.forgotten_at };
+      if (list) list.push(row);
+      else out.set(f.card_id, [row]);
+    }
+  } catch {
+    // no table yet
+  }
+  return out;
 }
 
 /**
@@ -1624,8 +1684,11 @@ export async function loadQueueBumps(): Promise<QueueBumps | null> {
   const lastReviewMs = new Map<string, number>();
   const firstReviewMs = new Map<string, number>();
   if (cardIds.length) {
+    const forgotAt = await lastForgetByCard();
     await db.reviewEvents.where('card_id').anyOf(cardIds).each((e) => {
       if ((e as { _synced?: number })._synced === -1) return; // refused by the server
+      const forgot = forgotAt.get(e.card_id);
+      if (forgot !== undefined && e.reviewed_at <= forgot) return; // before "Forget this card": no longer counts
       const ms = Date.parse(e.reviewed_at);
       if (!Number.isFinite(ms)) return;
       if (ms > (lastReviewMs.get(e.card_id) ?? -Infinity)) lastReviewMs.set(e.card_id, ms);
@@ -2199,7 +2262,7 @@ export async function updateSyncMeta(meta: Partial<SyncMeta>): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.cardHolds, db.upNext, db.upNextOps, db.revisitEvents], async () => {
+  await db.transaction('rw', [db.decks, db.notes, db.cards, db.syncMeta, db.studySessions, db.reviewEvents, db.cardCheckpoints, db.eventSyncMeta, db.readers, db.readerReviewEvents, db.grammarLessons, db.grammarCompletionEvents, db.noteSentences, db.sentenceTextExplanations, db.recordingNotes, db.tutorNotes, db.boardPages, db.studyBumps, db.cardHolds, db.cardForgets, db.upNext, db.upNextOps, db.revisitEvents], async () => {
     await db.decks.clear();
     await db.notes.clear();
     await db.cards.clear();
@@ -2219,6 +2282,7 @@ export async function clearAllData(): Promise<void> {
     await db.boardPages.clear();
     await db.studyBumps.clear();
     await db.cardHolds.clear();
+    await db.cardForgets.clear();
     await db.upNext.clear();
     await db.upNextOps.clear();
     await db.revisitEvents.clear();
@@ -2279,6 +2343,18 @@ export async function getCardReviewEvents(cardId: string): Promise<LocalReviewEv
     .where('card_id')
     .equals(cardId)
     .sortBy('reviewed_at');
+}
+
+/**
+ * What a card's state is replayed from: its review events with its live forgets merged in
+ * ("Forget this card" — shared/scheduler withForgetEvents), sorted by time.
+ */
+export async function getCardReplayEvents(cardId: string): Promise<SchedulerReviewEvent[]> {
+  const [events, forgets] = await Promise.all([getCardReviewEvents(cardId), forgetsByCard([cardId])]);
+  return withForgetEvents(
+    events.map((e) => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
+    forgets.get(cardId) ?? [],
+  );
 }
 
 export async function getUnsyncedReviewEvents(limit = 100): Promise<LocalReviewEvent[]> {
