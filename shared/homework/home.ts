@@ -11,10 +11,19 @@
  *     lesson / reader: the regular player inside the pass, which records the `done` event).
  *  2. mini lesson REVISIONS due today (shared/study/lessonRevision.ts — any lesson: the tutor's,
  *     his own, a podcast companion) → the revision run `/lessons/:id/play?from=home&mode=revision`.
- *  3. NEW mini lessons not in an assignment row (sent for long-term review, his own / agent-made,
- *     unlocked companions; locked ones wait) → `/lessons/:id/play?from=home`. Oldest first.
- *  Mini lessons are no longer mixed into the study session (Oct 2026): Home's card and the Mini
- *  Lessons page are where they are done. Anything covered by an earlier row is left out.
+ *  3. NEW mini lessons a TUTOR sent for long-term review with no open assignment row — the
+ *     lesson entries of `longTerm` (an active fsrs-mode assignment, or the legacy "From <tutor>"
+ *     pick of a lesson sent before assignments existed) → `/lessons/:id/play?from=home`. Oldest
+ *     first; locked ones wait.
+ *  NOT rows (Jerome, Oct 2026: "+23 more" counted things that aren't to-do): a lesson whose
+ *  assignments were all CANCELLED (the tutor took it back; it is in no `todo` / `longTerm` list),
+ *  and his own / agent-made / companion lessons never started — those stay on the Mini Lessons
+ *  page (/lessons), which lists every lesson. A revision due (row 2) is a row whoever made it.
+ *  Mini lessons are no longer mixed into the study session (Oct 2026): Home's card, /homework and
+ *  the Mini Lessons page are where they are done. Anything covered by an earlier row is left out.
+ *
+ * `more` counts the rows past the limit; "+N more" opens /homework, which lists the same rows:
+ * the assignments (To do) and the lesson rows (`homeHomeworkRows(...).filter(isLessonRow)`).
  *
  * Every row says how big it is (`size`, shared/homework/size.ts): "18 exercises · ~12 min",
  * "5 questions · ~4 min", "12 words", "6 pages".
@@ -140,19 +149,22 @@ export function wordsMet(cards: ReadonlyArray<{ note_id: string; queue: number }
   return { met: met.size, total: wanted.size };
 }
 
-export function homeHomework(
+/** A mini lesson row (revision due / new tutor-sent lesson), not an assignment row — /homework's "Mini lessons" section. */
+export function isLessonRow(row: Pick<HomeHomeworkRow, 'key'>): boolean {
+  return row.key.startsWith('revision:') || row.key.startsWith('lesson:');
+}
+
+/** Every row of the card, in order, before the limit (what "+N more" counts; /homework lists them). */
+export function homeHomeworkRows(
   todo: readonly HomeworkItemView[],
   longTerm: readonly LongTermHomework[],
   opts: {
-    limit?: number;
-    unreadFrom?: string | null;
     /** Size labels of lessons / readers by target id (a deck part's size is its word count). */
     sizes?: Readonly<Record<string, string>>;
     /** Every mini lesson on the device (revisions due + new ones). */
     lessons?: readonly HomeLesson[];
   } = {}
-): HomeHomework {
-  const limit = opts.limit ?? HOME_HOMEWORK_LIMIT;
+): HomeHomeworkRow[] {
   const sizes = opts.sizes ?? {};
   const rows: HomeHomeworkRow[] = [];
   const covered = new Set<string>();
@@ -177,6 +189,7 @@ export function homeHomework(
     });
   }
 
+  // Lessons a tutor sent for long-term review (the only NEW lessons that are rows).
   const tutorOf = new Map<string, string | null>();
   for (const l of longTerm) if (l.kind === 'lesson') tutorOf.set(l.target_id, l.tutor_name);
   const lessons = (opts.lessons ?? []).filter((l) => !l.locked && !covered.has(l.id));
@@ -201,7 +214,8 @@ export function homeHomework(
       tutor_name: l.tutor_name ?? tutorOf.get(l.id) ?? null,
     });
   }
-  for (const l of lessons.filter((x) => x.status === 'new' && !covered.has(x.id)).sort(byCreated)) {
+  const tutorNew = lessons.filter((x) => x.status === 'new' && !covered.has(x.id) && tutorOf.has(x.id)).sort(byCreated);
+  for (const l of tutorNew) {
     covered.add(l.id);
     rows.push({
       key: `lesson:${l.id}`,
@@ -217,7 +231,23 @@ export function homeHomework(
       tutor_name: l.tutor_name ?? tutorOf.get(l.id) ?? null,
     });
   }
+  return rows;
+}
 
+export function homeHomework(
+  todo: readonly HomeworkItemView[],
+  longTerm: readonly LongTermHomework[],
+  opts: {
+    limit?: number;
+    unreadFrom?: string | null;
+    /** Size labels of lessons / readers by target id (a deck part's size is its word count). */
+    sizes?: Readonly<Record<string, string>>;
+    /** Every mini lesson on the device (revisions due + new ones). */
+    lessons?: readonly HomeLesson[];
+  } = {}
+): HomeHomework {
+  const limit = opts.limit ?? HOME_HOMEWORK_LIMIT;
+  const rows = homeHomeworkRows(todo, longTerm, opts);
   const shown = rows.slice(0, limit);
   const names = new Set<string>();
   let anyOwn = false;
