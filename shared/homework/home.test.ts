@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   homeHomework,
+  homeHomeworkRows,
+  isLessonRow,
   compactDue,
   wordsMet,
   longTermActive,
@@ -88,7 +90,7 @@ describe('homeHomework rows', () => {
     expect(heading).toBe('From 明慧老师');
   });
 
-  it('revisions due today come after the assignments, then new lessons; locked / done / not-yet-due ones never show', () => {
+  it('revisions due today come after the assignments, then new tutor-sent lessons; locked / done / not-yet-due ones never show', () => {
     const base = { created_at: '2026-09-20T00:00:00Z', locked: false, revision: 0, due_ms: null, size: '', tutor_name: null } as const;
     const lessons: HomeLesson[] = [
       { ...base, id: 'r2', title: 'Later revision', status: 'revision', revision_due: true, revision: 2, due_ms: 2000, size: '3 questions · ~2 min' },
@@ -100,8 +102,9 @@ describe('homeHomework rows', () => {
       { ...base, id: 'dn', title: 'Done', status: 'done', revision_due: false },
       { ...base, id: 'lesson-1', title: 'Covered by its pass', status: 'new', revision_due: false },
     ];
+    const sent = (id: string): LongTermHomework => ({ kind: 'lesson', target_id: id, title: id, tutor_name: '明慧老师', sent_at: '2026-09-20T00:00:00Z', met: null, total: null });
     const lesson = assignment({ id: 'a-lesson', kind: 'lesson', target_id: 'lesson-1', title: '把 sentences', due_date: '2026-09-28' });
-    const { rows, more, heading } = homeHomework(todo([lesson, deck]), [], { lessons, limit: 10, sizes: { 'lesson-1': '18 exercises · ~12 min' } });
+    const { rows, more, heading } = homeHomework(todo([lesson, deck]), [sent('n1'), sent('n2'), sent('lk'), sent('dn')], { lessons, limit: 10, sizes: { 'lesson-1': '18 exercises · ~12 min' } });
     expect(rows.map((r) => r.key)).toEqual(['a-lesson', 'a-deck', 'revision:r1', 'revision:r2', 'lesson:n1', 'lesson:n2']);
     expect(rows[0].size).toBe('18 exercises · ~12 min');
     expect(rows[1].size).toBe('4 words');
@@ -109,6 +112,42 @@ describe('homeHomework rows', () => {
     expect(more).toBe(0);
     expect(heading).toBe('Homework');
     expect(homeHomework([], [], { lessons }).heading).toBe('To do');
+  });
+
+  it('a NEW lesson is a row only when a tutor sent it for long-term review: never his own, never one whose assignment was cancelled', () => {
+    const base = { created_at: '2026-09-20T00:00:00Z', locked: false, revision_due: false, revision: 0, due_ms: null, size: '', tutor_name: null } as const;
+    const lessons: HomeLesson[] = [
+      { ...base, id: 'own', title: 'China trip 5', status: 'new' },
+      { ...base, id: 'companion', title: 'Podcast companion', status: 'new' },
+      { ...base, id: 'took-back', title: '了 (cancelled)', status: 'new', tutor_name: '明慧老师' },
+      { ...base, id: 'lt', title: '把 long-term', status: 'new' },
+      { ...base, id: 'own-rev', title: 'China trip 1', status: 'revision', revision_due: true, revision: 1, due_ms: 1000 },
+    ];
+    const cancelled = assignment({ id: 'a-c', kind: 'lesson', target_id: 'took-back', status: 'cancelled' });
+    const longTerm: LongTermHomework[] = [{ kind: 'lesson', target_id: 'lt', title: '把 long-term', tutor_name: '明慧老师', sent_at: '2026-09-21T00:00:00Z', met: null, total: null }];
+    const all = homeHomeworkRows(todo([cancelled]), longTerm, { lessons });
+    expect(all.map((r) => r.key)).toEqual(['revision:own-rev', 'lesson:lt']);
+    expect(all[1]).toMatchObject({ progress: 'new', tutor_name: '明慧老师', route: '/lessons/lt/play?from=home' });
+    expect(all.every(isLessonRow)).toBe(true);
+    const card = homeHomework(todo([cancelled]), longTerm, { lessons, limit: 1 });
+    expect(card.rows.map((r) => r.key)).toEqual(['revision:own-rev']);
+    expect(card.more).toBe(1);
+    // His own revision has no tutor: mixed → "Homework".
+    expect(card.heading).toBe('Homework');
+  });
+
+  it('"+N more" counts exactly the rows past the limit (assignments, then the lesson rows /homework lists)', () => {
+    const many = [1, 2, 3].map((i) => assignment({ id: `a${i}`, kind: 'deck', target_id: `d${i}`, item_ids: ['n'], due_date: `2026-10-0${i}` }));
+    const base = { created_at: '2026-09-20T00:00:00Z', locked: false, revision: 1, due_ms: 1, size: '', tutor_name: '明慧老师' } as const;
+    const lessons: HomeLesson[] = [1, 2, 3].map((i) => ({ ...base, id: `r${i}`, title: `R${i}`, status: 'revision' as const, revision_due: true }));
+    const items = todo(many);
+    const all = homeHomeworkRows(items, [], { lessons });
+    const card = homeHomework(items, [], { lessons });
+    expect(card.rows.length + card.more).toBe(all.length);
+    expect(card.more).toBe(2);
+    expect(all.filter(isLessonRow).map((r) => r.key)).toEqual(['revision:r1', 'revision:r2', 'revision:r3']);
+    expect(all.filter((r) => !isLessonRow(r)).map((r) => r.key)).toEqual(['a1', 'a2', 'a3']);
+    expect(card.heading).toBe('From 明慧老师');
   });
 
   it('only one-off rows (and long-term lessons) count: a long-term deck next to a one-off pass adds nothing', () => {

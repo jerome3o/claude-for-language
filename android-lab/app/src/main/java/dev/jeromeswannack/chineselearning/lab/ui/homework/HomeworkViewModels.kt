@@ -27,7 +27,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -35,12 +37,18 @@ import kotlinx.coroutines.withContext
 
 /** `/homework` and Home's Homework card: the mirror, as to-do / done items (web: useHomeworkItems). */
 class HomeworkListViewModel(app: LabApp) : ViewModel() {
-    val ui: StateFlow<HomeworkListUi> = HomeworkStore.observe(app.cache).map { data ->
-        if (data == null) HomeworkListUi(loaded = true)
+    /** Home's card rows: its lesson rows (revisions due + new tutor-sent lessons) are listed here too. */
+    private val lessonRows: Flow<List<dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow>> =
+        HomeHomeworkSource(app).card.map { it.lessonRows }
+            .catch { e -> android.util.Log.e("Homework", "lesson rows failed", e); emit(emptyList()) }
+            .onStart { emit(emptyList()) }
+
+    val ui: StateFlow<HomeworkListUi> = combine(HomeworkStore.observe(app.cache), lessonRows) { data, lessons ->
+        if (data == null) HomeworkListUi(loaded = true, lessons = lessons)
         else {
             val today = Homework.localDate()
             val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(data.first, data.second, today))
-            HomeworkListUi(true, sorted.todo, sorted.done, today)
+            HomeworkListUi(true, sorted.todo, sorted.done, today, lessons)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeworkListUi())
 

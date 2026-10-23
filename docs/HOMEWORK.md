@@ -86,12 +86,16 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   row per active item: title, "5 / 12" words (thin bar), **its size** ("18 exercises · ~12 min", "12 words",
   "6 pages"; `shared/homework/size.ts`) and a due label (overdue · due today · **due tomorrow** · due in N days).
   One-off / both items come first, overdue first; then mini lesson **revisions due** ("🔁 <title> · Revision 1 ·
-  5 questions · ~4 min · due today" → `/lessons/:id/play?mode=revision`), then **new mini lessons** not in an
-  assignment row (sent for long-term review, his own / agent-made ones, unlocked companions; "🎓 … new" →
-  `/lessons/:id/play`). Heading "From <tutor>" when every row is hers, "To do" when none is a tutor's, else
+  5 questions · ~4 min · due today" → `/lessons/:id/play?mode=revision`; any lesson, whoever made it), then
+  **new mini lessons a tutor sent for long-term review** with no open assignment row (an active fsrs-mode
+  assignment, or the legacy pick of a lesson sent before assignments; "🎓 … new" → `/lessons/:id/play`).
+  **Not rows** (Jerome, Oct 2026 — "+23 more" counted things that weren't to-do): a lesson whose assignments the
+  tutor cancelled, and his own / agent-made / companion lessons never started — they stay on the Mini Lessons
+  page. Heading "From <tutor>" when every row is hers, "To do" when none is a tutor's, else
   "Homework". A long-term (fsrs-only) deck is NOT a row — it is a deck in the queue (Home's "Next up", the Decks
   tab; §11). A tap opens the pass `/homework/:id` for one-off / both items (for a lesson / reader that IS its
-  player). At most 4 rows ("+N more ›" → `/homework`); an unread tutor message is one small line. Nothing active
+  player). At most 4 rows ("+N more ›" → `/homework`, which lists the same extra rows: its To do section, then
+  a **Mini lessons** section with the lesson rows — `homeHomeworkRows(…).filter(isLessonRow)`); an unread tutor message is one small line. Nothing active
   → the card is not shown.
 - **`/homework`**: all items (to do / done), **`/homework/:id`**: the pass. Deck: each word is the **study card**
   (web `StudyCard` with its `pass` prop in `pages/StudyPage.tsx`, Lab `StudyRoute(pass = PassCardUi)` →

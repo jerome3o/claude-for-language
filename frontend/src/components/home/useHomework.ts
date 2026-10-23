@@ -15,6 +15,11 @@ import {
 
 const SNAPSHOT_KEY = 'homeworkSnapshot';
 
+/** The last "From <tutor>" pick, as Home snapshotted it (offline; /homework reads it for the legacy lesson). */
+export function readHomeworkSnapshot(): HomeworkPick | null {
+  return readSnapshot();
+}
+
 function readSnapshot(): HomeworkPick | null {
   try {
     return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || 'null');

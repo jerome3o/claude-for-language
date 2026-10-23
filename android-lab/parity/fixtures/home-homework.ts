@@ -10,6 +10,8 @@ import {
   dueLabel,
   compactDue,
   homeHomework,
+  homeHomeworkRows,
+  isLessonRow,
   wordsMet,
   longTermActive,
   toHomeworkItems,
@@ -114,10 +116,71 @@ const cases = Array.from({ length: 150 }, () => {
   });
   const sizes: Record<string, string> = {};
   for (const a of assignments) if (r() < 0.6) sizes[a.target_id] = pick(['9 exercises · ~6 min', '6 pages', '3 questions · ~2 min']);
+  return caseOf(assignments, events, longTerm, limit, unreadFrom, lessons, sizes);
+});
+
+function caseOf(
+  assignments: HomeworkAssignment[],
+  events: HomeworkEvent[],
+  longTerm: LongTermHomework[],
+  limit: number,
+  unreadFrom: string | null,
+  lessons: HomeLesson[],
+  sizes: Record<string, string>,
+) {
   const todo = sortHomeworkItems(toHomeworkItems(assignments, events, TODAY)).todo;
   const card = homeHomework(todo, longTerm, { limit, unreadFrom, lessons, sizes });
-  return { assignments, events, longTerm, limit, unreadFrom, lessons, sizes, card, active: longTerm.map(longTermActive) };
-});
+  // Every row before the limit + which are lesson rows (/homework's "Mini lessons", what "+N more" counts).
+  const all = homeHomeworkRows(todo, longTerm, { lessons, sizes });
+  return {
+    assignments, events, longTerm, limit, unreadFrom, lessons, sizes, card,
+    allKeys: all.map((x) => x.key),
+    lessonKeys: all.filter(isLessonRow).map((x) => x.key),
+    active: longTerm.map(longTermActive),
+  };
+}
+
+// Hand-written: Jerome's Home (Oct 2026) — open one-offs, revisions due (his own and the tutor's),
+// a lesson whose assignment the tutor CANCELLED, his own / companion lessons never started, and a
+// lesson the tutor sent for long-term review. Only the first, second and last kinds are rows.
+{
+  const base = assignment(900);
+  const oneOff = (id: string, target: string, due: string, kind: HomeworkAssignment['kind'] = 'lesson'): HomeworkAssignment => ({
+    ...base, id, kind, target_id: target, title: id, mode: 'one_off', due_date: due, status: 'active',
+    item_ids: kind === 'deck' ? ['n1', 'n2'] : null, item_count: kind === 'deck' ? 2 : 1, part_index: 0, part_count: 1, tutor_name: '明慧老师',
+  });
+  const assignments: HomeworkAssignment[] = [
+    oneOff('hw-deck', 'deck-a', addDays(TODAY, 1), 'deck'),
+    oneOff('hw-lesson', 'l-open', addDays(TODAY, -1)),
+    { ...oneOff('hw-cancelled', 'l-cancelled', addDays(TODAY, 2)), status: 'cancelled' },
+    { ...oneOff('hw-cancelled-2', 'l-cancelled-2', addDays(TODAY, 3)), status: 'cancelled', mode: 'both' },
+    { ...oneOff('hw-lt', 'l-longterm', TODAY), mode: 'fsrs', due_date: null },
+  ];
+  const l = (id: string, status: HomeLesson['status'], over: Partial<HomeLesson> = {}): HomeLesson => ({
+    id, title: id, created_at: '2026-09-20T00:00:00.000Z', status, locked: false, revision_due: status === 'revision',
+    revision: status === 'revision' ? 1 : 0, due_ms: status === 'revision' ? 1_790_000_000_000 : null, size: '9 exercises · ~6 min', tutor_name: null, ...over,
+  });
+  const lessons: HomeLesson[] = [
+    l('l-open', 'new', { tutor_name: '明慧老师' }),
+    l('l-cancelled', 'new', { tutor_name: '明慧老师' }),
+    l('l-cancelled-2', 'new', { tutor_name: '明慧老师' }),
+    l('china-5', 'new', { created_at: '2026-10-05T00:00:00.000Z' }),
+    l('china-6', 'new', { created_at: '2026-10-06T00:00:00.000Z' }),
+    l('companion', 'new', { created_at: '2026-10-07T00:00:00.000Z' }),
+    l('rev-own', 'revision', { due_ms: 1_790_000_000_000 }),
+    l('rev-tutor', 'revision', { tutor_name: '明慧老师', due_ms: 1_790_000_100_000 }),
+    l('rev-later', 'revision', { revision_due: false }),
+    l('l-longterm', 'new', { created_at: '2026-09-25T00:00:00.000Z' }),
+  ];
+  const longTerm: LongTermHomework[] = [
+    { kind: 'lesson', target_id: 'l-longterm', title: 'l-longterm', tutor_name: '明慧老师', sent_at: '2026-09-25T00:00:00.000Z', met: null, total: null },
+  ];
+  for (const limit of [4, 2, 10]) cases.push(caseOf(assignments, [], longTerm, limit, null, lessons, {}));
+  // Only tutor rows (no own revision) → "From 明慧老师".
+  cases.push(caseOf(assignments, [], longTerm, 4, null, lessons.filter((x) => x.id !== 'rev-own'), {}));
+  // Only his own lessons, never started: no rows at all.
+  cases.push(caseOf([], [], [], 4, null, lessons.filter((x) => x.id.startsWith('china') || x.id === 'companion'), {}));
+}
 
 const due = Array.from({ length: 30 }, () => {
   const d = r() < 0.1 ? null : addDays(TODAY, int(-5, 10));

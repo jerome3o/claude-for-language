@@ -56,6 +56,11 @@ class HomeHomeworkParityTest {
             val sizes = o["sizes"]!!.jsonObject.mapValues { it.value.str!! }
             val card = HomeHomework.build(todo, longTerm, o["limit"]!!.jsonPrimitive.int, o["unreadFrom"]!!.str, sizes, lessons)
             val expected = o["card"]!!.jsonObject
+            // Every row before the limit, and the lesson rows /homework lists ("+N more" agrees).
+            val all = HomeHomework.rows(todo, longTerm, sizes, lessons)
+            assertEquals(o["allKeys"]!!.jsonArray.map { it.str }, all.map { it.key }, "case[$i] all rows")
+            assertEquals(o["lessonKeys"]!!.jsonArray.map { it.str }, all.filter(HomeHomework::isLessonRow).map { it.key }, "case[$i] lesson rows")
+            assertEquals(all.size, card.rows.size + card.more, "case[$i] more = rows past the limit")
             assertEquals(expected["heading"]!!.str, card.heading, "case[$i] heading")
             assertEquals(expected["more"]!!.jsonPrimitive.int, card.more, "case[$i] more")
             val rows = expected["rows"]!!.jsonArray
@@ -78,7 +83,7 @@ class HomeHomeworkParityTest {
                 assertEquals(eo["tutor_name"]!!.str, row.tutorName, "$where tutor")
             }
         }
-        assertTrue(cases.size >= 150)
+        assertTrue(cases.size >= 155)
     }
 
     @Test

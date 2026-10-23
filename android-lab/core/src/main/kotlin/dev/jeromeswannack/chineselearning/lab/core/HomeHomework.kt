@@ -5,8 +5,11 @@ package dev.jeromeswannack.chineselearning.lab.core
  * (parity/fixtures/home-homework.ts, HomeHomeworkParityTest). One slim row per active item:
  * title, "5 / 12", its size ("18 exercises · ~12 min", "12 words", "6 pages"), due label; a tap
  * opens `route` (a web path, opened natively by LabNav). Rows: one-off passes still to do, then
- * mini lesson REVISIONS due (LessonRevision), then NEW mini lessons not in an assignment row —
- * mini lessons are no longer in the study session. Never a long-term deck.
+ * mini lesson REVISIONS due (LessonRevision, any lesson), then NEW mini lessons a TUTOR sent for
+ * long-term review (the lesson entries of `longTerm`) — never his own / agent-made / companion
+ * lessons not started, never a lesson whose assignments were cancelled (they stay on Mini
+ * Lessons). Never a long-term deck. `more` = rows past the limit; /homework lists the same rows
+ * (assignments + [rows] filtered by [isLessonRow]).
  */
 
 /** Port of HomeLesson: a mini lesson as Home's card sees it. [status] = "new" | "revision" | "done". */
@@ -87,15 +90,16 @@ object HomeHomework {
         return met.size to wanted.size
     }
 
-    /** Port of homeHomework. */
-    fun build(
+    /** Port of isLessonRow: a revision / new tutor-sent lesson row (/homework's "Mini lessons"), not an assignment. */
+    fun isLessonRow(row: HomeHomeworkRow): Boolean = row.key.startsWith("revision:") || row.key.startsWith("lesson:")
+
+    /** Port of homeHomeworkRows: every row of the card in order, before the limit. */
+    fun rows(
         todo: List<HomeworkItemView>,
         longTerm: List<LongTermHomework>,
-        limit: Int = LIMIT,
-        unreadFrom: String? = null,
         sizes: Map<String, String> = emptyMap(),
         lessons: List<HomeLesson> = emptyList(),
-    ): HomeHomeworkCard {
+    ): List<HomeHomeworkRow> {
         val rows = ArrayList<HomeHomeworkRow>()
         val covered = HashSet<String>()
         for (item in todo) {
@@ -107,6 +111,7 @@ object HomeHomework {
             val size = if (a.kind == "deck") HomeworkSize.deckSizeLabel(item.progress.total) else sizes[a.target_id] ?: ""
             rows += HomeHomeworkRow(a.id, a.kind, ICON[a.kind] ?: "📝", a.title, progress, size, fraction, compactDue(item.due), item.due.tone, assignmentRoute(a.id), a.tutor_name)
         }
+        // Lessons a tutor sent for long-term review (the only NEW lessons that are rows).
         val tutorOf = HashMap<String, String?>()
         for (l in longTerm) if (l.kind == "lesson") tutorOf[l.targetId] = l.tutorName
         val open = lessons.filter { !it.locked && it.id !in covered }
@@ -124,7 +129,7 @@ object HomeHomework {
                 due = "due today", tone = "today", route = lessonPlayRoute(l.id, true), tutorName = l.tutorName ?: tutorOf[l.id],
             )
         }
-        for (l in open.filter { it.status == "new" && it.id !in covered }.sortedWith(byCreated)) {
+        for (l in open.filter { it.status == "new" && it.id !in covered && tutorOf.containsKey(it.id) }.sortedWith(byCreated)) {
             covered += l.id
             rows += HomeHomeworkRow(
                 key = "lesson:${l.id}", kind = "lesson", icon = ICON["lesson"]!!, title = l.title,
@@ -132,6 +137,19 @@ object HomeHomework {
                 due = "", tone = "none", route = lessonPlayRoute(l.id, false), tutorName = l.tutorName ?: tutorOf[l.id],
             )
         }
+        return rows
+    }
+
+    /** Port of homeHomework. */
+    fun build(
+        todo: List<HomeworkItemView>,
+        longTerm: List<LongTermHomework>,
+        limit: Int = LIMIT,
+        unreadFrom: String? = null,
+        sizes: Map<String, String> = emptyMap(),
+        lessons: List<HomeLesson> = emptyList(),
+    ): HomeHomeworkCard {
+        val rows = rows(todo, longTerm, sizes, lessons)
         val shown = rows.take(limit)
         val names = LinkedHashSet<String>()
         var anyOwn = false

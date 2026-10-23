@@ -69,6 +69,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.study.TutorNotes
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
@@ -90,6 +91,8 @@ data class HomeHomeworkUi(
     val unreadFrom: String? = null,
     /** "3 new notes from 明慧老师" while a tutor note is unseen. */
     val notesLine: String? = null,
+    /** Every lesson row (revisions due + new tutor-sent lessons) — /homework's "Mini lessons", what "+N more" counts. */
+    val lessonRows: List<HomeHomeworkRow> = emptyList(),
 )
 
 class HomeHomeworkActions(
@@ -164,7 +167,7 @@ fun CompactHomeworkCard(ui: HomeHomeworkUi, actions: HomeHomeworkActions) {
 }
 
 @Composable
-private fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
+internal fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp).testTag("home-hw-row"),
         verticalAlignment = Alignment.CenterVertically,
@@ -208,15 +211,35 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
         app.cache.observe<Set<String>>(TutorNotes.SEEN_KEY),
     ) { _, _ -> TutorNotes.homeLine(app.cache) }
 
+    val ui: StateFlow<HomeHomeworkUi> = combine(HomeHomeworkSource(app).card, notesLine) { c, line -> c.copy(notesLine = line) }
+        // Never crash Home over the homework card: a failure leaves it empty (logged + reported).
+        .catch { e ->
+            android.util.Log.e("HomeHomework", "homework card failed", e)
+            dev.jeromeswannack.chineselearning.lab.data.CrashLog.recordNonFatal(app, "home", e)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, HomeHomeworkUi())
+
+    class Factory(private val app: LabApp) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeHomeworkViewModel(app) as T
+    }
+}
+
+/**
+ * Home's homework card from the phone's stores (web HomeworkHomeCard's hooks): the assignments,
+ * the legacy pick, every mini lesson. Shared by Home and /homework (its "Mini lessons" section
+ * lists [HomeHomeworkUi.lessonRows], so "+N more" lands on the same rows).
+ */
+class HomeHomeworkSource(private val app: LabApp) {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    private val card = combine(
+    val card: Flow<HomeHomeworkUi> = combine(
         HomeworkStore.observe(app.cache),
         app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS),
         app.cache.observe<TutorCardSources>(HomeworkKeys.TUTOR_CARD),
         app.cache.observe<List<NotificationDto>>(ConnectionsKeys.NOTIFICATIONS),
         app.repo.dataVersion,
     ) { hw, rel, sources, notes, _ -> Inputs(hw, rel, sources, notes) }
-        // Every mini lesson on the phone: due revisions + new ones are rows (not the study session any more).
+        // Every mini lesson on the phone: due revisions + new tutor-sent ones are rows (not the study session any more).
         .combine(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.observe()) { inputs, lessons -> inputs.copy(lessons = lessons) }
         .mapLatest { withContext(Dispatchers.IO) { build(it) } }
 
@@ -227,14 +250,6 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
         val notifications: List<NotificationDto>?,
         val lessons: List<dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry> = emptyList(),
     )
-
-    val ui: StateFlow<HomeHomeworkUi> = combine(card, notesLine) { c, line -> c.copy(notesLine = line) }
-        // Never crash Home over the homework card: a failure leaves it empty (logged + reported).
-        .catch { e ->
-            android.util.Log.e("HomeHomework", "homework card failed", e)
-            dev.jeromeswannack.chineselearning.lab.data.CrashLog.recordNonFatal(app, "home", e)
-        }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, HomeHomeworkUi())
 
     /** The legacy "From <tutor>" pick (newest shared deck / lesson + unread message), web useHomework. */
     private suspend fun pick(rel: MyRelationshipsDto?, sources: TutorCardSources?, notes: List<NotificationDto>?): HwPick? {
@@ -256,7 +271,8 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
         val (assignments, events) = input.homework ?: (emptyList<HomeworkAssignment>() to emptyList())
         val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, Homework.localDate())).todo
         val p = pick(input.rel, input.sources, input.notifications)
-        // Lessons sent for long-term review (fsrs, or before assignments existed). Long-term DECKS are
+        // Lessons a tutor sent for long-term review (fsrs, or before assignments existed): the only NEW
+        // lessons that are rows — never his own, never one whose assignments were cancelled. Long-term DECKS are
         // not homework rows any more (docs/HOMEWORK.md §11): they are decks in the queue ("Next up",
         // the Decks tab) — web HomeworkHomeCard's useLongTerm.
         val longTerm = ArrayList<LongTermHomework>()
@@ -284,12 +300,8 @@ class HomeHomeworkViewModel(private val app: LabApp) : ViewModel() {
             unread = unread,
             unreadRelId = p?.relationshipId,
             unreadFrom = p?.tutorName,
+            lessonRows = HomeHomework.rows(todo, longTerm, sizes, lessons).filter(HomeHomework::isLessonRow),
         )
-    }
-
-    class Factory(private val app: LabApp) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeHomeworkViewModel(app) as T
     }
 }
 
