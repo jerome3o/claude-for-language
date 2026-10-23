@@ -44,6 +44,21 @@ describe('sentence making feedback', () => {
     expect(fb).toEqual({ verdict: 'correct', uses_all_words: true, comment: 'Nice — that sentence works.' });
   });
 
+  it('"minor" with no correction (a content quibble) counts as correct', () => {
+    const fb = normalizeSentenceFeedback({
+      verdict: 'minor', uses_all_words: true,
+      comment: 'Grammatically correct, but the task asks about something useful, not desks.',
+    }, { words: ['就在', '旁边'], task: 'Tell a new colleague where something useful is.', sentence: '你的桌子就在我的桌子旁边。' });
+    expect(fb.verdict).toBe('correct');
+    expect(fb.corrected).toBeUndefined();
+  });
+
+  it('tells the model the task is only a prompt', async () => {
+    const { client, calls } = fakeClient([{ verdict: 'correct', uses_all_words: true, comment: 'Good.' }]);
+    await checkMadeSentence('k', input, client);
+    expect(calls[0].system).toMatch(/Never lower the verdict for the content/);
+  });
+
   it('keeps a real correction', () => {
     const fb = normalizeSentenceFeedback({
       verdict: 'minor', uses_all_words: true,

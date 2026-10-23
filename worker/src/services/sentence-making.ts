@@ -12,9 +12,10 @@ import { structuredCall } from './structured-call';
 
 const SYSTEM = `You check one sentence a Chinese learner wrote in a lesson exercise: they had to make their OWN sentence using the target words (in the situation given, if any).
 
-Judge it like an encouraging, rigorous tutor:
+Judge the LANGUAGE, generously, like an encouraging tutor. The task / situation is only a prompt to get them writing: any sentence that plausibly fits it (a desk instead of a printer, a different place, person or reason) is fine. Never lower the verdict for the content they chose — at most, add a light idea in the comment after saying it's correct.
+- If the sentence is grammatical, natural enough and uses every target word sensibly, the verdict MUST be "correct".
 - verdict "correct": grammatical and natural, uses every target word appropriately.
-- verdict "minor": understandable with a small slip (a measure word, 了 placement, word choice, an unnatural but grammatical phrasing).
+- verdict "minor": understandable with a small LANGUAGE slip you can fix in "corrected" (a measure word, 了 placement, word choice, an unnatural but grammatical phrasing).
 - verdict "incorrect": ungrammatical, a target word misused or missing, or it doesn't mean what they probably meant.
 - uses_all_words: true only if every target word appears and is used in a sense that fits.
 - corrected: the closest natural version of THEIR sentence (keep their meaning and as much wording as possible) with tone-marked pinyin and English. Omit it when the verdict is "correct".
@@ -76,6 +77,10 @@ export function normalizeSentenceFeedback(raw: unknown, input: SentenceMakingInp
   const corrected = c && str(c.hanzi) && verdict !== 'correct'
     ? { hanzi: str(c.hanzi), pinyin: str(c.pinyin) || undefined, english: str(c.english) || undefined }
     : undefined;
+  // "Minor" with nothing to correct is a quibble about content, not language: the sentence is right.
+  if (verdict === 'minor' && !corrected && allPresent) {
+    return { verdict: 'correct', uses_all_words: r.uses_all_words === true && allPresent, comment };
+  }
   return { verdict, uses_all_words: r.uses_all_words === true && allPresent, corrected, comment };
 }
 
