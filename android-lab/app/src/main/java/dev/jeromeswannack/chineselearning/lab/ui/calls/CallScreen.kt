@@ -173,8 +173,12 @@ data class CallActions(
     val onTextBlurred: () -> Unit = {},
     /** Word-by-word meaning of a selection on the board (online). */
     val explain: (suspend (String) -> String?)? = null,
-    /** Tab-complete: pinyin + meaning for Chinese just typed (POST /api/calls/:id/gloss); null = off. */
-    val gloss: (suspend (String) -> BoardGloss?)? = null,
+    /** Tab-complete: pinyin + meaning for Chinese just typed (POST /api/calls/:id/gloss, BoardGlossFetcher); null = off. */
+    val gloss: (suspend (String) -> BoardGlossFetcher.Result)? = null,
+    /** The device's own gloss shown while the server's is on its way (LocalBoardGloss). */
+    val localGloss: (suspend (String) -> BoardGloss?)? = null,
+    /** Each settled tab-complete lookup (analytics). */
+    val onGlossLookup: (GlossLookupReport) -> Unit = {},
     val onBoardGlossOn: (Boolean) -> Unit = {},
     /** Board pages: the strip, following, "Bring <name> here" (CallController's page actions). */
     val pages: BoardPageActions = BoardPageActions(),
@@ -702,7 +706,7 @@ private fun Live(s: CallState, info: CallScreenInfo, actions: CallActions, video
                     boardSwitch(CallLayout.TileId.TEXT, role)
                     TextBoardPanel(
                         s.textBoard, actions.onTextChanged, actions.onTextSelected, actions.onTextBlurred, Modifier.fillMaxWidth().weight(1f),
-                        explain = actions.explain, gloss = actions.gloss, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
+                        explain = actions.explain, gloss = actions.gloss, localGloss = actions.localGloss, onGlossLookup = actions.onGlossLookup, glossOn = info.boardGlossOn, onGlossOn = actions.onBoardGlossOn,
                         previewSuggestion = info.boardGlossPreview,
                         topInset = LocalTextInsetTop.current,
                     )

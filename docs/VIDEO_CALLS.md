@@ -73,18 +73,52 @@ test call), and the **Join the call** button that appears in the relationship's 
   trailing run of Chinese characters / Chinese punctuation on the caret's line, ≤ 40 characters, only
   at the end of a line that has no ` - …` after it yet; `formatGloss`: always one line), ported to the
   Lab app as `CallGloss.kt` and parity-tested. `POST /api/calls/:id/gloss { text, direction? }` (members of the
-  call only) asks **Sonnet** through `structuredCall` (forced tool, thinking off, 500 tokens, 8 s, one
-  retry — on Haiku — when the reply is unusable) and returns `{ pinyin, english }` cleaned by `cleanGloss` (tone
+  call only) asks **Sonnet** through `structuredCall` (forced tool, thinking off, 500 tokens, 6 s, no SDK
+  retry), **hedged**: no answer within 2.5 s, or a failure → Haiku is asked too and the first good answer
+  wins (see "Tab-complete you can rely on" below), and returns `{ pinyin, english }` cleaned by `cleanGloss` (tone
   marks, ≤ 30 English words (a whole sentence), no line breaks); answers are cached per rules version +
   direction + text (`glossStoreKey`, `GLOSS_CACHE_VERSION`) in the worker isolate and
-  in a 300-entry LRU on each device (a repeat is instant and free), and each user may make 30
-  uncached requests a minute (429). A sentence gets its **whole** translation (the prompt asks for
+  in a 300-entry LRU on each device (a repeat is instant and free), and each user may make 60
+  model calls a minute (429 + `Retry-After`; cache hits and shared in-flight calls don't count). A sentence gets its **whole** translation (the prompt asks for
 it, 500 tokens; `GLOSS_MAX_ENGLISH_WORDS` is a 30-word safety net — it was 8, which cut
-Minghui's sentences off), and the touch chip wraps to up to four lines instead of an ellipsis. No key / offline / an error → simply no offer (the client stays
-  quiet for a minute after 503 / 429). A request in flight is aborted on new input and a reply for
-  text that has changed since is ignored. Off switch: the board's ⋯ (web, remembered per user on the
+Minghui's sentences off), and the touch chip wraps to up to four lines instead of an ellipsis. Off switch: the board's ⋯ (web, remembered per user on the
   device) / "⇥ Pinyin hints" (Lab). Web: `components/calls/useBoardGloss.ts`,
   `services/calls/boardGloss.ts`; Lab: `ui/calls/TextBoardPanel.kt`, `BoardGlossFetcher.kt`.
+- **Tab-complete you can rely on** (23 Oct 2026: in a lesson it worked now and then for Jerome and
+  not at all for Minghui — the worker logs show not one gloss request of hers reaching the end, 15 of
+  his answered in ~1.9 s on average). Why it failed, and what changed (web and Lab alike):
+  - *Every* change restarted it: the other person's edit anywhere on the board, a caret event, my
+    line moving down when they typed above it — each aborted the request on its way (a cancelled
+    Worker request is never logged nor finished) and restarted the 500 ms wait, so while the other
+    person was writing, a ~2 s answer never landed. Now a change that leaves MY segment as it was keeps
+    the wait, the answer on its way and the offer shown (it follows the caret's new place; Tab types at
+    the caret). Only a change of the segment itself drops them.
+  - The board never aborts a request: the caller only stops *waiting* (`fetchBoardGloss` /
+    `BoardGlossFetcher` run it on their own), so a late answer still fills the device's LRU, and the same
+    text asked again joins the request already running; the worker shares one model call per text
+    (`glossOnce`) and finishes it in `waitUntil` even if the board stopped waiting, so the next ask is a
+    cache hit.
+  - One 429 / 502 / 503 used to silence the board for a **minute**. Now only new lookups wait, for
+    seconds (`glossBackoffMs`: 3 s after a 5xx / network failure, a 429's `Retry-After` — 1–30 s, 10 s
+    without one), and the limit is 60 model calls a minute.
+  - Slow model → nothing: the call is hedged (above), each model call ≤ 6 s with no SDK retry (it could
+    take 30 s before).
+  - **The device's own gloss** (`localGloss` / `localGlossPinyin` / `glossLookupWord` /
+    `shortDictMeaning` in `shared/calls/gloss.ts`, Lab `CallGloss.localGloss`, parity-tested): the
+    segmenter's words (`shared/chinese/segment.ts`, the app's auto-pinyin + 一 / 不; syllables of a word
+    joined, words spaced) and, when the segment is ONE word the dictionary has (`/api/words` /
+    `/api/chars`, cached on the device), its pinyin and first meaning. With a meaning it shows at once;
+    pinyin alone (` - wǒ xiǎng qù`, `formatGloss` leaves an empty part out) after `GLOSS_LOCAL_AFTER_MS`
+    (900 ms) or as soon as the server can't help. The server's contextual gloss replaces it when it comes.
+    Web `localBoardGloss` (services/calls/boardGloss.ts), Lab `LocalBoardGloss` (BoardGlossFetcher.kt).
+  - **Diagnostics**: every settled lookup is a `call.board_gloss_lookup` event (`direction`,
+    `outcome` = server | cached | rate_limited | unavailable | failed | offline | backoff | superseded,
+    `status`, `ms`, `shown` = server | local | none), `call.board_gloss` (an accepted offer) carries
+    `source` = server | local, and the worker logs one `[call-gloss] failed …` / `rate limited …` line
+    (direction, length, ms — never the text).
+  - Not fixed here: Gboard keeps a composing span on an English word until a space, so the English →
+    Chinese offer doesn't come while typing a word on Android (a composing word may be pinyin waiting to
+    be converted, so it can't be glossed safely).
 - **Tab-complete pinyin you can trust** (Oct 2026: Jerome and his tutor found Haiku's pinyin often
   wrong). The gloss is **Sonnet** now (thinking off, ~1–2 s instead of ~0.5–1 s — the ghost only
   shows after the pause, and a stale reply is still dropped), with a prompt that spells out the

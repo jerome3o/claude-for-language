@@ -141,21 +141,121 @@ object CallGloss {
         return sb.toString()
     }
 
-    /** Port of formatGloss() after Chinese: what Tab / the chip inserts — always one line. */
-    fun format(pinyin: String, english: String): String = "$SEPARATOR${oneLine(pinyin)}$SEPARATOR${oneLine(english)}"
+    /** The non-empty parts, each after the separator (port of formatGloss(): an empty part is left out). */
+    private fun formatParts(vararg parts: String): String = parts.map { oneLine(it) }.filter { it.isNotEmpty() }.joinToString("") { "$SEPARATOR$it" }
+    private fun chipParts(vararg parts: String): String = "⇥ " + parts.map { oneLine(it) }.filter { it.isNotEmpty() }.joinToString(SEPARATOR)
+
+    /** Port of formatGloss() after Chinese: what Tab / the chip inserts — always one line (" - nǐ hǎo" without a meaning). */
+    fun format(pinyin: String, english: String): String = formatParts(pinyin, english)
 
     /** Port of glossChipLabel() after Chinese: "⇥ nǐ hǎo - hello". */
-    fun chipLabel(pinyin: String, english: String): String = "⇥ ${oneLine(pinyin)}$SEPARATOR${oneLine(english)}"
+    fun chipLabel(pinyin: String, english: String): String = chipParts(pinyin, english)
 
     /** Port of formatGloss() after English ({ chinese, pinyin }): " - 苹果 - píngguǒ". */
-    fun formatEn(chinese: String, pinyin: String): String = "$SEPARATOR${oneLine(chinese)}$SEPARATOR${oneLine(pinyin)}"
+    fun formatEn(chinese: String, pinyin: String): String = formatParts(chinese, pinyin)
 
     /** Port of glossChipLabel() after English: "⇥ 苹果 - píngguǒ". */
-    fun chipLabelEn(chinese: String, pinyin: String): String = "⇥ ${oneLine(chinese)}$SEPARATOR${oneLine(pinyin)}"
+    fun chipLabelEn(chinese: String, pinyin: String): String = chipParts(chinese, pinyin)
 
     /** Port of glossCacheKey(): the text as sent to the server. */
     fun cacheKey(segment: String): String = jsTrim(Normalizer.normalize(segment, Normalizer.Form.NFC))
 
     /** Port of glossStoreKey(): what a gloss is cached under — rules version + direction + text. */
     fun storeKey(segment: String, direction: String): String = "v$CACHE_VERSION:$direction:${cacheKey(segment)}"
+
+    // ---------- reliability: the device's own gloss, and how long to wait after a failure (ports)
+
+    /** Port of GLOSS_LOCAL_AFTER_MS: a pinyin-only device gloss waits this long for the server's. */
+    const val LOCAL_AFTER_MS = 900L
+    const val RETRY_AFTER_FAILURE_MS = 3_000L
+    const val RATE_LIMIT_WAIT_MS = 10_000L
+    const val MAX_WAIT_MS = 30_000L
+    const val LOCAL_MAX_WORDS = 8
+    const val MAX_PINYIN_CHARS = 240
+
+    /** Port of glossBackoffMs(): [status] null = a network failure / timeout. */
+    fun backoffMs(status: Int?, retryAfterSeconds: Double? = null): Long {
+        if (status == 429) {
+            if (retryAfterSeconds != null && retryAfterSeconds.isFinite() && retryAfterSeconds > 0) {
+                return minOf(MAX_WAIT_MS, maxOf(1_000L, Math.round(retryAfterSeconds * 1000)))
+            }
+            return RATE_LIMIT_WAIT_MS
+        }
+        if (status == null || status >= 500) return RETRY_AFTER_FAILURE_MS
+        return 0L
+    }
+
+    /** Port of glossOutcomeForStatus(). */
+    fun outcomeForStatus(status: Int?): String = when {
+        status == null -> "offline"
+        status == 429 -> "rate_limited"
+        status == 503 -> "unavailable"
+        else -> "failed"
+    }
+
+    /** A word of the segment as the device's segmenter cut it (port of GlossWord). */
+    data class Word(val text: String, val pinyin: String)
+
+    /** The device's gloss (port of Gloss with a possibly empty meaning). */
+    data class Local(val pinyin: String, val english: String)
+
+    private val PINYIN_PUNCT = mapOf("，" to ",", "、" to ",", "？" to "?", "！" to "!", "；" to ";", "：" to ":")
+
+    private fun marks(chars: List<String>): String = chars.joinToString("") { PINYIN_PUNCT[it] ?: "" }
+
+    /** Port of localGlossPinyin(). */
+    fun localPinyin(words: List<Word>): String {
+        val out = mutableListOf<String>()
+        for (w in words) {
+            val chars = CallTextDoc.splitChars(w.text)
+            if (chars.any { isHan(it) }) {
+                val p = oneLine(w.pinyin).replace(" ", "")
+                if (p.isEmpty()) return ""
+                out += p
+            } else if (out.isNotEmpty()) {
+                val m = marks(chars)
+                if (m.isNotEmpty()) out[out.size - 1] = out.last() + m
+            }
+        }
+        return out.joinToString(" ")
+    }
+
+    /** Port of glossLookupWord(). */
+    fun lookupWord(words: List<Word>?): String? {
+        if (words == null) return null
+        val han = words.filter { w -> CallTextDoc.splitChars(w.text).any { isHan(it) } }
+        return if (han.size == 1) han[0].text else null
+    }
+
+    private val SEP_DASH = Regex(" [-–—] ")
+    private val TRAILING_STOP = Regex("[….。]+$")
+    private val TRAILING_COMMA = Regex("[,;:]+$")
+
+    /** Port of shortDictMeaning(). */
+    fun shortDictMeaning(raw: String): String {
+        var s = jsTrim(oneLine(raw.split(';')[0]).replace(SEP_DASH, ", ").replace(TRAILING_STOP, ""))
+        val words = s.split(' ').filter { it.isNotEmpty() }
+        if (words.size > LOCAL_MAX_WORDS) s = words.take(LOCAL_MAX_WORDS).joinToString(" ").replace(TRAILING_COMMA, "")
+        if (s.isEmpty() || CallTextDoc.splitChars(s).any { isHan(it) }) return ""
+        return s
+    }
+
+    /** Port of localGloss(): [dictPinyin] / [dictEnglish] = the dictionary entry of the segment's only word. */
+    fun localGloss(words: List<Word>?, dictPinyin: String? = null, dictEnglish: String? = null): Local? {
+        if (words.isNullOrEmpty()) return null
+        val dp = if (!dictPinyin.isNullOrEmpty()) oneLine(dictPinyin) else ""
+        val pinyin = if (dp.isNotEmpty() && CallTextDoc.splitChars(dp).none { isHan(it) }) dp + trailingMarks(words) else localPinyin(words)
+        if (pinyin.isEmpty() || pinyin.length > MAX_PINYIN_CHARS) return null
+        return Local(pinyin, shortDictMeaning(dictEnglish ?: ""))
+    }
+
+    private fun trailingMarks(words: List<Word>): String {
+        var tail = ""
+        for (i in words.indices.reversed()) {
+            val chars = CallTextDoc.splitChars(words[i].text)
+            if (chars.any { isHan(it) }) break
+            tail = marks(chars) + tail
+        }
+        return tail
+    }
 }

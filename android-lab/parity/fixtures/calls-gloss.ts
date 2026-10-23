@@ -18,6 +18,17 @@ import {
   GLOSS_MAX_EN_WORDS,
   GLOSS_MAX_SEGMENT,
   GLOSS_MIN_EN_LETTERS,
+  GLOSS_LOCAL_AFTER_MS,
+  GLOSS_MAX_WAIT_MS,
+  GLOSS_RATE_LIMIT_WAIT_MS,
+  GLOSS_RETRY_AFTER_FAILURE_MS,
+  glossBackoffMs,
+  glossLookupWord,
+  glossOutcomeForStatus,
+  localGloss,
+  localGlossPinyin,
+  shortDictMeaning,
+  type GlossWord,
 } from '../../../shared/calls/gloss';
 
 const OUT = process.argv[2];
@@ -89,11 +100,60 @@ const formats = [
   { pinyin: 'nǐ\nhǎo\r\n', english: 'hello\r\nhi there friend\n\n' },
   { pinyin: '  wǒ  xiǎng ', english: '\tI want to　go ' },
   { pinyin: '', english: '' },
+  { pinyin: 'wǒ xiǎng qù', english: '' },
+  { pinyin: 'nǐ hǎo', english: ' \n ' },
 ].map((g) => ({ ...g, format: formatGloss(g), chip: glossChipLabel(g), oneLine: oneLine(g.english) }));
 
 const keys = [' 你好 ', '你好', ' 咖啡\n', 'é', ' apple '].map((s) => ({ s, key: glossCacheKey(s), zh: glossStoreKey(s, 'zh'), en: glossStoreKey(s, 'en'), direction: glossDirectionOf(s) }));
 
+// Reliability: backoff, outcomes, the device's own gloss.
+const backoff = [
+  [429, 4], [429, 0.2], [429, 600], [429, null], [429, 0], [429, -3], [429, 2.5], [503, null], [502, null], [500, null], [504, 7],
+  [null, null], [400, null], [404, null], [401, null], [200, null],
+].map(([status, ra]) => ({ status, retryAfter: ra, ms: glossBackoffMs(status as number | null, ra as number | null) }));
+const outcomes = [null, 429, 503, 502, 500, 400, 404].map((status) => ({ status, outcome: glossOutcomeForStatus(status) }));
+
+const wordAlphabet: GlossWord[] = [
+  { text: '我', pinyin: 'wǒ' }, { text: '银行', pinyin: 'yínháng' }, { text: '你好', pinyin: 'nǐ hǎo' }, { text: '，', pinyin: '' },
+  { text: '！', pinyin: '' }, { text: '？', pinyin: '' }, { text: '。', pinyin: '' }, { text: '“', pinyin: '' }, { text: '”。', pinyin: '' },
+  { text: '、', pinyin: '' }, { text: '；', pinyin: '' }, { text: '：', pinyin: '' }, { text: '…', pinyin: '' }, { text: '好', pinyin: '' },
+  { text: '不是', pinyin: 'bú\nshì' }, { text: '𠀀', pinyin: 'x' },
+];
+const wordLists: GlossWord[][] = [[], [{ text: '好', pinyin: '' }]];
+for (let i = 0; i < 300; i++) {
+  const n = 1 + Math.floor(r() * 6);
+  const ws: GlossWord[] = [];
+  for (let k = 0; k < n; k++) ws.push(pick(wordAlphabet));
+  wordLists.push(ws);
+}
+const dicts: Array<{ pinyin?: string | null; english?: string | null } | null> = [
+  null, { pinyin: 'yínháng', english: 'bank; CL:家' }, { pinyin: '', english: 'hello' }, { english: 'to like; to be fond of' }, { pinyin: '你', english: 'x' },
+  { pinyin: 'nǐ\nhǎo', english: 'one two three four five six seven eight nine ten' }, { pinyin: null, english: null },
+];
+const locals = wordLists.map((words, i) => {
+  const dict = dicts[i % dicts.length];
+  return { words, dict, pinyin: localGlossPinyin(words), lookup: glossLookupWord(words), local: localGloss(words, dict) };
+});
+
+const meaningAlphabet = ['to like', ';', ' ', 'bank', ' - ', '…', '.', '。', 'a', 'b c', '你', ',', ':', '\n', 'one two three', '—', ' – ', 'CL:家'];
+const meanings = ['to like; to be fond of', 'bank', 'cut off…', 'A - B', 'see 你好', '', ' ;x', 'a b c d e f g h i, j', 'a b c d e f g h, i j'];
+for (let i = 0; i < 300; i++) {
+  let m = '';
+  const n = Math.floor(r() * 10);
+  for (let k = 0; k < n; k++) m += pick(meaningAlphabet);
+  meanings.push(m);
+}
+const dictMeanings = meanings.map((raw) => ({ raw, short: shortDictMeaning(raw) }));
+
 writeFileSync(join(OUT, 'calls-gloss.json'), JSON.stringify({
+    localAfter: GLOSS_LOCAL_AFTER_MS,
+    retryAfterFailure: GLOSS_RETRY_AFTER_FAILURE_MS,
+    rateLimitWait: GLOSS_RATE_LIMIT_WAIT_MS,
+    maxWait: GLOSS_MAX_WAIT_MS,
+    backoff,
+    outcomes,
+    locals,
+    dictMeanings,
     debounce: GLOSS_DEBOUNCE_MS,
     maxSegment: GLOSS_MAX_SEGMENT,
     maxEnWords: GLOSS_MAX_EN_WORDS,
