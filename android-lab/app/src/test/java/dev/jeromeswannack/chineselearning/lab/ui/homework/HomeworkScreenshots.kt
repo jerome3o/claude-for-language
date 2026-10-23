@@ -96,6 +96,20 @@ class HomeworkScreenshots : LabScreenshotTest() {
 
     @Test fun list() = shootInShell("homework-01-list", active = TabId.STUDY) { HomeworkListScreen(listUi, onBack = {}, onOpen = {}) }
 
+    /** Home's "+N more" lands here: the assignments, then the lesson rows (revisions due, new tutor-sent lessons). */
+    @Test fun listWithLessons() = shoot("homework-01b-list-lessons") {
+        val lessons = listOf(
+            dev.jeromeswannack.chineselearning.lab.core.HomeLesson("r1", "把 sentences", "2026-09-20T00:00:00Z", "revision", false, true, 1, 1L, "5 questions · ~4 min", "王老师"),
+            dev.jeromeswannack.chineselearning.lab.core.HomeLesson("r2", "China trip 1 · 在机场", "2026-09-21T00:00:00Z", "revision", false, true, 2, 2L, "3 questions · ~2 min", null),
+            dev.jeromeswannack.chineselearning.lab.core.HomeLesson("lt", "了 — finished actions", "2026-09-22T00:00:00Z", "new", false, false, 0, null, "12 exercises · ~8 min", null),
+            dev.jeromeswannack.chineselearning.lab.core.HomeLesson("own", "China trip 5 · 在酒店", "2026-09-23T00:00:00Z", "new", false, false, 0, null, "9 exercises · ~6 min", null),
+        )
+        val longTerm = listOf(dev.jeromeswannack.chineselearning.lab.core.LongTermHomework("lesson", "lt", "了 — finished actions", "王老师", "2026-09-22T00:00:00Z", null, null))
+        val rows = dev.jeromeswannack.chineselearning.lab.core.HomeHomework.rows(listUi.todo, longTerm, lessons = lessons)
+            .filter(dev.jeromeswannack.chineselearning.lab.core.HomeHomework::isLessonRow)
+        HomeworkListScreen(listUi.copy(lessons = rows), onBack = {}, onOpen = {})
+    }
+
     @Test fun listEmpty() = shoot("homework-02-list-empty") { HomeworkListScreen(HomeworkListUi(true), onBack = {}, onOpen = {}) }
 
     /** The next word hasn't reached the phone yet: the header and "Try again". */

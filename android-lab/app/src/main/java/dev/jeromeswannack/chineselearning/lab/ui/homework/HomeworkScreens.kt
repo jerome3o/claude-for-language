@@ -92,16 +92,20 @@ data class HomeworkListUi(
     val done: List<HomeworkItemView> = emptyList(),
     /** The day the status chips are computed for (the device's calendar day). */
     val today: String = dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
+    /** Home's lesson rows (revisions due + new lessons a tutor sent) — so "+N more" lands on them (web HomeworkPage). */
+    val lessons: List<dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow> = emptyList(),
 )
 
 private const val DONE_LIMIT = 10
 
 /**
- * All one-off homework: what's still to do (overdue first, with due labels) and what's done
- * (web: HomeworkPage). Offline — reads the mirror; the sync keeps it current.
+ * All one-off homework: what's still to do (overdue first, with due labels) and what's done, plus
+ * the mini lessons Home's card lists (revisions due, new lessons a tutor sent) — web HomeworkPage.
+ * Offline — reads the mirror; the sync keeps it current. [onOpen] takes an assignment id,
+ * [onOpenRoute] a lesson row's web path.
  */
 @Composable
-fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (String) -> Unit) {
+fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (String) -> Unit, onOpenRoute: (String) -> Unit = {}) {
     var showAllDone by remember { mutableStateOf(false) }
     LabScreen("Homework", onBack = onBack) {
         item {
@@ -118,8 +122,27 @@ fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (Strin
         item { SectionHeader("To do") }
         item {
             if (ui.todo.isEmpty()) {
-                LabCard { Text("Nothing to do — you’re all caught up. 🎉", Modifier.padding(16.dp).testTag("hw-empty"), color = Lab.colors.muted) }
+                val empty = if (ui.lessons.isNotEmpty()) "No one-off homework right now." else "Nothing to do — you’re all caught up. 🎉"
+                LabCard { Text(empty, Modifier.padding(16.dp).testTag("hw-empty"), color = Lab.colors.muted) }
             } else HomeworkList(ui.todo, showTutor = true, today = ui.today, onOpen = onOpen)
+        }
+        if (ui.lessons.isNotEmpty()) {
+            item { SectionHeader("Mini lessons") }
+            item {
+                Text(
+                    "Revisions due today and new lessons your tutor sent. Your own lessons are on Mini Lessons.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Lab.colors.muted,
+                )
+            }
+            item {
+                LabCard(Modifier.testTag("hw-lesson-rows")) {
+                    ui.lessons.forEachIndexed { i, row ->
+                        if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 46.dp, end = 16.dp), color = Lab.colors.faint)
+                        SlimRow(row) { onOpenRoute(row.route) }
+                    }
+                }
+            }
         }
         if (ui.done.isNotEmpty()) {
             item { SectionHeader("Done") }
