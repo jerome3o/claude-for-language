@@ -284,7 +284,7 @@ export const ANALYTICS_EVENTS = {
   'lesson.grammar_start': e('lessons', 'Started the OLD fixed-phase grammar lesson.', [], { replacedBy: 'lesson.start' }),
   'lesson.editor_save': e('lessons', 'Saved a lesson in the editor.', []),
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
-  'lesson.answer_check': e('lessons', 'Claude checked a self-assessed lesson answer (docs/STUDY_SESSION.md "Claude checks your answer"; verdict correct / acceptable / almost / wrong / error / offline, ms = wait, cached = server or device cache, try = 1 for the first answer).', ['verdict', 'ms', 'cached', 'exercise_type', 'input', 'try']),
+  'lesson.answer_check': e('lessons', 'Claude checked a self-assessed lesson answer (docs/STUDY_SESSION.md "Claude checks your answer"; verdict correct / acceptable / almost / wrong / error / offline, ms = wait, cached = server or device cache, try = 1 for the first answer; local = the answer was exactly the model answer, checked on the device with no model call).', ['verdict', 'ms', 'cached', 'local', 'exercise_type', 'input', 'try']),
   'lesson.answer_retry': e('lessons', '🔁 Try again on a checked lesson answer (verdict = the check of the answer being retried).', ['verdict', 'exercise_type', 'try']),
   'lesson.answer_ask': e('lessons', '💬 Ask about this on a checked lesson answer: a question sent (turn = its number in the chat).', ['verdict', 'exercise_type', 'turn']),
   'lesson.conversation_audio_open': e('lessons', 'Opened the ⚙︎ Audio menu on a conversation exercise.', ['provider']),

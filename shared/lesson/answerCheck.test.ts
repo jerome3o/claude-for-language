@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  answerCheckApplies, answerCheckCacheText, answerCheckChip, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
-  suggestedFor, tipSegments,
+  answerCheckApplies, answerCheckCacheText, answerCheckChip, exactAnswerCheck, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
+  suggestedFor, tipSegments, EXACT_ANSWER_HEADLINE,
 } from './answerCheck';
+import { isExactHanziMatch } from './answer-check';
 import { sanitizeAttemptData } from './attempt';
 
 describe('answerCheckApplies', () => {
@@ -109,5 +110,25 @@ describe('attempt data keeps the check and every try', () => {
     expect(a.check?.verdict).toBe('almost');
     expect(a.check?.suggested).toBe('missed_it');
     expect(a.tries).toEqual([{ text: '医生让我吃药和休息', input: 'typed' }]);
+  });
+});
+
+describe('exactAnswerCheck', () => {
+  const base = { exercise_type: 'translate', model_answer: '车站就在我家对面。' };
+  it('the model answer itself → a local correct check (no call), the same rule as the Exact match chip', () => {
+    for (const answer of ['车站就在我家对面。', '车站就在我家对面', ' 车站 就在我家对面 ！', '车站就在我家对面.']) {
+      expect(isExactHanziMatch(answer, base.model_answer)).toBe(true);
+      expect(exactAnswerCheck({ ...base, answer })).toEqual({
+        verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it',
+      });
+    }
+    expect(exactAnswerCheck({ ...base, exercise_type: 'listen_translate', answer: '车站就在我家对面' })?.verdict).toBe('correct');
+  });
+  it('anything else is left to Claude (or isn\'t checked at all)', () => {
+    expect(exactAnswerCheck({ ...base, answer: '车站在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '车站就在我家对面吗' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, answer: '' })).toBeNull();
+    expect(exactAnswerCheck({ ...base, exercise_type: 'sentence_making', answer: '车站就在我家对面。' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
   });
 });

@@ -1,13 +1,13 @@
 /**
  * Claude's check of a lesson answer (shared/lesson/answerCheck.ts): answerCheckApplies, the cache
  * text, normalizeAnswerCheck over raw replies (the shape rules), the chip, the suggestion,
- * tipSegments and askQuickQuestions. Writes lesson-answer-check.json; checked by
+ * tipSegments, askQuickQuestions and exactAnswerCheck (the model answer itself → a local check). Writes lesson-answer-check.json; checked by
  * core/…/LessonAnswerCheckParityTest.kt.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  answerCheckApplies, answerCheckCacheText, answerCheckChip, askQuickQuestions, normalizeAnswerCheck, suggestedFor, tipSegments,
+  answerCheckApplies, answerCheckCacheText, answerCheckChip, askQuickQuestions, exactAnswerCheck, normalizeAnswerCheck, suggestedFor, tipSegments,
   ANSWER_CHECK_VERDICTS,
 } from '../../../shared/lesson/answerCheck';
 
@@ -57,11 +57,26 @@ const tips = [
   { text: '再再再', quote: '再再' },
 ];
 
+const exactModel = '车站就在我家对面。';
+const exactCases = [
+  { exercise_type: 'translate', model_answer: exactModel, answer: '车站就在我家对面。' },
+  { exercise_type: 'translate', model_answer: exactModel, answer: ' 车站 就在我家对面 ！' },
+  { exercise_type: 'listen_translate', model_answer: exactModel, answer: '车站就在我家对面.' },
+  { exercise_type: 'translate', model_answer: '（你好）', answer: '你好' },
+  { exercise_type: 'translate', model_answer: exactModel, answer: '车站在我家对面。' },
+  { exercise_type: 'translate', model_answer: exactModel, answer: '车站就在我家对面吗' },
+  { exercise_type: 'translate', model_answer: '你好！', answer: '你好～' },
+  { exercise_type: 'translate', model_answer: exactModel, answer: '' },
+  { exercise_type: 'sentence_making', model_answer: exactModel, answer: exactModel },
+  { exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' },
+].map((input) => ({ input, check: exactAnswerCheck(input) }));
+
 writeFileSync(join(OUT, 'lesson-answer-check.json'), JSON.stringify({
   applies,
   cacheTexts,
   normalized,
   chips: ANSWER_CHECK_VERDICTS.map((v) => ({ verdict: v, chip: answerCheckChip(v), suggested: suggestedFor(v) })),
   tips: tips.map((tip) => ({ tip, result: tipSegments(tip) })),
+  exact: exactCases,
   quick: [null, 'correct', 'acceptable', 'almost', 'wrong'].map((v) => ({ verdict: v, questions: askQuickQuestions(v as 'correct' | null) })),
 }, null, 1));
