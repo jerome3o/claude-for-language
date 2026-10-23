@@ -29,6 +29,7 @@ import {
   type GapChoiceExerciseSpec,
   type JudgeExerciseSpec,
 } from '@shared/lesson';
+import { track } from '../services/analytics';
 import './lesson-exercises.css';
 
 type Speak = (text: string) => void;
@@ -86,7 +87,10 @@ export function JudgeExercise({ exercise, speak, onNext }: { exercise: JudgeExer
     setJudged(prev => prev.map((v, j) => (j === i ? value : v)));
   }
 
-  const check = () => setChecked(true);
+  const check = () => {
+    setChecked(true);
+    track('lesson.items_checked', { exercise_type: 'judge', items: results.length, right: results.filter(r => r === true).length });
+  };
 
   const report = (): ExerciseAnswer => ({
     items: sentences.map((_, i) => ({ judged: judged[i] ?? undefined, correct: results[i] })),
@@ -168,7 +172,10 @@ export function GapChoiceExercise({ exercise, speak, onNext }: { exercise: GapCh
     setPicks(prev => prev.map((v, j) => (j === i ? word : v)));
   }
 
-  const check = () => setChecked(true);
+  const check = () => {
+    setChecked(true);
+    track('lesson.items_checked', { exercise_type: 'gap_choice', items: results.length, right: results.filter(r => r === true).length });
+  };
 
   const report = (): ExerciseAnswer => ({
     items: items.map((_, i) => ({ pick: picks[i] ?? undefined, correct: results[i] })),

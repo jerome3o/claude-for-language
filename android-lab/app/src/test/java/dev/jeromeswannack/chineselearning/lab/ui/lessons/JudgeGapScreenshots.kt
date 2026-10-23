@@ -21,6 +21,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.AttemptDetailDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
+import androidx.compose.foundation.verticalScroll
 import org.junit.Test
 import org.robolectric.annotation.Config
 import kotlin.random.Random
@@ -39,7 +40,8 @@ class JudgeGapScreenshots : LabScreenshotTest() {
     private val ownWords get() = sampleExercise("gap_choice", 1) as GapChoiceExercise
 
     private fun player(ex: LessonExercise): @Composable () -> Unit = {
-        LessonPlayer("Where does 了 go?", "⚖️", CustomLessonSpec("Where does 了 go?", "⚖️", null, listOf(LessonSection(null, listOf(ex)))), env, PlayerContext.Lesson(), {}, {})
+        val (title, icon) = if (ex is GapChoiceExercise) "刚 or 刚才?" to "🔀" else "Where does 了 go?" to "⚖️"
+        LessonPlayer(title, icon, CustomLessonSpec(title, icon, null, listOf(LessonSection(null, listOf(ex)))), env, PlayerContext.Lesson(), {}, {})
     }
 
     private fun shootAfter(name: String, dark: Boolean = false, content: @Composable () -> Unit, act: () -> Unit) {
@@ -93,6 +95,7 @@ class JudgeGapScreenshots : LabScreenshotTest() {
         tap("Check")
     }
 
+    @Config(qualifiers = "w412dp-h2400dp-xxhdpi")
     @Test fun reportsEachSentence() {
         var got: ExerciseAnswer? = null
         var verdict: Boolean? = null
@@ -106,7 +109,8 @@ class JudgeGapScreenshots : LabScreenshotTest() {
         assertEquals(listOf(true, false, true, true, true), got?.items?.map { it.judged })
     }
 
-    @Composable private fun Column(content: @Composable () -> Unit) = androidx.compose.foundation.layout.Column { content() }
+    @Composable private fun Column(content: @Composable () -> Unit) =
+        androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) { content() }
 
     @Config(qualifiers = "w412dp-h1600dp-xxhdpi")
     @Test fun attemptReview() {

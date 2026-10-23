@@ -721,3 +721,4 @@ textarea.ed-input { min-height: 0; resize: vertical; }
 .ed-field-label { font-size: 0.75rem; font-weight: 600; color: var(--color-text-light); text-transform: uppercase; letter-spacing: 0.03em; }
 .ed-word-list { display: flex; flex-direction: column; gap: 0.25rem; }
 .ed-hint-warn { font-size: 0.8rem; color: #92400e; }
+.ed-gap-tools { justify-content: flex-end; }

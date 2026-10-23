@@ -783,15 +783,15 @@ function GapChoiceForm({ exercise, onChange, speak }: FormProps<GapChoiceExercis
             const full = fillGap(item.sentence, item.answer);
             return (
               <div key={i} className="ed-question">
-                <div className="ed-hanzi-row">
-                  <input
-                    className="ed-input"
-                    lang="zh-CN"
-                    value={item.sentence}
-                    onChange={e => setItem(i, { ...item, sentence: e.target.value })}
-                    placeholder={`他${GAP_MARKER}走。`}
-                    aria-label={`Sentence ${i + 1} with the gap`}
-                  />
+                <input
+                  className="ed-input"
+                  lang="zh-CN"
+                  value={item.sentence}
+                  onChange={e => setItem(i, { ...item, sentence: e.target.value })}
+                  placeholder={`他${GAP_MARKER}走。`}
+                  aria-label={`Sentence ${i + 1} with the gap`}
+                />
+                <div className="ed-hanzi-row ed-gap-tools">
                   <button type="button" className="ed-mini-btn" onClick={() => speak(full)} disabled={!item.answer.trim() || gaps !== 1} aria-label="Play the full sentence" title="Play the full sentence">🔊</button>
                   <button type="button" className="ed-mini-btn text" onClick={() => setItem(i, { ...item, pinyin: toPinyin(full) })} disabled={!item.answer.trim() || gaps !== 1} title="Fill pinyin from the full sentence">拼音</button>
                   <RowControls

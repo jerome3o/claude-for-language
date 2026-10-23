@@ -140,6 +140,13 @@ private fun CheckFooter(results: List<Boolean?>, checked: Boolean, onCheck: () -
     }
 }
 
+private fun trackChecked(type: String, results: List<Boolean?>) {
+    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track(
+        "lesson.items_checked",
+        mapOf("exercise_type" to type, "items" to results.size, "right" to results.count { it == true }),
+    )
+}
+
 // ============ Judge each sentence ============
 
 @Composable
@@ -183,6 +190,7 @@ fun JudgeView(ex: JudgeExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAns
         onCheck = {
             checked = true
             if (results.all { it == true }) env.onCorrect() else env.onWrong()
+            trackChecked(ex.type, results)
         },
         onContinue = {
             onNext(results.all { it == true }, ExerciseAnswer(items = ex.sentences.indices.map { ItemAnswer(judged = judged[it], correct = results[it]) }))
@@ -237,6 +245,7 @@ fun GapChoiceView(ex: GapChoiceExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         onCheck = {
             checked = true
             if (results.all { it == true }) env.onCorrect() else env.onWrong()
+            trackChecked(ex.type, results)
         },
         onContinue = {
             onNext(results.all { it == true }, ExerciseAnswer(items = ex.items.indices.map { ItemAnswer(pick = picks[it], correct = results[it]) }))

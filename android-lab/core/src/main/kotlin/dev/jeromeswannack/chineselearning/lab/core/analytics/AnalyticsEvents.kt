@@ -224,6 +224,7 @@ object AnalyticsEvents {
         ev("lesson.replay", "lessons", listOf("from", "practice", "revision", "status")),
         ev("lesson.resume", "lessons", listOf("source", "mode", "exercises", "at")),
         ev("lesson.retry", "lessons", listOf("type", "right", "left")),
+        ev("lesson.items_checked", "lessons", listOf("exercise_type", "items", "right")),
         ev("lesson.start_over", "lessons", listOf("source")),
         ev("lesson.audio", "lessons", listOf("source", "hits", "misses", "stale", "max_wait_ms", "clips", "prefetched")),
         ev("lesson.replay_practice", "lessons", listOf("exercises", "duration_ms"), replacedBy = "lesson.complete"),

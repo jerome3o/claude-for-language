@@ -9,6 +9,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { ExerciseAnswer } from '@shared/lesson';
 import { SAMPLE_LESSONS } from '@shared/lesson/samples';
 import { JudgeExercise, GapChoiceExercise } from './judge-gap-exercises';
+import { track } from '../services/analytics';
+
+vi.mock('../services/analytics', () => ({ track: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,6 +63,7 @@ describe('JudgeExercise', () => {
     expect(rows[3].textContent).toContain('A habit (每天)');
     expect(rows[3].className).toContain('miss');
     expect(host!.textContent).toContain('4 of 5 right');
+    expect(track).toHaveBeenCalledWith('lesson.items_checked', { exercise_type: 'judge', items: 5, right: 4 });
     // ▶ plays the correction — never the mistake.
     click(rows[3].querySelector('.jg-fix .jg-play'));
     expect(speak).toHaveBeenLastCalledWith('我每天喝咖啡。');
