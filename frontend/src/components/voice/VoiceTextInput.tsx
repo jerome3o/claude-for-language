@@ -41,6 +41,8 @@ export interface VoiceTextInputProps {
   /** data-testid prefix (default `voice-input`). */
   testId?: string;
   className?: string;
+  /** The wide 🎤's word (default "Say it"; the coach's follow-up says "Respond"). */
+  sayLabel?: string;
 }
 
 export function VoiceTextInput(props: VoiceTextInputProps) {
@@ -90,7 +92,7 @@ export interface VoiceTextInputViewProps extends Omit<VoiceTextInputProps, 'onSu
 export function VoiceTextInputView(props: VoiceTextInputViewProps) {
   const {
     value, onChange, submitLabel = DICTATION_COPY.submit, placeholder, multiline = false,
-    lang = 'zh', disabled = false, testId = 'voice-input', className = '', state, actions,
+    lang = 'zh', disabled = false, testId = 'voice-input', className = '', state, actions, sayLabel = DICTATION_COPY.say,
   } = props;
   const d = { ...actions, finalText: props.finalText, partialText: props.partialText, canSubmit: props.canSubmit, busy: state.phase === 'listening' || state.phase === 'finishing' };
   const controls = dictationControls(state);
@@ -137,7 +139,7 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
   const renderRowControl = (c: (typeof controls)[number]) => {
     switch (c) {
       case 'type': return button('type', DICTATION_COPY.type, '✏️', d.type, { aria: 'Type instead' });
-      case 'say': return button('say', DICTATION_COPY.say, '🎤', d.say, { wide: true });
+      case 'say': return button('say', sayLabel, '🎤', d.say, { wide: true });
       case 'cancel': return button('cancel', DICTATION_COPY.cancel, '✕', d.cancel);
       case 'stop': return button('stop', DICTATION_COPY.stop, '⏹', d.stop, { wide: true, danger: true, aria: 'Stop and use what I said' });
       case 'finishing': return button('finishing', DICTATION_COPY.finishing, '', () => {}, { wide: true, busy: true });

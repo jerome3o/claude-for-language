@@ -18,8 +18,8 @@
  */
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
-  bumpedCardsForNote, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource, sentenceBumps,
-  type BumpSource, type SentenceBumps,
+  bumpedCardsForNote, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource,
+  type BumpSource,
 } from '@shared/decks';
 import { normalizeHanzi } from '@shared/import/parse';
 import { db, bumpTimeMs, getStudyCutoff, queueInput, type LocalNote, type LocalStudyBump } from '../db/database';
@@ -250,13 +250,3 @@ export async function syncBumps(): Promise<void> {
   }
 }
 
-/**
- * The Coach's "⚡ Study … today" chip (shared/decks/sentence-bumps.ts): the note the
- * whole sentence is, else the notes found inside it in picker order. Live decks only.
- */
-export async function findSentenceBumps(text: string): Promise<SentenceBumps<LocalNote>> {
-  if (!normalizeHanzi(text)) return { exact: null, words: [] };
-  const live = new Set((await db.decks.toArray()).map((d) => d.id));
-  const notes = (await db.notes.toArray()).filter((n) => live.has(n.deck_id) && !!n.hanzi);
-  return sentenceBumps(text, notes);
-}

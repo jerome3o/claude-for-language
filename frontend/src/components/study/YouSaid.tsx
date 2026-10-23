@@ -22,6 +22,7 @@ import type { ReactNode } from 'react';
 import { compareTranscription } from '@shared/recordings/transcript';
 import type { AnswerVerdict } from '@shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
+import './YouSaid.css';
 
 export type YouSaidState = 'match' | 'contains' | 'miss';
 

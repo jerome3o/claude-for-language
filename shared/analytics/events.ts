@@ -295,12 +295,13 @@ export const ANALYTICS_EVENTS = {
 
   // ── coach ──────────────────────────────────────────────────────────────
   'coach.start': e('coach', 'Started a Sentence Coach conversation.', ['action']),
-  'coach.quick_action': e('coach', 'Used a quick-action chip.', ['action']),
+  'coach.quick_action': e('coach', 'Used a quick-action chip — apps before Oct 2026 (the chips are gone; ask in the chat).', ['action'], { replacedBy: 'coach.follow_up' }),
   'coach.follow_up': e('coach', 'Sent a follow-up message in the coach chat.', []),
   'coach.reply_resumed': e('coach', 'Came back to a coach conversation whose reply was still being written in the background.', []),
   'coach.reply_retry': e('coach', 'Pressed Retry on a coach reply that failed.', []),
-  'coach.add_new_words': e('coach', '"➕ Add new words": added words of the sentence that were in no deck.', ['count', 'existing']),
-  'coach.sentence_card': e('coach', '"🃏 Card for this sentence": opened the add-card sheet with the whole sentence.', []),
+  'coach.add_new_words': e('coach', '"➕ Add new words": added words of the sentence that were in no deck — apps before Oct 2026 (now the coach\'s words open the language explorer).', ['count', 'existing'], { replacedBy: 'explorer.add_card' }),
+  'coach.sentence_card': e('coach', '"🃏 Card for this sentence": opened the add-card sheet with the whole sentence — apps before Oct 2026.', [], { replacedBy: 'explorer.add_card' }),
+  'coach.practise_say': e('coach', '"🎤 Practise saying it" beside a coach answer\'s sentence: a take checked against it (result = match | sound | contains | close | wrong — the "You said" row\'s state — or failed | empty; nothing is stored).', ['result']),
   'coach.mistake_lesson_generate': e('coach', '"🎯 Mini lesson on this mistake": asked for a lesson on the mistake a check found (existing = the conversation already had one).', ['existing']),
   'coach.mistake_lesson_play': e('coach', 'Played a coach mistake lesson in the player (preview: nothing recorded while playing).', ['exercises', 'saved']),
   'coach.mistake_lesson_save': e('coach', '"Save to my mini lessons" on a coach mistake lesson (done = saved right after doing it, its completion recorded; missed = exercises missed first time; rating from apps before Oct 2026).', ['done', 'rating', 'missed']),
