@@ -46,9 +46,9 @@ import { roomPresence, withPresence } from '../services/calls/presence';
 import { pickTranscriber } from '../services/calls/transcribe';
 import type { CallReport, CallReportWord } from '../services/calls/report';
 import { StructuredCallError } from '../services/structured-call';
-import { cachedGloss, glossBoardText, glossEnglishText, rememberGloss, takeGlossToken, validBoardGlossText } from '../services/calls/gloss';
+import { cachedGloss, glossBoardText, glossEnglishText, glossInFlight, glossOnce, glossRetryAfterSeconds, rememberGloss, takeGlossToken, validBoardGlossText } from '../services/calls/gloss';
 import { glossReadingSources } from '../services/calls/gloss-sources';
-import { glossDirectionOf, type GlossDirection } from '@shared/calls';
+import { glossDirectionOf, glossStoreKey, type GlossDirection } from '@shared/calls';
 
 const calls = new Hono<{ Bindings: Env }>();
 
@@ -339,8 +339,10 @@ calls.post('/calls/:id/flashcards', async (c) => {
  * (the same 404 as every call route): the endpoint spends Claude credits, and scoping it to a
  * call keeps it from becoming a general translation API. The membership check is remembered for
  * a few minutes per isolate so a lesson's worth of pauses costs one lookup. Failures are quiet
- * for the board: 503 when no key / Claude is down, 429 when this user asks too often, 400 for
- * text that isn't a short run of Chinese / English.
+ * for the board: 503 when no key / Claude is down, 429 (+ Retry-After) when this user makes too
+ * many model calls, 400 for text that isn't a short run of Chinese / English. The model call is
+ * shared by concurrent asks for the same text and finishes (and is cached) even when the board
+ * stops waiting for it.
  */
 const glossMembers = new Map<string, number>();
 calls.post('/calls/:id/gloss', async (c) => {
@@ -362,11 +364,37 @@ calls.post('/calls/:id/gloss', async (c) => {
     const hit = cachedGloss(text, direction);
     if (hit) return c.json({ text, direction, ...hit, cached: true });
     if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Suggestions are not configured' }, 503);
-    if (!takeGlossToken(user.id)) return c.json({ error: 'Too many suggestions — slow down a little' }, 429);
+    const apiKey = c.env.ANTHROPIC_API_KEY;
+    const key = glossStoreKey(text, direction);
+    // The same text already being glossed (a re-ask after a remote edit, both typing it): share that call.
+    if (!glossInFlight(key) && !takeGlossToken(user.id)) {
+      const retryAfter = glossRetryAfterSeconds(user.id);
+      console.warn(`[call-gloss] rate limited (${direction}), retry in ${retryAfter}s`);
+      c.header('Retry-After', String(retryAfter));
+      return c.json({ error: 'Too many suggestions — slow down a little', retry_after: retryAfter }, 429);
+    }
+    const started = Date.now();
     const opts = { sources: glossReadingSources(c.env.CHAR_DICT) };
-    const gloss = direction === 'en' ? await glossEnglishText(c.env.ANTHROPIC_API_KEY, text, opts) : await glossBoardText(c.env.ANTHROPIC_API_KEY, text, opts);
-    rememberGloss(text, gloss, direction);
-    return c.json({ text, direction, ...gloss, cached: false });
+    const { promise } = glossOnce(key, async () => {
+      const gloss = direction === 'en' ? await glossEnglishText(apiKey, text, opts) : await glossBoardText(apiKey, text, opts);
+      rememberGloss(text, gloss, direction);
+      return gloss;
+    });
+    // Finished and cached even when the board stops waiting (the typist moved on): the next ask is instant.
+    try {
+      c.executionCtx.waitUntil(promise.catch(() => undefined));
+    } catch {
+      /* no execution context (tests) */
+    }
+    try {
+      const gloss = await promise;
+      return c.json({ text, direction, ...gloss, cached: false });
+    } catch (error) {
+      // Counts and enums only: the board's text never goes into the logs.
+      const retryable = error instanceof StructuredCallError ? error.retryable : true;
+      console.warn(`[call-gloss] failed (${direction}, ${Array.from(text).length} chars) after ${Date.now() - started} ms, retryable=${retryable}: ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`);
+      throw error;
+    }
   } catch (error) {
     if (error instanceof StructuredCallError) return c.json({ error: 'No suggestion right now' }, error.retryable ? 503 : 502);
     return errorResponse(c, error, 'No suggestion right now');

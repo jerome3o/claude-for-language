@@ -4,12 +4,17 @@
  * - English (a word or short phrase) → { chinese, pinyin }, offered as ` - 中文 - pīnyīn`.
  *
  * The pinyin is what people rely on, and Haiku often got it wrong (Jerome and his tutor, Oct
- * 2026), so this is Sonnet now: one forced tool call with thinking off, a small max_tokens, an 8 s
- * timeout and a single retry (on Haiku — an answer beats none). Its pinyin then goes through
+ * 2026), so Sonnet answers first: one forced tool call with thinking off and a small max_tokens.
+ * It must also be FAST and never "nothing" (23 Oct 2026: it worked now and then for Jerome and
+ * not at all for Minghui), so the call is HEDGED: when Sonnet hasn't answered within
+ * BOARD_GLOSS_HEDGE_MS — or fails (overloaded, timed out) — Haiku is asked too and the first good
+ * answer wins; each call has a short timeout and no SDK retry. Its pinyin then goes through
  * checkGlossPinyin (gloss-pinyin.ts): a syllable the character never has is replaced with the
  * dictionary's reading of that word, and the 一 / 不 rule is applied. Results are cached per
- * rules version + direction + text in this isolate (a lesson repeats words), and each user is
- * rate-limited here too, so a stuck client can't run up a bill.
+ * rules version + direction + text in this isolate (a lesson repeats words), the same text asked
+ * twice at once shares one call (glossOnce), and each user is rate-limited on real model calls
+ * only, so a stuck client can't run up a bill. The devices show their own pinyin (+ a dictionary
+ * meaning) while this is on its way, so a slow answer is an upgrade, not a wait.
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
@@ -28,18 +33,25 @@ import {
   type GlossDirection,
 } from '@shared/calls';
 import { YI_BU_CONVENTION } from '@shared/pinyin/toneChange';
-import { structuredCall } from '../structured-call';
+import { StructuredCallError, structuredCall } from '../structured-call';
 import { checkGlossPinyin, type GlossReadingSources } from './gloss-pinyin';
 
-/** Better pinyin than Haiku for a second or so more; the ghost shows after a pause anyway. */
+/** Better pinyin than Haiku; answers first. */
 export const BOARD_GLOSS_MODEL = 'claude-sonnet-5';
-/** The retry's model: quick, and its pinyin is checked like any other. */
+/** The quick one: asked when the first is slow or fails; its pinyin is checked like any other. */
 export const BOARD_GLOSS_FALLBACK_MODEL = 'claude-haiku-4-5';
-export const BOARD_GLOSS_TIMEOUT_MS = 8_000;
+/** One model call, at most (the SDK does not retry inside it). */
+export const BOARD_GLOSS_TIMEOUT_MS = 6_000;
+export const BOARD_GLOSS_FALLBACK_TIMEOUT_MS = 5_000;
+/** No answer from the first model by then → the quick one is asked too (Sonnet's median is ~1.9 s). */
+export const BOARD_GLOSS_HEDGE_MS = 2_500;
 /** A 40-character sentence's pinyin + its whole translation fit with room to spare (200 cut long ones off). */
 export const BOARD_GLOSS_MAX_TOKENS = 500;
-/** Requests per user per minute (a pause after typing → one request; 30/min is far above real use). */
-export const BOARD_GLOSS_RATE_PER_MIN = 30;
+/**
+ * Model calls per user per minute (cache hits and shared in-flight calls don't count). A pause
+ * after new text → at most one call; a tutor writing fast in a lesson stays well under 60.
+ */
+export const BOARD_GLOSS_RATE_PER_MIN = 60;
 const CACHE_SIZE = 2_000;
 
 const PINYIN_RULES = `PINYIN — this is what the learner relies on, get every syllable right:
@@ -149,10 +161,37 @@ export function takeGlossToken(userId: string, now = Date.now()): boolean {
   return true;
 }
 
+/** Seconds until this user may make another model call (the Retry-After of a 429; ≥ 1). */
+export function glossRetryAfterSeconds(userId: string, now = Date.now()): number {
+  const recent = (hits.get(userId) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length < BOARD_GLOSS_RATE_PER_MIN) return 1;
+  return Math.max(1, Math.ceil((recent[0] + 60_000 - now) / 1000));
+}
+
+const inflight = new Map<string, Promise<Gloss | ChineseGloss>>();
+
+/**
+ * The same text asked again while its call is running (the board re-asks after a remote edit,
+ * two people type the same word) shares that call: one model call, one token.
+ * `fresh` = this request started the call (and spent the token).
+ */
+export function glossOnce(key: string, start: () => Promise<Gloss | ChineseGloss>): { promise: Promise<Gloss | ChineseGloss>; fresh: boolean } {
+  const running = inflight.get(key);
+  if (running) return { promise: running, fresh: false };
+  const promise = start().finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return { promise, fresh: true };
+}
+
+export function glossInFlight(key: string): boolean {
+  return inflight.has(key);
+}
+
 /** Test seam. */
 export function resetBoardGlossState(): void {
   cache.clear();
   hits.clear();
+  inflight.clear();
 }
 
 export interface BoardGlossOptions {
@@ -160,6 +199,54 @@ export interface BoardGlossOptions {
   client?: Pick<Anthropic, 'messages'>;
   /** The character / word dictionary for the pinyin check (pinyin-pro alone without it). */
   sources?: GlossReadingSources;
+  /** Test seam: when the quick model is asked too. */
+  hedgeMs?: number;
+}
+
+/**
+ * Ask the first model; when it hasn't answered within `hedgeMs` or fails, ask the quick one as
+ * well — the first good answer wins. Rejects (StructuredCallError, retryable unless both were
+ * refused) only when every call it made failed.
+ */
+export function hedgedCall<T>(call: (model: string, timeoutMs: number) => Promise<T>, hedgeMs = BOARD_GLOSS_HEDGE_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let fallbackStarted = false;
+    let running = 0;
+    let retryable = false;
+    let lastError: unknown = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const win = (v: T) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolve(v);
+    };
+    const lose = (e: unknown) => {
+      running--;
+      lastError = e;
+      if (!(e instanceof StructuredCallError) || e.retryable) retryable = true;
+      if (settled) return;
+      if (!fallbackStarted) return startFallback();
+      if (running === 0) {
+        settled = true;
+        const message = e instanceof Error ? e.message : String(lastError);
+        reject(e instanceof StructuredCallError && !retryable ? e : new StructuredCallError(message, retryable));
+      }
+    };
+    const run = (model: string, timeoutMs: number) => {
+      running++;
+      call(model, timeoutMs).then(win, lose);
+    };
+    const startFallback = () => {
+      if (fallbackStarted || settled) return;
+      fallbackStarted = true;
+      if (timer) clearTimeout(timer);
+      run(BOARD_GLOSS_FALLBACK_MODEL, BOARD_GLOSS_FALLBACK_TIMEOUT_MS);
+    };
+    run(BOARD_GLOSS_MODEL, BOARD_GLOSS_TIMEOUT_MS);
+    if (!settled && !fallbackStarted) timer = setTimeout(startFallback, hedgeMs);
+  });
 }
 
 /** How often the safety net fires (counts only — board text stays out of the logs). */
@@ -169,12 +256,13 @@ function logFixes(fixes: readonly unknown[]): void {
 
 /** Chinese → { pinyin, english }, the pinyin checked against the dictionary. */
 export async function glossBoardText(apiKey: string, text: string, opts: BoardGlossOptions = {}): Promise<Gloss> {
-  const gloss = await structuredCall<Gloss>({
+  const gloss = await hedgedCall((model, timeoutMs) => structuredCall<Gloss>({
     apiKey,
-    model: BOARD_GLOSS_MODEL,
-    fallbackModel: BOARD_GLOSS_FALLBACK_MODEL,
-    attempts: 2,
-    timeoutMs: BOARD_GLOSS_TIMEOUT_MS,
+    model,
+    fallbackModel: null,
+    attempts: 1,
+    timeoutMs,
+    maxRetries: 0,
     system: SYSTEM_ZH,
     user: text,
     tool: TOOL_ZH,
@@ -186,7 +274,7 @@ export async function glossBoardText(apiKey: string, text: string, opts: BoardGl
       if (!g) throw new Error('Unusable gloss');
       return g;
     },
-  });
+  }), opts.hedgeMs);
   const checked = await checkGlossPinyin(text, gloss.pinyin, opts.sources);
   logFixes(checked.fixes);
   return { ...gloss, pinyin: checked.pinyin };
@@ -194,12 +282,13 @@ export async function glossBoardText(apiKey: string, text: string, opts: BoardGl
 
 /** English → { chinese, pinyin }, the pinyin checked against the Chinese with the dictionary. */
 export async function glossEnglishText(apiKey: string, text: string, opts: BoardGlossOptions = {}): Promise<ChineseGloss> {
-  const gloss = await structuredCall<ChineseGloss>({
+  const gloss = await hedgedCall((model, timeoutMs) => structuredCall<ChineseGloss>({
     apiKey,
-    model: BOARD_GLOSS_MODEL,
-    fallbackModel: BOARD_GLOSS_FALLBACK_MODEL,
-    attempts: 2,
-    timeoutMs: BOARD_GLOSS_TIMEOUT_MS,
+    model,
+    fallbackModel: null,
+    attempts: 1,
+    timeoutMs,
+    maxRetries: 0,
     system: SYSTEM_EN,
     user: text,
     tool: TOOL_EN,
@@ -211,7 +300,7 @@ export async function glossEnglishText(apiKey: string, text: string, opts: Board
       if (!g) throw new Error('Unusable translation');
       return g;
     },
-  });
+  }), opts.hedgeMs);
   const checked = await checkGlossPinyin(gloss.chinese, gloss.pinyin, opts.sources);
   logFixes(checked.fixes);
   return { ...gloss, pinyin: checked.pinyin };
