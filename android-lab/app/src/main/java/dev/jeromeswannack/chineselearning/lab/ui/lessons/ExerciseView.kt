@@ -82,6 +82,8 @@ class ExerciseEnv(
     ) -> String = { _, _, _, _ -> throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true) },
     /** The voice recorder for oral expression (null: no microphone support here). */
     val recorder: LessonRecorder? = null,
+    /** Transcribes a free-speaking take (live, else the upload) for Claude's check; null = no transcript. */
+    val speaking: SpeakingTranscriber? = null,
     val playFile: (File) -> Unit = {},
     val onCorrect: () -> Unit = {},
     val onWrong: () -> Unit = {},

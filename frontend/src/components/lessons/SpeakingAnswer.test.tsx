@@ -23,7 +23,7 @@ vi.mock('../../utils/audioPlayback', () => ({ createAudioPlayer: () => ({ play: 
 const take = {
   isRecording: false, audioLevel: 0, error: null as string | null, elapsed: 0, durationMs: 42_000,
   take: new Blob(['x'], { type: 'audio/webm' }) as Blob | null, liveText: '',
-  transcript: { status: 'done', text: '你就是……sorry，你就是Annie吧？今天的会议是关于下个月的活动。' } as SpeakingTranscript,
+  transcript: { status: 'done', text: '你就是……sorry，你就是Annie吧？今天的会议是关于下个月的活动。', via: 'live' } as SpeakingTranscript,
   start: vi.fn(), stop: vi.fn(), retry: vi.fn(), reset: vi.fn(),
 };
 vi.mock('../../hooks/useSpeakingTake', () => ({ useSpeakingTake: () => take }));
@@ -49,7 +49,7 @@ describe('SpeakingAnswer', () => {
     document.body.appendChild(host);
     root = createRoot(host);
     checkLessonAnswer.mockReset();
-    take.transcript = { status: 'done', text: '你就是……sorry，你就是Annie吧？今天的会议是关于下个月的活动。' };
+    take.transcript = { status: 'done', text: '你就是……sorry，你就是Annie吧？今天的会议是关于下个月的活动。', via: 'live' };
     take.retry.mockReset();
   });
   afterEach(() => {

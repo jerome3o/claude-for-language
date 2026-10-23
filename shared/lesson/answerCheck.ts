@@ -94,7 +94,7 @@ export interface AnswerCheckInput {
   /** Speaking: the task's "Useful words" (hanzi). */
   hints?: string[];
   /** Speaking: the question played in Chinese, when there is one. */
-  question?: string;
+  question_audio?: string;
 }
 
 /** Exercise types whose answer gets the check (sentence_making has its own, POST /api/lessons/sentence-feedback). */
@@ -153,7 +153,7 @@ export function answerCheckCacheText(input: AnswerCheckInput): string {
       normalizeHanziAnswer(input.answer),
       collapse((input.focus ?? '').normalize('NFKC')).toLowerCase(),
       (input.hints ?? []).map((h) => normalizeHanziAnswer(h)).filter(Boolean).join(','),
-      normalizeHanziAnswer(input.question ?? ''),
+      normalizeHanziAnswer(input.question_audio ?? ''),
     ].join('|');
   }
   const mode = input.input === 'spoken' ? 'spoken' : 'typed';
@@ -188,8 +188,8 @@ export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } 
   if (speaking) {
     const hints = (Array.isArray(r.hints) ? r.hints : []).map((h) => str(h, L.hint)).filter(Boolean).slice(0, L.hints);
     if (hints.length) input.hints = hints;
-    const question = str(r.question, L.question);
-    if (question) input.question = question;
+    const questionAudio = str(r.question_audio, L.question);
+    if (questionAudio) input.question_audio = questionAudio;
   }
   const problems: string[] = [];
   if (!input.prompt_en) problems.push('prompt_en is required');
@@ -351,7 +351,7 @@ export function speakingTaskParts(prompt: string | null | undefined): SpeakingTa
       structure = close >= 0 ? seg.slice(0, close) : seg;
       const clause = text.slice(Math.min(prevEnd, openAt), openAt);
       const pieces = clause.split(/[.。:：;；!?！？]/);
-      description = trimPart(pieces[pieces.length - 1]).replace(/^(and|then|also)\s+/i, '');
+      description = trimPart(pieces[pieces.length - 1]).replace(/^(and|then|also)(\s+|$)/i, '');
       prevEnd = close >= 0 ? at + 1 + close + 1 : next;
     } else {
       structure = seg.replace(/\s+(and|then)\s*$/i, '');

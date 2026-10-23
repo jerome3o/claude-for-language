@@ -130,7 +130,8 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
     @Volatile private var retryAfter = 0L
     private var job: Job? = null
 
-    fun usable(): LiveTranscriptionSessionDto? = session?.takeIf { SonioxProtocol.usable(it, now()) }
+    /** [marginMs]: how long the key must still live (a lesson's speaking take needs minutes). */
+    fun usable(marginMs: Long = 60_000): LiveTranscriptionSessionDto? = session?.takeIf { SonioxProtocol.usable(it, now(), marginMs) }
 
     /** The key was refused: forget it so the next read card mints a fresh one. */
     fun invalidate() {
@@ -138,8 +139,8 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
         retryAfter = 0L
     }
 
-    fun prefetch(scope: CoroutineScope) {
-        if (session?.provider == "upload" || usable() != null || now() < retryAfter || job?.isActive == true) return
+    fun prefetch(scope: CoroutineScope, marginMs: Long = 60_000) {
+        if (session?.provider == "upload" || usable(marginMs) != null || now() < retryAfter || job?.isActive == true) return
         job = scope.launch {
             runCatching { fetch() }
                 .onSuccess { session = it }

@@ -435,55 +435,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
 
 @Composable
 fun OralExpressionView(ex: OralExpressionExercise, env: ExerciseEnv, mediaKey: String?, onDone: ExerciseDone) {
-    val target = ex.targetSeconds ?: 30
-    val recorder = env.recorder
-    val recording by (recorder?.recording ?: remember { kotlinx.coroutines.flow.MutableStateFlow(false) }).collectAsState()
-    val level by (recorder?.level ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0f) }).collectAsState()
-    val recorderError by (recorder?.error ?: remember { kotlinx.coroutines.flow.MutableStateFlow<String?>(null) }).collectAsState()
-    var startedAt by remember { mutableLongStateOf(0L) }
-    var elapsed by remember { mutableIntStateOf(0) }
-    var durationMs by remember { mutableLongStateOf(0L) }
-    var take by remember { mutableStateOf<File?>(null) }
-    var done by remember { mutableStateOf(false) }
-    var skipped by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-
     LaunchedEffect(Unit) { ex.questionAudio?.let { env.speak(it.hanzi) } }
-    LaunchedEffect(recording) {
-        while (recording) { elapsed = ((System.currentTimeMillis() - startedAt) / 1000).toInt(); delay(250) }
-    }
-    DisposableEffect(Unit) { onDispose { if (recorder?.recording?.value == true) recorder.stop() } }
-
-    fun startNow() {
-        env.stopAudio()
-        elapsed = 0
-        startedAt = System.currentTimeMillis()
-        if (recorder?.start() == true) env.onTap()
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startNow() else recorder?.setError("Microphone permission was denied — you can still say it without recording.")
-    }
-    fun start() {
-        if (recorder == null) return
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startNow()
-        else permission.launch(Manifest.permission.RECORD_AUDIO)
-    }
-    fun stop() {
-        durationMs = System.currentTimeMillis() - startedAt
-        take = recorder?.stop()
-    }
-    fun finish() {
-        done = true
-        ex.example?.let { env.speak(it.hanzi) }
-    }
-    fun answer(): ExerciseAnswer {
-        val t = take
-        return ExerciseAnswer(
-            selfAssessed = true,
-            recording = if (t != null && mediaKey != null && !skipped) AttemptRecording(mediaKey, durationMs, recorder?.mime ?: "audio/mp4") else null,
-        )
-    }
-
     PhaseLabel("Speak — recorded 🎙")
     PromptText(ex.prompt)
     ex.questionAudio?.let { q ->
@@ -499,61 +451,27 @@ fun OralExpressionView(ex: OralExpressionExercise, env: ExerciseEnv, mediaKey: S
         Explanation("Useful words")
         WordChips(it, env)
     }
-
-    if (!done) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val t = take
-            when {
-                recording -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RecDot()
-                        Text("  Recording… ${elapsed}s", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
-                        Text(" / ~${target}s", color = Lab.colors.muted)
-                    }
-                    Box(Modifier.fillMaxWidth(0.7f).height(8.dp).clip(CircleShape).background(Lab.colors.faint)) {
-                        Box(Modifier.fillMaxWidth(level.coerceIn(0.02f, 1f)).fillMaxHeight().clip(CircleShape).background(Palette.Again))
-                    }
-                    RecButton("■", Palette.Again, "Stop recording") { stop() }
-                }
-                t != null -> {
-                    Text("Recorded ${Math.round(durationMs / 1000.0)}s", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
-                    ActionRow {
-                        Secondary("▶ Listen back") { env.playFile(t) }
-                        Secondary("🎙 Again") { start() }
-                    }
-                    ActionRow { Primary("Done") { finish() } }
-                }
-                else -> {
-                    RecButton("🎙", Lab.colors.accent, "Start recording") { start() }
-                    Explanation("Tap to record your answer (about $target seconds)")
-                    val err = recorderError ?: if (recorder == null) "Recording isn't available here." else null
-                    if (err != null) {
-                        Explanation(err)
-                        ActionRow { Secondary("Say it without recording") { skipped = true; finish() } }
-                    }
-                }
-            }
-        }
-    } else {
-        val t = take
-        if (t != null && !skipped) ActionRow { Secondary("▶ Your answer") { env.playFile(t) } }
-        ex.example?.let { Reference(it, env, label = "One way to say it:") }
-        if (mediaKey != null && t != null && !skipped) Explanation("Your tutor can listen to this recording.")
-        ActionRow {
-            Secondary("✗ Not quite") { onDone(false, answer(), t?.takeIf { !skipped }) }
-            Primary("✓ I said it well") { onDone(true, answer(), t?.takeIf { !skipped }) }
-        }
-    }
+    // Recorded, transcribed and checked by Claude (docs/STUDY_SESSION.md "Claude checks your speaking").
+    SpeakingAnswerView(
+        exerciseType = "oral_expression",
+        prompt = ex.prompt,
+        hints = ex.hints?.map { it.hanzi }?.filter { it.isNotBlank() },
+        question = ex.questionAudio?.hanzi,
+        example = ex.example,
+        targetSeconds = ex.targetSeconds ?: 30,
+        mediaKey = mediaKey,
+        env = env,
+    ) { ok, answer, file -> onDone(ok, answer, file) }
 }
 
 @Composable
-private fun RecDot() {
+internal fun RecDot() {
     val pulse by rememberInfiniteTransition(label = "rec").animateFloat(0.3f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "dot")
     Box(Modifier.size(12.dp).alpha(pulse).clip(CircleShape).background(Palette.Again))
 }
 
 @Composable
-private fun RecButton(icon: String, color: androidx.compose.ui.graphics.Color, label: String, onClick: () -> Unit) {
+internal fun RecButton(icon: String, color: androidx.compose.ui.graphics.Color, label: String, onClick: () -> Unit) {
     Box(
         Modifier.size(96.dp).bouncyClickable(pressedScale = 0.9f, onClick = onClick)
             .semantics { contentDescription = label }

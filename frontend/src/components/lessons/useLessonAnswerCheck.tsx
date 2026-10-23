@@ -52,7 +52,7 @@ export function useLessonAnswerCheck(ctx: {
       focus: ctx.focus,
     };
     if (ctx.hints?.length) next.hints = ctx.hints;
-    if (ctx.question) next.question = ctx.question;
+    if (ctx.question) next.question_audio = ctx.question;
     setInput(next);
     start(next, tries.length + 1);
   }

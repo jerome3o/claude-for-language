@@ -16,6 +16,10 @@ import java.io.File
  * The microphone for oral expression (the web's useAudioRecorder): AAC in an MP4
  * container (`audio/mp4`), with a live input level for the meter. One recording at a
  * time; [start] again replaces the last take.
+ *
+ * [startLive] records 16 kHz mono PCM instead (a WAV take, `audio/wav`) and hands every 100 ms to
+ * the live transcriber — a free-speaking answer's words appear as they are said and its transcript
+ * is ready at Stop (SpeakingCheckViews.kt).
  */
 class LessonRecorder(private val context: Context, private val scope: CoroutineScope, private val newFile: () -> File) {
     private var recorder: MediaRecorder? = null
@@ -30,12 +34,33 @@ class LessonRecorder(private val context: Context, private val scope: CoroutineS
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    val mime = "audio/mp4"
+    /** The current / last take's type: AAC in MP4 from [start], WAV from [startLive]. */
+    var mime = "audio/mp4"
+        private set
+    private var pcm: dev.jeromeswannack.chineselearning.lab.ui.study.PcmTake? = null
+
+    /** A take streamed as it is spoken: [onAudio] gets 16-bit mono PCM at 16 kHz. False when it can't. */
+    @android.annotation.SuppressLint("MissingPermission") // the exercise asks for RECORD_AUDIO first
+    fun startLive(onAudio: (ByteArray, Int) -> Unit): Boolean {
+        stopRecorder()
+        val base = newFile()
+        val out = File(base.parentFile, base.nameWithoutExtension + ".wav")
+        val take = dev.jeromeswannack.chineselearning.lab.ui.study.PcmTake.start(out, dev.jeromeswannack.chineselearning.lab.ui.study.SonioxProtocol.SAMPLE_RATE, onAudio) {
+            _level.value = (it * 1.6f).coerceIn(0f, 1f)
+        } ?: return false
+        pcm = take
+        file = out
+        mime = "audio/wav"
+        _error.value = null
+        _recording.value = true
+        return true
+    }
 
     /** Starts a take; false (with [error]) when the microphone can't be used. */
     fun start(): Boolean {
         stopRecorder()
         val out = newFile()
+        mime = "audio/mp4"
         return try {
             @Suppress("DEPRECATION")
             val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(context) else MediaRecorder()
@@ -77,6 +102,11 @@ class LessonRecorder(private val context: Context, private val scope: CoroutineS
         levelJob?.cancel()
         levelJob = null
         _level.value = 0f
+        pcm?.let { take ->
+            pcm = null
+            _recording.value = false
+            return take.stop()
+        }
         val r = recorder ?: return false
         recorder = null
         _recording.value = false

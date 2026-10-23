@@ -135,12 +135,12 @@ describe('speaking: which answers', () => {
 
   it('a long transcript is kept (1500), no model answer needed, hints and the question picked', () => {
     const long = '我们团队最近忙到没有时间吃午饭。'.repeat(100);
-    const r = pickAnswerCheckInput({ prompt_en: ANNIE, answer: long, exercise_type: 'oral_expression', input: 'spoken', hints: ['就是', 7, '就在'], question: '她是谁？' });
+    const r = pickAnswerCheckInput({ prompt_en: ANNIE, answer: long, exercise_type: 'oral_expression', input: 'spoken', hints: ['就是', 7, '就在'], question_audio: '她是谁？' });
     if ('problems' in r) throw new Error(r.problems.join());
     expect(r.input.answer.length).toBe(1500);
     expect(r.input.model_answer).toBe('');
     expect(r.input.hints).toEqual(['就是', '就在']);
-    expect(r.input.question).toBe('她是谁？');
+    expect(r.input.question_audio).toBe('她是谁？');
     expect(pickAnswerCheckInput({ prompt_en: 'x', answer: '你好', exercise_type: 'translate' })).toEqual({ problems: ['model_answer is required'] });
   });
 

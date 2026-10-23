@@ -205,7 +205,7 @@ export async function checkAttemptSpeaking(env: Env, userId: string, attemptId: 
     if (exercise.type === 'oral_expression') {
       const hints = (exercise.hints ?? []).map((h) => h.hanzi).filter(Boolean);
       if (hints.length) input.hints = hints;
-      if (exercise.question_audio?.hanzi) input.question = exercise.question_audio.hanzi;
+      if (exercise.question_audio?.hanzi) input.question_audio = exercise.question_audio.hanzi;
     }
     const picked = pickAnswerCheckInput(input);
     if ('problems' in picked) return false;

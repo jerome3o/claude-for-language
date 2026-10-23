@@ -38,6 +38,8 @@ private data class AnswerAskBody(
     @SerialName("exercise_type") val exerciseType: String,
     val input: String? = null,
     val focus: String? = null,
+    val hints: List<String>? = null,
+    @SerialName("question_audio") val questionAudio: String? = null,
     val check: AnswerCheck? = null,
     val history: List<AskTurnDto> = emptyList(),
     val question: String,
@@ -87,6 +89,6 @@ suspend fun Api.askAboutLessonAnswer(input: AnswerCheckInput, check: AnswerCheck
     retryBusy {
         post<AnswerAskBody, AnswerAskReply>(
             "/api/lessons/answer-check/ask",
-            AnswerAskBody(input.promptEn, input.modelAnswer, input.modelPinyin, input.answer, input.exerciseType, input.input, input.focus, check, history, question),
+            AnswerAskBody(input.promptEn, input.modelAnswer, input.modelPinyin, input.answer, input.exerciseType, input.input, input.focus, input.hints, input.questionAudio, check, history, question),
         ).reply
     }

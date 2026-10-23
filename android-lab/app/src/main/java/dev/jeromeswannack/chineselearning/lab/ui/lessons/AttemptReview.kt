@@ -218,7 +218,12 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         }
         is MatchExercise -> AttRow("Wrong taps", "${a?.mistakes ?: 0}")
         is DescribeImageExercise -> AttRow("Reference", exercise.referenceHanzi)
-        is SpeakExercise -> AttRow("Prompt", exercise.prompt)
+        is SpeakExercise -> {
+            AttRow("Prompt", exercise.prompt)
+            CheckRows(a, final = false)
+            a?.text?.takeIf { it.isNotBlank() }?.let { AttRow("🎤 Said", it) }
+            CheckRows(a, final = true)
+        }
         is SentenceMakingExercise -> {
             AttRow("Words", exercise.words.joinToString("、") { it.hanzi })
             exercise.task?.takeIf { it.isNotBlank() }?.let { AttRow("Task", it) }
@@ -255,7 +260,10 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
                 a?.recording != null -> Text("Recording made — it uploads the next time the device syncs.", color = Lab.colors.muted)
                 else -> Text("No recording (said it without recording).", color = Lab.colors.muted)
             }
-            media?.transcript?.let { Text(it + (media.transcriptTranslation?.let { t -> " — $t" } ?: ""), color = Lab.colors.ink) }
+            CheckRows(a, final = false)
+            a?.text?.takeIf { it.isNotBlank() }?.let { AttRow("🎤 Said", it) }
+            CheckRows(a, final = true)
+            if (a?.text.isNullOrBlank()) media?.transcript?.let { Text(it + (media.transcriptTranslation?.let { t -> " — $t" } ?: ""), color = Lab.colors.ink) }
             if (media?.transcriptStatus == "pending") Text("Transcribing…", color = Lab.colors.muted)
         }
         is ConversationExercise -> {

@@ -150,7 +150,7 @@ export function speakingCheckUserTurn(input: AnswerCheckInput): string {
     parts.length
       ? `Numbered parts of the task:\n${parts.map((p) => `${p.marker} ${p.structure}${p.description ? ` — ${p.description}` : ''}`).join('\n')}`
       : null,
-    input.question ? `Question played to them in Chinese: ${input.question}` : null,
+    input.question_audio ? `Question played to them in Chinese: ${input.question_audio}` : null,
     input.hints?.length ? `Useful words shown: ${input.hints.join('、')}` : null,
     input.model_answer ? `One way to say it (a model, NOT the only right answer): ${input.model_answer}` : null,
     `Transcript of their recording (speech recognition — punctuation is a guess): ${input.answer}`,

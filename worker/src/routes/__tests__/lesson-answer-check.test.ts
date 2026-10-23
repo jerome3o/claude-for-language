@@ -176,7 +176,7 @@ describe('free speaking (oral_expression / speak)', () => {
     expect(SPEAKING_CHECK_SYSTEM).toMatch(/PUNCTUATION/);
     expect(SPEAKING_CHECK_SYSTEM).toMatch(/在\/再/);
     expect(SPEAKING_CHECK_SYSTEM).toMatch(/at most 4/);
-    const turn = answerCheckUserTurn({ ...speaking(), question: '她是谁？' } as never);
+    const turn = answerCheckUserTurn({ ...speaking(), question_audio: '她是谁？' } as never);
     expect(turn).toContain('① 就是…吧 — Guess who she is');
     expect(turn).toContain('④ 形容词 + 到… — how busy the team is');
     expect(turn).toContain('Useful words shown: 就是、就在、关于');
