@@ -2107,7 +2107,7 @@ role switch (student / tutor), device & sync state, links, decks incl. deleted o
 
 ### Tutor accounts (users.role = 'tutor')
 Set by the admin (sheet or `admin_set_role`). `useNavRole` exposes `isTutorAccount` (from the signed-in user, never waits
-for relationships): tabs **Students · Decks · Library · More** (`tabsFor`), landing always Students unless "Start on" says
+for relationships): tabs **Students · Chats · Decks · Library · More** (`tabsFor`; a `/decks` page lights Decks, not More), landing always Students unless "Start on" says
 otherwise (`resolveLanding`), `/` renders `components/home/TutorHome.tsx` (students, Make, "Try it as your student") instead
 of the study home — no streak, due-card button, homework card or learner onboarding; More shows Teaching / Tools; the
 background sync generates no daily story (`services/accountRole.ts`). **Try it** previews record nothing:
@@ -2769,7 +2769,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - **Student Progress**: Tutors can view student study statistics
 
 ### Frontend Routes
-- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
+- Navigation: a bottom **tab bar** (`components/nav/TabBar`, rendered by `Header`) — tutor account (users.role): Students · Chats · Decks · Library · More; student: Study · Chats · Tutor · Progress · More; account with students: Students · Chats · Study · More (+ Progress if they also study). The Chats tab carries an unread badge (conversations with unread messages); Decks is the first row of More (a `/decks` page lights More up — for a tutor account its own Decks tab). Hidden on immersive routes (`/study`, quest play, readers, editors, chat — `isImmersiveRoute`). `html.has-tab-bar` pads the document so nothing sits under it.
 - `/` - Study home (a tutor account gets the teaching home, `TutorHome`). On the app's initial entry it applies `users.landing_page` (Settings → "Start on"; `PUT /api/profile/landing-page`, exposed on `/api/auth/me`), else the automatic rule: Students when the account has an active student and nothing due today, otherwise Study (`components/nav/landing.ts`).
 - `/chats` - Chats tab: every conversation (tutors + students, Claude role-play in its own section), Signal-style rows with avatar / last message / time / unread, search, ✏️ new chat; cached offline, live while open (`pages/ChatsPage.tsx`, `hooks/useChatList.ts`)
 - `/decks` - Deck list (grouped in folders when there are any) + card search (`?q=`; `/search` redirects here) — More → Decks, Home "All decks →"

@@ -57,6 +57,11 @@ class ShellScreenshots : LabScreenshotTest() {
         MoreScreen(more(tutorAccount), MoreActions())
     }
 
+    /** A tutor account's own Decks tab (Minghui: Decks one tap away), lit on the deck list. */
+    @Test fun tutorAccountDecks() = shootInShell("shell-11-tutor-account-decks-tab", TabId.DECKS, tabs = NavRules.tabsFor(tutorAccount)) {
+        DecksTabScreen(dev.jeromeswannack.chineselearning.lab.ui.decks.DecksSamples.list, dev.jeromeswannack.chineselearning.lab.ui.decks.DecksActions())
+    }
+
     @Test fun studentWithStudentsDark() = shootInShell("shell-08-dark-more", TabId.MORE, tabs = NavRules.tabsFor(NavRole(hasStudents = true, loaded = true)), dark = true) {
         MoreScreen(more(NavRole(hasStudents = true, hasTutor = true, loaded = true), admin = true), MoreActions())
     }

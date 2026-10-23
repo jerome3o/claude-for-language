@@ -5,7 +5,7 @@ import { test, expect, Page, APIRequestContext } from '@playwright/test';
  *
  *  - the admin sets an account's role from the Admin page (and the admin API
  *    refuses non-admins);
- *  - a tutor account opens on Students, has Students · Chats · Library · More,
+ *  - a tutor account opens on Students, has Students · Chats · Decks · Library · More,
  *    a teaching home with no study nagging, and can try a deck without a
  *    single review being recorded;
  *  - the admin deletes an account after typing its email.
@@ -85,11 +85,13 @@ test.describe('admin: roles and accounts', () => {
     await login(page, tutor, '/');
     await expect(page).toHaveURL(/\/connections/);
     const tabs = page.getByTestId('tab-bar').locator('[data-tab]');
-    await expect(tabs).toHaveCount(4);
-    expect(await tabs.evaluateAll((els) => els.map((e) => e.getAttribute('data-tab')))).toEqual(['students', 'chats', 'library', 'more']);
+    await expect(tabs).toHaveCount(5);
+    expect(await tabs.evaluateAll((els) => els.map((e) => e.getAttribute('data-tab')))).toEqual(['students', 'chats', 'decks', 'library', 'more']);
 
     // In-app `/` (the deck page's Back link) is the teaching home: no study button, no streak.
     await page.goto(`/decks/${deck.id}`);
+    // A deck page lights the Decks tab (not More) for a tutor account.
+    await expect(page.locator('[data-tab="decks"]')).toHaveAttribute('aria-current', 'page');
     await expect(page.getByRole('link', { name: /Try it as a student/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /^Study/ })).toHaveCount(0);
     await page.locator('.deck-back-link').click();
