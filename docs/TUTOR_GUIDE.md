@@ -234,8 +234,9 @@ of the last month.
 | **Progress** | 30-day statistics and daily history (section 11) |
 | **More** | everything else — below |
 
-A tutor's tab bar reads **Students · Chats · Study · More** (plus **Progress** if the
-tutor also studies). Their **Students** tab is the dashboard in section 7. Under
+A tutor account's tab bar reads **Students · Chats · Decks · Library · More** — your decks
+are one tap away (they are also the first row of **More**). A learner who also has
+students sees **Students · Chats · Study · More** (plus **Progress** if they study). Their **Students** tab is the dashboard in section 7. Under
 **Settings → Start on** anyone can choose which tab the app opens on.
 
 ### The More page

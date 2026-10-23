@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'chats' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
+export type TabId = 'study' | 'chats' | 'decks' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -12,6 +12,8 @@ export interface TabSpec {
 
 const STUDY: TabSpec = { id: 'study', label: 'Study', to: '/', match: ['/', '/study'] };
 const CHATS: TabSpec = { id: 'chats', label: 'Chats', to: '/chats', match: ['/chats'] };
+/** Tutor accounts only (Minghui asked for Decks one tap away); everyone else finds Decks first in More. */
+const DECKS: TabSpec = { id: 'decks', label: 'Decks', to: '/decks', match: ['/decks', '/generate', '/search'] };
 const TUTOR: TabSpec = { id: 'tutor', label: 'Tutor', to: '/connections', match: ['/connections'] };
 const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections', '/homework-library'] };
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
@@ -21,20 +23,21 @@ const MORE: TabSpec = {
   label: 'More',
   to: '/more',
   match: [
-    // Decks moved from the tab bar into More (its first row), so a deck page lights More up.
+    // Decks moved from the tab bar into More (its first row), so a deck page lights More up —
+    // except for a tutor account, whose Decks tab comes first in tabsFor and wins the tie.
     '/more', '/decks', '/up-next', '/cards/held', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
     '/quests', '/picture-hunt', '/idioms', '/meme-review', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
 /**
- * Tutor account (role):   Students · Chats · Library · More — no Study tab, whatever its decks
+ * Tutor account (role):   Students · Chats · Decks · Library · More — no Study tab, whatever its decks
  * Student account:        Study · Chats · Tutor · Progress · More
  * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
- * Decks live at the top of More (and Home's "See all").
+ * Decks are also the first row of More (and Home's "See all").
  */
 export function tabsFor(role: Pick<NavRole, 'hasStudents' | 'isTutorOnly'> & { isTutorAccount?: boolean }): TabSpec[] {
-  if (role.isTutorAccount) return [STUDENTS, CHATS, LIBRARY, MORE];
+  if (role.isTutorAccount) return [STUDENTS, CHATS, DECKS, LIBRARY, MORE];
   if (!role.hasStudents) return [STUDY, CHATS, TUTOR, PROGRESS, MORE];
   return role.isTutorOnly
     ? [STUDENTS, CHATS, STUDY, MORE]
