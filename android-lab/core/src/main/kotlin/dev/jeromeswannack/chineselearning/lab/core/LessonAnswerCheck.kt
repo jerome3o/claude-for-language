@@ -155,9 +155,9 @@ object LessonAnswerCheck {
     /** good | warn | bad */
     data class Chip(val label: String, val tone: String)
 
-    fun chip(verdict: String): Chip = when (verdict) {
-        "correct" -> Chip("✓ Correct", "good")
-        "acceptable" -> Chip("✓ Also right", "good")
+    fun chip(verdict: String, speaking: Boolean = false): Chip = when (verdict) {
+        "correct" -> Chip(if (speaking) "✓ Well said" else "✓ Correct", "good")
+        "acceptable" -> Chip(if (speaking) "✓ Good" else "✓ Also right", "good")
         "almost" -> Chip("~ Almost", "warn")
         else -> Chip("✗ Not quite", "bad")
     }

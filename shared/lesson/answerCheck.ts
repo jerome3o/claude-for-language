@@ -206,11 +206,11 @@ export function suggestedFor(verdict: AnswerCheckVerdict): AnswerCheckSuggestion
 
 export type AnswerCheckTone = 'good' | 'warn' | 'bad';
 
-/** The verdict chip. */
-export function answerCheckChip(verdict: AnswerCheckVerdict): { label: string; tone: AnswerCheckTone } {
+/** The verdict chip (`speaking`: a free-speaking check — there is no single right answer to be "also" right next to). */
+export function answerCheckChip(verdict: AnswerCheckVerdict, speaking = false): { label: string; tone: AnswerCheckTone } {
   switch (verdict) {
-    case 'correct': return { label: '✓ Correct', tone: 'good' };
-    case 'acceptable': return { label: '✓ Also right', tone: 'good' };
+    case 'correct': return { label: speaking ? '✓ Well said' : '✓ Correct', tone: 'good' };
+    case 'acceptable': return { label: speaking ? '✓ Good' : '✓ Also right', tone: 'good' };
     case 'almost': return { label: '~ Almost', tone: 'warn' };
     case 'wrong': return { label: '✗ Not quite', tone: 'bad' };
   }

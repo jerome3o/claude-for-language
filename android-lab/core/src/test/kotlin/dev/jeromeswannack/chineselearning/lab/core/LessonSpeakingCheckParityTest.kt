@@ -68,6 +68,10 @@ class LessonSpeakingCheckParityTest {
 
     @Test
     fun marksAndQuickQuestions() {
+        for (c in list("chips")) {
+            val chip = c["chip"]!!.jsonObject
+            assertEquals(LessonAnswerCheck.Chip(chip["label"].str!!, chip["tone"].str!!), LessonAnswerCheck.chip(c["verdict"].str!!, speaking = true))
+        }
         for (c in list("marks")) {
             val m = c["mark"]!!.jsonObject
             assertEquals(LessonAnswerCheck.PartMark(m["icon"].str!!, m["tone"].str!!), LessonAnswerCheck.partMark(c["status"].str!!))

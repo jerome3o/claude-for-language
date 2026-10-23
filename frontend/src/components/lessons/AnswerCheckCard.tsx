@@ -49,7 +49,7 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact 
   /** The attempt review: no actions, no audio. */
   compact?: boolean;
 }) {
-  const chip = answerCheckChip(check.verdict);
+  const chip = answerCheckChip(check.verdict, !!check.cleaned);
   return (
     <div className={`answer-check ${chip.tone}${compact ? ' compact' : ''}`} data-testid="answer-check" data-verdict={check.verdict}>
       <div className="answer-check-head">

@@ -239,7 +239,7 @@ fun AnswerCheckBody(
     onAsk: (() -> Unit)? = null,
     compact: Boolean = false,
 ) {
-    val chip = LessonAnswerCheck.chip(check.verdict)
+    val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
     val shape = RoundedCornerShape(14.dp)
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(shape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, shape)) {
@@ -456,8 +456,8 @@ private fun CleanerVersionBlock(check: AnswerCheck, onPlay: ((String) -> Unit)?,
         Row(verticalAlignment = Alignment.CenterVertically) {
             val from = v.diffFrom
             if (from != null) {
-                val diff = remember(from, v.hanzi) { ChatLearning.correctionDiff(from, v.hanzi) }
-                Box(Modifier.weight(1f, fill = false)) { DiffLine(diff.corrected, added = true, fontSize = if (compact) 15.sp else 17.sp) }
+                val text = remember(from, v.hanzi) { cleanerWithFixes(from, v.hanzi) }
+                Text(text, color = Lab.colors.ink, fontSize = if (compact) 15.sp else 17.sp, modifier = Modifier.weight(1f, fill = false))
             } else {
                 Text(v.hanzi, color = Lab.colors.ink, fontSize = if (compact) 15.sp else 17.sp, modifier = Modifier.weight(1f, fill = false))
             }
@@ -467,3 +467,24 @@ private fun CleanerVersionBlock(check: AnswerCheck, onPlay: ((String) -> Unit)?,
     }
 }
 
+
+/**
+ * The cleaner version with the real fixes in green: the character diff (punctuation-blind, like the
+ * web's correctionDiff) re-threaded through the text as written, so its punctuation stays.
+ */
+private fun cleanerWithFixes(from: String, corrected: String): androidx.compose.ui.text.AnnotatedString {
+    val flat = ChatLearning.correctionDiff(from, corrected).corrected.flatMap { r -> r.text.codePoints().toArray().map { String(Character.toChars(it)) to r.same } }
+    var p = 0
+    return androidx.compose.ui.text.buildAnnotatedString {
+        for (cp in corrected.codePoints().toArray()) {
+            val ch = String(Character.toChars(cp))
+            val hit = flat.getOrNull(p)?.takeIf { it.first.equals(ch, ignoreCase = true) }
+            if (hit != null) p++
+            if (hit != null && !hit.second) {
+                pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Good, fontWeight = FontWeight.Bold, background = Palette.Good.copy(alpha = 0.16f)))
+                append(ch)
+                pop()
+            } else append(ch)
+        }
+    }
+}
