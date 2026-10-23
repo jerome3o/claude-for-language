@@ -61,7 +61,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
         />
       );
     case 'speak':
-      return <SpeakPromptExercise prompt={exercise.prompt} example={exercise.example} speak={speak} onNext={onNext} />;
+      return <SpeakPromptExercise prompt={exercise.prompt} example={exercise.example} focus={focus} speak={speak} onNext={onNext} />;
     case 'listen_choice':
       return <ListenChoiceExercise audio={exercise.audio} question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={onNext} />;
     case 'listen_translate':
@@ -83,6 +83,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
           example={exercise.example}
           targetSeconds={exercise.target_seconds}
           mediaKey={mediaKey}
+          focus={focus}
           speak={speak}
           onNext={(correct, answer, recording) => onDone(correct, answer, recording)}
         />

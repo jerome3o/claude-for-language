@@ -18,6 +18,7 @@ import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
+import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -508,47 +509,29 @@ export function DescribeImageExercise(props: {
 export function SpeakPromptExercise(props: {
   prompt: string;
   example?: ExerciseSentence | null;
+  /** The lesson's title / grammar point (Claude's check stays on topic). */
+  focus?: string;
   speak: Speak;
   onNext: OnNext;
 }) {
-  const { prompt, example, speak, onNext } = props;
-  const [finished, setFinished] = useState(false);
-
+  const { prompt, example, focus, speak, onNext } = props;
   return (
     <div className="exercise">
       <div className="phase-label">Say it out loud</div>
       <div className="translate-prompt">{prompt}</div>
-      {!finished ? (
-        <div className="exercise-actions">
-          <button className="practice-btn primary" onClick={() => setFinished(true)}>
-            🎤 I've said my sentence
-          </button>
-        </div>
-      ) : (
-        <>
-          {example && (
-            <>
-              <p className="result-explanation">One way to say it:</p>
-              <div className="translate-ref">
-                <div className="translate-ref-hanzi" onClick={() => speak(example.hanzi)}>
-                  {example.hanzi} 🔊
-                </div>
-                {example.pinyin && <div className="translate-ref-pinyin">{example.pinyin}</div>}
-                {example.english && <div className="contrast-english">{example.english}</div>}
-              </div>
-            </>
-          )}
-          <p className="result-explanation">Was your sentence grammatical and on task?</p>
-          <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false, { self_assessed: true })}>
-              ✗ Not quite
-            </button>
-            <button className="practice-btn primary" onClick={() => onNext(true, { self_assessed: true })}>
-              ✓ Yes
-            </button>
-          </div>
-        </>
-      )}
+      {/* Record it and Claude checks the transcript (docs/STUDY_SESSION.md "Claude checks your speaking");
+          nothing is kept — or say it without recording, as before. */}
+      <SpeakingAnswer
+        exerciseType="speak"
+        prompt={prompt}
+        example={example ? { hanzi: example.hanzi, pinyin: example.pinyin ?? undefined, english: example.english ?? undefined } : null}
+        targetSeconds={15}
+        focus={focus}
+        speak={speak}
+        gotItLabel="✓ Yes"
+        allowWithoutRecording
+        onNext={(correct, answer) => onNext(correct, answer)}
+      />
     </div>
   );
 }

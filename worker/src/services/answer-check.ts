@@ -8,13 +8,18 @@
  * Cached for everyone by SHA-256 of `answerCheckCacheText` in `lesson_answer_checks`
  * (migration 0127): the same answer to the same exercise is never asked twice.
  *
+ * Free speaking (oral_expression / speak, `isSpeakingCheckType`) is a longer, kinder judgement of a
+ * recording's transcript: the larger model first (the smaller one as the last-attempt fallback),
+ * its own prompt and tool (`check_speaking`) — see SPEAKING_CHECK_SYSTEM.
+ *
  * `askAboutAnswer` is the follow-up ("💬 Ask about this"): a short reply in English about this
  * exercise, the answer and the check, with the conversation so far.
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  answerCheckCacheText, normalizeAnswerCheck, ANSWER_CHECK_VERSION,
+  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, speakingTaskParts,
+  ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
@@ -72,8 +77,89 @@ const TOOL = {
   },
 };
 
+// ============ Free speaking ============
+
+export const SPEAKING_CHECK_SYSTEM = `You are a warm, encouraging Chinese tutor marking ONE spoken answer from a learner in a lesson's free speaking exercise. You get the task, any "useful words", sometimes a model answer (only ONE way to do it — never mark them against it) and a speech-recognition TRANSCRIPT of their recording, often a minute or more long.
+
+Be gracious. The learner is speaking freely and will misspeak. NONE of these count against them, are mentioned in tips, or appear in the cleaned version:
+- false starts, restarts and self-corrections ("你就是…你就是新来的…") — judge only their FINAL attempt at each bit;
+- apologies and asides: "sorry", "wait", "um", "嗯", "那个", "怎么说", English words or whole English sentences said to themselves;
+- repeating a word or a sentence;
+- PUNCTUATION: the transcript's punctuation is the recogniser's guess. Ignore it completely — odd, extra or missing commas and full stops are never a mistake, never lower the verdict, are never mentioned, and are never changed in the cleaned version;
+- sound-alike wrong characters (在/再, 他/她, 的/得/地, 做/作, 那/哪) and homophones: read them as what they meant — the recogniser wrote them, not the learner.
+Work out what they MEANT to say, then judge that.
+
+Then look for what a good teacher would really correct: grammar, word choice, word order, measure words, missing or wrong particles and verb complements, a structure from the task used wrongly. Do not nitpick what is fine in spoken Chinese (dropped subjects, 了 / 的 / 吧 / 啊 that are optional, a simpler word than the model's, casual phrasing).
+
+Fields:
+- cleaned: what they meant, in Chinese — the transcript with the disfluencies, asides, English and repeats removed, keeping THEIR words, word order and mistakes. Same content and errors as they said it. Keep English names they used (Annie).
+- corrected: "a cleaner version" — the cleaned text with only the real mistakes fixed (keep their words and structure). Empty when nothing needs fixing.
+- parts: when the task lists numbered parts (① ② ③…), one entry per part in order, label = the marker + its structure exactly as given (e.g. "① 就是…吧"); status "used" (they did it and the structure is right), "used_with_issue" (they did it but with a slip in that structure), "missing" (not done or the structure not used). note: one short English line quoting what they said for it, or what to add. Without numbered parts, list the task's 2–4 main asks the same way (short English labels), or none for a single, simple ask.
+- tips: at most 4, the most useful first; each about ONE real point: "quote" = their exact Chinese words at fault (as in the transcript, copied exactly), "fix" = the better Chinese for those words, "text" = one short English line saying why (include pinyin with tone marks for the fixed words). No tips for disfluencies or punctuation; never pad — fewer is fine.
+- verdict: "correct" = did the task and what they meant is natural and grammatical; "acceptable" = did the task and is clearly understandable, with a slip or two (most good answers); "almost" = a part of the task is missing or a target structure is misused, or several real errors; "wrong" = off-task or mostly not understandable.
+- headline: one short, encouraging English line (≤ 14 words): what went well and the one thing to fix.
+- Stay on the lesson's focus when one is given. Answer with the check_speaking tool.`;
+
+const SPEAKING_TOOL = {
+  name: 'check_speaking',
+  description: 'Return the verdict on the learner\'s spoken answer, what they meant, a cleaner version, the task parts covered and the tips.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      verdict: { type: 'string', enum: ['correct', 'acceptable', 'almost', 'wrong'] },
+      headline: { type: 'string', description: 'One short, encouraging line in English' },
+      cleaned: { type: 'string', description: 'What they meant: the transcript without false starts, fillers, asides, English and repeats — their words and mistakes kept (Chinese)' },
+      corrected: { type: 'string', description: 'The cleaned text with only the real mistakes fixed; empty when nothing needs fixing (Chinese)' },
+      parts: {
+        type: 'array',
+        maxItems: 8,
+        items: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'The marker + structure exactly as in the task ("① 就是…吧"), or a short label' },
+            status: { type: 'string', enum: ['used', 'used_with_issue', 'missing'] },
+            note: { type: 'string', description: 'One short English line' },
+          },
+          required: ['label', 'status'],
+        },
+      },
+      tips: {
+        type: 'array',
+        maxItems: 4,
+        items: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'One short line in English, with the pinyin of the fix' },
+            quote: { type: 'string', description: 'Their exact Chinese words the tip is about' },
+            fix: { type: 'string', description: 'The better Chinese for those words' },
+          },
+          required: ['text', 'quote', 'fix'],
+        },
+      },
+    },
+    required: ['verdict', 'headline', 'cleaned', 'corrected', 'parts', 'tips'],
+  },
+};
+
+/** The user turn for a speaking check. */
+export function speakingCheckUserTurn(input: AnswerCheckInput): string {
+  const parts = speakingTaskParts(input.prompt_en);
+  return [
+    input.focus ? `Lesson focus: ${input.focus}` : null,
+    `Speaking task: ${input.prompt_en}`,
+    parts.length
+      ? `Numbered parts of the task:\n${parts.map((p) => `${p.marker} ${p.structure}${p.description ? ` — ${p.description}` : ''}`).join('\n')}`
+      : null,
+    input.question ? `Question played to them in Chinese: ${input.question}` : null,
+    input.hints?.length ? `Useful words shown: ${input.hints.join('、')}` : null,
+    input.model_answer ? `One way to say it (a model, NOT the only right answer): ${input.model_answer}` : null,
+    `Transcript of their recording (speech recognition — punctuation is a guess): ${input.answer}`,
+  ].filter(Boolean).join('\n');
+}
+
 /** The user turn the model sees. */
 export function answerCheckUserTurn(input: AnswerCheckInput): string {
+  if (isSpeakingCheckType(input.exercise_type)) return speakingCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
   return [
     input.focus ? `Lesson focus: ${input.focus}` : null,
@@ -98,7 +184,14 @@ export function appPinyin(hanzi: string): string {
 export function withPinyin(check: AnswerCheck): AnswerCheck {
   const out: AnswerCheck = { ...check, corrected_pinyin: check.corrected ? appPinyin(check.corrected) : '' };
   if (check.alternative) out.alternative = { ...check.alternative, pinyin: appPinyin(check.alternative.hanzi) };
+  if (check.cleaned) out.cleaned_pinyin = appPinyin(check.cleaned);
+  if (check.tips.some((t) => t.fix)) out.tips = check.tips.map((t) => (t.fix ? { ...t, fix_pinyin: appPinyin(t.fix) } : t));
   return out;
+}
+
+/** The cache row's version for this exercise type. */
+export function checkVersionFor(exerciseType: string): number {
+  return isSpeakingCheckType(exerciseType) ? SPEAKING_CHECK_VERSION : ANSWER_CHECK_VERSION;
 }
 
 export async function answerCheckHash(input: AnswerCheckInput): Promise<string> {
@@ -114,6 +207,7 @@ export interface AnswerCheckDeps {
 
 /** One model call (no cache). */
 export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckDeps): Promise<AnswerCheck> {
+  if (isSpeakingCheckType(input.exercise_type)) return runSpeakingCheck(input, deps);
   const check = await structuredCall({
     apiKey: deps.apiKey,
     model: ANSWER_CHECK_MODEL,
@@ -131,6 +225,29 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
   return withPinyin(check);
 }
 
+/** A free-speaking answer: the longer judgement on the larger model, the smaller one as the last attempt. */
+export async function runSpeakingCheck(input: AnswerCheckInput, deps: AnswerCheckDeps): Promise<AnswerCheck> {
+  const check = await structuredCall({
+    apiKey: deps.apiKey,
+    model: ANSWER_CHECK_FALLBACK_MODEL,
+    fallbackModel: ANSWER_CHECK_MODEL,
+    system: SPEAKING_CHECK_SYSTEM,
+    user: speakingCheckUserTurn(input),
+    tool: SPEAKING_TOOL,
+    maxTokens: 2000,
+    attempts: 2,
+    timeoutMs: 40_000,
+    validate: (raw) => {
+      const c = normalizeAnswerCheck(raw, input.answer);
+      if (!c.cleaned) throw new Error('Speaking check without the cleaned text');
+      return c;
+    },
+    onUsage: deps.onUsage,
+    client: deps.client,
+  });
+  return withPinyin(check);
+}
+
 /** Cached for everyone; a cache miss asks the model and stores the result. */
 export async function checkLessonAnswer(
   db: D1Database,
@@ -140,7 +257,7 @@ export async function checkLessonAnswer(
   const hash = await answerCheckHash(input);
   try {
     const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?')
-      .bind(hash, ANSWER_CHECK_VERSION).first<{ check_json: string }>();
+      .bind(hash, checkVersionFor(input.exercise_type)).first<{ check_json: string }>();
     if (row) return { check: normalizeAnswerCheck(JSON.parse(row.check_json), input.answer), cached: true };
   } catch (error) {
     console.warn('[answer-check] cache read failed:', error instanceof Error ? error.message : error);
@@ -149,7 +266,7 @@ export async function checkLessonAnswer(
   try {
     await db.prepare(
       'INSERT OR REPLACE INTO lesson_answer_checks (hash, version, exercise_type, verdict, check_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(hash, ANSWER_CHECK_VERSION, input.exercise_type, check.verdict, JSON.stringify(check), new Date().toISOString()).run();
+    ).bind(hash, checkVersionFor(input.exercise_type), input.exercise_type, check.verdict, JSON.stringify(check), new Date().toISOString()).run();
   } catch (error) {
     console.warn('[answer-check] cache write failed:', error instanceof Error ? error.message : error);
   }

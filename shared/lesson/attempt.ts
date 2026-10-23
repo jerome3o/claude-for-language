@@ -292,7 +292,7 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
     const tries: AnswerTry[] = [];
     for (const t of v.tries.slice(0, 10)) {
       if (!isRecord(t)) continue;
-      const text = str(t.text, 300);
+      const text = str(t.text, 1500);
       if (!text) continue;
       const tr: AnswerTry = { text };
       if (t.input === 'spoken' || t.input === 'edited' || t.input === 'typed') tr.input = t.input;

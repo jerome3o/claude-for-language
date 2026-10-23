@@ -35,9 +35,8 @@ import { getStrokeData } from '../services/strokeData';
 import { StrokesView } from './handwriting/StrokesView';
 import { ListenPlayButton, type OnNext } from './lesson-exercises';
 import { checkMadeSentence } from '../api/lessonPractice';
-import { useAudioRecorder } from '../hooks/useAudio';
+import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { useLessonClips } from '../hooks/useLessonClips';
-import { createAudioPlayer } from '../utils/audioPlayback';
 import { shuffledIndexes } from '../utils/shuffle';
 import { audioForConversation, onConversationAudioChange } from '../services/conversationAudio';
 import { ConversationAudioSheet } from './lesson/ConversationAudioSheet';
@@ -591,56 +590,17 @@ export function OralExpressionExercise(props: {
   targetSeconds?: number;
   /** Media key for the attempt; without one (preview / trial) nothing is kept. */
   mediaKey?: string;
+  /** The lesson's title / grammar point (Claude's check stays on topic). */
+  focus?: string;
   speak: Speak;
   onNext: (correct: boolean, answer: ExerciseAnswer, recording?: Blob) => void;
 }) {
-  const { prompt, questionAudio, hints, example, targetSeconds = 30, mediaKey, speak, onNext } = props;
-  const recorder = useAudioRecorder();
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [elapsed, setElapsed] = useState(0);
-  const [durationMs, setDurationMs] = useState(0);
-  const [done, setDone] = useState(false);
-  const [skipped, setSkipped] = useState(false);
-  const playerRef = useRef(createAudioPlayer());
-
-  useEffect(() => {
-    const player = playerRef.current;
-    return () => player.dispose();
-  }, []);
+  const { prompt, questionAudio, hints, example, targetSeconds = 30, mediaKey, focus, speak, onNext } = props;
 
   useEffect(() => {
     if (questionAudio) speak(questionAudio.hanzi);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    if (!recorder.isRecording || startedAt === null) return;
-    const timer = setInterval(() => setElapsed(Math.round((Date.now() - startedAt) / 1000)), 250);
-    return () => clearInterval(timer);
-  }, [recorder.isRecording, startedAt]);
-
-  async function start() {
-    playerRef.current.stop();
-    setElapsed(0);
-    setStartedAt(Date.now());
-    await recorder.startRecording();
-  }
-
-  function stop() {
-    if (startedAt !== null) setDurationMs(Date.now() - startedAt);
-    recorder.stopRecording();
-  }
-
-  function finish() {
-    setDone(true);
-    if (example) speak(example.hanzi);
-  }
-
-  const blob = recorder.audioBlob;
-  const answer = (): ExerciseAnswer => ({
-    self_assessed: true,
-    recording: blob && mediaKey ? { media_key: mediaKey, duration_ms: durationMs, mime: blob.type || 'audio/webm' } : undefined,
-  });
 
   return (
     <div className="exercise">
@@ -657,58 +617,19 @@ export function OralExpressionExercise(props: {
           <WordChips words={hints} speak={speak} />
         </>
       )}
-
-      {!done ? (
-        <div className="oral-recorder">
-          {recorder.isRecording ? (
-            <>
-              <div className="rec-status">
-                <span className="rec-dot" /> Recording… {elapsed}s <span className="rec-target">/ ~{targetSeconds}s</span>
-              </div>
-              <div className="rec-level"><div style={{ width: `${Math.round(recorder.audioLevel * 100)}%` }} /></div>
-              <button className="rec-btn stop" onClick={stop} aria-label="Stop recording">■</button>
-            </>
-          ) : blob ? (
-            <>
-              <div className="rec-status">Recorded {Math.round(durationMs / 1000)}s</div>
-              <div className="exercise-actions">
-                <button className="practice-btn" onClick={() => playerRef.current.play(blob, { label: 'lesson-recording' })}>▶ Listen back</button>
-                <button className="practice-btn" onClick={start}>🎙 Again</button>
-              </div>
-              <div className="exercise-actions">
-                <button className="practice-btn primary" onClick={finish}>Done</button>
-              </div>
-            </>
-          ) : (
-            <>
-              <button className="rec-btn" onClick={start} aria-label="Start recording">🎙</button>
-              <div className="rec-hint">Tap to record your answer (about {targetSeconds} seconds)</div>
-              {recorder.error && (
-                <>
-                  <p className="result-explanation">{recorder.error}</p>
-                  <div className="exercise-actions">
-                    <button className="practice-btn" onClick={() => { setSkipped(true); finish(); }}>Say it without recording</button>
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-      ) : (
-        <>
-          {blob && !skipped && (
-            <div className="exercise-actions">
-              <button className="practice-btn" onClick={() => playerRef.current.play(blob, { label: 'lesson-recording' })}>▶ Your answer</button>
-            </div>
-          )}
-          {example && <Reference sentence={example} speak={speak} label="One way to say it:" />}
-          {mediaKey && blob && <p className="result-explanation small">Your tutor can listen to this recording.</p>}
-          <div className="exercise-actions">
-            <button className="practice-btn" onClick={() => onNext(false, answer(), blob ?? undefined)}>✗ Not quite</button>
-            <button className="practice-btn primary" onClick={() => onNext(true, answer(), blob ?? undefined)}>✓ I said it well</button>
-          </div>
-        </>
-      )}
+      {/* Recorded, transcribed and checked by Claude (docs/STUDY_SESSION.md "Claude checks your speaking"). */}
+      <SpeakingAnswer
+        exerciseType="oral_expression"
+        prompt={prompt}
+        hints={hints?.map(h => h.hanzi).filter(Boolean)}
+        question={questionAudio?.hanzi}
+        example={example}
+        targetSeconds={targetSeconds}
+        mediaKey={mediaKey}
+        focus={focus}
+        speak={speak}
+        onNext={onNext}
+      />
     </div>
   );
 }

@@ -3,7 +3,8 @@
  * helpers that need the server. Mounted under /api after the auth middleware.
  *
  *   POST /lessons/sentence-feedback                      Claude checks a sentence_making answer (503 retryable / 502)
- *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate; cached)
+ *   POST /lessons/answer-check                           Claude checks a self-assessed answer (translate / listen_translate, and a
+ *                                                        free-speaking transcript: oral_expression / speak; cached)
  *   POST /lessons/answer-check/ask                       💬 Ask about this: a short follow-up about that answer
  *   PUT  /lesson-attempts/:id/media/:key                 upload a recording made in an attempt (raw body; owner only)
  *   GET  /lesson-attempts[?lesson_id]                    my attempts, newest first
@@ -15,7 +16,9 @@
  * POST /api/custom-lessons/offline-complete (index.ts) — offline-first,
  * idempotent by the event id. Recordings come after, from the device's
  * upload queue; they are transcribed in the background when a transcriber is
- * configured (the same providers as video calls).
+ * configured (the same providers as video calls). A free-speaking recording whose answer has no
+ * check yet (recorded offline, or the device couldn't transcribe it) is then checked here too,
+ * from that transcript, and the check is written into the attempt (`checkAttemptSpeaking`).
  */
 
 import { mediaPathFor } from './media';
@@ -27,7 +30,8 @@ import { storeAudio } from '../services/audio';
 import { checkMadeSentence } from '../services/sentence-making';
 import { checkLessonAnswer, askAboutAnswer, type AskTurn } from '../services/answer-check';
 import { fakeAnswerCheckClient } from '../services/answer-check-fake';
-import { pickAnswerCheckInput, parseAnswerCheck } from '@shared/lesson/answerCheck';
+import { pickAnswerCheckInput, parseAnswerCheck, answerCheckApplies, isSpeakingCheckType, type AnswerCheckInput } from '@shared/lesson/answerCheck';
+import { aiSpendToday, dailyCostCap } from '../middleware/cost-guard';
 import { StructuredCallError } from '../services/structured-call';
 import { transcribeAudio, pickTranscriber } from '../services/calls/transcribe';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
@@ -35,7 +39,8 @@ import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services
 type AppEnv = { Bindings: Env };
 const lessonAttempts = new Hono<AppEnv>();
 
-const MAX_RECORDING_BYTES = 8 * 1024 * 1024;
+// A few minutes of free speaking (the Lab keeps 16 kHz WAV takes: ~1.9 MB a minute).
+const MAX_RECORDING_BYTES = 16 * 1024 * 1024;
 
 // ============ Sentence making: Claude's check ============
 
@@ -140,24 +145,78 @@ lessonAttempts.put('/lesson-attempts/:id/media/:key', async (c) => {
   await storeAudio(c.env.AUDIO_BUCKET, audioKey, bytes, mime);
   await q.upsertAttemptMedia(c.env.DB, { attempt_id: attemptId, media_key: mediaKey, user_id: userId, audio_key: audioKey, content_type: mime, size: bytes.byteLength });
 
-  c.executionCtx.waitUntil(transcribeAttemptMedia(c.env, attemptId, mediaKey, new Uint8Array(bytes), mime));
+  c.executionCtx.waitUntil(
+    transcribeAttemptMedia(c.env, attemptId, mediaKey, new Uint8Array(bytes), mime)
+      .then((text) => (text ? checkAttemptSpeaking(c.env, userId, attemptId, mediaKey, text) : undefined)),
+  );
   return c.json({ ok: true, audio_url: await mediaPathFor(c.env, audioKey) }, 201);
 });
 
-/** Transcribe one recording in the background; failures are recorded, never thrown. */
-export async function transcribeAttemptMedia(env: Env, attemptId: string, mediaKey: string, bytes: Uint8Array, mime: string): Promise<void> {
+/** Transcribe one recording in the background; failures are recorded, never thrown. Resolves with the text ('' when none). */
+export async function transcribeAttemptMedia(env: Env, attemptId: string, mediaKey: string, bytes: Uint8Array, mime: string): Promise<string> {
   try {
     if (!env.AI && !env.GEMINI_API_KEY && !env.SONIOX_API_KEY) {
       await q.setAttemptMediaTranscript(env.DB, attemptId, mediaKey, 'skipped', null, null);
-      return;
+      return '';
     }
     const result = await transcribeAudio(env, pickTranscriber(env), bytes, mime);
     const text = result.segments.map(s => s.text.trim()).filter(Boolean).join(' ');
     const translation = result.segments.map(s => (s.translation ?? '').trim()).filter(Boolean).join(' ');
     await q.setAttemptMediaTranscript(env.DB, attemptId, mediaKey, 'done', text || null, translation || null);
+    return text;
   } catch (error) {
     console.error('[lesson] recording transcription failed:', attemptId, mediaKey, error);
     await q.setAttemptMediaTranscript(env.DB, attemptId, mediaKey, 'failed', null, null).catch(() => {});
+    return '';
+  }
+}
+
+/**
+ * A free-speaking recording that reached the server without Claude's check (made offline, or the
+ * device couldn't transcribe it): check it now from the server's transcript (or the device's own
+ * text, when it had one) and write the check into the attempt — the tutor's review and the
+ * learner's "My answers" show it. Skipped past the daily AI cap. Never throws.
+ */
+export async function checkAttemptSpeaking(env: Env, userId: string, attemptId: string, mediaKey: string, transcript: string): Promise<boolean> {
+  try {
+    const deps = answerCheckDeps(env);
+    if (!deps) return false;
+    const row = await q.getLessonAttempt(env.DB, attemptId, userId);
+    if (!row) return false;
+    const data = JSON.parse(row.data) as LessonAttemptData;
+    const spec = JSON.parse(row.spec) as CustomLessonSpec;
+    const ex = data.exercises.find((e) => isSpeakingCheckType(e.type) && e.answer?.recording?.media_key === mediaKey);
+    if (!ex || !ex.answer || ex.answer.check) return false;
+    const exercise = spec.sections?.[ex.section]?.exercises?.[ex.index];
+    if (!exercise || (exercise.type !== 'oral_expression' && exercise.type !== 'speak')) return false;
+    const text = (ex.answer.text?.trim() || transcript.trim()).slice(0, 1500);
+    if (!answerCheckApplies(exercise.type, text)) return false;
+    const cap = dailyCostCap(env.AI_DAILY_COST_CAP_USD);
+    if (cap !== null && env.E2E_TEST_MODE !== 'true' && (await aiSpendToday(env.DB, userId)) >= cap) return false;
+    const input: AnswerCheckInput = {
+      prompt_en: exercise.prompt,
+      model_answer: exercise.example?.hanzi ?? '',
+      model_pinyin: exercise.example?.pinyin ?? undefined,
+      answer: text,
+      exercise_type: exercise.type,
+      input: 'spoken',
+      focus: spec.title || undefined,
+    };
+    if (exercise.type === 'oral_expression') {
+      const hints = (exercise.hints ?? []).map((h) => h.hanzi).filter(Boolean);
+      if (hints.length) input.hints = hints;
+      if (exercise.question_audio?.hanzi) input.question = exercise.question_audio.hanzi;
+    }
+    const picked = pickAnswerCheckInput(input);
+    if ('problems' in picked) return false;
+    const { check } = await checkLessonAnswer(env.DB, picked.input, deps);
+    ex.answer = { ...ex.answer, text: picked.input.answer, input: ex.answer.input ?? 'spoken', check };
+    await env.DB.prepare('UPDATE custom_lesson_attempts SET data = ? WHERE id = ? AND user_id = ?')
+      .bind(JSON.stringify(data), attemptId, userId).run();
+    return true;
+  } catch (error) {
+    console.error('[lesson] late speaking check failed:', attemptId, mediaKey, error instanceof Error ? error.message : error);
+    return false;
   }
 }
 

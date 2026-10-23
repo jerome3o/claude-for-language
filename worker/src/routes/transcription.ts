@@ -20,7 +20,8 @@ import { cleanClientNote, takeProviders, TakeTranscriptionError, transcribeTake 
 const transcription = new Hono<{ Bindings: Env }>();
 
 /** Most a pronunciation take can be: minutes of 16 kHz WAV, far more than one word. */
-const MAX_TAKE_BYTES = 12 * 1024 * 1024;
+// A lesson's free-speaking take may run a few minutes (WAV from the Lab ≈ 1.9 MB a minute).
+const MAX_TAKE_BYTES = 16 * 1024 * 1024;
 
 transcription.post('/transcribe', async (c) => {
   const user = c.get('user');

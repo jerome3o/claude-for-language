@@ -23,8 +23,11 @@ import type { Env } from '../types';
 const SONIOX_TEMP_KEY_URL = 'https://api.soniox.com/v1/auth/temporary-api-key';
 /** How long one temporary key lives (Soniox allows 1–3600 s). */
 export const LIVE_KEY_TTL_SECONDS = 1800;
-/** One take is a few seconds; cap a runaway session. */
-export const LIVE_MAX_SESSION_SECONDS = 300;
+/**
+ * A card's take is a few seconds; a lesson's free-speaking answer may run a few minutes (the apps
+ * stop it at SPEAKING_MAX_SECONDS, shared/lesson/speakingTake.ts). Caps a runaway session.
+ */
+export const LIVE_MAX_SESSION_SECONDS = 420;
 
 export class LiveTranscriptionError extends Error {
   constructor(message: string, readonly status: number) {

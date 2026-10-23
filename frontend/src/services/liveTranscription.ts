@@ -37,9 +37,10 @@ export function resetLiveSessionCache() {
   retryAfter = 0;
 }
 
-export async function getLiveSession(fetchSession: () => Promise<LiveTranscriptionSession> = getLiveTranscriptionSession, now = Date.now()): Promise<SonioxSession | null> {
+/** `marginMs`: how long the key must still live (a lesson's speaking take needs minutes, not one). */
+export async function getLiveSession(fetchSession: () => Promise<LiveTranscriptionSession> = getLiveTranscriptionSession, now = Date.now(), marginMs?: number): Promise<SonioxSession | null> {
   if (cached?.provider === 'upload') return null;
-  if (liveKeyUsable(cached, now)) return cached as SonioxSession;
+  if (liveKeyUsable(cached, now, marginMs)) return cached as SonioxSession;
   if (now < retryAfter) return null;
   if (!inflight) {
     inflight = fetchSession()
