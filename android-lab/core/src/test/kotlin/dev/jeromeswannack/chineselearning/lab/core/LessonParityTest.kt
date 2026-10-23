@@ -120,7 +120,7 @@ class LessonParityTest {
 
     @Test fun everySampleDecodesAndMatches() {
         val samples = root["samples"]!!.jsonArray
-        assertEquals(15, samples.size)
+        assertEquals(17, samples.size)
         for (el in samples) {
             val c = el.jsonObject
             val id = c["id"]!!.str!!

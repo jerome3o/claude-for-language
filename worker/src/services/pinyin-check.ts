@@ -33,6 +33,7 @@ import { pinyinSyllables, syllableTone, toneless } from '@shared/pinyin/toneChan
 import type { PinyinFix, PinyinWarning, PinyinWordFix } from '@shared/pinyin/fixes';
 import { isChinesePunct, isHanChar } from '@shared/calls';
 import { glossReadingSources } from './calls/gloss-sources';
+import { fillGap, gapCount } from '@shared/lesson/types';
 
 export type { PinyinFix, PinyinWarning, PinyinWordFix } from '@shared/pinyin/fixes';
 
@@ -655,9 +656,23 @@ const PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['sentence_clue', 'sentence_clue_pinyin'],
 ];
 
+/** A gap_choice sentence: its pinyin is the FULL sentence's, so it is checked against the sentence with the answer in the gap. */
+const GAP_SENTENCE = 'sentence';
+
+function gapFilledHanzi(obj: Record<string, unknown>): string | undefined {
+  const sentence = obj.sentence;
+  const answer = obj.answer;
+  if (typeof sentence !== 'string' || typeof answer !== 'string' || gapCount(sentence) !== 1) return undefined;
+  return fillGap(sentence, answer);
+}
+
+function pairsOf(obj: Record<string, unknown>): ReadonlyArray<readonly [string, string]> {
+  return typeof obj.sentence === 'string' && typeof obj.answer === 'string' ? [...PAIRS, [GAP_SENTENCE, 'pinyin']] : PAIRS;
+}
+
 const PLURALS: Record<string, string> = {
   sections: 'section', exercises: 'exercise', lines: 'line', pages: 'page', options: 'option', pairs: 'pair', words: 'word',
-  hints: 'hint', sentences: 'sentence', vocabulary_used: 'vocabulary', questions: 'question', points: 'point',
+  hints: 'hint', sentences: 'sentence', vocabulary_used: 'vocabulary', questions: 'question', points: 'point', items: 'item',
 };
 
 function label(key: string, index: number | null, node: unknown): string {
@@ -678,8 +693,11 @@ export async function checkSpecPinyin(spec: unknown, sources: PinyinReadingSourc
     if (Array.isArray(node)) return;
     if (!node || typeof node !== 'object') return;
     const obj = node as Record<string, unknown>;
-    for (const [hk, pk] of PAIRS) {
-      const hz = obj[hk];
+    for (const [hk, pk] of pairsOf(obj)) {
+      // A judge exercise's WRONG sentence (correct: false) is a deliberate mistake — left as written;
+      // its correction is checked like any sentence.
+      if (hk === 'hanzi' && obj.correct === false) continue;
+      const hz = hk === GAP_SENTENCE ? gapFilledHanzi(obj) : obj[hk];
       const py = obj[pk];
       if (typeof hz !== 'string' || typeof py !== 'string' || !py.trim()) continue;
       const r = await checkAuthoredPinyin(hz, py, sources);

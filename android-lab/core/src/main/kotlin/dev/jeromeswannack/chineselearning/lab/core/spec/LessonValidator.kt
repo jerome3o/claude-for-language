@@ -6,6 +6,9 @@ import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson.str
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
+import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
 
 /**
  * Port of shared/lesson/validate.ts: structural validation for a lesson spec. Returns the
@@ -23,12 +26,17 @@ object LessonValidator {
     private const val MAX_HANDWRITTEN_DICTATION_CHARS = 16
     private const val MAX_CONVERSATION_LINES = 24
     private const val MAX_CONVERSATION_QUESTIONS = 6
+    private const val MIN_JUDGE_SENTENCES = 3
+    private const val MAX_JUDGE_SENTENCES = 8
+    private const val MIN_GAP_ITEMS = 2
+    private const val MAX_GAP_ITEMS = 8
+    private const val MAX_GAP_OPTIONS = 4
 
     /** Every exercise type the validator accepts, in catalogue order (EXERCISE_TYPE_IDS). */
     val EXERCISE_TYPE_IDS = listOf(
         "note", "scramble", "choice", "translate", "match", "describe_image", "speak",
         "listen_choice", "listen_translate", "sentence_making", "write_typed", "write_handwriting",
-        "dictation", "oral_expression", "conversation",
+        "dictation", "oral_expression", "conversation", "judge", "gap_choice",
     )
 
     private fun nonEmpty(v: JsonElement?): Boolean = str(v)?.let { JsJson.trim(it).isNotEmpty() } == true
@@ -235,7 +243,95 @@ object LessonValidator {
                 }
             }
             "conversation" -> checkConversation(ex, where, errors)
+            "judge" -> checkJudge(ex, where, errors)
+            "gap_choice" -> checkGapChoice(ex, where, errors)
             else -> errors += "$where: unknown exercise type \"${JsJson.jsString(ex["type"])}\" (valid: ${EXERCISE_TYPE_IDS.joinToString(", ")})"
+        }
+    }
+
+    /** JS `typeof v === 'boolean'`. */
+    private fun bool(v: JsonElement?): Boolean? = (v as? JsonPrimitive)?.takeIf { !it.isString && (it.content == "true" || it.content == "false") }?.content?.toBooleanStrict()
+
+    private fun checkJudge(ex: JsonObject, where: String, errors: MutableList<String>) {
+        if (ex["question"] != null && str(ex["question"]) == null) errors += "$where: \"question\" must be a string"
+        val sentences = ex["sentences"]
+        if (sentences !is JsonArray || sentences.size < MIN_JUDGE_SENTENCES || sentences.size > MAX_JUDGE_SENTENCES) {
+            errors += "$where: judge needs \"sentences\": $MIN_JUDGE_SENTENCES-$MAX_JUDGE_SENTENCES sentences to judge ({hanzi, correct: true|false, correction?, explanation?})"
+            return
+        }
+        sentences.forEachIndexed { i, s ->
+            val sWhere = "$where.sentences[$i]"
+            if (s !is JsonObject || !nonEmpty(s["hanzi"])) {
+                errors += "$sWhere: needs non-empty \"hanzi\""
+                return@forEachIndexed
+            }
+            val correct = bool(s["correct"])
+            if (correct == null) {
+                errors += "$sWhere: \"correct\" must be true (the sentence is right) or false (it has a mistake)"
+                return@forEachIndexed
+            }
+            if (correct) {
+                if (s["correction"] != null) errors += "$sWhere: a correct sentence takes no \"correction\" (set \"correct\": false if it has a mistake)"
+                return@forEachIndexed
+            }
+            val c = s["correction"]
+            if (c !is JsonObject || !nonEmpty(c["hanzi"])) {
+                errors += "$sWhere: an incorrect sentence needs \"correction\": {hanzi, pinyin?, english?} (the right version)"
+            } else if (LessonAnswers.normalizeHanzi(str(c["hanzi"])!!) == LessonAnswers.normalizeHanzi(str(s["hanzi"])!!)) {
+                errors += "$sWhere: \"correction\" must differ from the sentence"
+            }
+            if (!nonEmpty(s["explanation"])) errors += "$sWhere: an incorrect sentence needs \"explanation\" (one line: why it is wrong)"
+        }
+    }
+
+    /** 2-4 different non-empty words (trimmed), or null after reporting the problem. */
+    private fun checkGapOptions(v: JsonElement?, where: String, label: String, errors: MutableList<String>): List<String>? {
+        if (v !is JsonArray || v.size < 2 || v.size > MAX_GAP_OPTIONS || !allNonEmpty(v)) {
+            errors += "$where: \"options\" must be 2-$MAX_GAP_OPTIONS different words ($label)"
+            return null
+        }
+        val words = strings(v).map { JsJson.trim(it) }
+        if (words.toSet().size != words.size) {
+            errors += "$where: \"options\" must be 2-$MAX_GAP_OPTIONS different words ($label)"
+            return null
+        }
+        if (words.any { JudgeGap.gapCount(it) > 0 }) {
+            errors += "$where: an option can't contain the gap \"___\""
+            return null
+        }
+        return words
+    }
+
+    private fun checkGapChoice(ex: JsonObject, where: String, errors: MutableList<String>) {
+        if (ex["question"] != null && str(ex["question"]) == null) errors += "$where: \"question\" must be a string"
+        var shared: List<String>? = null
+        if (ex["options"] != null) shared = checkGapOptions(ex["options"], where, "shared by every sentence", errors)
+        val items = ex["items"]
+        if (items !is JsonArray || items.size < MIN_GAP_ITEMS || items.size > MAX_GAP_ITEMS) {
+            errors += "$where: gap_choice needs \"items\": $MIN_GAP_ITEMS-$MAX_GAP_ITEMS sentences ({sentence with one \"___\", answer, options?, pinyin?, english?, explanation?})"
+            return
+        }
+        items.forEachIndexed { i, item ->
+            val iWhere = "$where.items[$i]"
+            if (item !is JsonObject || !nonEmpty(item["sentence"])) {
+                errors += "$iWhere: needs \"sentence\" with one gap \"___\""
+                return@forEachIndexed
+            }
+            val gaps = JudgeGap.gapCount(str(item["sentence"])!!)
+            if (gaps != 1) errors += "$iWhere: \"sentence\" must contain exactly one gap \"___\" (found $gaps)"
+            val options: List<String>? = when {
+                item["options"] != null -> checkGapOptions(item["options"], iWhere, "for this sentence", errors)
+                ex["options"] != null -> shared
+                else -> {
+                    errors += "$iWhere: no options — give \"options\" on the exercise (shared) or on this sentence"
+                    null
+                }
+            }
+            if (!nonEmpty(item["answer"])) {
+                errors += "$iWhere: needs \"answer\" (the word that fills the gap)"
+            } else if (options != null && JsJson.trim(str(item["answer"])!!) !in options) {
+                errors += "$iWhere: \"answer\" \"${str(item["answer"])}\" must be one of the options (${options.joinToString(" / ")})"
+            }
         }
     }
 

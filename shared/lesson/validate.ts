@@ -5,7 +5,8 @@
  * the full list back so they can repair the spec in one round.
  */
 
-import { CustomLessonSpec, LessonExercise, LessonSentence } from './types';
+import { CustomLessonSpec, LessonExercise, LessonSentence, gapCount } from './types';
+import { normalizeHanziAnswer } from './answer-check';
 
 const MAX_SECTIONS = 20;
 const MAX_EXERCISES = 50;
@@ -17,12 +18,17 @@ const MAX_HANDWRITING_CHARS = 12;
 const MAX_HANDWRITTEN_DICTATION_CHARS = 16;
 const MAX_CONVERSATION_LINES = 24;
 const MAX_CONVERSATION_QUESTIONS = 6;
+const MIN_JUDGE_SENTENCES = 3;
+const MAX_JUDGE_SENTENCES = 8;
+const MIN_GAP_ITEMS = 2;
+const MAX_GAP_ITEMS = 8;
+const MAX_GAP_OPTIONS = 4;
 
 /** Every exercise type the validator accepts, in catalogue order. */
 export const EXERCISE_TYPE_IDS = [
   'note', 'scramble', 'choice', 'translate', 'match', 'describe_image', 'speak',
   'listen_choice', 'listen_translate', 'sentence_making', 'write_typed', 'write_handwriting',
-  'dictation', 'oral_expression', 'conversation',
+  'dictation', 'oral_expression', 'conversation', 'judge', 'gap_choice',
 ] as const;
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -218,6 +224,12 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
     case 'conversation':
       checkConversation(ex, where, errors);
       break;
+    case 'judge':
+      checkJudge(ex, where, errors);
+      break;
+    case 'gap_choice':
+      checkGapChoice(ex, where, errors);
+      break;
     default:
       errors.push(
         `${where}: unknown exercise type "${String(ex.type)}" (valid: ${EXERCISE_TYPE_IDS.join(', ')})`
@@ -258,6 +270,89 @@ function checkAlternatives(v: unknown, where: string, errors: string[]): void {
 /** Number of Han characters (punctuation and latin don't count). */
 function hanCount(s: string): number {
   return (s.match(/\p{Script=Han}/gu) ?? []).length;
+}
+
+function checkJudge(ex: Record<string, unknown>, where: string, errors: string[]): void {
+  if (ex.question !== undefined && typeof ex.question !== 'string') errors.push(`${where}: "question" must be a string`);
+  const sentences = ex.sentences as unknown;
+  if (!Array.isArray(sentences) || sentences.length < MIN_JUDGE_SENTENCES || sentences.length > MAX_JUDGE_SENTENCES) {
+    errors.push(`${where}: judge needs "sentences": ${MIN_JUDGE_SENTENCES}-${MAX_JUDGE_SENTENCES} sentences to judge ({hanzi, correct: true|false, correction?, explanation?})`);
+    return;
+  }
+  sentences.forEach((s, i) => {
+    const sWhere = `${where}.sentences[${i}]`;
+    if (!isRecord(s) || !nonEmptyString(s.hanzi)) {
+      errors.push(`${sWhere}: needs non-empty "hanzi"`);
+      return;
+    }
+    if (typeof s.correct !== 'boolean') {
+      errors.push(`${sWhere}: "correct" must be true (the sentence is right) or false (it has a mistake)`);
+      return;
+    }
+    if (s.correct) {
+      if (s.correction !== undefined) errors.push(`${sWhere}: a correct sentence takes no "correction" (set "correct": false if it has a mistake)`);
+      return;
+    }
+    const c = s.correction;
+    if (!isRecord(c) || !nonEmptyString(c.hanzi)) {
+      errors.push(`${sWhere}: an incorrect sentence needs "correction": {hanzi, pinyin?, english?} (the right version)`);
+    } else if (normalizeHanziAnswer(c.hanzi) === normalizeHanziAnswer(s.hanzi as string)) {
+      errors.push(`${sWhere}: "correction" must differ from the sentence`);
+    }
+    if (!nonEmptyString(s.explanation)) {
+      errors.push(`${sWhere}: an incorrect sentence needs "explanation" (one line: why it is wrong)`);
+    }
+  });
+}
+
+/** 2-4 different non-empty words; returns them, or null after reporting the problem. */
+function checkGapOptions(v: unknown, where: string, label: string, errors: string[]): string[] | null {
+  if (!Array.isArray(v) || v.length < 2 || v.length > MAX_GAP_OPTIONS || !v.every(nonEmptyString)) {
+    errors.push(`${where}: "options" must be 2-${MAX_GAP_OPTIONS} different words (${label})`);
+    return null;
+  }
+  const words = (v as string[]).map(w => w.trim());
+  if (new Set(words).size !== words.length) {
+    errors.push(`${where}: "options" must be 2-${MAX_GAP_OPTIONS} different words (${label})`);
+    return null;
+  }
+  if (words.some(w => gapCount(w) > 0)) {
+    errors.push(`${where}: an option can't contain the gap "___"`);
+    return null;
+  }
+  return words;
+}
+
+function checkGapChoice(ex: Record<string, unknown>, where: string, errors: string[]): void {
+  if (ex.question !== undefined && typeof ex.question !== 'string') errors.push(`${where}: "question" must be a string`);
+  let shared: string[] | null = null;
+  if (ex.options !== undefined) shared = checkGapOptions(ex.options, where, 'shared by every sentence', errors);
+  const items = ex.items as unknown;
+  if (!Array.isArray(items) || items.length < MIN_GAP_ITEMS || items.length > MAX_GAP_ITEMS) {
+    errors.push(`${where}: gap_choice needs "items": ${MIN_GAP_ITEMS}-${MAX_GAP_ITEMS} sentences ({sentence with one "___", answer, options?, pinyin?, english?, explanation?})`);
+    return;
+  }
+  items.forEach((item, i) => {
+    const iWhere = `${where}.items[${i}]`;
+    if (!isRecord(item) || !nonEmptyString(item.sentence)) {
+      errors.push(`${iWhere}: needs "sentence" with one gap "___"`);
+      return;
+    }
+    const gaps = gapCount(item.sentence);
+    if (gaps !== 1) errors.push(`${iWhere}: "sentence" must contain exactly one gap "___" (found ${gaps})`);
+    let options: string[] | null;
+    if (item.options !== undefined) options = checkGapOptions(item.options, iWhere, 'for this sentence', errors);
+    else if (ex.options !== undefined) options = shared;
+    else {
+      errors.push(`${iWhere}: no options — give "options" on the exercise (shared) or on this sentence`);
+      options = null;
+    }
+    if (!nonEmptyString(item.answer)) {
+      errors.push(`${iWhere}: needs "answer" (the word that fills the gap)`);
+    } else if (options && !options.includes(item.answer.trim())) {
+      errors.push(`${iWhere}: "answer" "${item.answer}" must be one of the options (${options.join(' / ')})`);
+    }
+  });
 }
 
 function checkConversation(ex: Record<string, unknown>, where: string, errors: string[]): void {

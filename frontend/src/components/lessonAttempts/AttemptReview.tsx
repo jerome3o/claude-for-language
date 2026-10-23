@@ -11,6 +11,7 @@ import { answerInputLabel } from '@shared/lesson/spoken-check';
 import {
   diffHanzi,
   exerciseTypeInfo,
+  fillGap,
   formatDuration,
   sectionTimes,
   type ExerciseAttempt,
@@ -248,6 +249,48 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
                     {qa?.correct === false && q.options && typeof q.correct === 'number' && (
                       <span className="att-muted"> (answer: {q.options[q.correct]})</span>
                     )}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      );
+    case 'judge':
+      return (
+        <>
+          {exercise.question && <Row label="Question">{exercise.question}</Row>}
+          <ol className="att-questions">
+            {exercise.sentences.map((st, i) => {
+              const it = a.items?.[i];
+              const said = it?.judged === true ? '✓ Correct' : it?.judged === false ? '✗ Incorrect' : '—';
+              return (
+                <li key={i} className={it?.correct === true ? 'ok' : it?.correct === false ? 'bad' : ''}>
+                  <div lang="zh-CN">{st.hanzi}</div>
+                  <div className="att-q-answer">
+                    {it?.correct === true ? 'Right: ' : it?.correct === false ? 'Wrong: ' : ''}said {said}
+                    <span className="att-muted"> (it {st.correct ? 'is correct' : 'has a mistake'})</span>
+                  </div>
+                  {!st.correct && st.correction && <div className="att-muted">→ <span lang="zh-CN">{st.correction.hanzi}</span></div>}
+                </li>
+              );
+            })}
+          </ol>
+        </>
+      );
+    case 'gap_choice':
+      return (
+        <>
+          {exercise.question && <Row label="Question">{exercise.question}</Row>}
+          <ol className="att-questions">
+            {exercise.items.map((item, i) => {
+              const it = a.items?.[i];
+              return (
+                <li key={i} className={it?.correct === true ? 'ok' : it?.correct === false ? 'bad' : ''}>
+                  <div lang="zh-CN">{fillGap(item.sentence, item.answer)}</div>
+                  <div className="att-q-answer">
+                    {it?.correct === true ? '✓ ' : it?.correct === false ? '✗ ' : ''}chose <span lang="zh-CN">{it?.pick || '—'}</span>
+                    {it?.correct === false && <span className="att-muted"> (answer: <span lang="zh-CN">{item.answer}</span>)</span>}
                   </div>
                 </li>
               );

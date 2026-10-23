@@ -5,7 +5,10 @@ import dev.jeromeswannack.chineselearning.lab.core.ChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.ConversationExercise
 import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
+import dev.jeromeswannack.chineselearning.lab.core.GapChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.JudgeExercise
+import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
 import dev.jeromeswannack.chineselearning.lab.core.ListenChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.ListenTranslateExercise
@@ -269,6 +272,12 @@ object AnkiSources {
                         ex.example?.let { c.sentence(it.hanzi, it.pinyin, it.english) }
                     }
                     is ConversationExercise -> ex.lines.forEach { c.sentence(it.hanzi, it.pinyin, it.english) }
+                    // A judge exercise's right sentences as written, the wrong ones only as their correction.
+                    is JudgeExercise -> ex.sentences.forEach { st ->
+                        if (st.correct) c.sentence(st.hanzi, st.pinyin, st.english)
+                        else st.correction?.let { c.sentence(it.hanzi, it.pinyin, it.english ?: st.english) }
+                    }
+                    is GapChoiceExercise -> ex.items.forEach { c.sentence(JudgeGap.fillGap(it.sentence, it.answer), it.pinyin, it.english) }
                     else -> Unit
                 }
             }

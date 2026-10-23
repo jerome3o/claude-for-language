@@ -10,6 +10,7 @@ import { EXERCISE_TYPE_INFO } from '../../../../../shared/lesson/registry';
 import { exercisePrimaryText } from '../../../../../shared/lesson/diff';
 import { defaultExercise } from '../../../../../shared/lesson/defaults';
 import { conversationVoicesFor } from '../../../../../shared/lesson/voices';
+import { fillGap, gapItemOptions } from '../../../../../shared/lesson/types';
 import type {
   AssignResult,
   CustomLessonSpec,
@@ -31,7 +32,7 @@ const TYPE_LABELS = Object.fromEntries(
 ) as Record<ExType, string>;
 const LISTENING = new Set<ExType>(['listen_choice', 'listen_translate', 'dictation', 'conversation']);
 /** Types edited as JSON here (the web editor has full forms for them). */
-const JSON_EDITED = new Set<ExType>(['sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation']);
+const JSON_EDITED = new Set<ExType>(['sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation', 'judge', 'gap_choice']);
 
 let data: LessonPayload | null = null;
 let spec: CustomLessonSpec | null = null;
@@ -319,6 +320,32 @@ function viewExercise(ex: LessonExercise): HTMLElement {
       );
       break;
     }
+    case 'judge':
+      body.append(
+        h('div', { class: 'question' }, ex.question || 'Correct or incorrect?'),
+        ...ex.sentences.map((st, i) => h('div', { class: 'sentence' },
+          h('span', { class: 'pill' }, st.correct ? '✓ correct' : '✗ mistake'),
+          h('div', { class: 'text' },
+            h('div', { class: 'zh-s', lang: 'zh-CN' }, `${i + 1}. ${st.hanzi}`),
+            !st.correct && st.correction ? h('div', { class: 'small' }, '→ ', h('span', { class: 'zh-s', lang: 'zh-CN' }, st.correction.hanzi), playButton(() => speakZh(st.correction!.hanzi))) : null,
+            st.explanation ? h('div', { class: 'xs faint' }, st.explanation) : null,
+          ),
+        )),
+      );
+      break;
+    case 'gap_choice':
+      body.append(
+        h('div', { class: 'question' }, ex.question || 'Choose the word for each gap'),
+        ex.options?.length ? h('div', { class: 'tiles' }, ...ex.options.map((w) => h('span', { class: 'tile', lang: 'zh-CN' }, w))) : '',
+        ...ex.items.map((item, i) => h('div', { class: 'sentence' },
+          h('div', { class: 'text' },
+            h('div', { class: 'zh-s', lang: 'zh-CN' }, `${i + 1}. ${item.sentence}`),
+            h('div', { class: 'small' }, `${gapItemOptions(ex, item).join(' / ')} → `, h('span', { class: 'bold', lang: 'zh-CN' }, item.answer), ' · ', h('span', { lang: 'zh-CN' }, fillGap(item.sentence, item.answer)), playButton(() => speakZh(fillGap(item.sentence, item.answer)))),
+            item.explanation ? h('div', { class: 'xs faint' }, item.explanation) : null,
+          ),
+        )),
+      );
+      break;
   }
   return body;
 }

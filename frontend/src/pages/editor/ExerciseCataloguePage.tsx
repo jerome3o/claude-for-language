@@ -24,8 +24,8 @@ import { track } from '../../services/analytics';
 import '../StudyPage.css';
 import './ExerciseCataloguePage.css';
 
-/** Types added with the practice set — badged "New" in the catalogue. */
-const NEW_TYPES = new Set(['sentence_making', 'write_typed', 'write_handwriting', 'dictation', 'oral_expression', 'conversation']);
+/** The newest types — badged "New" in the catalogue. */
+const NEW_TYPES = new Set(['judge', 'gap_choice']);
 
 const SKILL_ORDER: ExerciseSkill[] = ['listening', 'speaking', 'writing', 'reading', 'teaching'];
 

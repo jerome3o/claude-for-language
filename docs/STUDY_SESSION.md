@@ -559,6 +559,25 @@ card** and the **Mini Lessons page** (`/lessons`); `/lessons/:id/play?from=&mode
 (`LESSON_MIX_INTERVAL`, `pickTodaysLessons`), "New lessons a day" and the Settings → "Lessons &
 readers" section are gone (the server still accepts their old settings / events from older apps).
 
+### Judge each sentence / Choose the word (`shared/lesson/judgeGap.ts`; Lab `core/…/JudgeGap.kt`, parity-tested)
+
+Jerome (Oct 2026): lessons kept asking "which sentence in this list is wrong?" — one pick from a list. Two
+exercise types replace that, both checked on the device (offline, no model), one point per sentence:
+
+- **`judge`** — 3–8 sentences; every one gets **✓ Correct** / **✗ Incorrect** (a segmented toggle, the chosen
+  side FILLED — never colour alone). **Check** opens once every sentence is judged ("Check · 2 to go"), then each
+  row says "✓ Right — this sentence is correct" / "✗ Not quite — this sentence has a mistake" (a missed row
+  also gets a thick left bar), a wrong sentence shows its **Correct version** with pinyin + ▶ and the author's
+  one-line why. ▶ plays a right sentence or a correction — the mistake is never read aloud.
+- **`gap_choice`** — 2–8 sentences with one gap `___` and 2–4 words (shared by the exercise, or per sentence);
+  a pick fills the gap in place; after Check the answer is in every gap, the buttons read "✓ 刚才" / "✗ 刚",
+  "✗ You chose 刚 — it's 刚才", then the full sentence's pinyin, English, ▶ and the explanation. The gap
+  marker is never shown or spoken: `fillGap(sentence, answer)` is what plays, exports and gets pinyin-checked.
+
+The attempt keeps each sentence (`answer.items`: `judged` / `pick` + `correct`), the score counts sentences, and
+any miss makes the exercise owed in the retry round (and part of the next revision). The tutor's / learner's
+attempt review lists each sentence with what was said. Analytics `lesson.items_checked { exercise_type, items, right }`.
+
 ### A run is never lost (`shared/study/lessonRun.ts`; Lab `core/…/LessonRun.kt`, parity-tested)
 
 Jerome (Oct 2026): "Make sure homework progress isn't lost over multiple days." He half-did a homework

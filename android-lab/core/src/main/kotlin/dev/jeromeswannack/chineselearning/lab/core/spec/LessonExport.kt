@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 
 /**
  * Port of shared/lesson/export.ts: Markdown (teaching notes + numbered exercises + answer key),
@@ -21,6 +22,8 @@ object LessonExport {
     private fun a(o: JsonObject?, k: String): List<JsonElement> = (o?.get(k) as? JsonArray).orEmpty()
     private fun objs(o: JsonObject?, k: String): List<JsonObject> = a(o, k).map { it as? JsonObject ?: JsonObject(emptyMap()) }
     private fun letter(i: Int): Char = (65 + i).toChar()
+    /** Array.join treats undefined / null as ''. */
+    private fun joinPart(e: JsonElement?): String = if (e == null || e is JsonNull) "" else JsJson.jsString(e)
 
     private fun sentenceLine(s: JsonObject): String {
         val parts = mutableListOf(s(s, "hanzi"))
@@ -110,6 +113,20 @@ object LessonExport {
         ) + objs(ex, "questions").flatMapIndexed { i, q ->
             listOf("${i + 1}) ${s(q, "question")}") + a(q, "options").mapIndexed { j, op -> "   ${letter(j)}. ${JsJson.jsString(op)}" }
         }
+        "judge" -> listOf(
+            "**Correct or incorrect?** ${if (t(ex, "question")) s(ex, "question") else "Mark each sentence ✓ (correct) or ✗ (incorrect)."}",
+            "",
+        ) + objs(ex, "sentences").mapIndexed { i, st -> "${i + 1}) ${s(st, "hanzi")}   ✓ / ✗" }
+        "gap_choice" -> {
+            val shared = a(ex, "options")
+            listOf("**Choose the word for the gap.** ${if (t(ex, "question")) s(ex, "question") else "Fill each gap with one of the words."}") +
+                (if (shared.isNotEmpty()) listOf("", "Words: ${shared.joinToString(" · ") { joinPart(it) }}") else emptyList()) +
+                listOf("") +
+                objs(ex, "items").mapIndexed { i, item ->
+                    val own = item["options"] as? JsonArray
+                    "${i + 1}) ${s(item, "sentence")}${if (own != null) " (${own.joinToString(" / ") { joinPart(it) }})" else ""}"
+                }
+        }
         else -> emptyList()
     }
 
@@ -171,6 +188,13 @@ object LessonExport {
             }.joinToString("; ")
             "Read aloud: $script. Answers: $answers"
         }
+        "judge" -> objs(ex, "sentences").mapIndexed { i, st ->
+            if (t(st, "correct")) "${i + 1}) ✓"
+            else "${i + 1}) ✗ → ${s(o(st, "correction"), "hanzi")}${if (t(st, "explanation")) " (${s(st, "explanation")})" else ""}"
+        }.joinToString("; ")
+        "gap_choice" -> objs(ex, "items").mapIndexed { i, item ->
+            "${i + 1}) ${s(item, "answer")} — ${JudgeGap.fillGap(s(item, "sentence"), s(item, "answer"))}${if (t(item, "explanation")) " (${s(item, "explanation")})" else ""}"
+        }.joinToString("; ")
         else -> null
     }
 
@@ -241,6 +265,9 @@ object LessonExport {
             "write_typed", "write_handwriting" -> addSentence(o(ex, "answer"))
             "oral_expression" -> { objs(ex, "hints").forEach { add(it["hanzi"], it["english"], it["pinyin"]) }; addSentence(o(ex, "example")) }
             "conversation" -> objs(ex, "lines").forEach { add(it["hanzi"], it["english"], it["pinyin"]) }
+            // Right sentences as written, wrong ones only as their correction — never the mistake.
+            "judge" -> objs(ex, "sentences").forEach { st -> if (t(st, "correct")) add(st["hanzi"], st["english"], st["pinyin"]) else addSentence(o(st, "correction")) }
+            "gap_choice" -> objs(ex, "items").forEach { add(JsJson.s(JudgeGap.fillGap(s(it, "sentence"), s(it, "answer"))), it["english"], it["pinyin"]) }
         }
         return rows
     }

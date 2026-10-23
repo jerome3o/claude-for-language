@@ -9,6 +9,7 @@ import type { AnkiCardProgress, AnkiNote } from './apkg';
 import { CARD_TYPE_ORD } from './models';
 import { guidFor } from './hash';
 import type { CustomLessonSpec, LessonSentence } from '@shared/lesson';
+import { fillGap } from '@shared/lesson/types';
 
 // ============ Types ============
 
@@ -278,6 +279,16 @@ export function lessonToAnki(spec: CustomLessonSpec, options: LessonToAnkiOption
           break;
         case 'conversation':
           for (const l of ex.lines) collector.sentence(l.hanzi, l.pinyin, l.english);
+          break;
+        // A judge exercise's right sentences as written, the wrong ones only as their correction.
+        case 'judge':
+          for (const st of ex.sentences) {
+            if (st.correct) collector.sentence(st.hanzi, st.pinyin, st.english);
+            else if (st.correction) collector.sentence(st.correction.hanzi, st.correction.pinyin, st.correction.english ?? st.english);
+          }
+          break;
+        case 'gap_choice':
+          for (const item of ex.items) collector.sentence(fillGap(item.sentence, item.answer), item.pinyin, item.english);
           break;
       }
     }

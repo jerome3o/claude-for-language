@@ -8,7 +8,7 @@
  * - CSV: Quizlet-style term / definition / example rows
  */
 
-import { CustomLessonSpec, LessonExercise, LessonSentence } from './types';
+import { CustomLessonSpec, LessonExercise, LessonSentence, fillGap } from './types';
 
 // ============ Markdown ============
 
@@ -126,6 +126,19 @@ function exerciseBody(ex: LessonExercise): string[] {
           ...(q.options ?? []).map((o, j) => `   ${String.fromCharCode(65 + j)}. ${o}`),
         ]),
       ];
+    case 'judge':
+      return [
+        `**Correct or incorrect?** ${ex.question || 'Mark each sentence ✓ (correct) or ✗ (incorrect).'}`,
+        '',
+        ...ex.sentences.map((st, i) => `${i + 1}) ${st.hanzi}   ✓ / ✗`),
+      ];
+    case 'gap_choice':
+      return [
+        `**Choose the word for the gap.** ${ex.question || 'Fill each gap with one of the words.'}`,
+        ...(ex.options?.length ? ['', `Words: ${ex.options.join(' · ')}`] : []),
+        '',
+        ...ex.items.map((item, i) => `${i + 1}) ${item.sentence}${item.options ? ` (${item.options.join(' / ')})` : ''}`),
+      ];
     default:
       return [];
   }
@@ -172,6 +185,16 @@ function exerciseAnswer(ex: LessonExercise): string | null {
       ).join('; ');
       return `Read aloud: ${script}. Answers: ${answers}`;
     }
+    case 'judge':
+      return ex.sentences.map((st, i) =>
+        st.correct
+          ? `${i + 1}) ✓`
+          : `${i + 1}) ✗ → ${st.correction?.hanzi ?? ''}${st.explanation ? ` (${st.explanation})` : ''}`,
+      ).join('; ');
+    case 'gap_choice':
+      return ex.items.map((item, i) =>
+        `${i + 1}) ${item.answer} — ${fillGap(item.sentence, item.answer)}${item.explanation ? ` (${item.explanation})` : ''}`,
+      ).join('; ');
     default:
       return null;
   }
@@ -294,6 +317,16 @@ export function lessonVocabRows(spec: CustomLessonSpec): VocabRow[] {
           break;
         case 'conversation':
           for (const l of ex.lines) add(l.hanzi, l.english, l.pinyin);
+          break;
+        case 'judge':
+          // Right sentences as written, wrong ones only as their correction — never the mistake.
+          for (const st of ex.sentences) {
+            if (st.correct) add(st.hanzi, st.english, st.pinyin);
+            else addSentence(st.correction);
+          }
+          break;
+        case 'gap_choice':
+          for (const item of ex.items) add(fillGap(item.sentence, item.answer), item.english, item.pinyin);
           break;
       }
     }

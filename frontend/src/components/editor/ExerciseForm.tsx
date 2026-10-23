@@ -22,11 +22,15 @@ import type {
   DictationExerciseSpec,
   OralExpressionExerciseSpec,
   ConversationExerciseSpec,
+  JudgeExerciseSpec,
+  JudgeSentence,
+  GapChoiceExerciseSpec,
+  GapChoiceItem,
   LessonWord,
   WritingCue,
   WritingInput,
 } from '@shared/lesson';
-import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise } from '@shared/lesson';
+import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise, fillGap, gapCount, GAP_MARKER } from '@shared/lesson';
 import { useLessonImage } from '../../hooks/useLessonImage';
 import { Field, TextInput, TextArea, HanziInput, SentenceEditor, RowControls, moveItem, toPinyin, Speak } from './fields';
 
@@ -663,6 +667,173 @@ function ConversationForm({ exercise, onChange, speak }: FormProps<ConversationE
   );
 }
 
+// ---------- Judge each sentence ----------
+
+function JudgeForm({ exercise, onChange, speak }: FormProps<JudgeExerciseSpec>) {
+  const sentences = exercise.sentences;
+  const setSentence = (i: number, s: JudgeSentence) => onChange({ ...exercise, sentences: sentences.map((x, j) => (j === i ? s : x)) });
+  const setCorrect = (i: number, s: JudgeSentence, correct: boolean) => {
+    if (correct) {
+      const { correction: _c, ...rest } = s;
+      setSentence(i, { ...rest, correct: true });
+    } else {
+      setSentence(i, { ...s, correct: false, correction: s.correction ?? { hanzi: '' }, explanation: s.explanation ?? '' });
+    }
+  };
+  return (
+    <>
+      <Field label="Instruction" hint="optional — default “Correct or incorrect?”">
+        <TextInput value={exercise.question} onChange={v => onChange({ ...exercise, question: clean(v) })} placeholder="e.g. Is 了 in the right place?" />
+      </Field>
+      <Field label="Sentences to judge" hint={`${sentences.length}/8 — a mix of right and wrong, one point each`}>
+        <div className="ed-list">
+          {sentences.map((s, i) => (
+            <div key={i} className="ed-question">
+              <div className="ed-hanzi-row">
+                <div className="ed-seg" role="group" aria-label={`Sentence ${i + 1} is`}>
+                  <button type="button" className={s.correct ? 'on' : ''} onClick={() => setCorrect(i, s, true)}>✓ Correct</button>
+                  <button type="button" className={!s.correct ? 'on' : ''} onClick={() => setCorrect(i, s, false)}>✗ Has a mistake</button>
+                </div>
+                <RowControls
+                  index={i}
+                  count={sentences.length}
+                  onMove={(from, to) => onChange({ ...exercise, sentences: moveItem(sentences, from, to) })}
+                  onRemove={() => sentences.length > 3 && onChange({ ...exercise, sentences: sentences.filter((_, j) => j !== i) })}
+                />
+              </div>
+              <SentenceEditor
+                value={{ hanzi: s.hanzi, pinyin: s.pinyin, english: s.english }}
+                onChange={v => setSentence(i, { ...s, hanzi: v.hanzi, pinyin: v.pinyin, english: v.english })}
+                speak={speak}
+                compact
+              />
+              {!s.correct && (
+                <div className="ed-judge-fix">
+                  <div className="ed-field-label">Correct version</div>
+                  <SentenceEditor
+                    value={s.correction ?? { hanzi: '' }}
+                    onChange={v => setSentence(i, { ...s, correction: v })}
+                    speak={speak}
+                    compact
+                  />
+                </div>
+              )}
+              <input
+                className="ed-input"
+                value={s.explanation ?? ''}
+                onChange={e => setSentence(i, { ...s, explanation: s.correct ? (e.target.value || undefined) : e.target.value })}
+                placeholder={s.correct ? 'Note (optional, shown after Check)' : 'Why it is wrong — one line (required)'}
+              />
+            </div>
+          ))}
+          {sentences.length < 8 && (
+            <button type="button" className="ed-add-btn" onClick={() => onChange({ ...exercise, sentences: [...sentences, { hanzi: '', correct: true }] })}>+ Add sentence</button>
+          )}
+        </div>
+      </Field>
+    </>
+  );
+}
+
+// ---------- Choose the word for the gap ----------
+
+function GapWordList({ words, onChange, placeholder }: { words: string[]; onChange: (w: string[]) => void; placeholder: string }) {
+  return (
+    <div className="ed-word-list">
+      {words.map((w, i) => (
+        <div key={i} className="ed-hanzi-row">
+          <input className="ed-input" lang="zh-CN" value={w} onChange={e => onChange(words.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`${placeholder} ${i + 1}`} />
+          {words.length > 2 && (
+            <button type="button" className="ed-mini-btn danger" aria-label="Remove word" onClick={() => onChange(words.filter((_, j) => j !== i))}>✕</button>
+          )}
+        </div>
+      ))}
+      {words.length < 4 && <button type="button" className="ed-add-btn" onClick={() => onChange([...words, ''])}>+ Add word</button>}
+    </div>
+  );
+}
+
+function GapChoiceForm({ exercise, onChange, speak }: FormProps<GapChoiceExerciseSpec>) {
+  const items = exercise.items;
+  const shared = exercise.options;
+  const setItem = (i: number, item: GapChoiceItem) => onChange({ ...exercise, items: items.map((x, j) => (j === i ? item : x)) });
+  return (
+    <>
+      <Field label="Instruction" hint="optional — e.g. 刚 or 刚才?">
+        <TextInput value={exercise.question} onChange={v => onChange({ ...exercise, question: clean(v) })} placeholder="e.g. 刚 or 刚才?" />
+      </Field>
+      <Field label="Words to choose from" hint="2–4, shared by every sentence (a sentence can have its own)">
+        {shared ? (
+          <>
+            <GapWordList words={shared} onChange={options => onChange({ ...exercise, options })} placeholder="Word" />
+            <button type="button" className="ed-mini-btn text" onClick={() => {
+              const { options: _o, ...rest } = exercise;
+              onChange({ ...rest, items: items.map(it => ({ ...it, options: it.options ?? [...shared] })) });
+            }}>Give each sentence its own words</button>
+          </>
+        ) : (
+          <button type="button" className="ed-add-btn" onClick={() => onChange({ ...exercise, options: ['', ''] })}>+ Shared words</button>
+        )}
+      </Field>
+      <Field label="Sentences" hint={`${items.length}/8 — write the gap as ${GAP_MARKER}; pinyin / English are for the FULL sentence`}>
+        <div className="ed-list">
+          {items.map((item, i) => {
+            const gaps = gapCount(item.sentence);
+            const options = item.options ?? shared ?? [];
+            const full = fillGap(item.sentence, item.answer);
+            return (
+              <div key={i} className="ed-question">
+                <input
+                  className="ed-input"
+                  lang="zh-CN"
+                  value={item.sentence}
+                  onChange={e => setItem(i, { ...item, sentence: e.target.value })}
+                  placeholder={`他${GAP_MARKER}走。`}
+                  aria-label={`Sentence ${i + 1} with the gap`}
+                />
+                <div className="ed-hanzi-row ed-gap-tools">
+                  <button type="button" className="ed-mini-btn" onClick={() => speak(full)} disabled={!item.answer.trim() || gaps !== 1} aria-label="Play the full sentence" title="Play the full sentence">🔊</button>
+                  <button type="button" className="ed-mini-btn text" onClick={() => setItem(i, { ...item, pinyin: toPinyin(full) })} disabled={!item.answer.trim() || gaps !== 1} title="Fill pinyin from the full sentence">拼音</button>
+                  <RowControls
+                    index={i}
+                    count={items.length}
+                    onMove={(from, to) => onChange({ ...exercise, items: moveItem(items, from, to) })}
+                    onRemove={() => items.length > 2 && onChange({ ...exercise, items: items.filter((_, j) => j !== i) })}
+                  />
+                </div>
+                {gaps !== 1 && <div className="ed-hint-warn">Put exactly one gap {GAP_MARKER} in the sentence.</div>}
+                {item.options && (
+                  <GapWordList words={item.options} onChange={opts => setItem(i, { ...item, options: opts })} placeholder="Word" />
+                )}
+                <div className="ed-seg" role="radiogroup" aria-label="The answer">
+                  {options.filter(o => o.trim()).map(o => (
+                    <button key={o} type="button" lang="zh-CN" className={item.answer === o ? 'on' : ''} onClick={() => setItem(i, { ...item, answer: o })}>
+                      {item.answer === o ? `✓ ${o}` : o}
+                    </button>
+                  ))}
+                </div>
+                {item.answer && gaps === 1 && <div className="ed-hint">Full sentence: <span lang="zh-CN">{full}</span></div>}
+                <input className="ed-input" value={item.pinyin ?? ''} onChange={e => setItem(i, { ...item, pinyin: e.target.value || undefined })} placeholder="pinyin of the full sentence" />
+                <input className="ed-input" value={item.english ?? ''} onChange={e => setItem(i, { ...item, english: e.target.value || undefined })} placeholder="English" />
+                <input className="ed-input" value={item.explanation ?? ''} onChange={e => setItem(i, { ...item, explanation: e.target.value || undefined })} placeholder="Why this word (optional, shown after Check)" />
+                {!item.options && (
+                  <button type="button" className="ed-mini-btn text" onClick={() => setItem(i, { ...item, options: [...(shared ?? ['', ''])] })}>Own words for this sentence</button>
+                )}
+                {item.options && shared && (
+                  <button type="button" className="ed-mini-btn text" onClick={() => { const { options: _o, ...rest } = item; setItem(i, rest); }}>Use the shared words</button>
+                )}
+              </div>
+            );
+          })}
+          {items.length < 8 && (
+            <button type="button" className="ed-add-btn" onClick={() => onChange({ ...exercise, items: [...items, { sentence: GAP_MARKER, answer: '' }] })}>+ Add sentence</button>
+          )}
+        </div>
+      </Field>
+    </>
+  );
+}
+
 export function ExerciseForm(props: { exercise: LessonExercise; onChange: (ex: LessonExercise) => void; speak: Speak; errors: string[] }) {
   const { exercise, onChange, speak, errors } = props;
   let form: JSX.Element;
@@ -709,6 +880,12 @@ export function ExerciseForm(props: { exercise: LessonExercise; onChange: (ex: L
       break;
     case 'conversation':
       form = <ConversationForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'judge':
+      form = <JudgeForm exercise={exercise} onChange={onChange} speak={speak} />;
+      break;
+    case 'gap_choice':
+      form = <GapChoiceForm exercise={exercise} onChange={onChange} speak={speak} />;
       break;
   }
   return (
@@ -759,6 +936,19 @@ export function fillMissingPinyin(ex: LessonExercise): LessonExercise {
       };
     case 'conversation':
       return { ...ex, lines: ex.lines.map(l => (l.pinyin || !l.hanzi.trim() ? l : { ...l, pinyin: toPinyin(l.hanzi) })) };
+    case 'judge':
+      return {
+        ...ex,
+        sentences: ex.sentences.map(st => {
+          const withPinyin = st.pinyin || !st.hanzi.trim() ? st : { ...st, pinyin: toPinyin(st.hanzi) };
+          return withPinyin.correction ? { ...withPinyin, correction: fillSentence(withPinyin.correction) } : withPinyin;
+        }),
+      };
+    case 'gap_choice':
+      return {
+        ...ex,
+        items: ex.items.map(it => (it.pinyin || !it.answer.trim() || gapCount(it.sentence) !== 1 ? it : { ...it, pinyin: toPinyin(fillGap(it.sentence, it.answer)) })),
+      };
     default:
       return ex;
   }

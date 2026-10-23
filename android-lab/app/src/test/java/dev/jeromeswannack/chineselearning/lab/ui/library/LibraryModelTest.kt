@@ -224,7 +224,7 @@ class LibraryModelTest {
 
     @Test fun catalogueGroupsFollowTheWebSkillOrder() {
         assertEquals(listOf("listening", "speaking", "writing", "reading", "teaching"), catalogueGroups(null).map { it.skill })
-        assertEquals(15, catalogueGroups(null).sumOf { it.types.size })
+        assertEquals(17, catalogueGroups(null).sumOf { it.types.size })
         assertEquals(listOf("speaking"), catalogueGroups("speaking").map { it.skill })
     }
 

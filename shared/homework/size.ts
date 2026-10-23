@@ -25,6 +25,8 @@ export const EXERCISE_SECONDS: Readonly<Record<string, number>> = Object.freeze(
   dictation: 45,
   oral_expression: 60,
   conversation: 120,
+  judge: 45,
+  gap_choice: 40,
 });
 
 export const DEFAULT_EXERCISE_SECONDS = 40;

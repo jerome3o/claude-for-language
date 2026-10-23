@@ -135,6 +135,18 @@ export const EXERCISE_TYPE_INFO: Record<ExerciseType, ExerciseTypeInfo> = {
     description: 'A dialogue between two people in a situation (booking a hotel, ordering food, at the doctor…) played with a different voice for each speaker and the text hidden. The learner listens (and replays) the whole conversation, then answers questions about what happened. The transcript with pinyin and English is revealed at the end.',
     checking: 'Multiple-choice questions automatic; free answers self-assessed. One point per question.',
   },
+  judge: {
+    type: 'judge', icon: '⚖️', name: 'Judge each sentence', label: 'judge each sentence', skill: 'reading',
+    summary: 'Mark each sentence Correct ✓ or Incorrect ✗ (3–8 sentences).',
+    description: 'A short list of sentences, some right and some with a mistake. The learner marks every one Correct or Incorrect, then sees which they judged right and, for each wrong sentence, the corrected version with one line on why. Use it instead of "which one is wrong?" multiple choice when testing a structure.',
+    checking: 'Automatic — one point per sentence judged right.',
+  },
+  gap_choice: {
+    type: 'gap_choice', icon: '🔀', name: 'Choose the word', label: 'choose the word', skill: 'reading',
+    summary: 'Pick the right word for the gap in each sentence (刚 or 刚才?).',
+    description: 'Several sentences, each with one gap, and 2–4 words to choose from — near-synonyms and confusable words (刚 / 刚才, 再 / 在, 的 / 得 / 地, where 了 goes). The learner picks one per sentence; Check shows the full sentence with pinyin, audio and your explanation.',
+    checking: 'Automatic — one point per sentence.',
+  },
 };
 
 /** Registry entries in catalogue order. */

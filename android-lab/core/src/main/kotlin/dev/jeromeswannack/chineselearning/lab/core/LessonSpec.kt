@@ -205,6 +205,44 @@ data class ConversationExercise(
     override val type get() = "conversation"
 }
 
+/** One sentence of a judge exercise; a WRONG one (`correct = false`) carries its correction + why. */
+@Serializable
+data class JudgeSentence(
+    val hanzi: String = "",
+    val pinyin: String? = null,
+    val english: String? = null,
+    val correct: Boolean = true,
+    val correction: LessonSentence? = null,
+    val explanation: String? = null,
+)
+
+/** Judge each sentence: mark every one Correct ✓ / Incorrect ✗; one point per sentence. */
+@Serializable
+data class JudgeExercise(val question: String? = null, val sentences: List<JudgeSentence> = emptyList()) : LessonExercise {
+    override val type get() = "judge"
+}
+
+/** One gapped sentence: `sentence` has ONE gap "___"; pinyin / english are the FULL sentence's. */
+@Serializable
+data class GapChoiceItem(
+    val sentence: String = "",
+    val options: List<String>? = null,
+    val answer: String = "",
+    val pinyin: String? = null,
+    val english: String? = null,
+    val explanation: String? = null,
+)
+
+/** Choose the word for the gap (刚 or 刚才?): shared `options`, or per sentence; one point per sentence. */
+@Serializable
+data class GapChoiceExercise(
+    val question: String? = null,
+    val options: List<String>? = null,
+    val items: List<GapChoiceItem> = emptyList(),
+) : LessonExercise {
+    override val type get() = "gap_choice"
+}
+
 /** A type this build doesn't know (a newer server): kept verbatim, never played. */
 data class UnknownExercise(override val type: String, val raw: JsonObject) : LessonExercise
 
@@ -243,6 +281,8 @@ object LessonExerciseSerializer : KSerializer<LessonExercise> {
             "dictation" -> json.decodeFromJsonElement(DictationExercise.serializer(), obj)
             "oral_expression" -> json.decodeFromJsonElement(OralExpressionExercise.serializer(), obj)
             "conversation" -> json.decodeFromJsonElement(ConversationExercise.serializer(), obj)
+            "judge" -> json.decodeFromJsonElement(JudgeExercise.serializer(), obj)
+            "gap_choice" -> json.decodeFromJsonElement(GapChoiceExercise.serializer(), obj)
             else -> UnknownExercise(type, obj)
         }
     }
@@ -266,6 +306,8 @@ object LessonExerciseSerializer : KSerializer<LessonExercise> {
             is DictationExercise -> json.encodeToJsonElement(DictationExercise.serializer(), value)
             is OralExpressionExercise -> json.encodeToJsonElement(OralExpressionExercise.serializer(), value)
             is ConversationExercise -> json.encodeToJsonElement(ConversationExercise.serializer(), value)
+            is JudgeExercise -> json.encodeToJsonElement(JudgeExercise.serializer(), value)
+            is GapChoiceExercise -> json.encodeToJsonElement(GapChoiceExercise.serializer(), value)
             is UnknownExercise -> value.raw
         }.jsonObject
         output.encodeJsonElement(JsonObject(mapOf("type" to JsonPrimitive(value.type)) + body))
@@ -280,6 +322,7 @@ object Lessons {
     private val SCOREABLE = setOf(
         "scramble", "choice", "translate", "match", "describe_image", "speak", "listen_choice", "listen_translate",
         "sentence_making", "write_typed", "write_handwriting", "dictation", "oral_expression", "conversation",
+        "judge", "gap_choice",
     )
 
     /** Types the Lab player can show (everything but [UnknownExercise]). */
@@ -298,6 +341,8 @@ object Lessons {
         is SentenceMakingExercise -> ex.words.isNotEmpty()
         is ConversationExercise -> ex.speakers.size >= 2 && ex.lines.isNotEmpty() && ex.questions.isNotEmpty() &&
             ex.lines.all { it.speaker in ex.speakers.indices }
+        is JudgeExercise -> ex.sentences.isNotEmpty()
+        is GapChoiceExercise -> ex.items.isNotEmpty() && ex.items.all { JudgeGap.optionsFor(ex, it).size >= 2 }
         else -> true
     }
 
@@ -311,10 +356,15 @@ object Lessons {
 
     fun exerciseCount(spec: CustomLessonSpec) = spec.sections.sumOf { it.exercises.size }
 
-    /** `exercisePoints`: a conversation scores one per question, every other scoreable exercise one. */
+    /** `exercisePoints`: a conversation scores one per question, judge / gap_choice one per sentence, every other scoreable exercise one. */
     fun exercisePoints(ex: LessonExercise): Int {
         if (!isScoreable(ex)) return 0
-        return if (ex is ConversationExercise) Math.max(1, ex.questions.size) else 1
+        return when (ex) {
+            is ConversationExercise -> Math.max(1, ex.questions.size)
+            is JudgeExercise -> Math.max(1, ex.sentences.size)
+            is GapChoiceExercise -> Math.max(1, ex.items.size)
+            else -> 1
+        }
     }
 
     /** `lessonTtsTexts`: every default-voice text a lesson speaks (offline prefetch). */
@@ -342,6 +392,10 @@ object Lessons {
                 ex.hints.orEmpty().forEach { texts += it.hanzi }
                 ex.example?.let { texts += it.hanzi }
             }
+            // Played after Check: a right sentence as written, a wrong one only as its correction.
+            is JudgeExercise -> ex.sentences.forEach { s -> JudgeGap.spokenText(s).takeIf { it.isNotEmpty() }?.let { texts += it } }
+            // The full sentence with the answer in the gap — the "___" is never spoken.
+            is GapChoiceExercise -> ex.items.forEach { texts += JudgeGap.fillGap(it.sentence, it.answer) }
             is ConversationExercise, is UnknownExercise -> Unit
         }
         return texts
@@ -394,6 +448,8 @@ object Lessons {
         is DictationExercise -> ex.audio.hanzi
         is OralExpressionExercise -> ex.prompt
         is ConversationExercise -> ex.situation
+        is JudgeExercise -> ex.question?.takeIf { it.isNotEmpty() } ?: ex.sentences.joinToString(" · ") { it.hanzi }
+        is GapChoiceExercise -> ex.question?.takeIf { it.isNotEmpty() } ?: ex.items.joinToString(" · ") { it.sentence }
         is UnknownExercise -> ""
     }
 
@@ -403,6 +459,8 @@ object Lessons {
             ?: ex.body?.takeIf { it.isNotEmpty() }?.let { if (it.length > 70) it.take(70) + "…" else it }
             ?: "${ex.sentences?.size ?: 0} example sentence(s)"
         is ListenChoiceExercise -> ex.question?.takeIf { it.isNotEmpty() } ?: ex.audio.hanzi
+        is JudgeExercise -> "${ex.question?.takeIf { it.isNotEmpty() } ?: "Correct or incorrect?"} · ${ex.sentences.size} sentences"
+        is GapChoiceExercise -> "${ex.question?.takeIf { it.isNotEmpty() } ?: "Choose the word"} · ${ex.items.size} sentences"
         else -> primaryText(ex)
     }
 
@@ -435,6 +493,8 @@ object ExerciseTypes {
         ExerciseTypeInfo("dictation", "📝", "Dictation"),
         ExerciseTypeInfo("oral_expression", "🗣", "Oral expression"),
         ExerciseTypeInfo("conversation", "💬", "Conversation"),
+        ExerciseTypeInfo("judge", "⚖️", "Judge each sentence"),
+        ExerciseTypeInfo("gap_choice", "🔀", "Choose the word"),
     ).associateBy { it.type }
 
     fun label(type: String): String = INFO[type]?.let { "${it.icon} ${it.name}" } ?: type

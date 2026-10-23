@@ -109,6 +109,10 @@ export function exercisePrimaryText(ex: LessonExercise): string {
       return ex.prompt;
     case 'conversation':
       return ex.situation;
+    case 'judge':
+      return ex.question || ex.sentences.map(s => s.hanzi).join(' · ');
+    case 'gap_choice':
+      return ex.question || ex.items.map(i => i.sentence).join(' · ');
     default:
       return '';
   }
@@ -146,6 +150,10 @@ function identityFields(ex: LessonExercise): string[] {
       return ['prompt', 'question_audio'];
     case 'conversation':
       return ['situation', 'lines'];
+    case 'judge':
+      return ['question', 'sentences'];
+    case 'gap_choice':
+      return ['question', 'items'];
     default:
       return [];
   }

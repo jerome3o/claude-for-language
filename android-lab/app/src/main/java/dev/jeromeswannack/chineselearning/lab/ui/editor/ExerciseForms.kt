@@ -57,6 +57,8 @@ fun ExerciseForm(exercise: JsonObject, onChange: (JsonObject) -> Unit, speak: Sp
             "dictation" -> DictationForm(exercise, onChange, speak)
             "oral_expression" -> OralExpressionForm(exercise, onChange, speak)
             "conversation" -> ConversationForm(exercise, onChange, speak)
+            "judge" -> JudgeForm(exercise, onChange, speak)
+            "gap_choice" -> GapChoiceForm(exercise, onChange, speak)
             else -> Text("This exercise type isn't known to the editor — use Advanced → Raw JSON.", color = Lab.colors.muted)
         }
         ErrorList(errors)

@@ -113,7 +113,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── validate.ts    # Playability checks for generated worlds
 │   │   └── index.ts       # Re-exports
 │   ├── lesson/            # Custom mini lessons: agent-authored lesson schema
-│   │   ├── types.ts       # Lesson spec (sections of exercises, 15 exercise types)
+│   │   ├── types.ts       # Lesson spec (sections of exercises, 17 exercise types)
 │   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
@@ -1458,7 +1458,16 @@ transcribed live as it is spoken and checked by Claude at Done — parts ①②�
 the recording uploads — docs/STUDY_SESSION.md "Claude checks your speaking", `shared/lesson/speakingTake.ts`) and `conversation` (a 2–3 speaker
 dialogue played with a distinct TTS voice per speaker — `shared/lesson/voices.ts`, `voice_id`
 on `/api/practice/tts`, cached per voice + speed for offline — then comprehension questions, one point
-each, transcript revealed at the end). Conversation lines are spoken at the provider's own
+each, transcript revealed at the end), and the per-sentence pair (`shared/lesson/judgeGap.ts`, Lab
+`core/…/JudgeGap.kt`, parity-tested; docs/STUDY_SESSION.md "Judge each sentence / Choose the word"):
+`judge` (3–8 sentences, each marked ✓ Correct / ✗ Incorrect; a wrong one carries `correction` + a one-line
+`explanation`, shown after Check — replaces "which sentence is wrong?" choices; a wrong sentence is never
+spoken, never exported as vocabulary and skipped by the pinyin checker) and `gap_choice` (2–8 sentences
+with ONE gap `___`, 2–4 `options` shared on the exercise or per item, `answer` ∈ options; pinyin / english are
+the FULL sentence's, `fillGap` puts the answer in for display / TTS / exports / the pinyin check — near-synonyms
+刚 / 刚才, 再 / 在, 的 / 得 / 地). Both are checked on the device, one point per sentence (`exercisePoints`;
+`answer.items` per sentence, `partPoints`), so one miss makes the exercise owed in the retry round / revision;
+analytics `lesson.items_checked`. Conversation lines are spoken at the provider's own
 conversation rate (admin `conversation_rate`: MiniMax 0.85, Azure 0.75, Google 0.8; every other clip
 stays at 0.6) or the learner's speed, and play back to back with a `CONVERSATION_LINE_GAP_MS` (200 ms)
 beat. **⚙︎ Audio** on every conversation (speed, a voice per speaker, delivery, Regenerate audio) —

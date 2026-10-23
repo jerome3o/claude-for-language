@@ -4,7 +4,7 @@
  * After ✏️ Check my sentence found a mistake, Claude writes a short mini lesson about exactly that
  * mistake: one note with the rule and contrasting examples (wrong → right, why), then ~8–12
  * exercises of several types chosen for the KIND of mistake (word order → scramble; a wrong word /
- * measure word / particle → choice with his own mistake among the distractors; a sound-alike
+ * measure word / particle → gap_choice / choice with his own mistake among the options, a judge exercise; a sound-alike
  * character → listen_choice; then translate / write_typed / dictation / sentence_making to produce
  * it) — all on VARIANTS of his sentence (other subjects, objects, times, places) so he learns the
  * rule rather than one sentence.
@@ -45,9 +45,9 @@ Build it like this (2–3 sections, 9–12 exercises in all, about 5–8 minutes
 1. "Your mistake" — ONE "note" first. title = the rule in a few words ("Time comes before the verb"). body, 3–5 short lines: "You wrote: <his sentence> ✗" / "A native says: <corrected> ✓", then WHY in plain English, then the pattern with a real example (never placeholders like "sb" / "X"). sentences = 3–4 examples with pinyin + english: the corrected sentence first, then 2–3 VARIANTS using the same rule in other situations.
 2. "Practise it" — recognise, then build. Pick the types that train THIS kind of mistake:
    - word order → 2–3 "scramble" of variants; the word he put in the wrong place is its own tile;
-   - a wrong word / measure word / particle / collocation → 2–3 "choice" whose options include HIS OWN mistake (applied to a variant) plus 1–2 other plausible wrong ones; "explanation" says why the right one is right;
+   - a wrong word / measure word / particle / collocation → 1 "gap_choice" (3–5 variants, each with ONE gap "___" where the word goes; the options are the right word, HIS OWN wrong word and at most one more plausible one; each item's "explanation" says why) and/or 1–2 "choice" whose options include his own mistake applied to a variant;
    - a sound-alike character → 1–2 "listen_choice" (the confused words as options, question in English) and a "choice" asking which character fits the sentence;
-   - always one "choice" "Which sentence is correct?" — a variant written right vs. written with his mistake (and one more plausible wrong version).
+   - always one "judge" (4–5 sentences: variants, some written right and some with HIS mistake; every wrong one with its "correction" and a one-line "explanation") — not a "which sentence is correct?" choice.
 3. "Use it" — he produces the structure himself:
    - 2 "translate" (English → Chinese) of variants that need the rule;
    - 1 "write_typed" (cues english + pinyin) or "dictation" (input "type") of the corrected sentence or a variant;
@@ -55,7 +55,7 @@ Build it like this (2–3 sections, 9–12 exercises in all, about 5–8 minutes
 Use at least 4 different exercise types. No "conversation", "describe_image" or "oral_expression".
 
 VARIANTS: change the subject, object, time, place or verb so the rule is the same but the sentence isn't his one sentence again. Stay at HIS level: reuse his words and words as easy as his; sentences about as long as his (rarely more than ~15 characters).
-Wrong Chinese only ever appears in the note (marked ✗) and as wrong options of a choice — never as a reference answer, an audio line or a scramble.
+Wrong Chinese only ever appears in the note (marked ✗), as wrong options of a choice / gap_choice and as a judge sentence marked "correct": false — never as a reference answer, an audio line or a scramble.
 title = the rule ("Time before the verb", "Measure word 本 for books"); icon "🎯"; description = one line saying what the lesson fixes.
 Pinyin: tone marks, spaces between words (not syllables), the reading this word uses, and the 一 / 不 tone changes written: ${YI_BU_CONVENTION}
 English: natural, one clear meaning. Simplified characters, mainland usage.
@@ -100,7 +100,7 @@ export function mistakeLessonProblems(spec: CustomLessonSpec): string[] {
   const off = [...new Set(types.filter((t) => OFF_TOPIC_TYPES.has(t)))];
   if (off.length) problems.push(`leave out ${off.map((t) => `"${t}"`).join(', ')}: this lesson is about one sentence's mistake`);
   if (!types.some((t) => PRODUCTION_TYPES.has(t))) problems.push('add exercises where he produces the structure himself: "translate" (English → Chinese) and "write_typed" / "dictation" / "sentence_making"');
-  if (!types.some((t) => t === 'choice' || t === 'scramble' || t === 'listen_choice')) problems.push('add a recognition exercise ("choice" with his own mistake as a wrong option, or "scramble")');
+  if (!types.some((t) => t === 'choice' || t === 'scramble' || t === 'listen_choice' || t === 'judge' || t === 'gap_choice')) problems.push('add a recognition exercise ("judge" with his mistake in some sentences, "gap_choice", "choice" with his own mistake as a wrong option, or "scramble")');
   return problems;
 }
 

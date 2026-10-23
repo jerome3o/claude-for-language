@@ -190,6 +190,39 @@ describe('fixSpecPinyin', () => {
     expect(spec.sections[0].exercises[0].options[2].pinyin).toBe('yàjǐn');
   });
 
+  it('checks a gap sentence with the answer in the gap; leaves a judge exercise\'s wrong sentence alone', async () => {
+    const spec = {
+      title: 'Escalators',
+      sections: [{ exercises: [
+        {
+          type: 'gap_choice',
+          options: ['扶梯', '电梯'],
+          items: [
+            { sentence: '我坐___上楼。', answer: '扶梯', pinyin: 'Wǒ zuò fúqī shàng lóu.' },
+            { sentence: '我坐___下楼。', answer: '电梯', pinyin: 'Wǒ zuò diàntī xià lóu.' },
+          ],
+        },
+        {
+          type: 'judge',
+          sentences: [
+            { hanzi: '我坐扶梯。', pinyin: 'Wǒ zuò fúqī.', correct: true },
+            { hanzi: '我扶梯坐。', pinyin: 'Wǒ fúqī zuò.', correct: false, correction: { hanzi: '我坐扶梯。', pinyin: 'Wǒ zuò fúqī.' }, explanation: 'Verb first.' },
+            { hanzi: '我坐电梯。', pinyin: 'Wǒ zuò diàntī.', correct: true },
+          ],
+        },
+      ] }],
+    };
+    expect(validateLessonSpec(spec)).toEqual([]);
+    const fixes = await fixSpecPinyin(spec);
+    expect(fixes.map((f) => [f.path, f.hanzi, f.after])).toEqual([
+      ['sections[0].exercises[0].items[0].pinyin', '我坐扶梯上楼。', 'Wǒ zuò fútī shàng lóu.'],
+      ['sections[0].exercises[1].sentences[0].pinyin', '我坐扶梯。', 'Wǒ zuò fútī.'],
+      ['sections[0].exercises[1].sentences[1].correction.pinyin', '我坐扶梯。', 'Wǒ zuò fútī.'],
+    ]);
+    expect(spec.sections[0].exercises[1].sentences![1].pinyin).toBe('Wǒ fúqī zuò.');
+    expect(fixes[0].where).toBe('section 1 · exercise 1 (gap_choice) · item 1');
+  });
+
   it('walks a reader: page content and vocabulary', async () => {
     const spec: ReaderSpec = {
       title_chinese: '商场',

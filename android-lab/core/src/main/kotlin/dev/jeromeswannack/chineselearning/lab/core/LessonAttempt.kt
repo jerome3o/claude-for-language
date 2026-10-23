@@ -46,6 +46,10 @@ data class AttemptRecording(
 @Serializable
 data class QuestionAnswer(val choice: Int? = null, val text: String? = null, val correct: Boolean? = null)
 
+/** Judge / gap_choice: one sentence — judged (true = "Correct ✓") or the word picked, and whether that was right. */
+@Serializable
+data class ItemAnswer(val judged: Boolean? = null, val pick: String? = null, val correct: Boolean? = null)
+
 @Serializable
 data class ExerciseAnswer(
     val text: String? = null,
@@ -66,6 +70,8 @@ data class ExerciseAnswer(
     val check: AnswerCheck? = null,
     /** Earlier answers to this exercise (🔁 Try again), oldest first, each with its check. */
     val tries: List<AnswerTry>? = null,
+    /** Judge / gap_choice: one entry per sentence. */
+    val items: List<ItemAnswer>? = null,
 )
 
 @Serializable
@@ -93,6 +99,13 @@ data class LessonAttemptData(
 data class SectionTime(val section: Int, val durationMs: Long, val exercises: Int, val correct: Int, val scored: Int)
 
 object LessonAttempts {
+    /** `partPoints`: the points of an answer with per-part results (conversation questions, judge / gap sentences); null = not per part. */
+    fun partPoints(answer: ExerciseAnswer?): Int? = when {
+        answer?.questions != null -> answer.questions.count { it.correct == true }
+        answer?.items != null -> answer.items.count { it.correct == true }
+        else -> null
+    }
+
     /** `exerciseMediaKey`: stable per position in a run. */
     fun mediaKey(section: Int, index: Int) = "s${section}e$index"
 
@@ -126,7 +139,7 @@ object LessonAttempts {
      */
     fun attemptFor(section: Int, index: Int, exercise: LessonExercise, correct: Boolean?, answer: ExerciseAnswer?, durationMs: Long): ExerciseAttempt {
         val maxPoints = Lessons.exercisePoints(exercise)
-        val points = answer?.questions?.count { it.correct == true } ?: if (correct == true) maxPoints else 0
+        val points = partPoints(answer) ?: if (correct == true) maxPoints else 0
         return ExerciseAttempt(
             section = section,
             index = index,

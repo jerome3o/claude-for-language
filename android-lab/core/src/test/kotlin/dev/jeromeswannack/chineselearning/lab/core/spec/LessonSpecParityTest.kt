@@ -54,7 +54,7 @@ class LessonSpecParityTest {
             expected, bundled,
             "core/src/main/resources/lesson/catalogue.json is stale — cp $dir/lesson-catalogue.json android-lab/core/src/main/resources/lesson/catalogue.json",
         )
-        assertEquals(15, LessonCatalogue.types.size)
+        assertEquals(17, LessonCatalogue.types.size)
         assertEquals(LessonValidator.EXERCISE_TYPE_IDS, LessonCatalogue.types.map { it.type })
         for (sample in LessonCatalogue.samples) assertEquals(emptyList(), LessonValidator.validate(sample.spec), "sample ${sample.id}")
     }

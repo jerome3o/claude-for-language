@@ -33,6 +33,7 @@ object LessonRun {
     private val SCOREABLE = setOf(
         "scramble", "choice", "translate", "match", "describe_image", "speak", "listen_choice", "listen_translate",
         "sentence_making", "write_typed", "write_handwriting", "dictation", "oral_expression", "conversation",
+        "judge", "gap_choice",
     )
 
     /** Port of exerciseKey. */

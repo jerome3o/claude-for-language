@@ -44,5 +44,17 @@ export function defaultExercise(type: ExerciseType): LessonExercise {
         lines: [{ speaker: 0, hanzi: '' }, { speaker: 1, hanzi: '' }],
         questions: [{ question: '', options: ['', ''], correct: 0 }],
       };
+    case 'judge':
+      return {
+        type,
+        question: '',
+        sentences: [
+          { hanzi: '', correct: true },
+          { hanzi: '', correct: false, correction: { hanzi: '' }, explanation: '' },
+          { hanzi: '', correct: true },
+        ],
+      };
+    case 'gap_choice':
+      return { type, question: '', options: ['', ''], items: [{ sentence: '___', answer: '' }, { sentence: '___', answer: '' }] };
   }
 }
