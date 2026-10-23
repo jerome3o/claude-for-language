@@ -1,5 +1,5 @@
 /**
- "➕ Add new words (N)" (docs/CHAT.md "Chat ↔ Coach"): which words of a sentence are
+ * "➕ Add new words (N)" (docs/CHAT.md "Chat ↔ Coach"): which words of a sentence are
  * NOT in any of the learner's decks yet, and the cards the picker adds for the ones
  * he ticks. Pure; ported to the Lab app (core CoachNewWords.kt, parity-tested through
  * parity/fixtures/coach.ts), whose podcast episodes use it. (The Sentence Coach's
