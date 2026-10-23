@@ -181,10 +181,23 @@ export function appPinyin(hanzi: string): string {
   }
 }
 
+const SENTENCE_END: Record<string, string> = { '。': '.', '！': '!', '？': '?' };
+
+/**
+ * Pinyin of a longer spoken answer: clause by clause through `appPinyin`, sentence ends kept
+ * ("…吧？ 欢迎…" → "… ba? huān yíng …") and words in Latin letters left as said (Annie).
+ */
+export function speechPinyin(text: string): string {
+  const pieces = text.match(/[\p{Script=Han}，、；：]+|[^\p{Script=Han}，、；：]+/gu) ?? [];
+  const out = pieces.map((p) => (/\p{Script=Han}/u.test(p) ? appPinyin(p) : p.replace(/[。！？]/g, (c) => SENTENCE_END[c] ?? c).replace(/[…]+/g, ' ')));
+  return out.join(' ').replace(/\s+/g, ' ').replace(/\s+([.,!?;:])/g, '$1').trim();
+}
+
 export function withPinyin(check: AnswerCheck): AnswerCheck {
-  const out: AnswerCheck = { ...check, corrected_pinyin: check.corrected ? appPinyin(check.corrected) : '' };
+  const line = check.cleaned ? speechPinyin : appPinyin;
+  const out: AnswerCheck = { ...check, corrected_pinyin: check.corrected ? line(check.corrected) : '' };
   if (check.alternative) out.alternative = { ...check.alternative, pinyin: appPinyin(check.alternative.hanzi) };
-  if (check.cleaned) out.cleaned_pinyin = appPinyin(check.cleaned);
+  if (check.cleaned) out.cleaned_pinyin = speechPinyin(check.cleaned);
   if (check.tips.some((t) => t.fix)) out.tips = check.tips.map((t) => (t.fix ? { ...t, fix_pinyin: appPinyin(t.fix) } : t));
   return out;
 }

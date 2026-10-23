@@ -111,3 +111,114 @@ describe('attempt data keeps the check and every try', () => {
     expect(a.tries).toEqual([{ text: '医生让我吃药和休息', input: 'typed' }]);
   });
 });
+
+// ============ Free speaking ============
+
+import {
+  speakingTaskParts, isSpeakingCheckType, cleanerVersion, speakingPartMark, askQuickQuestions, answerLimitFor,
+} from './answerCheck';
+import { speakingClock, speakingTakeLine, SPEAKING_LIVE_KEY_MARGIN_MS, SPEAKING_MAX_SECONDS } from './speakingTake';
+
+const ANNIE = "A new colleague, Annie, arrives at your office. Guess who she is (① 就是…吧), tell her where two places are (② 就在), what today's meeting is about (③ 是关于…的), and how busy the team is (④ 形容词 + 到…).";
+const SAID = '嗯，你好，你就是……sorry，你就是新来的Annie吧？洗手间在……wait，洗手间就在电梯的旁边。今天的会议是关于新项目。';
+
+describe('speaking: which answers', () => {
+  it('oral_expression and speak are checked when the transcript has Chinese', () => {
+    expect(isSpeakingCheckType('oral_expression')).toBe(true);
+    expect(isSpeakingCheckType('speak')).toBe(true);
+    expect(isSpeakingCheckType('translate')).toBe(false);
+    expect(answerCheckApplies('oral_expression', SAID)).toBe(true);
+    expect(answerCheckApplies('speak', 'sorry, wait')).toBe(false);
+    expect(answerLimitFor('oral_expression')).toBe(1500);
+    expect(answerLimitFor('translate')).toBe(300);
+  });
+
+  it('a long transcript is kept (1500), no model answer needed, hints and the question picked', () => {
+    const long = '我们团队最近忙到没有时间吃午饭。'.repeat(100);
+    const r = pickAnswerCheckInput({ prompt_en: ANNIE, answer: long, exercise_type: 'oral_expression', input: 'spoken', hints: ['就是', 7, '就在'], question: '她是谁？' });
+    if ('problems' in r) throw new Error(r.problems.join());
+    expect(r.input.answer.length).toBe(1500);
+    expect(r.input.model_answer).toBe('');
+    expect(r.input.hints).toEqual(['就是', '就在']);
+    expect(r.input.question).toBe('她是谁？');
+    expect(pickAnswerCheckInput({ prompt_en: 'x', answer: '你好', exercise_type: 'translate' })).toEqual({ problems: ['model_answer is required'] });
+  });
+
+  it('cache text: its own version, hints and question count, punctuation does not', () => {
+    const base = { prompt_en: ANNIE, model_answer: '', answer: SAID, exercise_type: 'oral_expression', input: 'spoken' as const };
+    const t = answerCheckCacheText(base);
+    expect(t.startsWith('s1|oral_expression|')).toBe(true);
+    expect(answerCheckCacheText({ ...base, answer: SAID.replace(/[，。？]/g, ' ') })).toBe(t);
+    expect(answerCheckCacheText({ ...base, hints: ['就是'] })).not.toBe(t);
+  });
+});
+
+describe('speakingTaskParts', () => {
+  it('reads ① ② ③ ④ in brackets after each ask', () => {
+    expect(speakingTaskParts(ANNIE)).toEqual([
+      { marker: '①', structure: '就是…吧', description: 'Guess who she is' },
+      { marker: '②', structure: '就在', description: 'tell her where two places are' },
+      { marker: '③', structure: '是关于…的', description: "what today's meeting is about" },
+      { marker: '④', structure: '形容词 + 到…', description: 'how busy the team is' },
+    ]);
+  });
+  it('reads plain markers and nothing from an unnumbered task', () => {
+    expect(speakingTaskParts('Talk about your weekend: ① 先…然后… ② 因为…所以… and ③ 一边…一边…').map((p) => p.structure)).toEqual(['先…然后…', '因为…所以…', '一边…一边…']);
+    expect(speakingTaskParts('Describe your favourite restaurant.')).toEqual([]);
+    expect(speakingTaskParts(null)).toEqual([]);
+  });
+});
+
+describe('normalizeAnswerCheck: speaking', () => {
+  const raw = {
+    verdict: 'acceptable', headline: 'All four parts — close 是关于…的 with 的.',
+    cleaned: '你好，你就是新来的Annie吧？洗手间就在电梯的旁边。今天的会议是关于新项目。',
+    corrected: '你好，你就是新来的Annie吧？洗手间就在电梯旁边。今天的会议是关于新项目的。',
+    parts: [{ label: '① 就是…吧', status: 'used' }, { label: '③ 是关于…的', status: 'used_with_issue', note: 'missing 的' }, { label: 'x', status: 'great' }, { status: 'missing' }],
+    tips: [1, 2, 3, 4, 5].map((n) => ({ text: `tip ${n}`, quote: '是关于新项目', fix: n === 1 ? '是关于新项目的' : '是关于新项目' })),
+  };
+  it('keeps the cleaned text, the parts, ≤ 4 tips with their fix, and the fix on an acceptable answer', () => {
+    const c = normalizeAnswerCheck(raw, SAID);
+    expect(c.cleaned).toBe(raw.cleaned);
+    expect(c.corrected).toBe(raw.corrected);
+    expect(c.suggested).toBe('got_it');
+    expect(c.parts).toEqual([{ label: '① 就是…吧', status: 'used' }, { label: '③ 是关于…的', status: 'used_with_issue', note: 'missing 的' }]);
+    expect(c.tips).toHaveLength(4);
+    expect(c.tips[0].fix).toBe('是关于新项目的');
+    expect(c.tips[1].fix).toBeUndefined(); // the same as the quote
+    expect(cleanerVersion(c)).toEqual({ hanzi: raw.corrected, pinyin: '', diffFrom: raw.cleaned });
+  });
+  it('a "correction" equal to what they meant is dropped; correct never carries one', () => {
+    expect(normalizeAnswerCheck({ ...raw, corrected: raw.cleaned }, SAID).corrected).toBe('');
+    const c = normalizeAnswerCheck({ ...raw, verdict: 'correct' }, SAID);
+    expect(c.corrected).toBe('');
+    expect(cleanerVersion(c)).toEqual({ hanzi: raw.cleaned, pinyin: '', diffFrom: null });
+  });
+  it('without `cleaned` it is a translate check (no parts, acceptable has no fix)', () => {
+    const c = normalizeAnswerCheck({ ...raw, cleaned: '' }, SAID);
+    expect(c.parts).toBeUndefined();
+    expect(c.corrected).toBe('');
+    expect(c.tips).toHaveLength(3);
+  });
+  it('round-trips through the attempt sanitizer', () => {
+    const check = normalizeAnswerCheck(raw, SAID);
+    const data = sanitizeAttemptData({ started_at: '', duration_ms: 1, exercises: [{ section: 0, index: 0, type: 'oral_expression', correct: true, points: 1, max_points: 1, duration_ms: 1, answer: { text: SAID, input: 'spoken', check } }] });
+    expect(data?.exercises[0].answer?.check).toEqual(check);
+  });
+});
+
+describe('speaking: marks, quick questions, take numbers', () => {
+  it('marks and questions', () => {
+    expect(speakingPartMark('used')).toEqual({ icon: '✓', tone: 'good' });
+    expect(speakingPartMark('used_with_issue')).toEqual({ icon: '~', tone: 'warn' });
+    expect(speakingPartMark('missing')).toEqual({ icon: '✗', tone: 'bad' });
+    expect(askQuickQuestions('almost', 'oral_expression')).toContain('What did I leave out?');
+    expect(askQuickQuestions('almost')).toContain('Why is mine wrong?');
+  });
+  it('a long take: the live key must outlive it; the clock', () => {
+    expect(SPEAKING_LIVE_KEY_MARGIN_MS).toBeGreaterThan(SPEAKING_MAX_SECONDS * 1000);
+    expect(speakingClock(65)).toBe('1:05');
+    expect(speakingClock(-3)).toBe('0:00');
+    expect(speakingTakeLine('failed')).toBe('Couldn’t transcribe — tap to retry');
+  });
+});
