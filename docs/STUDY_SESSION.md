@@ -620,8 +620,11 @@ cycle until you get all the questions right first time."
   and stored; a rating no longer decides anything when the run has answers.
 
 **Where**: Home's card lists, after the homework rows, **revisions due** ("🔁 <title> · Revision 1 ·
-5 questions · ~4 min · due today" → the revision run) and **new lessons** ("🎓 … · new · 18 exercises ·
-~12 min"); locked ones wait (`shared/homework/home.ts`). The Mini Lessons page: **To do** (a run in
+5 questions · ~4 min · due today" → the revision run) and **new lessons a tutor sent for long-term review**
+("🎓 … · new · 18 exercises · ~12 min"); locked ones wait; his own / agent-made / companion lessons never
+started and lessons whose assignments were cancelled are NOT on Home — only on the Mini Lessons page
+(`shared/homework/home.ts`). `/homework` lists the same lesson rows under **Mini lessons**, so Home's
+"+N more" lands on them. The Mini Lessons page: **To do** (a run in
 progress — ▶ Continue —, revisions due — ▶ Revision —, new — ▶ Start), **Revision coming** (▶ Revise now /
 Whole lesson), **Done for good** (▶ Do it again), each with its size. The end of a run says "All right
 first time — done for good! 🎉" or "Back in a week as a revision: the 3 you missed first time + a few
