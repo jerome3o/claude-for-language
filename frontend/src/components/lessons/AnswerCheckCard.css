@@ -280,3 +280,5 @@ mark.answer-check-quote,
   width: 100%;
   text-align: left;
 }
+.oral-recorder .speak-transcript { width: 100%; align-self: stretch; text-align: left; }
+.answer-check-tip-fix .answer-check-pinyin { display: block; }

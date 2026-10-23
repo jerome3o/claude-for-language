@@ -668,6 +668,49 @@ keeps its own check (`/api/lessons/sentence-feedback`). Analytics `lesson.answer
 offline, ms, cached, try), `lesson.answer_retry`, `lesson.answer_ask`. E2E_TEST_MODE answers with
 `services/answer-check-fake.ts`.
 
+### Claude checks your speaking (free speaking: `oral_expression`, `speak`)
+
+Jerome (Oct 2026): in "口语 · Speaking — recorded 🎙" he records a long answer to a task like "Annie
+arrives at your office. Guess who she is (① 就是…吧), tell her where two places are (② 就在), what
+today's meeting is about (③ 是关于…的), and how busy the team is (④ 形容词 + 到…)" — and got back only
+his recording, the model answer and Not quite / I said it well. Now the take is transcribed and checked:
+
+- **Transcribed like a study card's spoken answer**, but minutes long (`shared/lesson/speakingTake.ts`):
+  the take streams to the live transcriber while he speaks (the words appear under the timer) and
+  "🎤 You said" is ready a moment after ■; else the take is uploaded to `POST /api/transcribe`
+  (`transcribeTakeOutcome` / Lab `TakeTranscription`). Both failing → **"Couldn't transcribe — tap to
+  retry"** with the same take. Offline → "Recording saved — Claude will check it when you're online": the
+  recording goes up with the attempt and the server transcribes it and runs the check then
+  (`checkAttemptSpeaking`, `routes/lesson-attempts.ts`; skipped past the daily AI cap), writing it into
+  the attempt. Long takes: the take stops itself at 5 minutes (`SPEAKING_MAX_SECONDS`), a cached live
+  key is reused only with 6 minutes left (`SPEAKING_LIVE_KEY_MARGIN_MS`), Stop waits up to 8 s for the
+  live stream's last words, the live session cap is 420 s and the upload / attempt-media limits 16 MB
+  (the Lab streams 16 kHz WAV, ~1.9 MB a minute). Web `hooks/useSpeakingTake.ts`; Lab
+  `LessonRecorder.startLive` + `SpeakingTakeState` (`ui/lessons/SpeakingCheckViews.kt`).
+- **Done** starts Claude's check (the same `POST /api/lessons/answer-check`, `exercise_type`
+  oral_expression / speak, the task, useful words, the question played, the model answer as "one way",
+  the transcript ≤ 1,500 characters) — the larger model first (`runSpeakingCheck`, tool `check_speaking`,
+  thinking off, the smaller model as the last attempt), cached like the translate check (cache text `s1|…`).
+- **The prompt is gracious**: false starts, restarts, "sorry" / "wait" / 嗯 / 那个, English asides and
+  repeats never count — it judges his final attempt at each bit; the transcript's PUNCTUATION is the
+  recogniser's guess and is ignored completely (never a mistake, never mentioned, never changed); sound-
+  alike characters (在/再, 他/她, 的/得/地) are read as intended; nothing that is fine in spoken Chinese is
+  nitpicked. It returns `cleaned` (what he meant — his words and mistakes kept), `corrected` (a cleaner
+  version: only the real mistakes fixed), `parts` (one per ①②③ — `speakingTaskParts` reads them from the
+  task and the prompt lists them — used ✓ / used with a slip ~ / missing ✗, with a note), ≤ 4 tips each
+  quoting his exact words with the better version (`fix`, + the app's pinyin) and the verdict / headline.
+- **The card** (same `AnswerCheckCard` / Lab `AnswerCheckBody`): chip (**✓ Well said** · **✓ Good** · ~ Almost ·
+  ✗ Not quite), the parts checklist, "A cleaner version" with the fixes in green (diffed against what he
+  meant, not the raw transcript) + pinyin + 🔊, the tips with → the better words 🔊; then "One way to say
+  it", Not quite / I said it well with the suggested one ringed, 🔁 Try again (a new take; every try kept)
+  and 💬 Ask about this (its own quick questions). The attempt carries the transcript (`text`, input
+  spoken) and the check, so the tutor's attempt review shows both.
+- `speak` ("Say it out loud") gets the same recorder + check (nothing kept), with "🎤 I said it without
+  recording" as before. Analytics: `lesson.speaking_transcribed` (via, live_error, ms, seconds) and the
+  answer-check events with `exercise_type`. E2E_TEST_MODE: `SPEAKING_FIXTURE` in `answer-check-fake.ts`.
+  Rules `shared/lesson/answerCheck.ts` + `speakingTake.ts` (Lab `LessonAnswerCheck.kt` / `SpeakingTake`,
+  parity-tested by `parity/fixtures/lesson-speaking-check.ts`).
+
 ### Unlockable lessons (podcast companions, real-world tasks)
 
 Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson drilling its characters,
