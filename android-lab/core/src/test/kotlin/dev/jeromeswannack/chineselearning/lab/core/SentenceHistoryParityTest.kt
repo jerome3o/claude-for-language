@@ -63,7 +63,17 @@ class SentenceHistoryParityTest {
                 val e = it.jsonObject
                 SentenceRound.Exercise(e.s("id")!!, e.s("key")!!, e.s("mode")!!, e["index"]!!.jsonPrimitive.int)
             }
-            assertEquals(expected, SentenceRound.pick(sentences, stats), what)
+            val picked = SentenceRound.pick(sentences, stats)
+            assertEquals(expected, picked, what)
+            for (p in o["progress"]!!.jsonArray) {
+                val po = p.jsonObject
+                val w = po["progress"]!!.jsonObject
+                assertEquals(
+                    SentenceRound.Progress(w["needed"]!!.jsonPrimitive.int, w["got"]!!.jsonPrimitive.int, w["done"]!!.jsonPrimitive.boolean),
+                    SentenceRound.progress(picked, po["ids"]!!.jsonArray.map { it.str!! }, sentences.map { it.key }),
+                    what,
+                )
+            }
         }
         assertTrue(withHistory > 50)
     }

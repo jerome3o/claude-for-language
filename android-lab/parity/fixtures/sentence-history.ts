@@ -12,7 +12,7 @@ import {
   SENTENCE_HIDE_HINT, SENTENCE_HIDDEN_TOAST, SENTENCE_SHOW_AGAIN, SENTENCE_ROUND_MIN_VISIBLE, CLUE_SENTENCE_KEY,
   type SentencePracticeEvent, type SentenceStats,
 } from '../../../shared/study/sentenceHistory';
-import { pickRoundExercises, spreadOrder, type RoundSentence } from '../../../shared/study/sentenceRound';
+import { pickRoundExercises, sentenceRoundProgress, spreadOrder, type RoundSentence } from '../../../shared/study/sentenceRound';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: sentence-history <out-dir>');
@@ -67,6 +67,9 @@ for (let i = 0; i < 200; i++) {
     sentences, events, stats: statsJson(stats), known, compares,
     wantsMore: wantsMoreSentences(sentences, stats),
     exercises: pickRoundExercises(sentences, stats),
+    progress: [[], ['read:s0', 'translate:clue:n1'], ['read:s7', 'translate:s1', 'read:zzz']].map((ids) => ({
+      ids, progress: sentenceRoundProgress(pickRoundExercises(sentences, stats), ids, sentences.map((x) => x.key)),
+    })),
   });
 }
 

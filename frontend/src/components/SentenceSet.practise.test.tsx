@@ -56,6 +56,22 @@ vi.mock('../contexts/NetworkContext', () => ({ useNetwork: () => ({ isOnline: tr
 vi.mock('../hooks/useAudio', () => ({ useNoteAudio: () => ({ isPlaying: false, play: vi.fn() }) }));
 vi.mock('../services/offlineMode', () => ({ isEffectivelyOffline: () => false }));
 vi.mock('../api/client', () => ({ fetchNoteSentences: vi.fn(async () => []), deleteNoteSentenceSet: vi.fn(), API_BASE: '' }));
+const history = vi.hoisted(() => ({
+  stats: new Map() as Map<string, unknown>,
+  record: [] as unknown[][],
+  hidden: [] as unknown[][],
+  unhidden: [] as unknown[][],
+  more: [] as unknown[][],
+}));
+vi.mock('../services/sentencePractice', () => ({
+  useSentenceStats: () => history.stats,
+  recordSentenceAttempt: (...a: unknown[]) => { history.record.push(a); },
+  hideSentence: async (...a: unknown[]) => { history.hidden.push(a); },
+  unhideSentence: async (...a: unknown[]) => { history.unhidden.push(a); },
+  requestMoreSentences: (...a: unknown[]) => { history.more.push(a); },
+  sentencesComing: () => false,
+}));
+vi.mock('./upNext/UpNextBoard', () => ({ UndoToast: ({ text }: { text: string }) => <div>{text}</div> }));
 const SET = [
   { id: 's1', note_id: 'n1', position: 0, hanzi: '我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank.', audio_url: null, focus: 'core', focus_note: null, explanation: null },
   { id: 's2', note_id: 'n1', position: 1, hanzi: '银行在哪儿？', pinyin: 'Yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: null, focus: 'core', focus_note: null, explanation: null },
@@ -186,5 +202,30 @@ describe('SentenceSet 🎤', () => {
     await render(false);
     act(() => (rows()[0].querySelector('.sentence-set-hidden') as HTMLElement).click());
     expect(all('sentence-practise-mic')).toHaveLength(0);
+  });
+});
+
+describe('SentenceSet practice history', () => {
+  it('records takes, leaves hidden rows out (Show hidden brings them back) and hides from the row tools', async () => {
+    history.stats = new Map<string, unknown>([['s2', { read: { attempts: 0, rights: 0, misses: 0, last_at: null }, translate: { attempts: 0, rights: 0, misses: 0, last_at: null }, hidden: { at: '2026-10-02', reason: 'weird' } }]]);
+    await render();
+    expect(onCount).toHaveBeenLastCalledWith(1);
+    expect(rows()).toHaveLength(1);
+    act(() => (rows()[0].querySelector('.sentence-set-hidden') as HTMLElement).click());
+    act(() => inRow(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行'));
+    expect(history.record.at(-1)).toEqual(['n1', 's1', 'read', 'right']);
+    // ⋯ → Show hidden (1) → the hidden row with Show again.
+    act(() => (host.querySelector('[aria-label="Sentence options"]') as HTMLElement).click());
+    act(() => all('sentence-set-show-hidden')[0].click());
+    act(() => all('sentence-set-unhide')[0].click());
+    expect(history.unhidden.at(-1)).toEqual(['n1', 's2', 'list']);
+    // A fully open row's tools: Stop showing this sentence → a reason.
+    act(() => (rows()[0].querySelector('.sentence-set-reveal') as HTMLElement).click());
+    act(() => (rows()[0].querySelector('.sentence-set-reveal') as HTMLElement).click());
+    act(() => inRow(0, 'sentence-set-hide')!.click());
+    act(() => (host.querySelector('[data-testid="sentence-hide-too_rare"]') as HTMLElement).click());
+    expect(history.hidden.at(-1)).toEqual(['n1', 's1', 'too_rare', 'list']);
+    history.stats = new Map();
   });
 });

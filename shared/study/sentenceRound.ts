@@ -154,10 +154,24 @@ export interface RoundProgress {
   done: boolean;
 }
 
-export function sentenceRoundProgress(exercises: readonly RoundExercise[], rightIds: readonly string[]): RoundProgress {
+/**
+ * The round's progress. A right id counts when it is one of the exercises — or, given `sentenceKeys`
+ * (the sentences in rotation), any read / translate id of those: a round shown again (back from the
+ * coach, a reload) may pick other exercises once this showing's takes are in the history, and what was
+ * already right must still count.
+ */
+export function sentenceRoundProgress(
+  exercises: readonly RoundExercise[],
+  rightIds: readonly string[],
+  sentenceKeys?: readonly string[],
+): RoundProgress {
   const sentences = new Set(exercises.map((e) => e.key)).size;
   const needed = Math.min(SENTENCE_GATE_TARGET, sentences);
   const ids = new Set(exercises.map((e) => e.id));
+  for (const k of sentenceKeys ?? []) {
+    ids.add(roundExerciseId('read', k));
+    ids.add(roundExerciseId('translate', k));
+  }
   const got = Math.min(needed, new Set(rightIds.filter((id) => ids.has(id))).size);
   return { needed, got, done: needed > 0 && got >= needed };
 }

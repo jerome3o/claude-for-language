@@ -3,6 +3,7 @@ import { replaceLocalFolders, syncFolders } from './folders';
 import { replaceLocalBumps, syncBumps, uploadPendingBumps } from './studyBumps';
 import { replaceLocalHolds, syncHolds, uploadPendingHolds } from './cardHolds';
 import { replaceLocalForgets, syncForgets, uploadPendingForgets } from './cardForgets';
+import { syncSentencePractice } from './sentencePractice';
 import type { ApiCardForget } from '../api/cardForgets';
 import { writeBurySiblings } from './burySiblings';
 import type { ApiCardHold } from '../api/cardHolds';
@@ -683,6 +684,8 @@ class SyncService {
     await uploadPendingHolds();
     await uploadPendingForgets();
     await uploadPendingUpNext();
+    // Practice per example sentence (offline events, both ways); never holds the sync up.
+    void syncSentencePractice().catch(err => console.warn('[Sync] Sentence practice failed:', err));
     const response = await fetch(`${API_PATH}/sync/changes?since=${since}`, {
       headers: getAuthHeaders(),
     });

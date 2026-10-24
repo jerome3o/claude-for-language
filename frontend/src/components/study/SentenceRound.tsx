@@ -27,6 +27,18 @@ import {
   type RoundExercise,
 } from '@shared/study/sentenceRound';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
+import {
+  SENTENCES_COMING_NOTE,
+  SENTENCE_HIDDEN_TOAST,
+  SENTENCE_HIDE_TITLE,
+  sentenceHistoryKey,
+  wantsMoreSentences,
+  type SentenceHideReason,
+} from '@shared/study/sentenceHistory';
+import { hideSentence, recordSentenceAttempt, requestMoreSentences, sentencesComing, unhideSentence, useSentenceStats } from '../../services/sentencePractice';
+import { useLongPress } from '../chat/useLongPress';
+import { UndoToast } from '../upNext/UpNextBoard';
+import { SentenceHideSheet } from './SentenceHideSheet';
 import { practiseBlockNote, practiseMicEnabled } from '@shared/coach';
 import type { Note } from '../../types';
 import { fetchNoteSentences, API_BASE } from '../../api/client';
@@ -123,6 +135,8 @@ export function useRoundSentences(note: NoteSentenceFields, enabled: boolean): R
 interface SentenceRoundProps {
   /** The card showing ("one showing of the card": a new one starts afresh). */
   showingKey: string;
+  /** The note (its sentences' practice history: the round prefers what he knows least). */
+  noteId: string;
   /** The card's question, small at the top (the hanzi on a reading card, the English on a meaning card). */
   question: string;
   questionIsChinese: boolean;
@@ -137,21 +151,60 @@ interface SentenceRoundProps {
   onSkip: () => void;
 }
 
-export function SentenceRound({ showingKey, question, questionIsChinese, sentences, right, onRight, onDone, onSkip }: SentenceRoundProps) {
-  const exercises = useMemo(() => pickRoundExercises(sentences ?? []), [sentences]);
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip }: SentenceRoundProps) {
+  const stats = useSentenceStats(noteId);
+  // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
+  // must not reshuffle the round under his finger. A sentence hidden now leaves it.
+  const [picked, setPicked] = useState<RoundExercise[] | null>(null);
+  useEffect(() => {
+    if (picked || !sentences || !stats) return;
+    setPicked(pickRoundExercises(sentences, stats));
+  }, [picked, sentences, stats]);
+  const isHidden = (key: string) => !!stats?.get(sentenceHistoryKey(key))?.hidden;
+  const exercises = useMemo(() => (picked ?? []).filter((e) => !isHidden(e.key)), [picked, stats]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visibleKeys = useMemo(() => (sentences ?? []).filter((s) => !isHidden(s.key)).map((s) => s.key), [sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(() => new Map((sentences ?? []).map((s) => [s.key, s])), [sentences]);
-  const progress = sentenceRoundProgress(exercises, right);
+  const progress = sentenceRoundProgress(exercises, right, visibleKeys);
+  // More sentences for this word: every one left known in both modes, or fewer than four left.
+  const [coming, setComing] = useState(() => sentencesComing(noteId));
+  useEffect(() => {
+    if (!sentences || !stats) return;
+    if (wantsMoreSentences(sentences, stats)) {
+      const visible = sentences.filter((s) => !isHidden(s.key)).length;
+      requestMoreSentences(noteId, visible < 4 ? 'few' : 'known');
+      setComing(true);
+    }
+  }, [sentences, stats, noteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // "Stop showing this sentence": the sheet, then Undo.
+  const [hiding, setHiding] = useState<RoundExercise | null>(null);
+  const [undo, setUndo] = useState<{ key: string } | null>(null);
+  const longPress = useLongPress();
+  const hide = (ex: RoundExercise, reason: SentenceHideReason) => {
+    setHiding(null);
+    void hideSentence(noteId, ex.key, reason, 'round');
+    setUndo({ key: ex.key });
+  };
   const { isPlaying, play } = useNoteAudio('sentence-round');
   const [playing, setPlaying] = useState<string | null>(null);
   const [english, setEnglish] = useState<Record<string, boolean>>({});
-  const practise = useSentencePractise({ showingKey: `${showingKey}:round`, onRight });
+  const exerciseKey = useRef(new Map<string, string>());
+  exerciseKey.current = new Map((picked ?? []).map((e) => [e.id, e.key]));
+  const practise = useSentencePractise({
+    showingKey: `${showingKey}:round`,
+    onRight,
+    // Every judged take goes into the sentence's practice history.
+    onResult: (id, mode, result) => {
+      const key = exerciseKey.current.get(id);
+      if (key) recordSentenceAttempt(noteId, key, mode, result);
+    },
+  });
 
   // No sentences after all: straight to the answer.
   const latest = useRef({ onDone, onSkip });
   latest.current = { onDone, onSkip };
   useEffect(() => {
-    if (sentences && sentences.length === 0) latest.current.onDone();
-  }, [sentences]);
+    if (picked && picked.length === 0) latest.current.onDone();
+  }, [picked]);
 
   // A result landed: right / miss, once per take (a translate take waits for Claude's check).
   const reported = useRef(new WeakSet<RowTake>());
@@ -208,6 +261,8 @@ export function SentenceRound({ showingKey, question, questionIsChinese, sentenc
     return (
       <li
         key={ex.id}
+        {...longPress.bind(() => setHiding(ex))}
+        onContextMenu={(e) => { e.preventDefault(); setHiding(ex); }}
         className={`sentence-round-ex${status ? ` is-${status}` : ''}${busy ? ' is-active' : ''}`}
         data-testid="sentence-round-exercise"
         data-mode={ex.mode}
@@ -221,6 +276,15 @@ export function SentenceRound({ showingKey, question, questionIsChinese, sentenc
               {SENTENCE_ROUND_RESULT[status]}
             </span>
           )}
+          <button
+            type="button"
+            className="sentence-round-ex-more"
+            onClick={() => setHiding(ex)}
+            aria-label={`More: ${SENTENCE_HIDE_TITLE}`}
+            data-testid="sentence-round-more"
+          >
+            ⋯
+          </button>
         </div>
         <div className="sentence-round-ex-body">
           <div className="sentence-round-ex-text">
@@ -298,12 +362,13 @@ export function SentenceRound({ showingKey, question, questionIsChinese, sentenc
           </div>
         )}
       </header>
-      {sentences == null ? (
+      {sentences == null || picked == null ? (
         <p className="sentence-round-intro">Loading sentences…</p>
       ) : (
         <p className="sentence-round-intro">{sentenceRoundIntro(progress, exercises.length)}</p>
       )}
       {blockNote && <p className="sentence-round-blocked" role="status">{blockNote}</p>}
+      {coming && <p className="sentence-round-coming" role="status" data-testid="sentences-coming">{SENTENCES_COMING_NOTE}</p>}
       {cheer && (
         <div className={`sentence-round-cheer${progress.done ? ' is-done' : ''}`} role="status" aria-live="polite" data-testid="sentence-round-cheer" key={cheer}>
           {cheer}
@@ -332,6 +397,21 @@ export function SentenceRound({ showingKey, question, questionIsChinese, sentenc
           </>
         )}
       </div>
+      {hiding && rows.get(hiding.key) && (
+        <SentenceHideSheet
+          hanzi={rows.get(hiding.key)!.hanzi}
+          translation={rows.get(hiding.key)!.translation}
+          onHide={(reason) => hide(hiding, reason)}
+          onClose={() => setHiding(null)}
+        />
+      )}
+      {undo && (
+        <UndoToast
+          text={SENTENCE_HIDDEN_TOAST}
+          onUndo={() => { void unhideSentence(noteId, undo.key, 'round'); setUndo(null); }}
+          onDone={() => setUndo(null)}
+        />
+      )}
     </section>
   );
 }

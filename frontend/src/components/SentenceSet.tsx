@@ -27,6 +27,18 @@ import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 import { track } from '../services/analytics';
 import { sentencePractiseMode } from '@shared/study/sentencePractise';
 import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise } from './study/SentencePractise';
+import {
+  SENTENCE_HIDDEN_TOAST,
+  SENTENCE_HIDE_TITLE,
+  SENTENCE_SHOW_AGAIN,
+  sentenceHistoryKey,
+  showHiddenLabel,
+  type SentenceHideReason,
+} from '@shared/study/sentenceHistory';
+import { hideSentence, recordSentenceAttempt, unhideSentence, useSentenceStats } from '../services/sentencePractice';
+import { useLongPress } from './chat/useLongPress';
+import { UndoToast } from './upNext/UpNextBoard';
+import { SentenceHideSheet } from './study/SentenceHideSheet';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -144,8 +156,14 @@ interface SentenceSetProps {
   showingKey?: string;
   /** A row said right with 🎤 ("Get two sentences right before Good / Easy" counts it once). */
   onPractiseRight?: (rowKey: string) => void;
-  /** How many sentences the list holds (the card's + the set); null while it loads. */
+  /** How many sentences the list holds (the card's + the set, hidden ones left out); null while it loads. */
   onRowCount?: (count: number | null) => void;
+  /**
+   * Practice per sentence (docs/STUDY_SESSION.md "Sentence practice history"): 🎤 takes are recorded,
+   * "Stop showing this sentence" (long-press / the row's tools) hides one for him, the ⋯ menu has
+   * "Show hidden (N)". Default: on with `practise` outside the pass.
+   */
+  history?: boolean;
 }
 
 export function SentenceSet({
@@ -158,8 +176,21 @@ export function SentenceSet({
   showingKey,
   onPractiseRight,
   onRowCount,
+  history,
 }: SentenceSetProps) {
   const pass = variant === 'pass';
+  const historyOn = history ?? (practiseOn && !pass);
+  const stats = useSentenceStats(noteId);
+  const isHidden = (key: string) => historyOn && !!stats?.get(sentenceHistoryKey(key))?.hidden;
+  const [showHidden, setShowHidden] = useState(false);
+  const [hiding, setHiding] = useState<{ key: string; hanzi: string; translation: string | null } | null>(null);
+  const [hiddenUndo, setHiddenUndo] = useState<string | null>(null);
+  const longPress = useLongPress();
+  const hideRow = (key: string, reason: SentenceHideReason) => {
+    setHiding(null);
+    void hideSentence(noteId, key, reason, 'list');
+    setHiddenUndo(key);
+  };
   // How much a row shows before any tap: nothing on the study card (listen
   // first), the Chinese in the pass.
   const startStage = pass ? 1 : 0;
@@ -209,6 +240,9 @@ export function SentenceSet({
     enabled: practiseOn,
     showingKey: showingKey ?? noteId,
     onRight: onPractiseRight,
+    onResult: (key, mode, result) => {
+      if (historyOn) recordSentenceAttempt(noteId, key, mode, result);
+    },
     onTranslated: (key) => setRevealed((prev) => ((prev[key] ?? 0) >= 1 ? prev : { ...prev, [key]: 1 })),
   });
 
@@ -249,6 +283,7 @@ export function SentenceSet({
     setCustomPrompt('');
     setError(null);
     setShowMore(false);
+    setShowHidden(false);
     setOpen(compact || defaultOpen);
     void load();
   }, [noteId, compact, defaultOpen, load]);
@@ -456,6 +491,15 @@ export function SentenceSet({
             + Add as card
           </button>
         )}
+        {historyOn && !isHidden(row.key) && (
+          <button
+            className="sentence-set-tool"
+            onClick={() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })}
+            data-testid="sentence-set-hide"
+          >
+            🙈 {SENTENCE_HIDE_TITLE}
+          </button>
+        )}
       </div>
     );
   };
@@ -526,8 +570,9 @@ export function SentenceSet({
     // clueTranslating is set here; re-running on it would cancel the request it started.
   }, [clueNeedsFetch, clueHanzi, clueStage >= 1, isOnline, clueTranslateFailed, cluePinyin]);
 
-  // The gate counts the sentences there are (fewer than two → as many as exist).
-  const rowCount = loading ? null : rows.length;
+  // The gate counts the sentences there are (fewer than two → as many as exist); hidden ones don't count.
+  const hiddenRows = rows.filter((r) => isHidden(r.key));
+  const rowCount = loading || (historyOn && !stats) ? null : rows.length - hiddenRows.length;
   const onRowCountRef = useRef(onRowCount);
   onRowCountRef.current = onRowCount;
   useEffect(() => {
@@ -569,7 +614,7 @@ export function SentenceSet({
       <button
         className="sentence-set-action"
         onClick={() => setShowMenu((v) => !v)}
-        disabled={generating || !isOnline}
+        disabled={generating || (!isOnline && hiddenRows.length === 0)}
         aria-haspopup="menu"
         aria-expanded={showMenu}
         aria-label="Sentence options"
@@ -579,11 +624,21 @@ export function SentenceSet({
       </button>
       {showMenu && (
         <div className="regen-menu" role="menu">
+          {hiddenRows.length > 0 && (
+            <button
+              className="regen-menu-item"
+              onClick={() => { setShowMenu(false); setShowHidden((v) => !v); }}
+              data-testid="sentence-set-show-hidden"
+            >
+              {showHidden ? 'Hide them again' : showHiddenLabel(hiddenRows.length)}
+            </button>
+          )}
           {COUNT_OPTIONS.map((count) => (
             <button
               key={count}
               className="regen-menu-item"
               onClick={() => handleGenerate({ count })}
+              disabled={!isOnline}
             >
               {hasSet ? `New set of ${count}` : `Generate ${count}`}
             </button>
@@ -615,8 +670,9 @@ export function SentenceSet({
     </div>
   );
 
-  // The pass shows the card's own sentence; the rest wait behind "+ N more".
-  const visibleRows = pass && !showMore ? rows.slice(0, 1) : rows;
+  // The pass shows the card's own sentence; the rest wait behind "+ N more". Hidden ones only on "Show hidden".
+  const listRows = rows.filter((r) => !isHidden(r.key) || showHidden);
+  const visibleRows = pass && !showMore ? listRows.slice(0, 1) : listRows;
   const moreCount = rows.length - 1;
 
   return (
@@ -715,10 +771,28 @@ export function SentenceSet({
               ? sentencePractiseMode({ englishFirst: isEnglishFirst, hanziShown: shown('hanzi'), translation: row.translation })
               : null;
             const practiseRow = { key: row.key, hanzi: row.hanzi, pinyin: row.pinyin, translation: row.translation };
+            if (isHidden(row.key)) {
+              return (
+                <li key={row.key} className="sentence-set-row is-hidden-row" data-testid="sentence-set-hidden-row">
+                  <div className="sentence-set-body">
+                    <span className="sentence-set-hanzi hanzi">{row.hanzi}</span>
+                    {row.translation && <span className="sentence-set-translation">{row.translation}</span>}
+                  </div>
+                  <button
+                    className="btn btn-secondary btn-sm sentence-set-unhide"
+                    onClick={() => void unhideSentence(noteId, row.key, 'list')}
+                    data-testid="sentence-set-unhide"
+                  >
+                    {SENTENCE_SHOW_AGAIN}
+                  </button>
+                </li>
+              );
+            }
             return (
               <li
                 key={row.key}
                 className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
+                {...(historyOn ? longPress.bind(() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })) : {})}
               >
                 {/* Left: the reverse exercise — English up alone, translate it
                     back into Chinese before revealing. (Not in the calm pass.) */}
@@ -747,7 +821,7 @@ export function SentenceSet({
                       one line per tap so each is read before the next lands. */}
                   <button
                     className={isBlank ? 'sentence-set-hidden' : 'sentence-set-reveal'}
-                    onClick={() => advanceRow(row)}
+                    onClick={() => { if (historyOn && longPress.suppressTap()) return; advanceRow(row); }}
                     aria-expanded={stage > 0}
                     aria-label={isBlank ? 'Reveal the sentence' : undefined}
                     title={
@@ -846,6 +920,21 @@ export function SentenceSet({
       )}
 
       {addingChunk && <AddChunkModal source="breakdown" chunk={addingChunk} onClose={() => setAddingChunk(null)} />}
+      {hiding && (
+        <SentenceHideSheet
+          hanzi={hiding.hanzi}
+          translation={hiding.translation}
+          onHide={(reason) => hideRow(hiding.key, reason)}
+          onClose={() => setHiding(null)}
+        />
+      )}
+      {hiddenUndo && (
+        <UndoToast
+          text={SENTENCE_HIDDEN_TOAST}
+          onUndo={() => { void unhideSentence(noteId, hiddenUndo, 'list'); setHiddenUndo(null); }}
+          onDone={() => setHiddenUndo(null)}
+        />
+      )}
     </div>
   );
 }

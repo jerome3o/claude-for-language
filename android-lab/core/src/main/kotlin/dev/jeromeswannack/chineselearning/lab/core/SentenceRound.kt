@@ -93,9 +93,10 @@ object SentenceRound {
     }
 
     /** `sentenceRoundProgress` */
-    fun progress(exercises: List<Exercise>, rightIds: Collection<String>): Progress {
+    fun progress(exercises: List<Exercise>, rightIds: Collection<String>, sentenceKeys: Collection<String>? = null): Progress {
         val needed = minOf(SentencePractise.GATE_TARGET, exercises.map { it.key }.toSet().size)
-        val ids = exercises.map { it.id }.toSet()
+        val ids = exercises.map { it.id }.toMutableSet()
+        sentenceKeys?.forEach { ids += exerciseId(SentencePractise.READ, it); ids += exerciseId(SentencePractise.TRANSLATE, it) }
         val got = minOf(needed, rightIds.filter { it in ids }.toSet().size)
         return Progress(needed, got, needed > 0 && got >= needed)
     }
