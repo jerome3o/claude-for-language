@@ -6,8 +6,8 @@
  *
  * Playback rules (docs/CLIPS.md "Player"): a scene shows for its duration_ms, but the clock
  * HOLDS at the scene's end while its audio is still playing (a scene stretches to its voice);
- * a quiz scene stops the clock until it is answered (or its duration runs out → the answer is
- * shown) and then shows the explanation for QUIZ_REVEAL_MS; after the last scene the end card.
+ * an interactive scene (quiz, listen, order, reveal, speak) stops the clock until the learner
+ * answers or skips (playback.ts) and then shows the answer; after the last scene the end card.
  */
 import { LESSON_VOICE_POOLS } from '../lesson/voices';
 import type { ClipScene, ClipSpec, ClipStoryLine, ClipVoiceName, ClipLang } from './types';
@@ -152,16 +152,22 @@ export function storyCast(lines: readonly Pick<ClipStoryLine, 'speaker'>[]): Sto
 }
 
 /**
- * What one scene says, in order. A scene WITH `voice` says only that. Without: a story reads
- * every line (a voice per speaker), a list its items, a sentence / big word its hanzi; the
- * other layouts are silent.
+ * What one scene says when it starts, in order. A scene WITH `voice` says only that — except
+ * `listen` and `speak`, which always say their hanzi (after the voice line, if any): that is the
+ * exercise. Without a voice: a story reads every line (a voice per speaker), a list its items, a
+ * sentence / big word / listen / speak its hanzi; the other layouts are silent.
  */
 export function sceneUtterances(scene: ClipScene, index: number): ClipUtterance[] {
-  if (scene.voice && scene.voice.text?.trim()) {
-    const lang = scene.voice.lang === 'en' ? 'en' : 'zh';
-    return [{ scene: index, line: -1, text: clipTtsText(scene.voice.text), lang, voice_id: CLIP_VOICE_IDS[scene.voice.voice ?? 'teacher'] ?? null }];
-  }
   const zh = (text: string, line: number, voice_id: string | null = null): ClipUtterance => ({ scene: index, line, text: clipTtsText(text), lang: 'zh', voice_id });
+  const voiced: ClipUtterance[] =
+    scene.voice && scene.voice.text?.trim()
+      ? [{ scene: index, line: -1, text: clipTtsText(scene.voice.text), lang: scene.voice.lang === 'en' ? 'en' : 'zh', voice_id: CLIP_VOICE_IDS[scene.voice.voice ?? 'teacher'] ?? null }]
+      : [];
+  if (scene.layout === 'listen' || scene.layout === 'speak') {
+    const hanzi = scene.layout === 'listen' ? scene.listen.hanzi : scene.speak.hanzi;
+    return [...voiced, ...(hanzi?.trim() ? [zh(hanzi, 0)] : [])];
+  }
+  if (voiced.length) return voiced;
   switch (scene.layout) {
     case 'story': {
       const cast = storyCast(scene.story.lines);
@@ -178,9 +184,24 @@ export function sceneUtterances(scene: ClipScene, index: number): ClipUtterance[
   }
 }
 
-/** Every utterance of the clip, scene by scene. */
+/** The sentence of an `order` scene (its tiles, joined). */
+export function clipOrderSentence(tiles: readonly string[]): string {
+  return tiles.join('');
+}
+
+/**
+ * What an interactive scene says once it is answered (or skipped): an `order` scene its sentence,
+ * a `reveal` card its hanzi — the learner hears the Chinese he just put together / guessed.
+ */
+export function sceneRevealUtterances(scene: ClipScene, index: number): ClipUtterance[] {
+  const text = scene.layout === 'order' ? clipOrderSentence(scene.order.tiles) : scene.layout === 'reveal' ? scene.reveal.hanzi : '';
+  const tts = clipTtsText(text ?? '');
+  return tts ? [{ scene: index, line: 0, text: tts, lang: 'zh', voice_id: null }] : [];
+}
+
+/** Every utterance of the clip, scene by scene (the answers' lines included). */
 export function clipUtterances(spec: Pick<ClipSpec, 'scenes'>): ClipUtterance[] {
-  return spec.scenes.flatMap((s, i) => sceneUtterances(s, i));
+  return spec.scenes.flatMap((s, i) => [...sceneUtterances(s, i), ...sceneRevealUtterances(s, i)]);
 }
 
 /** The distinct TTS requests of a clip (prefetch / server pre-generation): text + voice. */
