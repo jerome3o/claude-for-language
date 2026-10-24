@@ -16,6 +16,7 @@ import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../servi
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
+import { readSentenceGateOn, writeSentenceGateOn } from '../services/sentenceGatePrefs';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
 import { ReviewLoadCapField, reviewLoadCapValid } from '../components/ReviewLoadCapField';
@@ -661,6 +662,38 @@ function UsageDataSection() {
 }
 
 /**
+ * Settings → Study → "Get two sentences right before Good / Easy" (off by default, per device;
+ * services/sentenceGatePrefs.ts): Good and Easy wait until two example sentences were said right
+ * with 🎤 on the reading and meaning cards.
+ */
+function SentenceGateSetting() {
+  const [on, setOn] = useState(readSentenceGateOn);
+  return (
+    <>
+      <label className="settings-toggle-row" style={{ marginTop: '1rem' }}>
+        <input
+          type="checkbox"
+          checked={on}
+          onChange={(e) => {
+            const next = e.target.checked;
+            setOn(next);
+            writeSentenceGateOn(next);
+            track('settings.change', { setting: 'sentence_gate', value: next ? 'on' : 'off' });
+          }}
+          data-testid="sentence-gate-toggle"
+        />
+        <span>Get two sentences right before Good / Easy</span>
+      </label>
+      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
+        {on
+          ? 'On the reading and meaning cards, Good and Easy unlock once you’ve said two example sentences right with 🎤. Again and Hard are always there.'
+          : 'Off — rate any card straight away. The 🎤 on the example sentences is there either way.'}
+      </p>
+    </>
+  );
+}
+
+/**
  * Settings → Study → "Skip the review — submit spoken answers as soon as I stop" (off by default):
  * off, the 🎤 on a typing card shows what was said first (🔁 Retry · ✏️ Edit · ✓ Submit); on, it is
  * checked as soon as he stops.
@@ -689,6 +722,7 @@ function SpokenAnswerSection() {
           ? 'On the typing cards, 🎤 checks what you said as soon as you stop.'
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
+      <SentenceGateSetting />
       <WordTagsSetting />
       <CardPicturesSetting />
       <NewCharShimmerSetting />

@@ -10,26 +10,37 @@ export function RatingButtons({
   onRate,
   onDoneForGood,
   disabled,
+  locked,
 }: {
   intervalPreviews: Record<Rating, IntervalPreview>;
   onRate: (rating: Rating) => void;
   onDoneForGood?: () => void;
   disabled: boolean;
+  /**
+   * Ratings held back ("Get two sentences right before Good / Easy"): shown disabled, but a tap
+   * still reaches `onRate` so the card can say why (the caller refuses it).
+   */
+  locked?: readonly Rating[];
 }) {
   return (
     <div>
       <div className="rating-buttons">
-        {([0, 1, 2, 3] as Rating[]).map((rating) => (
+        {([0, 1, 2, 3] as Rating[]).map((rating) => {
+          const isLocked = !!locked?.includes(rating);
+          return (
           <button
             key={rating}
-            className={`rating-btn ${RATING_INFO[rating].label.toLowerCase()}`}
+            className={`rating-btn ${RATING_INFO[rating].label.toLowerCase()}${isLocked ? ' is-locked' : ''}`}
             onClick={() => onRate(rating)}
             disabled={disabled}
+            aria-disabled={isLocked || undefined}
+            data-testid={`rating-${RATING_INFO[rating].label.toLowerCase()}`}
           >
-            <span className="rating-label">{RATING_INFO[rating].label}</span>
+            <span className="rating-label">{isLocked && <span aria-hidden="true">🔒 </span>}{RATING_INFO[rating].label}</span>
             <span className="rating-interval">{intervalPreviews[rating].intervalText}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
       {onDoneForGood && (
         <button

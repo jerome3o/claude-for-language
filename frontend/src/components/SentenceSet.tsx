@@ -25,6 +25,8 @@ import { useNetwork } from '../contexts/NetworkContext';
 import { AddChunkModal, Chunk } from './AddChunkModal';
 import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 import { track } from '../services/analytics';
+import { sentencePractiseMode } from '@shared/study/sentencePractise';
+import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise } from './study/SentencePractise';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -133,6 +135,17 @@ interface SentenceSetProps {
    * the generated set behind "+ N more sentences".
    */
   variant?: 'card' | 'pass';
+  /**
+   * 🎤 on each row once something is open (docs/STUDY_SESSION.md "Practise a sentence aloud"):
+   * read it aloud, or — English-first — say it in Chinese. Practice only. Off in the card editor.
+   */
+  practise?: boolean;
+  /** One showing of the card: a new one starts the 🎤 takes from scratch (default: the note). */
+  showingKey?: string;
+  /** A row said right with 🎤 ("Get two sentences right before Good / Easy" counts it once). */
+  onPractiseRight?: (rowKey: string) => void;
+  /** How many sentences the list holds (the card's + the set); null while it loads. */
+  onRowCount?: (count: number | null) => void;
 }
 
 export function SentenceSet({
@@ -141,6 +154,10 @@ export function SentenceSet({
   compact = false,
   defaultOpen = true,
   variant = 'card',
+  practise: practiseOn = false,
+  showingKey,
+  onPractiseRight,
+  onRowCount,
 }: SentenceSetProps) {
   const pass = variant === 'pass';
   // How much a row shows before any tap: nothing on the study card (listen
@@ -186,6 +203,14 @@ export function SentenceSet({
   const [clueTranslation, setClueTranslation] = useState<string | null>(null);
   const [clueTranslating, setClueTranslating] = useState(false);
   const [clueTranslateFailed, setClueTranslateFailed] = useState(false);
+
+  // 🎤 on the rows: one microphone for the list; a translate take reveals the row's Chinese.
+  const practise = useSentencePractise({
+    enabled: practiseOn,
+    showingKey: showingKey ?? noteId,
+    onRight: onPractiseRight,
+    onTranslated: (key) => setRevealed((prev) => ((prev[key] ?? 0) >= 1 ? prev : { ...prev, [key]: 1 })),
+  });
 
   // Guard against a slow fetch landing after the user moved to another card
   const noteIdRef = useRef(noteId);
@@ -297,6 +322,7 @@ export function SentenceSet({
     const first = englishFirst[row.key] ? 0 : startStage;
     const current = revealed[row.key] ?? first;
     if (current < total) track('study.sentence_reveal', { step: current + 1 });
+    if (current >= total) practise.clear(row.key);
     setRevealed((prev) => {
       const stage = prev[row.key] ?? first;
       return { ...prev, [row.key]: stage >= total ? first : stage + 1 };
@@ -312,6 +338,7 @@ export function SentenceSet({
     const next = !englishFirst[row.key];
     setEnglishFirst((prev) => ({ ...prev, [row.key]: next }));
     setRevealed((prev) => ({ ...prev, [row.key]: 0 }));
+    practise.clear(row.key);
     if (next) setShowAll(false);
   };
 
@@ -499,6 +526,14 @@ export function SentenceSet({
     // clueTranslating is set here; re-running on it would cancel the request it started.
   }, [clueNeedsFetch, clueHanzi, clueStage >= 1, isOnline, clueTranslateFailed, cluePinyin]);
 
+  // The gate counts the sentences there are (fewer than two → as many as exist).
+  const rowCount = loading ? null : rows.length;
+  const onRowCountRef = useRef(onRowCount);
+  onRowCountRef.current = onRowCount;
+  useEffect(() => {
+    onRowCountRef.current?.(rowCount);
+  }, [rowCount]);
+
   const hasSet = sentences.length > 0;
   const rootClass = `sentence-set${compact ? ' sentence-set--compact' : ''}`;
 
@@ -676,6 +711,10 @@ export function SentenceSet({
             const focusLabel = row.focus ? FOCUS_LABELS[row.focus] : null;
             const showFocus = focusLabel && row.focus !== 'core';
             const isThisPlaying = isPlaying && playingId === row.key;
+            const practiseMode = practiseOn
+              ? sentencePractiseMode({ englishFirst: isEnglishFirst, hanziShown: shown('hanzi'), translation: row.translation })
+              : null;
+            const practiseRow = { key: row.key, hanzi: row.hanzi, pinyin: row.pinyin, translation: row.translation };
             return (
               <li
                 key={row.key}
@@ -747,6 +786,7 @@ export function SentenceSet({
                       </span>
                     )}
                   </button>
+                  {practiseOn && <SentencePractiseOutcome practise={practise} row={practiseRow} />}
                   {audioWait[row.key] === 'coming' && (
                     <span className="sentence-set-audio-coming" data-testid="sentence-audio-coming">
                       {SENTENCE_AUDIO_COMING_LABEL}
@@ -763,6 +803,8 @@ export function SentenceSet({
                   {isFullyShown && renderTools(row)}
                   {isFullyShown && renderExplanation(row)}
                 </div>
+                {/* 🎤 left of ▶ once something is open: read it aloud / say it in Chinese. */}
+                {practiseMode && <SentenceMicButton practise={practise} row={practiseRow} mode={practiseMode} />}
                 {/* Right: hear it — the first thing to do on a blank row. */}
                 <button
                   className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}${audioWait[row.key] ? ' is-waiting' : ''}`}
