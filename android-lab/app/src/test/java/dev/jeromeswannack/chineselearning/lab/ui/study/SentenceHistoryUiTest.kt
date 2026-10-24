@@ -108,11 +108,11 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
         compose.onRoot().captureRoboImage("screenshots/sentence-history-01-coming.png")
     }
 
-    @Test fun shotHideSheet() {
-        round(emptyMap())
-        compose.onAllNodesWithTag(SentenceRoundTags.MORE, useUnmergedTree = true)[1].performClick()
-        compose.mainClock.advanceTimeBy(1_000)
-        compose.onRoot().captureRoboImage("screenshots/sentence-history-02-hide-sheet.png")
+    @Test fun shotHideSheet() = shoot("sentence-history-02-hide-sheet") {
+        Column(Modifier.padding(vertical = 24.dp)) {
+            androidx.compose.material3.Text("🙈 ${SentenceHistory.HIDE_TITLE}", color = dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.ink, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            SentenceHideBody("这家银行几点开门？", "What time does this bank open?", {}, {})
+        }
     }
 
     @Test fun shotShowHidden() {

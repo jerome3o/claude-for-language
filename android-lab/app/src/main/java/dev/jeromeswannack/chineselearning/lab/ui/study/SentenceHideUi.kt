@@ -53,25 +53,31 @@ object SentenceHideTags {
 @Composable
 fun SentenceHideSheet(hanzi: String, translation: String?, onHide: (reason: String) -> Unit, onDismiss: () -> Unit) {
     LabBottomSheet(onDismiss = onDismiss, title = "🙈 ${SentenceHistory.HIDE_TITLE}") {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).testTag(SentenceHideTags.SHEET), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(hanzi, color = Lab.colors.ink, fontSize = 20.sp)
-            if (!translation.isNullOrBlank()) Text(translation, color = Lab.colors.muted, fontSize = 15.sp)
-            Text(SentenceHistory.HIDE_HINT, color = Lab.colors.muted, fontSize = 14.sp)
-            SentenceHistory.HIDE_REASONS.chunked(2).forEach { pair ->
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    pair.forEach { r ->
-                        Box(
-                            Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(14.dp))
-                                .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp))
-                                .bouncyClickable(true, 0.96f, role = Role.Button) { onHide(r) }
-                                .testTag("${SentenceHideTags.REASON}-$r"),
-                            contentAlignment = Alignment.Center,
-                        ) { Text(SentenceHistory.HIDE_REASON_LABEL[r].orEmpty(), color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
-                    }
+        SentenceHideBody(hanzi, translation, onHide, onDismiss)
+    }
+}
+
+/** The sheet's body (screenshots draw it on its own). */
+@Composable
+fun SentenceHideBody(hanzi: String, translation: String?, onHide: (reason: String) -> Unit, onDismiss: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).testTag(SentenceHideTags.SHEET), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(hanzi, color = Lab.colors.ink, fontSize = 20.sp)
+        if (!translation.isNullOrBlank()) Text(translation, color = Lab.colors.muted, fontSize = 15.sp)
+        Text(SentenceHistory.HIDE_HINT, color = Lab.colors.muted, fontSize = 14.sp)
+        SentenceHistory.HIDE_REASONS.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                pair.forEach { r ->
+                    Box(
+                        Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(14.dp))
+                            .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+                            .bouncyClickable(true, 0.96f, role = Role.Button) { onHide(r) }
+                            .testTag("${SentenceHideTags.REASON}-$r"),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(SentenceHistory.HIDE_REASON_LABEL[r].orEmpty(), color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) }
                 }
             }
-            SecondaryPill("Cancel", Modifier.fillMaxWidth(), onClick = onDismiss)
         }
+        SecondaryPill("Cancel", Modifier.fillMaxWidth(), onClick = onDismiss)
     }
 }
 

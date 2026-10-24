@@ -17,7 +17,7 @@ The answer side lists three; ⋯ → Show hidden (1) → the hidden sentence wit
 The round with the least-known sentences first (the hidden one left out) and the "new sentences coming" note.
 
 ![Hide sheet](lab-02-hide-sheet.png)
-⋯ on an exercise → the reason chips.
+The sheet (⋯ or long-press on an exercise): the sentence and the four reason chips.
 
 ![Show hidden](lab-03-show-hidden.png)
 The answer side's list: ⋯ → Show hidden (1) → Show again.
