@@ -49,6 +49,10 @@ export function clipLessonBrief(spec: ClipSpec): string {
       case 'story': lines.push(...s.story.lines.map((l) => `- ${l.speaker ? `${l.speaker}: ` : ''}${l.hanzi} | ${l.pinyin} | ${l.english}`)); break;
       case 'list': lines.push(`- ${s.list.title ?? 'List'}: ${s.list.items.map((i) => `${i.hanzi} (${i.english})`).join('; ')}`); break;
       case 'fact': lines.push(`- Fact: ${s.fact.text_en}`); break;
+      case 'listen': lines.push(`- Listening: ${s.listen.hanzi} | ${s.listen.pinyin} | ${s.listen.english}`); break;
+      case 'order': lines.push(`- Word order: ${s.order.tiles.join(' ')} | ${s.order.pinyin} | ${s.order.english}`); break;
+      case 'reveal': lines.push(`- Say it: ${s.reveal.prompt_en} → ${s.reveal.hanzi} | ${s.reveal.pinyin}`); break;
+      case 'speak': lines.push(`- Speak: ${s.speak.hanzi} | ${s.speak.pinyin} | ${s.speak.english}`); break;
     }
   }
   return lines.join('\n');

@@ -5,3 +5,5 @@ export * from './feed';
 export * from './doc';
 export * from './sample';
 export * from './playback';
+export * from './karaoke';
+export * from './music';

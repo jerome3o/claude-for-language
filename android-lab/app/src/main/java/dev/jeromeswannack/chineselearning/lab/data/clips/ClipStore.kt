@@ -31,7 +31,8 @@ object ClipStore {
     @Serializable
     data class Feed(val clips: List<ClipRecord> = emptyList(), val cachedAt: Long = 0)
 
-    data class CaptionPrefs(val pinyin: Boolean = true, val english: Boolean = true, val muted: Boolean = false)
+    /** music = the lo-fi beat under clips (core ClipMusic); 🔇 silences it too. */
+    data class CaptionPrefs(val pinyin: Boolean = true, val english: Boolean = true, val muted: Boolean = false, val music: Boolean = true)
 
     private fun media(app: LabApp) = LessonMedia(app.filesDir, app.repo.api)
 
@@ -77,12 +78,12 @@ object ClipStore {
 
     fun prefs(context: Context): CaptionPrefs {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        return CaptionPrefs(p.getBoolean("pinyin", true), p.getBoolean("english", true), p.getBoolean("muted", false))
+        return CaptionPrefs(p.getBoolean("pinyin", true), p.getBoolean("english", true), p.getBoolean("muted", false), p.getBoolean("music", true))
     }
 
     fun savePrefs(context: Context, prefs: CaptionPrefs) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean("pinyin", prefs.pinyin).putBoolean("english", prefs.english).putBoolean("muted", prefs.muted).apply()
+            .putBoolean("pinyin", prefs.pinyin).putBoolean("english", prefs.english).putBoolean("muted", prefs.muted).putBoolean("music", prefs.music).apply()
     }
 
     /** After each sync (hourly): a feed already on the phone is refreshed, so new clips are there on the train. */

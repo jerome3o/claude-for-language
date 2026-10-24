@@ -158,10 +158,12 @@ export interface ClipCaptionPrefs {
   pinyin: boolean;
   english: boolean;
   muted: boolean;
+  /** The lo-fi beat under clips (shared/clips/music.ts); 🔇 silences it too. */
+  music: boolean;
 }
 
 const PREFS_KEY = 'clips-captions-v1';
-export const DEFAULT_CLIP_PREFS: ClipCaptionPrefs = { pinyin: true, english: true, muted: false };
+export const DEFAULT_CLIP_PREFS: ClipCaptionPrefs = { pinyin: true, english: true, muted: false, music: true };
 
 export function loadClipPrefs(): ClipCaptionPrefs {
   try {

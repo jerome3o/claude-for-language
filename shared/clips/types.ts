@@ -17,8 +17,20 @@ export const CLIP_SPEC_VERSION = 1;
 export const CLIP_THEMES = ['neon', 'paper', 'chalk', 'comic', 'sunset', 'mono', 'ink', 'retro'] as const;
 export type ClipTheme = (typeof CLIP_THEMES)[number];
 
-export const CLIP_LAYOUTS = ['title', 'big_word', 'sentence', 'compare', 'quiz', 'story', 'list', 'fact'] as const;
+export const CLIP_LAYOUTS = ['title', 'big_word', 'sentence', 'compare', 'quiz', 'story', 'list', 'fact', 'listen', 'order', 'reveal', 'speak'] as const;
 export type ClipLayout = (typeof CLIP_LAYOUTS)[number];
+
+/**
+ * The INTERACTIVE layouts (added to v1, optional — older clips have none but quiz): the clip
+ * stops on them and waits for the learner ("👆 Tap an answer", "🎤 Say it"…), with a Skip after
+ * CLIP_SKIP_AFTER_MS; then it shows the answer and moves on.
+ */
+export const CLIP_INTERACTIVE_LAYOUTS = ['quiz', 'listen', 'order', 'reveal', 'speak'] as const;
+export type ClipInteractiveLayout = (typeof CLIP_INTERACTIVE_LAYOUTS)[number];
+
+export function isInteractiveLayout(layout: string): layout is ClipInteractiveLayout {
+  return (CLIP_INTERACTIVE_LAYOUTS as readonly string[]).includes(layout);
+}
 
 export const CLIP_VOICES = ['teacher', 'female', 'male', 'narrator'] as const;
 export type ClipVoiceName = (typeof CLIP_VOICES)[number];
@@ -114,9 +126,46 @@ export interface ClipFactBody {
   pinyin?: string;
 }
 
+/** Added: hear a line (the text hidden), pick what it means; then the Chinese shows. */
+export interface ClipListenBody {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  /** 2–4 options (usually English meanings). */
+  options: string[];
+  answer_index: number;
+  prompt_en?: string;
+  explain?: string;
+}
+
+/** Added: tap the word tiles into the right order. `tiles` IS the right order (the apps shuffle them). */
+export interface ClipOrderBody {
+  /** 3–7 pieces; joined they make the sentence. */
+  tiles: string[];
+  pinyin: string;
+  english: string;
+  prompt_en?: string;
+}
+
+/** Added: a flip card — the English (say it in your head), tap, the Chinese (heard aloud). */
+export interface ClipRevealBody {
+  prompt_en: string;
+  hanzi: string;
+  pinyin: string;
+  note?: string;
+}
+
+/** Added: say this line (🎤); the take is checked like a spoken answer ("You said …"). */
+export interface ClipSpeakBody {
+  hanzi: string;
+  pinyin: string;
+  english: string;
+  prompt_en?: string;
+}
+
 interface ClipSceneBase {
   layout: ClipLayout;
-  /** 1500–9000 ms (a quiz waits for a tap up to its duration). */
+  /** 1500–9000 ms (an interactive scene waits for the learner; this is its nominal length). */
   duration_ms: number;
   voice?: ClipVoiceLine;
   /** A vertical background illustration (no text in the picture); ≤ 3 per clip. */
@@ -132,6 +181,10 @@ export interface ClipQuizScene extends ClipSceneBase { layout: 'quiz'; quiz: Cli
 export interface ClipStoryScene extends ClipSceneBase { layout: 'story'; story: ClipStoryBody }
 export interface ClipListScene extends ClipSceneBase { layout: 'list'; list: ClipListBody }
 export interface ClipFactScene extends ClipSceneBase { layout: 'fact'; fact: ClipFactBody }
+export interface ClipListenScene extends ClipSceneBase { layout: 'listen'; listen: ClipListenBody }
+export interface ClipOrderScene extends ClipSceneBase { layout: 'order'; order: ClipOrderBody }
+export interface ClipRevealScene extends ClipSceneBase { layout: 'reveal'; reveal: ClipRevealBody }
+export interface ClipSpeakScene extends ClipSceneBase { layout: 'speak'; speak: ClipSpeakBody }
 
 export type ClipScene =
   | ClipTitleScene
@@ -141,7 +194,11 @@ export type ClipScene =
   | ClipQuizScene
   | ClipStoryScene
   | ClipListScene
-  | ClipFactScene;
+  | ClipFactScene
+  | ClipListenScene
+  | ClipOrderScene
+  | ClipRevealScene
+  | ClipSpeakScene;
 
 export interface ClipStyle {
   theme: ClipTheme;
@@ -211,7 +268,7 @@ export interface ClipLessonState {
   error: string | null;
 }
 
-export const CLIP_EVENT_KINDS = ['view', 'complete', 'like', 'unlike', 'save', 'unsave', 'skip', 'double_tap', 'quiz', 'learn_more'] as const;
+export const CLIP_EVENT_KINDS = ['view', 'complete', 'like', 'unlike', 'save', 'unsave', 'skip', 'double_tap', 'quiz', 'learn_more', 'interact'] as const;
 export type ClipEventKind = (typeof CLIP_EVENT_KINDS)[number];
 
 /** One event from a device (idempotent by client id). */
@@ -219,10 +276,15 @@ export interface ClipEvent {
   id: string;
   clip_id: string;
   kind: ClipEventKind;
-  /** quiz: 1 = right, 0 = wrong; otherwise unused. */
+  /** quiz: 1 = right, 0 = wrong; interact: CLIP_INTERACT_VALUES; otherwise unused. */
   value?: number | null;
   created_at?: string;
 }
 
 export const CLIP_LEARN_MORE_ACTIONS = ['lesson', 'reader', 'podcast', 'study_words', 'add_card', 'more'] as const;
 export type ClipLearnMoreAction = (typeof CLIP_LEARN_MORE_ACTIONS)[number];
+
+/** An interactive scene's outcome (`interact` events carry it as a number, CLIP_INTERACT_VALUES). */
+export type ClipInteractResult = 'right' | 'wrong' | 'close' | 'done' | 'skipped';
+
+export const CLIP_INTERACT_VALUES: Record<ClipInteractResult, number> = { wrong: 0, right: 1, close: 2, done: 3, skipped: -1 };

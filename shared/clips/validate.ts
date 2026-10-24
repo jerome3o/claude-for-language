@@ -33,6 +33,10 @@ export const CLIP_LIMITS = {
   quizOptionsMin: 2,
   quizOptionsMax: 4,
   breakdownMax: 8,
+  orderTilesMin: 3,
+  orderTilesMax: 7,
+  orderTileChars: 12,
+  speakHanziChars: 30,
   voiceChars: 220,
   textChars: 300,
   imagePromptChars: 600,
@@ -216,14 +220,7 @@ function checkScene(problems: string[], scene: ClipScene, at: string): void {
     }
     case 'quiz': {
       if (!str(body.prompt_zh) && !str(body.prompt_en)) problems.push(`${where} needs prompt_zh or prompt_en`);
-      const options = body.options;
-      if (!Array.isArray(options) || options.length < L.quizOptionsMin || options.length > L.quizOptionsMax || options.some((o) => !str(o))) {
-        problems.push(`${where}.options must be ${L.quizOptionsMin}–${L.quizOptionsMax} non-empty strings`);
-      } else {
-        if (new Set(options.map((o) => str(o))).size !== options.length) problems.push(`${where}.options must all be different`);
-        const a = body.answer_index;
-        if (typeof a !== 'number' || !Number.isInteger(a) || a < 0 || a >= options.length) problems.push(`${where}.answer_index must be 0–${options.length - 1}`);
-      }
+      checkOptions(problems, body, where);
       break;
     }
     case 'story': {
@@ -243,7 +240,57 @@ function checkScene(problems: string[], scene: ClipScene, at: string): void {
       if (body.pinyin !== undefined) checkPinyin(problems, body.pinyin, str(body.hanzi), where);
       break;
     }
+    case 'listen': {
+      checkTriple(problems, body, where);
+      checkOptions(problems, body, where);
+      break;
+    }
+    case 'order': {
+      const tiles = body.tiles;
+      if (!Array.isArray(tiles) || tiles.length < L.orderTilesMin || tiles.length > L.orderTilesMax || tiles.some((t) => !str(t))) {
+        problems.push(`${where}.tiles must be ${L.orderTilesMin}–${L.orderTilesMax} non-empty pieces, in the right order`);
+      } else {
+        const t = tiles.map((x) => str(x));
+        if (t.some((x) => [...x].length > L.orderTileChars)) problems.push(`${where}.tiles: each piece ${L.orderTileChars} characters at most (a word or two)`);
+        if (new Set(t).size < 2) problems.push(`${where}.tiles must not all be the same`);
+        const sentence = t.join('');
+        if (!HAN.test(sentence)) problems.push(`${where}.tiles have no Chinese`);
+        checkPinyin(problems, body.pinyin, sentence, where);
+        if (/_{2,}|＿|…/.test(sentence)) problems.push(`${where}.tiles: no blanks or ellipses`);
+      }
+      if (!str(body.english)) problems.push(`${where}.english is required`);
+      break;
+    }
+    case 'reveal': {
+      if (!str(body.prompt_en)) problems.push(`${where}.prompt_en is required (the English side of the card)`);
+      const hanzi = str(body.hanzi);
+      if (!hanzi) problems.push(`${where}.hanzi is required`);
+      else if (!HAN.test(hanzi)) problems.push(`${where}.hanzi has no Chinese characters`);
+      checkPinyin(problems, body.pinyin, hanzi, where);
+      if (body.note !== undefined && typeof body.note !== 'string') problems.push(`${where}.note must be a string`);
+      break;
+    }
+    case 'speak': {
+      checkTriple(problems, body, where);
+      const hanzi = str(body.hanzi);
+      if ([...hanzi].length > L.speakHanziChars) problems.push(`${where}.hanzi is ${[...hanzi].length} characters; ${L.speakHanziChars} at most (one short line to say)`);
+      if (VOICE_FORBIDDEN.test(hanzi)) problems.push(`${where}.hanzi is read aloud and said back: no brackets, blanks (___) or ellipses`);
+      break;
+    }
   }
+}
+
+/** quiz / listen: 2–4 distinct options and a valid answer_index. */
+function checkOptions(problems: string[], body: Record<string, unknown>, where: string): void {
+  const L = CLIP_LIMITS;
+  const options = body.options;
+  if (!Array.isArray(options) || options.length < L.quizOptionsMin || options.length > L.quizOptionsMax || options.some((o) => !str(o))) {
+    problems.push(`${where}.options must be ${L.quizOptionsMin}–${L.quizOptionsMax} non-empty strings`);
+    return;
+  }
+  if (new Set(options.map((o) => str(o))).size !== options.length) problems.push(`${where}.options must all be different`);
+  const a = body.answer_index;
+  if (typeof a !== 'number' || !Number.isInteger(a) || a < 0 || a >= options.length) problems.push(`${where}.answer_index must be 0–${options.length - 1}`);
 }
 
 /** A stored spec (JSON text or object) → the spec when it still validates, else null. */

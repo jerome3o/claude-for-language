@@ -19,6 +19,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.PickerDecks
 import dev.jeromeswannack.chineselearning.lab.core.clips.ClipRecord
 import dev.jeromeswannack.chineselearning.lab.core.clips.ClipWord
+import dev.jeromeswannack.chineselearning.lab.core.clips.ClipMusic
 import dev.jeromeswannack.chineselearning.lab.core.clips.Clips
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceChunkDto
@@ -28,8 +29,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.deleteClip
 import dev.jeromeswannack.chineselearning.lab.data.api.generateClips
 import dev.jeromeswannack.chineselearning.lab.data.api.retryClip
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
-import dev.jeromeswannack.chineselearning.lab.data.audiolessons.ExoMusicTrack
 import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
+import dev.jeromeswannack.chineselearning.lab.data.clips.ClipMusicPlayer
 import dev.jeromeswannack.chineselearning.lab.data.clips.ClipStore
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerData
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -64,24 +65,43 @@ private fun ClipsRoute(nav: LabNav, startId: String?, startScene: Int) {
     val context = LocalContext.current
     val reducedMotion = remember { runCatching { Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f }.getOrDefault(false) }
     var adding by remember { mutableStateOf<ClipWord?>(null) }
-    val music = remember { ExoMusicTrack(context).also { it.setVolume(0.12f) } }
-    DisposableEffect(Unit) { onDispose { music.release() } }
-    androidx.compose.runtime.LaunchedEffect(ui.prefs.muted) { if (ui.prefs.muted) music.pause() }
+    // The lo-fi beat (core ClipMusic): the active clip's loop, ducked under every voice line.
+    val active = ui.clips?.getOrNull(ui.active)
+    val track = ClipMusic.forTheme(active?.spec?.style?.theme)
+    val music = remember(track.raw) { ClipMusicPlayer.create(context, track) }
+    DisposableEffect(music) { onDispose { music.release() } }
+    var playing by remember { mutableStateOf(false) }
+    val speaking = remember { booleanArrayOf(false) }
+    androidx.compose.runtime.LaunchedEffect(music, playing, ui.prefs.muted, ui.prefs.music) {
+        if (ClipMusic.shouldPlay(playing, ui.prefs.muted, ui.prefs.music)) music.play() else music.pause()
+    }
+    androidx.compose.runtime.LaunchedEffect(music) {
+        var volume = ClipMusic.VOLUME
+        var last = androidx.compose.runtime.withFrameMillis { it }
+        while (true) {
+            val now = androidx.compose.runtime.withFrameMillis { it }
+            volume = ClipMusic.step(volume, ClipMusic.target(speaking[0]), (now - last).toDouble())
+            last = now
+            music.setVolume(volume.toFloat())
+        }
+    }
     ClipsScreen(
         ui,
         ClipsActions(
             onBack = nav::back,
             onActive = vm::active,
+            onNextButton = { clip, via -> app.analytics.track("clips.next", mapOf("clip" to clip.id, "via" to via, "dir" to "next")) },
             player = { clip ->
                 ClipPlayerActions(
                     onLike = { via -> vm.like(clip.id, via) },
                     onSave = { vm.save(clip.id) },
                     onLearnMore = { via -> vm.openSheet(clip.id, via) },
                     onComplete = { ms -> vm.complete(clip, ms) },
-                    onQuiz = { right, timeout -> vm.quiz(clip.id, right, timeout) },
+                    onInteract = { layout, result, waited -> vm.interact(clip.id, layout, result, waited) },
                     onExplore = { layout -> app.analytics.track("clips.explore", mapOf("clip" to clip.id, "layout" to layout)) },
                     onPrefs = vm::setPrefs,
-                    onPlaying = { playing -> if (playing && !ui.prefs.muted) music.play() else music.pause() },
+                    onPlaying = { on -> playing = on },
+                    onSpeaking = { on -> speaking[0] = on },
                     lineAudio = { text, voice -> ClipStore.lineAudio(app, text, voice) },
                     picture = { key -> ClipStore.picture(app, key) },
                 )
@@ -190,6 +210,7 @@ class ClipsViewModel(private val app: LabApp, startId: String?, startScene: Int)
         val prev = lastActive
         if (prev != null && prev.first != clip.id && prev.first !in completedIds && System.currentTimeMillis() - prev.second < 4000) ClipStore.record(app, prev.first, "skip")
         lastActive = clip.id to System.currentTimeMillis()
+        _ui.update { it.copy(active = index) }
         if (clip.status == "ready" && clip.spec != null && viewed.add(clip.id)) {
             ClipStore.record(app, clip.id, "view")
             app.analytics.track("clips.view", mapOf("clip" to clip.id, "position" to index + 1, "theme" to clip.spec!!.style.theme, "muted" to _ui.value.prefs.muted))
@@ -224,16 +245,30 @@ class ClipsViewModel(private val app: LabApp, startId: String?, startScene: Int)
         update(clip.id) { it.copy(state = it.state.copy(viewed = true, completed = true)) }
     }
 
-    fun quiz(id: String, right: Boolean, timedOut: Boolean) {
-        ClipStore.record(app, id, "quiz", if (right) 1 else 0)
-        app.analytics.track("clips.quiz_answer", mapOf("clip" to id, "right" to right, "timeout" to timedOut))
-        if (right) app.haptics.correct() else if (!timedOut) app.haptics.wrong()
+    /** An interactive scene settled: the `interact` clip event, analytics, and instant feedback (sound + buzz). */
+    fun interact(id: String, layout: String, result: String, waitedMs: Long) {
+        ClipStore.record(app, id, "interact", Clips.interactValue(result))
+        app.analytics.track("clips.interact", mapOf("clip" to id, "layout" to layout, "result" to result, "waited_ms" to waitedMs))
+        if (layout == "quiz" && result != "done") {
+            ClipStore.record(app, id, "quiz", if (result == "right") 1 else 0)
+            app.analytics.track("clips.quiz_answer", mapOf("clip" to id, "right" to (result == "right"), "timeout" to (result == "skipped")))
+        }
+        if (_ui.value.prefs.muted) {
+            when (result) { "right" -> app.haptics.correct(); "wrong", "close" -> app.haptics.wrong(); else -> app.haptics.tick() }
+            return
+        }
+        when (result) {
+            "right" -> { app.haptics.correct(); app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.CORRECT) }
+            "wrong", "close" -> { app.haptics.wrong(); app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.WRONG, 0.6f) }
+            "done" -> { app.haptics.tick(); app.sounds.play(dev.jeromeswannack.chineselearning.lab.fx.Sounds.Sfx.FLIP) }
+            else -> app.haptics.tick()
+        }
     }
 
     fun setPrefs(prefs: ClipStore.CaptionPrefs, toggled: String) {
         ClipStore.savePrefs(app, prefs)
         _ui.update { it.copy(prefs = prefs) }
-        app.analytics.track("clips.caption_toggle", mapOf("toggle" to toggled, "on" to when (toggled) { "mute" -> prefs.muted; "pinyin" -> prefs.pinyin; else -> prefs.english }))
+        app.analytics.track("clips.caption_toggle", mapOf("toggle" to toggled, "on" to when (toggled) { "mute" -> prefs.muted; "pinyin" -> prefs.pinyin; "music" -> prefs.music; else -> prefs.english }))
     }
 
     // ---------- Learn more ----------
