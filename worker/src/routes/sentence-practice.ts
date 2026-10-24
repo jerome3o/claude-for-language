@@ -25,7 +25,7 @@ sentencePractice.post('/me/sentence-practice', async (c) => {
   if (!events || events.length === 0) return c.json({ error: 'Send events' }, 400);
   if (events.length > MAX_SENTENCE_EVENTS_PER_REQUEST) return c.json({ error: `At most ${MAX_SENTENCE_EVENTS_PER_REQUEST} events at a time` }, 400);
   const result = await addSentenceEvents(c.env.DB, c.get('user').id, events);
-  if (result.stored > 0) void trackServer('server.sentence_practice_events', { count: result.stored }, { env: c.env, userId: c.get('user').id }).catch(() => {});
+  if (result.stored > 0) void trackServer('server.sentence_practice_events', { count: result.stored }, { env: c.env, userId: c.get('user').id });
   return c.json(result);
 });
 
