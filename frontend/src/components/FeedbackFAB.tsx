@@ -225,6 +225,8 @@ export function FeedbackFAB() {
   // and a chat (its 🎤 / Send button is in that corner).
   if (/^\/(calls|homework|audio-lessons|group-class)\/[^/]+\/?$/.test(location.pathname)) return null;
   if (/^\/connections\/[^/]+\/chat\/[^/]+\/?$/.test(location.pathname)) return null;
+  // 🎬 Clips: full-screen video-style feed with its own right rail.
+  if (/^\/clips(\/[^/]+)?\/?$/.test(location.pathname)) return null;
 
   // Study, the tutor's "Try it" previews and the catalogue samples: keep the FAB faint, out of the card's way.
   const isStudying = isStudyLikePath(location.pathname);

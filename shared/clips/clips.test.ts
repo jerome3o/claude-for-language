@@ -20,6 +20,13 @@ import {
   storyCast,
   validateClipSpec,
   CLIP_SPEC_DOC,
+  clipAnswerQuiz,
+  clipQuizRight,
+  clipQuizWaiting,
+  clipSceneFill,
+  clipStart,
+  clipTick,
+  storyLinesShown,
   type ClipSpec,
   type RankableClip,
 } from './index';
@@ -186,5 +193,53 @@ describe('feed', () => {
     expect(learnMoreOffers(SAMPLE_CLIP, { status: 'ready', lesson_id: 'l1', error: null })[0].label).toBe('Open the mini lesson');
     expect(learnMoreOffers(SAMPLE_CLIP, { status: 'generating', lesson_id: null, error: null })[0].label).toBe('Mini lesson — writing…');
     expect(learnMoreTitle('刚 vs 刚才')).toBe('Keep going with 刚 vs 刚才');
+  });
+});
+
+describe('the clip clock', () => {
+  it('runs scenes, holds while speaking, ends on the end card', () => {
+    let s = clipStart(SAMPLE_CLIP);
+    expect(s).toEqual({ scene: 0, elapsed_ms: 0, quiz: null, done: false });
+    s = clipTick(SAMPLE_CLIP, s, 2000, false);
+    expect(s.elapsed_ms).toBe(2000);
+    s = clipTick(SAMPLE_CLIP, s, 1000, true); // past 2500 but still speaking → holds
+    expect(s).toMatchObject({ scene: 0, elapsed_ms: 2500 });
+    s = clipTick(SAMPLE_CLIP, s, 16, false);
+    expect(s).toMatchObject({ scene: 1, elapsed_ms: 0 });
+    expect(clipSceneFill(SAMPLE_CLIP, clipTick(SAMPLE_CLIP, s, 1000, false))).toBe(0.25);
+  });
+
+  it('a quiz waits for an answer, then shows it; time running out reveals it', () => {
+    let s = clipStart(SAMPLE_CLIP, 4);
+    expect(s.quiz).toEqual({ picked: null, timed_out: false, reveal_ms: 0 });
+    expect(clipQuizWaiting(s)).toBe(true);
+    s = clipTick(SAMPLE_CLIP, s, 3000, false);
+    s = clipAnswerQuiz(s, 1);
+    expect(clipQuizRight(SAMPLE_CLIP, s)).toBe(true);
+    expect(clipAnswerQuiz(s, 0)).toBe(s);
+    expect(clipSceneFill(SAMPLE_CLIP, s)).toBe(1);
+    s = clipTick(SAMPLE_CLIP, s, 2000, false);
+    expect(s.scene).toBe(4);
+    s = clipTick(SAMPLE_CLIP, s, 600, false);
+    expect(s.scene).toBe(5);
+
+    let t = clipStart(SAMPLE_CLIP, 4);
+    t = clipTick(SAMPLE_CLIP, t, 9000, false);
+    expect(t.quiz).toMatchObject({ picked: null, timed_out: true });
+    expect(clipQuizRight(SAMPLE_CLIP, t)).toBeNull();
+    t = clipTick(SAMPLE_CLIP, t, 3000, false);
+    expect(t.scene).toBe(5);
+    const end = clipTick(SAMPLE_CLIP, clipStart(SAMPLE_CLIP, 7), 5000, false);
+    expect(end).toEqual({ scene: 8, elapsed_ms: 0, quiz: null, done: true });
+    expect(clipTick(SAMPLE_CLIP, end, 100, false)).toBe(end);
+  });
+
+  it('spreads story lines over the scene, the spoken one always showing', () => {
+    expect(storyLinesShown(4, 8000, 0)).toBe(1);
+    expect(storyLinesShown(4, 8000, 2800)).toBe(2);
+    expect(storyLinesShown(4, 8000, 5600)).toBe(4);
+    expect(storyLinesShown(4, 8000, 0, 2)).toBe(3);
+    expect(storyLinesShown(1, 8000, 0)).toBe(1);
+    expect(storyLinesShown(0, 8000, 0)).toBe(0);
   });
 });

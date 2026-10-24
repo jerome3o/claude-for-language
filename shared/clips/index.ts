@@ -4,3 +4,4 @@ export * from './timeline';
 export * from './feed';
 export * from './doc';
 export * from './sample';
+export * from './playback';

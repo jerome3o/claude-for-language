@@ -158,6 +158,7 @@ export function MorePage() {
           <NavRow icon="🔎" label="Picture hunt" desc="看图找词 · Name what you see in a picture" to="/picture-hunt" />
           <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
           <NavRow icon="🌀" label="梗 Meme review · prototype" desc="What the Chinese internet said this month — with real sources" to="/meme-review" />
+          <NavRow icon="🎬" label="Clips (beta)" desc="Short vertical clips on your words — double-tap to dig deeper" to="/clips" />
           <NavRow icon="🎧" label="Audio lessons" desc="Listen on the train, or fall asleep to slow Chinese" to="/audio-lessons" />
           <NavRow icon="📹" label="Video calls (beta)" desc="Live lessons with a whiteboard, then a transcript" to="/calls" />
         </NavSection>
