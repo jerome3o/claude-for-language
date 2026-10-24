@@ -1414,7 +1414,7 @@ clip on screen plays, the next prefetched; own IndexedDB `clips` with an events 
 🎬 more clips like this — all in his OWN account), long press = Learn more, Chinese → the explorer. Generation: Claude writes
 a spec from the topic / words + his recent and struggling words (forced tool, thinking off, validateClipSpec + 2 repairs; E2E
 stand-in `fakeClipSpec`). Cost guard `jobs`: generate / retry / learn-more. MCP `create_clip` / `list_clips` / `get_clip` /
-`generate_clips`.
+`generate_clips`. Lab: `ui/clips/` (VerticalPager, the same clock / speech / offers from core `clips/Clips.kt`, parity-tested), `data/clips/ClipStore.kt` (JsonCache feed, Outbox events, LessonMedia audio + pictures).
 - `GET /api/clips` (feed: unseen first, then by fit — `rankClipFeed`) · `GET|DELETE /api/clips/:id` · `POST /api/clips { spec }` → 201 `{ clip, pinyin_fixes }` / 400 `problems`
 - `POST /api/clips/generate { topic?, words?, count? (1–3) }` → 202 · `POST /api/clips/:id/retry` · `POST /api/clips/events { events }` (idempotent)
 - `POST /api/clips/:id/learn-more { action: lesson | reader | podcast | more }`
