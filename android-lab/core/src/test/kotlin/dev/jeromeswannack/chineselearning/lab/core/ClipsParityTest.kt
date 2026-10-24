@@ -4,7 +4,10 @@ import dev.jeromeswannack.chineselearning.lab.core.clips.ClipLessonState
 import dev.jeromeswannack.chineselearning.lab.core.clips.ClipPlayState
 import dev.jeromeswannack.chineselearning.lab.core.clips.ClipSpec
 import dev.jeromeswannack.chineselearning.lab.core.clips.ClipUserState
+import dev.jeromeswannack.chineselearning.lab.core.clips.ClipMusic
 import dev.jeromeswannack.chineselearning.lab.core.clips.Clips
+import dev.jeromeswannack.chineselearning.lab.core.clips.Karaoke
+import kotlinx.serialization.json.long
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -68,6 +71,11 @@ class ClipsParityTest {
                 Clips.audioClips(spec).map { it.text to it.voiceId },
             )
             assertEquals(c["images"]!!.jsonArray.map { it.jsonPrimitive.content }, Clips.imagePrompts(spec))
+            assertEquals(
+                c["reveal_utterances"]!!.jsonArray.map { sc -> sc.jsonArray.map { it.jsonObject.let { u -> listOf(u["scene"]!!.jsonPrimitive.int, u["line"]!!.jsonPrimitive.int, u["text"]!!.jsonPrimitive.content, u["voice_id"]!!.str()) } } },
+                spec.scenes.mapIndexed { i, sc -> Clips.sceneRevealUtterances(sc, i).map { listOf(it.scene, it.line, it.text, it.voiceId) } },
+                "reveal utterances of ${spec.title}",
+            )
             assertEquals(c["topic"]!!.jsonPrimitive.content, Clips.topic(spec))
             assertEquals(c["title"]!!.jsonPrimitive.content, Clips.learnMoreTitle(Clips.topic(spec)))
         }
@@ -99,13 +107,14 @@ class ClipsParityTest {
         assertEquals(want["scene"]!!.jsonPrimitive.int, got.scene, "scene $where")
         assertEquals(want["elapsed_ms"]!!.jsonPrimitive.double, got.elapsedMs, "elapsed $where")
         assertEquals(want["done"]!!.jsonPrimitive.boolean, got.done, "done $where")
-        val q = want["quiz"]
-        if (q == null || q is JsonNull) assertEquals(null, got.quiz, "quiz $where")
+        val q = want["interact"]
+        if (q == null || q is JsonNull) assertEquals(null, got.interact, "interact $where")
         else {
             val o = q.jsonObject
-            assertEquals(o["picked"]!!.jsonPrimitive.intOrNull, got.quiz?.picked, "picked $where")
-            assertEquals(o["timed_out"]!!.jsonPrimitive.boolean, got.quiz?.timedOut, "timed out $where")
-            assertEquals(o["reveal_ms"]!!.jsonPrimitive.double, got.quiz?.revealMs, "reveal $where")
+            assertEquals(o["picked"]!!.jsonPrimitive.intOrNull, got.interact?.picked, "picked $where")
+            assertEquals(o["result"]!!.str(), got.interact?.result, "result $where")
+            assertEquals(o["waited_ms"]!!.jsonPrimitive.double, got.interact?.waitedMs, "waited $where")
+            assertEquals(o["reveal_ms"]!!.jsonPrimitive.double, got.interact?.revealMs, "reveal $where")
         }
     }
 
@@ -120,12 +129,21 @@ class ClipsParityTest {
             for (i in states.indices) {
                 if (i > 0) {
                     val op = ops[i - 1]
-                    state = if (op[0].jsonPrimitive.content == "t") Clips.tick(spec, state, op[1].jsonPrimitive.double, op[2].jsonPrimitive.boolean)
-                    else Clips.answerQuiz(state, op[1].jsonPrimitive.int)
+                    state = when (op[0].jsonPrimitive.content) {
+                        "t" -> Clips.tick(spec, state, op[1].jsonPrimitive.double, op[2].jsonPrimitive.boolean)
+                        "a" -> Clips.answerOption(spec, state, op[1].jsonPrimitive.int)
+                        "o" -> Clips.answerOrder(spec, state, op[1].jsonArray.map { it.jsonPrimitive.int })
+                        "f" -> Clips.flip(state)
+                        "s" -> Clips.skip(state)
+                        "v" -> Clips.speakResult(state, op[1].jsonPrimitive.content)
+                        "c" -> Clips.continueOn(spec, state)
+                        else -> fail("op $op")
+                    }
                 }
                 val want = states[i]
                 assertState(want["state"]!!.jsonObject, state, "run $r step $i")
-                assertEquals(want["waiting"]!!.jsonPrimitive.boolean, Clips.quizWaiting(state), "waiting run $r step $i")
+                assertEquals(want["waiting"]!!.jsonPrimitive.boolean, Clips.waiting(state), "waiting run $r step $i")
+                assertEquals(want["skip"]!!.jsonPrimitive.boolean, Clips.skipShown(state), "skip run $r step $i")
                 assertEquals(want["right"]!!.jsonPrimitive.booleanOrNull, Clips.quizRight(spec, state), "right run $r step $i")
                 assertEquals(want["fill"]!!.jsonPrimitive.double, Clips.sceneFill(spec, state), "fill run $r step $i")
             }
@@ -167,5 +185,63 @@ class ClipsParityTest {
         val s = Clips.withPendingEvents(ClipUserState(), listOf("view", "like", "save", "unsave", "skip", "skip", "dance"))
         assertEquals(ClipUserState(viewed = true, completed = false, liked = true, saved = false, skips = 2), s)
         assertEquals(ClipUserState(viewed = true, completed = true), Clips.withPendingEvents(ClipUserState(), listOf("complete")))
+    }
+
+    @Test
+    fun revealTimesHashesAndShuffles() {
+        for (c in fixture["reveal_ms"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(c["out"]!!.jsonPrimitive.double, Clips.revealMs(c["layout"]!!.jsonPrimitive.content, c["result"]!!.jsonPrimitive.content), "reveal $c")
+        }
+        for (c in fixture["hashes"]!!.jsonArray.map { it.jsonObject }) assertEquals(c["out"]!!.jsonPrimitive.long, Clips.hash(c["text"]!!.jsonPrimitive.content), "hash $c")
+        val shuffles = fixture["shuffles"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(shuffles.size >= 25)
+        for (c in shuffles) {
+            val tiles = c["tiles"]!!.jsonArray.map { it.jsonPrimitive.content }
+            assertEquals(c["out"]!!.jsonArray.map { it.jsonPrimitive.int }, Clips.orderShuffle(tiles, c["seed"]!!.jsonPrimitive.content), "shuffle $c")
+        }
+        for (c in fixture["order_right"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(c["out"]!!.jsonPrimitive.boolean, Clips.orderRight(c["tiles"]!!.jsonArray.map { it.jsonPrimitive.content }, c["order"]!!.jsonArray.map { it.jsonPrimitive.int }), "order $c")
+        }
+        assertEquals(mapOf("wrong" to 0, "right" to 1, "close" to 2, "done" to 3, "skipped" to -1), Clips.INTERACT_VALUES)
+    }
+
+    @Test
+    fun karaokeTimelines() {
+        val cases = fixture["karaoke"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 50)
+        for (c in cases) {
+            val text = c["text"]!!.jsonPrimitive.content
+            val lang = c["lang"]!!.jsonPrimitive.content
+            val words = c["words"]!!.let { if (it is JsonNull) null else it.jsonArray.map { w -> w.jsonPrimitive.content } }
+            val tl = Karaoke.timeline(text, lang, c["duration"]!!.jsonPrimitive.double, words)
+            val want = c["timeline"]!!.jsonArray.map { it.jsonObject }
+            assertEquals(
+                want.map { listOf(it["text"]!!.jsonPrimitive.content, it["kind"]!!.jsonPrimitive.content, it["weight"]!!.jsonPrimitive.double, it["start_ms"]!!.jsonPrimitive.long, it["end_ms"]!!.jsonPrimitive.long) },
+                tl.map { listOf(it.text, it.kind, it.weight, it.startMs, it.endMs) },
+                "karaoke \"$text\" ${c["duration"]}",
+            )
+            for (a in c["at"]!!.jsonArray.map { it.jsonObject }) {
+                val active = Karaoke.active(tl, a["t"]!!.jsonPrimitive.double)
+                assertEquals(a["active"]!!.jsonPrimitive.int, active, "active \"$text\" at ${a["t"]}")
+                assertEquals(a["states"]!!.jsonArray.map { it.jsonPrimitive.content }, Karaoke.states(tl, active))
+            }
+        }
+    }
+
+    @Test
+    fun music() {
+        val m = fixture["music"]!!.jsonObject
+        assertEquals(
+            m["tracks"]!!.jsonArray.map { it.jsonObject.let { t -> listOf(t["id"]!!.jsonPrimitive.content, t["path"]!!.jsonPrimitive.content, t["raw"]!!.jsonPrimitive.content, t["bpm"]!!.jsonPrimitive.int, t["name"]!!.jsonPrimitive.content) } },
+            ClipMusic.TRACKS.map { listOf(it.id, it.path, it.raw, it.bpm, it.name) },
+        )
+        for (c in m["by_theme"]!!.jsonArray.map { it.jsonObject }) assertEquals(c["id"]!!.jsonPrimitive.content, ClipMusic.forTheme(c["theme"]!!.jsonPrimitive.content).id)
+        for (c in m["target"]!!.jsonArray.map { it.jsonObject }) assertEquals(c["out"]!!.jsonPrimitive.double, ClipMusic.target(c["speaking"]!!.jsonPrimitive.boolean))
+        for (c in m["steps"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(c["out"]!!.jsonPrimitive.double, ClipMusic.step(c["current"]!!.jsonPrimitive.double, c["target"]!!.jsonPrimitive.double, c["dt"]!!.jsonPrimitive.double), "step $c")
+        }
+        for (c in m["play"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(c["out"]!!.jsonPrimitive.boolean, ClipMusic.shouldPlay(c["playing"]!!.jsonPrimitive.boolean, c["muted"]!!.jsonPrimitive.boolean, c["music"]!!.jsonPrimitive.boolean))
+        }
     }
 }

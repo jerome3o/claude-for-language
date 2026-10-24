@@ -59,6 +59,30 @@ data class ClipListBody(val title: String? = null, val items: List<ClipWord> = e
 @Serializable
 data class ClipFactBody(val text_en: String = "", val hanzi: String? = null, val pinyin: String? = null)
 
+/** Added: hear a line (hidden), pick what it means. */
+@Serializable
+data class ClipListenBody(
+    val hanzi: String,
+    val pinyin: String = "",
+    val english: String = "",
+    val options: List<String> = emptyList(),
+    val answer_index: Int = 0,
+    val prompt_en: String? = null,
+    val explain: String? = null,
+)
+
+/** Added: tap the tiles into order — `tiles` IS the right order. */
+@Serializable
+data class ClipOrderBody(val tiles: List<String> = emptyList(), val pinyin: String = "", val english: String = "", val prompt_en: String? = null)
+
+/** Added: a flip card, English → Chinese. */
+@Serializable
+data class ClipRevealBody(val prompt_en: String = "", val hanzi: String, val pinyin: String = "", val note: String? = null)
+
+/** Added: say this line. */
+@Serializable
+data class ClipSpeakBody(val hanzi: String, val pinyin: String = "", val english: String = "", val prompt_en: String? = null)
+
 /** Port of `ClipScene`: one class, the body named by `layout` filled. */
 @Serializable
 data class ClipScene(
@@ -75,6 +99,10 @@ data class ClipScene(
     val story: ClipStoryBody? = null,
     val list: ClipListBody? = null,
     val fact: ClipFactBody? = null,
+    val listen: ClipListenBody? = null,
+    val order: ClipOrderBody? = null,
+    val reveal: ClipRevealBody? = null,
+    val speak: ClipSpeakBody? = null,
 )
 
 @Serializable
@@ -136,15 +164,22 @@ data class ClipAudio(val text: String, val voiceId: String?)
 
 data class StoryCast(val sides: List<String>, val voices: List<String?>)
 
-data class ClipQuizState(val picked: Int?, val timedOut: Boolean, val revealMs: Double)
+/** Port of `ClipInteractState`. result: null (waiting) | right | wrong | close | done | skipped. */
+data class ClipInteractState(val picked: Int?, val result: String?, val waitedMs: Double, val revealMs: Double)
 
 /** Port of `ClipPlayState`. scene = scenes.size → the end card. */
-data class ClipPlayState(val scene: Int, val elapsedMs: Double, val quiz: ClipQuizState?, val done: Boolean)
+data class ClipPlayState(val scene: Int, val elapsedMs: Double, val interact: ClipInteractState?, val done: Boolean)
 
 data class LearnMoreOffer(val action: String, val icon: String, val label: String, val detail: String, val online: Boolean)
 
 object Clips {
     const val QUIZ_REVEAL_MS = 2500.0
+    /** Port of `CLIP_SKIP_AFTER_MS`: an interactive scene offers "Skip ›" after waiting this long. */
+    const val SKIP_AFTER_MS = 6000.0
+    /** Port of `CLIP_INTERACTIVE_LAYOUTS`. */
+    val INTERACTIVE_LAYOUTS = listOf("quiz", "listen", "order", "reveal", "speak")
+    /** Port of `CLIP_INTERACT_VALUES`. */
+    val INTERACT_VALUES = mapOf("wrong" to 0, "right" to 1, "close" to 2, "done" to 3, "skipped" to -1)
     const val LINE_GAP_MS = 250L
     const val TTS_SPEED = 0.6
     const val DOUBLE_TAP_MS = 300L
@@ -237,14 +272,18 @@ object Clips {
         return StoryCast(sides, voices)
     }
 
-    /** Port of `sceneUtterances`. */
+    /** Port of `sceneUtterances`: a voice line says only that — except listen / speak, which then say their hanzi. */
     fun sceneUtterances(scene: ClipScene, index: Int): List<ClipUtterance> {
         val voice = scene.voice
-        if (voice != null && voice.text.trim().isNotEmpty()) {
-            val lang = if (voice.lang == "en") "en" else "zh"
-            return listOf(ClipUtterance(index, -1, ttsText(voice.text), lang, VOICE_IDS[voice.voice ?: "teacher"]))
-        }
+        val voiced = if (voice != null && voice.text.trim().isNotEmpty()) {
+            listOf(ClipUtterance(index, -1, ttsText(voice.text), if (voice.lang == "en") "en" else "zh", VOICE_IDS[voice.voice ?: "teacher"]))
+        } else emptyList()
         fun zh(text: String, line: Int, voiceId: String? = null) = ClipUtterance(index, line, ttsText(text), "zh", voiceId)
+        if (scene.layout == "listen" || scene.layout == "speak") {
+            val hanzi = (if (scene.layout == "listen") scene.listen?.hanzi else scene.speak?.hanzi).orEmpty()
+            return voiced + (if (hanzi.trim().isNotEmpty()) listOf(zh(hanzi, 0)) else emptyList())
+        }
+        if (voiced.isNotEmpty()) return voiced
         return when (scene.layout) {
             "story" -> {
                 val lines = scene.story?.lines.orEmpty()
@@ -258,8 +297,22 @@ object Clips {
         }
     }
 
-    /** Port of `clipUtterances`. */
-    fun utterances(spec: ClipSpec): List<ClipUtterance> = spec.scenes.flatMapIndexed { i, s -> sceneUtterances(s, i) }
+    /** Port of `clipOrderSentence`. */
+    fun orderSentence(tiles: List<String>): String = tiles.joinToString("")
+
+    /** Port of `sceneRevealUtterances`: what an order / reveal scene says once answered. */
+    fun sceneRevealUtterances(scene: ClipScene, index: Int): List<ClipUtterance> {
+        val text = when (scene.layout) {
+            "order" -> orderSentence(scene.order?.tiles.orEmpty())
+            "reveal" -> scene.reveal?.hanzi.orEmpty()
+            else -> ""
+        }
+        val tts = ttsText(text)
+        return if (tts.isNotEmpty()) listOf(ClipUtterance(index, 0, tts, "zh", null)) else emptyList()
+    }
+
+    /** Port of `clipUtterances` (the answers' lines included). */
+    fun utterances(spec: ClipSpec): List<ClipUtterance> = spec.scenes.flatMapIndexed { i, s -> sceneUtterances(s, i) + sceneRevealUtterances(s, i) }
 
     /** Port of `clipAudioClips`: the distinct practice-TTS requests (text + voice). */
     fun audioClips(spec: ClipSpec): List<ClipAudio> {
@@ -282,19 +335,33 @@ object Clips {
 
     // ---------- The clip clock (playback.ts) ----------
 
+    /** Port of `isInteractiveLayout`. */
+    fun isInteractive(layout: String?): Boolean = layout in INTERACTIVE_LAYOUTS
+
     /** Port of `clipStart`. */
     fun start(spec: ClipSpec, scene: Int = 0): ClipPlayState {
         val at = max(0, min(scene, spec.scenes.size))
         return ClipPlayState(
             scene = at,
             elapsedMs = 0.0,
-            quiz = if (spec.scenes.getOrNull(at)?.layout == "quiz") ClipQuizState(null, false, 0.0) else null,
+            interact = if (isInteractive(spec.scenes.getOrNull(at)?.layout)) ClipInteractState(null, null, 0.0, 0.0) else null,
             done = at >= spec.scenes.size,
         )
     }
 
-    /** Port of `clipQuizWaiting`. */
-    fun quizWaiting(state: ClipPlayState): Boolean = state.quiz != null && state.quiz.picked == null && !state.quiz.timedOut
+    /** Port of `clipWaiting`. */
+    fun waiting(state: ClipPlayState): Boolean = state.interact != null && state.interact.result == null
+
+    /** Port of `clipSkipShown`. */
+    fun skipShown(state: ClipPlayState): Boolean = waiting(state) && state.interact!!.waitedMs >= SKIP_AFTER_MS
+
+    /** Port of `clipRevealMs`. */
+    fun revealMs(layout: String, result: String): Double = when {
+        result == "skipped" -> QUIZ_REVEAL_MS
+        layout == "order" || layout == "reveal" -> 3000.0
+        layout == "speak" -> 3500.0
+        else -> QUIZ_REVEAL_MS
+    }
 
     /** Port of `clipTick`. */
     fun tick(spec: ClipSpec, state: ClipPlayState, dtMs: Double, speaking: Boolean): ClipPlayState {
@@ -302,39 +369,113 @@ object Clips {
         val scene = spec.scenes.getOrNull(state.scene) ?: return state.copy(done = true, scene = spec.scenes.size)
         val dt = max(0.0, dtMs)
         val d = scene.duration_ms.toDouble()
-        val quiz = state.quiz
-        if (quiz != null) {
-            if (quizWaiting(state)) {
+        val interact = state.interact
+        if (interact != null) {
+            val result = interact.result
+            if (result == null) {
                 val elapsed = min(d, state.elapsedMs + dt)
-                if (elapsed >= d) return state.copy(elapsedMs = elapsed, quiz = quiz.copy(timedOut = true))
-                return state.copy(elapsedMs = elapsed)
+                return state.copy(elapsedMs = elapsed, interact = interact.copy(waitedMs = interact.waitedMs + dt))
             }
-            val reveal = quiz.revealMs + dt
-            if (reveal >= QUIZ_REVEAL_MS && !speaking) return start(spec, state.scene + 1)
-            return state.copy(elapsedMs = d, quiz = quiz.copy(revealMs = min(reveal, QUIZ_REVEAL_MS)))
+            val need = revealMs(scene.layout, result)
+            val reveal = interact.revealMs + dt
+            if (reveal >= need && !speaking) return start(spec, state.scene + 1)
+            return state.copy(elapsedMs = d, interact = interact.copy(revealMs = min(reveal, need)))
         }
         val elapsed = min(d, state.elapsedMs + dt)
         if (elapsed >= d && !speaking) return start(spec, state.scene + 1)
         return state.copy(elapsedMs = elapsed)
     }
 
-    /** Port of `clipAnswerQuiz`. */
-    fun answerQuiz(state: ClipPlayState, option: Int): ClipPlayState =
-        if (!quizWaiting(state)) state else state.copy(quiz = state.quiz!!.copy(picked = option))
+    private fun settle(state: ClipPlayState, result: String, picked: Int? = null): ClipPlayState =
+        if (!waiting(state)) state else state.copy(interact = state.interact!!.copy(result = result, picked = picked, revealMs = 0.0))
 
-    /** Port of `clipQuizRight`. */
+    /** Port of `clipAnswerOption` (quiz / listen). */
+    fun answerOption(spec: ClipSpec, state: ClipPlayState, option: Int): ClipPlayState {
+        val scene = spec.scenes.getOrNull(state.scene)
+        val answer = when (scene?.layout) {
+            "quiz" -> scene.quiz?.answer_index
+            "listen" -> scene.listen?.answer_index
+            else -> null
+        } ?: return state
+        return settle(state, if (option == answer) "right" else "wrong", option)
+    }
+
+    /** Port of `clipOrderRight`. */
+    fun orderRight(tiles: List<String>, order: List<Int>): Boolean =
+        order.size == tiles.size && order.withIndex().all { (i, idx) -> tiles.getOrNull(idx) == tiles[i] }
+
+    /** Port of `clipAnswerOrder`. */
+    fun answerOrder(spec: ClipSpec, state: ClipPlayState, order: List<Int>): ClipPlayState {
+        val scene = spec.scenes.getOrNull(state.scene)
+        if (scene?.layout != "order") return state
+        return settle(state, if (orderRight(scene.order?.tiles.orEmpty(), order)) "right" else "wrong")
+    }
+
+    /** Port of `clipFlip`. */
+    fun flip(state: ClipPlayState): ClipPlayState = settle(state, "done")
+
+    /** Port of `clipSpeakResult` (the verdict as the web names it: exact, sound, close, wrong…). */
+    fun speakResult(state: ClipPlayState, verdict: String): ClipPlayState =
+        settle(state, if (verdict != "wrong" && verdict != "close") "right" else if (verdict == "close") "close" else "wrong")
+
+    /** Port of `clipSkip`. */
+    fun skip(state: ClipPlayState): ClipPlayState = settle(state, "skipped")
+
+    /** Port of `clipContinue`. */
+    fun continueOn(spec: ClipSpec, state: ClipPlayState): ClipPlayState =
+        if (state.interact == null || state.interact.result == null || state.done) state else start(spec, state.scene + 1)
+
+    /** Port of `clipQuizRight` (quiz / listen). */
     fun quizRight(spec: ClipSpec, state: ClipPlayState): Boolean? {
         val scene = spec.scenes.getOrNull(state.scene)
-        val picked = state.quiz?.picked
-        if (picked == null || scene?.layout != "quiz") return null
-        return picked == (scene.quiz?.answer_index ?: -1)
+        val picked = state.interact?.picked ?: return null
+        return when (scene?.layout) {
+            "quiz" -> picked == (scene.quiz?.answer_index ?: -1)
+            "listen" -> picked == (scene.listen?.answer_index ?: -1)
+            else -> null
+        }
     }
+
+    /** Port of `clipInteractValue`. */
+    fun interactValue(result: String): Int = INTERACT_VALUES[result] ?: 0
 
     /** Port of `clipSceneFill`. */
     fun sceneFill(spec: ClipSpec, state: ClipPlayState): Double {
         val scene = spec.scenes.getOrNull(state.scene) ?: return 1.0
-        if (state.quiz != null && !quizWaiting(state)) return 1.0
+        if (state.interact != null && !waiting(state)) return 1.0
         return max(0.0, min(1.0, state.elapsedMs / scene.duration_ms))
+    }
+
+    /** Port of `clipHash`: FNV-1a (32-bit) over UTF-16 code units. */
+    fun hash(text: String): Long {
+        var h = 0x811c9dc5L
+        for (ch in text) {
+            h = h xor ch.code.toLong()
+            h = (h * 0x01000193L) and 0xFFFFFFFFL
+        }
+        return h
+    }
+
+    /** Port of `clipOrderShuffle`: xorshift32 + Fisher–Yates, never reading as the answer. */
+    fun orderShuffle(tiles: List<String>, seed: String): List<Int> {
+        val idx = tiles.indices.toMutableList()
+        if (idx.size < 2) return idx
+        var s = hash(seed).let { if (it == 0L) 1L else it }
+        fun next(): Long {
+            s = (s xor (s shl 13)) and 0xFFFFFFFFL
+            s = (s xor (s ushr 17)) and 0xFFFFFFFFL
+            s = (s xor (s shl 5)) and 0xFFFFFFFFL
+            return s
+        }
+        for (i in idx.size - 1 downTo 1) {
+            val j = (next() % (i + 1)).toInt()
+            val t = idx[i]; idx[i] = idx[j]; idx[j] = t
+        }
+        if (orderRight(tiles, idx)) {
+            idx.add(idx.removeAt(0))
+            if (orderRight(tiles, idx)) idx.reverse()
+        }
+        return idx
     }
 
     /** Port of `storyLinesShown`. */

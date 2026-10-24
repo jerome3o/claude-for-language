@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -67,6 +68,8 @@ data class ClipsUi(
     val makeBusy: Boolean = false,
     val makeError: String? = null,
     val online: Boolean = true,
+    /** The settled page (the music follows its theme). */
+    val active: Int = 0,
 )
 
 /** The Learn more sheet ("Keep going with <topic>"). */
@@ -88,6 +91,8 @@ data class ClipWordRow(val word: ClipWord, val deck: String? = null, val bumped:
 class ClipsActions(
     val onBack: () -> Unit = {},
     val onActive: (index: Int) -> Unit = {},
+    /** The rail's ⌄ / the end card's Next ↓ (analytics `clips.next`). */
+    val onNextButton: (clip: ClipRecord, via: String) -> Unit = { _, _ -> },
     val player: (ClipRecord) -> ClipPlayerActions = { ClipPlayerActions() },
     val onCloseSheet: () -> Unit = {},
     val onOffer: (String) -> Unit = {},
@@ -106,7 +111,15 @@ class ClipsActions(
  * false render settled frames (screenshots).
  */
 @Composable
-fun ClipsScreen(ui: ClipsUi, actions: ClipsActions, animate: Boolean = true, clock: Boolean = true, previewState: ClipPlayState? = null) {
+fun ClipsScreen(
+    ui: ClipsUi,
+    actions: ClipsActions,
+    animate: Boolean = true,
+    clock: Boolean = true,
+    previewState: ClipPlayState? = null,
+    previewSpeech: SpeechClock? = null,
+    speakPreview: dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseUi? = null,
+) {
     val clips = ui.clips
     Box(Modifier.fillMaxSize().background(Color.Black).testTag("clips-page")) {
         when {
@@ -117,18 +130,20 @@ fun ClipsScreen(ui: ClipsUi, actions: ClipsActions, animate: Boolean = true, clo
                 val pager = rememberPagerState(initialPage = start) { clips.size }
                 val scope = rememberCoroutineScope()
                 LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { actions.onActive(it) } }
-                VerticalPager(pager, Modifier.fillMaxSize().testTag("clips-feed"), beyondViewportPageCount = 1, key = { clips[it].id }) { page ->
+                // A quarter of the page (or a flick) is enough to go on: a slow swipe should page too.
+                val fling = PagerDefaults.flingBehavior(pager, snapPositionalThreshold = 0.25f)
+                VerticalPager(pager, Modifier.fillMaxSize().testTag("clips-feed"), beyondViewportPageCount = 1, flingBehavior = fling, key = { clips[it].id }) { page ->
                     val clip = clips[page]
                     if (clip.status == "ready" && clip.spec != null) {
                         val base = actions.player(clip)
-                        val next = if (page < clips.size - 1) ({ scope.launch { pager.animateScrollToPage(page + 1) }; Unit }) else null
+                        val next = if (page < clips.size - 1) ({ via: String -> actions.onNextButton(clip, via); scope.launch { pager.animateScrollToPage(page + 1) }; Unit }) else null
                         ClipPlayer(
                             clip,
                             active = pager.settledPage == page,
                             prefs = ui.prefs,
                             actions = ClipPlayerActions(
                                 onLike = base.onLike, onSave = base.onSave, onLearnMore = base.onLearnMore, onComplete = base.onComplete,
-                                onQuiz = base.onQuiz, onExplore = base.onExplore, onPrefs = base.onPrefs, onNext = next, onPlaying = base.onPlaying,
+                                onInteract = base.onInteract, onExplore = base.onExplore, onPrefs = base.onPrefs, onNext = next, onPlaying = base.onPlaying, onSpeaking = base.onSpeaking,
                                 lineAudio = base.lineAudio, picture = base.picture,
                             ),
                             held = ui.sheet != null || ui.making,
@@ -136,6 +151,8 @@ fun ClipsScreen(ui: ClipsUi, actions: ClipsActions, animate: Boolean = true, clo
                             animate = animate,
                             clock = clock,
                             previewState = previewState,
+                            previewSpeech = previewSpeech,
+                            speakPreview = speakPreview,
                         )
                     } else ClipPlaceholder(clip, actions)
                 }

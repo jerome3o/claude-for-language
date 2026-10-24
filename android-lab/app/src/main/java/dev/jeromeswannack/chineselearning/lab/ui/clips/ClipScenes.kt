@@ -176,14 +176,16 @@ fun HookBanner(text: String, ctx: SceneCtx) {
         if (look.uppercase) text.uppercase() else text,
         modifier = Modifier.enter(p, Entrance.POP).then(mod).padding(horizontal = 14.dp, vertical = 8.dp).semantics { contentDescription = "Hook: $text" },
         color = if (look.hookOutlined) look.accent else if (look.name == "retro") Color(0xFF140C2B) else Color.White,
-        fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, fontFamily = look.enFont, textAlign = TextAlign.Center, lineHeight = 26.sp,
+        // A display face only for an all-English hook: a serif family would draw any hanzi in it as serif too.
+        fontSize = 21.sp, fontWeight = FontWeight.ExtraBold, fontFamily = if (HAN.containsMatchIn(text)) look.enFont else look.displayFont, textAlign = TextAlign.Center, lineHeight = 26.sp,
     )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState, ctx: SceneCtx, spokenLine: Int, onAnswer: (Int) -> Unit) {
+fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState, ctx: SceneCtx, spokenLine: Int, interact: InteractCtx) {
     val look = ctx.look
+    val clock = interact.clock
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (index == 0 && spec.hook.isNotBlank()) HookBanner(spec.hook, ctx)
         scene.emoji?.takeIf { it.isNotBlank() }?.let { e ->
@@ -203,7 +205,7 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
                     }
                     Py(h, ctx)
                 }
-                t.headline_en?.let { val p = entrance(ctx, 350); Text(if (look.uppercase) it.uppercase() else it, color = look.fg, fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = look.enFont, textAlign = TextAlign.Center, modifier = Modifier.enter(p, Entrance.UP)) }
+                t.headline_en?.let { val p = entrance(ctx, 350); Text(if (look.uppercase) it.uppercase() else it, color = look.fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, fontFamily = if (HAN.containsMatchIn(it)) look.enFont else look.displayFont, textAlign = TextAlign.Center, modifier = Modifier.enter(p, Entrance.UP)) }
                 t.sub?.let { val p = entrance(ctx, 700, bouncy = false); Text(it, color = look.muted, fontSize = 16.sp, fontFamily = look.enFont, textAlign = TextAlign.Center, modifier = Modifier.enter(p, Entrance.FADE)) }
             }
             "big_word" -> scene.big_word?.let { w ->
@@ -228,7 +230,8 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
                 Column(Modifier.fillMaxWidth().enter(p, Entrance.UP).clipCard(look).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val style = TextStyle(fontFamily = look.zhFont, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, color = look.cardFg, textAlign = TextAlign.Center, lineHeight = 40.sp)
                     val hl = s.highlight?.takeIf { it.isNotBlank() && s.hanzi.contains(it) }
-                    if (hl == null) Zh(s.hanzi, ctx, style)
+                    if (clock != null && clock.text == s.hanzi) KaraokeLine(s.hanzi, "zh", clock, false, style, look.accent, ctx.animate, ctx.onExplore)
+                    else if (hl == null) Zh(s.hanzi, ctx, style)
                     else {
                         val at = s.hanzi.indexOf(hl)
                         val sweep = entrance(ctx, 700, bouncy = false)
@@ -272,7 +275,11 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
                 }
                 c.rule_en?.let { r -> val p = entrance(ctx, 1600); Box(Modifier.enter(p, Entrance.UP)) { Mixed("💡 $r", ctx, TextStyle(color = look.fg, fontSize = 17.sp, fontWeight = FontWeight.Bold, fontFamily = look.enFont, textAlign = TextAlign.Center)) } }
             }
-            "quiz" -> scene.quiz?.let { q -> QuizView(spec, scene, play, ctx, onAnswer) }
+            "quiz" -> QuizView(interact, scene)
+            "listen" -> ListenView(interact, scene)
+            "order" -> OrderView(interact, scene)
+            "reveal" -> RevealView(interact, scene)
+            "speak" -> SpeakView(interact, scene)
             "story" -> scene.story?.let { st ->
                 val cast = remember(st) { Clips.storyCast(st.lines.map { it.speaker }) }
                 val shown = Clips.storyLinesShown(st.lines.size, scene.duration_ms.toDouble(), play.elapsedMs, spokenLine)
@@ -295,7 +302,9 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
                             val ring = if (spokenLine == i) Modifier.border(3.dp, look.accent2, RoundedCornerShape(18.dp)) else Modifier
                             Column(Modifier.widthIn(max = 300.dp).then(ring).then(bubble).padding(horizontal = 14.dp, vertical = 10.dp), horizontalAlignment = if (center) Alignment.CenterHorizontally else if (right) Alignment.End else Alignment.Start) {
                                 val c = if (center) look.fg else fg
-                                Zh(l.hanzi, ctx, TextStyle(fontFamily = look.zhFont, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = c, fontStyle = if (center) FontStyle.Italic else FontStyle.Normal))
+                                val lineStyle = TextStyle(fontFamily = look.zhFont, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = c, fontStyle = if (center) FontStyle.Italic else FontStyle.Normal)
+                                if (spokenLine == i && clock != null && clock.text == l.hanzi) KaraokeLine(l.hanzi, "zh", clock, false, lineStyle, if (right) Color.White else look.accent, ctx.animate, ctx.onExplore)
+                                else Zh(l.hanzi, ctx, lineStyle)
                                 Py(l.hanzi, ctx, l.pinyin, 13.sp, c.copy(alpha = 0.8f))
                                 En(l.english, ctx, 13.sp, c.copy(alpha = 0.8f))
                             }
@@ -328,74 +337,5 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
                 Box(Modifier.enter(p, Entrance.UP)) { Mixed(f.text_en, ctx, TextStyle(color = look.fg, fontSize = 21.sp, fontWeight = FontWeight.Bold, fontFamily = look.enFont, textAlign = TextAlign.Center, lineHeight = 28.sp)) }
             }
         }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun QuizView(spec: ClipSpec, scene: ClipScene, play: ClipPlayState, ctx: SceneCtx, onAnswer: (Int) -> Unit) {
-    val q = scene.quiz ?: return
-    val look = ctx.look
-    val state = play.quiz
-    val answered = state != null && (state.picked != null || state.timedOut)
-    val right = Clips.quizRight(spec, play)
-    val answer = q.options.getOrNull(q.answer_index).orEmpty()
-    q.prompt_zh?.takeIf { it.isNotBlank() }?.let { prompt ->
-        val parts = prompt.split(Regex("_{2,}|＿+"))
-        val style = TextStyle(fontFamily = look.zhFont, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = look.fg, textAlign = TextAlign.Center)
-        FlowRow(horizontalArrangement = Arrangement.Center, verticalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-            parts.forEachIndexed { i, part ->
-                if (part.isNotEmpty()) Zh(part, ctx, style)
-                if (i < parts.size - 1) {
-                    Text(
-                        if (answered) answer else " ? ",
-                        style = style.copy(color = look.accent),
-                        modifier = Modifier.padding(horizontal = 4.dp).drawBehind { drawRect(look.accent, topLeft = Offset(0f, size.height - 4.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width, 4.dp.toPx())) },
-                    )
-                }
-            }
-        }
-        if (ctx.pinyin) Text(devicePinyinLine(prompt.replace(Regex("_{2,}|＿+"), if (answered) answer else " ___ ")), color = look.muted, fontSize = 14.sp, textAlign = TextAlign.Center)
-    }
-    q.prompt_en?.let { if (ctx.english || q.prompt_zh.isNullOrBlank()) Text(it, color = look.muted, fontSize = 16.sp, fontFamily = look.enFont, textAlign = TextAlign.Center) }
-    if (!answered) {
-        val left = 1f - (play.elapsedMs / scene.duration_ms).toFloat().coerceIn(0f, 1f)
-        Box(Modifier.fillMaxWidth().height(6.dp).background(look.fg.copy(alpha = 0.15f), RoundedCornerShape(3.dp))) {
-            Box(Modifier.fillMaxWidth(left).height(6.dp).background(look.accent2, RoundedCornerShape(3.dp)))
-        }
-    }
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        q.options.forEachIndexed { i, o ->
-            val isAnswer = i == q.answer_index
-            val picked = state?.picked == i
-            val p = entrance(ctx, i * 90)
-            val ok = answered && isAnswer
-            val bad = picked && !isAnswer
-            val bg = when { ok -> Color(0x4716A34A); bad -> Color(0x40DC2626); else -> look.cardBg }
-            val border = when { ok -> Color(0xFF16A34A); bad -> Color(0xFFDC2626); else -> look.border }
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 56.dp).enter(p, Entrance.UP)
-                    .graphicsLayer { alpha = if (answered && !ok && !bad) 0.55f else 1f }
-                    .background(bg, RoundedCornerShape(16.dp)).border(2.dp, border, RoundedCornerShape(16.dp))
-                    .clickable(enabled = !answered, role = Role.Button) { onAnswer(i) }
-                    .semantics { contentDescription = "Option $o" + (if (ok) ", the answer" else "") + (if (bad) ", wrong" else "") }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center,
-            ) {
-                if (ok) Text("✓ ", color = look.cardFg, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                if (bad) Text("✗ ", color = look.cardFg, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                Text(o, color = look.cardFg, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, fontFamily = look.zhFont)
-                if (ctx.pinyin && HAN.containsMatchIn(o)) Text("  " + devicePinyinLine(o), color = look.cardFg.copy(alpha = 0.8f), fontSize = 13.sp)
-                if (ok) Text("  answer", color = look.cardFg.copy(alpha = 0.8f), fontSize = 13.sp)
-            }
-        }
-    }
-    if (answered) {
-        val p = entrance(ctx)
-        Text(
-            when (right) { true -> "✓ Right!"; false -> "✗ Not quite"; null -> "⏱ Time’s up" },
-            color = look.fg, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.enter(p, Entrance.POP).semantics { contentDescription = "quiz verdict" },
-        )
-        q.explain?.let { Mixed(it, ctx, TextStyle(color = look.muted, fontSize = 16.sp, fontFamily = look.enFont, textAlign = TextAlign.Center)) }
     }
 }

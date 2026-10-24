@@ -122,7 +122,14 @@ fun Modifier.practiseTapToStop(stop: PractiseStop): Modifier = pointerInput(stop
  * ([SpokenResultRow]), then 🔁 Try again. Nothing is stored.
  */
 @Composable
-fun PractiseSentenceRow(hanzi: String, tag: String = CoachPractiseTags.ROOT, stop: PractiseStop? = null, preview: PractiseUi? = null) {
+fun PractiseSentenceRow(
+    hanzi: String,
+    tag: String = CoachPractiseTags.ROOT,
+    stop: PractiseStop? = null,
+    preview: PractiseUi? = null,
+    /** Told about every checked take (a clip's speak scene settles on it). */
+    onPractised: ((CoachPractise.Practised) -> Unit)? = null,
+) {
     if (preview != null) return PractiseRowContent(hanzi, preview, PractiseActions(), tag)
     val context = LocalContext.current
     val app = context.applicationContext as? LabApp
@@ -136,6 +143,7 @@ fun PractiseSentenceRow(hanzi: String, tag: String = CoachPractiseTags.ROOT, sto
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
         val p = CoachPractise.practise(answer.text, target)
         result = p
+        onPractised?.invoke(p)
         app?.analytics?.track("coach.practise_say", mapOf("result" to CoachPractise.outcome(p, null)))
         if (p.result.accepted) app?.haptics?.correct() else app?.haptics?.tick()
     }

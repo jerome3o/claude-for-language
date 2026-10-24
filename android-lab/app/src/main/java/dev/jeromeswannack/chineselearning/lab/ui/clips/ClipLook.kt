@@ -15,8 +15,11 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * 🎬 The eight clip themes (web components/clips/clips.css): palette, type, texture and card shape
+ * 🎬 The eight clip themes (web components/clips/clips.css): palette, texture, card shape and motion
  * — each clearly different, every state also carried by a shape or a label (never colour alone).
+ * Type is READABLE everywhere (Jerome, Oct 2026: "the fonts are too curly"): Chinese is always the
+ * system sans (Noto Sans CJK), heavy for big text; Latin the sans; a theme may give a [displayFont]
+ * only for short English headlines (the hook, the title's English line).
  */
 data class ClipLook(
     val name: String,
@@ -35,6 +38,8 @@ data class ClipLook(
     val hardShadow: Boolean = false,
     val zhFont: FontFamily = FontFamily.SansSerif,
     val enFont: FontFamily = FontFamily.SansSerif,
+    /** Short English headlines only (hook, title's English line). */
+    val displayFont: FontFamily = FontFamily.SansSerif,
     val headWeight: FontWeight = FontWeight.Black,
     /** Headline glow (neon) / outline (comic) / offset (retro). */
     val headEffect: String = "none",
@@ -68,7 +73,7 @@ object ClipLooks {
         name = "paper", bg = Brush.verticalGradient(listOf(hex(0xFFF6F0E1), hex(0xFFF3ECDB))),
         fg = hex(0xFF2B2A26), muted = hex(0xFF5B574D), accent = hex(0xFFD9480F), accent2 = hex(0xFF1C64A8),
         cardBg = hex(0xFFFFFDF6), cardFg = hex(0xFF2B2A26), border = hex(0xFFD8CFB8), radius = 4.dp,
-        zhFont = FontFamily.Serif, enFont = FontFamily.Serif, headWeight = FontWeight.Bold, light = true, hookOutlined = true,
+        displayFont = FontFamily.Serif, headWeight = FontWeight.ExtraBold, light = true, hookOutlined = true,
         texture = {
             val line = 32.dp.toPx()
             var y = line
@@ -80,7 +85,7 @@ object ClipLooks {
         name = "chalk", bg = Brush.verticalGradient(listOf(hex(0xFF20392B), hex(0xFF1B3125))),
         fg = hex(0xFFF4F1E8), muted = hex(0xBFF4F1E8), accent = hex(0xFFFFD166), accent2 = hex(0xFF9BE7FF),
         cardBg = Color.White.copy(alpha = 0.04f), cardFg = hex(0xFFF4F1E8), border = hex(0x8CF4F1E8), radius = 12.dp, borderWidth = 2.dp, dashed = true,
-        zhFont = FontFamily.Serif, enFont = FontFamily.Cursive, headWeight = FontWeight.Bold, hookOutlined = true,
+        headWeight = FontWeight.ExtraBold, hookOutlined = true,
         texture = {
             drawCircle(Brush.radialGradient(listOf(Color.White.copy(alpha = 0.07f), Color.Transparent), center = Offset(size.width * 0.2f, size.height * 0.3f), radius = size.width * 0.6f))
             val dot = 5.dp.toPx()
@@ -99,7 +104,7 @@ object ClipLooks {
         name = "comic", bg = Brush.verticalGradient(listOf(hex(0xFFFFD400), hex(0xFFFFC800))),
         fg = hex(0xFF111111), muted = hex(0xFF222222), accent = hex(0xFFE63946), accent2 = hex(0xFF1D4ED8),
         cardBg = Color.White, cardFg = hex(0xFF111111), border = hex(0xFF111111), radius = 10.dp, borderWidth = 3.dp, hardShadow = true,
-        enFont = FontFamily.Cursive, headEffect = "outline", light = true,
+        headEffect = "outline", light = true,
         texture = {
             val c = Offset(size.width / 2, size.height * 0.45f)
             val r = size.height
@@ -136,7 +141,7 @@ object ClipLooks {
         name = "mono", bg = Brush.verticalGradient(listOf(hex(0xFFF2F2F0), hex(0xFFF2F2F0))),
         fg = hex(0xFF111111), muted = hex(0xFF444444), accent = hex(0xFF111111), accent2 = hex(0xFF111111),
         cardBg = Color.White, cardFg = hex(0xFF111111), border = hex(0xFF111111), radius = 0.dp,
-        headWeight = FontWeight.Light, uppercase = true, light = true,
+        headWeight = FontWeight.ExtraBold, uppercase = true, light = true,
         texture = {
             drawLine(Color.Black.copy(alpha = 0.08f), Offset(size.width / 2, 0f), Offset(size.width / 2, size.height))
             val step = 80.dp.toPx()
@@ -148,7 +153,7 @@ object ClipLooks {
         name = "ink", bg = Brush.verticalGradient(listOf(hex(0xFFF3ECDF), hex(0xFFEFE6D6))),
         fg = hex(0xFF1B1B1B), muted = hex(0xFF4A4540), accent = hex(0xFFB91C1C), accent2 = hex(0xFF4A4540),
         cardBg = Color.White.copy(alpha = 0.55f), cardFg = hex(0xFF1B1B1B), border = hex(0x591B1B1B), radius = 2.dp,
-        zhFont = FontFamily.Serif, enFont = FontFamily.Serif, headWeight = FontWeight.Normal, light = true,
+        displayFont = FontFamily.Serif, headWeight = FontWeight.ExtraBold, light = true,
         texture = {
             drawOval(Brush.radialGradient(listOf(hex(0x381B1B1B), Color.Transparent), center = Offset(size.width * 0.2f, size.height * 0.85f), radius = size.width * 0.7f), topLeft = Offset(-size.width * 0.5f, size.height * 0.7f), size = Size(size.width * 1.4f, size.height * 0.3f))
             drawOval(Brush.radialGradient(listOf(hex(0x2E1B1B1B), Color.Transparent), center = Offset(size.width * 0.85f, size.height * 0.92f), radius = size.width * 0.5f), topLeft = Offset(size.width * 0.35f, size.height * 0.8f), size = Size(size.width, size.height * 0.25f))
@@ -158,7 +163,7 @@ object ClipLooks {
         name = "retro", bg = Brush.verticalGradient(listOf(hex(0xFF140C2B), hex(0xFF1A1040))),
         fg = hex(0xFFB6FFB0), muted = hex(0xBFB6FFB0), accent = hex(0xFFFF5EC4), accent2 = hex(0xFFFFE14D),
         cardBg = hex(0xFF24164A), cardFg = hex(0xFFB6FFB0), border = hex(0xFFB6FFB0), radius = 0.dp, borderWidth = 3.dp, hardShadow = true,
-        enFont = FontFamily.Monospace, headEffect = "offset", uppercase = true,
+        displayFont = FontFamily.Monospace, headEffect = "offset", uppercase = true,
         texture = {
             val step = 4.dp.toPx()
             var y = 0f

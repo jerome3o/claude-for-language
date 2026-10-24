@@ -33,10 +33,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -54,6 +52,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -92,11 +91,15 @@ class ClipPlayerActions(
     val onSave: () -> Unit = {},
     val onLearnMore: (via: String) -> Unit = {},
     val onComplete: (durationMs: Long) -> Unit = {},
-    val onQuiz: (right: Boolean, timedOut: Boolean) -> Unit = { _, _ -> },
+    /** An interactive scene settled: layout, result (right | wrong | close | done | skipped), time waited. */
+    val onInteract: (layout: String, result: String, waitedMs: Long) -> Unit = { _, _, _ -> },
     val onExplore: (layout: String) -> Unit = {},
     val onPrefs: (ClipStore.CaptionPrefs, toggled: String) -> Unit = { _, _ -> },
-    val onNext: (() -> Unit)? = null,
+    /** The next clip (rail ⌄ = "button", the end card's Next ↓ = "end_card"). */
+    val onNext: ((via: String) -> Unit)? = null,
     val onPlaying: (Boolean) -> Unit = {},
+    /** A voice line is playing (the music ducks under it). */
+    val onSpeaking: (Boolean) -> Unit = {},
     /** A line's audio file (null = skip it): ClipStore.lineAudio in the app, nothing in previews. */
     val lineAudio: suspend (text: String, voiceId: String?) -> File? = { _, _ -> null },
     val picture: suspend (key: String) -> File? = { null },
@@ -122,6 +125,10 @@ fun ClipPlayer(
     clock: Boolean = true,
     /** Previews: show this play state (a quiz answered…) instead of starting at [startScene]. */
     previewState: ClipPlayState? = null,
+    /** Previews: the speak scene's row without a microphone. */
+    speakPreview: dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseUi? = null,
+    /** Previews: a line being read (karaoke) without audio. */
+    previewSpeech: SpeechClock? = null,
 ) {
     val spec = clip.spec ?: return
     val look = remember(spec.style) { ClipLooks.of(spec.style.theme, spec.style.accent) }
@@ -137,7 +144,9 @@ fun ClipPlayer(
     val wasActive = remember(clip.id) { booleanArrayOf(false) }
     val startedAt = remember(clip.id) { longArrayOf(0) }
     val completed = remember(clip.id) { booleanArrayOf(false) }
-    val reportedQuiz = remember(clip.id) { intArrayOf(-1) }
+    val reported = remember(clip.id) { intArrayOf(-1) }
+    var hearAgain by remember(clip.id) { mutableIntStateOf(0) }
+    var speech by remember(clip.id) { mutableStateOf<SpeechClock?>(previewSpeech) }
 
     // A clip starts from the top each time it comes on screen (a /clips/:id?scene= link: there, once).
     LaunchedEffect(active, replay) {
@@ -146,7 +155,7 @@ fun ClipPlayer(
         wasActive[0] = true
         paused = false
         completed[0] = false
-        reportedQuiz[0] = -1
+        reported[0] = -1
         startedAt[0] = System.currentTimeMillis()
     }
     LaunchedEffect(running) { currentActions.onPlaying(running) }
@@ -174,32 +183,51 @@ fun ClipPlayer(
             currentActions.onComplete(System.currentTimeMillis() - startedAt[0])
         }
     }
-    LaunchedEffect(play.quiz?.timedOut, play.scene) {
-        if (play.quiz?.timedOut == true && reportedQuiz[0] != play.scene) {
-            reportedQuiz[0] = play.scene
-            currentActions.onQuiz(false, true)
+    // An interactive scene settled (an answer / Skip): reported once.
+    val result = play.interact?.result
+    LaunchedEffect(result, play.scene) {
+        val sc = spec.scenes.getOrNull(play.scene)
+        if (result != null && sc != null && reported[0] != play.scene && previewState == null) {
+            reported[0] = play.scene
+            currentActions.onInteract(sc.layout, result, play.interact?.waitedMs?.toLong() ?: 0L)
         }
     }
 
-    // The voice: the scene's lines in turn, the clock holding until they're done.
+    // The voice: the scene's lines in turn (its answer's line once answered), the clock holding until they're done.
     val player = remember(clip.id) { arrayOfNulls<MediaPlayer>(1) }
-    LaunchedEffect(active, play.scene, play.done, prefs.muted, replay) {
+    val prepared = remember(clip.id) { booleanArrayOf(false) }
+    val answered = result != null
+    fun setSpeaking(on: Boolean) {
+        if (speaking[0] == on) return
+        speaking[0] = on
+        currentActions.onSpeaking(on)
+    }
+    LaunchedEffect(active, play.scene, play.done, prefs.muted, replay, hearAgain, answered) {
+        if (previewSpeech != null) { speech = previewSpeech; spokenLine = previewSpeech.line; return@LaunchedEffect }
         spokenLine = -1
+        speech = null
         val scene = spec.scenes.getOrNull(play.scene)
-        if (!active || scene == null || play.done || prefs.muted || !clock) { speaking[0] = false; return@LaunchedEffect }
-        val lines = Clips.sceneUtterances(scene, play.scene)
-        if (lines.isEmpty()) { speaking[0] = false; return@LaunchedEffect }
-        speaking[0] = true
+        if (!active || scene == null || play.done || prefs.muted || !clock) { setSpeaking(false); return@LaunchedEffect }
+        val lines = if (answered) Clips.sceneRevealUtterances(scene, play.scene) else Clips.sceneUtterances(scene, play.scene)
+        if (lines.isEmpty()) { setSpeaking(false); return@LaunchedEffect }
+        setSpeaking(true)
         try {
             for (line in lines) {
                 val file = withTimeoutOrNull(6_000) { currentActions.lineAudio(line.text, line.voiceId) } ?: continue
                 spokenLine = line.line
-                playFile(file, player)
+                speech = SpeechClock(
+                    line.scene, line.line, line.text, line.lang,
+                    positionMs = { player[0]?.takeIf { prepared[0] }?.let { runCatching { it.currentPosition.toLong() }.getOrNull() } ?: 0L },
+                    durationMs = { player[0]?.takeIf { prepared[0] }?.let { runCatching { it.duration.toLong() }.getOrNull() }?.takeIf { it > 0 } },
+                )
+                playFile(file, player, prepared)
                 delay(Clips.LINE_GAP_MS)
             }
         } finally {
-            speaking[0] = false
+            setSpeaking(false)
             spokenLine = -1
+            speech = null
+            prepared[0] = false
             player[0]?.let { runCatching { it.stop() }; it.release() }
             player[0] = null
         }
@@ -269,22 +297,30 @@ fun ClipPlayer(
             }
         }
 
-        // The stage.
+        // The stage. NO vertical scroll in here: a scrollable inside the VerticalPager took the
+        // swipe and the pager never moved to the next clip (Jerome's Pixel Fold, Oct 2026;
+        // ClipsSwipeTest). A scene is laid out to fit; anything taller is clipped, never scrolled.
         Box(
-            Modifier.fillMaxSize().statusBarsPadding().padding(top = 64.dp, bottom = 168.dp, start = 16.dp, end = 76.dp).verticalScroll(rememberScrollState()),
+            Modifier.fillMaxSize().statusBarsPadding().padding(top = 64.dp, bottom = 150.dp, start = 16.dp, end = 82.dp).clipToBounds(),
             contentAlignment = Alignment.Center,
         ) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (play.done) key("end-$replay") { EndCard(clip, ctx, onLearnMore = { currentActions.onLearnMore("end_card") }, onReplay = { replay++ }, onNext = currentActions.onNext) }
+                if (play.done) key("end-$replay") { EndCard(clip, ctx, onLearnMore = { currentActions.onLearnMore("end_card") }, onReplay = { replay++ }, onNext = currentActions.onNext?.let { n -> { n("end_card") } }) }
                 else if (scene != null) key("${play.scene}-$replay") {
-                    SceneView(spec, scene, play.scene, play, ctx, spokenLine) { option ->
-                        val next = Clips.answerQuiz(play, option)
-                        if (next !== play && reportedQuiz[0] != play.scene) {
-                            reportedQuiz[0] = play.scene
-                            currentActions.onQuiz(Clips.quizRight(spec, next) == true, false)
-                        }
-                        play = next
-                    }
+                    val interact = InteractCtx(
+                        spec, clip.id, play.scene, play, ctx, prefs.muted, speech,
+                        InteractActions(
+                            onOption = { o -> play = Clips.answerOption(spec, play, o) },
+                            onOrder = { order -> play = Clips.answerOrder(spec, play, order) },
+                            onFlip = { play = Clips.flip(play) },
+                            onSpeak = { p -> play = Clips.speakResult(play, p.verdict.name.lowercase()) },
+                            onSkip = { play = Clips.skip(play) },
+                            onContinue = { play = Clips.continueOn(spec, play) },
+                            onReplay = { hearAgain++ },
+                        ),
+                        speakPreview = speakPreview,
+                    )
+                    SceneView(spec, scene, play.scene, play, ctx, spokenLine, interact)
                 }
             }
         }
@@ -293,9 +329,14 @@ fun ClipPlayer(
         Column(Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(start = 12.dp, end = 76.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val voice = scene?.voice
             if (!play.done && voice != null && voice.text.isNotBlank()) {
-                Column(Modifier.background(Color(0x9E000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                    if (voice.lang == "zh") Zh(voice.text, ctx, TextStyle(color = Color.White, fontSize = 16.sp)) else Text(voice.text, color = Color.White, fontSize = 16.sp)
-                    if (voice.lang == "zh" && prefs.pinyin) Text(devicePinyinLine(voice.text), color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp)
+                // Karaoke: the voice line big, the word being said exaggerated (ClipKaraoke.kt).
+                val voiceClock = speech?.takeIf { it.line == -1 && it.scene == play.scene }
+                Box(Modifier.background(Color(0xB8000000), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 8.dp).testTag("clip-caption")) {
+                    KaraokeLine(
+                        voiceClock?.text ?: voice.text, if (voice.lang == "en") "en" else "zh", voiceClock, prefs.pinyin,
+                        TextStyle(color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold, fontFamily = if (voice.lang == "en") look.enFont else look.zhFont),
+                        Color(0xFFFFE14D), animate, ctx.onExplore,
+                    )
                 }
             }
             Text("🎬 ${spec.title}", color = if (look.light && !onPicture) look.fg else Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -306,13 +347,15 @@ fun ClipPlayer(
         }
 
         // The rail.
-        Column(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 8.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             RailButton(if (clip.state.liked) "❤️" else "🤍", if (clip.state.liked) "Liked" else "Like", clip.state.liked, "clip-like") { currentActions.onLike("button") }
             RailButton("🔖", if (clip.state.saved) "Saved" else "Save", clip.state.saved, "clip-save") { currentActions.onSave() }
             RailButton("✨", "More", false, "clip-learn-more") { currentActions.onLearnMore("button") }
             RailButton("拼", "Pinyin ${if (prefs.pinyin) "on" else "off"}", prefs.pinyin, "clip-toggle-pinyin") { currentActions.onPrefs(prefs.copy(pinyin = !prefs.pinyin), "pinyin") }
             RailButton("EN", "English ${if (prefs.english) "on" else "off"}", prefs.english, "clip-toggle-english") { currentActions.onPrefs(prefs.copy(english = !prefs.english), "english") }
+            RailButton(if (prefs.music) "🎵" else "♪", "Music ${if (prefs.music) "on" else "off"}", prefs.music, "clip-toggle-music") { currentActions.onPrefs(prefs.copy(music = !prefs.music), "music") }
             RailButton(if (prefs.muted) "🔇" else "🔊", if (prefs.muted) "Muted" else "Sound", prefs.muted, "clip-toggle-mute") { currentActions.onPrefs(prefs.copy(muted = !prefs.muted), "mute") }
+            currentActions.onNext?.let { next -> RailButton("⌄", "Next", false, "clip-next") { next("button") } }
         }
 
         if (active && paused && !play.done) {
@@ -346,7 +389,7 @@ private fun RailButton(icon: String, label: String, pressed: Boolean, tag: Strin
     val bg = if (pressed) Color.White.copy(alpha = 0.92f) else Color.Black.copy(alpha = 0.42f)
     val fg = if (pressed) Color(0xFF111111) else Color.White
     Column(
-        Modifier.width(56.dp).clip(RoundedCornerShape(16.dp)).background(bg)
+        Modifier.width(62.dp).clip(RoundedCornerShape(16.dp)).background(bg)
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { selected = pressed; contentDescription = label }
             .testTag(tag)
@@ -354,7 +397,7 @@ private fun RailButton(icon: String, label: String, pressed: Boolean, tag: Strin
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(icon, fontSize = 22.sp, color = fg, fontWeight = FontWeight.Black)
-        Text(label, fontSize = 10.sp, color = fg, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 12.sp)
+        Text(label, fontSize = 10.sp, color = fg, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, lineHeight = 12.sp, maxLines = 1, softWrap = false)
     }
 }
 
@@ -398,14 +441,15 @@ private fun EndButton(label: String, look: ClipLook, primary: Boolean, onClick: 
 }
 
 /** Play one file to its end (or until cancelled). */
-private suspend fun playFile(file: File, holder: Array<MediaPlayer?>) = suspendCancellableCoroutine<Unit> { cont ->
+private suspend fun playFile(file: File, holder: Array<MediaPlayer?>, prepared: BooleanArray) = suspendCancellableCoroutine<Unit> { cont ->
     val mp = MediaPlayer()
     holder[0] = mp
+    prepared[0] = false
     val done = { if (cont.isActive) cont.resume(Unit) }
     runCatching {
         mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
         mp.setDataSource(file.absolutePath)
-        mp.setOnPreparedListener { it.start() }
+        mp.setOnPreparedListener { prepared[0] = true; it.start() }
         mp.setOnCompletionListener { done() }
         mp.setOnErrorListener { _, _, _ -> done(); true }
         mp.prepareAsync()
