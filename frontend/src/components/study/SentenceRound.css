@@ -1,0 +1,228 @@
+/* The Sentence round (components/study/SentenceRound.tsx): between a card's question and its answer. */
+.sentence-round {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-height: 100%;
+}
+
+.sentence-round-question {
+  text-align: center;
+  padding: 0.25rem 0.5rem 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-light);
+}
+.sentence-round-question-zh {
+  font-size: 1.6rem;
+  color: var(--color-text);
+}
+.sentence-round-question-en {
+  font-size: 1.05rem;
+  color: var(--color-text);
+}
+
+.sentence-round-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.sentence-round-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.sentence-round-counter {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.sentence-round-dot {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: white;
+  transition: background-color 0.25s, border-color 0.25s, transform 0.25s;
+}
+.sentence-round-dot.is-on {
+  background-color: var(--color-success);
+  border-color: var(--color-success);
+  animation: sentence-round-pop 0.45s ease-out;
+}
+.sentence-round-count {
+  margin-left: 0.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sentence-round-intro,
+.sentence-round-blocked {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.sentence-round-cheer {
+  align-self: center;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-text);
+  font-weight: 700;
+  animation: sentence-round-pop 0.5s ease-out;
+}
+@keyframes sentence-round-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+.sentence-round-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.sentence-round-ex {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 0.6rem 0.7rem;
+  background: var(--color-surface);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+.sentence-round-ex.is-active {
+  border-color: var(--color-error);
+}
+.sentence-round-ex.is-right {
+  border-color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-surface));
+}
+.sentence-round-ex.is-close {
+  border-color: var(--color-partial);
+}
+.sentence-round-ex.is-wrong {
+  border-style: dashed;
+  border-color: var(--color-warning);
+}
+.sentence-round-ex-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+.sentence-round-ex-num {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background);
+  color: var(--color-text);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+.sentence-round-ex.is-right .sentence-round-ex-num {
+  background: var(--color-success);
+  color: white;
+}
+.sentence-round-ex-prompt {
+  font-weight: 600;
+}
+.sentence-round-ex-status {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.sentence-round-ex-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+.sentence-round-ex-text {
+  flex: 1;
+  min-width: 0;
+}
+.sentence-round-ex-text p {
+  margin: 0;
+}
+.sentence-round-zh {
+  font-size: 1.3rem;
+  line-height: 1.45;
+}
+.sentence-round-en {
+  font-size: 1rem;
+  line-height: 1.4;
+}
+.sentence-round-en.is-after,
+.sentence-round-pinyin {
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  margin-top: 0.15rem !important;
+}
+.sentence-round-ex-tools {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.sentence-round-ex-tools .sentence-set-mic,
+.sentence-round-ex-tools .sentence-set-play {
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  font-size: 1.05rem;
+}
+.sentence-round-ex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+.sentence-round-retry {
+  min-height: 44px;
+}
+.sentence-round-link {
+  min-height: 44px;
+  padding: 0 0.25rem;
+  border: none;
+  background: none;
+  color: var(--color-text-light);
+  text-decoration: underline;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.sentence-round-footer {
+  position: sticky;
+  bottom: -0.5rem;
+  margin-top: auto;
+  padding: 0.6rem 0 0.25rem;
+  background: linear-gradient(to bottom, transparent, var(--color-surface) 0.6rem);
+}
+.sentence-round-footer .btn {
+  min-height: 48px;
+}
+.sentence-round-skip-note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sentence-round-dot.is-on,
+  .sentence-round-cheer {
+    animation: none;
+  }
+}
