@@ -358,6 +358,8 @@ fun CardStage(
     val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
     var gateNote by remember(view.presentation) { mutableStateOf(false) }
     LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
+    // A sentence said right: the line goes back to the count.
+    LaunchedEffect(gate.got) { gateNote = false }
     var gateWasLocked by remember(view.presentation) { mutableStateOf(gate.locked) }
     LaunchedEffect(gate.locked) {
         if (gateWasLocked && !gate.locked && gate.needed > 0) {

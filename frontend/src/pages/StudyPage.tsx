@@ -519,6 +519,8 @@ export function StudyCard({
     }
     gateWasLocked.current = gate.locked;
   }, [gate.locked, gate.needed, gate.got, card.card_type]);
+  // A sentence said right: the line goes back to the count.
+  useEffect(() => setGateNote(false), [gate.got]);
   useEffect(() => {
     if (!gateNote) return;
     const id = window.setTimeout(() => setGateNote(false), 5000);

@@ -200,4 +200,10 @@ class SentencePractiseUiTest : LabScreenshotTest() {
             for (row in sentenceRows(note, set)) SentenceRowView(row, state, true, null, SentenceActions(), onPlay = { _, _ -> }, onAdd = {}, practise = practise)
         }
     }
+
+    @Test fun shotSetting() = shoot("sentence-practise-06-setting") {
+        Column(Modifier.padding(16.dp)) {
+            SpokenAnswerSection(false, wordTagsOn = true, picturesOn = true, newCharShimmerOn = true, sentenceGateOn = true) {}
+        }
+    }
 }

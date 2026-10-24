@@ -1706,7 +1706,7 @@ button.queue-counts:active {
   position: absolute;
   inset: -4px;
 }
-.sentence-set-mic:hover:not(:disabled) {
+.sentence-set-mic:hover:not(:disabled):not(.is-listening) {
   background-color: var(--color-border);
 }
 .sentence-set-mic:disabled {
