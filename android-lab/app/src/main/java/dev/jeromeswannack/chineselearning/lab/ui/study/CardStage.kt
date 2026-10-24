@@ -97,6 +97,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
+import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
+import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
 import dev.jeromeswannack.chineselearning.lab.core.ListenContext
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
@@ -132,6 +134,10 @@ data class CardStartState(
     val spokenReviewed: Boolean = false,
     /** The last "🎤 Say it" practice transcript ("You said" only). */
     val practiceSaid: String? = null,
+    /** The Sentence round was up (core SentenceRound): it comes back, not the question. */
+    val roundOpen: Boolean = false,
+    /** The round's exercises / the rows said right on this showing (the gate's count). */
+    val sentencesRight: List<String> = emptyList(),
 )
 
 /** The sheets a card can open over itself. */
@@ -250,8 +256,36 @@ fun CardStage(
         if (typing && !revealed && !voiceFirst && (autoplay || typingMode)) runCatching { focus.requestFocus() }
     }
 
-    fun reveal() {
+    // 🎤 on the example sentence rows (one microphone for the list; docs/STUDY_SESSION.md "Practise a
+    // sentence aloud"), "Get two sentences right before Good / Easy" (Settings → Study, core
+    // SentencePractise.gate) and the Sentence round before the answer (core SentenceRound): the regular
+    // session's reading and meaning cards, counted afresh on every showing.
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val gateEnabled = remember(view.presentation) {
+        pass == null && ui.practice == null && StudyPrefs.get(appCtx).sentenceGate.value
+    }
+    val practise = practisePreview ?: rememberSentencePractise(view.presentation)
+    // A resumed showing: what was already right (the round's exercises / the rows) still counts.
+    remember(practise) { if (practise.rightKeys.isEmpty() && start.sentencesRight.isNotEmpty()) practise.rightKeys.addAll(start.sentencesRight); 0 }
+    val roundRows = remember(view.presentation, view.sentences, note.sentenceClue, note.sentenceClueTranslation) { sentenceRows(view) }
+    val sentenceCount = roundRows.size
+    var roundOpen by remember(view.presentation) {
+        mutableStateOf(!revealed && start.roundOpen && SentenceRound.opens(gateEnabled, view.card.cardType, sentenceCount))
+    }
+    LaunchedEffect(view.presentation, roundOpen, practise.rightKeys.toList()) { actions.onCardRound(view.presentation, roundOpen, practise.rightKeys.toList()) }
+    // Back on the round: the question again (what was right stays).
+    BackHandler(enabled = roundOpen && !revealed) { roundOpen = false }
+
+    fun reveal(afterRound: Boolean = false) {
         if (revealed) return
+        if (!afterRound && SentenceRound.opens(gateEnabled, view.card.cardType, sentenceCount)) {
+            if (!roundOpen) {
+                roundOpen = true
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_round", mapOf("action" to "shown", "got" to 0, "needed" to minOf(SentencePractise.GATE_TARGET, sentenceCount)))
+            }
+            return
+        }
+        roundOpen = false
         val v = if (typing && answer.isNotBlank()) checkAnswer(answer) else null
         verdict = v
         revealed = true
@@ -346,15 +380,6 @@ fun CardStage(
         if (spoken.phase == SpokenPhase.EDITING) sayAgainDraft = androidx.compose.ui.text.input.TextFieldValue(spoken.finalText, androidx.compose.ui.text.TextRange(spoken.finalText.length))
     }
 
-    // 🎤 on the example sentence rows (one microphone for the list; docs/STUDY_SESSION.md "Practise a
-    // sentence aloud") and "Get two sentences right before Good / Easy" (Settings → Study, core
-    // SentencePractise.gate): the regular session's reading and meaning cards, counted afresh on every showing.
-    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val gateEnabled = remember(view.presentation) {
-        pass == null && ui.practice == null && StudyPrefs.get(appCtx).sentenceGate.value
-    }
-    val practise = practisePreview ?: rememberSentencePractise(view.presentation)
-    val sentenceCount = remember(view.presentation, view.sentences, note.sentenceClue) { sentenceRows(view).size }
     val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
     var gateNote by remember(view.presentation) { mutableStateOf(false) }
     LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
@@ -383,6 +408,22 @@ fun CardStage(
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
             val wide = maxWidth >= 640.dp
             val density = LocalDensity.current
+            if (roundOpen && !revealed) {
+                // The Sentence round between the question and the answer (core SentenceRound).
+                Box(Modifier.fillMaxSize().studyCardSurface(Lab.colors.card, glow, lifted = false, borderWidth = 1.dp).padding(12.dp)) {
+                    SentenceRoundPage(
+                        question = if (view.card.cardType == CardTypes.HANZI_TO_MEANING) note.hanzi else note.english,
+                        questionIsChinese = view.card.cardType == CardTypes.HANZI_TO_MEANING,
+                        rows = roundRows,
+                        practise = practise,
+                        playingKey = playingKey,
+                        onPlay = actions.onPlay,
+                        onDone = { reveal(afterRound = true) },
+                        onSkip = { reveal(afterRound = true) },
+                    )
+                }
+                return@BoxWithConstraints
+            }
             Box(
                 Modifier
                     .fillMaxSize()
@@ -451,7 +492,9 @@ fun CardStage(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 12.dp),
         ) {
-            if (!revealed) {
+            if (roundOpen && !revealed) {
+                // The round has its own Skip / See the answer.
+            } else if (!revealed) {
                 if (mcGridUp) {
                     McGrid(
                         rows = mc.rows!!,

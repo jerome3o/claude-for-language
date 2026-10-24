@@ -85,6 +85,10 @@ object StudyResume {
         val revealed: Boolean,
         val answer: String,
         val elapsedMs: Long,
+        /** `round_open`: the Sentence round was up (core SentenceRound). */
+        val roundOpen: Boolean = false,
+        /** `sentences_right`: the round's exercises / the rows said right on this showing. */
+        val sentencesRight: List<String> = emptyList(),
     )
 
     /** `RESUME_MAX_ELAPSED_MS` */

@@ -21,6 +21,13 @@ test.use({
 });
 
 const FAKE_WS = 'wss://fake-soniox.test/transcribe-websocket';
+/** SHOTS_DIR=… saves the PR screenshots (412×915 at 2×) along the way. */
+const SHOTS = process.env.SHOTS_DIR;
+const shot = async (page: Page, name: string) => {
+  if (!SHOTS) return;
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
+};
 
 /** Soniox stand-in: hears `window.__heard` (interim after two chunks, final after the end-of-audio frame). */
 async function fakeSoniox(page: Page) {
@@ -138,7 +145,7 @@ test.beforeEach(async ({ context }) => {
     try { localStorage.setItem('sentence-gate-v1', '1'); } catch { /* ignore */ }
   });
 });
-test.use({ viewport: { width: 412, height: 915 } });
+test.use({ viewport: { width: 412, height: 915 }, deviceScaleFactor: process.env.SHOTS_DIR ? 2 : 1 });
 
 test('sentence gate: Skip the round → Good / Easy wait for the sentences, Again rates; rows get a 🎤 once open', async ({ page, request }) => {
   test.setTimeout(120_000);
@@ -158,6 +165,7 @@ test('sentence gate: Skip the round → Good / Easy wait for the sentences, Agai
   await expect(exercises.nth(1)).not.toContainText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
   await expect(round).toContainText('Good and Easy stay locked until 2 more sentences are right');
+  await shot(page, 'web-01-round');
   await page.getByTestId('sentence-round-skip').click();
 
   const back = page.getByTestId('study-card-back');
@@ -169,6 +177,7 @@ test('sentence gate: Skip the round → Good / Easy wait for the sentences, Agai
   await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('rating-easy')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('rating-again')).not.toHaveAttribute('aria-disabled', 'true');
+  await shot(page, 'web-06-skipped-answer-locked');
 
   // A tap on a locked Good rates nothing and says why.
   await page.getByTestId('rating-good').click({ force: true }); // aria-disabled: Playwright won't tap it otherwise
@@ -209,6 +218,7 @@ test('sentence round: two said right open the answer with Good / Easy unlocked',
     const ex = page.getByTestId('sentence-round-exercise').nth(index);
     await ex.getByTestId('sentence-practise-mic').click();
     await expect(ex.getByTestId('sentence-practise-live')).toContainText(heard.replace(/[。？]/g, ''), { timeout: 10000 });
+    if (index === 1) await shot(page, 'web-04-listening');
     await ex.getByTestId('sentence-practise-mic').click();
     return ex;
   };
@@ -218,6 +228,7 @@ test('sentence round: two said right open the answer with Good / Easy unlocked',
   await expect(first).toHaveAttribute('data-status', /close|wrong/, { timeout: 10000 });
   await expect(first.getByTestId('sentence-round-retry')).toBeVisible();
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
+  await shot(page, 'web-02-miss-try-again');
 
   // Read the card's sentence right: 1 / 2 and a cheer.
   await page.evaluate((h) => { (window as unknown as { __heard?: string }).__heard = h; }, CLUE.hanzi);
@@ -227,12 +238,14 @@ test('sentence round: two said right open the answer with Good / Easy unlocked',
   await expect(first).toHaveAttribute('data-status', 'right', { timeout: 10000 });
   await expect(page.getByTestId('sentence-round-counter')).toContainText('1 / 2');
   await expect(page.getByTestId('sentence-round-cheer')).toContainText('1 / 2');
+  await shot(page, 'web-03-right-1-of-2');
 
   // Translate the first set sentence (said exactly): its Chinese shows once answered → 2 / 2.
   const second = await say(1, SET[0].hanzi);
   await expect(second).toHaveAttribute('data-status', 'right', { timeout: 10000 });
   await expect(second.getByTestId('sentence-round-chinese')).toHaveText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-cheer')).toContainText('Good and Easy unlocked');
+  await shot(page, 'web-05-done-2-of-2');
 
   // The answer side opens by itself, unlocked.
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 10000 });
@@ -240,4 +253,5 @@ test('sentence round: two said right open the answer with Good / Easy unlocked',
   await expect(gate).toHaveAttribute('data-locked', 'false', { timeout: 15000 });
   await expect(gate).toContainText('2/2 right — Good and Easy unlocked');
   await expect(page.getByTestId('rating-good')).not.toHaveAttribute('aria-disabled', 'true');
+  await shot(page, 'web-07-answer-unlocked');
 });
