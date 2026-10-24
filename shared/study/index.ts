@@ -7,3 +7,4 @@ export * from './askClaude';
 export * from './newCharacters';
 export * from './lessonRun';
 export * from './lessonRevision';
+export * from './sentencePractise';

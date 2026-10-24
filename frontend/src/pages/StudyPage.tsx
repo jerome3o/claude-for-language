@@ -140,6 +140,8 @@ import { undoForget, type ForgetOutcome } from '../services/cardForgets';
 import { UndoToast } from '../components/upNext/UpNextBoard';
 import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
+import { readSentenceGateOn } from '../services/sentenceGatePrefs';
+import { ratingLockedByGate, sentenceGate, sentenceGateBlockedNote, sentenceGateLabel } from '@shared/study/sentencePractise';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -501,6 +503,37 @@ export function StudyCard({
   ) ?? 0;
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
+
+  // "Get two sentences right before Good / Easy" (Settings → Study; shared/study/sentencePractise.ts):
+  // the regular session's reading and meaning cards only, counted afresh on every showing.
+  const [gateOn] = useState(() => inStudySession && !pass && readSentenceGateOn());
+  const [gateKeys, setGateKeys] = useState<string[]>([]);
+  const [sentenceCount, setSentenceCount] = useState<number | null>(null);
+  const [gateNote, setGateNote] = useState(false);
+  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount, rightKeys: gateKeys });
+  const gateWasLocked = useRef(gate.locked);
+  useEffect(() => {
+    if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
+      setGateNote(false);
+      track('study.sentence_gate', { action: 'unlocked', unlocked: true, needed: gate.needed, got: gate.got, card_type: card.card_type });
+    }
+    gateWasLocked.current = gate.locked;
+  }, [gate.locked, gate.needed, gate.got, card.card_type]);
+  // A sentence said right: the line goes back to the count.
+  useEffect(() => {
+    setGateNote(false);
+  }, [gate.got]);
+  useEffect(() => {
+    if (!gateNote) return;
+    const id = window.setTimeout(() => setGateNote(false), 5000);
+    return () => window.clearTimeout(id);
+  }, [gateNote]);
+  const onSentenceRight = useCallback((key: string) => {
+    setGateKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+  }, []);
+  const scrollToSentences = () => {
+    document.querySelector('[data-testid="study-sentences"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   // What the writing sheet practises: the card's hanzi (⋯ → Write it) or one character (character sheet).
   const [writingText, setWritingText] = useState<string | null>(null);
   const { user } = useAuth();
@@ -1324,6 +1357,16 @@ export function StudyCard({
   };
 
   const handleRate = (rating: Rating) => {
+    // Good / Easy wait for the sentences (every way of rating comes through here).
+    if (ratingLockedByGate(rating, gate)) {
+      setGateNote(true);
+      track('study.sentence_gate', { action: 'blocked', unlocked: false, needed: gate.needed, got: gate.got, card_type: card.card_type });
+      scrollToSentences();
+      return;
+    }
+    if (gate.needed > 0) {
+      track('study.sentence_gate', { action: 'rated', unlocked: !gate.locked, needed: gate.needed, got: gate.got, card_type: card.card_type });
+    }
     doneWithCardRef.current = true;
     const timeSpent = Date.now() - startTime;
     // The tutor's note was on screen for this review — show it once only.
@@ -3063,6 +3106,10 @@ export function StudyCard({
                         : null
                     }
                     {...(pass ? { variant: 'pass' as const } : { compact: true })}
+                    practise
+                    showingKey={card.id}
+                    onPractiseRight={onSentenceRight}
+                    onRowCount={setSentenceCount}
                   />
                 </div>
               </div>
@@ -3076,11 +3123,26 @@ export function StudyCard({
             ratings={pass ? (
               <PassAnswerButtons suggested={passSuggested} onAnswer={handlePassAnswer} disabled={isRating} />
             ) : (
-              <RatingButtons
-                intervalPreviews={intervalPreviews}
-                onRate={handleRate}
-                disabled={isRating}
-              />
+              <>
+                {gate.needed > 0 && (
+                  <button
+                    type="button"
+                    className={`sentence-gate-line${gate.locked ? ' is-locked' : ' is-open'}`}
+                    onClick={scrollToSentences}
+                    data-testid="sentence-gate"
+                    data-locked={gate.locked}
+                    aria-live="polite"
+                  >
+                    {gateNote && gate.locked ? sentenceGateBlockedNote(gate) : sentenceGateLabel(gate)}
+                  </button>
+                )}
+                <RatingButtons
+                  intervalPreviews={intervalPreviews}
+                  onRate={handleRate}
+                  disabled={isRating}
+                  locked={gate.locked ? [2, 3] : undefined}
+                />
+              </>
             )}
           />
         )}

@@ -79,6 +79,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
@@ -164,6 +165,8 @@ fun CardStage(
     autoplay: Boolean = true,
     /** A homework pass word: Not yet / Got it where the ratings are, its choices on the answer side (web `StudyCard pass`). */
     pass: PassCardUi? = null,
+    /** Screenshot tests: the sentence rows' 🎤 in a given state (no microphone). */
+    practisePreview: SentencePractiseState? = null,
 ) {
     val note = view.note
     val typing = view.card.cardType != CardTypes.HANZI_TO_MEANING
@@ -343,10 +346,34 @@ fun CardStage(
         if (spoken.phase == SpokenPhase.EDITING) sayAgainDraft = androidx.compose.ui.text.input.TextFieldValue(spoken.finalText, androidx.compose.ui.text.TextRange(spoken.finalText.length))
     }
 
+    // 🎤 on the example sentence rows (one microphone for the list; docs/STUDY_SESSION.md "Practise a
+    // sentence aloud") and "Get two sentences right before Good / Easy" (Settings → Study, core
+    // SentencePractise.gate): the regular session's reading and meaning cards, counted afresh on every showing.
+    val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val gateEnabled = remember(view.presentation) {
+        pass == null && ui.practice == null && StudyPrefs.get(appCtx).sentenceGate.value
+    }
+    val practise = practisePreview ?: rememberSentencePractise(view.presentation)
+    val sentenceCount = remember(view.presentation, view.sentences, note.sentenceClue) { sentenceRows(view).size }
+    val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
+    var gateNote by remember(view.presentation) { mutableStateOf(false) }
+    LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
+    // A sentence said right: the line goes back to the count.
+    LaunchedEffect(gate.got) { gateNote = false }
+    var gateWasLocked by remember(view.presentation) { mutableStateOf(gate.locked) }
+    LaunchedEffect(gate.locked) {
+        if (gateWasLocked && !gate.locked && gate.needed > 0) {
+            gateNote = false
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "unlocked", "unlocked" to true, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
+        }
+        gateWasLocked = gate.locked
+    }
+    val showSentences: () -> Unit = { scope.launch { runCatching { practise.showList() } } }
+
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
     val mcGridUp = !revealed && typing && mc.showing && mc.rows != null
-    BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+    BoxWithConstraints(Modifier.fillMaxSize().imePadding().sentencePractiseWatch(practise)) {
     // A long multiple-choice answer (a sentence: a dozen rows) must never push the question off
     // the top or the submit button off the bottom: the card keeps [cardMin] for the prompt and
     // the grid gets the rest, scrolling its rows above a pinned button.
@@ -403,7 +430,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass,
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise,
                             onLeech = {
                                 sheet = CardSheet.Leech
                                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("card.leech_open", mapOf("lapses" to view.card.state.lapses, "card_type" to view.card.cardType))
@@ -538,7 +565,18 @@ fun CardStage(
                         actions.onPassAnswer(right, answered, suggested)
                     }
                 } else {
-                    RatingBar(view.previews, enabled = !rated) { rating ->
+                    if (gate.needed > 0) SentenceGateLine(gate, gateNote, onTap = showSentences)
+                    RatingBar(view.previews, enabled = !rated, locked = if (gate.locked) setOf(2, 3) else emptySet()) { rating ->
+                        // Good / Easy wait for the sentences (every way of rating comes through here).
+                        if (dev.jeromeswannack.chineselearning.lab.core.SentencePractise.ratingLocked(rating, gate)) {
+                            gateNote = true
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "blocked", "unlocked" to false, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
+                            showSentences()
+                            return@RatingBar
+                        }
+                        if (gate.needed > 0) {
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "rated", "unlocked" to !gate.locked, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
+                        }
                         rated = true
                         // Rated during a "Say it again": the ViewModel drops it; [answer] is still the one before it.
                         actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
@@ -804,6 +842,8 @@ private fun CardBack(
     pass: PassCardUi? = null,
     /** "⚠️ Missed 8×" tapped (a leech; never on a homework pass). */
     onLeech: () -> Unit = {},
+    /** The sentence rows' 🎤 (one microphone for the list). */
+    practise: SentencePractiseState? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -937,9 +977,10 @@ private fun CardBack(
                 dev.jeromeswannack.chineselearning.lab.ui.homework.PassSentences(
                     key = view.presentation, rows = sentenceRows(view), deckId = note.deckId, online = ui.aiAvailable,
                     playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps(),
+                    practise = practise,
                 )
             } else {
-                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps())
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise)
             }
         }
     }
@@ -1070,12 +1111,23 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
 }
 
 @Composable
-fun RatingBar(previews: List<IntervalPreview>, enabled: Boolean, onRate: (Int) -> Unit) {
+fun RatingBar(
+    previews: List<IntervalPreview>,
+    enabled: Boolean,
+    /** Ratings held back ("Get two sentences right before Good / Easy"): 🔒 + faded, a tap still reaches [onRate] to say why. */
+    locked: Set<Int> = emptySet(),
+    onRate: (Int) -> Unit,
+) {
     val labels = listOf("Again", "Hard", "Good", "Easy")
     val colors = listOf(Palette.Again, Palette.Hard, Palette.Good, Palette.Easy)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for (r in Rating.ALL) {
-            AnswerTile(labels[r], colors[r], Modifier.weight(1f), sub = previews.getOrNull(r)?.intervalText, enabled = enabled) { onRate(r) }
+            val isLocked = r in locked
+            AnswerTile(
+                if (isLocked) "🔒 ${labels[r]}" else labels[r], colors[r],
+                Modifier.weight(1f).then(if (isLocked) Modifier.alpha(0.45f).semantics { stateDescription = "Locked" } else Modifier).testTag("rating-${labels[r].lowercase()}"),
+                sub = previews.getOrNull(r)?.intervalText, enabled = enabled,
+            ) { onRate(r) }
         }
     }
 }

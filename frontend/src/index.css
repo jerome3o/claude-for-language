@@ -1679,6 +1679,91 @@ button.queue-counts:active {
   padding-left: 0;
 }
 
+/* 🎤 left of ▶ on an open row (components/study/SentencePractise.tsx): the same soft round
+   button; a 44px tap target around the 36px circle. Recording = red with ⏹ (shape + colour). */
+.sentence-set-mic {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  margin-top: 0.125rem;
+  margin-right: -0.25rem;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--color-background, #f3f4f6);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sentence-set-mic::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.sentence-set-mic:hover:not(:disabled):not(.is-listening) {
+  background-color: var(--color-border);
+}
+.sentence-set-mic:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.sentence-set-mic.is-listening {
+  background-color: var(--color-error, #dc2626);
+  color: white;
+  animation: sentence-mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sentence-mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+.sentence-set-mic-spinner {
+  width: 16px;
+  height: 16px;
+}
+.sentence-set--pass .sentence-set-mic {
+  background-color: var(--color-surface, #fff);
+}
+.sentence-practise-live {
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-background, #f3f4f6);
+  font-size: 1.05rem;
+  min-height: 2.25rem;
+}
+.sentence-practise-partial {
+  color: var(--color-text-light);
+}
+.sentence-practise-hint {
+  margin: 0.375rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+.sentence-practise-result {
+  margin-top: 0.375rem;
+}
+.sentence-practise-result .spoken-result,
+.sentence-practise-result .answer-check {
+  margin: 0;
+}
+.sentence-practise-result .answer-check.checking {
+  margin-top: 0.375rem;
+}
+.sentence-practise-said {
+  margin-top: 0.25rem;
+  font-size: 0.9375rem;
+}
+.sentence-practise-said-label {
+  font-size: 0.75rem;
+  color: var(--color-text-light);
+}
+
 .sentence-set-body {
   flex: 1 1 auto;
   min-width: 0;
@@ -2013,6 +2098,39 @@ button.queue-counts:active {
 .rating-btn.easy {
   background-color: #bfdbfe;
   color: #1e40af;
+}
+
+/* "Get two sentences right before Good / Easy": held-back ratings look disabled (🔒 + faded, not
+   colour alone) but still take a tap, which says why. */
+.rating-btn.is-locked {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+  cursor: not-allowed;
+}
+.rating-btn.is-locked:hover {
+  transform: none;
+  box-shadow: none;
+}
+.sentence-gate-line {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  margin: 0 0 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface, #fff);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.sentence-gate-line.is-open {
+  border-style: solid;
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
 }
 
 /* Loading spinner */

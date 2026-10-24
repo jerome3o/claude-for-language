@@ -406,7 +406,7 @@ private fun android.content.Context.findViewModelStoreOwner(): androidx.lifecycl
 }
 
 @Composable
-fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState? = null, autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null, modifier: Modifier = Modifier, pass: PassCardUi? = null) {
+fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardStart: CardStartState? = null, autoplay: Boolean = true, pendingReviews: Int = 0, initialCountsCopy: CountsCopy? = null, modifier: Modifier = Modifier, pass: PassCardUi? = null, sentencePractisePreview: SentencePractiseState? = null) {
     var countsCopy by remember { mutableStateOf(initialCountsCopy) }
     var copyTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(copyTick) { if (copyTick > 0) { kotlinx.coroutines.delay(2500); countsCopy = null } }
@@ -425,7 +425,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                 ) { phase ->
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
-                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay, pass = pass)
+                        is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay, pass = pass, practisePreview = sentencePractisePreview)
                         is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished) // Package B
                         is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
                         StudyPhase.Done -> DoneView(ui, actions)

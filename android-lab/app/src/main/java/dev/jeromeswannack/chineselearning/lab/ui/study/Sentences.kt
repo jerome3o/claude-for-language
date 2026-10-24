@@ -66,6 +66,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -200,11 +202,12 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier) =
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null) =
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
         audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
+        practise = practise,
     )
 
 /** The key of the row that is the card's own sentence (row 1). */
@@ -233,7 +236,14 @@ fun SentenceList(
     modifier: Modifier = Modifier,
     /** Rows whose clip is being made (a spinner instead of the play button). */
     audioBusy: Set<String> = emptySet(),
-) = Column(modifier.fillMaxWidth()) {
+    /** 🎤 on each open row (the study card, the homework pass); null = none (the card editor). */
+    practise: SentencePractiseState? = null,
+) = Column(
+    modifier.fillMaxWidth().then(
+        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+        if (practise != null) Modifier.bringIntoViewRequester(practise.bringIntoView) else Modifier,
+    ),
+) {
     val rows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
     val state = rememberSentenceRowsState(presentation, startExplained, startShowAll)
     var menu by remember(presentation) { mutableStateOf(false) }
@@ -332,6 +342,7 @@ fun SentenceList(
                 row, state, online, playingKey, s, onPlay = { _, _ -> playRow(row) }, onAdd = { adding = it },
                 audioBusy = row.key in audioBusy || asking[row.key] == true,
                 audioNote = if (coming[row.key] == true) SentenceAudioWait.LABEL else null,
+                practise = practise,
             )
         }
         Spacer(Modifier.height(8.dp))
@@ -401,6 +412,8 @@ fun SentenceRowView(
     audioBusy: Boolean = false,
     /** Under the row's text while its clip is on the way ("Audio coming…"). */
     audioNote: String? = null,
+    /** 🎤 left of ▶ once something is open (read it aloud / say it in Chinese); null = none. */
+    practise: SentencePractiseState? = null,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
@@ -435,6 +448,13 @@ fun SentenceRowView(
         }
     }
     val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
+    // 🎤: read mode once the Chinese is up, translate mode on an English-first row with it hidden.
+    val practiseMode = practise?.let { SentencePractise.mode(en, step >= 1, translation) }
+    val take = practise?.takes?.get(row.key)
+    // A translate take shows the Chinese at once, to compare.
+    LaunchedEffect(take) {
+        if (take?.mode == SentencePractise.TRANSLATE && (state.steps[row.key] ?: first) < 1) state.steps[row.key] = 1
+    }
     val toolsStart = if (englishToggle) 50.dp else 10.dp
     Box(Modifier.fillMaxWidth()) {
         Column(
@@ -445,6 +465,7 @@ fun SentenceRowView(
                     .fillMaxWidth()
                     .clickable {
                         val cur = state.steps[row.key] ?: first
+                        if (cur >= chain.size) practise?.clear(row.key)
                         state.steps[row.key] = if (cur >= chain.size) first else cur + 1
                     }
                     .testTag(SENTENCE_ROW_TAG)
@@ -456,7 +477,7 @@ fun SentenceRowView(
                         Modifier.size(34.dp).clip(CircleShape)
                             .background(if (en) Lab.colors.accentSoft else Lab.colors.card)
                             .buttonBorder(CircleShape, enabled = translation != null)
-                            .clickable(enabled = translation != null) { state.english[row.key] = !en; state.steps[row.key] = 0; if (!en) state.showAll = false },
+                            .clickable(enabled = translation != null) { state.english[row.key] = !en; state.steps[row.key] = 0; practise?.clear(row.key); if (!en) state.showAll = false },
                         contentAlignment = Alignment.Center,
                     ) { Text("EN", style = MaterialTheme.typography.labelSmall, color = if (en) Lab.colors.accent else Lab.colors.muted) }
                     Spacer(Modifier.width(10.dp))
@@ -499,6 +520,7 @@ fun SentenceRowView(
                         Text(focusLine.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
                     }
                 }
+                if (practise != null && practiseMode != null) SentenceMicButton(practise, row, practiseMode)
                 Box(
                     Modifier.size(40.dp).clip(CircleShape).background(if (playing) Lab.colors.accentSoft else Lab.colors.card).buttonBorder(CircleShape).clickable(enabled = !audioBusy) { onPlay(row.audioUrl, row.hanzi) }.testTag(SENTENCE_PLAY_TAG),
                     contentAlignment = Alignment.Center,
@@ -506,6 +528,9 @@ fun SentenceRowView(
                     if (audioBusy) androidx.compose.material3.CircularProgressIndicator(Modifier.size(18.dp).testTag(SENTENCE_AUDIO_BUSY_TAG), color = Lab.colors.accent, strokeWidth = 2.dp)
                     else Icon(Icons.Filled.PlayArrow, "Play sentence", tint = Lab.colors.accent)
                 }
+            }
+            if (practise != null && practise.hasOutcome(row.key)) {
+                Box(Modifier.padding(start = toolsStart, end = 8.dp, bottom = 6.dp)) { SentencePractiseOutcome(practise, row) }
             }
             if (open) {
                 val ex = state.explanations[row.key]

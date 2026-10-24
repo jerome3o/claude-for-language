@@ -28,6 +28,9 @@ fun SpokenAnswerSection(
     /** Settings → Study → "Shimmer new characters" (the web's `NewCharShimmerSetting`); null = not shown. */
     newCharShimmerOn: Boolean? = null,
     onNewCharShimmerChange: (Boolean) -> Unit = {},
+    /** Settings → Study → "Get two sentences right before Good / Easy" (the web's `SentenceGateSetting`); null = not shown. */
+    sentenceGateOn: Boolean? = null,
+    onSentenceGateChange: (Boolean) -> Unit = {},
     onChange: (Boolean) -> Unit,
 ) {
     SettingsSection(
@@ -36,6 +39,15 @@ fun SpokenAnswerSection(
         else "On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.",
     ) {
         ToggleRow("🎤", SKIP_REVIEW_LABEL, on, onChange = onChange)
+        if (sentenceGateOn != null) {
+            ToggleRow(
+                "🔒",
+                SENTENCE_GATE_LABEL,
+                sentenceGateOn,
+                desc = if (sentenceGateOn) SENTENCE_GATE_ON_DESC else SENTENCE_GATE_OFF_DESC,
+                onChange = onSentenceGateChange,
+            )
+        }
         if (wordTagsOn != null) {
             ToggleRow(
                 "🏷",
@@ -67,6 +79,9 @@ fun SpokenAnswerSection(
 }
 
 const val SKIP_REVIEW_LABEL = "Skip the review — submit spoken answers as soon as I stop"
+const val SENTENCE_GATE_LABEL = "Get two sentences right before Good / Easy"
+const val SENTENCE_GATE_ON_DESC = "On the reading and meaning cards, Good and Easy unlock once you’ve said two example sentences right with 🎤. Again and Hard are always there."
+const val SENTENCE_GATE_OFF_DESC = "Off — rate any card straight away. The 🎤 on the example sentences is there either way."
 const val WORD_TAGS_LABEL = "Word tags on the answer"
 const val WORD_TAGS_ON_DESC = "Small tags under the meaning: noun / verb, polite / colloquial, measure word, HSK level. Tap one to see what it means."
 const val WORD_TAGS_OFF_DESC = "Off — the answer shows just the word, pinyin and meaning."
@@ -85,8 +100,14 @@ fun SpokenAnswerSettings(app: LabApp) {
     val tagsOn by prefs.wordTagsOn.collectAsState()
     val picturesOn by prefs.picturesOn.collectAsState()
     val shimmerOn by prefs.newCharShimmerOn.collectAsState()
+    val gateOn by prefs.sentenceGate.collectAsState()
     SpokenAnswerSection(
         on,
+        sentenceGateOn = gateOn,
+        onSentenceGateChange = { next ->
+            prefs.setSentenceGate(next)
+            app.analytics.track("settings.change", mapOf("setting" to "sentence_gate", "value" to if (next) "on" else "off"))
+        },
         wordTagsOn = tagsOn,
         onWordTagsChange = { next ->
             prefs.setWordTagsOn(next)

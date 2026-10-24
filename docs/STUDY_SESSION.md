@@ -957,6 +957,58 @@ prompt; the taps then uncover hanzi and pinyin). A fully open row carries the to
 the word-by-word breakdown and *+ Add as card*. **Show all** in the list header opens
 every row for the current card only; the next card starts blank again.
 
+### Practise a sentence aloud (🎤 on the sentence rows)
+
+Once something is open on a row, a small **🎤** sits left of its **▶** (the same 36px circle as ▶,
+a 44px target; a blank listen-first row has none, so the rows stay compact until a result shows).
+Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, parity-tested by
+`parity/fixtures/sentence-practise.ts`).
+
+- **Read it** — the row shows its Chinese (normal mode, or English-first with the Chinese
+  revealed): say the sentence; the take is judged exactly like the Sentence Coach's "Practise
+  saying it" (`practiseSentence`: the recogniser's trailing 。 tidied, punctuation ignored,
+  homophones right by sound, other tones = close) and shown as the compact "You said" row under the
+  sentence.
+- **Translate it** — English-first with the English up and the Chinese not yet revealed: "Say it
+  in Chinese". The row's sentence (or a homophone) is right on the device. Anything else in Chinese
+  may still be a right translation, so online it goes to the lesson answer check
+  (`POST /api/lessons/answer-check`, `exercise_type: translate`, `input: spoken`, cached; its verdict
+  shows compactly — chip, headline, what was said, the fix — and correct / acceptable count as
+  right). Offline / no check: "You said" vs the sentence (the hanzi diff) and "Check online for other
+  ways to say it". After the take the row reveals its Chinese to compare.
+- ONE microphone per list: 🎤 again, Enter or a tap anywhere else stops the take; a 🎤 on another
+  row only stops the current take (its result lands on its own row first). Offline the 🎤 is off
+  (transcription needs a connection). Hiding a row again (or EN) clears its result.
+- **Practice only**: nothing is recorded, no review event, the card's rating is never touched (except
+  through the gate below). The homework pass's calm rows have the read 🎤 too; the card editor's
+  list has none.
+- Web: `components/study/SentencePractise.tsx` (`useSentencePractise` on `useVoiceDictation`, surface
+  `sentence_practise`) in `components/SentenceSet.tsx` (`practise`); Lab: `ui/study/SentencePractiseUi.kt`
+  (`rememberSentencePractise`, `SentenceMicButton`, `SentencePractiseOutcome`) in `SentenceRowView`.
+  Analytics `study.sentence_practise { mode: read | translate, result: right | close | wrong | failed |
+  empty, via: local | claude | offline }`. Tests: `SentenceSet.practise.test.tsx`, Lab
+  `SentencePractiseUiTest`.
+
+### "Get two sentences right before Good / Easy" (Settings → Study, off by default)
+
+Per device (web `services/sentenceGatePrefs.ts` localStorage, Lab `StudyPrefs.sentenceGate`;
+`settings.change { setting: sentence_gate }`). On, the regular study session's **reading
+(hanzi → meaning) and meaning (meaning → hanzi) cards** keep **Good** and **Easy** locked (🔒, faded)
+until two example sentences were said right with the rows' 🎤 on this showing of the card — read or
+translate mode both count; "right" = the device's exact / homophone match or Claude's correct /
+acceptable; close / wrong don't count; each sentence counts once. **Again** and **Hard** are always
+there. A line above the ratings says where he stands — "🎤 Get 2 sentences right to unlock Good · 1/2",
+then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sentences, and a tap on a
+locked Good / Easy rates nothing, says why and scrolls there too. A card with fewer than two sentences
+(the card's own + the set) asks for as many as exist; none → no gate. The count starts again on every
+showing (a new showing, Undo). Never the listening card (its sentences are its clues), the homework
+pass (Not yet / Got it), the tutor-notes practice or the Try-it previews. Every way of rating goes
+through the same check (`handleRate` on the web, the RatingBar callback in the Lab; neither app has
+rating shortcuts or auto-advance). Rule: `sentenceGate` / `ratingLockedByGate` / `sentenceGateLabel` in
+`shared/study/sentencePractise.ts` (Lab `SentencePractise.gate` …). Analytics `study.sentence_gate
+{ action: rated | blocked | unlocked, unlocked, needed, got, card_type }`. E2E
+`study-sentence-gate.spec.ts`.
+
 On the unfolded Fold (≥ 700px) the whole card column is capped at 640px and centred.
 
 **Only the buttons reveal.** On an unanswered card the face is inert: a tap on the word, the
