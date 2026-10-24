@@ -74,8 +74,13 @@
   --clip-card-bg: rgba(255, 255, 255, 0.08);
   --clip-card-fg: var(--clip-fg);
   --clip-border: rgba(255, 255, 255, 0.25);
-  --clip-font-zh: 'Noto Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --clip-font-en: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Readable type everywhere (Jerome, Oct 2026: "the fonts are too curly"): Chinese is ALWAYS a clean
+     sans (Noto Sans CJK on Android), heavy for big text; Latin a sans. A theme's character comes from
+     colour, shape, texture and motion — a display face only for short English headlines (the hook,
+     the title's English line), and every stack ends in the Chinese sans so hanzi inside stay sans. */
+  --clip-font-zh: 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --clip-font-en: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --clip-font-display: var(--clip-font-en);
   --clip-radius: 18px;
   --clip-right-gutter: 76px;
   position: absolute;
@@ -160,6 +165,7 @@
   background: var(--clip-accent);
   color: #fff;
   max-width: 100%;
+  font-family: var(--clip-font-display);
   animation: clip-pop 520ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
 }
@@ -180,7 +186,7 @@
   line-height: 1.1;
   color: var(--clip-fg);
 }
-.clip-title-en { font-size: 1.3rem; font-weight: 700; animation: clip-up 500ms 350ms both; }
+.clip-title-en { font-size: 1.3rem; font-weight: 800; font-family: var(--clip-font-display); animation: clip-up 500ms 350ms both; }
 .clip-title-sub { font-size: 1rem; color: var(--clip-muted); animation: clip-fade 600ms 700ms both; }
 
 /* Kinetic type: each tappable piece drops in, staggered. */
@@ -322,8 +328,6 @@
 .clip-option:disabled:not(.right):not(.wrong) { opacity: 0.55; }
 .clip-verdict { font-size: 1.15rem; font-weight: 800; animation: clip-pop 400ms both; }
 .clip-explain { font-size: 1rem; color: var(--clip-muted); animation: clip-fade 400ms 150ms both; }
-.clip-timer { width: 100%; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
-.clip-timer i { display: block; height: 100%; background: var(--clip-accent-2); transform-origin: left; transition: transform 120ms linear; }
 
 /* Story */
 .clip-story { display: flex; flex-direction: column; gap: 10px; width: 100%; }
@@ -603,6 +607,182 @@
   }
 }
 
+
+/* ---------- Karaoke captions (Karaoke.tsx) ---------- */
+.clip-caption.is-karaoke {
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1.9;
+  padding: 6px 14px 12px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.72);
+  max-width: 100%;
+}
+.clip-caption.is-karaoke[lang] { font-family: var(--clip-font-zh); }
+.clip-karaoke { font-family: var(--clip-font-zh); }
+.clip-karaoke .k-word { display: inline-block; position: relative; transition: opacity 160ms ease, transform 140ms ease; transform-origin: 50% 70%; }
+.clip-karaoke .k-word.k-zh { cursor: pointer; }
+.clip-karaoke.is-live .k-past { opacity: 0.5; }
+.clip-karaoke .k-active {
+  font-weight: 900;
+  color: var(--clip-karaoke, #ffe14d);
+  transform: scale(1.32);
+  margin: 0 0.12em;
+  text-decoration: underline;
+  text-decoration-thickness: 0.14em;
+  text-underline-offset: 0.18em;
+  animation: clip-k-bounce 280ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+  z-index: 1;
+}
+.clip-karaoke.reduced .k-active { animation: none; }
+.clip-karaoke .k-py {
+  position: absolute;
+  top: 92%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.42em;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  color: inherit;
+  font-family: var(--clip-font-en);
+  pointer-events: none;
+}
+/* Karaoke inside a card (sentence, a story bubble): the card's own colours; the active word in the accent. */
+.clip-card .clip-karaoke .k-active,
+.clip-bubble .clip-karaoke .k-active { color: var(--clip-accent); }
+.clip-bubble-row.right .clip-bubble .clip-karaoke .k-active { color: #fff; }
+@keyframes clip-k-bounce { 0% { transform: scale(1); } 55% { transform: scale(1.42) translateY(-0.06em); } 100% { transform: scale(1.32); } }
+
+/* ---------- Interactive scenes (ClipInteractive.tsx) ---------- */
+.clip-interact-bar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; width: 100%; }
+.clip-interact-hint {
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--clip-accent);
+  color: #fff;
+  font-weight: 900;
+  font-size: 1.05rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  animation: clip-pop 420ms cubic-bezier(0.2, 1.5, 0.4, 1) both, clip-nudge 1.6s 600ms ease-in-out infinite;
+}
+.clip-skip { min-height: 44px; font-size: 0.95rem; }
+.clip-next-scene { animation: clip-pop 300ms both; }
+.clip-waiting .clip-options.waiting .clip-option { border-color: var(--clip-accent); }
+.clip-options.en .clip-option { font-family: var(--clip-font-en); font-size: 1.1rem; font-weight: 800; padding: 10px 14px; line-height: 1.3; }
+.clip-option { min-height: 60px; }
+.clip-option:not(:disabled):active { transform: scale(0.97); }
+.clip-verdict.is-right { color: #16a34a; }
+.clip-verdict.is-wrong { color: #dc2626; }
+.has-picture .clip-verdict.is-right, .clip-theme-neon .clip-verdict.is-right, .clip-theme-retro .clip-verdict.is-right, .clip-theme-chalk .clip-verdict.is-right { color: #4ade80; }
+.has-picture .clip-verdict.is-wrong, .clip-theme-neon .clip-verdict.is-wrong, .clip-theme-retro .clip-verdict.is-wrong, .clip-theme-chalk .clip-verdict.is-wrong { color: #fca5a5; }
+.clip-verdict { padding: 4px 14px; border-radius: 999px; background: var(--clip-card-bg); }
+
+/* listen */
+.clip-listen-play {
+  min-height: 56px;
+  padding: 0 22px;
+  border-radius: 999px;
+  border: 2px solid var(--clip-border);
+  background: var(--clip-card-bg);
+  color: var(--clip-card-fg);
+  font: 800 1.1rem var(--clip-font-en);
+  cursor: pointer;
+}
+.clip-listen-play.playing { border-color: var(--clip-accent); }
+.clip-listen-hidden { display: flex; gap: 6px; align-items: center; height: 56px; }
+.clip-listen-hidden span { width: 8px; height: 18px; border-radius: 4px; background: var(--clip-accent); opacity: 0.75; }
+.clip-listen-hidden span.wave { animation: clip-wave 700ms ease-in-out infinite alternate; }
+.clip-listen-muted { display: flex; flex-direction: column; gap: 8px; align-items: center; font-weight: 700; }
+@keyframes clip-wave { from { height: 10px; } to { height: 48px; } }
+
+/* order */
+.clip-order-slots {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  border-radius: var(--clip-radius);
+  border: 2px dashed var(--clip-border);
+  background: var(--clip-card-bg);
+  color: var(--clip-card-fg);
+}
+.clip-order-slots.is-right { border-style: solid; border-color: #16a34a; }
+.clip-order-slots.is-wrong, .clip-order-slots.is-skipped { border-style: solid; border-color: #dc2626; }
+.clip-order-empty { opacity: 0.7; font-weight: 700; }
+.clip-order-correct { font-size: clamp(1.6rem, 7.5vw, 2.2rem); font-weight: 900; line-height: 1.6; }
+.clip-order-yours { font-size: 1.1rem; opacity: 0.75; font-family: var(--clip-font-zh); }
+.clip-order-tiles { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; width: 100%; }
+.clip-tile {
+  min-height: 56px;
+  min-width: 56px;
+  padding: 6px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--clip-border);
+  background: var(--clip-card-bg);
+  color: var(--clip-card-fg);
+  font: 900 1.6rem/1.1 var(--clip-font-zh);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+  animation: clip-pop 320ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+.clip-tile small { font: 600 0.72rem var(--clip-font-en); opacity: 0.85; }
+.clip-tile.used { opacity: 0.25; box-shadow: none; }
+.clip-tile.placed { background: var(--clip-accent); color: #fff; border-color: transparent; }
+.clip-tile:not(:disabled):active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+
+/* reveal: a flip card */
+.clip-flip { width: 100%; min-height: 200px; border: 0; padding: 0; background: none; perspective: 1000px; cursor: pointer; color: inherit; font: inherit; }
+.clip-flip-inner { position: relative; display: block; width: 100%; min-height: 200px; transform-style: preserve-3d; transition: transform 560ms cubic-bezier(0.3, 1.3, 0.5, 1); }
+.clip-flip.flipped .clip-flip-inner { transform: rotateY(180deg); }
+.clip-flip-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  border-radius: var(--clip-radius);
+  border: 2px solid var(--clip-border);
+  background: var(--clip-card-bg);
+  color: var(--clip-card-fg);
+  box-sizing: border-box;
+}
+.clip-flip-face.back { transform: rotateY(180deg); border-color: var(--clip-accent); }
+.clip-flip-tag { font-size: 0.75rem; font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.75; }
+.clip-flip-en { font-size: 1.45rem; font-weight: 800; line-height: 1.3; }
+.clip-flip-cta { font-size: 0.95rem; font-weight: 800; color: var(--clip-accent); }
+.clip-flip-zh { font-size: clamp(2rem, 9vw, 2.8rem); font-weight: 900; line-height: 1.6; }
+.clip-flip:not(.flipped) .clip-flip-inner { animation: clip-wobble 2.2s 900ms ease-in-out infinite; }
+@keyframes clip-wobble { 0%, 80%, 100% { transform: none; } 86% { transform: rotateY(12deg); } 93% { transform: rotateY(-8deg); } }
+
+/* speak */
+.clip-speak-row { display: flex; gap: 10px; justify-content: center; align-items: center; }
+.clip-speak-mic { min-width: 160px; min-height: 56px; font-size: 1.15rem; }
+.clip-speak-mic.is-listening { background: #dc2626; animation: clip-nudge 1.2s ease-in-out infinite; }
+.clip-speak-live { font: 800 1.3rem var(--clip-font-zh); min-height: 1.6em; }
+.clip-speak-result { width: 100%; background: var(--clip-card-bg); color: var(--clip-card-fg); border-radius: var(--clip-radius); padding: 6px 10px; box-sizing: border-box; }
+
+@keyframes clip-nudge { 0%, 100% { transform: none; } 50% { transform: translateY(-4px) scale(1.03); } }
+
+/* the rail's ⌄ Next */
+.clip-rail .clip-rail-next .ico { font-size: 1.7rem; line-height: 0.8; }
+
 /* ======================================================================
    Themes — each clearly different: palette, type, texture, card shape.
    ====================================================================== */
@@ -613,7 +793,7 @@
   --clip-accent-2: #22e4ff;
   --clip-card-bg: rgba(20, 10, 40, 0.75);
   --clip-border: rgba(255, 59, 107, 0.65);
-  --clip-font-en: 'Arial Black', 'Helvetica Neue', system-ui, sans-serif;
+  --clip-font-display: 'Arial Black', 'Helvetica Neue', system-ui, 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
 .clip-theme-neon .clip-texture {
   background:
@@ -641,8 +821,7 @@
   --clip-card-bg: #fffdf6;
   --clip-card-fg: #2b2a26;
   --clip-border: #d8cfb8;
-  --clip-font-zh: 'Noto Serif SC', 'Noto Serif CJK SC', 'Songti SC', 'SimSun', serif;
-  --clip-font-en: Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --clip-font-display: Georgia, 'Iowan Old Style', 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --clip-radius: 4px;
 }
 .clip-theme-paper .clip-texture {
@@ -667,7 +846,6 @@
 .clip-theme-paper .clip-hook { background: transparent; color: var(--clip-accent); box-shadow: none; border: 3px solid var(--clip-accent); transform: rotate(-2deg); }
 .clip-theme-paper .clip-progress span { background: rgba(0, 0, 0, 0.15); }
 .clip-theme-paper .clip-progress span i { background: #2b2a26; }
-.clip-theme-paper .clip-timer { background: rgba(0, 0, 0, 0.12); }
 
 /* chalk: a classroom blackboard */
 .clip-theme-chalk {
@@ -678,8 +856,6 @@
   --clip-accent-2: #9be7ff;
   --clip-card-bg: rgba(255, 255, 255, 0.04);
   --clip-border: rgba(244, 241, 232, 0.55);
-  --clip-font-zh: 'Kaiti SC', 'STKaiti', 'KaiTi', 'Noto Serif CJK SC', serif;
-  --clip-font-en: 'Chalkboard SE', 'Comic Neue', 'Segoe Print', 'Bradley Hand', cursive;
 }
 .clip-theme-chalk .clip-texture {
   background:
@@ -709,7 +885,7 @@
   --clip-card-bg: #fff;
   --clip-card-fg: #111;
   --clip-border: #111;
-  --clip-font-en: 'Comic Sans MS', 'Comic Neue', 'Chalkboard SE', 'Trebuchet MS', sans-serif;
+  --clip-font-display: 'Arial Black', 'Helvetica Neue', system-ui, 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --clip-radius: 10px;
 }
 .clip-theme-comic .clip-texture {
@@ -766,7 +942,7 @@
   --clip-card-bg: #fff;
   --clip-card-fg: #111;
   --clip-border: #111;
-  --clip-font-en: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --clip-font-en: 'Helvetica Neue', Helvetica, Arial, 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --clip-radius: 0;
 }
 .clip-theme-mono .clip-texture {
@@ -775,7 +951,7 @@
     repeating-linear-gradient(180deg, transparent 0 79px, rgba(0, 0, 0, 0.06) 79px 80px);
 }
 .clip-theme-mono .clip-title-zh,
-.clip-theme-mono .clip-big-hanzi { font-weight: 300; letter-spacing: -0.02em; }
+.clip-theme-mono .clip-big-hanzi { font-weight: 800; letter-spacing: -0.02em; }
 .clip-theme-mono .clip-hook { background: #111; border-radius: 0; box-shadow: none; text-transform: uppercase; letter-spacing: 0.06em; font-size: 1rem; }
 .clip-theme-mono .clip-mark { color: #111; background: #111; color: #f2f2f0; padding: 0 4px; }
 .clip-theme-mono .clip-mark::after { display: none; }
@@ -796,8 +972,7 @@
   --clip-card-bg: rgba(255, 255, 255, 0.55);
   --clip-card-fg: #1b1b1b;
   --clip-border: rgba(27, 27, 27, 0.35);
-  --clip-font-zh: 'Kaiti SC', 'STKaiti', 'KaiTi', 'Noto Serif SC', 'Noto Serif CJK SC', serif;
-  --clip-font-en: 'Iowan Old Style', Georgia, serif;
+  --clip-font-display: Georgia, 'Iowan Old Style', 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --clip-radius: 2px;
 }
 .clip-theme-ink .clip-texture {
@@ -815,13 +990,13 @@
   height: 44px;
   border: 3px solid #b91c1c;
   color: #b91c1c;
-  font: 900 1.6rem/38px 'Kaiti SC', 'STKaiti', serif;
+  font: 900 1.6rem/38px 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   text-align: center;
   transform: rotate(6deg);
   opacity: 0.85;
 }
 .clip-theme-ink .clip-title-zh,
-.clip-theme-ink .clip-big-hanzi { font-weight: 400; }
+.clip-theme-ink .clip-big-hanzi { font-weight: 800; }
 .clip-theme-ink .clip-hook { background: #b91c1c; border-radius: 2px; }
 .clip-theme-ink .clip-card,
 .clip-theme-ink .clip-bubble,
@@ -839,7 +1014,7 @@
   --clip-card-bg: #24164a;
   --clip-card-fg: #b6ffb0;
   --clip-border: #b6ffb0;
-  --clip-font-en: 'Courier New', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --clip-font-display: ui-monospace, 'SFMono-Regular', Menlo, 'Roboto Mono', 'Courier New', 'Noto Sans SC', 'Noto Sans CJK SC', 'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --clip-radius: 0;
   animation: clip-flicker 6s infinite;
 }
@@ -853,7 +1028,7 @@
   position: absolute;
   left: 18px;
   bottom: 190px;
-  font: 700 0.75rem/1 'Courier New', monospace;
+  font: 700 0.75rem/1 ui-monospace, 'Roboto Mono', 'Courier New', monospace;
   color: var(--clip-accent-2);
   letter-spacing: 0.12em;
 }
@@ -866,7 +1041,7 @@
 .clip-theme-retro .clip-big-hanzi { text-shadow: 4px 4px 0 var(--clip-accent); }
 .clip-theme-retro .clip-hook,
 .clip-theme-retro .clip-title-en,
-.clip-theme-retro .clip-fact-label { text-transform: uppercase; }
+.clip-theme-retro .clip-fact-label { text-transform: uppercase; font-family: var(--clip-font-display); }
 .clip-theme-retro .clip-hook { background: var(--clip-accent); color: #140c2b; border-radius: 0; }
 .clip-theme-retro .clip-progress span { border-radius: 0; height: 6px; }
 .clip-theme-retro .clip-progress span i { background: var(--clip-accent-2); }

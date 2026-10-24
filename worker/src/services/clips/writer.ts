@@ -11,7 +11,7 @@ import {
   CLIP_SPEC_DOC,
   CLIP_THEMES,
   CLIP_VOICES,
-  SAMPLE_CLIP,
+  SAMPLE_INTERACTIVE_CLIP,
   validateClipSpec,
   type ClipSpec,
   type ClipTheme,
@@ -40,9 +40,10 @@ ${CLIP_SPEC_DOC}
 
 How to write a good one
 - ONE idea (a confusable pair, a word's hidden meaning, a pattern, a cultural moment) built around words he is actually learning (the brief lists them). The focus "words" are words he will want to drill afterwards.
-- Hook in the first scene (a surprise, a mistake he probably makes, a question); a twist or payoff in the middle; a quiz he can answer from what the clip just taught; an ending question he can answer in his head.
-- Mix layouts: a title, then 4–8 of big_word / sentence / compare / story / quiz / list / fact. Exactly one or two quizzes.
-- Voice lines: short. Use "zh" for Chinese he should hear, "en" for the narration. Scenes with Chinese on screen often need NO voice (a sentence, big word, list or story reads its own Chinese).
+- Hook in the first scene (a surprise, a mistake he probably makes, a question); a twist or payoff in the middle; an ending question he can answer in his head.
+- Make it a tiny INTERACTIVE experience: 2–3 interactive beats (quiz, listen, order, reveal, speak), each testing what the scenes just before it taught, spread through the clip (not all at the end), never two of the same layout. He loved the quizzes — make the beats feel like a game: a listen to catch a line by ear, an order to build a sentence with the clip's word, a reveal to recall a line, a speak to say a short line out loud.
+- Mix layouts: a title, then teaching scenes (big_word / sentence / compare / story / list / fact) between the interactive beats; 6–10 scenes in all.
+- Voice lines: short (they show as big karaoke captions, the word being said highlighted). Use "zh" for Chinese he should hear, "en" for the narration. Scenes with Chinese on screen often need NO voice (a sentence, big word, list or story reads its own Chinese; listen and speak say their own line).
 - Pick the theme that fits the mood: neon (bold, punchy), paper (calm notebook), chalk (classroom), comic (funny), sunset (warm story), mono (minimal, serious), ink (traditional, idioms, history), retro (pixel, games, nostalgia).
 - At most one or two image_prompts, only for a story or a scene that needs a picture; describe a vertical illustration with no text and no real people.
 - Pinyin: tone marks, spaces between words, the 一 / 不 tone changes written: ${YI_BU_CONVENTION}
@@ -77,6 +78,10 @@ export const CLIP_INPUT_SCHEMA = {
           story: { type: 'object' },
           list: { type: 'object' },
           fact: { type: 'object' },
+          listen: { type: 'object' },
+          order: { type: 'object' },
+          reveal: { type: 'object' },
+          speak: { type: 'object' },
         },
         required: ['layout', 'duration_ms'],
       },
@@ -148,9 +153,9 @@ export async function writeClipSpec(
   throw new Error(`Could not write a valid clip: ${lastErrors.slice(0, 4).join('; ')}`);
 }
 
-/** E2E / no key: a deterministic clip (the sample, re-titled for the topic, a theme per variant). */
+/** E2E / no key: a deterministic clip (the interactive sample, re-titled for the topic, a theme per variant). */
 export function fakeClipSpec(brief: ClipBrief, words: ClipWord[] = []): ClipSpec {
-  const spec = JSON.parse(JSON.stringify(SAMPLE_CLIP)) as ClipSpec;
+  const spec = JSON.parse(JSON.stringify(SAMPLE_INTERACTIVE_CLIP)) as ClipSpec;
   const topic = (brief.topic ?? '').trim() || 'Words you are learning';
   const theme: ClipTheme = CLIP_THEMES[(brief.variant - 1) % CLIP_THEMES.length];
   spec.title = `${topic} · clip ${brief.variant}`.slice(0, 60);

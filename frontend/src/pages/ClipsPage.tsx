@@ -6,9 +6,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { LESSON_MUSIC } from '@shared/audio-lesson/music';
-import type { ClipRecord } from '@shared/clips';
-import { ClipPlayer, type LearnMoreVia } from '../components/clips/ClipPlayer';
+import { clipInteractValue, clipMusicFor, clipMusicShouldPlay, clipMusicStep, clipMusicTarget, CLIP_MUSIC_VOLUME, type ClipRecord } from '@shared/clips';
+import { ClipPlayer, type ClipPrefToggle, type LearnMoreVia } from '../components/clips/ClipPlayer';
 import { LearnMoreSheet } from '../components/clips/LearnMoreSheet';
 import { deleteClip, generateClips, retryClip } from '../api/clips';
 import {
@@ -25,8 +24,6 @@ import {
 import { track } from '../services/analytics';
 import { useNetwork } from '../contexts/NetworkContext';
 import '../components/clips/clips.css';
-
-const MUSIC_VOLUME = 0.12;
 
 export function ClipsPage() {
   const { id: startId } = useParams();
@@ -45,6 +42,7 @@ export function ClipsPage() {
   const viewed = useRef(new Set<string>());
   const completed = useRef(new Set<string>());
   const music = useRef<HTMLAudioElement | null>(null);
+  const speaking = useRef(false);
   const positioned = useRef(false);
   const opened = useRef(false);
 
@@ -117,18 +115,34 @@ export function ClipsPage() {
     if (next) void prefetchClip(next);
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The music bed: while a clip plays with sound.
+  // The music bed (docs/CLIPS.md "Music"): the clip's lo-fi loop while it plays with sound and
+  // music on, ducked under every voice line.
+  const musicTrack = clipMusicFor(current?.spec?.style.theme);
   useEffect(() => {
     if (!music.current) {
-      const el = new Audio(LESSON_MUSIC.path);
+      const el = new Audio();
       el.loop = true;
-      el.volume = MUSIC_VOLUME;
+      el.volume = CLIP_MUSIC_VOLUME;
       music.current = el;
     }
     const el = music.current;
-    if (playing && !prefs.muted) el.play().catch(() => {});
+    if (!el.src.endsWith(musicTrack.path)) {
+      el.src = musicTrack.path;
+      el.currentTime = 0;
+    }
+    if (clipMusicShouldPlay({ playing, muted: prefs.muted, music: prefs.music })) el.play().catch(() => {});
     else el.pause();
-  }, [playing, prefs.muted]);
+  }, [playing, prefs.muted, prefs.music, musicTrack.path]);
+  useEffect(() => {
+    let last = performance.now();
+    const id = window.setInterval(() => {
+      const now = performance.now();
+      const el = music.current;
+      if (el) el.volume = clipMusicStep(el.volume, clipMusicTarget({ speaking: speaking.current }), now - last);
+      last = now;
+    }, 50);
+    return () => window.clearInterval(id);
+  }, []);
   useEffect(() => () => music.current?.pause(), []);
 
   const onScroll = () => {
@@ -138,18 +152,25 @@ export function ClipsPage() {
     if (idx !== active) setActive(idx);
   };
 
-  const goTo = (idx: number) => {
+  const goTo = (idx: number, via?: 'button' | 'key' | 'end_card') => {
     const el = feedRef.current;
     if (!el || !clips) return;
     const at = Math.max(0, Math.min(clips.length - 1, idx));
+    if (at === active) return;
+    if (via) track('clips.next', { clip: clips[active]?.id, via, dir: at > active ? 'next' : 'prev' });
     el.scrollTo({ top: at * el.clientHeight, behavior: 'smooth' });
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (sheetFor || (e.target instanceof HTMLElement && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
-      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'j') goTo(active + 1);
-      else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'k') goTo(active - 1);
+      if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === 'j') {
+        e.preventDefault();
+        goTo(active + 1, 'key');
+      } else if (e.key === 'ArrowUp' || e.key === 'PageUp' || e.key === 'k') {
+        e.preventDefault();
+        goTo(active - 1, 'key');
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -159,10 +180,10 @@ export function ClipsPage() {
     setClips((prev) => (prev ? prev.map((c) => (c.id === clip.id ? clip : c)) : prev));
   }, []);
 
-  const setPrefs = (p: ClipCaptionPrefs, toggled: 'pinyin' | 'english' | 'mute') => {
+  const setPrefs = (p: ClipCaptionPrefs, toggled: ClipPrefToggle) => {
     setPrefsState(p);
     saveClipPrefs(p);
-    track('clips.caption_toggle', { toggle: toggled, on: toggled === 'mute' ? p.muted : toggled === 'pinyin' ? p.pinyin : p.english });
+    track('clips.caption_toggle', { toggle: toggled, on: toggled === 'mute' ? p.muted : toggled === 'pinyin' ? p.pinyin : toggled === 'music' ? p.music : p.english });
   };
 
   const like = (clip: ClipRecord, via: 'button' | 'double_tap') => {
@@ -232,13 +253,20 @@ export function ClipsPage() {
                     void recordClipEvent(clip.id, 'complete');
                     track('clips.complete', { clip: clip.id, duration_ms: ms, scenes: clip.spec!.scenes.length });
                   }}
-                  onQuiz={(right, timedOut) => {
-                    void recordClipEvent(clip.id, 'quiz', right ? 1 : 0);
-                    track('clips.quiz_answer', { clip: clip.id, right, timeout: timedOut });
+                  onInteract={(layout, result, waitedMs) => {
+                    void recordClipEvent(clip.id, 'interact', clipInteractValue(result));
+                    track('clips.interact', { clip: clip.id, layout, result, waited_ms: waitedMs });
+                    if (layout === 'quiz' && result !== 'done') {
+                      void recordClipEvent(clip.id, 'quiz', result === 'right' ? 1 : 0);
+                      track('clips.quiz_answer', { clip: clip.id, right: result === 'right', timeout: result === 'skipped' });
+                    }
                   }}
                   onExplore={(layout) => track('clips.explore', { clip: clip.id, layout })}
-                  onNext={i < clips.length - 1 ? () => goTo(i + 1) : undefined}
+                  onNext={i < clips.length - 1 ? (via) => goTo(i + 1, via) : undefined}
                   onPlaying={(p) => i === active && setPlaying(p)}
+                  onSpeaking={(on) => {
+                    if (i === active) speaking.current = on;
+                  }}
                   startScene={clip.id === startId ? startScene : 0}
                 />
               ) : (

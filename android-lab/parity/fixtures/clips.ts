@@ -109,7 +109,7 @@ const progress = [
 
 // The clock: scripted runs (t = tick dt speaking, a = answer option, o = order answer, f = flip, s = skip,
 // v = speak verdict, c = continue).
-type Op = ['t', number, boolean] | ['a', number] | ['o', number[]] | ['f'] | ['s'] | ['v', 'correct' | 'close' | 'wrong'] | ['c'];
+type Op = ['t', number, boolean] | ['a', number] | ['o', number[]] | ['f'] | ['s'] | ['v', 'exact' | 'sound' | 'close' | 'wrong'] | ['c'];
 const runs: Array<{ spec: number; start: number; ops: Op[] }> = [
   { spec: 0, start: 0, ops: [['t', 2000, false], ['t', 1000, true], ['t', 16, true], ['t', 16, false], ['t', 4100, false], ['t', 100, false]] },
   { spec: 0, start: 4, ops: [['t', 3000, false], ['a', 1], ['a', 0], ['t', 2000, false], ['t', 600, true], ['t', 10, false]] },
@@ -120,7 +120,7 @@ const runs: Array<{ spec: number; start: number; ops: Op[] }> = [
   { spec: 0, start: 4, ops: [['t', 5999, false], ['t', 1, false], ['t', 60000, false], ['s'], ['a', 1], ['t', 2499, true], ['t', 5, true], ['t', 5, false]] },
   { spec: 4, start: 3, ops: [['o', [0, 1, 2, 3, 4]], ['a', 2], ['t', 2500, false], ['a', 0], ['o', [0, 1, 2, 3, 4]], ['t', 100, false], ['c'], ['f'], ['t', 2999, false], ['t', 1, false], ['v', 'close'], ['t', 3499, false], ['t', 1, false], ['t', 10, false]] },
   { spec: 4, start: 4, ops: [['o', [1, 0, 2, 3, 4]], ['t', 2999, false], ['t', 1, false], ['c'], ['s'], ['t', 2500, false]] },
-  { spec: 4, start: 6, ops: [['v', 'correct'], ['c'], ['c'], ['t', 100, false]] },
+  { spec: 4, start: 6, ops: [['v', 'sound'], ['c'], ['c'], ['t', 100, false]] },
   { spec: 4, start: 6, ops: [['v', 'wrong'], ['t', 3500, false]] },
 ];
 const step = (state: ClipPlayState, spec: ClipSpec, op: Op): ClipPlayState => {

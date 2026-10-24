@@ -6,11 +6,11 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { SAMPLE_CLIP, SAMPLE_STORY_CLIP, type ClipRecord, type ClipSpec } from '@shared/clips';
+import { SAMPLE_CLIP, SAMPLE_INTERACTIVE_CLIP, SAMPLE_STORY_CLIP, validateClipSpec, type ClipRecord, type ClipSpec } from '@shared/clips';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import clipsRoutes from '../../routes/clips';
 import { handleClipMessage, runClipAudioJob, type ClipQueueMessage } from '../clips/job';
-import { clipBriefText, fakeClipSpec, writeClipSpec } from '../clips/writer';
+import { CLIP_INPUT_SCHEMA, CLIP_WRITER_SYSTEM, clipBriefText, fakeClipSpec, writeClipSpec } from '../clips/writer';
 import { clipLessonBrief, fakeClipLessonSpec, runClipLessonJob } from '../clips/lesson';
 import { clipPodcastDescription, clipReaderVocabulary } from '../clips/follow-up';
 import type { Env } from '../../types';
@@ -95,10 +95,12 @@ describe('clips routes', () => {
       { id: 'e3', clip_id: a.id, kind: 'like', created_at: '2026-10-20T10:00:41Z' },
       { id: 'e4', clip_id: a.id, kind: 'unlike', created_at: '2026-10-20T10:00:42Z' },
       { id: 'e5', clip_id: a.id, kind: 'save', created_at: '2026-10-20T10:00:43Z' },
+      { id: 'e6', clip_id: a.id, kind: 'interact', value: -1, created_at: '2026-10-20T10:00:44Z' },
       { id: 'bad', clip_id: a.id, kind: 'dance' },
     ];
     const first = await json<{ accepted: number; stored: number; rejected: number }>(await app.post('/api/clips/events', { events }));
-    expect(first).toEqual({ accepted: 5, stored: 5, rejected: 1 });
+    expect(first).toEqual({ accepted: 6, stored: 6, rejected: 1 });
+    expect(db.rows("SELECT value FROM clip_events WHERE kind = 'interact'")).toEqual([{ value: -1 }]);
     const again = await json<{ stored: number }>(await app.post('/api/clips/events', { events }));
     expect(again.stored).toBe(0);
     expect((await json<{ rejected: number }>(await other.post('/api/clips/events', { events: [{ id: 'x', clip_id: a.id, kind: 'like' }] }))).rejected).toBe(1);
@@ -200,6 +202,8 @@ describe('the writer and the jobs', () => {
   it('the stand-ins pass their validators', () => {
     const fake = fakeClipSpec({ topic: 'x', words: [], variant: 3, of: 3 });
     expect(fake.style.theme).toBe('chalk');
+    expect(validateClipSpec(fake)).toEqual([]);
+    expect(fake.scenes.filter((x) => ['quiz', 'listen', 'order', 'reveal', 'speak'].includes(x.layout)).length).toBeGreaterThanOrEqual(2);
     expect(fakeClipLessonSpec(SAMPLE_CLIP).sections).toHaveLength(2);
     expect(clipLessonBrief(SAMPLE_STORY_CLIP)).toContain('小李: 马上到！一会儿就到！');
     expect(clipPodcastDescription(SAMPLE_CLIP)).toContain('刚 vs 刚才');
@@ -236,5 +240,27 @@ describe('the writer and the jobs', () => {
     const write = vi.fn().mockResolvedValue({ stop_reason: 'tool_use', usage: { input_tokens: 100, output_tokens: 50 }, content: [{ type: 'tool_use', id: 't', name: 'submit_clip', input: clone(SAMPLE_STORY_CLIP) }] });
     expect(await handleClipMessage({ ...env, CLIP_QUEUE: { send: vi.fn() } } as unknown as Env, { kind: 'generate', clipId: 'g1' }, { create: write })).toBe('ready');
     expect(db.rows<{ status: string; theme: string; input_tokens: number }>("SELECT status, theme, input_tokens FROM clips WHERE id = 'g1'")).toEqual([{ status: 'ready', theme: 'ink', input_tokens: 100 }]);
+  });
+});
+
+describe('interactive clips (v1 additions)', () => {
+  it('the writer asks for interactive beats and the tool schema carries their bodies', () => {
+    expect(CLIP_WRITER_SYSTEM).toContain('2–3 interactive beats');
+    expect(CLIP_WRITER_SYSTEM).toContain('"layout": "order"');
+    const scene = CLIP_INPUT_SCHEMA.properties.scenes.items.properties;
+    for (const k of ['listen', 'order', 'reveal', 'speak'] as const) expect(scene[k]).toEqual({ type: 'object' });
+    expect(scene.layout.enum).toEqual(expect.arrayContaining(['listen', 'order', 'reveal', 'speak']));
+  });
+
+  it('imports an interactive clip; its answers\' lines are made ahead; its interact events are kept', async () => {
+    const db = await createSqliteD1();
+    db.raw.run("INSERT INTO users (id, email, name) VALUES ('u1', 'u1@x.test', 'U1')");
+    db.raw.run(`INSERT INTO clips (id, user_id, status, source, spec) VALUES ('c1', 'u1', 'ready', 'manual', '${JSON.stringify(SAMPLE_INTERACTIVE_CLIP).replace(/'/g, "''")}')`);
+    const env = { DB: db, CLIP_QUEUE: { send: vi.fn() } } as unknown as Env;
+    const ensure = vi.fn().mockResolvedValue({ status: 'made' });
+    await runClipAudioJob(env, { clipId: 'c1' }, { ensure });
+    const texts = ensure.mock.calls.map((c) => c[1].text);
+    expect(texts).toEqual(expect.arrayContaining(['我顺便帮你拿快递。', '我下班顺便去银行', '你顺便关一下窗户。', '顺便问一下。']));
+    expect(clipLessonBrief(SAMPLE_INTERACTIVE_CLIP)).toContain('- Word order: 我 下班 顺便 去 银行');
   });
 });

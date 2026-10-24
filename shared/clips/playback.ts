@@ -12,6 +12,7 @@
  *   its duration; Jerome didn't know the options were tappable.)
  * - After the last scene: `done` (the end card), scene = scenes.length.
  */
+import { isAcceptedVerdict, type AnswerVerdict } from '../cards/answer';
 import { QUIZ_REVEAL_MS } from './timeline';
 import { CLIP_INTERACT_VALUES, isInteractiveLayout, type ClipInteractResult, type ClipScene, type ClipSpec } from './types';
 
@@ -130,9 +131,9 @@ export function clipFlip(state: ClipPlayState): ClipPlayState {
   return settle(state, 'done');
 }
 
-/** speak: the take was checked (`checkSpokenAnswer`'s verdict). */
-export function clipSpeakResult(state: ClipPlayState, verdict: 'correct' | 'close' | 'wrong'): ClipPlayState {
-  return settle(state, verdict === 'correct' ? 'right' : verdict === 'close' ? 'close' : 'wrong');
+/** speak: the take was checked (`checkSpokenAnswer`'s verdict, via practiseSentence): accepted = right, other tones = close. */
+export function clipSpeakResult(state: ClipPlayState, verdict: AnswerVerdict): ClipPlayState {
+  return settle(state, isAcceptedVerdict(verdict) ? 'right' : verdict === 'close' ? 'close' : 'wrong');
 }
 
 /** Skip: the answer shows, the clip moves on. */

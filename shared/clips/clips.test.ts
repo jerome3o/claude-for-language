@@ -316,7 +316,7 @@ describe('the clip clock', () => {
     expect(r.scene).toBe(6);
     expect(clipContinue(spec, r)).toBe(r); // still waiting: nothing to continue
     // speak: the verdict.
-    expect(clipSpeakResult(r, 'correct').interact?.result).toBe('right');
+    expect(clipSpeakResult(r, 'exact').interact?.result).toBe('right');
     expect(clipSpeakResult(r, 'close').interact?.result).toBe('close');
     expect(clipSpeakResult(r, 'wrong').interact?.result).toBe('wrong');
     const sp = clipTick(spec, clipSpeakResult(r, 'close'), 3499, false);

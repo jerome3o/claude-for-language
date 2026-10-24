@@ -6,13 +6,14 @@
  */
 import type { ReactNode } from 'react';
 import {
-  clipQuizRight,
   storyCast,
   storyLinesShown,
   type ClipPlayState,
   type ClipScene,
   type ClipSpec,
 } from '@shared/clips';
+import { KaraokeLine, type SpeechClock } from './Karaoke';
+import { ListenView, OrderView, QuizView, RevealView, SpeakView, type InteractActions } from './ClipInteractive';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { devicePinyinLine } from '../../utils/autoPinyin';
@@ -35,7 +36,7 @@ export function Zh({ text, ctx, className }: { text: string; ctx: SceneCtx; clas
 }
 
 /** Text that may mix English and Chinese (rule_en, explain, text_en): the Chinese runs tappable. */
-function Mixed({ text, ctx }: { text: string; ctx: SceneCtx }) {
+export function Mixed({ text, ctx }: { text: string; ctx: SceneCtx }) {
   const parts = text.split(/(\p{Script=Han}[\p{Script=Han}，、。？！]*)/u).filter(Boolean);
   return (
     <>
@@ -55,16 +56,21 @@ function En({ text, ctx, className = 'clip-en' }: { text?: string; ctx: SceneCtx
   return <div className={className}>{text}</div>;
 }
 
-export function SceneView({ spec, scene, index, play, ctx, spokenLine, onAnswer }: {
+export function SceneView({ spec, clipId, scene, index, play, ctx, spokenLine, clock, muted, actions }: {
   spec: ClipSpec;
+  clipId: string;
   scene: ClipScene;
   index: number;
   play: ClipPlayState;
   ctx: SceneCtx;
   /** The story line being read aloud (-1 = none). */
   spokenLine: number;
-  onAnswer: (option: number) => void;
+  /** The line being read right now (karaoke). */
+  clock: SpeechClock | null;
+  muted: boolean;
+  actions: InteractActions;
 }) {
+  const interact = { spec, clipId, index, play, ctx, muted, clock, actions };
   const hook = index === 0 && spec.hook ? <div className="clip-hook" data-testid="clip-hook">{spec.hook}</div> : null;
   const emoji = scene.emoji ? <div className="clip-emoji" aria-hidden="true">{scene.emoji}</div> : null;
   let body: ReactNode = null;
@@ -125,6 +131,8 @@ export function SceneView({ spec, scene, index, play, ctx, spokenLine, onAnswer 
                   <span className="clip-mark"><Zh text={s.highlight!} ctx={ctx} /></span>
                   {at + s.highlight!.length < s.hanzi.length && <Zh text={s.hanzi.slice(at + s.highlight!.length)} ctx={ctx} />}
                 </>
+              ) : clock && clock.text === s.hanzi ? (
+                <KaraokeLine text={s.hanzi} lang="zh" clock={clock} pinyin={false} onExplore={ctx.onExplore} onExplorerClosed={ctx.onExplorerClosed} />
               ) : (
                 <Zh text={s.hanzi} ctx={ctx} />
               )}
@@ -169,7 +177,19 @@ export function SceneView({ spec, scene, index, play, ctx, spokenLine, onAnswer 
       break;
     }
     case 'quiz':
-      body = <QuizView spec={spec} scene={scene} play={play} ctx={ctx} onAnswer={onAnswer} emoji={emoji} />;
+      body = <QuizView {...interact} scene={scene} emoji={emoji} />;
+      break;
+    case 'listen':
+      body = <ListenView {...interact} scene={scene} emoji={emoji} />;
+      break;
+    case 'order':
+      body = <OrderView {...interact} scene={scene} emoji={emoji} />;
+      break;
+    case 'reveal':
+      body = <RevealView {...interact} scene={scene} emoji={emoji} />;
+      break;
+    case 'speak':
+      body = <SpeakView {...interact} scene={scene} emoji={emoji} />;
       break;
     case 'story': {
       const lines = scene.story.lines;
@@ -182,7 +202,13 @@ export function SceneView({ spec, scene, index, play, ctx, spokenLine, onAnswer 
             <div className={`clip-bubble-row ${cast.sides[i]}${spokenLine === i ? ' speaking' : ''}`} key={i} data-testid="clip-bubble">
               {l.speaker && cast.sides[i] !== 'center' && <span className="clip-speaker">{l.speaker}</span>}
               <div className="clip-bubble">
-                <div className="clip-zh-line"><Zh text={l.hanzi} ctx={ctx} /></div>
+                <div className="clip-zh-line">
+                  {spokenLine === i && clock && clock.text === l.hanzi ? (
+                    <KaraokeLine text={l.hanzi} lang="zh" clock={clock} pinyin={false} onExplore={ctx.onExplore} onExplorerClosed={ctx.onExplorerClosed} />
+                  ) : (
+                    <Zh text={l.hanzi} ctx={ctx} />
+                  )}
+                </div>
                 <Py text={l.hanzi} pinyin={l.pinyin} ctx={ctx} />
                 <En text={l.english} ctx={ctx} />
               </div>
@@ -241,75 +267,6 @@ export function SceneView({ spec, scene, index, play, ctx, spokenLine, onAnswer 
     <>
       {hook}
       {body}
-    </>
-  );
-}
-
-function QuizView({ spec, scene, play, ctx, onAnswer, emoji }: {
-  spec: ClipSpec;
-  scene: Extract<ClipScene, { layout: 'quiz' }>;
-  play: ClipPlayState;
-  ctx: SceneCtx;
-  onAnswer: (option: number) => void;
-  emoji: ReactNode;
-}) {
-  const q = scene.quiz;
-  const state = play.quiz;
-  const answered = !!state && (state.picked !== null || state.timed_out);
-  const right = clipQuizRight(spec, play);
-  const answer = q.options[q.answer_index];
-  const prompt = q.prompt_zh ? q.prompt_zh.split(/_{2,}|＿+/) : null;
-  const left = 1 - Math.min(1, play.elapsed_ms / scene.duration_ms);
-  return (
-    <>
-      {emoji}
-      {prompt && (
-        <div className="clip-quiz-prompt" data-testid="clip-quiz-prompt">
-          {prompt.map((part, i) => (
-            <span key={i}>
-              {part && <Zh text={part} ctx={ctx} />}
-              {i < prompt.length - 1 && <span className={`clip-blank${answered ? ' filled' : ''}`}>{answered ? answer : '?'}</span>}
-            </span>
-          ))}
-          {ctx.pinyin && <div className="clip-pinyin">{devicePinyinLine(answered ? q.prompt_zh!.replace(/_{2,}|＿+/, answer) : q.prompt_zh!.replace(/_{2,}|＿+/, ' ___ '))}</div>}
-        </div>
-      )}
-      {q.prompt_en && (ctx.english || !q.prompt_zh) && <div className="clip-en">{q.prompt_en}</div>}
-      {!answered && (
-        <div className="clip-timer" aria-hidden="true"><i style={{ transform: `scaleX(${left})` }} /></div>
-      )}
-      <div className="clip-options" role="group" aria-label="Choose an answer">
-        {q.options.map((o, i) => {
-          const isAnswer = i === q.answer_index;
-          const picked = state?.picked === i;
-          const cls = answered && isAnswer ? ' right' : picked && !isAnswer ? ' wrong' : '';
-          return (
-            <button
-              type="button"
-              key={i}
-              className={`clip-option${cls}`}
-              disabled={answered}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAnswer(i);
-              }}
-              data-testid="clip-quiz-option"
-            >
-              {answered && isAnswer && <span className="clip-mark-icon" aria-hidden="true">✓</span>}
-              {picked && !isAnswer && <span className="clip-mark-icon" aria-hidden="true">✗</span>}
-              <span>{o}</span>
-              {ctx.pinyin && HAN.test(o) && <span className="clip-option-py">{devicePinyinLine(o)}</span>}
-              {answered && isAnswer && <span className="clip-option-py">answer</span>}
-            </button>
-          );
-        })}
-      </div>
-      {answered && (
-        <div className="clip-verdict" role="status" data-testid="clip-quiz-verdict">
-          {right === true ? '✓ Right!' : right === false ? '✗ Not quite' : '⏱ Time’s up'}
-        </div>
-      )}
-      {answered && q.explain && <div className="clip-explain"><Mixed text={q.explain} ctx={ctx} /></div>}
     </>
   );
 }
