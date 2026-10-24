@@ -169,21 +169,22 @@ class SentencePractiseUiTest : LabScreenshotTest() {
 
     @Test fun shotLocked() = shotCard("sentence-practise-01-gate-locked", previewSentencePractise())
 
-    @Test fun shotOneOfTwo() = shotCard(
-        "sentence-practise-02-gate-1-of-2-read-right",
-        previewSentencePractise(takes = mapOf(clueKey to take(SentencePractise.READ, "我去银行取钱", note.sentenceClue!!)), rightKeys = listOf(clueKey)),
-    )
+    @Test fun shotOneOfTwo() = shotCard("sentence-practise-02-gate-1-of-2", previewSentencePractise(rightKeys = listOf(clueKey)))
 
-    @Test fun shotUnlocked() = shotCard(
-        "sentence-practise-03-gate-unlocked-translate-claude",
-        previewSentencePractise(
+    @Test fun shotUnlocked() = shotCard("sentence-practise-03-gate-unlocked", previewSentencePractise(rightKeys = listOf(clueKey, "s1")))
+
+    @Test fun shotRowsClaude() = shoot("sentence-practise-05-rows-claude-close") {
+        val state = SentenceRowsState().apply { steps.putAll(mapOf(clueKey to 1, "s1" to 1)); english["s1"] = true }
+        val practise = previewSentencePractise(
             takes = mapOf(
-                clueKey to take(SentencePractise.READ, "我去银行取钱", note.sentenceClue!!),
+                clueKey to take(SentencePractise.READ, "我去银行去钱", note.sentenceClue!!),
                 "s1" to take(SentencePractise.TRANSLATE, "银行在什么地方", "银行在哪儿？", SentenceClaude.Done(AnswerCheck("acceptable", "Also natural — 什么地方 means the same as 哪儿.", suggested = "got_it"))),
             ),
-            rightKeys = listOf(clueKey, "s1"),
-        ),
-    )
+        )
+        Column(Modifier.padding(16.dp)) {
+            for (row in sentenceRows(note, set).take(2)) SentenceRowView(row, state, true, null, SentenceActions(), onPlay = { _, _ -> }, onAdd = {}, practise = practise)
+        }
+    }
 
     @Test fun shotRows() = shoot("sentence-practise-04-rows") {
         val state = SentenceRowsState().apply { steps.putAll(mapOf(clueKey to 1, "s1" to 1)); english["s1"] = true; english["s2"] = true }
