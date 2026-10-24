@@ -166,9 +166,11 @@ test.describe('clips on a phone', () => {
       await tile.click();
     }
     await expect(clip.getByTestId('clip-quiz-verdict')).toHaveText('✓ Right!');
-    await clip.getByTestId('clip-continue').tap();
-    await expect(clip).toHaveAttribute('data-scene', '5');
-    await clip.getByTestId('clip-reveal-card').tap();
+    await expect(clip.getByTestId('clip-continue')).toBeVisible();
+    // The answer is read aloud, shown a moment, then the clip goes on by itself (Next › would skip the wait).
+    await expect(clip).toHaveAttribute('data-scene', '5', { timeout: 15_000 });
+    await expect(clip.getByTestId('clip-reveal-hint')).toBeVisible();
+    await clip.getByTestId('clip-reveal-card').click();
     await expect(clip.getByTestId('clip-reveal-card')).toHaveClass(/flipped/);
   });
 });
