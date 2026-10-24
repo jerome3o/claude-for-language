@@ -8,6 +8,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClipEventDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClipEventsBody
 import dev.jeromeswannack.chineselearning.lab.data.api.clipFeed
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonMedia
+import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
+import dev.jeromeswannack.chineselearning.lab.data.platform.SyncContext
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import java.io.File
@@ -81,5 +83,14 @@ object ClipStore {
     fun savePrefs(context: Context, prefs: CaptionPrefs) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("pinyin", prefs.pinyin).putBoolean("english", prefs.english).putBoolean("muted", prefs.muted).apply()
+    }
+
+    /** After each sync (hourly): a feed already on the phone is refreshed, so new clips are there on the train. */
+    object Sync : FeatureSync {
+        override suspend fun sync(ctx: SyncContext) {
+            if (ctx.cache.entry(FEED_KEY) == null) return // never opened here
+            if (!ctx.full && ctx.cache.isFresh(FEED_KEY, 60 * 60 * 1000L)) return
+            ctx.cache.put(FEED_KEY, FEED_KIND, Feed(ctx.api.clipFeed(), System.currentTimeMillis()))
+        }
     }
 }

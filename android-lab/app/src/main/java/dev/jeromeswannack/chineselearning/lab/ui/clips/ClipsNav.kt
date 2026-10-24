@@ -66,6 +66,7 @@ private fun ClipsRoute(nav: LabNav, startId: String?, startScene: Int) {
     var adding by remember { mutableStateOf<ClipWord?>(null) }
     val music = remember { ExoMusicTrack(context).also { it.setVolume(0.12f) } }
     DisposableEffect(Unit) { onDispose { music.release() } }
+    androidx.compose.runtime.LaunchedEffect(ui.prefs.muted) { if (ui.prefs.muted) music.pause() }
     ClipsScreen(
         ui,
         ClipsActions(
