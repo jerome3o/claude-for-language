@@ -989,10 +989,54 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
   empty, via: local | claude | offline }`. Tests: `SentenceSet.practise.test.tsx`, Lab
   `SentencePractiseUiTest`.
 
-### "Get two sentences right before Good / Easy" (Settings → Study, off by default)
+### Sentence round (between the question and the answer)
+
+With the setting below on, a **reading (hanzi → meaning) or meaning (meaning → hanzi) card** in the
+regular study session doesn't go straight from its question to the answer: Show answer / Check / a
+spoken or multiple-choice answer opens the **Sentence round** first — like Worldle, a ladder of
+harder questions about the same item. Never the listening card, the homework pass, the tutor-notes
+practice or the Try-it previews.
+
+- **Four exercises** from the card's sentences (the card's own sentence first, then the set, easiest →
+  hardest): up to four different sentences spread over the list, modes alternating **📖 Read it aloud**
+  (the Chinese up) and **🔁 Say it in Chinese** (the English up) — so two of each. A translate slot whose
+  sentence has no English swaps with the nearest read one that has (the card's own sentence often has
+  none, so it is read). Fewer than four sentences: the other mode of each sentence (easiest first) fills
+  the round up to four; with one sentence there are two exercises. Deterministic — the same list gives the
+  same round in both apps.
+- **Any two right** (as many as there are sentences when fewer than two) — in any order. The counter
+  "0 / 2 → 1 / 2 → 2 / 2" with dots, a "🎉 Nice — 1 / 2" cheer, and confetti + "🎉 2 / 2 — Good and Easy
+  unlocked" when done; the answer side then opens by itself (≈1.4 s, or **See the answer →**) with Good and
+  Easy already unlocked: the round's exercise ids (`read:<key>` / `translate:<key>`) are the gate's count.
+- Each exercise is a card with its own 🎤 (the rows' take: the live words, then "You said" / Claude's verdict
+  — `useSentencePractise` / `rememberSentencePractise`, judged by `sentenceTake` / `sentencePractiseResult`,
+  the translate take's online answer check). Result icon + words: **✓ Right**, **≈ Nearly**, **✗ Not quite**
+  (border solid / yellow / dashed). A miss offers **🔁 Try again**; he may also move on to another one.
+- What it never gives away: the card's own answer shows only as the sentences inevitably do. The question
+  stays small at the top (the hanzi on a reading card, the English on a meaning card). A translate
+  exercise's Chinese, pinyin and ▶ appear only once it's answered; a read exercise's ▶, pinyin and "Show
+  English" only after its attempt.
+- **Skip to the answer →** is always there, with one line under it: "Good and Easy stay locked until 2 more
+  sentences are right — the sentences on the answer side still count." — the answer side's gate (below)
+  keeps the round's count.
+- Today is the session: the resume point carries `round_open` and `sentences_right`, so leaving and coming
+  back shows the round (or the answer) with what was already right; Undo / a new showing starts afresh.
+  Lab: back on the round returns to the question (its count kept).
+- Practice only: no review event, no recording kept. Offline the 🎤 is off (transcription needs a
+  connection) and the round says so — Skip is the way on.
+- Rules: `shared/study/sentenceRound.ts` (`roundSentences`, `pickRoundExercises`, `sentenceRoundOpens`,
+  `sentenceRoundProgress` + the words), Lab `core/…/SentenceRound.kt`, parity-tested
+  (`parity/fixtures/sentence-round.ts`). Web `components/study/SentenceRound.tsx` (`useRoundSentences`,
+  `SentenceRound`) in `StudyCard` (`revealOrRound`); Lab `ui/study/SentenceRoundUi.kt` in `CardStage`
+  (`reveal()`). Analytics `study.sentence_round { action: shown | right | miss | retry | skip | done, index,
+  mode, got, needed }`. Tests: `SentenceRound.test.tsx`, E2E `study-sentence-gate.spec.ts`, Lab
+  `SentenceRoundUiTest`.
+
+### "Sentence round before the answer (2 sentences)" — the gate (Settings → Study, off by default)
 
 Per device (web `services/sentenceGatePrefs.ts` localStorage, Lab `StudyPrefs.sentenceGate`;
-`settings.change { setting: sentence_gate }`). On, the regular study session's **reading
+`settings.change { setting: sentence_gate }`). (Was "Get two sentences right before Good / Easy"; the switch also turns the
+Sentence round above on — the round's right exercises count here, so two right there arrive unlocked.) On, the regular study session's **reading
 (hanzi → meaning) and meaning (meaning → hanzi) cards** keep **Good** and **Easy** locked (🔒, faded)
 until two example sentences were said right with the rows' 🎤 on this showing of the card — read or
 translate mode both count; "right" = the device's exact / homophone match or Claude's correct /
