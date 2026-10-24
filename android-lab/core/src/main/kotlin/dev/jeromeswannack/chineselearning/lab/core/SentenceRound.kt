@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
-import kotlin.math.abs
 import kotlin.math.floor
 
 /**
@@ -32,36 +31,57 @@ object SentenceRound {
 
     private fun hasTranslation(s: Sentence) = NoteSearch.jsTrim(s.translation ?: "").isNotEmpty()
 
-    /** `pickRoundExercises` */
-    fun pick(sentences: List<Sentence>): List<Exercise> {
-        val n = sentences.size
-        if (n == 0) return emptyList()
+    /** `spreadOrder`: the easiest, the hardest and evenly between first, then the rest easiest first. */
+    fun spreadOrder(n: Int): List<Int> {
+        if (n <= 0) return emptyList()
         val m = minOf(SIZE, n)
-        val picks = (0 until m).map { k -> if (m == 1) 0 else floor(k * (n - 1).toDouble() / (m - 1) + 0.5).toInt() }
-        val modes = MutableList(m) { k -> if (k % 2 == 0) SentencePractise.READ else SentencePractise.TRANSLATE }
-        for (k in 0 until m) {
-            if (modes[k] != SentencePractise.TRANSLATE || hasTranslation(sentences[picks[k]])) continue
-            var best = -1
-            for (j in 0 until m) {
-                if (modes[j] != SentencePractise.READ || !hasTranslation(sentences[picks[j]])) continue
-                if (best < 0 || abs(j - k) < abs(best - k) || (abs(j - k) == abs(best - k) && j > best)) best = j
+        val first = (0 until m).map { k -> if (m == 1) 0 else floor(k * (n - 1).toDouble() / (m - 1) + 0.5).toInt() }
+        return first + (0 until n).filter { it !in first }
+    }
+
+    /** `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); hidden sentences never come. */
+    fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null): List<Exercise> {
+        fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
+        val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null }
+        val n = visible.size
+        if (n == 0) return emptyList()
+        val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
+        fun best(mode: String, used: Set<Int>): Int? {
+            var pick: Int? = null
+            for (pos in 0 until n) {
+                if (pos in used) continue
+                if (mode == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
+                val p = pick
+                if (p == null) { pick = pos; continue }
+                val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(mode), statsOf(visible[p].value)?.mode(mode))
+                if (c < 0 || (c == 0 && rank.getValue(pos) < rank.getValue(p))) pick = pos
             }
-            if (best >= 0) modes[best] = SentencePractise.TRANSLATE
-            modes[k] = SentencePractise.READ
+            return pick
         }
-        val out = ArrayList<Exercise>()
-        for (k in 0 until m) {
-            val s = sentences[picks[k]]
-            out += Exercise(exerciseId(modes[k], s.key), s.key, modes[k], picks[k])
+        val used = HashSet<Int>()
+        val picked = ArrayList<Pair<Int, String>>()
+        for (k in 0 until minOf(SIZE, n)) {
+            val want = if (k % 2 == 0) SentencePractise.READ else SentencePractise.TRANSLATE
+            var pos = best(want, used)
+            var mode = want
+            if (pos == null && want == SentencePractise.TRANSLATE) {
+                pos = best(SentencePractise.READ, used)
+                mode = SentencePractise.READ
+            }
+            if (pos == null) break
+            used += pos
+            picked += pos to mode
         }
-        for (k in 0 until m) {
+        fun make(pos: Int, mode: String): Exercise {
+            val (index, s) = visible[pos]
+            return Exercise(exerciseId(mode, s.key), s.key, mode, index)
+        }
+        val out = picked.sortedBy { it.first }.map { make(it.first, it.second) }.toMutableList()
+        for ((pos, mode) in picked) {
             if (out.size >= SIZE) break
-            val s = sentences[picks[k]]
-            val other = if (modes[k] == SentencePractise.READ) SentencePractise.TRANSLATE else SentencePractise.READ
-            if (other == SentencePractise.TRANSLATE && !hasTranslation(s)) continue
-            val id = exerciseId(other, s.key)
-            if (out.any { it.id == id }) continue
-            out += Exercise(id, s.key, other, picks[k])
+            val other = if (mode == SentencePractise.READ) SentencePractise.TRANSLATE else SentencePractise.READ
+            if (other == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
+            out += make(pos, other)
         }
         return out
     }
