@@ -66,7 +66,7 @@ object NavRules {
         TabId.MORE, "More", "/more",
         listOf(
             "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
-            "/quests", "/picture-hunt", "/idioms", "/meme-review", "/audio-lessons", "/podcasts", "/library", "/duplicate-finder", "/admin",
+            "/quests", "/picture-hunt", "/idioms", "/meme-review", "/clips", "/audio-lessons", "/podcasts", "/library", "/duplicate-finder", "/admin",
             // Decks live under More since the Chats tab took their tab — except for a tutor
             // account, whose Decks tab comes first in tabsFor and wins the tie.
             "/decks", "/generate", "/search",
@@ -116,6 +116,7 @@ object NavRules {
         Regex("^/calls/[^/]+/?$"),
         Regex("^/homework/[^/]+/?$"),
         Regex("^/tutor-notes/practice/?$"),
+        Regex("^/clips(/[^/]+)?/?$"),
         Regex("^/today/(lessons/[^/]+|reader)/?$"), // Lab-only "today split": a lesson / the story from Home
     )
 
