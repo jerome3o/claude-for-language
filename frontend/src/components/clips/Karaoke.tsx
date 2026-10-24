@@ -89,6 +89,15 @@ export function KaraokeLine({
   );
   const active = timing ? karaokeActive(timeline, timing.position) : -1;
   const states = karaokeStates(timeline, active);
+  // Token indexes grouped: each word with the punctuation that follows it; spaces on their own.
+  const groups = useMemo(() => {
+    const out: number[][] = [];
+    timeline.forEach((t, i) => {
+      if (t.kind === 'punct' && out.length && timeline[out[out.length - 1][0]].kind !== 'space') out[out.length - 1].push(i);
+      else out.push([i]);
+    });
+    return out;
+  }, [timeline]);
 
   const tap = (word: string) => (e: React.MouseEvent) => {
     const item = itemForText(word);
@@ -105,23 +114,29 @@ export function KaraokeLine({
       data-testid={testId}
       data-active={active}
     >
-      {timeline.map((t, i) => {
-        if (t.kind !== 'word') return <span key={i} className={`k-punct k-${states[i]}`}>{t.text}</span>;
-        const han = HAN.test(t.text);
-        const isActive = states[i] === 'active';
-        return (
-          <span
-            key={isActive ? `a${i}` : i}
-            className={`k-word k-${states[i]}${han ? ' k-zh' : ''}`}
-            data-state={states[i]}
-            onClick={han ? tap(t.text) : undefined}
-            role={han ? 'button' : undefined}
-          >
-            {t.text}
-            {isActive && pinyin && han && <span className="k-py" aria-hidden="true">{devicePinyinLine(t.text)}</span>}
-          </span>
-        );
-      })}
+      {groups.map((g) => (
+        // A word and the punctuation after it never break apart (no line starting with "，").
+        <span key={g[0]} className="k-group">
+          {g.map((i) => {
+            const t = timeline[i];
+            if (t.kind !== 'word') return <span key={i} className={`k-punct k-${states[i]}`}>{t.text}</span>;
+            const han = HAN.test(t.text);
+            const isActive = states[i] === 'active';
+            return (
+              <span
+                key={isActive ? `a${i}` : i}
+                className={`k-word k-${states[i]}${han ? ' k-zh' : ''}`}
+                data-state={states[i]}
+                onClick={han ? tap(t.text) : undefined}
+                role={han ? 'button' : undefined}
+              >
+                {t.text}
+                {isActive && pinyin && han && <span className="k-py" aria-hidden="true">{devicePinyinLine(t.text)}</span>}
+              </span>
+            );
+          })}
+        </span>
+      ))}
     </span>
   );
 }

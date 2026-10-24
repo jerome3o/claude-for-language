@@ -165,9 +165,11 @@ export function ListenView({ spec, scene, play, ctx, actions, muted, clock, emoj
   return (
     <>
       {emoji ?? <div className="clip-emoji" aria-hidden="true">🎧</div>}
-      <button type="button" className={`clip-listen-play${clock?.line === 0 ? ' playing' : ''}`} onClick={actions.onReplay} disabled={muted} data-no-gesture data-testid="clip-listen-play" aria-label="Play it again">
-        <span aria-hidden="true">{clock?.line === 0 ? '🔊' : '▶'}</span> {muted ? 'Sound is off' : 'Play again'}
-      </button>
+      {!muted && (
+        <button type="button" className={`clip-listen-play${clock?.line === 0 ? ' playing' : ''}`} onClick={actions.onReplay} data-no-gesture data-testid="clip-listen-play" aria-label="Play it again">
+          <span aria-hidden="true">{clock?.line === 0 ? '🔊' : '▶'}</span> Play again
+        </button>
+      )}
       {muted && !shown && (
         <div className="clip-listen-muted" data-no-gesture>
           <span>🔇 Turn the sound on to hear it — or</span>
@@ -349,7 +351,7 @@ export function SpeakView({ scene, play, ctx, actions, muted, clock, emoji }: In
         {ctx.english && <div className="clip-en">{s.english}</div>}
       </div>
       <div className="clip-speak-row" data-no-gesture>
-        <button type="button" className="clip-btn" onClick={actions.onReplay} disabled={muted} aria-label="Hear it again" data-testid="clip-speak-listen">▶</button>
+        {!muted && <button type="button" className="clip-btn" onClick={actions.onReplay} aria-label="Hear it again" data-testid="clip-speak-listen">▶</button>}
         {!answered && (
           <button
             type="button"
@@ -376,7 +378,7 @@ export function SpeakView({ scene, play, ctx, actions, muted, clock, emoji }: In
       {failed && !answered && <div className="clip-explain" role="status">{state.failure === 'empty' ? COACH_PRACTISE_EMPTY : 'Couldn’t hear that — tap 🎤 to try again.'}</div>}
       {blocked && !answered && <div className="clip-explain" data-testid="clip-speak-blocked">{blocked}</div>}
       {answered && <div className={`clip-verdict ${play.interact?.result === 'right' ? 'is-right' : 'is-wrong'}`} role="status" data-testid="clip-quiz-verdict">{verdictText(play.interact?.result)}</div>}
-      <InteractBar play={blocked && !answered ? { ...play, interact: { ...play.interact!, waited_ms: Number.MAX_SAFE_INTEGER } } : play} hint="🎤 Your turn — say it" actions={actions} testId="clip-speak" />
+      <InteractBar play={blocked && !answered ? { ...play, interact: { ...play.interact!, waited_ms: Number.MAX_SAFE_INTEGER } } : play} hint="👆 Tap 🎤 and say it" actions={actions} testId="clip-speak" />
     </>
   );
 }

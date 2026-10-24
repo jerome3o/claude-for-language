@@ -161,6 +161,30 @@ export function ClipsPage() {
     el.scrollTo({ top: at * el.clientHeight, behavior: 'smooth' });
   };
 
+  // A flick that the browser didn't turn into a page change (it snapped back): page ourselves.
+  // Belt and braces next to the native snap scroll — a vertical swipe of ≥ 70 px always pages.
+  const flick = useRef<{ y: number; x: number; t: number; index: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    flick.current = e.touches.length === 1 && t ? { y: t.clientY, x: t.clientX, t: Date.now(), index: active } : null;
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const f = flick.current;
+    flick.current = null;
+    const t = e.changedTouches[0];
+    if (!f || !t) return;
+    const dy = t.clientY - f.y;
+    const dx = t.clientX - f.x;
+    if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.5 || Date.now() - f.t > 1200) return;
+    const target = f.index + (dy < 0 ? 1 : -1);
+    window.setTimeout(() => {
+      const el = feedRef.current;
+      if (!el || !clips) return;
+      const now = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+      if (now === f.index && target >= 0 && target < clips.length) el.scrollTo({ top: target * el.clientHeight, behavior: 'smooth' });
+    }, 450);
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (sheetFor || (e.target instanceof HTMLElement && /INPUT|TEXTAREA/.test(e.target.tagName))) return;
@@ -235,7 +259,7 @@ export function ClipsPage() {
           <MakeClips onMade={(made) => setClips((prev) => [...made, ...(prev ?? [])])} />
         </div>
       ) : (
-        <div className="clips-feed" ref={feedRef} onScroll={onScroll} data-testid="clips-feed">
+        <div className="clips-feed" ref={feedRef} onScroll={onScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="clips-feed">
           {clips.map((clip, i) => (
             <section className="clips-item" key={clip.id} data-testid="clips-item" data-index={i} aria-label={clip.title ?? 'Clip'}>
               {Math.abs(i - active) > 1 ? null : clip.status === 'ready' && clip.spec ? (

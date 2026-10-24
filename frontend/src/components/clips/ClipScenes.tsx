@@ -125,14 +125,14 @@ export function SceneView({ spec, clipId, scene, index, play, ctx, spokenLine, c
           {emoji}
           <div className="clip-card">
             <div className="clip-sentence-zh">
-              {at >= 0 ? (
+              {clock && clock.text === s.hanzi ? (
+                <KaraokeLine text={s.hanzi} lang="zh" clock={clock} pinyin={false} onExplore={ctx.onExplore} onExplorerClosed={ctx.onExplorerClosed} />
+              ) : at >= 0 ? (
                 <>
                   {at > 0 && <Zh text={s.hanzi.slice(0, at)} ctx={ctx} />}
                   <span className="clip-mark"><Zh text={s.highlight!} ctx={ctx} /></span>
                   {at + s.highlight!.length < s.hanzi.length && <Zh text={s.hanzi.slice(at + s.highlight!.length)} ctx={ctx} />}
                 </>
-              ) : clock && clock.text === s.hanzi ? (
-                <KaraokeLine text={s.hanzi} lang="zh" clock={clock} pinyin={false} onExplore={ctx.onExplore} onExplorerClosed={ctx.onExplorerClosed} />
               ) : (
                 <Zh text={s.hanzi} ctx={ctx} />
               )}
