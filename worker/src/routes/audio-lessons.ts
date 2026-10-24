@@ -21,7 +21,8 @@ import type { Env } from '../types';
 import { applyStoredFileHeaders } from '../services/stored-file-headers';
 import * as q from '../db/audio-lesson-queries';
 import { parseByteRange, resolveServedRange } from '../services/audio';
-import { deleteLessonObjects, runAudioLessonJob } from '../services/audio-lessons/job';
+import { deleteLessonObjects } from '../services/audio-lessons/job';
+import { startAudioLessonJob } from '../services/audio-lessons/start';
 import { trackServer } from '../services/analytics/server-events';
 import { audioLessonUnlockInfo, recordAudioListened, MAX_UNLOCK_EVENTS } from '../services/lesson-unlock';
 import { requestCompanionLesson, runCompanionJob, type CompanionJobMessage } from '../services/companion-lesson';
@@ -39,23 +40,9 @@ function testMode(env: Env): boolean {
   return env.E2E_TEST_MODE === 'true';
 }
 
-/**
- * Start (or continue) a build. E2E_TEST_MODE runs it right here (fake model and
- * voices, a second or two) instead of relying on a local queue.
- */
+/** Start (or continue) a build (services/audio-lessons/start.ts). */
 async function startJob(c: { env: Env; executionCtx: ExecutionContext }, lessonId: string): Promise<void> {
-  if (testMode(c.env)) {
-    c.executionCtx.waitUntil(
-      (async () => {
-        for (let i = 0; i < 20; i++) {
-          const out = await runAudioLessonJob(c.env, lessonId, { requeue: async () => {} });
-          if (out !== 'continue' && out !== 'waiting') break;
-        }
-      })(),
-    );
-    return;
-  }
-  await c.env.AUDIO_LESSON_QUEUE.send({ lessonId });
+  await startAudioLessonJob(c.env, c.executionCtx, lessonId);
 }
 
 routes.get('/audio-lessons', async (c) => {

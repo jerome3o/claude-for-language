@@ -59,6 +59,11 @@ describe('which requests count', () => {
     expect(costGroupFor('POST', '/api/readers/generate')).toBe('jobs');
     expect(costGroupFor('POST', '/api/picture-hunts/upload')).toBe('jobs');
     expect(costGroupFor('POST', '/api/quests')).toBe('jobs');
+    expect(costGroupFor('POST', '/api/clips/generate')).toBe('jobs');
+    expect(costGroupFor('POST', '/api/clips/c1/learn-more')).toBe('jobs');
+    expect(costGroupFor('POST', '/api/clips/c1/retry')).toBe('jobs');
+    expect(costGroupFor('POST', '/api/clips/events')).toBeNull();
+    expect(costGroupFor('POST', '/api/clips')).toBeNull();
     expect(costGroupFor('POST', '/api/podcasts/episodes')).toBe('jobs');
     expect(costGroupFor('POST', '/api/relationships/r1/session-notes')).toBe('jobs');
     // not costly / not a job

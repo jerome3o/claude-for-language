@@ -119,6 +119,7 @@ jobs:
           npx wrangler queues create coach-reply-queue || true
           npx wrangler queues create idiom-queue || true
           npx wrangler queues create meme-review-queue || true
+          npx wrangler queues create clip-queue || true
           npx wrangler queues create homework-email-queue || true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_TOKEN }}
