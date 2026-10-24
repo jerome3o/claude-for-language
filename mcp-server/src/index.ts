@@ -51,6 +51,7 @@ import { registerUsageTools } from './tools/usage.js';
 import { registerPictureHuntTools } from './tools/picture-hunts.js';
 import { registerIdiomTools } from './tools/idioms.js';
 import { registerMemeReviewTools } from './tools/meme-review.js';
+import { registerClipTools } from './tools/clips.js';
 import { registerAudioLessonTools } from './tools/audio-lessons.js';
 import { registerBumpTools } from './tools/bumps.js';
 import { registerCardHoldTools } from './tools/card-holds.js';
@@ -1979,6 +1980,8 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
     registerIdiomTools(ctx);
     // 梗 Meme review (prototype): the monthly issue (read) + generate (admin).
     registerMemeReviewTools(ctx);
+    // 🎬 Clips (experimental): import / list / read / generate short vertical learning clips (docs/CLIPS.md).
+    registerClipTools(ctx);
     // Audio lessons: an agent-written listening lesson rendered to one audio file (docs/AUDIO_LESSONS.md).
     registerAudioLessonTools(ctx);
     registerBumpTools(ctx);
