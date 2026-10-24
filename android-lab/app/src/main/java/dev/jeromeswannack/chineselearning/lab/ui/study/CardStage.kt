@@ -165,6 +165,8 @@ fun CardStage(
     autoplay: Boolean = true,
     /** A homework pass word: Not yet / Got it where the ratings are, its choices on the answer side (web `StudyCard pass`). */
     pass: PassCardUi? = null,
+    /** Screenshot tests: the sentence rows' 🎤 in a given state (no microphone). */
+    practisePreview: SentencePractiseState? = null,
 ) {
     val note = view.note
     val typing = view.card.cardType != CardTypes.HANZI_TO_MEANING
@@ -351,10 +353,9 @@ fun CardStage(
     val gateEnabled = remember(view.presentation) {
         pass == null && ui.practice == null && StudyPrefs.get(appCtx).sentenceGate.value
     }
-    val gateKeys = remember(view.presentation) { androidx.compose.runtime.mutableStateListOf<String>() }
-    val practise = rememberSentencePractise(view.presentation) { k -> if (k !in gateKeys) gateKeys.add(k) }
+    val practise = practisePreview ?: rememberSentencePractise(view.presentation)
     val sentenceCount = remember(view.presentation, view.sentences, note.sentenceClue) { sentenceRows(view).size }
-    val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, gateKeys.toList())
+    val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
     var gateNote by remember(view.presentation) { mutableStateOf(false) }
     LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
     var gateWasLocked by remember(view.presentation) { mutableStateOf(gate.locked) }

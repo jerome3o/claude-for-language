@@ -110,6 +110,8 @@ class SentencePractiseState internal constructor(
         internal set
     internal var activeRow: SentenceRow? = null
     val takes = mutableStateMapOf<String, SentenceRowTake>()
+    /** The rows said right on this showing, each once ("Get two sentences right before Good / Easy" counts them). */
+    val rightKeys = androidx.compose.runtime.mutableStateListOf<String>()
     internal var say: () -> Unit = {}
 
     /** Brings the sentence list into view (the gate line's tap, a locked Good / Easy). */
@@ -154,20 +156,19 @@ class SentencePractiseState internal constructor(
 
 /** The list's 🎤 state, wired to the app (recorder, live transcription, the answer check, analytics). [key] = one showing of the card. */
 @Composable
-fun rememberSentencePractise(key: Any?, onRight: (String) -> Unit = {}): SentencePractiseState {
+fun rememberSentencePractise(key: Any?): SentencePractiseState {
     val context = LocalContext.current
     val app = context.applicationContext as? LabApp
     val scope = rememberCoroutineScope()
     val controller = rememberVoiceDictation("sentence_practise", autoSubmit = true)
     val ui = controller.ui.collectAsState()
     val state = remember(key, controller) { SentencePractiseState(controller, ui) }
-    val right by rememberUpdatedState(onRight)
     fun finish(rowKey: String, mode: String, take: SentencePractise.Take, claude: AnswerCheck?) {
         val result = SentencePractise.result(take.practised, claude?.verdict)
         app?.analytics?.track("study.sentence_practise", mapOf("mode" to mode, "result" to result, "via" to SentencePractise.via(take, claude != null)))
         if (result == "right") {
             app?.haptics?.correct()
-            right(rowKey)
+            if (rowKey !in state.rightKeys) state.rightKeys.add(rowKey)
         } else app?.haptics?.tick()
     }
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
@@ -205,11 +206,18 @@ fun rememberSentencePractise(key: Any?, onRight: (String) -> Unit = {}): Sentenc
 }
 
 /** Screenshot tests: the state drawn as given, no microphone. */
-fun previewSentencePractise(dictation: VoiceDictationUi = VoiceDictationUi(), activeKey: String? = null, activeMode: String? = null, takes: Map<String, SentenceRowTake> = emptyMap()): SentencePractiseState =
+fun previewSentencePractise(
+    dictation: VoiceDictationUi = VoiceDictationUi(),
+    activeKey: String? = null,
+    activeMode: String? = null,
+    takes: Map<String, SentenceRowTake> = emptyMap(),
+    rightKeys: List<String> = emptyList(),
+): SentencePractiseState =
     SentencePractiseState(null, null, dictation).apply {
         this.activeKey = activeKey
         this.activeMode = activeMode
         this.takes.putAll(takes)
+        this.rightKeys.addAll(rightKeys)
     }
 
 /** Watches every press on the card without consuming it: a press while recording stops the take. */
