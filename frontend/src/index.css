@@ -1729,6 +1729,18 @@ button.queue-counts:active {
 .sentence-set--pass .sentence-set-mic {
   background-color: var(--color-surface, #fff);
 }
+.sentence-set-row.is-hidden-row {
+  opacity: 0.6;
+  align-items: center;
+}
+.sentence-set-row.is-hidden-row .sentence-set-body {
+  display: flex;
+  flex-direction: column;
+}
+.sentence-set-unhide {
+  flex: 0 0 auto;
+  min-height: 44px;
+}
 .sentence-practise-live {
   margin-top: 0.375rem;
   padding: 0.5rem 0.625rem;

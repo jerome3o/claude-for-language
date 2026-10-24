@@ -38,6 +38,7 @@ object FeatureSyncs {
         platform.register("audio-lessons", dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonsSync) // audio lessons: list + details, the MP3s kept for the train (last: downloads)
         platform.register("podcasts", dev.jeromeswannack.chineselearning.lab.data.podcasts.PodcastsSync) // 🎙 Podcasts: the list + transcripts of my episodes (audio only when opened)
         platform.register("clips", dev.jeromeswannack.chineselearning.lab.data.clips.ClipStore.Sync) // 🎬 Clips: a feed already on the phone kept fresh (hourly)
+        platform.register("sentence-practice", dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.Sync) // practice per example sentence: every device's 🎤 takes + hidden sentences, waiting "more sentences" asks
         platform.register("chat-listening", dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.Sync) // listening mode settings + message clips for offline taps
     }
 }

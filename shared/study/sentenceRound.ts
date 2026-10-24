@@ -14,6 +14,7 @@
  * Pure; the Lab app's port (core `SentenceRound.kt`) is parity-tested (parity/fixtures/sentence-round.ts).
  */
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, type SentencePractiseMode } from './sentencePractise';
+import { compareLeastKnown, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
 
 /** How many exercises a round offers (2 read + 2 translate when the card has four sentences). */
 export const SENTENCE_ROUND_SIZE = 4;
@@ -65,46 +66,75 @@ export function roundExerciseId(mode: SentencePractiseMode, key: string): string
 const hasTranslation = (s: RoundSentence) => !!(s.translation ?? '').trim();
 
 /**
- * The round's exercises, in the order shown (easiest → harder). Up to four different sentences
- * spread over the list (the easiest, the hardest and evenly between), modes alternating read,
- * translate, read, translate — so the card's own sentence (often without English) is read. A
- * translate slot whose sentence has no English swaps modes with the nearest read slot that has
- * one, else becomes a read. Fewer than four sentences: the other mode of each sentence (easiest
- * first) fills the round up to four — reuse is unavoidable then; a sentence with no English is
- * never a translate. Deterministic: the same list gives the same round in both apps.
+ * The list's "spread order": the easiest, the hardest and evenly between first (four spread over the
+ * list), then the rest easiest first. With no history this is the round — so a new word gets an easy
+ * sentence and a hard one, not just the first four.
  */
-export function pickRoundExercises(sentences: readonly RoundSentence[]): RoundExercise[] {
-  const n = sentences.length;
-  if (n === 0) return [];
+export function spreadOrder(n: number): number[] {
+  if (n <= 0) return [];
   const m = Math.min(SENTENCE_ROUND_SIZE, n);
-  const picks: number[] = [];
-  for (let k = 0; k < m; k++) picks.push(m === 1 ? 0 : Math.round((k * (n - 1)) / (m - 1)));
-  const modes: SentencePractiseMode[] = picks.map((_, k) => (k % 2 === 0 ? 'read' : 'translate'));
-  for (let k = 0; k < m; k++) {
-    if (modes[k] !== 'translate' || hasTranslation(sentences[picks[k]])) continue;
-    // The nearest read slot whose sentence has English (later first on a tie).
-    let best = -1;
-    for (let j = 0; j < m; j++) {
-      if (modes[j] !== 'read' || !hasTranslation(sentences[picks[j]])) continue;
-      if (best < 0 || Math.abs(j - k) < Math.abs(best - k) || (Math.abs(j - k) === Math.abs(best - k) && j > best)) best = j;
+  const first: number[] = [];
+  for (let k = 0; k < m; k++) first.push(m === 1 ? 0 : Math.round((k * (n - 1)) / (m - 1)));
+  const rest: number[] = [];
+  for (let i = 0; i < n; i++) if (!first.includes(i)) rest.push(i);
+  return [...first, ...rest];
+}
+
+/**
+ * The round's exercises, in the order shown. Hidden sentences are left out. Four slots — read,
+ * translate, read, translate — each takes the sentence he knows LEAST in that mode (never practised
+ * first, then fewest rights, most misses, longest ago: `compareLeastKnown`), ties in spread order;
+ * every slot a different sentence, a translate only where the sentence has English (else that slot
+ * reads). Shown easiest → harder. Fewer than four sentences: the other mode of each sentence fills
+ * the round up to four (reuse is unavoidable then). Deterministic: the same list and history give
+ * the same round in both apps.
+ */
+export function pickRoundExercises(
+  sentences: readonly RoundSentence[],
+  stats?: ReadonlyMap<string, SentenceStats>,
+): RoundExercise[] {
+  const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key));
+  const visible = sentences.map((s, index) => ({ s, index })).filter(({ s }) => !statsOf(s)?.hidden);
+  const n = visible.length;
+  if (n === 0) return [];
+  const spread = spreadOrder(n);
+  const rank = new Map(spread.map((pos, r) => [pos, r]));
+  const best = (mode: SentencePractiseMode, used: Set<number>): number | null => {
+    let pick: number | null = null;
+    for (let pos = 0; pos < n; pos++) {
+      if (used.has(pos)) continue;
+      if (mode === 'translate' && !hasTranslation(visible[pos].s)) continue;
+      if (pick == null) { pick = pos; continue; }
+      const c = compareLeastKnown(statsOf(visible[pos].s)?.[mode], statsOf(visible[pick].s)?.[mode]);
+      if (c < 0 || (c === 0 && rank.get(pos)! < rank.get(pick)!)) pick = pos;
     }
-    if (best >= 0) {
-      modes[best] = 'translate';
+    return pick;
+  };
+  const used = new Set<number>();
+  const picked: { pos: number; mode: SentencePractiseMode }[] = [];
+  for (let k = 0; k < Math.min(SENTENCE_ROUND_SIZE, n); k++) {
+    const want: SentencePractiseMode = k % 2 === 0 ? 'read' : 'translate';
+    let pos = best(want, used);
+    let mode = want;
+    if (pos == null && want === 'translate') {
+      pos = best('read', used);
+      mode = 'read';
     }
-    modes[k] = 'read';
+    if (pos == null) break;
+    used.add(pos);
+    picked.push({ pos, mode });
   }
-  const out: RoundExercise[] = picks.map((index, k) => {
-    const s = sentences[index];
-    return { id: roundExerciseId(modes[k], s.key), key: s.key, mode: modes[k], index };
-  });
-  // Fewer than four: the other mode of each sentence, easiest first.
-  for (let k = 0; k < m && out.length < SENTENCE_ROUND_SIZE; k++) {
-    const s = sentences[picks[k]];
-    const other: SentencePractiseMode = modes[k] === 'read' ? 'translate' : 'read';
-    if (other === 'translate' && !hasTranslation(s)) continue;
-    const id = roundExerciseId(other, s.key);
-    if (out.some((e) => e.id === id)) continue;
-    out.push({ id, key: s.key, mode: other, index: picks[k] });
+  const make = (pos: number, mode: SentencePractiseMode): RoundExercise => {
+    const { s, index } = visible[pos];
+    return { id: roundExerciseId(mode, s.key), key: s.key, mode, index };
+  };
+  const out = picked.slice().sort((a, b) => a.pos - b.pos).map((p) => make(p.pos, p.mode));
+  // Fewer than four: the other mode of each sentence, in the order they were picked.
+  for (const p of picked) {
+    if (out.length >= SENTENCE_ROUND_SIZE) break;
+    const other: SentencePractiseMode = p.mode === 'read' ? 'translate' : 'read';
+    if (other === 'translate' && !hasTranslation(visible[p.pos].s)) continue;
+    out.push(make(p.pos, other));
   }
   return out;
 }
@@ -124,10 +154,24 @@ export interface RoundProgress {
   done: boolean;
 }
 
-export function sentenceRoundProgress(exercises: readonly RoundExercise[], rightIds: readonly string[]): RoundProgress {
+/**
+ * The round's progress. A right id counts when it is one of the exercises — or, given `sentenceKeys`
+ * (the sentences in rotation), any read / translate id of those: a round shown again (back from the
+ * coach, a reload) may pick other exercises once this showing's takes are in the history, and what was
+ * already right must still count.
+ */
+export function sentenceRoundProgress(
+  exercises: readonly RoundExercise[],
+  rightIds: readonly string[],
+  sentenceKeys?: readonly string[],
+): RoundProgress {
   const sentences = new Set(exercises.map((e) => e.key)).size;
   const needed = Math.min(SENTENCE_GATE_TARGET, sentences);
   const ids = new Set(exercises.map((e) => e.id));
+  for (const k of sentenceKeys ?? []) {
+    ids.add(roundExerciseId('read', k));
+    ids.add(roundExerciseId('translate', k));
+  }
   const got = Math.min(needed, new Set(rightIds.filter((id) => ids.has(id))).size);
   return { needed, got, done: needed > 0 && got >= needed };
 }

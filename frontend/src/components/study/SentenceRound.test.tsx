@@ -57,6 +57,22 @@ vi.mock('../../hooks/useAudio', () => ({ useNoteAudio: () => ({ isPlaying: false
 vi.mock('../../services/offlineMode', () => ({ isEffectivelyOffline: () => false }));
 vi.mock('../../api/client', () => ({ fetchNoteSentences: vi.fn(async () => []), deleteNoteSentenceSet: vi.fn(), API_BASE: '' }));
 vi.mock('../Confetti', () => ({ Confetti: () => null }));
+const history = vi.hoisted(() => ({
+  stats: new Map() as Map<string, unknown>,
+  record: [] as unknown[][],
+  hidden: [] as unknown[][],
+  unhidden: [] as unknown[][],
+  more: [] as unknown[][],
+}));
+vi.mock('../../services/sentencePractice', () => ({
+  useSentenceStats: () => history.stats,
+  recordSentenceAttempt: (...a: unknown[]) => { history.record.push(a); },
+  hideSentence: async (...a: unknown[]) => { history.hidden.push(a); },
+  unhideSentence: async (...a: unknown[]) => { history.unhidden.push(a); },
+  requestMoreSentences: (...a: unknown[]) => { history.more.push(a); },
+  sentencesComing: () => false,
+}));
+
 const SET = [
   { id: 's1', note_id: 'n1', position: 0, hanzi: '我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank.', audio_url: null, focus: 'core', focus_note: null, explanation: null },
   { id: 's2', note_id: 'n1', position: 1, hanzi: '银行在哪儿？', pinyin: 'Yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: null, focus: 'core', focus_note: null, explanation: null },
@@ -86,7 +102,7 @@ async function render(opts: { onDone?: () => void; onSkip?: () => void } = {}) {
     const [right, setRight] = React.useState<string[]>([]);
     return (
       <SentenceRound
-        showingKey="c1" question="银行" questionIsChinese sentences={sentences} right={right}
+        showingKey="c1" noteId="n1" question="银行" questionIsChinese sentences={sentences} right={right}
         onRight={(id) => setRight((p) => (p.includes(id) ? p : [...p, id]))}
         onDone={opts.onDone ?? vi.fn()} onSkip={opts.onSkip ?? vi.fn()}
       />
@@ -103,6 +119,11 @@ beforeEach(() => {
   fakes.list.length = 0;
   track.mockClear();
   checkLessonAnswer.mockReset();
+  history.stats = new Map();
+  history.record.length = 0;
+  history.hidden.length = 0;
+  history.unhidden.length = 0;
+  history.more.length = 0;
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -149,6 +170,28 @@ describe('SentenceRound', () => {
     expect(onDone).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1500); });
     expect(onDone).toHaveBeenCalled();
+  });
+
+  it('records every judged take in the sentence history', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    expect(history.record[0]).toEqual(['n1', 'clue:n1', 'read', expect.stringMatching(/close|wrong/)]);
+  });
+
+  it('prefers what he knows least and leaves hidden sentences out; ⋯ hides one', async () => {
+    const st = (read: number) => ({ read: { attempts: read, rights: read, misses: 0, last_at: read ? '2026-10-01' : null }, translate: { attempts: 0, rights: 0, misses: 0, last_at: null }, hidden: null });
+    history.stats = new Map<string, unknown>([['clue', st(3)], ['s2', { ...st(0), hidden: { at: '2026-10-02', reason: 'weird' } }]]);
+    await render();
+    // Two sentences left in rotation: s1 never read → read; the clue (read 3×) → translate; then the other modes.
+    expect(all('sentence-round-exercise').map((e) => `${e.dataset.mode}`)).toEqual(['translate', 'read', 'translate', 'read']);
+    expect(host.textContent).not.toContain('银行在哪儿？');
+    // Fewer than four in rotation: more sentences were asked for.
+    expect(history.more).toEqual([['n1', 'few']]);
+    act(() => inEx(0, 'sentence-round-more')!.click());
+    act(() => (host.querySelector('[data-testid="sentence-hide-wrong"]') as HTMLElement).click());
+    expect(history.hidden[0]).toEqual(['n1', 'clue:n1', 'wrong', 'round']);
+    expect(host.textContent).toContain('Sentence hidden');
   });
 
   it('Skip is always there and says the gate stays', async () => {

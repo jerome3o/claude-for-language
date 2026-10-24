@@ -144,6 +144,8 @@ import { readSentenceGateOn } from '../services/sentenceGatePrefs';
 import { ratingLockedByGate, sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
 import { sentenceRoundOpens } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
+import { useSentenceStats } from '../services/sentencePractice';
+import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -513,11 +515,16 @@ export function StudyCard({
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
   const roundCardType = gateOn && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
-  const roundSentenceRows = useRoundSentences(card.note, roundCardType);
+  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType);
+  // His practice history of these sentences: hidden ones never come (docs/STUDY_SESSION.md "Sentence practice history").
+  const roundStats = useSentenceStats(card.note.id);
+  // (null until both the sentences and the history are read)
+  const roundSentenceRows = roundCardType ? (roundStats ? roundSentenceRowsAll : null) : roundSentenceRowsAll;
+  const roundVisibleCount = roundSentenceRows ? roundSentenceRows.filter((r) => !roundStats?.get(sentenceHistoryKey(r.key))?.hidden).length : null;
   const [roundOpen, setRoundOpen] = useState(() => roundCardType && !!restored.point?.round_open && !restored.point?.revealed);
   const [sentenceCount, setSentenceCount] = useState<number | null>(null);
   const [gateNote, setGateNote] = useState(false);
-  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundSentenceRows?.length ?? null, rightKeys: gateKeys });
+  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
     if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
@@ -541,9 +548,9 @@ export function StudyCard({
   /** The answer, or first the Sentence round when it applies to this showing. */
   const revealOrRound = () => {
     if (flipped || roundOpen) return;
-    if (sentenceRoundOpens({ enabled: gateOn, cardType: card.card_type, sentenceCount: roundSentenceRows ? roundSentenceRows.length : null })) {
+    if (sentenceRoundOpens({ enabled: gateOn, cardType: card.card_type, sentenceCount: roundVisibleCount })) {
       setRoundOpen(true);
-      track('study.sentence_round', { action: 'shown', got: 0, needed: Math.min(2, roundSentenceRows?.length ?? 2) });
+      track('study.sentence_round', { action: 'shown', got: 0, needed: Math.min(2, roundVisibleCount ?? 2) });
       return;
     }
     setFlipped(true);
@@ -2984,6 +2991,7 @@ export function StudyCard({
           {!flipped && roundOpen ? (
             <SentenceRound
               showingKey={card.id}
+              noteId={card.note.id}
               question={card.card_type === 'hanzi_to_meaning' ? card.note.hanzi : card.note.english}
               questionIsChinese={card.card_type === 'hanzi_to_meaning'}
               sentences={roundSentenceRows}

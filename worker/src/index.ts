@@ -16,6 +16,13 @@ import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
+import { SENTENCE_ROUND_MIN_VISIBLE } from '@shared/study/sentenceHistory';
+import { hiddenSentenceKeys } from './services/sentence-practice';
+
+/** A word whose sentences are all known gets this many more (the Sentence round). */
+const SENTENCE_KNOWN_TOPUP_COUNT = 4;
+/** …until its set holds this many. */
+const SENTENCE_SET_MAX_TOTAL = 30;
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
@@ -155,6 +162,7 @@ import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
 import cardHoldsRoutes from './routes/card-holds';
 import cardForgetsRoutes from './routes/card-forgets';
+import sentencePracticeRoutes from './routes/sentence-practice';
 import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
 import revisitRoutes from './routes/revisit';
 import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
@@ -676,6 +684,7 @@ app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
 app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', sentencePracticeRoutes); // Practice per example sentence — GET/POST /api/me/sentence-practice
 app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
 app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
@@ -1872,15 +1881,34 @@ app.post('/api/sentences/top-up', async (c) => {
     return c.json({ error: 'AI service is not configured' }, 503);
   }
   let noteIds: string[] = [];
+  let why: 'known' | 'few' | null = null;
   try {
-    const body = await c.req.json<{ note_ids?: unknown }>();
+    const body = await c.req.json<{ note_ids?: unknown; reason?: unknown }>();
     if (Array.isArray(body?.note_ids)) {
       noteIds = [...new Set(body.note_ids.filter((id): id is string => typeof id === 'string'))];
     }
+    if (body?.reason === 'known' || body?.reason === 'few') why = body.reason;
   } catch {
     // No body
   }
   if (noteIds.length === 0) return c.json({ error: 'note_ids is required' }, 400);
+
+  if (why) {
+    // The Sentence round (shared/study/sentenceHistory.ts wantsMoreSentences): every sentence left is
+    // known in both modes, or fewer than four are left in rotation once his hidden ones are taken out.
+    const notes = await db.getNotesForSentenceTopUp(c.env.DB, userId, noteIds, Number.MAX_SAFE_INTEGER);
+    const hidden = await hiddenSentenceKeys(c.env.DB, userId, notes.map((n) => n.id));
+    const queued: string[] = [];
+    for (const note of notes) {
+      if (note.total >= SENTENCE_SET_MAX_TOTAL) continue;
+      const visible = note.total - (hidden.get(note.id)?.size ?? 0);
+      if (why === 'few' && visible >= SENTENCE_ROUND_MIN_VISIBLE) continue;
+      const count = why === 'known' ? SENTENCE_KNOWN_TOPUP_COUNT : Math.max(SENTENCE_KNOWN_TOPUP_COUNT, SENTENCE_ROUND_MIN_VISIBLE + 1 - visible);
+      if (await enqueueSentenceTopUp(c.env, note.id, Math.min(10, count))) queued.push(note.id);
+    }
+    if (queued.length > 0) console.log('[sentence-set] Round top-up queued for', queued.length, 'notes (', why, ')');
+    return c.json({ queued: queued.length, note_ids: queued });
+  }
 
   const notes = await db.getNotesForSentenceTopUp(c.env.DB, userId, noteIds, LISTEN_CONTEXT_MIN_SENTENCES);
   const queued: string[] = [];

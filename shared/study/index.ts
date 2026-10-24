@@ -9,3 +9,4 @@ export * from './lessonRun';
 export * from './lessonRevision';
 export * from './sentencePractise';
 export * from './sentenceRound';
+export * from './sentenceHistory';

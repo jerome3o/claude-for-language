@@ -53,7 +53,7 @@ export interface RowTake {
   claude: { status: 'checking' } | { status: 'done'; check: AnswerCheck } | { status: 'unavailable' } | null;
 }
 
-export function useSentencePractise({ enabled = true, showingKey, onRight, onTranslated }: {
+export function useSentencePractise({ enabled = true, showingKey, onRight, onTranslated, onResult }: {
   /** Off (the card editor): no 🎤, and the microphone's live session is never prefetched. */
   enabled?: boolean;
   /** A new showing of the card (or another note) starts from scratch. */
@@ -62,6 +62,8 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
   onRight?: (rowKey: string) => void;
   /** A translate take landed: the row reveals its Chinese. */
   onTranslated?: (rowKey: string) => void;
+  /** A take judged right / close / wrong (the sentence's practice history records it). */
+  onResult?: (rowKey: string, mode: SentencePractiseMode, result: 'right' | 'close' | 'wrong') => void;
 }) {
   const [active, setActive] = useState<{ row: PractiseRow; mode: SentencePractiseMode } | null>(null);
   const activeRef = useRef(active);
@@ -69,12 +71,13 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
   const [takes, setTakes] = useState<Record<string, RowTake>>({});
   const showing = useRef(showingKey);
   showing.current = showingKey;
-  const latest = useRef({ onRight, onTranslated });
-  latest.current = { onRight, onTranslated };
+  const latest = useRef({ onRight, onTranslated, onResult });
+  latest.current = { onRight, onTranslated, onResult };
 
   const finish = useCallback((rowKey: string, mode: SentencePractiseMode, take: SentenceTake, claude: AnswerCheck | null) => {
     const result = sentencePractiseResult(take.practised, claude?.verdict ?? null);
     track('study.sentence_practise', { mode, result, via: sentencePractiseVia(take, !!claude) });
+    if (result === 'right' || result === 'close' || result === 'wrong') latest.current.onResult?.(rowKey, mode, result);
     if (result === 'right') latest.current.onRight?.(rowKey);
   }, []);
 
