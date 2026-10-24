@@ -73,6 +73,7 @@ object AnalyticsEvents {
         ev("study.sentence_explain", "study", emptyList()),
         ev("study.sentence_practise", "study", listOf("mode", "result", "via")),
         ev("study.sentence_gate", "study", listOf("action", "unlocked", "needed", "got", "card_type")),
+        ev("study.sentence_round", "study", listOf("action", "index", "mode", "got", "needed")),
         ev("study.listen_context", "study", listOf("sentences_played", "word_first_prompt_shown", "played_word_anyway")),
         ev("study.listen_more_sentences", "study", listOf("before", "after")),
         ev("study.tutor_note_practice", "study", listOf("count")),

@@ -22,6 +22,10 @@ export interface StudyResumePoint {
   answer: string;
   /** Time spent on the card before leaving (the review's time_spent_ms continues from it). */
   elapsed_ms: number;
+  /** The Sentence round was on screen (shared/study/sentenceRound.ts): it comes back, not the question. */
+  round_open?: boolean;
+  /** The round's exercises / the answer side's rows said right on this showing (the gate's count). */
+  sentences_right?: string[];
 }
 
 /** The scope key for a deck id (undefined / null = all decks). */
