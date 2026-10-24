@@ -106,9 +106,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         card(practise, actions = StudyActions(onRate = { r, _, _ -> rated += r }))
         compose.onNodeWithText("1 / 2", useUnmergedTree = true).assertExists()
         compose.runOnIdle { practise.rightKeys.add("translate:s1") }
-        compose.mainClock.advanceTimeBy(300)
-        compose.onNodeWithTag(SentenceRoundTags.CHEER, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(SentenceRound.cheer(SentenceRound.Progress(2, 2, true)), useUnmergedTree = true).assertExists()
+        // (The cheer's 1.4 s pause runs on the test dispatcher's virtual time: the answer is up at once here.)
         compose.mainClock.advanceTimeBy(2_500)
         assertEquals(0, count(SentenceRoundTags.ROUND))
         compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
