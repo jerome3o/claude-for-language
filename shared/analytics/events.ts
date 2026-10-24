@@ -27,6 +27,7 @@ export type AnalyticsArea =
   | 'picture_hunt'
   | 'idioms'
   | 'meme_review'
+  | 'clips'
   | 'lessons'
   | 'coach'
   | 'decks'
@@ -252,6 +253,18 @@ export const ANALYTICS_EVENTS = {
   'meme_review.generate': e('meme_review', 'A monthly meme-review issue started generating (via = cron / admin / mcp).', ['via', 'regenerate'], { server: true }),
   'meme_review.ready': e('meme_review', 'A monthly meme-review issue was written (items, searches and pictures used).', ['items', 'searches', 'images'], { server: true }),
   'meme_review.lesson_ready': e('meme_review', 'A mini lesson was made from a meme-review issue in the caller\'s account.', [], { server: true }),
+
+  // ── clips (🎬 experimental, docs/CLIPS.md) ────────────────────────────
+  'clips.open': e('clips', 'Opened the 🎬 Clips feed (clips = how many it holds, cached = shown from the device first, offline).', ['clips', 'cached', 'offline']),
+  'clips.view': e('clips', 'A clip started playing in the feed (clip = its id, position = 1-based place in the feed, theme, muted).', ['clip', 'position', 'theme', 'muted']),
+  'clips.complete': e('clips', 'Watched a clip to its end card (clip = its id, duration_ms = time it took, scenes).', ['clip', 'duration_ms', 'scenes']),
+  'clips.like': e('clips', 'Liked / unliked a clip (on = liked; via = button / double_tap).', ['clip', 'on', 'via']),
+  'clips.save': e('clips', 'Saved / unsaved a clip (on = saved).', ['clip', 'on']),
+  'clips.learn_more': e('clips', 'Used the clip\'s Learn more sheet (action = open — the sheet opened / lesson / reader / podcast / study_words / add_card / more; via = double_tap / long_press / button / end_card; status = started / open / writing / failed).', ['clip', 'action', 'via', 'status']),
+  'clips.quiz_answer': e('clips', 'Answered a clip\'s quiz scene (right = picked the answer; timeout = time ran out first).', ['clip', 'right', 'timeout']),
+  'clips.explore': e('clips', 'Tapped Chinese in a clip into the language explorer (the clip pauses; layout = the scene\'s layout).', ['clip', 'layout']),
+  'clips.caption_toggle': e('clips', 'Switched a clip caption / sound toggle (toggle = pinyin / english / mute; on).', ['toggle', 'on']),
+  'clips.generate': e('clips', 'Clips started generating (count; via = app / mcp / more — "More clips like this").', ['count', 'via'], { server: true }),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),

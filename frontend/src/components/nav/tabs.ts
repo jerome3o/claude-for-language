@@ -26,7 +26,7 @@ const MORE: TabSpec = {
     // Decks moved from the tab bar into More (its first row), so a deck page lights More up —
     // except for a tutor account, whose Decks tab comes first in tabsFor and wins the tie.
     '/more', '/decks', '/up-next', '/cards/held', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
-    '/quests', '/picture-hunt', '/idioms', '/meme-review', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
+    '/quests', '/picture-hunt', '/idioms', '/meme-review', '/clips', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
@@ -80,6 +80,7 @@ const IMMERSIVE = [
   /^\/group-class\/[^/]+\/?$/,
   /^\/homework\/[^/]+\/?$/,
   /^\/tutor-notes\/practice\/?$/,
+  /^\/clips(\/[^/]+)?\/?$/,
 ];
 
 export function isImmersiveRoute(pathname: string): boolean {

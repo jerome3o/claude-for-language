@@ -43,6 +43,8 @@ export interface Env {
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
   /** 梗 Meme review (prototype): monthly issue deliveries + "make a mini lesson" jobs (services/meme-review/, docs/MEME_REVIEW.md). */
   MEME_REVIEW_QUEUE?: Queue<import('./services/meme-review/job').MemeReviewQueueMessage>;
+  /** 🎬 Clips (services/clips/job.ts): generation, voice lines made ahead, a clip's mini lesson. */
+  CLIP_QUEUE?: Queue<import('./services/clips/job').ClipQueueMessage>;
   /** "<Tutor> sent you homework" e-mails, delayed ~2 min so a burst of sends is one e-mail (services/homework-emails, docs/HOMEWORK.md §12). */
   HOMEWORK_EMAIL_QUEUE?: Queue<import('./services/homework-emails').HomeworkEmailMessage>;
   /** Every background TTS clip (docs/AUDIO.md): one clip per message + the backfill pump. */

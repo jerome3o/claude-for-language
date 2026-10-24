@@ -3,6 +3,8 @@ import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import coachRoutes from './routes/coach';
 import idiomsRoutes from './routes/idioms';
 import memeReviewRoutes from './routes/meme-review';
+import clipsRoutes from './routes/clips';
+import { handleClipMessage, type ClipQueueMessage } from './services/clips/job';
 import { ensureMonthlyMemeIssue, handleMemeIssueMessage, type MemeReviewQueueMessage } from './services/meme-review/job';
 import { runMemeLessonJob } from './services/meme-review/lesson';
 import { runIdiomJob, type IdiomQueueMessage } from './services/idioms';
@@ -599,6 +601,7 @@ app.route('/api', coachRoutes);
 // GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
 app.route('/api', mediaRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
+app.route('/api', clipsRoutes); // 🎬 Clips (experimental): GET|POST /api/clips, /generate, /events, /:id/learn-more
 app.route('/api', memeReviewRoutes); // 梗 Meme review (prototype): GET /api/meme-review[/:month], POST …/generate (admin), …/:month/lesson
 app.route('/api', messageTranslateRoutes);
 
@@ -6790,6 +6793,18 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           console.error('[Queue] homework e-mail crashed:', body.student_id, err);
           message.retry({ delaySeconds: 60 });
         }
+      }
+    } else if (queueName === 'clip-queue') {
+      // 🎬 Clips (services/clips/job.ts): generation, voice lines made ahead, a clip's mini
+      // lesson; the rows record failures (and audio re-sends itself), so every message is acked.
+      for (const message of batch.messages) {
+        const body = message.body as ClipQueueMessage;
+        try {
+          console.log('[Queue] clip', body.kind, body.clipId, await handleClipMessage(env, body));
+        } catch (err) {
+          console.error('[Queue] clip crashed:', body, err);
+        }
+        message.ack();
       }
     } else if (queueName === 'meme-review-queue') {
       // 梗 Meme review (services/meme-review/): an issue delivery (checkpointed in R2, re-enqueues
