@@ -115,6 +115,8 @@ object Routes {
     fun idiom(hanzi: String, from: String? = null) = "/idioms/${seg(hanzi)}" + query("from" to from)
     /** 梗 Meme review (prototype): the issue list and one month ([from] = list | link, for analytics). */
     fun memeReview() = "/meme-review"
+    fun clips() = "/clips"
+    fun clip(id: String, scene: Int? = null) = "/clips/${seg(id)}" + query("scene" to scene?.toString())
     fun memeIssue(month: String, from: String? = null) = "/meme-review/${seg(month)}" + query("from" to from)
     fun audioLessons() = "/audio-lessons"
     fun audioLesson(id: String) = "/audio-lessons/${seg(id)}"
