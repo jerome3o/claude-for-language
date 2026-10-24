@@ -212,6 +212,8 @@ object AnalyticsEvents {
         ev("clips.save", "clips", listOf("clip", "on")),
         ev("clips.learn_more", "clips", listOf("clip", "action", "via", "status")),
         ev("clips.quiz_answer", "clips", listOf("clip", "right", "timeout")),
+        ev("clips.interact", "clips", listOf("clip", "layout", "result", "waited_ms")),
+        ev("clips.next", "clips", listOf("clip", "via", "dir")),
         ev("clips.explore", "clips", listOf("clip", "layout")),
         ev("clips.caption_toggle", "clips", listOf("toggle", "on")),
         ev("clips.generate", "clips", listOf("count", "via"), server = true),

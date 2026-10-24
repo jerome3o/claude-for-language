@@ -132,8 +132,80 @@ export const SAMPLE_STORY_CLIP: ClipSpec = {
       voice: { text: '马上 literally means on horseback.', lang: 'en', voice: 'narrator' },
       fact: { text_en: '马上 literally means "on horseback" — already on the way.', hanzi: '马上', pinyin: 'mǎshàng' },
     },
+    {
+      layout: 'reveal',
+      duration_ms: 5000,
+      reveal: { prompt_en: "I'll be there right away!", hanzi: '我马上到！', pinyin: 'Wǒ mǎshàng dào!', note: '马上 + verb: about to happen.' },
+    },
   ],
   ending: { question_en: 'When did your friend last say 马上到?', cta: 'Double-tap to learn more' },
+};
+
+/** An interactive-first clip: listen, order, reveal and speak beats between the teaching scenes. */
+export const SAMPLE_INTERACTIVE_CLIP: ClipSpec = {
+  v: 1,
+  title: '顺便 — the word that saves you a trip',
+  hook: 'One word = "while you\'re at it" 🛒',
+  topic: '顺便',
+  style: { theme: 'comic' },
+  words: [{ hanzi: '顺便', pinyin: 'shùnbiàn', english: "while you're at it; on the way" }],
+  tags: ['daily life', 'requests'],
+  scenes: [
+    {
+      layout: 'title',
+      duration_ms: 3000,
+      voice: { text: 'Here is a word that saves you a trip.', lang: 'en', voice: 'narrator' },
+      emoji: '🛒',
+      title: { headline_zh: '顺便', headline_en: "while you're at it", sub: 'ask for one more thing, politely' },
+    },
+    {
+      layout: 'big_word',
+      duration_ms: 4000,
+      big_word: {
+        hanzi: '顺便',
+        pinyin: 'shùnbiàn',
+        english: "while you're at it — on the way, at the same time",
+        breakdown: [
+          { char: '顺', meaning: 'along with' },
+          { char: '便', meaning: 'convenient' },
+        ],
+      },
+    },
+    {
+      layout: 'sentence',
+      duration_ms: 5000,
+      sentence: { hanzi: '你去超市的时候，顺便买点儿牛奶。', pinyin: 'Nǐ qù chāoshì de shíhou, shùnbiàn mǎi diǎnr niúnǎi.', english: "When you go to the supermarket, get some milk while you're at it.", highlight: '顺便' },
+    },
+    {
+      layout: 'listen',
+      duration_ms: 6000,
+      listen: {
+        hanzi: '我顺便帮你拿快递。',
+        pinyin: 'Wǒ shùnbiàn bāng nǐ ná kuàidì.',
+        english: "I'll pick up your parcel for you while I'm at it.",
+        prompt_en: 'What is he offering?',
+        options: ["To pick up your parcel while he's out", 'To send your parcel today', 'He forgot your parcel'],
+        answer_index: 0,
+        explain: '顺便 + verb: do it on the way.',
+      },
+    },
+    {
+      layout: 'order',
+      duration_ms: 7000,
+      order: { prompt_en: "Build: After work I'll go by the bank on the way.", tiles: ['我', '下班', '顺便', '去', '银行'], pinyin: 'Wǒ xiàbān shùnbiàn qù yínháng.', english: "After work I'll go by the bank on the way." },
+    },
+    {
+      layout: 'reveal',
+      duration_ms: 5000,
+      reveal: { prompt_en: "Close the window while you're at it.", hanzi: '你顺便关一下窗户。', pinyin: 'Nǐ shùnbiàn guān yíxià chuānghu.', note: '一下 makes the request softer.' },
+    },
+    {
+      layout: 'speak',
+      duration_ms: 6000,
+      speak: { hanzi: '顺便问一下。', pinyin: 'Shùnbiàn wèn yíxià.', english: 'By the way, may I ask…', prompt_en: 'Say: "By the way, may I ask…"' },
+    },
+  ],
+  ending: { question_en: 'What would you ask a friend to do 顺便?', cta: 'Double-tap to learn more' },
 };
 
 /** A sample re-themed (screenshots, the theme picker of the stand-in generator). */

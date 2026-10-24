@@ -57,10 +57,9 @@ taught. The clip stops on them and waits for the learner ("👆 Tap an answer", 
     { "layout": "story", "duration_ms": 7000,
       "story": { "lines": [ { "speaker": "A", "hanzi": "你刚才去哪儿了？", "pinyin": "Nǐ gāngcái qù nǎr le?", "english": "Where did you go just now?" },
                             { "speaker": "B", "hanzi": "我刚下楼。", "pinyin": "Wǒ gāng xià lóu.", "english": "I just went downstairs." } ] } },
-    { "layout": "list", "duration_ms": 5000,
-      "list": { "title": "Also say it like…", "items": [ { "hanzi": "刚刚", "pinyin": "gānggāng", "english": "just (emphatic)" } ] } },
-    { "layout": "fact", "duration_ms": 4000,
-      "fact": { "text_en": "Native speakers often say 刚刚 for both.", "hanzi": "刚刚" } },
+    // two more layouts (the example has 10 scenes, the most a clip may have):
+    //   { "layout": "list", "duration_ms": 5000, "list": { "title": "Also say it like…", "items": [ { "hanzi": "刚刚", "pinyin": "gānggāng", "english": "just (emphatic)" } ] } }
+    //   { "layout": "fact", "duration_ms": 4000, "fact": { "text_en": "Native speakers often say 刚刚 for both.", "hanzi": "刚刚", "pinyin": "gānggāng" } }
     // ---- interactive beats (the clip waits for the learner) ----
     { "layout": "listen", "duration_ms": 6000,          // hear it (the text hidden), pick the meaning; then the Chinese shows
       "listen": { "hanzi": "我刚到。", "pinyin": "Wǒ gāng dào.", "english": "I've just arrived.",
