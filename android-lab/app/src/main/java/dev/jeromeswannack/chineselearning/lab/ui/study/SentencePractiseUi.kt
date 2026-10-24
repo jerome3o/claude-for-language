@@ -113,6 +113,8 @@ class SentencePractiseState internal constructor(
     /** The rows said right on this showing, each once ("Get two sentences right before Good / Easy" counts them). */
     val rightKeys = androidx.compose.runtime.mutableStateListOf<String>()
     internal var say: () -> Unit = {}
+    /** Every take judged right / close / wrong (row key or round exercise id, mode, result): the sentence's practice history. */
+    var onResult: ((key: String, mode: String, result: String) -> Unit)? = null
 
     /** Brings the sentence list into view (the gate line's tap, a locked Good / Easy). */
     @OptIn(ExperimentalFoundationApi::class)
@@ -166,6 +168,7 @@ fun rememberSentencePractise(key: Any?): SentencePractiseState {
     fun finish(rowKey: String, mode: String, take: SentencePractise.Take, claude: AnswerCheck?) {
         val result = SentencePractise.result(take.practised, claude?.verdict)
         app?.analytics?.track("study.sentence_practise", mapOf("mode" to mode, "result" to result, "via" to SentencePractise.via(take, claude != null)))
+        if (result == "right" || result == "close" || result == "wrong") state.onResult?.invoke(rowKey, mode, result)
         if (result == "right") {
             app?.haptics?.correct()
             if (rowKey !in state.rightKeys) state.rightKeys.add(rowKey)

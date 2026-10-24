@@ -51,6 +51,9 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
+import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
@@ -74,11 +77,12 @@ object SentenceRoundTags {
     const val RETRY = "sentence-round-retry"
     const val SKIP = "sentence-round-skip"
     const val CONTINUE = "sentence-round-continue"
+    const val MORE = "sentence-round-more"
 }
 
-/** The round's exercises over the card's sentence rows (core [SentenceRound.pick]). */
-fun sentenceRoundExercises(rows: List<SentenceRow>): List<SentenceRound.Exercise> =
-    SentenceRound.pick(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) })
+/** The round's exercises over the card's sentence rows and his history of them (core [SentenceRound.pick]). */
+fun sentenceRoundExercises(rows: List<SentenceRow>, stats: Map<String, SentenceHistory.Stats>? = null): List<SentenceRound.Exercise> =
+    SentenceRound.pick(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, stats)
 
 /**
  * The Sentence round (the web's components/study/SentenceRound.tsx; rules in core [SentenceRound];
@@ -99,16 +103,40 @@ fun SentenceRoundPage(
     onDone: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    /** His practice history of these sentences (null while it loads): the round prefers what he knows least. */
+    stats: Map<String, SentenceHistory.Stats>? = emptyMap(),
+    /** "✨ New sentences coming for this word" (asked already). */
+    coming: Boolean = false,
+    /** Every sentence left known, or fewer than four in rotation: ask for more ("known" | "few"). */
+    onWantMore: (why: String) -> Unit = {},
+    /** "Stop showing this sentence" / Undo (row keys). */
+    onHide: (rowKey: String, reason: String) -> Unit = { _, _ -> },
+    onUnhide: (rowKey: String) -> Unit = {},
 ) {
-    val exercises = remember(rows) { sentenceRoundExercises(rows) }
+    // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
+    var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
+    LaunchedEffect(rows, stats != null) { if (picked == null && stats != null) picked = sentenceRoundExercises(rows, stats) }
+    fun hidden(key: String) = stats?.get(SentenceHistory.key(key))?.hidden != null
+    val exercises = picked.orEmpty().filter { !hidden(it.key) }
+    val visibleKeys = rows.filter { !hidden(it.key) }.map { it.key }
     val byKey = remember(rows) { rows.associateBy { it.key } }
     val right = practise.rightKeys.toList()
-    val progress = SentenceRound.progress(exercises, right)
+    val progress = SentenceRound.progress(exercises, right, visibleKeys)
+    var asked by remember { mutableStateOf(false) }
+    LaunchedEffect(rows, stats) {
+        val st = stats ?: return@LaunchedEffect
+        if (SentenceHistory.wantsMore(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, st)) {
+            onWantMore(if (visibleKeys.size < SentenceHistory.MIN_VISIBLE) "few" else "known")
+            asked = true
+        }
+    }
+    var hiding by remember { mutableStateOf<SentenceRound.Exercise?>(null) }
+    var undoKey by remember { mutableStateOf<String?>(null) }
     val english = remember { mutableStateMapOf<String, Boolean>() }
     val latestDone by rememberUpdatedState(onDone)
 
     // No sentences after all: straight to the answer.
-    LaunchedEffect(exercises.isEmpty()) { if (exercises.isEmpty()) latestDone() }
+    LaunchedEffect(picked) { if (picked?.isEmpty() == true) latestDone() }
 
     // A result landed: right / miss, once per take (a translate take waits for Claude's check).
     val reported = remember { HashSet<SentenceRowTake>() }
@@ -159,6 +187,7 @@ fun SentenceRoundPage(
                     if (progress.needed > 0) RoundCounter(progress)
                 }
                 Text(SentenceRound.intro(progress, exercises.size), color = Lab.colors.muted, fontSize = 14.sp)
+                if (coming || asked) SentencesComingNote()
                 if (!CoachPractise.micEnabled(practise.dictation.blocked)) {
                     CoachPractise.blockNote(practise.dictation.blocked)?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp) }
                 }
@@ -183,6 +212,7 @@ fun SentenceRoundPage(
                         onRetry = {
                             Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
                         },
+                        onMore = { hiding = ex },
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -206,6 +236,13 @@ fun SentenceRoundPage(
         }
         SparkBurst(sparks, listOf(Palette.Good, Palette.Gold, Palette.Easy, Color.White), origin = androidx.compose.ui.geometry.Offset(0.5f, 0.2f))
         if (progress.done && cheer != null) ConfettiRain("round-done", listOf(Palette.Good, Palette.Gold, Palette.Easy, Palette.Again), count = 90)
+        undoKey?.let { key ->
+            SentenceUndoToast(SentenceHistory.HIDDEN_TOAST, onUndo = { onUnhide(key); undoKey = null }, onDone = { undoKey = null }, modifier = Modifier.align(Alignment.BottomCenter))
+        }
+    }
+    hiding?.let { ex ->
+        val row = byKey[ex.key]
+        if (row != null) SentenceHideSheet(row.hanzi, row.translation, onHide = { reason -> hiding = null; onHide(ex.key, reason); undoKey = ex.key }, onDismiss = { hiding = null })
     }
 }
 
@@ -244,6 +281,7 @@ private fun RoundExerciseCard(
     showEnglish: Boolean,
     onToggleEnglish: () -> Unit,
     onRetry: () -> Unit,
+    onMore: () -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
     val mine = practise.activeKey == ex.id
@@ -266,6 +304,7 @@ private fun RoundExerciseCard(
         Modifier.fillMaxWidth().clip(shape)
             .background(if (status == "right") Palette.Good.copy(alpha = 0.08f) else Lab.colors.card)
             .border(if (status == null) 1.dp else 2.dp, border, shape)
+            .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .animateContentSize()
             .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}"),
@@ -277,6 +316,11 @@ private fun RoundExerciseCard(
             ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (status == "right") Color.White else Lab.colors.ink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Text(SentenceRound.PROMPT[ex.mode].orEmpty(), Modifier.weight(1f), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = Lab.colors.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+            Box(
+                Modifier.size(width = 44.dp, height = 32.dp).bouncyClickable(true, 0.9f, role = Role.Button, onClick = onMore)
+                    .semantics { contentDescription = "More: ${SentenceHistory.HIDE_TITLE}" }.testTag(SentenceRoundTags.MORE),
+                contentAlignment = Alignment.Center,
+            ) { Text("⋯", color = Lab.colors.muted, fontSize = 18.sp) }
         }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

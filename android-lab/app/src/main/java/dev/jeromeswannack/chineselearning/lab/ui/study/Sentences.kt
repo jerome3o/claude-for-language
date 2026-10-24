@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
 import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
@@ -6,6 +8,10 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -202,13 +208,21 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null) =
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null, history: SentenceListHistory? = null) =
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
         audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
         practise = practise,
+        history = history,
     )
+
+/** Practice per sentence on the answer side's list (core SentenceHistory; data/sentences/SentencePracticeStore). */
+data class SentenceListHistory(
+    val stats: Map<String, SentenceHistory.Stats>,
+    val onHide: (rowKey: String, reason: String) -> Unit,
+    val onUnhide: (rowKey: String) -> Unit,
+)
 
 /** The key of the row that is the card's own sentence (row 1). */
 fun clueRowKey(noteId: String) = "clue:" + noteId
@@ -238,13 +252,21 @@ fun SentenceList(
     audioBusy: Set<String> = emptySet(),
     /** 🎤 on each open row (the study card, the homework pass); null = none (the card editor). */
     practise: SentencePractiseState? = null,
+    /** Practice per sentence: hidden rows left out, "Stop showing this sentence", "Show hidden (N)"; null = none. */
+    history: SentenceListHistory? = null,
 ) = Column(
     modifier.fillMaxWidth().then(
         @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
         if (practise != null) Modifier.bringIntoViewRequester(practise.bringIntoView) else Modifier,
     ),
 ) {
-    val rows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    fun isHidden(key: String) = history?.stats?.get(SentenceHistory.key(key))?.hidden != null
+    var showHidden by remember(presentation) { mutableStateOf(false) }
+    var hiding by remember(presentation) { mutableStateOf<SentenceRow?>(null) }
+    var undoKey by remember(presentation) { mutableStateOf<String?>(null) }
+    val hiddenRows = allRows.filter { isHidden(it.key) }
+    val rows = allRows.filter { !isHidden(it.key) }
     val state = rememberSentenceRowsState(presentation, startExplained, startShowAll)
     var menu by remember(presentation) { mutableStateOf(false) }
     var custom by remember(presentation) { mutableStateOf(false) }
@@ -306,11 +328,16 @@ fun SentenceList(
                 Text(if (state.showAll) "Hide all" else "Show all", color = Lab.colors.accent)
             }
             Box {
-                TextButton(onClick = { menu = true }, enabled = online && !generating) {
+                TextButton(onClick = { menu = true }, enabled = (online || hiddenRows.isNotEmpty()) && !generating) {
                     Text(if (generating) "…" else "⋯", color = if (online) Lab.colors.ink else Lab.colors.muted, fontWeight = FontWeight.Bold)
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Lab.colors.card) {
-                    for (count in listOf(5, 10)) DropdownMenuItem(text = { Text(if (hasSet) "New set of $count" else "Generate $count") }, onClick = { generate(count) })
+                    if (hiddenRows.isNotEmpty()) DropdownMenuItem(
+                        text = { Text(if (showHidden) "Hide them again" else SentenceHistory.showHiddenLabel(hiddenRows.size)) },
+                        onClick = { menu = false; showHidden = !showHidden },
+                        modifier = Modifier.testTag(SentenceHideTags.SHOW_HIDDEN),
+                    )
+                    for (count in listOf(5, 10)) DropdownMenuItem(text = { Text(if (hasSet) "New set of $count" else "Generate $count") }, onClick = { generate(count) }, enabled = online)
                     if (hasSet) DropdownMenuItem(text = { Text("Add 5 more") }, onClick = { generate(5, keep = true) })
                     DropdownMenuItem(text = { Text("Custom…") }, onClick = { menu = false; custom = true })
                     if (hasSet) DropdownMenuItem(text = { Text("Clear set", color = Palette.Again) }, onClick = {
@@ -343,7 +370,26 @@ fun SentenceList(
                 audioBusy = row.key in audioBusy || asking[row.key] == true,
                 audioNote = if (coming[row.key] == true) SentenceAudioWait.LABEL else null,
                 practise = practise,
+                onHideRequest = if (history != null) ({ hiding = row }) else null,
             )
+            if (showHidden) for (row in hiddenRows) Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(row.hanzi, color = Lab.colors.muted, style = MaterialTheme.typography.titleMedium)
+                    row.translation?.let { Text(it, color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall) }
+                }
+                SecondaryPill(SentenceHistory.SHOW_AGAIN, Modifier.testTag(SentenceHideTags.UNHIDE), horizontalPadding = 12.dp, fontSize = 14.sp) { history?.onUnhide?.invoke(row.key) }
+            }
+            undoKey?.let { key ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    SentenceUndoToast(SentenceHistory.HIDDEN_TOAST, onUndo = { history?.onUnhide?.invoke(key); undoKey = null }, onDone = { undoKey = null })
+                }
+            }
+        }
+        hiding?.let { row ->
+            SentenceHideSheet(row.hanzi, row.translation, onHide = { reason -> hiding = null; history?.onHide?.invoke(row.key, reason); undoKey = row.key }, onDismiss = { hiding = null })
         }
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -414,6 +460,8 @@ fun SentenceRowView(
     audioNote: String? = null,
     /** 🎤 left of ▶ once something is open (read it aloud / say it in Chinese); null = none. */
     practise: SentencePractiseState? = null,
+    /** "Stop showing this sentence" (long-press, and the open row's tools); null = not offered. */
+    onHideRequest: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
@@ -463,7 +511,7 @@ fun SentenceRowView(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable {
+                    .combinedClickable(onLongClick = onHideRequest) {
                         val cur = state.steps[row.key] ?: first
                         if (cur >= chain.size) practise?.clear(row.key)
                         state.steps[row.key] = if (cur >= chain.size) first else cur + 1
@@ -554,6 +602,9 @@ fun SentenceRowView(
                     }
                     if (!row.pinyin.isNullOrBlank() && !translation.isNullOrBlank()) {
                         ToolLink("+ Add as card", enabled = online, modifier = Modifier.testTag(SENTENCE_ADD_TAG)) { onAdd(Chunk(row.hanzi, row.pinyin, translation)) }
+                    }
+                    if (onHideRequest != null) {
+                        ToolLink("🙈 Hide", enabled = true, modifier = Modifier.testTag(SentenceHideTags.HIDE_TOOL).semantics { contentDescription = SentenceHistory.HIDE_TITLE }, onClick = onHideRequest)
                     }
                 }
                 state.explanations[row.key]?.let { ex ->

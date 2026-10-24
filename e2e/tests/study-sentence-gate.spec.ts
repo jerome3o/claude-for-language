@@ -255,3 +255,50 @@ test('sentence round: two said right open the answer with Good / Easy unlocked',
   await expect(page.getByTestId('rating-good')).not.toHaveAttribute('aria-disabled', 'true');
   await shot(page, 'web-07-answer-unlocked');
 });
+
+test('sentence history: hide a sentence in the round (Undo), more sentences asked for, Show hidden on the answer side', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const { token, deck, note } = await seedBankNote(request, 'sentence-hide');
+  await stubSet(page, note.id);
+  const topUps: unknown[] = [];
+  await page.route('**/api/sentences/top-up', async (route) => {
+    topUps.push(JSON.parse(route.request().postData() || '{}'));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ queued: 1, note_ids: [note.id] }) });
+  });
+  await revealFirstCard(page, token, deck.id);
+  await expect(page.getByTestId('sentence-round')).toBeVisible({ timeout: 15000 });
+  const exercises = page.getByTestId('sentence-round-exercise');
+  await expect(exercises).toHaveCount(4);
+  await expect(page.getByTestId('sentences-coming')).toHaveCount(0);
+
+  // ⋯ on the last exercise → the sheet → "Too rare": it leaves the round.
+  await exercises.nth(3).getByTestId('sentence-round-more').click();
+  await expect(page.getByTestId('sentence-hide-sheet')).toBeVisible();
+  await shot(page, 'history-01-hide-sheet');
+  await page.getByTestId('sentence-hide-too_rare').click();
+  await expect(exercises).toHaveCount(3);
+  await expect(page.getByText('Sentence hidden')).toBeVisible();
+  // Fewer than four left in rotation: more sentences are on the way.
+  await expect(page.getByTestId('sentences-coming')).toBeVisible();
+  await expect.poll(() => topUps).toContainEqual({ note_ids: [note.id], reason: 'few' });
+  await shot(page, 'history-02-sentences-coming');
+
+  // The hide reached the server.
+  await expect.poll(async () => {
+    const res = await api<{ events: Array<{ kind: string; reason: string | null }> }>(request, '/api/me/sentence-practice', { token });
+    return res.events.map((e) => `${e.kind}:${e.reason}`);
+  }).toContain('hide:too_rare');
+
+  // The answer side lists three; ⋯ → Show hidden (1) → Show again.
+  await page.getByTestId('sentence-round-skip').click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible();
+  await expect(page.locator('.sentence-set-row:not(.is-hidden-row)')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Sentence options' }).click();
+  await page.getByTestId('sentence-set-show-hidden').click();
+  await expect(page.getByTestId('sentence-set-hidden-row')).toHaveCount(1);
+  await page.getByTestId('sentence-set-hidden-row').scrollIntoViewIfNeeded();
+  await shot(page, 'history-03-show-hidden');
+  await page.getByTestId('sentence-set-unhide').click();
+  await expect(page.getByTestId('sentence-set-hidden-row')).toHaveCount(0);
+  await expect(page.locator('.sentence-set-row')).toHaveCount(4);
+});

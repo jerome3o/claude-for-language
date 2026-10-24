@@ -99,6 +99,8 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
+import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
+import androidx.compose.runtime.SideEffect
 import dev.jeromeswannack.chineselearning.lab.core.ListenContext
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.IntervalPreview
@@ -268,7 +270,28 @@ fun CardStage(
     // A resumed showing: what was already right (the round's exercises / the rows) still counts.
     remember(practise) { if (practise.rightKeys.isEmpty() && start.sentencesRight.isNotEmpty()) practise.rightKeys.addAll(start.sentencesRight); 0 }
     val roundRows = remember(view.presentation, view.sentences, note.sentenceClue, note.sentenceClueTranslation) { sentenceRows(view) }
-    val sentenceCount = roundRows.size
+    // Practice per sentence (data/sentences/SentencePracticeStore, core SentenceHistory): the round prefers
+    // what he knows least, hidden sentences never come; every judged take is recorded (not the pass).
+    val labApp = appCtx as? dev.jeromeswannack.chineselearning.lab.LabApp
+    val history = pass == null
+    val sentenceEvents by dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.events.collectAsState()
+    LaunchedEffect(Unit) {
+        val ok = labApp != null && runCatching { dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.load(labApp) }.isSuccess
+        if (!ok) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.markEmpty()
+    }
+    val noteStats = remember(sentenceEvents, note.id) { sentenceEvents?.let { SentenceHistory.stats(it, note.id) } }
+    val sentenceCount = roundRows.count { noteStats?.get(SentenceHistory.key(it.key))?.hidden == null }
+    SideEffect {
+        practise.onResult = if (!history || labApp == null) null else { key, mode, result ->
+            val rowKey = key.removePrefix("${SentencePractise.READ}:").removePrefix("${SentencePractise.TRANSLATE}:")
+            dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.recordAttempt(labApp, note.id, rowKey, mode, result)
+        }
+    }
+    val listHistory = if (history && labApp != null && noteStats != null) SentenceListHistory(
+        noteStats,
+        onHide = { key, reason -> dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.hide(labApp, note.id, key, reason, "list") },
+        onUnhide = { key -> dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.unhide(labApp, note.id, key, "list") },
+    ) else null
     var roundOpen by remember(view.presentation) {
         mutableStateOf(!revealed && start.roundOpen && SentenceRound.opens(gateEnabled, view.card.cardType, sentenceCount))
     }
@@ -420,6 +443,11 @@ fun CardStage(
                         onPlay = actions.onPlay,
                         onDone = { reveal(afterRound = true) },
                         onSkip = { reveal(afterRound = true) },
+                        stats = noteStats,
+                        coming = labApp != null && dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.coming(labApp, note.id),
+                        onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
+                        onHide = { key, reason -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.hide(labApp, note.id, key, reason, "round") },
+                        onUnhide = { key -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.unhide(labApp, note.id, key, "round") },
                     )
                 }
                 return@BoxWithConstraints
@@ -471,7 +499,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise,
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory,
                             onLeech = {
                                 sheet = CardSheet.Leech
                                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("card.leech_open", mapOf("lapses" to view.card.state.lapses, "card_type" to view.card.cardType))
@@ -887,6 +915,7 @@ private fun CardBack(
     onLeech: () -> Unit = {},
     /** The sentence rows' 🎤 (one microphone for the list). */
     practise: SentencePractiseState? = null,
+    listHistory: SentenceListHistory? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -1023,7 +1052,7 @@ private fun CardBack(
                     practise = practise,
                 )
             } else {
-                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise)
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise, history = listHistory)
             }
         }
     }

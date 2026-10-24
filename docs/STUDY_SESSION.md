@@ -1032,6 +1032,43 @@ practice or the Try-it previews.
   mode, got, needed }`. Tests: `SentenceRound.test.tsx`, E2E `study-sentence-gate.spec.ts`, Lab
   `SentenceRoundUiTest`.
 
+### Sentence practice history (which sentences he knows; hide one; more sentences)
+
+Every 🎤 take on an example sentence — in the Sentence round or on the answer side's rows — is recorded:
+**sentence, mode (read | translate), result (right | close | wrong), when**. "Stop showing this sentence"
+(hide + reason) and "Show again" (unhide) are recorded the same way. Like reviews these are EVENTS, the
+truth on every device: written on the device first (web: own IndexedDB `sentence-practice`; Lab: JsonCache
+`sentences/practice` + the Outbox), uploaded to `POST /api/me/sentence-practice` (idempotent by client id;
+the account's own notes only) and fetched back from `GET /api/me/sentence-practice?since=` in every sync
+(D1 `sentence_practice_events`, migration 0138; account deletion removes them). Each device folds a note's
+events into per-sentence stats (`sentenceStats`: attempts / rights / misses / last time per mode, hidden).
+The sentence key is the set row's id, or `clue` for the note's own sentence.
+
+- **The round picks for him**: each of its four slots (read, translate, read, translate) takes the sentence
+  he knows LEAST in that mode — never practised first, then fewest rights, then most misses, then the longest
+  ago (`compareLeastKnown`); ties in the list's spread order (the easiest, the hardest and evenly between),
+  every slot a different sentence; shown easiest → harder. With no history this is the round as before. The
+  picks are made once per showing, so a take never reshuffles the round; what was already right on this
+  showing still counts after a reload (`sentenceRoundProgress` with the sentences in rotation).
+- **Known** = right 3 times in a mode (`SENTENCE_KNOWN_RIGHTS`).
+- **More sentences**: when every sentence left in rotation is known in both modes (translate only where it has
+  English), or fewer than four are left, the word asks for more — `POST /api/sentences/top-up { note_ids,
+  reason: known | few }` (appends to the set; once a day per word; "few" counts what's left after his hidden
+  ones; ≤ 30 in a set) — and the round shows "✨ New sentences coming for this word". Offline the ask waits for
+  the next sync.
+- **Stop showing this sentence**: long-press a sentence (or its ⋯ in the round; "🙈 Hide" in an open row's
+  tools on the answer side) → the sheet with reason chips **🤔 Weird · ❌ Wrong · 🗑 Not useful · 🦄 Too rare** →
+  hidden for him at once (never offered in the round, not listed on the answer side, not counted by the gate
+  or "more sentences"), with an Undo toast. The answer side list's ⋯ → **Show hidden (N)** lists them with
+  **Show again**. Never the homework pass.
+- Rules: `shared/study/sentenceHistory.ts` (+ `pickRoundExercises` in `sentenceRound.ts`), Lab
+  `core/…/SentenceHistory.kt`, parity-tested (`parity/fixtures/sentence-history.ts`). Web
+  `services/sentencePractice.ts`, `components/study/SentenceHideSheet.tsx`, `SentenceRound.tsx`,
+  `SentenceSet.tsx`; Lab `data/sentences/SentencePracticeStore.kt`, `ui/study/SentenceHideUi.kt`,
+  `SentenceRoundUi.kt`, `Sentences.kt`. Worker `routes/sentence-practice.ts`, `services/sentence-practice.ts`.
+  Analytics `study.sentence_hidden { reason, where, unhidden }`, `study.sentence_topup_requested { why,
+  queued }`, `server.sentence_practice_events { count }`.
+
 ### "Sentence round before the answer (2 sentences)" — the gate (Settings → Study, off by default)
 
 Per device (web `services/sentenceGatePrefs.ts` localStorage, Lab `StudyPrefs.sentenceGate`;
