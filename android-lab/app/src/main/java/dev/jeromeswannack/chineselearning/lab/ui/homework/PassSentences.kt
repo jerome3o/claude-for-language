@@ -51,6 +51,8 @@ fun PassSentences(
     startExplained: Map<String, SentenceExplanation> = emptyMap(),
     startSteps: Map<String, Int> = emptyMap(),
     startMore: Boolean = false,
+    /** The card's sentence-row 🎤 (read it aloud — the pass's rows show the Chinese); null = none. */
+    practise: dev.jeromeswannack.chineselearning.lab.ui.study.SentencePractiseState? = null,
 ) {
     if (rows.isEmpty()) return
     val state = remember(key) { SentenceRowsState(startExplained).apply { steps.putAll(startSteps) } }
@@ -60,7 +62,7 @@ fun PassSentences(
     val hidden = rows.size - 1
     Column(modifier.fillMaxWidth().testTag("hw-pass-sentences"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (row in shown) {
-            SentenceRowView(row, state, online, playingKey, actions, onPlay, onAdd = { adding = it }, startStep = 1, englishToggle = false)
+            SentenceRowView(row, state, online, playingKey, actions, onPlay, onAdd = { adding = it }, startStep = 1, englishToggle = false, practise = practise)
         }
         if (hidden > 0) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

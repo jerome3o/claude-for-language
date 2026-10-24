@@ -80,7 +80,22 @@ class StudyPrefs private constructor(context: Context) {
         _newCharShimmerOn.value = on
     }
 
+    private val _sentenceGate = MutableStateFlow(sp.getBoolean(SENTENCE_GATE, false))
+
+    /**
+     * Settings → Study → "Get two sentences right before Good / Easy" (OFF by default; the web's
+     * services/sentenceGatePrefs.ts): the reading and meaning cards keep Good / Easy locked until two
+     * example sentences were said right with the rows' 🎤 (core SentencePractise.gate).
+     */
+    val sentenceGate: StateFlow<Boolean> = _sentenceGate
+
+    fun setSentenceGate(on: Boolean) {
+        sp.edit().putBoolean(SENTENCE_GATE, on).apply()
+        _sentenceGate.value = on
+    }
+
     companion object {
+        private const val SENTENCE_GATE = "sentence_gate"
         private const val NEW_CHAR_SHIMMER_ON = "new_char_shimmer_on"
         private const val PICTURES_ON = "card_pictures_on"
         private const val WORD_TAGS_ON = "word_tags_on"
