@@ -139,12 +139,18 @@ export function ClipPlayer(props: ClipPlayerProps) {
     }
   }, [active, play.done]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // When the scene began (analytics: how long the learner took on an interactive scene).
+  const sceneStartedAt = useRef(Date.now());
+  useEffect(() => {
+    sceneStartedAt.current = Date.now();
+  }, [play.scene, replay]);
+
   // An interactive scene settled (an answer / Skip): reported once, with instant feedback.
   useEffect(() => {
     const r = play.interact?.result;
     if (!r || !scene || reported.current === play.scene) return;
     reported.current = play.scene;
-    props.onInteract(scene.layout, r, Math.round(play.interact!.waited_ms));
+    props.onInteract(scene.layout, r, Date.now() - sceneStartedAt.current);
     clipFeedback(r === 'right' ? 'right' : r === 'wrong' ? 'wrong' : r === 'close' ? 'close' : r === 'done' ? 'flip' : 'tap', prefs.muted);
   }, [play.interact?.result, play.scene]); // eslint-disable-line react-hooks/exhaustive-deps
 

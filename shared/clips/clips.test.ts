@@ -274,9 +274,10 @@ describe('the clip clock', () => {
     // Waiting far past its duration: still waiting (no timeout), Skip shown.
     let t = clipStart(SAMPLE_CLIP, 4);
     t = clipTick(SAMPLE_CLIP, t, 60_000, false);
-    expect(t).toMatchObject({ scene: 4, elapsed_ms: 8000 });
+    expect(t).toMatchObject({ scene: 4, elapsed_ms: 8000, interact: { waited_ms: CLIP_SKIP_AFTER_MS } });
     expect(clipWaiting(t)).toBe(true);
     expect(clipSkipShown(t)).toBe(true);
+    expect(clipTick(SAMPLE_CLIP, t, 100, false)).toBe(t); // nothing changes any more while it waits
     t = clipSkip(t);
     expect(t.interact).toMatchObject({ picked: null, result: 'skipped' });
     expect(clipQuizRight(SAMPLE_CLIP, t)).toBeNull();

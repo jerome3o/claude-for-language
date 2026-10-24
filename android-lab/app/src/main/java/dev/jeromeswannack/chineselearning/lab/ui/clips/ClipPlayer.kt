@@ -160,8 +160,9 @@ fun ClipPlayer(
     }
     LaunchedEffect(running) { currentActions.onPlaying(running) }
 
-    // The clock.
-    LaunchedEffect(running) {
+    // The clock. An interactive scene that has stopped changing (waiting, Skip shown) parks the
+    // loop until it is answered, so a waiting clip asks for no frames.
+    LaunchedEffect(running, play.scene, play.interact?.result) {
         if (!running) return@LaunchedEffect
         var last = withFrameMillis { it }
         var acc = 0L
@@ -172,10 +173,15 @@ fun ClipPlayer(
             if (acc >= 80) {
                 val dt = acc.coerceAtMost(250)
                 acc = 0
-                play = Clips.tick(spec, play, dt.toDouble(), speaking[0])
+                val next = Clips.tick(spec, play, dt.toDouble(), speaking[0])
+                if (next === play && Clips.waiting(play)) break
+                play = next
             }
         }
     }
+    // When the scene began (analytics: how long the learner took on an interactive scene).
+    val sceneStartedAt = remember(clip.id) { longArrayOf(0) }
+    LaunchedEffect(play.scene, replay) { sceneStartedAt[0] = System.currentTimeMillis() }
 
     LaunchedEffect(play.done, active) {
         if (active && play.done && !completed[0] && previewState == null) {
@@ -189,7 +195,7 @@ fun ClipPlayer(
         val sc = spec.scenes.getOrNull(play.scene)
         if (result != null && sc != null && reported[0] != play.scene && previewState == null) {
             reported[0] = play.scene
-            currentActions.onInteract(sc.layout, result, play.interact?.waitedMs?.toLong() ?: 0L)
+            currentActions.onInteract(sc.layout, result, System.currentTimeMillis() - sceneStartedAt[0])
         }
     }
 

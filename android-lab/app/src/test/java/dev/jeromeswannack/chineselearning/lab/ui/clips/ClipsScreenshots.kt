@@ -44,8 +44,8 @@ class ClipsScreenshots : LabScreenshotTest() {
     private fun settled(scene: Int, result: String, picked: Int? = null) = ClipPlayState(scene, 6000.0, ClipInteractState(picked, result, 4000.0, 0.0), false)
 
     // Karaoke: the voice line at 1.1 s of a 2.4 s clip (有 being said), and a sentence being read.
-    @Test fun karaokeCaption() = shot("clips-23-karaoke-caption", record(sample), 0, ClipPlayState(0, 1100.0, null, false), speech = SpeechClock(0, -1, "刚和刚才，有什么不一样？", "zh", { 1300L }, { 2400L }))
-    @Test fun karaokeSentence() = shot("clips-24-karaoke-sentence", record(inter, "i1"), 2, ClipPlayState(2, 1500.0, null, false), speech = SpeechClock(2, 0, "你去超市的时候，顺便买点儿牛奶。", "zh", { 1700L }, { 3600L }))
+    @Test fun karaokeCaption() = shot("clips-23-karaoke-caption", record(sample), 0, ClipPlayState(0, 1100.0, null, false), speech = SpeechClock(0, -1, "刚和刚才，有什么不一样？", "zh", { 1300L }, { 2400L }, live = false))
+    @Test fun karaokeSentence() = shot("clips-24-karaoke-sentence", record(inter, "i1"), 2, ClipPlayState(2, 1500.0, null, false), speech = SpeechClock(2, 0, "你去超市的时候，顺便买点儿牛奶。", "zh", { 1700L }, { 3600L }, live = false))
     // The interactive beats (the comic sample + one in ink).
     @Test fun listenWaiting() = shot("clips-25-listen-waiting", record(inter, "i1"), 3, waiting(3))
     @Test fun listenRight() = shot("clips-26-listen-right", record(inter, "i1"), 3, settled(3, "right", 0))

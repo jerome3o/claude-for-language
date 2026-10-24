@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.clips
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -79,7 +80,10 @@ class ClipsSwipeTest {
         compose.mainClock.advanceTimeBy(2000)
         assertEquals(1, active.last(), "flick up over the quiz options: $active")
         // The rail's ⌄ Next.
-        compose.onAllNodesWithTag("clip-next")[0].performClick()
+        // (the pager also composes the clips around it: click the ⌄ of the clip on screen)
+        val buttons = compose.onAllNodesWithTag("clip-next")
+        val onScreen = buttons.fetchSemanticsNodes().indexOfFirst { it.boundsInRoot.width > 0f && it.boundsInRoot.top >= 0f && it.boundsInRoot.bottom <= compose.onRoot().fetchSemanticsNode().boundsInRoot.bottom }
+        buttons[onScreen].performClick()
         compose.mainClock.advanceTimeBy(2000)
         assertEquals(2, active.last(), "⌄ Next: $active")
     }

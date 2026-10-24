@@ -47,6 +47,8 @@ class SpeechClock(
     val lang: String,
     val positionMs: () -> Long,
     val durationMs: () -> Long?,
+    /** False = a still (screenshots): read once, no frame loop. */
+    val live: Boolean = true,
 )
 
 private val HAN = Regex("\\p{IsHan}")
@@ -78,12 +80,13 @@ fun KaraokeLine(
     LaunchedEffect(text, live, clock) {
         if (!live || clock == null) return@LaunchedEffect
         while (true) {
-            withFrameMillis { }
+            if (clock.live) withFrameMillis { }
             val d = clock.durationMs()
             if (d != null && d > 0) {
                 duration = d
                 position = clock.positionMs()
             }
+            if (!clock.live) break
         }
     }
     val words = remember(text, DeviceWords.of(text) != null) { if (lang == "zh") DeviceWords.of(text)?.map { it.text } else null }

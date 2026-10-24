@@ -24,7 +24,7 @@ export interface ClipInteractState {
   picked: number | null;
   /** null = waiting for the learner. */
   result: ClipInteractResult | null;
-  /** Time spent waiting (Skip shows after CLIP_SKIP_AFTER_MS). */
+  /** Time spent waiting, up to CLIP_SKIP_AFTER_MS (when Skip shows; then the state stops changing). */
   waited_ms: number;
   /** Time spent showing the answer. */
   reveal_ms: number;
@@ -88,7 +88,9 @@ export function clipTick(spec: Pick<ClipSpec, 'scenes'>, state: ClipPlayState, d
   if (state.interact) {
     if (state.interact.result === null) {
       const elapsed = Math.min(scene.duration_ms, state.elapsed_ms + dt);
-      return { ...state, elapsed_ms: elapsed, interact: { ...state.interact, waited_ms: state.interact.waited_ms + dt } };
+      const waited = Math.min(CLIP_SKIP_AFTER_MS, state.interact.waited_ms + dt);
+      if (elapsed === state.elapsed_ms && waited === state.interact.waited_ms) return state;
+      return { ...state, elapsed_ms: elapsed, interact: { ...state.interact, waited_ms: waited } };
     }
     const need = clipRevealMs(scene.layout, state.interact.result);
     const reveal = state.interact.reveal_ms + dt;

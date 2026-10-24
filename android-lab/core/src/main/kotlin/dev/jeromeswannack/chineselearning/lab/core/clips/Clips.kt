@@ -374,7 +374,9 @@ object Clips {
             val result = interact.result
             if (result == null) {
                 val elapsed = min(d, state.elapsedMs + dt)
-                return state.copy(elapsedMs = elapsed, interact = interact.copy(waitedMs = interact.waitedMs + dt))
+                val waited = min(SKIP_AFTER_MS, interact.waitedMs + dt)
+                if (elapsed == state.elapsedMs && waited == interact.waitedMs) return state
+                return state.copy(elapsedMs = elapsed, interact = interact.copy(waitedMs = waited))
             }
             val need = revealMs(scene.layout, result)
             val reveal = interact.revealMs + dt
