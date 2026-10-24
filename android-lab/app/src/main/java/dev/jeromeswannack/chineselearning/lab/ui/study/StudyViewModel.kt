@@ -424,7 +424,7 @@ class StudyViewModel(
             val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
             val card = id?.let { i -> queue.firstOrNull { it.id == i } }
             if (point != null && card != null) {
-                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point)))
+                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight))
                 return
             }
         }
@@ -548,6 +548,7 @@ class StudyViewModel(
         val p = CardStartState(
             flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs,
             spokenText = prev.spokenText, spokenReviewed = prev.spokenReviewed, practiceSaid = prev.practiceSaid,
+            roundOpen = prev.roundOpen && !revealed, sentencesRight = prev.sentencesRight,
         )
         progress = p
         progressPresentation = presentation
@@ -574,6 +575,19 @@ class StudyViewModel(
         setViewStart(presentation, p)
     }
 
+    /** CardStage reports the Sentence round (up or not) and what was said right on this showing (the resume point carries both). */
+    fun onCardRound(presentation: Int, roundOpen: Boolean, sentencesRight: List<String>) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = prev.copy(roundOpen = roundOpen, sentencesRight = sentencesRight)
+        if (p == prev) return
+        progress = p
+        progressPresentation = presentation
+        setViewStart(presentation, p)
+        saveResumePoint()
+    }
+
     /** The card type on screen (analytics from the screen). */
     fun currentCardType(): String? = currentView()?.card?.cardType
 
@@ -590,7 +604,7 @@ class StudyViewModel(
         val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
         val end = leftAt ?: System.currentTimeMillis()
         dayStore.saveResumePoint(
-            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0)),
+            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0), p.roundOpen && !p.flipped, p.sentencesRight),
         )
     }
 

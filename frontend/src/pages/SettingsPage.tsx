@@ -662,9 +662,10 @@ function UsageDataSection() {
 }
 
 /**
- * Settings → Study → "Get two sentences right before Good / Easy" (off by default, per device;
- * services/sentenceGatePrefs.ts): Good and Easy wait until two example sentences were said right
- * with 🎤 on the reading and meaning cards.
+ * Settings → Study → "Sentence round before the answer (2 sentences)" (off by default, per device;
+ * services/sentenceGatePrefs.ts): the reading and meaning cards go through the Sentence round
+ * (shared/study/sentenceRound.ts) before the answer, and Good and Easy wait until two example
+ * sentences were said right with 🎤.
  */
 function SentenceGateSetting() {
   const [on, setOn] = useState(readSentenceGateOn);
@@ -682,11 +683,11 @@ function SentenceGateSetting() {
           }}
           data-testid="sentence-gate-toggle"
         />
-        <span>Get two sentences right before Good / Easy</span>
+        <span>Sentence round before the answer (2 sentences)</span>
       </label>
       <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
         {on
-          ? 'On the reading and meaning cards, Good and Easy unlock once you’ve said two example sentences right with 🎤. Again and Hard are always there.'
+          ? 'On the reading and meaning cards, a round of four sentences (read two aloud, say two in Chinese) comes before the answer — get any two right and Good / Easy are unlocked. Skip it and they unlock once two sentences on the answer side are right. Again and Hard are always there.'
           : 'Off — rate any card straight away. The 🎤 on the example sentences is there either way.'}
       </p>
     </>

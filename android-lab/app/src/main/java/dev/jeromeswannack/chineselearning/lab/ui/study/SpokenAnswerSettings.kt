@@ -79,8 +79,8 @@ fun SpokenAnswerSection(
 }
 
 const val SKIP_REVIEW_LABEL = "Skip the review — submit spoken answers as soon as I stop"
-const val SENTENCE_GATE_LABEL = "Get two sentences right before Good / Easy"
-const val SENTENCE_GATE_ON_DESC = "On the reading and meaning cards, Good and Easy unlock once you’ve said two example sentences right with 🎤. Again and Hard are always there."
+const val SENTENCE_GATE_LABEL = "Sentence round before the answer (2 sentences)"
+const val SENTENCE_GATE_ON_DESC = "On the reading and meaning cards, a round of four sentences (read two aloud, say two in Chinese) comes before the answer — get any two right and Good / Easy are unlocked. Skip it and they unlock once two sentences on the answer side are right. Again and Hard are always there."
 const val SENTENCE_GATE_OFF_DESC = "Off — rate any card straight away. The 🎤 on the example sentences is there either way."
 const val WORD_TAGS_LABEL = "Word tags on the answer"
 const val WORD_TAGS_ON_DESC = "Small tags under the meaning: noun / verb, polite / colloquial, measure word, HSK level. Tap one to see what it means."

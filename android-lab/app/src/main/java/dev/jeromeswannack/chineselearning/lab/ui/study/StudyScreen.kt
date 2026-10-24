@@ -163,6 +163,8 @@ class StudyActions(
     val onTick: () -> Unit = {},
     /** The card's state changed (revealed, typed answer, grid result): kept so leaving Study never loses it. */
     val onCardProgress: (presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) -> Unit = { _, _, _, _ -> },
+    /** The Sentence round is up / what was said right on this showing (resume point; core SentenceRound). */
+    val onCardRound: (presentation: Int, roundOpen: Boolean, sentencesRight: List<String>) -> Unit = { _, _, _ -> },
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
@@ -298,6 +300,7 @@ fun StudyRoute(
             onTypeInstead = vm::typeInstead,
             onTick = { app.haptics.tick() },
             onCardProgress = vm::onCardProgress,
+            onCardRound = vm::onCardRound,
             onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()

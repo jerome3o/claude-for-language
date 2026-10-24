@@ -141,7 +141,9 @@ import { UndoToast } from '../components/upNext/UpNextBoard';
 import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 import { readSentenceGateOn } from '../services/sentenceGatePrefs';
-import { ratingLockedByGate, sentenceGate, sentenceGateBlockedNote, sentenceGateLabel } from '@shared/study/sentencePractise';
+import { ratingLockedByGate, sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
+import { sentenceRoundOpens } from '@shared/study/sentenceRound';
+import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -507,10 +509,15 @@ export function StudyCard({
   // "Get two sentences right before Good / Easy" (Settings → Study; shared/study/sentencePractise.ts):
   // the regular session's reading and meaning cards only, counted afresh on every showing.
   const [gateOn] = useState(() => inStudySession && !pass && readSentenceGateOn());
-  const [gateKeys, setGateKeys] = useState<string[]>([]);
+  const [gateKeys, setGateKeys] = useState<string[]>(() => restored.point?.sentences_right ?? []);
+  // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
+  // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
+  const roundCardType = gateOn && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
+  const roundSentenceRows = useRoundSentences(card.note, roundCardType);
+  const [roundOpen, setRoundOpen] = useState(() => roundCardType && !!restored.point?.round_open && !restored.point?.revealed);
   const [sentenceCount, setSentenceCount] = useState<number | null>(null);
   const [gateNote, setGateNote] = useState(false);
-  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount, rightKeys: gateKeys });
+  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundSentenceRows?.length ?? null, rightKeys: gateKeys });
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
     if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
@@ -530,6 +537,22 @@ export function StudyCard({
   }, [gateNote]);
   const onSentenceRight = useCallback((key: string) => {
     setGateKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
+  }, []);
+  /** The answer, or first the Sentence round when it applies to this showing. */
+  const revealOrRound = () => {
+    if (flipped || roundOpen) return;
+    if (sentenceRoundOpens({ enabled: gateOn, cardType: card.card_type, sentenceCount: roundSentenceRows ? roundSentenceRows.length : null })) {
+      setRoundOpen(true);
+      track('study.sentence_round', { action: 'shown', got: 0, needed: Math.min(2, roundSentenceRows?.length ?? 2) });
+      return;
+    }
+    setFlipped(true);
+  };
+  const revealOrRoundRef = useRef(revealOrRound);
+  revealOrRoundRef.current = revealOrRound;
+  const closeRound = useCallback(() => {
+    setRoundOpen(false);
+    setFlipped(true);
   }, []);
   const scrollToSentences = () => {
     document.querySelector('[data-testid="study-sentences"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -630,8 +653,10 @@ export function StudyCard({
       revealed: flipped,
       answer: userAnswer,
       elapsed_ms: Date.now() - startTime,
+      ...(roundOpen ? { round_open: true } : {}),
+      ...(gateKeys.length ? { sentences_right: gateKeys } : {}),
     });
-  }, [scope, card.id, flipped, userAnswer, startTime]);
+  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys]);
   const savePointRef = useRef(savePoint);
   savePointRef.current = savePoint;
   useEffect(() => { savePoint(); }, [savePoint]);
@@ -716,7 +741,7 @@ export function StudyCard({
         scheduleReplayRef.current();
         return;
       }
-      if (submit) setFlipped(true);
+      if (submit) revealOrRoundRef.current();
       else {
         // ✏️ Edit: the transcript in the box, focused, keyboard up; Check / Enter submits it.
         setTypingMode(true);
@@ -1051,7 +1076,7 @@ export function StudyCard({
 
   const handleFlip = () => {
     if (!flipped) {
-      setFlipped(true);
+      revealOrRound();
     }
   };
 
@@ -2956,7 +2981,18 @@ export function StudyCard({
           onPointerDown={handleCardPointerDown}
           onClick={handleCardClick}
         >
-          {!flipped ? (
+          {!flipped && roundOpen ? (
+            <SentenceRound
+              showingKey={card.id}
+              question={card.card_type === 'hanzi_to_meaning' ? card.note.hanzi : card.note.english}
+              questionIsChinese={card.card_type === 'hanzi_to_meaning'}
+              sentences={roundSentenceRows}
+              right={gateKeys}
+              onRight={onSentenceRight}
+              onDone={closeRound}
+              onSkip={closeRound}
+            />
+          ) : !flipped ? (
             <>
               <div className={`study-card-main ${isTypingCard ? 'study-card-main--typing' : ''}`}>
                 {renderFront()}
