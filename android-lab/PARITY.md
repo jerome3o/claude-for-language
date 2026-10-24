@@ -78,6 +78,7 @@ Owns `ui/study/` (CardStage, StudyScreen, StudyViewModel, Sentences), `core/…/
 | Typed-answer check (punctuation, numbers, 两/二, alternatives) + diff (wrong = red + solid underline, missing = "?" + dashed underline, typed and multiple choice; every row wraps, closing punctuation stays on its character’s line) | ✅ parity-tested, `AnswerWrapTest` | `utils/numberHanzi.ts`, `utils/answerDiff.ts`, `AnswerDiff` / `McAnswerDiff` | `core/…/AnswerKey.kt`, `ui/study/AnswerMarks.kt` |
 | Example sentences (clue row + set, tap-to-reveal, EN mode, show all, 🎤 read / translate a row, "Get two sentences right before Good / Easy") | ✅ | `components/SentenceSet.tsx` | `ui/study/Sentences.kt` |
 | Sentence round before the answer (4 exercises: 2 read + 2 say it in Chinese, any 2 right unlock Good / Easy, Skip, resume) | ✅ | `components/study/SentenceRound.tsx` | `ui/study/SentenceRoundUi.kt` |
+| Sentence practice history (🎤 takes per sentence synced, the round picks the least known, "Stop showing this sentence" + Show hidden, "✨ New sentences coming") | ✅ | `services/sentencePractice.ts`, `components/study/SentenceHideSheet.tsx` | `data/sentences/SentencePracticeStore.kt`, `ui/study/SentenceHideUi.kt` |
 | "Use in sentence" hint on the front | ✅ stored clue shown / played; generated when the note has none, ↻ regenerates (online) | `StudyPage.tsx` | `CardStage.kt` |
 | Undo last review (incl. server DELETE) | ✅ | `useStudySession.ts` undo | `StudyViewModel.undoLast` |
 | Study 10 more | ✅ | `utils/bonusNewCards.ts` | `Prefs.bonus` |
