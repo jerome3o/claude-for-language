@@ -53,6 +53,8 @@ data class MeDto(
     val new_card_order: kotlinx.serialization.json.JsonObject? = null,
     /** "Don't show a word's other card types on the same day" (core CardHolds); null from an older server. */
     val bury_siblings: Boolean? = null,
+    /** "Skip handwriting exercises" (core Handwriting); null from an older server. */
+    val skip_handwriting: Boolean? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
     /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
@@ -138,6 +140,8 @@ data class ChangesDto(
     val card_forgets: List<dev.jeromeswannack.chineselearning.lab.data.api.CardForgetDto>? = null,
     /** "Don't show a word's other card types on the same day"; null from an older server. */
     val bury_siblings: Boolean? = null,
+    /** "Skip handwriting exercises" (core Handwriting); null from an older server. */
+    val skip_handwriting: Boolean? = null,
 )
 
 @Serializable

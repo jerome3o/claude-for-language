@@ -186,7 +186,7 @@ function DeckPass({
   const { data: relationships } = useQuery({ queryKey: ['relationships'], queryFn: getMyRelationships, enabled: isOnline, staleTime: 5 * 60 * 1000 });
   const tutors = useMemo(() => relationships?.tutors || [], [relationships?.tutors]);
   const [busy, setBusy] = useState(false);
-  // Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3d): its own setting
+  // Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3e): its own setting
   // (default All), the check-first ladder + Sentence round on the reading / meaning cards, and a word
   // got right that way comes back ONCE more later on another card type before it counts as done.
   const passMode = usePassHardMode();

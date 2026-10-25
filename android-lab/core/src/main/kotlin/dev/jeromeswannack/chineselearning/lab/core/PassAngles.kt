@@ -2,7 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.core
 
 /**
  * Hard mode in the homework pass — a port of shared/homework/pass-angles.ts, parity-tested
- * (parity/fixtures/pass-angles.ts → PassAnglesParityTest). docs/HOMEWORK.md §3d.
+ * (parity/fixtures/pass-angles.ts → PassAnglesParityTest). docs/HOMEWORK.md §3e.
  *
  * The pass honours Hard mode (its own per-device setting, default All: StudyPrefs.passHardMode): the
  * check-first ladder + Sentence round on reading / meaning cards; a give-up locks Got it. A word got

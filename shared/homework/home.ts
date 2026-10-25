@@ -35,6 +35,7 @@
 import type { DueLabel, DueTone } from './due';
 import type { HomeworkItemView } from './items';
 import type { HomeworkAssignment } from './types';
+import type { RetryBar } from './retry-bar';
 import { deckSizeLabel } from './size';
 
 /** Long-term homework: an fsrs-mode assignment, or a deck / lesson a tutor sent before assignments existed. */
@@ -49,6 +50,8 @@ export interface LongTermHomework {
   /** Deck: words with at least one card out of NEW / all words. Null when unknown (not synced). */
   met: number | null;
   total: number | null;
+  /** The fsrs-mode assignment behind it ("Skip this homework" skips it); null / absent for a legacy pick. */
+  assignment_id?: string | null;
 }
 
 export interface HomeHomeworkRow {
@@ -61,8 +64,17 @@ export interface HomeHomeworkRow {
   progress: string;
   /** How big it is: "18 exercises · ~12 min", "5 questions · ~4 min", "12 words", "6 pages"; "" when unknown. */
   size: string;
-  /** 0..1 for the thin bar; null = no bar (lessons / readers, unknown). */
-  fraction: number | null;
+  /**
+   * The row's progress bar — the homework pass's retry bar (blue answered, ORANGE still owed at
+   * the right end, shared/homework/retry-bar.ts): a deck pass from its events, a lesson / revision
+   * from its run in progress on this device (`runBars`). Null = not started (Jerome: "If I haven't
+   * started it, there should be no bar") or nothing to show (readers, links).
+   */
+  bar: RetryBar | null;
+  /** The assignment behind the row (an assignment row, or a tutor's long-term lesson); null otherwise. */
+  assignment_id: string | null;
+  /** The mini lesson the row plays (a lesson assignment's copy, a revision, a new lesson); null otherwise. */
+  lesson_id: string | null;
   /** "overdue" · "due today" · "due tomorrow" · "due in 3 days" · "daily review" · "next session". */
   due: string;
   tone: DueTone;
@@ -115,11 +127,16 @@ export function compactDue(due: DueLabel): string {
 }
 
 /** "5 / 12" words, or the kind's word for a lesson / reader. */
-function oneOffProgress(item: HomeworkItemView): { progress: string; fraction: number | null } {
+function oneOffProgress(item: HomeworkItemView): string {
   const a = item.assignment;
-  if (a.kind !== 'deck') return { progress: KIND_WORD[a.kind] ?? a.kind, fraction: null };
+  if (a.kind !== 'deck') return KIND_WORD[a.kind] ?? a.kind;
   const { done, total } = item.progress;
-  return { progress: `${done} / ${total}`, fraction: total > 0 ? done / total : 0 };
+  return `${done} / ${total}`;
+}
+
+/** A bar only once something was answered — never an empty track for a row not started. */
+export function startedBar(bar: RetryBar | null | undefined): RetryBar | null {
+  return bar && bar.answered > 0 ? bar : null;
 }
 
 /** The route a tap on an assignment row opens: always the pass (it hosts the lesson / reader player). */
@@ -163,17 +180,21 @@ export function homeHomeworkRows(
     sizes?: Readonly<Record<string, string>>;
     /** Every mini lesson on the device (revisions due + new ones). */
     lessons?: readonly HomeLesson[];
+    /** The retry bar of each lesson with a run in progress on this device, by lesson id (`savedRunBar`). */
+    runBars?: Readonly<Record<string, RetryBar | null>>;
   } = {}
 ): HomeHomeworkRow[] {
   const sizes = opts.sizes ?? {};
+  const runBars = opts.runBars ?? {};
   const rows: HomeHomeworkRow[] = [];
   const covered = new Set<string>();
 
   for (const item of todo) {
-    if (item.done) continue;
+    if (item.done || item.skipped) continue;
     const a = item.assignment;
     covered.add(a.target_id);
-    const { progress, fraction } = oneOffProgress(item);
+    const progress = oneOffProgress(item);
+    const bar = a.kind === 'deck' ? startedBar(item.bar) : a.kind === 'lesson' ? startedBar(runBars[a.target_id]) : null;
     rows.push({
       key: a.id,
       kind: a.kind,
@@ -181,7 +202,9 @@ export function homeHomeworkRows(
       title: a.title,
       progress,
       size: a.kind === 'deck' ? deckSizeLabel(item.progress.total) : sizes[a.target_id] ?? '',
-      fraction,
+      bar,
+      assignment_id: a.id,
+      lesson_id: a.kind === 'lesson' ? a.target_id : null,
       due: compactDue(item.due),
       tone: item.due.tone,
       route: assignmentRoute(a),
@@ -191,7 +214,12 @@ export function homeHomeworkRows(
 
   // Lessons a tutor sent for long-term review (the only NEW lessons that are rows).
   const tutorOf = new Map<string, string | null>();
-  for (const l of longTerm) if (l.kind === 'lesson') tutorOf.set(l.target_id, l.tutor_name);
+  const assignmentOf = new Map<string, string>();
+  for (const l of longTerm) {
+    if (l.kind !== 'lesson') continue;
+    tutorOf.set(l.target_id, l.tutor_name);
+    if (l.assignment_id && !assignmentOf.has(l.target_id)) assignmentOf.set(l.target_id, l.assignment_id);
+  }
   const lessons = (opts.lessons ?? []).filter((l) => !l.locked && !covered.has(l.id));
   const byCreated = (a: HomeLesson, b: HomeLesson) =>
     a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
@@ -207,7 +235,9 @@ export function homeHomeworkRows(
       title: l.title,
       progress: l.revision > 0 ? `Revision ${l.revision}` : 'Revision',
       size: l.size,
-      fraction: null,
+      bar: startedBar(runBars[l.id]),
+      assignment_id: null,
+      lesson_id: l.id,
       due: 'due today',
       tone: 'today',
       route: lessonPlayRoute(l.id, true),
@@ -224,7 +254,9 @@ export function homeHomeworkRows(
       title: l.title,
       progress: 'new',
       size: l.size,
-      fraction: null,
+      bar: startedBar(runBars[l.id]),
+      assignment_id: assignmentOf.get(l.id) ?? null,
+      lesson_id: l.id,
       due: '',
       tone: 'none',
       route: lessonPlayRoute(l.id, false),
@@ -244,6 +276,8 @@ export function homeHomework(
     sizes?: Readonly<Record<string, string>>;
     /** Every mini lesson on the device (revisions due + new ones). */
     lessons?: readonly HomeLesson[];
+    /** The retry bar of each lesson with a run in progress on this device, by lesson id. */
+    runBars?: Readonly<Record<string, RetryBar | null>>;
   } = {}
 ): HomeHomework {
   const limit = opts.limit ?? HOME_HOMEWORK_LIMIT;

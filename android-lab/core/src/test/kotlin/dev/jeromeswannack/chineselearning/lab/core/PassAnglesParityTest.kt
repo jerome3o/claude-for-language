@@ -19,7 +19,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-/** Hard mode in the homework pass (docs/HOMEWORK.md §3d) reproduces shared/homework/pass-angles.ts exactly. */
+/** Hard mode in the homework pass (docs/HOMEWORK.md §3e) reproduces shared/homework/pass-angles.ts exactly. */
 class PassAnglesParityTest {
     private val json = Json { ignoreUnknownKeys = true }
 

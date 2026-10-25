@@ -1,7 +1,7 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
 
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d; shared/homework/pass-angles.ts): the pass's own
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e; shared/homework/pass-angles.ts): the pass's own
  * setting is All by default — the header's 🎯 chip and "2 angles per word"; the read card's take is checked
  * on the question (✓ Right), then the Sentence round, then Got it; giving up (Skip recording) locks Got it
  * and suggests Not yet; a word got right comes back ONCE more later on its meaning card ("Second angle")

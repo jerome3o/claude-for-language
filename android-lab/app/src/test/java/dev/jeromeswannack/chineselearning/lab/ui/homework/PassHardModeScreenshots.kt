@@ -18,7 +18,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.study.TranscriptionUi
 import org.junit.Test
 
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d; web: HomeworkPassPage + StudyCard `pass.hard`):
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e; web: HomeworkPassPage + StudyCard `pass.hard`):
  * the read card's answer checked on the question, the Sentence round, a give-up locking Got it, and a
  * word's second angle on another card. `./gradlew :app:recordRoborazziDebug` → app/screenshots/hwpass-hard-*.png.
  */

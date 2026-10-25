@@ -16,3 +16,4 @@ export * from './pass-card';
 export * from './size';
 export * from './retry-bar';
 export * from './pass-angles';
+export * from './row-actions';

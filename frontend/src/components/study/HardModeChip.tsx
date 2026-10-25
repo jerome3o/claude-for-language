@@ -13,7 +13,7 @@ import './HardModeChip.css';
  * through homework, and "Red cards only" is right there. Per device (services/hardModePrefs.ts); the
  * card on screen follows at once.
  *
- * `pass`: the homework pass's own chip (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3d) — the same
+ * `pass`: the homework pass's own chip (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3e) — the same
  * chip over the pass's setting (All words · Words I miss · Off; default All), the session's untouched.
  */
 export function HardModeChip({ pass = false }: { pass?: boolean }) {

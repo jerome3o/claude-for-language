@@ -36,7 +36,7 @@ import org.robolectric.annotation.Config
 import java.time.ZoneId
 
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d; web: HomeworkPassPage + StudyCard `pass.hard`,
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e; web: HomeworkPassPage + StudyCard `pass.hard`,
  * e2e homework-pass-hard-mode.spec.ts): its own setting (All by default), a hard Got it on a first angle
  * records a STEP and the word comes back once on its meaning card, a give-up locks Got it, Off is the
  * pass as before. Never a review event.

@@ -275,7 +275,7 @@ fun CardStage(
     // Hard mode (core HardMode; Off · Red cards only · All cards, StudyPrefs.hardMode / the header chip): the
     // question's own answer checked first, then the Sentence round, then the answer.
     val sessionHardMode by StudyPrefs.get(appCtx).hardMode.collectAsState()
-    // The homework pass brings its own setting and decides per word (core PassAngles, docs/HOMEWORK.md §3d).
+    // The homework pass brings its own setting and decides per word (core PassAngles, docs/HOMEWORK.md §3e).
     val hardModeSetting = pass?.hardMode ?: sessionHardMode
     val hardApplies = if (pass != null) pass.hardApplies && view.card.cardType in SentencePractise.GATE_CARD_TYPES
         else ui.practice == null && HardMode.applies(hardModeSetting, view.card.cardType, view.card.state.queue)
@@ -1380,7 +1380,7 @@ fun RatingBar(
 @Composable
 fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = false, onAnswer: (right: Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().testTag(PASS_RATE_TAG), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Hard mode, given up: Got it locked (🔒, faded); a tap says why (docs/HOMEWORK.md §3d).
+        // Hard mode, given up: Got it locked (🔒, faded); a tap says why (docs/HOMEWORK.md §3e).
         for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, if (gotItLocked) "🔒 Got it" else "Got it", if (gotItLocked) Lab.colors.muted else Palette.Good))) {
             val isSuggested = suggested == (if (right) "right" else "wrong")
             // Both tiles sit in the same 3dp frame, so the ringed one is the same size as the other.

@@ -8,7 +8,7 @@ import './homework.css';
  * a right typed / said answer, a "You said" that matched) — it is ringed and marked, nothing more:
  * the learner always chooses. Lab: `PassAnswerBar` in ui/study/CardStage.kt.
  *
- * Hard mode in the pass (docs/HOMEWORK.md §3d): after giving up (👁 Show answer before a right answer)
+ * Hard mode in the pass (docs/HOMEWORK.md §3e): after giving up (👁 Show answer before a right answer)
  * Got it is LOCKED (🔒, faded) with a line above saying so — a tap on it says why; Not yet is suggested.
  */
 export function PassAnswerButtons({

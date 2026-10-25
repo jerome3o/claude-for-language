@@ -38,17 +38,17 @@ import kotlinx.coroutines.withContext
 /** `/homework` and Home's Homework card: the mirror, as to-do / done items (web: useHomeworkItems). */
 class HomeworkListViewModel(app: LabApp) : ViewModel() {
     /** Home's card rows: its lesson rows (revisions due + new tutor-sent lessons) are listed here too. */
-    private val lessonRows: Flow<List<dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow>> =
-        HomeHomeworkSource(app).card.map { it.lessonRows }
-            .catch { e -> android.util.Log.e("Homework", "lesson rows failed", e); emit(emptyList()) }
-            .onStart { emit(emptyList()) }
+    private val card: Flow<HomeHomeworkUi> =
+        HomeHomeworkSource(app).card
+            .catch { e -> android.util.Log.e("Homework", "lesson rows failed", e); emit(HomeHomeworkUi()) }
+            .onStart { emit(HomeHomeworkUi()) }
 
-    val ui: StateFlow<HomeworkListUi> = combine(HomeworkStore.observe(app.cache), lessonRows) { data, lessons ->
-        if (data == null) HomeworkListUi(loaded = true, lessons = lessons)
+    val ui: StateFlow<HomeworkListUi> = combine(HomeworkStore.observe(app.cache), card) { data, c ->
+        if (data == null) HomeworkListUi(loaded = true, lessons = c.lessonRows, runBars = c.runBars)
         else {
             val today = Homework.localDate()
             val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(data.first, data.second, today))
-            HomeworkListUi(true, sorted.todo, sorted.done, today, lessons)
+            HomeworkListUi(true, sorted.todo, sorted.done, today, c.lessonRows, sorted.skipped, c.runBars)
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeworkListUi())
 
@@ -93,7 +93,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     /** The pass's Hard mode as last seen (analytics once; the sentence top-up when it is switched on). */
     private var hardModeTracked: String? = null
 
-    /** Hard mode in the pass (StudyPrefs.passHardMode, default All; docs/HOMEWORK.md §3d). */
+    /** Hard mode in the pass (StudyPrefs.passHardMode, default All; docs/HOMEWORK.md §3e). */
     private val passHardMode = dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(app).passHardMode
 
     val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, combine(local, bumped, passHardMode) { l, b, m -> Triple(l, b, m) }, app.online, targets) { data, notes, lb, online, targets ->

@@ -52,6 +52,8 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                     dev.jeromeswannack.chineselearning.lab.ui.study.SpokenAnswerSettings(app)
                     // Suspend & snooze: sibling burying + the held cards list (core CardHolds).
                     dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.CardControlsSettingsCard(app) { nav.open(it) }
+                    // "Skip handwriting exercises" (core Handwriting).
+                    dev.jeromeswannack.chineselearning.lab.ui.lessons.SkipHandwritingSettingsCard(app)
                 }
             },
             newCardOrder = { NewCardOrderSettingsCard(app) },

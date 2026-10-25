@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CardControlsSettings } from '../components/cardControls/CardControlsSettings';
+import { SkipHandwritingSetting } from '../components/settings/SkipHandwritingSetting';
 import { setCardPicturesEnabled, useCardPicturesEnabled } from '../services/noteImages';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
@@ -699,7 +700,7 @@ function HardModeSetting() {
 }
 
 /**
- * Settings → Study → "Hard mode in homework" (docs/HOMEWORK.md §3d): the one-off pass's own setting,
+ * Settings → Study → "Hard mode in homework" (docs/HOMEWORK.md §3e): the one-off pass's own setting,
  * per device, All by default (services/hardModePrefs.ts `usePassHardMode`, also the pass header's 🎯
  * chip) — the session's setting above is untouched.
  */
@@ -768,6 +769,7 @@ function SpokenAnswerSection() {
       <CardPicturesSetting />
       <NewCharShimmerSetting />
       <CardControlsSettings />
+      <SkipHandwritingSetting />
     </div>
   );
 }

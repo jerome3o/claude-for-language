@@ -1,5 +1,5 @@
 /**
- * Hard mode in the pass (docs/HOMEWORK.md §3d): after a give-up Got it is locked — a tap answers nothing
+ * Hard mode in the pass (docs/HOMEWORK.md §3e): after a give-up Got it is locked — a tap answers nothing
  * and says why; Not yet still answers.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';

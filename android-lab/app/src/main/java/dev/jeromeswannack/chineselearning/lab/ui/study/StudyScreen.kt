@@ -199,7 +199,7 @@ class StudyActions(
     // ---- the homework pass on the study card (PassCardUi) ----
     /**
      * Not yet / Got it: [answered] = take | spoken | typed | choice | none, [suggested] = right | wrong | null,
-     * [hard] = Hard mode's ladder ran on this showing (docs/HOMEWORK.md §3d).
+     * [hard] = Hard mode's ladder ran on this showing (docs/HOMEWORK.md §3e).
      */
     val onPassAnswer: (right: Boolean, answered: String, suggested: String?, hard: Boolean) -> Unit = { _, _, _, _ -> },
     /** "Add to my long-term review" flipped. */
@@ -527,7 +527,7 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
             Text("${pass.done}/${pass.total}", color = Palette.Secondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp).testTag(PASS_COUNT_TAG))
-            // Hard mode in the pass (its own setting, default All words; docs/HOMEWORK.md §3d).
+            // Hard mode in the pass (its own setting, default All words; docs/HOMEWORK.md §3e).
             val ctx = androidx.compose.ui.platform.LocalContext.current
             HardModeChip(pass.hardMode, compact = true, pass = true, onChange = { next ->
                 StudyPrefs.get(ctx).setPassHardMode(next)

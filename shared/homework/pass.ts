@@ -54,6 +54,28 @@ export function lastPassAnswer<E extends PassEvent>(events: readonly E[]): E | n
   return best;
 }
 
+/**
+ * "Skip this homework" (docs/HOMEWORK.md §3d): the live `skip` event of an assignment's events
+ * (the latest by created_at), or null. An undo takes it back like an answer.
+ */
+export function liveSkip<E extends PassEvent>(events: readonly E[]): E | null {
+  let best: E | null = null;
+  for (const e of livePassEvents(events)) {
+    if (e.result !== 'skip') continue;
+    if (!best || e.created_at >= best.created_at) best = e;
+  }
+  return best;
+}
+
+/**
+ * Is the assignment skipped? The device's events decide once any `skip` event is among them (an
+ * undo made here counts at once); otherwise the server's `skipped_at`.
+ */
+export function isSkipped(events: readonly PassEvent[], skippedAt: string | null | undefined): boolean {
+  if (events.some(e => e.result === 'skip')) return liveSkip(events) !== null;
+  return !!skippedAt;
+}
+
 export interface PassProgress {
   total: number;
   /** Items marked right (or done). */

@@ -18,6 +18,7 @@ import {
   passItemIds,
   passProgress,
   livePassEvents,
+  liveSkip,
   type HomeworkAssignment,
   type HomeworkEvent,
   type HomeworkLoad,
@@ -224,7 +225,8 @@ export async function recordEvents(db: D1Database, studentId: string, raw: unkno
   for (const r of raw) {
     const e = (r ?? {}) as Record<string, unknown>;
     if (typeof e.id !== 'string' || typeof e.assignment_id !== 'string' || typeof e.item_id !== 'string') continue;
-    if (e.result !== 'right' && e.result !== 'wrong' && e.result !== 'done' && e.result !== 'undo') continue;
+    // `skip` = "Skip this homework" (docs/HOMEWORK.md §3d); an undo takes it back.
+    if (e.result !== 'right' && e.result !== 'wrong' && e.result !== 'done' && e.result !== 'undo' && e.result !== 'skip') continue;
     // An undo names the event it takes back (docs/HOMEWORK.md §3b); without one it means nothing.
     if (e.result === 'undo' && (typeof e.undoes !== 'string' || !e.undoes)) continue;
     const createdAt = typeof e.created_at === 'string' && !isNaN(Date.parse(e.created_at)) ? new Date(e.created_at).toISOString() : new Date().toISOString();
@@ -246,7 +248,10 @@ export async function recordEvents(db: D1Database, studentId: string, raw: unkno
   return { accepted, assignments: updated };
 }
 
-/** done_count / status from the stored events. A cancelled assignment stays cancelled. */
+/**
+ * done_count / status / skipped_at from the stored events. A cancelled assignment stays cancelled;
+ * a skipped one keeps its status (`skipped_at` = the live skip's time; null once done or undone).
+ */
 export async function recomputeProgress(db: D1Database, assignments: HomeworkAssignment[]): Promise<HomeworkAssignment[]> {
   if (assignments.length === 0) return [];
   const events = await hw.listEvents(db, assignments.map((a) => a.id));
@@ -264,10 +269,11 @@ export async function recomputeProgress(db: D1Database, assignments: HomeworkAss
     // An undo can take a finished pass back to active (completed_at cleared).
     const live = livePassEvents(list);
     const completedAt = status === 'done' ? a.completed_at ?? live[live.length - 1]?.created_at ?? new Date().toISOString() : null;
-    if (progress.done !== a.done_count || status !== a.status || completedAt !== a.completed_at) {
-      await hw.setProgress(db, a.id, progress.done, status, completedAt);
+    const skippedAt = status === 'done' ? null : liveSkip(list)?.created_at ?? null;
+    if (progress.done !== a.done_count || status !== a.status || completedAt !== a.completed_at || skippedAt !== (a.skipped_at ?? null)) {
+      await hw.setProgress(db, a.id, progress.done, status, completedAt, skippedAt);
     }
-    out.push({ ...a, done_count: progress.done, status, completed_at: completedAt });
+    out.push({ ...a, done_count: progress.done, status, completed_at: completedAt, skipped_at: skippedAt });
   }
   return out;
 }

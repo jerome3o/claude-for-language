@@ -315,7 +315,7 @@ class StudyViewModel(
 
     /**
      * The pass shows [noteId] on [cardType]: the first angle is its read card (core PassAngles.firstAngleType —
-     * hanzi → meaning), a second angle in Hard mode another of its cards (docs/HOMEWORK.md §3d); when the
+     * hanzi → meaning), a second angle in Hard mode another of its cards (docs/HOMEWORK.md §3e); when the
      * note's cards aren't on the phone, a NEW card of that type for it (nothing is ever written for it).
      */
     fun showPassCard(noteId: String, attempt: Int, cardType: String = dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE) {

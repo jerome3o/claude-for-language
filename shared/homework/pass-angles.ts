@@ -1,5 +1,5 @@
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d; Jerome, Oct 2026: "Can we make them more like
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e; Jerome, Oct 2026: "Can we make them more like
  * the hard mode we have in the normal flashcards? … it's good to do a few different angles for each
  * word"). A one-off pass is the only time he sees these words for a while, so:
  *

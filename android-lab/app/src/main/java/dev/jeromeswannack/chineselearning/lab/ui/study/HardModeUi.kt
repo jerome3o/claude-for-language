@@ -78,7 +78,7 @@ private val ChipAll = Color(0xFFD97706)
  */
 @Composable
 fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = false, compact: Boolean = false, pass: Boolean = false) {
-    // `pass`: the homework pass's own chip (core PassAngles, docs/HOMEWORK.md §3d): All words · Words I miss · Off.
+    // `pass`: the homework pass's own chip (core PassAngles, docs/HOMEWORK.md §3e): All words · Words I miss · Off.
     val chipLabel = if (pass) PassAngles.chipLabel(mode) else HardMode.chipLabel(mode)
     val title = if (pass) PassAngles.TITLE else HardMode.TITLE
     val option = if (pass) PassAngles.OPTION else HardMode.OPTION

@@ -78,6 +78,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SectionHeader
 import dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
@@ -94,6 +95,17 @@ data class HomeworkListUi(
     val today: String = dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
     /** Home's lesson rows (revisions due + new lessons a tutor sent) — so "+N more" lands on them (web HomeworkPage). */
     val lessons: List<dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow> = emptyList(),
+    /** Homework he skipped ("Skip this homework", docs/HOMEWORK.md §3d) — "Bring back" each. */
+    val skipped: List<HomeworkItemView> = emptyList(),
+    /** The retry bar of each lesson with a run in progress here (a lesson homework row's bar). */
+    val runBars: Map<String, RetryBar?> = emptyMap(),
+)
+
+/** The /homework list's row menus and "Bring back". */
+class HomeworkListMenus(
+    val onItemMenu: ((HomeworkItemView) -> Unit)? = null,
+    val onRowMenu: ((dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow) -> Unit)? = null,
+    val onBringBack: (HomeworkItemView) -> Unit = {},
 )
 
 private const val DONE_LIMIT = 10
@@ -105,7 +117,7 @@ private const val DONE_LIMIT = 10
  * [onOpenRoute] a lesson row's web path.
  */
 @Composable
-fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (String) -> Unit, onOpenRoute: (String) -> Unit = {}) {
+fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (String) -> Unit, onOpenRoute: (String) -> Unit = {}, menus: HomeworkListMenus = HomeworkListMenus()) {
     var showAllDone by remember { mutableStateOf(false) }
     LabScreen("Homework", onBack = onBack) {
         item {
@@ -124,7 +136,7 @@ fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (Strin
             if (ui.todo.isEmpty()) {
                 val empty = if (ui.lessons.isNotEmpty()) "No one-off homework right now." else "Nothing to do — you’re all caught up. 🎉"
                 LabCard { Text(empty, Modifier.padding(16.dp).testTag("hw-empty"), color = Lab.colors.muted) }
-            } else HomeworkList(ui.todo, showTutor = true, today = ui.today, onOpen = onOpen)
+            } else HomeworkList(ui.todo, showTutor = true, today = ui.today, onOpen = onOpen, runBars = ui.runBars, onMenu = menus.onItemMenu)
         }
         if (ui.lessons.isNotEmpty()) {
             item { SectionHeader("Mini lessons") }
@@ -139,7 +151,21 @@ fun HomeworkListScreen(ui: HomeworkListUi, onBack: (() -> Unit)?, onOpen: (Strin
                 LabCard(Modifier.testTag("hw-lesson-rows")) {
                     ui.lessons.forEachIndexed { i, row ->
                         if (i > 0) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 46.dp, end = 16.dp), color = Lab.colors.faint)
-                        SlimRow(row) { onOpenRoute(row.route) }
+                        SlimRow(row, onMenu = menus.onRowMenu?.let { m -> { m(row) } }) { onOpenRoute(row.route) }
+                    }
+                }
+            }
+        }
+        if (ui.skipped.isNotEmpty()) {
+            item { SectionHeader("Skipped") }
+            item { Text("You skipped these — your tutor can see that. Bring one back any time.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            item {
+                LabCard(Modifier.testTag("hw-skipped")) {
+                    ui.skipped.forEachIndexed { i, item ->
+                        if (i > 0) RowDivider()
+                        HomeworkRow(item, showTutor = true, today = ui.today, onOpen = onOpen, trailing = {
+                            SecondaryPill("Bring back", Modifier.testTag("hw-undo-skip")) { menus.onBringBack(item) }
+                        })
                     }
                 }
             }
@@ -206,9 +232,9 @@ sealed interface PassUi {
         val deckInReview: Boolean = !oneOffOnly,
         /** What the pass decided, for the finish screen ("12 words added to daily review · 4 left out"). */
         val longTermSummary: LongTerm.Summary? = null,
-        /** The retry progress bar (core `PassAngles.plan` — `RetryBars.passRetryBar` plus the owed angles, docs/HOMEWORK.md §3c / §3d). */
+        /** The retry progress bar (core `PassAngles.plan` — `RetryBars.passRetryBar` plus the owed angles, docs/HOMEWORK.md §3c / §3e). */
         val bar: RetryBar = RetryBars.retryBar(progress.done + progress.retrying, progress.total - progress.done - progress.retrying, progress.retrying, progress.done, progress.total),
-        /** Hard mode in the pass (docs/HOMEWORK.md §3d): what is shown now (word, card type, angle), the setting, the ladder on this showing. */
+        /** Hard mode in the pass (docs/HOMEWORK.md §3e): what is shown now (word, card type, angle), the setting, the ladder on this showing. */
         val showing: dev.jeromeswannack.chineselearning.lab.core.PassAngles.Showing? = null,
         val hardMode: String = dev.jeromeswannack.chineselearning.lab.core.HardMode.OFF,
         val hardApplies: Boolean = false,
@@ -413,6 +439,7 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
                 // Finished here: Done shows the pass's end; a close mid-run just leaves — the run waits.
                 onEnd = actions.onLessonEnd,
                 resume = if (lesson.id.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonResume(androidx.compose.ui.platform.LocalContext.current, lesson.id, lesson.spec) else null,
+                skipHandwriting = androidx.compose.runtime.remember(lesson.id) { dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value },
             )
         else -> MissingTarget(ui.title, actions.onClose)
     }

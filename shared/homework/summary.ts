@@ -27,6 +27,8 @@ export interface OneOffSummaryInput {
   status: HomeworkStatus;
   due_date: string | null;
   completed_at: string | null;
+  /** Skipped by the student (docs/HOMEWORK.md §3d): neither open nor done — counted as `skipped`. */
+  skipped_at?: string | null;
 }
 
 /** none = nothing one-off ever set · all_done = nothing open · open · overdue = something open is past its due date. */
@@ -41,6 +43,8 @@ export interface OneOffSummary {
   open: number;
   overdue: number;
   due_today: number;
+  /** Skipped by the student (not done). */
+  skipped: number;
   /** done / total (0..100); 100 when all done; null when nothing was ever set. */
   percent: number | null;
   /** "✓ All done this week" · "2 of 3 done" · "1 overdue · 2 of 3 done" · "No homework set". */
@@ -66,8 +70,13 @@ export function summarizeOneOffHomework(
   let dueToday = 0;
   let doneRecent = 0;
   let doneEver = 0;
+  let skipped = 0;
   for (const a of assignments) {
     if (!hasOneOff(a.mode) || a.status === 'cancelled') continue;
+    if (a.status !== 'done' && a.skipped_at) {
+      skipped++;
+      continue;
+    }
     if (a.status === 'done') {
       doneEver++;
       const day = dayOf(a.completed_at) ?? a.due_date;
@@ -83,20 +92,22 @@ export function summarizeOneOffHomework(
   }
 
   const total = open + doneRecent;
-  const base = { total, done: doneRecent, open, overdue, due_today: dueToday };
+  const base = { total, done: doneRecent, open, overdue, due_today: dueToday, skipped };
+  const skippedTail = skipped > 0 ? ` · ${skipped} skipped` : '';
   if (open === 0 && doneEver === 0) {
+    if (skipped > 0) return { ...base, state: 'none', percent: null, label: `${skipped} skipped`, pill: `Homework ${skipped} skipped` };
     return { ...base, state: 'none', percent: null, label: 'No homework set', pill: 'No homework set' };
   }
   if (open === 0) {
     const label = doneRecent > 0 ? '✓ All done this week' : '✓ All done';
-    return { ...base, state: 'all_done', percent: 100, label, pill: `Homework ${label.replace('All', 'all')}` };
+    return { ...base, state: 'all_done', percent: 100, label: label + skippedTail, pill: `Homework ${label.replace('All', 'all')}` };
   }
   const percent = Math.round((100 * doneRecent) / total);
   const progress = `${doneRecent} of ${total} done`;
   if (overdue > 0) {
-    return { ...base, state: 'overdue', percent, label: `${overdue} overdue · ${progress}`, pill: `Homework ${overdue} overdue` };
+    return { ...base, state: 'overdue', percent, label: `${overdue} overdue · ${progress}${skippedTail}`, pill: `Homework ${overdue} overdue` };
   }
-  return { ...base, state: 'open', percent, label: progress, pill: `Homework ${progress}` };
+  return { ...base, state: 'open', percent, label: progress + skippedTail, pill: `Homework ${progress}` };
 }
 
 /**

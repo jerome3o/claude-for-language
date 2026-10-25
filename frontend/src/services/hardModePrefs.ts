@@ -49,7 +49,7 @@ export function useHardMode(): HardMode {
   return mode;
 }
 
-// --- Hard mode in the homework pass (shared/homework/pass-angles.ts; docs/HOMEWORK.md §3d) ---------
+// --- Hard mode in the homework pass (shared/homework/pass-angles.ts; docs/HOMEWORK.md §3e) ---------
 // Its own per-device setting, so the session's stays as he set it: a one-off pass is the only time he
 // sees those words for a while, so it is All unless he chose otherwise (Lab `StudyPrefs.passHardMode`).
 

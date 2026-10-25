@@ -87,6 +87,8 @@ data class ExerciseAttempt(
     val answer: ExerciseAnswer? = null,
     /** Asked again in the retry round (LessonRun): 1 = the first retry…; null on the main pass. */
     val retry: Int? = null,
+    /** "handwriting" = not asked: "Skip handwriting exercises" was on ([Handwriting]); never scored. */
+    val skipped: String? = null,
 )
 
 @Serializable

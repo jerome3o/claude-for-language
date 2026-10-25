@@ -339,7 +339,7 @@ export interface StudyCardPass {
   /** Where the Sentence Coach's "Back to your card" goes. */
   coachReturn?: string;
   /**
-   * Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3d): the pass's own setting
+   * Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3e): the pass's own setting
    * (its header chip) and whether the ladder runs on this showing. Giving up locks Got it.
    */
   hard?: { mode: HardMode; applies: boolean };

@@ -44,6 +44,8 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
         val ui by vm.ui.collectAsStateWithLifecycle()
         // Back from a lesson: its run may have moved on or finished.
         androidx.lifecycle.compose.LifecycleResumeEffect(Unit) { vm.refreshRuns(); onPauseOrDispose { } }
+        val menu = dev.jeromeswannack.chineselearning.lab.ui.homework.rememberRowActions(nav.app, "lessons_page")
+        dev.jeromeswannack.chineselearning.lab.ui.homework.RowActionsHost(menu)
         MiniLessonsScreen(
             ui,
             MiniLessonsActions(
@@ -55,6 +57,7 @@ fun NavGraphBuilder.lessonsGraph(nav: LabNav) {
                 onPlay = { id, revision -> nav.open(Routes.lessonPlay(id, "lessons_page", revision)) },
                 onUnlock = vm::unlock,
                 onListen = { nav.open(Routes.audioLesson(it)) },
+                onMenu = { entry -> menu.open(vm.menuTarget(entry)) },
             ),
         )
     }
@@ -126,13 +129,27 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
     val ui: StateFlow<MiniLessonsUi> = _ui.asStateFlow()
 
     init {
+        // Open / skipped homework on each lesson (the card menu's "Skip this homework"; skipped ones leave To do).
+        viewModelScope.launch {
+            dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkStore.observe(app.cache).collect { data ->
+                val (assignments, events) = data ?: (emptyList<dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment>() to emptyList())
+                val active = assignments.filter { it.kind == "lesson" && it.status == "active" }
+                fun skipped(a: dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment) =
+                    dev.jeromeswannack.chineselearning.lab.core.Homework.isSkipped(events.filter { it.assignment_id == a.id }, a.skipped_at)
+                val open = active.filter { !skipped(it) }
+                val openIds = open.mapTo(HashSet()) { it.target_id }
+                _ui.update { u -> u.copy(openHomework = open.associateBy { it.target_id }, skippedHomework = active.filter { skipped(it) && it.target_id !in openIds }.mapTo(HashSet()) { it.target_id }) }
+            }
+        }
+        // Runs saved / cleared (a lesson finished, Start over): the bars follow.
+        viewModelScope.launch { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.changes.collect { refreshRuns() } }
         viewModelScope.launch {
             // Cached lessons first; null only until the first sync has ever fetched them.
             val cached = runtime.store.hasCache()
             if (!cached) _ui.update { it.copy(lessons = null) }
             runtime.store.observe().collect { list ->
-                refreshRuns()
                 if (list.isNotEmpty() || runtime.store.hasCache()) _ui.update { it.copy(lessons = list, updatedAt = app.cache.updatedAt(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonStore.LIST)) }
+                refreshRuns()
                 // The locked lessons' podcasts (title, heard to the end) from the audio lessons cache.
                 val ids = list.mapNotNull { e -> e.unlock?.takeIf { e.locked && it.isAudio }?.audioLessonId }
                 if (ids.isNotEmpty()) {
@@ -173,10 +190,31 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
         }
     }
 
-    /** Runs in progress on this phone ("▶ Continue"); re-read whenever the list is shown again. */
+    /** Runs in progress on this phone ("▶ Continue") and their retry bars; re-read whenever the list is shown again. */
     fun refreshRuns() {
         val runs = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).inProgress()
-        _ui.update { it.copy(inProgress = runs.mapValues { e -> e.value.mode }, cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault())) }
+        _ui.update { u ->
+            val specs = u.lessons.orEmpty().associate { it.id to it.lesson.spec }
+            u.copy(
+                inProgress = runs.mapValues { e -> e.value.mode },
+                runBars = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.runBars(runs, specs, app.prefs.skipHandwriting),
+                cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault()),
+            )
+        }
+    }
+
+    /**
+     * What a card's menu acts on (core HomeworkRowActions): the tutor's open homework is skipped, his own
+     * lessons / revisions done for good or deleted (web MiniLessonsPage `menuTarget`).
+     */
+    fun menuTarget(entry: dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry): dev.jeromeswannack.chineselearning.lab.ui.homework.RowActionTarget {
+        val a = _ui.value.openHomework[entry.id]
+        val kind = when {
+            a != null -> if (dev.jeromeswannack.chineselearning.lab.core.Homework.hasOneOff(a.mode)) "assignment" else "tutor_lesson"
+            entry.isRevision -> "revision"
+            else -> "lesson"
+        }
+        return dev.jeromeswannack.chineselearning.lab.ui.homework.RowActionTarget(kind, entry.lesson.title, a?.tutor_name, a?.id, if (a != null) "lesson" else null, entry.id)
     }
 
     fun delete(id: String) {
@@ -184,6 +222,7 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
         viewModelScope.launch {
             try {
                 runtime.store.delete(id)
+                runtime.uploadSoon()
                 app.haptics.tick()
                 _ui.update { it.copy(deleting = null) }
             } catch (e: CancellationException) {

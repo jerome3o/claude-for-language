@@ -1,5 +1,5 @@
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d): the Sentence round needs the words' sentences,
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e): the Sentence round needs the words' sentences,
  * and one-off homework notes often have no generated set yet. When a pass opens in Hard mode, its words
  * with NO set are queued for one (`POST /api/sentences/prefetch`, the pass's words first) and those with
  * fewer than the round's four ask for more (`requestMoreSentences(…, 'few')` — once a day per word, kept

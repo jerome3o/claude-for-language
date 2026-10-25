@@ -4,9 +4,9 @@ import { sortHomeworkItems, toHomeworkItems, type HomeworkItem } from '../../ser
 
 /**
  * The student's one-off homework, live from IndexedDB (works offline): to-do
- * items overdue-first, then done ones. `null` while IndexedDB answers.
+ * items overdue-first, then done ones, then the ones he skipped. `null` while IndexedDB answers.
  */
-export function useHomeworkItems(): { todo: HomeworkItem[]; done: HomeworkItem[] } | null {
+export function useHomeworkItems(): { todo: HomeworkItem[]; done: HomeworkItem[]; skipped: HomeworkItem[] } | null {
   return (
     useLiveQuery(async () => {
       const [assignments, events] = await Promise.all([db.homeworkAssignments.toArray(), db.homeworkEvents.toArray()]);

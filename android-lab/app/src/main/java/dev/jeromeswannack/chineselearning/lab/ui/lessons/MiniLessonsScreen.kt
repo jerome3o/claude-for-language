@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -71,6 +72,12 @@ data class MiniLessonsUi(
     val audio: Map<String, Pair<String?, Boolean>> = emptyMap(),
     /** Runs in progress on this phone: lesson id → "full" | "revision" ("▶ Continue"). */
     val inProgress: Map<String, String> = emptyMap(),
+    /** Their retry bars (blue answered · orange owed), by lesson id — a started lesson's bar. */
+    val runBars: Map<String, dev.jeromeswannack.chineselearning.lab.core.RetryBar?> = emptyMap(),
+    /** Open (not skipped) homework on a lesson, by lesson id — its menu offers "Skip this homework". */
+    val openHomework: Map<String, dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment> = emptyMap(),
+    /** Lessons whose homework he skipped (and nothing else open on them) — out of To do. */
+    val skippedHomework: Set<String> = emptySet(),
 )
 
 class MiniLessonsActions(
@@ -84,6 +91,8 @@ class MiniLessonsActions(
     /** "Ready to unlock": unlock a locked lesson / open its podcast. */
     val onUnlock: (id: String) -> Unit = {},
     val onListen: (audioLessonId: String) -> Unit = {},
+    /** Long-press / ⋯ on a To do / Revision coming card: the row menu (web MiniLessonsPage). */
+    val onMenu: ((LessonEntry) -> Unit)? = null,
 )
 
 private val DAY = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
@@ -134,11 +143,14 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
     // Locked lessons (shared/lesson/unlock.ts) wait in "Ready to unlock" and nowhere else.
     val locked = ui.lessons.orEmpty().filter { it.locked }
     val lessons = ui.lessons?.filter { !it.locked }
-    val toDo = lessons.orEmpty().filter { it.id in ui.inProgress || it.isNew || it.revisionDue(ui.cutoff.ts) }
+    // Homework he skipped (docs/HOMEWORK.md §3d) leaves To do.
+    val skipped = lessons.orEmpty().filter { it.id in ui.skippedHomework && it.isNew && it.id !in ui.inProgress }
+    val skippedIds = skipped.mapTo(HashSet()) { it.id }
+    val toDo = lessons.orEmpty().filter { it.id !in skippedIds && (it.id in ui.inProgress || it.isNew || it.revisionDue(ui.cutoff.ts)) }
         .sortedWith(compareBy({ if (it.id in ui.inProgress) 0 else 1 }, { if (it.isRevision) 0 else 1 }))
     val toDoIds = toDo.mapTo(HashSet()) { it.id }
     val later = lessons.orEmpty().filter { it.id !in toDoIds && it.isRevision }.sortedBy { it.learn.dueMs ?: 0L }
-    val done = lessons.orEmpty().filter { it.id !in toDoIds && it.retired }
+    val done = lessons.orEmpty().filter { it.id !in toDoIds && it.id !in skippedIds && it.retired }
     LabScreen("🎓 Mini Lessons", onBack = actions.onBack) {
         item {
             Text(
@@ -179,15 +191,20 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
                 )
             }
         }
-        items(toDo, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        items(toDo, key = { it.id }) { LessonCard(it, ui, actions, menu = true) { confirm = it.id } }
         if (later.isNotEmpty()) {
             item { SectionHeader("Revision coming (${later.size})") }
-            items(later, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+            items(later, key = { it.id }) { LessonCard(it, ui, actions, menu = true) { confirm = it.id } }
         }
         if (done.isNotEmpty()) {
             item { SectionHeader("Done for good (${done.size})") }
             item { Text("Everything right first time. Do one again any time.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
             items(done, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
+        }
+        if (skipped.isNotEmpty()) {
+            item { SectionHeader("Skipped homework (${skipped.size})") }
+            item { Text("Your tutor can see you skipped these. Bring one back from Homework.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted) }
+            items(skipped, key = { it.id }) { LessonCard(it, ui, actions) { confirm = it.id } }
         }
     }
     confirm?.let { id ->
@@ -196,9 +213,9 @@ fun MiniLessonsScreen(ui: MiniLessonsUi, actions: MiniLessonsActions) {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLessonsActions, onDelete: () -> Unit) {
+private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLessonsActions, menu: Boolean = false, onDelete: () -> Unit) {
     var expanded by rememberSaveable(entry.id) { mutableStateOf(false) }
     val l = entry.lesson
     val (chip, chipColor) = learnChip(entry.learn, ui.cutoff)
@@ -209,7 +226,16 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(18.dp)),
     ) {
-        Row(Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.99f) { expanded = !expanded }.padding(14.dp), verticalAlignment = Alignment.Top) {
+        val onMenu = actions.onMenu?.takeIf { menu }
+        Row(
+            Modifier.fillMaxWidth()
+                .then(
+                    if (onMenu != null) Modifier.combinedClickable(onClick = { expanded = !expanded }, onLongClick = { onMenu(entry) }, onLongClickLabel = "More")
+                    else Modifier.bouncyClickable(pressedScale = 0.99f) { expanded = !expanded },
+                )
+                .padding(start = 14.dp, end = if (onMenu != null) 4.dp else 14.dp, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
             Text(l.icon ?: "🎓", fontSize = 28.sp, modifier = Modifier.width(44.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(l.title, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = Lab.colors.ink)
@@ -223,6 +249,14 @@ private fun LessonCard(entry: LessonEntry, ui: MiniLessonsUi, actions: MiniLesso
                 Text(meta, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.testTag("mini-lesson-size"))
             }
             StatusPill(chip, chipColor, Modifier.padding(start = 8.dp))
+            if (onMenu != null) dev.jeromeswannack.chineselearning.lab.ui.homework.RowMenuButton(l.title) { onMenu(entry) }
+        }
+        // Started on this phone: the run's retry bar (blue answered · orange still to put right). None otherwise.
+        ui.runBars[entry.id]?.let { bar ->
+            dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar(
+                bar, Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp).testTag("mini-lesson-bar"),
+                unit = dev.jeromeswannack.chineselearning.lab.core.LessonRun.EXERCISE_UNIT, height = 6.dp,
+            )
         }
         // Play it from here (the real player): a run in progress continues, a revision plays what was
         // missed (+ a few), a new lesson starts, a done one is "Do it again".

@@ -652,6 +652,35 @@ student's lessons, the library item's assignments and the homework library (`rev
 `shared/homework/library.ts`; Completed = all right first time, a lesson being revised is In progress
 and never Overdue) — computed server-side from the student's runs (`services/lesson-revision.ts`).
 
+### Row bars and the row menu (Oct 2026; docs/HOMEWORK.md §3d)
+
+A STARTED lesson / revision row (Home's card, `/homework`, Mini Lessons' To do / Revision coming) shows its run's
+retry bar — blue answered, orange still to put right (`savedRunBar` over the saved run; web
+`components/homework/useLessonRunBars.ts`, Lab `LessonProgressStore.runBars`); not started = no bar. Long-press /
+right-click / ⋯ opens the **row menu** (`shared/homework/row-actions.ts`): **Stop revising — done for good** (a
+`revisit_events` retire — done forever until Undo writes a restore; web `markLessonDone`, Lab
+`LessonStore.markDone`), **Delete lesson** (confirmed; offline-first — gone from the device at once, `DELETE /api/custom-lessons/:id` now or on
+the next sync, every sync leaves a pending delete out so it never comes back as a revision: web `services/lessonDeletes.ts`,
+Lab `LessonStore.delete` via the Outbox + `lessons/pending-deletes`), **Skip this homework** (the tutor's; she sees "Skipped by
+<student>"), **Skip handwriting exercises**.
+
+### Skip handwriting (`shared/lesson/handwriting.ts`; Lab `core/…/Handwriting.kt`, parity-tested)
+
+Jerome: "it's teaching me how to write characters, and I don't actually want to write characters". Settings → Study →
+**Skip handwriting exercises** (per account, off by default; `users.skip_handwriting`, migration 0139,
+`PUT /api/profile/skip-handwriting`, on `/api/auth/me` and `/api/sync/changes` as `skip_handwriting`, cached on the
+device — web `services/skipHandwriting.ts`, Lab `Prefs.skipHandwriting` + `data/lessons/SkipHandwriting.kt`; also the
+row menu's shortcut). With it on:
+- `write_handwriting` exercises are left out of every run (`lessonSteps(spec, only, { skipHandwriting })`, keys
+  unchanged) — never shown, scored or missed, so never a revision; a revision is picked from the steps without them;
+- a `dictation` with `input: 'handwrite'` is typed (`typedInsteadOfHandwriting`);
+- earlier misses on handwriting stop counting: `computeLessonLearnState(runs, marks, ignore = handwritingKeys(spec))`
+  (the device and the server's tutor views — `services/lesson-revision.ts` reads the student's switch) — a lesson
+  whose only misses were handwriting is done for good;
+- the finished attempt carries a row per exercise left out (`skippedHandwritingRows`: `skipped: 'handwriting'`,
+  correct null, 0 points), so the tutor's attempt review says **"skipped (handwriting off)"**.
+Analytics `settings.skip_handwriting { on, source: settings | row_menu | undo }`.
+
 ### Sizes (`shared/homework/size.ts`; Lab `core/…/HomeworkSize.kt`, parity-tested)
 
 Every Home homework row says how big it is: a lesson "18 exercises · ~12 min" (`EXERCISE_SECONDS` per
@@ -1018,7 +1047,7 @@ Jerome: "I said the word, recorded it, clicked submit, and it took me straight t
 I don't know if my answer was right until after the next questions." **Hard mode** is the Worldle-like ladder on
 the **reading (hanzi → meaning) and meaning (meaning → hanzi) cards** of the regular study session and of the
 **homework pass** (its own setting, default All words; Got it in place of Good / Easy, and a word got right comes back
-once more from another angle — docs/HOMEWORK.md §3d) — never the listening card, the tutor-notes practice or the
+once more from another angle — docs/HOMEWORK.md §3e) — never the listening card, the tutor-notes practice or the
 Try-it previews:
 
 1. **The question's own answer is checked AT ONCE, on the question** — with the checks the card already has: a
@@ -1169,7 +1198,7 @@ then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sent
 locked Good / Easy rates nothing, says why and scrolls there too. A card with fewer than two sentences
 (the card's own + the set) asks for as many as exist; none → no gate. The count starts again on every
 showing (a new showing, Undo). Never the listening card (its sentences are its clues), the homework
-pass (Not yet / Got it: there only giving up locks Got it, docs/HOMEWORK.md §3d), the tutor-notes practice or the Try-it previews. Every way of rating goes
+pass (Not yet / Got it: there only giving up locks Got it, docs/HOMEWORK.md §3e), the tutor-notes practice or the Try-it previews. Every way of rating goes
 through the same check (`handleRate` on the web, the RatingBar callback in the Lab; neither app has
 rating shortcuts or auto-advance). Rule: `sentenceGate` / `ratingLockedByGate` / `sentenceGateLabel` in
 `shared/study/sentencePractise.ts` (Lab `SentencePractise.gate` …). Analytics `study.sentence_gate

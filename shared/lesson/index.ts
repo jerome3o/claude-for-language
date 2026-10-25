@@ -48,3 +48,4 @@ export {
   JUDGE_DEFAULT_QUESTION, GAP_DEFAULT_QUESTION, JUDGE_CORRECT_LABEL, JUDGE_INCORRECT_LABEL,
   judgeResults, gapResults, allAnswered, itemsScoreLine, judgeFeedback, gapFeedback, gapOptionsFor,
 } from './judgeGap';
+export * from './handwriting';

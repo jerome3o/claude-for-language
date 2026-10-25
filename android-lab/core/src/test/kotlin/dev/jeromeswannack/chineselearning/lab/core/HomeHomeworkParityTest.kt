@@ -41,7 +41,7 @@ class HomeHomeworkParityTest {
             val events = json.decodeFromJsonElement(ListSerializer(HomeworkEvent.serializer()), o["events"]!!)
             val longTerm = o["longTerm"]!!.jsonArray.map {
                 val l = it.jsonObject
-                LongTermHomework(l["kind"]!!.str!!, l["target_id"]!!.str!!, l["title"]!!.str!!, l["tutor_name"]!!.str, l["sent_at"]!!.str!!, l["met"]!!.intOrNull, l["total"]!!.intOrNull)
+                LongTermHomework(l["kind"]!!.str!!, l["target_id"]!!.str!!, l["title"]!!.str!!, l["tutor_name"]!!.str, l["sent_at"]!!.str!!, l["met"]!!.intOrNull, l["total"]!!.intOrNull, l["assignment_id"]?.str)
             }
             assertEquals(o["active"]!!.jsonArray.map { it.jsonPrimitive.boolean }, longTerm.map(HomeHomework::longTermActive), "case[$i] active")
             val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, today)).todo
@@ -54,10 +54,11 @@ class HomeHomeworkParityTest {
                 )
             }
             val sizes = o["sizes"]!!.jsonObject.mapValues { it.value.str!! }
-            val card = HomeHomework.build(todo, longTerm, o["limit"]!!.jsonPrimitive.int, o["unreadFrom"]!!.str, sizes, lessons)
+            val runBars = (o["runBars"] as? JsonObject).orEmpty().mapValues { (_, v) -> if (v is JsonNull) null else bar(v.jsonObject) }
+            val card = HomeHomework.build(todo, longTerm, o["limit"]!!.jsonPrimitive.int, o["unreadFrom"]!!.str, sizes, lessons, runBars)
             val expected = o["card"]!!.jsonObject
             // Every row before the limit, and the lesson rows /homework lists ("+N more" agrees).
-            val all = HomeHomework.rows(todo, longTerm, sizes, lessons)
+            val all = HomeHomework.rows(todo, longTerm, sizes, lessons, runBars)
             assertEquals(o["allKeys"]!!.jsonArray.map { it.str }, all.map { it.key }, "case[$i] all rows")
             assertEquals(o["lessonKeys"]!!.jsonArray.map { it.str }, all.filter(HomeHomework::isLessonRow).map { it.key }, "case[$i] lesson rows")
             assertEquals(all.size, card.rows.size + card.more, "case[$i] more = rows past the limit")
@@ -75,8 +76,18 @@ class HomeHomeworkParityTest {
                 assertEquals(eo["title"]!!.str, row.title, "$where title")
                 assertEquals(eo["progress"]!!.str, row.progress, "$where progress")
                 assertEquals(eo["size"]!!.str, row.size, "$where size")
-                val fr = eo["fraction"]!!
-                if (fr is JsonNull) assertEquals(null, row.fraction, "$where fraction") else assertEquals(fr.jsonPrimitive.double, row.fraction, "$where fraction")
+                val eb = eo["bar"]!!
+                if (eb is JsonNull) assertEquals(null, row.bar, "$where bar") else {
+                    val b = row.bar ?: fail("$where bar missing")
+                    val ebo = eb.jsonObject
+                    assertEquals(ebo["answered"]!!.jsonPrimitive.int, b.answered, "$where bar answered")
+                    assertEquals(ebo["fresh"]!!.jsonPrimitive.int, b.fresh, "$where bar fresh")
+                    assertEquals(ebo["retries"]!!.jsonPrimitive.int, b.retries, "$where bar retries")
+                    assertEquals(ebo["doneFraction"]!!.jsonPrimitive.double, b.doneFraction, "$where bar done")
+                    assertEquals(ebo["retryFraction"]!!.jsonPrimitive.double, b.retryFraction, "$where bar retry")
+                }
+                assertEquals(eo["assignment_id"]!!.str, row.assignmentId, "$where assignment")
+                assertEquals(eo["lesson_id"]!!.str, row.lessonId, "$where lesson")
                 assertEquals(eo["due"]!!.str, row.due, "$where due")
                 assertEquals(eo["tone"]!!.str, row.tone, "$where tone")
                 assertEquals(eo["route"]!!.str, row.route, "$where route")
@@ -85,6 +96,11 @@ class HomeHomeworkParityTest {
         }
         assertTrue(cases.size >= 155)
     }
+
+    private fun bar(o: JsonObject) = RetryBars.retryBar(
+        answered = o["answered"]!!.jsonPrimitive.int, fresh = o["fresh"]!!.jsonPrimitive.int, retries = o["retries"]!!.jsonPrimitive.int,
+        itemsDone = o["itemsDone"]!!.jsonPrimitive.int, items = o["items"]!!.jsonPrimitive.int,
+    )
 
     @Test
     fun compactDueAndWordsMetMatchTypeScript() {

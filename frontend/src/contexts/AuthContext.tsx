@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
 import { writeNewCardOrder } from '../services/newCardOrder';
 import { writeBurySiblings } from '../services/burySiblings';
+import { writeSkipHandwriting } from '../services/skipHandwriting';
 import type { StudyBudgetInfo } from '@shared/decks';
 import { writeConversationVoices } from '../services/conversationVoices';
 import { writeConversationAudio } from '../services/conversationAudio';
@@ -40,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       writeStudyBudget(userData);
       writeNewCardOrder(userData as { new_card_order?: unknown });
       writeBurySiblings(userData as { bury_siblings?: unknown });
+      writeSkipHandwriting(userData as { skip_handwriting?: unknown });
       writeConversationVoices(userData.conversation_voices);
       writeConversationAudio(userData.conversation_audio);
       if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);

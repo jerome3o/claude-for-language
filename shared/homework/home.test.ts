@@ -44,6 +44,39 @@ function todo(assignments: HomeworkAssignment[], events: Array<{ assignment_id: 
   return sortHomeworkItems(toHomeworkItems(assignments, events.map((e, i) => ({ ...e, created_at: `2026-09-28T10:0${i}:00Z` })), TODAY)).todo;
 }
 
+describe('row bars: only once started, with the orange retry part', () => {
+  const deck = assignment({ id: 'a-deck', kind: 'deck', target_id: 'deck-1', item_ids: ['n1', 'n2'] });
+  const lesson = assignment({ id: 'a-lesson', kind: 'lesson', target_id: 'lesson-1' });
+  const runBar = { answered: 4, fresh: 3, retries: 1, itemsDone: 3, items: 7, slots: 8, doneFraction: 0.5, retryFraction: 0.125, onRetries: false, complete: false };
+
+  it('no bar for a pass not started', () => {
+    const rows = homeHomeworkRows(todo([deck, lesson]), []);
+    expect(rows.map((r) => r.bar)).toEqual([null, null]);
+  });
+
+  it("a lesson row takes its run in progress's bar; a revision and a tutor's new lesson too", () => {
+    const rows = homeHomeworkRows(todo([lesson]), [{ kind: 'lesson', target_id: 'lt', title: 'x', tutor_name: '明慧老师', sent_at: '2026-09-20T00:00:00Z', met: null, total: null, assignment_id: 'a-lt' }], {
+      runBars: { 'lesson-1': runBar, rev: runBar, lt: { ...runBar, answered: 0 } },
+      lessons: [
+        { id: 'rev', title: 'Rev', created_at: '2026-09-01', status: 'revision', locked: false, revision_due: true, revision: 1, due_ms: 1, size: '', tutor_name: null },
+        { id: 'lt', title: 'LT', created_at: '2026-09-02', status: 'new', locked: false, revision_due: false, revision: 0, due_ms: null, size: '', tutor_name: null },
+      ],
+    });
+    expect(rows.map((r) => [r.key, r.bar?.answered ?? null, r.assignment_id, r.lesson_id])).toEqual([
+      ['a-lesson', 4, 'a-lesson', 'lesson-1'],
+      ['revision:rev', 4, null, 'rev'],
+      // answered 0 = not started: no bar.
+      ['lesson:lt', null, 'a-lt', 'lt'],
+    ]);
+  });
+
+  it('a skipped assignment is not a row', () => {
+    const items = sortHomeworkItems(toHomeworkItems([deck, lesson], [{ id: 'k1', assignment_id: 'a-lesson', item_id: 'lesson-1', result: 'skip', created_at: '2026-09-28T10:00:00Z' }], TODAY));
+    expect(items.skipped.map((i) => i.assignment.id)).toEqual(['a-lesson']);
+    expect(homeHomeworkRows(items.todo, []).map((r) => r.key)).toEqual(['a-deck']);
+  });
+});
+
 describe('compactDue', () => {
   it('says "due tomorrow" for one day out and keeps the rest', () => {
     expect(compactDue(dueLabel('2026-09-30', TODAY))).toBe('due tomorrow');
@@ -66,8 +99,10 @@ describe('homeHomework rows', () => {
     ]);
     const { rows, more, heading } = homeHomework(items, []);
     expect(rows.map((r) => r.key)).toEqual(['a-lesson', 'a-deck', 'a-reader']);
-    expect(rows[0]).toMatchObject({ icon: '🎓', progress: 'lesson', fraction: null, due: 'overdue', tone: 'overdue', route: '/homework/a-lesson' });
-    expect(rows[1]).toMatchObject({ icon: '📚', title: '餐厅点菜', progress: '1 / 4', fraction: 0.25, due: 'due tomorrow', tone: 'soon', route: '/homework/a-deck' });
+    expect(rows[0]).toMatchObject({ icon: '🎓', progress: 'lesson', bar: null, due: 'overdue', tone: 'overdue', route: '/homework/a-lesson', assignment_id: 'a-lesson', lesson_id: 'lesson-1' });
+    expect(rows[1]).toMatchObject({ icon: '📚', title: '餐厅点菜', progress: '1 / 4', due: 'due tomorrow', tone: 'soon', route: '/homework/a-deck', assignment_id: 'a-deck', lesson_id: null });
+    // The pass's retry bar: Got it + Not yet = 2 steps, the Not yet owed once more (orange).
+    expect(rows[1].bar).toMatchObject({ answered: 2, fresh: 2, retries: 1, slots: 5 });
     expect(rows[2]).toMatchObject({ icon: '📖', progress: 'reader', due: 'due in 4 days', tone: 'later', route: '/homework/a-reader' });
     expect(more).toBe(0);
     expect(heading).toBe('From 明慧老师');

@@ -54,7 +54,7 @@ fun PassSentences(
     /** The card's sentence-row 🎤 (read it aloud — the pass's rows show the Chinese); null = none. */
     practise: dev.jeromeswannack.chineselearning.lab.ui.study.SentencePractiseState? = null,
     /**
-     * Hard mode in the pass (docs/HOMEWORK.md §3d): this showing's Sentence round — those sentences come
+     * Hard mode in the pass (docs/HOMEWORK.md §3e): this showing's Sentence round — those sentences come
      * first, opened and outlined with how each went, before "+ N more" (the web's SentenceSet `roundRows`).
      */
     roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(),

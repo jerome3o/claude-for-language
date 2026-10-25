@@ -101,7 +101,7 @@ class StudyPrefs private constructor(context: Context) {
     private val _passHardMode = MutableStateFlow(dev.jeromeswannack.chineselearning.lab.core.PassAngles.parseMode(sp.getString(PASS_HARD_MODE, null)))
 
     /**
-     * Hard mode in the homework pass (core PassAngles; the web's `usePassHardMode`, docs/HOMEWORK.md §3d):
+     * Hard mode in the homework pass (core PassAngles; the web's `usePassHardMode`, docs/HOMEWORK.md §3e):
      * its own setting so the session's stays as he set it — "all" (the default: a one-off pass is the only
      * time he sees those words for a while) · "red" (words he marks Not yet) · "off". Set from the pass's 🎯
      * chip or Settings → Study.

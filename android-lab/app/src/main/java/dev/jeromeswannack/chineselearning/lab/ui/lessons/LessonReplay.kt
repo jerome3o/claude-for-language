@@ -141,6 +141,7 @@ private fun LessonReplayRoute(nav: LabNav, state: ReplayState, vm: LessonReplayV
                 onEnd = nav::back,
                 resume = rememberLessonResume(LocalContext.current, e.id, e.lesson.spec),
                 revisionKeys = state.revisionKeys,
+                skipHandwriting = androidx.compose.runtime.remember(e.id) { dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value },
             )
         }
         is ReplayState.Locked -> LockedGate(state.entry, onUnlock = vm::unlock, onBack = nav::back)

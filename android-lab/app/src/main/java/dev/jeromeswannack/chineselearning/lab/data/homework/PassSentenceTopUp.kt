@@ -15,7 +15,7 @@ suspend fun Api.prefetchSentenceSetsFor(noteIds: List<String>, limit: Int): Queu
     post("/api/sentences/prefetch", PrefetchBody(noteIds, limit))
 
 /**
- * Hard mode in the homework pass (docs/HOMEWORK.md §3d; the web's services/passSentences.ts): the Sentence
+ * Hard mode in the homework pass (docs/HOMEWORK.md §3e; the web's services/passSentences.ts): the Sentence
  * round needs the words' sentences, and one-off homework notes often have no generated set yet. When a pass
  * opens in Hard mode its words with NO set are queued for one (the pass's words first) and those with
  * fewer than the round's four ask for more (`SentencePracticeStore.requestMore(…, "few")`, once a day per

@@ -19,13 +19,33 @@ import dev.jeromeswannack.chineselearning.lab.ui.study.PassCardUi
 import dev.jeromeswannack.chineselearning.lab.ui.study.StudyActions
 import dev.jeromeswannack.chineselearning.lab.ui.study.StudyRoute
 import dev.jeromeswannack.chineselearning.lab.core.LongTerm
+import kotlinx.coroutines.launch
 
 /** `/homework` (the list) and `/homework/:id` (the one-off pass, immersive). Package E. */
 fun NavGraphBuilder.homeworkGraph(nav: LabNav) {
     composable(Routes.route(Routes.homework())) {
         val vm: HomeworkListViewModel = viewModel(factory = HomeworkListViewModel.Factory(nav.app))
         val ui by vm.ui.collectAsStateWithLifecycle()
-        HomeworkListScreen(ui, onBack = nav::back, onOpen = { nav.open(Routes.homeworkPass(it)) }, onOpenRoute = { nav.open(it) })
+        val menu = rememberRowActions(nav.app, "homework")
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        RowActionsHost(menu)
+        HomeworkListScreen(
+            ui, onBack = nav::back, onOpen = { nav.open(Routes.homeworkPass(it)) }, onOpenRoute = { nav.open(it) },
+            menus = HomeworkListMenus(
+                onItemMenu = { item ->
+                    val a = item.assignment
+                    menu.open(RowActionTarget(dev.jeromeswannack.chineselearning.lab.core.HomeworkRowActions.ASSIGNMENT, a.title, a.tutor_name, a.id, a.kind, if (a.kind == "lesson") a.target_id else null))
+                },
+                onRowMenu = { row -> menu.open(row.actionTarget()) },
+                onBringBack = { item ->
+                    scope.launch {
+                        if (dev.jeromeswannack.chineselearning.lab.data.homework.HomeworkStore.undoSkip(nav.app, item.assignment.id)) {
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("homework.skipped", mapOf("kind" to item.assignment.kind, "undo" to true))
+                        }
+                    }
+                },
+            ),
+        )
     }
     composable(Routes.route("/homework/{id}")) { entry ->
         val id = entry.arguments?.getString("id").orEmpty()

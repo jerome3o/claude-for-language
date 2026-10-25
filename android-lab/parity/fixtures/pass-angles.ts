@@ -1,6 +1,6 @@
 /**
  * Golden vectors for Hard mode in the homework pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md
- * §3d): passAnglePlan over random passes (words with / without each card type and audio, Not yet /
+ * §3e): passAnglePlan over random passes (words with / without each card type and audio, Not yet /
  * Got it on note ids and step ids, done, undo, other items, equal timestamps), every mode; the
  * per-showing rules (passHardApplies, secondAngleType, passAnswerItemId, step ids) and the words.
  * Writes pass-angles.json; checked by core/…/PassAnglesParityTest.kt.
