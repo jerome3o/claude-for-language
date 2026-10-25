@@ -398,7 +398,7 @@ Check is pressed:
 | Access | Prefixes | Served |
 |---|---|---|
 | public | `generated/` (TTS clips), `reader-images/`, `lesson-images/`, `note-images/` (generated pictures), `avatars/` (profile photos, shown on the /join page) | to anyone, `Cache-Control: public, max-age=31536000` |
-| private | `recordings/` (study takes, recorded note pronunciations, old chat voice `recordings/messages/`, lesson answers `recordings/lessons/`), `calls/`, `note-uploads/` (uploaded card photos), `lesson-notes/` | with a credential, to someone allowed (below); `private, max-age=3600`, `Referrer-Policy: no-referrer` |
+| private | `recordings/` (study takes, recorded note pronunciations, old chat voice `recordings/messages/`, lesson answers `recordings/lessons/`), `calls/`, `note-uploads/` (uploaded card photos), `lesson-notes/`, `feedback/` (in-app feedback screenshots: their author + admins, docs/FEEDBACK.md) | with a credential, to someone allowed (below); `private, max-age=3600`, `Referrer-Policy: no-referrer` |
 | none | everything else — `chat-media/`, `audio-lessons/`, `tutor-recordings/`, `materials/`, `picture-hunts/`, `screenshots/`, `debug/`, `podcast-episodes/`, `tts-cache/`, `voice-samples/`, unknown prefixes | 404 — each has its own authenticated route (or nothing fetches it by key) |
 
 Every response goes through `applyStoredFileHeaders` (`nosniff`, `CSP: sandbox`, anything not

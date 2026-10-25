@@ -41,6 +41,7 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
                 onFullSync = { app.scope.launch { app.repo.sync(forceFull = true) } },
                 onOpenMainApp = { nav.openInMainApp("/") },
                 onSignOut = { app.scope.launch { app.repo.signOut(); nav.onSignedOut() } },
+                onSendFeedback = { dev.jeromeswannack.chineselearning.lab.data.feedback.FeedbackCenter.open(app, "menu") },
             ),
             extraRows = labExtraRows(nav),
         )

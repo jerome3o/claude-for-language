@@ -315,6 +315,8 @@ object AnalyticsEvents {
         ev("settings.full_sync", "settings", emptyList()),
         ev("settings.debug_report", "settings", emptyList()),
         ev("settings.sign_out_all", "settings", emptyList()),
+        ev("feedback.open", "feedback", listOf("via")),
+        ev("feedback.sent", "feedback", listOf("via", "kind", "has_screenshot", "queued")),
         ev("notification.tapped", "notifications", listOf("kind")),
         ev("error.shown", "errors", listOf("code", "where", "status")),
         ev("server.sentence_practice_events", "server", listOf("count"), server = true),

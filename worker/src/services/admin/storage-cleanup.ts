@@ -216,6 +216,14 @@ export const STORAGE_PREFIXES: StoragePrefix[] = [
     protectedReason: PERSON_MADE,
   },
   {
+    prefix: 'feedback/',
+    what: 'In-app feedback screenshots (`feedback/<user>/<id>.<ext>`, docs/FEEDBACK.md)',
+    writtenBy: 'services/feedback.ts createFeedback (POST /api/feedback)',
+    referencedBy: ['feature_requests.screenshot_key'],
+    collectable: false,
+    protectedReason: PERSON_MADE,
+  },
+  {
     prefix: 'debug/',
     what: 'Device debug reports (JSON)',
     writtenBy: 'services/debug-reports.ts (r2KeyFor); has its own retention',
@@ -280,6 +288,7 @@ export const REFERENCE_SOURCES: ReferenceSource[] = [
   { source: 'materials.original_key', sql: 'SELECT original_key AS v FROM materials WHERE original_key IS NOT NULL' },
   { source: 'material_pages.image_key', sql: 'SELECT image_key AS v FROM material_pages WHERE image_key IS NOT NULL' },
   { source: 'feature_requests.screenshot_url', sql: 'SELECT screenshot_url AS v FROM feature_requests WHERE screenshot_url IS NOT NULL' },
+  { source: 'feature_requests.screenshot_key', sql: 'SELECT screenshot_key AS v FROM feature_requests WHERE screenshot_key IS NOT NULL' },
   { source: 'homework_recordings.audio_url', sql: 'SELECT audio_url AS v FROM homework_recordings WHERE audio_url IS NOT NULL' },
   { source: 'homework_feedback.audio_feedback_url', sql: 'SELECT audio_feedback_url AS v FROM homework_feedback WHERE audio_feedback_url IS NOT NULL' },
   { source: 'tutor_recording_marks.model_audio_key', sql: 'SELECT model_audio_key AS v FROM tutor_recording_marks WHERE model_audio_key IS NOT NULL' },

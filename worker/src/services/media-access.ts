@@ -11,6 +11,7 @@
  *   calls/<callId>/…      call audio: the call's members (both sides of the relationship / the caller)
  *   note-uploads/…        an uploaded card picture: every owner of a note showing it, or their tutor
  *   lesson-notes/…        a lesson-note file: its owner
+ *   feedback/…            an in-app feedback screenshot: its author, or an admin (docs/FEEDBACK.md)
  *
  * "Their tutor" = the other side of an ACTIVE relationship in which the caller is the tutor.
  */
@@ -101,6 +102,14 @@ export async function canAccessMedia(db: D1Database, userId: string, keyOrUrl: s
       key,
     );
     return owners.includes(userId);
+  }
+  if (key.startsWith('feedback/')) {
+    const row = await db.prepare('SELECT user_id FROM feature_requests WHERE screenshot_key = ? LIMIT 1').bind(key).first<{ user_id: string }>();
+    const owner = row?.user_id;
+    if (!owner) return false;
+    if (owner === userId) return true;
+    const me = await db.prepare('SELECT is_admin FROM users WHERE id = ?').bind(userId).first<{ is_admin: number | null }>();
+    return !!me?.is_admin;
   }
   return false;
 }

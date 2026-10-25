@@ -1,10 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import html2canvas from 'html2canvas';
 import { useAuth } from '../contexts/AuthContext';
-import { createFeatureRequest, uploadFeatureRequestScreenshot } from '../api/client';
-import { getConsoleBuffer } from '../utils/consoleBuffer';
-import { AnnotationCanvas } from './AnnotationCanvas';
+import { useFeedback } from './feedback/FeedbackProvider';
 import { isImmersiveRoute } from './nav/tabs';
 import { FAB_SIZE, clampFabPosition, hasEditorBottomBar, isStudyLikePath } from './fabPosition';
 
@@ -32,15 +29,7 @@ function clamp(val: number, min: number, max: number) {
 export function FeedbackFAB() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
-  const [isOpen, setIsOpen] = useState(false);
-  const [content, setContent] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [includeConsoleLogs, setIncludeConsoleLogs] = useState(false);
-  const [screenshotDataUrl, setScreenshotDataUrl] = useState<string | null>(null);
-  const [includeScreenshot, setIncludeScreenshot] = useState(true);
-  const [isAnnotating, setIsAnnotating] = useState(false);
-  const [isAnnotated, setIsAnnotated] = useState(false);
+  const { openFeedback } = useFeedback();
 
   // Position state — null means use CSS default (bottom-right)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(loadPosition);
@@ -147,78 +136,12 @@ export function FeedbackFAB() {
     handleDragEnd();
   }, [handleDragEnd]);
 
-  // Click/tap — only open modal if we didn't drag
-  const handleClick = useCallback(async () => {
+  // Click/tap — only open the sheet if we didn't drag (the sheet takes the screenshot; this button
+  // is left out of it, data-html2canvas-ignore).
+  const handleClick = useCallback(() => {
     if (hasMoved.current) return;
-
-    // Capture screenshot before showing modal
-    try {
-      const canvas = await html2canvas(document.body, {
-        windowWidth: window.innerWidth,
-        windowHeight: window.innerHeight,
-        width: window.innerWidth,
-        height: window.innerHeight,
-        x: window.scrollX,
-        y: window.scrollY,
-      });
-      setScreenshotDataUrl(canvas.toDataURL('image/png'));
-      setIncludeScreenshot(true);
-    } catch (e) {
-      console.error('Failed to capture screenshot:', e);
-      setScreenshotDataUrl(null);
-    }
-    setIsOpen(true);
-  }, []);
-
-  const handleAnnotationSave = useCallback((compositedDataUrl: string) => {
-    setScreenshotDataUrl(compositedDataUrl);
-    setIsAnnotating(false);
-    setIsAnnotated(true);
-  }, []);
-
-  const handleAnnotationCancel = useCallback(() => {
-    setIsAnnotating(false);
-  }, []);
-
-  const handleSubmit = useCallback(async () => {
-    if (!content.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      // Get console logs if user wants to include them
-      let consoleLogs: string | undefined;
-      if (includeConsoleLogs) {
-        const buffer = getConsoleBuffer();
-        if (buffer) {
-          consoleLogs = buffer.getLogsAsString();
-        }
-      }
-
-      // Upload screenshot if included
-      let screenshotUrl: string | undefined;
-      if (includeScreenshot && screenshotDataUrl) {
-        const res = await fetch(screenshotDataUrl);
-        const blob = await res.blob();
-        const upload = await uploadFeatureRequestScreenshot(blob);
-        screenshotUrl = upload.url;
-      }
-
-      await createFeatureRequest(content.trim(), location.pathname, consoleLogs, screenshotUrl);
-      setSubmitted(true);
-      setContent('');
-      setIncludeConsoleLogs(false);
-      setScreenshotDataUrl(null);
-      setIsAnnotated(false);
-      setTimeout(() => {
-        setSubmitted(false);
-        setIsOpen(false);
-      }, 1500);
-    } catch (err) {
-      console.error('Failed to submit feedback:', err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [content, isSubmitting, includeConsoleLogs, includeScreenshot, screenshotDataUrl, location.pathname]);
+    openFeedback('fab');
+  }, [openFeedback]);
 
   if (!isAuthenticated) return null;
   // A video call fills the screen and has its own controls where the FAB would sit; so does the homework pass,
@@ -235,118 +158,19 @@ export function FeedbackFAB() {
   const pos = isDragging.current ? getPos() : clampFabPosition(getPos(), { width: window.innerWidth, height: window.innerHeight });
 
   return (
-    <>
-      {!isOpen && (
-        <button
-          ref={fabRef}
-          className={`feedback-fab ${isStudying ? 'feedback-fab-subtle' : ''} ${isDragging.current ? 'feedback-fab-dragging' : ''}`}
-          style={{ left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }}
-          onClick={handleClick}
-          onMouseDown={onMouseDown}
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-          aria-label="Send feedback"
-        >
-          <span className="feedback-fab-icon">💬</span>
-        </button>
-      )}
-
-      {isAnnotating && screenshotDataUrl && (
-        <AnnotationCanvas
-          screenshotDataUrl={screenshotDataUrl}
-          onSave={handleAnnotationSave}
-          onCancel={handleAnnotationCancel}
-        />
-      )}
-
-      {isOpen && !isAnnotating && (
-        <div className="feedback-modal-overlay" onClick={() => { if (!isSubmitting) setIsOpen(false); }}>
-          <div className="feedback-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="feedback-modal-header">
-              <h3>Feedback / Feature Request</h3>
-              <button className="modal-close" onClick={() => setIsOpen(false)}>&times;</button>
-            </div>
-
-            {submitted ? (
-              <div className="feedback-success">
-                <p>Thanks! Your feedback has been submitted.</p>
-              </div>
-            ) : (
-              <>
-                <textarea
-                  className="feedback-textarea"
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  placeholder="Describe a feature you'd like or give feedback..."
-                  rows={4}
-                  autoFocus
-                  disabled={isSubmitting}
-                />
-                <div className="feedback-context">
-                  Page: {location.pathname}
-                </div>
-                <div className="feedback-options">
-                  <label className="feedback-checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={includeConsoleLogs}
-                      onChange={(e) => setIncludeConsoleLogs(e.target.checked)}
-                      disabled={isSubmitting}
-                    />
-                    <span>Include console logs (for bug reports)</span>
-                  </label>
-                  {screenshotDataUrl && (
-                    <label className="feedback-checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={includeScreenshot}
-                        onChange={(e) => setIncludeScreenshot(e.target.checked)}
-                        disabled={isSubmitting}
-                      />
-                      <span>Include screenshot</span>
-                    </label>
-                  )}
-                </div>
-                {screenshotDataUrl && includeScreenshot && (
-                  <div className="feedback-screenshot-preview">
-                    <button
-                      type="button"
-                      className="feedback-screenshot-btn"
-                      onClick={() => setIsAnnotating(true)}
-                      disabled={isSubmitting}
-                    >
-                      <img
-                        src={screenshotDataUrl}
-                        alt="Screenshot preview"
-                        style={{ maxWidth: 200, border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
-                      />
-                      {isAnnotated && <span className="feedback-annotated-badge">edited</span>}
-                      <span className="feedback-screenshot-hint">Tap to annotate</span>
-                    </button>
-                  </div>
-                )}
-                <div className="feedback-actions sheet-footer">
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() => setIsOpen(false)}
-                    disabled={isSubmitting}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    onClick={handleSubmit}
-                    disabled={!content.trim() || isSubmitting}
-                  >
-                    {isSubmitting ? 'Sending...' : 'Submit'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+    <button
+      ref={fabRef}
+      className={`feedback-fab ${isStudying ? 'feedback-fab-subtle' : ''} ${isDragging.current ? 'feedback-fab-dragging' : ''}`}
+      style={{ left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }}
+      onClick={handleClick}
+      onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      aria-label="Send feedback"
+      data-html2canvas-ignore
+    >
+      <span className="feedback-fab-icon">💬</span>
+    </button>
   );
 }

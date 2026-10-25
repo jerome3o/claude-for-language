@@ -6,6 +6,7 @@ import { useNavRole } from '../components/nav/useNavRole';
 import { useMaintenanceActions } from '../components/nav/useMaintenanceActions';
 import { getPendingFeatureRequestCount } from '../api/client';
 import { listLibrary } from '../api/lessonEditor';
+import { useFeedback } from '../components/feedback/FeedbackProvider';
 import './MorePage.css';
 
 interface RowProps {
@@ -63,6 +64,7 @@ export function MorePage() {
   const role = useNavRole();
   const maintenance = useMaintenanceActions();
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { openFeedback } = useFeedback();
 
   // The Lesson Library is a teaching tool: shown to anyone with students,
   // anyone who already has library items (a tutor between students), and
@@ -199,6 +201,12 @@ export function MorePage() {
             label="Settings"
             desc={role.isTutorOnly ? 'Backup · Start on' : 'Offline audio · Backup · Start on'}
             to="/settings"
+          />
+          <NavRow
+            icon="💬"
+            label="Send feedback"
+            desc="Something wrong, or an idea? With a screenshot of the app"
+            onClick={() => openFeedback('menu')}
           />
           <NavRow icon="🚪" label="Sign out" onClick={() => { logout(); }} danger />
         </NavSection>

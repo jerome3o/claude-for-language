@@ -32,6 +32,7 @@ export type AnalyticsArea =
   | 'coach'
   | 'decks'
   | 'settings'
+  | 'feedback'
   | 'notifications'
   | 'errors'
   | 'server';
@@ -373,6 +374,10 @@ export const ANALYTICS_EVENTS = {
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),
   'settings.sign_out_all': e('settings', 'Signed out of all devices (Settings → Sign out of all devices; every session of the account revoked).', []),
+
+  // ── feedback (docs/FEEDBACK.md) ─────────────────────────────────────────
+  'feedback.open': e('feedback', 'Opened the Send feedback sheet (via = shake | menu | shortcut | vr | fab | settings).', ['via']),
+  'feedback.sent': e('feedback', 'Sent in-app feedback (kind = feedback | bug; queued = saved offline, sent later).', ['via', 'kind', 'has_screenshot', 'queued']),
 
   // ── notifications ──────────────────────────────────────────────────────
   'notification.tapped': e('notifications', 'Opened the app from a notification.', ['kind']),

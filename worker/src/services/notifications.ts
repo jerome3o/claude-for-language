@@ -45,6 +45,16 @@ export async function notifyAccessRequest(
   );
 }
 
+/** Someone other than an admin sent in-app feedback (docs/FEEDBACK.md). */
+export async function notifyFeedback(topic: string, info: { name: string; kind: string; preview: string; screenshot: boolean }): Promise<void> {
+  await sendNtfy(
+    topic,
+    info.kind === 'bug' ? 'Feedback: something is wrong' : 'Feedback',
+    `${info.name}${info.screenshot ? ' (with a screenshot)' : ''}: ${info.preview}`,
+    info.kind === 'bug' ? 'bug' : 'bulb',
+  );
+}
+
 export async function notifyNewChatMessage(topic: string, senderName: string, messagePreview: string): Promise<void> {
   await sendNtfy(
     topic,

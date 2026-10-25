@@ -348,7 +348,9 @@ async function collectR2Keys(db: D1Database, userId: string): Promise<string[]> 
     `SELECT image_url AS k FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)`,
     `SELECT audio_url AS k FROM homework_recordings WHERE homework_id IN ${HOMEWORK}`,
     `SELECT audio_feedback_url AS k FROM homework_feedback WHERE tutor_id = ?1 OR homework_id IN ${HOMEWORK}`,
-    `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1`,
+    `SELECT replace(screenshot_url, '/api/feature-requests/screenshot/', '') AS k FROM feature_requests WHERE user_id = ?1 AND screenshot_key IS NULL`,
+    // In-app feedback screenshots (docs/FEEDBACK.md).
+    `SELECT screenshot_key AS k FROM feature_requests WHERE user_id = ?1`,
     `SELECT picture_key AS k FROM users WHERE id = ?1`,
     `SELECT image_key AS k FROM picture_hunts WHERE user_id = ?1`,
     `SELECT original_key AS k FROM materials WHERE owner_id = ?1`,

@@ -84,6 +84,10 @@ class Analytics(
             debugLog("ignored unknown analytics event $event")
             return@safe
         }
+        synchronized(recent) {
+            recent.addLast(event)
+            while (recent.size > RECENT_MAX) recent.removeFirst()
+        }
         val now = clock()
         val id = newId()
         val json = wireJson(id, now, event, currentScreen, AnalyticsPrivacy.sanitizeProps(event, props))
@@ -91,6 +95,13 @@ class Analytics(
     }
 
     private var currentKey: String? = null
+
+    // The names (never props) of the last events tracked in this process, for a feedback item's
+    // context (docs/FEEDBACK.md); only while usage sharing is on.
+    private val recent = ArrayDeque<String>()
+
+    /** The last event names tracked, oldest first (empty when usage sharing is off). */
+    fun recentEventNames(): List<String> = if (!shareUsage()) emptyList() else synchronized(recent) { recent.toList() }
 
     /**
      * The route on top changed ([route] = the Lab route pattern or a web path; [key] = what
@@ -291,6 +302,7 @@ class Analytics(
         const val PLATFORM = "lab"
         /** A new analytics session after this long in the background (shared rule, docs/ANALYTICS.md). */
         const val SESSION_GAP_MS = 30 * 60_000L
+        const val RECENT_MAX = 15
         const val UPLOAD_EVERY_MS = 60_000L
         /** shared/analytics/wire.ts MAX_EVENTS_PER_UPLOAD. */
         const val MAX_PER_UPLOAD = 500

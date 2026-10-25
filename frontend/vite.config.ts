@@ -115,7 +115,7 @@ export default defineConfig({
             // credential and never go in a cache by URL; the app keeps its offline copy by R2 key
             // (services/audioCache.ts).
             urlPattern: ({ url }: { url: URL }) =>
-              /\/api\/audio\//.test(url.pathname) && !/\/api\/audio\/(recordings|calls|note-uploads|lesson-notes)\//.test(url.pathname),
+              /\/api\/audio\//.test(url.pathname) && !/\/api\/audio\/(recordings|calls|note-uploads|lesson-notes|feedback)\//.test(url.pathname),
             handler: 'CacheFirst',
             options: {
               cacheName: 'audio-cache',
