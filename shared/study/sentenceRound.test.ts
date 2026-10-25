@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
-  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, type RoundSentence,
+  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, roundRowMarks, orderKeysForRound, exercisesFromLog, type RoundSentence,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
 import { wantsMoreSentences } from './sentenceHistory';
@@ -84,5 +84,31 @@ describe('progress + the gate', () => {
     expect(sentenceRoundCheer(sentenceRoundProgress(ex, ['read:a', 'read:c']))).toBe('🎉 2 / 2 — Good and Easy unlocked');
     expect(sentenceRoundSkipNote(p)).toBe('Good and Easy stay locked until 1 more sentence is right — the sentences on the answer side still count.');
     expect(sentenceRoundIntro({ needed: 1, got: 0, done: false }, 1)).toBe('Get this one right');
+  });
+});
+
+describe('the round on the answer side', () => {
+  it('marks the round sentences in order, right sticking, skipped ones untried', () => {
+    const marks = roundRowMarks(
+      [{ id: 'read:a', result: 'wrong' }, { id: 'translate:b', result: 'close' }, { id: 'read:c' }, { id: 'translate:d', result: 'right' }],
+      ['read:a'],
+    );
+    expect(marks.map((m) => [m.key, m.outcome, m.label])).toEqual([
+      ['a', 'right', 'In the round · ✓ Right'],
+      ['b', 'close', 'In the round · ≈ Nearly'],
+      ['c', 'untried', 'In the round'],
+      ['d', 'right', 'In the round · ✓ Right'],
+    ]);
+    expect(roundRowMarks([{ id: 'bogus' }, { id: 'read:clue:n1', result: 'wrong' }], [])[0]).toMatchObject({ key: 'clue:n1', outcome: 'wrong', label: 'In the round · ✗ Not quite' });
+  });
+  it('puts them at the top in the round order', () => {
+    const marks = roundRowMarks([{ id: 'read:c' }, { id: 'translate:a' }, { id: 'read:zzz' }], []);
+    expect(orderKeysForRound(['a', 'b', 'c', 'd'], marks)).toEqual(['c', 'a', 'b', 'd']);
+  });
+  it('brings the same exercises back from the log', () => {
+    const list = [s('a'), s('b'), s('c')];
+    expect(exercisesFromLog(list, ['translate:c', 'read:a', 'read:zzz'])?.map((e) => e.id)).toEqual(['read:a', 'translate:c']);
+    expect(exercisesFromLog(list, ['read:a'], (k) => k === 'a')).toBeNull();
+    expect(exercisesFromLog(list, [])).toBeNull();
   });
 });

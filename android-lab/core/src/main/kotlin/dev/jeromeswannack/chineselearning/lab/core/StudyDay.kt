@@ -93,6 +93,8 @@ object StudyResume {
         val feedbackOpen: Boolean = false,
         /** `gave_up`: Hard mode — he looked at the answer before getting it right (Good / Easy locked). */
         val gaveUp: Boolean = false,
+        /** `round_log`: the round's exercises as shown + each one's last result (core SentenceRound.LogEntry). */
+        val roundLog: List<SentenceRound.LogEntry> = emptyList(),
     )
 
     /** `RESUME_MAX_ELAPSED_MS` */

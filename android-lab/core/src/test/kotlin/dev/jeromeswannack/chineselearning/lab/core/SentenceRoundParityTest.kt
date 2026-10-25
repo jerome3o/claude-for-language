@@ -67,6 +67,38 @@ class SentenceRoundParityTest {
     }
 
     @Test
+    fun answerSideMatches() {
+        val f = fixture()
+        for (c in f["parts"]!!.jsonArray) {
+            val o = c.jsonObject
+            val want = o["parts"]!!.let { if (it is JsonNull) null else it.jsonObject["mode"]!!.str!! to it.jsonObject["key"]!!.str!! }
+            assertEquals(want, SentenceRound.exerciseParts(o["id"]!!.str!!), o.toString())
+        }
+        val cases = f["answerSide"]!!.jsonArray
+        assertTrue(cases.size >= 100)
+        for (c in cases) {
+            val o = c.jsonObject
+            val what = o.toString()
+            val log = o["log"]!!.jsonArray.map { val e = it.jsonObject; SentenceRound.LogEntry(e["id"]!!.str!!, e["result"]?.str) }
+            val right = o["right"]!!.jsonArray.map { it.str!! }
+            val marks = SentenceRound.rowMarks(log, right)
+            val want = o["marks"]!!.jsonArray.map { val m = it.jsonObject; SentenceRound.RowMark(m["key"]!!.str!!, m["mode"]!!.str!!, m["outcome"]!!.str!!, m["label"]!!.str!!) }
+            assertEquals(want, marks, what)
+            val keys = o["keys"]!!.jsonArray.map { it.str!! }
+            assertEquals(o["order"]!!.jsonArray.map { it.str!! }, SentenceRound.orderKeys(keys, marks), what)
+            val hiddenKey = o["hiddenKey"]!!.str
+            val fromLog = SentenceRound.exercisesFromLog(keys.map { SentenceRound.Sentence(it, "${it}好", "x") }, log.map { it.id }) { it == hiddenKey }
+            val wantFrom = o["fromLog"]!!.let { el ->
+                if (el is JsonNull) null else el.jsonArray.map {
+                    val e = it.jsonObject
+                    SentenceRound.Exercise(e["id"]!!.str!!, e["key"]!!.str!!, e["mode"]!!.str!!, e["index"]!!.jsonPrimitive.int)
+                }
+            }
+            assertEquals(wantFrom, fromLog, what)
+        }
+    }
+
+    @Test
     fun opensMatch() {
         for (c in fixture()["opens"]!!.jsonArray) {
             val o = c.jsonObject

@@ -24,6 +24,7 @@ import {
   SENTENCE_ROUND_SKIP,
   SENTENCE_ROUND_TITLE,
   SENTENCE_ROUND_TRY_AGAIN,
+  exercisesFromLog,
   type RoundExercise,
 } from '@shared/study/sentenceRound';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
@@ -149,17 +150,26 @@ interface SentenceRoundProps {
   onDone: () => void;
   /** Skip to the answer (the gate still applies there). */
   onSkip: () => void;
+  /** The exercises of this showing's round shown before (resume): the same ones come back. */
+  initialIds?: readonly string[];
+  /** The exercises as picked (the answer side marks their sentences, in this order). */
+  onPicked?: (ids: string[]) => void;
+  /** A take on an exercise was judged (its last result; the answer side's outline). */
+  onResult?: (id: string, result: 'right' | 'close' | 'wrong') => void;
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult }: SentenceRoundProps) {
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
   const [picked, setPicked] = useState<RoundExercise[] | null>(null);
   useEffect(() => {
     if (picked || !sentences || !stats) return;
-    setPicked(pickRoundExercises(sentences, stats));
-  }, [picked, sentences, stats]);
+    const hidden = (key: string) => !!stats.get(sentenceHistoryKey(key))?.hidden;
+    const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null) ?? pickRoundExercises(sentences, stats);
+    setPicked(next);
+    onPicked?.(next.map((e) => e.id));
+  }, [picked, sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const isHidden = (key: string) => !!stats?.get(sentenceHistoryKey(key))?.hidden;
   const exercises = useMemo(() => (picked ?? []).filter((e) => !isHidden(e.key)), [picked, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const visibleKeys = useMemo(() => (sentences ?? []).filter((s) => !isHidden(s.key)).map((s) => s.key), [sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -208,12 +218,15 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
 
   // A result landed: right / miss, once per take (a translate take waits for Claude's check).
   const reported = useRef(new WeakSet<RowTake>());
+  const onResultRef = useRef(onResult);
+  onResultRef.current = onResult;
   useEffect(() => {
     exercises.forEach((ex, index) => {
       const t = practise.takes[ex.id];
       if (!t || reported.current.has(t) || t.claude?.status === 'checking') return;
       reported.current.add(t);
       const result = sentencePractiseResult(t.take.practised, t.claude?.status === 'done' ? t.claude.check.verdict : null);
+      if (result === 'right' || result === 'close' || result === 'wrong') onResultRef.current?.(ex.id, result);
       track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: ex.mode, got: progress.got, needed: progress.needed });
     });
   }, [practise.takes, exercises, progress.got, progress.needed]);

@@ -145,7 +145,7 @@ import { HardModeChip } from '../components/study/HardModeChip';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
 import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardModeTake } from '@shared/study/hardMode';
 import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
-import { sentenceRoundOpens } from '@shared/study/sentenceRound';
+import { roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 import { useSentenceStats } from '../services/sentencePractice';
 import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
@@ -523,6 +523,15 @@ export function StudyCard({
   const [feedbackOpen, setFeedbackOpen] = useState(() => hardApplies && !!restored.point?.feedback_open && !restored.point?.revealed && !restored.point?.round_open);
   // He looked at the answer before getting it right: Good / Easy stay locked on this showing.
   const [gaveUp, setGaveUp] = useState(() => !!restored.point?.gave_up);
+  // The round's exercises as shown + each one's last result: the answer side outlines those sentences,
+  // opened, at the top (docs/STUDY_SESSION.md "Sentence round"); a resumed round shows the same ones.
+  const [roundLog, setRoundLog] = useState<RoundLogEntry[]>(() => restored.point?.round_log ?? []);
+  const onRoundPicked = useCallback((ids: string[]) => {
+    setRoundLog((prev) => ids.map((id) => prev.find((e) => e.id === id) ?? { id }));
+  }, []);
+  const onRoundResult = useCallback((id: string, result: 'right' | 'close' | 'wrong') => {
+    setRoundLog((prev) => prev.map((e) => (e.id === id ? { ...e, result } : e)));
+  }, []);
   const [gateKeys, setGateKeys] = useState<string[]>(() => restored.point?.sentences_right ?? []);
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
@@ -538,6 +547,7 @@ export function StudyCard({
   const [gateNote, setGateNote] = useState(false);
   const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
   // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
+  const roundMarks = useMemo(() => (roundLog.length ? roundRowMarks(roundLog, gateKeys) : undefined), [roundLog, gateKeys]);
   const lock = hardModeLock(gate, gaveUp && gateOn, sentenceGateLabel(gate), sentenceGateBlockedNote(gate));
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
@@ -706,8 +716,9 @@ export function StudyCard({
       ...(gateKeys.length ? { sentences_right: gateKeys } : {}),
       ...(feedbackOpen ? { feedback_open: true } : {}),
       ...(gaveUp ? { gave_up: true } : {}),
+      ...(roundLog.length ? { round_log: roundLog } : {}),
     });
-  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys, feedbackOpen, gaveUp]);
+  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys, feedbackOpen, gaveUp, roundLog]);
   const savePointRef = useRef(savePoint);
   savePointRef.current = savePoint;
   useEffect(() => { savePoint(); }, [savePoint]);
@@ -3132,6 +3143,9 @@ export function StudyCard({
               onRight={onSentenceRight}
               onDone={closeRound}
               onSkip={closeRound}
+              initialIds={roundLog.map((e) => e.id)}
+              onPicked={onRoundPicked}
+              onResult={onRoundResult}
             />
           ) : !flipped ? (
             <>
@@ -3297,6 +3311,7 @@ export function StudyCard({
                     showingKey={card.id}
                     onPractiseRight={onSentenceRight}
                     onRowCount={setSentenceCount}
+                    roundRows={pass ? undefined : roundMarks}
                   />
                 </div>
               </div>

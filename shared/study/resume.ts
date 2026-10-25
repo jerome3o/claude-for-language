@@ -30,6 +30,8 @@ export interface StudyResumePoint {
   feedback_open?: boolean;
   /** Hard mode: he looked at the answer before getting it right — Good / Easy stay locked on this showing. */
   gave_up?: boolean;
+  /** The Sentence round's exercises as shown + each one's last result (the answer side marks them; the round comes back the same). */
+  round_log?: { id: string; result?: 'right' | 'close' | 'wrong' | null }[];
 }
 
 /** The scope key for a deck id (undefined / null = all decks). */

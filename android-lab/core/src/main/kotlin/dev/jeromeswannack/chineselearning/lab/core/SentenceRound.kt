@@ -130,4 +130,61 @@ object SentenceRound {
         if (left == 0) return "Good and Easy are unlocked."
         return "Good and Easy stay locked until ${if (left == 1) "1 more sentence is" else "$left more sentences are"} right — the sentences on the answer side still count."
     }
+
+    // --- the round on the answer side (`roundRowMarks` …) -------------------------------------------
+
+    /** `RoundLogEntry`: an exercise of the round as shown and its last judged take ("right" | "close" | "wrong" | null). */
+    data class LogEntry(val id: String, val result: String? = null)
+
+    /** `RoundRowMark`: outcome "right" | "close" | "wrong" | "untried". */
+    data class RowMark(val key: String, val mode: String, val outcome: String, val label: String)
+
+    /** `roundExerciseParts`: mode to key, null = not an exercise id. */
+    fun exerciseParts(id: String): Pair<String, String>? {
+        val at = id.indexOf(':')
+        if (at <= 0) return null
+        val mode = id.substring(0, at)
+        if (mode != SentencePractise.READ && mode != SentencePractise.TRANSLATE) return null
+        val key = id.substring(at + 1)
+        return if (key.isEmpty()) null else mode to key
+    }
+
+    /** `roundRowLabel` */
+    fun rowLabel(outcome: String): String = if (outcome == "untried") "In the round" else "In the round · ${RESULT.getValue(outcome)}"
+
+    /** `roundRowMarks` */
+    fun rowMarks(log: List<LogEntry>, rightIds: Collection<String>): List<RowMark> {
+        val right = rightIds.toSet()
+        val seen = HashSet<String>()
+        val out = ArrayList<RowMark>()
+        for (e in log) {
+            val (mode, key) = exerciseParts(e.id) ?: continue
+            if (!seen.add(key)) continue
+            val outcome = if (e.id in right || e.result == "right") "right" else e.result ?: "untried"
+            out += RowMark(key, mode, outcome, rowLabel(outcome))
+        }
+        return out
+    }
+
+    /** `orderKeysForRound` */
+    fun orderKeys(keys: List<String>, marks: List<RowMark>): List<String> {
+        val present = keys.toSet()
+        val first = marks.map { it.key }.filter { it in present }
+        val firstSet = first.toSet()
+        return first + keys.filter { it !in firstSet }
+    }
+
+    /** `exercisesFromLog`: null = none left (pick afresh). */
+    fun exercisesFromLog(sentences: List<Sentence>, ids: List<String>, hidden: (String) -> Boolean = { false }): List<Exercise>? {
+        val index = sentences.withIndex().associate { it.value.key to it.index }
+        val seen = HashSet<String>()
+        val out = ArrayList<Exercise>()
+        for (id in ids) {
+            val (mode, key) = exerciseParts(id) ?: continue
+            if (key in seen || key !in index || hidden(key)) continue
+            seen += key
+            out += Exercise(exerciseId(mode, key), key, mode, index.getValue(key))
+        }
+        return if (out.isEmpty()) null else out.sortedBy { it.index }
+    }
 }

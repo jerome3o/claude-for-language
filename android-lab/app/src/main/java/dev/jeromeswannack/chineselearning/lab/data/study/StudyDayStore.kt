@@ -34,7 +34,8 @@ class StudyDayStore private constructor(context: Context, private val zone: Zone
 
     @Serializable private data class LastDto(val at: Long, val day: String)
     @Serializable private data class StateDto(val totals: Map<String, Long> = emptyMap(), val last: LastDto? = null)
-    @Serializable private data class PointDto(val day: String, val scope: String, val card_id: String, val revealed: Boolean, val answer: String, val elapsed_ms: Long, val round_open: Boolean = false, val sentences_right: List<String> = emptyList(), val feedback_open: Boolean = false, val gave_up: Boolean = false)
+    @Serializable private data class PointDto(val day: String, val scope: String, val card_id: String, val revealed: Boolean, val answer: String, val elapsed_ms: Long, val round_open: Boolean = false, val sentences_right: List<String> = emptyList(), val feedback_open: Boolean = false, val gave_up: Boolean = false, val round_log: List<RoundLogDto> = emptyList())
+    @Serializable private data class RoundLogDto(val id: String, val result: String? = null)
     @Serializable private data class MarkDto(val day: String, val reviews: Int)
 
     private var state: ActiveTime.State = read<StateDto>(STATE)?.let { d -> ActiveTime.State(d.totals, d.last?.let { ActiveTime.Last(it.at, it.day) }) } ?: ActiveTime.State()
@@ -113,9 +114,9 @@ class StudyDayStore private constructor(context: Context, private val zone: Zone
 
     // ---------------- resume point ----------------
 
-    fun resumePoint(): StudyResume.Point? = read<PointDto>(POINT)?.let { StudyResume.Point(it.day, it.scope, it.card_id, it.revealed, it.answer, it.elapsed_ms, it.round_open, it.sentences_right, it.feedback_open, it.gave_up) }
+    fun resumePoint(): StudyResume.Point? = read<PointDto>(POINT)?.let { StudyResume.Point(it.day, it.scope, it.card_id, it.revealed, it.answer, it.elapsed_ms, it.round_open, it.sentences_right, it.feedback_open, it.gave_up, it.round_log.map { e -> dev.jeromeswannack.chineselearning.lab.core.SentenceRound.LogEntry(e.id, e.result) }) }
 
-    fun saveResumePoint(p: StudyResume.Point) = write(POINT, PointDto(p.day, p.scope, p.cardId, p.revealed, p.answer, p.elapsedMs, p.roundOpen, p.sentencesRight, p.feedbackOpen, p.gaveUp))
+    fun saveResumePoint(p: StudyResume.Point) = write(POINT, PointDto(p.day, p.scope, p.cardId, p.revealed, p.answer, p.elapsedMs, p.roundOpen, p.sentencesRight, p.feedbackOpen, p.gaveUp, p.roundLog.map { RoundLogDto(it.id, it.result) }))
 
     /** The card was rated / removed: clear its point (another card's point is left alone). */
     fun clearResumePoint(cardId: String? = null) {

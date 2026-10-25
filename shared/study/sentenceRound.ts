@@ -223,3 +223,82 @@ export function sentenceRoundSkipNote(p: RoundProgress): string {
   if (left === 0) return 'Good and Easy are unlocked.';
   return `Good and Easy stay locked until ${left === 1 ? '1 more sentence is' : `${left} more sentences are`} right — the sentences on the answer side still count.`;
 }
+
+// --- the round on the answer side --------------------------------------------------------------
+
+/** How an exercise of this showing's round went (right sticks; untried = never said). */
+export type RoundOutcome = 'right' | 'close' | 'wrong' | 'untried';
+
+/** One exercise of the round as shown, and its last judged take (resume point `round_log`). */
+export interface RoundLogEntry {
+  id: string;
+  result?: 'right' | 'close' | 'wrong' | null;
+}
+
+/** `read:<key>` / `translate:<key>` → its parts (null = not an exercise id). */
+export function roundExerciseParts(id: string): { mode: SentencePractiseMode; key: string } | null {
+  const at = id.indexOf(':');
+  if (at <= 0) return null;
+  const mode = id.slice(0, at);
+  if (mode !== 'read' && mode !== 'translate') return null;
+  const key = id.slice(at + 1);
+  return key ? { mode, key } : null;
+}
+
+/** A sentence of the answer side's list that was in the round: its outline and label. */
+export interface RoundRowMark {
+  key: string;
+  mode: SentencePractiseMode;
+  outcome: RoundOutcome;
+  label: string;
+}
+
+/** "In the round · ✓ Right" / "· ≈ Nearly" / "· ✗ Not quite" / "In the round" (icon + words, never colour alone). */
+export function roundRowLabel(outcome: RoundOutcome): string {
+  return outcome === 'untried' ? 'In the round' : `In the round · ${SENTENCE_ROUND_RESULT[outcome]}`;
+}
+
+/**
+ * The round's sentences for the answer side, in the round's order (each sentence once): right when it
+ * was said right on this showing (`rightIds` — the gate's count — or its last take), else its last
+ * result, else untried (he skipped it).
+ */
+export function roundRowMarks(log: readonly RoundLogEntry[], rightIds: readonly string[]): RoundRowMark[] {
+  const right = new Set(rightIds);
+  const seen = new Set<string>();
+  const out: RoundRowMark[] = [];
+  for (const entry of log) {
+    const parts = roundExerciseParts(entry.id);
+    if (!parts || seen.has(parts.key)) continue;
+    seen.add(parts.key);
+    const outcome: RoundOutcome = right.has(entry.id) || entry.result === 'right' ? 'right' : entry.result ?? 'untried';
+    out.push({ key: parts.key, mode: parts.mode, outcome, label: roundRowLabel(outcome) });
+  }
+  return out;
+}
+
+/** The answer side's order: the round's sentences first (in the round's order), then the rest as they were. */
+export function orderKeysForRound(keys: readonly string[], marks: readonly RoundRowMark[]): string[] {
+  const present = new Set(keys);
+  const first = marks.map((m) => m.key).filter((k) => present.has(k));
+  const firstSet = new Set(first);
+  return [...first, ...keys.filter((k) => !firstSet.has(k))];
+}
+
+/**
+ * The exercises of a round shown before (resume): the logged ids whose sentences are still in
+ * rotation, in sentence order — null when none (pick afresh).
+ */
+export function exercisesFromLog(sentences: readonly RoundSentence[], ids: readonly string[], hidden?: (key: string) => boolean): RoundExercise[] | null {
+  const index = new Map(sentences.map((s, i) => [s.key, i]));
+  const out: RoundExercise[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const parts = roundExerciseParts(id);
+    if (!parts || seen.has(parts.key) || !index.has(parts.key) || hidden?.(parts.key)) continue;
+    seen.add(parts.key);
+    out.push({ id: roundExerciseId(parts.mode, parts.key), key: parts.key, mode: parts.mode, index: index.get(parts.key)! });
+  }
+  if (!out.length) return null;
+  return out.sort((a, b) => a.index - b.index);
+}
