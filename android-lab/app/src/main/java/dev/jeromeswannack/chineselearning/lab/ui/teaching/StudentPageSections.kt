@@ -386,7 +386,11 @@ fun AssignedHomeworkCard(
     onCancel: (AssignmentDto) -> Unit,
 ) {
     val oneOff = data.assignments.filter { it.mode != "fsrs" && it.status != "cancelled" }
-    val active = oneOff.filter { it.status == "active" }.sortedWith { a, b -> HomeworkPlan.compareDue(a.due_date, b.due_date).takeIf { it != 0 } ?: (a.part_index - b.part_index) }
+    // A homework the student skipped stays listed, last, as "Skipped by <student>" (docs/HOMEWORK.md §3d).
+    val active = oneOff.filter { it.status == "active" }.sortedWith { a, b ->
+        (if (a.skipped_at != null) 1 else 0).compareTo(if (b.skipped_at != null) 1 else 0).takeIf { it != 0 }
+            ?: HomeworkPlan.compareDue(a.due_date, b.due_date).takeIf { it != 0 } ?: (a.part_index - b.part_index)
+    }
     val doneAll = oneOff.filter { it.status == "done" }
     val done = doneAll.take(5)
     var openId by remember { mutableStateOf<String?>(null) }
@@ -405,7 +409,8 @@ fun AssignedHomeworkCard(
                         Text(a.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         MutedLine(progressText(a) + if (a.mode == "both") " · + long-term" else "")
                     }
-                    DueChip(HomeworkPlan.dueLabel(a.due_date, today))
+                    if (a.skipped_at != null) dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill("Skipped by $studentName", Color(0xFF57534E), Modifier.testTag("tutor-hw-skipped"))
+                    else DueChip(HomeworkPlan.dueLabel(a.due_date, today))
                 }
                 if (openId == a.id) {
                     DueDateChooser(a.due_date, today, label = "Due") { onMoveDate(a, it); openId = null }

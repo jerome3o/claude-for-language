@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.HomeLesson
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkSize
+import dev.jeromeswannack.chineselearning.lab.core.Handwriting
 import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.LessonRun
 import dev.jeromeswannack.chineselearning.lab.core.LessonUnlock
@@ -89,6 +90,8 @@ data class LessonEntry(
     val learn: LessonRevision.State,
     /** When it was unlocked: the server's, or this phone's pending unlock (the earliest). */
     val unlockedAt: String? = lesson.unlockedAt,
+    /** "Skip handwriting exercises" was on when this was computed (its runs leave write_handwriting out). */
+    val skipHandwriting: Boolean = false,
 ) {
     val id: String get() = lesson.id
     val reps: Int get() = learn.runs
@@ -104,17 +107,17 @@ data class LessonEntry(
     val unlockItem: LessonUnlocks.Item get() = LessonUnlocks.Item(id, unlock, unlockedAt)
 
     /** The scored exercises of its next revision (`revisionKeys`), in lesson order. */
-    fun revisionKeys(): List<String> = LessonRevision.revisionKeys(learn, LessonRun.steps(lesson.spec), id)
+    fun revisionKeys(): List<String> = LessonRevision.revisionKeys(learn, LessonRun.steps(lesson.spec, null, skipHandwriting), id)
 
     fun revisionDue(cutoffMs: Long): Boolean = LessonRevision.isDue(learn, cutoffMs)
 
     /** "18 exercises · ~12 min" — the whole lesson. */
-    fun lessonSize(): String = HomeworkSize.lessonSizeLabel(LessonRun.steps(lesson.spec).map { it.type })
+    fun lessonSize(): String = HomeworkSize.lessonSizeLabel(LessonRun.steps(lesson.spec, null, skipHandwriting).map { it.type })
 
     /** "5 questions · ~4 min" — its revision as it would be played now. */
     fun revisionSize(): String {
         val keys = revisionKeys()
-        return HomeworkSize.revisionSizeLabel(keys.size, LessonRun.steps(lesson.spec, keys).map { it.type })
+        return HomeworkSize.revisionSizeLabel(keys.size, LessonRun.steps(lesson.spec, keys, skipHandwriting).map { it.type })
     }
 
     /** As Home's card sees it (web `homeLessonOf`). */
@@ -161,12 +164,12 @@ class LessonStore(
     private val listensSerializer = ListSerializer(LocalListen.serializer())
 
     fun observe(): Flow<List<LessonEntry>> =
-        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), cache.observe(UNLOCKS, unlocksSerializer)) { list, local, marks, unlocks ->
-            merge(list.orEmpty(), local.orEmpty(), marks, unlocks.orEmpty())
+        combine(cache.observe(LIST, listSerializer), cache.observe(LOCAL, localSerializer), revisit.observeMarks(), cache.observe(UNLOCKS, unlocksSerializer), SkipHandwriting.state) { list, local, marks, unlocks, skip ->
+            merge(list.orEmpty(), local.orEmpty(), marks, unlocks.orEmpty(), skip)
         }.flowOn(Dispatchers.Default)
 
     suspend fun entries(): List<LessonEntry> =
-        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), cache.get(UNLOCKS, unlocksSerializer).orEmpty())
+        merge(cache.get(LIST, listSerializer).orEmpty(), cache.get(LOCAL, localSerializer).orEmpty(), revisit.marks(), cache.get(UNLOCKS, unlocksSerializer).orEmpty(), SkipHandwriting.state.value)
 
     suspend fun hasCache(): Boolean = cache.entry(LIST) != null
 
@@ -183,7 +186,7 @@ class LessonStore(
         return revisions + fresh
     }
 
-    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, unlocks: List<LocalUnlock> = emptyList()): List<LessonEntry> {
+    private fun merge(list: List<CustomLessonDto>, local: List<LocalCompletion>, marks: List<RevisitMark>, unlocks: List<LocalUnlock> = emptyList(), skipHandwriting: Boolean = false): List<LessonEntry> {
         val localByLesson = local.groupBy { it.lessonId }
         val marksByLesson = marks.filter { it.itemKind == "lesson" }.groupBy { it.itemId }
         val unlockByLesson = unlocks.associateBy { it.lessonId }
@@ -194,7 +197,9 @@ class LessonStore(
             val runs = server + mine
             val marksHere = marksByLesson[lesson.id].orEmpty().map { LessonRevision.MarkRecord(it.id, it.createdAt, it.action) }
             val unlockedAt = if (lesson.unlock == null) null else LessonUnlocks.earlier(lesson.unlockedAt, unlockByLesson[lesson.id]?.unlockedAt)
-            LessonEntry(lesson, runs, LessonRevision.state(runs, marksHere), unlockedAt)
+            // "Skip handwriting exercises": earlier handwriting misses stop counting (core Handwriting).
+            val ignore = if (skipHandwriting) Handwriting.handwritingKeys(lesson.spec) else emptyList()
+            LessonEntry(lesson, runs, LessonRevision.state(runs, marksHere, ignore), unlockedAt, skipHandwriting)
         }
     }
 
@@ -275,10 +280,20 @@ class LessonStore(
     /** Where the player records an oral answer (moved into the media queue on completion). */
     fun recordingFile(): File = outbox.stageFile("lesson-recording.m4a")
 
-    /** Deletes a lesson on the server, then locally. */
+    /** Deletes a lesson on the server, then locally (its half-done run too). */
     suspend fun delete(id: String) {
         api.deleteCustomLesson(id)
         cache.put(LIST, KIND, cache.get(LIST, listSerializer).orEmpty().filter { it.id != id }, listSerializer)
+        progress?.clear(id, deleteRecordings = true)
+    }
+
+    /**
+     * The row menu's "Stop revising — done for good" (action "retire") and its Undo ("restore"): a
+     * revisit mark (local at once, uploaded through the outbox) — the lesson is done forever until a
+     * restore (core LessonRevision). docs/STUDY_SESSION.md "Row menu".
+     */
+    suspend fun markDone(lessonId: String, action: String = RevisitStore.RETIRE) {
+        revisit.mark("lesson", lessonId, action, source = "row_menu", track = false)
     }
 
     /**

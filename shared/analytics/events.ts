@@ -132,12 +132,14 @@ export const ANALYTICS_EVENTS = {
   'card.forget': e('study', 'Forgot cards — reset to new with a forget event (scope = card | word; undone = the Undo right after).', ['scope', 'count', 'source', 'undone']),
   'card.leech_open': e('study', 'Opened the "⚠ Missed N×" leech sheet on a card (lapses = how many times missed).', ['lapses', 'card_type']),
   'settings.bury_siblings': e('settings', 'Turned "Don\'t show a word\'s other card types on the same day" on or off.', ['on']),
+  'settings.skip_handwriting': e('settings', 'Turned "Skip handwriting exercises" on or off (Settings → Study, or a lesson row\'s menu: source = settings | row_menu | undo): write_handwriting left out of mini lessons, handwritten dictation typed.', ['on', 'source']),
 
   // ── homework (student side) ────────────────────────────────────────────
   'homework.pass_start': e('homework', 'Opened a homework pass.', ['kind', 'items']),
   'homework.pass_item': e('homework', 'Answered one word of a homework pass — on the study card, never an FSRS review (result = right — Got it | wrong — Not yet; card_type = the card shown; answered = how it was tried before the reveal: take — the read card\'s 🎤 recording | spoken — a typing card said aloud | typed | choice — multiple choice | none — Show answer straight away; suggested = what the answer side suggested: right | wrong | none; followed = the choice matched the suggestion).', ['result', 'card_type', 'answered', 'suggested', 'followed']),
   'homework.pass_done': e('homework', 'Finished a homework pass.', ['kind', 'items']),
   'homework.pass_undo': e('homework', 'Took back the last Got it / Not yet in a homework pass with ↺ (an `undo` event; result = the answer undone: right | wrong; reopened = it had finished the pass).', ['result', 'reopened']),
+  'homework.skipped': e('homework', '"Skip this homework" on a tutor\'s homework row (long-press / ⋯; docs/HOMEWORK.md §3d): a `skip` event — the tutor sees "Skipped by <student>" (kind = deck | lesson | reader | link; undo = taken back with Undo).', ['kind', 'undo']),
 
   // ── chat ───────────────────────────────────────────────────────────────
   'chat.open': e('chat', 'Opened a conversation.', ['is_ai', 'unread']),
@@ -297,6 +299,7 @@ export const ANALYTICS_EVENTS = {
   'lesson.retry': e('lessons', 'An exercise asked again in a lesson\'s retry round (right = put right, left = retries still owed).', ['type', 'right', 'left']),
   'lesson.items_checked': e('lessons', 'Check on a per-sentence lesson exercise — judge (every sentence ✓ / ✗) or gap_choice (a word for each gap): items = sentences, right = judged / picked right.', ['exercise_type', 'items', 'right']),
   'lesson.start_over': e('lessons', '"Start over" on a mini lesson run that was continuing.', ['source']),
+  'lesson.row_action': e('lessons', 'An action from the long-press / ⋯ menu of a homework or mini lesson row (action = done_for_good | delete_lesson | skip_homework | skip_handwriting; kind = assignment | tutor_lesson | revision | lesson; from = home | homework | lessons_page; undo = taken back with Undo).', ['action', 'kind', 'from', 'undo']),
   'lesson.audio': e('lessons', 'How a mini lesson\'s audio played this run, sent when it closes (docs/AUDIO.md "Lesson audio prefetch"): hits = clips played straight from the device, misses = fetched when asked for, stale = late clips dropped because the learner had moved on, max_wait_ms = the longest wait, clips = clips in the lesson, prefetched = clips the player fetched as it opened.', ['source', 'hits', 'misses', 'stale', 'max_wait_ms', 'clips', 'prefetched']),
   'lesson.replay_practice': e('lessons', 'Ended a replayed mini lesson with Practice only (nothing recorded) — apps before Oct 2026.', ['exercises', 'duration_ms'], { replacedBy: 'lesson.complete' }),
   'lesson.unlock': e('lessons', 'Unlocked a locked mini lesson (docs/STUDY_SESSION.md "Unlockable lessons"; via auto = the linked audio lesson was listened to, manual = the unlock button, player = the audio player\'s "Mini lesson ready" card; kind audio_lesson / manual).', ['via', 'kind']),

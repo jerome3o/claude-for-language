@@ -37,6 +37,8 @@ data class HomeworkAssignment(
     val status: String = "active",
     val done_count: Int = 0,
     val completed_at: String? = null,
+    /** "Skip this homework" (docs/HOMEWORK.md §3d): when the student skipped it (the server's copy); null = not skipped. */
+    val skipped_at: String? = null,
     val created_at: String = "",
     val updated_at: String = "",
     val tutor_name: String? = null,
@@ -59,7 +61,7 @@ data class HomeworkEvent(
     val assignment_id: String,
     /** Deck: a note id. Lesson / reader: the target id. */
     val item_id: String,
-    /** 'right' | 'wrong' | 'done' | 'undo'. */
+    /** 'right' | 'wrong' | 'done' | 'undo' | 'skip'. */
     val result: String,
     val created_at: String,
     /** Optional note back to the tutor (a `done` event on link homework, ≤ 1000 chars). */
@@ -83,6 +85,12 @@ data class HomeworkItemView(
     val progress: PassProgress,
     val due: DueLabel,
     val done: Boolean,
+    /** Skipped by the student ("Skip this homework") and not done. */
+    val skipped: Boolean = false,
+    /** When it was skipped (the live skip event, else the server's skipped_at). */
+    val skippedAt: String? = null,
+    /** The pass's retry bar ([RetryBars.passRetryBar]); answered 0 = not started. */
+    val bar: RetryBar? = null,
 )
 
 data class TitleParts(val base: String, val part: String?)
@@ -164,6 +172,22 @@ object Homework {
         return best
     }
 
+    /** Port of liveSkip: the live `skip` event (latest by created_at), or null. */
+    fun liveSkip(events: List<HomeworkEvent>): HomeworkEvent? {
+        var best: HomeworkEvent? = null
+        for (e in livePassEvents(events)) {
+            if (e.result != "skip") continue
+            if (best == null || e.created_at >= best.created_at) best = e
+        }
+        return best
+    }
+
+    /** Port of isSkipped: the device's events decide once any `skip` is among them, else the server's skipped_at. */
+    fun isSkipped(events: List<HomeworkEvent>, skippedAt: String?): Boolean {
+        if (events.any { it.result == "skip" }) return liveSkip(events) != null
+        return !skippedAt.isNullOrEmpty()
+    }
+
     /** Port of passProgress: unseen first (in order), then "Not yet" items oldest-wrong first (live events only). */
     fun passProgress(itemIds: List<String>, events: List<HomeworkEvent>): PassProgress {
         val wanted = itemIds.toHashSet()
@@ -220,16 +244,20 @@ object Homework {
     fun toHomeworkItems(assignments: List<HomeworkAssignment>, events: List<HomeworkEvent>, today: String): List<HomeworkItemView> {
         val byAssignment = events.groupBy { it.assignment_id }
         return assignments.filter { it.mode != "fsrs" && it.status != "cancelled" }.map { a ->
-            val progress = passProgress(passItemIds(a), byAssignment[a.id].orEmpty())
-            HomeworkItemView(a, progress, dueLabel(a.due_date, today), a.status == "done" || progress.complete)
+            val list = byAssignment[a.id].orEmpty()
+            val progress = passProgress(passItemIds(a), list)
+            val done = a.status == "done" || progress.complete
+            val skipped = !done && isSkipped(list, a.skipped_at)
+            val skippedAt = if (skipped) liveSkip(list)?.created_at ?: a.skipped_at else null
+            HomeworkItemView(a, progress, dueLabel(a.due_date, today), done, skipped, skippedAt, RetryBars.passRetryBar(passItemIds(a), list))
         }
     }
 
-    data class Sorted(val todo: List<HomeworkItemView>, val done: List<HomeworkItemView>)
+    data class Sorted(val todo: List<HomeworkItemView>, val done: List<HomeworkItemView>, val skipped: List<HomeworkItemView> = emptyList())
 
-    /** Port of sortHomeworkItems. */
+    /** Port of sortHomeworkItems: to do (never skipped ones), done, and skipped ones most recent first. */
     fun sortHomeworkItems(items: List<HomeworkItemView>): Sorted {
-        val todo = items.filter { !it.done }.sortedWith { x, y ->
+        val todo = items.filter { !it.done && !it.skipped }.sortedWith { x, y ->
             val a = x.assignment
             val b = y.assignment
             compareDue(a.due_date, b.due_date).takeIf { it != 0 }
@@ -239,7 +267,10 @@ object Homework {
         val done = items.filter { it.done }.sortedWith { x, y ->
             (y.assignment.completed_at ?: y.assignment.updated_at).compareTo(x.assignment.completed_at ?: x.assignment.updated_at)
         }
-        return Sorted(todo, done)
+        val skipped = items.filter { !it.done && it.skipped }.sortedWith { x, y ->
+            (y.skippedAt ?: "").compareTo(x.skippedAt ?: "").takeIf { it != 0 } ?: x.assignment.id.compareTo(y.assignment.id)
+        }
+        return Sorted(todo, done, skipped)
     }
 
     /** Port of titleParts. */
@@ -259,10 +290,10 @@ object Homework {
     fun rowDetail(item: HomeworkItemView, showTutor: Boolean): String {
         val a = item.assignment
         val part = titleParts(a).part
-        val progress = if (a.kind == "deck") passSummary(item.progress, "deck") else if (item.done) "done" else KIND_WORD[a.kind] ?: a.kind
+        val progress = if (item.skipped) "skipped" else if (a.kind == "deck") passSummary(item.progress, "deck") else if (item.done) "done" else KIND_WORD[a.kind] ?: a.kind
         val detail = if (part != null) "${part.replaceFirst(Regex("^d"), "D")} · $progress" else progress
         return detail +
-            (if (a.mode == "both" && !item.done) " · then long-term review" else "") +
+            (if (a.mode == "both" && !item.done && !item.skipped) " · then long-term review" else "") +
             (if (showTutor && !a.tutor_name.isNullOrEmpty()) " · from ${a.tutor_name}" else "")
     }
 

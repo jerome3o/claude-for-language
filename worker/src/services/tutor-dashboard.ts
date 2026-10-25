@@ -66,7 +66,7 @@ export interface HomeworkLessonInput {
 }
 
 /** The fields of an assignment the overview reads. */
-export type HomeworkAssignmentRef = Pick<HomeworkAssignment, 'kind' | 'target_id' | 'mode' | 'status' | 'due_date' | 'completed_at'>;
+export type HomeworkAssignmentRef = Pick<HomeworkAssignment, 'kind' | 'target_id' | 'mode' | 'status' | 'due_date' | 'completed_at' | 'skipped_at'>;
 
 export interface StudentUserRow extends UserSummary, StudyBudgetRow {
   last_login_at: string | null;

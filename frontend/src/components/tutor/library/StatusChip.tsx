@@ -1,11 +1,14 @@
-import { LIBRARY_STATUS_LABELS, statusTone, type LibraryStatus } from '@shared/homework';
+import { libraryStatusText, statusTone, type LibraryStatus } from '@shared/homework';
 import './homework-library.css';
 
-/** Completed green · Overdue red · due soon amber · In progress blue · Not started / In long-term review grey. */
-export function StatusChip({ status, due, today }: { status: LibraryStatus; due: string | null; today: string }) {
+/**
+ * Completed green · Overdue red · due soon amber · In progress blue · Not started / In long-term review /
+ * Skipped grey. A skipped item names who skipped it: "Skipped by Jerome" (docs/HOMEWORK.md §3d).
+ */
+export function StatusChip({ status, due, today, student }: { status: LibraryStatus; due: string | null; today: string; student?: string | null }) {
   return (
     <span className={`hl-status hl-tone-${statusTone(status, due, today)}`} data-testid="hl-status" data-status={status}>
-      {LIBRARY_STATUS_LABELS[status]}
+      {libraryStatusText(status, student)}
     </span>
   );
 }

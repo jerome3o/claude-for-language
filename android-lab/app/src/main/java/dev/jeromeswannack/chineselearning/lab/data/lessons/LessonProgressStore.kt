@@ -70,6 +70,7 @@ class LessonProgressStore(context: Context) {
     @Synchronized
     fun save(run: SavedLessonRun) {
         sp.edit().putString(KEY + run.lessonId, json.encodeToString(SavedLessonRun.serializer(), run)).apply()
+        changes.value++
     }
 
     /**
@@ -80,6 +81,7 @@ class LessonProgressStore(context: Context) {
     fun clear(lessonId: String, deleteRecordings: Boolean = false) {
         if (deleteRecordings) raw(lessonId)?.recordings?.forEach { File(it.path).delete() }
         sp.edit().remove(KEY + lessonId).apply()
+        changes.value++
     }
 
     fun has(lessonId: String): Boolean = sp.contains(KEY + lessonId)
@@ -95,6 +97,19 @@ class LessonProgressStore(context: Context) {
     }
 
     companion object {
+        /** Bumped on every save / clear: the rows' retry bars (Home, /homework, Mini Lessons) follow it. */
+        val changes = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+        /**
+         * The retry bar of each lesson with a run in progress (core LessonRun.savedRunBar), by lesson id —
+         * the bar on its row; a lesson not started has none.
+         */
+        fun runBars(runs: Map<String, SavedLessonRun>, specs: Map<String, CustomLessonSpec>, skipHandwriting: Boolean): Map<String, dev.jeromeswannack.chineselearning.lab.core.RetryBar?> =
+            runs.mapNotNull { (id, run) ->
+                val spec = specs[id] ?: return@mapNotNull null
+                id to LessonRun.savedRunBar(run.lessonId, run.shape, run.state, run.keys, id, spec.sections.map { s -> s.exercises.map { it.type } }, skipHandwriting)
+            }.toMap()
+
         private const val PREFS = "lab_lesson_progress"
         private const val KEY = "run/"
         private const val LEGACY_KEY = "progress/"

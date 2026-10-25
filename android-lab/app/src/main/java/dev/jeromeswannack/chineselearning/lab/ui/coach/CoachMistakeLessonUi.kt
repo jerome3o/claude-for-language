@@ -205,6 +205,7 @@ fun NavGraphBuilder.coachLessonGraph(nav: LabNav) {
                 onComplete = {},
                 onEnd = nav::back,
                 previewSave = previewSave,
+                skipHandwriting = nav.app.prefs.skipHandwriting,
             )
         }
     }

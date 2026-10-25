@@ -10,6 +10,7 @@
  */
 import {
   computeLessonLearnState,
+  outcomeWithout,
   parseRunOutcome,
   runOutcome,
   type LessonLearnState,
@@ -19,7 +20,7 @@ import {
 } from '@shared/study/lessonRevision';
 import { lessonSteps } from '@shared/study/lessonRun';
 import { revisionProgressLabel, type LessonRevisionSummary } from '@shared/homework/library';
-import type { CustomLessonSpec } from '@shared/lesson';
+import { handwritingKeys, type CustomLessonSpec } from '@shared/lesson';
 
 /** The outcome to store for an uploaded completion: the device's, else derived from its attempt. */
 export function outcomeForUpload(sent: unknown, attempt: { exercises: unknown[] } | null): LessonRunOutcome | null {
@@ -81,9 +82,11 @@ export interface LessonRevisionInfo extends LessonRevisionSummary {
 export function learnStateOf(
   completions: Array<{ id: string; completed_at: string; rating: number | null; outcome: string | null }>,
   marks: LessonMarkRecord[] = [],
+  /** Exercise keys that no longer count (handwriting, with the student's "Skip handwriting exercises" on). */
+  ignore: readonly string[] = [],
 ): LessonLearnState {
   const runs: LessonRunRecord[] = completions.map(c => ({ id: c.id, at: c.completed_at, rating: c.rating, outcome: parseRunOutcome(c.outcome) }));
-  return computeLessonLearnState(runs, marks);
+  return computeLessonLearnState(runs, marks, ignore);
 }
 
 /**
@@ -95,8 +98,11 @@ export async function lessonRevisionSummaries(db: D1Database, studentId: string,
   const ids = [...new Set(lessonIds)];
   if (ids.length === 0) return out;
   await backfillCompletionOutcomes(db, studentId).catch(() => 0);
-  const user = await db.prepare('SELECT time_zone FROM users WHERE id = ?').bind(studentId).first<{ time_zone: string | null }>().catch(() => null);
+  const user = await db.prepare('SELECT time_zone, skip_handwriting FROM users WHERE id = ?').bind(studentId)
+    .first<{ time_zone: string | null; skip_handwriting: number | null }>().catch(() => null);
   const tz = user?.time_zone ?? null;
+  // "Skip handwriting exercises" (shared/lesson/handwriting.ts): earlier handwriting misses stop counting.
+  const skipHandwriting = Number(user?.skip_handwriting) === 1;
   const today = dayIn(nowMs, tz);
   const completions = new Map<string, Array<{ id: string; completed_at: string; rating: number | null; outcome: string | null; correct: number; total: number }>>();
   const specs = new Map<string, string>();
@@ -126,13 +132,19 @@ export async function lessonRevisionSummaries(db: D1Database, studentId: string,
   }
   for (const id of ids) {
     const runs = completions.get(id) ?? [];
-    const state = learnStateOf(runs, marks.get(id) ?? []);
+    let spec: CustomLessonSpec | null = null;
+    try {
+      spec = JSON.parse(specs.get(id) ?? '{"sections":[]}') as CustomLessonSpec;
+    } catch { /* unreadable spec */ }
+    const ignore = skipHandwriting && spec ? handwritingKeys(spec) : [];
+    const state = learnStateOf(runs, marks.get(id) ?? [], ignore);
     let scored = 0;
     try {
-      scored = lessonSteps(JSON.parse(specs.get(id) ?? '{"sections":[]}') as CustomLessonSpec).filter(s => s.scored).length;
+      if (spec) scored = lessonSteps(spec, null, { skipHandwriting }).filter(s => s.scored).length;
     } catch { /* unreadable spec */ }
     const latest = [...runs].sort((a, b) => (a.completed_at < b.completed_at ? 1 : -1))[0];
-    const outcome = latest ? parseRunOutcome(latest.outcome) : null;
+    const parsed = latest ? parseRunOutcome(latest.outcome) : null;
+    const outcome = parsed && ignore.length ? outcomeWithout(parsed, new Set(ignore)) : parsed;
     const percent = outcome
       ? (outcome.keys.length ? Math.round(((outcome.keys.length - outcome.missed.length) * 100) / outcome.keys.length) : 100)
       : latest && latest.total > 0 ? Math.round((latest.correct * 100) / latest.total) : 0;

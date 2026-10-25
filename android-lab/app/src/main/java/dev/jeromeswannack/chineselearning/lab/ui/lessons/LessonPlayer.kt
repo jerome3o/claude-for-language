@@ -59,6 +59,7 @@ import dev.jeromeswannack.chineselearning.lab.core.ExerciseAttempt
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.LessonRevision
 import dev.jeromeswannack.chineselearning.lab.core.LessonRun
+import dev.jeromeswannack.chineselearning.lab.core.Handwriting
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttemptData
 import dev.jeromeswannack.chineselearning.lab.core.LessonAttempts
 import dev.jeromeswannack.chineselearning.lab.core.LessonExercise
@@ -183,6 +184,11 @@ fun LessonPlayer(
     revisionKeys: List<String>? = null,
     /** With [PlayerContext.Preview]: offer to keep the lesson ([PreviewSave]). */
     previewSave: PreviewSave? = null,
+    /**
+     * "Skip handwriting exercises" (core Handwriting): write_handwriting is left out of the run, a
+     * handwritten dictation is typed, and the attempt says "skipped (handwriting off)" for the tutor.
+     */
+    skipHandwriting: Boolean = false,
 ) {
     val preview = context is PlayerContext.Preview
     val shape = remember(spec) { LessonRun.shape(spec) }
@@ -195,10 +201,12 @@ fun LessonPlayer(
     val keys = remember(run) { if (from(run) != null) from(run)!!.keys else revisionKeys }
     val exercises = remember(spec) {
         val map = HashMap<String, Pair<LessonExercise, String?>>()
-        spec.sections.forEachIndexed { si, s -> s.exercises.forEachIndexed { i, ex -> map[LessonRun.exerciseKey(si, i)] = ex to s.title } }
+        spec.sections.forEachIndexed { si, s ->
+            s.exercises.forEachIndexed { i, ex -> map[LessonRun.exerciseKey(si, i)] = (if (skipHandwriting) Handwriting.typedInsteadOfHandwriting(ex) else ex) to s.title }
+        }
         map
     }
-    val steps = remember(spec, keys) { LessonRun.steps(spec, keys).filter { exercises[it.key]?.first?.let(Lessons::isPlayable) == true } }
+    val steps = remember(spec, keys) { LessonRun.steps(spec, keys, skipHandwriting).filter { exercises[it.key]?.first?.let(Lessons::isPlayable) == true } }
     var state by remember(run) { mutableStateOf(from(run)?.state ?: LessonRun.State(pos = startAt.coerceIn(0, steps.size))) }
     var correct by remember(run) { mutableIntStateOf(from(run)?.correct ?: 0) }
     var total by remember(run) { mutableIntStateOf(from(run)?.total ?: 0) }
@@ -236,7 +244,9 @@ fun LessonPlayer(
     fun attemptData(): LessonAttemptData {
         // A run continued on another day: the time spent on its exercises, not the days between.
         val duration = if (restored != null && run == 0) attempts.sumOf { Math.max(0L, it.durationMs) } else System.currentTimeMillis() - startedAt
-        return LessonAttemptData(Js.toIsoString(startedAt), duration, attempts.toList())
+        // The handwriting left out shows to the tutor as "skipped (handwriting off)" — never scored.
+        val skipped = if (skipHandwriting) Handwriting.skippedRows(spec, keys) else emptyList()
+        return LessonAttemptData(Js.toIsoString(startedAt), duration, attempts.toList() + skipped)
     }
 
     fun finish() {

@@ -6,6 +6,7 @@ import { replaceLocalForgets, syncForgets, uploadPendingForgets } from './cardFo
 import { syncSentencePractice } from './sentencePractice';
 import type { ApiCardForget } from '../api/cardForgets';
 import { writeBurySiblings } from './burySiblings';
+import { writeSkipHandwriting } from './skipHandwriting';
 import type { ApiCardHold } from '../api/cardHolds';
 import { replaceLocalRevisitEvents, uploadRevisitEvents } from './lessonLearn';
 import type { ApiStudyBump } from '../api/bumps';
@@ -119,6 +120,8 @@ interface SyncChangesResponse {
   card_forgets?: ApiCardForget[] | null;
   /** "Don't show a word's other card types on the same day" (off by default). */
   bury_siblings?: boolean | null;
+  /** "Skip handwriting exercises" (shared/lesson/handwriting.ts). */
+  skip_handwriting?: boolean | null;
   /** The old "Done for good" / "Bring back" marks on lessons (a retire = done forever, shared/study/lessonRevision.ts). */
   revisit_events?: Array<{ id: string; item_kind: 'lesson' | 'reader'; item_id: string; action: 'retire' | 'restore'; created_at: string }> | null;
 }
@@ -710,6 +713,7 @@ class SyncService {
     // Suspend & snooze: the server's holds, this device's pending changes on top.
     if (Array.isArray(changes.card_holds)) await replaceLocalHolds(changes.card_holds).catch(err => console.error('[Sync] Holds failed:', err));
     if (typeof changes.bury_siblings === 'boolean') writeBurySiblings(changes.bury_siblings);
+    if (typeof changes.skip_handwriting === 'boolean') writeSkipHandwriting(changes.skip_handwriting);
     // "Forget this card": the server's forgets, this device's pending ones on top; changed cards replayed.
     if (Array.isArray(changes.card_forgets)) await replaceLocalForgets(changes.card_forgets).catch(err => console.error('[Sync] Forgets failed:', err));
     // "Up next": the server's list, unless a change made here is still waiting.

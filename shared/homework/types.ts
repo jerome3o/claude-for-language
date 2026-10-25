@@ -30,7 +30,8 @@ export type HomeworkStatus = 'active' | 'done' | 'cancelled';
 
 /** A pass event: a word marked right / wrong, or a lesson / reader completed. */
 /** `undo` takes back an earlier event (`undoes`) — docs/HOMEWORK.md §3b. */
-export type HomeworkResult = 'right' | 'wrong' | 'done' | 'undo';
+/** `skip`: the student skipped the whole assignment ("Skip this homework", docs/HOMEWORK.md §3d); an `undo` takes it back. */
+export type HomeworkResult = 'right' | 'wrong' | 'done' | 'undo' | 'skip';
 
 export interface HomeworkAssignment {
   id: string;
@@ -57,6 +58,11 @@ export interface HomeworkAssignment {
   status: HomeworkStatus;
   done_count: number;
   completed_at: string | null;
+  /**
+   * The student skipped it ("Skip this homework", docs/HOMEWORK.md §3d): when, from the live `skip`
+   * event; null / absent = not skipped. The tutor sees "Skipped by <student>". Never deletes anything.
+   */
+  skipped_at?: string | null;
   created_at: string;
   updated_at: string;
   /** Joined for display. */

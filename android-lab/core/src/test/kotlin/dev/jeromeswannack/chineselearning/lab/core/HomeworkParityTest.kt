@@ -115,6 +115,12 @@ class HomeworkParityTest {
                 val where = "screen[$i] item ${item.assignment.id}"
                 assertEquals(eo["id"]!!.str, item.assignment.id, where)
                 assertEquals(eo["done"]!!.jsonPrimitive.boolean, item.done, "$where done")
+                assertEquals(eo["skipped"]!!.jsonPrimitive.boolean, item.skipped, "$where skipped")
+                assertEquals(eo["skipped_at"]!!.str, item.skippedAt, "$where skipped_at")
+                val bar = eo["bar"]!!.jsonObject
+                assertEquals(bar["answered"]!!.jsonPrimitive.int, item.bar!!.answered, "$where bar answered")
+                assertEquals(bar["fresh"]!!.jsonPrimitive.int, item.bar!!.fresh, "$where bar fresh")
+                assertEquals(bar["retries"]!!.jsonPrimitive.int, item.bar!!.retries, "$where bar retries")
                 assertProgress(eo["progress"]!!.jsonObject, item.progress, where)
                 assertDue(eo["due"]!!.jsonObject, item.due, where)
                 val t = Homework.titleParts(item.assignment)
@@ -128,6 +134,7 @@ class HomeworkParityTest {
             val sorted = Homework.sortHomeworkItems(items)
             assertEquals(o["todo"]!!.strings(), sorted.todo.map { it.assignment.id }, "screen[$i] todo order")
             assertEquals(o["done"]!!.strings(), sorted.done.map { it.assignment.id }, "screen[$i] done order")
+            assertEquals(o["skipped"]!!.strings(), sorted.skipped.map { it.assignment.id }, "screen[$i] skipped order")
             assertEquals(o["one_off_only"]!!.strings(), Homework.oneOffOnlyTargets(assignments).toList(), "screen[$i] one-off only")
             assertEquals(o["homework_pass"]!!.strings(), Homework.homeworkPassTargets(assignments).toList(), "screen[$i] homework pass")
         }

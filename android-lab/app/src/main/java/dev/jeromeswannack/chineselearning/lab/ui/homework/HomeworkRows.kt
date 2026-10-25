@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.homework
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,11 @@ import dev.jeromeswannack.chineselearning.lab.core.DueLabel
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkItemView
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkLibrary
+import dev.jeromeswannack.chineselearning.lab.core.HomeHomework
+import dev.jeromeswannack.chineselearning.lab.core.LessonRun
+import dev.jeromeswannack.chineselearning.lab.core.RetryBar
+import dev.jeromeswannack.chineselearning.lab.core.RetryBars
+import dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar
 import dev.jeromeswannack.chineselearning.lab.ui.teaching.LibraryStatusChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.RowDivider
@@ -61,17 +67,35 @@ fun DueChip(due: DueLabel, done: Boolean = false) {
  * Completed / In progress / Overdue / Not started, coloured like the tutor's library — core
  * HomeworkLibrary.itemStatus) and the due chip. Taps into the pass (web: HomeworkRow).
  */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, today: String = Homework.localDate(), onOpen: (String) -> Unit) {
+fun HomeworkRow(
+    item: HomeworkItemView,
+    showTutor: Boolean = false,
+    today: String = Homework.localDate(),
+    onOpen: (String) -> Unit,
+    /** A lesson's run in progress on this phone (its retry bar); a deck's comes from the pass. */
+    runBar: RetryBar? = null,
+    /** Long-press / ⋯: the row's menu (Skip this homework · Skip handwriting). */
+    onMenu: ((HomeworkItemView) -> Unit)? = null,
+    /** Instead of the status / due chips (a skipped row's "Bring back"). */
+    trailing: (@Composable () -> Unit)? = null,
+) {
     val a = item.assignment
     val base = Homework.titleParts(a).base
+    // Once started, the retry bar (blue answered · orange still owed); never a bar before (web HomeworkRow).
+    val bar = if (item.done || item.skipped) null else when (a.kind) {
+        "deck" -> HomeHomework.startedBar(item.bar)
+        "lesson" -> HomeHomework.startedBar(runBar)
+        else -> null
+    }
     Row(
         Modifier
             .fillMaxWidth()
             .heightIn(min = 64.dp)
-            .bouncyClickable { onOpen(a.id) }
-            .alpha(if (item.done) 0.7f else 1f)
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .then(if (onMenu != null) Modifier.combinedClickable(onClick = { onOpen(a.id) }, onLongClick = { onMenu(item) }, onLongClickLabel = "More") else Modifier.bouncyClickable { onOpen(a.id) })
+            .alpha(if (item.done || item.skipped) 0.7f else 1f)
+            .padding(start = 16.dp, end = if (onMenu != null) 4.dp else 16.dp, top = 12.dp, bottom = 12.dp)
             .testTag("hw-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -80,18 +104,20 @@ fun HomeworkRow(item: HomeworkItemView, showTutor: Boolean = false, today: Strin
         Column(Modifier.weight(1f)) {
             Text(base, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(Homework.rowDetail(item, showTutor), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 2)
-            if (a.kind == "deck" && !item.done && item.progress.done > 0 && item.progress.total > 0) {
+            if (bar != null) {
                 Spacer(Modifier.height(6.dp))
-                ProgressBar(item.progress.done.toFloat() / item.progress.total, Modifier.fillMaxWidth(0.7f))
+                RetryProgressBar(bar, Modifier.fillMaxWidth(0.85f).testTag("hw-row-bar"), unit = if (a.kind == "deck") RetryBars.WORD_UNIT else LessonRun.EXERCISE_UNIT, height = 6.dp)
             }
         }
         Spacer(Modifier.width(10.dp))
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (trailing != null) trailing()
+        else Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val status = HomeworkLibrary.itemStatus(item, today)
             LibraryStatusChip(status, a.due_date, today)
             // "Overdue" already says it; otherwise the due label ("due today", "due in 3 days").
-            if (!item.done && status != HomeworkLibrary.OVERDUE) DueChip(item.due)
+            if (!item.done && !item.skipped && status != HomeworkLibrary.OVERDUE) DueChip(item.due)
         }
+        if (onMenu != null && trailing == null) RowMenuButton(base) { onMenu(item) }
     }
 }
 
@@ -106,11 +132,18 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = P
 
 /** A card of homework rows with dividers. */
 @Composable
-fun HomeworkList(items: List<HomeworkItemView>, showTutor: Boolean, today: String = Homework.localDate(), onOpen: (String) -> Unit) {
+fun HomeworkList(
+    items: List<HomeworkItemView>,
+    showTutor: Boolean,
+    today: String = Homework.localDate(),
+    onOpen: (String) -> Unit,
+    runBars: Map<String, RetryBar?> = emptyMap(),
+    onMenu: ((HomeworkItemView) -> Unit)? = null,
+) {
     LabCard {
         items.forEachIndexed { i, item ->
             if (i > 0) RowDivider()
-            HomeworkRow(item, showTutor, today, onOpen)
+            HomeworkRow(item, showTutor, today, onOpen, runBars[item.assignment.target_id], onMenu)
         }
     }
 }

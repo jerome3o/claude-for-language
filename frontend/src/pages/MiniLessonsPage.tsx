@@ -16,11 +16,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { CustomLessonSpec, LessonExercise, countScoreable, EXERCISE_TYPE_INFO, exercisePrimaryText } from '@shared/lesson';
 import { computeLessonLearnState, isRevisionDue, revisionKeys, type LessonLearnState } from '@shared/study/lessonRevision';
-import { lessonSteps, type SavedLessonRunCore } from '@shared/study/lessonRun';
-import { lessonSizeLabel, revisionSizeLabel } from '@shared/homework';
+import { EXERCISE_UNIT, lessonSteps, savedRunBar, type SavedLessonRunCore } from '@shared/study/lessonRun';
+import { hasOneOff, isSkipped, lessonSizeLabel, revisionSizeLabel, type HomeworkRowKind } from '@shared/homework';
 import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
 import { db, getStudyCutoff, type LocalRevisitEvent } from '../db/database';
-import { learnChip, runRecord } from '../services/lessonLearn';
+import { ignoredKeys, learnChip, runRecord, stepOptions } from '../services/lessonLearn';
+import { RetryProgressBar } from '../components/homework/RetryProgressBar';
+import { RowMenuButton, useRowActions, useRowPress, type RowActionTarget } from '../components/homework/RowActions';
+import { useSkipHandwriting } from '../components/settings/SkipHandwritingSetting';
 import { lessonRunsInProgress } from '../services/lessonRuns';
 import { Loading } from '../components/Loading';
 import { ReadyToUnlock, type LockedLessonItem } from '../components/lesson/ReadyToUnlock';
@@ -29,11 +32,14 @@ import { LESSON_UNLOCKED_EVENT, listenedHere, unlockLesson } from '../services/l
 import { cachedLessonList } from '../services/audioLessons';
 import './MiniLessonsPage.css';
 
-/** The lesson's state (shared/study/lessonRevision.ts) from its runs + the old Done-for-good marks. */
-function learnFor(lesson: CustomLessonListItem, marks: LocalRevisitEvent[]): LessonLearnState {
+/**
+ * The lesson's state (shared/study/lessonRevision.ts) from its runs + the Done-for-good marks; with
+ * "Skip handwriting exercises" on, its handwriting misses no longer count.
+ */
+function learnFor(lesson: CustomLessonListItem, marks: LocalRevisitEvent[], skipHandwriting: boolean): LessonLearnState {
   const runs = (lesson.completions ?? []).map(c => ({ id: c.id, at: c.completed_at, rating: c.rating ?? null, outcome: c.outcome ?? null }));
   const own = marks.filter(m => m.item_kind === 'lesson' && m.item_id === lesson.id).map(m => ({ id: m.id, at: m.created_at, action: m.action }));
-  return computeLessonLearnState(runs, own);
+  return computeLessonLearnState(runs, own, ignoredKeys(lesson.spec, skipHandwriting));
 }
 
 const EXERCISE_LABELS = Object.fromEntries(
@@ -73,23 +79,30 @@ function exerciseCount(spec: CustomLessonSpec): number {
   return spec.sections.reduce((sum, s) => sum + s.exercises.length, 0);
 }
 
-function LessonCard({ lesson, learn, run, onDelete, deleting }: {
+function LessonCard({ lesson, learn, run, onDelete, deleting, onMenu, skipHandwriting }: {
   lesson: CustomLessonListItem;
   learn: LessonLearnState;
   /** A run in progress on this device. */
   run: SavedLessonRunCore | undefined;
   onDelete: (lesson: CustomLessonListItem) => void;
   deleting: boolean;
+  /** The row's long-press / ⋯ menu (To do and Revision coming). */
+  onMenu?: () => void;
+  skipHandwriting: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const press = useRowPress(() => onMenu?.());
   const created = new Date(lesson.created_at + (lesson.created_at.endsWith('Z') ? '' : 'Z'));
   const cutoff = getStudyCutoff().ts;
   const chip = learnChip(learn, cutoff);
   const revision = learn.status === 'revision';
   const due = isRevisionDue(learn, cutoff);
-  const steps = lessonSteps(lesson.spec);
+  const opts = stepOptions(skipHandwriting);
+  const steps = lessonSteps(lesson.spec, null, opts);
   const revKeys = revision ? revisionKeys(learn, steps, lesson.id) : [];
-  const size = revision ? revisionSizeLabel(revKeys.length, lessonSteps(lesson.spec, revKeys).map(s => s.type)) : lessonSizeLabel(steps.map(s => s.type));
+  const size = revision ? revisionSizeLabel(revKeys.length, lessonSteps(lesson.spec, revKeys, opts).map(s => s.type)) : lessonSizeLabel(steps.map(s => s.type));
+  // Started on this device: the run's retry bar (blue answered · orange still to put right). None otherwise.
+  const bar = savedRunBar(run, lesson.id, lesson.spec, opts);
   const play = run
     ? { to: `/lessons/${lesson.id}/play?from=lessons_page${run.mode === 'revision' ? '&mode=revision' : ''}`, label: '▶ Continue' }
     : revision
@@ -97,8 +110,12 @@ function LessonCard({ lesson, learn, run, onDelete, deleting }: {
       : { to: `/lessons/${lesson.id}/play?from=lessons_page`, label: learn.status === 'new' ? '▶ Start' : '▶ Do it again' };
 
   return (
-    <div className="mini-lesson-card">
-      <div className="mini-lesson-head" onClick={() => setExpanded(!expanded)}>
+    <div className="mini-lesson-card" data-testid={`mini-lesson-${lesson.id}`}>
+      <div
+        className="mini-lesson-head"
+        {...(onMenu ? press.handlers : {})}
+        onClick={() => { if (onMenu && press.suppressTap()) return; setExpanded(!expanded); }}
+      >
         <div className="mini-lesson-icon">{lesson.icon || '🎓'}</div>
         <div className="mini-lesson-titles">
           <div className="mini-lesson-title">{lesson.title}</div>
@@ -111,7 +128,9 @@ function LessonCard({ lesson, learn, run, onDelete, deleting }: {
           </div>
         </div>
         <span className={`mini-lesson-status ${chip.cls}`}>{chip.label}</span>
+        {onMenu && <span onClick={e => e.stopPropagation()}><RowMenuButton onClick={onMenu} label={lesson.title} /></span>}
       </div>
+      {bar && <RetryProgressBar bar={bar} unit={EXERCISE_UNIT} className="mini-lesson-bar" testId="mini-lesson-bar" />}
       {/* Play it from here: the real player (LessonReplayPage) — a run in progress continues, a
           revision plays what was missed (+ a few), a new lesson starts, a done one is "Do it again". */}
       <div className="mini-lesson-play-row">
@@ -196,8 +215,25 @@ export function MiniLessonsPage() {
     }));
   }, []);
 
-  // The old Done-for-good marks (a retire = done forever).
+  // The Done-for-good marks (a retire = done forever; the row menu writes them too).
   const marks = useLiveQuery(() => db.revisitEvents.toArray(), []) ?? [];
+  const skipHandwriting = useSkipHandwriting();
+  // Open homework on each lesson (the menu offers "Skip this homework" for those).
+  const homework = useLiveQuery(async () => {
+    const [assignments, events] = await Promise.all([db.homeworkAssignments.toArray(), db.homeworkEvents.toArray()]);
+    const active = assignments.filter(a => a.kind === 'lesson' && a.status === 'active');
+    const skippedOf = (a: (typeof active)[number]) => isSkipped(events.filter(e => e.assignment_id === a.id), a.skipped_at);
+    const open = active.filter(a => !skippedOf(a));
+    const openIds = new Set(open.map(a => a.target_id));
+    // Homework he skipped (and nothing else open on it) leaves To do (docs/HOMEWORK.md §3d).
+    const skipped = new Set(active.filter(a => skippedOf(a) && !openIds.has(a.target_id)).map(a => a.target_id));
+    return { open, skipped };
+  }, []);
+  const openAssignments = homework?.open ?? [];
+  const skippedLessonIds = homework?.skipped ?? new Set<string>();
+  const rowMenu = useRowActions('lessons_page', action => {
+    if (action === 'delete_lesson') void queryClient.invalidateQueries({ queryKey: ['custom-lessons-all'] });
+  });
   // Runs in progress on this device ("▶ Continue").
   const runs = useLiveQuery(() => lessonRunsInProgress(), []) ?? new Map<string, SavedLessonRunCore>();
   // This device's unlocks (pending ones count at once, before the server list has them).
@@ -277,14 +313,22 @@ export function MiniLessonsPage() {
   // Revise until right first time: to do (a run in progress, revisions due, new ones), revisions
   // coming later, and done for good (everything right first time).
   const cutoff = getStudyCutoff();
-  const withLearn = lessons.filter(l => !lockedIds.has(l.id)).map(lesson => ({ lesson, learn: learnFor(lesson, marks) }));
-  const toDo = withLearn.filter(x => runs.has(x.lesson.id) || x.learn.status === 'new' || isRevisionDue(x.learn, cutoff.ts))
+  const withLearn = lessons.filter(l => !lockedIds.has(l.id)).map(lesson => ({ lesson, learn: learnFor(lesson, marks, skipHandwriting) }));
+  // What a card's menu acts on (shared/homework/row-actions.ts): the tutor's homework is skipped, his own lessons / revisions done for good or deleted.
+  const menuTarget = (lesson: CustomLessonListItem, learn: LessonLearnState): RowActionTarget => {
+    const a = openAssignments.find(x => x.target_id === lesson.id);
+    const kind: HomeworkRowKind = a ? (hasOneOff(a.mode) ? 'assignment' : 'tutor_lesson') : learn.status === 'revision' ? 'revision' : 'lesson';
+    return { kind, title: lesson.title, tutor_name: a?.tutor_name ?? null, assignment_id: a?.id ?? null, assignment_kind: a ? 'lesson' : null, lesson_id: lesson.id };
+  };
+  const skippedHomework = withLearn.filter(x => skippedLessonIds.has(x.lesson.id) && x.learn.status === 'new' && !runs.has(x.lesson.id));
+  const skippedIds = new Set(skippedHomework.map(x => x.lesson.id));
+  const toDo = withLearn.filter(x => !skippedIds.has(x.lesson.id) && (runs.has(x.lesson.id) || x.learn.status === 'new' || isRevisionDue(x.learn, cutoff.ts)))
     .sort((a, b) => Number(runs.has(b.lesson.id)) - Number(runs.has(a.lesson.id)) || (a.learn.status === 'revision' ? 0 : 1) - (b.learn.status === 'revision' ? 0 : 1));
   const toDoIds = new Set(toDo.map(x => x.lesson.id));
   const later = withLearn.filter(x => !toDoIds.has(x.lesson.id) && x.learn.status === 'revision')
     .sort((a, b) => (a.learn.due_ms ?? 0) - (b.learn.due_ms ?? 0));
-  const done = withLearn.filter(x => !toDoIds.has(x.lesson.id) && x.learn.status === 'done');
-  const card = ({ lesson, learn }: { lesson: CustomLessonListItem; learn: LessonLearnState }) => (
+  const done = withLearn.filter(x => !toDoIds.has(x.lesson.id) && !skippedIds.has(x.lesson.id) && x.learn.status === 'done');
+  const card = ({ lesson, learn }: { lesson: CustomLessonListItem; learn: LessonLearnState }, menu = false) => (
     <LessonCard
       key={lesson.id}
       lesson={lesson}
@@ -292,6 +336,8 @@ export function MiniLessonsPage() {
       run={runs.get(lesson.id)}
       onDelete={handleDelete}
       deleting={deleteMutation.isPending && deleteMutation.variables?.id === lesson.id}
+      onMenu={menu ? () => rowMenu.open(menuTarget(lesson, learn)) : undefined}
+      skipHandwriting={skipHandwriting}
     />
   );
 
@@ -318,12 +364,12 @@ export function MiniLessonsPage() {
             Coach, or from any connected Claude chat: “make me a mini lesson on …”
           </p>
         )}
-        {toDo.map(card)}
+        {toDo.map(x => card(x, true))}
 
         {later.length > 0 && (
           <>
             <h2 className="mini-lessons-heading">Revision coming ({later.length})</h2>
-            {later.map(card)}
+            {later.map(x => card(x, true))}
           </>
         )}
 
@@ -331,10 +377,19 @@ export function MiniLessonsPage() {
           <>
             <h2 className="mini-lessons-heading">Done for good ({done.length})</h2>
             <p className="text-light" style={{ fontSize: '0.875rem' }}>Everything right first time. Do one again any time.</p>
-            {done.map(card)}
+            {done.map(x => card(x))}
+          </>
+        )}
+
+        {skippedHomework.length > 0 && (
+          <>
+            <h2 className="mini-lessons-heading">Skipped homework ({skippedHomework.length})</h2>
+            <p className="text-light" style={{ fontSize: '0.875rem' }}>Your tutor can see you skipped these. Bring one back from <Link to="/homework">Homework</Link>.</p>
+            {skippedHomework.map(x => card(x))}
           </>
         )}
       </div>
+      {rowMenu.element}
     </div>
   );
 }

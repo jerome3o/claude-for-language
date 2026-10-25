@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.homework
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,11 +94,15 @@ data class HomeHomeworkUi(
     val notesLine: String? = null,
     /** Every lesson row (revisions due + new tutor-sent lessons) — /homework's "Mini lessons", what "+N more" counts. */
     val lessonRows: List<HomeHomeworkRow> = emptyList(),
+    /** The retry bar of each lesson with a run in progress on this phone, by lesson id (no entry = no bar). */
+    val runBars: Map<String, dev.jeromeswannack.chineselearning.lab.core.RetryBar?> = emptyMap(),
 )
 
 class HomeHomeworkActions(
     /** A row's web path (the pass, /lessons). */
     val onOpen: (String) -> Unit = {},
+    /** Long-press / ⋯ on a row: its menu (Skip this homework · Done for good · Delete · Skip handwriting). */
+    val onMenu: ((HomeHomeworkRow) -> Unit)? = null,
     val onAll: () -> Unit = {},
     val onMessage: (HomeHomeworkUi) -> Unit = {},
     val onNotes: () -> Unit = {},
@@ -145,7 +150,7 @@ fun CompactHomeworkCard(ui: HomeHomeworkUi, actions: HomeHomeworkActions) {
         }
         ui.card.rows.forEachIndexed { i, row ->
             if (i > 0) HorizontalDivider(Modifier.padding(start = 46.dp, end = 16.dp), color = Lab.colors.faint)
-            SlimRow(row) { actions.onOpen(row.route) }
+            SlimRow(row, onMenu = actions.onMenu?.let { m -> { m(row) } }) { actions.onOpen(row.route) }
         }
         ui.unread?.let { msg ->
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Lab.colors.faint)
@@ -166,10 +171,20 @@ fun CompactHomeworkCard(ui: HomeHomeworkUi, actions: HomeHomeworkActions) {
     }
 }
 
+/**
+ * One slim row: icon, title, progress, size, due label — and, once started, the retry bar (blue
+ * answered, orange still owed; core RetryBars, web HomeworkRowSlim). Long-press or ⋯ opens [onMenu].
+ */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-internal fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
+internal fun SlimRow(row: HomeHomeworkRow, onMenu: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 7.dp).testTag("home-hw-row"),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .then(
+                if (onMenu != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onMenu, onLongClickLabel = "More")
+                else Modifier.bouncyClickable(onClick = onClick),
+            )
+            .padding(start = 16.dp, end = if (onMenu != null) 4.dp else 16.dp, top = 7.dp, bottom = 7.dp).testTag("home-hw-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(row.icon, fontSize = 16.sp, modifier = Modifier.width(22.dp), textAlign = TextAlign.Center)
@@ -181,7 +196,13 @@ internal fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
                 if (row.progress.isNotEmpty()) Text(row.progress, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             }
             if (row.size.isNotEmpty()) Text(row.size, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.testTag("hw-size"))
-            row.fraction?.let { ProgressBar(it.toFloat(), Modifier.fillMaxWidth(), color = HOMEWORK_PURPLE, height = 3.dp) }
+            row.bar?.let { bar ->
+                dev.jeromeswannack.chineselearning.lab.ui.kit.RetryProgressBar(
+                    bar, Modifier.fillMaxWidth().testTag("hw-row-bar"),
+                    unit = if (row.kind == "deck") dev.jeromeswannack.chineselearning.lab.core.RetryBars.WORD_UNIT else dev.jeromeswannack.chineselearning.lab.core.LessonRun.EXERCISE_UNIT,
+                    height = 5.dp,
+                )
+            }
         }
         if (row.due.isNotEmpty()) {
             Spacer(Modifier.width(10.dp))
@@ -194,11 +215,11 @@ internal fun SlimRow(row: HomeHomeworkRow, onClick: () -> Unit) {
                 modifier = Modifier.widthIn(min = 76.dp).testTag("hw-due"),
             )
         }
+        if (onMenu != null) RowMenuButton(row.title, onMenu)
     }
 }
 
 private val NOTES_AMBER = Color(0xFFF59E0B)
-private val HOMEWORK_PURPLE = Color(0xFF8B5CF6)
 
 private fun truncate(text: String, max: Int): String {
     val clean = text.replace(Regex("\\s+"), " ").trim()
@@ -241,6 +262,8 @@ class HomeHomeworkSource(private val app: LabApp) {
     ) { hw, rel, sources, notes, _ -> Inputs(hw, rel, sources, notes) }
         // Every mini lesson on the phone: due revisions + new tutor-sent ones are rows (not the study session any more).
         .combine(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).store.observe()) { inputs, lessons -> inputs.copy(lessons = lessons) }
+        // Runs saved / cleared on this phone: the rows' retry bars follow.
+        .combine(dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.changes) { inputs, _ -> inputs }
         .mapLatest { withContext(Dispatchers.IO) { build(it) } }
 
     private data class Inputs(
@@ -276,8 +299,9 @@ class HomeHomeworkSource(private val app: LabApp) {
         // not homework rows any more (docs/HOMEWORK.md §11): they are decks in the queue ("Next up",
         // the Decks tab) — web HomeworkHomeCard's useLongTerm.
         val longTerm = ArrayList<LongTermHomework>()
-        assignments.filter { it.mode == "fsrs" && it.status == "active" && it.kind == "lesson" }
-            .forEach { longTerm += LongTermHomework("lesson", it.target_id, it.title, it.tutor_name, it.created_at, null, null) }
+        // "Skip this homework" on a tutor's long-term lesson takes it off the card (docs/HOMEWORK.md §3d).
+        assignments.filter { it.mode == "fsrs" && it.status == "active" && it.kind == "lesson" && !Homework.isSkipped(events.filter { e -> e.assignment_id == it.id }, it.skipped_at) }
+            .forEach { longTerm += LongTermHomework("lesson", it.target_id, it.title, it.tutor_name, it.created_at, null, null, it.id) }
         val item = p?.item
         if (item is HwItem.Lesson && assignments.none { it.target_id == item.lessonId }) {
             longTerm += LongTermHomework("lesson", item.lessonId, item.title, p?.tutorName, item.sentAt, null, null)
@@ -295,12 +319,21 @@ class HomeHomeworkSource(private val app: LabApp) {
         }
         runCatching { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).readers.entries() }.getOrDefault(emptyList())
             .forEach { r -> sizes[r.id] = dev.jeromeswannack.chineselearning.lab.core.HomeworkSize.readerSizeLabel(r.reader.pages.size) }
+        // A lesson started on this phone: its run's retry bar (blue answered · orange owed); none = no bar.
+        val runBars = runCatching {
+            dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.runBars(
+                dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.get(app).inProgress(),
+                input.lessons.associate { it.id to it.lesson.spec },
+                app.prefs.skipHandwriting,
+            )
+        }.getOrDefault(emptyMap())
         return HomeHomeworkUi(
-            card = HomeHomework.build(todo, longTerm, unreadFrom = if (unread != null) p.tutorName else null, sizes = sizes, lessons = lessons),
+            card = HomeHomework.build(todo, longTerm, unreadFrom = if (unread != null) p.tutorName else null, sizes = sizes, lessons = lessons, runBars = runBars),
             unread = unread,
             unreadRelId = p?.relationshipId,
             unreadFrom = p?.tutorName,
-            lessonRows = HomeHomework.rows(todo, longTerm, sizes, lessons).filter(HomeHomework::isLessonRow),
+            lessonRows = HomeHomework.rows(todo, longTerm, sizes, lessons, runBars).filter(HomeHomework::isLessonRow),
+            runBars = runBars,
         )
     }
 }
@@ -310,10 +343,13 @@ class HomeHomeworkSource(private val app: LabApp) {
 fun HomeHomeworkSlot(nav: LabNav) {
     val vm: HomeHomeworkViewModel = viewModel(factory = HomeHomeworkViewModel.Factory(nav.app))
     val ui by vm.ui.collectAsStateWithLifecycle()
+    val menu = rememberRowActions(nav.app, "home")
+    RowActionsHost(menu)
     HomeHomeworkSection(
         ui,
         HomeHomeworkActions(
             onOpen = { nav.open(it) },
+            onMenu = { row -> menu.open(row.actionTarget()) },
             onAll = { nav.open(Routes.homework()) },
             onMessage = { u -> val m = u.unread; val rel = u.unreadRelId; if (m != null && rel != null) nav.open(Routes.chat(rel, m.conversationId)) },
             onNotes = { nav.open(Routes.tutorNotes()) },

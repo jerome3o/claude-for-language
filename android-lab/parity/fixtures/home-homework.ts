@@ -20,6 +20,8 @@ import {
   type HomeworkEvent,
   type LongTermHomework,
   type HomeLesson,
+  type RetryBar,
+  retryBar,
 } from '../../../shared/homework';
 
 const OUT = process.argv[2];
@@ -82,6 +84,12 @@ const cases = Array.from({ length: 150 }, () => {
         events.push({ id: `e${events.length}`, assignment_id: a.id, item_id: id, result: a.kind === 'deck' ? pick(['right', 'wrong'] as const) : 'done', created_at: `2026-09-28T1${int(0, 9)}:00:00.000Z` });
       }
     }
+    // "Skip this homework" (docs/HOMEWORK.md §3d): a skipped one is not a row; an Undo brings it back.
+    if (r() < 0.15) {
+      const sid = `e${events.length}`;
+      events.push({ id: sid, assignment_id: a.id, item_id: a.target_id, result: 'skip', created_at: '2026-09-28T20:00:00.000Z' });
+      if (r() < 0.3) events.push({ id: `e${events.length}`, assignment_id: a.id, item_id: a.target_id, result: 'undo', undoes: sid, created_at: '2026-09-28T20:01:00.000Z' });
+    }
   }
   const longTerm: LongTermHomework[] = Array.from({ length: int(0, 4) }, () => {
     const kind = pick(['deck', 'deck', 'lesson'] as const);
@@ -94,6 +102,7 @@ const cases = Array.from({ length: 150 }, () => {
       sent_at: `2026-09-${String(int(10, 28)).padStart(2, '0')}T${String(int(0, 23)).padStart(2, '0')}:00:00.000Z`,
       met: total === null ? null : int(0, total),
       total,
+      assignment_id: r() < 0.6 ? `lt${int(0, 9)}` : null,
     };
   });
   const limit = pick([4, 4, 2, 6]);
@@ -116,7 +125,15 @@ const cases = Array.from({ length: 150 }, () => {
   });
   const sizes: Record<string, string> = {};
   for (const a of assignments) if (r() < 0.6) sizes[a.target_id] = pick(['9 exercises · ~6 min', '6 pages', '3 questions · ~2 min']);
-  return caseOf(assignments, events, longTerm, limit, unreadFrom, lessons, sizes);
+  // Runs in progress on the device (`savedRunBar`): a bar, a run with nothing answered (no bar), or none.
+  const runBars: Record<string, RetryBar | null> = {};
+  for (const id of [...lessons.map((l) => l.id), ...assignments.filter((a) => a.kind === 'lesson').map((a) => a.target_id)]) {
+    if (r() < 0.4) {
+      const pos = int(0, 6);
+      runBars[id] = r() < 0.15 ? null : retryBar({ answered: pos + int(0, 2), fresh: int(0, 8), retries: int(0, 2), itemsDone: pos, items: pos + int(0, 8) });
+    }
+  }
+  return caseOf(assignments, events, longTerm, limit, unreadFrom, lessons, sizes, runBars);
 });
 
 function caseOf(
@@ -127,13 +144,14 @@ function caseOf(
   unreadFrom: string | null,
   lessons: HomeLesson[],
   sizes: Record<string, string>,
+  runBars: Record<string, RetryBar | null> = {},
 ) {
   const todo = sortHomeworkItems(toHomeworkItems(assignments, events, TODAY)).todo;
-  const card = homeHomework(todo, longTerm, { limit, unreadFrom, lessons, sizes });
+  const card = homeHomework(todo, longTerm, { limit, unreadFrom, lessons, sizes, runBars });
   // Every row before the limit + which are lesson rows (/homework's "Mini lessons", what "+N more" counts).
-  const all = homeHomeworkRows(todo, longTerm, { lessons, sizes });
+  const all = homeHomeworkRows(todo, longTerm, { lessons, sizes, runBars });
   return {
-    assignments, events, longTerm, limit, unreadFrom, lessons, sizes, card,
+    assignments, events, longTerm, limit, unreadFrom, lessons, sizes, runBars, card,
     allKeys: all.map((x) => x.key),
     lessonKeys: all.filter(isLessonRow).map((x) => x.key),
     active: longTerm.map(longTermActive),

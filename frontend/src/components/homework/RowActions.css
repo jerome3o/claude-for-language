@@ -1,0 +1,161 @@
+/* The long-press / ⋯ menu on homework and mini lesson rows (RowActions.tsx). Mobile first: a bottom sheet. */
+.row-actions-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100; /* above the tab bar */
+  background: rgba(17, 24, 39, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.row-actions-sheet {
+  width: 100%;
+  max-width: 32rem;
+  max-height: 85dvh;
+  overflow-y: auto;
+  background: var(--color-surface, #fff);
+  border-radius: 1rem 1rem 0 0;
+  padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.15);
+  animation: row-actions-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes row-actions-up {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-actions-sheet { animation: none; }
+}
+
+.row-actions-grip {
+  width: 2.5rem;
+  height: 4px;
+  border-radius: 2px;
+  background: #d6d3d1;
+  margin: 0.25rem auto 0.75rem;
+}
+
+.row-actions-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row-actions-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.25rem;
+  border: none;
+  border-bottom: 1px solid #f1ede6;
+  background: none;
+  font-size: 1rem;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.row-actions-item:active { background: #f7f3ec; }
+.row-actions-item--danger { color: #b91c1c; }
+
+.row-actions-icon {
+  width: 1.5rem;
+  text-align: center;
+}
+
+.row-actions-confirm {
+  margin: 0.25rem 0 1rem;
+  font-size: 1rem;
+  line-height: 1.45;
+}
+
+.row-actions-error {
+  color: #b91c1c;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.row-actions-confirm-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.row-actions-btn {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 0.75rem;
+  border: 1px solid transparent;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.row-actions-btn--secondary { background: #f3f0ea; color: #374151; border-color: #e7e2d8; }
+.row-actions-btn--primary { background: #2563eb; color: #fff; }
+.row-actions-btn--danger { background: #dc2626; color: #fff; }
+.row-actions-close { width: 100%; margin-top: 0.75rem; }
+
+.row-actions-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--tab-bar-total, 0px) + 1rem);
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: max-content;
+  max-width: calc(100vw - 2rem);
+  background: #1f2937;
+  color: #fff;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.95rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+
+.row-actions-toast-undo {
+  min-height: 40px;
+  padding: 0 0.875rem;
+  border: none;
+  border-radius: 999px;
+  background: #fbbf24;
+  color: #1f2937;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* The visible ⋯ next to a row. */
+.row-menu-btn {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+  background: none;
+  color: #78716c;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 0.5rem;
+}
+
+.row-menu-btn:hover { background: #f5f2ec; }
+
+@media (min-width: 640px) {
+  .row-actions-backdrop { align-items: center; }
+  .row-actions-sheet { border-radius: 1rem; padding-bottom: 1rem; }
+}

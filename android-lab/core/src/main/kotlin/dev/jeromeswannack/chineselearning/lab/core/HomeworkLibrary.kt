@@ -41,7 +41,7 @@ data class LibraryItem(
     val percent: Int = 0,
     /** "5 / 12 words", "8 / 20 words met", "done", "not started", "read", "not read yet". */
     val progress: String = "",
-    /** 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term'. */
+    /** 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term' | 'skipped'. */
     val status: String = HomeworkLibrary.NOT_STARTED,
     val completed_at: String? = null,
     val assignment_ids: List<String> = emptyList(),
@@ -55,6 +55,8 @@ data class LibraryItem(
     val thumbnail_url: String? = null,
     /** The student's note back when marking it done (newest). */
     val student_note: String? = null,
+    /** When the student skipped it ("Skip this homework", status `skipped`); null otherwise. */
+    val skipped_at: String? = null,
 )
 
 object HomeworkLibrary {
@@ -69,11 +71,14 @@ object HomeworkLibrary {
      */
     const val LONG_TERM = "long_term"
 
+    /** The student pressed "Skip this homework" (docs/HOMEWORK.md §3d): "Skipped by <student>". */
+    const val SKIPPED = "skipped"
+
     /** LIBRARY_KINDS. */
     val KINDS = listOf("deck", "lesson", "reader", "link")
 
     /** LIBRARY_STATUSES (the filter chips' order). */
-    val STATUSES = listOf(OVERDUE, IN_PROGRESS, NOT_STARTED, COMPLETED, LONG_TERM)
+    val STATUSES = listOf(OVERDUE, IN_PROGRESS, NOT_STARTED, COMPLETED, SKIPPED, LONG_TERM)
 
     /** LIBRARY_STATUS_LABELS. */
     val STATUS_LABELS = mapOf(
@@ -82,6 +87,7 @@ object HomeworkLibrary {
         OVERDUE to "Overdue",
         NOT_STARTED to "Not started",
         LONG_TERM to "In long-term review",
+        SKIPPED to "Skipped",
     )
 
     /** LIBRARY_KIND_LABELS. */
@@ -91,6 +97,10 @@ object HomeworkLibrary {
     val KIND_ICONS = mapOf("deck" to "📚", "lesson" to "🎓", "reader" to "📖", "link" to "🔗")
 
     fun statusLabel(status: String): String = STATUS_LABELS[status] ?: status
+
+    /** Port of libraryStatusText: "Skipped by Jerome" for a skipped item, else its label. */
+    fun statusText(status: String, studentName: String?): String =
+        if (status == SKIPPED) (if (!studentName.isNullOrEmpty()) "Skipped by $studentName" else "Skipped") else statusLabel(status)
     fun kindLabel(kind: String): String = KIND_LABELS[kind] ?: kind
     fun kindIcon(kind: String): String = KIND_ICONS[kind] ?: "📝"
 
@@ -103,9 +113,10 @@ object HomeworkLibrary {
      * before today → Overdue; then started → In progress. [revising] = a lesson finished with
      * mistakes, coming back as a revision: In progress, never Overdue.
      */
-    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String, longTerm: Boolean = false, revising: Boolean = false): String {
+    fun libraryStatus(complete: Boolean, started: Boolean, dueDate: String?, today: String, longTerm: Boolean = false, revising: Boolean = false, skipped: Boolean = false): String {
         if (longTerm) return LONG_TERM
         if (complete) return COMPLETED
+        if (skipped) return SKIPPED
         if (revising) return IN_PROGRESS
         if (!dueDate.isNullOrEmpty() && Homework.daysBetween(today, dueDate) < 0) return OVERDUE
         return if (started) IN_PROGRESS else NOT_STARTED
@@ -140,7 +151,7 @@ object HomeworkLibrary {
 
     /** Port of statusTone: 'green' | 'blue' | 'amber' | 'red' | 'grey' (long-term: grey). */
     fun statusTone(status: String, dueDate: String?, today: String): String {
-        if (status == LONG_TERM) return "grey"
+        if (status == LONG_TERM || status == SKIPPED) return "grey"
         if (status == COMPLETED) return "green"
         if (status == OVERDUE) return "red"
         if (!dueDate.isNullOrEmpty() && Homework.daysBetween(today, dueDate) <= 1) return "amber"
@@ -179,7 +190,7 @@ object HomeworkLibrary {
 
     /** Port of libraryCounts: how many items per status (every status present, 0 included). */
     fun libraryCounts(items: List<LibraryItem>): Map<String, Int> {
-        val counts = linkedMapOf(COMPLETED to 0, IN_PROGRESS to 0, OVERDUE to 0, NOT_STARTED to 0, LONG_TERM to 0)
+        val counts = linkedMapOf(COMPLETED to 0, IN_PROGRESS to 0, OVERDUE to 0, NOT_STARTED to 0, LONG_TERM to 0, SKIPPED to 0)
         for (i in items) counts[i.status] = (counts[i.status] ?: 0) + 1
         return counts
     }
@@ -223,5 +234,5 @@ object HomeworkLibrary {
      * (docs/HOMEWORK.md §9 "Students") — complete = done, started = a word right or one to retry.
      */
     fun itemStatus(item: HomeworkItemView, today: String): String =
-        libraryStatus(item.done, item.progress.done > 0 || item.progress.retrying > 0, item.assignment.due_date, today)
+        libraryStatus(item.done, item.progress.done > 0 || item.progress.retrying > 0, item.assignment.due_date, today, skipped = item.skipped)
 }

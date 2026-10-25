@@ -21,7 +21,8 @@ import {
 } from '@shared/study/lessonRevision';
 import { lessonSteps } from '@shared/study/lessonRun';
 import { lessonSizeLabel, revisionSizeLabel, type HomeLesson } from '@shared/homework';
-import { lessonLockStatus } from '@shared/lesson';
+import { handwritingKeys, lessonLockStatus } from '@shared/lesson';
+import { readSkipHandwriting } from './skipHandwriting';
 import { db, type LocalCustomLesson, type LocalCustomLessonCompletionEvent, type LocalRevisitEvent } from '../db/database';
 import { API_BASE, getAuthHeaders } from '../api/client';
 
@@ -34,13 +35,27 @@ function markRecord(m: LocalRevisitEvent): LessonMarkRecord {
   return { id: m.id, at: m.created_at, action: m.action };
 }
 
+/**
+ * The exercise keys that no longer count for this learner: the lesson's handwriting while
+ * "Skip handwriting exercises" is on (shared/lesson/handwriting.ts), else none.
+ */
+export function ignoredKeys(spec: Pick<CustomLessonSpec, 'sections'> | null | undefined, skip = readSkipHandwriting()): string[] {
+  return skip && spec ? handwritingKeys(spec) : [];
+}
+
+/** How runs are played for this learner (lessonSteps' options). */
+export function stepOptions(skip = readSkipHandwriting()): { skipHandwriting: boolean } {
+  return { skipHandwriting: skip };
+}
+
 /** A lesson's state from its whole history. */
 export async function computeLessonLearn(lessonId: string): Promise<LessonLearnState> {
-  const [events, marks] = await Promise.all([
+  const [events, marks, row] = await Promise.all([
     db.customLessonCompletionEvents.where('lesson_id').equals(lessonId).toArray(),
     db.revisitEvents.where('item_id').equals(lessonId).toArray(),
+    db.customLessons.get(lessonId),
   ]);
-  return computeLessonLearnState(events.map(runRecord), marks.filter(m => m.item_kind === 'lesson').map(markRecord));
+  return computeLessonLearnState(events.map(runRecord), marks.filter(m => m.item_kind === 'lesson').map(markRecord), ignoredKeys(row?.spec));
 }
 
 /** Recompute one row's cached state. */
@@ -70,7 +85,8 @@ export async function recomputeAllLessonLearn(): Promise<void> {
     list.push(markRecord(m));
     byLesson.set(m.item_id, list);
   }
-  const rows = lessons.map(l => ({ ...l, learn: computeLessonLearnState(runs.get(l.id) ?? [], byLesson.get(l.id) ?? []) }));
+  const skip = readSkipHandwriting();
+  const rows = lessons.map(l => ({ ...l, learn: computeLessonLearnState(runs.get(l.id) ?? [], byLesson.get(l.id) ?? [], ignoredKeys(l.spec, skip)) }));
   if (rows.length) await db.customLessons.bulkPut(rows);
 }
 
@@ -81,18 +97,18 @@ export function learnOf(row: Pick<LocalCustomLesson, 'learn'>): LessonLearnState
 
 /** The scored exercises of the lesson's next revision (`revisionKeys`), in lesson order. */
 export function revisionKeysFor(row: Pick<LocalCustomLesson, 'id' | 'spec' | 'learn'>): string[] {
-  return revisionKeys(learnOf(row), lessonSteps(row.spec), row.id);
+  return revisionKeys(learnOf(row), lessonSteps(row.spec, null, stepOptions()), row.id);
 }
 
 /** "18 exercises · ~12 min" */
 export function lessonSize(spec: Pick<CustomLessonSpec, 'sections'>): string {
-  return lessonSizeLabel(lessonSteps(spec).map(s => s.type));
+  return lessonSizeLabel(lessonSteps(spec, null, stepOptions()).map(s => s.type));
 }
 
 /** "5 questions · ~4 min" — the revision as it would be played now. */
 export function revisionSize(row: Pick<LocalCustomLesson, 'id' | 'spec' | 'learn'>): string {
   const keys = revisionKeysFor(row);
-  return revisionSizeLabel(keys.length, lessonSteps(row.spec, keys).map(s => s.type));
+  return revisionSizeLabel(keys.length, lessonSteps(row.spec, keys, stepOptions()).map(s => s.type));
 }
 
 /** A lesson as Home's card sees it (shared/homework/home.ts). */
@@ -123,7 +139,18 @@ export function learnChip(learn: LessonLearnState, cutoffMs: number): { label: s
   return { label: `🔁 ${name} · ${days === 1 ? 'tomorrow' : `in ${days} days`}`, cls: 'done' };
 }
 
-// ============ The old Done for good / Bring back marks (read only now) ============
+// ============ Done for good / Bring back marks ============
+// (revisit_events: a retire = done forever, a restore takes it back. The row menu's "Stop revising —
+// done for good" writes one, Undo writes the restore — docs/STUDY_SESSION.md "Row menu".)
+
+/** Mark a lesson done for good (or bring it back) on this device; uploaded in the background. Returns the mark's id. */
+export async function markLessonDone(lessonId: string, action: 'retire' | 'restore' = 'retire'): Promise<string> {
+  const id = crypto.randomUUID();
+  await db.revisitEvents.put({ id, item_kind: 'lesson', item_id: lessonId, action, created_at: new Date().toISOString(), _synced: 0 });
+  await refreshLessonLearn(lessonId).catch(() => undefined);
+  void uploadRevisitEvents().catch(() => undefined);
+  return id;
+}
 
 /** Upload marks made here before the update (idempotent by id). */
 export async function uploadRevisitEvents(): Promise<{ uploaded: number }> {

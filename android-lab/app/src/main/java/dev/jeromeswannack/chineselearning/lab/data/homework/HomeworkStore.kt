@@ -108,6 +108,36 @@ object HomeworkStore {
     }
 
     /**
+     * "Skip this homework" (docs/HOMEWORK.md §3d; web recordSkip): a `skip` event on the assignment —
+     * out of To do at once, "Skipped by <student>" for the tutor once it uploads. Never deletes anything.
+     */
+    suspend fun recordSkip(app: LabApp, assignmentId: String, now: Instant = Instant.now()): HomeworkEvent {
+        val a = app.cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty().firstOrNull { it.id == assignmentId }
+        return recordPassEvent(app, assignmentId, a?.target_id ?: assignmentId, "skip", now)
+    }
+
+    /** Undo for a skip (web recordUndoOf): an `undo` event naming [eventId]; the device's events decide from now on. */
+    suspend fun recordUndoOf(app: LabApp, assignmentId: String, eventId: String, now: Instant = Instant.now()) {
+        val cache = app.cache
+        val all = cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty()
+        val target = all.firstOrNull { it.id == eventId }
+        val undo = HomeworkEvent(UUID.randomUUID().toString(), assignmentId, target?.item_id ?: assignmentId, "undo", Js.toIsoString(now.toEpochMilli()), undoes = eventId)
+        app.outbox.enqueueJson(HomeworkKeys.OUTBOX_KIND, "POST", "/api/me/homework/events", PassEventsBody(listOf(undo)), id = undo.id)
+        cache.put(HomeworkKeys.EVENTS, HomeworkKeys.KIND, all + undo)
+        val assignments = cache.get<List<HomeworkAssignment>>(HomeworkKeys.ASSIGNMENTS).orEmpty()
+        cache.put(HomeworkKeys.ASSIGNMENTS, HomeworkKeys.KIND, assignments.map { if (it.id == assignmentId) it.copy(skipped_at = null) else it })
+        if (app.online.value) app.scope.launch { runCatching { app.outbox.drain() } } else app.scheduleBackgroundUpload()
+    }
+
+    /** Bring a skipped homework back (web undoSkip): undo its live skip; false when this phone has none. */
+    suspend fun undoSkip(app: LabApp, assignmentId: String): Boolean {
+        val events = app.cache.get<List<HomeworkEvent>>(HomeworkKeys.EVENTS).orEmpty().filter { it.assignment_id == assignmentId }
+        val skip = Homework.liveSkip(events) ?: return false
+        recordUndoOf(app, assignmentId, skip.id)
+        return true
+    }
+
+    /**
      * A lesson or reader was finished (in the pass or in the study session): mark every open
      * one-off assignment on it done. Never throws — study must not fail because of homework
      * bookkeeping. (Port of recordTargetDone; package B's players call this.)

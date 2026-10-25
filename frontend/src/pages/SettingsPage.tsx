@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { CardControlsSettings } from '../components/cardControls/CardControlsSettings';
+import { SkipHandwritingSetting } from '../components/settings/SkipHandwritingSetting';
 import { setCardPicturesEnabled, useCardPicturesEnabled } from '../services/noteImages';
 import { NotificationsSection } from '../components/NotificationsSection';
 import { ChatListeningSettings } from '../components/chat/ChatListeningSettings';
@@ -731,6 +732,7 @@ function SpokenAnswerSection() {
       <CardPicturesSetting />
       <NewCharShimmerSetting />
       <CardControlsSettings />
+      <SkipHandwritingSetting />
     </div>
   );
 }
