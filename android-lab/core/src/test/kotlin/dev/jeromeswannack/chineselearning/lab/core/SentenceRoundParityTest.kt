@@ -35,6 +35,7 @@ class SentenceRoundParityTest {
         val lists = fixture()["lists"]!!.jsonArray
         assertTrue(lists.size >= 100)
         var reused = 0
+        var small = 0
         for (l in lists) {
             val o = l.jsonObject
             val what = o.toString()
@@ -47,6 +48,8 @@ class SentenceRoundParityTest {
             }
             assertEquals(expected, exercises, what)
             if (exercises.map { it.key }.toSet().size < exercises.size) reused++
+            if (sentences.size in 2..3) assertEquals(sentences.size, exercises.size, what)
+            small += if (sentences.size in 2..3) 1 else 0
             for (p in o["progress"]!!.jsonArray) {
                 val po = p.jsonObject
                 val ids = po["ids"]!!.jsonArray.map { it.str!! }
@@ -59,7 +62,8 @@ class SentenceRoundParityTest {
                 assertEquals(po["skip"]!!.str, SentenceRound.skipNote(got), what)
             }
         }
-        assertTrue(reused > 0, "some vectors reuse sentences across modes")
+        assertEquals(0, reused, "a sentence is in at most one exercise")
+        assertTrue(small >= 7, "vectors with 2 and 3 sentences")
     }
 
     @Test

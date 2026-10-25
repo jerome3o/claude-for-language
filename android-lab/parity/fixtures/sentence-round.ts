@@ -52,6 +52,26 @@ for (let i = 0; i < 160; i++) {
   });
 }
 
+// Hand-picked short lists: 1, 2 and 3 sentences, with and without English (a sentence is in at most one exercise).
+const SMALL: Array<Array<[string, string | null]>> = [
+  [['a', 'A.']], [['a', null]],
+  [['a', 'A.'], ['b', 'B.']], [['a', 'A.'], ['b', null]], [['a', null], ['b', 'B.']], [['a', null], ['b', null]],
+  [['a', 'A.'], ['b', 'B.'], ['c', 'C.']], [['a', null], ['b', 'B.'], ['c', null]], [['a', 'A.'], ['b', null], ['c', null]],
+];
+for (const small of SMALL) {
+  const set: RoundSentence[] = small.map(([key, t]) => ({ key, hanzi: `${key}我只有周末才有时间。`, translation: t }));
+  const sentences = roundSentences({ clue: null, set });
+  const exercises = pickRoundExercises(sentences);
+  const rights = [[], exercises.slice(0, 1).map((e) => e.id), exercises.map((e) => e.id)];
+  lists.push({
+    clue: null, set, sentences, exercises,
+    progress: rights.map((ids) => {
+      const p = sentenceRoundProgress(exercises, ids);
+      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p), skip: sentenceRoundSkipNote(p) };
+    }),
+  });
+}
+
 const opens = [] as unknown[];
 for (const enabled of [true, false]) for (const cardType of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi', 'x']) for (const sentenceCount of [null, 0, 1, 5]) {
   opens.push({ enabled, cardType, sentenceCount, opens: sentenceRoundOpens({ enabled, cardType, sentenceCount }) });

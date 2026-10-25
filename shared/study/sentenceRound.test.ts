@@ -4,6 +4,7 @@ import {
   sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, type RoundSentence,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
+import { wantsMoreSentences } from './sentenceHistory';
 
 const s = (key: string, translation: string | null = `${key} en`): RoundSentence => ({ key, hanzi: `${key}汉字`, translation });
 const brief = (ex: ReturnType<typeof pickRoundExercises>) => ex.map((e) => e.id);
@@ -30,12 +31,29 @@ describe('pickRoundExercises', () => {
     // No English anywhere: four reads.
     expect(brief(pickRoundExercises(['a', 'b', 'c', 'd'].map((k) => s(k, null))))).toEqual(['read:a', 'read:b', 'read:c', 'read:d']);
   });
-  it('fewer than four sentences reuse the other mode', () => {
-    expect(brief(pickRoundExercises([s('a'), s('b'), s('c')]))).toEqual(['read:a', 'translate:b', 'read:c', 'translate:a']);
-    expect(brief(pickRoundExercises([s('a'), s('b')]))).toEqual(['read:a', 'translate:b', 'translate:a', 'read:b']);
-    expect(brief(pickRoundExercises([s('a')]))).toEqual(['read:a', 'translate:a']);
+  it('a sentence is in at most one exercise: fewer sentences, fewer exercises', () => {
+    expect(brief(pickRoundExercises([s('a'), s('b'), s('c')]))).toEqual(['read:a', 'translate:b', 'read:c']);
+    expect(brief(pickRoundExercises([s('a'), s('b')]))).toEqual(['read:a', 'translate:b']);
+    expect(brief(pickRoundExercises([s('a')]))).toEqual(['read:a']);
     expect(brief(pickRoundExercises([s('a', null)]))).toEqual(['read:a']);
     expect(pickRoundExercises([])).toEqual([]);
+    for (let n = 1; n <= 8; n++) {
+      const ex = pickRoundExercises(Array.from({ length: n }, (_, i) => s(`k${i}`, i % 3 === 0 ? null : 'x')));
+      expect(new Set(ex.map((e) => e.key)).size).toBe(ex.length);
+      expect(ex.length).toBe(Math.min(4, n));
+    }
+  });
+  it('two sentences, one with English: one per mode (the one with English is translated)', () => {
+    expect(brief(pickRoundExercises([s('a'), s('b', null)]))).toEqual(['translate:a', 'read:b']);
+    expect(brief(pickRoundExercises([s('clue', null), s('b')]))).toEqual(['read:clue', 'translate:b']);
+    expect(brief(pickRoundExercises([s('a', null), s('b', null)]))).toEqual(['read:a', 'read:b']);
+  });
+  it('needs min(2, exercises) right; fewer than four visible asks for more (few)', () => {
+    expect(sentenceRoundProgress(pickRoundExercises([s('a'), s('b'), s('c')]), [])).toEqual({ needed: 2, got: 0, done: false });
+    expect(sentenceRoundProgress(pickRoundExercises([s('a'), s('b')]), ['read:a'])).toEqual({ needed: 2, got: 1, done: false });
+    expect(sentenceRoundProgress(pickRoundExercises([s('a')]), ['read:a'])).toEqual({ needed: 1, got: 1, done: true });
+    expect(wantsMoreSentences([s('a'), s('b'), s('c')], new Map())).toBe(true);
+    expect(wantsMoreSentences([s('a'), s('b'), s('c'), s('d')], new Map())).toBe(false);
   });
 });
 
@@ -47,7 +65,7 @@ describe('progress + the gate', () => {
     expect(sentenceRoundProgress(ex, ['read:c', 'translate:b'])).toEqual({ needed: 2, got: 2, done: true });
   });
   it('one sentence needs one', () => {
-    expect(sentenceRoundProgress(pickRoundExercises([s('a')]), ['translate:a'])).toEqual({ needed: 1, got: 1, done: true });
+    expect(sentenceRoundProgress(pickRoundExercises([s('a')]), ['read:a'])).toEqual({ needed: 1, got: 1, done: true });
   });
   it('the round right ids unlock the answer side gate', () => {
     expect(sentenceGate({ enabled: true, cardType: 'meaning_to_hanzi', sentenceCount: 4, rightKeys: ['read:a', 'translate:b'] }).locked).toBe(false);

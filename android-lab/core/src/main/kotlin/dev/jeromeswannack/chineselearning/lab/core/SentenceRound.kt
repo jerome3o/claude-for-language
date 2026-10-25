@@ -46,11 +46,12 @@ object SentenceRound {
         val n = visible.size
         if (n == 0) return emptyList()
         val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
-        fun best(mode: String, used: Set<Int>): Int? {
+        fun best(mode: String, used: Set<Int>, avoidTranslatable: Boolean = false): Int? {
             var pick: Int? = null
             for (pos in 0 until n) {
                 if (pos in used) continue
                 if (mode == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
+                if (avoidTranslatable && hasTranslation(visible[pos].value)) continue
                 val p = pick
                 if (p == null) { pick = pos; continue }
                 val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(mode), statsOf(visible[p].value)?.mode(mode))
@@ -60,9 +61,14 @@ object SentenceRound {
         }
         val used = HashSet<Int>()
         val picked = ArrayList<Pair<Int, String>>()
-        for (k in 0 until minOf(SIZE, n)) {
+        val m = minOf(SIZE, n)
+        for (k in 0 until m) {
             val want = if (k % 2 == 0) SentencePractise.READ else SentencePractise.TRANSLATE
-            var pos = best(want, used)
+            // A read slot leaves the sentences with English to the translate slots still to come when just enough.
+            val translateSlotsLeft = (k + 1 until m).count { it % 2 == 1 }
+            val translatableLeft = (0 until n).count { it !in used && hasTranslation(visible[it].value) }
+            val spare = want == SentencePractise.READ && translateSlotsLeft > 0 && translatableLeft <= translateSlotsLeft
+            var pos = (if (spare) best(want, used, true) else null) ?: best(want, used)
             var mode = want
             if (pos == null && want == SentencePractise.TRANSLATE) {
                 pos = best(SentencePractise.READ, used)
@@ -76,14 +82,8 @@ object SentenceRound {
             val (index, s) = visible[pos]
             return Exercise(exerciseId(mode, s.key), s.key, mode, index)
         }
-        val out = picked.sortedBy { it.first }.map { make(it.first, it.second) }.toMutableList()
-        for ((pos, mode) in picked) {
-            if (out.size >= SIZE) break
-            val other = if (mode == SentencePractise.READ) SentencePractise.TRANSLATE else SentencePractise.READ
-            if (other == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
-            out += make(pos, other)
-        }
-        return out
+        // One exercise per sentence (its English would answer the other): fewer sentences = fewer exercises.
+        return picked.sortedBy { it.first }.map { make(it.first, it.second) }
     }
 
     /** `sentenceRoundOpens`: [sentenceCount] null = still loading. */
