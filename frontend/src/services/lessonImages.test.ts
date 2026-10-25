@@ -76,6 +76,9 @@ describe('feedback button position', () => {
   it('treats the catalogue sample trial like study (faint button)', () => {
     expect(isStudyLikePath('/library/catalogue/describe_image')).toBe(true);
     expect(isStudyLikePath('/library/abc/try')).toBe(true);
+    expect(isStudyLikePath('/readers/abc')).toBe(true);
+    expect(isStudyLikePath('/readers/generate')).toBe(false);
+    expect(isStudyLikePath('/readers/abc/edit')).toBe(false);
     expect(isStudyLikePath('/study')).toBe(true);
     expect(isStudyLikePath('/library/catalogue')).toBe(false);
   });

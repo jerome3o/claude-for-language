@@ -499,3 +499,20 @@ body:has(.reader-page) #root {
     max-width: none;
   }
 }
+
+/* /readers/:id top bar (the shared ReaderView): Edit · ⬇ Anki · difficulty, compact on a folded phone */
+.reader-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.reader-view-actions .btn-sm {
+  min-height: 36px;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.reader-view-back {
+  font-size: 1.25rem;
+}

@@ -66,8 +66,8 @@ class ReaderScreenshots : LabScreenshotTest() {
         File.createTempFile("reader", ".png").also { f -> f.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) } }
     }
 
-    private fun env(playing: String? = null, speed: Double = 1.0) = ReaderEnv(
-        image = { picture }, cachedImage = { picture }, playingPage = playing, speed = speed,
+    private fun env(speed: Double = 1.0) = ReaderEnv(
+        image = { picture }, cachedImage = { picture }, speed = speed,
         pageAudio = { _, _ -> picture },
         // Three phrases with pauses, like 我喜欢 / 一边跑步 / 一边听音乐 (the test has no real clip to decode).
         analyze = { p, _ -> if (p.id == "p3") oneBlock else threeBlocks },
@@ -108,7 +108,7 @@ class ReaderScreenshots : LabScreenshotTest() {
         }
     }
     @Test fun speedChipReadingPage() = shootAfter("readers-29-reader-page-speed", {
-        ReaderScreen(reader, null, env(speed = 0.5), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader, null, env(speed = 0.5), onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }) { tap("Tap to reveal Chinese") }
     @Test fun speedChipSession() = shoot("readers-30-session-speed", content = {
         StudyScreen(
@@ -212,14 +212,18 @@ class ReaderScreenshots : LabScreenshotTest() {
     @Config(qualifiers = UNFOLDED)
     @Test fun pinnedScrolledUnfolded() = shootAfter("readers-21-session-pinned-unfolded", session()) { revealAndScroll() }
     @Test fun readingViewScrolled() = shootAfter("readers-22-reader-page-pinned-scrolled", {
-        ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }) { tap("Tap to reveal Chinese"); tap("Tap to reveal pinyin"); tap("Tap to reveal translation"); compose.onNodeWithText(pages[0].contentEnglish).performScrollTo() }
 
     @Test fun readingView() = shoot("readers-04-reader-page") {
-        ReaderScreen(reader, null, env(playing = "p1"), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }
+    /** From the Readers list, the last page: the session's Finish ✓ row (the same reading view). */
+    @Test fun readingViewFinish() = shootAfter("readers-34-reader-page-finish", {
+        ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = { _, _ -> }, onAnki = {})
+    }) { tap("Next"); tap("Next") }
     @Test fun generating() = shoot("readers-05-reader-generating") {
-        ReaderScreen(reader.copy(status = "generating", titleEnglish = "A story about the zoo", pages = emptyList()), null, env(), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader.copy(status = "generating", titleEnglish = "A story about the zoo", pages = emptyList()), null, env(), onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }
 
     private val listUi = ReadersUi(
@@ -316,7 +320,7 @@ class ReaderScreenshots : LabScreenshotTest() {
     private val sheetActions = ReaderWordActions(decks = { listOf(DeckChoice("d1", "HSK 3 · Plans & time", null), DeckChoice("d2", "Reader words", null), DeckChoice("d3", "Food & ordering", null)) })
 
     @Test fun words() = shootAfter("readers-13-reader-words", {
-        ReaderScreen(reader, null, wordsEnv, onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader, null, wordsEnv, onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }) { tap("Tap to reveal Chinese") }
     @Test fun wordSheet() = shoot("readers-14-word-sheet") {
         ReaderWordSheet(words[8], "他很兴奋。", known = false, actions = sheetActions, onDismiss = {})
@@ -340,10 +344,10 @@ class ReaderScreenshots : LabScreenshotTest() {
         )
     }) { tap("Tap to reveal Chinese") }
     @Test fun dialogueWords() = shootAfter("readers-27-dialogue-words", {
-        ReaderScreen(reader.copy(pages = listOf(dialogue)), null, ReaderEnv(image = { picture }, cachedImage = { picture }), onBack = {}, onEdit = {}, onFinish = {})
+        ReaderScreen(reader.copy(pages = listOf(dialogue)), null, ReaderEnv(image = { picture }, cachedImage = { picture }), onBack = {}, onEdit = {}, onFinish = { _, _ -> })
     }) { tap("Tap to reveal Chinese") }
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("readers-11-session-unfolded", content = session())
-    @Test fun dark() = shoot("readers-12-reader-dark", dark = true) { ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = {}) }
+    @Test fun dark() = shoot("readers-12-reader-dark", dark = true) { ReaderScreen(reader, null, env(), onBack = {}, onEdit = {}, onFinish = { _, _ -> }) }
 }

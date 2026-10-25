@@ -64,6 +64,8 @@ class PassStudyCardTest {
     @Before
     fun setUp() = runBlocking {
         app = ApplicationProvider.getApplicationContext()
+        // The plain pass (Hard mode in the pass is its own test, PassHardModeTest).
+        dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(app).setPassHardMode("off")
         app.prefs.sessionToken = null
         app.prefs.budget = StudyBudget(3, 6)
         StudyDayStore.forTest(app, ZoneId.systemDefault())
@@ -277,7 +279,7 @@ class PassStudyCardTest {
             LabTheme {
                 StudyScreen(
                     PassStudyCardScreenshots.ui(take.single()), playingKey = null,
-                    actions = StudyActions(onPassAnswer = { r, a, s -> answers += Triple(r, a, s) }),
+                    actions = StudyActions(onPassAnswer = { r, a, s, _ -> answers += Triple(r, a, s) }),
                     cardStart = CardStartState(flipped = true), autoplay = false, pass = PassStudyCardScreenshots.pass(),
                 )
             }
@@ -297,7 +299,7 @@ class PassStudyCardTest {
             LabTheme {
                 StudyScreen(
                     PassStudyCardScreenshots.ui(), playingKey = null,
-                    actions = StudyActions(onPassAnswer = { r, a, s -> answers += Triple(r, a, s) }),
+                    actions = StudyActions(onPassAnswer = { r, a, s, _ -> answers += Triple(r, a, s) }),
                     cardStart = CardStartState(flipped = true), autoplay = false, pass = PassStudyCardScreenshots.pass(),
                 )
             }

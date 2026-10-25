@@ -89,7 +89,10 @@ const val READER_PLAY_STORY_TAG = "reader-play-story"
 const val READER_FINISH_TAG = "reader-finish"
 
 /**
- * A graded reader inside the study session (the web's StudyReader): page through, then
+ * THE reading view of a graded reader (the web's components/reader/ReaderView.tsx) — the
+ * same look and behaviour wherever a story is read: the study session's reader, Today's
+ * story, a homework pass and `/readers/:id` from the Readers list / a folder ([ReaderScreen]);
+ * the callers only add their own top bar and decide what a finish does. Page through, then
  * Finish on the last page — a story is read ONCE and never comes back (core [DailyReader]).
  * Listen-first: "▶ Play whole story" plays every page's narration one after another, turning
  * the pages, at the speed chip's speed; listening to the end counts as finishing
@@ -179,7 +182,7 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
                     }
                 })
                 storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
-                PagesContent(reader, page, env, scrubber = true, story = story)
+                PagesContent(reader, page, env, story = story)
                 Spacer(Modifier.height(16.dp))
             }
         }
@@ -192,7 +195,7 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
                 }
             }
         } else {
-            NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) }, onFinish = null)
+            NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) })
         }
     }
 }
@@ -223,7 +226,7 @@ internal fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, scrubber: Boolean = false, story: StoryPlayback? = null) {
+private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, story: StoryPlayback? = null) {
     AnimatedContent(
         page,
         transitionSpec = {
@@ -232,33 +235,43 @@ private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, scr
                 (slideOutHorizontally(tween(200)) { -dir * it / 4 } + fadeOut(tween(150)))
         },
         label = "page",
-    ) { p -> reader.pages.getOrNull(p)?.let { ReaderPageView(it, env, scrubber, story?.takeIf { p == page }) } }
+    ) { p -> reader.pages.getOrNull(p)?.let { ReaderPageView(it, env, story?.takeIf { p == page }) } }
 }
 
 @Composable
-private fun NavFooter(page: Int, count: Int, onPrev: () -> Unit, onNext: () -> Unit, onFinish: (() -> Unit)?) {
+private fun NavFooter(page: Int, count: Int, onPrev: () -> Unit, onNext: () -> Unit) {
     Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SecondaryPill("Previous", Modifier.weight(1f).height(54.dp), enabled = page > 0, onClick = onPrev)
-        if (page >= count - 1 && onFinish != null) PrimaryPill("Finish", Modifier.weight(1f).height(54.dp), onClick = onFinish)
-        else PrimaryPill("Next", Modifier.weight(1f).height(54.dp), enabled = page < count - 1, onClick = onNext)
+        PrimaryPill("Next", Modifier.weight(1f).height(54.dp), enabled = page < count - 1, onClick = onNext)
     }
 }
 
 /**
- * `/readers/:id` — the standalone reading view (the web's ReaderPage): page through with
- * Previous / Next, Finish marks the day's reader activity. A reader still being generated
- * shows a waiting state (the screen polls).
+ * `/readers/:id` — a story opened from the Readers list (or a folder): the SAME reading view
+ * as the session's reader ([StudyReaderView]: listen-first pages, the phrase-block scrubber,
+ * ▶ Play whole story, the speed chip, word chips → the explorer, Finish ✓). Only the top bar
+ * is its own: ← back, Edit, ⬇ Anki and the difficulty. [onFinish] (Finish, or listened to the
+ * end) records the read exactly like the session does. A reader still being generated shows a
+ * waiting state (the screen polls).
  */
 @Composable
-fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBack: () -> Unit, onEdit: () -> Unit, onFinish: () -> Unit, onAnki: (() -> Unit)? = null) {
-    var page by rememberSaveable(reader?.id) { mutableIntStateOf(0) }
+fun ReaderScreen(
+    reader: GradedReaderDto?,
+    error: String?,
+    env: ReaderEnv,
+    onBack: () -> Unit,
+    onEdit: () -> Unit,
+    onFinish: (timeSpentMs: Long, how: String) -> Unit,
+    onAnki: (() -> Unit)? = null,
+) {
+    val ready = reader != null && reader.status != "generating" && reader.pages.isNotEmpty()
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
-                Column(Modifier.weight(1f)) {
-                    Text(reader?.titleChinese ?: "Reader", fontWeight = FontWeight.SemiBold, fontSize = 19.sp, color = Lab.colors.ink, maxLines = 1)
-                    if (reader != null && reader.pages.isNotEmpty()) Text("Page ${page + 1} of ${reader.pages.size}", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+                // Ready: the title sits in the reading view's own title block, like the session.
+                Box(Modifier.weight(1f)) {
+                    if (!ready) Text(reader?.titleChinese ?: "Reader", fontWeight = FontWeight.SemiBold, fontSize = 19.sp, color = Lab.colors.ink, maxLines = 1)
                 }
                 if (reader != null) {
                     Text("Edit", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = onEdit).padding(horizontal = 10.dp, vertical = 12.dp))
@@ -269,16 +282,10 @@ fun ReaderScreen(reader: GradedReaderDto?, error: String?, env: ReaderEnv, onBac
             }
             when {
                 reader == null -> CenterMessage(error ?: "Loading…", spinner = error == null)
-                reader.status == "generating" || reader.pages.isEmpty() -> CenterMessage("Generating your reader…\n${reader.titleEnglish}", spinner = reader.status == "generating")
+                !ready -> CenterMessage("Generating your reader…\n${reader.titleEnglish}", spinner = reader.status == "generating")
                 else -> {
-                    val scroll = rememberScrollState()
-                    PinnedReaderProgress((page + 1f) / reader.pages.size, scrolled = scroll.value > 0)
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        Column(Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 12.dp)) {
-                            PagesContent(reader, page, env)
-                        }
-                    }
-                    NavFooter(page, reader.pages.size, onPrev = { page--; env.onTap() }, onNext = { page++; env.onTap() }, onFinish = onFinish)
+                    // Its state is keyed on the session key, so the server's copy replacing the cached one keeps the page.
+                    Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(SessionReader(reader, 1), env, onFinish) }
                 }
             }
         }

@@ -18,7 +18,8 @@ import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../servi
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
-import { useHardMode, writeHardMode } from '../services/hardModePrefs';
+import { useHardMode, usePassHardMode, writeHardMode, writePassHardMode } from '../services/hardModePrefs';
+import { PASS_HARD_MODE_DESCRIPTION, PASS_HARD_MODE_OPTION, PASS_HARD_MODE_OPTION_HINT, PASS_HARD_MODE_TITLE } from '@shared/homework/pass-angles';
 import { HARD_MODES, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION, HARD_MODE_OPTION_HINT, HARD_MODE_TITLE } from '@shared/study/hardMode';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
@@ -727,6 +728,41 @@ function HardModeSetting() {
 }
 
 /**
+ * Settings → Study → "Hard mode in homework" (docs/HOMEWORK.md §3e): the one-off pass's own setting,
+ * per device, All by default (services/hardModePrefs.ts `usePassHardMode`, also the pass header's 🎯
+ * chip) — the session's setting above is untouched.
+ */
+function PassHardModeSetting() {
+  const mode = usePassHardMode();
+  return (
+    <fieldset className="settings-hard-mode" style={{ marginTop: '1rem', border: 0, padding: 0 }} data-testid="pass-hard-mode-setting">
+      <legend style={{ fontWeight: 600 }}>🎯 {PASS_HARD_MODE_TITLE}</legend>
+      <p className="settings-section-desc" style={{ marginTop: '0.25rem' }}>{PASS_HARD_MODE_DESCRIPTION}</p>
+      {HARD_MODES.map((m) => (
+        <label key={m} className="settings-toggle-row" style={{ alignItems: 'flex-start' }}>
+          <input
+            type="radio"
+            name="pass-hard-mode"
+            value={m}
+            checked={mode === m}
+            onChange={() => {
+              writePassHardMode(m);
+              track('settings.change', { setting: 'pass_hard_mode', value: m });
+              track('homework.pass_hard_mode', { mode: m, where: 'settings' });
+            }}
+            data-testid={`pass-hard-mode-setting-${m}`}
+          />
+          <span>
+            {PASS_HARD_MODE_OPTION[m]}
+            <span className="settings-section-desc" style={{ display: 'block', margin: 0 }}>{PASS_HARD_MODE_OPTION_HINT[m]}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/**
  * Settings → Study → "Skip the review — submit spoken answers as soon as I stop" (off by default):
  * off, the 🎤 on a typing card shows what was said first (🔁 Retry · ✏️ Edit · ✓ Submit); on, it is
  * checked as soon as he stops.
@@ -756,6 +792,7 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <HardModeSetting />
+      <PassHardModeSetting />
       <WordTagsSetting />
       <CardPicturesSetting />
       <NewCharShimmerSetting />
