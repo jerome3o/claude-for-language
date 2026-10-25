@@ -69,6 +69,8 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
                 onMoveToFolder = { id -> vm.folders.openMove(listOf(id)) },
                 onLift = { nav.app.haptics.flip() },
                 onSlot = { nav.app.haptics.tick() },
+                onQueueMove = vm::queueMove,
+                onQueueReorder = vm::queueReorder,
             ),
             folders = folderUi,
             folderActions = remember(vm) { dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions.of(vm.folders) },
@@ -216,6 +218,8 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
                             readAt = list.mapNotNull { e -> e.lastReadAt?.let { at -> e.id to at } }.toMap(),
                         )
                     }
+                    val upNext = runCatching { store.upNextOf(list) }.getOrElse { if (it is CancellationException) throw it; emptyList() }
+                    _ui.update { it.copy(upNext = upNext.map { e -> e.reader }) }
                     // Poll every 3 s while a story is being written.
                     if (list.any { it.reader.status == "generating" }) startPolling()
                 }
@@ -247,6 +251,42 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
                 throw e
             } catch (e: Exception) {
                 _ui.update { it.copy(error = e.userMessage(), readers = it.readers ?: emptyList()) }
+            }
+        }
+    }
+
+    // ---------------- the reader queue ("Up next") ----------------
+
+    /** #N menu on an Up next row: Move to top / up / down / bottom. */
+    fun queueMove(readerId: String, to: dev.jeromeswannack.chineselearning.lab.core.DeckQueue.Move) {
+        val order = _ui.value.upNext.map { it.id }
+        val next = dev.jeromeswannack.chineselearning.lab.core.ReaderQueue.move(order, readerId, to)
+        if (next === order) return
+        saveQueue(next, to.wire, readerId)
+    }
+
+    /** The end of a press-and-hold drag over the Up next rows: the new whole order. */
+    fun queueReorder(orderedIds: List<String>) {
+        val order = _ui.value.upNext.map { it.id }
+        if (orderedIds == order) return
+        val moved = orderedIds.withIndex().firstOrNull { (i, id) -> order.getOrNull(i) != id }?.value ?: return
+        saveQueue(orderedIds, "drag", moved)
+    }
+
+    private fun saveQueue(next: List<String>, how: String, readerId: String) {
+        // Re-sort at once so the list never jumps back while the write is in flight.
+        val byId = _ui.value.upNext.associateBy { it.id }
+        _ui.update { s -> s.copy(upNext = next.mapNotNull(byId::get)) }
+        app.haptics.tick()
+        app.analytics.track("reader.queue_move", mapOf("how" to how, "position" to next.indexOf(readerId) + 1, "total" to next.size, "via" to "app"))
+        viewModelScope.launch {
+            try {
+                store.saveQueueOrder(next)
+                app.scheduleBackgroundUpload()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.update { it.copy(error = "Couldn't move that story. Please try again.") }
             }
         }
     }

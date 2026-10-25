@@ -70,6 +70,9 @@ import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storag
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
 import lessonEditor from './routes/lesson-editor';
 import readerEditor from './routes/reader-editor';
+import readerQueueRoutes from './routes/reader-queue';
+import { placeNewReader, readerQueuePositions, withQueuePositions } from './services/reader-queue';
+import { isReaderQueuePlacement } from '@shared/reader/queue';
 import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
@@ -618,6 +621,9 @@ app.route('/api', lessonEditor);
 
 // Reader editor: whole-reader spec, import, exports, text assist (routes/reader-editor.ts)
 app.route('/api', readerEditor);
+// The reader queue ("Up next"): GET /api/readers/queue, POST /api/readers/:id/move, PUT /api/readers/reorder
+// (routes/reader-queue.ts) — before the /api/readers/:id routes below.
+app.route('/api', readerQueueRoutes);
 // Pinyin check of stored lessons / library lessons / readers: POST /api/me/pinyin-scan (routes/pinyin-scan.ts)
 app.route('/api', pinyinScanRoutes);
 
@@ -3026,12 +3032,15 @@ app.post('/api/sentence/explain', async (c) => {
 // ?include_pages=true returns each reader with its pages (used by offline sync).
 app.get('/api/readers', async (c) => {
   const userId = c.get('user').id;
+  // queue_position = the 1-based place in the reader queue ("Up next", services/reader-queue.ts);
+  // null for read / not-ready stories. queue_priority (the row) is what the devices sort by offline.
+  const positions = await readerQueuePositions(c.env.DB, userId);
   if (c.req.query('include_pages') === 'true') {
     const readers = await db.getGradedReadersWithPages(c.env.DB, userId);
-    return c.json(readers);
+    return c.json(withQueuePositions(readers, positions));
   }
   const readers = await db.getGradedReaders(c.env.DB, userId);
-  return c.json(readers);
+  return c.json(withQueuePositions(readers, positions));
 });
 
 // ============ Reader Review Events (Event-Sourced Sync) ============
@@ -3136,7 +3145,10 @@ app.get('/api/readers/:id', async (c) => {
 //   best-effort (natural story > full coverage)
 app.post('/api/readers/generate', async (c) => {
   const userId = c.get('user').id;
-  const { source = 'decks', deck_ids, note_ids, topic, difficulty = 'beginner', folder_id } = await c.req.json<GenerateReaderRequest & { folder_id?: string | null }>();
+  const { source = 'decks', deck_ids, note_ids, topic, difficulty = 'beginner', folder_id, position } = await c.req.json<GenerateReaderRequest & { folder_id?: string | null; position?: unknown }>();
+  if (position !== undefined && position !== null && !isReaderQueuePlacement(position)) {
+    return c.json({ error: "position must be 'top' or 'bottom'" }, 400);
+  }
 
   if (!c.env.ANTHROPIC_API_KEY) {
     return c.json({ error: 'AI generation is not configured' }, 500);
@@ -3207,6 +3219,9 @@ app.post('/api/readers/generate', async (c) => {
     });
 
     console.log('[Readers] Pending reader created:', pendingReader.id);
+    // Where it goes in the reader queue: on top (unplaced, newest first — the default) or at the bottom.
+    const queuePriority = await placeNewReader(c.env.DB, userId, pendingReader.id, isReaderQueuePlacement(position) ? position : undefined);
+    if (queuePriority !== null) (pendingReader as { queue_priority?: number | null }).queue_priority = queuePriority;
     if (readerFolderId) {
       await fileItem(c.env.DB, userId, 'reader', pendingReader.id, readerFolderId);
       (pendingReader as { folder_id?: string | null }).folder_id = readerFolderId;

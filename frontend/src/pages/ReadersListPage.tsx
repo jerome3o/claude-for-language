@@ -13,6 +13,7 @@ import { partitionReaders, friendlyReaderError, failedReadersLabel } from '../se
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import { isReaderRead } from '../services/reader-study';
+import { ReaderUpNext, useReaderQueue } from '../components/readers/ReaderUpNext';
 import './ReadersListPage.css';
 
 /**
@@ -89,8 +90,10 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selected = false, onToggleSelect }: {
+function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selected = false, onToggleSelect, queuePosition }: {
   reader: GradedReader;
+  /** 1-based place in "Up next" (unread stories), else undefined. */
+  queuePosition?: number;
   onDelete: () => void;
   onMoveToFolder: () => void;
   /** Multi-select mode: a tap toggles the reader instead of opening it. */
@@ -166,6 +169,11 @@ function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selec
           </p>
         )}
         {!isGenerating && <ReaderReadLine readerId={reader.id} />}
+        {queuePosition !== undefined && (
+          <div className="reader-revisit-line">
+            <span className="reader-revisit-chip reader-queue-chip" data-testid="reader-queue-chip">{queuePosition === 1 ? 'Up next · #1' : `Up next · #${queuePosition}`}</span>
+          </div>
+        )}
       </div>
       <div style={{
         display: 'flex',
@@ -361,6 +369,9 @@ export function ReadersListPage() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
+  // The reader queue ("Up next"), from the device — the order the study session follows.
+  const readerQueue = useReaderQueue();
+  const queuePositions = new Map((readerQueue ?? []).map((r, i) => [r.id, i + 1]));
   const folderUi = useFolderUi('reader', {
     onToast: showToast,
     onChanged: () => { queryClient.invalidateQueries({ queryKey: ['readers'] }); setSelected(new Set()); setSelecting(false); },
@@ -528,6 +539,8 @@ export function ReadersListPage() {
             )}
             {active.length > 0 && (
               <>
+                {!needle && <ReaderUpNext queue={readerQueue} onToast={showToast} />}
+                {!needle && (readerQueue?.length ?? 0) > 0 && <h2 className="reader-all-head">All stories</h2>}
                 {active.length > 5 && (
                   <input
                     type="search"
@@ -559,6 +572,7 @@ export function ReadersListPage() {
                           selecting={selecting}
                           selected={selected.has(reader.id)}
                           onToggleSelect={() => toggleSelect(reader.id)}
+                          queuePosition={queuePositions.get(reader.id)}
                         />
                       ))}
                     </div>

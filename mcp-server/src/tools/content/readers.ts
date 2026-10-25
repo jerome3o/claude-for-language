@@ -1,6 +1,7 @@
 /**
  * Graded reader tools: list / get / create from a spec / replace / generate
- * with Claude / retry / delete / export, and tutor → student sharing.
+ * with Claude / retry / delete / export, the reader queue ("Up next": list,
+ * move, reorder), and tutor → student sharing.
  * Everything goes through the main API as the signed-in user (ctx.api), so
  * ownership checks, validation, illustration queues and R2 cleanup are the
  * API's — this module only shapes the calls and the replies.
@@ -25,6 +26,45 @@ import { UPDATE_STUDENT_COPIES, copiesForReply, updateStudentCopies } from '../s
 
 const READER_ID = z.string().describe('The reader id (from list_readers / generate_reader)');
 const RELATIONSHIP_ID = z.string().describe('The tutor–student relationship id (from list_students or the students tools)');
+const QUEUE_PLACEMENT = z.enum(['top', 'bottom']).optional().describe(
+  "Where the new story goes in the signed-in user's reader queue (\"Up next\" — the study session offers its first unread story, one a day): 'top' (default — offered next) or 'bottom' (after every story already waiting).",
+);
+
+/** A row of GET /api/readers/queue. */
+interface QueueRow {
+  id: string;
+  title_chinese: string;
+  title_english: string;
+  difficulty_level: string;
+  topic: string | null;
+  folder_id: string | null;
+  page_count: number;
+  created_at: string;
+  queue_position: number;
+}
+
+/** The queue as the model sees it: position, titles, level, folder name. */
+export function shapeReaderQueue(rows: QueueRow[], folders: Map<string, string>) {
+  return rows.map(r => ({
+    queue_position: r.queue_position,
+    id: r.id,
+    title_chinese: r.title_chinese,
+    title_english: r.title_english,
+    difficulty_level: r.difficulty_level,
+    topic: r.topic ?? null,
+    page_count: r.page_count,
+    folder_id: r.folder_id && folders.has(r.folder_id) ? r.folder_id : null,
+    folder: r.folder_id ? folders.get(r.folder_id) ?? null : null,
+    created_at: r.created_at,
+  }));
+}
+
+/** One line per story: "1. 小猫找家 · Kitten". */
+export function readerQueueLines(rows: Array<{ queue_position: number; title_chinese: string; title_english: string }>): string {
+  return rows.map(r => `${r.queue_position}. ${r.title_chinese} · ${r.title_english}`).join('\n');
+}
+
+const QUEUE_EXPLAINED = 'The reader queue ("Up next") is the order the signed-in user\'s UNREAD, ready graded readers are offered in: the study session offers the FIRST one, one story a day; a story is read once and then leaves the queue. Until someone reorders it the queue is newest first, and a new story lands on top unless created with queue_position \'bottom\'. Readers that are still generating, failed or already read are not in it. The queue is account-wide (folders only organise the list).';
 
 /** Loose zod shape for a reader spec: the real validation is validateReaderSpec. */
 const readerSpecShape = z.object({
@@ -58,7 +98,7 @@ export function registerReaderTools(ctx: ToolContext): void {
 
   server.tool(
     'list_readers',
-    `List the signed-in user's graded readers (short Chinese stories read page by page, with pinyin/English reveal and illustrations). Returns id, titles, difficulty, topic, status (ready | generating | failed), page_count, created_at and creator_role ('tutor' for readers written/imported by hand or shared by a tutor, 'student' for generated ones). Use it to find a reader id before get_reader, update_reader, share_reader_with_student or export_reader. Each row has its folder (folder_id + folder name; null = Unfiled — see list_folders / move_to_folder). Readers are per-user: a tutor sees their own readers here, not the students' — use list_student_readers for what a student has received.`,
+    `List the signed-in user's graded readers (short Chinese stories read page by page, with pinyin/English reveal and illustrations). Returns id, titles, difficulty, topic, status (ready | generating | failed), page_count, created_at and creator_role ('tutor' for readers written/imported by hand or shared by a tutor, 'student' for generated ones). Use it to find a reader id before get_reader, update_reader, share_reader_with_student or export_reader. Each row has its folder (folder_id + folder name; null = Unfiled — see list_folders / move_to_folder) and its queue_position (1-based place in the reader queue — the study session offers #1 next, one a day; null = read / not ready; see list_reader_queue). Readers are per-user: a tutor sees their own readers here, not the students' — use list_student_readers for what a student has received.`,
     {
       status: z.enum(['ready', 'generating', 'failed', 'all']).optional().describe('Filter by status (default: all)'),
       folder_id: z.string().optional().describe("Only this folder's readers (from list_folders), or 'unfiled'"),
@@ -92,12 +132,12 @@ export function registerReaderTools(ctx: ToolContext): void {
     'create_reader',
     `Write a new graded reader by hand from a ReaderSpec (owner = the signed-in user — the tutor's own account; nothing is sent: share_reader_with_student only when the tutor asks). Use this when you author the story yourself — for a story generated from the learner's known vocabulary use generate_reader instead. Every page with an image_prompt gets an illustration generated in the background (returns image_jobs). The spec is validated locally and by the API; problems come back as a list to fix.
 ${READER_SPEC_DOC}`,
-    { spec: readerSpecShape.describe('The complete ReaderSpec (see the tool description)'), ...folderParams },
-    async ({ spec, folder_id, folder }) => guard(async () => {
+    { spec: readerSpecShape.describe('The complete ReaderSpec (see the tool description)'), ...folderParams, queue_position: QUEUE_PLACEMENT },
+    async ({ spec, folder_id, folder, queue_position }) => guard(async () => {
       const problems = readerSpecProblems(spec);
       if (problems.length > 0) return errorResult(formatProblems('Reader spec', problems));
       const filed = await resolveFolder(api, 'reader', { folder_id, folder });
-      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown; pinyin_fixes?: PinyinFix[] }>('/api/readers/import', { spec, folder_id: filed?.id });
+      const created = await api.post<{ id: string; status: string; image_jobs?: number; spec: unknown; pinyin_fixes?: PinyinFix[] }>('/api/readers/import', { spec, folder_id: filed?.id, position: queue_position });
       const warnings = readerPageWarnings(spec).map(w => w.message);
       return jsonResult({
         id: created.id,
@@ -106,7 +146,8 @@ ${READER_SPEC_DOC}`,
         warnings,
         ...pinyinReply(created.pinyin_fixes),
         sent: false,
-        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)} ${NOT_SENT}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}${pinyinSuffix(created.pinyin_fixes)}`,
+        queue_position: queue_position ?? 'top',
+        message: `Created reader "${spec.title_english}" (id=${created.id}).${filedNote(filed)}${queue_position === 'bottom' ? ' Placed at the bottom of the reader queue.' : ''} ${NOT_SENT}${created.image_jobs ? ` ${created.image_jobs} illustration(s) generating in the background.` : ''}${warnings.length ? ` ${warnings.length} page(s) are over the page standard (see warnings) — consider update_reader to split them.` : ''}${pinyinSuffix(created.pinyin_fixes)}`,
       });
     }),
   );
@@ -148,8 +189,9 @@ ${READER_SPEC_DOC}`,
       topic: z.string().optional().describe('What the story should be about, e.g. "a trip to the night market"'),
       difficulty: z.enum(['beginner', 'elementary', 'intermediate', 'advanced']).optional().describe('Reading level (default beginner)'),
       ...folderParams,
+      queue_position: QUEUE_PLACEMENT,
     },
-    async ({ deck_ids, topic, difficulty, folder_id, folder }) => guard(async () => {
+    async ({ deck_ids, topic, difficulty, folder_id, folder, queue_position }) => guard(async () => {
       const filed = await resolveFolder(api, 'reader', { folder_id, folder });
       const created = await api.post<{ id: string; status: string; title_english?: string }>('/api/readers/generate', {
         source: 'decks',
@@ -157,12 +199,73 @@ ${READER_SPEC_DOC}`,
         topic,
         difficulty: difficulty ?? 'beginner',
         folder_id: filed?.id,
+        position: queue_position,
       });
       return jsonResult({
         id: created.id,
         status: created.status ?? 'generating',
         sent: false,
-        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''} in your account.${filedNote(filed)} Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready". ${NOT_SENT}`,
+        queue_position: queue_position ?? 'top',
+        message: `Reader ${created.id} is generating${topic ? ` (topic: ${topic})` : ''} in your account.${filedNote(filed)}${queue_position === 'bottom' ? ' It goes to the bottom of the reader queue.' : ''} Poll get_reader(reader_id="${created.id}") every ~15 seconds until status is "ready". ${NOT_SENT}`,
+      });
+    }),
+  );
+
+  server.tool(
+    'list_reader_queue',
+    `The signed-in user's reader queue ("Up next"), in order: each unread, ready story with queue_position (1 = offered next), id, titles, difficulty, topic, page_count and folder. ${QUEUE_EXPLAINED} Use it before move_reader_in_queue / reorder_reader_queue, and to answer "which story comes next?".`,
+    {},
+    async () => guard(async () => {
+      const res = await api.get<{ queue: QueueRow[] }>('/api/readers/queue');
+      const names = folderNames(await listFolders(api, 'reader').catch(() => []));
+      const queue = shapeReaderQueue(res.queue, names);
+      return jsonResult({
+        count: queue.length,
+        queue,
+        message: queue.length
+          ? `${queue.length} unread ${queue.length === 1 ? 'story' : 'stories'} in the queue; the study session offers #1 next:\n${readerQueueLines(queue)}`
+          : 'The reader queue is empty — no unread, ready story is waiting (the app writes a new daily story when none is).',
+      });
+    }),
+  );
+
+  server.tool(
+    'move_reader_in_queue',
+    `Move ONE graded reader within the signed-in user's reader queue: to 'top' (offered next), 'up' / 'down' (one place), 'bottom', or a 1-based position (2 = second). ${QUEUE_EXPLAINED} Only an unread, ready story can be moved (a read one answers 409). The other stories keep their order. Returns the new queue.`,
+    {
+      reader_id: READER_ID,
+      to: z.union([z.enum(['top', 'up', 'down', 'bottom']), z.number().int().min(1)]).describe("'top' | 'up' | 'down' | 'bottom', or a 1-based position in the queue"),
+    },
+    async ({ reader_id, to }) => guard(async () => {
+      const body = typeof to === 'number' ? { position: to, source: 'mcp' } : { to, source: 'mcp' };
+      const res = await api.post<{ queue: QueueRow[]; changed: boolean; queue_position: number; queue_total: number }>(`/api/readers/${encodeURIComponent(reader_id)}/move`, body);
+      const names = folderNames(await listFolders(api, 'reader').catch(() => []));
+      const queue = shapeReaderQueue(res.queue, names);
+      return jsonResult({
+        changed: res.changed,
+        queue_position: res.queue_position,
+        queue_total: res.queue_total,
+        queue,
+        message: `${res.changed ? 'Moved' : 'Already there:'} reader ${reader_id} is #${res.queue_position} of ${res.queue_total}${res.queue_position === 1 ? ' — the study session offers it next' : ''}. The devices follow the new order on their next sync.\n${readerQueueLines(queue)}`,
+      });
+    }),
+  );
+
+  server.tool(
+    'reorder_reader_queue',
+    `Set the order of the signed-in user's reader queue at once: reader_ids first, in that order (the first is offered next by the study session); every other story in the queue keeps its relative order after them. Ids that are not in the queue (read, generating, failed or not the user's) are ignored and listed back. ${QUEUE_EXPLAINED} Get the ids from list_reader_queue.`,
+    {
+      reader_ids: z.array(z.string()).min(1).describe('Reader ids in the order wanted, first = next'),
+    },
+    async ({ reader_ids }) => guard(async () => {
+      const res = await api.put<{ queue: QueueRow[]; changed: boolean; ignored: string[] }>('/api/readers/reorder', { reader_ids, source: 'mcp' });
+      const names = folderNames(await listFolders(api, 'reader').catch(() => []));
+      const queue = shapeReaderQueue(res.queue, names);
+      return jsonResult({
+        changed: res.changed,
+        ignored: res.ignored,
+        queue,
+        message: `${res.changed ? 'Reordered' : 'No change to'} the reader queue (${queue.length} unread ${queue.length === 1 ? 'story' : 'stories'}).${res.ignored.length ? ` Ignored ${res.ignored.length} id(s) not in the queue.` : ''} The devices follow it on their next sync.\n${readerQueueLines(queue)}`,
       });
     }),
   );

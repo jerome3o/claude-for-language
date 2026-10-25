@@ -72,6 +72,8 @@ export interface ReaderListRow {
   created_at: string;
   pages?: unknown[];
   folder_id?: string | null;
+  /** 1-based place in the reader queue ("Up next"); null for read / not-ready stories. */
+  queue_position?: number | null;
 }
 
 export interface ReaderListItem {
@@ -89,6 +91,8 @@ export interface ReaderListItem {
   /** Folder id (null = Unfiled); `folder` = its name when known. */
   folder_id?: string | null;
   folder?: string | null;
+  /** 1-based place in the reader queue (first = offered next by the study session); null = read / not ready. */
+  queue_position: number | null;
 }
 
 export function trimReader(row: ReaderListRow): ReaderListItem {
@@ -104,6 +108,7 @@ export function trimReader(row: ReaderListRow): ReaderListItem {
     creator_role: row.creator_role ?? 'student',
     is_published: (row.is_published ?? 1) !== 0,
     folder_id: row.folder_id ?? null,
+    queue_position: row.queue_position ?? null,
   };
   if (row.error_message) item.error_message = row.error_message;
   return item;

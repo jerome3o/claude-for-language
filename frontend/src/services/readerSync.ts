@@ -18,6 +18,7 @@ import { GradedReaderWithPages, DEFAULT_MINIMAX_VOICE } from '../types';
 import { getAudioWithCache, getCachedAudio, cacheAudio, isAudioCached } from './audioCache';
 import { base64ToBlob } from './ttsCache';
 import { readerReadFields, recomputeAllReaderRows, readerRotationState } from './reader-study';
+import { applyReaderOrderLocally, flushPendingReaderOrder, pendingReaderOrder } from './readerQueue';
 
 function pageToLocal(page: GradedReaderWithPages['pages'][number]): LocalReaderPage {
   return {
@@ -75,6 +76,8 @@ async function generateAndCachePageImage(
  * existing readers and initialized as NEW for first-seen ones.
  */
 export async function syncReadersFromServer(): Promise<{ synced: number }> {
+  // A reader-queue order made offline goes up first, so the rows below carry it.
+  await flushPendingReaderOrder();
   const response = await fetch(`${API_BASE}/api/readers?include_pages=true`, {
     headers: getAuthHeaders(),
   });
@@ -118,6 +121,7 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
         difficulty_level: server.difficulty_level,
         status: server.status,
         created_at: server.created_at,
+        queue_priority: server.queue_priority ?? null,
         pages: server.pages.map(pageToLocal),
         ...scheduling,
         _synced_at: Date.now(),
@@ -127,6 +131,9 @@ export async function syncReadersFromServer(): Promise<{ synced: number }> {
   });
   // New readers arrive NEW; any whose events are already here are marked read.
   await recomputeAllReaderRows();
+  // An order the server hasn't taken yet still wins on this device.
+  const pending = pendingReaderOrder();
+  if (pending) await applyReaderOrderLocally(pending);
 
   return { synced: serverReaders.length };
 }

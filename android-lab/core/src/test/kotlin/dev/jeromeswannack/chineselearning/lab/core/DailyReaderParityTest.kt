@@ -39,11 +39,37 @@ class DailyReaderParityTest {
         assertTrue(cases.size >= 400)
         for ((i, c) in cases.withIndex()) {
             val readers = c["readers"]!!.jsonArray.map { it.jsonObject }.map {
-                ReaderOffer(it["id"]!!.jsonPrimitive.content, it["created_at"]!!.jsonPrimitive.content, it["studyable"]!!.jsonPrimitive.boolean, it["read"]!!.jsonPrimitive.boolean)
+                ReaderOffer(
+                    it["id"]!!.jsonPrimitive.content,
+                    it["created_at"]!!.jsonPrimitive.content,
+                    it["studyable"]!!.jsonPrimitive.boolean,
+                    it["read"]!!.jsonPrimitive.boolean,
+                    str(it["queue_priority"])?.toLong(),
+                )
             }
             val readToday = c["read_today"]!!.jsonPrimitive.boolean
             assertEquals(str(c["picked"]), DailyReader.pickTodays(readers, readToday) { it }?.id, "pick #$i $c")
             assertEquals(str(c["next"]), DailyReader.nextUnread(readers) { it }?.id, "next #$i $c")
+            assertEquals(ids(c["queue"]), DailyReader.unreadQueue(readers) { it }.map { it.id }, "queue #$i $c")
+            assertEquals(ids(c["sorted"]), ReaderQueue.sort(readers) { it }.map { it.id }, "sorted #$i $c")
+        }
+    }
+
+    private fun ids(e: kotlinx.serialization.json.JsonElement?) = e!!.jsonArray.map { it.jsonPrimitive.content }
+
+    @Test fun readerQueueMovesAndPriorities() {
+        val cases = list("queue")
+        assertTrue(cases.size >= 200)
+        for ((i, c) in cases.withIndex()) {
+            val order = ids(c["order"])
+            val id = c["id"]!!.jsonPrimitive.content
+            val to = c["to"]!!.jsonPrimitive
+            val moved = if (to.isString) ReaderQueue.move(order, id, DeckQueue.move(to.content)!!) else ReaderQueue.moveToPosition(order, id, to.int)
+            assertEquals(ids(c["moved"]), moved, "move #$i $c")
+            assertEquals(ids(c["merged"]), ReaderQueue.merge(order, ids(c["requested"])), "merge #$i $c")
+            val priorities = c["priorities"]!!.jsonArray.map { str(it)?.toLong() }
+            assertEquals(c["bottom"]!!.jsonPrimitive.long, ReaderQueue.bottomPriority(priorities), "bottom #$i $c")
+            assertEquals(c["written"]!!.jsonArray.map { it.jsonPrimitive.long }, ReaderQueue.priorities(order).map { it.second }, "written #$i $c")
         }
     }
 

@@ -30,6 +30,8 @@ data class ScheduledItem(
     val state: RevisitState,
     /** Readers only: generation finished ('ready') and it has pages. */
     val studyable: Boolean = true,
+    /** Readers only: the place in the reader queue ([ReaderQueue]); null = never placed by hand. */
+    val queuePriority: Long? = null,
 ) {
     /** The row's queue as the web caches it (`revisitRowFields`): NEW until the first finish, then REVIEW. */
     val queue: Int get() = if (state.isNew) CardQueue.NEW else CardQueue.REVIEW
@@ -159,9 +161,9 @@ object ReaderSchedule {
         return RevisitState(RevisitState.SCHEDULED, null, 0.0, last, events.size)
     }
 
-    private fun offer(r: ScheduledItem) = ReaderOffer(r.id, r.createdAt, r.studyable, !r.state.isNew)
+    private fun offer(r: ScheduledItem) = ReaderOffer(r.id, r.createdAt, r.studyable, !r.state.isNew, r.queuePriority)
 
-    /** `pickTodaysReader`: a reader read today owns the day; otherwise the newest UNREAD story. A read one never. */
+    /** `pickTodaysReader`: a reader read today owns the day; otherwise the first UNREAD story in the reader queue. A read one never. */
     fun pickTodays(readers: List<ScheduledItem>, readToday: Set<String>): ScheduledItem? =
         DailyReader.pickTodays(readers, readToday.isNotEmpty(), ::offer)
 }

@@ -791,8 +791,31 @@ parity-tested by `parity/fixtures/daily-reader.ts`):
   Bring back for readers, nothing about readers in Settings.
 - **One a day** (`READERS_PER_DAY`): `pickTodaysReader` offers nothing once a story was read today
   (one-off homework readers don't count and are never offered — they're read in the homework pass),
-  else the **newest unread** story (ties by id). So an unread daily reader is offered again, day
-  after day, until it is read.
+  else the **first unread story of the reader queue** (below — newest first until reordered). So an
+  unread daily reader is offered again, day after day, until it is read.
+- **The reader queue — "Up next"** (Jerome, Oct 2026: "allow me to change the order in which my graded
+  readers get queued up"; `shared/reader/queue.ts`, Lab `ReaderQueue` in `core/…/DailyReader.kt`,
+  parity-tested): the unread, ready stories in the order the session offers them. `graded_readers.queue_priority`
+  (migration 0140) is NULL until the learner reorders, so nothing changes for anyone who doesn't:
+  stories never placed by hand come **first, newest first** (ties by id — the old rule, and where a new
+  story lands); then placed ones, higher priority first (`compareReaderQueue`). A move or reorder writes a
+  priority on EVERY story of the queue (first = highest, `queuePriorities`), so the order is exactly the one
+  chosen; a story created afterwards lands on top again unless it was created with `position: 'bottom'`
+  (`bottomQueuePriority`: below every placed one). Readers list → **Up next** (web
+  `components/readers/ReaderUpNext.tsx`, Lab `UpNextRow` in `ui/readers/ReadersListScreen.kt`): the queue in
+  order (one-off homework readers left out — the session never offers them), the first marked "Next in
+  your session", **#N** → Move to top / up / down / bottom (the Decks tab's `QueuePositionMenu` / Lab
+  `QueueBadge`), **press and hold to drag**, "Show all N" past five; the cards below ("All stories", in their
+  folders as before) carry "Up next · #N". The queue is account-wide; folders only organise. Offline-first:
+  the new order is written to the device at once (web IndexedDB `readers.queue_priority` +
+  `services/readerQueue.ts`'s pending order in localStorage, sent before the next reader sync and
+  re-applied over the server's rows while pending; Lab: the cached list + the Outbox, kind `reader-queue`).
+  API: `GET /api/readers/queue`, `POST /api/readers/:id/move { to | position }`, `PUT /api/readers/reorder
+  { reader_ids }` (`routes/reader-queue.ts`, `services/reader-queue.ts`); `GET /api/readers` rows carry
+  `queue_priority` + `queue_position`; `POST /api/readers/import` and `/api/readers/generate` take
+  `position: 'top' | 'bottom'`. MCP: `list_reader_queue`, `move_reader_in_queue`, `reorder_reader_queue`,
+  `queue_position` on `create_reader` / `generate_reader`. Analytics `reader.queue_move { how, position,
+  total, via }`.
 - **Generation** (`ensureDailyReader`, study start + background sync; `shouldGenerateDailyReader`):
   a new story is asked for only when **no unread story is waiting** (the previous daily reader was
   read, or none exists), nothing was read today, and at most once per local day (the
