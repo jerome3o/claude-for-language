@@ -13,6 +13,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.lifecycleScope
 import dev.jeromeswannack.chineselearning.lab.data.AuthExchange
+import dev.jeromeswannack.chineselearning.lab.data.feedback.FeedbackCenter
+import dev.jeromeswannack.chineselearning.lab.data.feedback.FeedbackPrefs
+import dev.jeromeswannack.chineselearning.lab.data.feedback.ShakeWatcher
+import dev.jeromeswannack.chineselearning.lab.ui.feedback.FeedbackHost
 import dev.jeromeswannack.chineselearning.lab.shell.ShellLinks
 import dev.jeromeswannack.chineselearning.lab.shell.ShellPermission
 import dev.jeromeswannack.chineselearning.lab.ui.home.SignInScreen
@@ -44,6 +48,8 @@ class MainActivity : ComponentActivity() {
     internal var nav: LabNav? = null
         private set
     private lateinit var notificationPermission: ShellPermission
+    /** Shake to send feedback (docs/FEEDBACK.md): listening only while this activity is in front. */
+    private var shakeWatcher: ShakeWatcher? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -83,6 +89,8 @@ class MainActivity : ComponentActivity() {
                         onRestored = { restoreFrom = null },
                         onNav = { nav = it },
                     )
+                    // The Send feedback sheet, over whatever is on screen (shake, More, Settings).
+                    FeedbackHost(app)
                 }
             }
         }
@@ -96,6 +104,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (signedIn && app.online.value) lifecycleScope.launch { app.safely("sync on resume") { app.repo.sync() } }
+        FeedbackCenter.attach(this)
+        if (signedIn && FeedbackPrefs(this).shakeOn) {
+            val w = shakeWatcher ?: ShakeWatcher(app) {
+                app.haptics.tick()
+                FeedbackCenter.open(app, "shake")
+            }.also { shakeWatcher = it }
+            runCatching { w.start() }
+        }
+    }
+
+    override fun onPause() {
+        shakeWatcher?.stop()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        FeedbackCenter.detach(this)
+        super.onDestroy()
     }
 
     private fun launchedFromHistory(intent: Intent?) = intent != null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0

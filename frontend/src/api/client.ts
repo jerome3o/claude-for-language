@@ -85,7 +85,7 @@ export function getLocalDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-const API_PATH = `${API_BASE}/api`;
+export const API_PATH = `${API_BASE}/api`;
 
 // Session token for Authorization header (used when cookies don't work cross-origin)
 let sessionToken: string | null = null;
@@ -1834,6 +1834,11 @@ export interface FeatureRequest {
   content: string;
   page_context: string | null;
   screenshot_url: string | null;
+  /** request (the old form) | feedback | bug (docs/FEEDBACK.md). */
+  kind?: 'request' | 'feedback' | 'bug';
+  /** In-app feedback's diagnostic context (shared/feedback). */
+  context?: import('@shared/feedback').FeedbackContext | null;
+  context_line?: string | null;
   status: string;
   approval_status: string;
   comment_count: number;
@@ -1885,10 +1890,11 @@ export async function updateLandingPage(landing_page: LandingPage | null): Promi
   return data.landing_page;
 }
 
-export async function getFeatureRequests(options?: { status?: string; all?: boolean }): Promise<FeatureRequest[]> {
+export async function getFeatureRequests(options?: { status?: string; all?: boolean; kind?: 'request' | 'feedback' | 'bug' }): Promise<FeatureRequest[]> {
   const params = new URLSearchParams();
   if (options?.status) params.set('status', options.status);
   if (options?.all) params.set('all', 'true');
+  if (options?.kind) params.set('kind', options.kind);
   const qs = params.toString();
   const { requests } = await fetchJSON<{ requests: FeatureRequest[] }>(
     `/feature-requests${qs ? `?${qs}` : ''}`

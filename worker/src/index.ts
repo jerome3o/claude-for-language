@@ -237,6 +237,8 @@ import { allowedCorsOrigin } from './services/cors-origins';
 import { cleanupExpiredSessions, cleanupExpiredAuthCodes } from './services/auth';
 import authSessionRoutes from './routes/auth-session';
 import cspReportRoutes from './routes/csp-report';
+import feedbackRoutes from './routes/feedback';
+import { shapeFeatureRequest } from './services/feedback';
 import { CreateRelationshipRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
 import {
   computeCardState,
@@ -615,6 +617,8 @@ app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
 // GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
 app.route('/api', mediaRoutes);
+// POST /api/feedback — in-app feedback / bug reports with a screenshot (routes/feedback.ts, docs/FEEDBACK.md).
+app.route('/api', feedbackRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
 app.route('/api', clipsRoutes); // 🎬 Clips (experimental): GET|POST /api/clips, /generate, /events, /:id/learn-more
 app.route('/api', memeReviewRoutes); // 梗 Meme review (prototype): GET /api/meme-review[/:month], POST …/generate (admin), …/:month/lesson
@@ -6131,6 +6135,10 @@ app.get('/api/feature-requests', async (c) => {
   const user = c.get('user');
   const status = c.req.query('status');
   const all = c.req.query('all') === 'true' && user.is_admin;
+  // ?kind=feedback (= feedback + bug, docs/FEEDBACK.md) | bug | request
+  const kindParam = c.req.query('kind');
+  const kinds = kindParam === 'feedback' ? ['feedback', 'bug'] : kindParam === 'bug' ? ['bug'] : kindParam === 'request' ? ['request'] : null;
+  const kindSql = kinds ? `fr.kind IN (${kinds.map(() => '?').join(', ')})` : '';
 
   let query: string;
   const params: unknown[] = [];
@@ -6141,10 +6149,11 @@ app.get('/api/feature-requests', async (c) => {
         (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
       FROM feature_requests fr
       JOIN users u ON fr.user_id = u.id
-      ${status ? 'WHERE fr.status = ?' : ''}
+      ${status || kindSql ? `WHERE ${[status ? 'fr.status = ?' : '', kindSql].filter(Boolean).join(' AND ')}` : ''}
       ORDER BY fr.created_at DESC
     `;
     if (status) params.push(status);
+    if (kinds) params.push(...kinds);
   } else {
     query = `
       SELECT fr.*,
@@ -6152,14 +6161,17 @@ app.get('/api/feature-requests', async (c) => {
       FROM feature_requests fr
       WHERE fr.user_id = ?
       ${status ? 'AND fr.status = ?' : ''}
+      ${kindSql ? `AND ${kindSql}` : ''}
       ORDER BY fr.created_at DESC
     `;
     params.push(user.id);
     if (status) params.push(status);
+    if (kinds) params.push(...kinds);
   }
 
-  const results = await c.env.DB.prepare(query).bind(...params).all();
-  return c.json({ requests: results.results || [] });
+  const results = await c.env.DB.prepare(query).bind(...params).all<Record<string, unknown>>();
+  // console_logs can be large: lists leave it out (the detail has it).
+  return c.json({ requests: (results.results || []).map((r) => { const { console_logs: _logs, ...rest } = shapeFeatureRequest(r); return rest; }) });
 });
 
 // Upload a screenshot for a feature request
@@ -6271,7 +6283,7 @@ app.get('/api/feature-requests/:id', async (c) => {
     ORDER BY created_at ASC
   `).bind(id).all();
 
-  return c.json({ request, comments: comments.results || [] });
+  return c.json({ request: shapeFeatureRequest(request as Record<string, unknown>), comments: comments.results || [] });
 });
 
 // Update feature request status (admin only)

@@ -4,7 +4,7 @@
  * The bucket holds everything the app stores. Only content the app GENERATES itself (TTS clips,
  * generated pictures) and profile photos are public — served to anyone, cached for a year. What a
  * person MADE (study recordings, lesson answers, call audio, uploaded card photos, lesson-note
- * files) is `private`: served only with a credential — a short-lived signed link (`?exp=&sig=`,
+ * files, feedback screenshots) is `private`: served only with a credential — a short-lived signed link (`?exp=&sig=`,
  * minted by the API for an authorised caller), the user's media token (`?mt=`), or the session as
  * `Authorization: Bearer` — and only to someone allowed to see it (the owner, their tutor, the
  * call's members). Anything else (chat media, audio lessons, tutor model recordings, materials,
@@ -22,7 +22,7 @@ export type MediaAccess = 'public' | 'private' | 'none';
 export const PUBLIC_MEDIA_PREFIXES = ['generated/', 'reader-images/', 'lesson-images/', 'note-images/', 'avatars/', 'meme-review/images/'] as const;
 
 /** Person-made media served through /api/audio/* with a credential + an authorisation check. */
-export const PRIVATE_MEDIA_PREFIXES = ['recordings/', 'calls/', 'note-uploads/', 'lesson-notes/'] as const;
+export const PRIVATE_MEDIA_PREFIXES = ['recordings/', 'calls/', 'note-uploads/', 'lesson-notes/', 'feedback/'] as const;
 
 /** Query parameter of the user's media token (`?mt=`). */
 export const MEDIA_TOKEN_PARAM = 'mt';

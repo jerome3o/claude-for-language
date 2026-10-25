@@ -107,6 +107,8 @@ fun SettingsScreen(
     debugRow: @Composable () -> Unit = {},
     /** Package J: Video call alerts (ui/calls/CallAlertsSettings.kt). */
     callAlerts: @Composable () -> Unit = {},
+    /** Settings → Feedback (ui/feedback): Send feedback + "Shake to send feedback". */
+    feedback: @Composable () -> Unit = {},
     /** Advanced → "Share usage data" (AnalyticsSettings.kt). */
     shareUsage: @Composable () -> Unit = {},
     /** Study extras: Ask Claude language, spoken answers (the old "Lessons & readers" gaps are gone, Oct 2026). */
@@ -143,6 +145,7 @@ fun SettingsScreen(
         item { podcastFeed() }
         item { StartOnSection(ui, role, actions) }
         item { callAlerts() }
+        item { feedback() }
         item {
             LabCard {
                 ToggleRow("🔔", "Sounds", env.soundOn, desc = "Flip, rating and celebration sounds", onChange = actions.toggleSound)
@@ -420,13 +423,23 @@ private fun RequestCard(r: FeatureRequestDto, onClick: () -> Unit) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        StatusPill(requestStatusLabel(r.status), requestStatusColor(r.status))
+        androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatusPill(requestStatusLabel(r.status), requestStatusColor(r.status))
+            feedbackKindLabel(r.kind)?.let { StatusPill(it, if (r.kind == "bug") Palette.Again else Palette.Easy) }
+        }
         Text(if (r.content.length > 150) r.content.take(150) + "..." else r.content, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
         Text(
-            listOfNotNull(timeAgo(r.created_at), r.comment_count.takeIf { it > 0 }?.let { "$it comment${if (it != 1) "s" else ""}" }, r.page_context?.let { "from $it" }).joinToString(" · "),
+            listOfNotNull(timeAgo(r.created_at), r.comment_count.takeIf { it > 0 }?.let { "$it comment${if (it != 1) "s" else ""}" }, (r.context_line ?: r.page_context)?.let { "from $it" }, r.screenshot_url?.takeIf { r.kind != "request" }?.let { "📷" }).joinToString(" · "),
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
         )
     }
+}
+
+/** 🐛 Bug / 💬 Feedback on in-app feedback items (the web's KindBadge); null on classic requests. */
+fun feedbackKindLabel(kind: String): String? = when (kind) {
+    "bug" -> "🐛 Bug"
+    "feedback" -> "💬 Feedback"
+    else -> null
 }
 
 /** The web's timeAgo ("just now", "5m ago", "3h ago", "yesterday", "4d ago"); SQLite times are UTC. */

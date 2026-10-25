@@ -30,15 +30,31 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /** One feature request with its comments and a comment box (the web's FeatureRequestDetail modal). */
 @Composable
-fun FeatureRequestSheet(detail: FeatureRequestDetailDto, busy: Busy, onComment: (String, () -> Unit) -> Unit, onDismiss: () -> Unit) {
+fun FeatureRequestSheet(
+    detail: FeatureRequestDetailDto,
+    busy: Busy,
+    onComment: (String, () -> Unit) -> Unit,
+    onDismiss: () -> Unit,
+    screenshot: @Composable (String) -> Unit = {},
+) {
     var text by rememberSaveable { mutableStateOf("") }
     LabSheetFrame(onDismiss = onDismiss) {
-        FeatureRequestBody(detail, busy, text, { text = it }, title = "Feature Request") { onComment(text) { text = "" } }
+        FeatureRequestBody(detail, busy, text, { text = it }, title = "Feature Request", screenshot = screenshot) { onComment(text) { text = "" } }
     }
 }
 
 @Composable
-fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String, onText: (String) -> Unit, title: String? = null, modifier: Modifier = Modifier, onSend: () -> Unit) {
+fun FeatureRequestBody(
+    detail: FeatureRequestDetailDto,
+    busy: Busy,
+    text: String,
+    onText: (String) -> Unit,
+    title: String? = null,
+    modifier: Modifier = Modifier,
+    /** In-app feedback's screenshot (private media: the app downloads it with the session). */
+    screenshot: @Composable (String) -> Unit = {},
+    onSend: () -> Unit,
+) {
     val r = detail.request
     // The comment thread scrolls; the comment box and its button stay pinned (SheetScaffold).
     SheetScaffold(
@@ -60,7 +76,9 @@ fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String
     ) {
         Text(r.content, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
         StatusPill(requestStatusLabel(r.status), requestStatusColor(r.status))
-        Text(listOfNotNull(timeAgo(r.created_at), r.page_context?.let { "from $it" }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        feedbackKindLabel(r.kind)?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted) }
+        Text(listOfNotNull(timeAgo(r.created_at), (r.context_line ?: r.page_context)?.let { "from $it" }).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
+        r.screenshot_url?.takeIf { r.kind != "request" }?.let { screenshot(it) }
         if (detail.comments.isNotEmpty()) {
             Text("Comments", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink, modifier = Modifier.padding(top = 6.dp))
             detail.comments.forEach { c ->
@@ -69,31 +87,6 @@ fun FeatureRequestBody(detail: FeatureRequestDetailDto, busy: Busy, text: String
                     Text(c.content, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
                 }
             }
-        }
-    }
-}
-
-/** "💬 Send feedback" — a new feature request (the web's floating feedback button). */
-@Composable
-fun FeedbackSheet(busy: Busy, onSend: (String, () -> Unit) -> Unit, onDismiss: () -> Unit) {
-    var text by rememberSaveable { mutableStateOf("") }
-    LabFormSheet(
-        onDismiss = onDismiss,
-        title = "Send feedback",
-        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 4.dp),
-        footerAbove = busy.error?.let { e -> { StatusLine(e, error = true) } },
-        footer = { PrimaryPill(if (busy.busy) "Sending..." else "Send", Modifier.weight(1f).height(52.dp), enabled = text.isNotBlank() && !busy.busy) { onSend(text) { text = ""; onDismiss() } } },
-    ) {
-        run {
-            Text("An idea, a bug, something that felt off? It goes to the feature request list.", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
-            OutlinedTextField(
-                value = text, onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
-                placeholder = { Text("What would make the app better?", color = Lab.colors.muted) },
-                enabled = !busy.busy,
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent, unfocusedBorderColor = Lab.colors.cardBorder),
-                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Lab.colors.ink),
-            )
         }
     }
 }

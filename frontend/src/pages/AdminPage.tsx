@@ -453,7 +453,10 @@ export function AdminPage() {
               {pendingRequests.map(req => (
                 <div key={req.id} className="pending-request-card">
                   <div className="pending-request-content">
-                    <p className="pending-request-text">{req.content}</p>
+                    <p className="pending-request-text">
+                      {req.kind === 'bug' ? '🐛 ' : req.kind === 'feedback' ? '💬 ' : ''}
+                      {req.content}
+                    </p>
                     {req.screenshot_url && (
                       <AuthedScreenshot
                         path={req.screenshot_url}

@@ -47,6 +47,7 @@ import { syncTutorNotes } from './tutorNotes';
 import { prefetchModelRecordings } from './modelRecordings';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
+import { flushFeedback } from './feedback';
 import { applyPendingNotePrefs, uploadPendingNotePrefs } from './longTerm';
 import { syncPictureHunts } from './pictureHunts';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
@@ -593,6 +594,13 @@ class SyncService {
       if (flags.uploaded > 0) console.log('[Sync] Card flags posted:', flags.uploaded);
     } catch (err) {
       console.error('[Sync] Card flag upload failed:', err);
+    }
+    try {
+      // In-app feedback written offline (docs/FEEDBACK.md); idempotent by client id.
+      const feedback = await flushFeedback();
+      if (feedback.sent > 0) console.log('[Sync] Feedback sent:', feedback.sent);
+    } catch (err) {
+      console.error('[Sync] Feedback upload failed:', err);
     }
     try {
       // Video-call recordings that didn't finish uploading during the call

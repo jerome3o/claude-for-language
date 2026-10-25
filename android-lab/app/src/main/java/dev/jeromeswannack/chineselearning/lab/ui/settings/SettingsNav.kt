@@ -42,7 +42,6 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
         val pending by app.outbox.observe().collectAsStateWithLifecycle(emptyList())
         var sound by remember { mutableStateOf(app.prefs.soundOn) }
         var haptics by remember { mutableStateOf(app.prefs.hapticsOn) }
-        var feedback by rememberSaveable { mutableStateOf(false) }
         val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? -> vm.finishExport(uri) }
 
         SettingsScreen(
@@ -57,6 +56,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 }
             },
             newCardOrder = { NewCardOrderSettingsCard(app) },
+            feedback = { dev.jeromeswannack.chineselearning.lab.ui.feedback.FeedbackSettingsCard(app) },
             podcastFeed = { dev.jeromeswannack.chineselearning.lab.ui.audiolessons.PodcastFeedCard(app) },
             callAlerts = {
                 androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(androidx.compose.ui.unit.Dp(12f))) {
@@ -112,16 +112,18 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 openRequest = { vm.openRequest(it) },
                 fullSync = { app.analytics.track("settings.full_sync"); app.scope.launch { app.repo.sync(forceFull = true) } },
                 checkForUpdates = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(RELEASES_URL))) } },
-                newFeedback = { feedback = true },
+                newFeedback = { dev.jeromeswannack.chineselearning.lab.data.feedback.FeedbackCenter.open(app, "settings") },
             ),
             debugRow = { DebugReportRow(app) },
             shareUsage = { ShareUsageSettings(app) },
         )
 
         ui.openRequest?.let { detail ->
-            FeatureRequestSheet(detail, ui.requestBusy, onComment = { text, done -> vm.comment(text, done) }, onDismiss = vm::closeRequest)
+            FeatureRequestSheet(
+                detail, ui.requestBusy, onComment = { text, done -> vm.comment(text, done) }, onDismiss = vm::closeRequest,
+                screenshot = { url -> dev.jeromeswannack.chineselearning.lab.ui.feedback.FeedbackScreenshot(app, url) },
+            )
         }
-        if (feedback) FeedbackSheet(ui.feedbackBusy, onSend = { text, done -> vm.sendFeedback(text, done) }, onDismiss = { feedback = false })
     }
 
     composable(Routes.route("/settings/sentences")) {

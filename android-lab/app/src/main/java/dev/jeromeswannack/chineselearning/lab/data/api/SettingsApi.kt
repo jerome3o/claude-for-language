@@ -45,6 +45,10 @@ data class FeatureRequestDto(
     val status: String = "new",
     val comment_count: Int = 0,
     val created_at: String,
+    /** request (the old form) | feedback | bug — in-app feedback (docs/FEEDBACK.md). */
+    val kind: String = "request",
+    /** In-app feedback's one-line context ("Lab app 0.142 · /study · Google Pixel 9 · shaken"). */
+    val context_line: String? = null,
 )
 
 @Serializable data class FeatureRequestsDto(val requests: List<FeatureRequestDto> = emptyList())

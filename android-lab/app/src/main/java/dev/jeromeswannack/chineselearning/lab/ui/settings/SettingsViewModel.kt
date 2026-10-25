@@ -13,7 +13,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.FeatureRequestDto
 import dev.jeromeswannack.chineselearning.lab.data.api.audioQuality
 import dev.jeromeswannack.chineselearning.lab.data.api.classifyAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.commentOnFeatureRequest
-import dev.jeromeswannack.chineselearning.lab.data.api.createFeatureRequest
 import dev.jeromeswannack.chineselearning.lab.data.api.exportBackup
 import dev.jeromeswannack.chineselearning.lab.data.api.featureRequest
 import dev.jeromeswannack.chineselearning.lab.data.api.featureRequests
@@ -63,7 +62,6 @@ data class SettingsUi(
     val requestsError: String? = null,
     val openRequest: FeatureRequestDetailDto? = null,
     val requestBusy: Busy = Busy(),
-    val feedbackBusy: Busy = Busy(),
 )
 
 /**
@@ -323,22 +321,6 @@ class SettingsViewModel(private val app: LabApp) : ViewModel() {
         }
     }
 
-    /** The web's 💬 feedback button: a new feature request from the Lab app. */
-    fun sendFeedback(text: String, onDone: () -> Unit) = viewModelScope.launch {
-        if (text.isBlank()) return@launch
-        _ui.update { it.copy(feedbackBusy = Busy(busy = true)) }
-        try {
-            call { app.repo.api.createFeatureRequest(text.trim(), "Lab app (Android) · Settings") }
-            _ui.update { it.copy(feedbackBusy = Busy(status = "Sent — thank you!")) }
-            app.haptics.correct()
-            onDone()
-            loadRequests()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            _ui.update { it.copy(feedbackBusy = Busy(error = e.userMessage())) }
-        }
-    }
 
     class Factory(private val app: LabApp) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
