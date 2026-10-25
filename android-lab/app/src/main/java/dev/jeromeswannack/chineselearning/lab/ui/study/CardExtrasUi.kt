@@ -43,6 +43,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -393,13 +395,28 @@ private fun ExplainerLine(n: String, bold: String, rest: String) {
  * network, tap to force offline on a spotty connection; the label says which.
  */
 @Composable
-fun OfflinePill(online: Boolean, forced: Boolean, pending: Int, onToggle: () -> Unit) {
-    val (label, color) = when {
-        forced -> "Forced" to Palette.Hard
-        !online -> "Offline" to Lab.colors.muted
-        else -> "Auto" to Palette.Good
-    }
+fun OfflinePill(online: Boolean, forced: Boolean, pending: Int, onToggle: () -> Unit, compact: Boolean = false) {
+    val (label, color) = offlinePillLabel(online, forced)
     val suffix = if ((forced || !online) && pending > 0) " ($pending)" else ""
+    if (compact) {
+        // A tight header (StudyTopBarFit): ✈ alone in a 44 dp target, the state as its colour (+ what's waiting).
+        Box(
+            Modifier.size(CompactChipSize).bouncyClickable(onClick = onToggle)
+                .semantics { contentDescription = "Offline mode: $label$suffix" }.testTag(OFFLINE_PILL_TAG),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(34.dp).clip(CircleShape).background(color.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
+                Text("✈", color = color, fontSize = 14.sp, maxLines = 1, softWrap = false)
+            }
+            if (suffix.isNotEmpty()) {
+                Text(
+                    "$pending", Modifier.align(Alignment.TopEnd).clip(CircleShape).background(color).padding(horizontal = 4.dp),
+                    color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+                )
+            }
+        }
+        return
+    }
     Row(
         Modifier
             .heightIn(min = 32.dp)
@@ -411,6 +428,16 @@ fun OfflinePill(online: Boolean, forced: Boolean, pending: Int, onToggle: () -> 
     ) {
         Text("✈", color = color, fontSize = 13.sp)
         Spacer(Modifier.width(4.dp))
-        Text(label + suffix, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text(label + suffix, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, softWrap = false)
     }
 }
+
+/** The offline control's word and colour: Forced / Offline / Auto. */
+@Composable
+fun offlinePillLabel(online: Boolean, forced: Boolean): Pair<String, Color> = when {
+    forced -> "Forced" to Palette.Hard
+    !online -> "Offline" to Lab.colors.muted
+    else -> "Auto" to Palette.Good
+}
+
+const val OFFLINE_PILL_TAG = "offline-pill"

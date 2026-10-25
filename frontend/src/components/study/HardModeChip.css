@@ -19,6 +19,44 @@
   white-space: nowrap;
 }
 
+.hard-mode-chip-text {
+  white-space: pre;
+}
+
+.hard-mode-chip-dot {
+  display: none;
+}
+
+/* A tight study header (useTopbarFit): 🎯 alone, the state as a dot; still a 44px-wide target, its
+   accessible name says the mode. */
+.study-topbar[class*='study-topbar--fit-'] .hard-mode-chip {
+  position: relative;
+  justify-content: center;
+  width: 44px;
+  padding: 0;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .hard-mode-chip-text {
+  display: none;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .hard-mode-chip--off .hard-mode-chip-icon {
+  opacity: 0.45;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .hard-mode-chip--red .hard-mode-chip-dot,
+.study-topbar[class*='study-topbar--fit-'] .hard-mode-chip--all .hard-mode-chip-dot {
+  display: block;
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-surface);
+  background: currentColor;
+}
+
 .hard-mode-chip--red {
   border-color: #fca5a5;
   background: #fef2f2;

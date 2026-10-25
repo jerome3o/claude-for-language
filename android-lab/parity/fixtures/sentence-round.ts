@@ -10,7 +10,7 @@ import {
   sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote,
   SENTENCE_ROUND_SIZE, SENTENCE_ROUND_TITLE, SENTENCE_ROUND_SKIP, SENTENCE_ROUND_TRY_AGAIN, SENTENCE_ROUND_SEE_ANSWER,
   SENTENCE_ROUND_SHOW_ENGLISH, SENTENCE_ROUND_HIDE_ENGLISH, SENTENCE_ROUND_PROMPT, SENTENCE_ROUND_RESULT,
-  roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts,
+  roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts, roundEnglishShown,
   type RoundSentence, type RoundLogEntry,
 } from '../../../shared/study/sentenceRound';
 
@@ -100,8 +100,13 @@ for (const enabled of [true, false]) for (const cardType of ['hanzi_to_meaning',
   opens.push({ enabled, cardType, sentenceCount, opens: sentenceRoundOpens({ enabled, cardType, sentenceCount }) });
 }
 
+const english = [] as unknown[];
+for (const mode of ['read', 'translate'] as const) for (const status of [null, 'right', 'close', 'wrong'] as const) for (const answered of [false, true]) for (const toggled of [null, true, false]) {
+  english.push({ mode, status, answered, toggled, shown: roundEnglishShown(mode, status, answered, toggled) });
+}
+
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
-  lists, opens, answerSide, parts,
+  lists, opens, answerSide, parts, english,
   copy: {
     size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
     seeAnswer: SENTENCE_ROUND_SEE_ANSWER, showEnglish: SENTENCE_ROUND_SHOW_ENGLISH, hideEnglish: SENTENCE_ROUND_HIDE_ENGLISH,

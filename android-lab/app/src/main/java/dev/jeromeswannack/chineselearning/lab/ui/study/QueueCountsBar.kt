@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -45,7 +46,7 @@ enum class CountsCopy { COPIED, FAILED }
  * back; tapping copies an image of the counts ([QueueCountsShare]) and reports it.
  */
 @Composable
-fun QueueCountsBar(counts: QueueCounts, active: CountBucket?, modifier: Modifier = Modifier, onCopied: (CountsCopy) -> Unit = {}) {
+fun QueueCountsBar(counts: QueueCounts, active: CountBucket?, modifier: Modifier = Modifier, onCopied: (CountsCopy) -> Unit = {}, style: CountsStyle = StudyTopBarFit.FULL.counts) {
     val context = LocalContext.current
     Box(modifier, contentAlignment = Alignment.Center) {
         Row(
@@ -56,22 +57,26 @@ fun QueueCountsBar(counts: QueueCounts, active: CountBucket?, modifier: Modifier
                 .padding(horizontal = 2.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            CountNumber(counts.new, Palette.New, active, CountBucket.NEW)
-            Plus()
-            CountNumber(counts.secondaryNew, Palette.Secondary, active, CountBucket.SECONDARY)
-            Plus()
-            CountNumber(counts.learning, Palette.Learning, active, CountBucket.LEARNING)
-            Plus()
-            CountNumber(counts.review, Palette.Review, active, CountBucket.REVIEW)
+            CountNumber(counts.new, Palette.New, active, CountBucket.NEW, style)
+            Plus(style)
+            CountNumber(counts.secondaryNew, Palette.Secondary, active, CountBucket.SECONDARY, style)
+            Plus(style)
+            CountNumber(counts.learning, Palette.Learning, active, CountBucket.LEARNING, style)
+            Plus(style)
+            CountNumber(counts.review, Palette.Review, active, CountBucket.REVIEW, style)
         }
     }
 }
 
 @Composable
-private fun Plus() = Text("+", color = Lab.colors.muted.copy(alpha = 0.6f), fontSize = 13.sp, modifier = Modifier.padding(horizontal = 1.dp))
+private fun Plus(style: CountsStyle) =
+    Text("+", color = Lab.colors.muted.copy(alpha = 0.6f), fontSize = style.plusSp.sp, maxLines = 1, softWrap = false, modifier = Modifier.padding(horizontal = style.plusPadDp.dp))
+
+/** A count's test tag ("queue-count-review"): each number is ONE line (never "13" over "2"). */
+fun queueCountTag(bucket: CountBucket) = "queue-count-${bucket.name.lowercase()}"
 
 @Composable
-private fun CountNumber(value: Int, color: Color, active: CountBucket?, bucket: CountBucket) {
+private fun CountNumber(value: Int, color: Color, active: CountBucket?, bucket: CountBucket, style: CountsStyle) {
     val isActive = active == bucket
     val shown by animateIntAsState(value, tween(300), label = "count")
     val alpha by animateFloatAsState(
@@ -87,10 +92,13 @@ private fun CountNumber(value: Int, color: Color, active: CountBucket?, bucket: 
     val scale by animateFloatAsState(if (isActive) 1.1f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "countScale")
     val bar by animateDpAsState(if (isActive) 16.dp else 0.dp, spring(dampingRatio = 0.6f, stiffness = 500f), label = "countBar")
     Column(
-        Modifier.scale(scale).clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = 7.dp, vertical = 1.dp),
+        Modifier.scale(scale).clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = style.padDp.dp, vertical = 1.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("$shown", color = color.copy(alpha = alpha), fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Text(
+            "$shown", Modifier.testTag(queueCountTag(bucket)), color = color.copy(alpha = alpha), fontWeight = FontWeight.Bold,
+            fontSize = style.fontSp.sp, maxLines = 1, softWrap = false,
+        )
         Box(Modifier.width(bar).height(2.5.dp).clip(CircleShape).background(color))
     }
 }

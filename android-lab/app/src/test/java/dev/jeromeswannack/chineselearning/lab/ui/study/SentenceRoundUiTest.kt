@@ -141,6 +141,24 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         assertEquals(SentencePractise.READ, practise.activeMode)
     }
 
+    @Test fun rightReadShowsItsEnglishAtOnce() {
+        card(previewSentencePractise(rightKeys = listOf("read:$clueKey")))
+        compose.onNodeWithTag(SentenceRoundTags.READ_ENGLISH, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(SentenceRound.HIDE_ENGLISH, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        assertEquals(0, count(SentenceRoundTags.READ_ENGLISH))
+        compose.onNodeWithText(SentenceRound.SHOW_ENGLISH, useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun missedReadKeepsShowEnglish() {
+        card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去学校", note.sentenceClue!!))))
+        assertEquals(0, count(SentenceRoundTags.READ_ENGLISH))
+        compose.onNodeWithText(SentenceRound.SHOW_ENGLISH, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag(SentenceRoundTags.READ_ENGLISH, useUnmergedTree = true).assertExists()
+    }
+
     // ---- screenshots
 
     private fun shot(name: String) = compose.onRoot().captureRoboImage("screenshots/$name.png")

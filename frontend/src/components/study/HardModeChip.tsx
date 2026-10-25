@@ -48,7 +48,10 @@ export function HardModeChip() {
         data-testid="hard-mode-chip"
         data-mode={mode}
       >
-        {HARD_MODE_CHIP[mode]}
+        {/* "🎯 Red"; in a tight header (.study-topbar--fit-N) only 🎯 and the state as a dot. */}
+        <span className="hard-mode-chip-icon" aria-hidden="true">{HARD_MODE_CHIP[mode].slice(0, HARD_MODE_CHIP[mode].indexOf(' '))}</span>
+        <span className="hard-mode-chip-text">{HARD_MODE_CHIP[mode].slice(HARD_MODE_CHIP[mode].indexOf(' '))}</span>
+        <span className="hard-mode-chip-dot" aria-hidden="true" />
       </button>
       {open && (
         <div className="hard-mode-menu" role="menu" aria-label={HARD_MODE_TITLE} data-testid="hard-mode-menu">

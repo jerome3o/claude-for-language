@@ -142,6 +142,7 @@ import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
 import { useHardMode } from '../services/hardModePrefs';
 import { HardModeChip } from '../components/study/HardModeChip';
+import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
 import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardModeTake } from '@shared/study/hardMode';
 import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
@@ -3055,11 +3056,15 @@ export function StudyCard({
     );
   };
 
+  // The counts never wrap or get cut: the chips go icon-only, then the numbers get smaller (useTopbarFit).
+  const topbarRef = useRef<HTMLDivElement>(null);
+  const topbarFit = useTopbarFit(topbarRef, `${counts.new}+${counts.secondaryNew}+${counts.learning}+${counts.review}|${hardModeSetting}|${effectiveOffline}|${!!pass}`);
+
   return (
     <>
       <div className="study-fullscreen">
         {/* Top bar with close button, queue counts, sync status, and offline toggle */}
-        <div className="study-topbar">
+        <div className={`study-topbar${topbarFit ? ` study-topbar--fit-${topbarFit}` : ''}`} ref={topbarRef} data-fit={topbarFit} data-testid="study-topbar">
           {pass ? pass.header : <QueueCountsHeader counts={counts} activeQueue={card.queue} activeIsSecondary={cardIsSecondaryNew} />}
           <div className="study-topbar-controls">
             {/* Offline, the pill already says so (and carries the pending count) */}

@@ -175,6 +175,23 @@ describe('SentenceRound', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
+  it('a read exercise right shows its English at once (Hide English keeps it hideable); a miss keeps Show English', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    expect(ex(0).dataset.status).toMatch(/close|wrong/);
+    expect(inEx(0, 'sentence-round-read-english')).toBeNull();
+    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Show English');
+    act(() => inEx(0, 'sentence-round-retry')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(ex(0).dataset.status).toBe('right');
+    expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to get money.');
+    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Hide English');
+    act(() => inEx(0, 'sentence-round-english-toggle')!.click());
+    expect(inEx(0, 'sentence-round-read-english')).toBeNull();
+    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Show English');
+  });
+
   it('records every judged take in the sentence history', async () => {
     await render();
     act(() => inEx(0, 'sentence-practise-mic')!.click());

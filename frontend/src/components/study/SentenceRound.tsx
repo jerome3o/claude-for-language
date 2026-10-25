@@ -17,6 +17,7 @@ import {
   sentenceRoundProgress,
   sentenceRoundSkipNote,
   SENTENCE_ROUND_HIDE_ENGLISH,
+  roundEnglishShown,
   SENTENCE_ROUND_PROMPT,
   SENTENCE_ROUND_RESULT,
   SENTENCE_ROUND_SEE_ANSWER,
@@ -270,7 +271,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const status: 'right' | 'close' | 'wrong' | null = isRight ? 'right' : result === 'close' || result === 'wrong' ? result : null;
     const answered = isRight || !!take;
     const showChinese = ex.mode === 'read' || answered;
-    const showEnglish = ex.mode === 'translate' || (answered && english[ex.id]);
+    const showEnglish = roundEnglishShown(ex.mode, status, answered, english[ex.id]);
     return (
       <li
         key={ex.id}
@@ -306,7 +307,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
               <p className="sentence-round-zh" lang="zh-CN" data-testid="sentence-round-chinese">{row.hanzi}</p>
             )}
             {answered && row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
-            {ex.mode === 'read' && showEnglish && row.translation && <p className="sentence-round-en is-after">{row.translation}</p>}
+            {ex.mode === 'read' && showEnglish && row.translation && <p className="sentence-round-en is-after" data-testid="sentence-round-read-english">{row.translation}</p>}
           </div>
           <div className="sentence-round-ex-tools">
             {!isRight && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
@@ -344,10 +345,11 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
               <button
                 type="button"
                 className="sentence-round-link"
-                onClick={() => setEnglish((prev) => ({ ...prev, [ex.id]: !prev[ex.id] }))}
-                aria-pressed={!!english[ex.id]}
+                onClick={() => setEnglish((prev) => ({ ...prev, [ex.id]: !showEnglish }))}
+                aria-pressed={showEnglish}
+                data-testid="sentence-round-english-toggle"
               >
-                {english[ex.id] ? SENTENCE_ROUND_HIDE_ENGLISH : SENTENCE_ROUND_SHOW_ENGLISH}
+                {showEnglish ? SENTENCE_ROUND_HIDE_ENGLISH : SENTENCE_ROUND_SHOW_ENGLISH}
               </button>
             )}
           </div>

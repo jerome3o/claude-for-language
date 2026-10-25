@@ -103,6 +103,18 @@ class HardModeUiTest : LabScreenshotTest() {
         assertEquals(0, count(HardModeTags.FEEDBACK))
     }
 
+    @Test fun sentenceClueOnTheQuestion() {
+        card()
+        compose.onNodeWithText("Use in a sentence", useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun noSentenceClueUnderTheCheck() {
+        // Not while ✗ Not quite is up (the web hides it too).
+        card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false))
+        compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Use in a sentence", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test fun showAnswerAfterAMissLocksGoodAndEasy() {
         val rated = mutableListOf<Int>()
         card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
