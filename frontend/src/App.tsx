@@ -22,6 +22,8 @@ import { SplashPage } from './pages/SplashPage';
 // Lazy-loaded pages
 const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ default: m.DeckDetailPage })));
 const ClipsPage = lazy(() => import('./pages/ClipsPage').then(m => ({ default: m.ClipsPage })));
+// 🥽 VR (beta, docs/VR.md): three.js + the Chinese font live only in this chunk.
+const VrPage = lazy(() => import('./vr/VrPage').then(m => ({ default: m.VrPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
 const HomeworkLibraryPage = lazy(() => import('./pages/tutor/HomeworkLibraryPage').then(m => ({ default: m.HomeworkLibraryPage })));
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
@@ -647,6 +649,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* 🥽 VR (beta, docs/VR.md): a WebXR room (flat 3D preview without a headset) — immersive, its own chrome. */}
+      <Route path="/vr" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load VR"><VrPage /></ErrorBoundary></ProtectedRoute>} />
       {/* 🎬 Clips (experimental, docs/CLIPS.md): the vertical feed — immersive, its own chrome. */}
       <Route path="/clips" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/clips/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />

@@ -2,7 +2,7 @@
 # Docs: CLAUDE.md "Content-Security-Policy". Pages limit: 2,000 characters per header line.
 #
 # ENFORCED now: no framing (clickjacking), no plugins, no <base> hijack, no MIME sniffing,
-# a strict referrer, and powerful features only for the app itself.
+# a strict referrer, and powerful features only for the app itself (xr-spatial-tracking = 🥽 /vr, docs/VR.md).
 #
 # REPORT-ONLY for now: the full policy. Every origin the app uses is listed —
 #   'self' (Pages: the app, its service worker, workers, wasm, /strokes, /audio),
@@ -21,4 +21,4 @@
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), fullscreen=(self), geolocation=(), payment=(), usb=()
+  Permissions-Policy: camera=(self), microphone=(self), display-capture=(self), fullscreen=(self), xr-spatial-tracking=(self), geolocation=(), payment=(), usb=()
