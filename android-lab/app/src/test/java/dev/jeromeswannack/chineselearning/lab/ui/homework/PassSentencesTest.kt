@@ -59,6 +59,8 @@ class PassSentencesTest {
     @Before
     fun setUp() = runBlocking {
         app = ApplicationProvider.getApplicationContext()
+        // The plain pass (Hard mode in the pass is its own test, PassHardModeTest).
+        dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(app).setPassHardMode("off")
         app.prefs.sessionToken = null
         val dao = app.repo.dao
         dao.upsertDecks(listOf(DeckEntity("d1", "Lesson vocab – 30 Sep", null, 0, 0, 1, "2026-09-30T00:00:00.000Z")))

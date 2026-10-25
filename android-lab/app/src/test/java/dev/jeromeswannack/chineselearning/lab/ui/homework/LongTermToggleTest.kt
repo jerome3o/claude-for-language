@@ -50,6 +50,8 @@ class LongTermToggleTest {
     @Before
     fun setUp() = runBlocking {
         app = ApplicationProvider.getApplicationContext()
+        // The plain pass (Hard mode in the pass is its own test, PassHardModeTest).
+        dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(app).setPassHardMode("off")
         app.prefs.sessionToken = null
         val dao = app.repo.dao
         // A one-off-only homework copy (caps 0 + 0).

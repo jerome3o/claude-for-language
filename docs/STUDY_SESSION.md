@@ -1055,8 +1055,10 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
 
 Jerome: "I said the word, recorded it, clicked submit, and it took me straight to the round page. It's jarring:
 I don't know if my answer was right until after the next questions." **Hard mode** is the Worldle-like ladder on
-the **reading (hanzi → meaning) and meaning (meaning → hanzi) cards** of the regular study session — never the
-listening card, the homework pass, the tutor-notes practice or the Try-it previews:
+the **reading (hanzi → meaning) and meaning (meaning → hanzi) cards** of the regular study session and of the
+**homework pass** (its own setting, default All words; Got it in place of Good / Easy, and a word got right comes back
+once more from another angle — docs/HOMEWORK.md §3e) — never the listening card, the tutor-notes practice or the
+Try-it previews:
 
 1. **The question's own answer is checked AT ONCE, on the question** — with the checks the card already has: a
    typed answer `checkTypedAnswer`, a spoken one `checkSpokenAnswer` (homophones by sound), a multiple-choice grid
@@ -1206,7 +1208,7 @@ then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sent
 locked Good / Easy rates nothing, says why and scrolls there too. A card with fewer than two sentences
 (the card's own + the set) asks for as many as exist; none → no gate. The count starts again on every
 showing (a new showing, Undo). Never the listening card (its sentences are its clues), the homework
-pass (Not yet / Got it), the tutor-notes practice or the Try-it previews. Every way of rating goes
+pass (Not yet / Got it: there only giving up locks Got it, docs/HOMEWORK.md §3e), the tutor-notes practice or the Try-it previews. Every way of rating goes
 through the same check (`handleRate` on the web, the RatingBar callback in the Lab; neither app has
 rating shortcuts or auto-advance). Rule: `sentenceGate` / `ratingLockedByGate` / `sentenceGateLabel` in
 `shared/study/sentencePractise.ts` (Lab `SentencePractise.gate` …). Analytics `study.sentence_gate

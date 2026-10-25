@@ -196,6 +196,8 @@ data class PassNote(
     val longTerm: Int? = null,
     /** A card of this word was already reviewed: it is in the reviews whatever the switch says. */
     val started: Boolean = false,
+    /** The card types the note has on this phone (Hard mode's second angle, core PassAngles). */
+    val cardTypes: List<String> = emptyList(),
 )
 
 enum class AddState { Idle, Busy, Done, Error }
@@ -230,8 +232,12 @@ sealed interface PassUi {
         val deckInReview: Boolean = !oneOffOnly,
         /** What the pass decided, for the finish screen ("12 words added to daily review · 4 left out"). */
         val longTermSummary: LongTerm.Summary? = null,
-        /** The retry progress bar (core `RetryBars.passRetryBar`, docs/HOMEWORK.md §3c). */
+        /** The retry progress bar (core `PassAngles.plan` — `RetryBars.passRetryBar` plus the owed angles, docs/HOMEWORK.md §3c / §3e). */
         val bar: RetryBar = RetryBars.retryBar(progress.done + progress.retrying, progress.total - progress.done - progress.retrying, progress.retrying, progress.done, progress.total),
+        /** Hard mode in the pass (docs/HOMEWORK.md §3e): what is shown now (word, card type, angle), the setting, the ladder on this showing. */
+        val showing: dev.jeromeswannack.chineselearning.lab.core.PassAngles.Showing? = null,
+        val hardMode: String = dev.jeromeswannack.chineselearning.lab.core.HardMode.OFF,
+        val hardApplies: Boolean = false,
     ) : PassUi
 
     /**

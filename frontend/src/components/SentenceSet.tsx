@@ -685,8 +685,10 @@ export function SentenceSet({
   const listRows = roundRows?.length
     ? orderKeysForRound(shownRows.map((r) => r.key), roundRows).map((k) => shownRows.find((r) => r.key === k)!)
     : shownRows;
-  const visibleRows = pass && !showMore ? listRows.slice(0, 1) : listRows;
-  const moreCount = rows.length - 1;
+  // The pass in Hard mode shows the round's sentences (opened, outlined) before "+ N more".
+  const passFirst = Math.max(1, roundRows?.length ?? 0);
+  const visibleRows = pass && !showMore ? listRows.slice(0, passFirst) : listRows;
+  const moreCount = Math.max(0, listRows.length - passFirst);
 
   return (
     <div className={`${rootClass}${pass ? ' sentence-set--pass' : ''}`} data-testid="sentence-set">

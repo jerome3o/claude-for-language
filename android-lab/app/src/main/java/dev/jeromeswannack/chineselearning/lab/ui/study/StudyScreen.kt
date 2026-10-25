@@ -197,8 +197,11 @@ class StudyActions(
     /** Lab "today split": Continue on the "Flashcards done" pause. (Later = [onClose].) */
     val onContinueExtras: () -> Unit = {},
     // ---- the homework pass on the study card (PassCardUi) ----
-    /** Not yet / Got it: [answered] = take | spoken | typed | choice | none, [suggested] = right | wrong | null. */
-    val onPassAnswer: (right: Boolean, answered: String, suggested: String?) -> Unit = { _, _, _ -> },
+    /**
+     * Not yet / Got it: [answered] = take | spoken | typed | choice | none, [suggested] = right | wrong | null,
+     * [hard] = Hard mode's ladder ran on this showing (docs/HOMEWORK.md §3e).
+     */
+    val onPassAnswer: (right: Boolean, answered: String, suggested: String?, hard: Boolean) -> Unit = { _, _, _, _ -> },
     /** "Add to my long-term review" flipped. */
     val onPassLongTerm: (on: Boolean) -> Unit = {},
     /** ⚡ Study it today flipped (on = bump, off = take it out of today's pocket). */
@@ -234,7 +237,7 @@ fun StudyRoute(
     val vm: StudyViewModel = if (owner != null) viewModel(viewModelStoreOwner = owner, key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice))
         else viewModel(key = vmKey, factory = StudyViewModel.Factory(app, deckId, practice, passSpec))
     // The pass says which word is up; the view model deals its card (a word coming back = a fresh card).
-    if (pass != null) LaunchedEffect(pass.noteId, pass.attempt) { vm.showPassCard(pass.noteId, pass.attempt) }
+    if (pass != null) LaunchedEffect(pass.noteId, pass.attempt, pass.cardType) { vm.showPassCard(pass.noteId, pass.attempt, pass.cardType) }
     val ui by vm.ui.collectAsStateWithLifecycle()
     val playing by app.audio.playingKey.collectAsState()
     val sync by app.repo.status.collectAsState()
@@ -386,9 +389,9 @@ fun StudyRoute(
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B
             onReaderFinished = vm::finishReader, // Package B
             onContinueExtras = vm::continueToExtras, // Lab today split
-            onPassAnswer = { right, answered, suggested ->
+            onPassAnswer = { right, answered, suggested, hard ->
                 vm.passAnswered(right)
-                passActions?.onPassAnswer?.invoke(right, answered, suggested)
+                passActions?.onPassAnswer?.invoke(right, answered, suggested, hard)
             },
             onPassLongTerm = { on -> passActions?.onPassLongTerm?.invoke(on) },
             onPassBump = { on -> passActions?.onPassBump?.invoke(on) },
@@ -524,6 +527,12 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
             )
             Text("${pass.done}/${pass.total}", color = Palette.Secondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp).testTag(PASS_COUNT_TAG))
+            // Hard mode in the pass (its own setting, default All words; docs/HOMEWORK.md §3e).
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            HardModeChip(pass.hardMode, compact = true, pass = true, onChange = { next ->
+                StudyPrefs.get(ctx).setPassHardMode(next)
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("homework.pass_hard_mode", mapOf("mode" to next, "where" to "header"))
+            })
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onPassUndo, enabled = pass.canUndo && !pass.busy, modifier = Modifier.testTag(PASS_UNDO_TAG)) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last answer", tint = if (pass.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
@@ -546,9 +555,32 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
                     modifier = Modifier.testTag(PASS_RETRY_TAG),
                 )
             }
+            dev.jeromeswannack.chineselearning.lab.core.PassAngles.anglesLabel(pass.hardMode)?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag(PASS_ANGLES_TAG))
+            }
+        }
+        // A second angle: "🔄 Second angle · English → Chinese".
+        dev.jeromeswannack.chineselearning.lab.core.PassAngles.angleLine(pass.angle, pass.cardType)?.let { line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.labelMedium,
+                color = Palette.Secondary,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.CenterHorizontally).clip(CircleShape)
+                    .background(Palette.Secondary.copy(alpha = 0.12f))
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .testTag(PASS_ANGLE_LINE_TAG),
+            )
         }
     }
 }
+
+/** Test tag of the pass's "🎯 2 angles per word" under its bar (Hard mode). */
+const val PASS_ANGLES_TAG = "hw-pass-angles"
+
+/** Test tag of a second angle's banner. */
+const val PASS_ANGLE_LINE_TAG = "hw-pass-angle-line"
 
 /** Test tag of the pass's "2 to try again" / "Trying again · 2 left" under its bar. */
 const val PASS_RETRY_TAG = "hw-pass-retry"

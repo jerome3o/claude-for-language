@@ -1,6 +1,12 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 import { skipFirstCardExplainer } from './fixtures/explainer';
 
+// These specs walk the plain pass: Hard mode in the pass (default All, docs/HOMEWORK.md §3e) is off here —
+// homework-pass-hard-mode.spec.ts covers it.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('pass-hard-mode-v1', 'off'));
+});
+
 // The first-card explainer is not what these tests are about (fixtures/explainer.ts).
 test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
 

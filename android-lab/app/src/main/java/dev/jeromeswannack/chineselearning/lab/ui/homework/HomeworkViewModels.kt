@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
-import dev.jeromeswannack.chineselearning.lab.core.RetryBars
+import dev.jeromeswannack.chineselearning.lab.core.PassAngles
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderEntry
@@ -90,9 +90,14 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     /** homework.pass_start recorded for this visit. */
     private var startTracked = false
     private var wasComplete: Boolean? = null
+    /** The pass's Hard mode as last seen (analytics once; the sentence top-up when it is switched on). */
+    private var hardModeTracked: String? = null
 
-    val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, combine(local, bumped) { l, b -> l to b }, app.online, targets) { data, notes, lb, online, targets ->
-        val (l, bumpedNotes) = lb
+    /** Hard mode in the pass (StudyPrefs.passHardMode, default All; docs/HOMEWORK.md §3e). */
+    private val passHardMode = dev.jeromeswannack.chineselearning.lab.ui.study.StudyPrefs.get(app).passHardMode
+
+    val ui: StateFlow<PassUi> = combine(HomeworkStore.observe(app.cache), notes, combine(local, bumped, passHardMode) { l, b, m -> Triple(l, b, m) }, app.online, targets) { data, notes, lb, online, targets ->
+        val (l, bumpedNotes, mode) = lb
         val a = data?.first?.firstOrNull { it.id == id } ?: return@combine if (data == null) PassUi.Loading else PassUi.Missing
         val passEvents = data.second.filter { it.assignment_id == a.id }
         val progress = Homework.passProgress(Homework.passItemIds(a), passEvents)
@@ -105,8 +110,22 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         if (a.kind == "link") return@combine linkUi(a, progress.complete, data.second, l)
         if (a.kind != "deck") return@combine playerUi(a, progress.complete, targets, l.finished)
         val parts = Homework.titleParts(a)
-        val current = Homework.nextPassItem(progress)
-        val attempt = current?.let { c -> data.second.count { it.assignment_id == a.id && it.item_id == c } } ?: 0
+        // The walk with Hard mode's second angles (core PassAngles): which word, on which card, which angle.
+        val words = Homework.passItemIds(a).map { id -> PassAngles.Word(id, notes?.get(id)?.cardTypes.orEmpty(), !notes?.get(id)?.audioUrl.isNullOrBlank()) }
+        val plan = PassAngles.plan(words, passEvents, mode)
+        val showing = plan.next
+        val current = showing?.noteId
+        val attempt = current?.let { c -> passEvents.count { it.item_id == c || PassAngles.parseStepId(it.item_id)?.first == c } } ?: 0
+        val hardApplies = showing != null && PassAngles.hardApplies(mode, showing.cardType, PassAngles.wordMissed(showing.noteId, passEvents))
+        if (!progress.complete && hardModeTracked != mode) {
+            // Analytics: the pass's Hard mode as it opened; the round's sentences asked for once (Hard mode on).
+            if (hardModeTracked == null) app.analytics.track("homework.pass_hard_mode", mapOf("mode" to mode, "where" to "pass"))
+            hardModeTracked = mode
+            if (mode != dev.jeromeswannack.chineselearning.lab.core.HardMode.OFF) {
+                val ids = Homework.passItemIds(a)
+                app.scope.launch { runCatching { dev.jeromeswannack.chineselearning.lab.data.homework.PassSentenceTopUp.ensure(app, a.id, ids) } }
+            }
+        }
         // ↺: the last live Got it / Not yet can be taken back (docs/HOMEWORK.md §3b).
         val canUndo = !l.busy && Homework.lastPassAnswer(data.second.filter { it.assignment_id == a.id }) != null
         PassUi.Deck(
@@ -114,7 +133,10 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             part = parts.part,
             due = Homework.dueLabel(a.due_date, Homework.localDate()),
             progress = progress,
-            bar = RetryBars.passRetryBar(Homework.passItemIds(a), passEvents),
+            bar = plan.bar,
+            showing = showing,
+            hardMode = mode,
+            hardApplies = hardApplies,
             note = current?.let { notes?.get(it) },
             attempt = attempt,
             assignmentId = a.id,
@@ -146,10 +168,11 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                         LongTerm.deckInDailyReview(d.newCardsPerDay, d.secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
                     }
                     val started = ids.chunked(500).flatMap { dao.startedNoteIds(it) }.toHashSet()
+                    val typesOf = ids.chunked(500).flatMap { dao.cardsOfNotes(it) }.groupBy({ it.noteId }, { it.cardType })
                     dao.notes(ids).associate { n ->
                         // The study card's rows: the card's own sentence, then the generated set.
                         val rows = sentenceRows(n, dao.sentencesFor(n.id))
-                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId, n.longTerm, n.id in started)
+                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId, n.longTerm, n.id in started, typesOf[n.id].orEmpty())
                     }
                 }
             }
@@ -266,22 +289,33 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
      * Not yet / Got it on the study card: the pass's event (never a review). [answered] / [suggested]
      * are the card's (analytics: how it was tried, what the answer side suggested, whether he followed it).
      */
-    fun answer(right: Boolean, answered: String = "none", suggested: String? = null) {
+    fun answer(right: Boolean, answered: String = "none", suggested: String? = null, hard: Boolean = false) {
         val d = current() ?: return
         val note = d.note ?: return
         if (local.value.busy) return
+        val showing = d.showing ?: PassAngles.Showing(note.id, Homework.PASS_CARD_TYPE, 1, false)
+        val word = PassAngles.Word(note.id, note.cardTypes, !note.audioUrl.isNullOrBlank())
+        // Got it on a hard first angle owed a second: a step (`<note>#<card type>`), the word not done yet.
+        val itemId = PassAngles.answerItemId(showing, word, right, hard)
         if (right) { app.haptics.correct(); app.sounds.play(Sounds.Sfx.CORRECT) } else { app.haptics.wrong(); app.sounds.play(Sounds.Sfx.AGAIN, 0.6f) }
         local.value = local.value.copy(busy = true)
         app.analytics.track("homework.pass_item", mapOf(
             "result" to if (right) "right" else "wrong",
-            "card_type" to Homework.PASS_CARD_TYPE,
+            "card_type" to showing.cardType,
             "answered" to answered,
             "suggested" to (suggested ?: "none"),
             "followed" to (suggested != null && (suggested == "right") == right),
+            "angle" to showing.angle,
+            "hard" to hard,
         ))
+        if (itemId != note.id) {
+            app.analytics.track("homework.pass_angle", mapOf("action" to "queued", "card_type" to PassAngles.secondAngleType(word, showing.cardType)))
+        } else if (showing.angle == 2) {
+            app.analytics.track("homework.pass_angle", mapOf("action" to "answered", "card_type" to showing.cardType, "result" to if (right) "right" else "wrong"))
+        }
         viewModelScope.launch {
             try {
-                HomeworkStore.recordPassEvent(app, id, note.id, if (right) "right" else "wrong")
+                HomeworkStore.recordPassEvent(app, id, itemId, if (right) "right" else "wrong")
             } finally {
                 local.value = local.value.copy(busy = false)
             }
