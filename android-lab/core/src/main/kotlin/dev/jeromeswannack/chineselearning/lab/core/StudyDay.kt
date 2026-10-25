@@ -89,6 +89,10 @@ object StudyResume {
         val roundOpen: Boolean = false,
         /** `sentences_right`: the round's exercises / the rows said right on this showing. */
         val sentencesRight: List<String> = emptyList(),
+        /** `feedback_open`: Hard mode's check of the question's own answer was up (core HardMode). */
+        val feedbackOpen: Boolean = false,
+        /** `gave_up`: Hard mode — he looked at the answer before getting it right (Good / Easy locked). */
+        val gaveUp: Boolean = false,
     )
 
     /** `RESUME_MAX_ELAPSED_MS` */

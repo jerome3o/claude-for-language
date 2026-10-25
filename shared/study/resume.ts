@@ -26,6 +26,10 @@ export interface StudyResumePoint {
   round_open?: boolean;
   /** The round's exercises / the answer side's rows said right on this showing (the gate's count). */
   sentences_right?: string[];
+  /** Hard mode (shared/study/hardMode.ts): the question's own answer was checked and its result was up (✓ / ✗ Try again). */
+  feedback_open?: boolean;
+  /** Hard mode: he looked at the answer before getting it right — Good / Easy stay locked on this showing. */
+  gave_up?: boolean;
 }
 
 /** The scope key for a deck id (undefined / null = all decks). */
