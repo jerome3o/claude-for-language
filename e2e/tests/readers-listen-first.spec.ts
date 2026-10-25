@@ -129,3 +129,37 @@ test('▶ Play whole story turns the pages, and listening to the end finishes th
   await page.waitForTimeout(3000);
   await expect(page.getByTestId('reader-play-story')).toHaveCount(0);
 });
+
+test('a story opened from the Readers list is the same reading view, and Finish ✓ marks it read', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const user = await seedUser(request, 'list');
+  const readerId = await seedReader(request, user);
+  await mockNarration(page);
+  await openAndSyncReader(page, user, readerId);
+
+  await page.goto(`/readers/${readerId}`);
+  // The session's view: ▶ Play whole story, the page label, the phrase-block scrubber…
+  await expect(page.getByTestId('reader-view')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('reader-play-story')).toBeVisible();
+  await expect(page.getByTestId('study-reader-page-label')).toContainText('Xiaoming in Paris · Page 1 of 3');
+  // …with the reader page's own actions in the top bar.
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Back to readers' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 3 of 3');
+  await page.getByTestId('reader-finish').click();
+  await expect(page).toHaveURL(/\/readers\/?$/);
+
+  // Read like in the session: the finish reaches the server…
+  await expect.poll(async () => {
+    const r = await api<{ events: Array<{ reader_id: string }> }>(request, '/api/reader-reviews?since=1970-01-01%2000:00:00', { token: user.token });
+    return r.events.filter(e => e.reader_id === readerId).length;
+  }, { timeout: 30_000 }).toBe(1);
+
+  // …and the daily rule never offers it again.
+  await page.goto(`/study?autostart=true&session_token=${user.token}`);
+  await page.waitForTimeout(3000);
+  await expect(page.getByTestId('reader-play-story')).toHaveCount(0);
+});

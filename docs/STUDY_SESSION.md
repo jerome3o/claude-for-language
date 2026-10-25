@@ -789,6 +789,16 @@ parity-tested by `parity/fixtures/daily-reader.ts`):
   `reader_review_events` keeps its column) and the story never comes back. Old reads stay on the
   Readers list ("✓ Read 3 Oct") and open by hand there. No reader scheduling, no Done for good /
   Bring back for readers, nothing about readers in Settings.
+- **One reading view everywhere** (Jerome, Oct 2026: "why is the graded reader, when read from my graded
+  reader folders, looking different?"): the session's reader, a homework pass and a story opened from the
+  Readers list / a folder (`/readers/:id`) are the SAME view — web `components/reader/ReaderView.tsx`
+  (wrapped by `StudyReader` and `pages/ReaderPage.tsx`), Lab `StudyReaderView` (wrapped by the session,
+  Today's story, homework and `ReaderScreen`): listen-first pages, the phrase-block scrubber with the speed
+  chip, ▶ Play whole story, word chips → the explorer, Finish ✓. Only the top bar differs (the reader
+  page's ← · Edit · ⬇ Anki · difficulty). Finishing from the list is a read exactly like the session's —
+  the reader-review event (the daily rule never offers it again), homework done, the day's reader mark
+  (before, the list only marked the day). The reader page reads the copy on the device first (offline),
+  the server's otherwise.
 - **One a day** (`READERS_PER_DAY`): `pickTodaysReader` offers nothing once a story was read today
   (one-off homework readers don't count and are never offered — they're read in the homework pass),
   else the **first unread story of the reader queue** (below — newest first until reordered). So an
