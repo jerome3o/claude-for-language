@@ -36,6 +36,8 @@ data class LongTermHomework(
     val sentAt: String,
     val met: Int?,
     val total: Int?,
+    /** The fsrs-mode assignment behind it ("Skip this homework" skips it); null for a legacy pick. */
+    val assignmentId: String? = null,
 )
 
 /** Port of HomeHomeworkRow. */
@@ -47,7 +49,15 @@ data class HomeHomeworkRow(
     val progress: String,
     /** "18 exercises · ~12 min", "5 questions · ~4 min", "12 words", "6 pages"; "" when unknown. */
     val size: String,
-    val fraction: Double?,
+    /**
+     * The row's retry bar (blue answered, ORANGE still owed): a deck pass from its events, a lesson /
+     * revision from its run in progress on this device. Null = not started ("no bar") or nothing to show.
+     */
+    val bar: RetryBar?,
+    /** The assignment behind the row (an assignment row, or a tutor's long-term lesson). */
+    val assignmentId: String?,
+    /** The mini lesson the row plays. */
+    val lessonId: String?,
     val due: String,
     val tone: String,
     val route: String,
@@ -90,6 +100,9 @@ object HomeHomework {
         return met.size to wanted.size
     }
 
+    /** Port of startedBar: a bar only once something was answered. */
+    fun startedBar(bar: RetryBar?): RetryBar? = if (bar != null && bar.answered > 0) bar else null
+
     /** Port of isLessonRow: a revision / new tutor-sent lesson row (/homework's "Mini lessons"), not an assignment. */
     fun isLessonRow(row: HomeHomeworkRow): Boolean = row.key.startsWith("revision:") || row.key.startsWith("lesson:")
 
@@ -99,21 +112,34 @@ object HomeHomework {
         longTerm: List<LongTermHomework>,
         sizes: Map<String, String> = emptyMap(),
         lessons: List<HomeLesson> = emptyList(),
+        runBars: Map<String, RetryBar?> = emptyMap(),
     ): List<HomeHomeworkRow> {
         val rows = ArrayList<HomeHomeworkRow>()
         val covered = HashSet<String>()
         for (item in todo) {
-            if (item.done) continue
+            if (item.done || item.skipped) continue
             val a = item.assignment
             covered += a.target_id
-            val (progress, fraction) = if (a.kind != "deck") (KIND_WORD[a.kind] ?: a.kind) to null
-            else "${item.progress.done} / ${item.progress.total}" to (if (item.progress.total > 0) item.progress.done.toDouble() / item.progress.total else 0.0)
+            val progress = if (a.kind != "deck") (KIND_WORD[a.kind] ?: a.kind) else "${item.progress.done} / ${item.progress.total}"
+            val bar = when (a.kind) {
+                "deck" -> startedBar(item.bar)
+                "lesson" -> startedBar(runBars[a.target_id])
+                else -> null
+            }
             val size = if (a.kind == "deck") HomeworkSize.deckSizeLabel(item.progress.total) else sizes[a.target_id] ?: ""
-            rows += HomeHomeworkRow(a.id, a.kind, ICON[a.kind] ?: "📝", a.title, progress, size, fraction, compactDue(item.due), item.due.tone, assignmentRoute(a.id), a.tutor_name)
+            rows += HomeHomeworkRow(
+                a.id, a.kind, ICON[a.kind] ?: "📝", a.title, progress, size, bar, a.id, if (a.kind == "lesson") a.target_id else null,
+                compactDue(item.due), item.due.tone, assignmentRoute(a.id), a.tutor_name,
+            )
         }
         // Lessons a tutor sent for long-term review (the only NEW lessons that are rows).
         val tutorOf = HashMap<String, String?>()
-        for (l in longTerm) if (l.kind == "lesson") tutorOf[l.targetId] = l.tutorName
+        val assignmentOf = HashMap<String, String>()
+        for (l in longTerm) {
+            if (l.kind != "lesson") continue
+            tutorOf[l.targetId] = l.tutorName
+            if (!l.assignmentId.isNullOrEmpty() && l.targetId !in assignmentOf) assignmentOf[l.targetId] = l.assignmentId
+        }
         val open = lessons.filter { !it.locked && it.id !in covered }
         val byCreated = Comparator<HomeLesson> { a, b ->
             val c = a.createdAt.compareTo(b.createdAt)
@@ -125,7 +151,8 @@ object HomeHomework {
             covered += l.id
             rows += HomeHomeworkRow(
                 key = "revision:${l.id}", kind = "revision", icon = ICON["revision"]!!, title = l.title,
-                progress = if (l.revision > 0) "Revision ${l.revision}" else "Revision", size = l.size, fraction = null,
+                progress = if (l.revision > 0) "Revision ${l.revision}" else "Revision", size = l.size,
+                bar = startedBar(runBars[l.id]), assignmentId = null, lessonId = l.id,
                 due = "due today", tone = "today", route = lessonPlayRoute(l.id, true), tutorName = l.tutorName ?: tutorOf[l.id],
             )
         }
@@ -133,7 +160,8 @@ object HomeHomework {
             covered += l.id
             rows += HomeHomeworkRow(
                 key = "lesson:${l.id}", kind = "lesson", icon = ICON["lesson"]!!, title = l.title,
-                progress = "new", size = l.size, fraction = null,
+                progress = "new", size = l.size,
+                bar = startedBar(runBars[l.id]), assignmentId = assignmentOf[l.id], lessonId = l.id,
                 due = "", tone = "none", route = lessonPlayRoute(l.id, false), tutorName = l.tutorName ?: tutorOf[l.id],
             )
         }
@@ -148,8 +176,9 @@ object HomeHomework {
         unreadFrom: String? = null,
         sizes: Map<String, String> = emptyMap(),
         lessons: List<HomeLesson> = emptyList(),
+        runBars: Map<String, RetryBar?> = emptyMap(),
     ): HomeHomeworkCard {
-        val rows = rows(todo, longTerm, sizes, lessons)
+        val rows = rows(todo, longTerm, sizes, lessons, runBars)
         val shown = rows.take(limit)
         val names = LinkedHashSet<String>()
         var anyOwn = false

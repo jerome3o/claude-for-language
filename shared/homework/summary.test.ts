@@ -65,3 +65,16 @@ describe('isLongTermDeck', () => {
     expect(isLongTermDeck(['one_off', 'one_off'])).toBe(false);
   });
 });
+
+describe('skipped one-off homework', () => {
+  it('is neither open nor done, and is named', () => {
+    const s = summarizeOneOffHomework([a({ skipped_at: '2026-10-04T10:00:00Z', due_date: '2026-10-01' }), a()], TODAY);
+    expect(s).toMatchObject({ state: 'open', open: 1, overdue: 0, skipped: 1, label: '0 of 1 done · 1 skipped' });
+  });
+  it('only skipped → "1 skipped"', () => {
+    expect(summarizeOneOffHomework([a({ skipped_at: '2026-10-04T10:00:00Z' })], TODAY)).toMatchObject({ state: 'none', label: '1 skipped', pill: 'Homework 1 skipped' });
+  });
+  it('done wins over a stale skipped_at', () => {
+    expect(summarizeOneOffHomework([a({ status: 'done', completed_at: '2026-10-04T10:00:00Z', skipped_at: '2026-10-03T10:00:00Z' })], TODAY)).toMatchObject({ state: 'all_done', skipped: 0 });
+  });
+});

@@ -42,7 +42,7 @@ const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
 const int = (lo: number, hi: number) => lo + Math.floor(r() * (hi - lo + 1));
 
 const TODAYS = ['2026-10-03', '2026-12-31', '2027-01-01', '2028-02-28', '2028-03-01'];
-const STATUSES: LibraryStatus[] = ['completed', 'in_progress', 'overdue', 'not_started', 'long_term'];
+const STATUSES: LibraryStatus[] = ['completed', 'in_progress', 'overdue', 'not_started', 'long_term', 'skipped'];
 const KINDS: LibraryKind[] = ['deck', 'lesson', 'reader', 'link'];
 
 function randomDue(today: string): string | null {
@@ -58,7 +58,9 @@ const statusCases = Array.from({ length: 400 }, () => {
   const started = r() < 0.5;
   // A deck in long-term review only (no one-off pass): status long_term whatever its progress.
   const longTerm = r() < 0.15 ? true : r() < 0.1 ? false : undefined;
-  const status = libraryStatus({ complete, started, due_date: due, today, long_term: longTerm });
+  // "Skip this homework" (docs/HOMEWORK.md §3d): skipped unless complete / long-term.
+  const skipped = r() < 0.15;
+  const status = libraryStatus({ complete, started, due_date: due, today, long_term: longTerm, skipped });
   const toneStatus = r() < 0.7 ? status : pick(STATUSES);
   return {
     today,
@@ -66,6 +68,7 @@ const statusCases = Array.from({ length: 400 }, () => {
     complete,
     started,
     longTerm: longTerm ?? null,
+    skipped,
     status,
     toneStatus,
     tone: statusTone(toneStatus, due, today),

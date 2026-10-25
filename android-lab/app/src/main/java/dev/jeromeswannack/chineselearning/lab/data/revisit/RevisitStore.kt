@@ -66,12 +66,13 @@ class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, pri
      * `markRevisit`: write a retire / restore event (local at once, uploaded through the
      * outbox) — the lists and the session see it on their next read.
      */
-    suspend fun mark(itemKind: String, itemId: String, action: String, source: String = "session", nowMs: Long = System.currentTimeMillis()): LocalRevisitEvent = lock.withLock {
+    suspend fun mark(itemKind: String, itemId: String, action: String, source: String = "session", nowMs: Long = System.currentTimeMillis(), track: Boolean = true): LocalRevisitEvent = lock.withLock {
         val event = LocalRevisitEvent(UUID.randomUUID().toString(), itemKind, itemId, action, Js.toIsoString(nowMs), pending = true)
         cache.put(EVENTS, KIND, events() + event, eventsSerializer)
         outbox.enqueueJson(KIND, "POST", "/api/me/revisit-events", RevisitEventsUpload(listOf(event.dto())), id = event.id)
-        if (action == RETIRE) Analytics.track("study.done_for_good", mapOf("kind" to itemKind, "source" to source))
-        else Analytics.track("study.bring_back", mapOf("kind" to itemKind))
+        // The row menu's "Stop revising — done for good" tracks `lesson.row_action` instead (track = false).
+        if (track && action == RETIRE) Analytics.track("study.done_for_good", mapOf("kind" to itemKind, "source" to source))
+        else if (track) Analytics.track("study.bring_back", mapOf("kind" to itemKind))
         event
     }
 

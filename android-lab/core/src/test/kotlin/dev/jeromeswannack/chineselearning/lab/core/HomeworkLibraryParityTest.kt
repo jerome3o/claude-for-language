@@ -36,7 +36,7 @@ class HomeworkLibraryParityTest {
             val due = o["due"].str
             assertEquals(
                 o["status"].str,
-                HomeworkLibrary.libraryStatus(o["complete"].bool, o["started"].bool, due, today, longTerm = o["longTerm"].bool),
+                HomeworkLibrary.libraryStatus(o["complete"].bool, o["started"].bool, due, today, longTerm = o["longTerm"].bool, skipped = o["skipped"].bool),
                 "case[$i] status",
             )
             assertEquals(o["tone"].str, HomeworkLibrary.statusTone(o["toneStatus"].str!!, due, today), "case[$i] tone")
@@ -118,6 +118,9 @@ class HomeworkLibraryParityTest {
         assertEquals("grey", HomeworkLibrary.statusTone("not_started", null, "2026-10-03"))
         // A long-term-only deck: "In long-term review", grey, whatever its progress or due date.
         assertEquals("long_term", HomeworkLibrary.libraryStatus(true, true, "2026-10-01", "2026-10-03", longTerm = true))
+        assertEquals("skipped", HomeworkLibrary.libraryStatus(false, true, "2026-10-01", "2026-10-03", skipped = true))
+        assertEquals("Skipped by Jerome", HomeworkLibrary.statusText("skipped", "Jerome"))
+        assertEquals("grey", HomeworkLibrary.statusTone("skipped", "2026-10-03", "2026-10-03"))
         assertEquals("grey", HomeworkLibrary.statusTone("long_term", "2026-10-03", "2026-10-03"))
         assertEquals("In long-term review", HomeworkLibrary.statusLabel("long_term"))
         assertEquals("Was due 3 days ago", HomeworkLibrary.libraryDueText("2026-09-30", "2026-10-03"))

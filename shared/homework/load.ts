@@ -20,6 +20,8 @@ export interface LoadAssignmentInput {
   due_date: string | null;
   item_count: number;
   done_count: number;
+  /** Skipped by the student (docs/HOMEWORK.md §3d): no load. */
+  skipped_at?: string | null;
 }
 
 export interface LoadInput {
@@ -80,7 +82,7 @@ export function computeHomeworkLoad(input: LoadInput): HomeworkLoad {
   let dueToday = 0;
 
   for (const a of input.assignments) {
-    if (a.status !== 'active' || !hasOneOff(a.mode)) continue;
+    if (a.status !== 'active' || !hasOneOff(a.mode) || a.skipped_at) continue;
     const left = Math.max(0, a.item_count - a.done_count);
     if (left === 0) continue;
     const isDeck = a.kind === 'deck';

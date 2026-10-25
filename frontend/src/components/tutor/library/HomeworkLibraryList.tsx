@@ -58,7 +58,7 @@ export function LibraryRow({ item, today, showStudent, onOpen }: { item: Library
         )}
         {item.student_note && <span className="hl-row-note">“{item.student_note}”</span>}
       </span>
-      <StatusChip status={item.status} due={item.due_date} today={today} />
+      <StatusChip status={item.status} due={item.due_date} today={today} student={item.student_name} />
     </button>
   );
 }

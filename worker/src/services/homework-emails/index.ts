@@ -240,7 +240,7 @@ export async function runHomeworkReminders(env: Env2, deps: HomeworkEmailDeps = 
   const r = await db
     .prepare(
       `SELECT ${ROW_COLUMNS} FROM assignments a LEFT JOIN users u ON u.id = a.tutor_id
-       WHERE a.status = 'active' AND a.mode IN ('one_off', 'both') AND a.due_date BETWEEN ? AND ?
+       WHERE a.status = 'active' AND a.skipped_at IS NULL AND a.mode IN ('one_off', 'both') AND a.due_date BETWEEN ? AND ?
        ORDER BY a.due_date, a.created_at, a.rowid`,
     )
     .bind(addDays(utcToday, -1), addDays(utcToday, 2))

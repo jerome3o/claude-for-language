@@ -39,14 +39,22 @@ object LessonRun {
     /** Port of exerciseKey. */
     fun exerciseKey(section: Int, index: Int) = "s${section}e$index"
 
-    /** Port of lessonSteps over a spec. */
-    fun steps(spec: CustomLessonSpec, only: List<String>? = null): List<Step> =
-        stepsOfTypes(spec.sections.map { s -> s.exercises.map { it.type } }, only)
+    /** Port of lessonSteps over a spec. [skipHandwriting] = "Skip handwriting exercises" ([Handwriting]). */
+    fun steps(spec: CustomLessonSpec, only: List<String>? = null, skipHandwriting: Boolean = false): List<Step> =
+        stepsOfTypes(spec.sections.map { s -> s.exercises.map { it.type } }, only, skipHandwriting)
 
-    /** Port of lessonSteps over the exercise types per section: [only] = a revision's scored keys (+ the note before each). */
-    fun stepsOfTypes(sections: List<List<String>>, only: List<String>? = null): List<Step> {
+    /**
+     * Port of lessonSteps over the exercise types per section: [only] = a revision's scored keys (+ the note
+     * before each); [skipHandwriting] leaves write_handwriting out (keys unchanged).
+     */
+    fun stepsOfTypes(sections: List<List<String>>, only: List<String>? = null, skipHandwriting: Boolean = false): List<Step> {
         val all = ArrayList<Step>()
-        sections.forEachIndexed { si, types -> types.forEachIndexed { i, t -> all += Step(exerciseKey(si, i), si, i, t, t in SCOREABLE) } }
+        sections.forEachIndexed { si, types ->
+            types.forEachIndexed { i, t ->
+                if (skipHandwriting && Handwriting.isHandwriting(t)) return@forEachIndexed
+                all += Step(exerciseKey(si, i), si, i, t, t in SCOREABLE)
+            }
+        }
         if (only == null) return all
         val wanted = only.toHashSet()
         val keep = HashSet<String>()
@@ -110,6 +118,19 @@ object LessonRun {
         if (state == null || lessonId != forLesson || shape != forShape) return false
         if (state.pos < 0) return false
         return state.pos > 0 || state.fixed > 0
+    }
+
+    /**
+     * Port of savedRunBar: the retry bar of a lesson's run in progress, for its row on Home / the homework
+     * list / Mini Lessons — null when there is no run to continue (nothing answered, another lesson, the
+     * shape changed): "If I haven't started it, there should be no bar".
+     */
+    fun savedRunBar(
+        savedLessonId: String?, savedShape: String?, state: State?, keys: List<String>?,
+        lessonId: String, sections: List<List<String>>, skipHandwriting: Boolean = false,
+    ): RetryBar? {
+        if (state == null || !canResume(savedLessonId, savedShape, state, lessonId, shapeOfTypes(sections))) return null
+        return retryBar(state, stepsOfTypes(sections, keys, skipHandwriting))
     }
 
     /** Port of resumeLine: "Continue where you left off (7 of 18)". */

@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom';
-import { homeworkRowDetail, itemStatus, localDate, LIBRARY_STATUS_LABELS, statusTone, type DueLabel } from '@shared/homework';
+import { homeworkRowDetail, itemStatus, localDate, LIBRARY_STATUS_LABELS, statusTone, startedBar, WORD_UNIT, type DueLabel, type RetryBar } from '@shared/homework';
+import { EXERCISE_UNIT } from '@shared/study/lessonRun';
+import { RetryProgressBar } from './RetryProgressBar';
+import { RowMenuButton, useRowPress } from './RowActions';
 import { KIND_ICON, titleParts, type HomeworkItem } from '../../services/homework';
 import './homework.css';
 import '../tutor/library/homework-library.css';
@@ -11,28 +14,47 @@ export function DueChip({ due, done = false }: { due: DueLabel; done?: boolean }
   return <span className={`hw-chip hw-chip-${due.tone}`} data-testid="hw-due">{due.text}</span>;
 }
 
-/** One homework item: icon, title, progress line, due chip. Taps into the pass. */
-export function HomeworkRow({ item, showTutor = false }: { item: HomeworkItem; showTutor?: boolean }) {
+/**
+ * One homework item: icon, title, progress line, due chip. Taps into the pass. Once started, the
+ * retry bar (a deck pass from its events; a lesson from its run in progress — `runBar`). Long-press /
+ * ⋯ opens the row's menu (`onMenu`).
+ */
+export function HomeworkRow({ item, showTutor = false, runBar = null, onMenu, action }: {
+  item: HomeworkItem;
+  showTutor?: boolean;
+  /** A lesson's run in progress on this device (`savedRunBar`). */
+  runBar?: RetryBar | null;
+  onMenu?: (item: HomeworkItem) => void;
+  /** Something on the right instead of the due chip (a skipped row's "Undo skip"). */
+  action?: React.ReactNode;
+}) {
   const a = item.assignment;
-  const pct = item.progress.total > 0 ? Math.round((item.progress.done / item.progress.total) * 100) : 0;
   const { base } = titleParts(a);
+  const press = useRowPress(() => onMenu?.(item));
+  const bar = item.done || item.skipped ? null : a.kind === 'deck' ? startedBar(item.bar) : a.kind === 'lesson' ? startedBar(runBar) : null;
   return (
-    <Link to={`/homework/${a.id}`} className={`hw-row${item.done ? ' hw-row-done' : ''}`} data-testid="hw-row">
-      <span className="hw-row-icon" aria-hidden="true">{KIND_ICON[a.kind] ?? '📝'}</span>
-      <span className="hw-row-main">
-        <span className="hw-row-title" lang="zh">{base}</span>
-        <span className="hw-row-meta">
-          <StudentStatus item={item} />
-          {homeworkRowDetail(item, showTutor)}
-        </span>
-        {a.kind === 'deck' && !item.done && item.progress.done > 0 && (
-          <span className="hw-row-bar" aria-hidden="true">
-            <span style={{ width: `${pct}%` }} />
+    <div className="hw-row-wrap">
+      <Link
+        to={`/homework/${a.id}`}
+        className={`hw-row${item.done ? ' hw-row-done' : ''}${item.skipped ? ' hw-row-skipped' : ''}`}
+        data-testid="hw-row"
+        {...(onMenu ? press.handlers : {})}
+        onClick={(e) => { if (onMenu && press.suppressTap()) e.preventDefault(); }}
+      >
+        <span className="hw-row-icon" aria-hidden="true">{KIND_ICON[a.kind] ?? '📝'}</span>
+        <span className="hw-row-main">
+          <span className="hw-row-title" lang="zh">{base}</span>
+          <span className="hw-row-meta">
+            <StudentStatus item={item} />
+            {homeworkRowDetail(item, showTutor)}
           </span>
-        )}
-      </span>
-      <DueChip due={item.due} done={item.done} />
-    </Link>
+          {bar && <RetryProgressBar bar={bar} unit={a.kind === 'deck' ? WORD_UNIT : EXERCISE_UNIT} className="hw-slim-retry-bar" testId="hw-row-bar" />}
+        </span>
+        {!action && <DueChip due={item.due} done={item.done} />}
+      </Link>
+      {action}
+      {onMenu && !action && <RowMenuButton onClick={() => onMenu(item)} label={base} />}
+    </div>
   );
 }
 

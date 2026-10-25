@@ -64,6 +64,9 @@ class LessonStoreTest {
     private val serverRevisit = CopyOnWriteArrayList<String>()
     private var settingsJson = """{"hard_days":2,"good_days":14,"easy_days":42,"growth":2,"cap_days":180,"is_default":true}"""
 
+    /** Lessons the fake server deleted (it keeps listing them until it has the DELETE). */
+    private val serverDeleted = CopyOnWriteArrayList<String>()
+
     private fun lessonsJson(): String {
         val completions = serverCompletions.joinToString(",") { """{"id":"$it","lesson_id":"L1","correct":3,"total":4,"completed_at":"2026-09-27T10:00:00.000Z","rating":2}""" }
         return """{"lessons":[
@@ -82,6 +85,10 @@ class LessonStoreTest {
                 requests += "${request.method} ${request.path}" to body
                 return when {
                     request.path == "/api/custom-lessons" -> MockResponse().setBody(lessonsJson())
+                    request.method == "DELETE" && request.path!!.startsWith("/api/custom-lessons/") -> {
+                        serverDeleted += request.path!!.removePrefix("/api/custom-lessons/")
+                        MockResponse().setBody("{}")
+                    }
                     request.path == "/api/custom-lessons/offline-complete" -> {
                         Json.parseToJsonElement(body).jsonObject["events"]!!.jsonArray.forEach { serverCompletions += it.jsonObject["id"]!!.jsonPrimitive.content }
                         MockResponse().setBody("""{"applied":1}""")
@@ -162,6 +169,21 @@ class LessonStoreTest {
         val entry = store.entry("L1")!!
         assertEquals(1, entry.runs.size)
         assertEquals("done", entry.learn.status)
+    }
+
+    /** The row menu's Delete lesson, offline: gone at once, never back through a sync, sent with the outbox. */
+    @Test fun deleteIsOfflineFirstAndNeverComesBack() = runBlocking {
+        store.sync(prefetch = false)
+        store.delete("L1")
+        assertTrue(store.entries().none { it.id == "L1" })
+        assertEquals(1, outbox.pendingCount())
+        // A sync before the DELETE went (the server still lists it): still gone.
+        store.sync(prefetch = false)
+        assertTrue(store.entries().none { it.id == "L1" })
+        outbox.drain()
+        assertEquals(listOf("L1"), serverDeleted.toList())
+        store.sync(prefetch = false)
+        assertEquals(listOf("L2"), store.entries().map { it.id })
     }
 
     @Test fun aMistakeComesBackAsARevisionInAWeek() = runBlocking {

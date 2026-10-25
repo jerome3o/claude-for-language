@@ -687,3 +687,70 @@
 .hw-link-done blockquote { margin: 0.4rem 0 0; font-style: italic; }
 .hw-status { flex-shrink: 0; }
 .hw-row-meta .hw-status { margin-right: 0.4rem; font-size: 0.7rem; padding: 0.05rem 0.45rem; vertical-align: 1px; }
+
+/* A slim row with its ⋯ menu button (RowActions.tsx). */
+.hw-slim-row {
+  display: flex;
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+}
+
+.hw-slim-row:first-child {
+  border-top: none;
+}
+
+.hw-slim-row > .hw-slim {
+  flex: 1;
+  min-width: 0;
+  border-top: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.hw-slim-row > .row-menu-btn {
+  margin-right: -0.5rem;
+}
+
+/* The retry bar on a started row: slim, the "↺ N" badge small. */
+.hw-slim-retry-bar {
+  --retry-bar-height: 5px;
+}
+
+.hw-slim-retry-bar .retry-bar-badge {
+  font-size: 0.6875rem;
+  min-width: 1.75rem;
+}
+
+/* A homework row with its ⋯ / Undo skip on the right (HomeworkRow.tsx). */
+.hw-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.hw-row-wrap > .hw-row {
+  flex: 1;
+  min-width: 0;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.hw-row-skipped {
+  opacity: 0.7;
+}
+
+.hw-undo-skip {
+  flex: none;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hw-chip-skipped {
+  background: #f1f0ee;
+  color: #57534e;
+}

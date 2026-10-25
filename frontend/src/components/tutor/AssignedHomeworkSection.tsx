@@ -31,7 +31,8 @@ export function AssignedHomeworkSection({ relId, studentName }: { relId: string;
   if (query.isError || !query.data) return <div className="td-error">Could not load the homework plan</div>;
   const { assignments, load, today } = query.data;
   const oneOff = assignments.filter((a) => a.mode !== 'fsrs' && a.status !== 'cancelled');
-  const active = oneOff.filter((a) => a.status === 'active').sort((a, b) => compareDue(a.due_date, b.due_date) || a.part_index - b.part_index);
+  // A homework the student skipped (docs/HOMEWORK.md §3d) stays listed, last, as "Skipped by <student>".
+  const active = oneOff.filter((a) => a.status === 'active').sort((a, b) => Number(!!a.skipped_at) - Number(!!b.skipped_at) || compareDue(a.due_date, b.due_date) || a.part_index - b.part_index);
   const done = oneOff.filter((a) => a.status === 'done').slice(0, DONE_SHOWN);
 
   const patch = async (a: HomeworkAssignment, body: { due_date?: string; status?: 'cancelled' }) => {
@@ -65,7 +66,9 @@ export function AssignedHomeworkSection({ relId, studentName }: { relId: string;
                     {a.mode === 'both' ? ' · + long-term' : ''}
                   </span>
                 </span>
-                <DueChip due={dueLabel(a.due_date, today)} />
+                {a.skipped_at
+                  ? <span className="hw-chip hw-chip-skipped" data-testid="tutor-hw-skipped">Skipped by {studentName}</span>
+                  : <DueChip due={dueLabel(a.due_date, today)} />}
               </button>
               {open === a.id && (
                 <div className="hwt-row-edit">

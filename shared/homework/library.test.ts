@@ -6,6 +6,7 @@ import {
   LIBRARY_STATUS_LABELS,
   libraryDueText,
   libraryStatus,
+  libraryStatusText,
   mostRecentHomework,
   statusTone,
   revisionProgressLabel,
@@ -233,7 +234,7 @@ describe('filter, counts, most recent', () => {
   });
 
   it('counts per status', () => {
-    expect(libraryCounts(items)).toEqual({ completed: 1, in_progress: 1, overdue: 1, not_started: 0, long_term: 0 });
+    expect(libraryCounts(items)).toEqual({ completed: 1, in_progress: 1, overdue: 1, not_started: 0, long_term: 0, skipped: 0 });
   });
 
   it('most recent = the newest plus whatever was sent within 30 minutes', () => {
@@ -330,5 +331,34 @@ describe('isoTime', () => {
     );
     expect(items.map((i) => i.kind)).toEqual(['deck', 'link']);
     expect(items[0].sent_at).toBe('2026-10-03T14:12:00Z');
+  });
+});
+
+describe('skipped by the student (docs/HOMEWORK.md §3d)', () => {
+  it('a skipped one-off deck reads "Skipped by Anna", grey, no due date to move', () => {
+    const items = buildHomeworkLibrary(input({ assignments: [assignment({ skipped_at: '2026-10-02T08:00:00.000Z', due_date: '2026-10-01' })], decks: [deckRow] }));
+    expect(items[0]).toMatchObject({ status: 'skipped', skipped_at: '2026-10-02T08:00:00.000Z', due_assignment_id: null });
+    expect(libraryStatusText(items[0].status, items[0].student_name)).toBe('Skipped by Anna');
+    expect(statusTone('skipped', '2026-10-01', TODAY)).toBe('grey');
+  });
+
+  it('completed wins over skipped; a part not skipped keeps it open', () => {
+    const done = buildHomeworkLibrary(input({ assignments: [assignment({ status: 'done', done_count: 10, skipped_at: '2026-10-02T08:00:00.000Z' })], decks: [deckRow] }));
+    expect(done[0].status).toBe('completed');
+    const split = buildHomeworkLibrary(input({
+      assignments: [assignment({ id: 'p1', skipped_at: '2026-10-02T08:00:00.000Z' }), assignment({ id: 'p2', part_index: 1, part_count: 2 })],
+      decks: [deckRow],
+    }));
+    expect(split[0].status).toBe('not_started');
+    expect(split[0].skipped_at).toBeNull();
+  });
+
+  it('a skipped long-term lesson (fsrs) is skipped too', () => {
+    const items = buildHomeworkLibrary(input({
+      assignments: [assignment({ kind: 'lesson', target_id: 'l1', mode: 'fsrs', due_date: null, skipped_at: '2026-10-02T08:00:00.000Z' })],
+      lessons: [{ lesson_id: 'l1', library_item_id: 'lib', title: '把', created_at: '2026-10-01T10:00:00.000Z', completions: 0, last_completed_at: null }],
+    }));
+    expect(items[0].status).toBe('skipped');
+    expect(libraryStatusText('in_progress', 'Anna')).toBe('In progress');
   });
 });

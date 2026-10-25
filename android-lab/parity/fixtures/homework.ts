@@ -135,6 +135,8 @@ function assignment(i: number): HomeworkAssignment {
     created_at: created,
     updated_at: `2026-09-2${int(0, 7)}T1${int(0, 9)}:00:00.000Z`,
     tutor_name: r() < 0.7 ? pick(['王老师', 'Minghui']) : null,
+    // The server's copy of "Skip this homework" (docs/HOMEWORK.md §3d).
+    skipped_at: r() < 0.12 ? `2026-09-2${int(0, 7)}T0${int(0, 9)}:00:00.000Z` : null,
   };
 }
 const screens = Array.from({ length: 80 }, () => {
@@ -146,6 +148,12 @@ const screens = Array.from({ length: 80 }, () => {
       const k = int(0, 3);
       for (let j = 0; j < k; j++) events.push({ id: `e${events.length}`, assignment_id: a.id, item_id: id, result: a.kind === 'deck' ? pick(['right', 'wrong'] as const) : 'done', created_at: `2026-09-27T1${int(0, 9)}:00:00.000Z` });
     }
+    // "Skip this homework" on the device, sometimes taken back with Undo.
+    if (r() < 0.2) {
+      const id = `e${events.length}`;
+      events.push({ id, assignment_id: a.id, item_id: a.target_id, result: 'skip', created_at: `2026-09-28T0${int(0, 9)}:00:00.000Z` });
+      if (r() < 0.35) events.push({ id: `e${events.length}`, assignment_id: a.id, item_id: a.target_id, result: 'undo', undoes: id, created_at: '2026-09-28T09:30:00.000Z' });
+    }
   }
   const items = toHomeworkItems(assignments, events, TODAY);
   const sorted = sortHomeworkItems(items);
@@ -155,6 +163,9 @@ const screens = Array.from({ length: 80 }, () => {
     items: items.map((it) => ({
       id: it.assignment.id,
       done: it.done,
+      skipped: it.skipped,
+      skipped_at: it.skipped_at,
+      bar: it.bar,
       progress: it.progress,
       due: it.due,
       title: titleParts(it.assignment),
@@ -165,6 +176,7 @@ const screens = Array.from({ length: 80 }, () => {
     })),
     todo: sorted.todo.map((i) => i.assignment.id),
     done: sorted.done.map((i) => i.assignment.id),
+    skipped: sorted.skipped.map((i) => i.assignment.id),
     one_off_only: [...oneOffOnlyTargets(assignments)].sort(),
     homework_pass: [...homeworkPassTargets(assignments)].sort(),
   };

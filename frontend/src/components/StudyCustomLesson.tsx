@@ -27,6 +27,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   exercisePoints,
   partPoints,
+  skippedHandwritingRows,
+  typedInsteadOfHandwriting,
   type CustomLessonSpec,
   type ExerciseAnswer,
   type ExerciseAttempt,
@@ -57,6 +59,7 @@ import { createAudioPlayer } from '../utils/audioPlayback';
 import { useLessonAudio } from '../hooks/useLessonAudio';
 import type { LessonRecording } from '../services/custom-lesson-study';
 import { clearLessonRun, loadLessonRun, saveLessonRun } from '../services/lessonRuns';
+import { readSkipHandwriting } from '../services/skipHandwriting';
 import { Confetti } from './Confetti';
 import { RetryProgressBar } from './homework/RetryProgressBar';
 import '../pages/PracticePage.css';
@@ -143,6 +146,9 @@ export function StudyCustomLesson({
 }) {
   const real = !preview && !!lessonId;
   const shape = useMemo(() => lessonShape(lesson.spec), [lesson.spec]);
+  // "Skip handwriting exercises" (shared/lesson/handwriting.ts): read once per run; a tutor's plain
+  // preview shows every exercise.
+  const [skipHandwriting] = useState(() => (preview && !previewSave ? false : readSkipHandwriting()));
 
   // The run: loaded once (a saved one continues), then kept in step with every answer.
   const [loaded, setLoaded] = useState(!real);
@@ -159,12 +165,16 @@ export function StudyCustomLesson({
   const completedRef = useRef(false);
   const [runKey, setRunKey] = useState(0);
 
-  const steps = useMemo(() => lessonSteps(lesson.spec, keys), [lesson.spec, keys]);
+  const steps = useMemo(() => lessonSteps(lesson.spec, keys, { skipHandwriting }), [lesson.spec, keys, skipHandwriting]);
   const exercises = useMemo(() => {
     const map = new Map<string, { exercise: LessonExercise; sectionTitle: string | null }>();
-    lesson.spec.sections.forEach((s, si) => s.exercises.forEach((ex, i) => map.set(`s${si}e${i}`, { exercise: ex, sectionTitle: s.title ?? null })));
+    lesson.spec.sections.forEach((s, si) => s.exercises.forEach((ex, i) => map.set(`s${si}e${i}`, {
+      // With handwriting skipped, a handwritten dictation is typed.
+      exercise: skipHandwriting ? typedInsteadOfHandwriting(ex) : ex,
+      sectionTitle: s.title ?? null,
+    })));
     return map;
-  }, [lesson.spec]);
+  }, [lesson.spec, skipHandwriting]);
 
   useEffect(() => {
     if (!real || !lessonId) return;
@@ -180,7 +190,7 @@ export function StudyCustomLesson({
         attempts.current = saved.attempts ?? [];
         recordings.current = saved.recordings ?? [];
         setResumed(true);
-        track('lesson.resume', { source, mode: saved.mode, exercises: lessonSteps(lesson.spec, saved.keys).length, at: saved.state.pos });
+        track('lesson.resume', { source, mode: saved.mode, exercises: lessonSteps(lesson.spec, saved.keys, { skipHandwriting }).length, at: saved.state.pos });
       }
       setLoaded(true);
     });
@@ -211,7 +221,8 @@ export function StudyCustomLesson({
       started_at: startedAt.current.toISOString(),
       // A run continued on another day: the time spent on its exercises, not the days between.
       duration_ms: resumedRun ? total : Date.now() - startedAt.current.getTime(),
-      exercises: attempts.current,
+      // The handwriting left out shows to the tutor as "skipped (handwriting off)" — never scored.
+      exercises: skipHandwriting ? [...attempts.current, ...skippedHandwritingRows(lesson.spec, keys)] : attempts.current,
     };
   }
 
