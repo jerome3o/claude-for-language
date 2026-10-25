@@ -26,6 +26,7 @@ class ReaderSpeedChipComposeTest {
     @get:Rule val compose = createComposeRule()
 
     private val page = ReaderPageDto("p1", 1, "早上好。", "Zǎoshang hǎo.", "Good morning.", null, null)
+    private val clip = java.io.File.createTempFile("clip", ".mp3")
     private val reader = GradedReaderDto("r1", "早上", "Morning", "beginner", null, emptyList(), "ready", null, "2026-09-25T09:47:33Z", listOf(page))
 
     @Test
@@ -38,8 +39,9 @@ class ReaderSpeedChipComposeTest {
             LabTheme {
                 ReaderScreen(
                     reader, null,
-                    ReaderEnv(speed = speed, onSpeed = { speed = ReaderSpeed.next(speed); seen += speed }),
-                    onBack = {}, onEdit = {}, onFinish = {},
+                    // The chip sits under the page's scrubber, shown once the narration is on the phone.
+                    ReaderEnv(speed = speed, onSpeed = { speed = ReaderSpeed.next(speed); seen += speed }, pageAudio = { _, _ -> clip }, analyze = { _, _ -> null }),
+                    onBack = {}, onEdit = {}, onFinish = { _, _ -> },
                 )
             }
         }

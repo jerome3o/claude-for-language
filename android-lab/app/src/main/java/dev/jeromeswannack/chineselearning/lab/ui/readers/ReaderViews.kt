@@ -2,8 +2,6 @@ package dev.jeromeswannack.chineselearning.lab.ui.readers
 
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -27,11 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,7 +38,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -80,10 +73,6 @@ class ReaderEnv(
     val image: suspend (page: ReaderPageDto) -> File? = { null },
     /** An illustration already on the phone (renders on the first frame). */
     val cachedImage: (page: ReaderPageDto) -> File? = { null },
-    /** Plays / stops the page narration (cache-first TTS at the reader speed). */
-    val togglePlay: (page: ReaderPageDto) -> Unit = {},
-    /** The page id whose narration is playing. */
-    val playingPage: String? = null,
     val onTap: () -> Unit = {},
     /** The page's word chips (made with Haiku, cached on the page); null = plain text until they arrive. */
     val words: (suspend (page: ReaderPageDto) -> List<ReaderWordDto>?)? = null,
@@ -91,7 +80,7 @@ class ReaderEnv(
     val known: Set<String> = emptySet(),
     /** A tapped word, with the sentence it was read in → the word sheet. */
     val onWord: (word: ReaderWordDto, sentence: String) -> Unit = { _, _ -> },
-    /** The page narration as a file (cache-first; `regenerate` replaces a bad clip) — the session's scrubber. */
+    /** The page narration as a file (cache-first; `regenerate` replaces a bad clip) — the page's scrubber. */
     val pageAudio: (suspend (page: ReaderPageDto, regenerate: Boolean) -> File?)? = null,
     /** The clip's waveform peaks + phrase blocks (decoded on the phone; cached per clip in the app). */
     val analyze: suspend (page: ReaderPageDto, file: File) -> ClipAnalysis? = { _, f -> withContext(Dispatchers.Default) { decodeClip(f) } },
@@ -120,13 +109,13 @@ fun DifficultyBadge(level: String) {
 private fun decode(file: File): ImageBitmap? = runCatching { BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }.getOrNull()
 
 /**
- * One page, listen-first (the web's StudyReaderPage / PageView): the illustration, the
- * Chinese hidden until tapped (tap again to hide), the narration button, pinyin and the
- * translation each behind their own tap. Keyed by page id by the caller so every reveal
- * resets on a page turn.
+ * One page, listen-first (the web's ReaderView page body): the illustration, the Chinese
+ * hidden until tapped (tap again to hide), the phrase-block scrubber with the speed chip,
+ * pinyin and the translation each behind their own tap. Keyed by page id by the caller so
+ * every reveal resets on a page turn. The same page wherever a story is read.
  */
 @Composable
-fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = false, story: StoryPlayback? = null) {
+fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = null) {
     var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
     var showTranslation by rememberSaveable(page.id) { mutableStateOf(false) }
@@ -154,26 +143,15 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, scrubber: Boolean = fals
         }
         val text: @Composable (Modifier) -> Unit = { m ->
             Column(m, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.weight(1f)) {
-                        AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
-                            if (shown) {
-                                RevealedChinese(page, env) { showChinese = false; env.onTap() }
-                            } else {
-                                RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
-                            }
-                        }
-                    }
-                    if (!scrubber) {
-                        // ▶ with the speed chip under it (the web's .reader-audio-controls)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            PlayButton(env.playingPage == page.id) { env.togglePlay(page) }
-                            ReaderSpeedChip(env.speed, env.onSpeed, minWidth = 56.dp)
-                        }
+                AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
+                    if (shown) {
+                        RevealedChinese(page, env) { showChinese = false; env.onTap() }
+                    } else {
+                        RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
                     }
                 }
-                // In the session (StudyReader): the scrubbable waveform under the Chinese.
-                if (scrubber) ReaderScrubber(page, env, story = story)
+                // The scrubbable waveform (phrase blocks, speed chip) under the Chinese.
+                ReaderScrubber(page, env, story = story)
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }
@@ -270,15 +248,6 @@ private fun ToggleBox(shown: Boolean, text: String, label: String, color: Color,
         modifier = Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.99f, onClick = onClick).clip(RoundedCornerShape(16.dp)).background(Lab.colors.card)
             .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(horizontal = 16.dp, vertical = 14.dp),
     )
-}
-
-@Composable
-private fun PlayButton(playing: Boolean, onClick: () -> Unit) {
-    val pulse by animateFloatAsState(if (playing) 1.08f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow), label = "pulse")
-    val bg by animateColorAsState(if (playing) Lab.colors.accent else Lab.colors.accentSoft, label = "playBg")
-    Box(Modifier.size(64.dp).scale(pulse).bouncyClickable(pressedScale = 0.9f, onClick = onClick).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
-        Icon(if (playing) Icons.Filled.Stop else Icons.AutoMirrored.Filled.VolumeUp, if (playing) "Stop audio" else "Play audio", Modifier.size(30.dp), tint = if (playing) Color.White else Lab.colors.accent)
-    }
 }
 
 /** The thin progress bar under a reader's title. */

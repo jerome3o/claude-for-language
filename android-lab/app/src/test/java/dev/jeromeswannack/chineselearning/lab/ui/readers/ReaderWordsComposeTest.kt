@@ -67,7 +67,7 @@ class ReaderWordsComposeTest {
         ReaderScreen(
             reader(page), null,
             ReaderEnv(words = load, known = setOf("早上"), onWord = { w, s -> rec.tapped += w.text to s }),
-            onBack = {}, onEdit = {}, onFinish = {},
+            onBack = {}, onEdit = {}, onFinish = { _, _ -> },
         )
     }
 

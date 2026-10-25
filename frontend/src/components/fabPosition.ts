@@ -40,5 +40,7 @@ export function isStudyLikePath(pathname: string): boolean {
   return pathname === '/study'
     || pathname === '/tutor-notes/practice'
     || /^\/(decks|library)\/[^/]+\/try\/?$/.test(pathname)
-    || /^\/library\/catalogue\/[^/]+\/?$/.test(pathname);
+    || /^\/library\/catalogue\/[^/]+\/?$/.test(pathname)
+    // A story opened from the Readers list: the session's reading view, so the session's faint button.
+    || (/^\/readers\/[^/]+\/?$/.test(pathname) && !/^\/readers\/generate\/?$/.test(pathname));
 }

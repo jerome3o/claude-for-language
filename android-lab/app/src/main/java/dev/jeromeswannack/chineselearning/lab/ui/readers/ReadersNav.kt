@@ -21,9 +21,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.data.anki.AnkiExportTarget
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateReaderBody
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.generateReader
-import dev.jeromeswannack.chineselearning.lab.data.api.markDailyReader
 import dev.jeromeswannack.chineselearning.lab.data.api.reader
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
@@ -104,7 +102,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
             state.first, state.second, env,
             onBack = nav::back,
             onEdit = { nav.open(Routes.readerEdit(id)) },
-            onFinish = { vm.finish(); nav.app.haptics.celebrate(); nav.back() },
+            onFinish = { ms, how -> vm.finish(ms, how) { nav.back() } },
             onAnki = { state.first?.let { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) } },
         )
     }
@@ -123,7 +121,6 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
 @Composable
 fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     val runtime = remember(app) { LessonRuntime.of(app) }
-    val playing by runtime.audio.playing.collectAsState()
     // The reader's speed chip: one value per phone, shared by every reading view
     val speedPref = remember(app) { dev.jeromeswannack.chineselearning.lab.data.readers.ReaderSpeedPref.of(app) }
     val speed by speedPref.speed.collectAsState()
@@ -170,27 +167,14 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
         analyze = { page, file -> clips.analyze(runtime.readers.pageTtsKey(page).removePrefix("reader-tts/"), file) },
         image = { page -> runtime.readers.pageImage(readerId, page, app.online.value) },
         cachedImage = { page -> runtime.media.cachedImage(page.imageUrl) },
-        togglePlay = { page -> togglePage(app, runtime, page, speedPref.speed.value) },
         speed = speed,
         onSpeed = {
             val next = speedPref.cycle()
             app.haptics.tick()
             app.analytics.track("reader.speed_changed", mapOf("speed" to next))
         },
-        playingPage = playing?.takeIf { it.startsWith(PAGE_PREFIX) }?.removePrefix(PAGE_PREFIX),
         onTap = { app.haptics.tick() },
     )
-}
-
-private const val PAGE_PREFIX = "reader-page:"
-
-private fun togglePage(app: LabApp, runtime: LessonRuntime, page: ReaderPageDto, speed: Double) {
-    val label = PAGE_PREFIX + page.id
-    if (runtime.audio.playing.value == label) { runtime.audio.stop(); return }
-    app.scope.launch {
-        val file = runtime.readers.pageAudio(page, app.online.value)
-        if (file != null) runtime.audio.playFileFor(label, file, speed = speed) else runtime.audio.speak(page.contentChinese, speed = speed)
-    }
 }
 
 class ReadersViewModel(private val app: LabApp) : ViewModel() {
@@ -391,8 +375,15 @@ class ReaderViewModel(private val app: LabApp, private val id: String) : ViewMod
         }
     }
 
-    /** Finish marks the day's reader activity (best effort). */
-    fun finish() {
-        if (app.online.value) app.scope.launch { runCatching { app.repo.api.markDailyReader(id) } }
+    /**
+     * Finished (Finish, or listened to the end): a read exactly like the session's — the reader
+     * review event (so the daily rule never offers it again), homework done, the day's reader mark.
+     */
+    fun finish(timeSpentMs: Long, how: String, then: () -> Unit) {
+        app.haptics.rated(dev.jeromeswannack.chineselearning.lab.core.Rating.GOOD)
+        viewModelScope.launch {
+            dev.jeromeswannack.chineselearning.lab.ui.today.TodayData(app).finishReader(id, timeSpentMs, how)
+            then()
+        }
     }
 }
