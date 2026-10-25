@@ -115,6 +115,27 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         assertEquals(listOf(2), rated)
     }
 
+    /** The homework pass (docs/HOMEWORK.md §3e): its own Skip line and "Got it unlocked" — never Good / Easy. */
+    @Test fun inThePassTheRoundSpeaksOfGotIt() {
+        val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
+        compose.setContent {
+            LabTheme {
+                SentenceRoundPage(
+                    question = "银行", questionIsChinese = true, rows = sentenceRows(view()), practise = practise,
+                    playingKey = null, onPlay = { _, _ -> }, onDone = {}, onSkip = {},
+                    skipNote = dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE,
+                    doneCheer = dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer,
+                )
+            }
+        }
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE, useUnmergedTree = true).assertExists()
+        compose.runOnIdle { practise.rightKeys.add("translate:s1") }
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithText("🎉 2 / 2 — Got it unlocked", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Good and Easy unlocked", substring = true, useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test fun skipOpensTheAnswerWithTheGate() {
         val rated = mutableListOf<Int>()
         card(previewSentencePractise(rightKeys = listOf("read:$clueKey")), actions = StudyActions(onRate = { r, _, _ -> rated += r }))

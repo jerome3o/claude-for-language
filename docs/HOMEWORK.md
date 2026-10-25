@@ -272,7 +272,8 @@ these, as I'm not going to come back to them for a long time, so it's good to do
 - **Got it needs the ladder**: giving up (👁 Show answer / Skip recording / Show with nothing typed before a right
   answer) → the answer side with **Got it locked** (🔒, faded; "👁 You looked at the answer — Not yet this time"
   above; a tap says why) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
-  the round was passed or skipped (its Skip line says "Skipping is fine — Got it stays open …"; the sentences never
+  the round was passed or skipped (its Skip line says "Skipping is fine — Got it stays open …", and two right cheer
+  "🎉 2 / 2 — Got it unlocked" — `passRoundDoneCheer` — never the session's "Good and Easy"; the sentences never
   lock Got it).
 - **A second angle**: a word got right in Hard mode on its first angle is owed ONE more showing later in the pass on a
   different card type (`secondAngleType`: reading → meaning, meaning → reading; then the listening card when the note

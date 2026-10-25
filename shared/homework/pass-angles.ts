@@ -317,6 +317,13 @@ export function passAngleLine(showing: Pick<PassShowing, 'angle' | 'cardType'>):
 
 /** Under the Sentence round's Skip in the pass (Got it isn't held back by the sentences). */
 export const PASS_ROUND_SKIP_NOTE = 'Skipping is fine — Got it stays open, and the word still comes back from another angle.';
+/**
+ * The Sentence round's cheer once enough are right, in the pass (the session's says "Good and Easy unlocked";
+ * the pass has Not yet / Got it): "🎉 2 / 2 — Got it unlocked".
+ */
+export function passRoundDoneCheer(got: number, needed: number): string {
+  return `🎉 ${got} / ${needed} — Got it unlocked`;
+}
 /** Above Not yet / Got it after giving up in Hard mode. */
 export const PASS_GAVE_UP_LINE = '👁 You looked at the answer — Not yet this time';
 /** Said when the locked Got it is tapped. */

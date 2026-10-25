@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -95,7 +96,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const dictation = () => fakes.list.find((f) => f.surface === 'sentence_practise')!;
 const NOTE = { id: 'n1', sentence_clue: '我去银行取钱。', sentence_clue_pinyin: 'Wǒ qù yínháng qǔ qián.', sentence_clue_translation: 'I go to the bank to get money.', sentence_clue_audio_url: null };
 
-async function render(opts: { onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void } = {}) {
+async function render(opts: { onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string } = {}) {
   const { SentenceRound, useRoundSentences } = await import('./SentenceRound');
   function Harness() {
     const sentences = useRoundSentences(NOTE, true);
@@ -106,6 +107,7 @@ async function render(opts: { onDone?: () => void; onSkip?: () => void; initialI
         onRight={(id) => setRight((p) => (p.includes(id) ? p : [...p, id]))}
         onDone={opts.onDone ?? vi.fn()} onSkip={opts.onSkip ?? vi.fn()}
         initialIds={opts.initialIds} onPicked={opts.onPicked} onResult={opts.onResult}
+        skipNote={opts.skipNote} doneCheer={opts.doneCheer}
       />
     );
   }
@@ -173,6 +175,19 @@ describe('SentenceRound', () => {
     expect(onDone).not.toHaveBeenCalled();
     act(() => { vi.advanceTimersByTime(1500); });
     expect(onDone).toHaveBeenCalled();
+  });
+
+  it('in the homework pass: its own Skip line and "Got it unlocked" (never Good / Easy)', async () => {
+    await render({ skipNote: PASS_ROUND_SKIP_NOTE, doneCheer: passRoundDoneCheer });
+    expect(host.textContent).toContain(PASS_ROUND_SKIP_NOTE);
+    expect(host.textContent).not.toContain('Good and Easy');
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(all('sentence-round-cheer')[0].textContent).toBe('🎉 Nice — 1 / 2');
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行'));
+    expect(all('sentence-round-cheer')[0].textContent).toBe('🎉 2 / 2 — Got it unlocked');
+    expect(host.textContent).not.toContain('Good and Easy');
   });
 
   it('a read exercise right shows its English at once (Hide English keeps it hideable); a miss keeps Show English', async () => {

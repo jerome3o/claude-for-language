@@ -153,6 +153,8 @@ interface SentenceRoundProps {
   onSkip: () => void;
   /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
   skipNote?: string;
+  /** The cheer once enough are right, in place of the session's "Good and Easy unlocked" (the homework pass: "Got it unlocked"). */
+  doneCheer?: (got: number, needed: number) => string;
   /** The exercises of this showing's round shown before (resume): the same ones come back. */
   initialIds?: readonly string[];
   /** The exercises as picked (the answer side marks their sentences, in this order). */
@@ -161,7 +163,7 @@ interface SentenceRoundProps {
   onResult?: (id: string, result: 'right' | 'close' | 'wrong') => void;
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer }: SentenceRoundProps) {
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
@@ -239,7 +241,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const lastGot = useRef(progress.got);
   useEffect(() => {
     if (progress.got > lastGot.current) {
-      setCheer(sentenceRoundCheer(progress));
+      setCheer(progress.done && doneCheer ? doneCheer(progress.got, progress.needed) : sentenceRoundCheer(progress));
       if (progress.done) track('study.sentence_round', { action: 'done', got: progress.got, needed: progress.needed });
     }
     lastGot.current = progress.got;

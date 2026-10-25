@@ -120,6 +120,10 @@ class PassAnglesParityTest {
         assertEquals(w["description"]!!.str, PassAngles.DESCRIPTION)
         assertEquals(w["gave_up_line"]!!.str, PassAngles.GAVE_UP_LINE)
         assertEquals(w["round_skip_note"]!!.str, PassAngles.ROUND_SKIP_NOTE)
+        for (c in w["round_done_cheers"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["cheer"]!!.str, PassAngles.roundDoneCheer(o.int("got"), o.int("needed")))
+        }
         assertEquals(w["gave_up_blocked"]!!.str, PassAngles.GAVE_UP_BLOCKED)
     }
 }

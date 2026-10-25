@@ -579,6 +579,7 @@ fun CardStage(
                         onDone = { reveal(afterRound = true) },
                         onSkip = { reveal(afterRound = true) },
                         skipNote = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE else null,
+                        doneCheer = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer else null,
                         stats = noteStats,
                         coming = labApp != null && dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.coming(labApp, note.id),
                         onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
