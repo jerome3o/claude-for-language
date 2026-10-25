@@ -144,11 +144,12 @@ export async function readersReadToday(): Promise<Set<string>> {
   return ids;
 }
 
-const offerRow = (r: LocalReader) => ({ id: r.id, created_at: r.created_at, studyable: isStudyableReader(r), read: isReaderRead(r), reader: r });
+const offerRow = (r: LocalReader) => ({ id: r.id, created_at: r.created_at, queue_priority: r.queue_priority ?? null, studyable: isStudyableReader(r), read: isReaderRead(r), reader: r });
 
 /**
  * Today's ONE reader, or null (shared/study/daily-reader.ts): nothing once a
- * story was read today, else the newest UNREAD story. A read story is never
+ * story was read today, else the first UNREAD story of the reader queue ("Up next",
+ * services/readerQueue.ts — newest first until reordered). A read story is never
  * offered again.
  */
 export function pickTodaysReader(readers: LocalReader[], readToday: Set<string>): LocalReader | null {

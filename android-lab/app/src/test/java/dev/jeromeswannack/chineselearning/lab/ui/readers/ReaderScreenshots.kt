@@ -247,6 +247,30 @@ class ReaderScreenshots : LabScreenshotTest() {
             ReadersActions(onBack = {}),
         )
     }
+    /** "Up next": the unread stories in reader-queue order, #N menus, the first is the session's next story. */
+    private val upNextUi = listUi.copy(
+        readers = listUi.readers!!.filter { it.status != "failed" } + listOf(
+            reader.copy(id = "r3", titleChinese = "下雨天", titleEnglish = "A rainy day", createdAt = "2026-09-20T09:00:00Z"),
+        ),
+        upNext = listOf(
+            reader.copy(id = "r2", titleChinese = "我的新邻居", titleEnglish = "My new neighbour", difficulty = "elementary", topic = null, createdAt = "2025-12-02T09:00:00Z"),
+            reader,
+            reader.copy(id = "r3", titleChinese = "下雨天", titleEnglish = "A rainy day", createdAt = "2026-09-20T09:00:00Z"),
+        ),
+    )
+    @Test fun upNext() = shoot("readers-31-up-next") { ReadersListScreen(upNextUi, ReadersActions(onBack = {})) }
+    @Test fun upNextDark() = shoot("readers-32-up-next-dark", dark = true) { ReadersListScreen(upNextUi, ReadersActions(onBack = {})) }
+    @OptIn(com.github.takahirom.roborazzi.ExperimentalRoborazziApi::class)
+    @Test fun upNextMenu() {
+        compose.setContent { LabTheme { ReadersListScreen(upNextUi, ReadersActions(onBack = {})) } }
+        compose.mainClock.advanceTimeBy(1_500)
+        tap("#2")
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.waitForIdle()
+        // Every window, so the #N dropdown is in the picture.
+        com.github.takahirom.roborazzi.captureScreenRoboImage("screenshots/readers-33-up-next-menu.png")
+    }
+
     @Test fun empty() = shoot("readers-08-list-empty") { ReadersListScreen(ReadersUi(readers = emptyList(), offline = true, updatedAt = now), ReadersActions(onBack = {})) }
 
     private val decks = listOf(

@@ -57,7 +57,7 @@ data class ReaderEntry(
     val lastReadAt: String? get() = events.maxOfOrNull { it.at }
     /** NEW while unread, then "scheduled" with no due date = read (never offered again). */
     val state: RevisitState get() = ReaderSchedule.state(events)
-    val item: ScheduledItem get() = ScheduledItem(reader.id, reader.createdAt, state, reader.studyable)
+    val item: ScheduledItem get() = ScheduledItem(reader.id, reader.createdAt, state, reader.studyable, reader.queuePriority)
 }
 
 @Serializable
@@ -113,12 +113,49 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         return all to readToday.isNotEmpty()
     }
 
-    private fun offer(e: ReaderEntry) = dev.jeromeswannack.chineselearning.lab.core.ReaderOffer(e.id, e.reader.createdAt, e.reader.studyable, e.read)
+    private fun offer(e: ReaderEntry) = dev.jeromeswannack.chineselearning.lab.core.ReaderOffer(e.id, e.reader.createdAt, e.reader.studyable, e.read, e.reader.queuePriority)
 
-    /** `getDueReaders`: at most one — the newest UNREAD story, nothing once one was read today. */
+    /** `getDueReaders`: at most one — the first UNREAD story of the reader queue, nothing once one was read today. */
     suspend fun todaysReader(nowMs: Long, @Suppress("UNUSED_PARAMETER") cutoff: StudyCutoff, zone: ZoneId): ReaderEntry? {
         val (all, readToday) = rotation(nowMs, zone)
         return DailyReader.pickTodays(all, readToday, ::offer)
+    }
+
+    /**
+     * "Up next" (the web's ReaderUpNext / readerQueueOrder): the unread, studyable readers in queue
+     * order, one-off homework readers left out (they're read in the homework pass).
+     */
+    suspend fun upNext(): List<ReaderEntry> = upNextOf(entries())
+
+    /** [upNext] over entries already loaded (the list screen's observed flow). */
+    suspend fun upNextOf(all: List<ReaderEntry>): List<ReaderEntry> {
+        val oneOff = homework.oneOffOnly()
+        return DailyReader.unreadQueue(all.filter { it.id !in oneOff }, ::offer)
+    }
+
+    /**
+     * Save a new reader-queue order (first = offered next): written into the cached list at once
+     * (the session follows it offline) and sent through the Outbox (`PUT /api/readers/reorder`,
+     * a whole order — the last one wins). A refresh re-applies an order still waiting to upload.
+     */
+    suspend fun saveQueueOrder(orderedIds: List<String>) {
+        lock.withLock { applyQueueOrder(orderedIds) }
+        outbox.enqueueJson(QUEUE_KIND, "PUT", "/api/readers/reorder", dev.jeromeswannack.chineselearning.lab.data.api.ReorderReadersBody(orderedIds))
+    }
+
+    /** Writes `queuePriorities(order)` into the cached list (call under [lock]). */
+    private suspend fun applyQueueOrder(orderedIds: List<String>) {
+        val priorities = dev.jeromeswannack.chineselearning.lab.core.ReaderQueue.priorities(orderedIds).toMap()
+        val list = cache.get(LIST, listSerializer) ?: return
+        cache.put(LIST, KIND, list.map { r -> priorities[r.id]?.let { r.copy(queuePriority = it) } ?: r }, listSerializer)
+    }
+
+    /** The newest reader-queue order still waiting in the Outbox, if any. */
+    private suspend fun pendingQueueOrder(): List<String>? {
+        val item = outbox.all().filter { it.kind == QUEUE_KIND && it.state == Outbox.PENDING }.maxByOrNull { it.seq } ?: return null
+        return runCatching {
+            api.json.decodeFromString(dev.jeromeswannack.chineselearning.lab.data.api.ReorderReadersBody.serializer(), item.bodyJson.orEmpty()).readerIds
+        }.getOrNull()
     }
 
     /** `nextUnreadReader`: the story offered next — today, or tomorrow once today's was read (its narration is prefetched). */
@@ -285,6 +322,8 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         val list = api.readersWithPages()
         lock.withLock {
             cache.put(LIST, KIND, list, listSerializer)
+            // A reader-queue order made offline still wins until the Outbox has sent it.
+            pendingQueueOrder()?.let { applyQueueOrder(it) }
             val ids = list.mapTo(HashSet()) { it.id }
             val pending = outbox.all().filter { it.kind == "reader-reviews" && it.state == Outbox.PENDING }.mapTo(HashSet()) { it.id }
             val events = events()
@@ -344,6 +383,8 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         const val KIND = "readers"
         const val LIST = "readers/list"
         const val EVENTS = "readers/events"
+        /** Outbox kind of a reader-queue reorder (`PUT /api/readers/reorder`). */
+        const val QUEUE_KIND = "reader-queue"
         private const val CURSOR = "readers/cursor"
         private const val ATTEMPT = "readers/daily-attempt"
         private const val WORDS_DONE = "readers/words-backfill-done"

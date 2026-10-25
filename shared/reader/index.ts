@@ -16,3 +16,4 @@ export * from './audioBlocks';
 export * from './blockPlayback';
 export * from './speed';
 export * from './words';
+export * from './queue';

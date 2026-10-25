@@ -9,6 +9,7 @@ import {
   readerRotationState,
 } from './reader-study';
 import { readerTtsKey } from './readerSync';
+import { readerQueueOrder, applyReaderOrderLocally } from './readerQueue';
 import { db, LocalReader } from '../db/database';
 import { CardQueue } from '../types';
 
@@ -152,6 +153,34 @@ describe('pickTodaysReader (pure)', () => {
     const unread = makeReader({ id: 'unread' });
     expect(pickTodaysReader([done, unread], new Set(['done']))).toBeNull();
     expect(pickTodaysReader([done, unread], new Set())?.id).toBe('unread');
+  });
+});
+
+describe('the reader queue ("Up next")', () => {
+  it('the session follows a reordered queue, not simply the newest story', () => {
+    const older = makeReader({ id: 'older', created_at: '2026-09-01T00:00:00.000Z', queue_priority: 2 });
+    const newer = makeReader({ id: 'newer', created_at: '2026-10-01T00:00:00.000Z', queue_priority: 1 });
+    expect(pickTodaysReader([newer, older], new Set())?.id).toBe('older');
+    expect(readerQueueOrder([newer, older]).map(r => r.id)).toEqual(['older', 'newer']);
+  });
+
+  it('never reordered: newest first, read and excluded stories left out', () => {
+    const a = makeReader({ id: 'a', created_at: '2026-09-01T00:00:00.000Z' });
+    const b = makeReader({ id: 'b', created_at: '2026-10-01T00:00:00.000Z' });
+    const read = makeReader({ id: 'read', created_at: '2026-10-02T00:00:00.000Z', queue: CardQueue.REVIEW });
+    const homework = makeReader({ id: 'hw', created_at: '2026-10-03T00:00:00.000Z' });
+    expect(readerQueueOrder([a, b, read, homework], new Set(['hw'])).map(r => r.id)).toEqual(['b', 'a']);
+  });
+
+  it('a saved order is written to IndexedDB', async () => {
+    await db.readers.bulkPut([
+      makeReader({ id: 'q1', created_at: '2026-09-01T00:00:00.000Z' }),
+      makeReader({ id: 'q2', created_at: '2026-10-01T00:00:00.000Z' }),
+    ]);
+    await applyReaderOrderLocally(['q1', 'q2']);
+    const rows = await db.readers.bulkGet(['q1', 'q2']);
+    expect(rows.map(r => r?.queue_priority)).toEqual([2, 1]);
+    expect(readerQueueOrder(rows.filter((r): r is LocalReader => !!r)).map(r => r.id)).toEqual(['q1', 'q2']);
   });
 });
 

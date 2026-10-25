@@ -1034,6 +1034,10 @@ export interface GradedReader {
   is_published?: number;
   creator_role?: string;
   created_at: string;
+  /** The reader queue ("Up next", shared/reader/queue.ts; migration 0140): NULL = never placed by hand. */
+  queue_priority?: number | null;
+  /** GET /api/readers: 1-based place in the queue; null for read / not-ready stories. */
+  queue_position?: number | null;
 }
 
 export interface ReaderPage {

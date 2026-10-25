@@ -42,7 +42,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.DeckQueue
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.ui.decks.QueueBadge
+import dev.jeromeswannack.chineselearning.lab.ui.decks.rememberDragReorderState
 import dev.jeromeswannack.chineselearning.lab.core.ReaderFailures
 import dev.jeromeswannack.chineselearning.lab.data.api.GradedReaderDto
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
@@ -66,9 +69,10 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import dev.jeromeswannack.chineselearning.lab.core.Folder
 import dev.jeromeswannack.chineselearning.lab.core.Folders
-import dev.jeromeswannack.chineselearning.lab.ui.decks.dragReorderList
 import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions
 import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderHeaderRow
 import dev.jeromeswannack.chineselearning.lab.ui.folders.FolderOverlays
@@ -97,6 +101,8 @@ data class ReadersUi(
     val message: String? = null,
     /** When each READ story was last finished (web: ReaderReadLine), by id — a story is read once, never scheduled again. */
     val readAt: Map<String, String> = emptyMap(),
+    /** "Up next": the unread stories in reader-queue order (the study session offers the first, one a day). */
+    val upNext: List<GradedReaderDto> = emptyList(),
 )
 
 class ReadersActions(
@@ -118,6 +124,10 @@ class ReadersActions(
     val onMoveToFolder: (String) -> Unit = {},
     val onLift: () -> Unit = {},
     val onSlot: () -> Unit = {},
+    /** Up next #N → Move to top / up / down / bottom. */
+    val onQueueMove: (String, DeckQueue.Move) -> Unit = { _, _ -> },
+    /** Up next press-and-hold drag: the whole new order. */
+    val onQueueReorder: (List<String>) -> Unit = {},
 )
 
 /** `formatDate` of the list: "Sep 27", with the year when it isn't this year. */
@@ -148,6 +158,21 @@ fun ReadersListScreen(
     val grouped = folders != null && folders.hasFolders && active.isNotEmpty()
     val baseRows = if (grouped) readerRows(active, folders!!.folders, folders.collapsed) else emptyList()
     val drag = rememberFolderHeaderDrag(listState, baseRows, folders, folderActions, actions.onLift, actions.onSlot)
+    // "Up next" (the reader queue): its own press-and-hold drag over rows keyed "upnext:<id>".
+    var showAllUpNext by rememberSaveable { mutableStateOf(false) }
+    val upNextIds = ui.upNext.map { it.id }
+    val upNextShown = if (showAllUpNext || upNextIds.size <= UP_NEXT_COLLAPSED + 1) upNextIds else upNextIds.take(UP_NEXT_COLLAPSED)
+    val upNextHidden = upNextIds.drop(upNextShown.size)
+    val showUpNext = ui.upNext.isNotEmpty() && folders?.selecting != true
+    val upDrag = rememberDragReorderState(
+        listState,
+        if (showUpNext) upNextShown.map(::upNextKey) else emptyList(),
+        onLift = actions.onLift,
+        onSlot = actions.onSlot,
+        onCommit = { keys -> actions.onQueueReorder(keys.map { it.removePrefix(UP_NEXT_KEY) } + upNextHidden) },
+    )
+    val upNextRows = upDrag.order().map { it.removePrefix(UP_NEXT_KEY) }.mapNotNull { id -> ui.upNext.firstOrNull { it.id == id } }
+    val queuePositions = upNextIds.withIndex().associate { (i, id) -> id to i + 1 }
     val rows: List<FolderRow<GradedReaderDto>> =
         if (grouped) readerRows(active, foldersInDragOrder(folders!!.folders, drag), folders.collapsed) else active.map { FolderRow.Item(it, it.id, 0, "unfiled") }
     LabScreenFrame {
@@ -155,7 +180,7 @@ fun ReadersListScreen(
             Column(Modifier.fillMaxSize()) {
                 ScreenTitle("Graded Readers", onBack = actions.onBack, actions = { ReadersOverflowMenu(actions.onImport) })
                 LazyColumn(
-                    Modifier.fillMaxSize().dragReorderList(drag),
+                    Modifier.fillMaxSize().dragReorderLists(upDrag, drag),
                     state = listState,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 4.dp, bottom = if (folders?.selecting == true) 110.dp else 24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -170,6 +195,35 @@ fun ReadersListScreen(
                     if (ui.offline) item { OfflineNotice(updatedAt = ui.updatedAt) }
                     else ui.error?.let { e -> item { InlineNotice(e, kind = NoticeKind.Error, actionLabel = "Retry", onAction = actions.onRefresh) } }
                     if (all == null) { item { LoadingState() }; return@LazyColumn }
+                    if (showUpNext) {
+                        item(key = "upnext-head") { UpNextHeader(ui.upNext.size) }
+                        items(upNextRows, key = { upNextKey(it.id) }) { r ->
+                            val lifted = upDrag.dragId == upNextKey(r.id)
+                            UpNextRow(
+                                r,
+                                position = queuePositions[r.id] ?: 0,
+                                total = upNextIds.size,
+                                lifted = lifted,
+                                onOpen = { actions.onOpen(r.id) },
+                                onMove = { to -> actions.onQueueMove(r.id, to) },
+                                modifier = Modifier
+                                    .zIndex(if (lifted) 1f else 0f)
+                                    .graphicsLayer { translationY = if (lifted) upDrag.dragOffsetY else 0f }
+                                    .then(if (lifted) Modifier else Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null, placementSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))),
+                            )
+                        }
+                        if (upNextHidden.isNotEmpty()) item(key = "upnext-more") {
+                            Text(
+                                "Show all ${upNextIds.size}",
+                                color = Lab.colors.accent,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).bouncyClickable { showAllUpNext = true }.padding(12.dp),
+                            )
+                        }
+                        if (active.isNotEmpty()) item(key = "upnext-all-head") {
+                            Text("All stories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 8.dp))
+                        }
+                    }
                     if (active.isEmpty()) {
                         item {
                             EmptyState("📚", "No stories yet", body = "Generate AI-powered reading stories using vocabulary from your decks", actionLabel = "Generate Your First Story", onAction = actions.onGenerate)
@@ -202,6 +256,7 @@ fun ReadersListScreen(
                                 selection = if (folders?.selecting == true) row.item.id in folders.selected else null,
                                 onSelect = { folderActions.onToggleSelected(row.item.id) },
                                 canMove = folders != null,
+                                queuePosition = queuePositions[row.item.id],
                             ) { confirm = row.item.id }
                         }
                     }
@@ -243,6 +298,8 @@ private fun ReaderCard(
     selection: Boolean? = null,
     onSelect: () -> Unit = {},
     canMove: Boolean = false,
+    /** 1-based place in "Up next" (unread stories), else null. */
+    queuePosition: Int? = null,
     onDelete: () -> Unit,
 ) {
     val generating = r.status == "generating"
@@ -262,6 +319,9 @@ private fun ReaderCard(
             if (generating) Text("Generating story and illustrations...", fontSize = 12.sp, fontStyle = FontStyle.Italic, color = Palette.Easy)
             else Text("${r.vocabularyUsed.size} vocabulary items · ${readerDate(r.createdAt)}", fontSize = 12.sp, color = Lab.colors.muted)
             if (!generating && r.status == "ready" && readAt != null) ReaderReadLine(readAt)
+            if (queuePosition != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp)) { dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill("Up next · #$queuePosition", Lab.colors.accent) }
+            }
         }
         HorizontalDivider(color = Lab.colors.cardBorder)
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -355,3 +415,75 @@ private fun FailedRow(failed: List<GradedReaderDto>, ui: ReadersUi, actions: Rea
         }
     }
 }
+
+/** Up next rows shown before "Show all" (the web's COLLAPSED_ROWS). */
+private const val UP_NEXT_COLLAPSED = 5
+private const val UP_NEXT_KEY = "upnext:"
+private fun upNextKey(id: String) = UP_NEXT_KEY + id
+
+/** "Up next" — the reader queue's heading and how it works (web: ReaderUpNext). */
+@Composable
+private fun UpNextHeader(count: Int) {
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("Up next", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.weight(1f))
+            Text("$count unread", fontSize = 13.sp, color = Lab.colors.muted)
+        }
+        Text("Your study session offers the top story — one a day. Tap #N to move a story, or press and hold to drag it.", fontSize = 13.sp, color = Lab.colors.muted)
+    }
+}
+
+/** One unread story in the queue: #N (Move to top / up / down / bottom), titles; tap opens it, hold drags it. */
+@Composable
+private fun UpNextRow(
+    r: GradedReaderDto,
+    position: Int,
+    total: Int,
+    lifted: Boolean,
+    onOpen: () -> Unit,
+    onMove: (DeckQueue.Move) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val first = position == 1
+    Row(
+        modifier.fillMaxWidth()
+            .graphicsLayer { if (lifted) { scaleX = 1.02f; scaleY = 1.02f; shadowElevation = 18f } }
+            .clip(RoundedCornerShape(14.dp))
+            .background(Lab.colors.card)
+            .border(if (lifted) 2.dp else 1.dp, if (lifted) Lab.colors.accent else Lab.colors.cardBorder, RoundedCornerShape(14.dp))
+            .bouncyClickable(pressedScale = 0.99f, onClick = onOpen)
+            .heightIn(min = 56.dp)
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(r.titleChinese, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = if (first) Lab.colors.accent else Lab.colors.ink, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(
+                (if (first) "Next in your session · " else "") + r.titleEnglish,
+                fontSize = 13.sp, color = Lab.colors.muted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        QueueBadge(position, total, label = "your reader queue", onMove = onMove)
+    }
+}
+
+/**
+ * Press and hold on the list: whichever drag has a row under the finger lifts it (Up next rows,
+ * then folder headers) — one gesture detector, so the two never fight over the pointer.
+ */
+private fun Modifier.dragReorderLists(vararg states: dev.jeromeswannack.chineselearning.lab.ui.decks.DragReorderState): Modifier =
+    pointerInput(*states) {
+        var active: dev.jeromeswannack.chineselearning.lab.ui.decks.DragReorderState? = null
+        detectDragGesturesAfterLongPress(
+            onDragStart = { offset -> active = states.firstOrNull { s -> s.start(offset.y); s.dragId != null } },
+            onDrag = { change, amount ->
+                val s = active
+                if (s != null && s.dragId != null) {
+                    change.consume()
+                    s.dragBy(amount.y)
+                }
+            },
+            onDragEnd = { active?.end(cancelled = false); active = null },
+            onDragCancel = { active?.end(cancelled = true); active = null },
+        )
+    }

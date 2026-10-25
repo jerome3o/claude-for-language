@@ -280,6 +280,8 @@ export interface LocalReader {
   difficulty_level: string;
   status: string; // 'generating' | 'ready' | 'failed'
   created_at: string;
+  /** The reader queue ("Up next", shared/reader/queue.ts): NULL = never placed by hand (newest first, on top). */
+  queue_priority?: number | null;
   pages: LocalReaderPage[];
   // Read state (computed from readerReviewEvents)
   queue: CardQueue;

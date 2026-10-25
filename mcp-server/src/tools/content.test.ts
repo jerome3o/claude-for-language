@@ -68,7 +68,7 @@ describe('trimReader / filterReaders', () => {
   it('keeps only the fields the model needs and counts pages', () => {
     expect(trimReader(rows[0])).toEqual({
       id: 'r1', title_chinese: '小猫找家', title_english: 'Kitten', difficulty_level: 'beginner', topic: 'pets',
-      status: 'ready', page_count: 3, created_at: '2026-09-01', creator_role: 'tutor', is_published: true, folder_id: null,
+      status: 'ready', page_count: 3, created_at: '2026-09-01', creator_role: 'tutor', is_published: true, folder_id: null, queue_position: null,
     });
     expect(trimReader(rows[2])).toMatchObject({ page_count: 0, creator_role: 'student', error_message: 'boom', topic: null });
     expect(Object.keys(trimReader(rows[1]))).not.toContain('pages');
@@ -169,8 +169,8 @@ describe('registerContentTools', () => {
       'add_words_to_student_deck', 'archive_library_lesson', 'assign_lesson_to_students', 'create_deck_for_student',
       'create_homework_deck', 'create_library_lesson', 'create_reader', 'delete_reader', 'duplicate_library_lesson', 'export_library_lesson',
       'export_reader', 'generate_reader', 'get_lesson_assignments', 'get_library_lesson', 'get_reader', 'get_starter_deck',
-      'list_lesson_library', 'list_readers', 'list_student_lessons', 'list_student_readers', 'push_lesson_update',
-      'retry_reader', 'share_reader_with_student', 'update_library_lesson', 'update_reader',
+      'list_lesson_library', 'list_reader_queue', 'list_readers', 'list_student_lessons', 'list_student_readers', 'move_reader_in_queue', 'push_lesson_update',
+      'reorder_reader_queue', 'retry_reader', 'share_reader_with_student', 'update_library_lesson', 'update_reader',
     ]);
   });
 });
@@ -192,6 +192,54 @@ describe('reader tools', () => {
     const parsed = JSON.parse(text(result));
     expect(parsed.count).toBe(1);
     expect(parsed.readers[0]).toMatchObject({ id: 'r1', page_count: 2 });
+  });
+
+  it('list_reader_queue / move_reader_in_queue / reorder_reader_queue hit the queue routes', async () => {
+    const queueRows = [
+      { id: 'r2', title_chinese: '小狗', title_english: 'Puppy', difficulty_level: 'beginner', topic: null, folder_id: 'f1', page_count: 4, created_at: 't2', queue_position: 1 },
+      { id: 'r1', title_chinese: '小猫', title_english: 'Kitten', difficulty_level: 'beginner', topic: 'pets', folder_id: null, page_count: 3, created_at: 't1', queue_position: 2 },
+    ];
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/readers/queue': () => ({ queue: queueRows }),
+      'GET /api/folders?kind=reader': () => ({ folders: [{ id: 'f1', kind: 'reader', name: 'Week 1', parent_id: null, position: 0, item_count: 1 }] }),
+      'POST /api/readers/r1/move': () => ({ queue: [{ ...queueRows[1], queue_position: 1 }, { ...queueRows[0], queue_position: 2 }], changed: true, queue_position: 1, queue_total: 2 }),
+      'PUT /api/readers/reorder': () => ({ queue: queueRows, changed: false, ignored: ['gone'] }),
+    });
+    registerReaderTools(ctx);
+
+    const listed = JSON.parse(text(await tools.get('list_reader_queue')!({})));
+    expect(listed.count).toBe(2);
+    expect(listed.queue[0]).toMatchObject({ queue_position: 1, id: 'r2', folder: 'Week 1', page_count: 4 });
+    expect(listed.message).toContain('1. 小狗 · Puppy');
+
+    const moved = JSON.parse(text(await tools.get('move_reader_in_queue')!({ reader_id: 'r1', to: 'top' })));
+    expect(moved).toMatchObject({ changed: true, queue_position: 1, queue_total: 2 });
+    expect(moved.message).toContain('offers it next');
+    await tools.get('move_reader_in_queue')!({ reader_id: 'r1', to: 2 });
+
+    const reordered = JSON.parse(text(await tools.get('reorder_reader_queue')!({ reader_ids: ['r2', 'gone'] })));
+    expect(reordered.ignored).toEqual(['gone']);
+
+    const writes = calls.filter(c => c.method !== 'GET');
+    expect(writes).toEqual([
+      { method: 'POST', path: '/api/readers/r1/move', body: { to: 'top', source: 'mcp' } },
+      { method: 'POST', path: '/api/readers/r1/move', body: { position: 2, source: 'mcp' } },
+      { method: 'PUT', path: '/api/readers/reorder', body: { reader_ids: ['r2', 'gone'], source: 'mcp' } },
+    ]);
+  });
+
+  it('create_reader / generate_reader pass queue_position as the API\'s position', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'POST /api/readers/import': () => ({ id: 'new-1', status: 'ready', image_jobs: 0, spec: validReader }),
+      'POST /api/readers/generate': () => ({ id: 'gen-1', status: 'generating' }),
+    });
+    registerReaderTools(ctx);
+    const created = JSON.parse(text(await tools.get('create_reader')!({ spec: validReader, queue_position: 'bottom' })));
+    expect(created.queue_position).toBe('bottom');
+    expect(created.message).toContain('bottom of the reader queue');
+    await tools.get('generate_reader')!({ deck_ids: ['d1'], queue_position: 'bottom' });
+    expect((calls[0].body as { position?: string }).position).toBe('bottom');
+    expect((calls[1].body as { position?: string }).position).toBe('bottom');
   });
 
   it('create_reader rejects an invalid spec locally without calling the API', async () => {

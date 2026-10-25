@@ -80,6 +80,8 @@ data class GradedReaderDto(
     val pages: List<ReaderPageDto> = emptyList(),
     /** The reader's folder (migration 0105; core Folders.kt), null = Unfiled. */
     @SerialName("folder_id") val folderId: String? = null,
+    /** The reader queue ("Up next", core ReaderQueue; migration 0140): null = never placed by hand. */
+    @SerialName("queue_priority") val queuePriority: Long? = null,
 ) {
     /** `isStudyableReader`. */
     val studyable: Boolean get() = status == "ready" && pages.isNotEmpty()
@@ -137,3 +139,7 @@ suspend fun Api.dailyReader(noteIds: List<String>, localDate: String): DailyRead
 
 suspend fun Api.markDailyReader(readerId: String): Unit = post("/api/daily/mark", DailyMarkBody("reader", readerId))
 
+
+/** `PUT /api/readers/reorder` — the reader queue in this order (first = offered next). Sent through the Outbox. */
+@Serializable
+data class ReorderReadersBody(@SerialName("reader_ids") val readerIds: List<String>)

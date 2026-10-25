@@ -1724,6 +1724,11 @@ export async function getGradedReaders(): Promise<GradedReader[]> {
   return fetchJSON<GradedReader[]>('/readers');
 }
 
+/** The reader queue ("Up next"): set the whole order, first = offered next (services/readerQueue.ts). */
+export async function reorderReaderQueue(readerIds: string[]): Promise<{ changed: boolean; ignored: string[] }> {
+  return fetchJSON('/readers/reorder', { method: 'PUT', body: JSON.stringify({ reader_ids: readerIds }) });
+}
+
 export async function getGradedReader(id: string): Promise<GradedReaderWithPages> {
   return fetchJSON<GradedReaderWithPages>(`/readers/${id}`);
 }

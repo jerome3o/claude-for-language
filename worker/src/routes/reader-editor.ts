@@ -9,7 +9,7 @@
  *
  *   GET  /readers/:id/spec
  *   PUT  /readers/:id/spec               { spec }
- *   POST /readers/import                 { spec }
+ *   POST /readers/import                 { spec, folder_id?, position?: top | bottom (the reader queue; default top) }
  *   GET  /readers/:id/export.(md|json|csv)
  *   POST /readers/:id/assist             { field: 'english'|'image_prompt', chinese, english? }
  */
@@ -33,6 +33,8 @@ import { readerToSpec, applyReaderSpec, createReaderFromSpec } from '../db/reade
 import { fixSpecPinyin, logPinyinFixes, pinyinSources } from '../services/pinyin-check';
 import { unreferencedImageKeys } from '../services/shared-readers';
 import { segmentReader } from '../services/reader-words';
+import { placeNewReader } from '../services/reader-queue';
+import { isReaderQueuePlacement } from '@shared/reader/queue';
 
 type AppEnv = { Bindings: Env };
 
@@ -103,9 +105,12 @@ function wordsInBackground(c: { env: Env; executionCtx: { waitUntil(p: Promise<u
 
 readerEditor.post('/readers/import', async (c) => {
   const userId = c.get('user').id;
-  const body = await c.req.json<{ spec?: unknown; folder_id?: unknown }>().catch(() => ({} as { spec?: unknown; folder_id?: unknown }));
+  const body = await c.req.json<{ spec?: unknown; folder_id?: unknown; position?: unknown }>().catch(() => ({} as { spec?: unknown; folder_id?: unknown; position?: unknown }));
   const errors = validateReaderSpec(body.spec);
   if (errors.length > 0) return c.json({ error: 'Invalid reader spec', problems: errors }, 400);
+  if (body.position !== undefined && body.position !== null && !isReaderQueuePlacement(body.position)) {
+    return c.json({ error: "position must be 'top' or 'bottom'" }, 400);
+  }
   let folderId: string | null;
   try {
     folderId = await resolveFolderId(c.env.DB, userId, 'reader', body.folder_id);
@@ -121,6 +126,9 @@ readerEditor.post('/readers/import', async (c) => {
     await fileItem(c.env.DB, userId, 'reader', reader.id, folderId);
     (reader as { folder_id?: string | null }).folder_id = folderId;
   }
+  // Its place in the reader queue: on top (the default — unplaced, newest first) or at the bottom.
+  const queuePriority = await placeNewReader(c.env.DB, userId, reader.id, isReaderQueuePlacement(body.position) ? body.position : undefined);
+  if (queuePriority !== null) (reader as { queue_priority?: number | null }).queue_priority = queuePriority;
   const queued = await queueReaderImages(c.env, reader.id, imageJobs);
   wordsInBackground(c, reader.id);
   return c.json({ ...reader, spec: readerToSpec(reader), image_jobs: queued, warnings: readerPageWarnings(body.spec as ReaderSpec).map(w => w.message), pinyin_fixes: pinyinFixes }, 201);
