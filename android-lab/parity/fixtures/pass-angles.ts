@@ -16,6 +16,7 @@ import {
   passAnglesLabel,
   passAnswerItemId,
   passHardApplies,
+  passRoundDoneCheer,
   passHardModeChipLabel,
   passStepId,
   passWordMissed,
@@ -119,6 +120,7 @@ const words = {
   description: PASS_HARD_MODE_DESCRIPTION,
   gave_up_line: PASS_GAVE_UP_LINE,
   round_skip_note: PASS_ROUND_SKIP_NOTE,
+  round_done_cheers: [[1, 1], [2, 2], [0, 2]].map(([got, needed]) => ({ got, needed, cheer: passRoundDoneCheer(got, needed) })),
   gave_up_blocked: PASS_GAVE_UP_BLOCKED,
 };
 

@@ -107,6 +107,8 @@ fun SentenceRoundPage(
     modifier: Modifier = Modifier,
     /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
     skipNote: String? = null,
+    /** The cheer once enough are right, in place of "Good and Easy unlocked" (the homework pass: "Got it unlocked"). */
+    doneCheer: ((got: Int, needed: Int) -> String)? = null,
     /** His practice history of these sentences (null while it loads): the round prefers what he knows least. */
     stats: Map<String, SentenceHistory.Stats>? = emptyMap(),
     /** "✨ New sentences coming for this word" (asked already). */
@@ -175,7 +177,7 @@ fun SentenceRoundPage(
     var lastGot by remember { mutableIntStateOf(progress.got) }
     LaunchedEffect(progress.got) {
         if (progress.got > lastGot) {
-            cheer = SentenceRound.cheer(progress)
+            cheer = doneCheer?.takeIf { progress.done }?.invoke(progress.got, progress.needed) ?: SentenceRound.cheer(progress)
             sparks++
             if (progress.done) Analytics.track("study.sentence_round", mapOf("action" to "done", "got" to progress.got, "needed" to progress.needed))
         }

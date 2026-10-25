@@ -8,6 +8,7 @@ import {
   passAnglesLabel,
   passAnswerItemId,
   passHardApplies,
+  passRoundDoneCheer,
   passStepId,
   passWordMissed,
   secondAngleType,
@@ -151,5 +152,7 @@ describe('passAnglePlan', () => {
     expect(passAnglesLabel('off')).toBeNull();
     expect(passAngleLine({ angle: 2, cardType: 'meaning_to_hanzi' })).toBe('🔄 Second angle · English → Chinese');
     expect(passAngleLine({ angle: 1, cardType: 'meaning_to_hanzi' })).toBeNull();
+    expect(passRoundDoneCheer(2, 2)).toBe('🎉 2 / 2 — Got it unlocked');
+    expect(passRoundDoneCheer(2, 2)).not.toContain('Good');
   });
 });

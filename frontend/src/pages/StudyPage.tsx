@@ -55,7 +55,7 @@ import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
-import { PASS_GAVE_UP_BLOCKED, PASS_GAVE_UP_LINE, PASS_ROUND_SKIP_NOTE } from '@shared/homework/pass-angles';
+import { PASS_GAVE_UP_BLOCKED, PASS_GAVE_UP_LINE, PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -3170,6 +3170,7 @@ export function StudyCard({
               onDone={closeRound}
               onSkip={closeRound}
               skipNote={pass ? PASS_ROUND_SKIP_NOTE : undefined}
+              doneCheer={pass ? passRoundDoneCheer : undefined}
               initialIds={roundLog.map((e) => e.id)}
               onPicked={onRoundPicked}
               onResult={onRoundResult}
