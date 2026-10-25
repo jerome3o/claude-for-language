@@ -46,11 +46,12 @@ object SentenceRound {
         val n = visible.size
         if (n == 0) return emptyList()
         val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
-        fun best(mode: String, used: Set<Int>): Int? {
+        fun best(mode: String, used: Set<Int>, avoidTranslatable: Boolean = false): Int? {
             var pick: Int? = null
             for (pos in 0 until n) {
                 if (pos in used) continue
                 if (mode == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
+                if (avoidTranslatable && hasTranslation(visible[pos].value)) continue
                 val p = pick
                 if (p == null) { pick = pos; continue }
                 val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(mode), statsOf(visible[p].value)?.mode(mode))
@@ -60,9 +61,14 @@ object SentenceRound {
         }
         val used = HashSet<Int>()
         val picked = ArrayList<Pair<Int, String>>()
-        for (k in 0 until minOf(SIZE, n)) {
+        val m = minOf(SIZE, n)
+        for (k in 0 until m) {
             val want = if (k % 2 == 0) SentencePractise.READ else SentencePractise.TRANSLATE
-            var pos = best(want, used)
+            // A read slot leaves the sentences with English to the translate slots still to come when just enough.
+            val translateSlotsLeft = (k + 1 until m).count { it % 2 == 1 }
+            val translatableLeft = (0 until n).count { it !in used && hasTranslation(visible[it].value) }
+            val spare = want == SentencePractise.READ && translateSlotsLeft > 0 && translatableLeft <= translateSlotsLeft
+            var pos = (if (spare) best(want, used, true) else null) ?: best(want, used)
             var mode = want
             if (pos == null && want == SentencePractise.TRANSLATE) {
                 pos = best(SentencePractise.READ, used)
@@ -76,14 +82,8 @@ object SentenceRound {
             val (index, s) = visible[pos]
             return Exercise(exerciseId(mode, s.key), s.key, mode, index)
         }
-        val out = picked.sortedBy { it.first }.map { make(it.first, it.second) }.toMutableList()
-        for ((pos, mode) in picked) {
-            if (out.size >= SIZE) break
-            val other = if (mode == SentencePractise.READ) SentencePractise.TRANSLATE else SentencePractise.READ
-            if (other == SentencePractise.TRANSLATE && !hasTranslation(visible[pos].value)) continue
-            out += make(pos, other)
-        }
-        return out
+        // One exercise per sentence (its English would answer the other): fewer sentences = fewer exercises.
+        return picked.sortedBy { it.first }.map { make(it.first, it.second) }
     }
 
     /** `sentenceRoundOpens`: [sentenceCount] null = still loading. */
@@ -129,5 +129,62 @@ object SentenceRound {
         val left = maxOf(0, p.needed - p.got)
         if (left == 0) return "Good and Easy are unlocked."
         return "Good and Easy stay locked until ${if (left == 1) "1 more sentence is" else "$left more sentences are"} right — the sentences on the answer side still count."
+    }
+
+    // --- the round on the answer side (`roundRowMarks` …) -------------------------------------------
+
+    /** `RoundLogEntry`: an exercise of the round as shown and its last judged take ("right" | "close" | "wrong" | null). */
+    data class LogEntry(val id: String, val result: String? = null)
+
+    /** `RoundRowMark`: outcome "right" | "close" | "wrong" | "untried". */
+    data class RowMark(val key: String, val mode: String, val outcome: String, val label: String)
+
+    /** `roundExerciseParts`: mode to key, null = not an exercise id. */
+    fun exerciseParts(id: String): Pair<String, String>? {
+        val at = id.indexOf(':')
+        if (at <= 0) return null
+        val mode = id.substring(0, at)
+        if (mode != SentencePractise.READ && mode != SentencePractise.TRANSLATE) return null
+        val key = id.substring(at + 1)
+        return if (key.isEmpty()) null else mode to key
+    }
+
+    /** `roundRowLabel` */
+    fun rowLabel(outcome: String): String = if (outcome == "untried") "In the round" else "In the round · ${RESULT.getValue(outcome)}"
+
+    /** `roundRowMarks` */
+    fun rowMarks(log: List<LogEntry>, rightIds: Collection<String>): List<RowMark> {
+        val right = rightIds.toSet()
+        val seen = HashSet<String>()
+        val out = ArrayList<RowMark>()
+        for (e in log) {
+            val (mode, key) = exerciseParts(e.id) ?: continue
+            if (!seen.add(key)) continue
+            val outcome = if (e.id in right || e.result == "right") "right" else e.result ?: "untried"
+            out += RowMark(key, mode, outcome, rowLabel(outcome))
+        }
+        return out
+    }
+
+    /** `orderKeysForRound` */
+    fun orderKeys(keys: List<String>, marks: List<RowMark>): List<String> {
+        val present = keys.toSet()
+        val first = marks.map { it.key }.filter { it in present }
+        val firstSet = first.toSet()
+        return first + keys.filter { it !in firstSet }
+    }
+
+    /** `exercisesFromLog`: null = none left (pick afresh). */
+    fun exercisesFromLog(sentences: List<Sentence>, ids: List<String>, hidden: (String) -> Boolean = { false }): List<Exercise>? {
+        val index = sentences.withIndex().associate { it.value.key to it.index }
+        val seen = HashSet<String>()
+        val out = ArrayList<Exercise>()
+        for (id in ids) {
+            val (mode, key) = exerciseParts(id) ?: continue
+            if (key in seen || key !in index || hidden(key)) continue
+            seen += key
+            out += Exercise(exerciseId(mode, key), key, mode, index.getValue(key))
+        }
+        return if (out.isEmpty()) null else out.sortedBy { it.index }
     }
 }

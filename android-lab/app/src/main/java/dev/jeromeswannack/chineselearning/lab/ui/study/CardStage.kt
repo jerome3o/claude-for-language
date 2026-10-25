@@ -99,6 +99,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
+import dev.jeromeswannack.chineselearning.lab.core.HardMode
 import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
 import androidx.compose.runtime.SideEffect
 import dev.jeromeswannack.chineselearning.lab.core.ListenContext
@@ -140,6 +141,12 @@ data class CardStartState(
     val roundOpen: Boolean = false,
     /** The round's exercises / the rows said right on this showing (the gate's count). */
     val sentencesRight: List<String> = emptyList(),
+    /** Hard mode (core HardMode): the check of the question's own answer was up. */
+    val feedbackOpen: Boolean = false,
+    /** Hard mode: he looked at the answer before getting it right — Good / Easy locked on this showing. */
+    val gaveUp: Boolean = false,
+    /** The round's exercises as shown + each one's last result (the answer side outlines them; the round comes back the same). */
+    val roundLog: List<SentenceRound.LogEntry> = emptyList(),
 )
 
 /** The sheets a card can open over itself. */
@@ -263,9 +270,17 @@ fun CardStage(
     // SentencePractise.gate) and the Sentence round before the answer (core SentenceRound): the regular
     // session's reading and meaning cards, counted afresh on every showing.
     val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
-    val gateEnabled = remember(view.presentation) {
-        pass == null && ui.practice == null && StudyPrefs.get(appCtx).sentenceGate.value
-    }
+    // Hard mode (core HardMode; Off · Red cards only · All cards, StudyPrefs.hardMode / the header chip): the
+    // question's own answer checked first, then the Sentence round, then the answer.
+    val hardModeSetting by StudyPrefs.get(appCtx).hardMode.collectAsState()
+    val hardApplies = pass == null && ui.practice == null && HardMode.applies(hardModeSetting, view.card.cardType, view.card.state.queue)
+    // On the answer side, switching Hard mode ON doesn't lock a card revealed without it (OFF frees it).
+    var hardAtReveal by remember(view.presentation) { mutableStateOf<Boolean?>(if (revealed) hardApplies else null) }
+    val gateEnabled = hardApplies && (hardAtReveal ?: true)
+    var feedbackOpen by remember(view.presentation) { mutableStateOf(hardApplies && start.feedbackOpen && !revealed && !start.roundOpen) }
+    var gaveUp by remember(view.presentation) { mutableStateOf(start.gaveUp) }
+    val roundLog = remember(view.presentation) { androidx.compose.runtime.mutableStateListOf<SentenceRound.LogEntry>().apply { addAll(start.roundLog) } }
+    LaunchedEffect(view.presentation, feedbackOpen, gaveUp, roundLog.toList()) { actions.onCardHard(view.presentation, feedbackOpen, gaveUp, roundLog.toList()) }
     val practise = practisePreview ?: rememberSentencePractise(view.presentation)
     // A resumed showing: what was already right (the round's exercises / the rows) still counts.
     remember(practise) { if (practise.rightKeys.isEmpty() && start.sentencesRight.isNotEmpty()) practise.rightKeys.addAll(start.sentencesRight); 0 }
@@ -299,16 +314,11 @@ fun CardStage(
     // Back on the round: the question again (what was right stays).
     BackHandler(enabled = roundOpen && !revealed) { roundOpen = false }
 
-    fun reveal(afterRound: Boolean = false) {
+    /** The answer side (checked once: the ratings come up). */
+    fun showAnswer() {
         if (revealed) return
-        if (!afterRound && SentenceRound.opens(gateEnabled, view.card.cardType, sentenceCount)) {
-            if (!roundOpen) {
-                roundOpen = true
-                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_round", mapOf("action" to "shown", "got" to 0, "needed" to minOf(SentencePractise.GATE_TARGET, sentenceCount)))
-            }
-            return
-        }
         roundOpen = false
+        feedbackOpen = false
         val v = if (typing && answer.isNotBlank()) checkAnswer(answer) else null
         verdict = v
         revealed = true
@@ -325,6 +335,43 @@ fun CardStage(
             delay(if (v != null && AnswerKey.isAccepted(v)) 380 else 160)
             if (autoplay) actions.onPlayWord(false)
         }
+    }
+
+    /** On from the question in Hard mode: the Sentence round when there are sentences, else the answer. */
+    fun openRoundOrAnswer() {
+        feedbackOpen = false
+        if (SentenceRound.opens(gateEnabled, view.card.cardType, sentenceCount)) {
+            if (!roundOpen) {
+                roundOpen = true
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_round", mapOf("action" to "shown", "got" to 0, "needed" to minOf(SentencePractise.GATE_TARGET, sentenceCount)))
+            }
+            return
+        }
+        hardAtReveal = hardApplies
+        showAnswer()
+    }
+
+    /** Gave up (Show answer / Skip before a right answer): the answer at once, Good / Easy locked. */
+    fun giveUp() {
+        gaveUp = true
+        hardAtReveal = true
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "give_up", "mode" to hardModeSetting, "card_type" to view.card.cardType))
+        showAnswer()
+    }
+
+    /**
+     * The question's Show answer / Check / a spoken or multiple-choice answer ([afterRound]: the round's
+     * Skip / done). Without Hard mode: the answer. In Hard mode: the answer checked on the question
+     * first — or, nothing tried, giving up.
+     */
+    fun reveal(afterRound: Boolean = false) {
+        if (revealed) return
+        if (afterRound) { hardAtReveal = true; showAnswer(); return }
+        if (!hardApplies) { hardAtReveal = false; showAnswer(); return }
+        if (roundOpen) return
+        val tried = if (typing) answer.isNotBlank() else ui.extras.take.hasTake
+        if (!tried) { giveUp(); return }
+        feedbackOpen = true
     }
 
     // A spoken answer arrived — ✓ Submit on the review (or at once with "Skip the review" on): checked
@@ -355,6 +402,81 @@ fun CardStage(
             delay(50)
             runCatching { focus.requestFocus() }
         }
+    }
+
+    // Hard mode: the question's own answer, checked on the question (core HardMode) — the same checks the
+    // answer side uses: the typed / spoken verdict, the grid all right, a read card's "You said".
+    val take = ui.extras.take
+    val questionResult: String? = when {
+        !feedbackOpen -> null
+        typing -> if (answer.isBlank()) null else HardMode.questionResult(
+            mcSlots?.let { if (MultipleChoice.allRight(it)) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.WRONG } ?: checkAnswer(answer),
+        )
+        !take.hasTake -> null
+        else -> when (val t = take.transcription) {
+            is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected)
+            TranscriptionUi.Offline, TranscriptionUi.Failed -> HardMode.questionResult(null, "unknown")
+            else -> HardMode.questionResult(null, "checking")
+        }
+    }
+    val questionSaid: String? = when {
+        !feedbackOpen -> null
+        typing -> answer.trim().ifEmpty { null }
+        else -> (take.transcription as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim()?.ifEmpty { null }
+    }
+    val roundFollows = HardMode.roundFollows(questionResult, sentenceCount)
+    fun hardNext() {
+        if (!feedbackOpen) return
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "next", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType))
+        openRoundOrAnswer()
+    }
+    val latestNext by rememberUpdatedState { hardNext() }
+    var trackedResult by remember(view.presentation) { mutableStateOf<String?>(null) }
+    LaunchedEffect(questionResult) {
+        val r = questionResult
+        if (r == null || r == "checking") { if (!feedbackOpen) trackedResult = null; return@LaunchedEffect }
+        if (trackedResult == r) return@LaunchedEffect
+        trackedResult = r
+        if (r == "right") {
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "right", "mode" to hardModeSetting, "card_type" to view.card.cardType))
+            burst++
+            delay(HardMode.RIGHT_BEAT_MS)
+            latestNext()
+        } else if (r != "unknown") {
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "miss", "mode" to hardModeSetting, "result" to r, "card_type" to view.card.cardType))
+            shake.shake()
+        }
+    }
+    // Reopened with nothing to judge (the take didn't survive): back to the question.
+    LaunchedEffect(feedbackOpen, questionResult) { if (feedbackOpen && questionResult == null) feedbackOpen = false }
+    // Hard mode switched off (header chip / Settings) while the check or the round is up: the answer.
+    LaunchedEffect(hardApplies) {
+        if (!hardApplies && !revealed && (feedbackOpen || roundOpen)) { hardAtReveal = false; showAnswer() }
+    }
+    val recordAgain = rememberRecordPermission { actions.onStartRecording(false) }
+    /** 🔁 Try again: the same question again — record again / say again / type again / pick again. */
+    fun hardTryAgain() {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "retry", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType))
+        trackedResult = null
+        feedbackOpen = false
+        if (!typing) {
+            actions.onClearRecording()
+            if (ui.aiAvailable) recordAgain()
+            return
+        }
+        val wasSpoken = answerIsSpoken(answer)
+        answer = ""
+        spokenText = null
+        if (mcSlots != null) {
+            mcSlots = null
+            return
+        }
+        if (wasSpoken && ui.aiAvailable && !typingMode) {
+            actions.onStartSpoken()
+            return
+        }
+        typingMode = true
+        scope.launch { delay(50); runCatching { focus.requestFocus() } }
     }
 
     /** Peek: turn a revealed card to [toBack] (the same flip + haptic) — nothing checked, played or recorded. */
@@ -404,6 +526,10 @@ fun CardStage(
     }
 
     val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
+    // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
+    val lock = HardMode.lock(gate, gaveUp && gateEnabled, SentencePractise.label(gate), SentencePractise.blockedNote(gate))
+    // The round's sentences on the answer side: on top, opened, outlined with how each went.
+    val roundMarks = if (roundLog.isEmpty()) emptyList() else SentenceRound.rowMarks(roundLog.toList(), practise.rightKeys.toList())
     var gateNote by remember(view.presentation) { mutableStateOf(false) }
     LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
     // A sentence said right: the line goes back to the count.
@@ -448,6 +574,16 @@ fun CardStage(
                         onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
                         onHide = { key, reason -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.hide(labApp, note.id, key, reason, "round") },
                         onUnhide = { key -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.unhide(labApp, note.id, key, "round") },
+                        initialIds = roundLog.map { it.id },
+                        onPicked = { ids ->
+                            val prev = roundLog.toList()
+                            roundLog.clear()
+                            roundLog.addAll(ids.map { id -> prev.firstOrNull { it.id == id } ?: SentenceRound.LogEntry(id) })
+                        },
+                        onResult = { id, result ->
+                            val i = roundLog.indexOfFirst { it.id == id }
+                            if (i >= 0) roundLog[i] = roundLog[i].copy(result = result)
+                        },
                     )
                 }
                 return@BoxWithConstraints
@@ -499,7 +635,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory,
+                            canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory, roundMarks = roundMarks,
                             onLeech = {
                                 sheet = CardSheet.Leech
                                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("card.leech_open", mapOf("lapses" to view.card.state.lapses, "card_type" to view.card.cardType))
@@ -522,6 +658,16 @@ fun CardStage(
         ) {
             if (roundOpen && !revealed) {
                 // The round has its own Skip / See the answer.
+            } else if (!revealed && feedbackOpen && questionResult != null) {
+                HardModeFeedbackPanel(
+                    result = questionResult,
+                    said = questionSaid,
+                    spoken = !typing || answerIsSpoken(answer),
+                    roundFollows = roundFollows,
+                    onTryAgain = { hardTryAgain() },
+                    onShowAnswer = { giveUp() },
+                    onNext = { hardNext() },
+                )
             } else if (!revealed) {
                 if (mcGridUp) {
                     McGrid(
@@ -636,13 +782,13 @@ fun CardStage(
                         actions.onPassAnswer(right, answered, suggested)
                     }
                 } else {
-                    if (gate.needed > 0) SentenceGateLine(gate, gateNote, onTap = showSentences)
-                    RatingBar(view.previews, enabled = !rated, locked = if (gate.locked) setOf(2, 3) else emptySet()) { rating ->
-                        // Good / Easy wait for the sentences (every way of rating comes through here).
-                        if (dev.jeromeswannack.chineselearning.lab.core.SentencePractise.ratingLocked(rating, gate)) {
+                    if (lock.label != null) SentenceGateLine(lock, gateNote, onTap = if (lock.gaveUp) ({}) else showSentences)
+                    RatingBar(view.previews, enabled = !rated, locked = if (lock.locked) setOf(2, 3) else emptySet()) { rating ->
+                        // Good / Easy wait for the sentences / after giving up (every way of rating comes through here).
+                        if (lock.locked && rating >= 2) {
                             gateNote = true
                             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "blocked", "unlocked" to false, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
-                            showSentences()
+                            if (!lock.gaveUp) showSentences()
                             return@RatingBar
                         }
                         if (gate.needed > 0) {
@@ -916,6 +1062,8 @@ private fun CardBack(
     /** The sentence rows' 🎤 (one microphone for the list). */
     practise: SentencePractiseState? = null,
     listHistory: SentenceListHistory? = null,
+    /** The sentences of this showing's Sentence round: on top, opened, outlined (core SentenceRound.rowMarks). */
+    roundMarks: List<SentenceRound.RowMark> = emptyList(),
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -1052,7 +1200,7 @@ private fun CardBack(
                     practise = practise,
                 )
             } else {
-                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise, history = listHistory)
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList())
             }
         }
     }

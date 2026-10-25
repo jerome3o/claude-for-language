@@ -16,7 +16,7 @@
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, type SentencePractiseMode } from './sentencePractise';
 import { compareLeastKnown, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
 
-/** How many exercises a round offers (2 read + 2 translate when the card has four sentences). */
+/** How many exercises a round offers at most (2 read + 2 translate, one sentence each). */
 export const SENTENCE_ROUND_SIZE = 4;
 
 /** One of the card's sentences, in the list's order (the card's own first, then the set easiest → hardest). */
@@ -85,9 +85,10 @@ export function spreadOrder(n: number): number[] {
  * translate, read, translate — each takes the sentence he knows LEAST in that mode (never practised
  * first, then fewest rights, most misses, longest ago: `compareLeastKnown`), ties in spread order;
  * every slot a different sentence, a translate only where the sentence has English (else that slot
- * reads). Shown easiest → harder. Fewer than four sentences: the other mode of each sentence fills
- * the round up to four (reuse is unavoidable then). Deterministic: the same list and history give
- * the same round in both apps.
+ * reads). Shown easiest → harder. A sentence is in AT MOST ONE exercise (its English would answer
+ * the other): fewer than four sentences = fewer exercises (3 → 3, 2 → read + translate when it can,
+ * 1 → 1), and the word asks for more (`wantsMoreSentences`, reason few). Deterministic: the same list
+ * and history give the same round in both apps.
  */
 export function pickRoundExercises(
   sentences: readonly RoundSentence[],
@@ -99,11 +100,12 @@ export function pickRoundExercises(
   if (n === 0) return [];
   const spread = spreadOrder(n);
   const rank = new Map(spread.map((pos, r) => [pos, r]));
-  const best = (mode: SentencePractiseMode, used: Set<number>): number | null => {
+  const best = (mode: SentencePractiseMode, used: Set<number>, avoidTranslatable = false): number | null => {
     let pick: number | null = null;
     for (let pos = 0; pos < n; pos++) {
       if (used.has(pos)) continue;
       if (mode === 'translate' && !hasTranslation(visible[pos].s)) continue;
+      if (avoidTranslatable && hasTranslation(visible[pos].s)) continue;
       if (pick == null) { pick = pos; continue; }
       const c = compareLeastKnown(statsOf(visible[pos].s)?.[mode], statsOf(visible[pick].s)?.[mode]);
       if (c < 0 || (c === 0 && rank.get(pos)! < rank.get(pick)!)) pick = pos;
@@ -112,9 +114,17 @@ export function pickRoundExercises(
   };
   const used = new Set<number>();
   const picked: { pos: number; mode: SentencePractiseMode }[] = [];
-  for (let k = 0; k < Math.min(SENTENCE_ROUND_SIZE, n); k++) {
+  const m = Math.min(SENTENCE_ROUND_SIZE, n);
+  for (let k = 0; k < m; k++) {
     const want: SentencePractiseMode = k % 2 === 0 ? 'read' : 'translate';
-    let pos = best(want, used);
+    // A read slot leaves the sentences with English to the translate slots still to come when they
+    // are just enough for them (2 sentences, one with English → read the other, translate that one).
+    let translateSlotsLeft = 0;
+    for (let j = k + 1; j < m; j++) if (j % 2 === 1) translateSlotsLeft++;
+    let translatableLeft = 0;
+    for (let pos = 0; pos < n; pos++) if (!used.has(pos) && hasTranslation(visible[pos].s)) translatableLeft++;
+    const spare = want === 'read' && translateSlotsLeft > 0 && translatableLeft <= translateSlotsLeft;
+    let pos = (spare ? best(want, used, true) : null) ?? best(want, used);
     let mode = want;
     if (pos == null && want === 'translate') {
       pos = best('read', used);
@@ -128,15 +138,9 @@ export function pickRoundExercises(
     const { s, index } = visible[pos];
     return { id: roundExerciseId(mode, s.key), key: s.key, mode, index };
   };
-  const out = picked.slice().sort((a, b) => a.pos - b.pos).map((p) => make(p.pos, p.mode));
-  // Fewer than four: the other mode of each sentence, in the order they were picked.
-  for (const p of picked) {
-    if (out.length >= SENTENCE_ROUND_SIZE) break;
-    const other: SentencePractiseMode = p.mode === 'read' ? 'translate' : 'read';
-    if (other === 'translate' && !hasTranslation(visible[p.pos].s)) continue;
-    out.push(make(p.pos, other));
-  }
-  return out;
+  // One exercise per sentence: a sentence's English is never the answer to another exercise (nor the
+  // other way round), so a sentence never comes twice. Fewer sentences = fewer exercises.
+  return picked.slice().sort((a, b) => a.pos - b.pos).map((p) => make(p.pos, p.mode));
 }
 
 /** The round happens on this showing: the setting on, a gated card type, and not known to have no sentences. */
@@ -218,4 +222,83 @@ export function sentenceRoundSkipNote(p: RoundProgress): string {
   const left = Math.max(0, p.needed - p.got);
   if (left === 0) return 'Good and Easy are unlocked.';
   return `Good and Easy stay locked until ${left === 1 ? '1 more sentence is' : `${left} more sentences are`} right — the sentences on the answer side still count.`;
+}
+
+// --- the round on the answer side --------------------------------------------------------------
+
+/** How an exercise of this showing's round went (right sticks; untried = never said). */
+export type RoundOutcome = 'right' | 'close' | 'wrong' | 'untried';
+
+/** One exercise of the round as shown, and its last judged take (resume point `round_log`). */
+export interface RoundLogEntry {
+  id: string;
+  result?: 'right' | 'close' | 'wrong' | null;
+}
+
+/** `read:<key>` / `translate:<key>` → its parts (null = not an exercise id). */
+export function roundExerciseParts(id: string): { mode: SentencePractiseMode; key: string } | null {
+  const at = id.indexOf(':');
+  if (at <= 0) return null;
+  const mode = id.slice(0, at);
+  if (mode !== 'read' && mode !== 'translate') return null;
+  const key = id.slice(at + 1);
+  return key ? { mode, key } : null;
+}
+
+/** A sentence of the answer side's list that was in the round: its outline and label. */
+export interface RoundRowMark {
+  key: string;
+  mode: SentencePractiseMode;
+  outcome: RoundOutcome;
+  label: string;
+}
+
+/** "In the round · ✓ Right" / "· ≈ Nearly" / "· ✗ Not quite" / "In the round" (icon + words, never colour alone). */
+export function roundRowLabel(outcome: RoundOutcome): string {
+  return outcome === 'untried' ? 'In the round' : `In the round · ${SENTENCE_ROUND_RESULT[outcome]}`;
+}
+
+/**
+ * The round's sentences for the answer side, in the round's order (each sentence once): right when it
+ * was said right on this showing (`rightIds` — the gate's count — or its last take), else its last
+ * result, else untried (he skipped it).
+ */
+export function roundRowMarks(log: readonly RoundLogEntry[], rightIds: readonly string[]): RoundRowMark[] {
+  const right = new Set(rightIds);
+  const seen = new Set<string>();
+  const out: RoundRowMark[] = [];
+  for (const entry of log) {
+    const parts = roundExerciseParts(entry.id);
+    if (!parts || seen.has(parts.key)) continue;
+    seen.add(parts.key);
+    const outcome: RoundOutcome = right.has(entry.id) || entry.result === 'right' ? 'right' : entry.result ?? 'untried';
+    out.push({ key: parts.key, mode: parts.mode, outcome, label: roundRowLabel(outcome) });
+  }
+  return out;
+}
+
+/** The answer side's order: the round's sentences first (in the round's order), then the rest as they were. */
+export function orderKeysForRound(keys: readonly string[], marks: readonly RoundRowMark[]): string[] {
+  const present = new Set(keys);
+  const first = marks.map((m) => m.key).filter((k) => present.has(k));
+  const firstSet = new Set(first);
+  return [...first, ...keys.filter((k) => !firstSet.has(k))];
+}
+
+/**
+ * The exercises of a round shown before (resume): the logged ids whose sentences are still in
+ * rotation, in sentence order — null when none (pick afresh).
+ */
+export function exercisesFromLog(sentences: readonly RoundSentence[], ids: readonly string[], hidden?: (key: string) => boolean): RoundExercise[] | null {
+  const index = new Map(sentences.map((s, i) => [s.key, i]));
+  const out: RoundExercise[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const parts = roundExerciseParts(id);
+    if (!parts || seen.has(parts.key) || !index.has(parts.key) || hidden?.(parts.key)) continue;
+    seen.add(parts.key);
+    out.push({ id: roundExerciseId(parts.mode, parts.key), key: parts.key, mode: parts.mode, index: index.get(parts.key)! });
+  }
+  if (!out.length) return null;
+  return out.sort((a, b) => a.index - b.index);
 }

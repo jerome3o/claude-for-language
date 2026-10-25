@@ -208,13 +208,14 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null, history: SentenceListHistory? = null) =
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null, history: SentenceListHistory? = null, roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList()) =
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
         audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
         practise = practise,
         history = history,
+        roundMarks = roundMarks,
     )
 
 /** Practice per sentence on the answer side's list (core SentenceHistory; data/sentences/SentencePracticeStore). */
@@ -254,6 +255,11 @@ fun SentenceList(
     practise: SentencePractiseState? = null,
     /** Practice per sentence: hidden rows left out, "Stop showing this sentence", "Show hidden (N)"; null = none. */
     history: SentenceListHistory? = null,
+    /**
+     * The sentences of this showing's Sentence round (core SentenceRound.rowMarks): on top in the round's
+     * order, opened (he has seen them), outlined with how each went + "In the round · ✓ Right".
+     */
+    roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(),
 ) = Column(
     modifier.fillMaxWidth().then(
         @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -266,7 +272,11 @@ fun SentenceList(
     var hiding by remember(presentation) { mutableStateOf<SentenceRow?>(null) }
     var undoKey by remember(presentation) { mutableStateOf<String?>(null) }
     val hiddenRows = allRows.filter { isHidden(it.key) }
-    val rows = allRows.filter { !isHidden(it.key) }
+    val shownRows = allRows.filter { !isHidden(it.key) }
+    // The round's sentences first, in its order; the rest as they were.
+    val rows = if (roundMarks.isEmpty()) shownRows
+    else dev.jeromeswannack.chineselearning.lab.core.SentenceRound.orderKeys(shownRows.map { it.key }, roundMarks).map { k -> shownRows.first { it.key == k } }
+    val markOf = roundMarks.associateBy { it.key }
     val state = rememberSentenceRowsState(presentation, startExplained, startShowAll)
     var menu by remember(presentation) { mutableStateOf(false) }
     var custom by remember(presentation) { mutableStateOf(false) }
@@ -371,6 +381,7 @@ fun SentenceList(
                 audioNote = if (coming[row.key] == true) SentenceAudioWait.LABEL else null,
                 practise = practise,
                 onHideRequest = if (history != null) ({ hiding = row }) else null,
+                roundMark = markOf[row.key],
             )
             if (showHidden) for (row in hiddenRows) Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 6.dp),
@@ -427,6 +438,17 @@ fun rememberSentenceRowsState(key: Any?, startExplained: Map<String, SentenceExp
 const val SENTENCE_AUDIO_BUSY_TAG = "sentence-audio-busy"
 const val SENTENCE_AUDIO_COMING_TAG = "sentence-audio-coming"
 const val SENTENCE_ROW_TAG = "sentence-row"
+/** "In the round · ✓ Right" on a row of this showing's Sentence round. */
+const val SENTENCE_ROUND_LABEL_TAG = "sentence-set-round-label"
+
+/** A round row's outline: ✓ green · ≈ gold · ✗ red · untried the card border (the label carries the icon + words). */
+@Composable
+fun roundMarkColor(outcome: String): androidx.compose.ui.graphics.Color = when (outcome) {
+    "right" -> Palette.Good
+    "close" -> Palette.Gold
+    "wrong" -> Palette.Again
+    else -> Lab.colors.cardBorder
+}
 const val SENTENCE_EXPLAIN_TAG = "sentence-explain"
 const val SENTENCE_ADD_TAG = "sentence-add"
 const val SENTENCE_TRANSLATION_PENDING_TAG = "sentence-translation-pending"
@@ -462,6 +484,8 @@ fun SentenceRowView(
     practise: SentencePractiseState? = null,
     /** "Stop showing this sentence" (long-press, and the open row's tools); null = not offered. */
     onHideRequest: (() -> Unit)? = null,
+    /** The row was in this showing's Sentence round: opened, outlined in its result's style, labelled. */
+    roundMark: dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark? = null,
 ) {
     val scope = rememberCoroutineScope()
     LaunchedEffect(row.key) { if (state.explanations[row.key] == null) s.cachedExplanation(row)?.let { state.explanations[row.key] = it } }
@@ -479,7 +503,7 @@ fun SentenceRowView(
         if (!row.pinyin.isNullOrBlank()) add("pinyin")
         if (!en && (translation != null || row.fetchTranslation)) add("translation")
     }
-    val first = if (en) 0 else startStep.coerceIn(0, chain.size)
+    val first = if (en) 0 else if (roundMark != null) chain.size else startStep.coerceIn(0, chain.size)
     val step = if (state.showAll) chain.size else (state.steps[row.key] ?: first)
     val open = step >= chain.size
     // Fetched as soon as the row starts opening, so it is there by the time he taps through to it.
@@ -506,15 +530,25 @@ fun SentenceRowView(
     val toolsStart = if (englishToggle) 50.dp else 10.dp
     Box(Modifier.fillMaxWidth()) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).animateContentSize(),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint)
+                .then(if (roundMark != null) Modifier.border(2.dp, roundMarkColor(roundMark.outcome), RoundedCornerShape(14.dp)).testTag("sentence-round-row-${roundMark.outcome}") else Modifier)
+                .animateContentSize(),
         ) {
+            if (roundMark != null) {
+                Text(
+                    roundMark.label,
+                    Modifier.padding(start = 12.dp, top = 6.dp).testTag(SENTENCE_ROUND_LABEL_TAG),
+                    color = if (roundMark.outcome == "untried") Lab.colors.muted else roundMarkColor(roundMark.outcome),
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
             Row(
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(onLongClick = onHideRequest) {
                         val cur = state.steps[row.key] ?: first
                         if (cur >= chain.size) practise?.clear(row.key)
-                        state.steps[row.key] = if (cur >= chain.size) first else cur + 1
+                        state.steps[row.key] = if (cur >= chain.size) (if (roundMark != null) 0 else first) else cur + 1
                     }
                     .testTag(SENTENCE_ROW_TAG)
                     .padding(6.dp),

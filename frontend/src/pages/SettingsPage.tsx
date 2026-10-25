@@ -16,7 +16,8 @@ import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../servi
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
-import { readSentenceGateOn, writeSentenceGateOn } from '../services/sentenceGatePrefs';
+import { useHardMode, writeHardMode } from '../services/hardModePrefs';
+import { HARD_MODES, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION, HARD_MODE_OPTION_HINT, HARD_MODE_TITLE } from '@shared/study/hardMode';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
 import { ReviewLoadCapField, reviewLoadCapValid } from '../components/ReviewLoadCapField';
@@ -662,35 +663,37 @@ function UsageDataSection() {
 }
 
 /**
- * Settings → Study → "Sentence round before the answer (2 sentences)" (off by default, per device;
- * services/sentenceGatePrefs.ts): the reading and meaning cards go through the Sentence round
- * (shared/study/sentenceRound.ts) before the answer, and Good and Easy wait until two example
- * sentences were said right with 🎤.
+ * Settings → Study → "Hard mode" (Off by default, per device; services/hardModePrefs.ts, also the study
+ * header's 🎯 chip): the question's own answer checked first, then the Sentence round, then the answer
+ * (shared/study/hardMode.ts). Off · Red cards only · All cards.
  */
-function SentenceGateSetting() {
-  const [on, setOn] = useState(readSentenceGateOn);
+function HardModeSetting() {
+  const mode = useHardMode();
   return (
-    <>
-      <label className="settings-toggle-row" style={{ marginTop: '1rem' }}>
-        <input
-          type="checkbox"
-          checked={on}
-          onChange={(e) => {
-            const next = e.target.checked;
-            setOn(next);
-            writeSentenceGateOn(next);
-            track('settings.change', { setting: 'sentence_gate', value: next ? 'on' : 'off' });
-          }}
-          data-testid="sentence-gate-toggle"
-        />
-        <span>Sentence round before the answer (2 sentences)</span>
-      </label>
-      <p className="settings-section-desc" style={{ marginTop: '0.4rem' }}>
-        {on
-          ? 'On the reading and meaning cards, a round of four sentences (read two aloud, say two in Chinese) comes before the answer — get any two right and Good / Easy are unlocked. Skip it and they unlock once two sentences on the answer side are right. Again and Hard are always there.'
-          : 'Off — rate any card straight away. The 🎤 on the example sentences is there either way.'}
-      </p>
-    </>
+    <fieldset className="settings-hard-mode" style={{ marginTop: '1rem', border: 0, padding: 0 }} data-testid="hard-mode-setting">
+      <legend style={{ fontWeight: 600 }}>🎯 {HARD_MODE_TITLE}</legend>
+      <p className="settings-section-desc" style={{ marginTop: '0.25rem' }}>{HARD_MODE_DESCRIPTION}</p>
+      {HARD_MODES.map((m) => (
+        <label key={m} className="settings-toggle-row" style={{ alignItems: 'flex-start' }}>
+          <input
+            type="radio"
+            name="hard-mode"
+            value={m}
+            checked={mode === m}
+            onChange={() => {
+              writeHardMode(m);
+              track('settings.change', { setting: 'hard_mode', value: m });
+              track('study.hard_mode', { action: 'set', mode: m, where: 'settings' });
+            }}
+            data-testid={`hard-mode-setting-${m}`}
+          />
+          <span>
+            {HARD_MODE_OPTION[m]}
+            <span className="settings-section-desc" style={{ display: 'block', margin: 0 }}>{HARD_MODE_OPTION_HINT[m]}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -723,7 +726,7 @@ function SpokenAnswerSection() {
           ? 'On the typing cards, 🎤 checks what you said as soon as you stop.'
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
-      <SentenceGateSetting />
+      <HardModeSetting />
       <WordTagsSetting />
       <CardPicturesSetting />
       <NewCharShimmerSetting />

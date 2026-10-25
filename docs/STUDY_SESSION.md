@@ -989,22 +989,68 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
   empty, via: local | claude | offline }`. Tests: `SentenceSet.practise.test.tsx`, Lab
   `SentencePractiseUiTest`.
 
+### Hard mode (question → check → Sentence round → answer)
+
+Jerome: "I said the word, recorded it, clicked submit, and it took me straight to the round page. It's jarring:
+I don't know if my answer was right until after the next questions." **Hard mode** is the Worldle-like ladder on
+the **reading (hanzi → meaning) and meaning (meaning → hanzi) cards** of the regular study session — never the
+listening card, the homework pass, the tutor-notes practice or the Try-it previews:
+
+1. **The question's own answer is checked AT ONCE, on the question** — with the checks the card already has: a
+   typed answer `checkTypedAnswer`, a spoken one `checkSpokenAnswer` (homophones by sound), a multiple-choice grid
+   all rows right, a read card's take its "You said" against the card (said as written, or inside a sentence —
+   the "✅ Match"). While the take is transcribed: "Checking what you said…" (with 👁 Show answer). Offline / a
+   failed transcription: "Couldn't check your answer" — 🔁 Try again or go on as before.
+2. **✗ Not quite / ≈ Nearly** (his own words under it — "You said: 音乐" / "Your answer: …", never the card's
+   answer): **🔁 Try again** asks the same question again (records again at once on a read card; the 🎤 again for a
+   spoken answer; an empty box for a typed one; the grid again) — as often as he likes — or **👁 Show answer**.
+3. **✓ Right** → a short beat (1.5 s, `HARD_MODE_RIGHT_BEAT_MS`, or **Next: harder questions →** at once) → the
+   **Sentence round** below (or the answer side when the card has no sentences).
+4. **Giving up is a miss**: 👁 Show answer, Skip recording, or Check / Show with nothing typed before a right answer
+   → the answer side at once, **no round**, and **Good / Easy stay locked on this showing** (the sentences can't
+   unlock them) — the line above the ratings says "👁 You looked at the answer — Again or Hard this time", a tap on a
+   locked Good / Easy says why. Again and Hard are always there.
+
+**Three settings, per device** — web `services/hardModePrefs.ts` (localStorage, under the old switch's key: '1'
+reads as All cards), Lab `StudyPrefs.hardMode`: **Off** (the default: straight to the answer, no round, no lock) ·
+**Red cards only** · **All cards**. Switched from the session header's **🎯 chip** (next to the ✈ Auto pill: "🎯 Off /
+Red / All", a tap opens the three choices with a hint each — web `components/study/HardModeChip.tsx`, Lab
+`HardModeChip` in `ui/study/HardModeUi.kt`) and **Settings → Study → 🎯 Hard mode**. The card on screen follows at
+once: switched off while the check or the round is up → the answer; on the answer side switching it ON never locks
+a card revealed without it, OFF frees Good / Easy.
+
+**Red cards only**: Hard mode only for the cards he's struggling with right now — learning / relearning (the red
+count in the session header, `isRedCard`). Every card rated Again today is one of these (Again on a new card →
+learning, on a review card → relearning). Cards he's doing fine with (new, review) go straight to the answer.
+
+- Today is the session: the resume point carries `feedback_open`, `gave_up` and `round_log` (with `round_open` /
+  `sentences_right`), so leaving and coming back shows the check (recomputed from the answer / the take — a take
+  that didn't survive a reload goes back to the question), the round (the same exercises) or the answer as it was.
+  Undo / a new showing starts afresh.
+- Rules: `shared/study/hardMode.ts` (`parseHardMode`, `nextHardMode`, `isRedCard`, `hardModeApplies`,
+  `hardModeQuestionResult`, `hardModeRoundFollows`, `hardModeLock` + the words), Lab `core/…/HardMode.kt`,
+  parity-tested (`parity/fixtures/hard-mode.ts` → `HardModeParityTest`). Web `StudyCard` in `pages/StudyPage.tsx`
+  (`revealOrRound(attempted)`, `questionResult`, `hardTryAgain`, `giveUp`), `components/study/HardModeFeedback.tsx`;
+  Lab `ui/study/CardStage.kt` (`reveal`, `questionResult`, `hardTryAgain`, `giveUp`), `HardModeFeedbackPanel`.
+  Analytics `study.hard_mode { action: set | right | miss | retry | give_up | next, mode, where: header | settings,
+  result, card_type }`. Tests: `shared/study/hardMode.test.ts`, `components/study/HardMode.test.tsx`, E2E
+  `study-sentence-gate.spec.ts`, Lab `HardModeUiTest`.
+
 ### Sentence round (between the question and the answer)
 
-With the setting below on, a **reading (hanzi → meaning) or meaning (meaning → hanzi) card** in the
-regular study session doesn't go straight from its question to the answer: Show answer / Check / a
-spoken or multiple-choice answer opens the **Sentence round** first — like Worldle, a ladder of
-harder questions about the same item. Never the listening card, the homework pass, the tutor-notes
-practice or the Try-it previews.
+In Hard mode (above), once the question was answered right, a **reading or meaning card** goes to the **Sentence
+round** before the answer — like Worldle, a ladder of harder questions about the same item.
 
-- **Four exercises** from the card's sentences (the card's own sentence first, then the set, easiest →
+- **Up to four exercises** from the card's sentences (the card's own sentence first, then the set, easiest →
   hardest): up to four different sentences spread over the list, modes alternating **📖 Read it aloud**
   (the Chinese up) and **🔁 Say it in Chinese** (the English up) — so two of each. A translate slot whose
   sentence has no English swaps with the nearest read one that has (the card's own sentence often has
-  none, so it is read). Fewer than four sentences: the other mode of each sentence (easiest first) fills
-  the round up to four; with one sentence there are two exercises. Deterministic — the same list gives the
-  same round in both apps.
-- **Any two right** (as many as there are sentences when fewer than two) — in any order. The counter
+  none, so it is read). **A sentence is in AT MOST ONE exercise** — never read in one and translated in another
+  (Jerome: the answer to one exercise was the question to another): fewer than four sentences = fewer
+  exercises (3 → 3, 2 → one read + one translate when it can — a read slot leaves the only sentence with English
+  to the translate slot —, 1 → 1, 0 → no round), and the word asks for more sentences (top-up `reason: few`,
+  below). Deterministic — the same list gives the same round in both apps.
+- **Any two right** (min(2, exercises)) — in any order. The counter
   "0 / 2 → 1 / 2 → 2 / 2" with dots, a "🎉 Nice — 1 / 2" cheer, and confetti + "🎉 2 / 2 — Good and Easy
   unlocked" when done; the answer side then opens by itself (≈1.4 s, or **See the answer →**) with Good and
   Easy already unlocked: the round's exercise ids (`read:<key>` / `translate:<key>`) are the gate's count.
@@ -1019,8 +1065,15 @@ practice or the Try-it previews.
 - **Skip to the answer →** is always there, with one line under it: "Good and Easy stay locked until 2 more
   sentences are right — the sentences on the answer side still count." — the answer side's gate (below)
   keeps the round's count.
-- Today is the session: the resume point carries `round_open` and `sentences_right`, so leaving and coming
-  back shows the round (or the answer) with what was already right; Undo / a new showing starts afresh.
+- **On the answer side, the round's sentences lead the list** (in the round's order), **opened** (hanzi, pinyin and
+  English up — he has seen them) and **outlined in their result's style** with a label: "In the round · ✓ Right"
+  (green), "· ≈ Nearly" (yellow), "· ✗ Not quite" (red, dashed on the web), and a neutral "In the round" for ones he
+  skipped — icon + words, never colour alone — so he can find them and tap "What's going on here?" / Ask Claude about
+  them. Rule: `roundRowMarks` / `orderKeysForRound` (`shared/study/sentenceRound.ts`, Lab `SentenceRound.rowMarks` /
+  `orderKeys`, parity-tested); web `SentenceSet` `roundRows`, Lab `SentenceList` `roundMarks`.
+- Today is the session: the resume point carries `round_open`, `sentences_right` and `round_log` (the exercises as
+  shown + each one's last result: `exercisesFromLog` brings the same ones back), so leaving and coming back shows the
+  round (or the answer, with its outlined rows) with what was already right; Undo / a new showing starts afresh.
   Lab: back on the round returns to the question (its count kept).
 - Practice only: no review event, no recording kept. Offline the 🎤 is off (transcription needs a
   connection) and the round says so — Skip is the way on.
@@ -1069,11 +1122,12 @@ The sentence key is the set row's id, or `clue` for the note's own sentence.
   Analytics `study.sentence_hidden { reason, where, unhidden }`, `study.sentence_topup_requested { why,
   queued }`, `server.sentence_practice_events { count }`.
 
-### "Sentence round before the answer (2 sentences)" — the gate (Settings → Study, off by default)
+### The gate — Good / Easy wait for two sentences (part of Hard mode)
 
-Per device (web `services/sentenceGatePrefs.ts` localStorage, Lab `StudyPrefs.sentenceGate`;
-`settings.change { setting: sentence_gate }`). (Was "Get two sentences right before Good / Easy"; the switch also turns the
-Sentence round above on — the round's right exercises count here, so two right there arrive unlocked.) On, the regular study session's **reading
+Hard mode above (Settings → Study → 🎯 Hard mode / the header chip; was the switch "Sentence round before the answer
+(2 sentences)", before that "Get two sentences right before Good / Easy"; `settings.change { setting: hard_mode }`)
+also keeps the gate: the round's right exercises count here, so two right there arrive unlocked; after giving up
+Good / Easy stay locked whatever (`hardModeLock`). With Hard mode on for the card, the regular study session's **reading
 (hanzi → meaning) and meaning (meaning → hanzi) cards** keep **Good** and **Easy** locked (🔒, faded)
 until two example sentences were said right with the rows' 🎤 on this showing of the card — read or
 translate mode both count; "right" = the device's exact / homophone match or Claude's correct /

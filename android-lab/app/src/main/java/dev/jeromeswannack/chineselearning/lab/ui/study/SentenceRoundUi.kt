@@ -112,10 +112,25 @@ fun SentenceRoundPage(
     /** "Stop showing this sentence" / Undo (row keys). */
     onHide: (rowKey: String, reason: String) -> Unit = { _, _ -> },
     onUnhide: (rowKey: String) -> Unit = {},
+    /** The exercises of this showing's round shown before (resume / back to the question): the same ones come back. */
+    initialIds: List<String> = emptyList(),
+    /** The exercises as picked (the answer side marks their sentences, in this order). */
+    onPicked: (ids: List<String>) -> Unit = {},
+    /** A take on an exercise was judged: "right" | "close" | "wrong" (the answer side's outline). */
+    onResult: (id: String, result: String) -> Unit = { _, _ -> },
 ) {
     // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
     var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
-    LaunchedEffect(rows, stats != null) { if (picked == null && stats != null) picked = sentenceRoundExercises(rows, stats) }
+    LaunchedEffect(rows, stats != null) {
+        if (picked == null && stats != null) {
+            val fromLog = if (initialIds.isEmpty()) null else SentenceRound.exercisesFromLog(
+                rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, initialIds,
+            ) { stats[SentenceHistory.key(it)]?.hidden != null }
+            val next = fromLog ?: sentenceRoundExercises(rows, stats)
+            picked = next
+            onPicked(next.map { it.id })
+        }
+    }
     fun hidden(key: String) = stats?.get(SentenceHistory.key(key))?.hidden != null
     val exercises = picked.orEmpty().filter { !hidden(it.key) }
     val visibleKeys = rows.filter { !hidden(it.key) }.map { it.key }
@@ -145,6 +160,7 @@ fun SentenceRoundPage(
         LaunchedEffect(t, t?.claude) {
             if (t == null || t.claude == SentenceClaude.Checking || !reported.add(t)) return@LaunchedEffect
             val result = SentencePractise.result(t.take.practised, (t.claude as? SentenceClaude.Done)?.check?.verdict)
+            if (result == "right" || result == "close" || result == "wrong") onResult(ex.id, result)
             Analytics.track("study.sentence_round", mapOf("action" to if (result == "right") "right" else "miss", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
         }
     }

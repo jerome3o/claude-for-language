@@ -28,9 +28,9 @@ fun SpokenAnswerSection(
     /** Settings → Study → "Shimmer new characters" (the web's `NewCharShimmerSetting`); null = not shown. */
     newCharShimmerOn: Boolean? = null,
     onNewCharShimmerChange: (Boolean) -> Unit = {},
-    /** Settings → Study → "Get two sentences right before Good / Easy" (the web's `SentenceGateSetting`); null = not shown. */
-    sentenceGateOn: Boolean? = null,
-    onSentenceGateChange: (Boolean) -> Unit = {},
+    /** Settings → Study → "Hard mode" (the web's `HardModeSetting`): "off" | "red" | "all"; null = not shown. */
+    hardMode: String? = null,
+    onHardModeChange: (String) -> Unit = {},
     onChange: (Boolean) -> Unit,
 ) {
     SettingsSection(
@@ -39,15 +39,7 @@ fun SpokenAnswerSection(
         else "On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.",
     ) {
         ToggleRow("🎤", SKIP_REVIEW_LABEL, on, onChange = onChange)
-        if (sentenceGateOn != null) {
-            ToggleRow(
-                "🔒",
-                SENTENCE_GATE_LABEL,
-                sentenceGateOn,
-                desc = if (sentenceGateOn) SENTENCE_GATE_ON_DESC else SENTENCE_GATE_OFF_DESC,
-                onChange = onSentenceGateChange,
-            )
-        }
+        if (hardMode != null) HardModeChoices(hardMode, onHardModeChange)
         if (wordTagsOn != null) {
             ToggleRow(
                 "🏷",
@@ -79,9 +71,6 @@ fun SpokenAnswerSection(
 }
 
 const val SKIP_REVIEW_LABEL = "Skip the review — submit spoken answers as soon as I stop"
-const val SENTENCE_GATE_LABEL = "Sentence round before the answer (2 sentences)"
-const val SENTENCE_GATE_ON_DESC = "On the reading and meaning cards, a round of four sentences (read two aloud, say two in Chinese) comes before the answer — get any two right and Good / Easy are unlocked. Skip it and they unlock once two sentences on the answer side are right. Again and Hard are always there."
-const val SENTENCE_GATE_OFF_DESC = "Off — rate any card straight away. The 🎤 on the example sentences is there either way."
 const val WORD_TAGS_LABEL = "Word tags on the answer"
 const val WORD_TAGS_ON_DESC = "Small tags under the meaning: noun / verb, polite / colloquial, measure word, HSK level. Tap one to see what it means."
 const val WORD_TAGS_OFF_DESC = "Off — the answer shows just the word, pinyin and meaning."
@@ -100,13 +89,14 @@ fun SpokenAnswerSettings(app: LabApp) {
     val tagsOn by prefs.wordTagsOn.collectAsState()
     val picturesOn by prefs.picturesOn.collectAsState()
     val shimmerOn by prefs.newCharShimmerOn.collectAsState()
-    val gateOn by prefs.sentenceGate.collectAsState()
+    val hardMode by prefs.hardMode.collectAsState()
     SpokenAnswerSection(
         on,
-        sentenceGateOn = gateOn,
-        onSentenceGateChange = { next ->
-            prefs.setSentenceGate(next)
-            app.analytics.track("settings.change", mapOf("setting" to "sentence_gate", "value" to if (next) "on" else "off"))
+        hardMode = hardMode,
+        onHardModeChange = { next ->
+            prefs.setHardMode(next)
+            app.analytics.track("settings.change", mapOf("setting" to "hard_mode", "value" to next))
+            app.analytics.track("study.hard_mode", mapOf("action" to "set", "mode" to next, "where" to "settings"))
         },
         wordTagsOn = tagsOn,
         onWordTagsChange = { next ->

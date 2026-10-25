@@ -140,9 +140,12 @@ import { undoForget, type ForgetOutcome } from '../services/cardForgets';
 import { UndoToast } from '../components/upNext/UpNextBoard';
 import { Toast, useToast } from '../components/Toast';
 import { noteCharactersSeen, useNewCharacters } from '../services/newCharacters';
-import { readSentenceGateOn } from '../services/sentenceGatePrefs';
-import { ratingLockedByGate, sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
-import { sentenceRoundOpens } from '@shared/study/sentenceRound';
+import { useHardMode } from '../services/hardModePrefs';
+import { HardModeChip } from '../components/study/HardModeChip';
+import { HardModeFeedback } from '../components/study/HardModeFeedback';
+import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardModeTake } from '@shared/study/hardMode';
+import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
+import { roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 import { useSentenceStats } from '../services/sentencePractice';
 import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
@@ -508,13 +511,31 @@ export function StudyCard({
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
 
-  // "Get two sentences right before Good / Easy" (Settings → Study; shared/study/sentencePractise.ts):
-  // the regular session's reading and meaning cards only, counted afresh on every showing.
-  const [gateOn] = useState(() => inStudySession && !pass && readSentenceGateOn());
+  // Hard mode (Settings → Study / the header chip; shared/study/hardMode.ts): Off · Red cards only · All
+  // cards — the regular session's reading and meaning cards only. The question's own answer is checked
+  // at once, then the Sentence round, then the answer; the gate counts the sentences afresh each showing.
+  const hardModeSetting = useHardMode();
+  const hardApplies = inStudySession && !pass && hardModeApplies({ mode: hardModeSetting, cardType: card.card_type, queue: card.queue });
+  // On the answer side, switching Hard mode ON doesn't lock a card that was revealed without it (OFF frees it).
+  const [hardAtReveal, setHardAtReveal] = useState<boolean | null>(() => (restored.point?.revealed ? hardApplies : null));
+  const gateOn = hardApplies && (hardAtReveal ?? true);
+  // The question's answer was checked and its result is up (✓ Right / ✗ Not quite — Try again).
+  const [feedbackOpen, setFeedbackOpen] = useState(() => hardApplies && !!restored.point?.feedback_open && !restored.point?.revealed && !restored.point?.round_open);
+  // He looked at the answer before getting it right: Good / Easy stay locked on this showing.
+  const [gaveUp, setGaveUp] = useState(() => !!restored.point?.gave_up);
+  // The round's exercises as shown + each one's last result: the answer side outlines those sentences,
+  // opened, at the top (docs/STUDY_SESSION.md "Sentence round"); a resumed round shows the same ones.
+  const [roundLog, setRoundLog] = useState<RoundLogEntry[]>(() => restored.point?.round_log ?? []);
+  const onRoundPicked = useCallback((ids: string[]) => {
+    setRoundLog((prev) => ids.map((id) => prev.find((e) => e.id === id) ?? { id }));
+  }, []);
+  const onRoundResult = useCallback((id: string, result: 'right' | 'close' | 'wrong') => {
+    setRoundLog((prev) => prev.map((e) => (e.id === id ? { ...e, result } : e)));
+  }, []);
   const [gateKeys, setGateKeys] = useState<string[]>(() => restored.point?.sentences_right ?? []);
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
-  const roundCardType = gateOn && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
+  const roundCardType = hardApplies && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
   const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType);
   // His practice history of these sentences: hidden ones never come (docs/STUDY_SESSION.md "Sentence practice history").
   const roundStats = useSentenceStats(card.note.id);
@@ -525,6 +546,9 @@ export function StudyCard({
   const [sentenceCount, setSentenceCount] = useState<number | null>(null);
   const [gateNote, setGateNote] = useState(false);
   const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
+  // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
+  const roundMarks = useMemo(() => (roundLog.length ? roundRowMarks(roundLog, gateKeys) : undefined), [roundLog, gateKeys]);
+  const lock = hardModeLock(gate, gaveUp && gateOn, sentenceGateLabel(gate), sentenceGateBlockedNote(gate));
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
     if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
@@ -545,20 +569,48 @@ export function StudyCard({
   const onSentenceRight = useCallback((key: string) => {
     setGateKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
   }, []);
-  /** The answer, or first the Sentence round when it applies to this showing. */
-  const revealOrRound = () => {
-    if (flipped || roundOpen) return;
+  /** On from the question in Hard mode: the Sentence round when there are sentences, else the answer. */
+  const openRoundOrAnswer = () => {
     if (sentenceRoundOpens({ enabled: gateOn, cardType: card.card_type, sentenceCount: roundVisibleCount })) {
       setRoundOpen(true);
       track('study.sentence_round', { action: 'shown', got: 0, needed: Math.min(2, roundVisibleCount ?? 2) });
       return;
     }
+    setHardAtReveal(hardApplies);
     setFlipped(true);
+  };
+  /** Gave up (Show answer / Skip before a right answer): the answer at once, Good / Easy locked. */
+  const giveUp = () => {
+    setFeedbackOpen(false);
+    setRoundOpen(false);
+    setGaveUp(true);
+    setHardAtReveal(true);
+    setFlipped(true);
+    track('study.hard_mode', { action: 'give_up', mode: hardModeSetting, card_type: card.card_type });
+  };
+  /**
+   * The question's Show answer / Check / a spoken or multiple-choice answer. Without Hard mode: the
+   * answer. In Hard mode: the answer checked on the question first (`attempted`), or — nothing tried —
+   * giving up.
+   */
+  const revealOrRound = (attempted = false) => {
+    if (flipped || roundOpen) return;
+    if (!hardApplies) {
+      setHardAtReveal(false);
+      setFlipped(true);
+      return;
+    }
+    if (!attempted) {
+      giveUp();
+      return;
+    }
+    setFeedbackOpen(true);
   };
   const revealOrRoundRef = useRef(revealOrRound);
   revealOrRoundRef.current = revealOrRound;
   const closeRound = useCallback(() => {
     setRoundOpen(false);
+    setHardAtReveal(true);
     setFlipped(true);
   }, []);
   const scrollToSentences = () => {
@@ -662,8 +714,11 @@ export function StudyCard({
       elapsed_ms: Date.now() - startTime,
       ...(roundOpen ? { round_open: true } : {}),
       ...(gateKeys.length ? { sentences_right: gateKeys } : {}),
+      ...(feedbackOpen ? { feedback_open: true } : {}),
+      ...(gaveUp ? { gave_up: true } : {}),
+      ...(roundLog.length ? { round_log: roundLog } : {}),
     });
-  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys]);
+  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys, feedbackOpen, gaveUp, roundLog]);
   const savePointRef = useRef(savePoint);
   savePointRef.current = savePoint;
   useEffect(() => { savePoint(); }, [savePoint]);
@@ -748,7 +803,7 @@ export function StudyCard({
         scheduleReplayRef.current();
         return;
       }
-      if (submit) revealOrRoundRef.current();
+      if (submit) revealOrRoundRef.current(!!text.trim());
       else {
         // ✏️ Edit: the transcript in the box, focused, keyboard up; Check / Enter submits it.
         setTypingMode(true);
@@ -1083,7 +1138,8 @@ export function StudyCard({
 
   const handleFlip = () => {
     if (!flipped) {
-      revealOrRound();
+      // Something was tried: a typed / spoken / picked answer, or a read card's take.
+      revealOrRound(isTypingCard ? !!userAnswer.trim() : !!audioBlob);
     }
   };
 
@@ -1390,10 +1446,10 @@ export function StudyCard({
 
   const handleRate = (rating: Rating) => {
     // Good / Easy wait for the sentences (every way of rating comes through here).
-    if (ratingLockedByGate(rating, gate)) {
+    if (lock.locked && rating >= 2) {
       setGateNote(true);
       track('study.sentence_gate', { action: 'blocked', unlocked: false, needed: gate.needed, got: gate.got, card_type: card.card_type });
-      scrollToSentences();
+      if (!lock.gaveUp) scrollToSentences();
       return;
     }
     if (gate.needed > 0) {
@@ -1709,6 +1765,91 @@ export function StudyCard({
     return null;
   })();
   const spokenAnswerAccepted = !!spokenBack && spokenBack.source === 'spoken' && isAcceptedVerdict(spokenBack.verdict);
+
+  // Hard mode: the question's own answer, checked on the question (shared/study/hardMode.ts) — the same
+  // checks the answer side uses: typed / spoken verdict, the grid all right, a read card's "You said".
+  const questionResult = (() => {
+    if (!feedbackOpen) return null;
+    if (isTypingCard) {
+      const answer = userAnswer.trim();
+      if (!answer) return null;
+      const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
+      const verdict: AnswerVerdict = mcAnswered
+        ? (mcBackSlots ? 'wrong' : 'exact')
+        : answerWasSpoken ? checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin) : checkTypedAnswer(answer, card.note.hanzi, alts);
+      return hardModeQuestionResult({ answerVerdict: verdict });
+    }
+    if (!audioBlob) return null;
+    const take: HardModeTake = transcriptionComparison && !isTranscribing
+      ? { status: 'done', isMatch: transcriptionComparison.isMatch, containsExpected: transcriptionComparison.containsExpected }
+      : transcriptionOffline || transcriptionError ? { status: 'unknown' } : { status: 'checking' };
+    return hardModeQuestionResult({ take });
+  })();
+  const questionSaid = !feedbackOpen ? null
+    : isTypingCard ? userAnswer.trim() || null
+      : transcriptionComparison ? tidySpokenTranscript(transcriptionComparison.transcribedHanzi, card.note.hanzi) || null : null;
+  const roundFollows = hardModeRoundFollows(questionResult, roundVisibleCount);
+  /** Right (or not checkable): on to the Sentence round, or the answer. */
+  const hardNext = () => {
+    if (!feedbackOpen) return;
+    setFeedbackOpen(false);
+    track('study.hard_mode', { action: 'next', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type });
+    openRoundOrAnswer();
+  };
+  const hardNextRef = useRef(hardNext);
+  hardNextRef.current = hardNext;
+  // A result is tracked once; ✓ Right goes on by itself after a short beat.
+  const trackedResult = useRef<string | null>(null);
+  useEffect(() => {
+    if (!questionResult || questionResult === 'checking') { if (!feedbackOpen) trackedResult.current = null; return; }
+    if (trackedResult.current === questionResult) return;
+    trackedResult.current = questionResult;
+    if (questionResult === 'right') {
+      track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type });
+      const id = window.setTimeout(() => hardNextRef.current(), HARD_MODE_RIGHT_BEAT_MS);
+      return () => window.clearTimeout(id);
+    }
+    if (questionResult !== 'unknown') track('study.hard_mode', { action: 'miss', mode: hardModeSetting, result: questionResult, card_type: card.card_type });
+  }, [questionResult, feedbackOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reopened with nothing to judge (the take didn't survive a reload): back to the question.
+  useEffect(() => {
+    if (feedbackOpen && questionResult === null) setFeedbackOpen(false);
+  }, [feedbackOpen, questionResult]);
+  // Hard mode switched off (header chip / Settings) while the check or the round is up: the answer.
+  useEffect(() => {
+    if (!hardApplies && !flipped && (feedbackOpen || roundOpen)) {
+      setFeedbackOpen(false);
+      setRoundOpen(false);
+      setHardAtReveal(false);
+      setFlipped(true);
+    }
+  }, [hardApplies, flipped, feedbackOpen, roundOpen]);
+  /** 🔁 Try again: the same question again — record again / say again / type again / pick again. */
+  const hardTryAgain = () => {
+    track('study.hard_mode', { action: 'retry', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type });
+    trackedResult.current = null;
+    setFeedbackOpen(false);
+    stopAudio();
+    if (!isTypingCard) {
+      clearRecording();
+      if (aiAvailable) startRecordingWithDelay();
+      return;
+    }
+    const wasSpoken = answerWasSpoken;
+    setUserAnswer('');
+    setSpokenText(null);
+    if (mcAnswered) {
+      setMcAnswered(false);
+      setMcSelections([]);
+      return;
+    }
+    if (wasSpoken && aiAvailable && !typingMode) {
+      spoken.start();
+      return;
+    }
+    setTypingMode(true);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
 
   const renderBackMain = () => {
     return (
@@ -2628,9 +2769,10 @@ export function StudyCard({
     const handleMcSubmit = () => {
       // The review's user_answer: the picks in row order, skipped rows left out
       // ('' when nothing was picked — same as an empty typed answer).
-      setUserAnswer(mcSubmittedAnswer(options, mcSelections));
+      const answer = mcSubmittedAnswer(options, mcSelections);
+      setUserAnswer(answer);
       setMcAnswered(true);
-      handleFlip();
+      if (!flipped) revealOrRound(!!answer.trim());
     };
 
     // A long answer (a whole sentence: a dozen rows) scrolls inside the grid while the
@@ -2933,6 +3075,8 @@ export function StudyCard({
             >
               ↺
             </button>
+            {/* Hard mode: Off · Red cards only · All cards (the regular session only) */}
+            {inStudySession && !pass && <HardModeChip />}
             {/* D3: automatic from NetworkContext, manual override kept; label says which */}
             <OfflineModeToggle />
             <button
@@ -2999,6 +3143,9 @@ export function StudyCard({
               onRight={onSentenceRight}
               onDone={closeRound}
               onSkip={closeRound}
+              initialIds={roundLog.map((e) => e.id)}
+              onPicked={onRoundPicked}
+              onResult={onRoundResult}
             />
           ) : !flipped ? (
             <>
@@ -3007,7 +3154,7 @@ export function StudyCard({
               </div>
 
               {/* Sentence clue section */}
-              {!flipped && (
+              {!flipped && !feedbackOpen && (
                 <div className="mt-3 mb-3" style={{ textAlign: 'center' }}>
                   {!showSentenceClue ? (
                     <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -3100,7 +3247,17 @@ export function StudyCard({
               )}
 
               <div className="study-card-actions text-center">
-                {isTypingCard ? (
+                {feedbackOpen && questionResult ? (
+                  <HardModeFeedback
+                    result={questionResult}
+                    said={questionSaid}
+                    spoken={!isTypingCard || answerWasSpoken}
+                    roundFollows={roundFollows}
+                    onTryAgain={hardTryAgain}
+                    onShowAnswer={giveUp}
+                    onNext={hardNext}
+                  />
+                ) : isTypingCard ? (
                   renderTypingActions()
                 ) : isSpeakingCard ? (
                   renderSpeakingCardButtons()
@@ -3154,6 +3311,7 @@ export function StudyCard({
                     showingKey={card.id}
                     onPractiseRight={onSentenceRight}
                     onRowCount={setSentenceCount}
+                    roundRows={pass ? undefined : roundMarks}
                   />
                 </div>
               </div>
@@ -3168,23 +3326,24 @@ export function StudyCard({
               <PassAnswerButtons suggested={passSuggested} onAnswer={handlePassAnswer} disabled={isRating} />
             ) : (
               <>
-                {gate.needed > 0 && (
+                {lock.label && (
                   <button
                     type="button"
-                    className={`sentence-gate-line${gate.locked ? ' is-locked' : ' is-open'}`}
-                    onClick={scrollToSentences}
+                    className={`sentence-gate-line${lock.locked ? ' is-locked' : ' is-open'}${lock.gaveUp ? ' is-gave-up' : ''}`}
+                    onClick={lock.gaveUp ? undefined : scrollToSentences}
                     data-testid="sentence-gate"
-                    data-locked={gate.locked}
+                    data-locked={lock.locked}
+                    data-gave-up={lock.gaveUp}
                     aria-live="polite"
                   >
-                    {gateNote && gate.locked ? sentenceGateBlockedNote(gate) : sentenceGateLabel(gate)}
+                    {gateNote && lock.locked ? lock.blockedNote : lock.label}
                   </button>
                 )}
                 <RatingButtons
                   intervalPreviews={intervalPreviews}
                   onRate={handleRate}
                   disabled={isRating}
-                  locked={gate.locked ? [2, 3] : undefined}
+                  locked={lock.locked ? [2, 3] : undefined}
                 />
               </>
             )}

@@ -4164,3 +4164,41 @@ html.has-tab-bar .sync-badge {
     padding-bottom: 0.75rem;
   }
 }
+
+/* The Sentence round's sentences on the answer side (shared/study/sentenceRound.ts roundRowMarks):
+   at the top, opened, an outline in the result's style + a label with its icon (never colour alone). */
+.sentence-set-row.is-round {
+  margin: 0.4rem 0;
+  padding: 0.55rem 0.5rem;
+  border: 2px solid var(--color-border);
+  border-radius: 12px;
+}
+.sentence-set-row.is-round-right {
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.06);
+}
+.sentence-set-row.is-round-close {
+  border-color: #eab308;
+  background: rgba(234, 179, 8, 0.06);
+}
+.sentence-set-row.is-round-wrong {
+  border-color: #ef4444;
+  border-style: dashed;
+  background: rgba(239, 68, 68, 0.05);
+}
+.sentence-set-row.is-round-untried {
+  border-style: dotted;
+}
+.sentence-set-round-label {
+  display: block;
+  margin-bottom: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+}
+.sentence-set-round-label.is-right { color: #15803d; }
+.sentence-set-round-label.is-close { color: #a16207; }
+.sentence-set-round-label.is-wrong { color: #b91c1c; }
+:root[data-theme='dark'] .sentence-set-round-label.is-right { color: #4ade80; }
+:root[data-theme='dark'] .sentence-set-round-label.is-close { color: #facc15; }
+:root[data-theme='dark'] .sentence-set-round-label.is-wrong { color: #f87171; }

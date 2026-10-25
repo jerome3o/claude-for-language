@@ -10,7 +10,8 @@ import {
   sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote,
   SENTENCE_ROUND_SIZE, SENTENCE_ROUND_TITLE, SENTENCE_ROUND_SKIP, SENTENCE_ROUND_TRY_AGAIN, SENTENCE_ROUND_SEE_ANSWER,
   SENTENCE_ROUND_SHOW_ENGLISH, SENTENCE_ROUND_HIDE_ENGLISH, SENTENCE_ROUND_PROMPT, SENTENCE_ROUND_RESULT,
-  type RoundSentence,
+  roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts,
+  type RoundSentence, type RoundLogEntry,
 } from '../../../shared/study/sentenceRound';
 
 const OUT = process.argv[2];
@@ -52,13 +53,55 @@ for (let i = 0; i < 160; i++) {
   });
 }
 
+// Hand-picked short lists: 1, 2 and 3 sentences, with and without English (a sentence is in at most one exercise).
+const SMALL: Array<Array<[string, string | null]>> = [
+  [['a', 'A.']], [['a', null]],
+  [['a', 'A.'], ['b', 'B.']], [['a', 'A.'], ['b', null]], [['a', null], ['b', 'B.']], [['a', null], ['b', null]],
+  [['a', 'A.'], ['b', 'B.'], ['c', 'C.']], [['a', null], ['b', 'B.'], ['c', null]], [['a', 'A.'], ['b', null], ['c', null]],
+];
+for (const small of SMALL) {
+  const set: RoundSentence[] = small.map(([key, t]) => ({ key, hanzi: `${key}我只有周末才有时间。`, translation: t }));
+  const sentences = roundSentences({ clue: null, set });
+  const exercises = pickRoundExercises(sentences);
+  const rights = [[], exercises.slice(0, 1).map((e) => e.id), exercises.map((e) => e.id)];
+  lists.push({
+    clue: null, set, sentences, exercises,
+    progress: rights.map((ids) => {
+      const p = sentenceRoundProgress(exercises, ids);
+      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p), skip: sentenceRoundSkipNote(p) };
+    }),
+  });
+}
+
+// The round on the answer side: marks, order, exercises back from the log.
+const RESULTS = [undefined, null, 'right', 'close', 'wrong'] as const;
+const IDS = ['read:a', 'translate:a', 'read:b', 'translate:c', 'read:clue:n1', 'translate:d', 'bogus', ':x', 'read:', 'listen:a'];
+const answerSide = [] as unknown[];
+for (let i = 0; i < 120; i++) {
+  const log: RoundLogEntry[] = Array.from({ length: Math.floor(r() * 6) }, () => {
+    const res = RESULTS[Math.floor(r() * RESULTS.length)];
+    const id = IDS[Math.floor(r() * IDS.length)];
+    return res === undefined ? { id } : { id, result: res };
+  });
+  const right = IDS.filter(() => r() < 0.2);
+  const marks = roundRowMarks(log, right);
+  const keys = ['a', 'b', 'c', 'd', 'clue:n1', 'e'].filter(() => r() < 0.8);
+  const sentences = keys.map((k) => ({ key: k, hanzi: `${k}好`, translation: 'x' }));
+  const hiddenKey = r() < 0.3 ? 'a' : null;
+  answerSide.push({
+    log, right, marks, keys, order: orderKeysForRound(keys, marks), hiddenKey,
+    fromLog: exercisesFromLog(sentences, log.map((e) => e.id), (k) => k === hiddenKey),
+  });
+}
+const parts = IDS.map((id) => ({ id, parts: roundExerciseParts(id) }));
+
 const opens = [] as unknown[];
 for (const enabled of [true, false]) for (const cardType of ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi', 'x']) for (const sentenceCount of [null, 0, 1, 5]) {
   opens.push({ enabled, cardType, sentenceCount, opens: sentenceRoundOpens({ enabled, cardType, sentenceCount }) });
 }
 
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
-  lists, opens,
+  lists, opens, answerSide, parts,
   copy: {
     size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
     seeAnswer: SENTENCE_ROUND_SEE_ANSWER, showEnglish: SENTENCE_ROUND_SHOW_ENGLISH, hideEnglish: SENTENCE_ROUND_HIDE_ENGLISH,

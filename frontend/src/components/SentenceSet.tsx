@@ -26,6 +26,7 @@ import { AddChunkModal, Chunk } from './AddChunkModal';
 import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 import { track } from '../services/analytics';
 import { sentencePractiseMode } from '@shared/study/sentencePractise';
+import { orderKeysForRound, type RoundRowMark } from '@shared/study/sentenceRound';
 import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise } from './study/SentencePractise';
 import {
   SENTENCE_HIDDEN_TOAST,
@@ -164,6 +165,12 @@ interface SentenceSetProps {
    * "Show hidden (N)". Default: on with `practise` outside the pass.
    */
   history?: boolean;
+  /**
+   * The sentences of this showing's Sentence round (shared/study/sentenceRound.ts `roundRowMarks`): at the
+   * top in the round's order, opened (he has seen them), outlined in their result's style with a label
+   * ("In the round · ✓ Right"), so he can find them and ask about them.
+   */
+  roundRows?: readonly RoundRowMark[];
 }
 
 export function SentenceSet({
@@ -177,7 +184,9 @@ export function SentenceSet({
   onPractiseRight,
   onRowCount,
   history,
+  roundRows,
 }: SentenceSetProps) {
+  const roundMark = new Map((roundRows ?? []).map((m) => [m.key, m]));
   const pass = variant === 'pass';
   const historyOn = history ?? (practiseOn && !pass);
   const stats = useSentenceStats(noteId);
@@ -546,7 +555,7 @@ export function SentenceSet({
   // The card's sentence has no English yet: fetch it as soon as the row starts
   // opening, so it is there by the time the learner taps through to it.
   const clueRow = rows[0]?.fromCard ? rows[0] : null;
-  const clueStage = clueRow ? (showAll ? Infinity : revealed[clueRow.key] ?? startStage) : 0;
+  const clueStage = clueRow ? (showAll ? Infinity : revealed[clueRow.key] ?? (roundMark.has(clueRow.key) ? Infinity : startStage)) : 0;
   const clueNeedsFetch = !!clueRow && clueRow.fetchTranslation && !clueRow.translation;
   useEffect(() => {
     if (!clueNeedsFetch || !clueHanzi || clueStage < 1 || !isOnline || clueTranslating || clueTranslateFailed) return;
@@ -671,7 +680,11 @@ export function SentenceSet({
   );
 
   // The pass shows the card's own sentence; the rest wait behind "+ N more". Hidden ones only on "Show hidden".
-  const listRows = rows.filter((r) => !isHidden(r.key) || showHidden);
+  const shownRows = rows.filter((r) => !isHidden(r.key) || showHidden);
+  // The round's sentences first, in its order (opened, outlined); the rest as they were.
+  const listRows = roundRows?.length
+    ? orderKeysForRound(shownRows.map((r) => r.key), roundRows).map((k) => shownRows.find((r) => r.key === k)!)
+    : shownRows;
   const visibleRows = pass && !showMore ? listRows.slice(0, 1) : listRows;
   const moreCount = rows.length - 1;
 
@@ -757,7 +770,8 @@ export function SentenceSet({
           {visibleRows.map((row) => {
             const isEnglishFirst = !pass && !!englishFirst[row.key];
             const steps = revealSteps(row, isEnglishFirst);
-            const stage = showAll ? steps.length : revealed[row.key] ?? (isEnglishFirst ? 0 : startStage);
+            const mark = roundMark.get(row.key);
+            const stage = showAll ? steps.length : revealed[row.key] ?? (mark ? steps.length : isEnglishFirst ? 0 : startStage);
             const shown = (step: RevealStep) => {
               const at = steps.indexOf(step);
               return at !== -1 && at < stage;
@@ -791,7 +805,8 @@ export function SentenceSet({
             return (
               <li
                 key={row.key}
-                className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}`}
+                className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}${mark ? ` is-round is-round-${mark.outcome}` : ''}`}
+                data-round={mark?.outcome}
                 {...(historyOn ? longPress.bind(() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })) : {})}
               >
                 {/* Left: the reverse exercise — English up alone, translate it
@@ -817,6 +832,9 @@ export function SentenceSet({
                   {/* The card's own sentence: a small badge on its own line at the
                       top right, never where the lines it uncovers go. */}
                   {row.fromCard && <span className="sentence-set-badge sentence-set-corner">From the card</span>}
+                  {mark && (
+                    <span className={`sentence-set-round-label is-${mark.outcome}`} data-testid="sentence-set-round-label">{mark.label}</span>
+                  )}
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
                   <button
