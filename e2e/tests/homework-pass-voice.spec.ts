@@ -1,5 +1,11 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
 
+// These specs walk the plain pass: Hard mode in the pass (default All, docs/HOMEWORK.md §3d) is off here —
+// homework-pass-hard-mode.spec.ts covers it.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('pass-hard-mode-v1', 'off'));
+});
+
 /**
  * The homework pass on the STUDY CARD (docs/HOMEWORK.md §3, shared/homework/pass-card.ts): each word
  * is the read card — 🎤 Record Your Pronunciation, the take transcribed ("You said …"), Check Answer —

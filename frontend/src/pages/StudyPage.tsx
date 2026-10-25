@@ -55,6 +55,7 @@ import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
+import { PASS_GAVE_UP_BLOCKED, PASS_GAVE_UP_LINE, PASS_ROUND_SKIP_NOTE } from '@shared/homework/pass-angles';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -144,7 +145,7 @@ import { useHardMode } from '../services/hardModePrefs';
 import { HardModeChip } from '../components/study/HardModeChip';
 import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
-import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardModeTake } from '@shared/study/hardMode';
+import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake } from '@shared/study/hardMode';
 import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
 import { roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
@@ -337,6 +338,11 @@ export interface StudyCardPass {
   onAnswer: (right: boolean, info: PassAnswerInfo) => void;
   /** Where the Sentence Coach's "Back to your card" goes. */
   coachReturn?: string;
+  /**
+   * Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3d): the pass's own setting
+   * (its header chip) and whether the ladder runs on this showing. Giving up locks Got it.
+   */
+  hard?: { mode: HardMode; applies: boolean };
 }
 
 export interface PassAnswerInfo {
@@ -344,6 +350,8 @@ export interface PassAnswerInfo {
   answered: PassAnsweredBy;
   suggested: PassOutcome | null;
   timeMs: number;
+  /** Hard mode ran on this showing (its ladder was passed — or it was given up, which locks Got it). */
+  hard: boolean;
 }
 
 /**
@@ -515,8 +523,14 @@ export function StudyCard({
   // Hard mode (Settings → Study / the header chip; shared/study/hardMode.ts): Off · Red cards only · All
   // cards — the regular session's reading and meaning cards only. The question's own answer is checked
   // at once, then the Sentence round, then the answer; the gate counts the sentences afresh each showing.
-  const hardModeSetting = useHardMode();
-  const hardApplies = inStudySession && !pass && hardModeApplies({ mode: hardModeSetting, cardType: card.card_type, queue: card.queue });
+  const sessionHardMode = useHardMode();
+  // The homework pass brings its own setting and decides per word (shared/homework/pass-angles.ts).
+  const hardModeSetting = pass?.hard ? pass.hard.mode : sessionHardMode;
+  const hardApplies = pass
+    ? !!pass.hard?.applies && SENTENCE_GATE_CARD_TYPES.includes(card.card_type)
+    : inStudySession && hardModeApplies({ mode: hardModeSetting, cardType: card.card_type, queue: card.queue });
+  // Analytics: the ladder's events say when it ran in the homework pass.
+  const hardWhere = pass ? { where: 'homework' as const } : {};
   // On the answer side, switching Hard mode ON doesn't lock a card that was revealed without it (OFF frees it).
   const [hardAtReveal, setHardAtReveal] = useState<boolean | null>(() => (restored.point?.revealed ? hardApplies : null));
   const gateOn = hardApplies && (hardAtReveal ?? true);
@@ -550,6 +564,8 @@ export function StudyCard({
   // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
   const roundMarks = useMemo(() => (roundLog.length ? roundRowMarks(roundLog, gateKeys) : undefined), [roundLog, gateKeys]);
   const lock = hardModeLock(gate, gaveUp && gateOn, sentenceGateLabel(gate), sentenceGateBlockedNote(gate));
+  // The pass: Got it needs the ladder — giving up locks it (the round's sentences don't, skipped or not).
+  const passGotItLocked = !!pass && gaveUp && gateOn;
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
     if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
@@ -587,7 +603,7 @@ export function StudyCard({
     setGaveUp(true);
     setHardAtReveal(true);
     setFlipped(true);
-    track('study.hard_mode', { action: 'give_up', mode: hardModeSetting, card_type: card.card_type });
+    track('study.hard_mode', { action: 'give_up', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
   };
   /**
    * The question's Show answer / Check / a spoken or multiple-choice answer. Without Hard mode: the
@@ -1733,6 +1749,8 @@ export function StudyCard({
       : 'none';
   const passSuggested: PassOutcome | null = (() => {
     if (!pass || !flipped) return null;
+    // Hard mode, given up: Not yet (Got it is locked).
+    if (passGotItLocked) return 'wrong';
     if (isTypingCard && userAnswer.trim()) {
       if (mcBackSlots) return 'wrong';
       const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
@@ -1749,7 +1767,8 @@ export function StudyCard({
     for (const note of tutorNotes) markRecordingNoteSeen(note.id).catch(() => {});
     // A "Say it again" under way is dropped. The take itself goes nowhere: no review, no upload.
     if (sayingAgain) spoken.cancel();
-    pass.onAnswer(right, { cardType: card.card_type, answered: passAnswered, suggested: passSuggested, timeMs: Date.now() - startTime });
+    if (right && passGotItLocked) return;
+    pass.onAnswer(right, { cardType: card.card_type, answered: passAnswered, suggested: passSuggested, timeMs: Date.now() - startTime, hard: gateOn });
   };
 
   // A SPOKEN answer (🎤 on a typing card) or 🎤 Say it practice: the card's answer once, big, with
@@ -1794,7 +1813,7 @@ export function StudyCard({
   const hardNext = () => {
     if (!feedbackOpen) return;
     setFeedbackOpen(false);
-    track('study.hard_mode', { action: 'next', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type });
+    track('study.hard_mode', { action: 'next', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type, ...hardWhere });
     openRoundOrAnswer();
   };
   const hardNextRef = useRef(hardNext);
@@ -1806,11 +1825,11 @@ export function StudyCard({
     if (trackedResult.current === questionResult) return;
     trackedResult.current = questionResult;
     if (questionResult === 'right') {
-      track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type });
+      track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
       const id = window.setTimeout(() => hardNextRef.current(), HARD_MODE_RIGHT_BEAT_MS);
       return () => window.clearTimeout(id);
     }
-    if (questionResult !== 'unknown') track('study.hard_mode', { action: 'miss', mode: hardModeSetting, result: questionResult, card_type: card.card_type });
+    if (questionResult !== 'unknown') track('study.hard_mode', { action: 'miss', mode: hardModeSetting, result: questionResult, card_type: card.card_type, ...hardWhere });
   }, [questionResult, feedbackOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reopened with nothing to judge (the take didn't survive a reload): back to the question.
   useEffect(() => {
@@ -1827,7 +1846,7 @@ export function StudyCard({
   }, [hardApplies, flipped, feedbackOpen, roundOpen]);
   /** 🔁 Try again: the same question again — record again / say again / type again / pick again. */
   const hardTryAgain = () => {
-    track('study.hard_mode', { action: 'retry', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type });
+    track('study.hard_mode', { action: 'retry', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type, ...hardWhere });
     trackedResult.current = null;
     setFeedbackOpen(false);
     stopAudio();
@@ -3082,6 +3101,8 @@ export function StudyCard({
             </button>
             {/* Hard mode: Off · Red cards only · All cards (the regular session only) */}
             {inStudySession && !pass && <HardModeChip />}
+            {/* The pass's own Hard mode (default All): All words · Words I miss · Off */}
+            {pass?.hard && <HardModeChip pass />}
             {/* D3: automatic from NetworkContext, manual override kept; label says which */}
             <OfflineModeToggle />
             <button
@@ -3148,6 +3169,7 @@ export function StudyCard({
               onRight={onSentenceRight}
               onDone={closeRound}
               onSkip={closeRound}
+              skipNote={pass ? PASS_ROUND_SKIP_NOTE : undefined}
               initialIds={roundLog.map((e) => e.id)}
               onPicked={onRoundPicked}
               onResult={onRoundResult}
@@ -3316,7 +3338,7 @@ export function StudyCard({
                     showingKey={card.id}
                     onPractiseRight={onSentenceRight}
                     onRowCount={setSentenceCount}
-                    roundRows={pass ? undefined : roundMarks}
+                    roundRows={roundMarks}
                   />
                 </div>
               </div>
@@ -3328,7 +3350,12 @@ export function StudyCard({
             rerecord={reRecordBar}
             actions={renderBackActions()}
             ratings={pass ? (
-              <PassAnswerButtons suggested={passSuggested} onAnswer={handlePassAnswer} disabled={isRating} />
+              <PassAnswerButtons
+                suggested={passSuggested}
+                onAnswer={handlePassAnswer}
+                disabled={isRating}
+                gotItLocked={passGotItLocked ? { line: PASS_GAVE_UP_LINE, blockedNote: PASS_GAVE_UP_BLOCKED } : undefined}
+              />
             ) : (
               <>
                 {lock.label && (

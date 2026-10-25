@@ -302,7 +302,7 @@ class StudyViewModel(
 
     // ---- the homework pass on the study card (ui/homework; web HomeworkPassPage DeckPass) ----
     /** The word on screen and how many times it was answered before (a "Not yet" word coming back is a new attempt). */
-    private var passShown: Pair<String, Int>? = null
+    private var passShown: Triple<String, Int, String>? = null
 
     private suspend fun loadPassMode() {
         cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
@@ -314,18 +314,18 @@ class StudyViewModel(
     }
 
     /**
-     * The pass shows [noteId]: its read card (core Homework.passCardId — hanzi → meaning), or, when
-     * the note's cards aren't on the phone, a NEW read card for it (nothing is ever written for it).
+     * The pass shows [noteId] on [cardType]: the first angle is its read card (core PassAngles.firstAngleType —
+     * hanzi → meaning), a second angle in Hard mode another of its cards (docs/HOMEWORK.md §3d); when the
+     * note's cards aren't on the phone, a NEW card of that type for it (nothing is ever written for it).
      */
-    fun showPassCard(noteId: String, attempt: Int) {
-        if (pass == null || passShown == noteId to attempt) return
-        passShown = noteId to attempt
+    fun showPassCard(noteId: String, attempt: Int, cardType: String = dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE) {
+        if (pass == null || passShown == Triple(noteId, attempt, cardType)) return
+        passShown = Triple(noteId, attempt, cardType)
         viewModelScope.launch {
             val card = withContext(Dispatchers.IO) {
                 val own = repo.dao.cardsOfNotes(listOf(noteId)).map { it.toQueueCard() }
-                val id = dev.jeromeswannack.chineselearning.lab.core.Homework.passCardId(own.map { it.id to it.cardType })
-                own.firstOrNull { it.id == id } ?: repo.dao.note(noteId)?.let { n ->
-                    QueueCard("pass:$noteId", noteId, n.deckId, dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE, CardScheduler.initialCardState())
+                own.firstOrNull { it.cardType == cardType } ?: repo.dao.note(noteId)?.let { n ->
+                    QueueCard(if (cardType == dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE) "pass:$noteId" else "pass:$noteId:$cardType", noteId, n.deckId, cardType, CardScheduler.initialCardState())
                 }
             }
             if (card == null) {

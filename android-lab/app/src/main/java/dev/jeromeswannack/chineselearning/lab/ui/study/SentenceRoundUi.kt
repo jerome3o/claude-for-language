@@ -105,6 +105,8 @@ fun SentenceRoundPage(
     onDone: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
+    skipNote: String? = null,
     /** His practice history of these sentences (null while it loads): the round prefers what he knows least. */
     stats: Map<String, SentenceHistory.Stats>? = emptyMap(),
     /** "✨ New sentences coming for this word" (asked already). */
@@ -245,7 +247,7 @@ fun SentenceRoundPage(
                     }
                     if (progress.needed > 0) {
                         Text(
-                            SentenceRound.skipNote(progress), Modifier.fillMaxWidth().padding(top = 6.dp),
+                            skipNote ?: SentenceRound.skipNote(progress), Modifier.fillMaxWidth().padding(top = 6.dp),
                             color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center,
                         )
                     }

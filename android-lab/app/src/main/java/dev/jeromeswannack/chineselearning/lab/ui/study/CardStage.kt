@@ -75,6 +75,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.zIndex
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -272,8 +274,13 @@ fun CardStage(
     val appCtx = androidx.compose.ui.platform.LocalContext.current.applicationContext
     // Hard mode (core HardMode; Off · Red cards only · All cards, StudyPrefs.hardMode / the header chip): the
     // question's own answer checked first, then the Sentence round, then the answer.
-    val hardModeSetting by StudyPrefs.get(appCtx).hardMode.collectAsState()
-    val hardApplies = pass == null && ui.practice == null && HardMode.applies(hardModeSetting, view.card.cardType, view.card.state.queue)
+    val sessionHardMode by StudyPrefs.get(appCtx).hardMode.collectAsState()
+    // The homework pass brings its own setting and decides per word (core PassAngles, docs/HOMEWORK.md §3d).
+    val hardModeSetting = pass?.hardMode ?: sessionHardMode
+    val hardApplies = if (pass != null) pass.hardApplies && view.card.cardType in SentencePractise.GATE_CARD_TYPES
+        else ui.practice == null && HardMode.applies(hardModeSetting, view.card.cardType, view.card.state.queue)
+    // Analytics: the ladder's events say when it ran in the homework pass.
+    val hardWhere: Map<String, Any?> = if (pass != null) mapOf("where" to "homework") else emptyMap()
     // On the answer side, switching Hard mode ON doesn't lock a card revealed without it (OFF frees it).
     var hardAtReveal by remember(view.presentation) { mutableStateOf<Boolean?>(if (revealed) hardApplies else null) }
     val gateEnabled = hardApplies && (hardAtReveal ?: true)
@@ -288,7 +295,7 @@ fun CardStage(
     // Practice per sentence (data/sentences/SentencePracticeStore, core SentenceHistory): the round prefers
     // what he knows least, hidden sentences never come; every judged take is recorded (not the pass).
     val labApp = appCtx as? dev.jeromeswannack.chineselearning.lab.LabApp
-    val history = pass == null
+    val history = pass == null || hardApplies
     val sentenceEvents by dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.events.collectAsState()
     LaunchedEffect(Unit) {
         val ok = labApp != null && runCatching { dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.load(labApp) }.isSuccess
@@ -355,7 +362,7 @@ fun CardStage(
     fun giveUp() {
         gaveUp = true
         hardAtReveal = true
-        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "give_up", "mode" to hardModeSetting, "card_type" to view.card.cardType))
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "give_up", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
         showAnswer()
     }
 
@@ -427,7 +434,7 @@ fun CardStage(
     val roundFollows = HardMode.roundFollows(questionResult, sentenceCount)
     fun hardNext() {
         if (!feedbackOpen) return
-        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "next", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType))
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "next", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType) + hardWhere)
         openRoundOrAnswer()
     }
     val latestNext by rememberUpdatedState { hardNext() }
@@ -438,12 +445,12 @@ fun CardStage(
         if (trackedResult == r) return@LaunchedEffect
         trackedResult = r
         if (r == "right") {
-            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "right", "mode" to hardModeSetting, "card_type" to view.card.cardType))
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "right", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
             burst++
             delay(HardMode.RIGHT_BEAT_MS)
             latestNext()
         } else if (r != "unknown") {
-            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "miss", "mode" to hardModeSetting, "result" to r, "card_type" to view.card.cardType))
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "miss", "mode" to hardModeSetting, "result" to r, "card_type" to view.card.cardType) + hardWhere)
             shake.shake()
         }
     }
@@ -456,7 +463,7 @@ fun CardStage(
     val recordAgain = rememberRecordPermission { actions.onStartRecording(false) }
     /** 🔁 Try again: the same question again — record again / say again / type again / pick again. */
     fun hardTryAgain() {
-        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "retry", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType))
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "retry", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType) + hardWhere)
         trackedResult = null
         feedbackOpen = false
         if (!typing) {
@@ -528,6 +535,8 @@ fun CardStage(
     val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
     // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
     val lock = HardMode.lock(gate, gaveUp && gateEnabled, SentencePractise.label(gate), SentencePractise.blockedNote(gate))
+    // The pass: Got it needs the ladder — giving up locks it (the round's sentences don't, skipped or not).
+    val passGotItLocked = pass != null && gaveUp && gateEnabled
     // The round's sentences on the answer side: on top, opened, outlined with how each went.
     val roundMarks = if (roundLog.isEmpty()) emptyList() else SentenceRound.rowMarks(roundLog.toList(), practise.rightKeys.toList())
     var gateNote by remember(view.presentation) { mutableStateOf(false) }
@@ -569,6 +578,7 @@ fun CardStage(
                         onPlay = actions.onPlay,
                         onDone = { reveal(afterRound = true) },
                         onSkip = { reveal(afterRound = true) },
+                        skipNote = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE else null,
                         stats = noteStats,
                         coming = labApp != null && dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.coming(labApp, note.id),
                         onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
@@ -767,6 +777,8 @@ fun CardStage(
                     // The pass: what the card saw before the reveal may suggest one (core Homework.passSuggestion).
                     val partialMc = mcSlots != null && !MultipleChoice.allRight(mcSlots!!)
                     val suggested = when {
+                        // Hard mode, given up: Not yet (Got it is locked).
+                        passGotItLocked -> "wrong"
                         typing && answer.isNotBlank() -> if (partialMc) "wrong" else verdict?.let { Homework.passSuggestion(it) }
                         !typing -> (ui.extras.take.transcription as? TranscriptionUi.Done)?.result?.let { Homework.passSuggestion(null, it.isMatch, it.containsExpected) }
                         else -> null
@@ -778,9 +790,13 @@ fun CardStage(
                         answerIsSpoken(answer) -> "spoken"
                         else -> "typed"
                     }
-                    PassAnswerBar(suggested, enabled = !rated && !pass.busy) { right ->
+                    var passBlocked by remember(view.presentation) { mutableStateOf(false) }
+                    LaunchedEffect(passBlocked) { if (passBlocked) { delay(5000); passBlocked = false } }
+                    if (passGotItLocked) PassLockedLine(if (passBlocked) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_BLOCKED else dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE)
+                    PassAnswerBar(suggested, enabled = !rated && !pass.busy, gotItLocked = passGotItLocked) { right ->
+                        if (right && passGotItLocked) { passBlocked = true; return@PassAnswerBar }
                         rated = true
-                        actions.onPassAnswer(right, answered, suggested)
+                        actions.onPassAnswer(right, answered, suggested, gateEnabled)
                     }
                 } else {
                     if (lock.label != null) SentenceGateLine(lock, gateNote, onTap = if (lock.gaveUp) ({}) else showSentences)
@@ -1202,7 +1218,7 @@ private fun CardBack(
                 dev.jeromeswannack.chineselearning.lab.ui.homework.PassSentences(
                     key = view.presentation, rows = sentenceRows(view), deckId = note.deckId, online = ui.aiAvailable,
                     playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps(),
-                    practise = practise,
+                    practise = practise, roundMarks = roundMarks,
                 )
             } else {
                 SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList())
@@ -1362,9 +1378,10 @@ fun RatingBar(
  * card suggests ([suggested] = right | wrong) is ringed and marked "✓ suggested" — he still chooses.
  */
 @Composable
-fun PassAnswerBar(suggested: String?, enabled: Boolean, onAnswer: (right: Boolean) -> Unit) {
+fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = false, onAnswer: (right: Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().testTag(PASS_RATE_TAG), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, "Got it", Palette.Good))) {
+        // Hard mode, given up: Got it locked (🔒, faded); a tap says why (docs/HOMEWORK.md §3d).
+        for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, if (gotItLocked) "🔒 Got it" else "Got it", if (gotItLocked) Lab.colors.muted else Palette.Good))) {
             val isSuggested = suggested == (if (right) "right" else "wrong")
             // Both tiles sit in the same 3dp frame, so the ringed one is the same size as the other.
             Box(
@@ -1375,6 +1392,7 @@ fun PassAnswerBar(suggested: String?, enabled: Boolean, onAnswer: (right: Boolea
                 AnswerTile(
                     label, color,
                     Modifier.fillMaxWidth()
+                        .then(if (right && gotItLocked) Modifier.alpha(0.55f) else Modifier)
                         .testTag(if (right) "hw-gotit" else "hw-notyet")
                         .semantics { if (isSuggested) stateDescription = "Suggested" },
                     sub = if (isSuggested) "✓ suggested" else null,
@@ -1387,6 +1405,27 @@ fun PassAnswerBar(suggested: String?, enabled: Boolean, onAnswer: (right: Boolea
 
 /** Test tag of the pass's answer bar. */
 const val PASS_RATE_TAG = "hw-pass-rate"
+
+/** Above Not yet / Got it after giving up in Hard mode (web `.hw-pass-locked-line`). */
+@Composable
+private fun PassLockedLine(text: String) {
+    Text(
+        text,
+        color = Palette.Again,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp))
+            .border(1.dp, Palette.Again.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .background(Palette.Again.copy(alpha = 0.06f))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag(PASS_LOCKED_TAG),
+    )
+}
+
+/** Test tag of the pass's "👁 You looked at the answer" line. */
+const val PASS_LOCKED_TAG = "hw-pass-locked"
 
 /** The pass's two choices on the answer side: "Add to my long-term review" and ⚡ Study it today. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

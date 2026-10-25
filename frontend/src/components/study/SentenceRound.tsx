@@ -151,6 +151,8 @@ interface SentenceRoundProps {
   onDone: () => void;
   /** Skip to the answer (the gate still applies there). */
   onSkip: () => void;
+  /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
+  skipNote?: string;
   /** The exercises of this showing's round shown before (resume): the same ones come back. */
   initialIds?: readonly string[];
   /** The exercises as picked (the answer side marks their sentences, in this order). */
@@ -159,7 +161,7 @@ interface SentenceRoundProps {
   onResult?: (id: string, result: 'right' | 'close' | 'wrong') => void;
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote }: SentenceRoundProps) {
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
@@ -408,7 +410,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
             >
               {SENTENCE_ROUND_SKIP} →
             </button>
-            {progress.needed > 0 && <p className="sentence-round-skip-note">{sentenceRoundSkipNote(progress)}</p>}
+            {progress.needed > 0 && <p className="sentence-round-skip-note">{skipNote ?? sentenceRoundSkipNote(progress)}</p>}
           </>
         )}
       </div>

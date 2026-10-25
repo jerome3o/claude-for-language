@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { dueLabel, lastPassAnswer, localDate, nextPassItem, passCardId, passItemIds, passProgress, passRetryBar, retryBarNote, hasFsrs, PASS_CARD_TYPE } from '@shared/homework';
+import {
+  dueLabel, lastPassAnswer, localDate, passItemIds, passProgress, retryBarNote, hasFsrs, PASS_CARD_TYPE,
+  passAnglePlan, passAngleLine, passAnglesLabel, passAnswerItemId, passHardApplies, parsePassStepId, passWordMissed, secondAngleType,
+  type PassWord,
+} from '@shared/homework';
 import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
 import { CardQueue, type CardWithNote, type IntervalPreview, type QueueCounts, type Rating } from '../types';
 import { setNoteLongTerm } from '../services/longTerm';
@@ -25,6 +29,8 @@ import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { deckSettingsFromDb, DEFAULT_DECK_SETTINGS as DEFAULT_SCHEDULER_SETTINGS } from '../services/anki-scheduler';
 import { StudyCard, type PassAnswerInfo } from './StudyPage';
 import { useNetwork } from '../contexts/NetworkContext';
+import { usePassHardMode } from '../services/hardModePrefs';
+import { ensurePassSentences } from '../services/passSentences';
 import './StudyPage.css';
 import '../components/homework/homework.css';
 
@@ -180,17 +186,45 @@ function DeckPass({
   const { data: relationships } = useQuery({ queryKey: ['relationships'], queryFn: getMyRelationships, enabled: isOnline, staleTime: 5 * 60 * 1000 });
   const tutors = useMemo(() => relationships?.tutors || [], [relationships?.tutors]);
   const [busy, setBusy] = useState(false);
-  const currentId = nextPassItem(progress);
+  // Hard mode in the pass (shared/homework/pass-angles.ts, docs/HOMEWORK.md §3d): its own setting
+  // (default All), the check-first ladder + Sentence round on the reading / meaning cards, and a word
+  // got right that way comes back ONCE more later on another card type before it counts as done.
+  const passMode = usePassHardMode();
+  const words: PassWord[] = useMemo(
+    () => itemIds.map((id) => ({
+      id,
+      cardTypes: (cardsByNote?.get(id) ?? []).map((c) => c.card_type),
+      hasAudio: !!notes?.get(id)?.audio_url,
+    })),
+    [idsKey, cardsByNote, notes] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const plan = useMemo(() => passAnglePlan(words, events, passMode), [words, events, passMode]);
+  const showing = plan.next;
+  const currentId = showing?.noteId ?? null;
   const note = currentId ? notes?.get(currentId) ?? null : null;
-  // Seen before in this pass ("Not yet"): the word comes back as a fresh card.
-  const attempt = currentId ? events.filter((e) => e.item_id === currentId).length : 0;
+  // Seen before in this pass (Not yet, or a first angle got): the word comes back as a fresh card.
+  const attempt = currentId ? events.filter((e) => e.item_id === currentId || parsePassStepId(e.item_id)?.noteId === currentId).length : 0;
+  const missed = currentId ? passWordMissed(currentId, events) : false;
+  const hardApplies = !!showing && passHardApplies({ mode: passMode, cardType: showing.cardType, missed });
+
+  // The round needs sentences: ask for the pass's missing ones once when it opens in Hard mode.
+  useEffect(() => {
+    if (passMode === 'off' || progress.complete) return;
+    void ensurePassSentences(assignmentId, itemIds).catch(() => undefined);
+  }, [assignmentId, idsKey, passMode, progress.complete]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Analytics: the pass's Hard mode as it opened (once per pass on screen).
+  const trackedMode = useRef<string | null>(null);
+  useEffect(() => {
+    if (progress.complete || trackedMode.current === assignmentId) return;
+    trackedMode.current = assignmentId;
+    track('homework.pass_hard_mode', { mode: passMode, where: 'pass' });
+  }, [assignmentId, passMode, progress.complete]);
 
   const card: LocalCard | null = useMemo(() => {
-    if (!note) return null;
+    if (!note || !showing) return null;
     const own = cardsByNote?.get(note.id) ?? [];
-    const id = passCardId(own);
-    return own.find((c) => c.id === id) ?? passPlaceholderCard(note);
-  }, [note, cardsByNote]);
+    return own.find((c) => c.card_type === showing.cardType) ?? passPlaceholderCard(note, showing.cardType);
+  }, [note, showing, cardsByNote]);
 
   const previews = useMemo<Record<Rating, IntervalPreview> | null>(() => {
     if (!card) return null;
@@ -204,21 +238,31 @@ function DeckPass({
   }, [card, deck]);
 
   const answer = useCallback(async (right: boolean, info: PassAnswerInfo) => {
-    if (!currentId || busy) return;
+    if (!currentId || !showing || busy) return;
+    const word = words.find((w) => w.id === currentId) ?? { id: currentId, cardTypes: [], hasAudio: false };
+    // Got it on a hard first angle owed a second: a step (`<note>#<card type>`), the word not done yet.
+    const itemId = passAnswerItemId({ showing, word, right, hard: info.hard });
     setBusy(true);
     try {
-      await recordPassEvent(assignmentId, currentId, right ? 'right' : 'wrong');
+      await recordPassEvent(assignmentId, itemId, right ? 'right' : 'wrong');
       track('homework.pass_item', {
         result: right ? 'right' : 'wrong',
         card_type: info.cardType,
         answered: info.answered,
         suggested: info.suggested ?? 'none',
         followed: info.suggested ? (info.suggested === 'right') === right : false,
+        angle: showing.angle,
+        hard: info.hard,
       });
+      if (itemId !== currentId) {
+        track('homework.pass_angle', { action: 'queued', card_type: secondAngleType(word, showing.cardType) ?? undefined });
+      } else if (showing.angle === 2) {
+        track('homework.pass_angle', { action: 'answered', card_type: showing.cardType, result: right ? 'right' : 'wrong' });
+      }
     } finally {
       setBusy(false);
     }
-  }, [assignmentId, currentId, busy]);
+  }, [assignmentId, currentId, showing, words, busy]);
 
   // ↺ Undo (docs/HOMEWORK.md §3b): takes back the last Got it / Not yet with an `undo` event, one
   // further back each time; the word comes back as it was before the answer (a fresh card), and a
@@ -263,8 +307,11 @@ function DeckPass({
   }
 
   const due = dueLabel(dueDate, localDate());
-  const retryBar = passRetryBar(itemIds, events);
+  // The retry bar (§3c) with each owed second angle as a step, so it stays truthful in Hard mode.
+  const retryBar = plan.bar;
   const retryNote = retryBarNote(retryBar);
+  const anglesLabel = passAnglesLabel(passMode);
+  const angleLine = showing ? passAngleLine(showing) : null;
   const meta = (
     <>
       {/* Blue = answers given, orange at the right end = "Not yet" words still owed (§3c). */}
@@ -273,7 +320,9 @@ function DeckPass({
         {part && <span className="hw-pass-part">{part.replace(/^d/, 'D')}</span>}
         <DueChip due={due} />
         {retryNote && <span className={`hw-pass-retry${retryBar.onRetries ? ' hw-pass-retry--on' : ''}`} data-testid="hw-pass-retry">{retryNote}</span>}
+        {anglesLabel && <span className="hw-pass-angles" data-testid="hw-pass-angles">{anglesLabel}</span>}
       </div>
+      {angleLine && <p className="hw-pass-angle-line" data-testid="hw-pass-angle-line">{angleLine}</p>}
     </>
   );
 
@@ -295,7 +344,7 @@ function DeckPass({
   // Straight into the page's own full-screen frame, like the study session's card.
   return (
     <StudyCard
-      key={`${card.id}:${attempt}`}
+      key={`${card.id}:${attempt}:${showing?.angle ?? 1}`}
       card={{ ...card, note } as unknown as CardWithNote}
       cardIsSecondaryNew={false}
       intervalPreviews={previews}
@@ -336,6 +385,7 @@ function DeckPass({
         ),
         onAnswer: (right, info) => void answer(right, info),
         coachReturn: `/homework/${assignmentId}`,
+        hard: { mode: passMode, applies: hardApplies },
       }}
     />
   );
@@ -343,13 +393,13 @@ function DeckPass({
 
 const NO_COUNTS: QueueCounts = { new: 0, secondaryNew: 0, learning: 0, review: 0 };
 
-/** A word whose cards haven't reached the device: shown as a NEW read card (nothing is written for it). */
-function passPlaceholderCard(note: LocalNote): LocalCard {
+/** A word whose cards haven't reached the device: shown as a NEW card of that type (nothing is written for it). */
+function passPlaceholderCard(note: LocalNote, cardType: string = PASS_CARD_TYPE): LocalCard {
   return {
-    id: `pass:${note.id}`,
+    id: cardType === PASS_CARD_TYPE ? `pass:${note.id}` : `pass:${note.id}:${cardType}`,
     note_id: note.id,
     deck_id: note.deck_id,
-    card_type: PASS_CARD_TYPE,
+    card_type: cardType as LocalCard['card_type'],
     queue: CardQueue.NEW,
     stability: 0,
     difficulty: 0,

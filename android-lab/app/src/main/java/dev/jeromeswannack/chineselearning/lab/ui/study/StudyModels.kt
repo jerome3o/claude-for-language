@@ -121,6 +121,15 @@ data class PassCardUi(
      */
     val bar: dev.jeromeswannack.chineselearning.lab.core.RetryBar =
         dev.jeromeswannack.chineselearning.lab.core.RetryBars.retryBar(done + retrying, total - done - retrying, retrying, done, total),
+    /**
+     * Hard mode in the pass (core PassAngles, docs/HOMEWORK.md §3d): the card type this showing is on
+     * (a second angle is another card of the word), its angle (1 | 2), the pass's own setting (its 🎯
+     * chip) and whether the ladder runs on this showing — giving up then locks Got it.
+     */
+    val cardType: String = dev.jeromeswannack.chineselearning.lab.core.Homework.PASS_CARD_TYPE,
+    val angle: Int = 1,
+    val hardMode: String = dev.jeromeswannack.chineselearning.lab.core.HardMode.OFF,
+    val hardApplies: Boolean = false,
 )
 
 data class StudyUi(

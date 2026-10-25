@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
+import dev.jeromeswannack.chineselearning.lab.core.PassAngles
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
@@ -76,7 +77,12 @@ private val ChipAll = Color(0xFFD97706)
  * (StudyPrefs.hardMode); the card on screen follows at once.
  */
 @Composable
-fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = false, compact: Boolean = false) {
+fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = false, compact: Boolean = false, pass: Boolean = false) {
+    // `pass`: the homework pass's own chip (core PassAngles, docs/HOMEWORK.md §3d): All words · Words I miss · Off.
+    val chipLabel = if (pass) PassAngles.chipLabel(mode) else HardMode.chipLabel(mode)
+    val title = if (pass) PassAngles.TITLE else HardMode.TITLE
+    val option = if (pass) PassAngles.OPTION else HardMode.OPTION
+    val hint = if (pass) PassAngles.OPTION_HINT else HardMode.OPTION_HINT
     var open by remember { mutableStateOf(startOpen) }
     val color = when (mode) {
         HardMode.RED -> ChipRed
@@ -91,7 +97,7 @@ fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = 
                 Modifier
                     .size(CompactChipSize)
                     .bouncyClickable { open = true }
-                    .semantics { contentDescription = HardMode.chipLabel(mode) }
+                    .semantics { contentDescription = chipLabel }
                     .testTag(HardModeTags.CHIP),
                 contentAlignment = Alignment.Center,
             ) {
@@ -117,7 +123,7 @@ fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = 
                     .background(color.copy(alpha = if (mode == HardMode.OFF) 0.08f else 0.14f))
                     .bouncyClickable { open = true }
                     .padding(horizontal = 10.dp, vertical = 5.dp)
-                    .semantics { contentDescription = HardMode.chipLabel(mode) }
+                    .semantics { contentDescription = chipLabel }
                     .testTag(HardModeTags.CHIP),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -126,7 +132,7 @@ fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = 
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.testTag(HardModeTags.MENU)) {
             Text(
-                "🎯 ${HardMode.TITLE}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                "🎯 $title", Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                 color = Lab.colors.ink, fontWeight = FontWeight.Bold, fontSize = 14.sp,
             )
             HardMode.MODES.forEach { m ->
@@ -145,8 +151,8 @@ fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = 
                     RadioButton(selected = m == mode, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = Lab.colors.accent))
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text(HardMode.OPTION.getValue(m), color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        Text(HardMode.OPTION_HINT.getValue(m), color = Lab.colors.muted, fontSize = 12.sp)
+                        Text(option.getValue(m), color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(hint.getValue(m), color = Lab.colors.muted, fontSize = 12.sp)
                     }
                 }
             }
@@ -165,6 +171,24 @@ fun HardModeChoices(mode: String, onChange: (String) -> Unit) {
                 label = HardMode.OPTION.getValue(m),
                 desc = HardMode.OPTION_HINT.getValue(m),
                 modifier = Modifier.testTag("hard-mode-setting-$m"),
+                trailing = { RadioButton(selected = m == mode, onClick = { onChange(m) }, colors = RadioButtonDefaults.colors(selectedColor = Lab.colors.accent)) },
+                onClick = { onChange(m) },
+            )
+        }
+    }
+}
+
+/** Settings → Study → "Hard mode in homework" (the web's `PassHardModeSetting`; default All). */
+@Composable
+fun PassHardModeChoices(mode: String, onChange: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        NavRow(icon = "🎯", label = PassAngles.TITLE, desc = PassAngles.DESCRIPTION)
+        HardMode.MODES.forEach { m ->
+            NavRow(
+                icon = "",
+                label = PassAngles.OPTION.getValue(m),
+                desc = PassAngles.OPTION_HINT.getValue(m),
+                modifier = Modifier.testTag("pass-hard-mode-setting-$m"),
                 trailing = { RadioButton(selected = m == mode, onClick = { onChange(m) }, colors = RadioButtonDefaults.colors(selectedColor = Lab.colors.accent)) },
                 onClick = { onChange(m) },
             )

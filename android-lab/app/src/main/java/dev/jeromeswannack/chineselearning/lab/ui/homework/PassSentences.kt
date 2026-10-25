@@ -53,16 +53,25 @@ fun PassSentences(
     startMore: Boolean = false,
     /** The card's sentence-row 🎤 (read it aloud — the pass's rows show the Chinese); null = none. */
     practise: dev.jeromeswannack.chineselearning.lab.ui.study.SentencePractiseState? = null,
+    /**
+     * Hard mode in the pass (docs/HOMEWORK.md §3d): this showing's Sentence round — those sentences come
+     * first, opened and outlined with how each went, before "+ N more" (the web's SentenceSet `roundRows`).
+     */
+    roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(),
 ) {
     if (rows.isEmpty()) return
     val state = remember(key) { SentenceRowsState(startExplained).apply { steps.putAll(startSteps) } }
     var more by remember(key) { mutableStateOf(startMore) }
     var adding by remember(key) { mutableStateOf<Chunk?>(null) }
-    val shown = if (more) rows else rows.take(1)
-    val hidden = rows.size - 1
+    val ordered = if (roundMarks.isEmpty()) rows
+        else dev.jeromeswannack.chineselearning.lab.core.SentenceRound.orderKeys(rows.map { it.key }, roundMarks).mapNotNull { k -> rows.firstOrNull { it.key == k } }
+    val markOf = roundMarks.associateBy { it.key }
+    val first = maxOf(1, roundMarks.size)
+    val shown = if (more) ordered else ordered.take(first)
+    val hidden = maxOf(0, ordered.size - first)
     Column(modifier.fillMaxWidth().testTag("hw-pass-sentences"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (row in shown) {
-            SentenceRowView(row, state, online, playingKey, actions, onPlay, onAdd = { adding = it }, startStep = 1, englishToggle = false, practise = practise)
+            SentenceRowView(row, state, online, playingKey, actions, onPlay, onAdd = { adding = it }, startStep = 1, englishToggle = false, practise = practise, roundMark = markOf[row.key])
         }
         if (hidden > 0) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
