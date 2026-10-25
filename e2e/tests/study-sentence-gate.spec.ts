@@ -398,6 +398,7 @@ test('hard mode chip: Off · Red cards only · All in the header; Red cards only
   await page.getByTestId('hard-mode-option-red').click();
   await expect(chip).toHaveAttribute('data-mode', 'red');
   await expect(chip).toHaveText('🎯 Red');
+  await shot(page, 'hard-01b-chip-red');
   // A new card is not red: straight to the answer, no round, no lock.
   await page.getByTestId('skip-recording').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
@@ -406,6 +407,7 @@ test('hard mode chip: Off · Red cards only · All in the header; Red cards only
   await chip.click();
   await page.getByTestId('hard-mode-option-off').click();
   await expect(chip).toHaveText('🎯 Off');
+  await shot(page, 'hard-01c-chip-off');
   expect(await page.evaluate(() => localStorage.getItem('sentence-gate-v1'))).toBe('off');
 });
 
