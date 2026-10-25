@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
-  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, roundRowMarks, orderKeysForRound, exercisesFromLog, type RoundSentence,
+  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, roundRowMarks, orderKeysForRound, exercisesFromLog, roundEnglishShown, type RoundSentence,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
 import { wantsMoreSentences } from './sentenceHistory';
@@ -110,5 +110,20 @@ describe('the round on the answer side', () => {
     expect(exercisesFromLog(list, ['translate:c', 'read:a', 'read:zzz'])?.map((e) => e.id)).toEqual(['read:a', 'translate:c']);
     expect(exercisesFromLog(list, ['read:a'], (k) => k === 'a')).toBeNull();
     expect(exercisesFromLog(list, [])).toBeNull();
+  });
+});
+
+describe('roundEnglishShown', () => {
+  it('shows a read exercise\'s English at once when it is right, else only after Show English', () => {
+    expect(roundEnglishShown('read', null, false, null)).toBe(false);
+    expect(roundEnglishShown('read', 'right', true, null)).toBe(true);
+    expect(roundEnglishShown('read', 'right', true, false)).toBe(false); // Hide English
+    expect(roundEnglishShown('read', 'close', true, null)).toBe(false);
+    expect(roundEnglishShown('read', 'wrong', true, null)).toBe(false);
+    expect(roundEnglishShown('read', 'wrong', true, true)).toBe(true); // Show English
+    expect(roundEnglishShown('read', null, true, null)).toBe(false); // still being checked
+  });
+  it('a translate exercise\'s English is its question', () => {
+    expect(roundEnglishShown('translate', null, false, null)).toBe(true);
   });
 });

@@ -1015,9 +1015,14 @@ listening card, the homework pass, the tutor-notes practice or the Try-it previe
 reads as All cards), Lab `StudyPrefs.hardMode`: **Off** (the default: straight to the answer, no round, no lock) ·
 **Red cards only** · **All cards**. Switched from the session header's **🎯 chip** (next to the ✈ Auto pill: "🎯 Off /
 Red / All", a tap opens the three choices with a hint each — web `components/study/HardModeChip.tsx`, Lab
-`HardModeChip` in `ui/study/HardModeUi.kt`) and **Settings → Study → 🎯 Hard mode**. The card on screen follows at
+`HardModeChip` in `ui/study/HardModeUi.kt`; **the header's counts never wrap or get cut**: on a tight width the
+🎯 and ✈ chips go icon-only — 44 px targets, the state as a dot / colour, the words in their accessible name —
+then the numbers get smaller, then the passing sync badge (web) / the "📖 1" chip (Lab) steps aside: web
+`components/study/useTopbarFit.ts` (measures the counts, `data-fit` 0–3), Lab `ui/study/StudyTopBarFit.kt`
+(measures the text, `StudyTopBarFitTest` at 360 / 412 dp and unfolded)). and **Settings → Study → 🎯 Hard mode**. The card on screen follows at
 once: switched off while the check or the round is up → the answer; on the answer side switching it ON never locks
-a card revealed without it, OFF frees Good / Easy.
+a card revealed without it, OFF frees Good / Easy. While the check is up on the question, the card shows no "Use in a
+sentence" / Multiple choice under it (both apps).
 
 **Red cards only**: Hard mode only for the cards he's struggling with right now — learning / relearning (the red
 count in the session header, `isRedCard`). Every card rated Again today is one of these (Again on a new card →
@@ -1061,7 +1066,9 @@ round** before the answer — like Worldle, a ladder of harder questions about t
 - What it never gives away: the card's own answer shows only as the sentences inevitably do. The question
   stays small at the top (the hanzi on a reading card, the English on a meaning card). A translate
   exercise's Chinese, pinyin and ▶ appear only once it's answered; a read exercise's ▶, pinyin and "Show
-  English" only after its attempt.
+  English" only after its attempt — and once it's **✓ Right its English shows at once** ("Hide English" still
+  hides it; ≈ Nearly / ✗ Not quite keep "Show English"; `roundEnglishShown`, Lab `SentenceRound.englishShown`,
+  parity-tested).
 - **Skip to the answer →** is always there, with one line under it: "Good and Easy stay locked until 2 more
   sentences are right — the sentences on the answer side still count." — the answer side's gate (below)
   keeps the round's count.

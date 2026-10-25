@@ -32,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -63,6 +64,7 @@ object HardModeTags {
     const val SHOW_ANSWER = "hard-show-answer"
     const val NEXT = "hard-next"
     const val GAVE_UP = "hard-gave-up"
+    const val CHIP_DOT = "hard-mode-chip-dot"
 }
 
 private val ChipRed = Color(0xFFDC2626)
@@ -74,7 +76,7 @@ private val ChipAll = Color(0xFFD97706)
  * (StudyPrefs.hardMode); the card on screen follows at once.
  */
 @Composable
-fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = false) {
+fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = false, compact: Boolean = false) {
     var open by remember { mutableStateOf(startOpen) }
     val color = when (mode) {
         HardMode.RED -> ChipRed
@@ -82,18 +84,45 @@ fun HardModeChip(mode: String, onChange: (String) -> Unit, startOpen: Boolean = 
         else -> Lab.colors.muted
     }
     Box {
-        Row(
-            Modifier
-                .heightIn(min = 32.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = if (mode == HardMode.OFF) 0.08f else 0.14f))
-                .bouncyClickable { open = true }
-                .padding(horizontal = 10.dp, vertical = 5.dp)
-                .semantics { contentDescription = HardMode.chipLabel(mode) }
-                .testTag(HardModeTags.CHIP),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(HardMode.CHIP.getValue(mode), color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        if (compact) {
+            // A tight header (StudyTopBarFit): 🎯 alone in a 44 dp target, the state as a coloured dot
+            // (none when Off, the 🎯 dimmed); the full "Hard mode: Red cards only" is its label.
+            Box(
+                Modifier
+                    .size(CompactChipSize)
+                    .bouncyClickable { open = true }
+                    .semantics { contentDescription = HardMode.chipLabel(mode) }
+                    .testTag(HardModeTags.CHIP),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier.size(34.dp).clip(CircleShape).background(color.copy(alpha = if (mode == HardMode.OFF) 0.08f else 0.14f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("🎯", Modifier.alpha(if (mode == HardMode.OFF) 0.45f else 1f), fontSize = 15.sp, maxLines = 1, softWrap = false)
+                }
+                if (mode != HardMode.OFF) {
+                    Box(
+                        Modifier.align(Alignment.TopEnd).padding(top = 6.dp, end = 4.dp).size(10.dp).clip(CircleShape)
+                            .background(Lab.colors.background).padding(1.5.dp).clip(CircleShape).background(color)
+                            .testTag(HardModeTags.CHIP_DOT),
+                    )
+                }
+            }
+        } else {
+            Row(
+                Modifier
+                    .heightIn(min = 32.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = if (mode == HardMode.OFF) 0.08f else 0.14f))
+                    .bouncyClickable { open = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                    .semantics { contentDescription = HardMode.chipLabel(mode) }
+                    .testTag(HardModeTags.CHIP),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(HardMode.CHIP.getValue(mode), color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, softWrap = false)
+            }
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }, modifier = Modifier.testTag(HardModeTags.MENU)) {
             Text(

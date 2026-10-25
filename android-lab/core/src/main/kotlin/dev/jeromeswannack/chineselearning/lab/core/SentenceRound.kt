@@ -109,6 +109,14 @@ object SentenceRound {
     const val SEE_ANSWER = "See the answer"
     const val SHOW_ENGLISH = "Show English"
     const val HIDE_ENGLISH = "Hide English"
+
+    /** `roundEnglishShown`: a read exercise's English — at once when ✓ Right, else only after Show English; `toggled` = his own Show / Hide (null = untouched). */
+    fun englishShown(mode: String, status: String?, answered: Boolean, toggled: Boolean?): Boolean {
+        if (mode == SentencePractise.TRANSLATE) return true
+        if (!answered) return false
+        if (toggled != null) return toggled
+        return status == "right"
+    }
     val PROMPT = mapOf(SentencePractise.READ to "📖 Read it aloud", SentencePractise.TRANSLATE to "🔁 Say it in Chinese")
     val RESULT = mapOf("right" to "✓ Right", "close" to "≈ Nearly", "wrong" to "✗ Not quite")
 

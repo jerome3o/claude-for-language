@@ -73,6 +73,8 @@ object SentenceRoundTags {
     const val EXERCISE = "sentence-round-exercise"
     const val CHINESE = "sentence-round-chinese"
     const val ENGLISH = "sentence-round-english"
+    const val READ_ENGLISH = "sentence-round-read-english"
+    const val ENGLISH_TOGGLE = "sentence-round-english-toggle"
     const val PLAY = "sentence-round-play"
     const val RETRY = "sentence-round-retry"
     const val SKIP = "sentence-round-skip"
@@ -223,8 +225,8 @@ fun SentenceRoundPage(
                     val row = byKey[ex.key] ?: return@forEachIndexed
                     RoundExerciseCard(
                         index, ex, row.copy(key = ex.id), ex.id in right, practise, playingKey, onPlay,
-                        showEnglish = english[ex.id] == true,
-                        onToggleEnglish = { english[ex.id] = english[ex.id] != true },
+                        englishToggled = english[ex.id],
+                        onToggleEnglish = { shown -> english[ex.id] = !shown },
                         onRetry = {
                             Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
                         },
@@ -294,8 +296,9 @@ private fun RoundExerciseCard(
     practise: SentencePractiseState,
     playingKey: String?,
     onPlay: (key: String?, text: String) -> Unit,
-    showEnglish: Boolean,
-    onToggleEnglish: () -> Unit,
+    /** His own Show / Hide English on this showing (null = untouched: shown at once when Right). */
+    englishToggled: Boolean?,
+    onToggleEnglish: (shownNow: Boolean) -> Unit,
     onRetry: () -> Unit,
     onMore: () -> Unit = {},
 ) {
@@ -309,6 +312,7 @@ private fun RoundExerciseCard(
         else -> null
     }
     val answered = isRight || take != null
+    val showEnglish = SentenceRound.englishShown(ex.mode, status, answered, englishToggled)
     val shape = RoundedCornerShape(16.dp)
     val border = when (status) {
         "right" -> Palette.Good
@@ -348,7 +352,7 @@ private fun RoundExerciseCard(
                 }
                 if (answered && !row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
                 if (ex.mode == SentencePractise.READ && answered && showEnglish && !row.translation.isNullOrBlank()) {
-                    Text(row.translation, color = Lab.colors.muted, fontSize = 14.sp)
+                    Text(row.translation, Modifier.testTag(SentenceRoundTags.READ_ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
                 }
             }
             if (!isRight) SentenceMicButton(practise, row, ex.mode)
@@ -381,7 +385,8 @@ private fun RoundExerciseCard(
                 }
                 if (ex.mode == SentencePractise.READ && !row.translation.isNullOrBlank()) {
                     Box(
-                        Modifier.heightIn(min = 44.dp).bouncyClickable(true, 0.97f, role = Role.Button, onClick = onToggleEnglish).padding(horizontal = 4.dp),
+                        Modifier.heightIn(min = 44.dp).bouncyClickable(true, 0.97f, role = Role.Button) { onToggleEnglish(showEnglish) }
+                            .padding(horizontal = 4.dp).testTag(SentenceRoundTags.ENGLISH_TOGGLE),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(if (showEnglish) SentenceRound.HIDE_ENGLISH else SentenceRound.SHOW_ENGLISH, color = Lab.colors.muted, fontSize = 14.sp)

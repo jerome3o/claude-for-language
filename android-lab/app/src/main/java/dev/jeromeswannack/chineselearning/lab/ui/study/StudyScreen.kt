@@ -459,37 +459,54 @@ private fun cardTransition(lastRating: Int?): ContentTransform = studyCardTransi
 
 @Composable
 private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
-            QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied)
-            // Lab today split: what's waiting after the cards ("📘2 📖1").
-            if (ui.todayLeft.any && (ui.phase is StudyPhase.Showing || ui.phase is StudyPhase.Loading)) TodayLeftChip(ui.todayLeft)
-            // Hard mode: Off · Red cards only · All cards (the regular session only, never the tutor-notes practice).
-            if (ui.practice == null) {
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                val prefs = remember { StudyPrefs.get(ctx) }
-                val hardMode by prefs.hardMode.collectAsState()
-                HardModeChip(hardMode, onChange = { next ->
-                    prefs.setHardMode(next)
-                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "set", "mode" to next, "where" to "header"))
-                })
-                Spacer(Modifier.width(6.dp))
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val prefs = remember { StudyPrefs.get(ctx) }
+    val hardMode by prefs.hardMode.collectAsState()
+    val showTodayLeft = ui.todayLeft.any && (ui.phase is StudyPhase.Showing || ui.phase is StudyPhase.Loading)
+    val (offlineLabel, _) = offlinePillLabel(ui.online, ui.forcedOffline)
+    val offlineSuffix = if ((ui.forcedOffline || !ui.online) && pendingReviews > 0) " ($pendingReviews)" else ""
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().testTag(STUDY_TOP_BAR_TAG)) {
+        // The counts never wrap: on a tight width the chips go icon-only, then the numbers get smaller (StudyTopBarFit).
+        val fit = rememberTopBarLevel(
+            maxWidth, ui.counts,
+            TopBarChips(
+                todayLeft = if (showTodayLeft) ui.todayLeft.chip else null,
+                hardModeLabel = if (ui.practice == null) dev.jeromeswannack.chineselearning.lab.core.HardMode.CHIP.getValue(hardMode) else null,
+                offlineLabel = offlineLabel + offlineSuffix,
+            ),
+        )
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
+                QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied, style = fit.counts)
+                // Lab today split: what's waiting after the cards ("📘2 📖1").
+                if (showTodayLeft && fit.showTodayLeft) TodayLeftChip(ui.todayLeft)
+                // Hard mode: Off · Red cards only · All cards (the regular session only, never the tutor-notes practice).
+                if (ui.practice == null) {
+                    HardModeChip(hardMode, compact = fit.compactChips, onChange = { next ->
+                        prefs.setHardMode(next)
+                        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "set", "mode" to next, "where" to "header"))
+                    })
+                    Spacer(Modifier.width(if (fit.compactChips) 2.dp else 6.dp))
+                }
+                OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline, compact = fit.compactChips)
+                IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
+                }
             }
-            OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
-            IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
-                Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
+            val progress by animateFloatAsState(ui.progress, spring(dampingRatio = 0.9f, stiffness = 120f), label = "progress")
+            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
+                Box(
+                    Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).clip(CircleShape)
+                        .background(Brush.horizontalGradient(listOf(Lab.colors.accent, Palette.Gold))),
+                )
             }
-        }
-        val progress by animateFloatAsState(ui.progress, spring(dampingRatio = 0.9f, stiffness = 120f), label = "progress")
-        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(6.dp).clip(CircleShape).background(Lab.colors.faint)) {
-            Box(
-                Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).clip(CircleShape)
-                    .background(Brush.horizontalGradient(listOf(Lab.colors.accent, Palette.Gold))),
-            )
         }
     }
 }
+
+/** The study session's top bar (✕, counts, chips, ↺). */
+const val STUDY_TOP_BAR_TAG = "study-top-bar"
 
 /**
  * The homework pass's top bar on the study card (web: the pass `header` + `banner`): ✕, the

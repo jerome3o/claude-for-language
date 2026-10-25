@@ -108,6 +108,21 @@ class SentenceRoundParityTest {
     }
 
     @Test
+    fun englishShownMatches() {
+        val cases = fixture()["english"]!!.jsonArray
+        assertEquals(48, cases.size)
+        for (c in cases) {
+            val o = c.jsonObject
+            val toggled = o["toggled"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.boolean }
+            assertEquals(
+                o["shown"]!!.jsonPrimitive.boolean,
+                SentenceRound.englishShown(o["mode"]!!.str!!, o["status"]!!.str, o["answered"]!!.jsonPrimitive.boolean, toggled),
+                o.toString(),
+            )
+        }
+    }
+
+    @Test
     fun copyMatches() {
         val c = fixture()["copy"]!!.jsonObject
         assertEquals(c["size"]!!.jsonPrimitive.int, SentenceRound.SIZE)

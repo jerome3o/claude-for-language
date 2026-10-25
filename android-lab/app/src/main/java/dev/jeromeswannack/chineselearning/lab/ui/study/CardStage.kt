@@ -612,6 +612,7 @@ fun CardStage(
                         isCurrent = isCurrent,
                         sayAgainDraft = sayAgainDraft,
                         onSayAgainDraft = { sayAgainDraft = it },
+                        hardFeedback = feedbackOpen && questionResult != null,
                         onTapToAnswer = {
                             when {
                                 reRecording -> actions.onStopRecording(true)
@@ -882,6 +883,8 @@ private fun CardFront(
     isCurrent: () -> Boolean = { true },
     sayAgainDraft: androidx.compose.ui.text.input.TextFieldValue = androidx.compose.ui.text.input.TextFieldValue(""),
     onSayAgainDraft: (androidx.compose.ui.text.input.TextFieldValue) -> Unit = {},
+    /** Hard mode's check is up on the question (✗ Not quite / ≈ Nearly / ✓ Right): no sentence clue / multiple choice (the web hides them too). */
+    hardFeedback: Boolean = false,
     onTapToAnswer: () -> Unit,
 ) {
     val note = view.note
@@ -968,6 +971,8 @@ private fun CardFront(
         } else if (revealed) {
             // Peeking back at the question: the hints are spent, the answer is one tap away.
             Text("Tap to see the answer", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
+        } else if (hardFeedback) {
+            // The check's panel below has Try again / Show answer: nothing else under the question.
         } else {
             val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
             val reading = view.card.cardType == CardTypes.HANZI_TO_MEANING

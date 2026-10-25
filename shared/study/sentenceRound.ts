@@ -188,6 +188,24 @@ export const SENTENCE_ROUND_TRY_AGAIN = 'Try again';
 export const SENTENCE_ROUND_SEE_ANSWER = 'See the answer';
 export const SENTENCE_ROUND_SHOW_ENGLISH = 'Show English';
 export const SENTENCE_ROUND_HIDE_ENGLISH = 'Hide English';
+
+/**
+ * Whether a 📖 Read it aloud exercise shows its English line. Before an attempt: never. Once it's
+ * ✓ Right: at once (Jerome: no extra tap after reading it right) — "Hide English" still hides it.
+ * ≈ Nearly / ✗ Not quite: only after "Show English". `toggled` = his own Show / Hide on this showing
+ * (null / undefined = he hasn't touched it). A translate exercise's English is its question: always up.
+ */
+export function roundEnglishShown(
+  mode: SentencePractiseMode,
+  status: 'right' | 'close' | 'wrong' | null,
+  answered: boolean,
+  toggled: boolean | null | undefined,
+): boolean {
+  if (mode === 'translate') return true;
+  if (!answered) return false;
+  if (toggled != null) return toggled;
+  return status === 'right';
+}
 /** Each exercise's heading. */
 export const SENTENCE_ROUND_PROMPT: Record<SentencePractiseMode, string> = {
   read: '📖 Read it aloud',

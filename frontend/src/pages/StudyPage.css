@@ -38,6 +38,48 @@
   white-space: nowrap;
 }
 
+/* A tight top bar (useTopbarFit, data-fit 1–3): the counts never wrap or get cut. 1: the ✈ pill and
+   the sync badge go icon-only (their accessible names keep the words); 2–3: smaller numbers (3: no
+   sync badge). */
+.study-fullscreen .study-topbar .queue-counts > span {
+  white-space: nowrap;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .study-offline-pill {
+  justify-content: center;
+  min-width: 44px;
+  padding: 0 0.4rem;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .study-offline-pill-label--short,
+.study-topbar[class*='study-topbar--fit-'] .study-offline-pill-label--full,
+.study-topbar[class*='study-topbar--fit-'] .sync-badge-inline > span:not([class]) {
+  display: none;
+}
+
+.study-fullscreen .study-topbar.study-topbar--fit-2 .queue-counts {
+  font-size: 1rem;
+  gap: 0.125rem;
+}
+
+.study-fullscreen .study-topbar.study-topbar--fit-3 .queue-counts {
+  font-size: 0.875rem;
+  gap: 0.0625rem;
+}
+
+/* The tightest: the passing sync badge steps aside (the ✈ pill's label still says what's waiting). */
+.study-fullscreen .study-topbar.study-topbar--fit-3 {
+  gap: 0.25rem;
+}
+
+.study-topbar.study-topbar--fit-3 .sync-badge-inline {
+  display: none;
+}
+
+.study-topbar[class*='study-topbar--fit-'] .study-topbar-controls {
+  gap: 0.25rem;
+}
+
 /* Offline pill (D3) */
 .study-offline-pill {
   display: inline-flex;
