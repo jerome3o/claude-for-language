@@ -9,6 +9,7 @@ import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import { Header } from './components/Header';
 import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
+import { FeedbackProvider } from './components/feedback/FeedbackProvider';
 import { CallAlerts } from './components/calls/CallAlerts';
 import { ExplorerProvider } from './components/explorer/ExplorerContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -752,12 +753,14 @@ function App() {
         <NetworkProvider>
           <BrowserRouter>
             <ExplorerProvider>
-              <NativeNavigationListener />
-              <AnalyticsListener />
-              <AppRoutes />
-              <OfflineBanner />
-              <FeedbackFAB />
-              <CallAlerts />
+              <FeedbackProvider>
+                <NativeNavigationListener />
+                <AnalyticsListener />
+                <AppRoutes />
+                <OfflineBanner />
+                <FeedbackFAB />
+                <CallAlerts />
+              </FeedbackProvider>
             </ExplorerProvider>
           </BrowserRouter>
         </NetworkProvider>

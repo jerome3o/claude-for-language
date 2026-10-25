@@ -13,11 +13,13 @@ import { NewCardOrderSection } from '../components/settings/NewCardOrderSection'
 import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLanguageSection';
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { SignOutSection } from '../components/settings/SignOutSection';
+import { FeedbackSettingsSection } from '../components/settings/FeedbackSettingsSection';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
-import { useHardMode, writeHardMode } from '../services/hardModePrefs';
+import { useHardMode, usePassHardMode, writeHardMode, writePassHardMode } from '../services/hardModePrefs';
+import { PASS_HARD_MODE_DESCRIPTION, PASS_HARD_MODE_OPTION, PASS_HARD_MODE_OPTION_HINT, PASS_HARD_MODE_TITLE } from '@shared/homework/pass-angles';
 import { HARD_MODES, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION, HARD_MODE_OPTION_HINT, HARD_MODE_TITLE } from '@shared/study/hardMode';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
 import { budgetSetByLabel } from '@shared/decks';
@@ -127,15 +129,20 @@ function FeatureRequestDetail({ requestId, onClose }: { requestId: string; onClo
           <span className={`feature-request-status status-${request.status}`}>
             {STATUS_LABELS[request.status] || request.status}
           </span>
+          <KindBadge kind={request.kind} />
           <span>{timeAgo(request.created_at)}</span>
-          {request.page_context && <span>from {request.page_context}</span>}
+          {request.page_context && !request.context_line && <span>from {request.page_context}</span>}
         </div>
+        {request.context_line && <div className="feature-request-context" data-testid="feature-request-context">{request.context_line}</div>}
+        {request.context?.recent_events && request.context.recent_events.length > 0 && (
+          <div className="feature-request-context">Just before: {request.context.recent_events.slice(-6).join(' → ')}</div>
+        )}
 
         {request.screenshot_url && (
           <div style={{ marginTop: '0.75rem' }}>
             <AuthedScreenshot
               path={request.screenshot_url}
-              style={{ maxWidth: '100%', border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
+              style={{ maxWidth: '100%', maxHeight: '60dvh', objectFit: 'contain', border: '1px solid var(--border-color, #ccc)', borderRadius: 4 }}
             />
           </div>
         )}
@@ -533,18 +540,27 @@ function AudioDiagnosticsPanel() {
   );
 }
 
+/** 🐛 Bug / 💬 Feedback on in-app feedback items (docs/FEEDBACK.md); nothing on classic requests. */
+function KindBadge({ kind }: { kind?: string }) {
+  if (kind !== 'bug' && kind !== 'feedback') return null;
+  return <span className={`feature-request-kind kind-${kind}`}>{kind === 'bug' ? '🐛 Bug' : '💬 Feedback'}</span>;
+}
+
 function FeatureRequestsSection() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState<FeatureRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  // Admins: everyone's requests and feedback (the author always sees their own).
+  const [everyone, setEveryone] = useState(false);
 
   const loadRequests = useCallback(async () => {
     try {
-      const data = await getFeatureRequests();
+      const data = await getFeatureRequests({ all: everyone });
       setRequests(data);
     } catch (err) {
       console.error('Failed to load feature requests:', err);
     }
-  }, []);
+  }, [everyone]);
 
   useEffect(() => { loadRequests(); }, [loadRequests]);
 
@@ -552,8 +568,14 @@ function FeatureRequestsSection() {
     <div className="settings-section">
       <h2>Feature Requests</h2>
       <p className="settings-section-desc">
-        Your submitted feedback and feature requests. Use the 💬 button to submit new ones from anywhere in the app.
+        Your submitted feedback and feature requests. Send new ones from More → Send feedback, the 💬 button, or by shaking your phone.
       </p>
+      {!!user?.is_admin && (
+        <div className="feature-requests-scope" role="tablist">
+          <button type="button" role="tab" aria-selected={!everyone} className={!everyone ? 'is-on' : ''} onClick={() => setEveryone(false)}>Mine</button>
+          <button type="button" role="tab" aria-selected={everyone} className={everyone ? 'is-on' : ''} onClick={() => setEveryone(true)} data-testid="feature-requests-everyone">Everyone</button>
+        </div>
+      )}
 
       {requests.length === 0 ? (
         <p style={{ color: 'var(--color-text-light)', fontSize: '0.9rem' }}>
@@ -571,14 +593,21 @@ function FeatureRequestsSection() {
                 <span className={`feature-request-status status-${req.status}`}>
                   {STATUS_LABELS[req.status] || req.status}
                 </span>
+                <KindBadge kind={req.kind} />
+                {everyone && <span className="feature-request-author">{req.user_name || req.user_email}</span>}
               </div>
-              <div className="feature-request-content">
-                {req.content.length > 150 ? req.content.slice(0, 150) + '...' : req.content}
+              <div className="feature-request-body">
+                <div className="feature-request-content">
+                  {req.content.length > 150 ? req.content.slice(0, 150) + '...' : req.content}
+                </div>
+                {req.screenshot_url && req.kind && req.kind !== 'request' && (
+                  <AuthedScreenshot path={req.screenshot_url} thumb />
+                )}
               </div>
               <div className="feature-request-meta">
                 <span>{timeAgo(req.created_at)}</span>
                 {req.comment_count > 0 && <span>{req.comment_count} comment{req.comment_count !== 1 ? 's' : ''}</span>}
-                {req.page_context && <span>from {req.page_context}</span>}
+                {(req.context_line || req.page_context) && <span>from {req.context_line || req.page_context}</span>}
               </div>
             </div>
           ))}
@@ -699,6 +728,41 @@ function HardModeSetting() {
 }
 
 /**
+ * Settings → Study → "Hard mode in homework" (docs/HOMEWORK.md §3e): the one-off pass's own setting,
+ * per device, All by default (services/hardModePrefs.ts `usePassHardMode`, also the pass header's 🎯
+ * chip) — the session's setting above is untouched.
+ */
+function PassHardModeSetting() {
+  const mode = usePassHardMode();
+  return (
+    <fieldset className="settings-hard-mode" style={{ marginTop: '1rem', border: 0, padding: 0 }} data-testid="pass-hard-mode-setting">
+      <legend style={{ fontWeight: 600 }}>🎯 {PASS_HARD_MODE_TITLE}</legend>
+      <p className="settings-section-desc" style={{ marginTop: '0.25rem' }}>{PASS_HARD_MODE_DESCRIPTION}</p>
+      {HARD_MODES.map((m) => (
+        <label key={m} className="settings-toggle-row" style={{ alignItems: 'flex-start' }}>
+          <input
+            type="radio"
+            name="pass-hard-mode"
+            value={m}
+            checked={mode === m}
+            onChange={() => {
+              writePassHardMode(m);
+              track('settings.change', { setting: 'pass_hard_mode', value: m });
+              track('homework.pass_hard_mode', { mode: m, where: 'settings' });
+            }}
+            data-testid={`pass-hard-mode-setting-${m}`}
+          />
+          <span>
+            {PASS_HARD_MODE_OPTION[m]}
+            <span className="settings-section-desc" style={{ display: 'block', margin: 0 }}>{PASS_HARD_MODE_OPTION_HINT[m]}</span>
+          </span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+/**
  * Settings → Study → "Skip the review — submit spoken answers as soon as I stop" (off by default):
  * off, the 🎤 on a typing card shows what was said first (🔁 Retry · ✏️ Edit · ✓ Submit); on, it is
  * checked as soon as he stops.
@@ -728,6 +792,7 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <HardModeSetting />
+      <PassHardModeSetting />
       <WordTagsSetting />
       <CardPicturesSetting />
       <NewCharShimmerSetting />
@@ -1059,6 +1124,8 @@ export function SettingsPage() {
         <ChatSettingsSection />
 
         <CardCheckSettingsSection />
+
+        <FeedbackSettingsSection />
 
         <div className="settings-section">
           <Link className="btn btn-secondary export-btn" to="/about/licences">

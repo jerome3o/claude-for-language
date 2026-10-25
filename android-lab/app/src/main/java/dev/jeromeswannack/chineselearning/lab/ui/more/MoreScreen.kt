@@ -72,6 +72,8 @@ class MoreActions(
     val onFullSync: () -> Unit = {},
     val onOpenMainApp: () -> Unit = {},
     val onSignOut: () -> Unit = {},
+    /** 💬 Send feedback (docs/FEEDBACK.md): the sheet with a screenshot of the app. */
+    val onSendFeedback: () -> Unit = {},
 )
 
 /**
@@ -184,6 +186,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                 rows = listOf(
                     row("👤", "Profile", if (role.isTutorOnly || role.isTutorAccount) "Name, photo, about me for students, time zone" else "Name, photo, about me, bio, time zone", Routes.profile()),
                     row("⚙️", "Settings", if (role.isTutorOnly) "Backup · Start on" else "Study budget · Start on · Offline audio", Routes.SETTINGS),
+                    { NavRow("💬", "Send feedback", desc = "Something wrong, or an idea? With a screenshot of the app", onClick = actions.onSendFeedback) },
                     {
                         NavRow("🚪", "Sign out", danger = true, onClick = { if (ui.sync.unsynced > 0 || ui.pendingWrites > 0) confirmSignOut = true else actions.onSignOut() })
                     },

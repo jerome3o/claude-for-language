@@ -31,6 +31,9 @@ fun SpokenAnswerSection(
     /** Settings → Study → "Hard mode" (the web's `HardModeSetting`): "off" | "red" | "all"; null = not shown. */
     hardMode: String? = null,
     onHardModeChange: (String) -> Unit = {},
+    /** Settings → Study → "Hard mode in homework" (the web's `PassHardModeSetting`; default "all"); null = not shown. */
+    passHardMode: String? = null,
+    onPassHardModeChange: (String) -> Unit = {},
     onChange: (Boolean) -> Unit,
 ) {
     SettingsSection(
@@ -40,6 +43,7 @@ fun SpokenAnswerSection(
     ) {
         ToggleRow("🎤", SKIP_REVIEW_LABEL, on, onChange = onChange)
         if (hardMode != null) HardModeChoices(hardMode, onHardModeChange)
+        if (passHardMode != null) PassHardModeChoices(passHardMode, onPassHardModeChange)
         if (wordTagsOn != null) {
             ToggleRow(
                 "🏷",
@@ -90,8 +94,15 @@ fun SpokenAnswerSettings(app: LabApp) {
     val picturesOn by prefs.picturesOn.collectAsState()
     val shimmerOn by prefs.newCharShimmerOn.collectAsState()
     val hardMode by prefs.hardMode.collectAsState()
+    val passHardMode by prefs.passHardMode.collectAsState()
     SpokenAnswerSection(
         on,
+        passHardMode = passHardMode,
+        onPassHardModeChange = { next ->
+            prefs.setPassHardMode(next)
+            app.analytics.track("settings.change", mapOf("setting" to "pass_hard_mode", "value" to next))
+            app.analytics.track("homework.pass_hard_mode", mapOf("mode" to next, "where" to "settings"))
+        },
         hardMode = hardMode,
         onHardModeChange = { next ->
             prefs.setHardMode(next)

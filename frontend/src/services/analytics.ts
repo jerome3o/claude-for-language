@@ -193,10 +193,27 @@ async function trimQueue(): Promise<void> {
 export function track(event: AnalyticsEventName, props?: Record<string, unknown>): void {
   try {
     if (!isSharingUsage() || !isClientEvent(event)) return;
+    recent.push(event);
+    if (recent.length > RECENT_MAX) recent.splice(0, recent.length - RECENT_MAX);
     enqueue(event, props, sessionId());
   } catch {
     // never
   }
+}
+
+// The names (never props) of the last events tracked this page load, for a feedback item's context
+// (docs/FEEDBACK.md). Only while the user shares usage data.
+const RECENT_MAX = 15;
+const recent: string[] = [];
+
+/** The last event names tracked, oldest first (empty when usage sharing is off). */
+export function recentEventNames(): string[] {
+  return isSharingUsage() ? [...recent] : [];
+}
+
+/** The current screen's route pattern (`/decks/:id`), or null before the router reported one. */
+export function currentScreenPattern(): string | null {
+  return currentScreen?.name ?? null;
 }
 
 /** Records an error message shown to the user: where + a short code / HTTP status, never the message. */

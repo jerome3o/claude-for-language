@@ -254,6 +254,57 @@ from every list, including Home → the homework list's revision rows); any
   e-mail leave them out.
 - Analytics: `homework.skipped { kind, undo }`, `lesson.row_action { action, kind, from, undo }`.
 
+## 3e. Hard mode in the pass — "a few different angles for each word" (Jerome, 25 Oct 2026)
+
+"Can we make them more like the hard mode we have in the normal flashcards? … It's probably better for learning
+these, as I'm not going to come back to them for a long time, so it's good to do a few different angles for each word."
+
+- **The pass honours Hard mode** — the session's ladder, reused as is (docs/STUDY_SESSION.md "Hard mode"): on a
+  reading / meaning card the answer is checked AT ONCE on the question (✓ Right / ✗ Not quite — 🔁 Try again,
+  👁 Show answer), then the **Sentence round** (2 read + 2 translate exercises from the card's sentence + the set,
+  history-picked; Skip allowed), then the answer side. The listening card never has the ladder.
+- **Its own setting, per device, default All** (a one-off pass is the only time he sees those words for a while; the
+  session's setting is untouched): web `usePassHardMode` (`services/hardModePrefs.ts`, localStorage
+  `pass-hard-mode-v1`), Lab `StudyPrefs.passHardMode`. **All words** · **Words I miss** (Red: words he marked *Not yet*
+  in this pass — so every time they come back) · **Off** (the pass as before). Switched from the pass header's
+  **🎯 chip** (`HardModeChip pass` / Lab `HardModeChip(pass = true)`) or **Settings → Study → 🎯 Hard mode in
+  homework** (both settings listed there). The header says "🎯 2 angles per word" (Red: "… for words you miss").
+- **Got it needs the ladder**: giving up (👁 Show answer / Skip recording / Show with nothing typed before a right
+  answer) → the answer side with **Got it locked** (🔒, faded; "👁 You looked at the answer — Not yet this time"
+  above; a tap says why) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
+  the round was passed or skipped (its Skip line says "Skipping is fine — Got it stays open …"; the sentences never
+  lock Got it).
+- **A second angle**: a word got right in Hard mode on its first angle is owed ONE more showing later in the pass on a
+  different card type (`secondAngleType`: reading → meaning, meaning → reading; then the listening card when the note
+  has audio and the other is done or missing) — at most 2 angles a word (`PASS_MAX_ANGLES`). It comes back once 3
+  other words were started since (`PASS_ANGLE_GAP`, so a long pass interleaves "reading, reading, reading, meaning,
+  reading, meaning…"), else at the end among the retries (by time). A *Not yet* on it brings that angle back as a retry.
+  Only then is the word done. The card shows "🔄 Second angle · English → Chinese".
+- **Events, no schema change**: *Not yet* = `wrong` on the note id (as before). A first angle's *Got it* that is owed a
+  second = `right` on a STEP id `<noteId>#<card type>`; the final *Got it* = `right` on the note id. The server's
+  `recomputeProgress`, `passProgress`, Home rows and every tutor view count the note id only — a word is done for
+  them exactly when it is done in the pass (an older app ignores step events and just shows the word again). Undo
+  (§3b) takes a step back like any answer.
+- **The bar stays truthful** (§3c): `passAnglePlan(words, events, mode).bar` = the retry bar with every owed angle as
+  a step — a fresh word in All mode is 2 slots, a word owed its second angle 1 grey slot, a retry 1 orange slot (+1
+  grey when its second angle will follow). With no step events and Off it is exactly `passRetryBar`.
+- **Sentences**: one-off notes often have no set yet. When a pass opens in Hard mode, its words with NO set are queued
+  (`POST /api/sentences/prefetch` with the pass's note ids first) and those with fewer than the round's four ask for
+  more (`POST /api/sentences/top-up { reason: 'few' }`, once a day per word) — web `services/passSentences.ts`, Lab
+  `data/homework/PassSentenceTopUp.kt`. The web fetches a word's set when its card shows; the Lab gets the rows with
+  the next sync. Fewer sentences = a shorter round, none = no round (the session's rule).
+- Still NO review event and no FSRS: the round is practice (its takes go to the sentence practice history like the
+  session's). "Add to my long-term review" and ⚡ Study it today are unchanged; the answer side lists the round's
+  sentences first, outlined, before "+ N more".
+- **Rules**: `shared/homework/pass-angles.ts` (`parsePassHardMode`, `passHardApplies`, `passStepId`,
+  `secondAngleType`, `passAnglePlan`, `passAnswerItemId`, `passWordMissed` + the words), Lab core `PassAngles.kt`,
+  parity-tested (`android-lab/parity/fixtures/pass-angles.ts` → `PassAnglesParityTest`). Web `HomeworkPassPage`
+  (`DeckPass`) → `StudyCard pass.hard`; Lab `HomeworkPassViewModel` → `PassCardUi.hardApplies` → `CardStage`.
+  Analytics: `homework.pass_hard_mode { mode, where: pass | header | settings }`, `homework.pass_angle { action:
+  queued | answered, card_type, result }`, `homework.pass_item` + `angle`, `hard`; the ladder's own `study.hard_mode`
+  / `study.sentence_round` events carry `where: homework`. Tests: `pass-angles.test.ts`, E2E
+  `homework-pass-hard-mode.spec.ts`, Lab `PassHardModeTest`.
+
 ## 4. Tutor flow (student page)
 
 1. **Lesson notes** (replaces "Session notes"): one entry per lesson — date, title, and its homework

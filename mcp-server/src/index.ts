@@ -5,6 +5,8 @@ import { CARD_STANDARD, CARD_STANDARD_SHORT } from '../../shared/cards/standard'
 import { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES } from '../../shared/lesson/doc';
 import { conversationIntroWarnings } from '../../shared/lesson/introWarnings';
 import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
+import { kindCondition, shapeFeatureRequestForMcp } from './tools/feedback.js';
+import { signMediaUrls } from './tools/media.js';
 import type { CustomLessonSpec } from '../../shared/lesson/types';
 
 /** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
@@ -1714,7 +1716,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "list_feature_requests",
-      "List feature requests submitted by users. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on. To find work that still needs doing, pass unimplemented_only=true — it returns only requests that are approved, not done/declined, and not already claimed by another agent (agent_session_url IS NULL), so you won't duplicate another agent's effort. Before starting work, call claim_feature_request to atomically claim it. NOTE: the large console_logs field is omitted from this list to keep responses small — use get_feature_request to fetch a single request's full detail.",
+      "List feature requests submitted by users — including in-app feedback (kind 'feedback' or 'bug', sent from the apps' Send feedback sheet / a phone shake / VR, with a `context` (platform, app version, screen route, device, online) and maybe a screenshot: `screenshot_url` is a signed link valid 24 h; docs/FEEDBACK.md). Pass kind='feedback' for feedback + bug reports only, 'request' for the classic requests. Admins see all requests; non-admins see only their own. IMPORTANT: Only act on requests where approval_status is 'approved'. Requests with 'pending' approval_status have not been reviewed by the admin yet and should not be worked on. To find work that still needs doing, pass unimplemented_only=true — it returns only requests that are approved, not done/declined, and not already claimed by another agent (agent_session_url IS NULL), so you won't duplicate another agent's effort. Before starting work, call claim_feature_request to atomically claim it. NOTE: the large console_logs field is omitted from this list to keep responses small — use get_feature_request to fetch a single request's full detail.",
       {
         status: z.enum(['new', 'in_progress', 'agent_working', 'done', 'declined']).optional()
           .describe("Filter by status"),
@@ -1722,8 +1724,10 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           .describe("Filter by approval status"),
         unimplemented_only: z.boolean().optional()
           .describe("If true, return only requests still needing work: approved, status not in (done, declined), and not yet claimed by an agent. Shortcut to avoid wading through completed requests and to prevent double-claiming."),
+        kind: z.enum(['request', 'feedback', 'bug']).optional()
+          .describe("'feedback' = in-app feedback and bug reports (both), 'bug' = bug reports only, 'request' = classic feature requests"),
       },
-      async ({ status, approval_status, unimplemented_only }) => {
+      async ({ status, approval_status, unimplemented_only, kind }) => {
         const admin = await isAdmin();
 
         // Explicit column list (omits the large console_logs blob — fetch it via
@@ -1731,7 +1735,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
         const cols = `
           fr.id, fr.user_id, fr.content, fr.page_context, fr.status,
           fr.approval_status, fr.screenshot_url, fr.ccr_session_url,
-          fr.agent_session_url, fr.created_at, fr.updated_at,
+          fr.agent_session_url, fr.created_at, fr.updated_at, fr.kind, fr.context,
           (SELECT COUNT(*) FROM feature_request_comments WHERE request_id = fr.id) as comment_count
         `;
 
@@ -1762,19 +1766,23 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           if (approval_status) { conditions.push('fr.approval_status = ?'); params.push(approval_status); }
         }
         if (status) { conditions.push('fr.status = ?'); params.push(status); }
+        const kindFilter = kindCondition(kind);
+        if (kindFilter) { conditions.push(kindFilter.sql); params.push(...kindFilter.params); }
 
         if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
         query += ' ORDER BY fr.created_at DESC';
 
         const stmt = this.env.DB.prepare(query);
         const results = params.length > 0
-          ? await stmt.bind(...params).all()
-          : await stmt.all();
+          ? await stmt.bind(...params).all<Record<string, unknown>>()
+          : await stmt.all<Record<string, unknown>>();
+        // Feedback screenshots are private media: a signed link (24 h) instead of the bare path.
+        const rows = await signMediaUrls(api, (results.results ?? []).map(shapeFeatureRequestForMcp));
 
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify(results.results, null, 2),
+            text: JSON.stringify(rows, null, 2),
           }],
         };
       }
@@ -1782,7 +1790,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "get_feature_request",
-      "Get a feature request with its comments. Admins can view any request; non-admins can only view their own.",
+      "Get a feature request with its comments. For in-app feedback (kind 'feedback' / 'bug') it carries the parsed `context` (platform, app version, screen route, device, online, recent app events), `context_line`, opt-in console logs, and `screenshot_url` = a signed link to the screenshot (24 h) — open it to see what the person saw. Admins can view any request; non-admins can only view their own.",
       {
         request_id: z.string().describe("The feature request ID"),
       },
@@ -1812,10 +1820,12 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           .bind(request_id)
           .all();
 
+        const shaped = await signMediaUrls(api, { request: shapeFeatureRequestForMcp(request as Record<string, unknown>), comments: comments.results });
+
         return {
           content: [{
             type: "text" as const,
-            text: JSON.stringify({ request, comments: comments.results }, null, 2),
+            text: JSON.stringify(shaped, null, 2),
           }],
         };
       }
