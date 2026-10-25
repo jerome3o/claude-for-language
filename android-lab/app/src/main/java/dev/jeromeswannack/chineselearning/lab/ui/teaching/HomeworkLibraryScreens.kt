@@ -80,10 +80,13 @@ fun toneColor(tone: String): Color = when (tone) {
     else -> Color(0xFF6B7280)
 }
 
-/** "Completed" / "In progress" / "Overdue" / "Not started" / "In long-term review" as a tinted pill. */
+/**
+ * "Completed" / "In progress" / "Overdue" / "Not started" / "In long-term review" as a tinted pill; a
+ * skipped item names who skipped it ("Skipped by Jerome", docs/HOMEWORK.md §3d) when [student] is given.
+ */
 @Composable
-fun LibraryStatusChip(status: String, dueDate: String?, today: String, modifier: Modifier = Modifier) {
-    StatusPill(HomeworkLibrary.statusLabel(status), toneColor(HomeworkLibrary.statusTone(status, dueDate, today)), modifier.testTag("hw-status"))
+fun LibraryStatusChip(status: String, dueDate: String?, today: String, modifier: Modifier = Modifier, student: String? = null) {
+    StatusPill(HomeworkLibrary.statusText(status, student), toneColor(HomeworkLibrary.statusTone(status, dueDate, today)), modifier.testTag("hw-status"))
 }
 
 data class LibraryFilter(val status: String? = null, val kind: String? = null)
@@ -263,7 +266,7 @@ fun LibraryRow(item: LibraryItem, today: String, showStudent: Boolean, busy: Boo
             }
         }
         Spacer(Modifier.width(10.dp))
-        LibraryStatusChip(item.status, item.due_date, today)
+        LibraryStatusChip(item.status, item.due_date, today, student = item.student_name)
     }
 }
 
@@ -289,7 +292,7 @@ private fun LibraryActionSheet(item: LibraryItem, ui: HomeworkLibraryUi, actions
         Text(
             (
                 if (showsPercent(item)) listOf(first(item.student_name), "${item.percent}%", HomeworkLibrary.statusLabel(item.status), HomeworkLibrary.libraryDueText(item.due_date, ui.today))
-                else listOf(first(item.student_name), HomeworkLibrary.statusLabel(item.status), item.progress)
+                else listOf(first(item.student_name), HomeworkLibrary.statusText(item.status, first(item.student_name)), item.progress)
             ).filter { it.isNotBlank() }.joinToString(" · "),
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 24.dp),
         )
@@ -445,7 +448,7 @@ private fun RecentRow(item: LibraryItem, today: String, onClick: () -> Unit) {
             )
         }
         Spacer(Modifier.width(8.dp))
-        LibraryStatusChip(item.status, item.due_date, today)
+        LibraryStatusChip(item.status, item.due_date, today, student = item.student_name)
     }
 }
 
@@ -464,6 +467,6 @@ fun RecentHomeworkLine(item: LibraryItem, today: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
         )
         Text(if (showsPercent(item)) " · ${item.percent}% · " else " · ", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, maxLines = 1)
-        Text(HomeworkLibrary.statusLabel(item.status), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1)
+        Text(HomeworkLibrary.statusText(item.status, item.student_name), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = tone, maxLines = 1)
     }
 }

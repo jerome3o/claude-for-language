@@ -156,10 +156,10 @@ export async function insertEvents(db: D1Database, studentId: string, events: Ho
   return results.reduce((n, r) => n + (r.meta?.changes ?? 0), 0);
 }
 
-export async function setProgress(db: D1Database, id: string, doneCount: number, status: HomeworkStatus, completedAt: string | null): Promise<void> {
+export async function setProgress(db: D1Database, id: string, doneCount: number, status: HomeworkStatus, completedAt: string | null, skippedAt: string | null = null): Promise<void> {
   await db
-    .prepare(`UPDATE assignments SET done_count = ?, status = ?, completed_at = ?, updated_at = datetime('now') WHERE id = ?`)
-    .bind(doneCount, status, completedAt, id)
+    .prepare(`UPDATE assignments SET done_count = ?, status = ?, completed_at = ?, skipped_at = ?, updated_at = datetime('now') WHERE id = ?`)
+    .bind(doneCount, status, completedAt, skippedAt, id)
     .run();
 }
 

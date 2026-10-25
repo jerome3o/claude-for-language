@@ -160,6 +160,22 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("bury_siblings", false)
         set(v) = sp.edit().putBoolean("bury_siblings", v).apply()
 
+    /**
+     * "Skip handwriting exercises" (core Handwriting; Settings → Study, off by default). From
+     * /api/auth/me, /api/sync/changes or a save; the lesson lists and the player read it
+     * (data/lessons/SkipHandwriting.kt keeps a flow of it).
+     */
+    var skipHandwriting: Boolean
+        get() = sp.getBoolean("skip_handwriting", false)
+        set(v) {
+            sp.edit().putBoolean("skip_handwriting", v).apply()
+            dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value = v
+        }
+
+    init {
+        dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value = sp.getBoolean("skip_handwriting", false)
+    }
+
     /** Epoch ms of the last full sync (0 = never). */
     var lastFullSync: Long
         get() = sp.getLong("last_full_sync", 0)

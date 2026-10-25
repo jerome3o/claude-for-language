@@ -7,7 +7,8 @@
 
 import { compareDue, dueLabel, type DueLabel } from './due';
 import { libraryStatus, type LibraryStatus } from './library';
-import { passProgress, passSummary, type PassProgress } from './pass';
+import { isSkipped, liveSkip, passProgress, passSummary, type PassProgress } from './pass';
+import { passRetryBar, type RetryBar } from './retry-bar';
 import { passItemIds, type HomeworkAssignment, type HomeworkEvent } from './types';
 
 export interface HomeworkItemView<A extends HomeworkAssignment = HomeworkAssignment> {
@@ -16,6 +17,12 @@ export interface HomeworkItemView<A extends HomeworkAssignment = HomeworkAssignm
   due: DueLabel;
   /** Done on this device or on the server. */
   done: boolean;
+  /** Skipped by the student ("Skip this homework", docs/HOMEWORK.md §3d) and not done. */
+  skipped: boolean;
+  /** When it was skipped (the live skip event, else the server's skipped_at); null when not skipped. */
+  skipped_at: string | null;
+  /** The pass's retry bar (blue answered · orange "Not yet" owed); `answered` 0 = not started. */
+  bar: RetryBar;
 }
 
 /** What the screens need of an event (id + undoes: an undo takes an answer back, `livePassEvents`). */
@@ -36,21 +43,33 @@ export function toHomeworkItems<A extends HomeworkAssignment>(
   return assignments
     .filter((a) => a.mode !== 'fsrs' && a.status !== 'cancelled')
     .map((a) => {
-      const progress = passProgress(passItemIds(a), byAssignment.get(a.id) ?? []);
+      const list = byAssignment.get(a.id) ?? [];
+      const progress = passProgress(passItemIds(a), list);
       const done = a.status === 'done' || progress.complete;
-      return { assignment: a, progress, due: dueLabel(a.due_date, today), done };
+      const skipped = !done && isSkipped(list, a.skipped_at);
+      const skippedAt = skipped ? liveSkip(list)?.created_at ?? a.skipped_at ?? null : null;
+      return { assignment: a, progress, due: dueLabel(a.due_date, today), done, skipped, skipped_at: skippedAt, bar: passRetryBar(passItemIds(a), list) };
     });
 }
 
-/** To do first: overdue, then by due date, then by part; done ones newest first. */
-export function sortHomeworkItems<A extends HomeworkAssignment>(items: HomeworkItemView<A>[]): { todo: HomeworkItemView<A>[]; done: HomeworkItemView<A>[] } {
+/** Code-unit order (the Kotlin port's String.compareTo). */
+const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
+ * To do first: overdue, then by due date, then by part; done ones newest first; skipped ones (not
+ * done) on their own, most recently skipped first — never in To do.
+ */
+export function sortHomeworkItems<A extends HomeworkAssignment>(items: HomeworkItemView<A>[]): { todo: HomeworkItemView<A>[]; done: HomeworkItemView<A>[]; skipped: HomeworkItemView<A>[] } {
   const todo = items
-    .filter((i) => !i.done)
+    .filter((i) => !i.done && !i.skipped)
     .sort((a, b) => compareDue(a.assignment.due_date, b.assignment.due_date) || a.assignment.part_index - b.assignment.part_index || a.assignment.created_at.localeCompare(b.assignment.created_at));
   const done = items
     .filter((i) => i.done)
     .sort((a, b) => (b.assignment.completed_at ?? b.assignment.updated_at).localeCompare(a.assignment.completed_at ?? a.assignment.updated_at));
-  return { todo, done };
+  const skipped = items
+    .filter((i) => !i.done && i.skipped)
+    .sort((a, b) => cmp(b.skipped_at ?? '', a.skipped_at ?? '') || cmp(a.assignment.id, b.assignment.id));
+  return { todo, done, skipped };
 }
 
 /** "Restaurant · day 1 of 2" → { base: 'Restaurant', part: 'day 1 of 2' } — the part goes on the meta line. */
@@ -88,9 +107,9 @@ const KIND_WORD: Record<string, string> = { lesson: 'mini lesson', reader: 'read
 export function homeworkRowDetail(item: HomeworkItemView, showTutor: boolean): string {
   const a = item.assignment;
   const { part } = titleParts(a);
-  const progress = a.kind === 'deck' ? passSummary(item.progress, 'deck') : item.done ? 'done' : KIND_WORD[a.kind] ?? a.kind;
+  const progress = item.skipped ? 'skipped' : a.kind === 'deck' ? passSummary(item.progress, 'deck') : item.done ? 'done' : KIND_WORD[a.kind] ?? a.kind;
   const detail = part ? `${part.replace(/^d/, 'D')} · ${progress}` : progress;
-  return detail + (a.mode === 'both' && !item.done ? ' · then long-term review' : '') + (showTutor && a.tutor_name ? ` · from ${a.tutor_name}` : '');
+  return detail + (a.mode === 'both' && !item.done && !item.skipped ? ' · then long-term review' : '') + (showTutor && a.tutor_name ? ` · from ${a.tutor_name}` : '');
 }
 
 export const KIND_ICON: Record<string, string> = { deck: '📚', lesson: '🎓', reader: '📖', link: '🔗' };
@@ -102,6 +121,7 @@ export const KIND_ICON: Record<string, string> = { deck: '📚', lesson: '🎓',
 export function itemStatus(item: HomeworkItemView, today: string): LibraryStatus {
   return libraryStatus({
     complete: item.done,
+    skipped: item.skipped,
     started: item.progress.done > 0 || item.progress.retrying > 0,
     due_date: item.assignment.due_date,
     today,

@@ -11,6 +11,7 @@
 import {
   lastPassAnswer,
   livePassEvents,
+  liveSkip,
   passItemIds,
   passProgress,
   localDate,
@@ -121,6 +122,48 @@ export async function recordPassUndo(assignmentId: string): Promise<LocalHomewor
     uploadEvents().catch((err) => console.warn('[homework] upload deferred to the next sync', err));
   }
   return target;
+}
+
+/**
+ * "Skip this homework" (docs/HOMEWORK.md §3d): a `skip` event on the assignment — out of To do at
+ * once, "Skipped by <student>" for the tutor when it uploads. Returns the event (its id is what
+ * Undo takes back). Never deletes anything.
+ */
+export async function recordSkip(assignmentId: string): Promise<LocalHomeworkEvent> {
+  const a = await db.homeworkAssignments.get(assignmentId);
+  return recordPassEvent(assignmentId, a?.target_id ?? assignmentId, 'skip');
+}
+
+/** Undo for a skip (or any event): an `undo` event naming it. */
+export async function recordUndoOf(assignmentId: string, eventId: string): Promise<void> {
+  const target = await db.homeworkEvents.get(eventId);
+  const undo: LocalHomeworkEvent = {
+    id: crypto.randomUUID(),
+    assignment_id: assignmentId,
+    item_id: target?.item_id ?? assignmentId,
+    result: 'undo',
+    created_at: new Date().toISOString(),
+    note: null,
+    undoes: eventId,
+    _synced: 0,
+  };
+  await db.transaction('rw', [db.homeworkEvents, db.homeworkAssignments], async () => {
+    await db.homeworkEvents.put(undo);
+    // The server's copy said "skipped": the device's own events decide now (isSkipped).
+    await db.homeworkAssignments.update(assignmentId, { skipped_at: null });
+  });
+  if (!isEffectivelyOffline()) {
+    uploadEvents().catch((err) => console.warn('[homework] upload deferred to the next sync', err));
+  }
+}
+
+/** Bring a skipped homework back: undo its live skip (false when this device has no skip event to undo). */
+export async function undoSkip(assignmentId: string): Promise<boolean> {
+  const events = await db.homeworkEvents.where('assignment_id').equals(assignmentId).toArray();
+  const skip = liveSkip(events);
+  if (!skip) return false;
+  await recordUndoOf(assignmentId, skip.id);
+  return true;
 }
 
 /**

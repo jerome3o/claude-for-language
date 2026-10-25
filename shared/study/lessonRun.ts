@@ -20,6 +20,7 @@
  */
 import type { CustomLessonSpec, LessonExercise } from '../lesson/types';
 import { isScoreable } from '../lesson/types';
+import { isHandwritingExercise } from '../lesson/handwriting';
 import { retryBar, type RetryBar, type RetryBarUnit } from '../homework/retry-bar';
 
 /** The key of an exercise in a lesson: its place (section, index) — like exerciseMediaKey. */
@@ -41,13 +42,23 @@ function step(ex: Pick<LessonExercise, 'type'>, section: number, index: number):
   return { key: exerciseKey(section, index), section, index, type: ex.type, scored: isScoreable(ex as LessonExercise) };
 }
 
+/** How a run is played for this learner. */
+export interface LessonStepOptions {
+  /** "Skip handwriting exercises" (shared/lesson/handwriting.ts): write_handwriting is left out. */
+  skipHandwriting?: boolean;
+}
+
 /**
  * The steps of a run. `only` = a revision's scored exercises: those, each with the note right
  * before it in its section (context, not scored), in lesson order. Null = the whole lesson.
+ * With `skipHandwriting`, write_handwriting exercises are left out (their keys stay the same).
  */
-export function lessonSteps(spec: Pick<CustomLessonSpec, 'sections'>, only?: readonly string[] | null): LessonRunStep[] {
+export function lessonSteps(spec: Pick<CustomLessonSpec, 'sections'>, only?: readonly string[] | null, opts: LessonStepOptions = {}): LessonRunStep[] {
   const all: LessonRunStep[] = [];
-  spec.sections.forEach((s, si) => s.exercises.forEach((ex, i) => all.push(step(ex, si, i))));
+  spec.sections.forEach((s, si) => s.exercises.forEach((ex, i) => {
+    if (opts.skipHandwriting && isHandwritingExercise(ex)) return;
+    all.push(step(ex, si, i));
+  }));
   if (!only) return all;
   const wanted = new Set(only);
   const keep = new Set<string>();
@@ -177,6 +188,22 @@ export function canResumeRun(saved: SavedLessonRunCore | null | undefined, lesso
   const st = saved.state;
   if (!st || !Number.isInteger(st.pos) || st.pos < 0 || !Array.isArray(st.owed)) return false;
   return st.pos > 0 || st.fixed > 0;
+}
+
+/**
+ * The progress bar of a lesson's run in progress, for its row on Home / the homework list / Mini
+ * Lessons (Jerome: "If I haven't started it, there should be no bar"): the saved run's retry bar —
+ * blue answered, orange owed at the right end — or null when there is no run to continue
+ * (`canResumeRun`: nothing answered, another lesson, the shape changed).
+ */
+export function savedRunBar(
+  saved: SavedLessonRunCore | null | undefined,
+  lessonId: string,
+  spec: Pick<CustomLessonSpec, 'sections'>,
+  opts: LessonStepOptions = {}
+): RetryBar | null {
+  if (!saved || !canResumeRun(saved, lessonId, lessonShape(spec))) return null;
+  return runRetryBar(saved.state, lessonSteps(spec, saved.keys, opts));
 }
 
 /**

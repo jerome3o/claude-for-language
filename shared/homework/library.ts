@@ -34,8 +34,9 @@ export const LIBRARY_KINDS: readonly LibraryKind[] = ['deck', 'lesson', 'reader'
  * `long_term`: a deck sent for long-term review only (fsrs, or shared before assignments). It is a
  * deck in the student's queue, not homework with an end — no %, no "In progress" (docs/HOMEWORK.md §11).
  */
-export type LibraryStatus = 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term';
-export const LIBRARY_STATUSES: readonly LibraryStatus[] = ['overdue', 'in_progress', 'not_started', 'completed', 'long_term'];
+/** `skipped`: the student pressed "Skip this homework" (docs/HOMEWORK.md §3d) — shown as "Skipped by <student>". */
+export type LibraryStatus = 'completed' | 'in_progress' | 'overdue' | 'not_started' | 'long_term' | 'skipped';
+export const LIBRARY_STATUSES: readonly LibraryStatus[] = ['overdue', 'in_progress', 'not_started', 'completed', 'skipped', 'long_term'];
 
 export const LIBRARY_STATUS_LABELS: Record<LibraryStatus, string> = {
   completed: 'Completed',
@@ -43,7 +44,14 @@ export const LIBRARY_STATUS_LABELS: Record<LibraryStatus, string> = {
   overdue: 'Overdue',
   not_started: 'Not started',
   long_term: 'In long-term review',
+  skipped: 'Skipped',
 };
+
+/** The status as the tutor reads it: "Skipped by Jerome" for a skipped item, else its label. */
+export function libraryStatusText(status: LibraryStatus, studentName: string | null | undefined): string {
+  if (status === 'skipped') return studentName ? `Skipped by ${studentName}` : 'Skipped';
+  return LIBRARY_STATUS_LABELS[status];
+}
 
 export const LIBRARY_KIND_LABELS: Record<LibraryKind, string> = {
   deck: 'Words',
@@ -61,9 +69,10 @@ export type StatusTone = 'green' | 'blue' | 'amber' | 'red' | 'grey';
  * The status of one item. Completed wins; then a due date before today makes
  * it Overdue; then anything started is In progress.
  */
-export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string; long_term?: boolean; revising?: boolean }): LibraryStatus {
+export function libraryStatus(input: { complete: boolean; started: boolean; due_date: string | null; today: string; long_term?: boolean; revising?: boolean; skipped?: boolean }): LibraryStatus {
   if (input.long_term) return 'long_term';
   if (input.complete) return 'completed';
+  if (input.skipped) return 'skipped';
   if (input.revising) return 'in_progress';
   if (input.due_date && daysBetween(input.today, input.due_date) < 0) return 'overdue';
   return input.started ? 'in_progress' : 'not_started';
@@ -71,7 +80,7 @@ export function libraryStatus(input: { complete: boolean; started: boolean; due_
 
 /** Completed green · Overdue red · due today / tomorrow amber · In progress blue · Not started / long-term grey. */
 export function statusTone(status: LibraryStatus, due_date: string | null, today: string): StatusTone {
-  if (status === 'long_term') return 'grey';
+  if (status === 'long_term' || status === 'skipped') return 'grey';
   if (status === 'completed') return 'green';
   if (status === 'overdue') return 'red';
   if (due_date && daysBetween(today, due_date) <= 1) return 'amber';
@@ -117,6 +126,8 @@ export interface LibraryItem {
   thumbnail_url: string | null;
   /** The student's note back when marking it done (newest), if any. */
   student_note: string | null;
+  /** When the student skipped it (status `skipped`); null / absent otherwise. */
+  skipped_at?: string | null;
 }
 
 // ---------- Inputs (what the worker reads) ----------
@@ -291,21 +302,28 @@ export function buildHomeworkLibrary(input: LibraryInput): LibraryItem[] {
     const oneOff = list.filter((a) => hasOneOff(a.mode));
     const { due, dueId } = dueOf(oneOff);
     const { complete, started, completed_at, long_term, revising, ...rest } = partial;
+    // Skipped: every unfinished part (the one-off ones; else a long-term lesson's) was skipped by the
+    // student, and the item isn't complete.
+    const openParts = (oneOff.length > 0 ? oneOff : list).filter((a) => a.status !== 'done');
+    const skippedAt = !complete && openParts.length > 0 && openParts.every((a) => !!a.skipped_at)
+      ? latest(openParts.map((a) => a.skipped_at))
+      : null;
     rest.sent_at = isoTime(rest.sent_at);
     const details = list.find((a) => a.details)?.details ?? null;
     items.push({
       ...base,
       ...rest,
       due_date: due,
-      due_assignment_id: complete || revising ? null : dueId,
+      due_assignment_id: complete || revising || skippedAt ? null : dueId,
       mode: modeOf(list),
       assignment_ids: list.map((a) => a.id),
-      status: libraryStatus({ complete, started, due_date: due, today, long_term, revising }),
+      status: libraryStatus({ complete, started, due_date: due, today, long_term, revising, skipped: !!skippedAt }),
       completed_at: complete ? isoTime(completed_at ?? latest(list.map((a) => a.completed_at))) : null,
       url: details?.url ?? null,
       instructions: details?.instructions ?? null,
       thumbnail_url: details?.thumbnail_url ?? null,
       student_note: noteOf(list, input.notes),
+      skipped_at: skippedAt ? isoTime(skippedAt) : null,
     });
   };
 
@@ -478,7 +496,7 @@ export function filterLibrary<T extends Pick<LibraryItem, 'status' | 'kind' | 't
 
 /** How many items per status (the filter chips' counts). */
 export function libraryCounts(items: Pick<LibraryItem, 'status'>[]): Record<LibraryStatus, number> {
-  const counts: Record<LibraryStatus, number> = { completed: 0, in_progress: 0, overdue: 0, not_started: 0, long_term: 0 };
+  const counts: Record<LibraryStatus, number> = { completed: 0, in_progress: 0, overdue: 0, not_started: 0, long_term: 0, skipped: 0 };
   for (const i of items) counts[i.status]++;
   return counts;
 }

@@ -15,3 +15,4 @@ export * from './summary';
 export * from './pass-card';
 export * from './size';
 export * from './retry-bar';
+export * from './row-actions';

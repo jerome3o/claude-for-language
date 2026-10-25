@@ -168,3 +168,14 @@
   padding: 0 0.5rem;
   cursor: pointer;
 }
+
+/* A started lesson's retry bar (blue answered · orange still to put right). */
+.mini-lesson-bar {
+  --retry-bar-height: 6px;
+  margin: 0.25rem 0 0.5rem;
+}
+
+.mini-lesson-head {
+  -webkit-touch-callout: none;
+  user-select: none;
+}

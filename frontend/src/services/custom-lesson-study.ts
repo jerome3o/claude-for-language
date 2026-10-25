@@ -33,6 +33,7 @@ import { prefetchStrokeData } from './strokeData';
 import { writableCharacters } from '@shared/strokes';
 import { getAudioWithCache, isAudioCached } from './audioCache';
 import { homeLessonOf, learnOf, recomputeAllLessonLearn, refreshLessonLearn } from './lessonLearn';
+import { pendingLessonDeletes } from './lessonDeletes';
 import { clearLessonRun } from './lessonRuns';
 
 interface ServerCompletion {
@@ -150,7 +151,10 @@ export async function syncCustomLessons(): Promise<{ synced: number }> {
   if (!response.ok) {
     throw new Error(`Failed to fetch custom lessons: ${response.status}`);
   }
-  const data = await response.json() as CustomLessonListResponse;
+  const fetched = await response.json() as CustomLessonListResponse;
+  // A lesson deleted here and not yet deleted on the server never comes back (services/lessonDeletes.ts).
+  const deleted = pendingLessonDeletes();
+  const data = { ...fetched, lessons: fetched.lessons.filter(l => !deleted.has(l.id)) };
 
   await db.transaction('rw', [db.customLessons, db.customLessonCompletionEvents], async () => {
     // Merge server completion events into the local event table

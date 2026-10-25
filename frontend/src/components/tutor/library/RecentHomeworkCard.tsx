@@ -29,7 +29,7 @@ export function RecentHomeworkCard({ items, today, onSeeAll, onSend }: { items: 
           <div className="hl-recent-line">
             <span aria-hidden="true">{LIBRARY_KIND_ICONS[item.kind]}</span>
             <span className="hl-recent-title" lang="zh">{item.title}</span>
-            <StatusChip status={item.status} due={item.due_date} today={today} />
+            <StatusChip status={item.status} due={item.due_date} today={today} student={item.student_name} />
           </div>
           {/* A long-term deck has no end, so no % (docs/HOMEWORK.md §11) */}
           {item.status !== 'long_term' && (
@@ -59,7 +59,7 @@ export function RecentHomeworkLine({ item, today }: { item: LibraryItem; today: 
       <span aria-hidden="true">{LIBRARY_KIND_ICONS[item.kind]}</span>
       <span className="hl-recent-title" lang="zh">{item.title}</span>
       {item.status !== 'long_term' && <span className="hl-recent-pct">{item.percent}%</span>}
-      <StatusChip status={item.status} due={item.due_date} today={today} />
+      <StatusChip status={item.status} due={item.due_date} today={today} student={item.student_name} />
     </span>
   );
 }

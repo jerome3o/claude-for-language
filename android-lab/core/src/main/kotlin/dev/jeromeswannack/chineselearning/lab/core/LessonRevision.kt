@@ -89,9 +89,18 @@ object LessonRevision {
         return Result(imperfect, emptyList(), imperfect)
     }
 
-    /** Port of computeLessonLearnState: the latest run decides; a later Done for good (until a Bring back) makes it done. */
-    fun state(runs: List<RunRecord>, marks: List<MarkRecord> = emptyList()): State {
-        val events = runs.map { Ev(it.id, it.at, run = it) } + marks.map { Ev(it.id, it.at, mark = it) }
+    /** Port of outcomeWithout: an outcome without the exercises the learner no longer does. */
+    fun outcomeWithout(outcome: Outcome, ignore: Set<String>): Outcome =
+        if (ignore.isEmpty()) outcome else Outcome(outcome.keys.filter { it !in ignore }, outcome.missed.filter { it !in ignore })
+
+    /**
+     * Port of computeLessonLearnState: the latest run decides; a later Done for good (until a Bring back) makes
+     * it done. [ignore] = exercise keys that no longer count (handwriting with "Skip handwriting exercises" on).
+     */
+    fun state(runs: List<RunRecord>, marks: List<MarkRecord> = emptyList(), ignore: Collection<String> = emptyList()): State {
+        val skip = ignore.toHashSet()
+        val events = runs.map { r -> Ev(r.id, r.at, run = if (r.outcome != null && skip.isNotEmpty()) r.copy(outcome = outcomeWithout(r.outcome, skip)) else r) } +
+            marks.map { Ev(it.id, it.at, mark = it) }
         val sorted = events.sortedWith { a, b ->
             val d = ms(a.at).compareTo(ms(b.at))
             if (d != 0) d else a.id.compareTo(b.id).coerceIn(-1, 1)

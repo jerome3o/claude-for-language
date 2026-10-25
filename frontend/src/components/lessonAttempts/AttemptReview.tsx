@@ -14,6 +14,7 @@ import {
   fillGap,
   formatDuration,
   sectionTimes,
+  SKIPPED_HANDWRITING_LABEL,
   type ExerciseAttempt,
   type LessonExercise,
   type LessonSentence,
@@ -71,6 +72,8 @@ function TypedDiff({ text, expected, alternatives, input }: { text: string | und
 }
 
 function Verdict({ attempt }: { attempt: ExerciseAttempt }) {
+  // "Skip handwriting exercises" was on (shared/lesson/handwriting.ts): never asked, never scored.
+  if (attempt.skipped === 'handwriting') return <span className="att-verdict neutral" data-testid="att-skipped">{SKIPPED_HANDWRITING_LABEL}</span>;
   if (attempt.correct === null) return <span className="att-verdict neutral">not scored</span>;
   const self = attempt.answer?.self_assessed;
   const pts = attempt.max_points > 1 ? ` ${attempt.points}/${attempt.max_points}` : '';
@@ -347,7 +350,7 @@ export function AttemptReview({ attempt }: { attempt: AttemptDetail }) {
                   <Verdict attempt={ex} />
                   <span className="att-time">⏱ {formatDuration(ex.duration_ms)}</span>
                 </div>
-                <AnswerBody exercise={exercise} attempt={ex} media={media} />
+                {!ex.skipped && <AnswerBody exercise={exercise} attempt={ex} media={media} />}
               </article>
             );
           })}

@@ -368,6 +368,8 @@ data class AssignmentDto(
     val done_count: Int = 0,
     val completed_at: String? = null,
     val created_at: String = "",
+    /** The student pressed "Skip this homework" (docs/HOMEWORK.md §3d); null = not skipped. */
+    val skipped_at: String? = null,
 )
 
 @Serializable

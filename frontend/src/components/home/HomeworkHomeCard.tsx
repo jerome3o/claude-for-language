@@ -1,12 +1,28 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { homeHomework, homeHomeworkRows, isLessonRow, readerSizeLabel, type HomeHomeworkRow, type HomeLesson, type LongTermHomework } from '@shared/homework';
+import {
+  homeHomework,
+  homeHomeworkRows,
+  homeRowKind,
+  isLessonRow,
+  isSkipped,
+  readerSizeLabel,
+  WORD_UNIT,
+  type HomeHomeworkRow,
+  type HomeLesson,
+  type LongTermHomework,
+  type RetryBar,
+} from '@shared/homework';
+import { EXERCISE_UNIT, savedRunBar } from '@shared/study/lessonRun';
 import { tutorNotesHomeLine } from '@shared/tutor-notes';
 import { useHomeworkItems } from '../homework/useHomeworkItems';
 import type { HomeworkView } from './useHomework';
-import { homeLessonOf, lessonSize, revisionSize } from '../../services/lessonLearn';
+import { homeLessonOf, lessonSize, revisionSize, stepOptions } from '../../services/lessonLearn';
 import { db, getStudyCutoff } from '../../db/database';
+import { RetryProgressBar } from '../homework/RetryProgressBar';
+import { RowMenuButton, useRowActions, useRowPress, type RowActionsFrom, type RowActionTarget } from '../homework/RowActions';
+import { useSkipHandwriting } from '../settings/SkipHandwritingSetting';
 import '../homework/homework.css';
 
 function truncate(text: string, max: number): string {
@@ -23,10 +39,12 @@ function useLongTerm(view: HomeworkView): LongTermHomework[] | undefined {
   const pick = view.pick;
   const legacyKey = pick?.item ? `${pick.item.kind}:${pick.item.kind === 'deck' ? pick.item.deckId : pick.item.lessonId}` : '';
   return useLiveQuery(async () => {
-    const assignments = await db.homeworkAssignments.toArray();
+    const [assignments, events] = await Promise.all([db.homeworkAssignments.toArray(), db.homeworkEvents.toArray()]);
+    // "Skip this homework" on a tutor's long-term lesson (docs/HOMEWORK.md §3d) takes it off the card.
+    const skipped = (id: string, at: string | null | undefined) => isSkipped(events.filter((e) => e.assignment_id === id), at);
     const items: LongTermHomework[] = assignments
-      .filter((a) => a.mode === 'fsrs' && a.status === 'active' && a.kind === 'lesson')
-      .map((a) => ({ kind: 'lesson' as const, target_id: a.target_id, title: a.title, tutor_name: a.tutor_name ?? null, sent_at: a.created_at, met: null, total: null }));
+      .filter((a) => a.mode === 'fsrs' && a.status === 'active' && a.kind === 'lesson' && !skipped(a.id, a.skipped_at))
+      .map((a) => ({ kind: 'lesson' as const, target_id: a.target_id, title: a.title, tutor_name: a.tutor_name ?? null, sent_at: a.created_at, met: null, total: null, assignment_id: a.id }));
     const item = pick?.item;
     if (pick && item?.kind === 'lesson' && !assignments.some((a) => a.target_id === item.lessonId)) {
       items.push({ kind: 'lesson', target_id: item.lessonId, title: item.title, tutor_name: pick.tutorName, sent_at: item.sentAt, met: null, total: null });
@@ -39,14 +57,23 @@ function useLongTerm(view: HomeworkView): LongTermHomework[] | undefined {
  * Every mini lesson on the device as Home sees it (due revisions + new ones; shared/homework/home.ts)
  * and the size of each homework lesson / reader by target id ("18 exercises · ~12 min", "6 pages").
  */
-function useHomeLessons(): { lessons: HomeLesson[]; sizes: Record<string, string> } | undefined {
+function useHomeLessons(): { lessons: HomeLesson[]; sizes: Record<string, string>; runBars: Record<string, RetryBar | null> } | undefined {
+  const skipHandwriting = useSkipHandwriting();
   return useLiveQuery(async () => {
     const cutoff = getStudyCutoff().ts;
-    const [rows, assignments, readers] = await Promise.all([
+    const [rows, assignments, readers, runs] = await Promise.all([
       db.customLessons.toArray(),
       db.homeworkAssignments.toArray(),
       db.readers.toArray().catch(() => []),
+      db.lessonRuns.toArray().catch(() => []),
     ]);
+    const specs = new Map(rows.map((r) => [r.id, r.spec]));
+    // A lesson started on this device: its run's retry bar (blue answered · orange owed); none = no bar.
+    const runBars: Record<string, RetryBar | null> = {};
+    for (const run of runs) {
+      const spec = specs.get(run.lesson_id);
+      if (spec) runBars[run.lesson_id] = savedRunBar(run, run.lesson_id, spec, stepOptions(skipHandwriting));
+    }
     const tutorOf = new Map<string, string | null>();
     for (const a of assignments) if (a.kind === 'lesson' && a.tutor_name) tutorOf.set(a.target_id, a.tutor_name);
     const sizes: Record<string, string> = {};
@@ -57,8 +84,8 @@ function useHomeLessons(): { lessons: HomeLesson[]; sizes: Record<string, string
       return home;
     });
     for (const r of readers) sizes[r.id] = readerSizeLabel(r.pages?.length ?? 0);
-    return { lessons, sizes };
-  }, []);
+    return { lessons, sizes, runBars };
+  }, [skipHandwriting]);
 }
 
 /**
@@ -71,29 +98,60 @@ export function useHomeworkLessonRows(view: HomeworkView): HomeHomeworkRow[] | u
   const homeLessons = useHomeLessons();
   return useMemo(() => {
     if (!items || !longTerm || !homeLessons) return undefined;
-    return homeHomeworkRows(items.todo, longTerm, { lessons: homeLessons.lessons, sizes: homeLessons.sizes }).filter(isLessonRow);
+    return homeHomeworkRows(items.todo, longTerm, { lessons: homeLessons.lessons, sizes: homeLessons.sizes, runBars: homeLessons.runBars }).filter(isLessonRow);
   }, [items, longTerm, homeLessons]);
 }
 
-export function HomeworkRowSlim({ row }: { row: HomeHomeworkRow }) {
+/** What a row's ⋯ / long-press menu acts on (shared/homework/row-actions.ts). */
+export function rowActionTarget(row: HomeHomeworkRow): RowActionTarget {
+  return {
+    kind: homeRowKind(row),
+    title: row.title,
+    tutor_name: row.tutor_name,
+    assignment_id: row.assignment_id,
+    assignment_kind: row.assignment_id ? (row.kind === 'revision' ? 'lesson' : row.kind) : null,
+    lesson_id: row.lesson_id,
+  };
+}
+
+/**
+ * One slim row: icon, title, progress, size, due label — and, once started, the retry bar (blue
+ * answered, orange still owed; shared/homework/retry-bar.ts). Long-press / right-click / ⋯ opens
+ * the row's menu (Skip this homework · Done for good · Delete · Skip handwriting).
+ */
+export function HomeworkRowSlim({ row, onMenu }: { row: HomeHomeworkRow; onMenu?: (row: HomeHomeworkRow) => void }) {
+  const press = useRowPress(() => onMenu?.(row));
+  const unit = row.kind === 'deck' ? WORD_UNIT : EXERCISE_UNIT;
   return (
-    <Link to={row.route} className="hw-slim" data-testid="home-hw-row" aria-label={`${row.title}, ${row.progress}${row.size ? `, ${row.size}` : ''}${row.due ? `, ${row.due}` : ''}`}>
-      <span className="hw-slim-icon" aria-hidden="true">{row.icon}</span>
-      <span className="hw-slim-main">
-        <span className="hw-slim-line">
-          <span className="hw-slim-title" lang="zh">{row.title}</span>
-          {row.progress && <span className="hw-slim-progress">{row.progress}</span>}
-        </span>
-        {row.size && <span className="hw-slim-size" data-testid="hw-size">{row.size}</span>}
-        {row.fraction !== null && (
-          <span className="hw-slim-bar" aria-hidden="true">
-            <span style={{ width: `${Math.round(row.fraction * 100)}%` }} />
+    <div className="hw-slim-row" data-testid="home-hw-row-wrap">
+      <Link
+        to={row.route}
+        className="hw-slim"
+        data-testid="home-hw-row"
+        aria-label={`${row.title}, ${row.progress}${row.size ? `, ${row.size}` : ''}${row.due ? `, ${row.due}` : ''}`}
+        {...(onMenu ? press.handlers : {})}
+        onClick={(e) => { if (onMenu && press.suppressTap()) e.preventDefault(); }}
+      >
+        <span className="hw-slim-icon" aria-hidden="true">{row.icon}</span>
+        <span className="hw-slim-main">
+          <span className="hw-slim-line">
+            <span className="hw-slim-title" lang="zh">{row.title}</span>
+            {row.progress && <span className="hw-slim-progress">{row.progress}</span>}
           </span>
-        )}
-      </span>
-      {row.due && <span className={`hw-slim-due hw-slim-due-${row.tone}`} data-testid="hw-due">{row.due}</span>}
-    </Link>
+          {row.size && <span className="hw-slim-size" data-testid="hw-size">{row.size}</span>}
+          {row.bar && <RetryProgressBar bar={row.bar} unit={unit} className="hw-slim-retry-bar" testId="hw-row-bar" />}
+        </span>
+        {row.due && <span className={`hw-slim-due hw-slim-due-${row.tone}`} data-testid="hw-due">{row.due}</span>}
+      </Link>
+      {onMenu && <RowMenuButton onClick={() => onMenu(row)} label={row.title} />}
+    </div>
   );
+}
+
+/** The menu for a list of slim rows (Home's card, /homework's Mini lessons). */
+export function useSlimRowMenu(from: RowActionsFrom) {
+  const { open, element } = useRowActions(from);
+  return { onMenu: (row: HomeHomeworkRow) => open(rowActionTarget(row)), element };
 }
 
 /**
@@ -111,16 +169,18 @@ export function HomeworkHomeCard({ view }: { view: HomeworkView }) {
   const longTerm = useLongTerm(view);
   const homeLessons = useHomeLessons();
   const unread = view.pick?.unreadMessage ?? null;
+  const menu = useSlimRowMenu('home');
   const model = useMemo(
     () =>
       homeHomework(items?.todo ?? [], longTerm ?? [], {
         unreadFrom: unread ? view.pick?.tutorName ?? null : null,
         lessons: homeLessons?.lessons ?? [],
         sizes: homeLessons?.sizes ?? {},
+        runBars: homeLessons?.runBars ?? {},
       }),
     [items, longTerm, unread, view.pick?.tutorName, homeLessons]
   );
-  if (!items || (model.rows.length === 0 && !unread)) return null;
+  if (!items || (model.rows.length === 0 && !unread)) return <>{menu.element}</>;
 
   return (
     <section className="card hw-home" aria-label="Homework" data-testid="homework-home-card">
@@ -132,9 +192,10 @@ export function HomeworkHomeCard({ view }: { view: HomeworkView }) {
       </div>
       {model.rows.length > 0 && (
         <div className="hw-slim-list">
-          {model.rows.map((row) => <HomeworkRowSlim key={row.key} row={row} />)}
+          {model.rows.map((row) => <HomeworkRowSlim key={row.key} row={row} onMenu={menu.onMenu} />)}
         </div>
       )}
+      {menu.element}
       {unread && view.pick && (
         <Link to={`/connections/${view.pick.relationshipId}/chat/${unread.conversationId}`} className="hw-home-message" data-testid="home-hw-message">
           <span aria-hidden="true">💬</span>

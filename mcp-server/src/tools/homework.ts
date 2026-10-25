@@ -36,6 +36,8 @@ export function compactAssignment(a: HomeworkAssignment, today: string) {
     progress: a.kind === 'deck' ? `${a.done_count}/${a.item_count} words` : a.done_count > 0 ? 'done' : 'not started',
     ...(a.part_count > 1 ? { part: `${a.part_index + 1} of ${a.part_count}` } : {}),
     ...(a.completed_at ? { completed_at: a.completed_at } : {}),
+    // The student pressed "Skip this homework" (docs/HOMEWORK.md §3d).
+    ...(a.skipped_at && a.status !== 'done' ? { skipped_by_student_at: a.skipped_at } : {}),
     target_id: a.target_id,
     source_id: a.source_id,
   };

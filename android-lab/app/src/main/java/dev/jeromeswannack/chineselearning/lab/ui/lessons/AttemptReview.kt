@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -107,7 +108,7 @@ fun AttemptReview(attempt: AttemptDetailDto, onPlayRecording: (AttemptMediaDto) 
                         Verdict(ex)
                         Text("  ⏱ ${LessonAttempts.formatDuration(ex.durationMs)}", fontSize = 12.sp, color = Lab.colors.muted)
                     }
-                    AnswerBody(exercise, ex, m, onPlayRecording, playingKey)
+                    if (ex.skipped == null) AnswerBody(exercise, ex, m, onPlayRecording, playingKey)
                 }
             }
         }
@@ -124,6 +125,8 @@ private fun Stat(value: String, label: String, modifier: Modifier) {
 
 @Composable
 private fun Verdict(a: ExerciseAttempt) {
+    // "Skip handwriting exercises" was on (core Handwriting): never asked, never scored.
+    if (a.skipped == "handwriting") { Text(dev.jeromeswannack.chineselearning.lab.core.Handwriting.SKIPPED_LABEL, fontSize = 12.sp, color = Lab.colors.muted, modifier = Modifier.testTag("att-skipped")); return }
     if (a.correct == null) { Text("not scored", fontSize = 12.sp, color = Lab.colors.muted); return }
     val pts = if (a.maxPoints > 1) " ${a.points}/${a.maxPoints}" else ""
     val self = if (a.answer?.selfAssessed == true) " · self-assessed" else ""

@@ -141,11 +141,22 @@ function runImperfect(run: LessonRunRecord): { imperfect: boolean; missed: strin
   return { imperfect, missed: [], full: imperfect };
 }
 
-/** Replay a lesson's history: the latest run decides; a later Done for good (until a Bring back) makes it done. */
-export function computeLessonLearnState(runs: readonly LessonRunRecord[], marks: readonly LessonMarkRecord[] = []): LessonLearnState {
+/** An outcome without the exercises the learner no longer does (`ignore` = their keys). */
+export function outcomeWithout(outcome: LessonRunOutcome, ignore: ReadonlySet<string>): LessonRunOutcome {
+  if (ignore.size === 0) return outcome;
+  return { keys: outcome.keys.filter(k => !ignore.has(k)), missed: outcome.missed.filter(k => !ignore.has(k)) };
+}
+
+/**
+ * Replay a lesson's history: the latest run decides; a later Done for good (until a Bring back) makes it done.
+ * `ignore` = exercise keys that no longer count (handwriting with "Skip handwriting exercises" on,
+ * shared/lesson/handwriting.ts): a run whose only misses were those is right first time.
+ */
+export function computeLessonLearnState(runs: readonly LessonRunRecord[], marks: readonly LessonMarkRecord[] = [], ignore: readonly string[] = []): LessonLearnState {
   type Ev = { id: string; at: string; run?: LessonRunRecord; mark?: LessonMarkRecord };
+  const skip = new Set(ignore);
   const events: Ev[] = [
-    ...runs.map(r => ({ id: r.id, at: r.at, run: r })),
+    ...runs.map(r => ({ id: r.id, at: r.at, run: r.outcome && skip.size ? { ...r, outcome: outcomeWithout(r.outcome, skip) } : r })),
     ...marks.map(m => ({ id: m.id, at: m.at, mark: m })),
   ];
   let retired = false;

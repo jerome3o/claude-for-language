@@ -129,6 +129,12 @@ export interface ExerciseAttempt {
    * 2 = the second… Absent on the main pass — only main-pass rows decide "right first time".
    */
   retry?: number;
+  /**
+   * Not asked: the learner turned on "Skip handwriting exercises" (shared/lesson/handwriting.ts).
+   * Always `correct: null`, 0 points — it never counts as scored or missed. The tutor's review
+   * shows "skipped (handwriting off)".
+   */
+  skipped?: 'handwriting';
 }
 
 export interface LessonAttemptData {
@@ -355,17 +361,19 @@ export function sanitizeAttemptData(input: unknown): LessonAttemptData | null {
     const index = int(raw.index, 0, 100);
     const type = str(raw.type, 40);
     if (section === undefined || index === undefined || !type) continue;
-    const maxPoints = int(raw.max_points, 0, 20) ?? 0;
+    const skipped = raw.skipped === 'handwriting';
+    const maxPoints = skipped ? 0 : int(raw.max_points, 0, 20) ?? 0;
     exercises.push({
       section,
       index,
       type,
-      correct: typeof raw.correct === 'boolean' ? raw.correct : null,
+      correct: !skipped && typeof raw.correct === 'boolean' ? raw.correct : null,
       points: Math.min(int(raw.points, 0, 20) ?? 0, maxPoints),
       max_points: maxPoints,
       duration_ms: int(raw.duration_ms, 0, MAX_DURATION_MS) ?? 0,
       answer: cleanAnswer(raw.answer),
       ...(typeof raw.retry === 'number' && raw.retry >= 1 ? { retry: int(raw.retry, 1, 50)! } : {}),
+      ...(skipped ? { skipped: 'handwriting' as const } : {}),
     });
   }
   return {

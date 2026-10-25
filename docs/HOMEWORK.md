@@ -221,6 +221,39 @@ words, so a *Not yet* moved nothing.
   animate (none with `prefers-reduced-motion` / the system's "remove animations"). Used by the pass on both apps (web
   `DeckPass`'s banner, Lab `StudyScreen` `PassTopBar` + `HomeworkScreens` `DeckPass`).
 
+## 3d. Bars on started rows, and the row menu — Skip this homework (Jerome, 25 Oct 2026)
+
+"Can you also put the loading bar for these as well … include like the orange logic … for the refreshes … If I
+haven't started it, there should be no bar. Also, can you make it so that I can like long click on any revision or
+homework and then opt to remove it or ignore it?"
+
+- **Bars**: every STARTED row on Home's card, `/homework` and the Mini Lessons page's To do shows the §3c retry bar —
+  a deck pass from its events (`HomeworkItemView.bar` = `passRetryBar`), a lesson / revision from its run in progress
+  on the device (`savedRunBar`, shared/study/lessonRun.ts: the saved run's `runRetryBar`). Not started (nothing
+  answered, no saved run) = **no bar** (`startedBar`). `HomeHomeworkRow.bar` replaces the old purple `fraction`.
+- **The row menu** (long-press on touch, right-click, or the row's ⋯; `shared/homework/row-actions.ts`, Lab
+  `core/…/HomeworkRowActions.kt`, parity-tested by `parity/fixtures/homework-row-menu.ts`): the tutor's homework →
+  **Skip this homework**; a revision or his own lesson → **Stop revising — done for good** (a `revisit_events` retire;
+  Undo = a restore) and **Delete lesson** (confirmed; offline-first — gone at once, `DELETE /api/custom-lessons/:id` now or on the next sync; works
+from every list, including Home → the homework list's revision rows); any
+  lesson with handwriting while the switch is off → **Skip handwriting exercises** (docs/STUDY_SESSION.md "Skip
+  handwriting"). Web `components/homework/RowActions.tsx`, Lab `ui/homework/RowActionsUi.kt`.
+- **Skip this homework** = a further pass event `{ result: 'skip', item_id: <target> }` (migration 0139 widens the
+  CHECK; offline-first like every pass event). Confirmed first — "Skip “…”? 明慧老师 will see it as skipped. You can
+  undo this." — then a toast with **Undo** (an `undo` event naming the skip, §3b). Nothing is deleted. The server keeps
+  the status and sets `assignments.skipped_at` = the live skip's time (`recomputeProgress`; null once undone or done).
+  Rules: `liveSkip` / `isSkipped` (shared/homework/pass.ts — the device's events decide once any skip is among them,
+  else the server's `skipped_at`); `toHomeworkItems` marks the item `skipped`, `sortHomeworkItems` returns it in
+  `skipped` (never To do); Home's rows leave it out; `/homework` lists it under **Skipped** with **Bring back**; the
+  Mini Lessons page moves a skipped lesson to **Skipped homework**. A tutor's long-term (fsrs) lesson can be skipped too
+  (its Home row goes).
+- **The tutor** sees **"Skipped by <student>"**: the homework library's status `skipped` (`libraryStatus`,
+  `libraryStatusText`, grey; every unfinished part skipped), the student page's open assignments (listed last with the
+  chip), the MCP `get_homework_library` / `get_student_homework` (`skipped_by_student_at`). The one-off headline counts
+  skipped ones apart ("2 of 3 done · 1 skipped"; only skipped → "1 skipped"), the load gauge and the "due tomorrow"
+  e-mail leave them out.
+- Analytics: `homework.skipped { kind, undo }`, `lesson.row_action { action, kind, from, undo }`.
+
 ## 4. Tutor flow (student page)
 
 1. **Lesson notes** (replaces "Session notes"): one entry per lesson — date, title, and its homework
