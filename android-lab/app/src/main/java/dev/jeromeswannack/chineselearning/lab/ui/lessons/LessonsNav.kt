@@ -222,6 +222,7 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
         viewModelScope.launch {
             try {
                 runtime.store.delete(id)
+                runtime.uploadSoon()
                 app.haptics.tick()
                 _ui.update { it.copy(deleting = null) }
             } catch (e: CancellationException) {

@@ -23,10 +23,9 @@ import {
 } from '@shared/homework';
 import { lessonHasHandwriting } from '@shared/lesson';
 import { db } from '../../db/database';
-import { deleteCustomLessonById } from '../../api/client';
 import { recordSkip, recordUndoOf } from '../../services/homework';
 import { markLessonDone } from '../../services/lessonLearn';
-import { clearLessonRun } from '../../services/lessonRuns';
+import { deleteLessonOfflineFirst } from '../../services/lessonDeletes';
 import { readSkipHandwriting, saveSkipHandwriting } from '../../services/skipHandwriting';
 import { track } from '../../services/analytics';
 import { useLongPress } from '../chat/useLongPress';
@@ -101,9 +100,8 @@ export function useRowActions(from: RowActionsFrom, onChanged?: (action: Homewor
       await markLessonDone(target.lesson_id, 'retire');
       undo = async () => { await markLessonDone(target.lesson_id!, 'restore'); };
     } else if (action === 'delete_lesson' && target.lesson_id) {
-      await deleteCustomLessonById(target.lesson_id);
-      await db.customLessons.delete(target.lesson_id).catch(() => undefined);
-      await clearLessonRun(target.lesson_id);
+      // Offline-first: gone here at once, the server hears of it now or on the next sync.
+      await deleteLessonOfflineFirst(target.lesson_id);
     } else if (action === 'skip_handwriting') {
       track('settings.skip_handwriting', { on: true, source: 'row_menu' });
       await saveSkipHandwriting(true).catch(() => undefined);
@@ -136,7 +134,7 @@ export function useRowActions(from: RowActionsFrom, onChanged?: (action: Homewor
     const o = { ...opened, busy: true, error: null };
     setOpened(o);
     run(o, action).catch((err: unknown) => {
-      const msg = action === 'delete_lesson' ? "Couldn't delete it — are you online?" : err instanceof Error ? err.message : 'Something went wrong';
+      const msg = err instanceof Error ? err.message : 'Something went wrong';
       setOpened({ ...o, busy: false, error: msg });
     });
   }, [opened, run]);

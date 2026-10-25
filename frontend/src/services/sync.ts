@@ -9,6 +9,7 @@ import { writeBurySiblings } from './burySiblings';
 import { writeSkipHandwriting } from './skipHandwriting';
 import type { ApiCardHold } from '../api/cardHolds';
 import { replaceLocalRevisitEvents, uploadRevisitEvents } from './lessonLearn';
+import { uploadLessonDeletes } from './lessonDeletes';
 import type { ApiStudyBump } from '../api/bumps';
 import type { ApiUpNext } from '../api/upNext';
 import { replaceLocalUpNext, syncUpNext, uploadPendingUpNext } from './upNext';
@@ -517,6 +518,7 @@ class SyncService {
     // The old Done-for-good marks made here before the update go up (never throws); the lesson sync
     // below recomputes every lesson's revision state from the merged history.
     await uploadRevisitEvents().catch(err => console.warn('[Sync] Revisit marks upload failed:', err));
+    await uploadLessonDeletes().catch(err => console.warn('[Sync] Lesson deletes upload failed:', err));
     try {
       await syncReadersFromServer();
       prefetchReaderMedia().catch(err =>
@@ -927,6 +929,7 @@ class SyncService {
 
     // "Done for good" / "Bring back" on lessons and readers (idempotent by id)
     await uploadRevisitEvents().catch(err => console.error('[Sync] Revisit event upload failed:', err));
+    await uploadLessonDeletes().catch(err => console.warn('[Sync] Lesson deletes upload failed:', err));
 
     // Custom lesson completion events (same idempotent pattern)
     try {

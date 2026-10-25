@@ -18,7 +18,8 @@ import { CustomLessonSpec, LessonExercise, countScoreable, EXERCISE_TYPE_INFO, e
 import { computeLessonLearnState, isRevisionDue, revisionKeys, type LessonLearnState } from '@shared/study/lessonRevision';
 import { EXERCISE_UNIT, lessonSteps, savedRunBar, type SavedLessonRunCore } from '@shared/study/lessonRun';
 import { hasOneOff, isSkipped, lessonSizeLabel, revisionSizeLabel, type HomeworkRowKind } from '@shared/homework';
-import { getCustomLessons, deleteCustomLessonById, CustomLessonListItem } from '../api/client';
+import { getCustomLessons, CustomLessonListItem } from '../api/client';
+import { deleteLessonOfflineFirst, pendingLessonDeletes } from '../services/lessonDeletes';
 import { db, getStudyCutoff, type LocalRevisitEvent } from '../db/database';
 import { ignoredKeys, learnChip, runRecord, stepOptions } from '../services/lessonLearn';
 import { RetryProgressBar } from '../components/homework/RetryProgressBar';
@@ -246,10 +247,8 @@ export function MiniLessonsPage() {
   }, [queryClient]);
 
   const deleteMutation = useMutation({
-    mutationFn: async (lesson: CustomLessonListItem) => {
-      await deleteCustomLessonById(lesson.id);
-      await db.customLessons.delete(lesson.id);
-    },
+    // Offline-first: gone here at once, the server hears of it now or on the next sync.
+    mutationFn: (lesson: CustomLessonListItem) => deleteLessonOfflineFirst(lesson.id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['custom-lessons-all'] }),
   });
 
@@ -260,7 +259,9 @@ export function MiniLessonsPage() {
 
   if (lessonsQuery.isLoading) return <Loading />;
 
-  const serverLessons = lessonsQuery.data;
+  // Deleted here but not yet on the server: never shown again (services/lessonDeletes.ts).
+  const deletedHere = pendingLessonDeletes();
+  const serverLessons = lessonsQuery.data?.filter(l => !deletedHere.has(l.id));
   const lessons: CustomLessonListItem[] = serverLessons
     ?? (localLessons ?? []).map(({ lesson, completions }) => ({
       id: lesson.id,

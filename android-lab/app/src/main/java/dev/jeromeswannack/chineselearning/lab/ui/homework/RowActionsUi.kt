@@ -147,7 +147,8 @@ class RowActionsController(
                         store.markDone(id, RevisitStore.RETIRE)
                         undo = { store.markDone(id, RevisitStore.RESTORE) }
                     }
-                    HomeworkRowActions.DELETE_LESSON -> target.lessonId?.let { id -> LessonRuntime.of(app).store.delete(id) }
+                    // Offline-first: gone here at once, the DELETE goes through the Outbox (now when online).
+                    HomeworkRowActions.DELETE_LESSON -> target.lessonId?.let { id -> LessonRuntime.of(app).run { store.delete(id); uploadSoon() } }
                     HomeworkRowActions.SKIP_HANDWRITING -> {
                         SkipHandwriting.save(app, true, "row_menu")
                         undo = { SkipHandwriting.save(app, false, "undo") }

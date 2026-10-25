@@ -3,6 +3,9 @@ package dev.jeromeswannack.chineselearning.lab.ui.homework
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.core.CustomLessonSpec
@@ -139,6 +142,32 @@ class RowMenuScreenshots : LabScreenshotTest() {
             ),
             MiniLessonsActions(onBack = {}, onMenu = {}),
         )
+    }
+
+    /**
+     * Home → "All ›" → /homework: ~10 revisions (several old test lessons of his own); long-press one →
+     * Stop revising — done for good · Delete lesson (the sheet drawn over the list).
+     */
+    @Test fun homeworkListRevisionMenu() = shoot("rowmenu-06-homework-revision-menu") {
+        val revisions = (1..10).map { i ->
+            HomeLesson("rev$i", if (i % 3 == 0) "test lesson $i" else listOf("China trip $i · 在机场", "把 sentences $i", "了 — finished actions $i")[i % 3], "2026-10-0${i % 9 + 1}T00:00:00Z", "revision", false, true, i % 3 + 1, i.toLong(), "${i + 2} questions · ~${i} min", null)
+        }
+        val rows = HomeHomework.rows(sorted.todo, emptyList(), lessons = revisions, runBars = mapOf("rev2" to RetryBars.retryBar(answered = 2, fresh = 3, retries = 1, itemsDone = 1, items = 5)))
+            .filter(HomeHomework::isLessonRow)
+        androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
+            HomeworkListScreen(HomeworkListUi(true, sorted.todo, sorted.done, today, rows), onBack = {}, onOpen = {}, menus = HomeworkListMenus(onItemMenu = {}, onRowMenu = {}))
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.32f)))
+            Column(
+                Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth()
+                    .background(dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.card, androidx.compose.foundation.shape.RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                    .padding(vertical = 20.dp),
+            ) {
+                RowActionsSheetContent(
+                    RowActionTarget("revision", "test lesson 3", null, null, null, "rev3"),
+                    listOf(HomeworkRowActions.DONE_FOR_GOOD, HomeworkRowActions.DELETE_LESSON),
+                ) {}
+            }
+        }
     }
 
     @Test fun skipHandwritingSetting() = shoot("rowmenu-05-skip-handwriting") {

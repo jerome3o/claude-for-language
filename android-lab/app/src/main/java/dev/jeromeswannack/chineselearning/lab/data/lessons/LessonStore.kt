@@ -37,6 +37,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -161,6 +162,7 @@ class LessonStore(
     val revisit = RevisitStore(cache, outbox, api)
 
     private val unlocksSerializer = ListSerializer(LocalUnlock.serializer())
+    private val deletesSerializer = ListSerializer(String.serializer())
     private val listensSerializer = ListSerializer(LocalListen.serializer())
 
     fun observe(): Flow<List<LessonEntry>> =
@@ -280,11 +282,19 @@ class LessonStore(
     /** Where the player records an oral answer (moved into the media queue on completion). */
     fun recordingFile(): File = outbox.stageFile("lesson-recording.m4a")
 
-    /** Deletes a lesson on the server, then locally (its half-done run too). */
-    suspend fun delete(id: String) {
-        api.deleteCustomLesson(id)
+    /**
+     * Deletes a lesson, offline-first (web services/lessonDeletes.ts): gone from this phone at once (its row,
+     * its local completions, its half-done run), `DELETE /api/custom-lessons/:id` through the Outbox (now when
+     * online, else on the next sync). Until the server's list stops carrying it, every refresh leaves it out
+     * ([DELETES]) — it never comes back, not as a row, not as a revision.
+     */
+    suspend fun delete(id: String): Unit = lock.withLock {
+        cache.put(DELETES, KIND, (cache.get(DELETES, deletesSerializer).orEmpty() + id).distinct(), deletesSerializer)
         cache.put(LIST, KIND, cache.get(LIST, listSerializer).orEmpty().filter { it.id != id }, listSerializer)
+        cache.put(LOCAL, KIND, cache.get(LOCAL, localSerializer).orEmpty().filter { it.lessonId != id }, localSerializer)
         progress?.clear(id, deleteRecordings = true)
+        outbox.enqueue("lessons", "DELETE", "/api/custom-lessons/$id", null, id = "delete-lesson-$id")
+        Unit
     }
 
     /**
@@ -309,7 +319,15 @@ class LessonStore(
 
     private suspend fun refreshLocked() {
         uploadMedia()
-        val list = api.customLessons().lessons
+        // Deleted here, not yet on the server: left out; forgotten once the server's list no longer has it.
+        val fetched = api.customLessons().lessons
+        val deleted = cache.get(DELETES, deletesSerializer).orEmpty()
+        if (deleted.isNotEmpty()) {
+            val onServerIds = fetched.mapTo(HashSet()) { it.id }
+            val stillThere = deleted.filter { it in onServerIds }
+            if (stillThere.size != deleted.size) cache.put(DELETES, KIND, stillThere, deletesSerializer)
+        }
+        val list = fetched.filter { it.id !in deleted }
         cache.put(LIST, KIND, list, listSerializer)
         val onServer = list.flatMap { l -> l.completions.map { it.id } }.toHashSet()
         val ids = list.mapTo(HashSet()) { it.id }
@@ -410,6 +428,8 @@ class LessonStore(
         const val LOCAL = "lessons/local-completions"
         const val MEDIA = "lessons/media-queue"
         const val UNLOCKS = "lessons/local-unlocks"
+        /** Lessons deleted on this phone whose DELETE the server hasn't confirmed (left out of every refresh). */
+        const val DELETES = "lessons/pending-deletes"
         const val LISTENS = "audio-lessons/listened"
         /** Outbox kind of unlocks and listens (`POST /api/custom-lessons/unlock`, `/api/audio-lessons/listened`). */
         const val UNLOCK_KIND = "lesson-unlocks"

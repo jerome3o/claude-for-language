@@ -32,7 +32,25 @@ The tutor's student page: "Skipped by Jerome".
 ![Tutor library](10-tutor-library.png)
 The tutor's homework library: status Skipped by Jerome, with a Skipped filter chip.
 
+Jerome's path, Home → the homework list → long-press a revision:
+
+![Home revisions](11-home-revisions.png)
+Home's card with revisions due (his own old test lessons among them).
+
+![Long-press menu](12-homework-revision-longpress-menu.png)
+"All ›" → /homework; long-press a revision row: Stop revising — done for good · Delete lesson.
+
+![Delete confirm](13-delete-confirm.png)
+Delete asks first.
+
+![Deleted](14-deleted.png)
+Gone at once (offline-first; the server gets the DELETE now or on the next sync) — it never comes back as a revision.
+
 Lab app (Roborazzi):
+
+![Lab homework list revision menu](lab-rowmenu-06-homework-revision-menu.png)
+/homework from Home with ~10 revisions; long-press one → Stop revising — done for good · Delete lesson.
+
 
 ![Lab Home card](lab-rowmenu-01-home-bars.png)
 Home's card: bars only on started rows (deck pass, lesson homework, revision), ⋯ on every row.

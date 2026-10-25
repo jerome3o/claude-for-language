@@ -86,3 +86,58 @@ test('a started row has the retry bar; ⋯ → Skip this homework; the tutor see
   await page.getByTestId('hw-undo-skip').click();
   await expect(page.getByTestId('hw-skipped')).toHaveCount(0);
 });
+
+/**
+ * Jerome's path: Home → "All ›" → /homework, where revisions (old test lessons of his own) are listed;
+ * long-press one → Stop revising — done for good · Delete lesson; Delete (confirmed) removes it at
+ * once and it never comes back as a revision — the server has the delete after the sync.
+ */
+test('Home → /homework: long-press a revision → Delete lesson; it never comes back', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const me = await seedUser(request, 'rev', 'Jerome');
+  const choice = (q: string) => ({ type: 'choice', question: q, options: [{ hanzi: '对', pinyin: 'duì', english: 'right' }, { hanzi: '错', pinyin: 'cuò', english: 'wrong' }], correct: 0 });
+  const ids: string[] = [];
+  for (const title of ['test lesson 1', 'test lesson 2', 'China trip 1 · 在机场']) {
+    const r = await api<{ lesson?: { id: string }; id?: string }>(request, '/api/custom-lessons', {
+      method: 'POST', token: me.token, data: { spec: { title, sections: [{ exercises: [choice('A?'), choice('B?')] }] } },
+    });
+    ids.push(r.lesson?.id ?? r.id!);
+  }
+  // Each finished 8 days ago with a miss → a revision due today.
+  const at = new Date(Date.now() - 8 * 86_400_000).toISOString();
+  await api(request, '/api/custom-lessons/offline-complete', {
+    method: 'POST', token: me.token,
+    data: { events: ids.map((id, i) => ({ id: `c${i}-${Date.now()}`, lesson_id: id, correct: 1, total: 2, completed_at: at, outcome: { keys: ['s0e0', 's0e1'], missed: ['s0e1'] } })) },
+  });
+
+  await page.goto(`/?session_token=${me.token}`);
+  await expect(page.getByTestId('homework-home-card')).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('link', { name: /All|more/ }).first().click();
+  await expect(page).toHaveURL(/\/homework$/);
+  const rows = page.getByTestId('hw-lesson-rows');
+  const target = rows.getByTestId('home-hw-row-wrap').filter({ hasText: 'test lesson 2' });
+  await expect(target).toBeVisible({ timeout: 20_000 });
+
+  // Long-press (touch) on the row.
+  const link = target.getByTestId('home-hw-row');
+  const box = (await link.boundingBox())!;
+  const at0 = { clientX: box.x + 40, clientY: box.y + box.height / 2, pointerType: 'touch', isPrimary: true, bubbles: true };
+  await link.dispatchEvent('pointerdown', at0);
+  await page.waitForTimeout(700);
+  await link.dispatchEvent('pointerup', at0);
+  await expect(page.getByTestId('row-action-done_for_good')).toContainText('Stop revising — done for good');
+  await page.getByTestId('row-action-delete_lesson').click();
+  await expect(page.getByTestId('row-actions-confirm')).toContainText('Delete “test lesson 2”');
+  await page.getByTestId('row-actions-confirm-go').click();
+  await expect(page.getByTestId('row-actions-toast')).toContainText('Lesson deleted');
+  await expect(rows.getByText('test lesson 2')).toHaveCount(0);
+
+  // The server has it gone; a reload (and its sync) never brings it back.
+  await expect.poll(async () => {
+    const r = await api<{ lessons: Array<{ id: string }> }>(request, '/api/custom-lessons?status=all', { token: me.token });
+    return r.lessons.some((l) => l.id === ids[1]);
+  }, { timeout: 20_000 }).toBe(false);
+  await page.reload();
+  await expect(page.getByTestId('hw-lesson-rows')).toContainText('test lesson 1', { timeout: 20_000 });
+  await expect(page.getByText('test lesson 2')).toHaveCount(0);
+});

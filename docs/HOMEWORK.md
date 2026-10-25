@@ -234,7 +234,8 @@ homework and then opt to remove it or ignore it?"
 - **The row menu** (long-press on touch, right-click, or the row's ⋯; `shared/homework/row-actions.ts`, Lab
   `core/…/HomeworkRowActions.kt`, parity-tested by `parity/fixtures/homework-row-menu.ts`): the tutor's homework →
   **Skip this homework**; a revision or his own lesson → **Stop revising — done for good** (a `revisit_events` retire;
-  Undo = a restore) and **Delete lesson** (confirmed; `DELETE /api/custom-lessons/:id`, needs a connection); any
+  Undo = a restore) and **Delete lesson** (confirmed; offline-first — gone at once, `DELETE /api/custom-lessons/:id` now or on the next sync; works
+from every list, including Home → the homework list's revision rows); any
   lesson with handwriting while the switch is off → **Skip handwriting exercises** (docs/STUDY_SESSION.md "Skip
   handwriting"). Web `components/homework/RowActions.tsx`, Lab `ui/homework/RowActionsUi.kt`.
 - **Skip this homework** = a further pass event `{ result: 'skip', item_id: <target> }` (migration 0139 widens the

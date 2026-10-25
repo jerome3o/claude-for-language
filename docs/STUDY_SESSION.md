@@ -659,7 +659,9 @@ retry bar — blue answered, orange still to put right (`savedRunBar` over the s
 `components/homework/useLessonRunBars.ts`, Lab `LessonProgressStore.runBars`); not started = no bar. Long-press /
 right-click / ⋯ opens the **row menu** (`shared/homework/row-actions.ts`): **Stop revising — done for good** (a
 `revisit_events` retire — done forever until Undo writes a restore; web `markLessonDone`, Lab
-`LessonStore.markDone`), **Delete lesson** (confirmed), **Skip this homework** (the tutor's; she sees "Skipped by
+`LessonStore.markDone`), **Delete lesson** (confirmed; offline-first — gone from the device at once, `DELETE /api/custom-lessons/:id` now or on
+the next sync, every sync leaves a pending delete out so it never comes back as a revision: web `services/lessonDeletes.ts`,
+Lab `LessonStore.delete` via the Outbox + `lessons/pending-deletes`), **Skip this homework** (the tutor's; she sees "Skipped by
 <student>"), **Skip handwriting exercises**.
 
 ### Skip handwriting (`shared/lesson/handwriting.ts`; Lab `core/…/Handwriting.kt`, parity-tested)
