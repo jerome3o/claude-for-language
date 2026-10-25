@@ -95,7 +95,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const dictation = () => fakes.list.find((f) => f.surface === 'sentence_practise')!;
 const NOTE = { id: 'n1', sentence_clue: '我去银行取钱。', sentence_clue_pinyin: 'Wǒ qù yínháng qǔ qián.', sentence_clue_translation: 'I go to the bank to get money.', sentence_clue_audio_url: null };
 
-async function render(opts: { onDone?: () => void; onSkip?: () => void } = {}) {
+async function render(opts: { onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void } = {}) {
   const { SentenceRound, useRoundSentences } = await import('./SentenceRound');
   function Harness() {
     const sentences = useRoundSentences(NOTE, true);
@@ -105,6 +105,7 @@ async function render(opts: { onDone?: () => void; onSkip?: () => void } = {}) {
         showingKey="c1" noteId="n1" question="银行" questionIsChinese sentences={sentences} right={right}
         onRight={(id) => setRight((p) => (p.includes(id) ? p : [...p, id]))}
         onDone={opts.onDone ?? vi.fn()} onSkip={opts.onSkip ?? vi.fn()}
+        initialIds={opts.initialIds} onPicked={opts.onPicked} onResult={opts.onResult}
       />
     );
   }
@@ -132,17 +133,19 @@ afterEach(() => {
 });
 
 describe('SentenceRound', () => {
-  it('shows the question small, three sentences → four exercises, translate Chinese hidden', async () => {
+  it('shows the question small, three sentences → three exercises (one each), translate Chinese hidden', async () => {
     await render();
     expect(all('sentence-round-question')[0].textContent).toBe('银行');
-    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate', 'read', 'translate']);
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate', 'read']);
+    // A sentence is in one exercise only: its English never answers another one.
+    expect(host.textContent!.split('我去银行。').length - 1).toBe(0);
     expect(inEx(0, 'sentence-round-chinese')!.textContent).toBe('我去银行取钱。');
     expect(inEx(1, 'sentence-round-english')!.textContent).toBe('I go to the bank.');
     expect(inEx(1, 'sentence-round-chinese')).toBeNull();
     expect(inEx(1, 'sentence-round-play')).toBeNull();
     expect(inEx(0, 'sentence-round-play')).toBeNull();
     expect(all('sentence-round-counter')[0].textContent).toContain('0 / 2');
-    expect(host.textContent).toContain('Get any 2 of these 4 right');
+    expect(host.textContent).toContain('Get any 2 of these 3 right');
   });
 
   it('a miss offers Try again; two right finish the round', async () => {
@@ -183,8 +186,9 @@ describe('SentenceRound', () => {
     const st = (read: number) => ({ read: { attempts: read, rights: read, misses: 0, last_at: read ? '2026-10-01' : null }, translate: { attempts: 0, rights: 0, misses: 0, last_at: null }, hidden: null });
     history.stats = new Map<string, unknown>([['clue', st(3)], ['s2', { ...st(0), hidden: { at: '2026-10-02', reason: 'weird' } }]]);
     await render();
-    // Two sentences left in rotation: s1 never read → read; the clue (read 3×) → translate; then the other modes.
-    expect(all('sentence-round-exercise').map((e) => `${e.dataset.mode}`)).toEqual(['translate', 'read', 'translate', 'read']);
+    // Two sentences left in rotation: s1 never read → read; the clue (read 3×) → translate. Two exercises, no reuse.
+    expect(all('sentence-round-exercise').map((e) => `${e.dataset.mode}`)).toEqual(['translate', 'read']);
+    expect(host.textContent).toContain('Get any 2 of these 2 right');
     expect(host.textContent).not.toContain('银行在哪儿？');
     // Fewer than four in rotation: more sentences were asked for.
     expect(history.more).toEqual([['n1', 'few']]);
@@ -201,5 +205,21 @@ describe('SentenceRound', () => {
     act(() => all('sentence-round-skip')[0].click());
     expect(onSkip).toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'skip', got: 0, needed: 2 }));
+  });
+
+  it('reports the exercises as picked and each judged take (the answer side marks them); a resumed round shows the same ones', async () => {
+    const onPicked = vi.fn();
+    const onResult = vi.fn();
+    await render({ onPicked, onResult });
+    expect(onPicked).toHaveBeenCalledWith(['read:clue:n1', 'translate:s1', 'read:s2']);
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    expect(onResult).toHaveBeenCalledWith('read:clue:n1', expect.stringMatching(/close|wrong/));
+    act(() => root.unmount());
+    root = createRoot(host);
+    const again = vi.fn();
+    await render({ initialIds: ['translate:s2', 'read:s1'], onPicked: again });
+    expect(again).toHaveBeenCalledWith(['read:s1', 'translate:s2']);
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate']);
   });
 });

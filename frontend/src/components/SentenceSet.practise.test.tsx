@@ -228,4 +228,25 @@ describe('SentenceSet practice history', () => {
     expect(history.hidden.at(-1)).toEqual(['n1', 's1', 'too_rare', 'list']);
     history.stats = new Map();
   });
+
+  it("the round's sentences: on top in the round's order, opened, outlined with their result", async () => {
+    const { SentenceSet } = await import('./SentenceSet');
+    const { roundRowMarks } = await import('@shared/study/sentenceRound');
+    const marks = roundRowMarks([{ id: 'translate:s2', result: 'wrong' }, { id: 'read:s1' }], []);
+    await act(async () => root.render(<SentenceSet noteId="n1" compact practise showingKey="c1" roundRows={marks} />));
+    await flush();
+    expect(rows().map((r) => r.dataset.round)).toEqual(['wrong', 'untried']);
+    expect(all('sentence-set-round-label').map((l) => l.textContent)).toEqual(['In the round · ✗ Not quite', 'In the round']);
+    // Opened: hanzi, pinyin and English all up.
+    expect(rows()[0].querySelector('.sentence-set-hanzi')!.textContent).toBe('银行在哪儿？');
+    expect(rows()[0].querySelector('.sentence-set-pinyin')!.textContent).toBe('Yínháng zài nǎr?');
+    expect(rows()[0].querySelector('.sentence-set-translation')!.textContent).toBe('Where is the bank?');
+    expect(rows()[0].className).toContain('is-open');
+    // Without a round: the list as before, blank rows.
+    act(() => root.unmount());
+    root = createRoot(host);
+    await render();
+    expect(rows()[0].dataset.round).toBeUndefined();
+    expect(rows()[0].querySelector('.sentence-set-hanzi')).toBeNull();
+  });
 });
