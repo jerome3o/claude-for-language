@@ -48,7 +48,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
     private val clueKey = clueRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
 
-    @After fun gateOff() = prefs.setSentenceGate(false)
+    @After fun gateOff() = prefs.setHardMode("off")
 
     private fun view(type: String = CardTypes.HANZI_TO_MEANING): CardView {
         val now = Js.parseDate("2026-10-24T08:00:00.000Z")
@@ -117,7 +117,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
     }
 
     private fun card(practise: SentencePractiseState, actions: StudyActions = StudyActions()) {
-        prefs.setSentenceGate(true)
+        prefs.setHardMode("all")
         compose.setContent {
             LabTheme { StudyScreen(ui(view()), playingKey = null, actions = actions, cardStart = CardStartState(flipped = true), autoplay = false, sentencePractisePreview = practise) }
         }
@@ -151,7 +151,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
         compose.setContent {
             LabTheme { StudyScreen(ui(view(CardTypes.AUDIO_TO_HANZI)), playingKey = null, actions = StudyActions(), cardStart = CardStartState(flipped = true, answer = "银行"), autoplay = false, sentencePractisePreview = previewSentencePractise()) }
         }
-        prefs.setSentenceGate(true)
+        prefs.setHardMode("all")
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(0, compose.onAllNodesWithTag(SentencePractiseTags.GATE, useUnmergedTree = true).fetchSemanticsNodes().size)
     }
@@ -203,7 +203,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
 
     @Test fun shotSetting() = shoot("sentence-practise-06-setting") {
         Column(Modifier.padding(16.dp)) {
-            SpokenAnswerSection(false, wordTagsOn = true, picturesOn = true, newCharShimmerOn = true, sentenceGateOn = true) {}
+            SpokenAnswerSection(false, wordTagsOn = true, picturesOn = true, newCharShimmerOn = true, hardMode = "red") {}
         }
     }
 }

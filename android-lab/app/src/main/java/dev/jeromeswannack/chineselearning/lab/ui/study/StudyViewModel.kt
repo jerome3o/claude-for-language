@@ -424,7 +424,7 @@ class StudyViewModel(
             val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
             val card = id?.let { i -> queue.firstOrNull { it.id == i } }
             if (point != null && card != null) {
-                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight))
+                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight, feedbackOpen = point.feedbackOpen && !point.revealed, gaveUp = point.gaveUp, roundLog = point.roundLog))
                 return
             }
         }
@@ -549,6 +549,7 @@ class StudyViewModel(
             flipped = revealed, answer = answer, mcSlots = mcSlots, showClue = v.start.showClue, elapsedMs = v.start.elapsedMs,
             spokenText = prev.spokenText, spokenReviewed = prev.spokenReviewed, practiceSaid = prev.practiceSaid,
             roundOpen = prev.roundOpen && !revealed, sentencesRight = prev.sentencesRight,
+            feedbackOpen = prev.feedbackOpen && !revealed, gaveUp = prev.gaveUp, roundLog = prev.roundLog,
         )
         progress = p
         progressPresentation = presentation
@@ -588,6 +589,19 @@ class StudyViewModel(
         saveResumePoint()
     }
 
+    /** Hard mode's state of the card (core HardMode): the question's check up, gave up, the round's log — resume point. */
+    fun onCardHard(presentation: Int, feedbackOpen: Boolean, gaveUp: Boolean, roundLog: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.LogEntry>) {
+        val v = currentView() ?: return
+        if (v.presentation != presentation) return
+        val prev = (if (progressPresentation == presentation) progress else null) ?: v.start
+        val p = prev.copy(feedbackOpen = feedbackOpen, gaveUp = gaveUp, roundLog = roundLog)
+        if (p == prev) return
+        progress = p
+        progressPresentation = presentation
+        setViewStart(presentation, p)
+        saveResumePoint()
+    }
+
     /** The card type on screen (analytics from the screen). */
     fun currentCardType(): String? = currentView()?.card?.cardType
 
@@ -604,7 +618,7 @@ class StudyViewModel(
         val p = (if (progressPresentation == v.presentation) progress else null) ?: v.start
         val end = leftAt ?: System.currentTimeMillis()
         dayStore.saveResumePoint(
-            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0), p.roundOpen && !p.flipped, p.sentencesRight),
+            dev.jeromeswannack.chineselearning.lab.core.StudyResume.Point(today(), scope, v.card.id, p.flipped, p.answer, (end - shownAt).coerceAtLeast(0), p.roundOpen && !p.flipped, p.sentencesRight, p.feedbackOpen && !p.flipped, p.gaveUp, p.roundLog),
         )
     }
 

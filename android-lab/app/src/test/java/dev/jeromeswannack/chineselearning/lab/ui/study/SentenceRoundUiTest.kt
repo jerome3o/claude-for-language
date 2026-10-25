@@ -44,7 +44,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
     private val clueKey = clueRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
 
-    @After fun gateOff() = prefs.setSentenceGate(false)
+    @After fun gateOff() = prefs.setHardMode("off")
 
     private fun view(type: String = CardTypes.HANZI_TO_MEANING): CardView {
         val now = Js.parseDate("2026-10-24T08:00:00.000Z")
@@ -65,7 +65,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         actions: StudyActions = StudyActions(),
         dark: Boolean = false,
     ) {
-        prefs.setSentenceGate(true)
+        prefs.setHardMode("all")
         compose.setContent {
             LabTheme(dark = dark) { StudyScreen(ui(view(type)), playingKey = null, actions = actions, cardStart = start, autoplay = false, sentencePractisePreview = practise) }
         }
@@ -77,12 +77,12 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         listOf("read", "translate").flatMap { m -> listOf("open", "right", "close", "wrong").map { "${SentenceRoundTags.EXERCISE}-$i-$m-$it" } }.first { count(it) > 0 }
     }
 
-    @Test fun revealOpensTheRoundFirst() {
+    @Test fun showAnswerBeforeTryingGivesUp() {
         card(previewSentencePractise(), start = CardStartState())
         compose.onNodeWithText("Show answer", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(800)
-        compose.onNodeWithTag(SentenceRoundTags.ROUND, useUnmergedTree = true).assertIsDisplayed()
-        assertEquals(0, count(CARD_BACK_TAG))
+        assertEquals(0, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithTag(HardModeTags.GAVE_UP, useUnmergedTree = true).assertExists()
     }
 
     @Test fun fourExercisesTranslateChineseHidden() {

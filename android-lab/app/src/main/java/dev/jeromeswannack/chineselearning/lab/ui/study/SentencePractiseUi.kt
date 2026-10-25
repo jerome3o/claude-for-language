@@ -341,3 +341,21 @@ fun SentenceGateLine(gate: SentencePractise.Gate, showNote: Boolean, onTap: () -
         Text(text, color = if (gate.locked) Lab.colors.ink else Palette.Good, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
+
+/** The line above the ratings with Hard mode's lock (core HardMode.lock): the sentence gate, or "You looked at the answer". */
+@Composable
+fun SentenceGateLine(lock: dev.jeromeswannack.chineselearning.lab.core.HardMode.Lock, showNote: Boolean, onTap: () -> Unit) {
+    val text = (if (showNote && lock.locked) lock.blockedNote else lock.label) ?: return
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 44.dp).clip(shape)
+            .background(if (lock.locked) Lab.colors.faint else Palette.Good.copy(alpha = 0.12f))
+            .border(1.dp, if (lock.locked) Lab.colors.cardBorder else Palette.Good.copy(alpha = 0.6f), shape)
+            .bouncyClickable(true, 0.98f, role = Role.Button, onClick = onTap)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag(if (lock.gaveUp) HardModeTags.GAVE_UP else SentencePractiseTags.GATE),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = if (lock.locked) Lab.colors.ink else Palette.Good, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}

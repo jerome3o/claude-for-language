@@ -80,22 +80,27 @@ class StudyPrefs private constructor(context: Context) {
         _newCharShimmerOn.value = on
     }
 
-    private val _sentenceGate = MutableStateFlow(sp.getBoolean(SENTENCE_GATE, false))
+    private val _hardMode = MutableStateFlow(
+        sp.getString(HARD_MODE, null)?.let { dev.jeromeswannack.chineselearning.lab.core.HardMode.parse(it) }
+            ?: if (sp.getBoolean(SENTENCE_GATE, false)) dev.jeromeswannack.chineselearning.lab.core.HardMode.ALL else dev.jeromeswannack.chineselearning.lab.core.HardMode.OFF,
+    )
 
     /**
-     * Settings → Study → "Get two sentences right before Good / Easy" (OFF by default; the web's
-     * services/sentenceGatePrefs.ts): the reading and meaning cards keep Good / Easy locked until two
-     * example sentences were said right with the rows' 🎤 (core SentencePractise.gate).
+     * Hard mode (core HardMode; the web's services/hardModePrefs.ts): "off" (the default) · "red" (red cards
+     * only: learning / relearning) · "all". Set from the study session's 🎯 chip or Settings → Study. A
+     * phone that had the old "Sentence round before the answer" switch on reads All cards.
      */
-    val sentenceGate: StateFlow<Boolean> = _sentenceGate
+    val hardMode: StateFlow<String> = _hardMode
 
-    fun setSentenceGate(on: Boolean) {
-        sp.edit().putBoolean(SENTENCE_GATE, on).apply()
-        _sentenceGate.value = on
+    fun setHardMode(mode: String) {
+        val m = dev.jeromeswannack.chineselearning.lab.core.HardMode.parse(mode)
+        sp.edit().putString(HARD_MODE, m).apply()
+        _hardMode.value = m
     }
 
     companion object {
         private const val SENTENCE_GATE = "sentence_gate"
+        private const val HARD_MODE = "hard_mode"
         private const val NEW_CHAR_SHIMMER_ON = "new_char_shimmer_on"
         private const val PICTURES_ON = "card_pictures_on"
         private const val WORD_TAGS_ON = "word_tags_on"

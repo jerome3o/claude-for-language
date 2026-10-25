@@ -165,6 +165,8 @@ class StudyActions(
     val onCardProgress: (presentation: Int, revealed: Boolean, answer: String, mcSlots: List<MultipleChoice.Slot>?) -> Unit = { _, _, _, _ -> },
     /** The Sentence round is up / what was said right on this showing (resume point; core SentenceRound). */
     val onCardRound: (presentation: Int, roundOpen: Boolean, sentencesRight: List<String>) -> Unit = { _, _, _ -> },
+    /** Hard mode's state of the card (the question's check up, gave up, the round's log) for the resume point. */
+    val onCardHard: (presentation: Int, feedbackOpen: Boolean, gaveUp: Boolean, roundLog: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.LogEntry>) -> Unit = { _, _, _, _ -> },
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
@@ -301,6 +303,7 @@ fun StudyRoute(
             onTick = { app.haptics.tick() },
             onCardProgress = vm::onCardProgress,
             onCardRound = vm::onCardRound,
+            onCardHard = vm::onCardHard,
             onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
@@ -462,6 +465,17 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
             QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied)
             // Lab today split: what's waiting after the cards ("📘2 📖1").
             if (ui.todayLeft.any && (ui.phase is StudyPhase.Showing || ui.phase is StudyPhase.Loading)) TodayLeftChip(ui.todayLeft)
+            // Hard mode: Off · Red cards only · All cards (the regular session only, never the tutor-notes practice).
+            if (ui.practice == null) {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val prefs = remember { StudyPrefs.get(ctx) }
+                val hardMode by prefs.hardMode.collectAsState()
+                HardModeChip(hardMode, onChange = { next ->
+                    prefs.setHardMode(next)
+                    dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "set", "mode" to next, "where" to "header"))
+                })
+                Spacer(Modifier.width(6.dp))
+            }
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
             IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
