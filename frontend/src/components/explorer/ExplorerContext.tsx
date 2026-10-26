@@ -5,7 +5,7 @@ import { useBackLevels } from '../../hooks/useBackLevels';
 import { activeDrill, LanguageExplorer, type DrillRun } from './LanguageExplorer';
 
 /** Where the explorer was opened from (analytics `explorer.open` source). */
-export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'other';
+export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'phone' | 'other';
 
 export interface ExplorerOpenOptions {
   source: ExplorerSource;

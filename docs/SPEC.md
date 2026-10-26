@@ -258,6 +258,16 @@ still adds. The next lighter day the configured budget comes back. Home says "�
 reviews due today (limit 100)"; the tutor's student card says so too. Rules: `shared/decks/review-load.ts`;
 details in docs/STUDY_SESSION.md "Pause new cards on heavy days".
 
+### 19. 📱 Phone practice (手机练习)
+
+Real-life tasks on a simulated Chinese phone (More → Practice → Phone practice): book a train (log in by SMS code,
+add a passenger with a passport, choose seats, 改签 / 退票), call a car and answer the driver, order delivery your way
+(规格, 备注, 满减, 红包, a new address, the rider at the gate), buy cinema seats (情侣座, IMAX 英语), queue or book a
+restaurant and ask the host about a birthday cake, transfer money / scan a 收款码 / open a 红包 in the messenger — in
+fictional apps with the real apps' flows and Chinese copy. Tasks are validated scenario specs checked by a pure engine;
+the people in the apps are Claude personas. Long-press any Chinese to look it up, 💡 for the next step, a summary with
+the task's words as cards. Web only for now; details in docs/PHONE_PRACTICE.md.
+
 ### Tutor Capabilities
 - View all assigned students
 - See student progress and statistics

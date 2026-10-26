@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import coachRoutes from './routes/coach';
 import idiomsRoutes from './routes/idioms';
+import phoneRoutes from './routes/phone';
 import memeReviewRoutes from './routes/meme-review';
 import clipsRoutes from './routes/clips';
 import { handleClipMessage, type ClipQueueMessage } from './services/clips/job';
@@ -621,6 +622,7 @@ app.route('/api', mediaRoutes);
 app.route('/api', feedbackRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
 app.route('/api', clipsRoutes); // 🎬 Clips (experimental): GET|POST /api/clips, /generate, /events, /:id/learn-more
+app.route('/api', phoneRoutes); // 📱 Phone practice (docs/PHONE_PRACTICE.md): POST /api/phone/persona-reply
 app.route('/api', memeReviewRoutes); // 梗 Meme review (prototype): GET /api/meme-review[/:month], POST …/generate (admin), …/:month/lesson
 app.route('/api', messageTranslateRoutes);
 

@@ -5,7 +5,7 @@
  * 1. RATE LIMITS by group, keyed by user id — Workers rate-limit bindings (wrangler.toml)
  *    when present, else a per-isolate fixed window with the same numbers (dev, tests):
  *    - `ai`   — model calls a person waits for (Ask Claude, Coach, Explain, transcription,
- *               answer checks, /api/ai/*, idioms): 60 a minute;
+ *               answer checks, /api/ai/*, idioms, phone-practice persona chats): 60 a minute;
  *    - `tts`  — /api/practice/tts (mostly R2 hits; the TTS limiter paces real calls): 600 a minute;
  *    - `jobs` — POSTs that start background generation (audio lessons, readers, picture
  *               hunts, quests, podcast episodes, session notes / homework drafts, meme-review
@@ -46,6 +46,7 @@ const AI_PATHS: RegExp[] = [
   /^\/api\/lessons\/answer-check(\/|$)/,
   /^\/api\/lessons\/sentence-feedback$/,
   /^\/api\/idioms$/,
+  /^\/api\/phone\/persona-reply$/,
 ];
 
 const JOB_PATHS: RegExp[] = [
