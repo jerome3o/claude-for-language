@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { createSqliteD1, applyMigrationsFrom, type SqliteD1 } from './sqlite-d1';
 import { markCallMessageEnded, postSystemMessage } from '../chat/system';
 import { getMessages } from '../conversations';
-import { getChatInbox, getChatList } from '../chat/reads';
+import { countUnread, getChatInbox, getChatList, markConversationRead } from '../chat/reads';
 import { markCallEnded } from '../calls/store';
 
 const TUTOR = 'tutor';
@@ -132,5 +132,44 @@ describe('posting and reading system messages', () => {
     expect(await markCallMessageEnded(db, 'c1', [TUTOR])).toEqual([]);
     expect(await markCallMessageEnded(db, 'c1', [TUTOR, STUDENT])).toEqual([sent.id]);
     expect((await getMessages(db, 'conv', STUDENT)).messages[0].system_data).toMatchObject({ missed: false });
+  });
+});
+
+describe('system messages are unread until read, then read like any message', () => {
+  // Jerome's chat with Minghui (Oct 2026): the newest message was her "📹 started a video call" line,
+  // the Chats tab said 1 and opening the chat has to clear it.
+  async function seeded() {
+    const db = await createSqliteD1();
+    seedPeople(db);
+    db.raw.run("INSERT INTO calls (id, relationship_id, created_by, status) VALUES ('c1', 'rel', 'tutor', 'live')");
+    insertMessage(db, 'old', TUTOR, '好的，我们可以慢慢改进', '2026-10-21T15:41:01.584Z');
+    await markConversationRead(db, 'conv', STUDENT);
+    const sent = await postSystemMessage(db, 'conv', TUTOR, 'call_started', { call_id: 'c1' }, { url: 'https://app.test/calls/c1' });
+    return { db, sent };
+  }
+
+  it('counts the newest system row as unread, in the list, the inbox and the count', async () => {
+    const { db, sent } = await seeded();
+    expect(await countUnread(db, 'conv', STUDENT)).toBe(1);
+    expect((await getChatList(db, STUDENT)).conversations[0].unread).toBe(1);
+    expect((await getChatInbox(db, STUDENT)).messages.map((m) => m.id)).toContain(sent.id);
+    // The sender never has her own system line unread.
+    expect(await countUnread(db, 'conv', TUTOR)).toBe(0);
+  });
+
+  it('opening the chat (no up_to) reads up to the system row, and the call ending later does not bring it back', async () => {
+    const { db, sent } = await seeded();
+    const read = await markConversationRead(db, 'conv', STUDENT);
+    expect(read).toMatchObject({ last_read_at: sent.created_at, unread: 0, moved: true });
+    expect((await getChatList(db, STUDENT)).conversations[0].unread).toBe(0);
+    // Ended / missed rewrite system_data and updated_at, never created_at.
+    await markCallEnded(db, 'c1');
+    await markCallMessageEnded(db, 'c1', [TUTOR]);
+    expect((await getChatList(db, STUDENT)).conversations[0]).toMatchObject({ unread: 0, last_message: { preview: '📹 Missed video call from Minghui' } });
+  });
+
+  it('up_to = the system row reads it too (the web sends the newest created_at)', async () => {
+    const { db, sent } = await seeded();
+    expect(await markConversationRead(db, 'conv', STUDENT, sent.created_at)).toMatchObject({ unread: 0, moved: true });
   });
 });
