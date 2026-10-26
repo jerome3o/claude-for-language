@@ -5,8 +5,9 @@ book train tickets, book a movie, reservations at a restaurant — something I'd
 realistic UIs." He plans to buy a phone in China and will have to use one in Chinese.
 
 Web: More → Practice → **📱 Phone practice** (tutors: More → Tools) → `/phone` (the task list) → `/phone/:id` (one task,
-immersive). **Web only for now** — the Lab port is planned (android-lab/PARITY.md); everything it needs to share is in
-`shared/phone/` (pure TS, no DOM).
+immersive). **Lab app**: the same (More → Practice / Tools → 📱 Phone practice, `/phone`, `/phone/:id`) — `ui/phone/`
+(Compose port of every app), `core/…/phone/` (Kotlin port of `shared/phone/` over the same scenario JSON, parity-tested by
+`PhoneParityTest` / `parity/fixtures/phone.ts`), plays in the JsonCache (`data/phone/PhoneStore.kt`).
 
 ## What it is
 
