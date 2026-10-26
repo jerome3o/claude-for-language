@@ -1146,7 +1146,7 @@ export function SettingsPage() {
           >
             <span className="nav-section-title" style={{ margin: 0 }}>Advanced</span>
             <span className="nav-section-toggle-hint">
-              {showAdvanced ? 'Hide' : 'Usage data · Audio quality · Conversation voices · Sentence coverage · Feature requests · Sync · Debug'}
+              {showAdvanced ? 'Hide' : 'Usage data · Audio quality · Conversation voices · VR · Sentence coverage · Feature requests · Sync · Debug'}
             </span>
             <span className={`nav-row-chevron nav-section-toggle-chevron${showAdvanced ? ' open' : ''}`} aria-hidden="true">›</span>
           </button>
@@ -1165,6 +1165,7 @@ export function SettingsPage() {
                   desc="Hear and choose the voices in lesson conversations"
                   to="/settings/voices"
                 />
+                <NavRow icon="🥽" label="VR (beta)" desc="Study, readers and homework in a VR headset (WebXR) — docs/VR.md" to="/vr" />
               </div>
 
               <div className="settings-section">

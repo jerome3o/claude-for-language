@@ -154,6 +154,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── strokes/           # Handwriting practice: pure stroke matcher (right stroke / order / direction) + per-character quiz + result shapes (docs/STROKE_ORDER.md)
 │   ├── import/            # "Paste a list" word importer: pure parser (separators, column roles), planner (add / update by hanzi), pinyin helpers
 │   ├── tts/               # TTS provider settings (TtsConfig: stored / live order, voices, max RPM, conversation_rate), voice catalogues, validation, speed mapping (docs/AUDIO.md "Providers"); conversation.ts = conversation rates / voices / deliveries per provider
+│   ├── vr/                # 🥽 VR (beta, docs/VR.md): VrPanelSpec + validateVrPanelSpec (a window is DATA: kind + params, never code), placement maths (ring at arm's length, facing, clamping, dragging, tray) — web only
 │   └── reader/            # Graded readers as one spec (reader editor, Claude co-editor, exports)
 │       ├── types.ts       # ReaderSpec (titles, difficulty, topic, vocabulary_used, ordered pages)
 │       ├── validate.ts    # validateReaderSpec / normalizeReaderSpec
@@ -169,6 +170,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── components/    # React components (components/editor/ = lesson editor shell, chat, forms; components/tutor/ = students dashboard, setup checklist, send-homework sheet)
 │   │   ├── components/nav/ # Bottom tab bar (TabBar), role derivation (useNavRole), landing rule (landing.ts), maintenance actions
 │   │   ├── pages/         # Page components (StudyPage, DecksPage, MorePage, DeckDetailPage, etc.; pages/editor/ = library + editor)
+│   │   ├── vr/            # 🥽 /vr (beta, docs/VR.md): WebXR room (three.js + @react-three/fiber, lazy `vendor-three` chunk) — windows are canvas panels drawn from UI nodes (ui/), one trusted builder per panel kind (panels/: study = useStudySession, reader, homework pass, explorer, mini lesson, feedback), one pointer pipeline for mouse + XR rays (scene/interaction.ts), windowStore.ts (positions per device)
 │   │   ├── services/anki/ # Client-side Anki .apkg export (sql.js + JSZip): builder, deck/lesson/reader adapters, audio resolution
 │   │   ├── components/import/ # PasteWordsModal — paste a word list, preview add / update rows, fill gaps, save, update students' copies
 │   │   ├── components/export/ # AnkiExportModal — options / progress / result UI (lazy-loads services/anki)
@@ -2866,4 +2868,5 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/materials`, `/materials/:id` - Lesson materials (not in any menu since Oct 2026; the call's Present material sheet uploads too): upload / share / rename / delete, and the page viewer (cache-first, offline)
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards
 - `/admin/audio` - Admin: TTS providers (status per provider, enable, max RPM, voices with ▶ samples, stored / live order, upgrade backup clips, backlog + Retry / Run backfill; docs/AUDIO.md "Providers")
+- `/vr` - 🥽 VR (beta, docs/VR.md): a WebXR room (Enter VR in a WebXR browser — on the Steam Frame the community Chromium XR —, else a flat 3D preview): grabbable Study / Reader / Homework / Explorer / mini-lesson / Feedback windows, 🎤 speech into the focused window, 💬 feedback with a screenshot (`POST /api/feedback`). Immersive, lazy, not in the tab bar (More → Practice, Settings → Advanced). Web only by design
 - `/connections/:relId/board` - The Lesson board: every page of the video-call board with that person, read-only, offline ("📝 Lesson board · N pages" on the student / tutor page)
