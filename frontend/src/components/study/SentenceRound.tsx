@@ -30,6 +30,14 @@ import {
 } from '@shared/study/sentenceRound';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
 import {
+  roundTakeDifference,
+  DIFFERENCE_CONTINUE,
+  DIFFERENCE_HOLD_NOTE,
+  DIFFERENCE_SAY_AGAIN,
+  DIFFERENCE_TITLE,
+  type DifferenceReason,
+} from '@shared/study/answerDifference';
+import {
   SENTENCES_COMING_NOTE,
   SENTENCE_HIDDEN_TOAST,
   SENTENCE_HIDE_TITLE,
@@ -55,6 +63,7 @@ import { useNoteAudio } from '../../hooks/useAudio';
 import { track } from '../../services/analytics';
 import { Confetti } from '../Confetti';
 import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise, type PractiseRow, type RowTake } from './SentencePractise';
+import './DifferenceCompare.css';
 import './SentenceRound.css';
 
 /** One of the card's sentences as the round needs it. */
@@ -161,9 +170,11 @@ interface SentenceRoundProps {
   onPicked?: (ids: string[]) => void;
   /** A take on an exercise was judged (its last result; the answer side's outline). */
   onResult?: (id: string, result: 'right' | 'close' | 'wrong') => void;
+  /** Analytics: the regular session or the homework pass. */
+  where?: 'session' | 'homework';
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer, where = 'session' }: SentenceRoundProps) {
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
@@ -204,15 +215,42 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const [english, setEnglish] = useState<Record<string, boolean>>({});
   const exerciseKey = useRef(new Map<string, string>());
   exerciseKey.current = new Map((picked ?? []).map((e) => [e.id, e.key]));
+  // The exercise said right last: when it was right in other words, the round waits for Continue.
+  const lastRight = useRef<string | null>(null);
   const practise = useSentencePractise({
     showingKey: `${showingKey}:round`,
-    onRight,
+    onRight: (id) => {
+      lastRight.current = id;
+      onRight(id);
+    },
     // Every judged take goes into the sentence's practice history.
     onResult: (id, mode, result) => {
       const key = exerciseKey.current.get(id);
       if (key) recordSentenceAttempt(noteId, key, mode, result);
     },
   });
+
+  /** Right but not the model sentence (shared/study/answerDifference.ts): why, else null. */
+  const differenceOf = (ex: RoundExercise | undefined): DifferenceReason | null => {
+    const t = ex ? practise.takes[ex.id] : undefined;
+    const row = ex ? rows.get(ex.key) : undefined;
+    if (!ex || !t || !row || t.claude?.status === 'checking') return null;
+    return roundTakeDifference({
+      mode: ex.mode,
+      said: t.take.practised.said,
+      model: row.hanzi,
+      local: t.take.practised.result.state,
+      claude: t.claude?.status === 'done' ? t.claude.check.verdict : null,
+    });
+  };
+  // Enough right, the last one in other words: stay on it (docs/STUDY_SESSION.md "Right, but said differently").
+  const heldId = progress.done && lastRight.current && differenceOf(exercises.find((e) => e.id === lastRight.current)) ? lastRight.current : null;
+  // Once held, or once he said an accepted one again, the round waits for Continue for good: a better
+  // retake (now identical) must not send him on by itself.
+  const [stayPut, setStayPut] = useState(false);
+  useEffect(() => {
+    if (heldId) setStayPut(true);
+  }, [heldId]);
 
   // No sentences after all: straight to the answer.
   const latest = useRef({ onDone, onSkip });
@@ -233,8 +271,18 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       const result = sentencePractiseResult(t.take.practised, t.claude?.status === 'done' ? t.claude.check.verdict : null);
       if (result === 'right' || result === 'close' || result === 'wrong') onResultRef.current?.(ex.id, result);
       track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: ex.mode, got: progress.got, needed: progress.needed });
+      const reason = result === 'right' ? differenceOf(ex) : null;
+      if (reason) {
+        track('study.round_difference_shown', {
+          kind: 'translate',
+          reason,
+          verdict: t.claude?.status === 'done' ? t.claude.check.verdict : t.take.practised.result.state,
+          where,
+          held: progress.done,
+        });
+      }
     });
-  }, [practise.takes, exercises, progress.got, progress.needed]);
+  }, [practise.takes, exercises, progress.got, progress.needed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A cheer when the count goes up; the answer once enough are right.
   const [cheer, setCheer] = useState<string | null>(null);
@@ -248,10 +296,10 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress.got]);
   useEffect(() => {
-    if (!progress.done || !cheer) return;
+    if (!progress.done || !cheer || heldId || stayPut) return;
     const id = window.setTimeout(() => latest.current.onDone(), 1400);
     return () => window.clearTimeout(id);
-  }, [progress.done, cheer]);
+  }, [progress.done, cheer, heldId, stayPut]);
 
   const blocked = practise.dictation.state.blocked;
   const blockNote = practiseMicEnabled(blocked) ? null : practiseBlockNote(blocked);
@@ -274,7 +322,10 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const isRight = right.includes(ex.id);
     const status: 'right' | 'close' | 'wrong' | null = isRight ? 'right' : result === 'close' || result === 'wrong' ? result : null;
     const answered = isRight || !!take;
-    const showChinese = ex.mode === 'read' || answered;
+    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶.
+    const fullCheck = ex.mode === 'translate' && take?.claude?.status === 'done';
+    const difference = differenceOf(ex);
+    const showChinese = ex.mode === 'read' || (answered && !fullCheck);
     const showEnglish = roundEnglishShown(ex.mode, status, answered, english[ex.id]);
     return (
       <li
@@ -285,6 +336,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
         data-testid="sentence-round-exercise"
         data-mode={ex.mode}
         data-status={status ?? 'open'}
+        data-difference={difference ?? undefined}
+        data-held={heldId === ex.id ? 'true' : undefined}
       >
         <div className="sentence-round-ex-head">
           <span className="sentence-round-ex-num" aria-hidden="true">{status === 'right' ? '✓' : index + 1}</span>
@@ -310,12 +363,12 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
             {showChinese && (
               <p className="sentence-round-zh" lang="zh-CN" data-testid="sentence-round-chinese">{row.hanzi}</p>
             )}
-            {answered && row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
+            {answered && !fullCheck && row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
             {ex.mode === 'read' && showEnglish && row.translation && <p className="sentence-round-en is-after" data-testid="sentence-round-read-english">{row.translation}</p>}
           </div>
           <div className="sentence-round-ex-tools">
-            {!isRight && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
-            {answered && (
+            {(!isRight || busy) && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
+            {answered && !fullCheck && (
               <button
                 type="button"
                 className={`sentence-set-play${isPlaying && playing === ex.id ? ' is-playing' : ''}`}
@@ -328,7 +381,16 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
             )}
           </div>
         </div>
-        <SentencePractiseOutcome practise={practise} row={practiseRow} />
+        {difference && !busy && (
+          <p className="difference-title" data-testid="round-difference-title">{DIFFERENCE_TITLE[difference]}</p>
+        )}
+        <SentencePractiseOutcome
+          practise={practise}
+          row={practiseRow}
+          full
+          onPlayModel={() => playRow(ex.id, row)}
+          speak={(text) => play(null, text, API_BASE)}
+        />
         {answered && (
           <div className="sentence-round-ex-actions">
             {(status === 'close' || status === 'wrong') && !busy && (
@@ -343,6 +405,21 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 data-testid="sentence-round-retry"
               >
                 🔁 {SENTENCE_ROUND_TRY_AGAIN}
+              </button>
+            )}
+            {isRight && !busy && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm sentence-round-retry"
+                disabled={!practiseMicEnabled(blocked) || practise.listening || practise.finishing}
+                onClick={() => {
+                  track('study.sentence_round', { action: 'say_again', index, mode: ex.mode, got: progress.got, needed: progress.needed });
+                  setStayPut(true);
+                  practise.toggle(practiseRow, ex.mode);
+                }}
+                data-testid="sentence-round-say-again"
+              >
+                🎤 {DIFFERENCE_SAY_AGAIN}
               </button>
             )}
             {ex.mode === 'read' && row.translation && (
@@ -396,9 +473,12 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       <ol className="sentence-round-list">{exercises.map(renderExercise)}</ol>
       <div className="sentence-round-footer">
         {progress.done ? (
-          <button type="button" className="btn btn-primary btn-block" onClick={() => onDone()} data-testid="sentence-round-continue">
-            {SENTENCE_ROUND_SEE_ANSWER} →
-          </button>
+          <>
+            <button type="button" className="btn btn-primary btn-block" onClick={() => onDone()} data-testid="sentence-round-continue" data-held={heldId ? 'true' : undefined}>
+              {heldId || stayPut ? DIFFERENCE_CONTINUE : SENTENCE_ROUND_SEE_ANSWER} →
+            </button>
+            {heldId && <p className="sentence-round-skip-note" role="status" data-testid="difference-hold-note">{DIFFERENCE_HOLD_NOTE}</p>}
+          </>
         ) : (
           <>
             <button

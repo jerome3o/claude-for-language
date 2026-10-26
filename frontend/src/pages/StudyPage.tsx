@@ -146,6 +146,7 @@ import { HardModeChip } from '../components/study/HardModeChip';
 import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
 import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake } from '@shared/study/hardMode';
+import { questionDifference } from '@shared/study/answerDifference';
 import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
 import { roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
@@ -1788,17 +1789,19 @@ export function StudyCard({
 
   // Hard mode: the question's own answer, checked on the question (shared/study/hardMode.ts) — the same
   // checks the answer side uses: typed / spoken verdict, the grid all right, a read card's "You said".
+  // A typing card's verdict on the question (null = not a typing card / nothing typed).
+  const questionVerdict: AnswerVerdict | null = (() => {
+    if (!feedbackOpen || !isTypingCard) return null;
+    const answer = userAnswer.trim();
+    if (!answer) return null;
+    const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
+    return mcAnswered
+      ? (mcBackSlots ? 'wrong' : 'exact')
+      : answerWasSpoken ? checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin) : checkTypedAnswer(answer, card.note.hanzi, alts);
+  })();
   const questionResult = (() => {
     if (!feedbackOpen) return null;
-    if (isTypingCard) {
-      const answer = userAnswer.trim();
-      if (!answer) return null;
-      const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
-      const verdict: AnswerVerdict = mcAnswered
-        ? (mcBackSlots ? 'wrong' : 'exact')
-        : answerWasSpoken ? checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin) : checkTypedAnswer(answer, card.note.hanzi, alts);
-      return hardModeQuestionResult({ answerVerdict: verdict });
-    }
+    if (isTypingCard) return questionVerdict ? hardModeQuestionResult({ answerVerdict: questionVerdict }) : null;
     if (!audioBlob) return null;
     const take: HardModeTake = transcriptionComparison && !isTranscribing
       ? { status: 'done', isMatch: transcriptionComparison.isMatch, containsExpected: transcriptionComparison.containsExpected }
@@ -1809,6 +1812,9 @@ export function StudyCard({
     : isTypingCard ? userAnswer.trim() || null
       : transcriptionComparison ? tidySpokenTranscript(transcriptionComparison.transcribedHanzi, card.note.hanzi) || null : null;
   const roundFollows = hardModeRoundFollows(questionResult, roundVisibleCount);
+  // Right but not the card's hanzi (a homophone / a listed alternative): the check holds with the
+  // difference until Next (shared/study/answerDifference.ts).
+  const questionHeld = questionResult === 'right' ? questionDifference(questionVerdict) : null;
   /** Right (or not checkable): on to the Sentence round, or the answer. */
   const hardNext = () => {
     if (!feedbackOpen) return;
@@ -1826,6 +1832,10 @@ export function StudyCard({
     trackedResult.current = questionResult;
     if (questionResult === 'right') {
       track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
+      if (questionHeld) {
+        track('study.round_difference_shown', { kind: 'question', reason: questionHeld, verdict: questionVerdict ?? undefined, where: pass ? 'homework' : 'session', held: true });
+        return;
+      }
       const id = window.setTimeout(() => hardNextRef.current(), HARD_MODE_RIGHT_BEAT_MS);
       return () => window.clearTimeout(id);
     }
@@ -3174,6 +3184,7 @@ export function StudyCard({
               initialIds={roundLog.map((e) => e.id)}
               onPicked={onRoundPicked}
               onResult={onRoundResult}
+              where={pass ? 'homework' : 'session'}
             />
           ) : !flipped ? (
             <>
@@ -3281,6 +3292,7 @@ export function StudyCard({
                     said={questionSaid}
                     spoken={!isTypingCard || answerWasSpoken}
                     roundFollows={roundFollows}
+                    difference={questionHeld && questionSaid ? { reason: questionHeld, said: questionSaid, model: card.note.hanzi, modelPinyin: card.note.pinyin } : null}
                     onTryAgain={hardTryAgain}
                     onShowAnswer={giveUp}
                     onNext={hardNext}

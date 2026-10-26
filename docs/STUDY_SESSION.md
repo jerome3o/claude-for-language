@@ -1069,7 +1069,9 @@ Try-it previews:
    answer): **🔁 Try again** asks the same question again (records again at once on a read card; the 🎤 again for a
    spoken answer; an empty box for a typed one; the grid again) — as often as he likes — or **👁 Show answer**.
 3. **✓ Right** → a short beat (1.5 s, `HARD_MODE_RIGHT_BEAT_MS`, or **Next: harder questions →** at once) → the
-   **Sentence round** below (or the answer side when the card has no sentences).
+   **Sentence round** below (or the answer side when the card has no sentences). **Right in other characters** — a
+   spoken answer that "Sounded right — written 由", or a listed alternative — never goes on by itself: the check
+   stays with "You said" vs the card (below, "Right, but said differently") until **Next →**.
 4. **Giving up is a miss**: 👁 Show answer, Skip recording, or Check / Show with nothing typed before a right answer
    → the answer side at once, **no round**, and **Good / Easy stay locked on this showing** (the sentences can't
    unlock them) — the line above the ratings says "👁 You looked at the answer — Again or Hard this time", a tap on a
@@ -1122,7 +1124,9 @@ round** before the answer — like Worldle, a ladder of harder questions about t
 - **Any two right** (min(2, exercises)) — in any order. The counter
   "0 / 2 → 1 / 2 → 2 / 2" with dots, a "🎉 Nice — 1 / 2" cheer, and confetti + "🎉 2 / 2 — Good and Easy
   unlocked" when done; the answer side then opens by itself (≈1.4 s, or **See the answer →**) with Good and
-  Easy already unlocked: the round's exercise ids (`read:<key>` / `translate:<key>`) are the gate's count.
+  Easy already unlocked: the round's exercise ids (`read:<key>` / `translate:<key>`) are the gate's count —
+  **unless the take that finished it was right in other words** (below): then the round stays on that exercise
+  with "Have a look at the difference, then go on." and **Continue →**.
 - Each exercise is a card with its own 🎤 (the rows' take: the live words, then "You said" / Claude's verdict
   — `useSentencePractise` / `rememberSentencePractise`, judged by `sentenceTake` / `sentencePractiseResult`,
   the translate take's online answer check). Result icon + words: **✓ Right**, **≈ Nearly**, **✗ Not quite**
@@ -1155,6 +1159,48 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   (`reveal()`). Analytics `study.sentence_round { action: shown | right | miss | retry | skip | done, index,
   mode, got, needed }`. Tests: `SentenceRound.test.tsx`, E2E `study-sentence-gate.spec.ts`, Lab
   `SentenceRoundUiTest`.
+
+### Right, but said differently (Hard mode holds it and shows the difference)
+
+Jerome: "If I submit my spoken version of a translation from English, sometimes I word it differently. It loads for a
+second and then goes through without explaining what the differences were. If there was a difference, hold it on that
+page and show me what was different." In Hard mode's ladder — the regular session and the homework pass alike — an
+answer that is **accepted but not the model / expected answer** never goes on by itself:
+
+- **Which answers** (`shared/study/answerDifference.ts`): a 🔁 Say it in Chinese take Claude's check called
+  **acceptable**, or **correct** in other words (after punctuation, spaces, numbers ↔ hanzi and 两 / 二 —
+  `hanziAnswerKey`) → `acceptable` / `reworded`; a translate take right on the device by SOUND only (other
+  characters, the same toned pinyin) → `homophone`; the question's spoken answer that "Sounded right — written 由"
+  (`checkSpokenAnswer` → `sound`) → `homophone`, a listed alternative → `alternative`. **Never**: a 📖 Read it aloud
+  take (he read the sentence on screen — other characters are the recogniser's), the answer said inside a longer
+  sentence (`contains`), exact / punctuation-only / equivalent answers — those keep the quick ✓ and go on by
+  themselves as before.
+- **What it shows**: the line "✓ Right — worded differently" / "✓ Right — said differently from the model" / "✓ Sounded
+  right — written differently" / "✓ Right — the card writes it differently" (icon + words), then **You said** vs
+  **Model answer** (the question: **The card**) — two lines, the characters each has that the other hasn't marked
+  like the "You said" row (yellow + dotted underline = differs; red + solid = not in the answer), the pinyin of both
+  (the model's own, else the device's), ▶ on the model; under them Claude's check whole — the verdict chip and
+  headline, the minimal fix, the tips (quoted Chinese tappable) and "Also natural:" with 🔊. In the round the
+  comparison carries the model sentence (it isn't shown twice) and Claude's whole check shows for EVERY judged
+  translate take (≈ Almost / ✗ Wrong too: his differing characters in red — they keep 🔁 Try again).
+- **Holding**: the round finished by such a take stays on it — "Have a look at the difference, then go on." and
+  **Continue →** (the cheer and confetti still come; Good / Easy, or Got it, are unlocked: it counts as right); the
+  question's ✓ stays up with **Next: harder questions →**. A difference on the first of two never holds anything —
+  the round only ever went on by itself once done.
+- **🎤 Say it again** (Jerome: "Also right — correct meaning, but slightly wordy" → he wants another go): every
+  accepted round exercise — read or translate, held or not — has **🎤 Say it again** instead of a locked card. The
+  new take is judged exactly the same way (device rule, then Claude's check) and its result / comparison replaces the
+  one shown; it **never takes back a right already counted** (a worse retake shows its feedback, the exercise stays
+  ✓ and the count stays), and after a retake (or once held) the round never goes on by itself — Continue →.
+  Analytics `study.sentence_round { action: say_again }`.
+- Rules: `roundTakeDifference`, `questionDifference`, `differenceLines`, `sameAnswerWords` + the words, Lab
+  `core/…/AnswerDifference.kt`, parity-tested (`parity/fixtures/answer-difference.ts` → `AnswerDifferenceParityTest`).
+  Web `components/study/DifferenceCompare.tsx` (in `SentenceRound.tsx` via `SentencePractiseOutcome full`, and
+  `HardModeFeedback.tsx` `difference`); Lab `ui/study/DifferenceCompare.kt` (in `SentenceRoundUi.kt`,
+  `SentencePractiseOutcome(full = true)` and `HardModeFeedbackPanel(difference)`). Analytics
+  `study.round_difference_shown { kind: question | translate, reason, verdict, where: session | homework, held }`.
+  Tests: `shared/study/answerDifference.test.ts`, `SentenceRound.test.tsx`, `HardMode.test.tsx`, Lab
+  `SentenceRoundUiTest` / `HardModeUiTest`.
 
 ### Sentence practice history (which sentences he knows; hide one; more sentences)
 

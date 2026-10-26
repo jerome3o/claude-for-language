@@ -262,7 +262,9 @@ these, as I'm not going to come back to them for a long time, so it's good to do
 - **The pass honours Hard mode** — the session's ladder, reused as is (docs/STUDY_SESSION.md "Hard mode"): on a
   reading / meaning card the answer is checked AT ONCE on the question (✓ Right / ✗ Not quite — 🔁 Try again,
   👁 Show answer), then the **Sentence round** (2 read + 2 translate exercises from the card's sentence + the set,
-  history-picked; Skip allowed), then the answer side. The listening card never has the ladder.
+  history-picked; Skip allowed), then the answer side. The listening card never has the ladder. An answer right in
+  other words (a reworded translation, a homophone) holds the page with "You said" vs the model answer until
+  **Continue →** (docs/STUDY_SESSION.md "Right, but said differently").
 - **Its own setting, per device, default All** (a one-off pass is the only time he sees those words for a while; the
   session's setting is untouched): web `usePassHardMode` (`services/hardModePrefs.ts`, localStorage
   `pass-hard-mode-v1`), Lab `StudyPrefs.passHardMode`. **All words** · **Words I miss** (Red: words he marked *Not yet*

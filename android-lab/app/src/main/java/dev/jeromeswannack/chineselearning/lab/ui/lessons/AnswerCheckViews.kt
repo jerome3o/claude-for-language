@@ -245,6 +245,8 @@ fun AnswerCheckBody(
     onRetry: (() -> Unit)? = null,
     onAsk: (() -> Unit)? = null,
     compact: Boolean = false,
+    /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
+    afterHead: (@Composable () -> Unit)? = null,
 ) {
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
@@ -259,6 +261,7 @@ fun AnswerCheckBody(
                 )
                 Text(check.headline, color = Lab.colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
+            afterHead?.invoke()
             check.parts?.takeIf { it.isNotEmpty() }?.let { SpeakingParts(it) }
             if (!check.cleaned.isNullOrEmpty()) CleanerVersionBlock(check, onPlay, compact)
             if (check.corrected.isNotEmpty() && check.cleaned.isNullOrEmpty()) {

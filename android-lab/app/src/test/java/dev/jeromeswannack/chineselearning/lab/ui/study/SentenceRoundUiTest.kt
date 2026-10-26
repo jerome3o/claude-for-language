@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
@@ -180,6 +181,70 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SentenceRoundTags.READ_ENGLISH, useUnmergedTree = true).assertExists()
     }
 
+    /**
+     * "Right, but said differently" (core AnswerDifference): the take that finishes the round was right in
+     * other words → the round stays on it with You said vs the model answer and Continue, never by itself.
+     */
+    @Test fun rewordedTakeThatFinishesTheRoundHoldsIt() {
+        val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
+        card(practise)
+        compose.runOnIdle {
+            practise.takes["translate:s1"] = take(
+                SentencePractise.TRANSLATE, "银行在什么地方", "银行在哪儿？",
+                SentenceClaude.Done(AnswerCheck("acceptable", "Natural — 什么地方 says “where” too.", tips = listOf(dev.jeromeswannack.chineselearning.lab.core.AnswerCheckTip("哪儿 is shorter and more spoken", "哪儿")), suggested = "got_it")),
+            )
+            practise.rightKeys.add("translate:s1")
+        }
+        compose.mainClock.advanceTimeBy(5_000)
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithTag(DifferenceTags.HELD, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE.getValue("acceptable"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("哪儿 is shorter and more spoken", substring = true, useUnmergedTree = true).assertExists()
+        // The model sentence is in the comparison, not twice.
+        assertEquals(2, count(SentenceRoundTags.CHINESE))
+        compose.onNodeWithText("Continue →", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(0, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
+    }
+
+    private fun wordy() = take(
+        SentencePractise.TRANSLATE, "银行是在什么地方的呢", "银行在哪儿？",
+        SentenceClaude.Done(AnswerCheck("acceptable", "Also right — correct meaning, but slightly wordy and awkward phrasing.", corrected = "银行在什么地方？", suggested = "got_it")),
+    )
+
+    /** 🎤 Say it again on an accepted exercise: a new take, the right (and the count) kept, never on by itself. */
+    @Test fun sayItAgainOnAnAcceptedExercise() {
+        val practise = previewSentencePractise(takes = mapOf("translate:s1" to wordy()), rightKeys = listOf("read:$clueKey", "translate:s1"))
+        card(practise)
+        assertEquals(2, count(SentenceRoundTags.SAY_AGAIN))
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performScrollTo()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performClick()
+        assertEquals("translate:s1", practise.activeKey)
+        assertEquals(SentencePractise.TRANSLATE, practise.activeMode)
+        compose.runOnIdle { practise.takes["translate:s1"] = take(SentencePractise.TRANSLATE, "我去学校", "银行在哪儿？") }
+        compose.mainClock.advanceTimeBy(4_000)
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        assertEquals(listOf("read:$clueKey", "translate:s1"), practise.rightKeys.toList())
+        compose.onNodeWithText("2 / 2", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Continue →", useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun identicalTakeStillGoesOnByItself() {
+        val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
+        card(practise)
+        compose.runOnIdle {
+            practise.takes["translate:s1"] = take(SentencePractise.TRANSLATE, "银行在哪儿", "银行在哪儿？")
+            practise.rightKeys.add("translate:s1")
+        }
+        compose.mainClock.advanceTimeBy(2_500)
+        assertEquals(0, count(SentenceRoundTags.ROUND))
+        assertEquals(0, count(DifferenceTags.HELD))
+    }
+
     // ---- screenshots
 
     private fun shot(name: String) = compose.onRoot().captureRoboImage("screenshots/$name.png")
@@ -234,5 +299,33 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(2_000)
         shot("sentence-round-07-skipped-locked")
+    }
+
+    @Test fun shotHeldDifference() {
+        val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
+        card(practise)
+        compose.runOnIdle {
+            practise.takes["translate:s1"] = take(
+                SentencePractise.TRANSLATE, "银行在什么地方", "银行在哪儿？",
+                SentenceClaude.Done(AnswerCheck(
+                    "acceptable", "Natural — 什么地方 says “where” too.",
+                    tips = listOf(dev.jeromeswannack.chineselearning.lab.core.AnswerCheckTip("哪儿 is shorter and more spoken", "哪儿")),
+                    alternative = dev.jeromeswannack.chineselearning.lab.core.AnswerCheckAlternative("银行在哪里？", "Yínháng zài nǎlǐ?"),
+                    suggested = "got_it",
+                )),
+            )
+            practise.rightKeys.add("translate:s1")
+        }
+        compose.mainClock.advanceTimeBy(3_000)
+        compose.onNodeWithTag(DifferenceTags.TITLE, useUnmergedTree = true).performScrollTo()
+        compose.mainClock.advanceTimeBy(500)
+        shot("sentence-round-08-held-difference")
+    }
+
+    @Test fun shotSayItAgain() {
+        card(previewSentencePractise(takes = mapOf("translate:s1" to wordy()), rightKeys = listOf("read:$clueKey", "translate:s1")))
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performScrollTo()
+        compose.mainClock.advanceTimeBy(500)
+        shot("sentence-round-09-say-it-again")
     }
 }

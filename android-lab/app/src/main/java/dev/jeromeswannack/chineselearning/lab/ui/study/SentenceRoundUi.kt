@@ -48,7 +48,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDifference
 import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
+import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
 import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
@@ -77,6 +79,7 @@ object SentenceRoundTags {
     const val ENGLISH_TOGGLE = "sentence-round-english-toggle"
     const val PLAY = "sentence-round-play"
     const val RETRY = "sentence-round-retry"
+    const val SAY_AGAIN = "sentence-round-say-again"
     const val SKIP = "sentence-round-skip"
     const val CONTINUE = "sentence-round-continue"
     const val MORE = "sentence-round-more"
@@ -124,6 +127,10 @@ fun SentenceRoundPage(
     onPicked: (ids: List<String>) -> Unit = {},
     /** A take on an exercise was judged: "right" | "close" | "wrong" (the answer side's outline). */
     onResult: (id: String, result: String) -> Unit = { _, _ -> },
+    /** Analytics: "session" | "homework". */
+    where: String = "session",
+    /** Reads a fix / an alternative of Claude's check aloud (null = no 🔊). */
+    onSpeak: ((String) -> Unit)? = null,
 ) {
     // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
     var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
@@ -143,6 +150,20 @@ fun SentenceRoundPage(
     val byKey = remember(rows) { rows.associateBy { it.key } }
     val right = practise.rightKeys.toList()
     val progress = SentenceRound.progress(exercises, right, visibleKeys)
+    /** Right but not the model sentence (core [AnswerDifference]): why, else null. */
+    fun differenceOf(ex: SentenceRound.Exercise?): String? {
+        val t = ex?.let { practise.takes[it.id] } ?: return null
+        val row = byKey[ex.key] ?: return null
+        if (t.claude == SentenceClaude.Checking) return null
+        return AnswerDifference.roundTake(ex.mode, t.take.practised.said, row.hanzi, t.take.practised.result.state, (t.claude as? SentenceClaude.Done)?.check?.verdict)
+    }
+    // Enough right, the last one in other words: stay on it (docs/STUDY_SESSION.md "Right, but said differently").
+    val lastRight = right.lastOrNull()
+    val heldId = lastRight?.takeIf { id -> progress.done && differenceOf(exercises.firstOrNull { it.id == id }) != null }
+    // Once held, or once he said an accepted one again, the round waits for Continue for good: a better
+    // retake (now identical) must not send him on by itself.
+    var stayPut by remember { mutableStateOf(false) }
+    LaunchedEffect(heldId) { if (heldId != null) stayPut = true }
     var asked by remember { mutableStateOf(false) }
     LaunchedEffect(rows, stats) {
         val st = stats ?: return@LaunchedEffect
@@ -168,6 +189,14 @@ fun SentenceRoundPage(
             val result = SentencePractise.result(t.take.practised, (t.claude as? SentenceClaude.Done)?.check?.verdict)
             if (result == "right" || result == "close" || result == "wrong") onResult(ex.id, result)
             Analytics.track("study.sentence_round", mapOf("action" to if (result == "right") "right" else "miss", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
+            val reason = if (result == "right") differenceOf(ex) else null
+            if (reason != null) {
+                Analytics.track("study.round_difference_shown", mapOf(
+                    "kind" to "translate", "reason" to reason,
+                    "verdict" to ((t.claude as? SentenceClaude.Done)?.check?.verdict ?: SpokenAnswerResult.stateName(t.take.practised.result.state)),
+                    "where" to where, "held" to progress.done,
+                ))
+            }
         }
     }
 
@@ -183,8 +212,8 @@ fun SentenceRoundPage(
         }
         lastGot = progress.got
     }
-    LaunchedEffect(progress.done, cheer) {
-        if (progress.done && cheer != null) {
+    LaunchedEffect(progress.done, cheer, heldId, stayPut) {
+        if (progress.done && cheer != null && heldId == null && !stayPut) {
             delay(1400)
             latestDone()
         }
@@ -229,10 +258,15 @@ fun SentenceRoundPage(
                     val row = byKey[ex.key] ?: return@forEachIndexed
                     RoundExerciseCard(
                         index, ex, row.copy(key = ex.id), ex.id in right, practise, playingKey, onPlay,
+                        difference = differenceOf(ex), held = heldId == ex.id, onSpeak = onSpeak,
                         englishToggled = english[ex.id],
                         onToggleEnglish = { shown -> english[ex.id] = !shown },
                         onRetry = {
                             Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
+                        },
+                        onSayAgain = {
+                            Analytics.track("study.sentence_round", mapOf("action" to "say_again", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
+                            stayPut = true
                         },
                         onMore = { hiding = ex },
                     )
@@ -241,7 +275,16 @@ fun SentenceRoundPage(
             }
             Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 if (progress.done) {
-                    PrimaryPill("${SentenceRound.SEE_ANSWER} →", Modifier.fillMaxWidth().height(56.dp).testTag(SentenceRoundTags.CONTINUE), onClick = onDone)
+                    PrimaryPill(
+                        "${if (heldId != null || stayPut) AnswerDifference.CONTINUE else SentenceRound.SEE_ANSWER} →",
+                        Modifier.fillMaxWidth().height(56.dp).testTag(SentenceRoundTags.CONTINUE), onClick = onDone,
+                    )
+                    if (heldId != null) {
+                        Text(
+                            AnswerDifference.HOLD_NOTE, Modifier.fillMaxWidth().padding(top = 6.dp).testTag(DifferenceTags.HELD),
+                            color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center,
+                        )
+                    }
                 } else {
                     SecondaryPill("${SentenceRound.SKIP} →", Modifier.fillMaxWidth().height(52.dp).testTag(SentenceRoundTags.SKIP)) {
                         Analytics.track("study.sentence_round", mapOf("action" to "skip", "got" to progress.got, "needed" to progress.needed))
@@ -305,8 +348,16 @@ private fun RoundExerciseCard(
     onToggleEnglish: (shownNow: Boolean) -> Unit,
     onRetry: () -> Unit,
     onMore: () -> Unit = {},
+    /** Right but not the model sentence (core [AnswerDifference]): its line; [held] = it holds the round. */
+    difference: String? = null,
+    held: Boolean = false,
+    onSpeak: ((String) -> Unit)? = null,
+    /** 🎤 Say it again on an accepted exercise (a new take; the right already counted stays). */
+    onSayAgain: () -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
+    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶.
+    val fullCheck = ex.mode == SentencePractise.TRANSLATE && take?.claude is SentenceClaude.Done
     val mine = practise.activeKey == ex.id
     val busy = mine && (practise.listening || practise.finishing)
     val result = take?.takeIf { it.claude != SentenceClaude.Checking }?.let { SentencePractise.result(it.take.practised, (it.claude as? SentenceClaude.Done)?.check?.verdict) }
@@ -331,7 +382,7 @@ private fun RoundExerciseCard(
             .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
             .padding(horizontal = 12.dp, vertical = 10.dp)
             .animateContentSize()
-            .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}"),
+            .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}${if (held) "-held" else ""}"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
@@ -351,16 +402,16 @@ private fun RoundExerciseCard(
                 if (ex.mode == SentencePractise.TRANSLATE) {
                     Text(row.translation.orEmpty(), Modifier.testTag(SentenceRoundTags.ENGLISH), color = Lab.colors.ink, fontSize = 17.sp)
                 }
-                if (ex.mode == SentencePractise.READ || answered) {
+                if (ex.mode == SentencePractise.READ || (answered && !fullCheck)) {
                     Text(row.hanzi, Modifier.testTag(SentenceRoundTags.CHINESE), color = Lab.colors.ink, fontSize = 22.sp)
                 }
-                if (answered && !row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
+                if (answered && !fullCheck && !row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
                 if (ex.mode == SentencePractise.READ && answered && showEnglish && !row.translation.isNullOrBlank()) {
                     Text(row.translation, Modifier.testTag(SentenceRoundTags.READ_ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
                 }
             }
-            if (!isRight) SentenceMicButton(practise, row, ex.mode)
-            if (answered) {
+            if (!isRight || busy) SentenceMicButton(practise, row, ex.mode)
+            if (answered && !fullCheck) {
                 val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
                 Box(
                     Modifier.size(44.dp).bouncyClickable(true, 0.9f, role = Role.Button) { onPlay(row.audioUrl, row.hanzi) }
@@ -374,9 +425,20 @@ private fun RoundExerciseCard(
                 }
             }
         }
-        SentencePractiseOutcome(practise, row)
+        if (difference != null && !busy) DifferenceTitle(difference)
+        SentencePractiseOutcome(practise, row, full = true, onPlayModel = { onPlay(row.audioUrl, row.hanzi) }, onSpeak = onSpeak)
         if (answered) {
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (isRight && !busy) {
+                    SecondaryPill(
+                        "🎤 ${AnswerDifference.SAY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.SAY_AGAIN),
+                        enabled = CoachPractise.micEnabled(practise.dictation.blocked) && !practise.listening && !practise.finishing,
+                        horizontalPadding = 14.dp, fontSize = 14.sp,
+                    ) {
+                        onSayAgain()
+                        practise.onMic(row, ex.mode)
+                    }
+                }
                 if ((status == "close" || status == "wrong") && !busy) {
                     SecondaryPill(
                         "🔁 ${SentenceRound.TRY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.RETRY),
