@@ -14,7 +14,7 @@ import { bumpCardTypes } from '../services/studyBumps';
 import { writeStudyBudget } from '../services/studyBudget';
 
 vi.mock('../services/sentence-sets', () => ({ ensureSentenceSetForNote: vi.fn(async () => {}) }));
-vi.mock('../services/sync', () => ({ syncService: { syncEvents: vi.fn(async () => {}), syncInBackground: vi.fn() } }));
+vi.mock('../services/sync', () => ({ syncService: { syncEvents: vi.fn(async () => {}), syncInBackground: vi.fn(), addSyncListener: vi.fn(() => () => true) } }));
 vi.mock('../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

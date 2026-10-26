@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useNetwork } from '../contexts/NetworkContext';
 import {
@@ -65,11 +65,18 @@ export function AudioLessonsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped whenever the list changes here (a lesson started): a list request that was already on
+  // its way (the one on opening the page) may answer from before the new lesson existed, and must
+  // not wipe it out — with no lesson building, nothing would ever poll it back.
+  const listVersion = useRef(0);
   const refresh = useCallback(async () => {
     void savedLessonIds().then(setSaved);
     if (!navigator.onLine) return;
+    const version = listVersion.current;
     try {
-      setLessons(await refreshLessonList());
+      const fresh = await refreshLessonList();
+      if (version !== listVersion.current) return;
+      setLessons(fresh);
     } catch (err) {
       console.warn('[AudioLessons] refresh failed', err);
     }
@@ -109,6 +116,7 @@ export function AudioLessonsPage() {
       );
       const { lesson } = res;
       track('audio_lesson.create', format === 'story' ? { format, chunks: res.chunks ?? 0 } : { format, target_minutes: minutes });
+      listVersion.current++;
       rememberLessonInList(lesson);
       setLessons(cachedLessonList());
       setNotice(res.notice ?? null);
@@ -139,6 +147,7 @@ export function AudioLessonsPage() {
     if (!confirm(`Delete "${l.title}"?`)) return;
     try {
       await deleteLessonEverywhere(l.id);
+      listVersion.current++;
       setLessons(cachedLessonList());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');

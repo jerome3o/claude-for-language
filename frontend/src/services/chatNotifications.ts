@@ -129,15 +129,26 @@ export function useChatReadMarker(conversationId: string | undefined, newest: st
   // Leaving the chat (another chat, or the page closes): send what the debounce still held, so a
   // glance shorter than the debounce or the first load still reads the chat (Jerome, Oct 2026:
   // the Chats badge stayed at 1 on a chat whose newest message was a system row he only glanced at).
+  // The send waits one tick and is dropped when the same chat mounts again at once: React's
+  // StrictMode (dev) unmounts and remounts every effect on mount, which sent a premature "read
+  // everything" before the messages had even loaded — the chat is still open, nothing was left.
+  const pendingLeave = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   useEffect(() => {
+    if (pendingLeave.current && pendingLeave.current.id === conversationId) {
+      clearTimeout(pendingLeave.current.timer);
+      pendingLeave.current = null;
+    }
     return () => {
       const { conversationId: id, newest: upTo, enabled: on } = visit.current;
       if (!id || !on) return;
       if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
       const send = readToSendOnLeave(upTo, lastSent.current);
       if (!send) return;
-      lastSent.current = send.upTo ?? lastSent.current;
-      markConversationRead(id, send.upTo).catch(() => {});
+      const timer = setTimeout(() => {
+        if (pendingLeave.current?.timer === timer) pendingLeave.current = null;
+        markConversationRead(id, send.upTo).catch(() => {});
+      }, 0);
+      pendingLeave.current = { id, timer };
     };
   }, [conversationId]);
 }

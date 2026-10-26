@@ -1231,6 +1231,24 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     loadQueue();
   }, [loadQueue]);
 
+  // Study opened before the device has its words (a new device's first sync, or Study opened
+  // while a sync runs): the queue was built from what was on the device — often nothing — and
+  // never looked again, so "Nothing due right now" stayed up after the cards and their review
+  // events had arrived. While this visit shows nothing and has no review yet, every finished
+  // sync builds the queue again. Never once a card is on screen or one was rated.
+  const emptyAndUntouchedRef = useRef(false);
+  emptyAndUntouchedRef.current = enabled && !isLoading
+    && !currentCardState.card && !currentCardState.reader && !currentCardState.grammar
+    && queue.length === 0 && readerQueue.length === 0 && !grammarLesson
+    && sessionStats.totalReviews === 0;
+  useEffect(() => {
+    if (!enabled) return;
+    const unsubscribe = syncService.addSyncListener(syncing => {
+      if (!syncing && emptyAndUntouchedRef.current) reloadQueue();
+    });
+    return () => { unsubscribe(); };
+  }, [enabled, reloadQueue]);
+
   // Update the current note (e.g., after regenerating audio)
   const updateCurrentNote = useCallback((updatedNote: Partial<Note>) => {
     setCurrentCardState(prev => {
