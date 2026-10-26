@@ -54,6 +54,14 @@ All behind the normal auth middleware unless noted.
   `{ conversation_id, last_read_at, unread: number }`. Side effects: a `chat_read` FCM data
   message to **my own** native devices (so they drop the notification), and a `read` live event
   to my other connected clients and to the other person (read receipts).
+  **Opening a chat reads it up to the newest message, system rows included** (they count as unread
+  and are read like any message — one rule for the count, the badge and the marker). Both apps make
+  sure the read goes out even when the chat closes at once: the web flushes the debounced read on
+  leaving (`useChatReadMarker`, `readToSendOnLeave`; nothing sent yet → no `up_to`), the Lab sends it
+  on the app's scope and from `onCleared` when the load never reached it (`ChatRich.leaveRead`; offline
+  → the Outbox, up to the newest message on screen). Oct 2026: Jerome glanced at his chat with
+  Minghui (newest = her "📹 started a video call" line) for ~1 s; the Lab's read waited for three
+  requests and was cancelled, so the Chats badge said 1 for days.
 - `GET /api/conversations/:id/messages` — unchanged shape, plus `read_state: { me: last_read_at|null, other: last_read_at|null }`.
 - `GET /api/me/chat-inbox?since=<iso>` — for background checks and the live-socket catch-up.
   ```json

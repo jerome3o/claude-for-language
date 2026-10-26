@@ -75,8 +75,13 @@ object ChatActions {
     /** Mark as read up to the newest message the notification shows, and drop it. */
     suspend fun markRead(app: LabApp, conversationId: String) {
         val upTo = ChatNotificationStore(app).get(conversationId)?.newestIncoming?.createdAt?.takeIf { it.isNotEmpty() }
-        app.outbox.enqueueJson(KIND_READ, "POST", chatReadPath(conversationId), ChatReadBody(upTo), id = "chat-read-$conversationId-${upTo ?: System.currentTimeMillis()}")
+        queueRead(app, conversationId, upTo)
         ChatNotifier.cancel(app, conversationId)
+    }
+
+    /** `POST …/read` through the Outbox (survives the screen closing and no connection); null = up to the newest. */
+    suspend fun queueRead(app: LabApp, conversationId: String, upTo: String?) {
+        app.outbox.enqueueJson(KIND_READ, "POST", chatReadPath(conversationId), ChatReadBody(upTo), id = "chat-read-$conversationId-${upTo ?: System.currentTimeMillis()}")
         flush(app)
     }
 

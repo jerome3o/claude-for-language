@@ -189,4 +189,28 @@ class ChatRichTest {
         assertEquals(260f to 110f, ChatMediaSizing.bubbleSize(4000, 500)) // panorama: min height
         assertEquals(260f to 195f, ChatMediaSizing.bubbleSize(0, 0))
     }
+
+    // ---- leaving a chat still reads it (Jerome, Oct 2026: newest message a system row, closed within a second) ----
+
+    @Test
+    fun leavingBeforeTheLoadReadsTheChat() {
+        // Online, nothing sent yet: read up to the server's newest (system rows included).
+        assertEquals(ChatRich.LeaveRead.Now, ChatRich.leaveRead(readSent = false, online = true, newestShown = null))
+        assertEquals(ChatRich.LeaveRead.Now, ChatRich.leaveRead(readSent = false, online = true, newestShown = "2026-10-21T15:41:01.584Z"))
+        // Offline: queued up to what was on screen.
+        assertEquals(ChatRich.LeaveRead.Queue("2026-10-23T14:00:46.462Z"), ChatRich.leaveRead(readSent = false, online = false, newestShown = "2026-10-23T14:00:46.462Z"))
+        assertEquals(ChatRich.LeaveRead.None, ChatRich.leaveRead(readSent = false, online = false, newestShown = null))
+        // Already read: nothing more.
+        assertEquals(ChatRich.LeaveRead.None, ChatRich.leaveRead(readSent = true, online = true, newestShown = "2026-10-23T14:00:46.462Z"))
+    }
+
+    @Test
+    fun aQueuedReadIsAnOutboxPostToTheReadPath() {
+        // What ChatActions.queueRead enqueues: POST /api/conversations/:id/read with up_to (or none = newest).
+        assertEquals("/api/conversations/c1/read", dev.jeromeswannack.chineselearning.lab.data.api.chatReadPath("c1"))
+        assertEquals(
+            "{\"up_to\":\"2026-10-23T14:00:46.462Z\"}",
+            json.encodeToString(dev.jeromeswannack.chineselearning.lab.data.api.ChatReadBody.serializer(), dev.jeromeswannack.chineselearning.lab.data.api.ChatReadBody("2026-10-23T14:00:46.462Z")),
+        )
+    }
 }

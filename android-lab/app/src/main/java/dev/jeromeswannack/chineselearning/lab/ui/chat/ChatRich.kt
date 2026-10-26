@@ -52,6 +52,27 @@ object ChatRich {
     const val TYPING_SHOW_MS = 4_000L
     const val TYPING_SEND_EVERY_MS = 2_500L
 
+    /** What leaving a chat still has to send (docs/CHAT.md §2: opening a chat reads it, system rows included). */
+    sealed interface LeaveRead {
+        object None : LeaveRead
+        /** Online: `POST …/read` without up_to — the server reads up to its newest message. */
+        object Now : LeaveRead
+        /** Offline: queued up to the newest message on screen (nothing newer can have been seen). */
+        data class Queue(val upTo: String) : LeaveRead
+    }
+
+    /**
+     * The chat closes: [readSent] = a read covering everything known was already sent. Jerome (Oct 2026): a
+     * glance at a chat whose newest message was a system row closed it before the load (three requests)
+     * reached its read, so the Chats badge stayed at 1 for days.
+     */
+    fun leaveRead(readSent: Boolean, online: Boolean, newestShown: String?): LeaveRead = when {
+        readSent -> LeaveRead.None
+        online -> LeaveRead.Now
+        !newestShown.isNullOrEmpty() -> LeaveRead.Queue(newestShown)
+        else -> LeaveRead.None
+    }
+
     /** The outbox rows that are messages of [conversationId] → bubbles, oldest first. */
     fun pendingFromOutbox(items: List<OutboxEntity>, conversationId: String, json: Json, dims: (String) -> Pair<Int, Int>? = { null }): List<PendingBubble> {
         val textPath = chatMessagesPath(conversationId)

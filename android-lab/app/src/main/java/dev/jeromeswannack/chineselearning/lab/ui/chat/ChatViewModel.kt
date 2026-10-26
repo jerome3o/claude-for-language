@@ -579,6 +579,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
             readHere()
             startPolling()
             app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi, "unread" to (unread != null)))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Closed while loading: onCleared still reads the chat.
+            throw e
         } catch (e: Exception) {
             app.analytics.track("chat.open", mapOf("is_ai" to _ui.value.isAi))
             ChatNotifier.cancel(app, convId)
@@ -690,8 +693,17 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 app.cache.put(key, ConnectionsKeys.KIND, l.map { if (it.id == convId) it.copy(unread = 0) else it })
             }
         }
-        if (app.online.value) runCatching { api.markChatRead(convId) }
+        // On the app's scope: closing the chat right away must not cancel the read (onCleared sends it otherwise).
+        if (app.online.value) {
+            readSent = true
+            app.scope.launch { if (runCatching { api.markChatRead(convId) }.isFailure) readSent = false }
+        } else {
+            readSent = false
+        }
     }
+
+    /** A read covering everything this chat knows was sent (reset by a failure / new messages offline). */
+    @Volatile private var readSent = false
 
     /** Merges [list] by id (new copies replace old ones); counts what's new from the other person. */
     private suspend fun addMessages(list: List<ChatMessageDto>) {
@@ -2196,6 +2208,15 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     // ---------------- new conversation ----------------
 
     override fun onCleared() {
+        // Opening the chat reads it, even when it closes before the load got there.
+        val newestShown = _ui.value.messages.maxOfOrNull { it.created_at }
+        when (val read = ChatRich.leaveRead(readSent, app.online.value, newestShown)) {
+            ChatRich.LeaveRead.Now -> app.scope.launch {
+                if (runCatching { api.markChatRead(convId) }.isFailure) runCatching { ChatWrites.queueRead(app, convId, newestShown) }
+            }
+            is ChatRich.LeaveRead.Queue -> app.scope.launch { runCatching { ChatWrites.queueRead(app, convId, read.upTo) } }
+            ChatRich.LeaveRead.None -> Unit
+        }
         // The last keystrokes are kept even when the chat closes within the debounce.
         if (draftsReady && _ui.value.editing == null) { draftJob?.cancel(); val d = _ui.value.draft; app.scope.launch { saveDraft(app, convId, d) } }
         stopAudio()

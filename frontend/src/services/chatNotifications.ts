@@ -60,6 +60,17 @@ export function shouldSendRead(newest: string | null, lastSent: string | null): 
   return !!newest && (lastSent === null || newest > lastSent);
 }
 
+/**
+ * What to send when the chat closes (docs/CHAT.md §2 "opening a chat reads it"): the newest
+ * message not sent yet — or, when nothing was sent this visit (closed before the messages
+ * loaded or within the debounce), "everything" (`{}` = no up_to: the server reads up to its
+ * newest message, system rows included). null = nothing left to send.
+ */
+export function readToSendOnLeave(newest: string | null, lastSent: string | null): { upTo?: string } | null {
+  if (newest) return shouldSendRead(newest, lastSent) ? { upTo: newest } : null;
+  return lastSent === null ? {} : null;
+}
+
 const READ_DEBOUNCE_MS = 800;
 
 function tabVisible(): boolean {
@@ -77,11 +88,15 @@ export function useChatReadMarker(conversationId: string | undefined, newest: st
   const latest = useRef({ conversationId, newest, enabled });
   latest.current = { conversationId, newest, enabled };
 
+  /** The chat as the effects last saw it — still the one being left when its cleanups run. */
+  const visit = useRef({ conversationId, newest, enabled });
+
   useEffect(() => {
     lastSent.current = null;
   }, [conversationId]);
 
   useEffect(() => {
+    visit.current = { conversationId, newest, enabled };
     const flush = () => {
       const { conversationId: id, newest: upTo, enabled: on } = latest.current;
       if (!id || !on || !tabVisible()) return;
@@ -110,6 +125,21 @@ export function useChatReadMarker(conversationId: string | undefined, newest: st
       window.removeEventListener('focus', onVisible);
     };
   }, [conversationId, newest, enabled]);
+
+  // Leaving the chat (another chat, or the page closes): send what the debounce still held, so a
+  // glance shorter than the debounce or the first load still reads the chat (Jerome, Oct 2026:
+  // the Chats badge stayed at 1 on a chat whose newest message was a system row he only glanced at).
+  useEffect(() => {
+    return () => {
+      const { conversationId: id, newest: upTo, enabled: on } = visit.current;
+      if (!id || !on) return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+      const send = readToSendOnLeave(upTo, lastSent.current);
+      if (!send) return;
+      lastSent.current = send.upTo ?? lastSent.current;
+      markConversationRead(id, send.upTo).catch(() => {});
+    };
+  }, [conversationId]);
 }
 
 const NUDGE_KEY = 'chat-notify-nudge-dismissed';
