@@ -36,6 +36,8 @@ import { checkLessonAnswer } from '../../services/answerCheck';
 import { track } from '../../services/analytics';
 import { YouSaidFailed, YouSaidRow } from './YouSaid';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
+import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
+import { DifferenceCompare } from './DifferenceCompare';
 import '../lessons/AnswerCheckCard.css';
 
 /** The row a take is about. */
@@ -218,8 +220,19 @@ export function SentenceMicButton({ practise, row, mode }: { practise: SentenceP
   );
 }
 
-/** Under the row's text: the live words while listening, then the result. */
-export function SentencePractiseOutcome({ practise, row }: { practise: SentencePractise; row: PractiseRow }) {
+/**
+ * Under the row's text: the live words while listening, then the result. `full` (the Sentence round):
+ * Claude's check whole — "You said" vs the model answer with the differences marked and the pinyin of
+ * both, the fix, the tips and the alternative (docs/STUDY_SESSION.md "Right, but said differently");
+ * `onPlayModel` = ▶ on the model line, `speak` reads a fix / alternative aloud.
+ */
+export function SentencePractiseOutcome({ practise, row, full, onPlayModel, speak }: {
+  practise: SentencePractise;
+  row: PractiseRow;
+  full?: boolean;
+  onPlayModel?: () => void;
+  speak?: (text: string) => void;
+}) {
   const mine = practise.active?.row.key === row.key;
   const { dictation } = practise;
   const take = practise.takes[row.key];
@@ -249,7 +262,22 @@ export function SentencePractiseOutcome({ practise, row }: { practise: SentenceP
   return (
     <div className="sentence-practise-result" data-testid="sentence-practise-result" data-mode={take.mode}
       data-result={sentencePractiseResult(practised, claude?.status === 'done' ? claude.check.verdict : null)}>
-      {claude?.status === 'done' ? (
+      {claude?.status === 'done' && full ? (
+        <AnswerCheckBody
+          check={claude.check}
+          answer={practised.said}
+          speak={speak}
+          afterHead={
+            <DifferenceCompare
+              said={practised.said}
+              model={row.hanzi}
+              modelPinyin={row.pinyin}
+              accepted={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
+              onPlayModel={onPlayModel}
+            />
+          }
+        />
+      ) : claude?.status === 'done' ? (
         <TranslateVerdict check={claude.check} said={practised.said} />
       ) : (
         <YouSaidRow transcript={practised.said} correct={row.hanzi} verdict={practised.verdict} testId="sentence-practise-said" />
