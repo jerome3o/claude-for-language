@@ -28,6 +28,7 @@ export type AnalyticsArea =
   | 'idioms'
   | 'meme_review'
   | 'clips'
+  | 'vr'
   | 'lessons'
   | 'coach'
   | 'decks'
@@ -277,6 +278,11 @@ export const ANALYTICS_EVENTS = {
   'clips.explore': e('clips', 'Tapped Chinese in a clip into the language explorer (the clip pauses; layout = the scene\'s layout).', ['clip', 'layout']),
   'clips.caption_toggle': e('clips', 'Switched a clip caption / sound toggle (toggle = pinyin / english / mute / music; on).', ['toggle', 'on']),
   'clips.generate': e('clips', 'Clips started generating (count; via = app / mcp / more — "More clips like this").', ['count', 'via'], { server: true }),
+  // ── vr (🥽 beta, web only — docs/VR.md) ───────────────────────────────
+  'vr.enter': e('vr', 'Opened 🥽 VR (mode = flat — the page opened, the 3D preview / immersive — entered the headset session; supported = the browser can start immersive VR).', ['mode', 'supported']),
+  'vr.window_open': e('vr', 'Opened a window in VR (kind = study / reader / homework / explorer / lesson_spec / feedback; source = tray / tap / homework / study / speech).', ['kind', 'source']),
+  'vr.speech': e('vr', 'The VR 🎤 settled a take (target = what used it: study_answer / explorer_search / explorer_open / feedback_message / none; outcome = ok / empty / unused / failed).', ['target', 'outcome']),
+  'vr.feedback': e('vr', 'Sent feedback from VR (screenshot = it carried one; via = feedback_api — POST /api/feedback through the feedback outbox; mode = flat / immersive).', ['screenshot', 'via', 'mode']),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),

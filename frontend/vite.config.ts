@@ -93,9 +93,21 @@ export default defineConfig({
       workbox: {
         // .wasm is sql.js (SQLite) for the Anki export — precached so it works offline
         globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm}'],
+        // 🥽 VR's Chinese font (docs/VR.md "Fonts"): ~100 Noto Sans SC slices, fetched only for the
+        // characters a VR window draws — never precached for everyone; kept once fetched (below).
+        globIgnores: ['**/noto-sans-sc-*.woff2'],
         // Web Push (call alerts): the push / notificationclick handlers — public/push-sw.js.
         importScripts: ['push-sw.js'],
         runtimeCaching: [
+          {
+            urlPattern: /\/assets\/noto-sans-sc-[^/]*\.woff2$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'vr-fonts',
+              expiration: { maxEntries: 120, maxAgeSeconds: 180 * 24 * 60 * 60 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
           {
             // API calls - network first with 10s timeout, fallback to cache
             urlPattern: /^.*\/api\/(?!audio).*/i,
@@ -154,6 +166,9 @@ export default defineConfig({
           'vendor-markdown': ['react-markdown'],
           'vendor-pinyin': ['pinyin-pro'],
           'vendor-dexie': ['dexie', 'dexie-react-hooks'],
+          // 🥽 /vr only (lazy): its own chunk, so its hash (and the service worker's download)
+          // changes with the library versions, not with every VR code change.
+          'vendor-three': ['three', '@react-three/fiber'],
         },
       },
     },

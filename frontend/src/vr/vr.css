@@ -1,0 +1,109 @@
+/* 🥽 VR (beta) — the page around the 3D canvas (docs/VR.md). Full screen, no tab bar. */
+.vr-page {
+  position: fixed;
+  inset: 0;
+  background: #cfc8bd;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.vr-page .vr-canvas {
+  position: absolute !important;
+  inset: 0;
+}
+
+.vr-topbar {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.vr-topbar > * {
+  pointer-events: auto;
+}
+
+.vr-close {
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  border: none;
+  background: rgba(26, 33, 49, 0.78);
+  color: #eef2f8;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.vr-title {
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(26, 33, 49, 0.78);
+  color: #eef2f8;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.vr-beta {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #86b9ff;
+  margin-left: 0.2rem;
+}
+
+.vr-enter {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 1.2rem;
+  border-radius: 22px;
+  border: none;
+  background: #3b7ff2;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(20, 40, 90, 0.35);
+}
+
+.vr-note {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(max(10px, env(safe-area-inset-top)) + 54px);
+  padding: 0.7rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(26, 33, 49, 0.85);
+  color: #dfe6f2;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.vr-note-close {
+  float: right;
+  width: 32px;
+  height: 32px;
+  margin: -0.3rem -0.4rem 0 0.5rem;
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #dfe6f2;
+  cursor: pointer;
+}
+
+.vr-note a {
+  color: #9cc6ff;
+}
+
+@media (min-width: 640px) {
+  .vr-note {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    max-width: 640px;
+  }
+}
