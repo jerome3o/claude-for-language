@@ -128,7 +128,9 @@ test('multiple choice: one tap, partial answer, and "Show answer" with nothing p
   await expect(diff.locator('[data-status="wrong"]')).toHaveText('节');
   await expect(diff.locator('[data-status="skipped"]')).toHaveCount(1);
   await expect(diff).toContainText('1 of 3 left blank');
-  await page.getByRole('button', { name: /^Hard/ }).first().click();
+  // The rating button by test id: the study header's 🎯 chip is a button named "Hard mode: Off",
+  // which a /^Hard/ name match would open instead of rating the card.
+  await page.getByTestId('rating-hard').click();
 
   // ---- Second typing card: nothing picked → "Show answer" gives up and flips
   await openNextMultipleChoice(page);

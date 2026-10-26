@@ -13,7 +13,7 @@ import { getLocalDateString } from '../api/client';
 import { _resetStudyResume, loadResumePoint, saveResumePoint } from '../services/studyResume';
 
 vi.mock('../services/sentence-sets', () => ({ ensureSentenceSetForNote: vi.fn(async () => {}) }));
-vi.mock('../services/sync', () => ({ syncService: { syncEvents: vi.fn(async () => {}), syncInBackground: vi.fn() } }));
+vi.mock('../services/sync', () => ({ syncService: { syncEvents: vi.fn(async () => {}), syncInBackground: vi.fn(), addSyncListener: vi.fn(() => () => true) } }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

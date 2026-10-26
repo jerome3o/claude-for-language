@@ -3,7 +3,7 @@
  * included — even when the chat is closed again before the debounce (Jerome, Oct 2026).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act } from 'react';
+import { act, StrictMode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 
 const markConversationRead = vi.fn((_id: string, _upTo?: string) => Promise.resolve({}));
@@ -41,6 +41,7 @@ describe('useChatReadMarker', () => {
     act(() => void vi.advanceTimersByTime(900));
     expect(markConversationRead).toHaveBeenCalledWith('conv', SYSTEM_ROW.created_at);
     act(() => root.unmount());
+    act(() => void vi.advanceTimersByTime(10));
     expect(markConversationRead).toHaveBeenCalledTimes(1); // nothing left to send on leave
   });
 
@@ -49,18 +50,34 @@ describe('useChatReadMarker', () => {
     act(() => void vi.advanceTimersByTime(300));
     expect(markConversationRead).not.toHaveBeenCalled();
     act(() => root.unmount());
+    act(() => void vi.advanceTimersByTime(10));
     expect(markConversationRead).toHaveBeenCalledWith('conv', SYSTEM_ROW.created_at);
   });
 
   it('closed before the messages loaded: reads everything (no up_to)', () => {
     act(() => root.render(<Chat id="conv" messages={[]} />));
     act(() => root.unmount());
+    act(() => void vi.advanceTimersByTime(10));
     expect(markConversationRead).toHaveBeenCalledWith('conv', undefined);
+  });
+
+  it("StrictMode's mount → unmount → mount sends nothing early; the read waits for the messages", () => {
+    act(() => root.render(<StrictMode><Chat id="conv" messages={[]} /></StrictMode>));
+    act(() => void vi.advanceTimersByTime(900));
+    expect(markConversationRead).not.toHaveBeenCalled();
+    act(() => root.render(<StrictMode><Chat id="conv" messages={[OLDER, SYSTEM_ROW]} /></StrictMode>));
+    act(() => void vi.advanceTimersByTime(900));
+    expect(markConversationRead).toHaveBeenCalledTimes(1);
+    expect(markConversationRead).toHaveBeenCalledWith('conv', SYSTEM_ROW.created_at);
+    act(() => root.unmount());
+    act(() => void vi.advanceTimersByTime(10));
+    expect(markConversationRead).toHaveBeenCalledTimes(1);
   });
 
   it('switching chats reads the one being left, not the next one', () => {
     act(() => root.render(<Chat id="a" messages={[SYSTEM_ROW]} />));
     act(() => root.render(<Chat id="b" messages={[OLDER]} />));
+    act(() => void vi.advanceTimersByTime(10));
     expect(markConversationRead).toHaveBeenCalledWith('a', SYSTEM_ROW.created_at);
     expect(markConversationRead).not.toHaveBeenCalledWith('b', expect.anything());
     act(() => root.unmount());
