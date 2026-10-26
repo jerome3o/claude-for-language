@@ -210,6 +210,29 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
     }
 
+    private fun wordy() = take(
+        SentencePractise.TRANSLATE, "银行是在什么地方的呢", "银行在哪儿？",
+        SentenceClaude.Done(AnswerCheck("acceptable", "Also right — correct meaning, but slightly wordy and awkward phrasing.", corrected = "银行在什么地方？", suggested = "got_it")),
+    )
+
+    /** 🎤 Say it again on an accepted exercise: a new take, the right (and the count) kept, never on by itself. */
+    @Test fun sayItAgainOnAnAcceptedExercise() {
+        val practise = previewSentencePractise(takes = mapOf("translate:s1" to wordy()), rightKeys = listOf("read:$clueKey", "translate:s1"))
+        card(practise)
+        assertEquals(2, count(SentenceRoundTags.SAY_AGAIN))
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performScrollTo()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performClick()
+        assertEquals("translate:s1", practise.activeKey)
+        assertEquals(SentencePractise.TRANSLATE, practise.activeMode)
+        compose.runOnIdle { practise.takes["translate:s1"] = take(SentencePractise.TRANSLATE, "我去学校", "银行在哪儿？") }
+        compose.mainClock.advanceTimeBy(4_000)
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        assertEquals(listOf("read:$clueKey", "translate:s1"), practise.rightKeys.toList())
+        compose.onNodeWithText("2 / 2", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Continue →", useUnmergedTree = true).assertExists()
+    }
+
     @Test fun identicalTakeStillGoesOnByItself() {
         val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
         card(practise)
@@ -297,5 +320,12 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(DifferenceTags.TITLE, useUnmergedTree = true).performScrollTo()
         compose.mainClock.advanceTimeBy(500)
         shot("sentence-round-08-held-difference")
+    }
+
+    @Test fun shotSayItAgain() {
+        card(previewSentencePractise(takes = mapOf("translate:s1" to wordy()), rightKeys = listOf("read:$clueKey", "translate:s1")))
+        compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performScrollTo()
+        compose.mainClock.advanceTimeBy(500)
+        shot("sentence-round-09-say-it-again")
     }
 }

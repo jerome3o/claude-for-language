@@ -102,3 +102,10 @@ export const DIFFERENCE_CARD = 'The card';
 /** Under the comparison while it holds the page. */
 export const DIFFERENCE_HOLD_NOTE = 'Have a look at the difference, then go on.';
 export const DIFFERENCE_CONTINUE = 'Continue';
+/**
+ * On an accepted (✓ Right) round exercise — read or translate, held or not: say it again to get it
+ * better (Jerome: "Also right — … slightly wordy" → he wants another go). The new take is judged the
+ * same way and its result replaces the one shown; it never takes back a right already counted, and the
+ * round never goes on by itself after one.
+ */
+export const DIFFERENCE_SAY_AGAIN = 'Say it again';

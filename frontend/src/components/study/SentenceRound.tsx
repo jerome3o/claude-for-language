@@ -33,6 +33,7 @@ import {
   roundTakeDifference,
   DIFFERENCE_CONTINUE,
   DIFFERENCE_HOLD_NOTE,
+  DIFFERENCE_SAY_AGAIN,
   DIFFERENCE_TITLE,
   type DifferenceReason,
 } from '@shared/study/answerDifference';
@@ -244,6 +245,12 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   };
   // Enough right, the last one in other words: stay on it (docs/STUDY_SESSION.md "Right, but said differently").
   const heldId = progress.done && lastRight.current && differenceOf(exercises.find((e) => e.id === lastRight.current)) ? lastRight.current : null;
+  // Once held, or once he said an accepted one again, the round waits for Continue for good: a better
+  // retake (now identical) must not send him on by itself.
+  const [stayPut, setStayPut] = useState(false);
+  useEffect(() => {
+    if (heldId) setStayPut(true);
+  }, [heldId]);
 
   // No sentences after all: straight to the answer.
   const latest = useRef({ onDone, onSkip });
@@ -289,10 +296,10 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [progress.got]);
   useEffect(() => {
-    if (!progress.done || !cheer || heldId) return;
+    if (!progress.done || !cheer || heldId || stayPut) return;
     const id = window.setTimeout(() => latest.current.onDone(), 1400);
     return () => window.clearTimeout(id);
-  }, [progress.done, cheer, heldId]);
+  }, [progress.done, cheer, heldId, stayPut]);
 
   const blocked = practise.dictation.state.blocked;
   const blockNote = practiseMicEnabled(blocked) ? null : practiseBlockNote(blocked);
@@ -360,7 +367,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
             {ex.mode === 'read' && showEnglish && row.translation && <p className="sentence-round-en is-after" data-testid="sentence-round-read-english">{row.translation}</p>}
           </div>
           <div className="sentence-round-ex-tools">
-            {!isRight && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
+            {(!isRight || busy) && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
             {answered && !fullCheck && (
               <button
                 type="button"
@@ -398,6 +405,21 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 data-testid="sentence-round-retry"
               >
                 🔁 {SENTENCE_ROUND_TRY_AGAIN}
+              </button>
+            )}
+            {isRight && !busy && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm sentence-round-retry"
+                disabled={!practiseMicEnabled(blocked) || practise.listening || practise.finishing}
+                onClick={() => {
+                  track('study.sentence_round', { action: 'say_again', index, mode: ex.mode, got: progress.got, needed: progress.needed });
+                  setStayPut(true);
+                  practise.toggle(practiseRow, ex.mode);
+                }}
+                data-testid="sentence-round-say-again"
+              >
+                🎤 {DIFFERENCE_SAY_AGAIN}
               </button>
             )}
             {ex.mode === 'read' && row.translation && (
@@ -453,7 +475,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
         {progress.done ? (
           <>
             <button type="button" className="btn btn-primary btn-block" onClick={() => onDone()} data-testid="sentence-round-continue" data-held={heldId ? 'true' : undefined}>
-              {heldId ? DIFFERENCE_CONTINUE : SENTENCE_ROUND_SEE_ANSWER} →
+              {heldId || stayPut ? DIFFERENCE_CONTINUE : SENTENCE_ROUND_SEE_ANSWER} →
             </button>
             {heldId && <p className="sentence-round-skip-note" role="status" data-testid="difference-hold-note">{DIFFERENCE_HOLD_NOTE}</p>}
           </>

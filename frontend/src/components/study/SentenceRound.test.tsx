@@ -304,6 +304,43 @@ describe('SentenceRound', () => {
       expect(track).toHaveBeenCalledWith('study.round_difference_shown', expect.objectContaining({ reason: 'reworded', held: false }));
     });
 
+    it('🎤 Say it again on an accepted exercise: a new take replaces the result, the right stays, no going on by itself', async () => {
+      const onDone = vi.fn();
+      checkLessonAnswer.mockResolvedValueOnce(check('acceptable', { headline: 'Also right — correct meaning, but slightly wordy' }));
+      await render({ onDone });
+      act(() => inEx(0, 'sentence-practise-mic')!.click());
+      act(() => dictation().land('我去银行取钱'));
+      // A plain right read: no 🎤 left, but Say it again.
+      expect(inEx(0, 'sentence-practise-mic')).toBeNull();
+      expect(inEx(0, 'sentence-round-say-again')!.textContent).toBe('🎤 Say it again');
+      act(() => inEx(1, 'sentence-practise-mic')!.click());
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      await act(async () => { dictation().land('我要去到那个银行'); await Promise.resolve(); await Promise.resolve(); });
+      expect(ex(1).dataset.held).toBe('true');
+      // Say it again on the held exercise: the mic opens on it (to stop it), a better take lands.
+      act(() => inEx(1, 'sentence-round-say-again')!.click());
+      expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'say_again', index: 1, mode: 'translate' }));
+      expect(inEx(1, 'sentence-practise-mic')).not.toBeNull();
+      await act(async () => { dictation().land('我去银行'); await Promise.resolve(); });
+      expect(ex(1).dataset.status).toBe('right');
+      expect(ex(1).dataset.difference).toBeUndefined();
+      expect(inEx(1, 'sentence-practise-result')!.dataset.result).toBe('right');
+      expect(all('sentence-round-counter')[0].textContent).toContain('2 / 2');
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(onDone).not.toHaveBeenCalled();
+      // A worse take shows its feedback; the exercise stays ✓ and the count stays.
+      act(() => inEx(1, 'sentence-round-say-again')!.click());
+      checkLessonAnswer.mockResolvedValueOnce(check('wrong'));
+      await act(async () => { dictation().land('我去学校'); await Promise.resolve(); });
+      expect(ex(1).dataset.status).toBe('right');
+      expect(inEx(1, 'sentence-practise-result')!.dataset.result).toBe('wrong');
+      expect(all('sentence-round-counter')[0].textContent).toContain('2 / 2');
+      act(() => { vi.advanceTimersByTime(5000); });
+      expect(onDone).not.toHaveBeenCalled();
+      act(() => all('sentence-round-continue')[0].click());
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
+
     it('a wrong translate take shows the differences too (his in red) and keeps Try again', async () => {
       checkLessonAnswer.mockResolvedValue(check('wrong'));
       await render();

@@ -79,6 +79,7 @@ object SentenceRoundTags {
     const val ENGLISH_TOGGLE = "sentence-round-english-toggle"
     const val PLAY = "sentence-round-play"
     const val RETRY = "sentence-round-retry"
+    const val SAY_AGAIN = "sentence-round-say-again"
     const val SKIP = "sentence-round-skip"
     const val CONTINUE = "sentence-round-continue"
     const val MORE = "sentence-round-more"
@@ -159,6 +160,10 @@ fun SentenceRoundPage(
     // Enough right, the last one in other words: stay on it (docs/STUDY_SESSION.md "Right, but said differently").
     val lastRight = right.lastOrNull()
     val heldId = lastRight?.takeIf { id -> progress.done && differenceOf(exercises.firstOrNull { it.id == id }) != null }
+    // Once held, or once he said an accepted one again, the round waits for Continue for good: a better
+    // retake (now identical) must not send him on by itself.
+    var stayPut by remember { mutableStateOf(false) }
+    LaunchedEffect(heldId) { if (heldId != null) stayPut = true }
     var asked by remember { mutableStateOf(false) }
     LaunchedEffect(rows, stats) {
         val st = stats ?: return@LaunchedEffect
@@ -207,8 +212,8 @@ fun SentenceRoundPage(
         }
         lastGot = progress.got
     }
-    LaunchedEffect(progress.done, cheer, heldId) {
-        if (progress.done && cheer != null && heldId == null) {
+    LaunchedEffect(progress.done, cheer, heldId, stayPut) {
+        if (progress.done && cheer != null && heldId == null && !stayPut) {
             delay(1400)
             latestDone()
         }
@@ -259,6 +264,10 @@ fun SentenceRoundPage(
                         onRetry = {
                             Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
                         },
+                        onSayAgain = {
+                            Analytics.track("study.sentence_round", mapOf("action" to "say_again", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
+                            stayPut = true
+                        },
                         onMore = { hiding = ex },
                     )
                 }
@@ -267,7 +276,7 @@ fun SentenceRoundPage(
             Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 if (progress.done) {
                     PrimaryPill(
-                        "${if (heldId != null) AnswerDifference.CONTINUE else SentenceRound.SEE_ANSWER} →",
+                        "${if (heldId != null || stayPut) AnswerDifference.CONTINUE else SentenceRound.SEE_ANSWER} →",
                         Modifier.fillMaxWidth().height(56.dp).testTag(SentenceRoundTags.CONTINUE), onClick = onDone,
                     )
                     if (heldId != null) {
@@ -343,6 +352,8 @@ private fun RoundExerciseCard(
     difference: String? = null,
     held: Boolean = false,
     onSpeak: ((String) -> Unit)? = null,
+    /** 🎤 Say it again on an accepted exercise (a new take; the right already counted stays). */
+    onSayAgain: () -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
     // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶.
@@ -399,7 +410,7 @@ private fun RoundExerciseCard(
                     Text(row.translation, Modifier.testTag(SentenceRoundTags.READ_ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
                 }
             }
-            if (!isRight) SentenceMicButton(practise, row, ex.mode)
+            if (!isRight || busy) SentenceMicButton(practise, row, ex.mode)
             if (answered && !fullCheck) {
                 val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
                 Box(
@@ -418,6 +429,16 @@ private fun RoundExerciseCard(
         SentencePractiseOutcome(practise, row, full = true, onPlayModel = { onPlay(row.audioUrl, row.hanzi) }, onSpeak = onSpeak)
         if (answered) {
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (isRight && !busy) {
+                    SecondaryPill(
+                        "🎤 ${AnswerDifference.SAY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.SAY_AGAIN),
+                        enabled = CoachPractise.micEnabled(practise.dictation.blocked) && !practise.listening && !practise.finishing,
+                        horizontalPadding = 14.dp, fontSize = 14.sp,
+                    ) {
+                        onSayAgain()
+                        practise.onMic(row, ex.mode)
+                    }
+                }
                 if ((status == "close" || status == "wrong") && !busy) {
                     SecondaryPill(
                         "🔁 ${SentenceRound.TRY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.RETRY),

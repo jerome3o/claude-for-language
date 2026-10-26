@@ -380,6 +380,23 @@ test('right, but said differently: a reworded translation that finishes the roun
   await second.scrollIntoViewIfNeeded();
   await shot(page, 'diff-01-round-held');
 
+  // 🎤 Say it again on the accepted exercise: a better take replaces the result; the ✓ and the count stay,
+  // and the round still waits for Continue.
+  const again = second.getByTestId('sentence-round-say-again');
+  await expect(again).toHaveText('🎤 Say it again');
+  await again.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await shot(page, 'diff-02-say-it-again');
+  await hear(page, SET[0].hanzi);
+  await again.click();
+  await expect(second.getByTestId('sentence-practise-live')).toContainText(SET[0].hanzi.replace(/[。？]/g, ''), { timeout: 10000 });
+  await second.getByTestId('sentence-practise-mic').click();
+  await expect(second.getByTestId('sentence-practise-result')).toHaveAttribute('data-result', 'right', { timeout: 10000 });
+  await expect(second).toHaveAttribute('data-status', 'right');
+  await expect(second).not.toHaveAttribute('data-difference', /.+/);
+  await expect(page.getByTestId('sentence-round-counter')).toContainText('2 / 2');
+  await page.waitForTimeout(2500);
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+
   const go = page.getByTestId('sentence-round-continue');
   await expect(go).toHaveText('Continue →');
   await go.click();

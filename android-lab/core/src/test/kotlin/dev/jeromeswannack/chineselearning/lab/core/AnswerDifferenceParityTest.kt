@@ -76,5 +76,6 @@ class AnswerDifferenceParityTest {
         assertEquals(c["card"]!!.str, AnswerDifference.CARD)
         assertEquals(c["holdNote"]!!.str, AnswerDifference.HOLD_NOTE)
         assertEquals(c["continue"]!!.str, AnswerDifference.CONTINUE)
+        assertEquals(c["sayAgain"]!!.str, AnswerDifference.SAY_AGAIN)
     }
 }

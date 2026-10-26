@@ -1187,6 +1187,12 @@ answer that is **accepted but not the model / expected answer** never goes on by
   **Continue →** (the cheer and confetti still come; Good / Easy, or Got it, are unlocked: it counts as right); the
   question's ✓ stays up with **Next: harder questions →**. A difference on the first of two never holds anything —
   the round only ever went on by itself once done.
+- **🎤 Say it again** (Jerome: "Also right — correct meaning, but slightly wordy" → he wants another go): every
+  accepted round exercise — read or translate, held or not — has **🎤 Say it again** instead of a locked card. The
+  new take is judged exactly the same way (device rule, then Claude's check) and its result / comparison replaces the
+  one shown; it **never takes back a right already counted** (a worse retake shows its feedback, the exercise stays
+  ✓ and the count stays), and after a retake (or once held) the round never goes on by itself — Continue →.
+  Analytics `study.sentence_round { action: say_again }`.
 - Rules: `roundTakeDifference`, `questionDifference`, `differenceLines`, `sameAnswerWords` + the words, Lab
   `core/…/AnswerDifference.kt`, parity-tested (`parity/fixtures/answer-difference.ts` → `AnswerDifferenceParityTest`).
   Web `components/study/DifferenceCompare.tsx` (in `SentenceRound.tsx` via `SentencePractiseOutcome full`, and

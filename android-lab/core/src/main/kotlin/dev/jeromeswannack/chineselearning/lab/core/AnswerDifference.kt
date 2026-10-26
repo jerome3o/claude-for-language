@@ -61,4 +61,6 @@ object AnswerDifference {
     const val CARD = "The card"
     const val HOLD_NOTE = "Have a look at the difference, then go on."
     const val CONTINUE = "Continue"
+    /** `DIFFERENCE_SAY_AGAIN`: another take on an accepted round exercise (never takes the right back). */
+    const val SAY_AGAIN = "Say it again"
 }

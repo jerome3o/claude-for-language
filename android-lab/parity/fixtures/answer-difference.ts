@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   roundTakeDifference, questionDifference, differenceLines, sameAnswerWords, DIFFERENCE_REASONS, DIFFERENCE_TITLE,
-  DIFFERENCE_SAID, DIFFERENCE_MODEL, DIFFERENCE_CARD, DIFFERENCE_HOLD_NOTE, DIFFERENCE_CONTINUE,
+  DIFFERENCE_SAID, DIFFERENCE_MODEL, DIFFERENCE_CARD, DIFFERENCE_HOLD_NOTE, DIFFERENCE_CONTINUE, DIFFERENCE_SAY_AGAIN,
 } from '../../../shared/study/answerDifference';
 import type { SpokenResultState } from '../../../shared/cards/spoken-result';
 import type { AnswerCheckVerdict } from '../../../shared/lesson/answerCheck';
@@ -45,6 +45,6 @@ writeFileSync(join(OUT, 'answer-difference.json'), JSON.stringify({
   round, question, same, lines,
   copy: {
     reasons: DIFFERENCE_REASONS, title: DIFFERENCE_TITLE, said: DIFFERENCE_SAID, model: DIFFERENCE_MODEL, card: DIFFERENCE_CARD,
-    holdNote: DIFFERENCE_HOLD_NOTE, continue: DIFFERENCE_CONTINUE,
+    holdNote: DIFFERENCE_HOLD_NOTE, continue: DIFFERENCE_CONTINUE, sayAgain: DIFFERENCE_SAY_AGAIN,
   },
 }, null, 1));
