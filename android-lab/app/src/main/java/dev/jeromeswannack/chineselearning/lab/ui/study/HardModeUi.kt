@@ -196,9 +196,13 @@ fun PassHardModeChoices(mode: String, onChange: (String) -> Unit) {
     }
 }
 
+/** Right, but not the card's hanzi (core AnswerDifference.question): why, what he said, the card. */
+data class HardModeDifference(val reason: String, val said: String, val model: String, val modelPinyin: String?)
+
 /**
  * Hard mode's check of the question's own answer, on the question (the web's HardModeFeedback.tsx):
- * ✓ Right → "Next: harder questions" (it goes on by itself after a beat); ✗ Not quite / ≈ Nearly →
+ * ✓ Right → "Next: harder questions" (it goes on by itself after a beat — unless it was right in other
+ * characters: then it holds with "You said" vs the card, [difference]); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Never shows the card's answer.
  */
 @Composable
@@ -210,6 +214,7 @@ fun HardModeFeedbackPanel(
     onTryAgain: () -> Unit,
     onShowAnswer: () -> Unit,
     onNext: () -> Unit,
+    difference: HardModeDifference? = null,
 ) {
     val (border, ink) = when (result) {
         "right" -> Palette.Good to Palette.Good
@@ -239,9 +244,15 @@ fun HardModeFeedbackPanel(
                 Text(HardMode.CHECKING, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             "unknown" -> Text(HardMode.UNKNOWN, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            else -> Text(HardMode.RESULT.getValue(result), color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            else -> Text(
+                difference?.let { dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE[it.reason] } ?: HardMode.RESULT.getValue(result),
+                Modifier.then(if (difference != null) Modifier.testTag(DifferenceTags.HELD) else Modifier),
+                color = ink, fontSize = if (difference != null) 18.sp else 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+            )
         }
-        if (said != null && result != "checking" && result != "unknown") {
+        if (difference != null && result == "right") {
+            DifferenceCompare(difference.said, difference.model, difference.modelPinyin, accepted = true, modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD)
+        } else if (said != null && result != "checking" && result != "unknown") {
             Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

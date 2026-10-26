@@ -51,10 +51,10 @@ describe('HardModeChip', () => {
 });
 
 describe('HardModeFeedback', () => {
-  const render = async (result: 'right' | 'close' | 'wrong' | 'checking' | 'unknown', extra: { roundFollows?: boolean } = {}) => {
+  const render = async (result: 'right' | 'close' | 'wrong' | 'checking' | 'unknown', extra: { roundFollows?: boolean; difference?: { reason: 'homophone'; said: string; model: string; modelPinyin: string } } = {}) => {
     const { HardModeFeedback } = await import('./HardModeFeedback');
     const handlers = { onTryAgain: vi.fn(), onShowAnswer: vi.fn(), onNext: vi.fn() };
-    act(() => root.render(<HardModeFeedback result={result} said="银航" spoken roundFollows={extra.roundFollows ?? true} {...handlers} />));
+    act(() => root.render(<HardModeFeedback result={result} said="银航" spoken roundFollows={extra.roundFollows ?? true} difference={extra.difference} {...handlers} />));
     return handlers;
   };
   it('a miss: Not quite, what he said, Try again and Show answer (a miss)', async () => {
@@ -78,6 +78,17 @@ describe('HardModeFeedback', () => {
     expect(h.onNext).toHaveBeenCalled();
     await render('right', { roundFollows: false });
     expect(q('hard-next')!.textContent).toContain('See the answer');
+  });
+  it('right by sound only: You said vs the card, the differing characters marked, Next to go on', async () => {
+    const h = await render('right', { difference: { reason: 'homophone', said: '由', model: '油', modelPinyin: 'yóu' } });
+    expect(q('hard-feedback')!.dataset.held).toBe('true');
+    expect(host.textContent).toContain('✓ Sounded right — written differently');
+    expect(q('difference-said')!.querySelector('[data-mark="differs"]')!.textContent).toBe('由');
+    expect(q('difference-model')!.textContent).toContain('The card');
+    expect(q('difference-model')!.textContent).toContain('yóu');
+    expect(q('hard-said')).toBeNull();
+    act(() => q('hard-next')!.click());
+    expect(h.onNext).toHaveBeenCalled();
   });
   it('checking: only Show answer; nearly: ≈ Nearly; unknown: Try again or go on', async () => {
     await render('checking');

@@ -263,9 +263,20 @@ fun SentenceMicButton(state: SentencePractiseState, row: SentenceRow, mode: Stri
     }
 }
 
-/** Under the row's text: the live words while listening, then the result. */
+/**
+ * Under the row's text: the live words while listening, then the result. [full] (the Sentence round):
+ * Claude's check whole — "You said" vs the model answer with the differences marked and the pinyin of
+ * both, the fix, the tips and the alternative (docs/STUDY_SESSION.md "Right, but said differently");
+ * [onPlayModel] = ▶ on the model line, [onSpeak] reads a fix / alternative aloud.
+ */
 @Composable
-fun SentencePractiseOutcome(state: SentencePractiseState, row: SentenceRow) {
+fun SentencePractiseOutcome(
+    state: SentencePractiseState,
+    row: SentenceRow,
+    full: Boolean = false,
+    onPlayModel: (() -> Unit)? = null,
+    onSpeak: ((String) -> Unit)? = null,
+) {
     val mine = state.activeKey == row.key
     val d = state.dictation
     if (mine && state.listening) {
@@ -297,7 +308,17 @@ fun SentencePractiseOutcome(state: SentencePractiseState, row: SentenceRow) {
     val claude = t.claude
     val result = SentencePractise.result(t.take.practised, (claude as? SentenceClaude.Done)?.check?.verdict)
     Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("${SentencePractiseTags.RESULT}-$result"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (claude is SentenceClaude.Done) {
+        if (claude is SentenceClaude.Done && full) {
+            Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
+                val verdict = claude.check.verdict
+                AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak, afterHead = {
+                    DifferenceCompare(
+                        t.take.practised.said, row.hanzi, row.pinyin,
+                        accepted = verdict == "correct" || verdict == "acceptable", onPlayModel = onPlayModel,
+                    )
+                })
+            }
+        } else if (claude is SentenceClaude.Done) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
                 Text(
                     buildAnnotatedString {

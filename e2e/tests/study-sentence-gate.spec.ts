@@ -326,6 +326,67 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   await shot(page, 'hard-06-answer-round-sentences');
 });
 
+test('right, but said differently: a reworded translation that finishes the round holds it with You said vs the model', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await setHardMode(page, 'all');
+  const { token, deck, note } = await seedBankNote(request, 'round-difference');
+  await stubSet(page, note.id);
+  // Claude's check of the translate take: right, in other words (E2E never reaches a model).
+  await page.route('**/api/lessons/answer-check', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      check: {
+        verdict: 'acceptable',
+        headline: 'Right — 营业 is the formal word for a shop or bank being open.',
+        corrected: '',
+        corrected_pinyin: '',
+        tips: [{ text: '开门 is the everyday word; 开始营业 sounds like a notice on the door.', quote: '开始营业' }],
+        alternative: { hanzi: '银行几点开门？', pinyin: 'Yínháng jǐ diǎn kāimén?', english: 'What time does the bank open?' },
+        suggested: 'got_it',
+      },
+      cached: false,
+      ms: 5,
+    }),
+  }));
+  await openCard(page, token, deck.id);
+  await answerRight(page);
+
+  const say = async (index: number, words: string) => {
+    await hear(page, words);
+    const ex = page.getByTestId('sentence-round-exercise').nth(index);
+    await ex.getByTestId('sentence-practise-mic').click();
+    await expect(ex.getByTestId('sentence-practise-live')).toContainText(words.replace(/[。？]/g, ''), { timeout: 10000 });
+    await ex.getByTestId('sentence-practise-mic').click();
+    return ex;
+  };
+  // Read the card's sentence as written: 1 / 2, nothing held.
+  const first = await say(0, CLUE.hanzi);
+  await expect(first).toHaveAttribute('data-status', 'right', { timeout: 10000 });
+  await expect(first).not.toHaveAttribute('data-difference', /.+/);
+
+  // Translate it in other words: right — and the round stays on it.
+  const second = await say(1, '银行几点开始营业？');
+  await expect(second).toHaveAttribute('data-status', 'right', { timeout: 15000 });
+  await expect(second).toHaveAttribute('data-held', 'true');
+  await expect(page.getByTestId('sentence-round-cheer')).toContainText('Good and Easy unlocked');
+  await expect(second.getByTestId('round-difference-title')).toHaveText('✓ Right — said differently from the model');
+  await expect(second.getByTestId('difference-said')).toContainText('银行几点开始营业');
+  await expect(second.getByTestId('difference-model')).toContainText(SET[0].hanzi);
+  await expect(second.getByTestId('difference-model')).toContainText(SET[0].pinyin);
+  await expect(second.locator('[data-testid="difference-said"] [data-mark="differs"]').first()).toBeVisible();
+  await expect(second).toContainText('sounds like a notice on the door');
+  await page.waitForTimeout(3000);
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await second.scrollIntoViewIfNeeded();
+  await shot(page, 'diff-01-round-held');
+
+  const go = page.getByTestId('sentence-round-continue');
+  await expect(go).toHaveText('Continue →');
+  await go.click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('sentence-gate')).toHaveAttribute('data-locked', 'false', { timeout: 15000 });
+});
+
 test('sentence history: hide a sentence in the round (Undo), more sentences asked for, Show hidden on the answer side', async ({ page, request }) => {
   test.setTimeout(120_000);
   const { token, deck, note } = await seedBankNote(request, 'sentence-hide');

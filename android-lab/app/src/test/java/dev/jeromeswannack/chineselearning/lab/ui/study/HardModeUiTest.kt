@@ -103,6 +103,29 @@ class HardModeUiTest : LabScreenshotTest() {
         assertEquals(0, count(HardModeTags.FEEDBACK))
     }
 
+    /** "Right, but said differently": a spoken answer right by sound only holds the check with You said vs the card. */
+    @Test fun homophoneAnswerHoldsWithTheDifference() {
+        card(
+            type = CardTypes.MEANING_TO_HANZI,
+            start = CardStartState(feedbackOpen = true, answer = "愿子", spokenText = "愿子"),
+        )
+        compose.mainClock.advanceTimeBy(4_000)
+        compose.onNodeWithTag(HardModeTags.FEEDBACK, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE.getValue("homophone"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD.uppercase(), useUnmergedTree = true).assertExists()
+        assertEquals(0, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithTag(HardModeTags.NEXT, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+    }
+
+    @Test fun shotHomophoneHeld() {
+        card(type = CardTypes.MEANING_TO_HANZI, start = CardStartState(feedbackOpen = true, answer = "愿子", spokenText = "愿子"))
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.onRoot().captureRoboImage("screenshots/hard-mode-09-homophone-held.png")
+    }
+
     @Test fun sentenceClueOnTheQuestion() {
         card()
         compose.onNodeWithText("Use in a sentence", useUnmergedTree = true).assertExists()

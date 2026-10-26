@@ -405,13 +405,18 @@ private fun spokenMarkStyle(mark: SpokenAnswerResult.Mark): SpokenMarkStyle {
  * glyphs from the text layout.
  */
 @Composable
-private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.compose.ui.unit.TextUnit) {
+private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.compose.ui.unit.TextUnit) =
+    SpokenMarkedCells(r.chars, fontSize)
+
+/** Marked characters (the "You said" row's marks: shape + colour) — also Hard mode's "You said" vs the model ([DifferenceCompare]). */
+@Composable
+internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: androidx.compose.ui.unit.TextUnit, tag: String = SPOKEN_RESULT_HANZI_TAG) {
     val styles = SpokenAnswerResult.Mark.entries.associateWith { spokenMarkStyle(it) }
     // UTF-16 ranges of each cell, for the underlines.
     val ranges = mutableListOf<Pair<IntRange, SpokenMarkStyle>>()
     val text = buildAnnotatedString {
-        if (r.chars.isEmpty()) append("…")
-        for (cell in r.chars) {
+        if (chars.isEmpty()) append("…")
+        for (cell in chars) {
             val st = styles.getValue(cell.mark)
             val start = length
             withStyle(SpanStyle(color = st.color, background = st.background)) { append(cell.char) }
@@ -426,7 +431,7 @@ private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.co
         lineHeight = fontSize * 1.3f,
         fontWeight = FontWeight.Medium,
         onTextLayout = { layout = it },
-        modifier = Modifier.testTag(SPOKEN_RESULT_HANZI_TAG).drawBehind {
+        modifier = Modifier.testTag(tag).drawBehind {
             val l = layout ?: return@drawBehind
             val stroke = with(density) { 2.dp.toPx() }
             for ((range, st) in ranges) {

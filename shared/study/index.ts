@@ -11,3 +11,4 @@ export * from './sentencePractise';
 export * from './sentenceRound';
 export * from './sentenceHistory';
 export * from './hardMode';
+export * from './answerDifference';

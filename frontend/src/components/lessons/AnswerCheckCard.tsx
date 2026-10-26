@@ -16,6 +16,7 @@
  * (✓ ① 就是…吧 · ~ ③ 是关于…的 · ✗ …), "A cleaner version" (what they meant, with the real fixes
  * marked) and each tip's better version with its pinyin.
  */
+import type { ReactNode } from 'react';
 import { answerCheckChip, cleanerVersion, speakingPartMark, tipSegments, type AnswerCheck } from '@shared/lesson/answerCheck';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
@@ -40,7 +41,7 @@ export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk }: {
   return <AnswerCheckBody check={state.check} answer={answer} speak={speak} onRetry={onRetry} onAsk={onAsk} />;
 }
 
-export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact }: {
+export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact, afterHead }: {
   check: AnswerCheck;
   answer: string;
   speak?: (text: string) => void;
@@ -48,6 +49,8 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact 
   onAsk?: () => void;
   /** The attempt review: no actions, no audio. */
   compact?: boolean;
+  /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
+  afterHead?: ReactNode;
 }) {
   const chip = answerCheckChip(check.verdict, !!check.cleaned);
   return (
@@ -56,6 +59,7 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact 
         <span className={`answer-check-chip ${chip.tone}`}>{chip.label}</span>
         <span className="answer-check-headline">{check.headline}</span>
       </div>
+      {afterHead}
       {check.parts && check.parts.length > 0 && (
         <ul className="answer-check-parts" data-testid="answer-check-parts">
           {check.parts.map((p, i) => {

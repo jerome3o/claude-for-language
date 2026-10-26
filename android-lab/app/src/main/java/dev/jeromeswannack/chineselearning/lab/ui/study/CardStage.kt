@@ -102,6 +102,7 @@ import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDifference
 import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
 import androidx.compose.runtime.SideEffect
 import dev.jeromeswannack.chineselearning.lab.core.ListenContext
@@ -414,11 +415,12 @@ fun CardStage(
     // Hard mode: the question's own answer, checked on the question (core HardMode) — the same checks the
     // answer side uses: the typed / spoken verdict, the grid all right, a read card's "You said".
     val take = ui.extras.take
+    // A typing card's verdict on the question (null = not a typing card / nothing typed).
+    val questionVerdict: AnswerKey.Verdict? = if (!feedbackOpen || !typing || answer.isBlank()) null
+        else mcSlots?.let { if (MultipleChoice.allRight(it)) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.WRONG } ?: checkAnswer(answer)
     val questionResult: String? = when {
         !feedbackOpen -> null
-        typing -> if (answer.isBlank()) null else HardMode.questionResult(
-            mcSlots?.let { if (MultipleChoice.allRight(it)) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.WRONG } ?: checkAnswer(answer),
-        )
+        typing -> questionVerdict?.let { HardMode.questionResult(it) }
         !take.hasTake -> null
         else -> when (val t = take.transcription) {
             is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected)
@@ -432,6 +434,9 @@ fun CardStage(
         else -> (take.transcription as? TranscriptionUi.Done)?.result?.transcribedHanzi?.trim()?.ifEmpty { null }
     }
     val roundFollows = HardMode.roundFollows(questionResult, sentenceCount)
+    // Right but not the card's hanzi (a homophone / a listed alternative): the check holds with the
+    // difference until Next (core AnswerDifference).
+    val questionHeld: String? = if (questionResult == "right") AnswerDifference.question(questionVerdict) else null
     fun hardNext() {
         if (!feedbackOpen) return
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "next", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType) + hardWhere)
@@ -447,6 +452,13 @@ fun CardStage(
         if (r == "right") {
             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "right", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
             burst++
+            if (questionHeld != null) {
+                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.round_difference_shown", mapOf(
+                    "kind" to "question", "reason" to questionHeld, "verdict" to questionVerdict?.name?.lowercase(java.util.Locale.ROOT),
+                    "where" to if (pass != null) "homework" else "session", "held" to true,
+                ))
+                return@LaunchedEffect
+            }
             delay(HardMode.RIGHT_BEAT_MS)
             latestNext()
         } else if (r != "unknown") {
@@ -595,6 +607,8 @@ fun CardStage(
                             val i = roundLog.indexOfFirst { it.id == id }
                             if (i >= 0) roundLog[i] = roundLog[i].copy(result = result)
                         },
+                        where = if (pass != null) "homework" else "session",
+                        onSpeak = { text -> actions.onPlay(null, text) },
                     )
                 }
                 return@BoxWithConstraints
@@ -676,6 +690,7 @@ fun CardStage(
                     said = questionSaid,
                     spoken = !typing || answerIsSpoken(answer),
                     roundFollows = roundFollows,
+                    difference = questionHeld?.let { reason -> questionSaid?.let { HardModeDifference(reason, it, note.hanzi, note.pinyin) } },
                     onTryAgain = { hardTryAgain() },
                     onShowAnswer = { giveUp() },
                     onNext = { hardNext() },
