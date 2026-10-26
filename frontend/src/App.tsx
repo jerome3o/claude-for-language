@@ -83,6 +83,9 @@ const QuestsPage = lazy(() => import('./pages/QuestsPage').then(m => ({ default:
 const QuestPlayPage = lazy(() => import('./pages/QuestPlayPage').then(m => ({ default: m.QuestPlayPage })));
 const IdiomsPage = lazy(() => import('./pages/IdiomsPage').then(m => ({ default: m.IdiomsPage })));
 const IdiomPage = lazy(() => import('./pages/IdiomPage').then(m => ({ default: m.IdiomPage })));
+// 📱 Phone practice (docs/PHONE_PRACTICE.md): the simulated apps live only in these chunks.
+const PhonePracticePage = lazy(() => import('./pages/PhonePracticePage').then(m => ({ default: m.PhonePracticePage })));
+const PhoneScenarioPage = lazy(() => import('./pages/PhoneScenarioPage').then(m => ({ default: m.PhoneScenarioPage })));
 const MemeReviewPage = lazy(() => import('./pages/MemeReviewPage').then(m => ({ default: m.MemeReviewPage })));
 const MemeIssuePage = lazy(() => import('./pages/MemeIssuePage').then(m => ({ default: m.MemeIssuePage })));
 const PictureHuntsPage = lazy(() => import('./pages/PictureHuntsPage').then(m => ({ default: m.PictureHuntsPage })));
@@ -655,6 +658,9 @@ function AppRoutes() {
       {/* 🎬 Clips (experimental, docs/CLIPS.md): the vertical feed — immersive, its own chrome. */}
       <Route path="/clips" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />
       <Route path="/clips/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load clips"><ClipsPage /></ErrorBoundary></ProtectedRoute>} />
+      {/* 📱 Phone practice (docs/PHONE_PRACTICE.md): the task list, and one task on the simulated phone (immersive, its own chrome). */}
+      <Route path="/phone" element={<ProtectedRoute><Header /><PhonePracticePage /></ProtectedRoute>} />
+      <Route path="/phone/:id" element={<ProtectedRoute><ErrorBoundary fallbackTitle="Couldn't load this task"><PhoneScenarioPage /></ErrorBoundary></ProtectedRoute>} />
       {/* 梗 Meme review (prototype, docs/MEME_REVIEW.md): one issue a month. */}
       <Route path="/meme-review" element={<ProtectedRoute><Header /><MemeReviewPage /></ProtectedRoute>} />
       <Route

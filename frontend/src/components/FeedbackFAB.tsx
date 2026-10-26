@@ -152,6 +152,8 @@ export function FeedbackFAB() {
   if (/^\/clips(\/[^/]+)?\/?$/.test(location.pathname)) return null;
   // 🥽 VR: the room has its own 💬 Feedback on the tray (with a screenshot of the 3D view).
   if (/^\/vr\/?$/.test(location.pathname)) return null;
+  // 📱 Phone practice: the simulated phone fills the screen; its navigation bar is where the FAB would sit.
+  if (/^\/phone\/[^/]+\/?$/.test(location.pathname)) return null;
 
   // Study, the tutor's "Try it" previews and the catalogue samples: keep the FAB faint, out of the card's way.
   const isStudying = isStudyLikePath(location.pathname);

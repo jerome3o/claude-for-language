@@ -106,6 +106,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   ├── idioms/            # 成语 Idioms (beta, docs/IDIOMS.md): the entry shape (types.ts), starter list (~46), cache key + explorer link rule (normalize.ts), validator (validate.ts), "+ Add as card" fields (card.ts), sample entry — parity-tested by the Lab app
 │   ├── clips/             # 🎬 Clips (EXPERIMENTAL, docs/CLIPS.md): the clip spec v1 (types.ts; CLIP_SPEC_DOC in doc.ts = what every clip-writing Claude reads; interactive layouts quiz / listen / order / reveal / speak), validateClipSpec, the scene timeline + what each scene says and in which voice (timeline.ts: sceneUtterances, sceneRevealUtterances, storyCast), the clip clock (playback.ts: clipTick — scenes hold for their audio, an interactive scene waits for the learner, Skip after 6 s; clipOrderShuffle), karaoke caption timing (karaoke.ts), the lo-fi music + ducking (music.ts; loops by scripts/audio/generate-clip-music.mjs), the feed order + Learn more offers (feed.ts), samples — parity-tested by the Lab app
 │   ├── meme-review/       # 梗 Meme review (PROTOTYPE, docs/MEME_REVIEW.md): the monthly issue shape (types.ts), the validator — URLs must come from the agent's search results, pinyin re-derived (validate.ts) —, labels / card fields / URL rules (rules.ts), the sample submission — app-side rules parity-tested by the Lab app
+│   ├── phone/             # 📱 Phone practice (docs/PHONE_PRACTICE.md, web only for now): simulated Chinese phone apps with real-life tasks — the scenario spec (types.ts) + validateScenarioSpec, the engine (event log → latest records, declarative goal / mistake conditions, hints, results), each fictional app's rules (rail.ts 选座 / 退票 fees / 改签, ride.ts, food.ts 起送 / 满减 / 红包, movie.ts seat-map rules, dine.ts, wallet.ts), persona.ts (Claude role-play prompt, limits, reply cleaning, the E2E stand-in), 18 bundled scenarios (scenarios/) — pure TS for the Lab port
 │   ├── cards/             # Card standard, word checks, answer checking (answer.ts; spoken-result.ts = the spoken answer's compact "You said" row), word tags (word-tags.ts = the tagger; word-tags-build.ts + word-tags-curated.ts = the lexicon build), pictures on cards (note-image.ts: which side shows the picture, the prompt, the estimate — parity-tested by the Lab app)
 │   ├── picture-hunt/      # Picture hunt (看图找词): types (normalised boxes / outlines), answer matching (match.ts), hit-testing (geometry.ts), feedback copy, validation — parity-tested by the Lab app
 │   ├── quest/             # Quests: the tile-map mini-game framework
@@ -1427,6 +1428,15 @@ stand-in `fakeClipSpec`). Cost guard `jobs`: generate / retry / learn-more. MCP 
 - `GET /api/clips` (feed: unseen first, then by fit — `rankClipFeed`) · `GET|DELETE /api/clips/:id` · `POST /api/clips { spec }` → 201 `{ clip, pinyin_fixes }` / 400 `problems`
 - `POST /api/clips/generate { topic?, words?, count? (1–3) }` → 202 · `POST /api/clips/:id/retry` · `POST /api/clips/events { events }` (idempotent)
 - `POST /api/clips/:id/learn-more { action: lesson | reader | podcast | more }`
+
+### 📱 Phone practice (`routes/phone.ts`, `services/phone-persona.ts`, `shared/phone`, docs/PHONE_PRACTICE.md)
+Simulated Chinese phone apps (fictional names / logos, real flows and copy): 铁路出行 (rail), 招手打车 (rides), 饭点外卖
+(delivery), 爆米花电影 (cinema), 吃喝玩乐 (restaurants), 微聊 (messenger), 安付钱包 (wallet + the shared pay sheet), 信息
+(SMS). A task is a scenario SPEC (JSON, `validateScenarioSpec`): the apps' seeded world, goal en + zh, declarative goals
+checked by the engine against the phone's event log, hints, vocab, personas. Web `pages/PhonePracticePage.tsx`,
+`PhoneScenarioPage.tsx`, `frontend/src/phone/` (runtime context, shell, apps/, pay sheet, persona chats, long-press →
+explorer, task card / hints / summary). Plays are local-only (IndexedDB `phone-practice`). Lab: not yet (PARITY.md).
+- `POST /api/phone/persona-reply` `{ scenario_id, persona_id, messages: [{ from: me | them, text }], context? }` → `{ reply, english, actions }` — Claude playing a bundled scenario's persona (driver / rider / host / landlord): one `structuredCall` on the small model, thinking off; cost guard `ai`; E2E_TEST_MODE → `fakePersonaReply`; 400 / 404 / 503 retryable / 502
 
 ### 梗 Meme review (PROTOTYPE; `routes/meme-review.ts`, `services/meme-review/`, `shared/meme-review`, docs/MEME_REVIEW.md)
 An isolated tracer bullet (nothing in the study queue / sync reads it): ONE issue per calendar month for everyone
@@ -2862,6 +2872,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/podcasts`, `/podcasts/feed?url=`, `/podcasts/episodes/:id` - 🎙 Podcasts — **Lab app only** (no web page yet; docs/PODCASTS.md)
 - `/idioms`, `/idioms/:hanzi` - 成语 Idioms (beta): look one up / browse the starter list, and one idiom's page (More → Practice; tutors More → Tools; the explorer's "📜 Story & usage")
 - `/clips`, `/clips/:id[?scene=N]` - 🎬 Clips (experimental; More → Practice "🎬 Clips (beta)"): the vertical feed (immersive, its own chrome; /clips/:id starts at that clip, `?scene=` at a scene)
+- `/phone`, `/phone/:id` - 📱 Phone practice (More → Practice, tutors More → Tools): the task list (✓ Done · best time, local only) and one task on the simulated phone (immersive; full screen on a phone, a phone frame + task card on a desktop)
 - `/meme-review`, `/meme-review/:month` - 梗 Meme review (prototype; More → Practice, tutors More → Tools): the monthly issues (admin: Generate now) and one issue (offline once opened; links need a connection)
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md

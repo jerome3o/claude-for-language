@@ -29,6 +29,7 @@ export type AnalyticsArea =
   | 'meme_review'
   | 'clips'
   | 'vr'
+  | 'phone'
   | 'lessons'
   | 'coach'
   | 'decks'
@@ -284,6 +285,11 @@ export const ANALYTICS_EVENTS = {
   'vr.window_open': e('vr', 'Opened a window in VR (kind = study / reader / homework / explorer / lesson_spec / feedback; source = tray / tap / homework / study / speech).', ['kind', 'source']),
   'vr.speech': e('vr', 'The VR 🎤 settled a take (target = what used it: study_answer / explorer_search / explorer_open / feedback_message / none; outcome = ok / empty / unused / failed).', ['target', 'outcome']),
   'vr.feedback': e('vr', 'Sent feedback from VR (screenshot = it carried one; via = feedback_api — POST /api/feedback through the feedback outbox; mode = flat / immersive).', ['screenshot', 'via', 'mode']),
+  'phone.open': e('phone', 'Opened 📱 Phone practice (docs/PHONE_PRACTICE.md; scenarios = how many are listed, done = how many finished on this device).', ['scenarios', 'done']),
+  'phone.scenario_start': e('phone', 'Started a phone-practice scenario (scenario = its id; app = the app it starts in; replay = finished before).', ['scenario', 'difficulty', 'app', 'replay']),
+  'phone.scenario_finish': e('phone', 'Finished (success) or left (gave_up) a phone-practice scenario; hints / mistakes / slips are counts, duration_bucket = lt2m / 2-5m / 5-10m / 10-20m / gt20m.', ['scenario', 'success', 'gave_up', 'hints', 'mistakes', 'slips', 'bonus', 'duration_bucket']),
+  'phone.persona_message': e('phone', 'Sent a message to a persona in a simulated app (counts only: turn = the learner\'s nth message, actions = actions it triggered; outcome = ok / offline / failed; via = typed / voice / quick).', ['scenario', 'persona', 'turn', 'actions', 'outcome', 'via']),
+  'phone.add_card': e('phone', '"+ Add as card" / ⚡ from a phone-practice summary (action = add / bump).', ['scenario', 'action']),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),
