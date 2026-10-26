@@ -69,7 +69,7 @@ export function explorerView(stack: readonly ExplorerItem[], data: ExplorerData)
     }
     if (r.words.length) {
       nodes.push({ t: 'text', text: `Words with ${r.char}`, size: 26, color: 'accent' });
-      nodes.push({ t: 'list', items: r.words.slice(0, 5).map((w) => ({ title: `${w.hanzi}  ${w.pinyin}`, sub: w.english, action: `push:${w.hanzi}` })) });
+      nodes.push({ t: 'list', items: r.words.slice(0, 4).map((w) => ({ title: `${w.hanzi}  ${w.pinyin}`, sub: w.english, action: `push:${w.hanzi}` })) });
     }
     return nodes;
   }

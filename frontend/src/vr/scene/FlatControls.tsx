@@ -5,21 +5,31 @@
  */
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import { useThree } from '@react-three/fiber';
-import { Ray, Raycaster, Vector2, type PerspectiveCamera } from 'three';
+import { Ray, Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';
 import type { InteractionHub } from './interaction';
 
 const SOURCE = 'mouse';
 const MAX_PITCH = 1.1;
+/**
+ * On a wide screen the flat camera stands this far behind the spot windows are placed around
+ * (metres), so the room is in view; a tall phone screen stays on the spot (the window fills it).
+ */
+export function flatStepBack(aspect: number): number {
+  return aspect < 1 ? 0 : 0.45;
+}
 
-export function FlatControls({ hub, eyeHeight, turnRef }: {
+export function FlatControls({ hub, eyeHeight, turnRef, stepBackRef }: {
   hub: InteractionHub;
   eyeHeight: number;
   /** Set here: turns the flat camera to a yaw (a window that just opened out of view). */
   turnRef: MutableRefObject<((yaw: number) => void) | null>;
+  /** Written here: how far behind the placement spot the camera stands now. */
+  stepBackRef: MutableRefObject<number>;
 }) {
   const gl = useThree((s) => s.gl);
   const camera = useThree((s) => s.camera);
-  const look = useRef({ yaw: 0, pitch: -0.3 });
+  const look = useRef({ yaw: 0, pitch: -0.35 });
+  const pitched = useRef(false);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -33,18 +43,27 @@ export function FlatControls({ hub, eyeHeight, turnRef }: {
       if (gl.xr.isPresenting) return;
       // A phone held upright sees as much width as a landscape screen: ~56° across.
       const persp = camera as PerspectiveCamera;
+      const r = el.getBoundingClientRect();
+      const aspect = r.width > 0 && r.height > 0 ? r.width / r.height : 1.6;
+      stepBackRef.current = flatStepBack(aspect);
       if (persp.isPerspectiveCamera) {
-        const r = el.getBoundingClientRect();
-        const aspect = r.width > 0 && r.height > 0 ? r.width / r.height : 1.6;
-        const hfov = (56 * Math.PI) / 180;
-        const vfov = Math.min(100, Math.max(60, (2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180) / Math.PI));
+        const hfov = ((aspect < 1 ? 50 : 56) * Math.PI) / 180;
+        const vfov = Math.min(100, Math.max(55, (2 * Math.atan(Math.tan(hfov / 2) / aspect) * 180) / Math.PI));
+        // A tall screen sees the tray anyway: look less far down.
+        if (!pitched.current) {
+          pitched.current = true;
+          if (aspect < 1) look.current.pitch = -0.2;
+        }
         if (Math.abs(persp.fov - vfov) > 0.1) {
           persp.fov = vfov;
           persp.updateProjectionMatrix();
         }
       }
-      camera.position.set(0, eyeHeight, 0);
+      // A step behind where you'd stand (FLAT_STEP_BACK), turning about that spot: the room in view.
       camera.rotation.set(look.current.pitch, look.current.yaw, 0, 'YXZ');
+      const fwd = new Vector3(0, 0, -1).applyEuler(camera.rotation);
+      const back = stepBackRef.current;
+      camera.position.set(-fwd.x * back, eyeHeight - fwd.y * back, -fwd.z * back);
       camera.updateMatrixWorld();
     };
     apply();
@@ -148,7 +167,7 @@ export function FlatControls({ hub, eyeHeight, turnRef }: {
       window.removeEventListener('resize', apply);
       gl.xr.removeEventListener('sessionend', onSessionEnd);
     };
-  }, [gl, camera, hub, eyeHeight, turnRef]);
+  }, [gl, camera, hub, eyeHeight, turnRef, stepBackRef]);
 
   return null;
 }

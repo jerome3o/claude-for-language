@@ -83,6 +83,18 @@
   line-height: 1.4;
 }
 
+.vr-note-close {
+  float: right;
+  width: 32px;
+  height: 32px;
+  margin: -0.3rem -0.4rem 0 0.5rem;
+  border: none;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #dfe6f2;
+  cursor: pointer;
+}
+
 .vr-note a {
   color: #9cc6ff;
 }

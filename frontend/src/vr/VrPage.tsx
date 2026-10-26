@@ -78,6 +78,7 @@ export function VrPage() {
   const [caption, setCaption] = useState<{ text: string; until: number } | null>(null);
   const sessionReader = useRef<PanelContext['sessionReader']['current']>(null);
   const [shot, setShot] = useState<Blob | null>(null);
+  const [noteHidden, setNoteHidden] = useState(false);
 
   const head = useCallback((): HeadPose => apiRef.current?.head() ?? DEFAULT_HEAD, []);
 
@@ -96,7 +97,9 @@ export function VrPage() {
   }, []);
 
   // Positions + open windows, per device.
-  useEffect(() => saveStoredWindows(state), [state]);
+  useEffect(() => {
+    saveStoredWindows(state);
+  }, [state]);
 
   const open = useCallback((spec: VrPanelSpec, source: OpenSource) => {
     const checked = validateVrPanelSpec(spec);
@@ -189,22 +192,24 @@ export function VrPage() {
   const openFeedback = useCallback(async () => {
     const blob = await apiRef.current?.capture().catch(() => null) ?? null;
     setShot(blob);
+    track('feedback.open', { via: 'vr' });
     open({ kind: 'feedback' }, 'tray');
   }, [open]);
   const feedbackExtra = useMemo(() => ({
     hasShot: !!shot,
     listening: dictation.listening,
-    send: async (message: string) => {
+    send: async (message: string, kind: 'feedback' | 'bug'): Promise<'sent' | 'queued' | 'failed'> => {
+      const immersive = !!apiRef.current?.presenting();
       try {
-        const kinds = stateRef.current.windows.map((w) => w.spec.kind);
-        const r = await sendFeedback({ message, screenshot: shot, context: { mode: apiRef.current?.presenting() ? 'immersive' : 'flat', windows: kinds, xr: support.status } });
-        track('vr.feedback', { screenshot: r.screenshot, via: r.via, mode: apiRef.current?.presenting() ? 'immersive' : 'flat' });
-        return true;
+        const r = await sendFeedback({ message, kind, screenshot: shot, immersive });
+        track('feedback.sent', { via: 'vr', kind, has_screenshot: !!shot, queued: !r.sent });
+        track('vr.feedback', { screenshot: !!shot, via: 'feedback_api', mode: immersive ? 'immersive' : 'flat' });
+        return r.sent ? 'sent' : 'queued';
       } catch {
-        return false;
+        return 'failed';
       }
     },
-  }), [shot, dictation.listening, support.status]);
+  }), [shot, dictation.listening]);
 
   const ctxFor = useCallback((id: string): PanelContext => ({
     open: (spec, source) => open(spec, source),
@@ -337,8 +342,9 @@ export function VrPage() {
           <button type="button" className="vr-enter" onClick={() => void enterVr()}>Enter VR</button>
         )}
       </div>
-      {support.status === 'none' && (
+      {support.status === 'none' && !noteHidden && (
         <div className="vr-note" role="note">
+          <button type="button" className="vr-note-close" onClick={() => setNoteHidden(true)} aria-label="Hide this note">✕</button>
           <strong>Flat preview.</strong> {support.reason} Drag to look around, click to press, drag a window’s bar to move it.{' '}
           <a href={VR_GUIDE_URL} target="_blank" rel="noreferrer">How to use it in a headset</a> · <Link to="/settings">Settings</Link>
         </div>

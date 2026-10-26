@@ -66,7 +66,7 @@ export function readerPageView(s: ReaderPageInput): UiNode[] {
   }
   const p = s.page;
   const nodes: UiNode[] = [];
-  if (p.image_url) nodes.push({ t: 'image', key: p.image_url, height: 420 });
+  if (p.image_url) nodes.push({ t: 'image', key: p.image_url, height: 340 });
   nodes.push({ t: 'text', text: p.content_chinese, size: 44, color: 'zh', explore: true, segments: s.segments?.(p.content_chinese) });
   if (s.showPinyin && p.content_pinyin) nodes.push({ t: 'text', text: p.content_pinyin, size: 28, color: 'accent' });
   if (s.showEnglish && p.content_english) nodes.push({ t: 'text', text: p.content_english, size: 28, color: 'muted' });

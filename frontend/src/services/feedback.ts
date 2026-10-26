@@ -224,9 +224,9 @@ export function setShakeEnabled(on: boolean): void {
   window.dispatchEvent(new CustomEvent('feedback-shake-changed'));
 }
 
-/** Pages where a shake never opens the sheet: a call (the phone moves around), the group class. */
+/** Pages where a shake never opens the sheet: a call (the phone moves around), the group class, 🥽 VR (its own 💬 on the tray). */
 export function shakeBlockedOn(path: string): boolean {
-  return /^\/(calls|group-class)\/[^/]+/.test(path);
+  return /^\/(calls|group-class)\/[^/]+/.test(path) || /^\/vr\/?$/.test(path);
 }
 
 export async function __clearFeedbackForTests(): Promise<void> {

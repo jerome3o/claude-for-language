@@ -50,7 +50,7 @@ export interface VrSceneProps {
 }
 
 const TRAY_WIDTH_PX = 880;
-const TRAY_TILT = -0.8;
+const TRAY_TILT = -0.85;
 const FOLLOW_AFTER_MS = 1500;
 const FOLLOW_ANGLE = (55 * Math.PI) / 180;
 
@@ -78,17 +78,21 @@ function SceneContent(props: VrSceneProps & { worldOffset: MutableRefObject<numb
   const latest = useRef(props);
   latest.current = props;
   const turnRef = useRef<((yaw: number) => void) | null>(null);
+  const stepBackRef = useRef(0);
 
   const head = (): HeadPose => {
     const pos = new Vector3();
     camera.getWorldPosition(pos);
     const fwd = new Vector3(0, 0, -1).applyQuaternion(camera.getWorldQuaternion(new Quaternion()));
+    // Flat preview: the camera stands a step behind the spot windows are placed around.
+    if (!gl.xr.isPresenting) pos.addScaledVector(fwd, stepBackRef.current);
     return { position: { x: pos.x, y: pos.y - props.worldOffset.current, z: pos.z }, yaw: headYawFromForward(fwd) };
   };
   const toRoom = (p: { x: number; y: number; z: number }) => ({ x: p.x, y: p.y - props.worldOffset.current, z: p.z });
 
   const placeTray = (h: HeadPose) => {
-    const p = trayPose(h.position, h.yaw);
+    // Seen from a step back (flat preview) the desk sits a little lower so it never hides a window.
+    const p = trayPose(h.position, h.yaw, gl.xr.isPresenting ? undefined : 0.62);
     trayPoseRef.current = p;
     const g = trayRef.current;
     if (g) {
@@ -268,7 +272,7 @@ function SceneContent(props: VrSceneProps & { worldOffset: MutableRefObject<numb
   return (
     <>
       <XrInput hub={hub} />
-      <FlatControls hub={hub} eyeHeight={VR_DEFAULT_EYE_HEIGHT} turnRef={turnRef} />
+      <FlatControls hub={hub} eyeHeight={VR_DEFAULT_EYE_HEIGHT} turnRef={turnRef} stepBackRef={stepBackRef} />
       <group ref={worldRef}>
         <Environment />
         {props.windows.map((w) => (

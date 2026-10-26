@@ -84,7 +84,7 @@ describe('reader views', () => {
     const first = readerPageView({ title: 'T', page, index: 0, total: 2, showPinyin: false, showEnglish: false, finished: false, canGoBack: true });
     expect(actions(first)).toEqual(['play', 'pinyin', 'english', 'back', 'next']);
     expect(texts(first)).not.toContain('Paris.');
-    expect(first[0]).toEqual({ t: 'image', key: 'reader-images/p1.png', height: 420 });
+    expect(first[0]).toEqual({ t: 'image', key: 'reader-images/p1.png', height: 340 });
     const last = readerPageView({ title: 'T', page, index: 1, total: 2, showPinyin: true, showEnglish: true, finished: false, canGoBack: false });
     expect(actions(last)).toContain('finish');
     expect(texts(last)).toContain('Xiaoming is in Paris.');

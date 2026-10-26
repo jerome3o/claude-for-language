@@ -13,6 +13,8 @@ import { PanelMesh, PX_PER_METRE } from './PanelMesh';
 import type { InteractionHub, VrHit } from './interaction';
 
 export const WINDOW_WIDTH_PX = 1000;
+/** 0.625 m: a window ends ~0.65 m below the eyes, above the tray's line of sight (shared/vr trayPose). */
+export const WINDOW_MAX_HEIGHT_PX = Math.round(0.625 * PX_PER_METRE);
 const BAR_GAP = 0.008;
 
 export interface PanelView {
@@ -100,7 +102,7 @@ export function WindowFrame(props: WindowFrameProps) {
           widthPx={WINDOW_WIDTH_PX}
           hub={hub}
           images={props.images}
-          maxHeightPx={Math.round(0.95 * PX_PER_METRE)}
+          maxHeightPx={WINDOW_MAX_HEIGHT_PX}
           minHeightPx={160}
           onPress={() => props.onFocus(win.id)}
           onGrab={startDrag}

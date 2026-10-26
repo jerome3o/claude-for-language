@@ -12,7 +12,7 @@ requests and the MCP feature-request tools (`list_feature_requests`, `get_featur
 |-----|--------------------|------------|
 | Web (browser, PWA, hybrid Android shell, desktop) | More → 💬 Send feedback · Settings → Feedback · the 💬 floating button · **Shift + ?** on a keyboard · **shake** on a phone whose browser reports motion without asking (Android Chrome; Settings → "Shake to send feedback", on by default) | `html2canvas` (already the app's screenshot library, lazy-loaded) redraws the page as a JPEG — it may miss videos, canvases and cross-origin pictures. Tap the preview to draw on it or cover something; untick "Include screenshot" to leave it out |
 | Lab app (native) | **shake** (accelerometer while the app is in front; Settings → "Shake to send feedback", on by default) · More → 💬 Send feedback · Settings → Feedback | The app's own window (`PixelCopy`) — no screen-recording permission, nothing outside the app. "Include screenshot" switch to leave it out |
-| VR (`/vr`, WebXR) | the VR front end's own button / gesture | its own capture (e.g. the WebXR canvas), sent with `platform: 'vr'` |
+| VR (`/vr`, WebXR) | 💬 Feedback on the VR tray (docs/VR.md) | the scene rendered from the head pose (the canvas in the flat preview), sent through the web's outbox (`queueFeedback`) with `platform: 'vr'`, `via: 'vr'` — `frontend/src/vr/feedback.ts` |
 
 A shake never opens the sheet during a call (the call screens, the phone's call / communication audio mode)
 or while the microphone is recording (a study take, dictation, a voice message): web

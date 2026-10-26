@@ -282,7 +282,7 @@ export const ANALYTICS_EVENTS = {
   'vr.enter': e('vr', 'Opened 🥽 VR (mode = flat — the page opened, the 3D preview / immersive — entered the headset session; supported = the browser can start immersive VR).', ['mode', 'supported']),
   'vr.window_open': e('vr', 'Opened a window in VR (kind = study / reader / homework / explorer / lesson_spec / feedback; source = tray / tap / homework / study / speech).', ['kind', 'source']),
   'vr.speech': e('vr', 'The VR 🎤 settled a take (target = what used it: study_answer / explorer_search / explorer_open / feedback_message / none; outcome = ok / empty / unused / failed).', ['target', 'outcome']),
-  'vr.feedback': e('vr', 'Sent feedback from VR (screenshot = it carried one; via = feature_request — or feedback once that API exists; mode = flat / immersive).', ['screenshot', 'via', 'mode']),
+  'vr.feedback': e('vr', 'Sent feedback from VR (screenshot = it carried one; via = feedback_api — POST /api/feedback through the feedback outbox; mode = flat / immersive).', ['screenshot', 'via', 'mode']),
   'audio_lesson.create': e('lessons', 'Asked for a new audio lesson (docs/AUDIO_LESSONS.md; format dialogue / sleep / story, chunks = a story lesson\'s lines).', ['format', 'target_minutes', 'chunks']),
   'audio_lesson.play': e('lessons', 'Started playing an audio lesson.', ['format', 'offline', 'resumed']),
   'audio_lesson.complete': e('lessons', 'Listened to an audio lesson to the end.', ['format', 'duration_ms']),

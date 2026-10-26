@@ -156,7 +156,7 @@ export function recallPoses(count: number, head: Vec3, headYaw: number): VrPose[
  * The tray (window menu): low and close in front, like a desk — looking straight at the windows
  * it stays below them; glance down to use it.
  */
-export function trayPose(head: Vec3, headYaw: number): VrPose {
-  const d = 0.55;
-  return { x: head.x - d * Math.sin(headYaw), y: head.y - 0.45, z: head.z - d * Math.cos(headYaw), yaw: headYaw };
+export function trayPose(head: Vec3, headYaw: number, drop = 0.5): VrPose {
+  const d = 0.5;
+  return { x: head.x - d * Math.sin(headYaw), y: head.y - drop, z: head.z - d * Math.cos(headYaw), yaw: headYaw };
 }

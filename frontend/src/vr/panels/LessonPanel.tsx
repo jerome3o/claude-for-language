@@ -146,7 +146,9 @@ export function LessonPanel({ spec, ctx, report }: PanelHostProps<{ kind: 'lesso
   const stored = useLiveQuery(async () => (spec.lesson_id ? (await db.customLessons.get(spec.lesson_id)) ?? null : null), [spec.lesson_id]);
   const lesson: CustomLessonSpec | null = spec.spec ?? stored?.spec ?? null;
   const [run, setRun] = useState<LessonRunState>(START_RUN);
-  useEffect(() => setRun(START_RUN), [spec.lesson_id, spec.spec]);
+  useEffect(() => {
+    setRun(START_RUN);
+  }, [spec.lesson_id, spec.spec]);
 
   const view = useMemo(() => {
     if (!lesson) {

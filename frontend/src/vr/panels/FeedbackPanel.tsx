@@ -10,7 +10,7 @@ export const FEEDBACK_SHOT_KEY = 'vr-feedback-shot';
 
 export const FEEDBACK_CHIPS = ['Hard to read', 'Too far away', 'Something broke', 'I love this', 'Idea'] as const;
 
-export type FeedbackStatus = 'editing' | 'sending' | 'sent' | 'failed';
+export type FeedbackStatus = 'editing' | 'sending' | 'sent' | 'queued' | 'failed';
 
 export interface FeedbackViewInput {
   hasShot: boolean;
@@ -22,10 +22,10 @@ export interface FeedbackViewInput {
 }
 
 export function feedbackView(s: FeedbackViewInput): UiNode[] {
-  if (s.status === 'sent') {
+  if (s.status === 'sent' || s.status === 'queued') {
     return [
       { t: 'spacer', h: 20 },
-      { t: 'text', text: '✓ Thanks — feedback sent', size: 40, weight: 700, color: 'good', align: 'center' },
+      { t: 'text', text: s.status === 'sent' ? '✓ Thanks — feedback sent' : '✓ Saved — it goes when you’re back online', size: 40, weight: 700, color: 'good', align: 'center' },
       { t: 'button', label: 'Close', action: 'close', tone: 'plain' },
     ];
   }
@@ -33,7 +33,7 @@ export function feedbackView(s: FeedbackViewInput): UiNode[] {
   if (s.hasShot) nodes.push({ t: 'image', key: FEEDBACK_SHOT_KEY, height: 300 }, { t: 'text', text: '📷 Screenshot of what you were looking at', size: 22, color: 'muted', align: 'center' });
   nodes.push({ t: 'text', text: s.message ? `“${s.message}”` : 'Say what you noticed with 🎤, or pick:', size: s.message ? 30 : 26, color: s.message ? 'ink' : 'muted' });
   nodes.push({ t: 'row', mode: 'wrap', children: FEEDBACK_CHIPS.map((c) => ({ t: 'button' as const, label: c, action: `chip:${c}`, tone: 'chip' as const, size: 24, selected: s.chips.includes(c) })) });
-  if (s.status === 'failed') nodes.push({ t: 'text', text: s.online ? 'Couldn’t send — try again.' : 'You’re offline — send it when you’re back online.', color: 'bad', size: 26 });
+  if (s.status === 'failed') nodes.push({ t: 'text', text: 'Couldn’t send — try again.', color: 'bad', size: 26 });
   nodes.push({
     t: 'row',
     mode: 'fill',
@@ -48,7 +48,8 @@ export function feedbackView(s: FeedbackViewInput): UiNode[] {
 export interface FeedbackPanelExtra {
   hasShot: boolean;
   listening: boolean;
-  send(message: string): Promise<boolean>;
+  /** sent / queued (offline: the outbox sends it later) / failed. */
+  send(message: string, kind: 'feedback' | 'bug'): Promise<'sent' | 'queued' | 'failed'>;
 }
 
 export function FeedbackPanel({ ctx, report, extra }: PanelHostProps<{ kind: 'feedback' }> & { extra: FeedbackPanelExtra }) {
@@ -70,7 +71,7 @@ export function FeedbackPanel({ ctx, report, extra }: PanelHostProps<{ kind: 'fe
     else if (action === 'send' && status !== 'sending') {
       setStatus('sending');
       const text = [chips.length ? `[${chips.join(', ')}]` : '', message].filter(Boolean).join(' ');
-      void extra.send(text).then((ok) => setStatus(ok ? 'sent' : 'failed'));
+      void extra.send(text, chips.includes('Something broke') ? 'bug' : 'feedback').then(setStatus);
     }
   };
 

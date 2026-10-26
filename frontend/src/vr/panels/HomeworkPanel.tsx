@@ -112,7 +112,9 @@ export function HomeworkPanel({ spec, ctx, report }: PanelHostProps<{ kind: 'hom
   }, [openId]);
 
   const noteId = pass && 'note' in pass ? pass.note?.id ?? null : null;
-  useEffect(() => setRevealed(false), [noteId]);
+  useEffect(() => {
+    setRevealed(false);
+  }, [noteId]);
   const started = useRef<string | null>(null);
   useEffect(() => {
     const a = pass?.assignment;
