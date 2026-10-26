@@ -103,6 +103,7 @@ object NavRules {
         Regex("^/study/?$"),
         Regex("^/quests/[^/]+/?$"),
         Regex("^/picture-hunt/[^/]+/?$"),
+        Regex("^/phone/[^/]+/?$"),
         Regex("^/audio-lessons/[^/]+/?$"),
         Regex("^/podcasts/episodes/[^/]+/?$"),
         Regex("^/readers/(?!generate$)[^/]+(/(edit|print))?/?$"),
