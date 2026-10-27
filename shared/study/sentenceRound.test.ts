@@ -114,13 +114,14 @@ describe('the round on the answer side', () => {
 });
 
 describe('roundEnglishShown', () => {
-  it('shows a read exercise\'s English at once when it is right, else only after Show English', () => {
+  it('hides a read exercise\'s English until it is judged — right, nearly or not quite — and EN toggles it', () => {
     expect(roundEnglishShown('read', null, false, null)).toBe(false);
+    expect(roundEnglishShown('read', null, false, true)).toBe(true); // EN before answering
     expect(roundEnglishShown('read', 'right', true, null)).toBe(true);
-    expect(roundEnglishShown('read', 'right', true, false)).toBe(false); // Hide English
-    expect(roundEnglishShown('read', 'close', true, null)).toBe(false);
-    expect(roundEnglishShown('read', 'wrong', true, null)).toBe(false);
-    expect(roundEnglishShown('read', 'wrong', true, true)).toBe(true); // Show English
+    expect(roundEnglishShown('read', 'right', true, false)).toBe(false); // EN hides it again
+    expect(roundEnglishShown('read', 'close', true, null)).toBe(true);
+    expect(roundEnglishShown('read', 'wrong', true, null)).toBe(true);
+    expect(roundEnglishShown('read', 'wrong', true, false)).toBe(false);
     expect(roundEnglishShown('read', null, true, null)).toBe(false); // still being checked
   });
   it('a translate exercise\'s English is its question', () => {

@@ -35,6 +35,23 @@ object AnswerDifference {
         return null
     }
 
+    /** `RoundTakeView`: how a round take shows under its exercise (never a second copy of the sentence). */
+    data class View(val compare: Boolean, val transcript: Boolean, val pinyin: Boolean)
+
+    /**
+     * `roundTakeView`: [View.compare] = "You said" vs the model (Claude's check of a translate take, unless
+     * correct in the same words); else one compact row — the transcript only when its words differ, its
+     * pinyin only when it sounded different (close / wrong).
+     */
+    fun roundTakeView(mode: String, said: String, model: String, local: SpokenAnswerResult.State, claude: String?): View {
+        if (mode == SentencePractise.TRANSLATE && !claude.isNullOrEmpty()) {
+            val same = claude == "correct" && sameWords(said, model)
+            return View(compare = !same, transcript = false, pinyin = false)
+        }
+        val differs = local != SpokenAnswerResult.State.MATCH || !sameWords(said, model)
+        return View(compare = false, transcript = differs, pinyin = local == SpokenAnswerResult.State.CLOSE || local == SpokenAnswerResult.State.WRONG)
+    }
+
     /** `questionDifference`: Hard mode's question — a homophone or a listed alternative. */
     fun question(verdict: AnswerKey.Verdict?): String? = when (verdict) {
         AnswerKey.Verdict.SOUND -> HOMOPHONE

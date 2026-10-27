@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  differenceLines, questionDifference, roundTakeDifference, sameAnswerWords, DIFFERENCE_TITLE,
+  differenceLines, questionDifference, roundTakeDifference, roundTakeView, sameAnswerWords, DIFFERENCE_TITLE,
 } from './answerDifference';
 import { sentenceTake } from './sentencePractise';
 
@@ -34,6 +34,24 @@ describe('roundTakeDifference', () => {
   it('never holds a read take (other characters are the recogniser’s)', () => {
     expect(take('read', '他在游泳', '她在游泳')).toBeNull();
     expect(take('read', '我明天要去北京', '我明天去北京', 'acceptable')).toBeNull();
+  });
+});
+
+describe('roundTakeView', () => {
+  const view = (mode: 'read' | 'translate', said: string, model: string, claude: Parameters<typeof roundTakeView>[0]['claude'] = null) =>
+    roundTakeView({ mode, said, model, local: sentenceTake(mode, said, model).practised.result.state, claude });
+  it('a matched take is one line: no second copy of the sentence, no pinyin', () => {
+    expect(view('read', '我去银行取钱', '我去银行取钱。')).toEqual({ compare: false, transcript: false, pinyin: false });
+    expect(view('translate', '银行在哪儿', '银行在哪儿？')).toEqual({ compare: false, transcript: false, pinyin: false });
+  });
+  it('a take that differs shows what was said (marked); its pinyin only when it sounded different', () => {
+    expect(view('read', '我去学校取钱', '我去银行取钱。')).toEqual({ compare: false, transcript: true, pinyin: true });
+    expect(view('translate', '他在游泳', '她在游泳')).toEqual({ compare: false, transcript: true, pinyin: false }); // sounded right
+  });
+  it('Claude\'s check compares You said with the model — unless correct in the same words', () => {
+    expect(view('translate', '银行在什么地方', '银行在哪儿？', 'acceptable')).toEqual({ compare: true, transcript: false, pinyin: false });
+    expect(view('translate', '银行在哪里', '银行在哪儿？', 'almost')).toEqual({ compare: true, transcript: false, pinyin: false });
+    expect(view('translate', '银行在哪儿！', '银行在哪儿？', 'correct')).toEqual({ compare: false, transcript: false, pinyin: false });
   });
 });
 

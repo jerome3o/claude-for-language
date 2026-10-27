@@ -38,6 +38,7 @@ import { YouSaidFailed, YouSaidRow } from './YouSaid';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import { DifferenceCompare } from './DifferenceCompare';
+import { roundTakeView } from '@shared/study/answerDifference';
 import '../lessons/AnswerCheckCard.css';
 
 /** The row a take is about. */
@@ -224,7 +225,9 @@ export function SentenceMicButton({ practise, row, mode }: { practise: SentenceP
  * Under the row's text: the live words while listening, then the result. `full` (the Sentence round):
  * Claude's check whole — "You said" vs the model answer with the differences marked and the pinyin of
  * both, the fix, the tips and the alternative (docs/STUDY_SESSION.md "Right, but said differently");
- * `onPlayModel` = ▶ on the model line, `speak` reads a fix / alternative aloud.
+ * `onPlayModel` = ▶ on the model line, `speak` reads a fix / alternative aloud. The round never repeats
+ * its sentence (`roundTakeView`): a correct check in the same words has no comparison, and the device's
+ * judgement is the compact "You said" row (✓ Match on one line; what was said only when it differs).
  */
 export function SentencePractiseOutcome({ practise, row, full, onPlayModel, speak }: {
   practise: SentencePractise;
@@ -259,6 +262,9 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
   if (!take || (mine && practise.finishing)) return null;
   const { practised } = take.take;
   const claude = take.claude;
+  const view = full
+    ? roundTakeView({ mode: take.mode, said: practised.said, model: row.hanzi, local: practised.result.state, claude: claude?.status === 'done' ? claude.check.verdict : null })
+    : null;
   return (
     <div className="sentence-practise-result" data-testid="sentence-practise-result" data-mode={take.mode}
       data-result={sentencePractiseResult(practised, claude?.status === 'done' ? claude.check.verdict : null)}>
@@ -267,7 +273,7 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
           check={claude.check}
           answer={practised.said}
           speak={speak}
-          afterHead={
+          afterHead={view?.compare ? (
             <DifferenceCompare
               said={practised.said}
               model={row.hanzi}
@@ -275,12 +281,18 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
               accepted={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
               onPlayModel={onPlayModel}
             />
-          }
+          ) : undefined}
         />
       ) : claude?.status === 'done' ? (
         <TranslateVerdict check={claude.check} said={practised.said} />
       ) : (
-        <YouSaidRow transcript={practised.said} correct={row.hanzi} verdict={practised.verdict} testId="sentence-practise-said" />
+        <YouSaidRow
+          transcript={practised.said}
+          correct={row.hanzi}
+          verdict={practised.verdict}
+          compact={view ? { transcript: view.transcript, pinyin: view.pinyin } : undefined}
+          testId="sentence-practise-said"
+        />
       )}
       {claude?.status === 'checking' && (
         <div className="answer-check checking" role="status" aria-live="polite" data-testid="sentence-practise-checking">

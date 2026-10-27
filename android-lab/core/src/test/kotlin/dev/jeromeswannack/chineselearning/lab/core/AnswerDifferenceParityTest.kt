@@ -35,6 +35,12 @@ class AnswerDifferenceParityTest {
             val reason = AnswerDifference.roundTake(o["mode"]!!.str!!, o["said"]!!.str!!, o["model"]!!.str!!, state(o["local"]!!.str!!), o["claude"]!!.str)
             assertEquals(o["reason"]!!.str, reason, o.toString())
             if (reason != null) held++
+            val v = o["view"]!!.jsonObject
+            assertEquals(
+                AnswerDifference.View(v["compare"]!!.jsonPrimitive.boolean, v["transcript"]!!.jsonPrimitive.boolean, v["pinyin"]!!.jsonPrimitive.boolean),
+                AnswerDifference.roundTakeView(o["mode"]!!.str!!, o["said"]!!.str!!, o["model"]!!.str!!, state(o["local"]!!.str!!), o["claude"]!!.str),
+                o.toString(),
+            )
         }
         assertTrue(held > 10)
     }

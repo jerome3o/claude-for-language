@@ -267,7 +267,10 @@ fun SentenceMicButton(state: SentencePractiseState, row: SentenceRow, mode: Stri
  * Under the row's text: the live words while listening, then the result. [full] (the Sentence round):
  * Claude's check whole — "You said" vs the model answer with the differences marked and the pinyin of
  * both, the fix, the tips and the alternative (docs/STUDY_SESSION.md "Right, but said differently");
- * [onPlayModel] = ▶ on the model line, [onSpeak] reads a fix / alternative aloud.
+ * [onPlayModel] = ▶ on the model line, [onSpeak] reads a fix / alternative aloud. The round never repeats
+ * its sentence (core AnswerDifference.roundTakeView): a correct check in the same words has no comparison,
+ * and the device's judgement is the compact "You said" row (✓ Match on one line; what was said only when
+ * it differs).
  */
 @Composable
 fun SentencePractiseOutcome(
@@ -307,16 +310,21 @@ fun SentencePractiseOutcome(
     if (mine && state.finishing) return
     val claude = t.claude
     val result = SentencePractise.result(t.take.practised, (claude as? SentenceClaude.Done)?.check?.verdict)
+    val view = if (!full) null else dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.roundTakeView(
+        t.mode, t.take.practised.said, row.hanzi, t.take.practised.result.state, (claude as? SentenceClaude.Done)?.check?.verdict,
+    )
     Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("${SentencePractiseTags.RESULT}-$result"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (claude is SentenceClaude.Done && full) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
                 val verdict = claude.check.verdict
-                AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak, afterHead = {
-                    DifferenceCompare(
-                        t.take.practised.said, row.hanzi, row.pinyin,
-                        accepted = verdict == "correct" || verdict == "acceptable", onPlayModel = onPlayModel,
-                    )
-                })
+                AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak, afterHead = if (view?.compare == true) {
+                    {
+                        DifferenceCompare(
+                            t.take.practised.said, row.hanzi, row.pinyin,
+                            accepted = verdict == "correct" || verdict == "acceptable", onPlayModel = onPlayModel,
+                        )
+                    }
+                } else null)
             }
         } else if (claude is SentenceClaude.Done) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
@@ -331,7 +339,7 @@ fun SentencePractiseOutcome(
                 AnswerCheckBody(claude.check.copy(tips = emptyList(), alternative = null), t.take.practised.said, compact = true)
             }
         } else {
-            SpokenResultRow(t.take.practised.said, row.hanzi, t.take.practised.verdict)
+            SpokenResultRow(t.take.practised.said, row.hanzi, t.take.practised.verdict, compact = view)
         }
         if (claude == SentenceClaude.Checking) {
             Text("  ${SentencePractise.CHECKING}", color = Lab.colors.muted, fontSize = 14.sp, modifier = Modifier.testTag(SentencePractiseTags.CHECKING))

@@ -192,6 +192,12 @@ export interface YouSaidRowProps {
   onPlay?: () => void;
   /** ✎ on the right (every state but a plain match): the sentence in the Sentence Coach. */
   onCoach?: () => void;
+  /**
+   * The Sentence round (`roundTakeView` in shared/study/answerDifference.ts): the sentence is already
+   * up with its pinyin, so the row adds only what's new — the transcript when its words differ (marked),
+   * its pinyin when it sounded different; a plain match is just "You said ✓ Match" on one line.
+   */
+  compact?: { transcript: boolean; pinyin: boolean };
   testId?: string;
 }
 
@@ -207,31 +213,37 @@ export interface YouSaidRowProps {
  * has its own icon and words; a screen reader hears the whole row as one sentence
  * (`spokenResultLabel`). Lab: `SpokenResultRow` in ui/study/YouSaidBox.kt.
  */
-export function YouSaidRow({ transcript, correct, verdict, onPlay, onCoach, testId = 'spoken-result' }: YouSaidRowProps) {
+export function YouSaidRow({ transcript, correct, verdict, onPlay, onCoach, compact, testId = 'spoken-result' }: YouSaidRowProps) {
   const r = spokenResult(transcript, correct, verdict);
-  const pinyin = tidyPinyin(compareTranscription(transcript, correct, '').transcribedPinyin);
+  const fullPinyin = tidyPinyin(compareTranscription(transcript, correct, '').transcribedPinyin);
+  const pinyin = compact && !compact.pinyin ? '' : fullPinyin;
+  const showHanzi = !compact || compact.transcript;
+  const pinyinShown = showHanzi ? pinyin : '';
   const coach = r.coach ? onCoach : undefined;
   return (
     <div
-      className={`spoken-result spoken-result--${r.state}`}
+      className={`spoken-result spoken-result--${r.state}${compact ? ' spoken-result--compact' : ''}`}
       data-testid={testId}
       data-state={r.state}
       data-verdict={verdict}
+      data-compact={compact ? (showHanzi ? 'transcript' : 'chip') : undefined}
     >
       {/* ▶ / ✎ in equal side columns (an empty one balances a lone button) so the text stays centred. */}
       {onPlay
         ? <RoundButton icon={ICON.play} label={YOU_SAID_PLAY_LABEL} onClick={onPlay} testId="you-said-play" />
         : coach && <span className="spoken-result-side" aria-hidden="true" />}
       <div className="spoken-result-body">
-        <span className="spoken-result-sr" data-testid="spoken-result-label">{spokenResultLabel(r, correct, pinyin)}</span>
+        <span className="spoken-result-sr" data-testid="spoken-result-label">{spokenResultLabel(r, correct, fullPinyin)}</span>
         <span className="spoken-result-said" aria-hidden="true">
           <span className="spoken-result-label">You said</span>
-          <span className="spoken-result-hanzi" lang="zh-CN" data-testid="spoken-result-hanzi">
-            {r.chars.length === 0 ? '…' : r.chars.map((c, i) => (
-              <span key={i} className={`spoken-mark spoken-mark--${c.mark}`} data-mark={c.mark}>{c.char}</span>
-            ))}
-          </span>
-          {pinyin && <span className="spoken-result-pinyin" data-testid="spoken-result-pinyin">{pinyin}</span>}
+          {showHanzi && (
+            <span className="spoken-result-hanzi" lang="zh-CN" data-testid="spoken-result-hanzi">
+              {r.chars.length === 0 ? '…' : r.chars.map((c, i) => (
+                <span key={i} className={`spoken-mark spoken-mark--${c.mark}`} data-mark={c.mark}>{c.char}</span>
+              ))}
+            </span>
+          )}
+          {pinyinShown && <span className="spoken-result-pinyin" data-testid="spoken-result-pinyin">{pinyinShown}</span>}
         </span>
         <span className="spoken-result-chip" aria-hidden="true" data-testid="spoken-result-chip" data-icon={r.icon}>
           <Icon d={ICON[r.icon]} />

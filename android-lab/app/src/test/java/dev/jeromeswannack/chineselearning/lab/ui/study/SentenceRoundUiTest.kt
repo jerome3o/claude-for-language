@@ -47,14 +47,14 @@ class SentenceRoundUiTest : LabScreenshotTest() {
 
     @After fun gateOff() = prefs.setHardMode("off")
 
-    private fun view(type: String = CardTypes.HANZI_TO_MEANING): CardView {
+    private fun view(type: String = CardTypes.HANZI_TO_MEANING, n: dev.jeromeswannack.chineselearning.lab.data.NoteEntity = note): CardView {
         val now = Js.parseDate("2026-10-24T08:00:00.000Z")
         var state = CardScheduler.initialCardState()
         state = CardScheduler.applyReview(state, 2, "2026-10-20T08:00:00.000Z")
-        return CardView(QueueCard("c1", "n1", "d1", type, state), note, set, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 2", true)
+        return CardView(QueueCard("c1", "n1", "d1", type, state), n, set, CardScheduler.intervalPreviews(state, now), emptyList(), 1, "HSK 2", true)
     }
 
-    private fun ui(v: CardView) = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(reviews = 5, correct = 4), canUndo = true, online = true)
+    private fun ui(v: CardView, online: Boolean = true) = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(reviews = 5, correct = 4), canUndo = true, online = online)
 
     private fun take(mode: String, said: String, target: String, claude: SentenceClaude? = null) =
         SentenceRowTake(mode, SentencePractise.take(mode, said, target), claude)
@@ -65,10 +65,12 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         type: String = CardTypes.HANZI_TO_MEANING,
         actions: StudyActions = StudyActions(),
         dark: Boolean = false,
+        n: dev.jeromeswannack.chineselearning.lab.data.NoteEntity = note,
+        online: Boolean = true,
     ) {
         prefs.setHardMode("all")
         compose.setContent {
-            LabTheme(dark = dark) { StudyScreen(ui(view(type)), playingKey = null, actions = actions, cardStart = start, autoplay = false, sentencePractisePreview = practise) }
+            LabTheme(dark = dark) { StudyScreen(ui(view(type, n), online), playingKey = null, actions = actions, cardStart = start, autoplay = false, sentencePractisePreview = practise) }
         }
         compose.mainClock.advanceTimeBy(2_000)
     }
@@ -167,18 +169,62 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         card(previewSentencePractise(rightKeys = listOf("read:$clueKey")))
         compose.onNodeWithTag(SentenceRoundTags.READ_ENGLISH, useUnmergedTree = true).assertExists()
         compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(SentenceRound.HIDE_ENGLISH, useUnmergedTree = true).performClick()
+        compose.onAllNodesWithTag(SentenceRoundTags.ENGLISH_TOGGLE, useUnmergedTree = true)[0].performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(0, count(SentenceRoundTags.READ_ENGLISH))
-        compose.onNodeWithText(SentenceRound.SHOW_ENGLISH, useUnmergedTree = true).assertExists()
     }
 
-    @Test fun missedReadKeepsShowEnglish() {
+    /** Jerome: "there is no English version here" — a missed read shows its English at once too. */
+    @Test fun missedReadShowsItsEnglishToo() {
         card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去学校", note.sentenceClue!!))))
+        compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertExists()
+    }
+
+    /** Before reading it: the English hidden (a reading exercise), the small EN reveals it. */
+    @Test fun enRevealsTheEnglishBeforeReading() {
+        card(previewSentencePractise())
         assertEquals(0, count(SentenceRoundTags.READ_ENGLISH))
-        compose.onNodeWithText(SentenceRound.SHOW_ENGLISH, useUnmergedTree = true).performClick()
+        // One EN per read exercise (two of the four).
+        assertEquals(2, count(SentenceRoundTags.ENGLISH_TOGGLE))
+        compose.onAllNodesWithTag(SentenceRoundTags.ENGLISH_TOGGLE, useUnmergedTree = true)[0].performClick()
         compose.mainClock.advanceTimeBy(500)
-        compose.onNodeWithTag(SentenceRoundTags.READ_ENGLISH, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertExists()
+    }
+
+    /** A matched read take: "You said ✓ Match" on one line — the sentence and its pinyin not repeated. */
+    @Test fun matchedReadIsOneLine() {
+        card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去银行取钱", note.sentenceClue!!)), rightKeys = listOf("read:$clueKey")))
+        assertEquals(1, count("$SPOKEN_RESULT_TAG-compact-chip"))
+        assertEquals(0, count(SPOKEN_RESULT_HANZI_TAG))
+        assertEquals(0, count(SPOKEN_RESULT_PINYIN_TAG))
+        compose.onNodeWithText("Match", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("我去银行取钱。", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Wǒ qù yínháng qǔ qián.", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertExists()
+        assertEquals(1, count(SentenceRoundTags.SAY_AGAIN))
+    }
+
+    /** A read take that differs: only what was said, marked, with its pinyin (it sounded different). */
+    @Test fun differingReadShowsOnlyWhatWasSaid() {
+        card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去学校取钱", note.sentenceClue!!))))
+        assertEquals(1, count("$SPOKEN_RESULT_TAG-compact-transcript"))
+        assertEquals(1, count(SPOKEN_RESULT_HANZI_TAG))
+        assertEquals(1, count(SPOKEN_RESULT_PINYIN_TAG))
+    }
+
+    /** The card's sentence without English on the note: fetched once shown; offline says it needs a connection. */
+    @Test fun clueWithoutEnglishIsFetched() {
+        val asked = mutableListOf<String>()
+        val actions = StudyActions(sentences = SentenceActions(translate = { r -> asked += r.hanzi; "I go to the bank to take out money." }))
+        card(previewSentencePractise(rightKeys = listOf("read:$clueKey")), actions = actions, n = note.copy(sentenceClueTranslation = null))
+        compose.mainClock.advanceTimeBy(1_000)
+        assertEquals(listOf("我去银行取钱。"), asked)
+        compose.onNodeWithText("I go to the bank to take out money.", useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun clueWithoutEnglishOffline() {
+        card(previewSentencePractise(rightKeys = listOf("read:$clueKey")), n = note.copy(sentenceClueTranslation = null), online = false)
+        compose.onNodeWithText(SentenceRound.TRANSLATION_OFFLINE, useUnmergedTree = true).assertExists()
     }
 
     /**
@@ -327,5 +373,31 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onAllNodesWithTag(SentenceRoundTags.SAY_AGAIN, useUnmergedTree = true)[1].performScrollTo()
         compose.mainClock.advanceTimeBy(500)
         shot("sentence-round-09-say-it-again")
+    }
+
+    /** Jerome: a matched read take shows the sentence once, its English and a one-line ✓ Match — no second copy. */
+    @Test fun shotReadMatched() {
+        card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去银行取钱", note.sentenceClue!!)), rightKeys = listOf("read:$clueKey")))
+        shot("sentence-round-10-read-matched")
+    }
+
+    @Test fun shotReadDiffers() {
+        card(previewSentencePractise(takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去学校取钱", note.sentenceClue!!))))
+        shot("sentence-round-11-read-differs")
+    }
+
+    @Test fun shotEnBeforeReading() {
+        card(previewSentencePractise())
+        compose.onAllNodesWithTag(SentenceRoundTags.ENGLISH_TOGGLE, useUnmergedTree = true)[0].performClick()
+        compose.mainClock.advanceTimeBy(500)
+        shot("sentence-round-12-en-before-reading")
+    }
+
+    @Test fun shotTranslateMatched() {
+        card(previewSentencePractise(
+            takes = mapOf("read:$clueKey" to take(SentencePractise.READ, "我去银行取钱", note.sentenceClue!!), "translate:s1" to take(SentencePractise.TRANSLATE, "银行在哪儿", "银行在哪儿？")),
+            rightKeys = listOf("read:$clueKey"),
+        ))
+        shot("sentence-round-13-translate-matched")
     }
 }
