@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  roundTakeDifference, questionDifference, differenceLines, sameAnswerWords, DIFFERENCE_REASONS, DIFFERENCE_TITLE,
+  roundTakeDifference, roundTakeView, questionDifference, differenceLines, sameAnswerWords, DIFFERENCE_REASONS, DIFFERENCE_TITLE,
   DIFFERENCE_SAID, DIFFERENCE_MODEL, DIFFERENCE_CARD, DIFFERENCE_HOLD_NOTE, DIFFERENCE_CONTINUE, DIFFERENCE_SAY_AGAIN,
 } from '../../../shared/study/answerDifference';
 import type { SpokenResultState } from '../../../shared/cards/spoken-result';
@@ -33,7 +33,11 @@ const LOCAL: SpokenResultState[] = ['match', 'sound', 'contains', 'close', 'wron
 const CLAUDE: (AnswerCheckVerdict | null)[] = [null, 'correct', 'acceptable', 'almost', 'wrong'];
 const round = [] as unknown[];
 for (const [said, model] of PAIRS) for (const mode of ['read', 'translate'] as const) for (const local of LOCAL) for (const claude of CLAUDE) {
-  round.push({ said, model, mode, local, claude, reason: roundTakeDifference({ mode, said, model, local, claude }) });
+  round.push({
+    said, model, mode, local, claude,
+    reason: roundTakeDifference({ mode, said, model, local, claude }),
+    view: roundTakeView({ mode, said, model, local, claude }),
+  });
 }
 const VERDICTS: (AnswerVerdict | null)[] = [null, 'exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'];
 const question = VERDICTS.map((verdict) => ({ verdict, reason: questionDifference(verdict) }));

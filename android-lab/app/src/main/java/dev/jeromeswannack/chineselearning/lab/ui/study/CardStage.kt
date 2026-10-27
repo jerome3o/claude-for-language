@@ -609,6 +609,9 @@ fun CardStage(
                         },
                         where = if (pass != null) "homework" else "session",
                         onSpeak = { text -> actions.onPlay(null, text) },
+                        cachedTranslation = actions.sentences.cachedTranslation,
+                        translate = actions.sentences.translate,
+                        online = ui.aiAvailable,
                     )
                 }
                 return@BoxWithConstraints

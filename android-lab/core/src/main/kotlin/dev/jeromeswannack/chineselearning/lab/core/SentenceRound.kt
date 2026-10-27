@@ -110,12 +110,21 @@ object SentenceRound {
     const val SHOW_ENGLISH = "Show English"
     const val HIDE_ENGLISH = "Hide English"
 
-    /** `roundEnglishShown`: a read exercise's English — at once when ✓ Right, else only after Show English; `toggled` = his own Show / Hide (null = untouched). */
+    /** `SENTENCE_ROUND_ENGLISH_CHIP`: the read exercise's small tap-to-reveal toggle (like the rows' EN). */
+    const val ENGLISH_CHIP = "EN"
+    /** A card sentence with no English on the note, fetched as it is shown (the rows' words). */
+    const val TRANSLATION_OFFLINE = "Translation needs a connection"
+    const val TRANSLATING = "Translating…"
+    const val TRANSLATION_FAILED = "Couldn’t get the English"
+
+    /**
+     * `roundEnglishShown`: a read exercise's English — hidden before an attempt (EN reveals it), shown once
+     * judged (✓ / ≈ / ✗), EN hides it again; `toggled` = his own EN (null = untouched). Translate: always up.
+     */
     fun englishShown(mode: String, status: String?, answered: Boolean, toggled: Boolean?): Boolean {
         if (mode == SentencePractise.TRANSLATE) return true
-        if (!answered) return false
         if (toggled != null) return toggled
-        return status == "right"
+        return answered && status != null
     }
     val PROMPT = mapOf(SentencePractise.READ to "📖 Read it aloud", SentencePractise.TRANSLATE to "🔁 Say it in Chinese")
     val RESULT = mapOf("right" to "✓ Right", "close" to "≈ Nearly", "wrong" to "✗ Not quite")

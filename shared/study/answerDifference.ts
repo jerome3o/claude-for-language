@@ -61,6 +61,37 @@ export function roundTakeDifference(args: {
   return null;
 }
 
+/**
+ * How a Sentence round take shows under its exercise (Jerome, Oct 2026: "It would be nice if this
+ * didn't take up so much space — we've duplicated both the pinyin and the Chinese characters"). The
+ * exercise already shows its sentence (hanzi + pinyin) and English, so the take adds only what's new:
+ * - `compare`: "You said" vs the model answer (`DifferenceCompare`) — Claude's check of a translate
+ *   take, unless it was correct in the very same words (then the sentence above IS what he said);
+ * - otherwise ONE compact row: `transcript` = what he said, shown only when its words differ from the
+ *   sentence (a plain match is just "You said ✓ Match"); `pinyin` = the transcript's pinyin, only when
+ *   it sounded different (≈ close / ✗ didn't match — the tones / syllables he got wrong).
+ */
+export interface RoundTakeView {
+  compare: boolean;
+  transcript: boolean;
+  pinyin: boolean;
+}
+
+export function roundTakeView(args: {
+  mode: SentencePractiseMode;
+  said: string;
+  model: string;
+  local: SpokenResultState;
+  claude: AnswerCheckVerdict | null | undefined;
+}): RoundTakeView {
+  if (args.mode === 'translate' && args.claude) {
+    const same = args.claude === 'correct' && sameAnswerWords(args.said, args.model);
+    return { compare: !same, transcript: false, pinyin: false };
+  }
+  const differs = args.local !== 'match' || !sameAnswerWords(args.said, args.model);
+  return { compare: false, transcript: differs, pinyin: args.local === 'close' || args.local === 'wrong' };
+}
+
 /** Hard mode's question (a typing card's typed / spoken answer): accepted but not the card's hanzi → why. */
 export function questionDifference(verdict: AnswerVerdict | null | undefined): DifferenceReason | null {
   if (verdict === 'sound') return 'homophone';

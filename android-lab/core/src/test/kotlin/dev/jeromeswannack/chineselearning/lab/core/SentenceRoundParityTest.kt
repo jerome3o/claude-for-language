@@ -134,5 +134,9 @@ class SentenceRoundParityTest {
         assertEquals(c["hideEnglish"]!!.str, SentenceRound.HIDE_ENGLISH)
         assertEquals(c["prompt"]!!.jsonObject.mapValues { it.value.str }, SentenceRound.PROMPT)
         assertEquals(c["result"]!!.jsonObject.mapValues { it.value.str }, SentenceRound.RESULT)
+        assertEquals(c["englishChip"]!!.str, SentenceRound.ENGLISH_CHIP)
+        assertEquals(c["translationOffline"]!!.str, SentenceRound.TRANSLATION_OFFLINE)
+        assertEquals(c["translating"]!!.str, SentenceRound.TRANSLATING)
+        assertEquals(c["translationFailed"]!!.str, SentenceRound.TRANSLATION_FAILED)
     }
 }

@@ -189,11 +189,20 @@ export const SENTENCE_ROUND_SEE_ANSWER = 'See the answer';
 export const SENTENCE_ROUND_SHOW_ENGLISH = 'Show English';
 export const SENTENCE_ROUND_HIDE_ENGLISH = 'Hide English';
 
+/** The read exercise's small tap-to-reveal toggle (like the sentence rows' EN). */
+export const SENTENCE_ROUND_ENGLISH_CHIP = 'EN';
+/** A card sentence with no English on the note: fetched as it is shown (the rows' words). */
+export const SENTENCE_ROUND_TRANSLATION_OFFLINE = 'Translation needs a connection';
+export const SENTENCE_ROUND_TRANSLATING = 'Translating…';
+export const SENTENCE_ROUND_TRANSLATION_FAILED = 'Couldn’t get the English';
+
 /**
- * Whether a 📖 Read it aloud exercise shows its English line. Before an attempt: never. Once it's
- * ✓ Right: at once (Jerome: no extra tap after reading it right) — "Hide English" still hides it.
- * ≈ Nearly / ✗ Not quite: only after "Show English". `toggled` = his own Show / Hide on this showing
- * (null / undefined = he hasn't touched it). A translate exercise's English is its question: always up.
+ * Whether a 📖 Read it aloud exercise shows its English line. Before an attempt: hidden (it's a
+ * reading exercise) — the small EN reveals it. Once judged — ✓ Right, ≈ Nearly or ✗ Not quite — at
+ * once (Jerome: "there is no English version here, so I can't read what the English is"); EN hides
+ * it again. `toggled` = his own EN on this showing (null / undefined = he hasn't touched it). While a
+ * take is still being judged (answered, no status yet) it waits. A translate exercise's English is its
+ * question: always up.
  */
 export function roundEnglishShown(
   mode: SentencePractiseMode,
@@ -202,9 +211,8 @@ export function roundEnglishShown(
   toggled: boolean | null | undefined,
 ): boolean {
   if (mode === 'translate') return true;
-  if (!answered) return false;
   if (toggled != null) return toggled;
-  return status === 'right';
+  return answered && status != null;
 }
 /** Each exercise's heading. */
 export const SENTENCE_ROUND_PROMPT: Record<SentencePractiseMode, string> = {

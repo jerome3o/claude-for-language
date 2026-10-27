@@ -53,7 +53,8 @@ const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a), trackError: vi.fn() }));
 const checkLessonAnswer = vi.fn();
 vi.mock('../../services/answerCheck', () => ({ checkLessonAnswer: (...a: unknown[]) => checkLessonAnswer(...a) }));
-vi.mock('../../contexts/NetworkContext', () => ({ useNetwork: () => ({ isOnline: true }) }));
+const net = vi.hoisted(() => ({ online: true }));
+vi.mock('../../contexts/NetworkContext', () => ({ useNetwork: () => ({ isOnline: net.online }) }));
 vi.mock('../../hooks/useAudio', () => ({ useNoteAudio: () => ({ isPlaying: false, play: vi.fn() }) }));
 vi.mock('../../services/offlineMode', () => ({ isEffectivelyOffline: () => false }));
 vi.mock('../../api/client', () => ({ fetchNoteSentences: vi.fn(async () => []), deleteNoteSentenceSet: vi.fn(), API_BASE: '' }));
@@ -96,10 +97,10 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const dictation = () => fakes.list.find((f) => f.surface === 'sentence_practise')!;
 const NOTE = { id: 'n1', sentence_clue: '我去银行取钱。', sentence_clue_pinyin: 'Wǒ qù yínháng qǔ qián.', sentence_clue_translation: 'I go to the bank to get money.', sentence_clue_audio_url: null };
 
-async function render(opts: { onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string } = {}) {
+async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string } = {}) {
   const { SentenceRound, useRoundSentences } = await import('./SentenceRound');
   function Harness() {
-    const sentences = useRoundSentences(NOTE, true);
+    const sentences = useRoundSentences(opts.note ?? NOTE, true);
     const [right, setRight] = React.useState<string[]>([]);
     return (
       <SentenceRound
@@ -170,6 +171,8 @@ describe('SentenceRound', () => {
     expect(ex(1).dataset.status).toBe('right');
     expect(inEx(1, 'sentence-round-chinese')!.textContent).toBe('我去银行。');
     expect(inEx(1, 'sentence-round-play')).not.toBeNull();
+    // …and the take is just "You said ✓ Match": the sentence isn't repeated.
+    expect(inEx(1, 'sentence-practise-said')!.dataset.compact).toBe('chip');
     expect(all('sentence-round-cheer')[0].textContent).toContain('Good and Easy unlocked');
     expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'done', got: 2, needed: 2 }));
     expect(onDone).not.toHaveBeenCalled();
@@ -190,21 +193,101 @@ describe('SentenceRound', () => {
     expect(host.textContent).not.toContain('Good and Easy');
   });
 
-  it('a read exercise right shows its English at once (Hide English keeps it hideable); a miss keeps Show English', async () => {
+  it('a read exercise\'s English: hidden before reading (EN reveals it), shown once judged — right or not; EN hides it', async () => {
+    await render();
+    // Before reading: hidden, the small EN reveals it (and hides it again).
+    expect(inEx(0, 'sentence-round-read-english')).toBeNull();
+    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('EN');
+    expect(inEx(0, 'sentence-round-english-toggle')!.getAttribute('aria-pressed')).toBe('false');
+    act(() => inEx(0, 'sentence-round-english-toggle')!.click());
+    expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to get money.');
+    act(() => inEx(0, 'sentence-round-english-toggle')!.click());
+    expect(inEx(0, 'sentence-round-read-english')).toBeNull();
+    // A miss: the English shows at once too, under the pinyin (a judged take brings it back after a peek).
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    expect(ex(0).dataset.status).toMatch(/close|wrong/);
+    expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to get money.');
+  });
+
+  it('a read exercise judged shows its English at once, right or wrong', async () => {
     await render();
     act(() => inEx(0, 'sentence-practise-mic')!.click());
     act(() => dictation().land('我去学校'));
     expect(ex(0).dataset.status).toMatch(/close|wrong/);
-    expect(inEx(0, 'sentence-round-read-english')).toBeNull();
-    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Show English');
+    expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to get money.');
+    expect(inEx(0, 'sentence-round-english-toggle')!.getAttribute('aria-pressed')).toBe('true');
     act(() => inEx(0, 'sentence-round-retry')!.click());
     act(() => dictation().land('我去银行取钱'));
     expect(ex(0).dataset.status).toBe('right');
     expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to get money.');
-    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Hide English');
     act(() => inEx(0, 'sentence-round-english-toggle')!.click());
     expect(inEx(0, 'sentence-round-read-english')).toBeNull();
-    expect(inEx(0, 'sentence-round-english-toggle')!.textContent).toBe('Show English');
+  });
+
+  it('a matched read take is one line — the sentence and its pinyin are not repeated', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(ex(0).dataset.status).toBe('right');
+    const said = inEx(0, 'sentence-practise-said')!;
+    expect(said.dataset.compact).toBe('chip');
+    expect(said.querySelector('[data-testid="spoken-result-hanzi"]')).toBeNull();
+    expect(said.querySelector('[data-testid="spoken-result-pinyin"]')).toBeNull();
+    expect(said.querySelector('[data-testid="spoken-result-chip"]')!.textContent).toContain('Match');
+    // The sentence and its pinyin once each on screen (the row's screen-reader sentence aside).
+    const visible = ex(0).cloneNode(true) as HTMLElement;
+    visible.querySelectorAll('.spoken-result-sr').forEach((e) => e.remove());
+    expect(visible.textContent!.split('我去银行取钱').length - 1).toBe(1);
+    expect(visible.textContent!.split('Wǒ qù yínháng qǔ qián.').length - 1).toBe(1);
+    expect(inEx(0, 'sentence-round-say-again')).not.toBeNull();
+  });
+
+  it('a read take that differs shows only what was said, the differing characters marked', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校取钱'));
+    const said = inEx(0, 'sentence-practise-said')!;
+    expect(said.dataset.compact).toBe('transcript');
+    expect(said.querySelector('[data-testid="spoken-result-hanzi"]')!.textContent).toBe('我去学校取钱');
+    const wrong = [...said.querySelectorAll('[data-mark="wrong"]')].map((e) => e.textContent).join('');
+    expect(wrong).toBe('学校');
+    // It sounded different: its pinyin is there, small.
+    expect(said.querySelector('[data-testid="spoken-result-pinyin"]')!.textContent).toContain('xué xiào');
+  });
+
+  it('a card sentence with no English on the note fetches it once shown; offline says it needs a connection', async () => {
+    const sets = await import('../../services/sentence-sets');
+    const fetchEn = vi.mocked(sets.getClueTranslation);
+    fetchEn.mockReset();
+    fetchEn.mockResolvedValue('I go to the bank to take out money.');
+    const note = { ...NOTE, sentence_clue_translation: null as unknown as string };
+    await render({ note });
+    expect(fetchEn).not.toHaveBeenCalled();
+    act(() => inEx(0, 'sentence-round-english-toggle')!.click());
+    await flush();
+    await flush();
+    expect(fetchEn).toHaveBeenCalledWith({ hanzi: '我去银行取钱。', pinyin: 'Wǒ qù yínháng qǔ qián.' });
+    expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to take out money.');
+  });
+
+  it('offline and never fetched: "Translation needs a connection"', async () => {
+    const sets = await import('../../services/sentence-sets');
+    const fetchEn = vi.mocked(sets.getClueTranslation);
+    fetchEn.mockReset();
+    net.online = false;
+    const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    try {
+      await render({ note: { ...NOTE, sentence_clue_translation: null as unknown as string } });
+      act(() => inEx(0, 'sentence-practise-mic')!.click());
+      act(() => dictation().land('我去银行取钱'));
+      await flush();
+      expect(inEx(0, 'sentence-round-english-pending')!.textContent).toBe('Translation needs a connection');
+      expect(fetchEn).not.toHaveBeenCalled();
+    } finally {
+      net.online = true;
+      onLine.mockRestore();
+    }
   });
 
   it('records every judged take in the sentence history', async () => {

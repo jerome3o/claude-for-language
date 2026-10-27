@@ -285,9 +285,10 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   await expect(first).toHaveAttribute('data-status', /close|wrong/, { timeout: 10000 });
   await expect(first.getByTestId('sentence-round-retry')).toBeVisible();
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
-  // A miss keeps its English behind "Show English".
-  await expect(first.getByTestId('sentence-round-read-english')).toHaveCount(0);
-  await expect(first.getByTestId('sentence-round-english-toggle')).toHaveText('Show English');
+  // A miss shows its English at once too (EN hides it); what he said is one compact row.
+  await expect(first.getByTestId('sentence-round-read-english')).toHaveText(CLUE.translation);
+  await expect(first.getByTestId('sentence-round-english-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(first.getByTestId('sentence-practise-said')).toHaveAttribute('data-compact', 'transcript');
 
   // Read the card's sentence right: 1 / 2 and a cheer.
   await hear(page, CLUE.hanzi);
@@ -297,9 +298,10 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   await expect(first).toHaveAttribute('data-status', 'right', { timeout: 10000 });
   await expect(page.getByTestId('sentence-round-counter')).toContainText('1 / 2');
   await expect(page.getByTestId('sentence-round-cheer')).toContainText('1 / 2');
-  // Read right: its English shows at once (Hide English still there).
+  // Read right: its English shows, and the take is just "You said ✓ Match" (no second copy of the sentence).
   await expect(first.getByTestId('sentence-round-read-english')).toHaveText(CLUE.translation);
-  await expect(first.getByTestId('sentence-round-english-toggle')).toHaveText('Hide English');
+  await expect(first.getByTestId('sentence-practise-said')).toHaveAttribute('data-compact', 'chip');
+  await expect(first.getByTestId('sentence-practise-said').getByTestId('spoken-result-hanzi')).toHaveCount(0);
   await shot(page, 'polish-01-right-read-english');
 
   // Translate the first set sentence (said exactly): its Chinese shows once answered → 2 / 2.

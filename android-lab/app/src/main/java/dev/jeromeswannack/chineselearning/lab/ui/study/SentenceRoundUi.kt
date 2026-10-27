@@ -65,6 +65,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.compose.ui.semantics.stateDescription
 
 /** Test tags of the Sentence round. */
 object SentenceRoundTags {
@@ -77,6 +79,7 @@ object SentenceRoundTags {
     const val ENGLISH = "sentence-round-english"
     const val READ_ENGLISH = "sentence-round-read-english"
     const val ENGLISH_TOGGLE = "sentence-round-english-toggle"
+    const val ENGLISH_PENDING = "sentence-round-english-pending"
     const val PLAY = "sentence-round-play"
     const val RETRY = "sentence-round-retry"
     const val SAY_AGAIN = "sentence-round-say-again"
@@ -131,6 +134,13 @@ fun SentenceRoundPage(
     where: String = "session",
     /** Reads a fix / an alternative of Claude's check aloud (null = no 🔊). */
     onSpeak: ((String) -> Unit)? = null,
+    /**
+     * A sentence with no English on the note (the card's own, MCP-added / older notes): the English this
+     * device holds, and the fetch (the rows' `SentenceActions.translate`, cached by text) once it is shown.
+     */
+    cachedTranslation: suspend (SentenceRow) -> String? = { null },
+    translate: (suspend (SentenceRow) -> String)? = null,
+    online: Boolean = true,
 ) {
     // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
     var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
@@ -175,6 +185,27 @@ fun SentenceRoundPage(
     var hiding by remember { mutableStateOf<SentenceRound.Exercise?>(null) }
     var undoKey by remember { mutableStateOf<String?>(null) }
     val english = remember { mutableStateMapOf<String, Boolean>() }
+    val fetched = remember { mutableStateMapOf<String, String>() }
+    val fetchFailed = remember { mutableStateMapOf<String, Boolean>() }
+    val fetching = remember { HashSet<String>() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun wantEnglish(key: String) {
+        val row = byKey[key] ?: return
+        if (!row.translation.isNullOrBlank() || fetched[key] != null || fetchFailed[key] == true || !fetching.add(key)) return
+        scope.launch {
+            try {
+                val t = runCatching { cachedTranslation(row) }.getOrNull()
+                    ?: if (online && translate != null) translate(row) else null
+                if (!t.isNullOrBlank()) fetched[key] = t
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                fetchFailed[key] = true
+            } finally {
+                fetching.remove(key)
+            }
+        }
+    }
     val latestDone by rememberUpdatedState(onDone)
 
     // No sentences after all: straight to the answer.
@@ -186,6 +217,8 @@ fun SentenceRoundPage(
         val t = practise.takes[ex.id]
         LaunchedEffect(t, t?.claude) {
             if (t == null || t.claude == SentenceClaude.Checking || !reported.add(t)) return@LaunchedEffect
+            // A judged take shows its English again, whatever EN said before it (Hide applies until the next take).
+            english.remove(ex.id)
             val result = SentencePractise.result(t.take.practised, (t.claude as? SentenceClaude.Done)?.check?.verdict)
             if (result == "right" || result == "close" || result == "wrong") onResult(ex.id, result)
             Analytics.track("study.sentence_round", mapOf("action" to if (result == "right") "right" else "miss", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
@@ -261,6 +294,13 @@ fun SentenceRoundPage(
                         difference = differenceOf(ex), held = heldId == ex.id, onSpeak = onSpeak,
                         englishToggled = english[ex.id],
                         onToggleEnglish = { shown -> english[ex.id] = !shown },
+                        englishText = row.translation?.takeIf { it.isNotBlank() } ?: fetched[ex.key],
+                        englishPending = when {
+                            fetchFailed[ex.key] == true -> SentenceRound.TRANSLATION_FAILED
+                            !online -> SentenceRound.TRANSLATION_OFFLINE
+                            else -> SentenceRound.TRANSLATING
+                        },
+                        onNeedEnglish = { wantEnglish(ex.key) },
                         onRetry = {
                             Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
                         },
@@ -354,10 +394,17 @@ private fun RoundExerciseCard(
     onSpeak: ((String) -> Unit)? = null,
     /** 🎤 Say it again on an accepted exercise (a new take; the right already counted stays). */
     onSayAgain: () -> Unit = {},
+    /** The read exercise's English (the row's, else fetched); null = not here yet → [englishPending]. */
+    englishText: String? = row.translation,
+    englishPending: String = SentenceRound.TRANSLATING,
+    /** Shown without English yet: fetch it. */
+    onNeedEnglish: () -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
-    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶.
-    val fullCheck = ex.mode == SentencePractise.TRANSLATE && take?.claude is SentenceClaude.Done
+    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless it
+    // was correct in the very same words (core AnswerDifference.roundTakeView): the sentence shows once, here.
+    val fullCheck = ex.mode == SentencePractise.TRANSLATE && take?.claude is SentenceClaude.Done &&
+        AnswerDifference.roundTakeView(ex.mode, take.take.practised.said, row.hanzi, take.take.practised.result.state, (take.claude as SentenceClaude.Done).check.verdict).compare
     val mine = practise.activeKey == ex.id
     val busy = mine && (practise.listening || practise.finishing)
     val result = take?.takeIf { it.claude != SentenceClaude.Checking }?.let { SentencePractise.result(it.take.practised, (it.claude as? SentenceClaude.Done)?.check?.verdict) }
@@ -368,6 +415,8 @@ private fun RoundExerciseCard(
     }
     val answered = isRight || take != null
     val showEnglish = SentenceRound.englishShown(ex.mode, status, answered, englishToggled)
+    val readEnglishMissing = ex.mode == SentencePractise.READ && showEnglish && englishText.isNullOrBlank()
+    LaunchedEffect(readEnglishMissing) { if (readEnglishMissing) onNeedEnglish() }
     val shape = RoundedCornerShape(16.dp)
     val border = when (status) {
         "right" -> Palette.Good
@@ -406,8 +455,29 @@ private fun RoundExerciseCard(
                     Text(row.hanzi, Modifier.testTag(SentenceRoundTags.CHINESE), color = Lab.colors.ink, fontSize = 22.sp)
                 }
                 if (answered && !fullCheck && !row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
-                if (ex.mode == SentencePractise.READ && answered && showEnglish && !row.translation.isNullOrBlank()) {
-                    Text(row.translation, Modifier.testTag(SentenceRoundTags.READ_ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
+                if (ex.mode == SentencePractise.READ && showEnglish) {
+                    if (!englishText.isNullOrBlank()) Text(englishText, Modifier.testTag(SentenceRoundTags.READ_ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
+                    else Text(
+                        englishPending, Modifier.testTag(SentenceRoundTags.ENGLISH_PENDING), color = Lab.colors.muted.copy(alpha = 0.75f), fontSize = 14.sp,
+                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    )
+                }
+            }
+            if (ex.mode == SentencePractise.READ) {
+                // EN: the English, tap to reveal before reading it / hide (like the rows' EN). 44dp target.
+                val label = if (showEnglish) SentenceRound.HIDE_ENGLISH else SentenceRound.SHOW_ENGLISH
+                Box(
+                    Modifier.size(44.dp).bouncyClickable(true, 0.9f, role = Role.Button) { onToggleEnglish(showEnglish) }
+                        .semantics { contentDescription = label; stateDescription = if (showEnglish) "On" else "Off" }
+                        .testTag(SentenceRoundTags.ENGLISH_TOGGLE),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier.size(34.dp).clip(CircleShape)
+                            .background(if (showEnglish) Lab.colors.accentSoft else Lab.colors.card)
+                            .border(1.dp, if (showEnglish) Lab.colors.accent else Lab.colors.cardBorder, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(SentenceRound.ENGLISH_CHIP, color = if (showEnglish) Lab.colors.accent else Lab.colors.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
             if (!isRight || busy) SentenceMicButton(practise, row, ex.mode)
@@ -447,15 +517,6 @@ private fun RoundExerciseCard(
                     ) {
                         onRetry()
                         practise.onMic(row, ex.mode)
-                    }
-                }
-                if (ex.mode == SentencePractise.READ && !row.translation.isNullOrBlank()) {
-                    Box(
-                        Modifier.heightIn(min = 44.dp).bouncyClickable(true, 0.97f, role = Role.Button) { onToggleEnglish(showEnglish) }
-                            .padding(horizontal = 4.dp).testTag(SentenceRoundTags.ENGLISH_TOGGLE),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(if (showEnglish) SentenceRound.HIDE_ENGLISH else SentenceRound.SHOW_ENGLISH, color = Lab.colors.muted, fontSize = 14.sp)
                     }
                 }
             }

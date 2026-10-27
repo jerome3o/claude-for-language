@@ -1133,10 +1133,20 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   (border solid / yellow / dashed). A miss offers **🔁 Try again**; he may also move on to another one.
 - What it never gives away: the card's own answer shows only as the sentences inevitably do. The question
   stays small at the top (the hanzi on a reading card, the English on a meaning card). A translate
-  exercise's Chinese, pinyin and ▶ appear only once it's answered; a read exercise's ▶, pinyin and "Show
-  English" only after its attempt — and once it's **✓ Right its English shows at once** ("Hide English" still
-  hides it; ≈ Nearly / ✗ Not quite keep "Show English"; `roundEnglishShown`, Lab `SentenceRound.englishShown`,
-  parity-tested).
+  exercise's Chinese, pinyin and ▶ appear only once it's answered; a read exercise's ▶ and pinyin only after its
+  attempt. **A read exercise's English** (Jerome, Oct 2026: "there is no English version here, so I can't read what
+  the English is"): hidden before he reads it — a small **EN** beside 🎤 reveals it (like the rows' EN) — and shown
+  under the pinyin **once the take is judged, right or not**; EN hides it again (`roundEnglishShown`, Lab
+  `SentenceRound.englishShown`, parity-tested). A card sentence with no English on the note fetches it as it is
+  shown (the rows' `getClueTranslation` / Lab `SentenceActions.translate`, cached by text); offline and never
+  fetched: "Translation needs a connection".
+- **The take never repeats the sentence** (Jerome: "we've duplicated both the pinyin and the Chinese characters";
+  `roundTakeView` in shared/study/answerDifference.ts, Lab `AnswerDifference.roundTakeView`, parity-tested): the
+  exercise shows its sentence (hanzi + pinyin) and English once, then ONE compact row — a match is just
+  "You said ✓ Match"; a take that differs shows only what was said, smaller, with the differing characters marked
+  (and its pinyin when it sounded different: ≈ close / ✗ didn't match). Claude's check of a translate take keeps
+  "You said" vs "Model answer" (below) unless it was correct in the very same words — then the sentence shows
+  once with ▶ and the check's chip + headline. Web `YouSaidRow compact`, Lab `SpokenResultRow(compact)`.
 - **Skip to the answer →** is always there, with one line under it: "Good and Easy stay locked until 2 more
   sentences are right — the sentences on the answer side still count." — the answer side's gate (below)
   keeps the round's count.

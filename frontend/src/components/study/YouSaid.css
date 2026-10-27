@@ -224,6 +224,23 @@ button.you-said-round:focus-visible {
   width: 44px;
   flex: none;
 }
+/* The Sentence round's take (YouSaidRow `compact`): the sentence is already up above with its pinyin,
+   so the row is one short line — "You said ✓ Match", or what was said (smaller, marked) when it differs. */
+.spoken-result--compact {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.375rem 0 0;
+  padding: 0.125rem 0.375rem;
+  border-radius: 12px;
+}
+.spoken-result--compact .spoken-result-body {
+  justify-content: flex-start;
+  padding: 0.0625rem 0;
+}
+.spoken-result--compact .spoken-result-said { justify-content: flex-start; }
+.spoken-result--compact .spoken-result-hanzi { font-size: 1.0625rem; }
+.spoken-result--compact .spoken-result-pinyin { font-size: 0.8125rem; }
+
 .spoken-result-body {
   flex: 1;
   min-width: 0;

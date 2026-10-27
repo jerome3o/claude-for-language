@@ -17,6 +17,10 @@ import {
   sentenceRoundProgress,
   sentenceRoundSkipNote,
   SENTENCE_ROUND_HIDE_ENGLISH,
+  SENTENCE_ROUND_ENGLISH_CHIP,
+  SENTENCE_ROUND_TRANSLATING,
+  SENTENCE_ROUND_TRANSLATION_FAILED,
+  SENTENCE_ROUND_TRANSLATION_OFFLINE,
   roundEnglishShown,
   SENTENCE_ROUND_PROMPT,
   SENTENCE_ROUND_RESULT,
@@ -31,6 +35,7 @@ import {
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
 import {
   roundTakeDifference,
+  roundTakeView,
   DIFFERENCE_CONTINUE,
   DIFFERENCE_HOLD_NOTE,
   DIFFERENCE_SAY_AGAIN,
@@ -55,12 +60,14 @@ import { fetchNoteSentences, API_BASE } from '../../api/client';
 import {
   cacheSentenceAudio,
   getCachedClueTranslation,
+  getClueTranslation,
   getLocalNoteSentences,
   putLocalNoteSentences,
 } from '../../services/sentence-sets';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { useNoteAudio } from '../../hooks/useAudio';
 import { track } from '../../services/analytics';
+import { useNetwork } from '../../contexts/NetworkContext';
 import { Confetti } from '../Confetti';
 import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise, type PractiseRow, type RowTake } from './SentencePractise';
 import './DifferenceCompare.css';
@@ -213,6 +220,22 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const { isPlaying, play } = useNoteAudio('sentence-round');
   const [playing, setPlaying] = useState<string | null>(null);
   const [english, setEnglish] = useState<Record<string, boolean>>({});
+  // A sentence with no English on the note (the card's own, MCP-added / older notes): fetched once it
+  // is shown (the rows' `getClueTranslation`, cached by text — offline once fetched).
+  const { isOnline } = useNetwork();
+  const [fetched, setFetched] = useState<Record<string, string>>({});
+  const [fetchFailed, setFetchFailed] = useState<Record<string, boolean>>({});
+  const fetching = useRef(new Set<string>());
+  const wantEnglish = (key: string) => {
+    const row = rows.get(key);
+    if (!row || row.translation?.trim() || fetched[key] || fetchFailed[key] || fetching.current.has(key)) return;
+    fetching.current.add(key);
+    void getCachedClueTranslation(row.hanzi)
+      .then((cached) => cached ?? (navigator.onLine === false ? null : getClueTranslation({ hanzi: row.hanzi, pinyin: row.pinyin })))
+      .then((t) => { if (t) setFetched((p) => ({ ...p, [key]: t })); })
+      .catch(() => setFetchFailed((p) => ({ ...p, [key]: true })))
+      .finally(() => fetching.current.delete(key));
+  };
   const exerciseKey = useRef(new Map<string, string>());
   exerciseKey.current = new Map((picked ?? []).map((e) => [e.id, e.key]));
   // The exercise said right last: when it was right in other words, the round waits for Continue.
@@ -268,6 +291,13 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       const t = practise.takes[ex.id];
       if (!t || reported.current.has(t) || t.claude?.status === 'checking') return;
       reported.current.add(t);
+      // A judged take shows its English again, whatever EN said before it (Hide applies until the next take).
+      setEnglish((prev) => {
+        if (!(ex.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[ex.id];
+        return next;
+      });
       const result = sentencePractiseResult(t.take.practised, t.claude?.status === 'done' ? t.claude.check.verdict : null);
       if (result === 'right' || result === 'close' || result === 'wrong') onResultRef.current?.(ex.id, result);
       track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: ex.mode, got: progress.got, needed: progress.needed });
@@ -309,6 +339,12 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     play(row.audio_url, row.hanzi, API_BASE);
   };
 
+  // Read exercises showing English they don't have yet (filled while rendering, fetched after it).
+  const needEnglish: string[] = [];
+  useEffect(() => {
+    needEnglish.forEach(wantEnglish);
+  });
+
   const renderExercise = (ex: RoundExercise, index: number) => {
     const row = rows.get(ex.key);
     if (!row) return null;
@@ -322,11 +358,20 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const isRight = right.includes(ex.id);
     const status: 'right' | 'close' | 'wrong' | null = isRight ? 'right' : result === 'close' || result === 'wrong' ? result : null;
     const answered = isRight || !!take;
-    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶.
-    const fullCheck = ex.mode === 'translate' && take?.claude?.status === 'done';
+    // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless
+    // it was correct in the very same words (`roundTakeView`): then the sentence shows once, here.
+    const fullCheck = ex.mode === 'translate' && take?.claude?.status === 'done' && roundTakeView({
+      mode: ex.mode,
+      said: take.take.practised.said,
+      model: row.hanzi,
+      local: take.take.practised.result.state,
+      claude: take.claude.check.verdict,
+    }).compare;
     const difference = differenceOf(ex);
     const showChinese = ex.mode === 'read' || (answered && !fullCheck);
     const showEnglish = roundEnglishShown(ex.mode, status, answered, english[ex.id]);
+    const readEnglish = row.translation?.trim() || fetched[ex.key] || null;
+    if (ex.mode === 'read' && showEnglish && !readEnglish) needEnglish.push(ex.key);
     return (
       <li
         key={ex.id}
@@ -364,9 +409,32 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
               <p className="sentence-round-zh" lang="zh-CN" data-testid="sentence-round-chinese">{row.hanzi}</p>
             )}
             {answered && !fullCheck && row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
-            {ex.mode === 'read' && showEnglish && row.translation && <p className="sentence-round-en is-after" data-testid="sentence-round-read-english">{row.translation}</p>}
+            {ex.mode === 'read' && showEnglish && (readEnglish ? (
+              <p className="sentence-round-en is-after" data-testid="sentence-round-read-english">{readEnglish}</p>
+            ) : (
+              <p className="sentence-round-en is-after is-pending" data-testid="sentence-round-english-pending">
+                {fetchFailed[ex.key]
+                  ? SENTENCE_ROUND_TRANSLATION_FAILED
+                  : !isOnline
+                    ? SENTENCE_ROUND_TRANSLATION_OFFLINE
+                    : SENTENCE_ROUND_TRANSLATING}
+              </p>
+            ))}
           </div>
           <div className="sentence-round-ex-tools">
+            {ex.mode === 'read' && (
+              <button
+                type="button"
+                className={`sentence-round-en-chip${showEnglish ? ' is-on' : ''}`}
+                onClick={() => setEnglish((prev) => ({ ...prev, [ex.id]: !showEnglish }))}
+                aria-pressed={showEnglish}
+                aria-label={showEnglish ? SENTENCE_ROUND_HIDE_ENGLISH : SENTENCE_ROUND_SHOW_ENGLISH}
+                title={showEnglish ? SENTENCE_ROUND_HIDE_ENGLISH : SENTENCE_ROUND_SHOW_ENGLISH}
+                data-testid="sentence-round-english-toggle"
+              >
+                <span className="sentence-round-en-chip-dot" aria-hidden="true">{SENTENCE_ROUND_ENGLISH_CHIP}</span>
+              </button>
+            )}
             {(!isRight || busy) && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
             {answered && !fullCheck && (
               <button
@@ -420,17 +488,6 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 data-testid="sentence-round-say-again"
               >
                 🎤 {DIFFERENCE_SAY_AGAIN}
-              </button>
-            )}
-            {ex.mode === 'read' && row.translation && (
-              <button
-                type="button"
-                className="sentence-round-link"
-                onClick={() => setEnglish((prev) => ({ ...prev, [ex.id]: !showEnglish }))}
-                aria-pressed={showEnglish}
-                data-testid="sentence-round-english-toggle"
-              >
-                {showEnglish ? SENTENCE_ROUND_HIDE_ENGLISH : SENTENCE_ROUND_SHOW_ENGLISH}
               </button>
             )}
           </div>

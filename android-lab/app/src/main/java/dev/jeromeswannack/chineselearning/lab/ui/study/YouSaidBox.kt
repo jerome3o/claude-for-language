@@ -455,6 +455,7 @@ internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: a
 /** Test tags inside the spoken result row (the row itself is one node for a screen reader). */
 const val SPOKEN_RESULT_HANZI_TAG = "spoken-result-hanzi"
 const val SPOKEN_RESULT_CHIP_TAG = "spoken-result-chip"
+const val SPOKEN_RESULT_PINYIN_TAG = "spoken-result-pinyin"
 
 /**
  * The spoken answer's result on a typing card (and 🎤 Say it practice) — ONE compact row under the
@@ -475,9 +476,17 @@ fun SpokenResultRow(
     onPlay: (() -> Unit)? = null,
     onCoach: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    /**
+     * The Sentence round (core AnswerDifference.roundTakeView): the sentence is already up with its pinyin,
+     * so the row adds only what's new — the transcript when its words differ (marked, smaller), its pinyin
+     * when it sounded different; a plain match is just "You said ✓ Match" on one line.
+     */
+    compact: dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.View? = null,
 ) {
     val r = SpokenAnswerResult.of(transcript, correct, verdict)
-    val pinyin = tidyYouSaidPinyin(Transcription.compare(transcript, correct).transcribedPinyin)
+    val fullPinyin = tidyYouSaidPinyin(Transcription.compare(transcript, correct).transcribedPinyin)
+    val showHanzi = compact == null || compact.transcript
+    val pinyin = if (showHanzi && (compact == null || compact.pinyin)) fullPinyin else ""
     val state = SpokenAnswerResult.stateName(r.state)
     val tone = when (r.state) {
         SpokenAnswerResult.State.MATCH, SpokenAnswerResult.State.SOUND -> YouSaidTone.MATCH
@@ -487,15 +496,15 @@ fun SpokenResultRow(
     val style = toneStyle(tone)
     val coach = onCoach?.takeIf { r.coach }
     val sides = onPlay != null || coach != null
-    val label = SpokenAnswerResult.label(r, correct, pinyin)
-    val shape = RoundedCornerShape(14.dp)
+    val label = SpokenAnswerResult.label(r, correct, fullPinyin)
+    val shape = RoundedCornerShape(if (compact != null) 12.dp else 14.dp)
     Row(
         modifier
             .fillMaxWidth()
             .clip(shape)
             .background(style.box)
             .border(style.borderWidth.dp, style.border, shape)
-            .padding(4.dp)
+            .padding(if (compact != null) 2.dp else 4.dp)
             .testTag("$SPOKEN_RESULT_TAG-$state"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -507,14 +516,15 @@ fun SpokenResultRow(
             Modifier
                 .weight(1f)
                 .padding(vertical = 2.dp)
-                .semantics(mergeDescendants = true) { contentDescription = label },
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                .semantics(mergeDescendants = true) { contentDescription = label }
+                .then(if (compact != null) Modifier.testTag("$SPOKEN_RESULT_TAG-compact-${if (showHanzi) "transcript" else "chip"}") else Modifier),
+            horizontalArrangement = Arrangement.spacedBy(6.dp, if (compact != null) Alignment.Start else Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // Each part is its own item, so a long sentence wraps instead of squeezing its pinyin.
-            Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically))
-            Box(Modifier.align(Alignment.CenterVertically)) { SpokenMarkedText(r, 22.sp) }
-            if (pinyin.isNotBlank()) Text(pinyin, fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically))
+            Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).padding(start = if (compact != null) 6.dp else 0.dp))
+            if (showHanzi) Box(Modifier.align(Alignment.CenterVertically)) { SpokenMarkedText(r, if (compact != null) 17.sp else 22.sp) }
+            if (pinyin.isNotBlank()) Text(pinyin, fontSize = if (compact != null) 13.sp else 14.sp, lineHeight = 18.sp, color = Lab.colors.muted, modifier = Modifier.align(Alignment.CenterVertically).testTag(SPOKEN_RESULT_PINYIN_TAG))
             Row(
                 Modifier
                     .align(Alignment.CenterVertically)
