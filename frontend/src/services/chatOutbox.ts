@@ -147,6 +147,15 @@ export function onOutboxDelivered(listener: DeliveredListener): () => void {
   return () => deliveredListeners.delete(listener);
 }
 
+/** Messages still waiting to be delivered, all conversations (sign-out / account switch warning). */
+export async function pendingOutboxCount(): Promise<number> {
+  try {
+    return await store().items.count();
+  } catch {
+    return 0;
+  }
+}
+
 export async function listOutbox(conversationId: string): Promise<OutboxEntry[]> {
   try {
     const rows = await store().items.where('conversation_id').equals(conversationId).toArray();

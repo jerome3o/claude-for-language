@@ -130,6 +130,7 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
     @Composable
     private fun NewBox(t: TranscriptionUi) = when (t) {
         TranscriptionUi.Failed -> YouSaidFailed("Your recording is saved", {})
+        TranscriptionUi.SignedOut -> YouSaidFailed("Your recording is saved", {}, title = "Signed out — sign in again")
         TranscriptionUi.Working -> YouSaidPending()
         TranscriptionUi.Offline -> YouSaidOffline()
         is TranscriptionUi.Done -> YouSaidBox(t.result, onCoach = {}, onPlay = {})
@@ -147,6 +148,7 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
             modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(tint.copy(alpha = 0.12f)).border(1.dp, tint.copy(alpha = 0.35f), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
         )
         when (t) {
+            TranscriptionUi.SignedOut -> tinted("Signed out — sign in again", Palette.Again)
             TranscriptionUi.Failed -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier

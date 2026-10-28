@@ -39,7 +39,8 @@ import { liveErrorKind } from '@shared/transcription/soniox';
  */
 export type SpokenPhase = 'idle' | 'listening' | 'finishing' | 'failed' | 'review' | 'editing';
 /** Why a take gave no answer: both paths failed / went offline (retry the take) or nothing was heard. */
-export type SpokenFailure = 'failed' | 'offline' | 'empty';
+/** signed_out = the upload got 401 ("Signed out — sign in again"; the take is kept, Retry works after signing in). */
+export type SpokenFailure = 'failed' | 'offline' | 'empty' | 'signed_out';
 
 export interface SpokenAnswerState {
   phase: SpokenPhase;
@@ -322,7 +323,7 @@ export class SpokenAnswerController {
       this.set({ phase: 'review', finalText: text, partialText: '', failure: null, again, practice });
       return;
     }
-    const failure: SpokenFailure = outcome.kind === 'done' ? 'empty' : outcome.kind === 'offline' ? 'offline' : 'failed';
+    const failure: SpokenFailure = outcome.kind === 'done' ? 'empty' : outcome.kind === 'offline' ? 'offline' : outcome.kind === 'signed_out' ? 'signed_out' : 'failed';
     this.report(failure === 'empty' ? 'empty' : 'failed', { outcome, ms, streamed }, !this.deps.skipReview());
     this.set({ phase: 'failed', finalText: '', partialText: '', failure, again, practice });
   }

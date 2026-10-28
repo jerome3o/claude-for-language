@@ -1,0 +1,76 @@
+/* "You're signed out" (components/auth/SignedOutBanner.tsx). */
+/* In the page flow, first thing on the page: it pushes the page down (never covers the Study
+   button) and scrolls away with it; every page shows it again. */
+.signed-out-banner {
+  position: relative;
+  z-index: 101;
+  margin: calc(env(safe-area-inset-top, 0px) + 0.5rem) auto 0.5rem;
+  width: calc(100% - 1rem);
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  box-sizing: border-box;
+  padding: 0.6rem 0.6rem 0.6rem 0.85rem;
+  border-radius: 14px;
+  background: #7c2d12;
+  color: #fff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  animation: signed-out-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.signed-out-banner-icon { font-size: 1.25rem; flex: 0 0 auto; }
+.signed-out-banner-text { flex: 1; min-width: 0; font-size: 0.875rem; line-height: 1.3; }
+.signed-out-banner-signin {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 1rem;
+  border: none;
+  border-radius: 999px;
+  background: #fff;
+  color: #7c2d12;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.signed-out-banner-signin:hover { background: #ffedd5; }
+
+/* Full-screen pages: a small pill, centred just under the session's top bar (clear of ✕ and its buttons). */
+.signed-out-pill {
+  position: fixed;
+  z-index: 1001;
+  top: calc(env(safe-area-inset-top, 0px) + 3.9rem);
+  left: 50%;
+  transform: translateX(-50%);
+  min-height: 36px;
+  padding: 0 0.85rem;
+  border: none;
+  border-radius: 999px;
+  background: #7c2d12;
+  color: #fff;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.signed-out-pill strong { text-decoration: underline; }
+
+@keyframes signed-out-in {
+  from { transform: translateY(-120%); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .signed-out-banner { animation: none; }
+}
+@media print {
+  .signed-out-banner, .signed-out-pill { display: none !important; }
+}
+
+/* AccountGuards: Sign out with unsent work / a different account signing in. */
+.account-guard-overlay { z-index: 1100; }
+.account-guard { max-width: 440px; }
+.account-guard h3 { margin: 0 0 0.5rem; }
+.account-guard p { margin: 0 0 0.75rem; line-height: 1.4; }
+.account-guard-note { color: #64748b; font-size: 0.875rem; }
+.account-guard-actions { display: flex; flex-direction: column; gap: 0.5rem; }
+.account-guard-actions .btn { min-height: 44px; width: 100%; }
+.account-guard-danger { background: #b91c1c; color: #fff; border: none; }

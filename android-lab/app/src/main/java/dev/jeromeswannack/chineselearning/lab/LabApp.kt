@@ -94,6 +94,7 @@ class LabApp : Application(), androidx.work.Configuration.Provider {
         })
         dev.jeromeswannack.chineselearning.lab.data.audio.NoteAudioFixer.current = noteAudio
         analytics = dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSetup.create(this)
+        repo.session.track = { event, props -> analytics.track(event, props) } // auth.signed_out_detected (data/auth/SessionHealth.kt)
         FeatureSyncs.registerAll(repo.platform)
         runCatching { dev.jeromeswannack.chineselearning.lab.data.analytics.AnalyticsSetup.install(this, analytics) }
         debugReports = DebugReporter(this, repo, appVersion())

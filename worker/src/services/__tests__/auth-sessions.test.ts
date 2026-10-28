@@ -17,6 +17,8 @@ import {
   findExistingUser,
   getSessionWithUser,
   sessionIdFromHeaders,
+  SESSION_DURATION_MS,
+  SESSION_RENEW_WHEN_LEFT_MS,
 } from '../auth';
 import authSessionRoutes from '../../routes/auth-session';
 import type { Env } from '../../types';
@@ -169,5 +171,54 @@ describe('findExistingUser: verified email', () => {
     expect((await findExistingUser(db, { id: 'g-new', email: 'invited@example.com', verified_email: true }))?.id).toBe('u3');
     expect(await findExistingUser(db, { id: 'g-new', email: 'invited@example.com', verified_email: false })).toBeNull();
     expect(await findExistingUser(db, { id: 'g-new', email: 'invited@example.com' } as never)).toBeNull();
+  });
+});
+
+describe('sliding sessions: a session in use is renewed', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const T0 = Date.parse('2026-10-28T12:00:00.000Z');
+  const sqlTime = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+
+  function addSession(id: string, createdMs: number, expiresMs: number) {
+    db.raw.run('INSERT INTO auth_sessions (id, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)', [id, 'u1', new Date(expiresMs).toISOString(), sqlTime(createdMs)]);
+  }
+  const expiresOf = (id: string) => Date.parse(db.rows<{ expires_at: string }>('SELECT expires_at FROM auth_sessions WHERE id = ?', [id])[0].expires_at);
+
+  it('a session 25 days into its 30 is extended to 30 days from now', async () => {
+    addSession('s-old', T0 - 25 * DAY, T0 + 5 * DAY);
+    const found = await getSessionWithUser(db, 's-old', T0);
+    expect(found?.user.id).toBe('u1');
+    expect(expiresOf('s-old')).toBe(T0 + SESSION_DURATION_MS);
+    expect(Date.parse(found!.session.expires_at)).toBe(T0 + SESSION_DURATION_MS);
+  });
+
+  it('a fresh session is not touched (at most one write per ~10 days of use)', async () => {
+    addSession('s-new', T0 - 2 * DAY, T0 + 28 * DAY);
+    await getSessionWithUser(db, 's-new', T0);
+    expect(expiresOf('s-new')).toBe(T0 + 28 * DAY);
+    // Just above the threshold: still untouched; just below: renewed.
+    addSession('s-edge', T0 - 10 * DAY, T0 + SESSION_RENEW_WHEN_LEFT_MS + 1000);
+    await getSessionWithUser(db, 's-edge', T0);
+    expect(expiresOf('s-edge')).toBe(T0 + SESSION_RENEW_WHEN_LEFT_MS + 1000);
+    await getSessionWithUser(db, 's-edge', T0 + 2000);
+    expect(expiresOf('s-edge')).toBe(T0 + 2000 + SESSION_DURATION_MS);
+  });
+
+  it('an expired session still answers 401 and is deleted, never revived', async () => {
+    addSession('s-dead', T0 - 31 * DAY, T0 - DAY);
+    expect(await getSessionWithUser(db, 's-dead', T0)).toBeNull();
+    expect(db.rows("SELECT * FROM auth_sessions WHERE id = 's-dead'")).toHaveLength(0);
+  });
+
+  it('the MCP server’s 5-minute sessions are never stretched', async () => {
+    addSession('s-mcp', T0 - 60_000, T0 + 4 * 60_000);
+    expect((await getSessionWithUser(db, 's-mcp', T0))?.user.id).toBe('u1');
+    expect(expiresOf('s-mcp')).toBe(T0 + 4 * 60_000);
+  });
+
+  it('an expired session on a real request gets 401 from the API', async () => {
+    const call = appFor(db);
+    addSession('s-gone', Date.now() - 40 * DAY, Date.now() - 10 * DAY);
+    expect((await call('/api/auth/logout-all', { method: 'POST', headers: { Authorization: 'Bearer s-gone' } })).status).toBe(401);
   });
 });

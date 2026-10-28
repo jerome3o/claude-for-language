@@ -54,7 +54,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
   useEffect(() => {
     if (failed && !reportedFailure.current) {
       reportedFailure.current = true;
-      track('coach.practise_say', { result: practiseOutcome(null, state.failure) });
+      track('coach.practise_say', { result: practiseOutcome(null, state.failure === 'signed_out' ? 'failed' : state.failure) });
     }
     if (!failed) reportedFailure.current = false;
   }, [failed, state.failure]);

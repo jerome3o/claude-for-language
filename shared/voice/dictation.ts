@@ -22,7 +22,8 @@ export type DictationMode = 'voice' | 'type';
 /** The voice side's phase (the spoken-answer controller's, minus the study card's say-again `editing`). */
 export type DictationPhase = 'idle' | 'listening' | 'finishing' | 'review' | 'failed';
 /** Why a take gave no text: the transcriber failed / went offline (the same take can be retried) or nothing was heard. */
-export type DictationFailure = 'failed' | 'offline' | 'empty';
+/** signed_out = the upload got 401 (shared/auth/session.ts: "Signed out — sign in again"; Retry works after signing in). */
+export type DictationFailure = 'failed' | 'offline' | 'empty' | 'signed_out';
 /** Why speaking is off right now: the box shows typing with this reason. */
 export type VoiceBlock = 'offline' | 'denied' | 'no_mic' | 'unsupported' | 'mic_error';
 

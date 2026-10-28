@@ -11,6 +11,8 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
 import { FeedbackProvider } from './components/feedback/FeedbackProvider';
 import { CallAlerts } from './components/calls/CallAlerts';
+import { SignedOutBanner } from './components/auth/SignedOutBanner';
+import { AccountGuards } from './components/auth/AccountGuards';
 import { ExplorerProvider } from './components/explorer/ExplorerContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loading } from './components/Loading';
@@ -762,10 +764,13 @@ function App() {
               <FeedbackProvider>
                 <NativeNavigationListener />
                 <AnalyticsListener />
+                {/* In the page flow above everything (normal pages); a fixed pill on full-screen ones. */}
+                <SignedOutBanner />
                 <AppRoutes />
                 <OfflineBanner />
                 <FeedbackFAB />
                 <CallAlerts />
+                <AccountGuards />
               </FeedbackProvider>
             </ExplorerProvider>
           </BrowserRouter>

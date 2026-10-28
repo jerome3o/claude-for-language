@@ -90,7 +90,8 @@ export function signInClick(loginUrl: string) {
 }
 
 export type SignInResult =
-  | { token: string; fresh: true }
+  /** legacy = a bare `?session_token=` (dev server / E2E / an old desktop build): no account-switch check. */
+  | { token: string; fresh: true; legacy?: boolean }
   | { error: string; fresh: false }
   | null;
 
@@ -125,7 +126,7 @@ export function completeSignInFromUrl(): Promise<SignInResult> {
   if (ret) window.history.replaceState(window.history.state, '', `${pathname}${stripSignInParams(search)}${hash}`);
   if (!ret) pending = Promise.resolve(null);
   else if (ret.kind === 'code') pending = exchange(ret.code);
-  else pending = Promise.resolve(acceptsLegacyToken() ? { token: ret.token, fresh: true as const } : null);
+  else pending = Promise.resolve(acceptsLegacyToken() ? { token: ret.token, fresh: true as const, legacy: true } : null);
   return pending;
 }
 

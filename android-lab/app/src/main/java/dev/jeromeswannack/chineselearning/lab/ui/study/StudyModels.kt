@@ -229,7 +229,8 @@ data class CardExtras(
 enum class SpokenPhase { IDLE, LISTENING, FINISHING, FAILED, REVIEW, EDITING }
 
 /** Why a spoken take gave no answer: both paths failed / offline (retry the take), or nothing was heard. */
-enum class SpokenFailure { FAILED, OFFLINE, EMPTY }
+/** SIGNED_OUT = the upload got 401 ("Signed out — sign in again"; Retry works after signing in). */
+enum class SpokenFailure { FAILED, OFFLINE, EMPTY, SIGNED_OUT }
 
 /**
  * The answer said (the web's `SpokenAnswer`): the card puts [text] in the box (and checks it when

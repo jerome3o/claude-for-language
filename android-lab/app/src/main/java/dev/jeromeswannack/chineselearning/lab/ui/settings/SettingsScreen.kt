@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.settings
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SignOutUnsyncedDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
@@ -63,8 +64,13 @@ data class SettingsEnv(
     val soundOn: Boolean = true,
     val hapticsOn: Boolean = true,
     val pendingWrites: Int = 0,
+    /** Of [pendingWrites], the uploads with a file (recordings): the sign-out question counts them apart. */
+    val pendingRecordings: Int = 0,
     val nowMs: Long = System.currentTimeMillis(),
-)
+) {
+    val unsynced: dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules.Unsynced
+        get() = dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules.Unsynced(sync.unsynced, pendingRecordings, (pendingWrites - pendingRecordings).coerceAtLeast(0))
+}
 
 class SettingsActions(
     val onBack: (() -> Unit)? = null,
@@ -78,6 +84,8 @@ class SettingsActions(
     val toggleSound: (Boolean) -> Unit = {},
     val toggleHaptics: (Boolean) -> Unit = {},
     val signOut: () -> Unit = {},
+    /** "Sync first" on the sign-out question: sync, then sign out when everything went up. */
+    val syncThenSignOut: () -> Unit = {},
     /** "Sign out of all devices" (POST /api/auth/logout-all); calls back with why it failed, null = done. */
     val signOutEverywhere: (onFailed: (String) -> Unit) -> Unit = {},
     val openAdvanced: () -> Unit = {},
@@ -210,13 +218,11 @@ fun SettingsScreen(
     }
 
     if (confirmSignOut) {
-        val waiting = env.sync.unsynced + env.pendingWrites
-        ConfirmDialog(
-            title = "Sign out?",
-            text = "$waiting change${if (waiting == 1) " hasn't" else "s haven't"} reached the server yet. Signing out deletes ${if (waiting == 1) "it" else "them"} from this phone.",
-            confirmLabel = "Sign out anyway",
-            danger = true,
-            onConfirm = actions.signOut,
+        // Nothing is deleted either way: "Sign out anyway" keeps the unsent work on this phone (Repository.signOut).
+        SignOutUnsyncedDialog(
+            unsynced = env.unsynced,
+            onSyncFirst = actions.syncThenSignOut,
+            onSignOutAnyway = actions.signOut,
             onDismiss = { confirmSignOut = false },
         )
     }
@@ -227,7 +233,7 @@ fun SettingsScreen(
             title = "Sign out everywhere?",
             text = "Every phone, tablet and computer signed in to this account — this one too — will have to sign in with Google again. " +
                 "Use this if you lost a device or signed in somewhere you shouldn’t have." +
-                if (waiting > 0) " $waiting change${if (waiting == 1) " hasn't" else "s haven't"} reached the server yet and will be deleted from this phone." else "",
+                if (waiting > 0) " $waiting change${if (waiting == 1) " hasn't" else "s haven't"} reached the server yet — ${if (waiting == 1) "it stays" else "they stay"} on this phone and upload${if (waiting == 1) "s" else ""} when you sign back in." else "",
             confirmLabel = "Sign out everywhere",
             danger = true,
             onConfirm = {

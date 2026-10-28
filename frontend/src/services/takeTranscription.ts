@@ -14,7 +14,15 @@ export type TakeOutcome =
   /** Offline: "Recording saved, will transcribe when online". */
   | { kind: 'offline'; liveError: string | null }
   /** Both paths failed: "Couldn't transcribe — tap to retry" (the take is still saved). */
-  | { kind: 'failed'; liveError: string | null; reason: string };
+  | { kind: 'failed'; liveError: string | null; reason: string }
+  /** The upload got 401: the session is gone — "Signed out — sign in again" (the take is still saved). */
+  | { kind: 'signed_out'; liveError: string | null };
+
+/** An error our API client threw for a 401 (`new Error('Unauthorized')`, or one carrying `status: 401`). */
+export function isUnauthorizedError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return (err as { status?: number }).status === 401 || (err instanceof Error && err.message === 'Unauthorized');
+}
 
 export interface TakeTranscriptionDeps {
   /** The live transcriber's final text (rejects on error / timeout); null when the take wasn't streamed. */
@@ -42,6 +50,7 @@ export async function transcribeTakeOutcome({ live, upload, isOnline }: TakeTran
     const result = await upload(liveError);
     return { kind: 'done', text: result.text, via: 'upload', result, liveError };
   } catch (err) {
+    if (isUnauthorizedError(err)) return { kind: 'signed_out', liveError };
     return { kind: 'failed', liveError, reason: (err instanceof Error ? err.message : String(err)) || 'upload failed' };
   }
 }

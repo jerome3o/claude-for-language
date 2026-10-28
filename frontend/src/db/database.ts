@@ -2292,6 +2292,21 @@ export async function clearAllData(): Promise<void> {
 }
 
 /**
+ * A DIFFERENT account signed in on this browser (components/auth/AccountGuards.tsx, only after
+ * everything uploaded or the learner chose Discard): every table of the previous account goes,
+ * downloaded audio included. Kept: the account-independent dictionaries (characters, words,
+ * idioms) and the sync log. Never called on sign-out or when the same account signs in again.
+ */
+const ACCOUNT_INDEPENDENT_TABLES = new Set(['charDict', 'charExplanations', 'wordDict', 'idioms', 'syncLogs', 'characterDefinitions']);
+
+export async function clearAccountData(): Promise<void> {
+  const tables = db.tables.filter((t) => !ACCOUNT_INDEPENDENT_TABLES.has(t.name));
+  await db.transaction('rw', tables, async () => {
+    for (const t of tables) await t.clear();
+  });
+}
+
+/**
  * Reset sync timestamps to force a full sync on next sync.
  * This does NOT delete any local data - just resets the "last synced at" timestamps
  * so that the next sync will be a full sync that fetches all data from server.

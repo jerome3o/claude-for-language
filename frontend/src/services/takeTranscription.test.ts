@@ -63,4 +63,11 @@ describe('transcribeTakeOutcome', () => {
     const out = await transcribeTakeOutcome({ live: t.finish(), upload, isOnline: online });
     expect(out).toEqual({ kind: 'failed', liveError: 'Soniox 402: Balance exhausted', reason: 'Transcription failed' });
   });
+
+  it('a 401 from our API (the session is gone) is signed_out, not "Couldn\'t transcribe"', async () => {
+    const upload = vi.fn(async () => { throw new Error('Unauthorized'); });
+    expect(await transcribeTakeOutcome({ live: Promise.reject(new Error('mint 401')), upload, isOnline: online })).toEqual({ kind: 'signed_out', liveError: 'mint 401' });
+    const withStatus = vi.fn(async () => { throw Object.assign(new Error('nope'), { status: 401 }); });
+    expect((await transcribeTakeOutcome({ live: null, upload: withStatus, isOnline: online })).kind).toBe('signed_out');
+  });
 });

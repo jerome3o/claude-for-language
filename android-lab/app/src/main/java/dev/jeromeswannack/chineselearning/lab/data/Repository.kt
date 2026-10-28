@@ -37,6 +37,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -80,6 +81,9 @@ data class SyncStatus(
  */
 class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs: Prefs) {
     val dao = db.dao()
+
+    /** The signed-out state: a 401 from our API → the banner on every screen, nothing local touched (data/auth/SessionHealth.kt). */
+    val session = dev.jeromeswannack.chineselearning.lab.data.auth.SessionHealth(prefs).also { api.authListener = it }
 
     /** Feature platform: JSON cache, outbox, per-feature sync steps (data/platform/). */
     val platform = LabPlatform(db, api, context.filesDir)
@@ -165,6 +169,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
             _dataVersion.update { it + 1 }
             prefetchAudioInBackground()
         } catch (e: UnauthorizedException) {
+            // The interceptor has already put the app in the signed-out state (the banner); nothing local changes.
             _status.update { it.copy(running = false, signedOut = true, error = "Signed out — sign in again", phase = null, progress = null) }
         } catch (e: Exception) {
             val run = SyncRun(full, System.currentTimeMillis(), clock.totalMs(), false, clock.phases.toList())
@@ -198,6 +203,9 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     private suspend fun refreshProfile() {
         val me = api.me()
         prefs.saveProfile(me)
+        // Whose data this phone holds: a later sign-in as the same account resumes, another clears first.
+        prefs.accountOwnerId = me.id
+        prefs.accountOwnerEmail = me.email
         // A tutor may have changed it: the study queue and Home read prefs.budget, so her numbers apply today.
         val info = me.study_budget?.toInfo()
         if (info != null) prefs.budgetInfo = info
@@ -576,24 +584,84 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
     /** Runs first in [signOut], while the session is still valid (e.g. unregister this device's push token). */
     val beforeSignOut = java.util.concurrent.CopyOnWriteArrayList<suspend () -> Unit>()
 
+    /**
+     * What hasn't reached the server from this phone: review events + the Outbox's pending items
+     * (recordings = the ones with a file). Asked before Sign out and before a different account
+     * replaces this phone's data (core auth/SessionRules).
+     */
+    suspend fun unsyncedCounts(): SessionRules.Unsynced = withContext(Dispatchers.IO) {
+        val reviews = runCatching { dao.unsyncedCount() }.getOrDefault(0)
+        val pending = runCatching { platform.outbox.all().filter { it.state == dev.jeromeswannack.chineselearning.lab.data.platform.Outbox.PENDING } }.getOrDefault(emptyList())
+        val recordings = pending.count { it.filePath != null }
+        SessionRules.Unsynced(reviews = reviews, recordings = recordings, other = pending.size - recordings)
+    }
+
+    /**
+     * Settings / More → Sign out (asked first when [unsyncedCounts] isn't empty). Never loses work:
+     *  - everything uploaded → this account's database, staged files and settings go, but the
+     *    AUDIO CACHE stays (files keyed by R2 key: the same person signing back in doesn't
+     *    re-download ~1 GB; a different account clears it, [clearForNewAccount]);
+     *  - something not uploaded ("Sign out anyway") → only the session goes: Room, the Outbox,
+     *    the cursors and the audio stay, and upload when the same account signs in again.
+     * Before (Oct 2026) this wiped a day of unsynced reviews and ~12,400 cached clips.
+     */
     suspend fun signOut() = withContext(Dispatchers.IO) {
         beforeSignOut.forEach { hook -> runCatching { hook() } }
         // Last thing while the token is still known: revoke this session on the server
         // (POST /api/auth/logout with the Bearer token; best effort, a few seconds at most).
         if (prefs.sessionToken != null) api.revokeSession()
         stopAudioPrefetch()
+        val keepData = unsyncedCounts().total > 0
+        if (keepData) {
+            prefs.sessionToken = null
+        } else {
+            db.clearAllTables()
+            prefs.clearAccount()
+            platform.clearFiles()
+        }
+        session.clear()
+        _status.value = SyncStatus(lastSyncAt = prefs.lastSyncAt, unsynced = runCatching { dao.unsyncedCount() }.getOrDefault(0))
+        _dataVersion.update { it + 1 }
+    }
+
+    /** "Sync first" on the sign-out question: sync, and sign out only when everything went up. */
+    suspend fun syncThenSignOut(onSignedOut: () -> Unit) {
+        sync()
+        if (unsyncedCounts().total == 0) {
+            signOut()
+            withContext(Dispatchers.Main) { onSignedOut() }
+        }
+    }
+
+    /** A DIFFERENT account signs in (after the warning when something hadn't uploaded): nothing of the previous one stays. */
+    suspend fun clearForNewAccount() = withContext(Dispatchers.IO) {
+        stopAudioPrefetch()
         db.clearAllTables()
-        prefs.clearAccount()
+        prefs.clearEverything()
         audioDir.listFiles()?.forEach { it.delete() }
         platform.clearFiles()
+        session.clear()
         _status.value = SyncStatus()
         _dataVersion.update { it + 1 }
     }
 
-    fun onSignedIn(token: String) {
+    /** Who a fresh sign-in is, against whose data this phone holds (core SessionRules.accountSwitch). */
+    suspend fun accountSwitchFor(me: MeDto): Pair<SessionRules.Switch, SessionRules.Unsynced> {
+        val unsynced = unsyncedCounts()
+        val decision = SessionRules.accountSwitch(prefs.accountOwnerId, prefs.accountOwnerEmail ?: prefs.userEmail, me.id, me.email, unsynced)
+        return decision to unsynced
+    }
+
+    fun onSignedIn(token: String, me: MeDto? = null) {
         prefs.sessionToken = token
         prefs.pendingAuthNonce = null
         prefs.pendingAuthVerifier = null
+        if (me != null) {
+            prefs.accountOwnerId = me.id
+            prefs.accountOwnerEmail = me.email
+            prefs.saveProfile(me)
+        }
+        session.clear()
         _status.update { it.copy(signedOut = false, error = null) }
     }
 

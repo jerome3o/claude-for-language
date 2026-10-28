@@ -60,6 +60,8 @@ sealed interface TranscriptionUi {
     data object Offline : TranscriptionUi
     /** Live and upload both failed: "Couldn't transcribe — tap to retry" (the recording is still saved). */
     data object Failed : TranscriptionUi
+    /** The upload got 401 — the session is gone: "Signed out — sign in again" (the recording is saved; the shell shows the banner). */
+    data object SignedOut : TranscriptionUi
     data class Done(val result: TranscriptionComparison) : TranscriptionUi
 }
 
@@ -99,6 +101,8 @@ object TakeTranscription {
             Outcome(TranscriptionUi.Done(compare(upload(liveError))), liveError, "upload")
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
+        } catch (e: dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException) {
+            Outcome(TranscriptionUi.SignedOut, liveError, null)
         } catch (e: Throwable) {
             Outcome(TranscriptionUi.Failed, liveError, null)
         }

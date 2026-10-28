@@ -77,6 +77,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 soundOn = sound,
                 hapticsOn = haptics,
                 pendingWrites = pending.count { it.state == Outbox.PENDING },
+                pendingRecordings = pending.count { it.state == Outbox.PENDING && it.filePath != null },
             ),
             actions = SettingsActions(
                 onBack = if (nav.controller.previousBackStackEntry != null) nav::back else null,
@@ -93,6 +94,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                 toggleSound = { sound = it; app.prefs.soundOn = it; app.analytics.track("settings.change", mapOf("setting" to "sound", "value" to if (it) "on" else "off")) },
                 toggleHaptics = { haptics = it; app.prefs.hapticsOn = it; if (it) app.haptics.tick(); app.analytics.track("settings.change", mapOf("setting" to "haptics", "value" to if (it) "on" else "off")) },
                 signOut = { app.scope.launch { app.repo.signOut(); nav.onSignedOut() } },
+                syncThenSignOut = { app.analytics.track("auth.unsynced_warning", mapOf("reason" to "sign_out", "choice" to "sync_first")); app.scope.launch { app.repo.syncThenSignOut { nav.onSignedOut() } } },
                 signOutEverywhere = { onFailed ->
                     app.scope.launch {
                         val failed = runCatching { app.repo.api.signOutAllDevices() }.exceptionOrNull()

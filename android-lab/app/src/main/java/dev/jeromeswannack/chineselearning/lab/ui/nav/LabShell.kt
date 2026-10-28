@@ -16,6 +16,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
@@ -75,6 +78,8 @@ fun LabShell(
     val path = entry?.let(LabNav::pathOf) ?: state.landing
     val tabRoots = remember(state.tabs) { state.tabs.map { Routes.routeForPath(it.to) }.toSet() }
     val badges by remember(app) { TabBadges.observe(app) }.collectAsStateWithLifecycle(emptyMap())
+    // "You're signed out" on every screen while a 401 says the session is gone (data/auth/SessionHealth.kt).
+    val signedOut by app.repo.session.signedOut.collectAsStateWithLifecycle()
 
     // Package J: incoming video calls — poll + ring while in front, background checks when not.
     androidx.lifecycle.compose.LifecycleStartEffect(app) {
@@ -128,6 +133,9 @@ fun LabShell(
         showBar = !NavRules.isImmersiveRoute(path),
         onSelect = { tab -> app.haptics.tick(); nav.openTab(tab) },
         badges = badges,
+        topBanner = if (signedOut) {
+            { dev.jeromeswannack.chineselearning.lab.ui.kit.SignedOutBanner(onSignIn, compact = NavRules.isImmersiveRoute(path)) }
+        } else null,
     ) {
         NavHost(
             navController = controller,
@@ -150,14 +158,30 @@ fun LabShell(
  * while typing). Screenshot tests render it with any content.
  */
 @Composable
-fun ShellFrame(tabs: List<TabSpec>, active: TabId?, showBar: Boolean, onSelect: (TabSpec) -> Unit, badges: Map<TabId, Int> = emptyMap(), content: @Composable () -> Unit) {
+fun ShellFrame(
+    tabs: List<TabSpec>,
+    active: TabId?,
+    showBar: Boolean,
+    onSelect: (TabSpec) -> Unit,
+    badges: Map<TabId, Int> = emptyMap(),
+    /** Above every screen (the signed-out banner): it pads the status bar, the screens under it then don't. */
+    topBanner: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     // Measured, not WindowInsets.isImeVisible: that reads true where no keyboard exists (tests).
     val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val barShowing = showBar && !imeUp
     Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
+        if (topBanner != null) {
+            Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) { topBanner() }
+        }
         // The tab bar pads the navigation bar itself, so while it shows the screens above it
         // must not pad it again; on immersive routes they do (LabScreenFrame, safeDrawing).
-        Box(Modifier.weight(1f).then(if (barShowing) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)) { content() }
+        Box(
+            Modifier.weight(1f)
+                .then(if (barShowing) Modifier.consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)
+                .then(if (topBanner != null) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier),
+        ) { content() }
         AnimatedVisibility(
             visible = barShowing,
             enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(160)),

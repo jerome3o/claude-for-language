@@ -22,6 +22,24 @@ class Prefs(context: Context) {
         get() = sp.getString("pending_auth_verifier", null)
         set(v) = sp.edit().putString("pending_auth_verifier", v).apply()
 
+    /**
+     * Whose data this phone's database / audio / Outbox hold (users.id + e-mail of the last account
+     * signed in). Kept by [clearAccount]: a sign-in compares against it (core auth/SessionRules
+     * accountSwitch) — the same account resumes with everything kept, a different one clears first.
+     */
+    var accountOwnerId: String?
+        get() = sp.getString(OWNER_ID, null)
+        set(v) = sp.edit().putString(OWNER_ID, v).apply()
+
+    var accountOwnerEmail: String?
+        get() = sp.getString(OWNER_EMAIL, null)
+        set(v) = sp.edit().putString(OWNER_EMAIL, v).apply()
+
+    /** When a 401 from our API put the app in the signed-out state (0 = not signed out; data/auth/SessionHealth.kt). */
+    var signedOutSince: Long
+        get() = sp.getLong("signed_out_since", 0)
+        set(v) = sp.edit().putLong("signed_out_since", v).apply()
+
     var userName: String?
         get() = sp.getString("user_name", null)
         set(v) = sp.edit().putString("user_name", v).apply()
@@ -225,7 +243,20 @@ class Prefs(context: Context) {
         editor.putInt("bonus_${scope}_$day", value).apply()
     }
 
+    /** Signed out with everything uploaded: the account's state goes, the owner stays (see [accountOwnerId]). */
     fun clearAccount() {
+        val ownerId = accountOwnerId
+        val ownerEmail = accountOwnerEmail ?: userEmail
+        sp.edit().clear().putString(OWNER_ID, ownerId).putString(OWNER_EMAIL, ownerEmail).apply()
+    }
+
+    /** A different account signs in: nothing of the previous one is kept. */
+    fun clearEverything() {
         sp.edit().clear().apply()
+    }
+
+    private companion object {
+        const val OWNER_ID = "account_owner_id"
+        const val OWNER_EMAIL = "account_owner_email"
     }
 }

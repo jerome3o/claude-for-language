@@ -61,6 +61,8 @@ import type { Quest, QuestSummary } from '@shared/quest';
 import type { ConversationVoice, ConversationAudioPrefs } from '@shared/lesson';
 import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
 import { isPrivateMediaKey } from '@shared/media/access';
+import { clearSignedOut, isSignedOut } from '../services/signedOut';
+import { provesSignedIn } from '@shared/auth/session';
 import { mediaTokenRefreshDue, setMediaToken, withMediaCredential, type StoredMediaToken } from './mediaToken';
 
 export const API_BASE = import.meta.env.VITE_API_URL
@@ -111,9 +113,10 @@ export function getAuthToken(): string | null {
   return sessionToken;
 }
 
-// Event for handling unauthorized responses
+// Event for handling unauthorized responses: `path` = the API path that answered 401 when known
+// (AuthContext turns it into the signed-out state, services/signedOut.ts).
 export const authEvents = {
-  onUnauthorized: () => {},
+  onUnauthorized: (_path?: string) => {},
 };
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
@@ -134,9 +137,11 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   });
 
   if (response.status === 401) {
-    authEvents.onUnauthorized();
+    authEvents.onUnauthorized(url);
     throw new Error('Unauthorized');
   }
+  // A route that always needs the session answered: it works again (the banner goes).
+  if (sessionToken && isSignedOut() && response.ok && provesSignedIn(`/api${url}`)) clearSignedOut();
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -1047,7 +1052,7 @@ export async function transcribeAudio(audioBlob: Blob, opts: { liveError?: strin
   });
 
   if (response.status === 401) {
-    authEvents.onUnauthorized();
+    authEvents.onUnauthorized('/api/transcribe');
     throw new Error('Unauthorized');
   }
 

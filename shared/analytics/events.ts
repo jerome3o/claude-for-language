@@ -37,6 +37,7 @@ export type AnalyticsArea =
   | 'feedback'
   | 'notifications'
   | 'errors'
+  | 'auth'
   | 'server';
 
 export interface AnalyticsEventDef {
@@ -397,6 +398,11 @@ export const ANALYTICS_EVENTS = {
 
   // ── errors shown to the user ───────────────────────────────────────────
   'error.shown': e('errors', 'An error message was shown to the user.', ['code', 'where', 'status']),
+
+  // ── sign-in ────────────────────────────────────────────────────────────
+  'auth.signed_out_detected': e('auth', 'A request to our API answered 401 while this device thought it was signed in: the app now shows the "You\'re signed out" banner (platform = web | lab; where = which kind of request found it: sync | transcribe | ai | analytics | feedback | chat | media | profile | other). Once per signed-out spell.', ['platform', 'where']),
+  'auth.session_renewed': e('auth', 'A sign-in session in use was renewed to 30 days from now (sliding sessions; days_left = what it had left).', ['days_left'], { server: true }),
+  'auth.unsynced_warning': e('auth', 'Sign-out / a different account signing in found data that hasn\'t uploaded yet and asked first (reason = sign_out | switch_account; choice = sync_first | sign_out_anyway | sign_back_in | discard | cancel).', ['reason', 'choice', 'reviews', 'recordings', 'other']),
 
   // ── server (written by the worker) ─────────────────────────────────────
   'server.sentence_practice_events': e('server', 'Example-sentence practice events stored (🎤 attempts, hide / show again; docs/STUDY_SESSION.md "Sentence practice history").', ['count'], { server: true }),
