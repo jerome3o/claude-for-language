@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.more
 
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SignOutUnsyncedDialog
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -57,13 +58,18 @@ data class MoreUi(
     val sync: SyncStatus = SyncStatus(),
     /** Outbox writes still waiting to upload (flags, recordings, homework events…). */
     val pendingWrites: Int = 0,
+    /** Of [pendingWrites], the uploads with a file (recordings). */
+    val pendingRecordings: Int = 0,
     val soundOn: Boolean = true,
     val hapticsOn: Boolean = true,
     /** Open the "Last sync" step timings at first (screenshots). */
     val syncDetailsOpen: Boolean = false,
     /** Paths with a native screen (their rows get a chevron; the rest show ↗). */
     val native: Set<String> = emptySet(),
-)
+) {
+    val unsynced: dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules.Unsynced
+        get() = dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules.Unsynced(sync.unsynced, pendingRecordings, (pendingWrites - pendingRecordings).coerceAtLeast(0))
+}
 
 class MoreActions(
     val open: (String) -> Unit = {},
@@ -72,6 +78,8 @@ class MoreActions(
     val onFullSync: () -> Unit = {},
     val onOpenMainApp: () -> Unit = {},
     val onSignOut: () -> Unit = {},
+    /** "Sync first" on the sign-out question. */
+    val onSyncThenSignOut: () -> Unit = {},
     /** 💬 Send feedback (docs/FEEDBACK.md): the sheet with a screenshot of the app. */
     val onSendFeedback: () -> Unit = {},
 )
@@ -229,13 +237,11 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
     }
 
     if (confirmSignOut) {
-        val waiting = ui.sync.unsynced + ui.pendingWrites
-        ConfirmDialog(
-            title = "Sign out?",
-            text = "$waiting change${if (waiting == 1) " hasn't" else "s haven't"} reached the server yet. Signing out deletes ${if (waiting == 1) "it" else "them"} from this phone.",
-            confirmLabel = "Sign out anyway",
-            danger = true,
-            onConfirm = actions.onSignOut,
+        // Nothing is deleted either way: "Sign out anyway" keeps the unsent work on this phone (Repository.signOut).
+        SignOutUnsyncedDialog(
+            unsynced = ui.unsynced,
+            onSyncFirst = actions.onSyncThenSignOut,
+            onSignOutAnyway = actions.onSignOut,
             onDismiss = { confirmSignOut = false },
         )
     }

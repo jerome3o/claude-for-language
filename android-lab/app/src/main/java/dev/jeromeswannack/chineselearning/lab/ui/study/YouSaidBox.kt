@@ -354,7 +354,7 @@ fun YouSaidOffline() {
 
 /** Never silent: both transcription paths failed — the whole box retries the same take. */
 @Composable
-fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifier, title: String = "Couldn’t transcribe") {
     YouSaidShell(
         YouSaidTone.MISS,
         modifier.clip(RoundedCornerShape(14.dp)).clickable(onClick = onRetry),
@@ -365,7 +365,7 @@ fun YouSaidFailed(note: String, onRetry: () -> Unit, modifier: Modifier = Modifi
         },
         sides = true,
     ) {
-        Text("Couldn’t transcribe", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, textAlign = TextAlign.Center)
         Text("Tap to retry · " + note.replaceFirstChar { it.lowercase() }, fontSize = 12.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp))
     }
 }

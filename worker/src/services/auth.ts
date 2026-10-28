@@ -1,7 +1,22 @@
 import { Env, User, AuthSession } from '../types';
 import { googleProfileRefresh } from './profile';
+import { trackServer } from './analytics/server-events';
 
-const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** A sign-in session lives 30 days from its last renewal (sliding: getSessionWithUser renews it). */
+export const SESSION_DURATION_MS = 30 * DAY_MS;
+/**
+ * A session used with less than this left is renewed to SESSION_DURATION_MS from now. 20 of
+ * 30 days means at most one UPDATE per session per ~10 days of use, and an app opened at least
+ * once a month never signs out by itself (Jerome's Lab app silently lost its session 30 days
+ * after sign-in, Oct 2026: every upload / transcription got 401 while offline study kept working).
+ */
+export const SESSION_RENEW_WHEN_LEFT_MS = 20 * DAY_MS;
+/**
+ * Only sessions made to last (a sign-in: 30 days) slide. The MCP server mints 5-minute rows per
+ * tool call and deletes them after; those must never be stretched to a month.
+ */
+const RENEWABLE_MIN_LIFETIME_MS = DAY_MS;
 
 interface GoogleTokenResponse {
   access_token: string;
@@ -200,7 +215,8 @@ export async function createSession(db: D1Database, userId: string): Promise<Aut
 
 export async function getSessionWithUser(
   db: D1Database,
-  sessionId: string
+  sessionId: string,
+  nowMs: number = Date.now(),
 ): Promise<{ session: AuthSession; user: User } | null> {
   const session = await db
     .prepare('SELECT * FROM auth_sessions WHERE id = ?')
@@ -210,7 +226,7 @@ export async function getSessionWithUser(
   if (!session) return null;
 
   // Check if session is expired
-  if (new Date(session.expires_at) < new Date()) {
+  if (new Date(session.expires_at).getTime() < nowMs) {
     // Clean up expired session
     await db.prepare('DELETE FROM auth_sessions WHERE id = ?').bind(sessionId).run();
     return null;
@@ -223,7 +239,38 @@ export async function getSessionWithUser(
 
   if (!user) return null;
 
-  return { session, user };
+  const renewed = await renewSessionIfDue(db, session, nowMs);
+  return { session: renewed, user };
+}
+
+/**
+ * Sliding sessions: a session in use with less than SESSION_RENEW_WHEN_LEFT_MS left gets
+ * SESSION_DURATION_MS from now (one UPDATE, guarded so a racing request or a short-lived MCP
+ * row is never touched). A renewal failure never fails the request.
+ */
+export async function renewSessionIfDue(db: D1Database, session: AuthSession, nowMs: number = Date.now()): Promise<AuthSession> {
+  const expiresMs = new Date(session.expires_at).getTime();
+  if (!Number.isFinite(expiresMs) || expiresMs - nowMs >= SESSION_RENEW_WHEN_LEFT_MS) return session;
+  const createdMs = session.created_at ? new Date(session.created_at.includes('T') ? session.created_at : session.created_at.replace(' ', 'T') + 'Z').getTime() : NaN;
+  if (Number.isFinite(createdMs) && expiresMs - createdMs < RENEWABLE_MIN_LIFETIME_MS) return session;
+  const next = new Date(nowMs + SESSION_DURATION_MS).toISOString();
+  try {
+    const res = await db
+      .prepare(
+        `UPDATE auth_sessions SET expires_at = ?1
+         WHERE id = ?2 AND julianday(expires_at) < julianday(?3)
+           AND (created_at IS NULL OR julianday(expires_at) - julianday(created_at) >= 1)`,
+      )
+      .bind(next, session.id, new Date(nowMs + SESSION_RENEW_WHEN_LEFT_MS).toISOString())
+      .run();
+    if ((res.meta?.changes ?? 0) > 0) {
+      void trackServer('auth.session_renewed', { days_left: Math.max(0, Math.floor((expiresMs - nowMs) / DAY_MS)) }, { userId: session.user_id });
+      return { ...session, expires_at: next };
+    }
+  } catch (err) {
+    console.warn('[auth] session renewal failed:', err instanceof Error ? err.message : err);
+  }
+  return session;
 }
 
 export async function deleteSession(db: D1Database, sessionId: string): Promise<void> {

@@ -335,7 +335,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 
 ### Database Tables
 - `users` - User accounts
-- `auth_sessions` - Sign-in sessions (the id is the Bearer token; 30 days) · `auth_codes` - one-time sign-in codes (migration 0129; see "Sign-in & sessions")
+- `auth_sessions` - Sign-in sessions (the id is the Bearer token; 30 days, sliding — renewed while in use) · `auth_codes` - one-time sign-in codes (migration 0129; see "Sign-in & sessions")
 - `decks` - Vocabulary decks
 - `notes` - Vocabulary items (hanzi, pinyin, english, audio_url, fun_facts)
 - `cards` - SRS cards (3 per note, one per card_type)
@@ -2203,6 +2203,36 @@ page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`
 - **Transition**: a login WITHOUT `challenge` (Lab builds before the exchange, old desktop builds, a
   stale cached web bundle) still gets the legacy `session_token` redirect. Drop it (require `challenge`
   in `/api/auth/login`) once every installed Lab / desktop app has updated.
+- **Sliding 30-day sessions** (`worker/src/services/auth.ts` `renewSessionIfDue`): a session used with less than
+  20 days left is renewed to 30 days from now (one guarded UPDATE, so at most once per ~10 days of use;
+  `auth.session_renewed`). Only sessions made to last slide — the MCP server's 5-minute rows never do. An
+  expired session still answers 401 and is deleted; the daily cron prunes the rest. Before (Oct 2026) a
+  session died 30 days after sign-in however much it was used, and the Lab app silently got 401 on sync,
+  analytics, feedback and transcription for days while offline study kept working.
+- **The signed-out state** (`shared/auth/session.ts`, Lab `core/…/auth/SessionRules.kt`, parity-tested): a 401
+  from OUR API to a request carrying the session (never Soniox; never logout / the code exchange) sets a
+  persistent flag — web `services/signedOut.ts` (localStorage `signed-out-v1`, from `authEvents.onUnauthorized`),
+  Lab `data/auth/SessionHealth.kt` (`Prefs.signedOutSince`, from ONE OkHttp interceptor on `Api.http`) — and a
+  non-dismissable banner on every screen: "You're signed out — sign in again to sync, transcribe and use Claude.
+  Your reviews are saved on this phone." + Sign in (web `components/auth/SignedOutBanner.tsx` at the top, a
+  compact pill on full-screen routes; Lab `ui/kit/AccountDialogs.kt` `SignedOutBanner` in `ShellFrame`'s
+  `topBanner`). Nothing local changes: the cached user, IndexedDB / Room, the audio cache and every outbox stay.
+  A 2xx from a route that always needs the session (`provesSignedIn`: sync / profile) or a sign-in clears it.
+  A transcription whose upload got 401 says "Signed out — sign in again" (web `TakeOutcome.kind: 'signed_out'`,
+  Lab `TranscriptionUi.SignedOut`). Analytics `auth.signed_out_detected { platform, where }`.
+- **Signing in again never wipes data** (Oct 2026: Settings → Sign out + sign in wiped a day of unsynced reviews
+  and ~12,400 cached clips). Each app remembers whose data it holds (web localStorage `account-owner-v1`, Lab
+  `Prefs.accountOwnerId` / `accountOwnerEmail`, kept by `clearAccount`); a fresh sign-in compares
+  (`accountSwitchFor` / `SessionRules.accountSwitch`: by id, else e-mail): the same account (or none known)
+  resumes with everything kept — pending events and the Outbox upload on the next (incremental) sync; a
+  DIFFERENT account clears the previous one's data (web `clearAccountData`, Lab `Repository.clearForNewAccount`,
+  audio included) — and when something hasn't uploaded it first asks "N reviews and M recordings haven't
+  uploaded yet — sign back in as <email> to upload them first, or discard them" (web
+  `components/auth/AccountGuards.tsx`, Lab `AccountSwitchDialog` from `MainActivity.completeSignIn`).
+  **Settings → Sign out** with unsent work asks first (Sync first / Sign out anyway; `signOutWarning`); "anyway"
+  deletes nothing (Lab: only the token goes). With everything uploaded the Lab clears the account's database but
+  KEEPS the audio cache (files keyed by R2 key). The web's logout never touches IndexedDB. A dev-server
+  `?session_token=` (E2E) skips the account check. `auth.unsynced_warning { reason, choice }`.
 - **Sign out revokes**: `POST /api/auth/logout` deletes the Bearer session (web `logout()` sends the
   header; Lab `Repository.signOut` → `Api.revokeSession`, ≤ 4 s, best effort). **Sign out of all
   devices** (Settings, web `components/settings/SignOutSection.tsx` + Lab `SettingsScreen`, in-page

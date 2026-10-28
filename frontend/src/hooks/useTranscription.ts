@@ -1,3 +1,4 @@
+import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
 import { useState, useCallback, useRef } from 'react';
 import { transcribeAudio, TranscriptionResult } from '../api/client';
 import { transcribeTakeOutcome } from '../services/takeTranscription';
@@ -85,6 +86,10 @@ export function useTranscription(initial: TranscriptionComparison | null = null,
       case 'failed':
         console.warn(`[transcribe] failed after ${ms} ms: ${outcome.reason}`);
         set({ isTranscribing: false, result: null, comparison: null, error: "Couldn't transcribe", isOffline: false });
+        return;
+      case 'signed_out':
+        console.warn(`[transcribe] signed out (401) after ${ms} ms`);
+        set({ isTranscribing: false, result: null, comparison: null, error: SIGNED_OUT_TRANSCRIPTION, isOffline: false });
     }
   }, [where]);
 

@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules
 import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NotePicture
 import dev.jeromeswannack.chineselearning.lab.core.cards.NoteImage
@@ -424,7 +425,7 @@ fun CardStage(
         !take.hasTake -> null
         else -> when (val t = take.transcription) {
             is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected)
-            TranscriptionUi.Offline, TranscriptionUi.Failed -> HardMode.questionResult(null, "unknown")
+            TranscriptionUi.Offline, TranscriptionUi.Failed, TranscriptionUi.SignedOut -> HardMode.questionResult(null, "unknown")
             else -> HardMode.questionResult(null, "checking")
         }
     }
@@ -2038,6 +2039,7 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
             if (spoken.practice) "Or go back — it’s only practice" else if (again) "Or go back to your first answer" else "Or type your answer",
             actions.onRetrySpoken,
             Modifier.padding(top = 8.dp).testTag(SPOKEN_RETRY_TAG),
+            title = if (spoken.failure == SpokenFailure.SIGNED_OUT) SessionRules.SIGNED_OUT_TRANSCRIPTION else "Couldn’t transcribe",
         )
         spoken.offlineHint && !online -> hint("Saying the answer needs a connection — type it instead.")
     }
@@ -2051,6 +2053,8 @@ private fun TranscriptionLine(t: TranscriptionUi?, answer: String, onRetry: () -
     when (t) {
         // Never silent: both paths failed, the recording is saved, a tap sends it again.
         TranscriptionUi.Failed -> YouSaidFailed("Your recording is saved", onRetry)
+        // A 401: the session is gone — say so (not "Couldn't transcribe"); a tap retries after signing in.
+        TranscriptionUi.SignedOut -> YouSaidFailed(SessionRules.SIGNED_OUT_TRANSCRIPTION_NOTE, onRetry, title = SessionRules.SIGNED_OUT_TRANSCRIPTION)
         TranscriptionUi.Working -> YouSaidPending()
         TranscriptionUi.Offline -> YouSaidOffline()
         is TranscriptionUi.Done -> {

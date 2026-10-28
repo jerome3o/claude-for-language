@@ -64,7 +64,7 @@ export function useSpeakingTake(exerciseType: string) {
     if (outcome.kind === 'done') {
       setTranscript(outcome.text.trim() ? { status: 'done', text: outcome.text.trim(), via: outcome.via } : { status: 'failed' });
     } else {
-      setTranscript({ status: outcome.kind });
+      setTranscript({ status: outcome.kind === 'signed_out' ? 'failed' : outcome.kind });
     }
   }, [exerciseType]);
 

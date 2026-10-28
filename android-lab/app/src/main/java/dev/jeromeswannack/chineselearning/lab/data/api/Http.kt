@@ -142,7 +142,7 @@ fun HttpException.problems(): List<String> {
 
 /** A sentence to show in an InlineNotice for any failure — never a stack trace. */
 fun Throwable.userMessage(): String = when (this) {
-    is UnauthorizedException -> "You're signed out — sign in again from More."
+    is UnauthorizedException -> "You’re signed out — tap Sign in on the banner at the top."
     is HttpException -> serverMessage() ?: when (code) {
         404 -> "That isn't there any more."
         403 -> "You don't have access to that."

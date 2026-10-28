@@ -11,6 +11,7 @@
  * Controlled: `value` / `onChange` are the typed text; `onSubmit` gets `{ text, source, transcript }`
  * (source spoken | edited | typed) so an exercise can check a spoken answer leniently and record it.
  */
+import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
 import { useEffect, useMemo, useRef } from 'react';
 import { useVoiceDictation, type DictatedAnswer } from '../../hooks/useVoiceDictation';
 import { devicePinyinLine } from '../../utils/autoPinyin';
@@ -231,7 +232,7 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
           data-testid={tid('retry-upload')}
           onClick={(e) => { stop(e); d.retryUpload(); }}
         >
-          {state.failure === 'offline' ? DICTATION_COPY.offline : DICTATION_COPY.failed}
+          {state.failure === 'offline' ? DICTATION_COPY.offline : state.failure === 'signed_out' ? SIGNED_OUT_TRANSCRIPTION : DICTATION_COPY.failed}
           <span className="voice-input-failed-note">{DICTATION_COPY.failedNote}</span>
         </button>
       )}

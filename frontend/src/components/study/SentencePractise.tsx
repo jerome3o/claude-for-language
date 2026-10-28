@@ -125,7 +125,7 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
   useEffect(() => {
     if (state.phase === 'failed' && active && !reported.current) {
       reported.current = true;
-      track('study.sentence_practise', { mode: active.mode, result: sentencePractiseResult(null, null, state.failure), via: 'local' });
+      track('study.sentence_practise', { mode: active.mode, result: sentencePractiseResult(null, null, state.failure === 'signed_out' ? 'failed' : state.failure), via: 'local' });
     }
     if (state.phase !== 'failed') reported.current = false;
   }, [state.phase, state.failure, active]);

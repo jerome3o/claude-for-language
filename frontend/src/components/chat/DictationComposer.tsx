@@ -13,6 +13,7 @@
  * button); the round waveform button records a VOICE MESSAGE (hold, unchanged). Typing (⌨️) is the
  * old composer, which keeps a 🎤 in its pill to go back to speaking.
  */
+import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
 import type { ReactNode } from 'react';
 import { DICTATION_COPY, dictationControls, type DictationState } from '@shared/voice/dictation';
 import type { VoiceTextInputActions } from '../voice/VoiceTextInput';
@@ -150,7 +151,7 @@ export function DictationComposer(props: DictationComposerProps) {
       </button>
       {retryUpload ? (
         <button type="button" className="chat-dictate-failed" onClick={actions.retryUpload} data-testid={tid('retry-upload')}>
-          {state.failure === 'offline' ? DICTATION_COPY.offline : DICTATION_COPY.failed}
+          {state.failure === 'offline' ? DICTATION_COPY.offline : state.failure === 'signed_out' ? SIGNED_OUT_TRANSCRIPTION : DICTATION_COPY.failed}
         </button>
       ) : (
         <div className="chat-dictate-failed empty" data-testid={tid('empty')}>{DICTATION_COPY.empty}</div>

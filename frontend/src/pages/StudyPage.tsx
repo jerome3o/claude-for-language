@@ -1,3 +1,4 @@
+import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
@@ -1653,7 +1654,7 @@ export function StudyCard({
     if (transcriptionOffline) return <YouSaidOffline />;
 
     // Never silent: the recording is saved either way, and a tap sends the same take again.
-    if (transcriptionError) return <YouSaidFailed onRetry={retryTranscription} />;
+    if (transcriptionError) return <YouSaidFailed onRetry={retryTranscription} signedOut={transcriptionError === SIGNED_OUT_TRANSCRIPTION} />;
 
     if (transcriptionComparison) {
       const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected } = transcriptionComparison;
@@ -2541,7 +2542,7 @@ export function StudyCard({
 
   // "Couldn't transcribe — tap to retry" (the same take, upload only).
   const renderSpokenRetry = (note: string) => (
-    <YouSaidFailed onRetry={spoken.retry} note={note} testId="spoken-retry" />
+    <YouSaidFailed onRetry={spoken.retry} note={note} testId="spoken-retry" signedOut={spoken.failure === 'signed_out'} />
   );
 
   // The review step (docs/STUDY_SESSION.md "Say the answer"): what he said, big and clear — the

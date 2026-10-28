@@ -29,6 +29,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.deepLinkPath
 import dev.jeromeswannack.chineselearning.lab.ui.nav.openInMainApp
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import kotlinx.coroutines.launch
+import dev.jeromeswannack.chineselearning.lab.core.auth.SessionRules
 import java.security.SecureRandom
 
 /**
@@ -41,6 +42,8 @@ class MainActivity : ComponentActivity() {
 
     private var signedIn by mutableStateOf(false)
     private var authError by mutableStateOf<String?>(null)
+    /** A DIFFERENT account signed in while this phone holds the previous one's unsent work: asked before anything goes. */
+    private var accountSwitch by mutableStateOf<PendingAccountSwitch?>(null)
     private var pending by mutableStateOf<NavRequest?>(null)
     /** The stack saved before the process died, rebuilt once on a cold start (ui/nav/NavResume.kt). */
     private var restoreFrom by mutableStateOf<LastRoute?>(null)
@@ -91,6 +94,15 @@ class MainActivity : ComponentActivity() {
                     )
                     // The Send feedback sheet, over whatever is on screen (shake, More, Settings).
                     FeedbackHost(app)
+                }
+                accountSwitch?.let { pending ->
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.AccountSwitchDialog(
+                        unsynced = pending.unsynced,
+                        previousEmail = pending.previousEmail,
+                        nextEmail = pending.me.email,
+                        onSignBackIn = { resolveAccountSwitch(pending, discard = false) },
+                        onDiscard = { resolveAccountSwitch(pending, discard = true) },
+                    )
                 }
             }
         }
@@ -170,13 +182,57 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Signing in again never wipes anything (CLAUDE.md "Sign-in & sessions"): the new session's
+     * account is compared with whose data this phone holds (core auth/SessionRules.accountSwitch).
+     * The same account (or the first one) just resumes — Room, the audio cache and the Outbox stay,
+     * and the sync uploads what waited. A different account clears the previous one's data first,
+     * and asks before that when something hadn't uploaded.
+     */
     private fun completeSignIn(token: String) {
-        app.repo.onSignedIn(token)
+        lifecycleScope.launch {
+            val me = try {
+                app.repo.api.me(token)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                authError = "Couldn't finish signing in — check your connection and try again."
+                return@launch
+            }
+            val (decision, unsynced) = app.repo.accountSwitchFor(me)
+            when (decision) {
+                SessionRules.Switch.SWITCH_BLOCKED -> accountSwitch = PendingAccountSwitch(token, me, unsynced, app.prefs.accountOwnerEmail ?: app.prefs.userEmail)
+                SessionRules.Switch.SWITCH -> { app.repo.clearForNewAccount(); finishSignIn(token, me) }
+                SessionRules.Switch.SAME, SessionRules.Switch.FIRST -> finishSignIn(token, me)
+            }
+        }
+    }
+
+    private fun resolveAccountSwitch(pending: PendingAccountSwitch, discard: Boolean) {
+        accountSwitch = null
+        val counts = mapOf("reviews" to pending.unsynced.reviews, "recordings" to pending.unsynced.recordings, "other" to pending.unsynced.other)
+        app.analytics.track("auth.unsynced_warning", mapOf("reason" to "switch_account", "choice" to if (discard) "discard" else "sign_back_in") + counts)
+        lifecycleScope.launch {
+            if (discard) {
+                app.repo.clearForNewAccount()
+                finishSignIn(pending.token, pending.me)
+            } else {
+                // Give the new session back; the previous account signs in to upload its work first.
+                app.repo.api.revoke(pending.token)
+                startSignIn()
+            }
+        }
+    }
+
+    private fun finishSignIn(token: String, me: dev.jeromeswannack.chineselearning.lab.data.MeDto) {
+        app.repo.onSignedIn(token, me)
         authError = null
         signedIn = true
         notificationPermission.maybeAsk()
         dev.jeromeswannack.chineselearning.lab.data.chat.ChatDelivery.signedIn(app)
-        lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync(forceFull = true) } }
+        // Not a forced full sync: the same account resumes with an incremental one (pending events
+        // and the Outbox upload first); an empty database gets its full sync by itself.
+        lifecycleScope.launch { app.safely("sync after sign-in") { app.repo.sync() } }
     }
 
     private fun startSignIn() {
@@ -194,3 +250,11 @@ class MainActivity : ComponentActivity() {
         CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, url)
     }
 }
+
+/** A different account's sign-in waiting for "Sign back in" / "Discard" (MainActivity). */
+data class PendingAccountSwitch(
+    val token: String,
+    val me: dev.jeromeswannack.chineselearning.lab.data.MeDto,
+    val unsynced: SessionRules.Unsynced,
+    val previousEmail: String?,
+)

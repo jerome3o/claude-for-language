@@ -106,7 +106,7 @@ fun HomeScreen(
                     }
                 }
             }
-            if (sync.signedOut) item { SignedOutBanner(actions.onSignIn) }
+            // Signed out: the shell's banner on every screen (ui/kit/AccountDialogs.kt SignedOutBanner).
             item { StudyHero(ui, sync, actions.onStudyAll) }
             // Lab "today split": the three kinds of today's work, separately.
             ui.today?.let { t ->
@@ -172,16 +172,6 @@ private fun ago(ms: Long): String = when {
     ms < 3_600_000 -> "${ms / 60_000} min ago"
     ms < 86_400_000 -> "${ms / 3_600_000} h ago"
     else -> "${ms / 86_400_000} d ago"
-}
-
-@Composable
-private fun SignedOutBanner(onSignIn: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Palette.Again.copy(alpha = 0.12f)).clickable(onClick = onSignIn).padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("Your session expired — tap to sign in again. Reviews on this phone are kept.", color = Lab.colors.ink, style = MaterialTheme.typography.bodyMedium)
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

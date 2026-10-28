@@ -192,9 +192,31 @@ class HttpException(val code: Int, message: String, val body: String? = null) : 
  */
 class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -> String?) {
     val json = Json { ignoreUnknownKeys = true; coerceInputValues = true; explicitNulls = false }
+
+    /**
+     * Told about every answer from OUR API to a request that carried the session (never Soniox,
+     * never a request without a token): 401 → the signed-out state, anything else → it works
+     * (data/auth/SessionHealth.kt). One interceptor sees every call, whichever helper made it.
+     */
+    interface AuthListener {
+        fun unauthorized(path: String)
+        fun authorized(path: String)
+    }
+
+    @Volatile var authListener: AuthListener? = null
+
     internal val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
+        .addInterceptor { chain ->
+            val req = chain.request()
+            val res = chain.proceed(req)
+            val listener = authListener
+            if (listener != null && req.header("Authorization") != null && req.url.toString().startsWith(baseUrl)) {
+                runCatching { if (res.code == 401) listener.unauthorized(req.url.encodedPath) else if (res.isSuccessful) listener.authorized(req.url.encodedPath) }
+            }
+            res
+        }
         .build()
 
     internal fun request(path: String): Request.Builder {
@@ -222,6 +244,19 @@ class Api(val baseUrl: String = Config.API_BASE, private val tokenProvider: () -
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8")
 
     suspend fun me(): MeDto = call(request("/api/auth/me").build(), MeDto.serializer())
+
+    /** /api/auth/me with a session that isn't stored yet (a sign-in deciding same / different account). */
+    suspend fun me(token: String): MeDto =
+        call(Request.Builder().url("$baseUrl/api/auth/me").header("Authorization", "Bearer $token").build(), MeDto.serializer())
+
+    /** POST /api/auth/logout with that session (a sign-in given back: "Sign back in as …"). Best effort. */
+    suspend fun revoke(token: String) {
+        runCatching {
+            withContext(Dispatchers.IO) {
+                http.newCall(Request.Builder().url("$baseUrl/api/auth/logout").header("Authorization", "Bearer $token").post(ByteArray(0).toRequestBody(null)).build()).execute().close()
+            }
+        }
+    }
 
     suspend fun decks(): List<DeckDto> = call(request("/api/decks").build(), ListSerializer(DeckDto.serializer()))
 

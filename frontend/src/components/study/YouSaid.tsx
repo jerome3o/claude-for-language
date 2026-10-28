@@ -18,6 +18,7 @@
  * `onCoach`). The waiting /
  * offline / failed states use the same shell and height, so the result replaces them without a jump.
  */
+import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
 import type { ReactNode } from 'react';
 import { compareTranscription } from '@shared/recordings/transcript';
 import type { AnswerVerdict } from '@shared/cards/answer';
@@ -163,18 +164,18 @@ export function YouSaidOffline() {
 }
 
 /** Never silent: both transcription paths failed — the whole box retries the same take. */
-export function YouSaidFailed({ onRetry, note = 'Your recording is saved', testId = 'transcription-retry' }: { onRetry: () => void; note?: string; testId?: string }) {
+export function YouSaidFailed({ onRetry, note = 'Your recording is saved', testId = 'transcription-retry', signedOut = false }: { onRetry: () => void; note?: string; testId?: string; /** The upload got 401: "Signed out — sign in again" (the signed-out banner has Sign in). */ signedOut?: boolean }) {
   return (
     <button
       type="button"
       className="transcription-result you-said you-said--failed you-said--sides you-said-retry"
       data-testid={testId}
-      data-state="failed"
+      data-state={signedOut ? 'signed-out' : 'failed'}
       onClick={(e) => { e.stopPropagation(); onRetry(); }}
     >
       <span className="you-said-side"><span className="you-said-round" aria-hidden="true"><Icon d={ICON.retry} /></span></span>
       <span className="you-said-body">
-        <span className="you-said-failed-title">Couldn’t transcribe</span>
+        <span className="you-said-failed-title">{signedOut ? SIGNED_OUT_TRANSCRIPTION : 'Couldn’t transcribe'}</span>
         <span className="you-said-failed-note">Tap to retry · {note.charAt(0).toLowerCase() + note.slice(1)}</span>
       </span>
       <span className="you-said-side" />

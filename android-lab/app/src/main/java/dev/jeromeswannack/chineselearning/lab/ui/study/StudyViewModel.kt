@@ -1215,7 +1215,7 @@ class StudyViewModel(
             android.util.Log.i("transcribe", "${outcome.via ?: "no result"} after $ms ms")
             // Enums + a duration only (never the transcript): a broken live path shows in analytics.
             app.analytics.track("study.take_transcribed", mapOf(
-                "via" to (outcome.via ?: if (outcome.ui == TranscriptionUi.Offline) "offline" else "failed"),
+                "via" to (outcome.via ?: when (outcome.ui) { TranscriptionUi.Offline -> "offline"; TranscriptionUi.SignedOut -> "signed_out"; else -> "failed" }),
                 "live_error" to if (live != null) SonioxProtocol.errorKind(outcome.liveError) else "none",
                 "ms" to ms,
             ) + where())
@@ -1522,6 +1522,7 @@ class StudyViewModel(
         val failure = when {
             empty || outcome?.ui is TranscriptionUi.Done -> SpokenFailure.EMPTY
             outcome?.ui == TranscriptionUi.Offline -> SpokenFailure.OFFLINE
+            outcome?.ui == TranscriptionUi.SignedOut -> SpokenFailure.SIGNED_OUT
             else -> SpokenFailure.FAILED
         }
         trackSpoken(v, if (failure == SpokenFailure.EMPTY) "empty" else "failed", Triple(outcome, ms, streamed), reviewed = !studyPrefs.spokenSkipReview)
