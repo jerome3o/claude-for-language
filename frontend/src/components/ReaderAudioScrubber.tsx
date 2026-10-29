@@ -25,7 +25,7 @@
  * 500 ms of the clip.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { LocalReaderPage } from '../db/database';
 import { getReaderPageTTS, readerTtsKey } from '../services/readerSync';
 import { analyzeReaderClip, WAVE_BUCKETS, type ClipAnalysis } from '../services/readerAudioBlocks';
@@ -57,9 +57,11 @@ export interface ReaderAudioScrubberProps {
   onStopped?: () => void;
   /** No clip (offline and not on the device, or TTS failed) — 'missing' — or it wouldn't play — 'failed'. */
   onUnavailable?: (why: 'missing' | 'failed') => void;
+  /** More controls beside the speed chip (the page's 🎤 Read it aloud) — shown even without audio. */
+  controlsExtra?: ReactNode;
 }
 
-export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, onStopped, onUnavailable }: ReaderAudioScrubberProps) {
+export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, onStopped, onUnavailable, controlsExtra }: ReaderAudioScrubberProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [analysis, setAnalysis] = useState<ClipAnalysis | null>(null);
@@ -407,11 +409,12 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
           {play.playing ? '⏹' : '🔊'}
         </button>
       </div>
-      {ready && (
+      {(ready || controlsExtra) && (
         <div className="reader-audio-blocks-row">
-          {/* Speed on the left; ⏮ Phrase n of N ⏭ stays under play (the thumb side) */}
-          <ReaderSpeedChip />
-          {multi && (
+          {/* Speed (and 🎤) on the left; ⏮ Phrase n of N ⏭ stays under play (the thumb side) */}
+          {ready && <ReaderSpeedChip />}
+          {controlsExtra}
+          {ready && multi && (
             <div className="reader-audio-steps">
               <button className="reader-audio-step-btn" onClick={() => step(-1)} aria-label="Previous phrase">
                 ⏮

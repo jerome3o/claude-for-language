@@ -100,7 +100,7 @@ describe('VoiceTextInput', () => {
     expect(q('review-text')?.textContent).toBe('我喜欢猫');
     expect(q('review-pinyin')?.textContent).toBe('wǒ xǐhuan māo');
     await click('submit');
-    expect(answers).toEqual([{ text: '我喜欢猫', source: 'spoken', transcript: '我喜欢猫' }]);
+    expect(answers).toEqual([{ text: '我喜欢猫', source: 'spoken', transcript: '我喜欢猫', via: 'upload' }]);
     expect(tracked.at(-1)).toEqual(['voice_input.used', expect.objectContaining({ surface: 'test', outcome: 'submitted', via: 'upload' })]);
     // Ready for the next answer, still voice-first.
     expect(q('say')).not.toBeNull();

@@ -884,6 +884,43 @@ The reader's blue **page-progress bar** is held at the top, right under the stud
 audio, pinyin and translation scroll beneath it and never under it; a hairline appears once the
 page has scrolled. The standalone reading view (`/readers/:id`) already kept it above its scroll area.
 
+### 🎤 Read it aloud: check my reading against the story
+
+Jerome (Oct 2026): "transcribe my voice and then see if it's correct against the actual story". Every reader
+page has a **🎤** in its audio row, right after the speed chip (web `components/reader/ReadAloud.tsx`
+`ReadAloudMic`, passed to `ReaderAudioScrubber` as `controlsExtra`; Lab `ReadAloudMic` in
+`ui/readers/ReadAloudViews.kt`, `ReaderScrubber(extra = …)`) — in every reading view (session, homework,
+Readers list, Today's story):
+
+- **Tap 🎤** → the Chinese shows (he reads it) and recording starts through the voice boxes' pipeline
+  (web `useVoiceDictation`, Lab `rememberVoiceDictation`, surface `reader_read_aloud`): the live
+  transcript under the audio row while he reads, the upload when live gives nothing, "Couldn't
+  transcribe — tap to retry" (signed out: the signed-out state). A playing story stops. **Tap again (⏹)**
+  to stop; the take is judged at once (no review step).
+- **Judging** (`shared/reader/readAloud.ts` `judgeReadAloud`, Lab `core/ReadAloud.kt`, parity-tested by
+  `parity/fixtures/read-aloud.ts`): the page and the transcript become keys — punctuation, spaces and
+  quotes left out, numbers → hanzi (a page's "12" = 十二, a heard "3" = 三), 两 = 二, traditional →
+  simplified — and are lined up character by character (a weighted edit distance: ok 0, same sound 1,
+  tone only 2, another character 3, missed / extra 2; deterministic tie-breaking). A page character is
+  **ok**, **sound** (another character with the same toned syllable IN CONTEXT — the automatic pinyin +
+  一 / 不 over each run; recognisers often pick a homophone — counts as right; a neutral syllable on the
+  page matches any tone), **close** (the tone differs), **wrong** or **missed**; words said that aren't on
+  the page are **extras**. Score = right (ok + sound) / characters, floored (never "100%" with a mistake);
+  "to check" = characters not right + extra stretches.
+- **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place —
+  green read right (a homophone with a dotted underline), amber on amber tone off, red on red + underline
+  wrong, red dashed underline missed, a small red ‸ where extra words were said — never colour alone
+  (each has a shape; every marked word's accessible name says it: "徐 — tone off (heard 许)"). Under the
+  audio row ONE line: "✓ 92% — 2 to check" (≈ under 90 %, ✕ under 60 %; "✓ 100% — all read right"), and
+  **You said ▸** opens the transcript small. Tapping a word still opens the explorer; a **long press** on
+  a word that needs a look says it (practice TTS at the reader's speed). 🎤 then reads **Say it again** and
+  a new take replaces the result; a page turn starts afresh. Pinyin / translation reveals are untouched.
+- **Practice only**: no review event, nothing stored, the take is not queued — offline 🎤 says "Needs a
+  connection to check your reading". Analytics `reader.read_aloud { result_bucket: all | 90 | 75 | 50 |
+  under_50 | failed | empty, chars, via: live | upload | none }`.
+- Not built (yet): a whole-story "🎤 Read the story" mode (page by page, then a summary of the characters
+  missed most).
+
 ### Page audio: phrase blocks and a restart point that follows the audio
 
 Each reader page's narration is a waveform scrubber (web `components/ReaderAudioScrubber.tsx`,

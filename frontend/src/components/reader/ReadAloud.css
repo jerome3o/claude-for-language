@@ -1,0 +1,151 @@
+/* 🎤 Read it aloud on a reader page (components/reader/ReadAloud.tsx). */
+
+.reader-read-aloud-mic {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 1.125rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.15s, transform 0.1s;
+}
+
+.reader-read-aloud-mic:active {
+  transform: scale(0.92);
+}
+
+.reader-read-aloud-mic.has-result {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+}
+
+.reader-read-aloud-mic.listening {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
+  animation: reader-read-aloud-pulse 1.4s ease-in-out infinite;
+}
+
+.reader-read-aloud-mic:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.reader-read-aloud-spinner {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes reader-read-aloud-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+.reader-read-aloud-live {
+  box-sizing: border-box;
+  width: 100%;
+  justify-content: center;
+  margin: 0.5rem 0;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  background: #f3f4f6;
+  font-size: 1.125rem;
+  display: flex;
+  align-items: center;
+}
+
+.reader-read-aloud-partial {
+  color: #9ca3af;
+}
+
+.reader-read-aloud-hint {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.reader-read-aloud-result {
+  margin: 0.5rem 0;
+}
+
+.reader-read-aloud-line-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+}
+
+.reader-read-aloud-line {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.reader-read-aloud-line.tone-good { color: #15803d; }
+.reader-read-aloud-line.tone-some { color: #b45309; }
+.reader-read-aloud-line.tone-low { color: #b91c1c; }
+
+.reader-read-aloud-said-toggle {
+  min-height: 36px;
+  padding: 0 0.25rem;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.reader-read-aloud-said {
+  font-size: 0.9375rem;
+  color: #4b5563;
+  padding: 0.25rem 0 0;
+}
+
+/* The page's own Chinese, marked in place (ReaderWordsText `marks`): never colour alone. */
+.ra-char.ra-ok { color: #166534; }
+.ra-char.ra-sound {
+  color: #166534;
+  text-decoration: underline dotted #16a34a;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.28em;
+}
+.ra-char.ra-close {
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 3px;
+  text-decoration: underline wavy #d97706;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.3em;
+}
+.ra-char.ra-wrong {
+  color: #b91c1c;
+  background: #fee2e2;
+  border-radius: 3px;
+  text-decoration: underline solid #dc2626;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.28em;
+}
+.ra-char.ra-missed {
+  color: #b91c1c;
+  opacity: 0.8;
+  text-decoration: underline dashed #dc2626;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.28em;
+}
+.ra-extra {
+  display: inline-block;
+  color: #dc2626;
+  font-size: 0.6em;
+  font-weight: 700;
+  vertical-align: top;
+  margin: 0 -0.15em;
+  line-height: 1;
+}

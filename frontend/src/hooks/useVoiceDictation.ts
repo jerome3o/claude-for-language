@@ -36,6 +36,8 @@ export interface DictatedAnswer {
   source: DictationSource;
   /** What was heard (null when typed). */
   transcript: string | null;
+  /** How a spoken take was transcribed: live | upload (none when typed). */
+  via?: string;
 }
 
 export interface VoiceDictationOptions {
@@ -97,6 +99,8 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
   const prefix = useRef('');
   const blockedRef = useRef(blocked);
   blockedRef.current = blocked;
+  /** The latest take's transcription path (reported just before its answer is delivered). */
+  const lastVia = useRef('none');
 
   const report = useCallback((outcome: string, props: Partial<Record<'via' | 'live_error' | 'speech_ms' | 'ms', string | number>> = {}) => {
     track('voice_input.used', {
@@ -131,7 +135,7 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
       prefix.current = '';
       if (answer.submit) {
         filled.current = null;
-        latest.current.onSubmit({ text, source: 'spoken', transcript: answer.transcript });
+        latest.current.onSubmit({ text, source: 'spoken', transcript: answer.transcript, via: lastVia.current });
         return;
       }
       // ✏️ Edit: into the box, focused; still "spoken" until he changes it.
@@ -145,6 +149,7 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
     },
     track: (result, p) => {
       // A submit is reported when it lands; the controller's own call covers takes that end otherwise.
+      lastVia.current = p.via;
       const outcome = dictationOutcome(result);
       if (!outcome) return;
       report(outcome, { via: p.via, live_error: p.live_error, speech_ms: p.speech_ms, ms: p.ms });

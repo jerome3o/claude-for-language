@@ -164,7 +164,8 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │       ├── words.ts       # Word chips: alignReaderWords (concat invariant), parseReaderWords, sentenceAround
 │       ├── queue.ts       # The reader queue ("Up next"): compareReaderQueue (unplaced newest first, then queue_priority high → low), moves, bottom priority — parity-tested by the Lab app
 │       ├── audioBlocks.ts # Page narration → phrase blocks at the pauses (RMS envelope, adaptive threshold) — parity-tested by the Lab app
-│       └── blockPlayback.ts # The scrubber's restart point: advance per block, pause → this block (or the previous within 1 s) — parity-tested
+│       ├── blockPlayback.ts # The scrubber's restart point: advance per block, pause → this block (or the previous within 1 s) — parity-tested
+│       └── readAloud.ts   # 🎤 Read it aloud on a page: the take judged character by character against the page (numbers / 两 / homophones by sound in context, tone = close, missed, extras), score + line — parity-tested (web components/reader/ReadAloud.tsx, Lab ui/readers/ReadAloudViews.kt)
 │
 ├── frontend/              # React + Vite frontend
 │   ├── src/
@@ -1705,6 +1706,7 @@ interface. A second share makes a second, independent copy.
 - `POST /api/relationships/:relId/share-reader` - `{ reader_id }` (caller must be the tutor and own a `ready` reader) → 201 `{ share, reader }` (the student's copy)
 - `GET /api/relationships/:relId/shared-readers` - Shares in the relationship (either party) with the student's read status from `reader_review_events`: `page_count`, `read_count`, `last_read_at`, `last_rating`, `target_deleted`
 **One reading view** (docs/STUDY_SESSION.md "One reading view everywhere"): the session's reader, homework passes and `/readers/:id` (Readers list / folders) all render web `components/reader/ReaderView.tsx` / Lab `StudyReaderView` — only the top bar and the finish callback differ; a finish anywhere records the reader-review event.
+**🎤 Read it aloud** (docs/STUDY_SESSION.md "Read it aloud"): a 🎤 after the page's speed chip records him reading the page (the voice boxes' pipeline, surface `reader_read_aloud`), judges it against the page's Chinese (`shared/reader/readAloud.ts`, Lab `core/ReadAloud.kt`, parity-tested) and marks the page's OWN Chinese in place (web `ReaderWordsText marks`, Lab `markedText`) with one line "✓ 92% — 2 to check" + You said ▸; practice only, `reader.read_aloud`.
 **Page audio in the session** (web `components/ReaderAudioScrubber.tsx`, Lab `ui/readers/ReaderScrubber.kt`):
 a waveform split into **phrase blocks** at the pauses (`shared/reader/audioBlocks.ts`: 10 ms RMS envelope of the
 clip decoded on the device, adaptive quiet threshold, interior pauses ≥ 350 ms, blocks merged under 0.8 s / split

@@ -29,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -50,6 +51,9 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
 import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
+import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.draw.drawBehind
@@ -88,6 +92,10 @@ class ReaderEnv(
     val speed: Double = 1.0,
     /** The speed chip was tapped (1× → 0.75× → 0.5× → 1×). */
     val onSpeed: () -> Unit = {},
+    /** 🎤 Read it aloud on the page (the app's reading views; off in fakes without a microphone). */
+    val readAloud: Boolean = false,
+    /** Say a word (a long press on a word marked by a read-aloud take). */
+    val speak: (text: String) -> Unit = {},
 )
 
 val Violet = Color(0xFF8B5CF6)
@@ -115,10 +123,20 @@ private fun decode(file: File): ImageBitmap? = runCatching { BitmapFactory.decod
  * every reveal resets on a page turn. The same page wherever a story is read.
  */
 @Composable
-fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = null) {
+fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = null, readAloudPreview: ReadAloudHandle? = null) {
     var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
     var showTranslation by rememberSaveable(page.id) { mutableStateOf(false) }
+    // 🎤 Read it aloud ([readAloudPreview]: a state drawn as given — screenshots, tests).
+    val readAloud: ReadAloudHandle? = when {
+        readAloudPreview != null -> readAloudPreview
+        env.readAloud -> rememberReadAloud(page.contentChinese, onStart = { if (story?.autoPlay == true) story.onStopped() }, onResult = {})
+        else -> null
+    }
+    // The Chinese shows while he reads, and the result marks it in place.
+    val reading = readAloud?.ui?.phase == "listening"
+    val marks = readAloud?.ui?.result
+    LaunchedEffect(reading, marks) { if (reading || marks != null) showChinese = true }
     val first = remember(page.id, page.imageUrl) { env.cachedImage(page)?.let(::decode) }
     val image by produceState(first to (first == null && !page.imagePrompt.isNullOrBlank()), page.id, page.imageUrl) {
         if (value.first == null) {
@@ -145,13 +163,14 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
             Column(m, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
                     if (shown) {
-                        RevealedChinese(page, env) { showChinese = false; env.onTap() }
+                        RevealedChinese(page, env, readAloud?.ui?.result) { showChinese = false; env.onTap() }
                     } else {
                         RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
                     }
                 }
                 // The scrubbable waveform (phrase blocks, speed chip) under the Chinese.
-                ReaderScrubber(page, env, story = story)
+                ReaderScrubber(page, env, story = story, extra = readAloud?.let { ra -> { ReadAloudMic(ra.ui, ra.actions.onMic) } })
+                readAloud?.let { ReadAloudPanel(it.ui, it.actions) }
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }
@@ -178,47 +197,72 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, onHide: () -> Unit) {
+private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAloud.Result?, onHide: () -> Unit) {
     val load = env.words
     val words by produceState(page.currentWords(), page.id, page.contentChinese, load) {
         if (value == null) value = load?.invoke(page)?.takeIf { w -> ReaderWords.matches(w.map { it.text }, page.contentChinese) }
     }
     val box = Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.99f, onClick = onHide)
         .clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(16.dp)
+    // 🎤 Read it aloud: the page's own characters marked in place (one mark per code point).
+    val marked = marks?.chars?.takeIf { it.size == page.contentChinese.codePointCount(0, page.contentChinese.length) }
+    val extraAtEnd = if (marked != null) marks.extraAtEnd else ""
     // Without Claude's words (yet, or they failed): the words made on the phone.
     val w = words ?: DeviceWords.of(page.contentChinese)
     if (w == null) {
-        Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
+        if (marked != null) Text(markedText(marked, extraAtEnd), fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box.testTag("reader-read-aloud-marked"))
+        else Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
         return
     }
     val offsets = remember(w) { ReaderWords.offsets(w.map { it.text }) }
     FlowRow(box.testTag("reader-words"), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // The words concatenate to the page's text: a running code-point count lines each up with its marks.
+        var cp = 0
         for ((i, word) in w.withIndex()) {
+            val len = word.text.codePointCount(0, word.text.length)
+            val wordMarks = marked?.subList(cp, minOf(marked.size, cp + len))
+            cp += len
             when {
                 word.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
-                !ReaderWords.isTappable(word.text) -> Text(word.text, fontSize = 26.sp, color = Lab.colors.ink)
-                else -> WordChip(word, known = word.text in env.known) {
+                !ReaderWords.isTappable(word.text) ->
+                    if (wordMarks != null) Text(markedText(wordMarks), fontSize = 26.sp, color = Lab.colors.ink) else Text(word.text, fontSize = 26.sp, color = Lab.colors.ink)
+                else -> WordChip(
+                    word,
+                    known = word.text in env.known,
+                    marks = wordMarks,
+                    onLongPress = if (wordMarks != null && ReadAloud.needsLook(wordMarks)) ({ env.speak(word.text) }) else null,
+                ) {
                     env.onWord(word, ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length))
                 }
             }
         }
+        if (extraAtEnd.isNotEmpty()) Text(markedText(emptyList(), extraAtEnd), fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = "You also said $extraAtEnd" })
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun WordChip(word: ReaderWordDto, known: Boolean, onClick: () -> Unit) {
+private fun WordChip(word: ReaderWordDto, known: Boolean, marks: List<ReadAloud.Char>? = null, onLongPress: (() -> Unit)? = null, onClick: () -> Unit) {
     val shape = RoundedCornerShape(8.dp)
+    val tap = if (onLongPress != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
+    else Modifier.bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+    val marked = marks != null && marks.any { it.mark != ReadAloud.Mark.OK || it.extraBefore.isNotEmpty() }
+    val label = when {
+        marked -> markedLabel(marks!!)
+        known -> "${word.text}, in your decks"
+        else -> word.text
+    }
     Text(
-        word.text,
+        if (marks != null) markedText(marks) else AnnotatedString(word.text),
         fontSize = 26.sp,
         color = Lab.colors.ink,
-        modifier = Modifier.clip(shape).bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+        modifier = Modifier.clip(shape).then(tap)
             .background(if (known) Lab.colors.faint else Lab.colors.accentSoft.copy(alpha = 0.55f))
-            .then(if (known) Modifier.drawBehind {
+            .then(if (known && marks == null) Modifier.drawBehind {
                 val h = 2.dp.toPx()
                 drawRect(Palette.Good.copy(alpha = 0.7f), topLeft = androidx.compose.ui.geometry.Offset(3.dp.toPx(), size.height - h - 1.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width - 6.dp.toPx(), h))
             } else Modifier)
-            .semantics { contentDescription = if (known) "${word.text}, in your decks" else word.text }
+            .semantics { contentDescription = label }
             .testTag("word-chip")
             .padding(horizontal = 3.dp),
     )
