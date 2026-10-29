@@ -64,7 +64,7 @@ class VoiceDictationControllerTest {
         assertEquals("review", r.c.ui.value.phase)
         assertEquals("我喜欢猫", r.c.ui.value.finalText)
         r.c.submit("")
-        assertEquals(listOf(DictatedAnswer("我喜欢猫", "spoken", "我喜欢猫")), r.answers)
+        assertEquals(listOf(DictatedAnswer("我喜欢猫", "spoken", "我喜欢猫", "live")), r.answers)
         assertEquals("submitted", r.tracked.last()["outcome"])
         assertEquals("live", r.tracked.last()["via"])
         assertEquals("idle", r.c.ui.value.phase)

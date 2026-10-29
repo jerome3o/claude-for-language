@@ -17,3 +17,4 @@ export * from './blockPlayback';
 export * from './speed';
 export * from './words';
 export * from './queue';
+export * from './readAloud';

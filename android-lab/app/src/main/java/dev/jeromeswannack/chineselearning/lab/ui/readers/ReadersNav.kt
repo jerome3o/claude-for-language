@@ -174,6 +174,8 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
             app.analytics.track("reader.speed_changed", mapOf("speed" to next))
         },
         onTap = { app.haptics.tick() },
+        readAloud = true,
+        speak = { text -> runtime.audio.speak(text, speed = speedPref.speed.value) },
     )
 }
 

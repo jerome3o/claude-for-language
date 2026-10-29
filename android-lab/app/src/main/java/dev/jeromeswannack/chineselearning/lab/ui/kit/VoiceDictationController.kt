@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** What a voice-first box submits (the web's `DictatedAnswer`): source = spoken | edited | typed. */
-data class DictatedAnswer(val text: String, val source: String, val transcript: String?)
+/** What a voice-first box submits (the web's `DictatedAnswer`): source = spoken | edited | typed; via = live | upload (spoken). */
+data class DictatedAnswer(val text: String, val source: String, val transcript: String?, val via: String? = null)
 
 /** The box's state: the core [VoiceDictation.State] fields plus the live / reviewed text. */
 data class VoiceDictationUi(
@@ -235,10 +235,11 @@ class VoiceDictationController(
         val answer = VoiceDictation.answer(cur.state, cur.finalText, typed, filled) ?: return
         if (cur.state.mode == VoiceDictation.VOICE) {
             report("submitted", pending)
+            val via = pending?.first?.via ?: "none"
             drop()
             prefix = ""
             _ui.update { it.copy(phase = "idle", finalText = "", partialText = "") }
-            onSubmit(DictatedAnswer(answer.text, "spoken", answer.text))
+            onSubmit(DictatedAnswer(answer.text, "spoken", answer.text, via))
             return
         }
         report(VoiceDictation.typedOutcome(answer.source), null)

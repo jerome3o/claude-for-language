@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { readAloudCharLabel, readAloudNeedsLook, type ReadAloudChar, type ReadAloudResult } from '@shared/reader/readAloud';
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
@@ -61,6 +62,88 @@ export function useKnownHanzi(version = 0): Set<string> {
   return known;
 }
 
+/** Characters marked by a read-aloud take, with a caret where extra words were said. */
+function MarkedChars({ chars }: { chars: readonly ReadAloudChar[] }) {
+  return (
+    <>
+      {chars.map((c, i) => (
+        <Fragment key={i}>
+          {c.extraBefore && (
+            <span className="ra-extra" title={`You also said ${c.extraBefore}`} aria-hidden="true">‸</span>
+          )}
+          {c.mark === 'plain' ? c.char : (
+            <span className={`ra-char ra-${c.mark}`} data-mark={c.mark} title={c.mark === 'ok' ? undefined : readAloudCharLabel(c)}>{c.char}</span>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+/** Long-press (≈ 0.5 s) on a chip: `onLong`; the click that follows is swallowed. */
+function useLongPress(onLong: (() => void) | null) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fired = useRef(false);
+  const clear = () => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  };
+  useEffect(() => {
+    return clear;
+  }, []);
+  if (!onLong) return { handlers: {}, consumeClick: () => false };
+  return {
+    handlers: {
+      onPointerDown: () => {
+        fired.current = false;
+        clear();
+        timer.current = setTimeout(() => {
+          fired.current = true;
+          onLong();
+        }, 500);
+      },
+      onPointerUp: clear,
+      onPointerLeave: clear,
+      onPointerCancel: clear,
+      onContextMenu: (e: { preventDefault: () => void }) => e.preventDefault(),
+    },
+    consumeClick: () => {
+      const was = fired.current;
+      fired.current = false;
+      return was;
+    },
+  };
+}
+
+function WordChip({ text, known, marked, onOpen, onLong }: {
+  text: string;
+  known: boolean;
+  marked: readonly ReadAloudChar[] | null;
+  onOpen: () => void;
+  onLong: (() => void) | null;
+}) {
+  const press = useLongPress(onLong);
+  const label = marked && marked.some((c) => c.mark !== 'ok' || c.extraBefore)
+    ? marked.map(readAloudCharLabel).join(', ')
+    : known ? `${text} (in your decks)` : text;
+  return (
+    <button
+      type="button"
+      className={`reader-word-chip${known ? ' known' : ''}`}
+      aria-label={label}
+      {...press.handlers}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (press.consumeClick()) return;
+        track('reader.word_tap');
+        onOpen();
+      }}
+    >
+      {marked ? <MarkedChars chars={marked} /> : text}
+    </button>
+  );
+}
+
 /**
  * The revealed Chinese as tappable word chips (punctuation and line breaks
  * stay plain). While the page's Claude-made words aren't there yet (or could
@@ -70,15 +153,37 @@ export function useKnownHanzi(version = 0): Set<string> {
  * chip opens the language explorer's Word view (docs/LANGUAGE_EXPLORER.md) with
  * the chip's pinyin / gloss and its sentence — "More about this word" and
  * "+ Add as card" live there; it never bubbles to the "hide Chinese" tap.
+ *
+ * `marks` (🎤 Read it aloud, components/reader/ReadAloud.tsx): the page's own
+ * characters marked in place — green read right, amber tone off, red wrong /
+ * missed, a caret where extra words were said; a long press on a word that needs
+ * a look plays it (`onSpeak`).
  */
-export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text' }: { readerId: string; page: PageLike; className?: string }) {
+export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak }: {
+  readerId: string;
+  page: PageLike;
+  className?: string;
+  marks?: ReadAloudResult | null;
+  onSpeak?: (text: string) => void;
+}) {
   const own = useReaderPageWords(readerId, page);
   const local = useSegmentedWords(page.content_chinese, !own);
   const words = own ?? local;
   const known = useKnownHanzi();
   const explorer = useExplorer();
+  const markedChars = marks && marks.chars.length === [...page.content_chinese].length ? marks.chars : null;
+  const extraAtEnd: ReactNode = markedChars && marks?.extraAtEnd ? (
+    <span className="ra-extra" title={`You also said ${marks.extraAtEnd}`} aria-label={`You also said ${marks.extraAtEnd}`}>‸</span>
+  ) : null;
 
-  if (!words) return <div className={className}>{page.content_chinese}</div>;
+  if (!words) {
+    return (
+      <div className={className} data-read-aloud={markedChars ? 'marked' : undefined}>
+        {markedChars ? <MarkedChars chars={markedChars} /> : page.content_chinese}
+        {extraAtEnd}
+      </div>
+    );
+  }
 
   const offsets = wordOffsets(words);
   const openWord = (i: number) => {
@@ -91,35 +196,40 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
     if (item) explorer.open(item, { source: 'reader' });
   };
 
+  // The words concatenate to the page's text, so a running code-point count lines each up with its marks.
+  let cp = 0;
   return (
     <>
-      <div className={`${className} reader-words`} data-testid="reader-words" onKeyDown={(e) => e.stopPropagation()}>
+      <div
+        className={`${className} reader-words`}
+        data-testid="reader-words"
+        data-read-aloud={markedChars ? 'marked' : undefined}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         {words.map((w, i) => {
+          const len = [...w.text].length;
+          const marked = markedChars ? markedChars.slice(cp, cp + len) : null;
+          cp += len;
           if (isTappableWord(w.text)) {
-            const isKnown = known.has(w.text);
             return (
-              <button
+              <WordChip
                 key={i}
-                type="button"
-                className={`reader-word-chip${isKnown ? ' known' : ''}`}
-                aria-label={isKnown ? `${w.text} (in your decks)` : w.text}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  track('reader.word_tap');
-                  openWord(i);
-                }}
-              >
-                {w.text}
-              </button>
+                text={w.text}
+                known={known.has(w.text)}
+                marked={marked}
+                onOpen={() => openWord(i)}
+                onLong={marked && onSpeak && readAloudNeedsLook(marked) ? () => onSpeak(w.text) : null}
+              />
             );
           }
           if (w.text.includes('\n')) return <br key={i} />;
           return (
             <span key={i} className="reader-word-punct">
-              {w.text}
+              {marked ? <MarkedChars chars={marked} /> : w.text}
             </span>
           );
         })}
+        {extraAtEnd}
       </div>
     </>
   );

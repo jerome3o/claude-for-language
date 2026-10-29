@@ -87,7 +87,7 @@ fun sampleClipAnalysis(durationMs: Int, blocks: List<AudioBlocks.Block>, peaks: 
  * the 1 s grace scales (`ReaderSpeed.blockGraceMsAt`, a wall-clock reaction = 500 ms at 0.5×).
  */
 @Composable
-fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null, story: StoryPlayback? = null) {
+fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null, story: StoryPlayback? = null, extra: (@Composable () -> Unit)? = null) {
     val load = env.pageAudio
     var file by remember(page.id) { mutableStateOf<File?>(null) }
     var status by remember(page.id) { mutableStateOf("loading") }
@@ -262,16 +262,17 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 Icon(if (play.playing) Icons.Filled.Stop else Icons.AutoMirrored.Filled.VolumeUp, if (play.playing) "Stop audio" else "Play audio from the selected point", Modifier.size(26.dp), tint = if (play.playing) Color.White else Lab.colors.accent)
             }
         }
-        if (ready) {
-            // The speed chip on the left; ⏮ Phrase n of N ⏭ right-aligned so ⏭ sits under play (the thumb side)
+        if (ready || extra != null) {
+            // The speed chip (and the page's 🎤) on the left; ⏮ Phrase n of N ⏭ right-aligned so ⏭ sits under play (the thumb side)
             Row(
                 Modifier.fillMaxWidth().padding(top = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ReaderSpeedChip(env.speed, env.onSpeed)
+                if (ready) ReaderSpeedChip(env.speed, env.onSpeed)
+                extra?.invoke()
                 Spacer(Modifier.weight(1f))
-                if (multi) {
+                if (ready && multi) {
                     StepButton(Icons.Filled.SkipPrevious, "Previous phrase") { dispatch(BlockPlayback.Event.Step(-1, positionMs())); env.onTap() }
                     Text(
                         "Phrase ${Math.min(active, blocks.size - 1) + 1} of ${blocks.size}",

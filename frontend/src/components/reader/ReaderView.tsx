@@ -9,6 +9,8 @@ import { generateReaderPageImage } from '../../api/client';
 import { useCachedImageUrl } from '../../hooks/useCachedImageUrl';
 import { ReaderAudioScrubber } from '../ReaderAudioScrubber';
 import { ReaderWordsText } from './ReaderWords';
+import { ReadAloudMic, ReadAloudPanel, useReadAloud } from './ReadAloud';
+import { useLessonSpeak } from '../editor/useLessonSpeak';
 import '../../pages/ReaderPage.css';
 import '../../pages/StudyPage.css';
 import '../StudyReader.css';
@@ -66,6 +68,15 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const { imageUrl, generating } = usePageImage(readerId, page);
+  // 🎤 Read it aloud: the Chinese shows while he reads, and the result marks it in place.
+  const readAloud = useReadAloud(page.content_chinese, {
+    onStart: () => {
+      setShowChinese(true);
+      if (story.autoPlay) story.onStopped();
+    },
+    onResult: () => setShowChinese(true),
+  });
+  const speak = useLessonSpeak();
 
   return (
     <div className="reader-page-view">
@@ -112,7 +123,7 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
               }}
             >
               {/* Word chips: tap a word → its sheet (the tap never hides the Chinese). Plain text until they arrive. */}
-              <ReaderWordsText readerId={readerId} page={page} />
+              <ReaderWordsText readerId={readerId} page={page} marks={readAloud.result} onSpeak={speak} />
             </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>
@@ -130,7 +141,9 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
           onPlaybackEnded={story.onPlaybackEnded}
           onStopped={story.onStopped}
           onUnavailable={story.onUnavailable}
+          controlsExtra={<ReadAloudMic ra={readAloud} />}
         />
+        <ReadAloudPanel ra={readAloud} />
 
         <div
           onClick={() => setShowPinyin(!showPinyin)}
