@@ -63,17 +63,8 @@ class StudyViewModel(
     private val zone = ZoneId.systemDefault()
     private val random = Random.Default
 
-    private val _ui = MutableStateFlow(StudyUi(askLanguage = app.prefs.askClaudeLanguage, askListening = app.prefs.askClaudeListening))
+    private val _ui = MutableStateFlow(StudyUi())
     val ui: StateFlow<StudyUi> = _ui.asStateFlow()
-
-    /** Ask Claude 🎧 Listen first: the hidden answers' player (ui/study/AskListening.kt). */
-    private val askListen = AskListening(
-        app, viewModelScope,
-        state = { _ui.value.askListen },
-        update = { f -> _ui.update { it.copy(askListen = f(it.askListen)) } },
-        notice = { n -> _ui.update { it.copy(askListenNotice = n) } },
-        stopOthers = { dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio.stop() },
-    ).also { it.start() }
 
     private var queue: MutableList<QueueCard> = ArrayList()
     private var toastJob: kotlinx.coroutines.Job? = null
@@ -1632,158 +1623,67 @@ class StudyViewModel(
     /** "Type instead" (grid or spinner). */
     fun typeInstead() { currentView()?.let { v -> updateMc(v) { it.copy(showing = false, ready = false, skip = true) } } }
 
-    // ---------------- Ask Claude ----------------
+    // ---------------- Ask Claude (the card's Claude thread: ui/study/CardClaudeSheet.kt) ----------------
 
     private fun updateAsk(view: CardView, change: (AskUi) -> AskUi) = updateExtras(view) { it.copy(ask = change(it.ask)) }
 
-    /**
-     * `handleAskClaude` / `sendQuickQuestion`: the typed answer rides along on typing cards,
-     * the conversation so far is the history; tool results wait for Approve.
-     */
-    fun ask(question: String, withHistory: Boolean, userAnswer: String?) {
-        val v = currentView() ?: return
-        val q = question.trim()
-        if (q.isEmpty() || _ui.value.extras.ask.asking) return
-        updateAsk(v) { it.copy(asking = true, pendingQuestion = q, error = null) }
-        val language = _ui.value.askLanguage
-        // A quick chip (no history) is the app's own question: not checked.
-        val quick = !withHistory
-        app.analytics.track("study.ask_claude", mapOf("card_type" to v.card.cardType, "language" to language, "quick" to quick))
-        viewModelScope.launch {
-            val typing = v.card.cardType != dev.jeromeswannack.chineselearning.lab.core.CardTypes.HANZI_TO_MEANING
-            val context = if (typing && !userAnswer.isNullOrEmpty()) dev.jeromeswannack.chineselearning.lab.data.api.AskContext(userAnswer, v.note.hanzi, v.card.cardType) else null
-            val history = if (withHistory) _ui.value.extras.ask.conversation.map { dev.jeromeswannack.chineselearning.lab.data.api.AskHistoryItem(it.question, it.answer) } else null
-            try {
-                val answer = tools.ask(v.note.id, dev.jeromeswannack.chineselearning.lab.data.api.AskBody(q, context, history, language = language, quick = quick.takeIf { it }, listening = _ui.value.askListening))
-                updateAsk(v) { it.copy(conversation = it.conversation + answer, asking = false, pendingQuestion = null, pending = answer.toolResults?.takeIf { r -> r.isNotEmpty() }) }
-                app.haptics.tick()
-                askExtras(v, answer)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                updateAsk(v) { it.copy(asking = false, pendingQuestion = null, error = CardExtrasLogic.describeAskError(e, aiAvailable)) }
-            }
-        }
-    }
-
-    private fun patchAsk(v: CardView, id: String, change: (dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) -> dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) =
-        updateAsk(v) { a -> a.copy(conversation = a.conversation.map { if (it.id == id) change(it) else it }) }
+    /** Per reply: the note as it was before Claude's edit and the edit (Undo). */
+    private val claudeEdits = HashMap<String, Pair<Map<String, String?>, Map<String, String?>>>()
 
     /**
-     * Ask Claude, immersion (docs/STUDY_SESSION.md "Ask Claude"): after an answer, when the
-     * question's check was still running, the row again a couple of times. (Word chips are made on
-     * the phone — data/text/DeviceWords — so Claude's splitter is no longer asked.)
+     * Claude's card tools of one finished reply (core CardTools; the web's `processToolResults`): the
+     * server already made the change, the phone's study state follows it — once per reply.
      */
-    private fun askExtras(v: CardView, a: dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer) {
-        if (a.question_check_pending) viewModelScope.launch {
-            for (wait in longArrayOf(3000, 5000)) {
-                delay(wait)
-                val row = runCatching { tools.noteQuestion(a.id) }.getOrNull() ?: continue
-                if (row.question_check != null) { patchAsk(v, a.id) { it.copy(question_check = row.question_check, question_check_pending = false) }; break }
-            }
-        }
-    }
-
-    /** Long-press → Translate: the English of the answer / my question ([part]), stored after the first time. False = couldn't. */
-    suspend fun translateAsk(id: String, part: String): Boolean {
-        val v = currentView() ?: return false
-        val entry = _ui.value.extras.ask.conversation.firstOrNull { it.id == id } ?: return false
-        if (!(if (part == "answer") entry.answer_translation else entry.question_translation).isNullOrEmpty()) return true
-        val t = runCatching { tools.askTranslation(id, part) }.getOrNull()?.takeIf { it.isNotBlank() } ?: return false
-        patchAsk(v, id) { if (part == "answer") it.copy(answer_translation = t) else it.copy(question_translation = t) }
-        return true
-    }
-
-    /** The sheet's 中 / EN (and Settings): shows at once, saved on the account in the background. */
-    fun setAskLanguage(language: String, source: String = "sheet") {
-        val l = dev.jeromeswannack.chineselearning.lab.core.AskClaude.parseLanguage(language) ?: return
-        app.prefs.askClaudeLanguage = l
-        _ui.update { it.copy(askLanguage = l) }
-        app.analytics.track("study.ask_claude_language", mapOf("language" to l, "source" to source))
-        app.scope.launch { runCatching { tools.setAskLanguage(l) } }
-    }
-
-    /** The sheet's 🎧 (and Settings): Listen first on / off, at once; saved on the account in the background. */
-    fun setAskListening(on: Boolean, source: String = "sheet") {
-        app.prefs.askClaudeListening = on
-        // History stays: what is on screen now keeps showing, anything newer hides.
-        if (on) askListen.keepOnScreen(_ui.value.extras.ask.conversation) else askListen.stop()
-        app.haptics.tick()
-        _ui.update { it.copy(askListening = on, askListenNotice = null) }
-        app.analytics.track("study.ask_claude_listening", mapOf("on" to on, "source" to source))
-        app.scope.launch { runCatching { tools.setAskListening(on) } }
-    }
-
-    /** A tap on a hidden answer (or a new answer playing by itself). */
-    fun listenAsk(id: String, auto: Boolean) {
-        val entry = _ui.value.extras.ask.conversation.firstOrNull { it.id == id } ?: return
-        askListen.play(entry, auto)
-    }
-
-    /** Long press / 👁 on a hidden answer. */
-    fun revealAsk(id: String) = askListen.reveal(id)
-
-    fun toggleAskListenSlow() = askListen.toggleSlow()
-
-    /** The sheet closed: a hidden answer stops playing (the web player stops when the sheet unmounts). */
-    fun stopAskListening() = askListen.stop()
-
-    /** The sheet opened: 中文 / EN and 🎧 as last set (Settings may have changed them since this session began). */
-    fun refreshAskPrefs() {
-        val language = app.prefs.askClaudeLanguage
-        val listening = app.prefs.askClaudeListening
-        if (language != _ui.value.askLanguage || listening != _ui.value.askListening) _ui.update { it.copy(askLanguage = language, askListening = listening) }
-    }
-
-    /** Anything playing (a hidden answer, Read aloud): a new answer then waits for a tap. */
-    fun askAudioBusy(): Boolean = askListen.busy() || dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio.playing.value != null
-
-    /** Long-press → Read aloud: Claude in the app voice (AskClaude.VOICE), my own lines in my voice (shared/chats/voice.ts), cached per text. */
-    fun readAloudAsk(text: String, mine: Boolean) {
-        askListen.stop()
-        viewModelScope.launch {
-            val (voice, speed) = if (mine) dev.jeromeswannack.chineselearning.lab.data.chat.ChatReadAloud.voice(app, senderIsMe = true, otherGender = null, fromAi = false, personaVoice = null, personaSpeed = null)
-            else dev.jeromeswannack.chineselearning.lab.core.AskClaude.VOICE to dev.jeromeswannack.chineselearning.lab.core.AskClaude.SPEED
-            val audio = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app).audio
-            if (audio.playing.value == text) audio.stop() else audio.playClip(text, voice, speed)
-        }
-    }
-
-    /** Hanzi of every note on the device (Ask Claude's quieter chips for words already in a deck). */
-    suspend fun knownHanzi(): Set<String> = withContext(Dispatchers.IO) { repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
-
-    /** Analytics of a learning tool used on an Ask Claude message (`study.ask_claude_tool`). */
-    fun trackAskTool(action: String, mine: Boolean) = app.analytics.track("study.ask_claude_tool", mapOf("action" to action, "role" to if (mine) "mine" else "claude"))
-
-    /** `approveToolResults`: apply Claude's changes here (the server already made them). */
-    fun approveTools() {
+    fun claudeToolResults(results: List<dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.Result>, replyId: String) {
         val v = currentView() ?: return
-        val pending = _ui.value.extras.ask.pending ?: return
-        updateAsk(v) { it.copy(pending = null) }
+        val effects = dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.effects(results)
         viewModelScope.launch {
-            for (result in pending) {
-                if (!result.success) continue
-                when (result.tool) {
-                    "edit_current_card" -> result.data?.get("note")?.let { el ->
-                        runCatching { repo.api.json.decodeFromJsonElement(dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto.serializer(), el) }.getOrNull()
-                            ?.let { dto -> tools.mirror(dto.copy(id = v.note.id))?.let(::showNote) }
-                    }
-                    "delete_current_card" -> {
-                        updateAsk(v) { it.copy(cardDeleted = true) }
-                        tools.removeLocally(v.note.id)
-                        delay(2000)
-                        removeNoteFromSession(v.note.id)
-                    }
-                    "create_flashcards", "create_custom_lesson" -> tools.syncSoon()
+            effects.edited?.let { edited ->
+                val n = v.note
+                claudeEdits[replyId] = mapOf(
+                    "hanzi" to n.hanzi, "pinyin" to n.pinyin, "english" to n.english, "fun_facts" to n.funFacts,
+                    "sentence_clue" to n.sentenceClue, "sentence_clue_pinyin" to n.sentenceCluePinyin, "sentence_clue_translation" to n.sentenceClueTranslation,
+                ) to edited
+                results.firstOrNull { it.success && it.tool == "edit_current_card" }?.data?.get("note")?.let { el ->
+                    runCatching { repo.api.json.decodeFromJsonElement(dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto.serializer(), el) }.getOrNull()
+                        ?.let { dto -> tools.mirror(dto.copy(id = v.note.id))?.let(::showNote) }
                 }
             }
+            if (effects.deleted) {
+                updateAsk(v) { it.copy(cardDeleted = true) }
+                tools.removeLocally(v.note.id)
+                delay(2000)
+                removeNoteFromSession(v.note.id)
+            }
+            if (effects.cardsAdded > 0 || effects.lessons > 0 || effects.bumped.isNotEmpty()) tools.syncSoon()
+            for (r in results) if (r.success) app.analytics.track("study.ask_claude_tool", mapOf("action" to r.tool, "role" to "claude"))
             app.haptics.correct()
         }
     }
 
-    fun rejectTools() {
+    fun canUndoClaudeEdit(replyId: String): Boolean = replyId in claudeEdits
+
+    /** Undo Claude's edit of this card: the changed fields back, as a normal note update. Throws on failure. */
+    suspend fun undoClaudeEdit(replyId: String) {
         val v = currentView() ?: return
-        updateAsk(v) { it.copy(pending = null) }
+        val (before, edited) = claudeEdits[replyId] ?: throw IllegalStateException("Nothing to undo")
+        val patch = dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.undoEditFields(before, edited)
+        if (patch.isEmpty()) return
+        val n = v.note
+        fun pick(field: String, current: String?): String? = if (patch.containsKey(field)) patch.getValue(field).ifEmpty { null } else current
+        val update = dev.jeromeswannack.chineselearning.lab.data.api.NoteUpdate(
+            hanzi = patch["hanzi"] ?: n.hanzi,
+            pinyin = patch["pinyin"] ?: n.pinyin,
+            english = patch["english"] ?: n.english,
+            funFacts = pick("fun_facts", n.funFacts),
+            sentenceClue = pick("sentence_clue", n.sentenceClue),
+            sentenceCluePinyin = pick("sentence_clue_pinyin", n.sentenceCluePinyin),
+            sentenceClueTranslation = pick("sentence_clue_translation", n.sentenceClueTranslation),
+            sentenceClueAudioUrl = n.sentenceClueAudioUrl,
+            alternatives = n.alternatives,
+        )
+        tools.editNote(n.id, update)?.let(::showNote)
+        claudeEdits.remove(replyId)
     }
 
     /** Sentence list ⋯ / "+ 5 more": generate for the current note and show the new set. */
@@ -2095,7 +1995,6 @@ class StudyViewModel(
     fun play(key: String?, text: String) = app.audio.play(key, text, aiAvailable)
 
     override fun onCleared() {
-        askListen.stop()
         analyticsStartedAt?.let { started ->
             val reviews = _ui.value.stats.reviews
             app.analytics.track("study.session_end", mapOf("reviews" to reviews, "duration_ms" to System.currentTimeMillis() - started, "reason" to if (_ui.value.phase is StudyPhase.Done) "emptied" else "left"))

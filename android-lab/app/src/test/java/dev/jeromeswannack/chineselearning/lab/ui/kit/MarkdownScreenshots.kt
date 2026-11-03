@@ -19,12 +19,10 @@ import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
-import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskActions
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeBody
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskUi
+import dev.jeromeswannack.chineselearning.lab.ui.study.CardClaudeSamples
+import dev.jeromeswannack.chineselearning.lab.ui.study.CardThreadPreview
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardView
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import org.junit.Test
@@ -39,16 +37,17 @@ class MarkdownScreenshots : LabScreenshotTest() {
         )
     }
 
-    private val ask = AskUi(
-        conversation = listOf(AskAnswer(id = "q1", question = "打算 vs 计划 — when do I use which?", answer = MarkdownSamples.askClaudeAnswer)),
+    /** Ask Claude on a card (the card's Claude thread): an English answer is Markdown. */
+    private val thread = CardClaudeSamples.ui(
+        listOf(CardClaudeSamples.mine("u1", "打算 vs 计划 — when do I use which?"), CardClaudeSamples.claude("a2", MarkdownSamples.askClaudeAnswer, lang = "en")),
+        hanzi = "打算",
+        language = "en",
     )
 
-    /** The Ask Claude sheet, drawn full height so the whole answer is in the shot. */
+    /** The Ask Claude sheet, drawn tall so the whole answer is in the shot. */
     @Composable
     private fun sheet() {
-        Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 18.dp, bottom = 20.dp)) {
-            AskClaudeBody(view, ask, "en", null, true, AskActions())
-        }
+        Column(Modifier.fillMaxSize().background(Lab.colors.card)) { CardThreadPreview(thread, height = 1400.dp) }
     }
 
     @Test fun askClaude() = shoot("markdown-01-ask-claude") { sheet() }

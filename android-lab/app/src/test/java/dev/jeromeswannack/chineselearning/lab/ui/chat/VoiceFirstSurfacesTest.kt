@@ -26,9 +26,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachSamples
 import dev.jeromeswannack.chineselearning.lab.ui.coach.coachActionTag
 import dev.jeromeswannack.chineselearning.lab.core.CoachAction
 import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskActions
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskClaudeBody
-import dev.jeromeswannack.chineselearning.lab.ui.study.AskUi
+import dev.jeromeswannack.chineselearning.lab.ui.study.CardClaudeSamples
+import dev.jeromeswannack.chineselearning.lab.ui.study.CardThreadPreview
 import dev.jeromeswannack.chineselearning.lab.ui.study.CardView
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
@@ -108,17 +107,17 @@ class VoiceFirstSurfacesTest : LabScreenshotTest() {
         QueueCard("c1", note.id, "d1", CardTypes.HANZI_TO_MEANING, CardScheduler.initialCardState()), note, emptyList(),
         CardScheduler.intervalPreviews(CardScheduler.initialCardState(), Js.parseDate("2026-10-08T09:30:00.000Z")), emptyList(), 1, "HSK 2", true,
     )
-    private val ask = AskUi(conversation = listOf(AskAnswer(id = "q1", question = "银行和很行有什么不一样？", answer = "银行是放钱的地方；很行是说一个人很厉害。", answer_lang = "zh")))
+    private val ask = CardClaudeSamples.ui(listOf(CardClaudeSamples.mine("u1", "银行和很行有什么不一样？"), CardClaudeSamples.claude("a2", "银行是放钱的地方；很行是说一个人很厉害。")))
 
     @Test fun askClaudeIdle() = shoot("voice-first-10-ask-claude-idle") {
         Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
-            AskClaudeBody(view, ask, "zh", null, true, AskActions(), voicePreview = VoiceDictationUi())
+            CardThreadPreview(ask, voicePreview = VoiceDictationUi())
         }
     }
 
     @Test fun askClaudeReview() = shoot("voice-first-11-ask-claude-review") {
         Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
-            AskClaudeBody(view, ask, "zh", null, true, AskActions(), voicePreview = VoiceDictationUi(phase = "review", finalText = "银行的行为什么读háng？"))
+            CardThreadPreview(ask, voicePreview = VoiceDictationUi(phase = "review", finalText = "银行的行为什么读háng？"))
         }
     }
 

@@ -184,7 +184,8 @@ class StudyActions(
     val onCardSpoken: (presentation: Int, spokenText: String?, spokenReviewed: Boolean, practiceSaid: String?) -> Unit = { _, _, _, _ -> },
     val sendFlag: suspend (FlagTutor, String) -> Boolean = { _, _ -> false },
     val edit: EditCardActions = EditCardActions(),
-    val ask: AskActions = AskActions(),
+    /** Ask Claude: the card's Claude thread (CardClaudeSheet.kt). */
+    val claude: CardClaudeActions = CardClaudeActions(),
     val sentences: SentenceActions = SentenceActions(),
     /** ⋯ → "Practise this word other ways…": other card types of the word into today (a card-level ⚡ bump). */
     val otherCards: OtherCardsActions = OtherCardsActions(),
@@ -355,23 +356,11 @@ fun StudyRoute(
                 play = vm::play,
                 media = { noteId, fields -> dev.jeromeswannack.chineselearning.lab.ui.cards.NoteMediaSections(app, noteId, fields, onPictureChange = { vm.noteChanged(noteId) }) },
             ),
-            ask = AskActions(
-                ask = vm::ask,
-                approve = vm::approveTools,
-                reject = vm::rejectTools,
-                setLanguage = { l -> vm.setAskLanguage(l, "sheet") },
-                translate = vm::translateAsk,
-                readAloud = vm::readAloudAsk,
-                setListening = { on -> vm.setAskListening(on, "sheet") },
-                listen = vm::listenAsk,
-                reveal = vm::revealAsk,
-                toggleSlow = vm::toggleAskListenSlow,
-                audioBusy = vm::askAudioBusy,
-                stopListening = vm::stopAskListening,
-                onOpen = vm::refreshAskPrefs,
+            claude = CardClaudeActions(
                 openPath = onOpen,
-                known = vm::knownHanzi,
-                track = vm::trackAskTool,
+                onToolResults = vm::claudeToolResults,
+                canUndo = vm::canUndoClaudeEdit,
+                undo = vm::undoClaudeEdit,
             ),
             sentences = SentenceActions(
                 generate = vm::generateSentences,

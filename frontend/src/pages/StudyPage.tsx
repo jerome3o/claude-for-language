@@ -5,7 +5,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, typ
 import {
   startSession,
   API_BASE,
-  AskToolResult,
+  updateNote as updateNoteOnServer,
   getMyRelationships,
   createConversation,
   initiateAIConversation,
@@ -19,10 +19,9 @@ import {
   getLocalDateString,
   analyzeSentence,
 } from '../api/client';
-import { AskClaudeSheet } from '../components/askClaude/AskClaudeSheet';
-import { useAskClaude } from '../components/askClaude/useAskClaude';
-import { useAskLanguage } from '../services/askClaudeLanguage';
-import { useAskListening } from '../services/askClaudeListening';
+import { CardClaudeSheet } from '../components/claude/CardClaudeSheet';
+import { cardToolEffects, undoEditFields, type CardToolResult, type EditedNote } from '@shared/claude/cardTools';
+import { syncBumps } from '../services/studyBumps';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
 import { BumpBadge } from '../components/bumps/BumpButton';
@@ -470,13 +469,18 @@ export function StudyCard({
   // Error handling for orphaned cards (cards with missing notes)
   const [dataError, setDataError] = useState<string | null>(null);
 
-  // Ask Claude (components/askClaude): Chinese answers by default, the chat's word chips and
-  // long-press menu. The conversation (useAskClaude below) lives with the card, so closing the
-  // sheet keeps it.
+  // Ask Claude = the card's Claude thread in a sheet (components/claude/CardClaudeSheet.tsx). Once
+  // opened it stays mounted with the card (hidden while closed), so a reply still being written lands
+  // and Claude's card tools reach the device.
   const [showAskClaude, setShowAskClaude] = useState(false);
+  const [askMounted, setAskMounted] = useState(false);
+  const [askAuto, setAskAuto] = useState<{ text: string; key: string } | null>(null);
   const [cardDeleted, setCardDeleted] = useState(false);
-  const [askLanguage, setAskLanguage] = useAskLanguage();
-  const [askListening, setAskListening] = useAskListening();
+  /** Per reply: the card as it was before Claude's edit (Undo). */
+  const editBeforeRef = useRef<Map<string, { before: Partial<Note>; edited: EditedNote }>>(new Map());
+  useEffect(() => {
+    if (showAskClaude) setAskMounted(true);
+  }, [showAskClaude]);
 
   // Card edit modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -933,10 +937,9 @@ export function StudyCard({
   const isSpeakingCard = cardInfo.action === 'speak';
 
   const askTyped = useMemo(
-    () => (isTypingCard && userAnswer ? { userAnswer, correctAnswer: card.note.hanzi } : null),
+    () => (isTypingCard && userAnswer ? { answer: userAnswer, correct: card.note.hanzi } : null),
     [isTypingCard, userAnswer, card.note.hanzi],
   );
-  const askChat = useAskClaude({ noteId: card.note.id, cardType: card.card_type, typed: askTyped, aiAvailable, language: askLanguage, listening: askListening });
 
   // Keep a ref to recordings so callbacks always see the latest
   const recordingsRef = useRef(recordings);
@@ -1491,66 +1494,67 @@ export function StudyCard({
     onRate(rating, timeSpent, userAnswer || undefined, take || undefined);
   };
 
-  const processToolResults = (toolResults: AskToolResult[]) => {
-    for (const result of toolResults) {
-      if (!result.success) continue;
-      switch (result.tool) {
-        case 'edit_current_card': {
-          const note = result.data?.note as Partial<Note> | undefined;
-          if (note) {
-            onUpdateNote({
-              hanzi: note.hanzi,
-              pinyin: note.pinyin,
-              english: note.english,
-              fun_facts: note.fun_facts,
-              sentence_clue: note.sentence_clue,
-              sentence_clue_pinyin: note.sentence_clue_pinyin,
-              sentence_clue_translation: note.sentence_clue_translation,
-              sentence_clue_audio_url: note.sentence_clue_audio_url,
-              updated_at: note.updated_at,
-            });
-            // Also update in IndexedDB for offline consistency
-            db.notes.update(card.note.id, {
-              hanzi: note.hanzi ?? card.note.hanzi,
-              pinyin: note.pinyin ?? card.note.pinyin,
-              english: note.english ?? card.note.english,
-              fun_facts: note.fun_facts ?? card.note.fun_facts,
-              sentence_clue: note.sentence_clue ?? card.note.sentence_clue,
-              sentence_clue_pinyin: note.sentence_clue_pinyin ?? card.note.sentence_clue_pinyin,
-              sentence_clue_translation: note.sentence_clue_translation ?? card.note.sentence_clue_translation,
-              sentence_clue_audio_url: note.sentence_clue_audio_url ?? card.note.sentence_clue_audio_url,
-              updated_at: note.updated_at ?? card.note.updated_at,
-            });
-          }
-          break;
-        }
-        case 'delete_current_card': {
-          setCardDeleted(true);
-          // Remove from IndexedDB (note, cards, checkpoints, sentences)
-          removeNotesLocally([card.note.id]).catch(err => console.error('[Study] local removal failed', err));
-          // Advance after a short delay so user can see the confirmation
-          doneWithCardRef.current = true;
-          clearResumePoint(card.id);
-          setTimeout(() => onDeleteCurrentCard(), 2000);
-          break;
-        }
-        case 'create_flashcards': {
-          // Cards are already created on the server side.
-          // Trigger an incremental sync so they appear in IndexedDB immediately.
-          syncService.incrementalSync().catch(console.error);
-          break;
-        }
-        case 'create_custom_lesson': {
-          // The lesson is already created server-side — pull it into the
-          // local cache (and prefetch its media) so it is on Home and the
-          // Mini Lessons page right away, offline too.
-          syncCustomLessons()
-            .then(() => prefetchCustomLessonMedia())
-            .catch(console.error);
-          break;
-        }
-      }
+  /** A note's text fields onto the card on screen and into IndexedDB (offline-first). */
+  const applyNoteFields = (fields: Partial<Note>) => {
+    onUpdateNote(fields);
+    const local: Partial<Note> = {};
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined) (local as Record<string, unknown>)[k] = v;
+    db.notes.update(card.note.id, local).catch((err) => console.error('[Study] local note update failed', err));
+  };
+
+  /**
+   * Claude's card tools of one finished reply (shared/claude/cardTools.ts): the server already made
+   * the change; the device's study state follows it — once per reply.
+   */
+  const processToolResults = (results: CardToolResult[], reply: { id: string }) => {
+    const effects = cardToolEffects(results);
+    if (effects.edited) {
+      const edited = effects.edited;
+      const before: Partial<Note> = {
+        hanzi: card.note.hanzi,
+        pinyin: card.note.pinyin,
+        english: card.note.english,
+        fun_facts: card.note.fun_facts,
+        sentence_clue: card.note.sentence_clue,
+        sentence_clue_pinyin: card.note.sentence_clue_pinyin,
+        sentence_clue_translation: card.note.sentence_clue_translation,
+      };
+      editBeforeRef.current.set(reply.id, { before, edited });
+      const fields: Partial<Note> = {};
+      for (const [k, v] of Object.entries(edited)) if (v !== undefined) (fields as Record<string, unknown>)[k] = v;
+      applyNoteFields(fields);
     }
+    if (effects.deleted) {
+      setCardDeleted(true);
+      // Remove from IndexedDB (note, cards, checkpoints, sentences)
+      removeNotesLocally([card.note.id]).catch(err => console.error('[Study] local removal failed', err));
+      // Advance after a short delay so user can see the confirmation
+      doneWithCardRef.current = true;
+      clearResumePoint(card.id);
+      setTimeout(() => onDeleteCurrentCard(), 2000);
+    }
+    // Cards made on the server: an incremental sync brings them into IndexedDB now.
+    if (effects.cardsAdded > 0) syncService.incrementalSync().catch(console.error);
+    // A mini lesson: pulled into the local cache (and its media prefetched), offline too.
+    if (effects.lessons > 0) {
+      syncCustomLessons()
+        .then(() => prefetchCustomLessonMedia())
+        .catch(console.error);
+    }
+    // ⚡ Study it today: the device's pocket from the server's.
+    if (effects.bumped.length > 0) syncBumps().catch(console.error);
+    for (const r of results) if (r.success) track('study.ask_claude_tool', { action: r.tool, role: 'claude' });
+  };
+
+  /** Undo Claude's edit of this card: the changed fields back, as a normal note update. */
+  const undoClaudeEdit = async (replyId: string) => {
+    const entry = editBeforeRef.current.get(replyId);
+    if (!entry) throw new Error('Nothing to undo');
+    const patch = undoEditFields(entry.before, entry.edited);
+    if (Object.keys(patch).length === 0) return;
+    const updated = await updateNoteOnServer(card.note.id, patch);
+    applyNoteFields({ ...patch, ...(updated?.updated_at ? { updated_at: updated.updated_at } : {}) });
+    editBeforeRef.current.delete(replyId);
   };
 
   // Render context box if note has conversation context
@@ -1947,8 +1951,8 @@ export function StudyCard({
               onEdit: () => { track('study.edit_card'); setShowEditModal(true); },
               onMemoryHook: aiAvailable && !cardDeleted
                 ? () => {
+                    setAskAuto({ text: memoryHookQuestion(card.note.hanzi, card.note.english, card.lapses ?? 0), key: `memory-hook:${Date.now()}` });
                     setShowAskClaude(true);
-                    void askChat.ask(memoryHookQuestion(card.note.hanzi, card.note.english, card.lapses ?? 0));
                   }
                 : undefined,
               onSnooze: onCardsHeld ? () => setControlSheet('snooze') : undefined,
@@ -2382,21 +2386,22 @@ export function StudyCard({
   };
 
   const renderAskClaudeModal = () => {
-    if (!showAskClaude) return null;
+    if (!askMounted) return null;
     return (
-      <AskClaudeSheet
+      <CardClaudeSheet
+        open={showAskClaude}
+        noteId={card.note.id}
         hanzi={card.note.hanzi}
-        chat={askChat}
-        typedAnswer={!!askTyped}
+        deckName={deckInfo?.name ?? null}
+        cardType={card.card_type}
+        typed={askTyped}
         hasSentence={!!card.note.sentence_clue}
         cardDeleted={cardDeleted}
-        aiAvailable={aiAvailable}
-        language={askLanguage}
-        onLanguage={(l) => void setAskLanguage(l, 'sheet')}
-        listening={askListening}
-        onListening={(on) => void setAskListening(on, 'sheet')}
-        onApprove={processToolResults}
+        autoAsk={askAuto}
         onClose={() => setShowAskClaude(false)}
+        onToolResults={processToolResults}
+        canUndo={(replyId) => editBeforeRef.current.has(replyId)}
+        onUndoEdit={undoClaudeEdit}
       />
     );
   };
@@ -2519,7 +2524,6 @@ export function StudyCard({
         onAskClaude={() => setShowAskClaude(!showAskClaude)}
         askClaudeOpen={showAskClaude}
         onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
-        aiDisabled={!aiAvailable}
         menuItems={menuItems}
         menuFooter={formatAddedDate(card.note.created_at)}
       />

@@ -120,6 +120,39 @@ describe('ClaudeChatThread', () => {
     expect(track).toHaveBeenCalledWith('coach.ask_read_back', expect.objectContaining({ wrong_words: 2, via: 'live' }));
   });
 
+  it('my checked Chinese: ✎ + Open in Coach; a right-click opens the menu with How to say it better first', async () => {
+    const onOpenInCoach = vi.fn();
+    const check = {
+      text: '成都有什么好吃的？', status: 'improvable', corrected: '成都有什么好吃的东西？', corrected_pinyin: '', corrected_english: '', mistakes: [{ quote: '好吃的', fix: '好吃的东西', why: 'x', card: null }],
+      alternative: null, severity: 'moderate', card: null, checked_at: '2026-11-03T10:00:00.000Z',
+    } as unknown as import('@shared/chats/autoCheck').AutoCheckResult;
+    await act(async () =>
+      root.render(
+        <MemoryRouter>
+          <ExplorerProvider>
+            <ClaudeChatThread threadId="t1" messages={[{ ...MESSAGES[0], auto_check: check }, MESSAGES[1]]} listening={false} thinkingLabel="Thinking…" onTranslate={async () => null} onRetry={onRetry} onOpenInCoach={onOpenInCoach} />
+          </ExplorerProvider>
+        </MemoryRouter>,
+      ),
+    );
+    await flush();
+    const mine = q('claude-chat-mine')!;
+    expect(mine.querySelector('[data-testid="chat-saybetter-mark"]')).toBeTruthy();
+    await act(async () => (mine.querySelector('[data-testid="chat-open-in-coach"]') as HTMLElement).click());
+    expect(onOpenInCoach).toHaveBeenCalledWith(expect.objectContaining({ id: 'u1' }), 'chip');
+    await act(async () => mine.querySelector('.chat-bubble')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })));
+    await flush();
+    const tools = [...document.querySelectorAll('[data-testid="message-menu"] [data-tool]')].map((b) => b.getAttribute('data-tool'));
+    expect(tools[0]).toBe('say_better');
+    expect(tools).toContain('open_coach');
+    // Claude's Chinese reply: Copy · Translate · Pinyin · Explain · Save as flashcard · Read aloud (no Open in Coach without a check).
+    await act(async () => (document.querySelector('[data-testid="message-menu"] [data-tool="copy"]') as HTMLElement).click());
+    const reply = host.querySelector('[data-testid="claude-chat-reply"] .chat-bubble')!;
+    await act(async () => reply.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })));
+    await flush();
+    expect([...document.querySelectorAll('[data-testid="message-menu"] [data-tool]')].map((b) => b.getAttribute('data-tool'))).toEqual(expect.arrayContaining(['copy', 'translate', 'pinyin', 'play']));
+  });
+
   it('a pending reply thinks; a failed one offers Retry', async () => {
     await render([MESSAGES[0], { id: 'a1', role: 'assistant', text: '', status: 'pending' }]);
     expect(q('claude-chat-pending')?.textContent).toContain('Thinking…');

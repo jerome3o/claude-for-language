@@ -18,7 +18,6 @@ import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
 import dev.jeromeswannack.chineselearning.lab.core.chinese.Segmenter
-import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
 import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
@@ -43,13 +42,13 @@ class DeviceWordsScreenshots : LabScreenshotTest() {
         CardScheduler.intervalPreviews(CardScheduler.initialCardState(), Js.parseDate("2026-10-08T09:30:00.000Z")), emptyList(), 1, "HSK 3", true,
     )
     private val answer = "好问题！\n「工资高」的相反是「工资低」。\n低 就是「不高」的意思，跟「高」相反。\n比如：这份工作的工资低，我不想做。\n你要不要我帮你加一张「工资低」的卡片？"
-    private val entry = AskAnswer(id = "q1", question = "这个词的相反是什么", answer = answer, answer_lang = "zh")
+    private val thread = CardClaudeSamples.ui(listOf(CardClaudeSamples.mine("u1", "这个词的相反是什么"), CardClaudeSamples.claude("a2", answer)), hanzi = "工资")
 
     @Before fun deviceWords() = DeviceWords.setForTests(Segmenter.shipped)
     @After fun reset() = DeviceWords.setForTests(null)
 
     @Test fun askClaudeReplyIsWordChipsAtOnce() {
-        compose.setContent { LabTheme { AskClaudeBody(view, AskUi(conversation = listOf(entry)), "zh", null, true, AskActions()) } }
+        compose.setContent { LabTheme { CardThreadPreview(thread, height = 1200.dp) } }
         compose.waitForIdle()
         assertTrue(compose.onAllNodesWithTag("chat-word-chip", useUnmergedTree = true).fetchSemanticsNodes().size >= 20)
         compose.onNodeWithText("要不要", useUnmergedTree = true).assertExists()
@@ -58,7 +57,7 @@ class DeviceWordsScreenshots : LabScreenshotTest() {
 
     @Test fun conversation() = shoot("device-words-01-ask-claude") {
         Column(Modifier.fillMaxSize().background(Lab.colors.card).verticalScroll(rememberScrollState()).padding(top = 16.dp)) {
-            AskClaudeBody(view, AskUi(conversation = listOf(entry)), "zh", null, true, AskActions())
+            CardThreadPreview(thread, height = 900.dp)
         }
     }
 

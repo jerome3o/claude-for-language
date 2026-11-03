@@ -3,6 +3,7 @@
  * (docs/CHAT.md "Claude threads"). Types only; the worker builds them (claude-agent/store.ts,
  * routes/claude-threads.ts), the apps read them.
  */
+import type { AutoCheckResult } from '../chats/autoCheck';
 import type { ClaudeContextKind, ClaudeIntent, ContextBadge, StoredClaudeContext } from './context';
 
 /** One inbox row. */
@@ -56,6 +57,12 @@ export interface ClaudeThreadMessage {
   translation: string | null;
   /** JSON of the tool results (cards made, a lesson, a bump…), as the Coach stores them. */
   tool_results: string | null;
+  /**
+   * My message in a card thread: the chat's "check my Chinese" of it (the ✎ mark, How to say it
+   * better, Open in Coach), written in the background beside the reply — null until then / when it
+   * isn't checked (English, a suggestion chip, the switch off). Absent from older servers.
+   */
+  auto_check?: AutoCheckResult | null;
   created_at: string;
   updated_at: string | null;
 }

@@ -48,6 +48,8 @@ export function createClaudeThread(body: {
   message_client_id?: string;
   language?: 'zh' | 'en';
   title?: string;
+  /** A suggestion chip (the app wrote it): not checked. */
+  quick?: boolean;
 }): Promise<ThreadWithMessages> {
   return call('/claude/threads', { method: 'POST', body: JSON.stringify(body) });
 }
@@ -56,7 +58,19 @@ export function getClaudeThread(id: string, since?: string | null): Promise<Thre
   return call(`/claude/threads/${encodeURIComponent(id)}${since ? `?since=${encodeURIComponent(since)}` : ''}`);
 }
 
-export function sendClaudeThreadMessage(id: string, body: { client_id: string; text: string; intent?: ClaudeIntent; language?: 'zh' | 'en' }): Promise<ThreadWithMessages> {
+export function sendClaudeThreadMessage(
+  id: string,
+  body: {
+    client_id: string;
+    text: string;
+    intent?: ClaudeIntent;
+    language?: 'zh' | 'en';
+    /** A suggestion chip (the app wrote it): not checked. */
+    quick?: boolean;
+    /** A card thread: the answer typed on this showing of the card (null = none). */
+    typed?: { answer: string; correct?: string } | null;
+  },
+): Promise<ThreadWithMessages> {
   return call(`/claude/threads/${encodeURIComponent(id)}/messages`, { method: 'POST', body: JSON.stringify(body) });
 }
 

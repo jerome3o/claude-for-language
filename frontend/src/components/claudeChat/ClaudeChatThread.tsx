@@ -16,18 +16,28 @@
  *   "Looking through your cards…"), a reply being STREAMED shows its text so far, a failed one Retry.
  * - Anything that isn't a plain text message (a Coach check / explain / translate result, a mistake
  *   lesson) is drawn by the caller (`renderSpecial`); tool results under a reply by `renderAfter`.
- * - My message written offline shows "🕓 Waiting for a connection" until it is sent.
+ * - My message written offline shows "🕓 Will send when you're online" until it is sent.
+ * - A long press (right-click / ⋯ on desktop) on any finished bubble opens the chat's message menu
+ *   with the parts that fit (`askClaudeMenu`: Copy, Translate, Pinyin, Explain, Save as flashcard,
+ *   Open in Coach, Read aloud). My own Chinese carries the chat's auto-check when the server ran it
+ *   (a card question, `auto_check`): the ✎ mark, "How to say it better" first in the menu and the
+ *   "Open in Coach" chip.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { readBackMistakeWords, readBackOffered, READ_BACK_LABEL, READ_BACK_LISTENING } from '@shared/coach/askChat';
+import { askClaudeMenu, type MenuActionId, type MenuItem } from '@shared/chats/messageMenu';
+import { sayBetterLabel, sayBetterState, showCoachChip, type AutoCheckResult } from '@shared/chats/autoCheck';
 import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId } from '@shared/study/askClaude';
 import { itemForText } from '@shared/explorer';
 import type { ReadAloudResult } from '@shared/reader/readAloud';
 import { readAloudBucket } from '@shared/reader/readAloud';
 import { ChatWordsText, type TappedWord } from '../chat/ChatWords';
-import { ChatTranslation } from '../chat/ChatBubbleParts';
+import { ChatTranslation, CoachChip, SayBetterMark } from '../chat/ChatBubbleParts';
+import { MessageMenu, type MenuAnchor } from '../chat/MessageMenu';
+import { ExplainSheet } from '../chat/ExplainSheet';
+import { SayBetterSheet, type SayBetterMessage } from '../chat/SayBetterSheet';
 import { ListeningBubble, useListeningPlayer } from '../chat/ListeningBubble';
 import { looksLikeChinese } from '../chat/messageTools';
 import { useLongPress } from '../chat/useLongPress';
@@ -65,6 +75,16 @@ export interface ClaudeChatMessage {
   queued?: boolean;
   /** Mine, refused when the outbox sent it (`error` says why). */
   queueFailed?: boolean;
+  /** Mine: the chat's "check my Chinese" of it (a card question), when the server ran it. */
+  auto_check?: AutoCheckResult | null;
+}
+
+/** "Me" in the auto-check rules (they compare a sender id with the viewer). */
+const ME = 'me';
+
+/** My message as the chat's message shape (the auto-check rules and the How-to-say-it-better sheet read it). */
+function asChatMessage(m: ClaudeChatMessage): SayBetterMessage & { id: string } {
+  return { id: m.id, sender_id: m.role === 'user' ? ME : 'claude', content: m.text, auto_check: m.auto_check ?? null, correction: null, attachment: null, translation: m.translation ?? null, deleted_at: null };
 }
 
 export interface ClaudeChatThreadProps {
@@ -88,12 +108,23 @@ export interface ClaudeChatThreadProps {
   statusLineFor?: (m: ClaudeChatMessage) => string | null;
   /** ✕ on my message the outbox couldn't send. */
   onDiscardQueued?: (m: ClaudeChatMessage) => void;
+  /** "Open in Coach" (the menu, the chip under my checked question); without it the menu leaves it out. */
+  onOpenInCoach?: (m: ClaudeChatMessage, source: 'menu' | 'chip' | 'sheet') => void;
+  /** A text for the composer (How to say it better → "Ask why"). */
+  onDraft?: (text: string) => void;
+  /** Answers come in Chinese (the "Ask why" wording). */
+  language?: 'zh' | 'en';
+  online?: boolean;
 }
 
-type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word';
+type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word' | MenuActionId;
 
-export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued }: ClaudeChatThreadProps) {
+export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued, onOpenInCoach, onDraft, language = 'zh', online = true }: ClaudeChatThreadProps) {
   const explorer = useExplorer();
+  const press = useLongPress();
+  const [menu, setMenu] = useState<{ m: ClaudeChatMessage; anchor: MenuAnchor } | null>(null);
+  const [explain, setExplain] = useState<{ text: string; mode: 'explain' | 'save' } | null>(null);
+  const [sayBetterFor, setSayBetterFor] = useState<ClaudeChatMessage | null>(null);
   const known = useKnownHanzi();
   const revealed = useAskRevealed();
   const playerRef = useRef(createAudioPlayer());
@@ -198,12 +229,80 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
     explorer.open(item, { source: explorerSource });
   };
 
+  const isMarkdown = (m: ClaudeChatMessage) => m.role === 'assistant' && m.answer_lang !== 'zh' && !looksLikeChinese(m.text);
+  const menuFor = (m: ClaudeChatMessage): MenuItem[] =>
+    askClaudeMenu(
+      { mine: m.role === 'user', text: m.text, translation: m.translation ?? translations[m.id] ?? null, auto_check: m.role === 'user' ? m.auto_check ?? null : null, markdown: isMarkdown(m) },
+      { pinyinOn: pinyinOn.has(m.id), translateOn: translateOn.has(m.id) },
+    ).items.filter((i) => i.id !== 'open_coach' || !!onOpenInCoach);
+  const openMenu = (m: ClaudeChatMessage, anchor: MenuAnchor) => {
+    if (m.queued || m.queueFailed) return;
+    if (menuFor(m).length > 0) setMenu({ m, anchor });
+  };
+  const onMenuAction = (id: MenuActionId) => {
+    if (!menu) return;
+    const m = menu.m;
+    setMenu(null);
+    tool(id, m.role === 'user' ? 'mine' : 'claude');
+    switch (id) {
+      case 'say_better':
+        setSayBetterFor(m);
+        break;
+      case 'open_coach':
+        onOpenInCoach?.(m, 'menu');
+        break;
+      case 'copy':
+        void navigator.clipboard?.writeText(m.text).catch(() => undefined);
+        break;
+      case 'translate':
+        void translate(m);
+        break;
+      case 'pinyin':
+        setPinyinOn((set) => flip(set, m.id));
+        break;
+      case 'explain':
+        setExplain({ text: m.text.trim(), mode: 'explain' });
+        break;
+      case 'save_card':
+        setExplain({ text: m.text.trim(), mode: 'save' });
+        break;
+      case 'play':
+        void play(m);
+        break;
+      default:
+        break;
+    }
+  };
+  /** The gestures that open the menu on a finished bubble (long press, right-click). */
+  const menuGestures = (m: ClaudeChatMessage) => ({
+    ...press.bind(() => openMenu(m, null)),
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      openMenu(m, { x: e.clientX, y: e.clientY });
+    },
+  });
+
   return (
     <div className="ask-thread claude-chat-thread" data-testid="claude-chat-thread">
       {messages.map((m) => {
         if (m.role === 'user') {
           return (
-            <MineBubble key={m.id} m={m} known={known} pinyin={pinyinOn.has(m.id)} onTapWord={(w) => tapWord(w, 'mine')} onDiscard={onDiscardQueued} />
+            <MineBubble
+              key={m.id}
+              m={m}
+              known={known}
+              pinyin={pinyinOn.has(m.id)}
+              translateOn={translateOn.has(m.id)}
+              translation={m.translation ?? translations[m.id] ?? null}
+              translateFailed={translations[m.id] === null && !m.translation}
+              onTapWord={(w) => tapWord(w, 'mine')}
+              onDiscard={onDiscardQueued}
+              gestures={menuGestures(m)}
+              suppressTap={press.suppressTap}
+              menuOpen={menu?.m.id === m.id}
+              onMenu={(anchor) => openMenu(m, anchor)}
+              onOpenCoach={onOpenInCoach ? () => { tool('open_coach', 'mine'); onOpenInCoach(m, 'chip'); } : undefined}
+            />
           );
         }
         if ((m.content_type ?? 'text') !== 'text' && renderSpecial) {
@@ -270,6 +369,10 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
             }}
             onTranslate={() => void translate(m)}
             onTapWord={(w) => tapWord(w, 'claude')}
+            gestures={menuGestures(m)}
+            suppressTap={press.suppressTap}
+            menuOpen={menu?.m.id === m.id}
+            onMenu={(anchor) => openMenu(m, anchor)}
             onStopAudio={() => {
               playerRef.current.stop();
               setPlaying(null);
@@ -291,20 +394,102 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
           </div>
         </div>
       )}
+      {menu && (
+        <MessageMenu
+          senderName={menu.m.role === 'user' ? 'You' : 'Claude'}
+          preview={menu.m.text}
+          items={menuFor(menu.m)}
+          reactions={false}
+          isOnline={online}
+          anchor={menu.anchor}
+          quickEmojis={[]}
+          recentEmojis={[]}
+          allEmojis={[]}
+          onAction={onMenuAction}
+          onReact={() => undefined}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {explain && <ExplainSheet text={explain.text} mode={explain.mode} isOnline={online} onClose={() => setExplain(null)} />}
+      {sayBetterFor && (
+        <SayBetterSheet
+          message={asChatMessage(messages.find((x) => x.id === sayBetterFor.id) ?? sayBetterFor)}
+          viewerId={ME}
+          tutorName="Claude"
+          playing={playing === `better:${sayBetterFor.id}`}
+          onPlay={(text) => void play({ ...sayBetterFor, id: `better:${sayBetterFor.id}`, text })}
+          onDiscuss={() => {
+            const corrected = sayBetterFor.auto_check?.corrected ?? sayBetterFor.text;
+            setSayBetterFor(null);
+            onDraft?.(language === 'zh' ? `为什么「${corrected}」更好？` : `Why is "${corrected}" better?`);
+          }}
+          onOpenCoach={
+            onOpenInCoach
+              ? () => {
+                  const m = sayBetterFor;
+                  setSayBetterFor(null);
+                  onOpenInCoach(m, 'sheet');
+                }
+              : undefined
+          }
+          onClose={() => setSayBetterFor(null)}
+        />
+      )}
     </div>
   );
 }
 
-function MineBubble({ m, known, pinyin, onTapWord, onDiscard }: { m: ClaudeChatMessage; known: Set<string>; pinyin: boolean; onTapWord: (w: TappedWord) => void; onDiscard?: (m: ClaudeChatMessage) => void }) {
+/** The ⋯ beside a bubble (desktop hover; the menu without a long press). */
+function HoverMenuButton({ onMenu }: { onMenu: (anchor: MenuAnchor) => void }) {
   return (
-    <div className="chat-message sent group-first group-last" data-testid="claude-chat-mine" data-queued={m.queued ? 'true' : undefined}>
+    <div className="chat-hover-tools">
+      <button type="button" className="chat-hover-btn" aria-label="Message actions" onClick={(e) => onMenu({ x: e.clientX, y: e.clientY })}>
+        ⋯
+      </button>
+    </div>
+  );
+}
+
+interface BubbleGestures {
+  gestures: Record<string, unknown>;
+  suppressTap: () => boolean;
+  menuOpen: boolean;
+  onMenu: (anchor: MenuAnchor) => void;
+}
+
+function MineBubble({ m, known, pinyin, translateOn, translation, translateFailed, onTapWord, onDiscard, gestures, suppressTap, menuOpen, onMenu, onOpenCoach }: {
+  m: ClaudeChatMessage;
+  known: Set<string>;
+  pinyin: boolean;
+  translateOn: boolean;
+  translation: string | null;
+  translateFailed: boolean;
+  onTapWord: (w: TappedWord) => void;
+  onDiscard?: (m: ClaudeChatMessage) => void;
+  onOpenCoach?: () => void;
+} & BubbleGestures) {
+  const asMessage = asChatMessage(m);
+  const better = !m.queued && !m.queueFailed ? sayBetterState(asMessage, ME) : null;
+  const sent = !m.queued && !m.queueFailed;
+  return (
+    <div className={`chat-message sent group-first group-last${menuOpen ? ' menu-open' : ''}`} data-testid="claude-chat-mine" data-queued={m.queued ? 'true' : undefined}>
       <div className="chat-message-content">
-        <div className={`chat-bubble${m.queued ? ' pending' : ''}`}>
-          {looksLikeChinese(m.text) ? <ChatWordsText text={m.text} words={null} showPinyin={pinyin} known={known} onTapWord={onTapWord} /> : <span className="chat-text">{m.text}</span>}
+        <div className="chat-bubble-row">
+          <div className={`chat-bubble${m.queued ? ' pending' : ''}`} {...(sent ? gestures : {})}>
+            {looksLikeChinese(m.text) ? <ChatWordsText text={m.text} words={null} showPinyin={pinyin} known={known} onTapWord={onTapWord} suppressTap={suppressTap} /> : <span className="chat-text">{m.text}</span>}
+            {translateOn && <ChatTranslation text={translation ?? (translateFailed ? "Couldn't translate — hold to try again" : null)} />}
+            {better && (
+              <span className="chat-bubble-meta">
+                <SayBetterMark state={better} label={sayBetterLabel(better)} />
+              </span>
+            )}
+          </div>
+          {sent && <HoverMenuButton onMenu={onMenu} />}
         </div>
+        {sent && onOpenCoach && showCoachChip(asMessage, ME) && <CoachChip onClick={onOpenCoach} />}
         {m.queued && (
           <div className="claude-chat-queued" data-testid="claude-chat-queued">
-            🕓 Waiting for a connection — it sends by itself
+            🕓 Will send when you’re online
           </div>
         )}
         {m.queueFailed && (
@@ -423,7 +608,7 @@ function ClaudeBubble(props: {
   onTranslate: () => void;
   onTapWord: (w: TappedWord) => void;
   onStopAudio: () => void;
-}) {
+} & BubbleGestures) {
   const { m } = props;
   const offered = readBackOffered({ role: m.role, content: m.text, answer_lang: m.answer_lang, status: m.status });
   const segments = useSegmentedWords(m.text, offered);
@@ -447,31 +632,38 @@ function ClaudeBubble(props: {
   const listeningNow = readBack.dictation.state.phase === 'listening';
   const result = listeningNow ? null : readBack.result;
 
+  const open = props.menuOpen ? ' menu-open' : '';
   if (m.answer_lang !== 'zh' && !looksLikeChinese(m.text)) {
     return (
-      <div className="chat-message received group-first group-last" data-testid="claude-chat-reply">
+      <div className={`chat-message received group-first group-last${open}`} data-testid="claude-chat-reply">
         <div className="chat-message-content">
-          <div className="chat-bubble">
-            <div className="claude-response">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+          <div className="chat-bubble-row">
+            <div className="chat-bubble" {...props.gestures}>
+              <div className="claude-response">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+              </div>
             </div>
+            <HoverMenuButton onMenu={props.onMenu} />
           </div>
         </div>
       </div>
     );
   }
   return (
-    <div className="chat-message received group-first group-last" data-testid="claude-chat-reply" data-bucket={readBack.result ? readAloudBucket(readBack.result.pct) : undefined}>
+    <div className={`chat-message received group-first group-last${open}`} data-testid="claude-chat-reply" data-bucket={readBack.result ? readAloudBucket(readBack.result.pct) : undefined}>
       <div className="chat-message-content">
-        <div className="chat-bubble">
+        <div className="chat-bubble-row">
+        <div className="chat-bubble" {...props.gestures}>
           {m.answer_lang === 'zh' ? (
-            <ChatWordsText text={m.text} words={segments} showPinyin={props.pinyin} known={props.known} onTapWord={props.onTapWord} marks={result} />
+            <ChatWordsText text={m.text} words={segments} showPinyin={props.pinyin} known={props.known} onTapWord={props.onTapWord} marks={result} suppressTap={props.suppressTap} />
           ) : (
             <div className="claude-response">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
             </div>
           )}
           {props.translateOn && <ChatTranslation text={props.translation ?? (props.translateFailed ? "Couldn't translate — tap EN to try again" : null)} />}
+        </div>
+        <HoverMenuButton onMenu={props.onMenu} />
         </div>
         {offered && (
           <>

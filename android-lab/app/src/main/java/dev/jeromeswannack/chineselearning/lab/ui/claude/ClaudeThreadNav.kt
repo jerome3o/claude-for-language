@@ -15,6 +15,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dev.jeromeswannack.chineselearning.lab.core.SayBetter
 import dev.jeromeswannack.chineselearning.lab.core.WordRecap
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
@@ -117,8 +118,8 @@ fun ClaudeRecapRoute(nav: LabNav, id: String) {
 }
 
 /**
- * The thread screen wired to its ViewModel — the page here, and (with [sheet]) the same content for
- * the study card's Ask Claude sheet later ([onClose] = ✕).
+ * The thread screen wired to its ViewModel — the page `/chats/claude/{id}` here; the study card's Ask
+ * Claude sheet draws the same thing over the card ([ClaudeThreadContent], ui/study/CardClaudeSheet.kt).
  */
 @Composable
 fun ClaudeThreadRoute(
@@ -129,35 +130,53 @@ fun ClaudeThreadRoute(
     draft: String? = null,
     source: String = "link",
     hasSentence: Boolean = false,
-    sheet: Boolean = false,
-    onClose: () -> Unit = {},
 ) {
     val app = nav.app
     val vm: ClaudeThreadViewModel = viewModel(key = "claude-thread-$id-${newContext?.kind}-${newContext?.note_id}-${newContext?.message_id}", factory = ClaudeThreadViewModel.Factory(app, id, newContext, source, hasSentence))
-    val ui by vm.ui.collectAsStateWithLifecycle()
     LaunchedEffect(vm) { vm.pollWhilePending() }
     // A fresh thread exists now: the screen moves to its route (the web's onThreadCreated).
     val started: (String) -> Unit = { newId ->
-        if (!sheet) {
-            nav.back()
-            nav.open(Routes.claudeThread(newId))
-        }
+        nav.back()
+        nav.open(Routes.claudeThread(newId))
     }
     LaunchedEffect(autoSend) { autoSend?.let { (text, intent) -> vm.autoSend(text, intent, started) } }
     LaunchedEffect(draft) { if (!draft.isNullOrBlank()) vm.claimDraft(draft) }
-    val explore = rememberExplorerTap("claude_chat")
+    ClaudeThreadContent(app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started)
+}
+
+/**
+ * A thread's screen for a ViewModel: the page ([sheet] false) or the study card's sheet ([sheet] true:
+ * ✕ = [onClose]), with the card sheet's extras ([headerExtra] under the header chip, [toolResults]
+ * under a reply, [closedNote] instead of the composer).
+ */
+@Composable
+fun ClaudeThreadContent(
+    app: dev.jeromeswannack.chineselearning.lab.LabApp,
+    vm: ClaudeThreadViewModel,
+    open: (String) -> Unit,
+    back: () -> Unit,
+    started: (String) -> Unit,
+    sheet: Boolean = false,
+    onClose: () -> Unit = {},
+    headerExtra: (@Composable () -> Unit)? = null,
+    toolResults: (@Composable (dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto) -> Unit)? = null,
+    closedNote: String? = null,
+    explorerSource: String = "claude_chat",
+) {
+    val ui by vm.ui.collectAsStateWithLifecycle()
+    val explore = rememberExplorerTap(explorerSource)
     ClaudeThreadScreen(
         ui,
         ClaudeThreadActions(
-            onBack = nav::back,
+            onBack = back,
             onClose = onClose,
             onDraft = vm::setDraft,
             onSend = { text, spoken, intent, chip -> vm.send(text, spoken, intent, chip, started) },
             onLanguage = vm::setLanguage,
             onListening = vm::setListening,
-            onContext = { link -> vm.contextPath(link) { path -> nav.open(path) } },
+            onContext = { link -> vm.contextPath(link) { path -> open(path) } },
             onMakeCards = vm::makeCards,
-            onRecap = { ui.threadId?.let { nav.open(Routes.claudeThreadRecap(it)) } },
+            onRecap = { ui.threadId?.let { open(Routes.claudeThreadRecap(it)) } },
             onRetryLoad = vm::reload,
             thread = ClaudeChatThreadActions(
                 onWord = { w, sentence, _ ->
@@ -188,11 +207,20 @@ fun ClaudeThreadRoute(
             coach = CoachChatActions(
                 onRetryReply = vm::retry,
                 onMistakeLesson = vm::requestMistakeLesson,
-                onPlayLesson = { messageId, content -> vm.playLesson(messageId, content) { path -> nav.open(path) } },
+                onPlayLesson = { messageId, content -> vm.playLesson(messageId, content) { path -> open(path) } },
                 onSaveLesson = vm::saveMistakeLesson,
             ),
             cards = coachCardActions(app),
+            onOpenCoach = { m, source ->
+                SayBetter.openInCoachRequest(if (m.mine) "me" else "claude", m.text, null, null, null, null, "me")?.let { req ->
+                    vm.track(if (source == "menu") "open_coach" else "open_coach_$source", m.mine)
+                    open(dev.jeromeswannack.chineselearning.lab.ui.coach.coachOpenPath(req.text, req.action, null))
+                }
+            },
         ),
         sheet = sheet,
+        headerExtra = headerExtra,
+        toolResults = toolResults,
+        closedNote = closedNote,
     )
 }

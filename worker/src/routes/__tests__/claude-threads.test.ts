@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import type { ClaudeThreadMessage, ClaudeThreadSummary } from '@shared/claude/api';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import claudeThreads from '../claude-threads';
-import { FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
+import { FAKE_FUN_FACT, FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
 import type { Env } from '../../types';
 
 const U = 'u1';
@@ -95,6 +95,32 @@ describe('/api/claude/threads', () => {
     expect(card.body.thread).toMatchObject({ context_kind: 'card', context: { note_id: 'n1', label: '银行', sublabel: 'HSK 2' }, badge: { text: 'Asked on card · 银行' } });
     // The card turn also landed in note_questions (older apps' history).
     expect(db.rows("SELECT question FROM note_questions WHERE note_id = 'n1' ORDER BY asked_at")).toEqual([{ question: '行怎么读？' }, { question: 'Why háng?' }]);
+  });
+
+  it('a card thread: my Chinese question is checked (not a chip), the typed answer follows the card, the fun-fact tool edits the card', async () => {
+    const created = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-card', context: { kind: 'card', note_id: 'n1', typed: { answer: '很行', correct: '银行' } }, text: '银行是什么意？', language: 'zh' });
+    expect(created.status).toBe(202);
+    const mine = created.body.messages[0];
+    // The check ran beside the reply (awaited in tests): improvable, on my message.
+    const opened = await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}`);
+    expect(opened.body.messages[0].auto_check).toMatchObject({ text: '银行是什么意？', status: 'improvable', corrected: '银行是什么意思？' });
+    expect(opened.body.messages[1].auto_check).toBeNull();
+    expect(mine.id).toBe(opened.body.messages[0].id);
+    expect(JSON.parse(db.rows<{ context_json: string }>('SELECT context_json FROM coach_conversations WHERE id = ?', [created.body.thread.id])[0].context_json).typed).toEqual({ answer: '很行', correct: '银行' });
+
+    // A suggestion chip (quick) isn't checked; a later showing of the card without a typed answer clears it.
+    const chip = await w.call<ThreadBody>('POST', `/api/claude/threads/${created.body.thread.id}/messages`, { client_id: 'chip-1', text: '请给这张卡片加一个有意思的小知识。', quick: true, typed: null });
+    expect(chip.status).toBe(202);
+    const after = await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}`);
+    const reply = after.body.messages[3];
+    expect(after.body.messages[2].auto_check).toBeNull();
+    expect(JSON.parse(db.rows<{ context_json: string }>('SELECT context_json FROM coach_conversations WHERE id = ?', [created.body.thread.id])[0].context_json).typed).toBeUndefined();
+    // The stand-in's fun-fact tool: the card edited through the content service, the result on the reply.
+    expect(reply).toMatchObject({ role: 'assistant', status: null, content: FAKE_STREAM_CHUNKS.zh.join('') });
+    const results = JSON.parse(reply.tool_results!) as Array<{ tool: string; success: boolean; data: { note: { id: string; fun_facts: string } } }>;
+    expect(results.map((r) => [r.tool, r.success])).toEqual([['edit_current_card', true]]);
+    expect(results[0].data.note).toMatchObject({ id: 'n1', fun_facts: FAKE_FUN_FACT });
+    expect(db.rows("SELECT fun_facts FROM notes WHERE id = 'n1'")).toEqual([{ fun_facts: FAKE_FUN_FACT }]);
   });
 
   it("✏️ Check starts a Coach chat: its structured reply goes on the Coach's queue, not the stream", async () => {

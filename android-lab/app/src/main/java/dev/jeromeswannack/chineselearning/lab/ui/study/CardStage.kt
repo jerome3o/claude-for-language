@@ -222,6 +222,8 @@ fun CardStage(
     }
     var rated by remember(view.presentation) { mutableStateOf(false) }
     var sheet by remember(view.presentation) { mutableStateOf<CardSheet?>(null) }
+    // Ask Claude = the card's Claude thread (CardClaudeSheet.kt): which thread, kept while the sheet is closed.
+    val claude = remember(view.presentation) { CardClaudeState(view.note.id) }
     var burst by remember { mutableIntStateOf(0) }
     val startedAt = remember(view.presentation) { System.currentTimeMillis() - start.elapsedMs }
     // Tell the session how the card stands, so leaving Study (the coach, Home, the app going
@@ -841,6 +843,9 @@ fun CardStage(
     }
     }
 
+    // The card's Claude thread keeps listening while its sheet is closed: a finished reply's card tools still apply.
+    CardClaudeEffects(view, typed, claude, actions.claude)
+
     when (val s = sheet) {
         null -> Unit
         CardSheet.More -> StudyMoreSheet(
@@ -877,8 +882,8 @@ fun CardStage(
                 actions = dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.LeechSheetActions(
                     onEdit = { sheet = CardSheet.Edit },
                     onMemoryHook = if (ui.aiAvailable) ({
+                        claude.autoAsk = dev.jeromeswannack.chineselearning.lab.core.Leech.memoryHookQuestion(note.hanzi, note.english, view.card.state.lapses) to "memory-hook:${System.currentTimeMillis()}"
                         sheet = CardSheet.Ask
-                        actions.ask.ask(dev.jeromeswannack.chineselearning.lab.core.Leech.memoryHookQuestion(note.hanzi, note.english, view.card.state.lapses), false, null)
                     }) else null,
                     onSnooze = if (controls) ({ sheet = CardSheet.Hold("snooze") }) else null,
                     onSuspend = if (controls) ({ sheet = CardSheet.Hold("suspend") }) else null,
@@ -891,10 +896,7 @@ fun CardStage(
         CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
-        CardSheet.Ask -> AskClaudeSheet(
-            view, ui.extras.ask, ui.askLanguage, typed, ui.aiAvailable, actions.ask, actions.sentences, onDismiss = { sheet = null },
-            listening = ui.askListening, listen = ui.askListen, listenNotice = ui.askListenNotice,
-        )
+        CardSheet.Ask -> CardClaudeSheet(view, typed, claude, ui.extras.ask.cardDeleted, actions.claude, onDismiss = { sheet = null })
         is CardSheet.WriteText -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(s.text, onClose = { sheet = null })
         is CardSheet.Character -> dev.jeromeswannack.chineselearning.lab.ui.chars.CharacterSheet(
             char = s.char,
