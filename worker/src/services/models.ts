@@ -24,6 +24,13 @@ export function withEffort<T extends object>(params: T, effort: ModelEffort): T 
  */
 export const SONNET_MODEL = 'claude-sonnet-5';
 
+/**
+ * The small, cheap model for background notes nobody waits for (Claude memory: thread summaries and
+ * the learner digest, services/claude-agent/memory.ts). Called through `structuredCall` (forced tool,
+ * thinking off).
+ */
+export const HAIKU_MODEL = 'claude-haiku-4-5';
+
 export type ModelTier = 'opus' | 'sonnet' | 'haiku' | 'other';
 
 /** A model id as a tier (analytics carry the tier, never the id). */

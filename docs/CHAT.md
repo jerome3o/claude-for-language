@@ -928,3 +928,36 @@ thread). This part is worker + shared types only; the screens come later.
   (`streaming: true` = text so far). `server.claude_turn` gains `first_token_ms` and `inline`.
 - **API**: see CLAUDE.md "Claude threads". E2E_TEST_MODE streams a stand-in answer in three chunks
   (`claude-agent/fake.ts`), checked before any key.
+- **Memory — the same Claude in every chat** (migration 0145_claude_memory.sql; `claude-agent/memory.ts`,
+  `tools/memory.ts`; Jerome: "I should be talking to the same agent each time, and it should be able to read
+  other chats in a way that won't blow up its context window"). Four layers, each with a hard budget:
+  - **Thread summary** (`coach_conversations.summary`, `summary_upto` = the last message it covers,
+    `summary_at`): ≤ ~80 words + "Topics: 银行, 把 sentences", rewritten after a reply when ≥ 2 messages are
+    new — incrementally (the summary so far + only the new messages, the newest ~8,000 characters). A cheap
+    background call (`MODEL_POLICY.summary` via `structuredCall`, forced tool, thinking off), never in the
+    reply's way: after a thread reply (`startThreadTurn` / the queue delivery), a Coach / Ask-chat reply
+    (`runCoachReply` on coach-reply-queue), an Ask on a card (after its dual-write into the card thread) and a
+    saved Discuss with Claude.
+  - **Learner digest** (`claude_learner_memory`: `digest` ≤ ~600 tokens — Working on / Keeps confusing /
+    Interests / Level & preferences —, `threads_index` = the 20 most recent chats with a one-line summary,
+    built in code; `watermark`, tokens so far): rebuilt by the daily cron (03:17 UTC: first the summaries of
+    threads active in the last 30 days that are behind, ≤ 60 calls, then every learner with new summaries)
+    and on demand after 5 new summaries (the very first after the first one).
+  - **In every prompt**: "What you know from earlier chats" — the digest (≤ 500 tokens there) + as many index
+    rows as fit (short ids), ≤ 800 tokens — joined to the cached learner block (no new cache breakpoint; it
+    changes only when the digest is rebuilt). Every context (general, card, coach, chat_message).
+  - **Look-ups** (read tools in every context): `search_my_chats { query, limit ≤ 5 }` — titles, summaries and
+    messages of the learner's OWN live chats (any term, ranked by the terms matched, then recency; the chat
+    asking left out) → per chat its id, title, badge, date, summary and ≤ 2 excerpts of 200 characters, ≤ 1,500
+    tokens in all; `read_chat { thread_id (or a unique ≥ 8-character prefix), around?, max_messages ≤ 20 }` →
+    the summary + the messages (each ≤ 400 characters) centred on `around` or the latest, ≤ 3,000 tokens.
+  - **Compaction**: a thread whose history is over ~12,000 tokens (a conservative estimate: one token per Han
+    character, one per three other characters) is sent as its FIRST message (the context's framing: the card's
+    facts, the Coach's sentence, the discussed message) + the last 6 turns; the left-out middle is described in
+    the context block by the thread's summary (or, before there is one, the left-out questions) with the
+    read_chat hint.
+  - Costs (Haiku 4.5 rates): a summary ≈ 1–3k input + ~150 output tokens ≈ $0.002–0.004; a digest ≈ 4–8k input +
+    ~400 output ≈ $0.006–0.010. `server.claude_memory { kind: summary | digest, input_tokens, output_tokens, ms }`
+    + the ai-usage capture; per learner totals on the memory row. E2E_TEST_MODE: a deterministic stand-in writes
+    both (checked first). Privacy: only the learner's own Claude chats — never `student_profiles` (tested); the
+    memory row goes with the account (`DELETE_STEPS`).

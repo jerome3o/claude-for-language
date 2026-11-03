@@ -27,6 +27,7 @@ import {
 import { CARD_TOOLS } from '../contexts/card';
 import { COACH_TOOLS } from '../contexts/coach';
 import { CHAT_MESSAGE_TOOLS } from '../contexts/chat_message';
+import { GENERAL_TOOLS } from '../contexts/general';
 
 type Params = Anthropic.MessageCreateParamsNonStreaming;
 type Reply = { model: string; stop_reason: string; content: unknown[]; usage: Record<string, number> };
@@ -189,11 +190,11 @@ describe('Claude agent harness', () => {
       expect(r.readOnlyToolCalls).toHaveLength(5);
     });
 
-    it('general = one call, no tools; an empty answer is a retryable failure', async () => {
+    it('general = only the memory look-ups as tools; an empty answer is a retryable failure', async () => {
       const { client, create } = fakeModel([text('   ')]);
       await expect(runClaudeTurn(env, CONTEXTS.general.ctx, CONTEXTS.general.input, { client })).rejects.toMatchObject({ retryable: true });
       expect(create).toHaveBeenCalledTimes(1);
-      expect((create.mock.calls[0][0] as Params).tools).toBeUndefined();
+      expect(((create.mock.calls[0][0] as Params).tools ?? []).map((t) => (t as { name: string }).name)).toEqual(['search_my_chats', 'read_chat']);
     });
 
     it('the round hook sees every round; applyCheckpointed resumes after the last applied action', async () => {
@@ -278,7 +279,7 @@ describe('Claude agent harness', () => {
 
   describe('the tool registry', () => {
     it('every context lists only tools the registry allows it, in a stable order', () => {
-      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: [] };
+      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: GENERAL_TOOLS };
       for (const kind of CONTEXT_KINDS) {
         expect(CONTEXT_PROVIDERS[kind].tools({} as never)).toEqual(lists[kind]);
         for (const name of lists[kind]) expect(toolAllowed(kind, name)).toBe(true);
@@ -287,6 +288,8 @@ describe('Claude agent harness', () => {
       expect(toolAllowed('coach', 'edit_current_card')).toBe(false);
       expect(toolAllowed('chat_message', 'delete_current_card')).toBe(false);
       expect(toolAllowed('general', 'search_cards')).toBe(false);
+      // Claude memory's look-ups: every context.
+      for (const kind of CONTEXT_KINDS) for (const name of ['search_my_chats', 'read_chat']) expect(toolAllowed(kind, name)).toBe(true);
       expect(() => bindTools('coach', ['edit_current_card'], { db, userId: USER, deckId: '', bumpSource: 'x', context: 'coach' })).toThrow(/not allowed/);
     });
 

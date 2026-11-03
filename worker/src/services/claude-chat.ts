@@ -35,6 +35,8 @@ export interface ClaudeChatContext {
   language: AskLanguage;
   userId: string;
   knownWords?: string[];
+  /** The thread (Claude memory: its summary stands in for old turns of a long chat). */
+  threadId?: string;
 }
 
 export interface CoachAskTurn {
@@ -89,7 +91,7 @@ export function defaultCoachAskReply(
     const r = await runClaudeTurn(
       env,
       { kind: 'general' },
-      { userId: context.userId, language: context.language, turns, knownWords: context.knownWords },
+      { userId: context.userId, threadId: context.threadId ?? null, language: context.language, turns, knownWords: context.knownWords },
       { client: opts.client },
     );
     return r.answer;

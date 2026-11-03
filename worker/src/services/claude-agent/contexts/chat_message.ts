@@ -11,7 +11,7 @@ import type { GeneratedNote } from '../../../types';
 import { ClaudeContextError, type AgentEnv, type ChatTurn, type ContextProvider, type ToolAction, type ToolName } from '../types';
 
 /** Discuss with Claude's tools, in the order the model sees them. */
-export const CHAT_MESSAGE_TOOLS: readonly ToolName[] = ['create_flashcards', 'search_cards', 'list_student_decks', 'bump_cards'];
+export const CHAT_MESSAGE_TOOLS: readonly ToolName[] = ['create_flashcards', 'search_cards', 'list_student_decks', 'bump_cards', 'search_my_chats', 'read_chat'];
 
 /** Discuss with Claude's output budget: an answer or a few flashcards. */
 export const DISCUSS_MAX_TOKENS = 8000;

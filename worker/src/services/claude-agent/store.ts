@@ -616,3 +616,270 @@ export async function setMessageLegacyId(db: D1Database, ids: string[], legacyId
   if (ids.length === 0) return;
   await db.prepare(`UPDATE coach_messages SET legacy_id = ? WHERE id IN (${ids.map(() => '?').join(',')}) AND legacy_id IS NULL`).bind(legacyId, ...ids).run();
 }
+
+// ---------- Memory (memory.ts; migration 0145) ----------
+
+/** What a thread's summary is written from: the thread and its finished messages, in order. */
+export interface SummarySource {
+  thread: Pick<ThreadRow, 'id' | 'user_id' | 'title' | 'context_kind' | 'context_json' | 'action' | 'summary' | 'summary_upto'>;
+  messages: Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>;
+}
+
+export async function getSummarySource(db: D1Database, threadId: string): Promise<SummarySource | null> {
+  const [t, m] = await db.batch<Record<string, unknown>>([
+    db
+      .prepare(
+        `SELECT id, user_id, title, context_kind, context_json, action, summary, summary_upto
+           FROM coach_conversations WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .bind(threadId),
+    db
+      .prepare(
+        `SELECT id, role, content_type, content, created_at FROM coach_messages
+          WHERE conversation_id = ? AND status IS NULL AND content != ''
+          ORDER BY created_at ASC, rowid ASC`,
+      )
+      .bind(threadId),
+  ]);
+  const thread = t.results?.[0] as SummarySource['thread'] | undefined;
+  if (!thread) return null;
+  return { thread, messages: (m.results ?? []) as unknown as SummarySource['messages'] };
+}
+
+/**
+ * Stores a thread's summary — only if nobody wrote one since `previousUpto` was read (two runners
+ * racing: the first wins). Never touches `changed_at` (the summary isn't part of the inbox row).
+ */
+export async function writeThreadSummary(db: D1Database, threadId: string, previousUpto: string | null, summary: string, upto: string): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE coach_conversations SET summary = ?, summary_upto = ?, summary_at = ${NOW_ISO}
+        WHERE id = ? AND deleted_at IS NULL AND summary_upto IS ?`,
+    )
+    .bind(summary, upto, threadId, previousUpto)
+    .run();
+  return (res.meta?.changes ?? 0) > 0;
+}
+
+/** The learner's memory row (the digest + the recent-threads index). */
+export interface MemoryRow {
+  user_id: string;
+  digest: string;
+  threads_index: string;
+  digest_at: string | null;
+  watermark: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  updated_at: string;
+}
+
+export function memoryRowStatement(db: D1Database, userId: string): D1PreparedStatement {
+  return db.prepare('SELECT * FROM claude_learner_memory WHERE user_id = ?').bind(userId);
+}
+
+export function threadSummaryStatement(db: D1Database, userId: string, threadId: string): D1PreparedStatement {
+  return db.prepare('SELECT summary FROM coach_conversations WHERE id = ? AND user_id = ? AND deleted_at IS NULL').bind(threadId, userId);
+}
+
+/** Adds a memory call's tokens to the learner's row (made when missing). */
+export async function addMemoryTokens(db: D1Database, userId: string, input: number, output: number): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO claude_learner_memory (user_id, input_tokens, output_tokens, updated_at) VALUES (?, ?, ?, ${NOW_ISO})
+       ON CONFLICT(user_id) DO UPDATE SET input_tokens = input_tokens + excluded.input_tokens,
+                                          output_tokens = output_tokens + excluded.output_tokens,
+                                          updated_at = excluded.updated_at`,
+    )
+    .bind(userId, Math.max(0, Math.round(input)), Math.max(0, Math.round(output)))
+    .run();
+}
+
+/** Summaries written since the digest last folded them in (its watermark), and whether a digest exists. */
+export async function pendingSummaries(db: D1Database, userId: string): Promise<{ pending: number; hasDigest: boolean }> {
+  const row = await db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM coach_conversations c
+                WHERE c.user_id = ?1 AND c.deleted_at IS NULL AND c.summary_at IS NOT NULL
+                  AND (m.watermark IS NULL OR c.summary_at > m.watermark)) AS pending,
+              COALESCE(m.digest, '') != '' AS has_digest
+         FROM (SELECT ?1 AS uid) u LEFT JOIN claude_learner_memory m ON m.user_id = u.uid`,
+    )
+    .bind(userId)
+    .first<{ pending: number; has_digest: number }>();
+  return { pending: Number(row?.pending) || 0, hasDigest: !!row?.has_digest };
+}
+
+/** A learner's recent threads for the digest and its index: newest activity first, live ones only. */
+export interface MemoryThreadRow {
+  id: string;
+  title: string;
+  context_kind: string | null;
+  context_json: string | null;
+  action: string | null;
+  summary: string | null;
+  summary_at: string | null;
+  preview: string | null;
+  last_message_at: string | null;
+  created_at: string;
+}
+
+export async function recentThreadsForMemory(db: D1Database, userId: string, limit: number): Promise<MemoryThreadRow[]> {
+  const r = await db
+    .prepare(
+      `SELECT id, title, context_kind, context_json, action, summary, summary_at, preview, last_message_at, created_at
+         FROM coach_conversations
+        WHERE user_id = ? AND deleted_at IS NULL AND archived_at IS NULL
+          AND EXISTS (SELECT 1 FROM coach_messages m WHERE m.conversation_id = coach_conversations.id AND m.status IS NULL AND m.content != '')
+        ORDER BY COALESCE(last_message_at, changed_at) DESC, rowid DESC LIMIT ?`,
+    )
+    .bind(userId, Math.max(1, Math.floor(limit)))
+    .all<MemoryThreadRow>();
+  return r.results ?? [];
+}
+
+/** The newest summary_at of the learner's live threads (the digest's next watermark). */
+export async function newestSummaryAt(db: D1Database, userId: string): Promise<string | null> {
+  const r = await db.prepare('SELECT MAX(summary_at) AS at FROM coach_conversations WHERE user_id = ? AND deleted_at IS NULL').bind(userId).first<{ at: string | null }>();
+  return r?.at ?? null;
+}
+
+export async function saveDigest(
+  db: D1Database,
+  userId: string,
+  digest: string,
+  threadsIndex: string,
+  watermark: string | null,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO claude_learner_memory (user_id, digest, threads_index, digest_at, watermark, updated_at)
+       VALUES (?, ?, ?, ${NOW_ISO}, ?, ${NOW_ISO})
+       ON CONFLICT(user_id) DO UPDATE SET digest = excluded.digest, threads_index = excluded.threads_index,
+                                          digest_at = excluded.digest_at, watermark = excluded.watermark,
+                                          updated_at = excluded.updated_at`,
+    )
+    .bind(userId, digest, threadsIndex, watermark)
+    .run();
+}
+
+/** Threads with messages their summary doesn't cover yet, active since `sinceIso` (the cron's catch-up). */
+export async function threadsNeedingSummary(db: D1Database, sinceIso: string, limit: number): Promise<Array<{ id: string; user_id: string }>> {
+  const r = await db
+    .prepare(
+      `SELECT id, user_id FROM coach_conversations
+        WHERE deleted_at IS NULL AND last_message_at >= ?
+          AND (summary_at IS NULL OR last_message_at > summary_at)
+        ORDER BY last_message_at DESC LIMIT ?`,
+    )
+    .bind(sinceIso, Math.max(1, Math.floor(limit)))
+    .all<{ id: string; user_id: string }>();
+  return r.results ?? [];
+}
+
+/** Learners with thread summaries their digest hasn't folded in yet. */
+export async function usersNeedingDigest(db: D1Database, limit: number): Promise<string[]> {
+  const r = await db
+    .prepare(
+      `SELECT c.user_id FROM coach_conversations c LEFT JOIN claude_learner_memory m ON m.user_id = c.user_id
+        WHERE c.deleted_at IS NULL AND c.summary_at IS NOT NULL AND (m.watermark IS NULL OR c.summary_at > m.watermark)
+        GROUP BY c.user_id ORDER BY MAX(c.summary_at) DESC LIMIT ?`,
+    )
+    .bind(Math.max(1, Math.floor(limit)))
+    .all<{ user_id: string }>();
+  return (r.results ?? []).map((x) => x.user_id);
+}
+
+/** LIKE pattern for `text` anywhere (`\` escapes % and _). */
+export function likeAnywhere(text: string): string {
+  return `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
+/**
+ * search_my_chats: the learner's live threads whose title, summary or a finished message contains ANY
+ * of `terms`, newest first (`excludeId` = the chat asking). Empty `terms` = the most recent threads.
+ */
+export async function searchThreadsForMemory(
+  db: D1Database,
+  userId: string,
+  terms: string[],
+  limit: number,
+  excludeId?: string | null,
+): Promise<MemoryThreadRow[]> {
+  const where = ['c.user_id = ?', 'c.deleted_at IS NULL'];
+  const params: unknown[] = [userId];
+  if (excludeId) {
+    where.push('c.id != ?');
+    params.push(excludeId);
+  }
+  if (terms.length) {
+    const any = terms.map(
+      () =>
+        `(c.title LIKE ? ESCAPE '\\' OR c.summary LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM coach_messages m WHERE m.conversation_id = c.id AND m.status IS NULL AND m.content LIKE ? ESCAPE '\\'))`,
+    );
+    where.push(`(${any.join(' OR ')})`);
+    for (const t of terms) {
+      const p = likeAnywhere(t);
+      params.push(p, p, p);
+    }
+  } else {
+    where.push(`EXISTS (SELECT 1 FROM coach_messages m WHERE m.conversation_id = c.id AND m.status IS NULL AND m.content != '')`);
+  }
+  const r = await db
+    .prepare(
+      `SELECT c.id, c.title, c.context_kind, c.context_json, c.action, c.summary, c.summary_at, c.preview, c.last_message_at, c.created_at
+         FROM coach_conversations c WHERE ${where.join(' AND ')}
+        ORDER BY COALESCE(c.last_message_at, c.changed_at) DESC, c.rowid DESC LIMIT ?`,
+    )
+    .bind(...params, Math.max(1, Math.floor(limit)))
+    .all<MemoryThreadRow>();
+  return r.results ?? [];
+}
+
+/** The finished text messages of some threads that contain ANY of `terms` (newest first), for excerpts. */
+export async function matchingMessages(
+  db: D1Database,
+  threadIds: string[],
+  terms: string[],
+  limit: number,
+): Promise<Array<Pick<MessageRow, 'conversation_id' | 'role' | 'content' | 'created_at'>>> {
+  if (threadIds.length === 0 || terms.length === 0) return [];
+  const r = await db
+    .prepare(
+      `SELECT conversation_id, role, content, created_at FROM coach_messages
+        WHERE conversation_id IN (${threadIds.map(() => '?').join(',')}) AND status IS NULL AND content_type = 'text'
+          AND (${terms.map(() => `content LIKE ? ESCAPE '\\'`).join(' OR ')})
+        ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+    )
+    .bind(...threadIds, ...terms.map(likeAnywhere), Math.max(1, Math.floor(limit)))
+    .all<Pick<MessageRow, 'conversation_id' | 'role' | 'content' | 'created_at'>>();
+  return r.results ?? [];
+}
+
+/**
+ * read_chat: one of the learner's own live threads by id, or by a unique id prefix (≥ 8 characters —
+ * the recent-chats list shows short ids). null = not theirs, gone, or ambiguous.
+ */
+export async function findOwnThreadForMemory(db: D1Database, userId: string, ref: string): Promise<MemoryThreadRow | null> {
+  const cols = 'id, title, context_kind, context_json, action, summary, summary_at, preview, last_message_at, created_at';
+  const exact = await db.prepare(`SELECT ${cols} FROM coach_conversations WHERE id = ? AND user_id = ? AND deleted_at IS NULL`).bind(ref, userId).first<MemoryThreadRow>();
+  if (exact) return exact;
+  if (ref.length < 8) return null;
+  const r = await db
+    .prepare(`SELECT ${cols} FROM coach_conversations WHERE user_id = ? AND deleted_at IS NULL AND id LIKE ? ESCAPE '\\' LIMIT 2`)
+    .bind(userId, `${ref.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+    .all<MemoryThreadRow>();
+  const rows = r.results ?? [];
+  return rows.length === 1 ? rows[0] : null;
+}
+
+/** read_chat: a thread's finished messages in order. */
+export async function messagesForMemory(db: D1Database, threadId: string): Promise<Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>> {
+  const r = await db
+    .prepare(
+      `SELECT id, role, content_type, content, created_at FROM coach_messages
+        WHERE conversation_id = ? AND status IS NULL AND content != '' ORDER BY created_at ASC, rowid ASC`,
+    )
+    .bind(threadId)
+    .all<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>();
+  return r.results ?? [];
+}

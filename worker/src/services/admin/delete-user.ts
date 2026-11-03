@@ -187,6 +187,7 @@ export const DELETE_STEPS: Array<{ label: string; sql: string }> = [
   { label: 'picture_hunts', sql: `DELETE FROM picture_hunts WHERE user_id = ?1` },
   { label: 'coach_messages', sql: `DELETE FROM coach_messages WHERE conversation_id IN (SELECT id FROM coach_conversations WHERE user_id = ?1)` },
   { label: 'coach_conversations', sql: `DELETE FROM coach_conversations WHERE user_id = ?1` },
+  { label: 'claude_learner_memory', sql: `DELETE FROM claude_learner_memory WHERE user_id = ?1` },
   { label: 'roleplay_messages', sql: `DELETE FROM roleplay_messages WHERE session_id IN (SELECT id FROM roleplay_sessions WHERE user_id = ?1)` },
   { label: 'roleplay_sessions', sql: `DELETE FROM roleplay_sessions WHERE user_id = ?1` },
   { label: 'practice_attempts', sql: `DELETE FROM practice_attempts WHERE user_id = ?1 OR session_id IN (SELECT id FROM practice_sessions WHERE user_id = ?1)` },
