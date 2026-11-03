@@ -10,7 +10,7 @@ import {
   addRecapWord, addRecapWords, askCardChecked, askConversationTitle, conversationKind, readBackMistakeWords, readBackOffered,
   readBackReasonLine, recapCountLabel, recapFocusWords, recapKey, type AskRecapWord,
   COACH_ASK_LABEL, COACH_ASK_HINT, COACH_ASK_EMPTY_EN, COACH_ASK_PLACEHOLDER_ZH, COACH_ASK_PLACEHOLDER_EN, COACH_ASK_THINKING_ZH,
-  COACH_ASK_THINKING_EN, READ_BACK_LABEL, READ_BACK_LISTENING, RECAP_COMING_SOON, ASK_RECAP_MAX, COACH_ASK_MAX_CHARS,
+  COACH_ASK_THINKING_EN, READ_BACK_LABEL, READ_BACK_LISTENING, ASK_RECAP_MAX, COACH_ASK_MAX_CHARS,
 } from '../../../shared/coach/askChat';
 import { judgeReadAloud } from '../../../shared/reader/readAloud';
 
@@ -101,7 +101,7 @@ writeFileSync(
     copy: {
       label: COACH_ASK_LABEL, hint: COACH_ASK_HINT, emptyEn: COACH_ASK_EMPTY_EN, placeholderZh: COACH_ASK_PLACEHOLDER_ZH, placeholderEn: COACH_ASK_PLACEHOLDER_EN,
       thinkingZh: COACH_ASK_THINKING_ZH, thinkingEn: COACH_ASK_THINKING_EN, readBack: READ_BACK_LABEL, readBackListening: READ_BACK_LISTENING,
-      comingSoon: RECAP_COMING_SOON, recapMax: ASK_RECAP_MAX, maxChars: COACH_ASK_MAX_CHARS,
+      recapMax: ASK_RECAP_MAX, maxChars: COACH_ASK_MAX_CHARS,
     },
   }, null, 1),
 );

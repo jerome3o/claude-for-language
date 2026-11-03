@@ -874,8 +874,11 @@ a flashcard."
   reasons: ('tapped' | 'said_wrong')[], reason_line? }`): every word tapped into the explorer and every
   word a Read it back found a real mistake in (tone off / wrong / missed), merged by hanzi, newest 200,
   kept ON THE DEVICE per thread (web localStorage `claude-chat-recap-v1:<thread>`, Lab JsonCache
-  `claude-chat/recap/<thread>`). ⋯ shows "📝 N words to recap" (disabled, "Coming soon" — the recap pass
-  will be the reader word recap's). ⋯ → **🃏 Make flashcards from this chat**: the chat's review sheet
+  `claude-chat/recap/<thread>`). ⋯ shows **"📝 N words to recap"** only when N ≥ 1 (N = the chat's words
+  not yet recapped, `chatRecapCount`) → `/coach/chat/:id/recap`: the READER WORD RECAP pass with the chat as
+  its source (docs/STUDY_SESSION.md "Reader word recap" → "A chat as the source"): the cue is the sentence of
+  the message the word came from, switches OFF by default, new words → the "From my chats" deck + Up next
+  (`chat_recap`), words he has → ⚡ (`coach_chat`); after Done only words met since count. ⋯ → **🃏 Make flashcards from this chat**: the chat's review sheet
   with the recap words sent first and ticked (`askCardChecked`), one batch add.
 - Rules parity-tested (Lab core `CoachAsk.kt`, `parity/fixtures/coach-ask.ts`).
 

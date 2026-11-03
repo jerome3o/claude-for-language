@@ -83,7 +83,7 @@ const IMMERSIVE = [
   /^\/clips(\/[^/]+)?\/?$/,
   /^\/vr\/?$/,
   /^\/phone\/[^/]+\/?$/,
-  /^\/coach\/chat\/[^/]+\/?$/,
+  /^\/coach\/chat\/[^/]+(\/recap)?\/?$/,
 ];
 
 export function isImmersiveRoute(pathname: string): boolean {

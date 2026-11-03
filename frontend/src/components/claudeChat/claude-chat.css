@@ -180,13 +180,6 @@
   opacity: 0.55;
   cursor: default;
 }
-.claude-chat-menu .claude-chat-soon {
-  margin-left: auto;
-  font-size: 0.75rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.06);
-}
 
 /* 🎤 Read it back's line + legend sit under the bubble, left-aligned with it (a reader page centres them). */
 .claude-chat-read-back .reader-read-aloud-line-row,

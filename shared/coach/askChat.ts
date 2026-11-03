@@ -12,8 +12,9 @@
  * (shared/reader/readAloud.ts).
  *
  * The words he tapped — and the words a Read it back found real mistakes in — are kept per
- * conversation ON THE DEVICE (`AskRecapWord`), for a recap pass and "Make flashcards from this chat"
- * (whose default selection they are).
+ * conversation ON THE DEVICE (`AskRecapWord`), for the word recap pass (the readers' one,
+ * shared/study/wordRecap.ts — "📝 N words to recap" in the chat's ⋯ menu) and "Make flashcards from
+ * this chat" (whose default selection they are).
  *
  * Pure rules shared by the worker (the conversation kind, the title) and both apps. Lab port: core
  * `CoachAsk.kt`, parity-tested (android-lab/parity/fixtures/coach-ask.ts → CoachAskParityTest).
@@ -198,13 +199,15 @@ export function readBackMistakeWords(text: string, words: readonly string[], res
   return out;
 }
 
-/** The ⋯ menu's recap row: "📝 3 words to recap". */
+/**
+ * The ⋯ menu's recap row: "📝 3 words to recap" — shown only with words to recap (n = the words not
+ * yet recapped, shared/study/wordRecap.ts `chatRecapCount`); it opens the word recap pass at
+ * `/coach/chat/:id/recap`.
+ */
 export function recapCountLabel(n: number): string {
   if (n <= 0) return '📝 No words to recap yet';
   return `📝 ${n} word${n === 1 ? '' : 's'} to recap`;
 }
-
-export const RECAP_COMING_SOON = 'Coming soon';
 
 /**
  * "Make flashcards from this chat": a proposed card starts ticked when it is one of the recap words

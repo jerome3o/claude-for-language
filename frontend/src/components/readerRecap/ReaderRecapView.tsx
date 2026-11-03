@@ -1,13 +1,15 @@
 import { Fragment, useState } from 'react';
 import {
-  recapBar, recapKeepLabel, recapKey, recapProgress, recapRightFirstTime, recapWhyLines, recapWordFor,
-  type WordRecapRun, type WordRecapWord,
+  recapBar, recapKeepHint, recapKeepLabel, recapKey, recapProgress, recapRightFirstTime, recapSource, recapWhyLines, recapWordFor,
+  type WordRecapRun, type WordRecapSource, type WordRecapWord,
 } from '@shared/study/wordRecap';
+import type { ExplorerSource } from '../explorer/ExplorerContext';
 import { retryBarNote } from '@shared/homework';
 import { RetryProgressBar } from '../homework/RetryProgressBar';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { Confetti } from '../Confetti';
 import '../homework/homework.css';
+import '../StudyReader.css';
 import './ReaderRecap.css';
 
 export interface ReaderRecapActions {
@@ -20,9 +22,13 @@ export interface ReaderRecapActions {
   speak: (text: string) => void;
 }
 
+/** The explorer source of a recap's words. */
+const explorerSource = (source: WordRecapSource): ExplorerSource => (source === 'chat' ? 'claude_chat' : 'reader');
+
 /**
- * The reader word recap (docs/STUDY_SESSION.md "Reader word recap"): a ONE-OFF pass over the words
- * collected while reading, in story order — the homework pass's rules (`passProgress`: "Not yet"
+ * The word recap (docs/STUDY_SESSION.md "Reader word recap"): a ONE-OFF pass over the words
+ * collected while reading a graded reader — or in a "💬 Ask Claude" chat (the run's `source`; the
+ * cue is then the chat message's sentence) —, in story / chat order — the homework pass's rules (`passProgress`: "Not yet"
  * words come back until "Got it", the retry bar), practice only. Each card: the word with the story
  * sentence it came from (the word marked) → Show answer → pinyin, meaning, ▶, the page in English,
  * why it is here, and its switch (OFF by default): "Add to my long-term review" for a new word,
@@ -32,6 +38,7 @@ export interface ReaderRecapActions {
 export function ReaderRecapView({
   run,
   title,
+  sourceLabel,
   owned,
   glosses,
   online,
@@ -40,6 +47,8 @@ export function ReaderRecapView({
 }: {
   run: WordRecapRun;
   title: string;
+  /** Where the words come from: "from the story “…”" / "from your chat with Claude". */
+  sourceLabel?: string;
   /** Recap keys of words already in his decks. */
   owned: ReadonlySet<string>;
   /** Meanings looked up for words whose chip had none (the word dictionary). */
@@ -56,6 +65,7 @@ export function ReaderRecapView({
   // A word shown again after "Not yet" is a fresh card.
   const attempt = nextKey ? run.events.filter((e) => e.item_id === nextKey).length : 0;
   const showList = listing || progress.complete || !word;
+  const source = recapSource(run);
 
   return (
     <div className="study-fullscreen recap" data-testid="reader-recap">
@@ -70,14 +80,16 @@ export function ReaderRecapView({
           <button className="study-close-btn" onClick={actions.close} aria-label="Close">✕</button>
         </div>
       </div>
+      {sourceLabel && <p className="recap-source" lang="zh-CN" data-testid="recap-source">{sourceLabel}</p>}
       {showList ? (
-        <RecapSummary run={run} owned={owned} glosses={glosses} online={online} complete={progress.complete} doneLine={doneLine} actions={actions} onBack={!progress.complete && word ? () => setListing(false) : undefined} />
+        <RecapSummary source={source} run={run} owned={owned} glosses={glosses} online={online} complete={progress.complete} doneLine={doneLine} actions={actions} onBack={!progress.complete && word ? () => setListing(false) : undefined} />
       ) : (
         <>
           <RetryProgressBar bar={recapBar(run)} className="hw-pass-progress" testId="recap-progress" />
           <RecapNote run={run} />
           <RecapCard
             key={`${nextKey}:${attempt}`}
+            source={source}
             word={word!}
             owned={owned.has(nextKey!)}
             kept={run.keep.includes(nextKey!)}
@@ -132,7 +144,8 @@ export function RecapKeepSwitch({ owned, on, onChange, testId = 'recap-keep' }: 
   );
 }
 
-function RecapCard({ word, owned, kept, gloss, actions }: { word: WordRecapWord; owned: boolean; kept: boolean; gloss: string; actions: ReaderRecapActions }) {
+function RecapCard({ source, word, owned, kept, gloss, actions }: { source: WordRecapSource; word: WordRecapWord; owned: boolean; kept: boolean; gloss: string; actions: ReaderRecapActions }) {
+  const xs = explorerSource(source);
   const [revealed, setRevealed] = useState(false);
   const key = recapKey(word.hanzi);
   const reveal = () => {
@@ -143,11 +156,11 @@ function RecapCard({ word, owned, kept, gloss, actions }: { word: WordRecapWord;
     <>
       <div className="study-card-content recap-card" data-testid="recap-card">
         <div className="recap-word hanzi" lang="zh-CN">
-          {revealed ? <ExplorableText text={word.hanzi} source="reader" /> : word.hanzi}
+          {revealed ? <ExplorableText text={word.hanzi} source={xs} /> : word.hanzi}
         </div>
         {word.sentence && (
           <p className="recap-sentence" lang="zh-CN" data-testid="recap-sentence">
-            {revealed ? <ExplorableText text={word.sentence} source="reader" highlight={word.hanzi} /> : <MarkedSentence sentence={word.sentence} hanzi={word.hanzi} />}
+            {revealed ? <ExplorableText text={word.sentence} source={xs} highlight={word.hanzi} /> : <MarkedSentence sentence={word.sentence} hanzi={word.hanzi} />}
           </p>
         )}
         {revealed && (
@@ -159,7 +172,7 @@ function RecapCard({ word, owned, kept, gloss, actions }: { word: WordRecapWord;
             <div className="recap-meaning" data-testid="recap-meaning">{gloss || 'Tap the word for its meaning'}</div>
             {word.page_english && <p className="recap-page-english"><span className="recap-label">The page</span> {word.page_english}</p>}
             <ul className="recap-why" data-testid="recap-why">
-              {recapWhyLines(word).map((l) => <li key={l}>{l}</li>)}
+              {recapWhyLines(word, source).map((l) => <li key={l}>{l}</li>)}
             </ul>
             <RecapKeepSwitch owned={owned} on={kept} onChange={(on) => actions.keep(key, on)} />
           </div>
@@ -179,7 +192,8 @@ function RecapCard({ word, owned, kept, gloss, actions }: { word: WordRecapWord;
   );
 }
 
-function RecapSummary({ run, owned, glosses, online, complete, doneLine, actions, onBack }: {
+function RecapSummary({ source, run, owned, glosses, online, complete, doneLine, actions, onBack }: {
+  source: WordRecapSource;
   run: WordRecapRun;
   owned: ReadonlySet<string>;
   glosses: ReadonlyMap<string, string>;
@@ -201,7 +215,7 @@ function RecapSummary({ run, owned, glosses, online, complete, doneLine, actions
           {run.words.length} {run.words.length === 1 ? 'word' : 'words'}
           {complete ? ` · ${firstTime} right first time` : ''}
         </p>
-        <p className="recap-summary-hint">Switch on the words you want to remember on purpose — the rest were just for this story.</p>
+        <p className="recap-summary-hint">{recapKeepHint(source)}</p>
         <ul className="recap-list">
           {run.words.map((w) => {
             const key = recapKey(w.hanzi);
@@ -209,7 +223,7 @@ function RecapSummary({ run, owned, glosses, online, complete, doneLine, actions
             return (
               <li key={key} className="recap-row" data-testid="recap-row">
                 <div className="recap-row-word">
-                  <span className="recap-row-hanzi" lang="zh-CN"><ExplorableText text={w.hanzi} source="reader" /></span>
+                  <span className="recap-row-hanzi" lang="zh-CN"><ExplorableText text={w.hanzi} source={explorerSource(source)} /></span>
                   <span className="recap-row-pinyin">{w.pinyin}</span>
                   <span className="recap-row-gloss">{w.gloss || glosses.get(key) || ''}</span>
                   <span className="recap-row-tags">

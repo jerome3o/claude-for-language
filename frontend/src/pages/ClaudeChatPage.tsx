@@ -5,8 +5,8 @@
  * a reply is pending). The screen is the context-agnostic pieces in components/claudeChat: the
  * thread (word chips → explorer, ▶, 拼 / EN, 🎧 Listen first, 🎤 Read it back) and the minimal
  * voice-first composer. Header: ← Coach, the title, 🎧, 中文 | EN (the account's Ask Claude
- * settings), ⋯ → Make flashcards from this chat (the tapped words ticked) and the words to recap
- * (coming soon).
+ * settings), ⋯ → Make flashcards from this chat (the tapped words ticked) and "📝 N words to recap"
+ * (only with words not yet recapped) → the readers' word recap pass at `/coach/chat/:id/recap`.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -21,7 +21,6 @@ import {
   COACH_ASK_LABEL,
   COACH_ASK_THINKING_EN,
   COACH_ASK_THINKING_ZH,
-  RECAP_COMING_SOON,
 } from '@shared/coach/askChat';
 import { coachReplyPollMs } from '@shared/coach/poll';
 import { revealedWhenListeningOn } from '@shared/study/askClaude';
@@ -41,6 +40,7 @@ import { MakeFlashcardsSheet } from '../components/chat/MakeFlashcardsSheet';
 import { useAskLanguage } from '../services/askClaudeLanguage';
 import { getAskRevealed, setAskRevealed, useAskListening } from '../services/askClaudeListening';
 import { moveRecapWords, useRecapWords } from '../services/claudeChatRecap';
+import { useChatRecapCount } from '../services/wordRecap';
 import { useNetwork } from '../contexts/NetworkContext';
 import { track, trackError } from '../services/analytics';
 import '../components/claudeChat/claude-chat.css';
@@ -78,6 +78,8 @@ export function ClaudeChatPage() {
   const [addedNote, setAddedNote] = useState<string | null>(null);
   const isNew = routeId === 'new';
   const recap = useRecapWords(routeId);
+  // "📝 N words to recap": the words tapped / read back wrong not yet recapped (the readers' recap pass).
+  const recapCount = useChatRecapCount(routeId);
 
   /** When this screen first saw the current reply pending (the poll speeds up for its first seconds). */
   const pendingSinceRef = useRef<{ id: string; at: number } | null>(null);
@@ -291,10 +293,19 @@ export function ClaudeChatPage() {
             >
               🃏 Make flashcards from this chat
             </button>
-            <button type="button" role="menuitem" disabled aria-disabled="true" data-testid="claude-chat-recap">
-              {recapCountLabel(recap.length)}
-              <span className="claude-chat-soon">{RECAP_COMING_SOON}</span>
-            </button>
+            {recapCount > 0 && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  navigate(`/coach/chat/${encodeURIComponent(routeId)}/recap`);
+                }}
+                data-testid="claude-chat-recap"
+              >
+                {recapCountLabel(recapCount)}
+              </button>
+            )}
           </div>
         </div>
       )}

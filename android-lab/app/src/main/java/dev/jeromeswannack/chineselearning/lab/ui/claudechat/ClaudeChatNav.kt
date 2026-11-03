@@ -1,7 +1,16 @@
 package dev.jeromeswannack.chineselearning.lab.ui.claudechat
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Modifier
+import dev.jeromeswannack.chineselearning.lab.core.WordRecap
+import dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore
+import dev.jeromeswannack.chineselearning.lab.ui.readers.WordRecapRoute
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
@@ -14,8 +23,31 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 /** The "💬 Ask Claude" chat route (web `/coach/chat/:id`; `new` = a fresh chat). */
 fun Routes.claudeChat(id: String) = "/coach/chat/${android.net.Uri.encode(id)}"
 
-/** `/coach/chat/{id}` — registered from the Coach's graph (ui/coach/CoachNav.kt). */
+/** "📝 N words to recap" of a chat (web `/coach/chat/:id/recap`). */
+fun Routes.claudeChatRecap(id: String) = "/coach/chat/${android.net.Uri.encode(id)}/recap"
+
+/**
+ * `/coach/chat/{id}` and `/coach/chat/{id}/recap` — registered from the Coach's graph
+ * (ui/coach/CoachNav.kt). The recap is the readers' word recap pass ([WordRecapRoute]) on the
+ * chat's run: brought up to date with the chat's words first ([WordRecapStore.openChat]).
+ */
 fun NavGraphBuilder.claudeChatGraph(nav: LabNav) {
+    composable(Routes.route("/coach/chat/{id}/recap")) { entry ->
+        val id = entry.arguments?.getString("id").orEmpty()
+        val app = nav.app
+        val ready by produceState(false, id) {
+            runCatching { WordRecapStore.openChat(app, id) }
+            value = true
+        }
+        if (ready) {
+            WordRecapRoute(nav, WordRecap.chatRunId(id), WordRecap.SOURCE_CHAT, WordRecap.sourceLabel(WordRecap.SOURCE_CHAT)) { words ->
+                app.analytics.track(WordRecap.event(WordRecap.SOURCE_CHAT, "start"), mapOf("from" to "menu", "words" to words))
+            }
+        } else {
+            Box(Modifier.fillMaxSize().background(Lab.colors.background))
+        }
+    }
+
     composable(Routes.route("/coach/chat/{id}")) { entry ->
         val id = entry.arguments?.getString("id") ?: CoachAskViewModel.NEW
         val vm: CoachAskViewModel = viewModel(key = "claude-chat-$id", factory = CoachAskViewModel.Factory(nav.app, id))
@@ -31,6 +63,7 @@ fun NavGraphBuilder.claudeChatGraph(nav: LabNav) {
                 onLanguage = vm::setLanguage,
                 onListening = vm::setListening,
                 onMakeCards = vm::makeCards,
+                onRecap = { nav.open(Routes.claudeChatRecap(id)) },
                 onRetryLoad = vm::reload,
                 thread = ClaudeChatThreadActions(
                     onWord = { w, sentence, _ ->

@@ -70,6 +70,7 @@ const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const LessonReplayPage = lazy(() => import('./pages/LessonReplayPage').then(m => ({ default: m.LessonReplayPage })));
 const ClaudeChatPage = lazy(() => import('./pages/ClaudeChatPage').then(m => ({ default: m.ClaudeChatPage })));
+const ClaudeChatRecapPage = lazy(() => import('./pages/ClaudeChatRecapPage').then(m => ({ default: m.ClaudeChatRecapPage })));
 const CoachLessonPage = lazy(() => import('./pages/CoachLessonPage').then(m => ({ default: m.CoachLessonPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
 const NewReaderPage = lazy(() => import('./pages/NewReaderPage').then(m => ({ default: m.NewReaderPage })));
@@ -745,6 +746,7 @@ function AppRoutes() {
       <Route path="/lessons/:id/play" element={<ProtectedRoute><LessonReplayPage /></ProtectedRoute>} />
       <Route path="/coach/:conversationId/lesson/:messageId" element={<ProtectedRoute><CoachLessonPage /></ProtectedRoute>} />
       <Route path="/coach/chat/:id" element={<ProtectedRoute><ClaudeChatPage /></ProtectedRoute>} />
+      <Route path="/coach/chat/:id/recap" element={<ProtectedRoute><ClaudeChatRecapPage /></ProtectedRoute>} />
       <Route
         path="/duplicate-finder"
         element={

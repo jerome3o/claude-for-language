@@ -36,6 +36,9 @@ class WordRecapParityTest {
 
     private fun assertRun(want: JsonObject, got: WordRecapRun, where: String) {
         assertEquals(want.s("reader_id"), got.reader_id, where)
+        assertEquals(want.sOrNull("source"), got.source, "$where source")
+        assertEquals(want["before"]?.jsonArray?.map { it.jsonPrimitive.content }, got.before, "$where before")
+        assertEquals(want.s("started_at"), got.started_at, "$where started_at")
         assertEquals(want.sOrNull("finished_at"), got.finished_at, "$where finished_at")
         assertEquals(want.sOrNull("recapped_at"), got.recapped_at, "$where recapped_at")
         assertEquals(want.strings("keep"), got.keep, "$where keep")
@@ -156,5 +159,96 @@ class WordRecapParityTest {
         assertEquals(labels.strings("keep"), listOf(WordRecap.keepLabel(false), WordRecap.keepLabel(true)))
         for (d in labels["done"]!!.jsonArray.map { it.jsonArray }) assertEquals(d[2].jsonPrimitive.content, WordRecap.doneLine(d[0].jsonPrimitive.int, d[1].jsonPrimitive.int))
         assertTrue((labels["done"] as JsonArray).size == 5)
+    }
+
+    private fun askWord(o: JsonObject) = CoachAsk.RecapWord(
+        hanzi = o.s("hanzi"),
+        sentence = o.s("sentence"),
+        reasons = o.strings("reasons"),
+        pinyin = o.sOrNull("pinyin"),
+        gloss = o.sOrNull("gloss"),
+        reasonLine = o.sOrNull("reason_line"),
+    )
+
+    private fun storedRun(o: JsonObject?) = o?.let { e ->
+        WordRecapRun(
+            reader_id = e.s("reader_id"),
+            source = e.sOrNull("source"),
+            before = e["before"]?.jsonArray?.map { it.jsonPrimitive.content },
+            started_at = e.s("started_at"),
+            finished_at = e.sOrNull("finished_at"),
+            recapped_at = e.sOrNull("recapped_at"),
+            words = e["words"]!!.jsonArray.map { w -> w.jsonObject.let { WordRecapWord(hanzi = it.s("hanzi")) } },
+        )
+    }
+
+    @Test
+    fun chatRunsStepByStep() {
+        val chat = fixture["chat"]!!.jsonObject
+        assertEquals(chat.s("runId"), WordRecap.chatRunId("t-1"))
+        val owned = setOf("银行")
+        var run: WordRecapRun? = null
+        val ops = chat["ops"]!!.jsonArray.map { it.jsonObject }
+        val want = chat["steps"]!!.jsonArray.map { it.jsonObject }
+        for ((i, o) in ops.withIndex()) {
+            var count: Int? = null
+            run = when (o.s("op")) {
+                "open" -> {
+                    val words = o["words"]!!.jsonArray.map { askWord(it.jsonObject) }
+                    count = WordRecap.chatCount(words, run)
+                    WordRecap.chatRun("t-1", words, run, o.s("now"))
+                }
+                "answer" -> WordRecap.answer(run!!, o.s("key"), o["right"]!!.jsonPrimitive.boolean, o.s("now"), o.s("id"))
+                "keep" -> WordRecap.setKeep(run!!, o.s("key"), o["on"]!!.jsonPrimitive.boolean)
+                "recapped" -> WordRecap.markRecapped(run!!, o.s("now"))
+                else -> fail("unknown op")
+            }
+            val w = want[i]
+            val where = "chat step $i (${o.s("op")})"
+            assertEquals(w["count"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.int, count, "$where count")
+            assertEquals(w.s("source"), WordRecap.source(run!!), where)
+            assertRun(w["run"]!!.jsonObject, run, where)
+            assertEquals(w["available"]!!.jsonPrimitive.boolean, WordRecap.available(run), where)
+            assertEquals(w["progress"]!!.jsonObject.strings("remaining"), WordRecap.progress(run).remaining, "$where remaining")
+            assertEquals(w["rightFirstTime"]!!.jsonPrimitive.int, WordRecap.rightFirstTime(run), where)
+            val c = WordRecap.choices(run) { it in owned }
+            assertEquals(w.strings("add"), c.add.map { it.hanzi }, "$where add")
+            assertEquals(w.strings("bump"), c.bump.map { it.hanzi }, "$where bump")
+            assertEquals(w["why"]!!.jsonArray.map { a -> a.jsonArray.map { it.jsonPrimitive.content } }, run.words.map { WordRecap.whyLines(it, WordRecap.SOURCE_CHAT) }, "$where why")
+            assertEquals(w.strings("clues"), run.words.map(WordRecap::sentenceClue), "$where clues")
+        }
+        for (c in chat["pending"]!!.jsonArray.map { it.jsonObject }) {
+            val words = c["words"]!!.jsonArray.map { askWord(it.jsonObject) }
+            val stored = c["stored"]?.takeIf { it !is JsonNull }?.jsonObject
+            assertEquals(c.strings("out"), WordRecap.chatPending(words, storedRun(stored)).map { it.hanzi })
+        }
+        assertEquals(chat.strings("sourceOf"), listOf(
+            WordRecap.source(WordRecapRun(reader_id = "r", started_at = "")),
+            WordRecap.source(WordRecapRun(reader_id = "r", started_at = "", source = "chat")),
+            WordRecap.source(WordRecapRun(reader_id = "r", started_at = "", source = "reader")),
+        ))
+    }
+
+    @Test
+    fun sourceCopy() {
+        for (c in fixture["chat"]!!.jsonObject["sources"]!!.jsonArray.map { it.jsonObject }) {
+            val src = c.s("source")
+            assertEquals(c.s("label"), WordRecap.sourceLabel(src, "小明在成都"))
+            assertEquals(c.s("labelNoTitle"), WordRecap.sourceLabel(src, "  "))
+            assertEquals(c.s("labelNull"), WordRecap.sourceLabel(src, null))
+            assertEquals(c.s("hint"), WordRecap.keepHint(src))
+            assertEquals(c.s("empty"), WordRecap.emptyLine(src))
+            val deck = c["deck"]!!.jsonObject
+            assertEquals(WordRecap.Deck(deck.s("name"), deck.s("description")), WordRecap.deck(src))
+            assertEquals(c.s("upNext"), WordRecap.upNextSource(src))
+            assertEquals(c.s("bump"), WordRecap.bumpSource(src))
+            assertEquals(c.s("start"), WordRecap.event(src, "start"))
+            assertEquals(c.s("finish"), WordRecap.event(src, "finish"))
+            val why = c["why"]!!.jsonArray.map { a -> a.jsonArray.map { it.jsonPrimitive.content } }
+            assertEquals(why[0], WordRecap.whyLines(WordRecapWord(hanzi = "采耳", reasons = listOf("tapped", "said_wrong")), src))
+            assertEquals(why[1], WordRecap.whyLines(WordRecapWord(hanzi = "采耳", reasons = listOf("said_wrong"), said = listOf("a", "b")), src))
+        }
+        assertTrue(UpNext.SOURCES.containsAll(listOf("reader_recap", "chat_recap")))
+        assertTrue(Bumps.BUMP_SOURCES.containsAll(listOf("reader", "coach_chat")))
     }
 }

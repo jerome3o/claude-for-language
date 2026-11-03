@@ -301,6 +301,8 @@ object AnalyticsEvents {
         ev("coach.ask_tool", "coach", listOf("action", "role")),
         ev("coach.ask_read_back", "coach", listOf("result_bucket", "chars", "wrong_words", "all_right", "via")),
         ev("coach.ask_flashcards", "coach", listOf("count", "focus")),
+        ev("coach.ask_recap_start", "coach", listOf("from", "words")),
+        ev("coach.ask_recap_finish", "coach", listOf("words", "got_it_first_time", "added", "bumped")),
         ev("coach.mistake_lesson_written", "coach", listOf("exercises", "types", "rounds"), server = true),
         ev("chat.open_in_coach", "chat", listOf("source", "action")),
         ev("deck.create", "decks", listOf("source")),

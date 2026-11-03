@@ -91,6 +91,8 @@ class ClaudeChatActions(
     val onLanguage: (String) -> Unit = {},
     val onListening: (Boolean) -> Unit = {},
     val onMakeCards: () -> Unit = {},
+    /** "📝 N words to recap" → `/coach/chat/{id}/recap` (the readers' word recap pass). */
+    val onRecap: () -> Unit = {},
     val onRetryLoad: () -> Unit = {},
     val thread: ClaudeChatThreadActions = ClaudeChatThreadActions(),
     val review: ReviewActions = ReviewActions(),
@@ -109,7 +111,7 @@ object ClaudeChatScreenTags {
  * "💬 Ask Claude" (`/coach/chat/{id}`, `new` for a fresh one; the web's pages/ClaudeChatPage.tsx): the
  * header (← · the title · 🎧 · 中文 | EN · ⋯), the thread ([ClaudeChatThread]) and the voice-first
  * composer — nothing else around the box. ⋯ → Make flashcards from this chat (the tapped words
- * ticked) and the words to recap (coming soon).
+ * ticked) and "📝 N words to recap" (only with words not yet recapped) → the readers' word recap pass.
  */
 @Composable
 fun ClaudeChatScreen(
@@ -212,7 +214,12 @@ fun ClaudeChatScreen(
                     menu = false
                     actions.onMakeCards()
                 }
-                MenuRow(CoachAsk.recapCountLabel(ui.recapCount), enabled = false, tag = ClaudeChatScreenTags.RECAP, badge = CoachAsk.RECAP_COMING_SOON) {}
+                if (ui.recapCount > 0) {
+                    MenuRow(CoachAsk.recapCountLabel(ui.recapCount), enabled = true, tag = ClaudeChatScreenTags.RECAP) {
+                        menu = false
+                        actions.onRecap()
+                    }
+                }
             }
         }
     }

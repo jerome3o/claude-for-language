@@ -68,11 +68,12 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 /*
- * 📝 Reader word recap (web: components/readerRecap/; docs/STUDY_SESSION.md "Reader word recap";
- * rules in core WordRecap). The end-of-story offer ([RecapOfferCard], hosted over every screen by
- * [RecapOfferHost]) and `/readers/:id/recap` ([ReaderRecapScreen]): a one-off pass over the words
- * tapped / read aloud wrong, in story order — "Not yet" words come back until "Got it" (the retry
- * bar) — then every word with its switch, OFF by default.
+ * 📝 Word recap (web: components/readerRecap/; docs/STUDY_SESSION.md "Reader word recap"; rules in
+ * core WordRecap). The end-of-story offer ([RecapOfferCard], hosted over every screen by
+ * [RecapOfferHost]) and the pass ([ReaderRecapScreen]) — `/readers/:id/recap` for a reading,
+ * `/coach/chat/:id/recap` for a "💬 Ask Claude" chat (the run's source): a one-off pass over the words
+ * tapped / read aloud (back) wrong, in story / chat order — "Not yet" words come back until "Got it"
+ * (the retry bar) — then every word with its switch, OFF by default.
  */
 
 object WordRecapTags {
@@ -87,7 +88,11 @@ object WordRecapTags {
     const val SUMMARY = "recap-summary"
     const val DONE = "recap-done"
     const val TO_LIST = "recap-to-list"
+    const val SOURCE = "recap-source"
 }
+
+/** The explorer source of a recap's words. */
+private fun explorerSource(source: String) = if (source == WordRecap.SOURCE_CHAT) "claude_chat" else "reader"
 
 /** "Story finished ✓ — 📝 Recap N words · Done": over whatever comes next; never forced. */
 @Composable
@@ -147,6 +152,10 @@ class RecapActions(
 data class RecapUi(
     val title: String,
     val run: WordRecapRun?,
+    /** "from the story “…”" / "from your chat with Claude" (core [WordRecap.sourceLabel]). */
+    val sourceLabel: String? = null,
+    /** The source while the run is missing (the empty state); a run's own source wins. */
+    val source: String = WordRecap.SOURCE_READER,
     /** Recap keys of words already in his decks (their switch is ⚡ Study it today). */
     val owned: Set<String> = emptySet(),
     val online: Boolean = true,
@@ -165,6 +174,7 @@ fun ReaderRecapScreen(ui: RecapUi, actions: RecapActions) {
         val nextKey = progress?.remaining?.firstOrNull()
         val word = if (run != null && nextKey != null) WordRecap.wordFor(run, nextKey) else null
         val showList = run != null && (listing || progress!!.complete || word == null)
+        val source = run?.let(WordRecap::source) ?: ui.source
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("📝 ${ui.title}", fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = Lab.colors.ink, maxLines = 1, modifier = Modifier.weight(1f))
             if (run != null && !showList) {
@@ -173,16 +183,19 @@ fun ReaderRecapScreen(ui: RecapUi, actions: RecapActions) {
             }
             Text("✕", fontSize = 20.sp, color = Lab.colors.muted, modifier = Modifier.size(48.dp).bouncyClickable(onClick = actions.close).padding(14.dp))
         }
+        if (!ui.sourceLabel.isNullOrEmpty() && run != null && run.words.isNotEmpty()) {
+            Text(ui.sourceLabel, color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag(WordRecapTags.SOURCE))
+        }
         when {
             run == null || run.words.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text("No words to recap from this story yet. Tap words while you read, or read a page aloud — they gather here.", color = Lab.colors.muted, textAlign = TextAlign.Center)
+                Text(WordRecap.emptyLine(source), color = Lab.colors.muted, textAlign = TextAlign.Center)
             }
-            showList -> RecapSummary(run, ui, actions, complete = progress!!.complete, onBack = if (!progress.complete && word != null) ({ listing = false }) else null)
+            showList -> RecapSummary(source, run, ui, actions, complete = progress!!.complete, onBack = if (!progress.complete && word != null) ({ listing = false }) else null)
             else -> {
                 RetryProgressBar(WordRecap.bar(run), Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp))
                 val attempt = run.events.count { it.item_id == nextKey }
                 androidx.compose.runtime.key("$nextKey:$attempt") {
-                    RecapCard(word!!, owned = nextKey!! in ui.owned, kept = WordRecap.isKept(run, nextKey), startRevealed = ui.revealed, actions = actions, modifier = Modifier.weight(1f))
+                    RecapCard(source, word!!, owned = nextKey!! in ui.owned, kept = WordRecap.isKept(run, nextKey), startRevealed = ui.revealed, actions = actions, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -223,7 +236,7 @@ fun RecapKeepSwitch(owned: Boolean, on: Boolean, onChange: (Boolean) -> Unit, mo
 }
 
 @Composable
-private fun RecapCard(word: WordRecapWord, owned: Boolean, kept: Boolean, startRevealed: Boolean, actions: RecapActions, modifier: Modifier = Modifier) {
+private fun RecapCard(source: String, word: WordRecapWord, owned: Boolean, kept: Boolean, startRevealed: Boolean, actions: RecapActions, modifier: Modifier = Modifier) {
     var revealed by rememberSaveable { mutableStateOf(startRevealed) }
     val key = WordRecap.key(word.hanzi)
     Column(modifier.fillMaxWidth()) {
@@ -233,10 +246,10 @@ private fun RecapCard(word: WordRecapWord, owned: Boolean, kept: Boolean, startR
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Spacer(Modifier.height(12.dp))
-            if (revealed) ExplorableText(word.hanzi, "reader", fontSize = 46.sp, fontWeight = FontWeight.SemiBold)
+            if (revealed) ExplorableText(word.hanzi, explorerSource(source), fontSize = 46.sp, fontWeight = FontWeight.SemiBold)
             else Text(word.hanzi, fontSize = 46.sp, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
             if (word.sentence.isNotEmpty()) {
-                if (revealed) ExplorableText(word.sentence, "reader", fontSize = 21.sp, lineHeight = 34.sp, textAlign = TextAlign.Center, highlight = word.hanzi)
+                if (revealed) ExplorableText(word.sentence, explorerSource(source), fontSize = 21.sp, lineHeight = 34.sp, textAlign = TextAlign.Center, highlight = word.hanzi)
                 else MarkedSentence(word.sentence, word.hanzi)
             }
             AnimatedVisibility(revealed, enter = fadeIn() + slideInVertically { it / 6 }) {
@@ -254,7 +267,7 @@ private fun RecapCard(word: WordRecapWord, owned: Boolean, kept: Boolean, startR
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFFF97316).copy(alpha = 0.09f)).padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        for (line in WordRecap.whyLines(word)) Text(line, fontSize = 14.sp, color = Lab.colors.ink)
+                        for (line in WordRecap.whyLines(word, source)) Text(line, fontSize = 14.sp, color = Lab.colors.ink)
                     }
                     RecapKeepSwitch(owned, kept, onChange = { actions.keep(key, it) }, modifier = Modifier.fillMaxWidth())
                 }
@@ -275,7 +288,7 @@ private fun RecapCard(word: WordRecapWord, owned: Boolean, kept: Boolean, startR
 }
 
 @Composable
-private fun RecapSummary(run: WordRecapRun, ui: RecapUi, actions: RecapActions, complete: Boolean, onBack: (() -> Unit)?) {
+private fun RecapSummary(source: String, run: WordRecapRun, ui: RecapUi, actions: RecapActions, complete: Boolean, onBack: (() -> Unit)?) {
     val celebrate = remember { complete }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -287,7 +300,7 @@ private fun RecapSummary(run: WordRecapRun, ui: RecapUi, actions: RecapActions, 
                 Text(if (complete) "Recap done 🎉" else "Choose words to keep", fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Lab.colors.ink)
                 val n = run.words.size
                 Text("$n ${if (n == 1) "word" else "words"}" + if (complete) " · ${WordRecap.rightFirstTime(run)} right first time" else "", color = Lab.colors.muted)
-                Text("Switch on the words you want to remember on purpose — the rest were just for this story.", color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center)
+                Text(WordRecap.keepHint(source), color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center)
                 for (w in run.words) {
                     val k = WordRecap.key(w.hanzi)
                     Column(
@@ -295,7 +308,7 @@ private fun RecapSummary(run: WordRecapRun, ui: RecapUi, actions: RecapActions, 
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ExplorableText(w.hanzi, "reader", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+                            ExplorableText(w.hanzi, explorerSource(source), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                             Column(Modifier.weight(1f)) {
                                 Text(w.pinyin, color = Lab.colors.accent, fontSize = 15.sp)
                                 if (w.gloss.isNotEmpty()) Text(w.gloss, color = Lab.colors.muted, fontSize = 14.sp, maxLines = 2)

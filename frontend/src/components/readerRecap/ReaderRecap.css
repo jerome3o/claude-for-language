@@ -88,6 +88,14 @@
   min-height: 36px;
 }
 
+/* Where the words come from: "from the story “…”" / "from your chat with Claude". */
+.recap-source {
+  margin: 0.25rem 1rem 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  text-align: center;
+}
+
 .recap .recap-card {
   display: flex;
   flex-direction: column;
