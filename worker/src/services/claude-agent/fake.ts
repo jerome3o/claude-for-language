@@ -17,6 +17,9 @@ export const FAKE_STREAM_CHUNKS: Record<AskLanguage, readonly string[]> = {
   en: ['(E2E) Claude streams ', 'this answer ', 'in three parts.'],
 };
 
+/** A role-play line (a practice thread's persona — the waiter of "在饭店点菜"). */
+export const FAKE_PRACTICE_CHUNKS: readonly string[] = ['你好！欢迎光临。', '请问几位？', '这是菜单，您想吃点什么？'];
+
 export const FAKE_STREAM_MODEL = 'e2e-fake-model';
 
 /** What the stand-in writes into the card's notes when asked for a fun fact. */
@@ -90,9 +93,9 @@ class FakeMessageStream {
   }
 }
 
-/** The stand-in client: the answer in the turn's language, `delayMs` between chunks. */
-export function fakeStreamingClient(language: AskLanguage = 'zh', delayMs = 250): Pick<Anthropic, 'messages'> {
-  const chunks = FAKE_STREAM_CHUNKS[language];
+/** The stand-in client: the answer in the turn's language (or a role-play line), `delayMs` between chunks. */
+export function fakeStreamingClient(language: AskLanguage = 'zh', delayMs = 250, variant?: 'practice'): Pick<Anthropic, 'messages'> {
+  const chunks = variant === 'practice' ? FAKE_PRACTICE_CHUNKS : FAKE_STREAM_CHUNKS[language];
   return {
     messages: {
       create: async (params: Params) => funFactToolUse(params) ?? message(chunks.join(''), 'end_turn'),

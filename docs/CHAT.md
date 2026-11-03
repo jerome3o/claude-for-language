@@ -657,7 +657,8 @@ A conversation in a relationship with the Claude user is flagged `is_ai_conversa
 **Clients** (web + Lab): no "New conversation", "Add a title / Rename" or "All conversations"; the inbox has
 one row per person (`chatRowTitle` drops the title for people); ✏️ → pick a person → their chat; the
 student / tutor page shows ONE "Messages" row (last message, unread) instead of a list; `/connections/:relId/chat`
-opens the one chat (`/chat/new` and `?new=1` land there too; with Claude they still start a practice chat).
+opens the one chat (`/chat/new` and `?new=1` land there too; with Claude they open the Chats tab's "🎭 Practice a
+situation" sheet — `/chats?practice=1` — since role-plays are Claude threads, "Practice with Claude").
 Opening `/connections/:relId/chat/<merged id>` swaps the URL to the primary (carrying an unsent draft along),
 so live events, read markers and notifications line up.
 
@@ -959,8 +960,9 @@ thread). This part is worker + shared types only; the screens come later.
 - **Store**: the Coach's tables, evolved — `coach_conversations` = a thread, `coach_messages` = its messages
   (storage names only; ALL SQL in `worker/src/services/claude-agent/store.ts`). A thread has a **context**
   (`shared/claude/context.ts`): `general` (the Coach, its 💬 Ask chat, later the Chats composer), `card`
-  (Ask Claude on a study card, `note_id`), `practice` (a Claude role-play chat, read-only until its reply
-  path lands) or `chat_message` (Discuss with Claude about one chat message). `context_json` keeps the
+  (Ask Claude on a study card, `note_id`), `practice` (a Claude role-play — new ones carry the scenario / roles /
+  level / persona voice, the old ones copied in carry their `conversation_id` and stay read-only; "Practice with
+  Claude") or `chat_message` (Discuss with Claude about one chat message). `context_json` keeps the
   descriptor + a snapshot (`label` 银行, `sublabel` the deck) so the inbox draws "📇 Asked on card · 银行"
   without a fetch (`contextBadge`). A learner's message has an **intent**: `ask`, or — only as the first
   message of a general chat — the Coach's ✏️ `check` / 🔍 `explain` / `translate` (still `coach_conversations.action`
@@ -1050,7 +1052,8 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
 - **Header**: ← · title · 🎧 Listen first · 中文 | EN · ⋯ (🃏 Make flashcards from this chat, 📝 N words to
   recap → `/chats/claude/:id/recap`); under it the **context chip** (`headerChipFor`, `shared/claude/contexts.ts`):
   "📇 Asked on card · 银行" → the card hub `/cards/:noteId`, "💬 From a chat message" → that chat
-  (`/connections/:relId/chat/:convId`, looked up from the conversation), "🎭 Practice · 点菜" (no link) with a
+  (`/connections/:relId/chat/:convId`, looked up from the conversation), "🎭 Practice · 点菜" (no link; a role-play
+  adds "✦ Claude plays 服务员 · You: 客人" under it). An old practice chat copied in (`pc-<id>`, `read_only`) has a
   read-only banner and no composer (`PRACTICE_READ_ONLY_NOTE`). Colour is never the only signal: icon + words.
 - **Messages**: the context-agnostic `components/claudeChat/` pieces (word chips → explorer, ▶, 拼 / EN, 🎧,
   🎤 Read it back, words to recap per thread). A reply being written **streams**: the ChatHub `claude_turn`
@@ -1064,8 +1067,9 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   `components/coach/CoachResults.tsx` (shared with `SentenceCoachPage`).
 - **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
   still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
-  it mean · Is it natural · How to reply, practice = none; all while the thread is empty, at most three after a
-  reply, never one already used in the thread.
+  it mean · Is it natural · How to reply · Make flashcards, practice = 💡 hint · 🆘 How do I say… (`fill`: into the
+  box, to be finished) · ✏️ Correct my last message (offered every time); all while the thread is empty, at most three
+  after a reply, never one already used in the thread.
 - **Composer** (`composerFor`): Check / Explain / Translate only START a general chat (the server answers them
   with the Coach's structured reply), so a NEW general chat shows Send (= Ask) + the Coach's buttons for what is in
   the box (`coachButtons`: Chinese → ✏️ Check · 🔍 Explain, English → 🔤 Translate, with the hint line); every
@@ -1096,10 +1100,66 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   context_kind }`, `claude.thread_action { action: new | switch, context_kind }`, `claude.undo_card_edit` (+ the
   Kotlin mirror); a card question also `study.ask_claude { …, via: 'thread' }`.
 - **Resuming** (`resumeThreadFor`, for the card sheet / Chats tab PRs): a card resumes its newest thread whose
-  last message is within 30 minutes (the server's card-question rule), a chat message / practice chat always its
-  one thread, a plain chat never.
+  last message is within 30 minutes (the server's card-question rule), a chat message / an old copied practice chat
+  always its one thread, a plain chat and a new role-play never.
 - Tests: `shared/claude/contexts.test.ts`, `ClaudeChatsParityTest` (`parity/fixtures/claude-chats.ts`),
   `components/claude/ClaudeThreadView.test.tsx` (streaming via a fake socket, the offline outbox, composer
   intents, the card chip), `services/claudeThreads.test.ts`, E2E `e2e/tests/claude-thread.spec.ts` (Coach → Ask →
   a streamed reply; a card thread's chip → the card hub; offline → queued → sent). Lab: `ClaudeThreadAppTest`
   (fake server + fake socket frames), `ClaudeThreadScreenTest` (+ Roborazzi `claude-thread-01…10`).
+
+## Practice with Claude (role-play threads)
+
+A role-play is a Claude thread in the `practice` context: Claude **plays someone** in a situation (a waiter, a
+taxi driver, a new friend, or — from a study card — a friendly partner who weaves the card's word in) and the
+learner talks to them in Chinese. Rules in `shared/claude/practice.ts` (Lab core `claude/ClaudePractice.kt`,
+parity-tested by `parity/fixtures/claude-practice.ts`).
+
+- **Started from**: the Chats tab ✏️ → "🎭 Practice a situation…" (`components/claude/PracticeSituationSheet.tsx`,
+  Lab `ui/claude/PracticeSheet.kt`: seven ready-made situations `PRACTICE_SCENARIOS`, or his own situation · Claude
+  plays · You are · Beginner / Intermediate / Advanced), a study card's ⋯ → "🎭 Roleplay this word"
+  (`practiceFromCard`: `用「银行」聊天`, the note id — no Claude relationship needed any more), the old Claude page
+  (Connections → Claude → 🎭 Practice a situation), and old "new chat with Claude" links (`/connections/<claude
+  rel>/chat/new` → `/chats?practice=1`). Online only.
+- **Claude speaks first**: `POST /api/claude/threads { context: { kind: 'practice', scenario, ai_role?, user_role?,
+  level?, note_id? }, text: '' }` → 202 with ONLY a pending reply (`store.appendOpener`); the runner sends the
+  persona `PRACTICE_OPENER` as the learner's (never stored) first turn. Titled "Practice: <situation>", badge
+  "🎭 Practice · <situation>", `source: 'practice'`. A role-play never resumes (each start is a new scene).
+- **The provider** (`worker/src/services/claude-agent/contexts/practice.ts`): `PRACTICE_SYSTEM_PROMPT` (static,
+  cached: stay in character, Chinese only, 1–3 short sentences, graded, never correct in character, move the scene
+  along), the known-words sample (cached per day), then the context block — situation, who Claude plays, who he
+  is, the level's grading rule (`PRACTICE_LEVEL_RULES`), a card's word (hanzi / pinyin / English, ownership-checked).
+  `MODEL_POLICY.practice` = Sonnet, thinking off, 1,500 tokens; streamed like every thread reply.
+  **No tools** (one round): a tool would break character and add a round's latency; cards come afterwards (⋯ →
+  Make flashcards from this chat, word chips → + Add as card / ⚡).
+- **Help without leaving the scene**: the chips 💡 hint · 🆘 How do I say… (into the box) · ✏️ Correct my last
+  message; a message starting with one of them, or asking "how do I say…" / 怎么说 (`isPracticeHelpRequest`), is
+  answered briefly as a tutor and then the character's line follows. Its reply is stored in his Ask Claude language
+  (`practiceReplyLanguage`); a role-play line is always `zh` (word chips, 🎧, read aloud).
+- **The persona's voice**: the server picks it at creation (`practiceVoiceFor`: an app voice by the role's gender —
+  她 / 阿姨 / waitress → female, 他 / 先生 → male — stable per situation) and keeps it on the thread's context
+  (`voice_id`); ▶ / 🎧 read Claude's lines in it at `PRACTICE_VOICE_SPEED` (0.7). After a Chinese reply the clip is
+  made in the background (waitUntil, the R2 `tts-cache/` key `/api/practice/tts` serves) — never awaited.
+- **Old practice chats** (`conversations.is_ai_conversation`) stay as they were copied: read-only `pc-<id>` threads.
+  The old `ai-initiate` / `ai-respond` endpoints remain for old builds only. `GET /api/me/chats?exclude_ai=1` (both
+  apps' Chats tab) leaves out the old chats already copied into the threads (a not-yet-copied one still comes).
+- Analytics: `claude.practice_start { source: chats | card | claude_page | chat_link, preset, level }`.
+- Tests: `services/claude-agent/__tests__/practice.test.ts`, `routes/__tests__/claude-threads.test.ts` (a role-play),
+  `routes/__tests__/chat-list.test.ts` (`exclude_ai`), `shared/claude/practice.test.ts`,
+  `components/claude/PracticeSituationSheet.test.tsx`, `e2e/tests/claude-practice-discuss.spec.ts`, Lab
+  `ClaudePracticeParityTest`, `ui/claude/PracticeDiscussTest.kt` (+ Roborazzi).
+
+## Discuss with Claude (a chat message's Claude thread)
+
+The message menu's **Discuss with Claude** opens the message's Claude thread (context `chat_message`) as a SHEET over
+the chat — `components/claude/DiscussClaudeSheet.tsx`, Lab `ui/claude/DiscussClaudeSheet.kt` — the same thread view
+as every Claude chat: the message quoted under the header, the chips (什么意思 · 自然吗 · 怎么回复 · 做卡片), Ask
+only, the reply streamed. One thread per message: `resumeThreadFor` continues it whenever it was (the list comes from
+`GET /api/claude/threads?context_kind=chat_message`, cached on the device); the first question makes it. Cards Claude
+proposes (`create_flashcards` → a `propose_flashcards` tool result on the reply) are never saved by the server: the
+sheet lists them ticked, a deck → Save. The thread shows in the Chats tab as "💬 About a message · …".
+The old discussion sheet (MessageDiscussionModal / the Lab's DiscussSheet) is gone; `POST /api/messages/:id/discuss`
+and `GET|PUT /api/messages/:id/discussion` stay for older builds. Analytics `claude.discuss_open { resumed }`
+(replaces `chat.discuss`). Tests: `components/claude/DiscussClaudeSheet.test.tsx`, the E2E spec above, Lab
+`PracticeDiscussTest`.
+

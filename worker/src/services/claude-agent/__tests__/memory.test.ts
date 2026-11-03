@@ -220,6 +220,7 @@ describe('Claude memory', () => {
       card: { ctx: { kind: 'card', note_id: 'n1' }, input: { userId: U, language: 'zh', turns: [{ role: 'user', content: '这个词怎么用？' }] } },
       coach: { ctx: { kind: 'coach' }, input: { userId: U, turns: [{ role: 'user', content: 'The user submitted this sentence: "我去银行。"' }, { role: 'assistant', content: 'analysis' }, { role: 'user', content: 'Why 去?' }] } },
       chat_message: { ctx: { kind: 'chat_message', message_id: 'm1' }, input: { userId: U, turns: [{ role: 'user', content: 'What does it mean?' }] } },
+      practice: { ctx: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员' }, input: { userId: U, language: 'zh', turns: [{ role: 'user', content: '你好' }] } },
     };
 
     function bigMemory() {
@@ -242,13 +243,15 @@ describe('Claude memory', () => {
         await runClaudeTurn(envOf(db), CONTEXTS[kind].ctx, CONTEXTS[kind].input, { client });
         const p = seen[0];
         const system = p.system as Anthropic.TextBlockParam[];
-        expect(system.length, kind).toBe(2);
+        // A role-play adds its situation as the (uncached) context block after the two cached ones.
+        expect(system.length, kind).toBe(kind === 'practice' ? 3 : 2);
         expect(system[1].text, kind).toContain(block);
         expect(system[1].cache_control, kind).toEqual({ type: 'ephemeral' });
         let n = 0;
         JSON.stringify(p, (k, v) => (k === 'cache_control' && v ? (n++, v) : v));
         expect(n, kind).toBeLessThanOrEqual(4);
-        expect((p.tools ?? []).map((t) => (t as { name: string }).name), kind).toEqual(expect.arrayContaining(['search_my_chats', 'read_chat']));
+        // A role-play has no tools (one round, in character); the memory still rides in its learner block.
+        if (kind !== 'practice') expect((p.tools ?? []).map((t) => (t as { name: string }).name), kind).toEqual(expect.arrayContaining(['search_my_chats', 'read_chat']));
         // Stable: the same block on the next ask.
         const again = await prepareClaudeTurn(envOf(db), CONTEXTS[kind].ctx, CONTEXTS[kind].input, { client });
         expect(again.system[1].text).toBe(system[1].text);

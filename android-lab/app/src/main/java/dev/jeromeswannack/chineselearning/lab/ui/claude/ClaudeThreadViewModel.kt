@@ -11,6 +11,7 @@ import dev.jeromeswannack.chineselearning.lab.core.FlashcardReview
 import dev.jeromeswannack.chineselearning.lab.core.PickerDecks
 import dev.jeromeswannack.chineselearning.lab.core.ProposedCard
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
@@ -109,7 +110,14 @@ class ClaudeThreadViewModel(
         update = { f -> local.update { it.copy(listen = f(it.listen)) } },
         notice = { n -> local.update { it.copy(listenNotice = n?.let { x -> x.id to x.text }) } },
         stopOthers = { LessonRuntime.of(app).audio.stop() },
+        voice = { voice() },
     )
+
+    /** The voice Claude's lines are read in: a role-play's persona (the server keeps it on the thread), else Claude's own. */
+    private fun voice(): Pair<String, Double> {
+        val c = cached.value?.thread?.context ?: local.value.context
+        return if (c.kind == ClaudeChats.PRACTICE) ClaudePractice.voiceFor(c.voice_id, c.scenario, c.ai_role) to ClaudePractice.VOICE_SPEED else AskClaude.VOICE to AskClaude.SPEED
+    }
 
     /** The thread's id now (a thread started offline follows its client id to its server id). */
     private val threadId: StateFlow<String?> =
@@ -436,7 +444,8 @@ class ClaudeThreadViewModel(
         app.analytics.track("coach.ask_tool", mapOf("action" to "play", "role" to if (mine) "mine" else "claude"))
         viewModelScope.launch {
             val audio = LessonRuntime.of(app).audio
-            if (audio.playing.value == text) audio.stop() else audio.playClip(text, AskClaude.VOICE, AskClaude.SPEED)
+            val (v, speed) = voice()
+            if (audio.playing.value == text) audio.stop() else audio.playClip(text, v, speed)
         }
     }
 

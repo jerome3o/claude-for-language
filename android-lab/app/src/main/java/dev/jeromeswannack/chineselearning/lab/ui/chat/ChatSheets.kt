@@ -78,9 +78,10 @@ class ChatSheetActions(
     val onOpenRename: () -> Unit = {},
     val onOpenVoice: () -> Unit = {},
     val onAllConversations: () -> Unit = {},
-    val onAsk: (ChatMessageDto, String) -> Unit = { _, _ -> },
-    val onToggleDiscussCard: (Int) -> Unit = {},
-    val onSaveDiscussCards: (ChatMessageDto, deckId: String?, newDeck: String?) -> Unit = { _, _, _ -> },
+    /** Discuss with Claude: save the cards Claude proposed in reply [replyId] (the chosen ones). */
+    val onSaveDiscussCards: (ChatMessageDto, cards: List<SuggestedCard>, replyId: String, deckId: String?, newDeck: String?) -> Unit = { _, _, _, _, _ -> },
+    /** Open an app path (the Discuss sheet's Open in Coach / context chip). */
+    val onOpenAppPath: (String) -> Unit = {},
     val define: suspend (hanzi: String, context: String, refresh: Boolean) -> CardTools.Definition = { _, _, _ -> error("offline") },
     val deckHolding: suspend (String) -> String? = { null },
     // ---- PR 2 ----
@@ -259,7 +260,14 @@ fun ChatSheetHost(ui: ChatUi, actions: ChatSheetActions) {
         is ChatSheet.Word -> WordSheet(s.hanzi, s.context, ui, actions)
         ChatSheet.Rename -> if (ui.isAi) RenameSheet(ui, actions)
         ChatSheet.Voice -> VoiceSheet(ui, actions)
-        is ChatSheet.Discuss -> DiscussSheet(s.message, ui, actions)
+        // Discuss with Claude = the message's Claude thread (ui/claude/DiscussClaudeSheet.kt).
+        is ChatSheet.Discuss -> dev.jeromeswannack.chineselearning.lab.ui.claude.DiscussClaudeSheet(
+            messageId = s.message.id,
+            content = s.message.content,
+            conversationId = s.message.conversation_id.ifEmpty { ui.conversation?.id.orEmpty() },
+            onDismiss = actions.onDismiss,
+            openPath = actions.onOpenAppPath,
+        ) { cards, replyId -> ProposedDiscussCards(s.message, cards, replyId, ui, actions) }
         is ChatSheet.ChatWord -> {
             // A chat word chip opens the language explorer's Word view (ui/explorer); the old word sheet without one.
             val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("chat")
@@ -483,55 +491,21 @@ private fun VoiceSheet(ui: ChatUi, actions: ChatSheetActions) {
     }
 }
 
-/** Discuss a message with Claude (web: MessageDiscussionModal) — persisted, with quick actions and card suggestions. */
+/** Claude's proposed cards under a Discuss reply: ticked by default; a deck and Save adds the ticked ones. */
 @Composable
-private fun DiscussSheet(m: ChatMessageDto, ui: ChatUi, actions: ChatSheetActions) {
-    val d = ui.discuss
-    var input by rememberSaveable { mutableStateOf("") }
-    LabBottomSheet(onDismiss = actions.onDismiss, title = "Discuss Message") {
-        Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(m.content, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.accentSoft).padding(12.dp))
-            if (d.loading) Text("Loading discussion...", color = Lab.colors.muted)
-            if (!d.loading && d.turns.isEmpty() && !d.thinking) {
-                ChipRow {
-                    DISCUSS_QUICK.forEach { (label, q) -> LabChip(label) { actions.onAsk(m, q) } }
-                }
-            }
-            d.turns.forEach { t ->
-                if (t.role == "user") {
-                    Text(t.content, style = MaterialTheme.typography.bodyMedium, color = Color.White, modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(14.dp)).background(Lab.colors.accent).padding(10.dp))
-                } else {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.background).padding(12.dp)) { MarkdownText(t.content) }
-                }
-            }
-            if (d.thinking) Text("Thinking...", color = Lab.colors.muted)
-            d.cards?.let { cards ->
-                Text("Select flashcards to save:", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink)
-                cards.forEachIndexed { i, c -> SelectableCard(c, i in d.selected) { actions.onToggleDiscussCard(i) } }
-                if (d.selected.isNotEmpty()) DeckPicker(ui, d.selected.size, actions) { deck, new -> actions.onSaveDiscussCards(m, deck, new) }
-            }
-            d.saved?.let { InlineNotice(it, kind = NoticeKind.Success) }
-            // Voice first (core VoiceDictation; the web's MessageDiscussionModal): 🎤 Say it → the review → Ask.
-            dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceFirstField(
-                value = input,
-                onValueChange = { input = it },
-                onSubmit = { a -> actions.onAsk(m, a.text); input = "" },
-                surface = "chat_discuss",
-                submitLabel = "Ask",
-                placeholder = "Ask about this message...",
-                multiline = true,
-                enabled = !d.thinking && ui.online,
-            )
-            Spacer(Modifier.height(12.dp))
-        }
+internal fun ProposedDiscussCards(m: ChatMessageDto, cards: List<SuggestedCard>, replyId: String, ui: ChatUi, actions: ChatSheetActions) {
+    var selected by remember(replyId) { mutableStateOf(cards.indices.toSet()) }
+    val saved = ui.discuss.saved[replyId]
+    if (saved != null) {
+        InlineNotice(saved, kind = NoticeKind.Success)
+        return
+    }
+    Column(Modifier.fillMaxWidth().padding(top = 4.dp).testTag("discuss-cards"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("✨ Claude suggests ${cards.size} card${if (cards.size == 1) "" else "s"} — tick the ones you want", style = MaterialTheme.typography.titleSmall, color = Lab.colors.ink)
+        cards.forEachIndexed { i, c -> SelectableCard(c, i in selected) { selected = if (i in selected) selected - i else selected + i } }
+        if (selected.isNotEmpty()) DeckPicker(ui, selected.size, actions) { deck, new -> actions.onSaveDiscussCards(m, cards.filterIndexed { i, _ -> i in selected }, replyId, deck, new) }
     }
 }
-
-private val DISCUSS_QUICK = listOf(
-    "Explain this" to "Please explain what this message means, including the vocabulary and grammar used.",
-    "Break down vocab" to "Please break down each word/phrase in this message with pinyin and English translations.",
-    "Make flashcards" to "Please create flashcards for the key vocabulary and phrases in this message.",
-)
 
 /** A word tapped in the word-by-word view: its definition (device cache first), then save it to a deck. */
 @Composable

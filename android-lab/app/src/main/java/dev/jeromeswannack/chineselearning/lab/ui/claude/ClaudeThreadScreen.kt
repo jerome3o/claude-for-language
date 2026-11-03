@@ -131,7 +131,8 @@ data class ClaudeThreadUi(
     val notice: String? = null,
 ) {
     val core: ClaudeChats.Context get() = context.core()
-    val readOnly: Boolean get() = context.kind == ClaudeChats.PRACTICE || threadReadOnly
+    /** An old practice chat copied in from the tutor-chat tables is read-only; a new role-play is not. */
+    val readOnly: Boolean get() = threadReadOnly || (context.kind == ClaudeChats.PRACTICE && context.conversation_id != null)
     val replyPending: Boolean get() = messages.any { it.role == "assistant" && it.status == "pending" && it.content_type != CoachMistakeLesson.CONTENT_TYPE }
     val busy: Boolean get() = sending != null || replyPending
     val started: Boolean get() = messages.isNotEmpty() || sending != null
@@ -203,6 +204,7 @@ object ClaudeThreadTags {
     const val MAKE_CARDS = "claude-thread-make-cards"
     const val RECAP = "claude-thread-recap"
     const val CLOSED = "claude-thread-closed"
+    const val ROLES = "claude-thread-roles"
     fun chip(id: String) = "claude-thread-chip-$id"
     fun intent(id: String) = "claude-composer-$id"
 }
@@ -211,7 +213,8 @@ object ClaudeThreadTags {
  * One Claude thread, whatever its context (`/chats/claude/{id}`; the web's
  * components/claude/ClaudeThreadView.tsx, docs/CHAT.md "Claude thread view"): a plain chat
  * (`general` — the Coach's "💬 Ask Claude", a `/coach?text=&action=` link), Ask Claude on a card,
- * Discuss with Claude about a chat message, or a practice chat (read-only for now).
+ * Discuss with Claude about a chat message, or a role-play (practice — Claude plays someone; the old
+ * copied practice chats are read-only).
  *
  * - Header: ← (or ✕ in the [sheet] variant), the title, 🎧, 中文 | EN, ⋯ (Make flashcards from this
  *   chat, 📝 words to recap); under it the context chip ("📇 Asked on card · 银行" → the card hub,
@@ -298,6 +301,7 @@ fun ClaudeThreadScreen(
                 if (sheet) HeaderButton("✕", enabled = true, tag = ClaudeThreadTags.CLOSE, onClick = actions.onClose)
             }
             chip?.let { c -> ContextChip(c, actions.onContext) }
+            if (ui.context.kind == ClaudeChats.PRACTICE) PracticeRoles(ui.context.ai_role, ui.context.user_role)
             headerExtra?.invoke()
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!ui.online && ui.hasThread) item("offline") {
@@ -335,6 +339,10 @@ fun ClaudeThreadScreen(
                                     ui.language == AskClaude.ZH -> "Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below."
                                     else -> "Ask Claude anything about this card — or tap a suggestion below."
                                 },
+                                color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
+                            )
+                            ui.context.kind == ClaudeChats.PRACTICE -> Text(
+                                "Claude is setting the scene… Answer in Chinese. Stuck? 💡 a hint, 🆘 how to say something, ✏️ a correction.",
                                 color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
                             )
                             else -> Text("Ask Claude anything about it — tap a suggestion below to start.", color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY))
@@ -386,7 +394,13 @@ fun ClaudeThreadScreen(
                     val chips = ui.chips
                     if (chips.isNotEmpty()) {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag(ClaudeThreadTags.CHIPS), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for (c in chips) SuggestionChip(c.label, ClaudeThreadTags.chip(c.id)) { actions.onSend(c.question, false, "ask", c.id) }
+                            for (c in chips) SuggestionChip(c.label, ClaudeThreadTags.chip(c.id)) {
+                                // 🆘 How do I say…: into the box, to be finished.
+                                if (c.fill) {
+                                    actions.onDraft(c.question)
+                                    voice.type()
+                                } else actions.onSend(c.question, false, "ask", c.id)
+                            }
                         }
                     }
                     VoiceTextFieldContent(
@@ -458,6 +472,18 @@ private fun HeaderButton(label: String, enabled: Boolean, tag: String, onClick: 
 }
 
 /** "📇 Asked on card · 银行 ›" — orange outline (Claude's colour in the Chats tab), tappable when it leads somewhere. */
+/** A role-play: who Claude plays and who he is, under the context chip. */
+@Composable
+private fun PracticeRoles(aiRole: String?, userRole: String?) {
+    val parts = listOfNotNull(aiRole?.takeIf { it.isNotBlank() }?.let { "✦ Claude plays $it" }, userRole?.takeIf { it.isNotBlank() }?.let { "You: $it" })
+    if (parts.isEmpty()) return
+    Text(
+        parts.joinToString(" · "),
+        color = Lab.colors.muted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 6.dp).testTag(ClaudeThreadTags.ROLES),
+    )
+}
+
 @Composable
 private fun ContextChip(c: ClaudeChats.HeaderChip, onOpen: (ClaudeChats.Link) -> Unit) {
     val orange = Color(0xFFD97706)

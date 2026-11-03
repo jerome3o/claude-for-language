@@ -10,6 +10,9 @@
  *            chats in; `since` = a previous server_time: threads changed since + the ids deleted since)
  *   POST   /claude/threads { client_id, context, intent?, text, message_client_id?, language?, title?, quick? }
  *          → 202 { thread, messages: [mine, pending reply] } (200 { …, existing: true } for a known client_id)
+ *          A role-play (context { kind: practice, scenario?, ai_role?, user_role?, level?, note_id? }) may
+ *          come with no text: Claude speaks first → 202 { thread, messages: [pending opener] }. The server
+ *          picks the persona's voice (`practiceVoiceFor`) and keeps it on the thread's context.
  *   GET    /claude/threads/:id?since= → { thread, messages, server_time } (a reply being written comes
  *          with its text so far, `streaming: true`; the thread's unread count is cleared)
  *   POST   /claude/threads/:id/messages { client_id?, text, intent?, language?, quick?, typed? } → 202 { thread, messages }
@@ -47,6 +50,7 @@ import {
   type ClaudeIntent,
   type ClaudeThreadContext,
 } from '@shared/claude/context';
+import { practiceReplyLanguage, practiceSnapshot, practiceVoiceFor } from '@shared/claude/practice';
 import { resolveCoachAction } from '@shared/coach';
 import { COACH_ASK_MAX_CHARS } from '@shared/coach/askChat';
 import { parseAskLanguage, turnLanguage, type AskLanguage } from '@shared/study/askClaude';
@@ -102,8 +106,22 @@ async function checkedContext(c: Context<{ Bindings: Env }>, userId: string, ctx
     const label = previewOf(m.content || '').slice(0, 40);
     return label ? { label } : {};
   }
-  if (ctx.kind === 'practice') throw new ClaudeContextError('Practice chats can’t be started here yet', 400);
+  if (ctx.kind === 'practice') {
+    // An old practice chat (copied in, read-only) can't be started again; a card's role-play: its card.
+    if (ctx.conversation_id) throw new ClaudeContextError('Old practice chats can’t be started again — start a new role-play', 400);
+    if (ctx.note_id) {
+      const note = await db.getNoteById(c.env.DB, ctx.note_id, userId);
+      if (!note) throw new ClaudeContextError('Note not found', 404);
+      return { label: note.hanzi.slice(0, 80), ...(ctx.ai_role ? { sublabel: ctx.ai_role.slice(0, 80) } : {}) };
+    }
+    return practiceSnapshot(ctx);
+  }
   return {};
+}
+
+/** The language of a role-play turn: a line is Chinese; help (💡 / 🆘 / ✏️, "how do I say") the account's. */
+async function practiceTurnLanguage(database: D1Database, userId: string, requested: unknown, thread: string | null | undefined, text: string): Promise<AskLanguage> {
+  return practiceReplyLanguage(text, await askTurnLanguage(database, userId, requested, thread, text));
 }
 
 function badRequest(c: Context<{ Bindings: Env }>, error: string) {
@@ -177,13 +195,14 @@ threads.get('/claude/threads', async (c) => {
 threads.post('/claude/threads', async (c) => {
   const userId = userIdOf(c);
   const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-  const context = parseClaudeContext(body.context ?? { kind: 'general' });
-  if (!context) return badRequest(c, 'context must be { kind: general } | { kind: card, note_id } | { kind: chat_message, message_id }');
+  let context = parseClaudeContext(body.context ?? { kind: 'general' });
+  if (!context) return badRequest(c, 'context must be { kind: general } | { kind: card, note_id } | { kind: practice, scenario | note_id } | { kind: chat_message, message_id }');
   const intent: ClaudeIntent | null = body.intent === undefined || body.intent === null ? 'ask' : parseIntent(body.intent);
   if (!intent) return badRequest(c, 'intent must be ask, check, explain or translate');
   if (!intentsFor(context.kind).includes(intent)) return badRequest(c, `A ${context.kind} chat takes ${intentsFor(context.kind).join(', ') || 'no messages'} here`);
   const text = typeof body.text === 'string' ? body.text.trim() : '';
-  if (!text) return badRequest(c, 'text is required');
+  // A role-play may start with no message: Claude opens the scene.
+  if (!text && context.kind !== 'practice') return badRequest(c, 'text is required');
   if (text.length > COACH_ASK_MAX_CHARS) return badRequest(c, `Keep a message under ${COACH_ASK_MAX_CHARS} characters`);
   if (intent !== 'ask') {
     const resolved = resolveCoachAction(text, intent);
@@ -208,7 +227,15 @@ threads.post('/claude/threads', async (c) => {
     if (err instanceof ClaudeContextError) return c.json({ error: err.message }, err.status);
     throw err;
   }
-  const language = intent === 'ask' && context.kind !== 'chat_message' ? await askTurnLanguage(c.env.DB, userId, body.language, null, text) : null;
+  if (context.kind === 'practice') context = { ...context, voice_id: practiceVoiceFor(context) };
+  const language =
+    context.kind === 'practice'
+      ? text
+        ? await practiceTurnLanguage(c.env.DB, userId, body.language, null, text)
+        : 'zh'
+      : intent === 'ask' && context.kind !== 'chat_message'
+        ? await askTurnLanguage(c.env.DB, userId, body.language, null, text)
+        : null;
   const threadLanguage = parseAskLanguage(body.language);
   const requestedTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim().slice(0, CLAUDE_TITLE_MAX) : null;
   const general = context.kind === 'general';
@@ -217,17 +244,24 @@ threads.post('/claude/threads', async (c) => {
     clientId,
     context,
     snapshot,
-    title: requestedTitle ?? titleFor({ ...context, ...snapshot }, text),
+    // A role-play is named after its situation ("Practice: 在饭店点菜"), not its first line.
+    title: requestedTitle ?? titleFor({ ...context, ...snapshot }, context.kind === 'practice' ? '' : text),
     // Older apps list general chats on the Coach page by action / kind.
     action: general ? intent : null,
     kind: general && intent === 'ask' ? 'ask' : null,
-    inputLanguage: hasHan(text) ? 'zh' : 'en',
+    inputLanguage: hasHan(text) || context.kind === 'practice' ? 'zh' : 'en',
     language: threadLanguage,
-    source: 'app',
+    source: context.kind === 'practice' ? 'practice' : 'app',
   });
   if (!created) {
     const messages = await store.getThreadMessages(c.env.DB, thread.id);
     return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, thread.id), messages: messages.map(store.toThreadMessage), existing: true }, 200);
+  }
+  if (!text) {
+    // Claude speaks first (a role-play's opener).
+    const opener = await store.appendOpener(c.env.DB, thread.id, language);
+    await startReply(c, opener);
+    return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, thread.id), messages: [store.toThreadMessage(opener)] }, 202);
   }
   const turn = await store.appendTurn(
     c.env.DB,
@@ -297,7 +331,12 @@ threads.post('/claude/threads/:id/messages', async (c) => {
   const typed = kind === 'card' ? typedOf(body.typed) : undefined;
   if (typed !== undefined) await store.setCardTyped(c.env.DB, userId, id, typed);
   const coachFollowUp = kind === 'general' && !!(await c.env.DB.prepare("SELECT 1 FROM coach_messages WHERE conversation_id = ? AND content_type = 'analysis' LIMIT 1").bind(id).first());
-  const language = kind === 'chat_message' || coachFollowUp ? null : await askTurnLanguage(c.env.DB, userId, body.language, thread.language, text);
+  const language =
+    kind === 'chat_message' || coachFollowUp
+      ? null
+      : kind === 'practice'
+        ? await practiceTurnLanguage(c.env.DB, userId, body.language, thread.language, text)
+        : await askTurnLanguage(c.env.DB, userId, body.language, thread.language, text);
   const turn = await store.appendTurn(c.env.DB, { threadId: id, clientId, role: 'user', content: text, intent: 'ask' }, { contentType: 'text', answerLang: language });
   if (turn.reply && turn.created) await startReply(c, turn.reply);
   if (turn.created && kind === 'card' && body.quick !== true) {

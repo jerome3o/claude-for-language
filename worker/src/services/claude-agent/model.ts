@@ -26,6 +26,11 @@ export const CHAT_TURN_MAX_TOKENS = 12000;
  */
 export const MODEL_POLICY = {
   chat: { model: SONNET_MODEL, thinking: { type: 'disabled' as const }, maxTokens: CHAT_TURN_MAX_TOKENS },
+  /**
+   * A role-play line (context `practice`): `SONNET_MODEL`, thinking OFF (a quick, natural reply — a
+   * person talking, not an essay); a short budget — a line or two, or a short bit of help.
+   */
+  practice: { model: SONNET_MODEL, thinking: { type: 'disabled' as const }, maxTokens: 1500 },
   /** Claude memory (memory.ts): a thread's rolling summary — background, `structuredCall`. */
   summary: { model: HAIKU_MODEL, thinking: { type: 'disabled' as const }, maxTokens: 400 },
   /** Claude memory: the learner digest — background (daily cron / after 5 new summaries), `structuredCall`. */
@@ -44,7 +49,7 @@ export function createAnthropicClient(apiKey: string): Pick<Anthropic, 'messages
 
 const EPHEMERAL = { type: 'ephemeral' } as const;
 
-export type ChatTurnSurface = 'ask' | 'coach' | 'coach_ask' | 'discuss';
+export type ChatTurnSurface = 'ask' | 'coach' | 'coach_ask' | 'discuss' | 'practice';
 
 /** The tool list with a cache breakpoint on its last tool (caches every definition). */
 export function cachedTools(tools: Anthropic.Tool[]): Anthropic.Tool[] {

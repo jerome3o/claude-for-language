@@ -7,8 +7,6 @@ import {
   API_BASE,
   updateNote as updateNoteOnServer,
   getMyRelationships,
-  createConversation,
-  initiateAIConversation,
   generateNoteAudio,
   GenerateAudioOptions,
   getNoteAudioRecordings,
@@ -21,6 +19,8 @@ import {
 } from '../api/client';
 import { CardClaudeSheet } from '../components/claude/CardClaudeSheet';
 import { cardToolEffects, undoEditFields, type CardToolResult, type EditedNote } from '@shared/claude/cardTools';
+import { practiceFromCard } from '@shared/claude/practice';
+import { startPracticeThread } from '../services/claudeThreads';
 import { syncBumps } from '../services/studyBumps';
 import { createAudioPlayer } from '../utils/audioPlayback';
 import { AddChunkModal, Chunk } from '../components/AddChunkModal';
@@ -42,7 +42,6 @@ import {
   QueueCounts,
   IntervalPreview,
   TutorRelationshipWithUsers,
-  isClaudeUser,
   MINIMAX_VOICES,
   DEFAULT_MINIMAX_VOICE,
   Note,
@@ -2406,27 +2405,21 @@ export function StudyCard({
     );
   };
 
-  // Find Claude relationship for "Use in Conversation"
-  const claudeRelationship = tutors.find(
-    t => isClaudeUser(t.requester.id) || isClaudeUser(t.recipient.id)
-  );
-
+  // 🎭 Roleplay this word: a role-play with Claude around the card's word (a practice thread — Claude
+  // speaks first; docs/CHAT.md "Practice with Claude"). The card stays as it is (today is the session).
+  const [roleplayError, setRoleplayError] = useState<string | null>(null);
   const handleUseInConversation = async () => {
-    if (!claudeRelationship || isInitiatingConversation) return;
+    if (isInitiatingConversation) return;
     setIsInitiatingConversation(true);
+    setRoleplayError(null);
     try {
-      const conv = await createConversation(claudeRelationship.id, {
-        title: `Practice: ${card.note.hanzi}`,
-        scenario: `The student is practicing the word/phrase: ${card.note.hanzi} (${card.note.pinyin}) meaning "${card.note.english}". Start a conversation that naturally uses this vocabulary. Keep it at a beginner-intermediate level.`,
-        user_role: 'Chinese language student practicing vocabulary',
-        ai_role: 'Friendly Chinese conversation partner',
-      });
-      // Trigger Claude's opening message
-      await initiateAIConversation(conv.id);
-      // Navigate to the chat
-      navigate(`/connections/${claudeRelationship.id}/chat/${conv.id}`);
+      const ctx = practiceFromCard({ id: card.note.id, hanzi: card.note.hanzi });
+      const threadId = await startPracticeThread(ctx);
+      track('claude.practice_start', { source: 'card', preset: 'card', level: ctx.level ?? null });
+      navigate(`/chats/claude/${encodeURIComponent(threadId)}?source=card`, { state: { from: '/study' } });
     } catch (err) {
-      console.error('[StudyCard] Failed to initiate conversation:', err);
+      console.error('[StudyCard] Failed to start the role-play:', err);
+      setRoleplayError(err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message) ? err.message : "Couldn't start the role-play — try again.");
     } finally {
       setIsInitiatingConversation(false);
     }
@@ -2473,9 +2466,7 @@ export function StudyCard({
         : []),
       { key: 'regen-audio', label: 'Regenerate audio', icon: '🔊', hint: needsInternet, disabled: !aiAvailable, busy: isRegeneratingAudio, onSelect: regenerateAudio },
       { key: 'new-voice', label: 'New voice', icon: '🗣️', hint: needsInternet, disabled: !aiAvailable, busy: isGeneratingStudyAudio, onSelect: generateStudyAudio },
-      ...(claudeRelationship
-        ? [{ key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation }]
-        : []),
+      { key: 'roleplay', label: 'Roleplay this word', icon: '🎭', hint: roleplayError ?? needsInternet, disabled: !aiAvailable, busy: isInitiatingConversation, onSelect: handleUseInConversation },
       {
         // To the coach and back: this card stays as it is (resume point) and the coach's
         // "Back to your card" returns here. Prefilled with the card's sentence, not sent.

@@ -88,6 +88,10 @@ const CONTEXTS: Record<ContextKind, { ctx: ClaudeContext; input: TurnInput }> = 
     input: { userId: USER, turns: [{ role: 'user', content: 'The user submitted this sentence to the Sentence Coach: "我去银行。"' }, { role: 'assistant', content: 'analysis' }, { role: 'user', content: 'Why 去?' }] },
   },
   chat_message: { ctx: { kind: 'chat_message', message_id: 'm1' }, input: { userId: USER, turns: [{ role: 'user', content: 'What does it mean?' }] } },
+  practice: {
+    ctx: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员', user_role: '客人', level: 'beginner' },
+    input: { userId: USER, language: 'zh', turns: [{ role: 'user', content: '你好，我想点菜。' }] },
+  },
 };
 
 describe('Claude agent harness', () => {
@@ -279,7 +283,7 @@ describe('Claude agent harness', () => {
 
   describe('the tool registry', () => {
     it('every context lists only tools the registry allows it, in a stable order', () => {
-      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: GENERAL_TOOLS };
+      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: GENERAL_TOOLS, practice: [] };
       for (const kind of CONTEXT_KINDS) {
         expect(CONTEXT_PROVIDERS[kind].tools({} as never)).toEqual(lists[kind]);
         for (const name of lists[kind]) expect(toolAllowed(kind, name)).toBe(true);
@@ -288,8 +292,9 @@ describe('Claude agent harness', () => {
       expect(toolAllowed('coach', 'edit_current_card')).toBe(false);
       expect(toolAllowed('chat_message', 'delete_current_card')).toBe(false);
       expect(toolAllowed('general', 'search_cards')).toBe(false);
-      // Claude memory's look-ups: every context.
-      for (const kind of CONTEXT_KINDS) for (const name of ['search_my_chats', 'read_chat']) expect(toolAllowed(kind, name)).toBe(true);
+      // Claude memory's look-ups: every context with tools (a role-play has none — one round, in character).
+      for (const kind of CONTEXT_KINDS.filter((k) => k !== 'practice')) for (const name of ['search_my_chats', 'read_chat']) expect(toolAllowed(kind, name)).toBe(true);
+      expect(toolAllowed('practice', 'search_cards')).toBe(false);
       expect(() => bindTools('coach', ['edit_current_card'], { db, userId: USER, deckId: '', bumpSource: 'x', context: 'coach' })).toThrow(/not allowed/);
     });
 

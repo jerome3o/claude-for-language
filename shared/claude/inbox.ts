@@ -102,7 +102,7 @@ export function mergeInbox<H extends InboxHuman, T extends InboxThread>(
   const filter = opts.filter ?? 'all';
   const practiceConversations = new Set<string>();
   for (const t of threads) {
-    if (t.context.kind === 'practice') practiceConversations.add(t.context.conversation_id);
+    if (t.context.kind === 'practice' && t.context.conversation_id) practiceConversations.add(t.context.conversation_id);
   }
   const items: InboxItem<H, T>[] = [];
   for (const h of humans) {

@@ -4,6 +4,7 @@ import {
   chipsFor,
   claudeReplyPollMs,
   composerFor,
+  PRACTICE_READ_ONLY_NOTE,
   headerChipFor,
   resumeThreadFor,
   turnStatusLine,
@@ -24,11 +25,14 @@ describe('chipsFor', () => {
     expect(chipsFor({ kind: 'card', typed: { answer: '银航' } }, { language: 'en' }).map((c) => c.id)).toContain('check_answer');
   });
 
-  it('general / chat message chips; practice has none', () => {
+  it('general / chat message chips; a role-play: the three help chips, every time, 🆘 into the box', () => {
     expect(chipsFor({ kind: 'general' }, { language: 'zh' }).map((c) => c.id)).toEqual(['phrase', 'quiz', 'story']);
     expect(chipsFor({ kind: 'general' }, { language: 'en' })[0].label).toBe('A useful phrase');
-    expect(chipsFor({ kind: 'chat_message' }, { language: 'en' }).map((c) => c.id)).toEqual(['meaning', 'natural', 'reply']);
-    expect(chipsFor({ kind: 'practice' }, { language: 'zh' })).toEqual([]);
+    expect(chipsFor({ kind: 'chat_message' }, { language: 'en' }).map((c) => c.id)).toEqual(['meaning', 'natural', 'reply', 'cards']);
+    const help = chipsFor({ kind: 'practice' }, { language: 'zh', replies: 5, used: ['hint', 'say', 'correct'] });
+    expect(help.map((c) => [c.id, !!c.fill])).toEqual([['hint', false], ['say', true], ['correct', false]]);
+    expect(help[0].question.startsWith('💡')).toBe(true);
+    expect(chipsFor({ kind: 'practice' }, { language: 'en' })[1]).toEqual({ id: 'say', label: '🆘 How do I say…', question: '🆘 How do I say: ', fill: true });
   });
 
   it('after a reply: at most three, never one already used', () => {
@@ -45,11 +49,12 @@ describe('composerFor', () => {
     expect(composerFor('general', '  ', { started: false })).toMatchObject({ intents: ['ask', 'check', 'explain'], enabled: false, hint: null });
   });
 
-  it('a started general chat, a card, a chat message: Ask only; practice: read-only', () => {
+  it('a started general chat, a card, a chat message, a role-play: Ask only; a read-only thread: none', () => {
     expect(composerFor('general', '我昨天去了商店', { started: true })).toMatchObject({ intents: ['ask'], enabled: true, hint: null });
     expect(composerFor('card', '为什么？', { started: false }).intents).toEqual(['ask']);
     expect(composerFor('chat_message', '', { started: false }).enabled).toBe(false);
-    expect(composerFor('practice', '你好', { started: true })).toMatchObject({ intents: [], primary: null, readOnly: true });
+    expect(composerFor('practice', '你好', { started: true })).toMatchObject({ intents: ['ask'], primary: 'ask', enabled: true, readOnly: false });
+    expect(composerFor('practice', '你好', { started: true, readOnly: true })).toMatchObject({ intents: [], primary: null, readOnly: true, hint: PRACTICE_READ_ONLY_NOTE });
   });
 });
 
@@ -91,6 +96,8 @@ describe('resumeThreadFor', () => {
     expect(resumeThreadFor([t('x', 'chat_message', { ...msg, conversation_id: 'c1' }, 60 * 24 * 30)], msg, now)).toBe('x');
     // No last message: its creation time counts.
     expect(resumeThreadFor([t('p', 'practice', { kind: 'practice', conversation_id: 'c9' }, null)], { kind: 'practice', conversation_id: 'c9' }, now)).toBe('p');
+    // A new role-play never resumes (each "Practice a situation" is a new scene).
+    expect(resumeThreadFor([t('q', 'practice', { kind: 'practice', scenario: '点菜' }, 1)], { kind: 'practice', scenario: '点菜' }, now)).toBeNull();
   });
 });
 

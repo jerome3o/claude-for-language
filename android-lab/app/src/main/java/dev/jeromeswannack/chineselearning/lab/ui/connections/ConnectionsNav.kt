@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -91,7 +92,7 @@ fun TutorPageRoute(nav: LabNav, relId: String) {
             TutorPageActions(
                 onBack = nav::back,
                 onMessage = { vm.message(openChat) },
-                onNewPracticeConversation = { vm.newPracticeConversation(it, openChat) },
+                onPracticeStarted = { id -> nav.open(Routes.claudeThread(id) + "?source=practice") },
                 onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
                 onJoinCall = { nav.open(Routes.call(it)) },
                 onOpenBoard = { nav.open(Routes.lessonBoard(relId)) },

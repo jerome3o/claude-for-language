@@ -7,11 +7,13 @@ import { cardContext } from './card';
 import { chatMessageContext } from './chat_message';
 import { coachContext } from './coach';
 import { generalContext } from './general';
+import { practiceContextProvider } from './practice';
 
 export const CONTEXT_PROVIDERS: { [K in ContextKind]: ContextProvider<K, any> } = {
   general: generalContext,
   card: cardContext,
   coach: coachContext,
+  practice: practiceContextProvider,
   chat_message: chatMessageContext,
 };
 

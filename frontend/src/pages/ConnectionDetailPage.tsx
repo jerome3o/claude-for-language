@@ -5,7 +5,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
   getConversations,
-  createConversation,
   getSharedDecks,
   getStudentSharedDecks,
   removeRelationship,
@@ -57,6 +56,7 @@ import './ConnectionDetailPage.css';
 import { lastMessagePreview } from '../services/chatThread';
 import { track } from '../services/analytics';
 import { useScrollToHash } from '../hooks/useScrollToHash';
+import { PracticeSituationSheet } from '../components/claude/PracticeSituationSheet';
 
 function formatConversationDate(dateStr: string) {
   const date = new Date(dateStr);
@@ -177,10 +177,6 @@ export function ConnectionDetailPage() {
   const [showHomeworkSheet, setShowHomeworkSheet] = useState(false);
   const [showNewConvModal, setShowNewConvModal] = useState(false);
   const [showStudentDecks, setShowStudentDecks] = useState(false);
-  const [newConvTitle, setNewConvTitle] = useState('');
-  const [newConvScenario, setNewConvScenario] = useState('');
-  const [newConvUserRole, setNewConvUserRole] = useState('');
-  const [newConvAIRole, setNewConvAIRole] = useState('');
   const [messageBusy, setMessageBusy] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [updatingShare, setUpdatingShare] = useState<string | null>(null);
@@ -272,20 +268,6 @@ export function ConnectionDetailPage() {
   // "📹 <name> is calling — Join" for this relationship's live call (shared with Home / the top bar).
   const liveCallBanner = <LiveCallBanner variant="inline" relationshipId={relId} />;
 
-  const createConvMutation = useMutation({
-    mutationFn: (options: { title?: string; scenario?: string; user_role?: string; ai_role?: string }) =>
-      createConversation(relId!, options),
-    onSuccess: (conv) => {
-      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-      setShowNewConvModal(false);
-      setNewConvTitle('');
-      setNewConvScenario('');
-      setNewConvUserRole('');
-      setNewConvAIRole('');
-      navigate(`/connections/${relId}/chat/${conv.id}`);
-    },
-  });
-
   const removeMutation = useMutation({
     mutationFn: () => removeRelationship(relId!),
     onSuccess: () => {
@@ -359,16 +341,6 @@ export function ConnectionDetailPage() {
     } finally {
       setUpdatingShare(null);
     }
-  };
-
-  const handleCreateConversation = (e: React.FormEvent) => {
-    e.preventDefault();
-    createConvMutation.mutate({
-      title: newConvTitle.trim() || undefined,
-      scenario: newConvScenario.trim() || undefined,
-      user_role: newConvUserRole.trim() || undefined,
-      ai_role: newConvAIRole.trim() || undefined,
-    });
   };
 
   if (relationshipQuery.isLoading) {
@@ -802,69 +774,8 @@ export function ConnectionDetailPage() {
         )}
       </div>
 
-      {/* New Conversation Modal — kept for Claude practice conversations (scenario + roles) */}
-      {showNewConvModal && (
-        <div className="modal-overlay" onClick={() => setShowNewConvModal(false)}>
-          <div className="modal connection-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>New Practice Conversation</h3>
-            <form onSubmit={handleCreateConversation}>
-              <div className="form-group">
-                <label htmlFor="conv-title">Title (optional)</label>
-                <input
-                  id="conv-title"
-                  type="text"
-                  value={newConvTitle}
-                  onChange={(e) => setNewConvTitle(e.target.value)}
-                  placeholder={isClaudeRelationship ? 'e.g., Restaurant Practice' : 'e.g., Lesson Questions'}
-                />
-              </div>
-              {isClaudeRelationship && (
-                <>
-                  <div className="form-group">
-                    <label htmlFor="conv-scenario">Scenario (optional)</label>
-                    <textarea
-                      id="conv-scenario"
-                      value={newConvScenario}
-                      onChange={(e) => setNewConvScenario(e.target.value)}
-                      placeholder="Describe the situation, e.g., 'You are ordering food at a Chinese restaurant. The waiter only speaks Mandarin.'"
-                      rows={3}
-                    />
-                    <small className="form-hint">This helps Claude understand the context for the conversation.</small>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="conv-user-role">Your role (optional)</label>
-                    <input
-                      id="conv-user-role"
-                      type="text"
-                      value={newConvUserRole}
-                      onChange={(e) => setNewConvUserRole(e.target.value)}
-                      placeholder="e.g., A tourist visiting Beijing"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="conv-ai-role">Claude's role (optional)</label>
-                    <input
-                      id="conv-ai-role"
-                      type="text"
-                      value={newConvAIRole}
-                      onChange={(e) => setNewConvAIRole(e.target.value)}
-                      placeholder="e.g., A friendly restaurant waiter"
-                    />
-                  </div>
-                </>
-              )}
-              <div className="modal-actions sheet-footer">
-                <button type="submit" className="btn btn-primary" disabled={createConvMutation.isPending}>
-                  {createConvMutation.isPending ? 'Creating...' : 'Start Chat'}
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setShowNewConvModal(false)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Claude: a new role-play is a Claude thread (docs/CHAT.md "Practice with Claude"). */}
+      {showNewConvModal && <PracticeSituationSheet source="claude_page" backTo={`/connections/${relId}`} onClose={() => setShowNewConvModal(false)} />}
     </div>
   );
 }

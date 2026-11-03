@@ -13,7 +13,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.DiscussionTurn
 import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SegmentedDto
@@ -26,14 +25,11 @@ import dev.jeromeswannack.chineselearning.lab.data.api.checkChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.conversationTts
 import dev.jeromeswannack.chineselearning.lab.data.api.chatConversations
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
-import dev.jeromeswannack.chineselearning.lab.data.api.discussMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.displayName
-import dev.jeromeswannack.chineselearning.lab.data.api.messageDiscussion
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.relationship
 import dev.jeromeswannack.chineselearning.lab.data.api.renameConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.responseOptions
-import dev.jeromeswannack.chineselearning.lab.data.api.saveMessageDiscussion
 import dev.jeromeswannack.chineselearning.lab.data.api.sendChatMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.setVoiceSettings
 import dev.jeromeswannack.chineselearning.lab.data.api.startConversation
@@ -220,14 +216,10 @@ data class ChatSearchUi(val query: String = "", val results: List<String> = empt
 /** Ask the list to bring a message into view ([nonce] makes a repeat request count). */
 data class ScrollRequest(val id: String, val nonce: Int, val animate: Boolean = true)
 
+/** Discuss with Claude (a Claude thread sheet): the cards saved from each reply's proposals ("✓ 2 cards added"). */
 data class DiscussState(
-    val loading: Boolean = true,
-    val turns: List<DiscussionTurn> = emptyList(),
-    val thinking: Boolean = false,
-    val cards: List<SuggestedCard>? = null,
-    val selected: Set<Int> = emptySet(),
     val saving: Boolean = false,
-    val saved: String? = null,
+    val saved: Map<String, String> = emptyMap(),
 )
 
 data class ChatUi(
@@ -1877,43 +1869,20 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     // ---------------- Discuss with Claude ----------------
 
+    /**
+     * Discuss with Claude: the message's Claude thread in a sheet (ui/claude/DiscussClaudeSheet.kt — it
+     * resumes the message's thread, streams the reply). Old builds' `/api/messages/:id/discuss` is untouched.
+     */
     private fun openDiscussion(m: ChatMessageDto) {
         _ui.update { it.copy(sheet = ChatSheet.Discuss(m), discuss = DiscussState()) }
-        viewModelScope.launch {
-            val turns = runCatching { api.messageDiscussion(m.id).messages }.getOrDefault(emptyList())
-            _ui.update { it.copy(discuss = it.discuss.copy(loading = false, turns = turns)) }
-        }
     }
 
-    fun ask(m: ChatMessageDto, question: String) {
-        val q = question.trim()
-        val d = _ui.value.discuss
-        if (q.isEmpty() || d.thinking) return
-        val history = d.turns
-        val withQ = history + DiscussionTurn("user", q)
-        _ui.update { it.copy(discuss = it.discuss.copy(turns = withQ, thinking = true, cards = null, saved = null)) }
-        viewModelScope.launch {
-            try {
-                val r = api.discussMessage(m.id, q, history.ifEmpty { null })
-                val all = withQ + DiscussionTurn("assistant", r.response)
-                _ui.update { it.copy(discuss = it.discuss.copy(turns = all, thinking = false, cards = r.flashcards?.takeIf { c -> c.isNotEmpty() }, selected = r.flashcards?.indices?.toSet().orEmpty())) }
-                runCatching { api.saveMessageDiscussion(m.id, all) }.onSuccess {
-                    if (!m.has_discussion) _ui.update { s -> s.copy(messages = s.messages.map { x -> if (x.id == m.id) x.copy(has_discussion = true) else x }) }
-                }
-            } catch (e: Exception) {
-                _ui.update { it.copy(discuss = it.discuss.copy(turns = withQ + DiscussionTurn("assistant", "Sorry, I had trouble responding. Please try again."), thinking = false)) }
-            }
-        }
-    }
-
-    fun toggleDiscussCard(i: Int) = _ui.update { s -> s.copy(discuss = s.discuss.copy(selected = if (i in s.discuss.selected) s.discuss.selected - i else s.discuss.selected + i)) }
-
-    fun saveDiscussCards(m: ChatMessageDto, deckId: String?, newDeck: String?) {
-        val d = _ui.value.discuss
-        val chosen = d.cards.orEmpty().filterIndexed { i, _ -> i in d.selected }
+    /** The cards Claude proposed in reply [replyId], the chosen ones, into a deck (the sheet stays open). */
+    fun saveDiscussCards(m: ChatMessageDto, chosen: List<SuggestedCard>, replyId: String, deckId: String?, newDeck: String?) {
+        if (chosen.isEmpty()) return
         _ui.update { it.copy(discuss = it.discuss.copy(saving = true)) }
         saveCards(chosen, deckId, newDeck, context = m.content, closeSheet = false) {
-            _ui.update { s -> s.copy(discuss = s.discuss.copy(saving = false, cards = null, selected = emptySet(), saved = "${chosen.size} flashcard${if (chosen.size != 1) "s" else ""} saved!")) }
+            _ui.update { s -> s.copy(discuss = s.discuss.copy(saving = false, saved = s.discuss.saved + (replyId to "✓ ${chosen.size} card${if (chosen.size != 1) "s" else ""} added"))) }
         }
     }
 
