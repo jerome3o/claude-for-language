@@ -143,6 +143,81 @@ export function pickRoundExercises(
   return picked.slice().sort((a, b) => a.pos - b.pos).map((p) => make(p.pos, p.mode));
 }
 
+// --- the listening card's round: "say it in Chinese" -------------------------------------------
+
+/** How many exercises the listening card's round offers at most. */
+export const LISTEN_ROUND_SIZE = 3;
+
+/** The card's own sentence (`clue:<noteId>`, the key both lists use). */
+export function isCardSentenceKey(key: string): boolean {
+  return key.startsWith('clue:');
+}
+
+/** Spaces (ASCII and the ideographic one) never count when looking for the word in a sentence. */
+function squeeze(text: string): string {
+  return text.replace(/[ \t\n\r\u3000]+/g, '');
+}
+
+/**
+ * The sentences the listening card's round can ask for (Jerome: "for the listening card … maybe I should
+ * just get a few English sentences that I need to say"): the card's own sentence and the set's sentences
+ * that contain the word, each with English (it is the question), not hidden. In list order.
+ */
+export function listenRoundCandidates(
+  sentences: readonly RoundSentence[],
+  word: string,
+  stats?: ReadonlyMap<string, SentenceStats>,
+): { s: RoundSentence; index: number }[] {
+  const w = squeeze(word);
+  return sentences
+    .map((s, index) => ({ s, index }))
+    .filter(({ s }) => hasTranslation(s) && !stats?.get(sentenceHistoryKey(s.key))?.hidden)
+    .filter(({ s }) => isCardSentenceKey(s.key) || !w || squeeze(s.hanzi).includes(w));
+}
+
+/**
+ * The listening card's round: up to `LISTEN_ROUND_SIZE` "🔁 Say it in Chinese" exercises — the English up,
+ * he says the sentence in Chinese (judged like the round's translate take). The ones he knows LEAST in
+ * translate mode first (`compareLeastKnown`; ties: list order), shown easiest → harder. Any two right
+ * (`sentenceRoundProgress`) open the answer with Good / Easy. Deterministic (parity-tested).
+ */
+export function pickListenRoundExercises(
+  sentences: readonly RoundSentence[],
+  word: string,
+  stats?: ReadonlyMap<string, SentenceStats>,
+): RoundExercise[] {
+  const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key))?.translate;
+  const ranked = listenRoundCandidates(sentences, word, stats)
+    .slice()
+    .sort((a, b) => compareLeastKnown(statsOf(a.s), statsOf(b.s)) || a.index - b.index)
+    .slice(0, LISTEN_ROUND_SIZE);
+  return ranked
+    .sort((a, b) => a.index - b.index)
+    .map(({ s, index }) => ({ id: roundExerciseId('translate', s.key), key: s.key, mode: 'translate' as const, index }));
+}
+
+/** The listening card's gate counts these (the round's needed: min(2, this)). */
+export function listenRoundSentenceCount(
+  sentences: readonly RoundSentence[],
+  word: string,
+  stats?: ReadonlyMap<string, SentenceStats>,
+): number {
+  return listenRoundCandidates(sentences, word, stats).length;
+}
+
+/** The listening round's lead line, before "Get any 2 of these 3 right". */
+export const LISTEN_ROUND_LEAD = 'You heard it — now say these in Chinese.';
+/** Offline (or no microphone): say it aloud, show the Chinese, check yourself. */
+export const LISTEN_ROUND_SELF_CHECK_NOTE = 'Say each one out loud, then show the Chinese and check yourself.';
+export const LISTEN_ROUND_SHOW_CHINESE = 'Show the Chinese';
+export const LISTEN_ROUND_SELF_RIGHT = 'I said it';
+export const LISTEN_ROUND_SELF_WRONG = 'Not quite';
+
+/** Under the listening round's title: "You heard it — now say these in Chinese. Get any 2 of these 3 right". */
+export function listenRoundIntro(p: RoundProgress, exerciseCount: number): string {
+  return `${LISTEN_ROUND_LEAD} ${sentenceRoundIntro(p, exerciseCount)}`;
+}
+
 /** The round happens on this showing: the setting on, a gated card type, and not known to have no sentences. */
 export function sentenceRoundOpens(args: { enabled: boolean; cardType: string; sentenceCount: number | null }): boolean {
   if (!args.enabled || !SENTENCE_GATE_CARD_TYPES.includes(args.cardType)) return false;
@@ -247,7 +322,7 @@ export const SENTENCE_ROUND_RESULT: Record<'right' | 'close' | 'wrong', string> 
 export function sentenceRoundSkipNote(p: RoundProgress): string {
   const left = Math.max(0, p.needed - p.got);
   if (left === 0) return 'Good and Easy are unlocked.';
-  return `Good and Easy stay locked until ${left === 1 ? '1 more sentence is' : `${left} more sentences are`} right — the sentences on the answer side still count.`;
+  return `Good and Easy stay greyed (Again or Hard suggested) until ${left === 1 ? '1 more sentence is' : `${left} more sentences are`} right — the sentences on the answer side still count.`;
 }
 
 // --- the round on the answer side --------------------------------------------------------------

@@ -324,8 +324,7 @@ export const PASS_ROUND_SKIP_NOTE = 'Skipping is fine — Got it stays open, and
 export function passRoundDoneCheer(got: number, needed: number): string {
   return `🎉 ${got} / ${needed} — Got it unlocked`;
 }
-/** Above Not yet / Got it after giving up in Hard mode. */
-export const PASS_GAVE_UP_LINE = '👁 You looked at the answer — Not yet this time';
-/** Said when the locked Got it is tapped. */
-export const PASS_GAVE_UP_BLOCKED =
-  'You looked at the answer before getting it right, so Got it stays locked — the word comes back later in the pass.';
+/** Above Not yet / Got it after giving up in Hard mode (Got it greyed, never locked). */
+export const PASS_GAVE_UP_LINE = '👁 You looked at the answer — Not yet suggested';
+/** Said on a first tap of the greyed Got it: a second tap within 3 s (`overrideTap`) still says Got it. */
+export const PASS_GOT_IT_OVERRIDE = 'Tap again to say Got it anyway';

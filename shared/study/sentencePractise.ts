@@ -16,7 +16,7 @@
  * - nothing open yet (a blank listen-first row) → no 🎤.
  *
  * Practice only: nothing is recorded, no review event, the card's rating is never touched — except
- * through the gate below, which only decides whether Good / Easy may be pressed.
+ * through the gate below, which only decides whether Good / Easy are greyed (a second tap still rates).
  *
  * Lab port: core `SentencePractise.kt`, parity-tested (parity/fixtures/sentence-practise.ts).
  */
@@ -57,6 +57,20 @@ export const SENTENCE_PRACTISE_STOP = 'Stop — check what I said';
 export const SENTENCE_PRACTISE_CHECKING = 'Checking your translation…';
 /** A translate take that isn't the sentence and couldn't be checked by Claude (offline / failed). */
 export const SENTENCE_PRACTISE_CHECK_ONLINE = 'Check online for other ways to say it';
+
+/**
+ * Stopping a take is INTENTIONAL (Jerome: "when I tap anywhere on the screen it finishes the audio recording,
+ * which is bad — e.g. I scroll down because something popped up"): a tap or a scroll elsewhere never stops
+ * it — only the 🎤 again (it toggles off), Enter, or the big pinned "■ Stop recording" bar at the bottom
+ * (the graded reader's read-aloud footer). What the bar shows: 'stop' while recording, 'checking' while the
+ * take is finished and judged, null otherwise. There is no auto-stop on silence.
+ */
+export function sentenceStopBar(listening: boolean, finishing: boolean): 'stop' | 'checking' | null {
+  if (listening) return 'stop';
+  return finishing ? 'checking' : null;
+}
+export const SENTENCE_PRACTISE_STOP_RECORDING = 'Stop recording';
+export const SENTENCE_PRACTISE_CHECKING_TAKE = 'Checking what you said…';
 
 /** right = counts (the gate); close = nearly; wrong; failed / empty = no take to judge. */
 export type SentencePractiseResult = 'right' | 'close' | 'wrong' | 'failed' | 'empty';
@@ -130,20 +144,23 @@ export function showCheckOnline(take: SentenceTake, claudeAnswered: boolean, che
 }
 
 // ---------------------------------------------------------------------------------------------
-// "Get two sentences right before Good / Easy" (Settings → Study, per device, OFF by default)
+// The gate — Good / Easy wait (greyed, not locked) for two sentences (part of Hard mode)
 // ---------------------------------------------------------------------------------------------
 
-/** How many example sentences must be said right with 🎤 before Good / Easy. */
+/** How many example sentences must be said right with 🎤 before Good / Easy stop being greyed. */
 export const SENTENCE_GATE_TARGET = 2;
-/** The cards it gates (never the listening card, whose sentences are its clues). */
-export const SENTENCE_GATE_CARD_TYPES: readonly string[] = ['hanzi_to_meaning', 'meaning_to_hanzi'];
+/**
+ * The cards it gates in Hard mode: the reading and meaning cards, and the listening card (its round is
+ * "say it in Chinese" — `pickListenRoundExercises` in sentenceRound.ts).
+ */
+export const SENTENCE_GATE_CARD_TYPES: readonly string[] = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'];
 
 export interface SentenceGate {
   /** Sentences to get right on this showing (0 = no gate). */
   needed: number;
   /** Got right so far (distinct sentences, capped at `needed`). */
   got: number;
-  /** Good / Easy are disabled. */
+  /** Not enough right yet: Good / Easy are greyed (a second tap still rates — `goodEasyGate` in hardMode.ts). */
   locked: boolean;
 }
 
@@ -165,22 +182,9 @@ export function sentenceGate(args: {
   return { needed, got, locked: got < needed };
 }
 
-/** Ratings 0 Again · 1 Hard · 2 Good · 3 Easy: only Good / Easy wait for the gate. */
-export function ratingLockedByGate(rating: number, gate: SentenceGate): boolean {
-  return gate.locked && rating >= 2;
-}
-
-const sentences = (n: number) => (n === 1 ? '1 sentence' : `${n} sentences`);
-
-/** The line above the ratings (null = no gate): "🎤 Get 2 sentences right to unlock Good · 1/2". */
+/** The line above the ratings (null = no gate): "🎤 Try the sentences first · 1/2 right". */
 export function sentenceGateLabel(gate: SentenceGate): string | null {
   if (gate.needed === 0) return null;
-  if (gate.locked) return `🎤 Get ${sentences(gate.needed)} right to unlock Good · ${gate.got}/${gate.needed}`;
+  if (gate.locked) return `🎤 Try the sentences first · ${gate.got}/${gate.needed} right`;
   return `✓ ${gate.got}/${gate.needed} right — Good and Easy unlocked`;
-}
-
-/** Said when a locked Good / Easy is tapped. */
-export function sentenceGateBlockedNote(gate: SentenceGate): string {
-  const left = Math.max(0, gate.needed - gate.got);
-  return `Say ${left === 1 ? '1 more sentence' : `${left} more sentences`} right with 🎤 to unlock Good and Easy — Again and Hard are always there.`;
 }

@@ -151,10 +151,28 @@ class PassHardModeTest {
         compose.onNodeWithContentDescription("Hard mode in homework: All words").assertExists()
         compose.onNodeWithTag("hw-gotit").performClick()
         compose.waitForIdle()
-        assertTrue("a locked Got it answers nothing", answers.isEmpty())
-        compose.onNodeWithText(PassAngles.GAVE_UP_BLOCKED).assertExists()
+        assertTrue("a greyed Got it answers nothing on the first tap", answers.isEmpty())
+        compose.onNodeWithText(PassAngles.GOT_IT_OVERRIDE).assertExists()
         compose.onNodeWithTag("hw-notyet").performClick()
         compose.waitForIdle()
         assertEquals(listOf(listOf(false, "none", "wrong", true)), answers)
+    }
+
+    @Test fun aSecondTapOnTheGreyedGotItSaysGotItAnyway() {
+        val answers = mutableListOf<Boolean>()
+        compose.setContent {
+            LabTheme {
+                StudyScreen(
+                    PassHardModeScreenshots.ui(), playingKey = null,
+                    actions = StudyActions(onPassAnswer = { r, _, _, _ -> answers += r }),
+                    cardStart = CardStartState(flipped = true, gaveUp = true), autoplay = false, pass = PassHardModeScreenshots.pass(),
+                )
+            }
+        }
+        compose.onNodeWithTag("hw-gotit").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("hw-gotit").performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(true), answers)
     }
 }

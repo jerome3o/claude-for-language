@@ -1204,9 +1204,15 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
   shows compactly — chip, headline, what was said, the fix — and correct / acceptable count as
   right). Offline / no check: "You said" vs the sentence (the hanzi diff) and "Check online for other
   ways to say it". After the take the row reveals its Chinese to compare.
-- ONE microphone per list: 🎤 again, Enter or a tap anywhere else stops the take; a 🎤 on another
-  row only stops the current take (its result lands on its own row first). Offline the 🎤 is off
-  (transcription needs a connection). Hiding a row again (or EN) clears its result.
+- ONE microphone per list. **Stopping is intentional** (Jerome, Nov 2026: "when I tap anywhere on the screen
+  it finishes the audio recording, which is bad — e.g. I scroll down because something popped up"): a tap or a
+  scroll elsewhere NEVER stops the take — only the 🎤 again (it toggles off), Enter, or ONE big red
+  **■ Stop recording** pinned at the bottom of the screen while a take is under way (then "Checking what you
+  said…"; the graded reader's read-aloud footer reused — web `SentenceStopBar` → `ReadAloudStopFooter`, Lab
+  `SentenceStopBar` → `ReadAloudStopFooter`, in the controls' slot; rule `sentenceStopBar`). The page keeps
+  scrolling under it. There is no auto-stop on silence. A 🎤 on another row only stops the current take (its
+  result lands on its own row first). Same in the Sentence round and the listening round. Offline the 🎤 is
+  off (transcription needs a connection). Hiding a row again (or EN) clears its result.
 - **Practice only**: nothing is recorded, no review event, the card's rating is never touched (except
   through the gate below). The homework pass's calm rows have the read 🎤 too; the card editor's
   list has none.
@@ -1221,10 +1227,10 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
 
 Jerome: "I said the word, recorded it, clicked submit, and it took me straight to the round page. It's jarring:
 I don't know if my answer was right until after the next questions." **Hard mode** is the Worldle-like ladder on
-the **reading (hanzi → meaning) and meaning (meaning → hanzi) cards** of the regular study session and of the
+the **reading (hanzi → meaning), meaning (meaning → hanzi) and listening (audio → hanzi) cards** of the regular study
+session (the listening card's round below, "The listening card's round") and the reading / meaning cards of the
 **homework pass** (its own setting, default All words; Got it in place of Good / Easy, and a word got right comes back
-once more from another angle — docs/HOMEWORK.md §3e) — never the listening card, the tutor-notes practice or the
-Try-it previews:
+once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-notes practice or the Try-it previews:
 
 1. **The question's own answer is checked AT ONCE, on the question** — with the checks the card already has: a
    typed answer `checkTypedAnswer`, a spoken one `checkSpokenAnswer` (homophones by sound), a multiple-choice grid
@@ -1238,10 +1244,46 @@ Try-it previews:
    **Sentence round** below (or the answer side when the card has no sentences). **Right in other characters** — a
    spoken answer that "Sounded right — written 由", or a listed alternative — never goes on by itself: the check
    stays with "You said" vs the card (below, "Right, but said differently") until **Next →**.
-4. **Giving up is a miss**: 👁 Show answer, Skip recording, or Check / Show with nothing typed before a right answer
-   → the answer side at once, **no round**, and **Good / Easy stay locked on this showing** (the sentences can't
-   unlock them) — the line above the ratings says "👁 You looked at the answer — Again or Hard this time", a tap on a
-   locked Good / Easy says why. Again and Hard are always there.
+4. **Giving up is a miss — and the answer shows IN PLACE** (Jerome, Nov 2026: "if I click Show answer it goes straight
+   to the end of the card from the first question. It should just show me the answer and then let me click through to
+   the next stage"): 👁 Show answer, Skip recording, or Check / Show with nothing typed before a right answer → the
+   answer on the question itself ("👁 The answer": hanzi + ▶, pinyin, meaning — an orange panel), then **Continue to the
+   sentences ›** → the round (`hardModeGiveUpInPlace`; no sentences → "See the full answer ›" — known to have none,
+   straight to the answer side as before). The round after giving up says so ("You looked at the answer, so Again or
+   Hard is suggested whatever the sentences say", cheer "🎉 2 / 2 — nice recovery"), and on the answer side **Good /
+   Easy are greyed on this showing** whatever the sentences say — "👁 You looked at the answer — Again or Hard
+   suggested". Resume: `feedback_open` + `gave_up` = the answer in place.
+5. **Greyed, never locked** (Jerome: "if I skip through the extra steps I should still be able to click Good, because
+   sometimes I'm just on the train … I don't like the locked answers. Maybe they should just be greyed and then need an
+   extra button press — guiding me towards the lower review scores, but I can still override it"): wherever Hard mode
+   used to LOCK Good / Easy (gave up, the round skipped, the gate not done), they are **greyed** (faded, "tap twice")
+   and **Hard is suggested** (ringed, "suggested"). The first tap on a greyed Good / Easy rates nothing: the line above
+   the ratings says **"Tap again to rate Good anyway"** and the button is outlined ("tap again"); a **second tap on the
+   same rating within 3 s** (`HARD_MODE_OVERRIDE_MS`) rates it. The arm wears off after 3 s or when a sentence is said
+   right. Again and Hard always rate at once. The homework pass's Got it after giving up the same way ("Tap again to say
+   Got it anyway"). Rules `goodEasyGate` (state `open | suggest_lower`, reason `gave_up | sentences`),
+   `ratingNeedsOverride`, `suggestedRating`, `overrideTap`, `overridePrompt` (shared/study/hardMode.ts, Lab
+   `HardMode.goodEasy` / `overrideTap`, parity-tested); web `components/study/HardModeRatings.tsx` + `RatingButtons`
+   (`greyed` / `suggested` / `armed`), `PassAnswerButtons`; Lab `RatingBar(greyed, suggested, armed)`,
+   `SentenceGateLine(goodEasy, armed)`, `PassAnswerBar(gotItArmed)`. Analytics **`study.hard_mode_override { rating:
+   good | easy | got_it, reason: gave_up | sentences, card_type }`** (the second tap); `study.sentence_gate { action:
+   blocked }` = a first tap.
+6. **A right answer you can FEEL** (Jerome: "when I get it right on the very first page there's no satisfying
+   haptics — or it's very muted … I find myself quite dependent on it"). Why it was muted: the check of the
+   question's own answer fired **no haptic at all** — on the web the study card had none anywhere, in the Lab only
+   the spark burst; the first thing felt was the soft `LOW_TICK` flip (and on a typing card `correct()`) once the
+   answer side opened, after the round. Now (`StudyFeel`, shared/study/hardMode.ts): **success** (the question checked
+   right) — Lab `Haptics.success()` (CLICK 1.0 → QUICK_RISE → CLICK 1.0 on a capable actuator, else a full-amplitude
+   two-pulse waveform 40 / 70 / 60 ms, else the predefined double click) + the CORRECT chime; web
+   `navigator.vibrate([40, 70, 60])` (Android Chrome / the PWA; ≥ 35 ms pulses — the 10 ms ticks elsewhere are barely
+   felt) + a rising two-note chime (WebAudio); **round_right** (a round exercise / a sentence row said right) a touch
+   lighter; **round_done** (the one that opens Good / Easy) the celebrate pattern (Lab `Haptics.celebrate()` + MILESTONE;
+   web `[40, 60, 40, 60, 110]` + an arpeggio); **nearly** a short tick; **miss** a low double thud. `hardModeQuestionFeel`
+   / `roundTakeFeel` / `STUDY_FEEL_VIBRATION` (parity-tested); web `services/studyFeel.ts` (fired by `HardModeFeedback`,
+   `SentenceRound`'s `feel`, `useSentencePractise`'s default), Lab `fx/StudyFeel.kt` (`rememberStudyFeel`,
+   `LocalStudyFeel` for tests; fired by `HardModeFeedbackPanel`, `SentenceRoundPage`, the rows). Settings: web Settings
+   → Study → **"📳 Haptics and sounds on right answers"** (per device, on by default, `study-feel-v1`); Lab More /
+   Settings → Haptics (and the app's sound switch).
 
 **Three settings, per device** — web `services/hardModePrefs.ts` (localStorage, under the old switch's key: '1'
 reads as All cards), Lab `StudyPrefs.hardMode`: **Off** (the default: straight to the answer, no round, no lock) ·
@@ -1313,9 +1355,9 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   (and its pinyin when it sounded different: ≈ close / ✗ didn't match). Claude's check of a translate take keeps
   "You said" vs "Model answer" (below) unless it was correct in the very same words — then the sentence shows
   once with ▶ and the check's chip + headline. Web `YouSaidRow compact`, Lab `SpokenResultRow(compact)`.
-- **Skip to the answer →** is always there, with one line under it: "Good and Easy stay locked until 2 more
-  sentences are right — the sentences on the answer side still count." — the answer side's gate (below)
-  keeps the round's count.
+- **Skip to the answer →** is always there, with one line under it: "Good and Easy stay greyed (Again or Hard
+  suggested) until 2 more sentences are right — the sentences on the answer side still count." — the answer side's
+  gate (below) keeps the round's count; greyed is never locked (a second tap rates).
 - **On the answer side, the round's sentences lead the list** (in the round's order), **opened** (hanzi, pinyin and
   English up — he has seen them) and **outlined in their result's style** with a label: "In the round · ✓ Right"
   (green), "· ≈ Nearly" (yellow), "· ✗ Not quite" (red, dashed on the web), and a neutral "In the round" for ones he
@@ -1334,6 +1376,32 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   `SentenceRound`) in `StudyCard` (`revealOrRound`); Lab `ui/study/SentenceRoundUi.kt` in `CardStage`
   (`reveal()`). Analytics `study.sentence_round { action: shown | right | miss | retry | skip | done, index,
   mode, got, needed }`. Tests: `SentenceRound.test.tsx`, E2E `study-sentence-gate.spec.ts`, Lab
+  `SentenceRoundUiTest`.
+
+### The listening card's round (say it in Chinese)
+
+Jerome: "For the cards where I listen to the sentence clues (the listening card), if they're red there are no extra
+steps for them. Maybe I should just get a few English sentences that I need to say." With Hard mode on for an
+**audio → hanzi** card, its typed / spoken / multiple-choice answer is checked on the question like the other cards
+(✓ Right / ✗ Not quite — 🔁 Try again / 👁 Show answer, in place), then a round of **"🔁 Say it in Chinese" only**:
+
+- **Up to three exercises** (`LISTEN_ROUND_SIZE`): the English of the card's own sentence and of the set's sentences
+  **that contain the word** (spaces ignored), each with English (it is the question) and not hidden — the ones he knows
+  LEAST in translate mode first (`compareLeastKnown`; ties: list order), shown easiest → harder
+  (`pickListenRoundExercises`, `listenRoundSentenceCount`, shared/study/sentenceRound.ts; Lab
+  `SentenceRound.pickListen`, parity-tested in `parity/fixtures/sentence-history.ts`). The card's own sentence with no
+  English on the note is looked up first (the device's copy, else fetched online, cached by text).
+- He hears the sentences on the question (Listen in context), then says each English one in Chinese: the round's
+  translate take (live words, the device rule incl. homophones, then the lesson answer check online — correct /
+  acceptable count). **Any two right** (min(2, exercises)), the same counter, cheer, confetti and the answer side's
+  gate: Good / Easy open; otherwise greyed (above). Intro "You heard it — now say these in Chinese. Get any 2 of these
+  3 right". No English sentence with the word → no round (the check alone).
+- **Offline / no microphone: self-check** — "Say each one out loud, then show the Chinese and check yourself.": each
+  exercise has **Show the Chinese** (hanzi, pinyin, ▶), then **✓ I said it** (counts, recorded as right) / **✗ Not
+  quite** (recorded as a miss).
+- The homework pass keeps its two ladder types (its own angles, docs/HOMEWORK.md §3e).
+- Web `SentenceRound` `kind="listen"` + `word` (`useRoundSentences(note, on, { fetchClueEnglish })`); Lab
+  `SentenceRoundPage(listen = true, word)`. Tests: `SentenceRound.test.tsx` ("the listening card's round"), Lab
   `SentenceRoundUiTest`.
 
 ### Right, but said differently (Hard mode holds it and shows the difference)
@@ -1415,24 +1483,26 @@ The sentence key is the set row's id, or `clue` for the note's own sentence.
   Analytics `study.sentence_hidden { reason, where, unhidden }`, `study.sentence_topup_requested { why,
   queued }`, `server.sentence_practice_events { count }`.
 
-### The gate — Good / Easy wait for two sentences (part of Hard mode)
+### The gate — Good / Easy wait (greyed) for two sentences (part of Hard mode)
 
 Hard mode above (Settings → Study → 🎯 Hard mode / the header chip; was the switch "Sentence round before the answer
 (2 sentences)", before that "Get two sentences right before Good / Easy"; `settings.change { setting: hard_mode }`)
 also keeps the gate: the round's right exercises count here, so two right there arrive unlocked; after giving up
-Good / Easy stay locked whatever (`hardModeLock`). With Hard mode on for the card, the regular study session's **reading
-(hanzi → meaning) and meaning (meaning → hanzi) cards** keep **Good** and **Easy** locked (🔒, faded)
-until two example sentences were said right with the rows' 🎤 on this showing of the card — read or
+Good / Easy stay greyed whatever (`goodEasyGate`). With Hard mode on for the card, the regular study session's **reading
+(hanzi → meaning), meaning (meaning → hanzi) and listening cards** keep **Good** and **Easy** GREYED (faded, "tap
+twice"; never locked — "Tap again to rate Good anyway", then a second tap rates, Hard suggested) until two example
+sentences were said right with the rows' 🎤 on this showing of the card (the listening card: as many as its round has,
+at most two) — read or
 translate mode both count; "right" = the device's exact / homophone match or Claude's correct /
 acceptable; close / wrong don't count; each sentence counts once. **Again** and **Hard** are always
-there. A line above the ratings says where he stands — "🎤 Get 2 sentences right to unlock Good · 1/2",
-then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sentences, and a tap on a
-locked Good / Easy rates nothing, says why and scrolls there too. A card with fewer than two sentences
+there. A line above the ratings says where he stands — "🎤 Try the sentences first · 1/2 right",
+then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sentences, and a first tap on a
+greyed Good / Easy rates nothing and says "Tap again to rate Good anyway" (a second tap within 3 s rates it). A card with fewer than two sentences
 (the card's own + the set) asks for as many as exist; none → no gate. The count starts again on every
-showing (a new showing, Undo). Never the listening card (its sentences are its clues), the homework
-pass (Not yet / Got it: there only giving up locks Got it, docs/HOMEWORK.md §3e), the tutor-notes practice or the Try-it previews. Every way of rating goes
+showing (a new showing, Undo). Never the homework
+pass (Not yet / Got it: there only giving up greys Got it, docs/HOMEWORK.md §3e), the tutor-notes practice or the Try-it previews. Every way of rating goes
 through the same check (`handleRate` on the web, the RatingBar callback in the Lab; neither app has
-rating shortcuts or auto-advance). Rule: `sentenceGate` / `ratingLockedByGate` / `sentenceGateLabel` in
+rating shortcuts or auto-advance). Rule: `sentenceGate` / `sentenceGateLabel` in
 `shared/study/sentencePractise.ts` (Lab `SentencePractise.gate` …). Analytics `study.sentence_gate
 { action: rated | blocked | unlocked, unlocked, needed, got, card_type }`. E2E
 `study-sentence-gate.spec.ts`.

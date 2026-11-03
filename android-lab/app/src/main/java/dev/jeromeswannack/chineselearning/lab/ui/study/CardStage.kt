@@ -306,7 +306,10 @@ fun CardStage(
         if (!ok) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.markEmpty()
     }
     val noteStats = remember(sentenceEvents, note.id) { sentenceEvents?.let { SentenceHistory.stats(it, note.id) } }
-    val sentenceCount = roundRows.count { noteStats?.get(SentenceHistory.key(it.key))?.hidden == null }
+    // The listening card's round asks only for the English sentences that carry the word (core SentenceRound.pickListen).
+    val listenRound = view.card.cardType == CardTypes.AUDIO_TO_HANZI
+    val sentenceCount = if (listenRound) SentenceRound.listenSentenceCount(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, note.hanzi, noteStats)
+        else roundRows.count { noteStats?.get(SentenceHistory.key(it.key))?.hidden == null }
     SideEffect {
         practise.onResult = if (!history || labApp == null) null else { key, mode, result ->
             val rowKey = key.removePrefix("${SentencePractise.READ}:").removePrefix("${SentencePractise.TRANSLATE}:")
@@ -362,11 +365,20 @@ fun CardStage(
         showAnswer()
     }
 
-    /** Gave up (Show answer / Skip before a right answer): the answer at once, Good / Easy locked. */
+    /**
+     * Gave up (Show answer / Skip before a right answer): Good / Easy greyed. The answer shows IN PLACE on the
+     * question, then "Continue to the sentences ›" goes on to the round (core HardMode.giveUpInPlace); a card
+     * with no sentences goes to the answer side at once.
+     */
     fun giveUp() {
         gaveUp = true
         hardAtReveal = true
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "give_up", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
+        if (HardMode.giveUpInPlace(if (gateEnabled) sentenceCount else 0)) {
+            roundOpen = false
+            feedbackOpen = true
+            return
+        }
         showAnswer()
     }
 
@@ -452,6 +464,7 @@ fun CardStage(
         if (r == null || r == "checking") { if (!feedbackOpen) trackedResult = null; return@LaunchedEffect }
         if (trackedResult == r) return@LaunchedEffect
         trackedResult = r
+        if (gaveUp) return@LaunchedEffect
         if (r == "right") {
             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "right", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
             burst++
@@ -470,7 +483,9 @@ fun CardStage(
         }
     }
     // Reopened with nothing to judge (the take didn't survive): back to the question.
-    LaunchedEffect(feedbackOpen, questionResult) { if (feedbackOpen && questionResult == null) feedbackOpen = false }
+    LaunchedEffect(feedbackOpen, questionResult, gaveUp) { if (feedbackOpen && questionResult == null && !gaveUp) feedbackOpen = false }
+    // 👁 Show answer before a right answer: the answer is up in place, the round still to come.
+    val answerInPlace = feedbackOpen && gaveUp && !revealed
     // Hard mode switched off (header chip / Settings) while the check or the round is up: the answer.
     LaunchedEffect(hardApplies) {
         if (!hardApplies && !revealed && (feedbackOpen || roundOpen)) { hardAtReveal = false; showAnswer() }
@@ -549,19 +564,19 @@ fun CardStage(
 
     val gate = dev.jeromeswannack.chineselearning.lab.core.SentencePractise.gate(gateEnabled, view.card.cardType, sentenceCount, practise.rightKeys.toList())
     // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
-    val lock = HardMode.lock(gate, gaveUp && gateEnabled, SentencePractise.label(gate), SentencePractise.blockedNote(gate))
-    // The pass: Got it needs the ladder — giving up locks it (the round's sentences don't, skipped or not).
+    // Greyed, never locked (core HardMode.goodEasy): a second tap within 3 s still rates (HardMode.overrideTap).
+    val goodEasy = HardMode.goodEasy(gate, gaveUp && gateEnabled, SentencePractise.label(gate))
+    var arm by remember(view.presentation) { mutableStateOf<HardMode.Arm?>(null) }
+    LaunchedEffect(arm) { if (arm != null) { delay(HardMode.OVERRIDE_MS); arm = null } }
+    // The pass: Got it is greyed after giving up (the round's sentences don't, skipped or not).
     val passGotItLocked = pass != null && gaveUp && gateEnabled
     // The round's sentences on the answer side: on top, opened, outlined with how each went.
     val roundMarks = if (roundLog.isEmpty()) emptyList() else SentenceRound.rowMarks(roundLog.toList(), practise.rightKeys.toList())
-    var gateNote by remember(view.presentation) { mutableStateOf(false) }
-    LaunchedEffect(gateNote) { if (gateNote) { delay(5000); gateNote = false } }
     // A sentence said right: the line goes back to the count.
-    LaunchedEffect(gate.got) { gateNote = false }
+    LaunchedEffect(gate.got) { arm = null }
     var gateWasLocked by remember(view.presentation) { mutableStateOf(gate.locked) }
     LaunchedEffect(gate.locked) {
         if (gateWasLocked && !gate.locked && gate.needed > 0) {
-            gateNote = false
             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "unlocked", "unlocked" to true, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
         }
         gateWasLocked = gate.locked
@@ -585,16 +600,18 @@ fun CardStage(
                 // The Sentence round between the question and the answer (core SentenceRound).
                 Box(Modifier.fillMaxSize().studyCardSurface(Lab.colors.card, glow, lifted = false, borderWidth = 1.dp).padding(12.dp)) {
                     SentenceRoundPage(
-                        question = if (view.card.cardType == CardTypes.HANZI_TO_MEANING) note.hanzi else note.english,
-                        questionIsChinese = view.card.cardType == CardTypes.HANZI_TO_MEANING,
+                        question = if (view.card.cardType == CardTypes.MEANING_TO_HANZI) note.english else note.hanzi,
+                        questionIsChinese = view.card.cardType != CardTypes.MEANING_TO_HANZI,
+                        listen = listenRound,
+                        word = note.hanzi,
                         rows = roundRows,
                         practise = practise,
                         playingKey = playingKey,
                         onPlay = actions.onPlay,
                         onDone = { reveal(afterRound = true) },
                         onSkip = { reveal(afterRound = true) },
-                        skipNote = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE else null,
-                        doneCheer = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer else null,
+                        skipNote = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE else if (gaveUp) HardMode.GAVE_UP_SKIP_NOTE else null,
+                        doneCheer = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer else if (gaveUp) HardMode::gaveUpCheer else null,
                         stats = noteStats,
                         coming = labApp != null && dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.coming(labApp, note.id),
                         onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
@@ -643,7 +660,7 @@ fun CardStage(
                         isCurrent = isCurrent,
                         sayAgainDraft = sayAgainDraft,
                         onSayAgainDraft = { sayAgainDraft = it },
-                        hardFeedback = feedbackOpen && questionResult != null,
+                        hardFeedback = feedbackOpen && (questionResult != null || gaveUp),
                         onTapToAnswer = {
                             when {
                                 reRecording -> actions.onStopRecording(true)
@@ -688,8 +705,24 @@ fun CardStage(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 12.dp),
         ) {
-            if (roundOpen && !revealed) {
+            if (SentencePractise.stopBar(practise.listening, practise.finishing) != null) {
+                // A sentence take under way (the round or the answer side's rows): ONE big "■ Stop recording"
+                // where the controls were — the page above keeps scrolling; a tap elsewhere never stops it.
+                SentenceStopBar(practise)
+            } else if (roundOpen && !revealed) {
                 // The round has its own Skip / See the answer.
+            } else if (answerInPlace) {
+                HardModeFeedbackPanel(
+                    result = "revealed",
+                    said = questionSaid,
+                    spoken = !typing || answerIsSpoken(answer),
+                    roundFollows = HardMode.giveUpInPlace(sentenceCount),
+                    answer = Triple(note.hanzi, note.pinyin, note.english),
+                    onPlayAnswer = { actions.onPlayWord(true) },
+                    onTryAgain = { hardTryAgain() },
+                    onShowAnswer = { giveUp() },
+                    onNext = { hardNext() },
+                )
             } else if (!revealed && feedbackOpen && questionResult != null) {
                 HardModeFeedbackPanel(
                     result = questionResult,
@@ -812,23 +845,37 @@ fun CardStage(
                         answerIsSpoken(answer) -> "spoken"
                         else -> "typed"
                     }
-                    var passBlocked by remember(view.presentation) { mutableStateOf(false) }
-                    LaunchedEffect(passBlocked) { if (passBlocked) { delay(5000); passBlocked = false } }
-                    if (passGotItLocked) PassLockedLine(if (passBlocked) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_BLOCKED else dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE)
-                    PassAnswerBar(suggested, enabled = !rated && !pass.busy, gotItLocked = passGotItLocked) { right ->
-                        if (right && passGotItLocked) { passBlocked = true; return@PassAnswerBar }
+                    if (passGotItLocked) PassLockedLine(if (arm != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GOT_IT_OVERRIDE else dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE)
+                    PassAnswerBar(suggested, enabled = !rated && !pass.busy, gotItLocked = passGotItLocked, gotItArmed = arm != null) { right ->
+                        // Greyed, never locked: the first tap on Got it arms it, the second says Got it anyway.
+                        if (right) {
+                            val tap = HardMode.overrideTap(passGotItLocked, 2, arm, System.currentTimeMillis())
+                            arm = tap.armed
+                            if (!tap.rate) { labApp?.haptics?.tick(); return@PassAnswerBar }
+                            if (tap.override) dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode_override", mapOf("rating" to "got_it", "reason" to "gave_up", "card_type" to view.card.cardType))
+                        }
                         rated = true
                         actions.onPassAnswer(right, answered, suggested, gateEnabled)
                     }
                 } else {
-                    if (lock.label != null) SentenceGateLine(lock, gateNote, onTap = if (lock.gaveUp) ({}) else showSentences)
-                    RatingBar(view.previews, enabled = !rated, locked = if (lock.locked) setOf(2, 3) else emptySet()) { rating ->
-                        // Good / Easy wait for the sentences / after giving up (every way of rating comes through here).
-                        if (lock.locked && rating >= 2) {
-                            gateNote = true
+                    if (goodEasy.label != null || arm != null) SentenceGateLine(goodEasy, arm?.rating, onTap = if (goodEasy.gaveUp) ({}) else showSentences)
+                    RatingBar(
+                        view.previews, enabled = !rated,
+                        greyed = if (goodEasy.suggestLower) setOf(2, 3) else emptySet(),
+                        suggested = HardMode.suggestedRating(goodEasy),
+                        armed = arm?.rating,
+                    ) { rating ->
+                        // Good / Easy greyed while the sentences wait / after giving up (every way of rating comes
+                        // through here): the first tap arms it ("Tap again to rate Good anyway"), the second rates.
+                        val tap = HardMode.overrideTap(HardMode.needsOverride(rating, goodEasy), rating, arm, System.currentTimeMillis())
+                        arm = tap.armed
+                        if (!tap.rate) {
+                            labApp?.haptics?.tick()
                             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "blocked", "unlocked" to false, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
-                            if (!lock.gaveUp) showSentences()
                             return@RatingBar
+                        }
+                        if (tap.override) {
+                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode_override", mapOf("rating" to if (rating == 3) "easy" else "good", "reason" to (goodEasy.reason ?: "sentences"), "card_type" to view.card.cardType))
                         }
                         if (gate.needed > 0) {
                             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_gate", mapOf("action" to "rated", "unlocked" to !gate.locked, "needed" to gate.needed, "got" to gate.got, "card_type" to view.card.cardType))
@@ -1377,20 +1424,53 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
 fun RatingBar(
     previews: List<IntervalPreview>,
     enabled: Boolean,
-    /** Ratings held back ("Get two sentences right before Good / Easy"): 🔒 + faded, a tap still reaches [onRate] to say why. */
-    locked: Set<Int> = emptySet(),
+    /**
+     * Hard mode's greyed ratings (Good / Easy while the sentences wait, or after giving up; core
+     * HardMode.goodEasy): faded with "tap twice", NEVER locked — every tap reaches [onRate], which arms the
+     * first and rates the second (HardMode.overrideTap).
+     */
+    greyed: Set<Int> = emptySet(),
+    /** The rating pointed to while Good / Easy are greyed (Hard): ringed + "suggested". */
+    suggested: Int? = null,
+    /** A greyed rating tapped once, waiting for the second tap ("tap again"). */
+    armed: Int? = null,
     onRate: (Int) -> Unit,
 ) {
     val labels = listOf("Again", "Hard", "Good", "Easy")
     val colors = listOf(Palette.Again, Palette.Hard, Palette.Good, Palette.Easy)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         for (r in Rating.ALL) {
-            val isLocked = r in locked
-            AnswerTile(
-                if (isLocked) "🔒 ${labels[r]}" else labels[r], colors[r],
-                Modifier.weight(1f).then(if (isLocked) Modifier.alpha(0.45f).semantics { stateDescription = "Locked" } else Modifier).testTag("rating-${labels[r].lowercase()}"),
-                sub = previews.getOrNull(r)?.intervalText, enabled = enabled,
-            ) { onRate(r) }
+            val isGreyed = r in greyed
+            val isArmed = isGreyed && armed == r
+            val isSuggested = suggested == r
+            val sub = previews.getOrNull(r)?.intervalText
+            Box(
+                Modifier.weight(1f)
+                    .border(2.dp, if (isSuggested || isArmed) colors[r] else Color.Transparent, RoundedCornerShape(21.dp))
+                    .padding(3.dp),
+            ) {
+                AnswerTile(
+                    labels[r], colors[r],
+                    Modifier.fillMaxWidth()
+                        .then(if (isGreyed && !isArmed) Modifier.alpha(0.5f) else Modifier)
+                        .semantics {
+                            when {
+                                isArmed -> stateDescription = HardMode.TAP_AGAIN
+                                isGreyed -> stateDescription = HardMode.TAP_TWICE
+                                isSuggested -> stateDescription = "Suggested"
+                            }
+                        }
+                        .testTag("rating-${labels[r].lowercase()}"),
+                    sub = when {
+                        isArmed -> HardMode.TAP_AGAIN
+                        isGreyed -> listOfNotNull(sub, HardMode.TAP_TWICE).joinToString(" · ")
+                        // The ring + one word (the interval would wrap in a tile this narrow).
+                        isSuggested -> HardMode.SUGGESTED
+                        else -> sub
+                    },
+                    enabled = enabled,
+                ) { onRate(r) }
+            }
         }
     }
 }
@@ -1400,10 +1480,10 @@ fun RatingBar(
  * card suggests ([suggested] = right | wrong) is ringed and marked "✓ suggested" — he still chooses.
  */
 @Composable
-fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = false, onAnswer: (right: Boolean) -> Unit) {
+fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = false, gotItArmed: Boolean = false, onAnswer: (right: Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().testTag(PASS_RATE_TAG), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Hard mode, given up: Got it locked (🔒, faded); a tap says why (docs/HOMEWORK.md §3e).
-        for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, if (gotItLocked) "🔒 Got it" else "Got it", if (gotItLocked) Lab.colors.muted else Palette.Good))) {
+        // Hard mode, given up: Got it greyed ("tap twice"), never locked — the second tap counts (docs/HOMEWORK.md §3e).
+        for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, "Got it", if (gotItLocked && !gotItArmed) Lab.colors.muted else Palette.Good))) {
             val isSuggested = suggested == (if (right) "right" else "wrong")
             // Both tiles sit in the same 3dp frame, so the ringed one is the same size as the other.
             Box(
@@ -1414,10 +1494,10 @@ fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = f
                 AnswerTile(
                     label, color,
                     Modifier.fillMaxWidth()
-                        .then(if (right && gotItLocked) Modifier.alpha(0.55f) else Modifier)
+                        .then(if (right && gotItLocked && !gotItArmed) Modifier.alpha(0.55f) else Modifier)
                         .testTag(if (right) "hw-gotit" else "hw-notyet")
-                        .semantics { if (isSuggested) stateDescription = "Suggested" },
-                    sub = if (isSuggested) "✓ suggested" else null,
+                        .semantics { if (isSuggested) stateDescription = "Suggested" else if (right && gotItLocked) stateDescription = if (gotItArmed) HardMode.TAP_AGAIN else HardMode.TAP_TWICE },
+                    sub = if (isSuggested) "✓ suggested" else if (right && gotItLocked) (if (gotItArmed) HardMode.TAP_AGAIN else HardMode.TAP_TWICE) else null,
                     enabled = enabled,
                 ) { onAnswer(right) }
             }

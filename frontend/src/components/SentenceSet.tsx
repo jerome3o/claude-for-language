@@ -27,7 +27,7 @@ import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 import { track } from '../services/analytics';
 import { sentencePractiseMode } from '@shared/study/sentencePractise';
 import { orderKeysForRound, type RoundRowMark } from '@shared/study/sentenceRound';
-import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise } from './study/SentencePractise';
+import { SentenceMicButton, SentencePractiseOutcome, SentenceStopBar, useSentencePractise } from './study/SentencePractise';
 import {
   SENTENCE_HIDDEN_TOAST,
   SENTENCE_HIDE_TITLE,
@@ -955,6 +955,7 @@ export function SentenceSet({
           onDone={() => setHiddenUndo(null)}
         />
       )}
+      <SentenceStopBar practise={practise} />
     </div>
   );
 }

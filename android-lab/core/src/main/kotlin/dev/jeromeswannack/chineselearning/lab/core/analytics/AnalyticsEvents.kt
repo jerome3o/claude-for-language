@@ -74,6 +74,7 @@ object AnalyticsEvents {
         ev("study.sentence_practise", "study", listOf("mode", "result", "via")),
         ev("study.sentence_gate", "study", listOf("action", "unlocked", "needed", "got", "card_type")),
         ev("study.hard_mode", "study", listOf("action", "mode", "where", "result", "card_type")),
+        ev("study.hard_mode_override", "study", listOf("rating", "reason", "card_type")),
         ev("study.sentence_round", "study", listOf("action", "index", "mode", "got", "needed")),
         ev("study.round_difference_shown", "study", listOf("kind", "reason", "verdict", "where", "held")),
         ev("study.sentence_hidden", "study", listOf("reason", "where", "unhidden")),

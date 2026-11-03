@@ -124,15 +124,15 @@ class SentencePractiseUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(2_000)
     }
 
-    @Test fun gateLocksGoodAndEasyAgainRates() {
+    @Test fun gateGreysGoodAndEasyAgainRates() {
         val rated = mutableListOf<Int>()
         card(previewSentencePractise(), StudyActions(onRate = { r, _, _ -> rated += r }))
         compose.onNodeWithTag(SentencePractiseTags.GATE, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("🎤 Get 2 sentences right to unlock Good · 0/2", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("🎤 Try the sentences first · 0/2 right", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
-        compose.onNodeWithText(SentencePractise.blockedNote(SentencePractise.Gate(2, 0, true)), useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.HardMode.overridePrompt(2), useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("rating-again", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf(0), rated)
@@ -147,7 +147,7 @@ class SentencePractiseUiTest : LabScreenshotTest() {
         assertEquals(listOf(2), rated)
     }
 
-    @Test fun offWhenTheSettingIsOffOrTheListeningCard() {
+    @Test fun offWhenSwitchedOnAfterTheReveal() {
         compose.setContent {
             LabTheme { StudyScreen(ui(view(CardTypes.AUDIO_TO_HANZI)), playingKey = null, actions = StudyActions(), cardStart = CardStartState(flipped = true, answer = "银行"), autoplay = false, sentencePractisePreview = previewSentencePractise()) }
         }

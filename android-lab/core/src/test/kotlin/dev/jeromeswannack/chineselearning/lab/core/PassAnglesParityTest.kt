@@ -124,6 +124,6 @@ class PassAnglesParityTest {
             val o = c.jsonObject
             assertEquals(o["cheer"]!!.str, PassAngles.roundDoneCheer(o.int("got"), o.int("needed")))
         }
-        assertEquals(w["gave_up_blocked"]!!.str, PassAngles.GAVE_UP_BLOCKED)
+        assertEquals(w["got_it_override"]!!.str, PassAngles.GOT_IT_OVERRIDE)
     }
 }

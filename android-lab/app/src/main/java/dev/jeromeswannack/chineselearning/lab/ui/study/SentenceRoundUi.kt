@@ -60,6 +60,7 @@ import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
+import dev.jeromeswannack.chineselearning.lab.core.HardMode
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -86,6 +87,10 @@ object SentenceRoundTags {
     const val SKIP = "sentence-round-skip"
     const val CONTINUE = "sentence-round-continue"
     const val MORE = "sentence-round-more"
+    const val SHOW_CHINESE = "listen-round-show-chinese"
+    const val SELF_RIGHT = "listen-round-self-right"
+    const val SELF_WRONG = "listen-round-self-wrong"
+    const val SELF_CHECK_NOTE = "listen-round-self-check"
 }
 
 /** The round's exercises over the card's sentence rows and his history of them (core [SentenceRound.pick]). */
@@ -141,15 +146,37 @@ fun SentenceRoundPage(
     cachedTranslation: suspend (SentenceRow) -> String? = { null },
     translate: (suspend (SentenceRow) -> String)? = null,
     online: Boolean = true,
+    /**
+     * The listening card's round (core [SentenceRound.pickListen]): only "🔁 Say it in Chinese", over the English
+     * sentences that carry [word]; with no microphone (offline) he says it aloud, shows the Chinese and checks himself.
+     */
+    listen: Boolean = false,
+    word: String = "",
 ) {
+    // The listening round asks for English sentences: the card's own one, with no English on the note, is
+    // looked up first (the device's copy, else fetched online) so it can be one.
+    var clueEnglish by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var clueLooked by remember { mutableStateOf(!listen) }
+    LaunchedEffect(listen, rows) {
+        if (!listen || clueLooked) return@LaunchedEffect
+        val clue = rows.firstOrNull { SentenceRound.isCardSentenceKey(it.key) && it.translation.isNullOrBlank() }
+        if (clue != null) {
+            val t = runCatching { cachedTranslation(clue) }.getOrNull()
+                ?: if (online && translate != null) runCatching { translate(clue) }.getOrNull() else null
+            if (!t.isNullOrBlank()) clueEnglish = clue.key to t
+        }
+        clueLooked = true
+    }
+    val roundRows = remember(rows, clueEnglish) { clueEnglish?.let { (k, t) -> rows.map { if (it.key == k) it.copy(translation = t) else it } } ?: rows }
     // Picked ONCE per showing (from the history as it stood): a take written meanwhile never reshuffles it.
     var picked by remember { mutableStateOf<List<SentenceRound.Exercise>?>(null) }
-    LaunchedEffect(rows, stats != null) {
-        if (picked == null && stats != null) {
+    LaunchedEffect(roundRows, stats != null, clueLooked) {
+        if (picked == null && stats != null && clueLooked) {
             val fromLog = if (initialIds.isEmpty()) null else SentenceRound.exercisesFromLog(
-                rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, initialIds,
+                roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, initialIds,
             ) { stats[SentenceHistory.key(it)]?.hidden != null }
-            val next = fromLog ?: sentenceRoundExercises(rows, stats)
+            val next = fromLog ?: if (listen) SentenceRound.pickListen(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, word, stats)
+                else sentenceRoundExercises(roundRows, stats)
             picked = next
             onPicked(next.map { it.id })
         }
@@ -157,9 +184,37 @@ fun SentenceRoundPage(
     fun hidden(key: String) = stats?.get(SentenceHistory.key(key))?.hidden != null
     val exercises = picked.orEmpty().filter { !hidden(it.key) }
     val visibleKeys = rows.filter { !hidden(it.key) }.map { it.key }
-    val byKey = remember(rows) { rows.associateBy { it.key } }
+    val byKey = remember(roundRows) { roundRows.associateBy { it.key } }
     val right = practise.rightKeys.toList()
     val progress = SentenceRound.progress(exercises, right, visibleKeys)
+    // The feel of a take (fx/StudyFeel): the one that makes the count = round_done (Good and Easy open), else
+    // round_right; misses as the rows. Set while the round is up, so the rows' default never doubles it.
+    val studyFeel = dev.jeromeswannack.chineselearning.lab.fx.rememberStudyFeel()
+    val feelExercises by rememberUpdatedState(exercises)
+    val feelKeys by rememberUpdatedState(visibleKeys)
+    fun feelFor(id: String, result: String) {
+        val after = SentenceRound.progress(feelExercises, practise.rightKeys.toList(), feelKeys)
+        val before = SentenceRound.progress(feelExercises, practise.rightKeys.filter { it != id }, feelKeys)
+        studyFeel(HardMode.roundTakeFeel(result, result == "right" && after.done && !before.done))
+    }
+    androidx.compose.runtime.DisposableEffect(practise) {
+        practise.feel = { id, result -> feelFor(id, result) }
+        onDispose { practise.feel = null }
+    }
+    // The listening round with no microphone (offline): say it aloud, show the Chinese, check yourself.
+    val selfCheck = listen && !CoachPractise.micEnabled(practise.dictation.blocked)
+    val selfShown = remember { mutableStateMapOf<String, Boolean>() }
+    val selfResult = remember { mutableStateMapOf<String, String>() }
+    fun selfCheckTake(ex: SentenceRound.Exercise, index: Int, said: Boolean) {
+        val result = if (said) "right" else "wrong"
+        selfResult[ex.id] = result
+        if (said && ex.id !in practise.rightKeys) practise.rightKeys.add(ex.id)
+        onResult(ex.id, result)
+        practise.onResult?.invoke(ex.id, ex.mode, result)
+        feelFor(ex.id, result)
+        val p = SentenceRound.progress(feelExercises, practise.rightKeys.toList(), feelKeys)
+        Analytics.track("study.sentence_round", mapOf("action" to if (said) "right" else "miss", "index" to index, "mode" to ex.mode, "got" to p.got, "needed" to p.needed))
+    }
     /** Right but not the model sentence (core [AnswerDifference]): why, else null. */
     fun differenceOf(ex: SentenceRound.Exercise?): String? {
         val t = ex?.let { practise.takes[it.id] } ?: return null
@@ -270,9 +325,10 @@ fun SentenceRoundPage(
                     Text("🎯 ${SentenceRound.TITLE}", Modifier.weight(1f).semantics { heading() }, color = Lab.colors.ink, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     if (progress.needed > 0) RoundCounter(progress)
                 }
-                Text(SentenceRound.intro(progress, exercises.size), color = Lab.colors.muted, fontSize = 14.sp)
+                Text(if (listen) SentenceRound.listenIntro(progress, exercises.size) else SentenceRound.intro(progress, exercises.size), color = Lab.colors.muted, fontSize = 14.sp)
+                if (selfCheck) Text(SentenceRound.LISTEN_SELF_CHECK_NOTE, Modifier.testTag(SentenceRoundTags.SELF_CHECK_NOTE), color = Lab.colors.muted, fontSize = 14.sp)
                 if (coming || asked) SentencesComingNote()
-                if (!CoachPractise.micEnabled(practise.dictation.blocked)) {
+                if (!selfCheck && !CoachPractise.micEnabled(practise.dictation.blocked)) {
                     CoachPractise.blockNote(practise.dictation.blocked)?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp) }
                 }
                 cheer?.let { c ->
@@ -309,6 +365,11 @@ fun SentenceRoundPage(
                             stayPut = true
                         },
                         onMore = { hiding = ex },
+                        selfCheck = selfCheck,
+                        selfShown = selfShown[ex.id] == true,
+                        selfResult = selfResult[ex.id],
+                        onShowChinese = { selfShown[ex.id] = true },
+                        onSelfCheck = { said -> selfCheckTake(ex, index, said) },
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -399,6 +460,12 @@ private fun RoundExerciseCard(
     englishPending: String = SentenceRound.TRANSLATING,
     /** Shown without English yet: fetch it. */
     onNeedEnglish: () -> Unit = {},
+    /** The listening round offline: Show the Chinese, then ✓ I said it / ✗ Not quite (no 🎤). */
+    selfCheck: Boolean = false,
+    selfShown: Boolean = false,
+    selfResult: String? = null,
+    onShowChinese: () -> Unit = {},
+    onSelfCheck: (said: Boolean) -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
     // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless it
@@ -411,9 +478,10 @@ private fun RoundExerciseCard(
     val status = when {
         isRight -> "right"
         result == "close" || result == "wrong" -> result
+        selfResult == "wrong" -> "wrong"
         else -> null
     }
-    val answered = isRight || take != null
+    val answered = isRight || take != null || selfShown
     val showEnglish = SentenceRound.englishShown(ex.mode, status, answered, englishToggled)
     val readEnglishMissing = ex.mode == SentencePractise.READ && showEnglish && englishText.isNullOrBlank()
     LaunchedEffect(readEnglishMissing) { if (readEnglishMissing) onNeedEnglish() }
@@ -480,7 +548,9 @@ private fun RoundExerciseCard(
                     ) { Text(SentenceRound.ENGLISH_CHIP, color = if (showEnglish) Lab.colors.accent else Lab.colors.muted, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
             }
-            if (!isRight || busy) SentenceMicButton(practise, row, ex.mode)
+            if (selfCheck) {
+                if (!selfShown) SecondaryPill(SentenceRound.LISTEN_SHOW_CHINESE, Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.SHOW_CHINESE), horizontalPadding = 12.dp, fontSize = 14.sp, onClick = onShowChinese)
+            } else if (!isRight || busy) SentenceMicButton(practise, row, ex.mode)
             if (answered && !fullCheck) {
                 val playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}")
                 Box(
@@ -497,7 +567,13 @@ private fun RoundExerciseCard(
         }
         if (difference != null && !busy) DifferenceTitle(difference)
         SentencePractiseOutcome(practise, row, full = true, onPlayModel = { onPlay(row.audioUrl, row.hanzi) }, onSpeak = onSpeak)
-        if (answered) {
+        if (selfCheck && selfShown && !isRight) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SecondaryPill("✗ ${SentenceRound.LISTEN_SELF_WRONG}", Modifier.weight(1f).heightIn(min = 44.dp).testTag(SentenceRoundTags.SELF_WRONG), horizontalPadding = 12.dp, fontSize = 14.sp) { onSelfCheck(false) }
+                PrimaryPill("✓ ${SentenceRound.LISTEN_SELF_RIGHT}", Modifier.weight(1f).heightIn(min = 44.dp).testTag(SentenceRoundTags.SELF_RIGHT)) { onSelfCheck(true) }
+            }
+        }
+        if (answered && !selfCheck) {
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (isRight && !busy) {
                     SecondaryPill(

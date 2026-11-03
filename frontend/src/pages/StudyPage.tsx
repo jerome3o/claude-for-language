@@ -54,7 +54,7 @@ import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
-import { PASS_GAVE_UP_BLOCKED, PASS_GAVE_UP_LINE, PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
+import { PASS_GAVE_UP_LINE, PASS_GOT_IT_OVERRIDE, PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -98,7 +98,6 @@ import { NoteImage } from '../components/noteImage/NoteImage';
 import { useCardPicturesEnabled } from '../services/noteImages';
 import { showNoteImage } from '@shared/cards/note-image';
 import { QueueCountsHeader } from '../components/QueueCountsHeader';
-import { RatingButtons } from '../components/RatingButtons';
 import { PassAnswerButtons } from '../components/homework/PassAnswerButtons';
 import { StudyReader } from '../components/StudyReader';
 import { StudyGrammar } from '../components/StudyGrammar';
@@ -144,10 +143,14 @@ import { useHardMode } from '../services/hardModePrefs';
 import { HardModeChip } from '../components/study/HardModeChip';
 import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
-import { hardModeApplies, hardModeLock, hardModeQuestionResult, hardModeRoundFollows, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake } from '@shared/study/hardMode';
+import {
+  hardModeApplies, goodEasyGate, hardModeQuestionResult, hardModeRoundFollows, hardModeGiveUpInPlace,
+  hardModeGaveUpCheer, HARD_MODE_GAVE_UP_SKIP_NOTE, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
+} from '@shared/study/hardMode';
+import { HardModeRatings } from '../components/study/HardModeRatings';
 import { questionDifference } from '@shared/study/answerDifference';
-import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
-import { roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
+import { sentenceGate, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
+import { listenRoundSentenceCount, roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 import { useSentenceStats } from '../services/sentencePractice';
 import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
@@ -556,38 +559,32 @@ export function StudyCard({
   // The Sentence round (shared/study/sentenceRound.ts): with the setting on, the question goes to a
   // round of four sentence exercises before the answer; two right open it with Good / Easy unlocked.
   const roundCardType = hardApplies && SENTENCE_GATE_CARD_TYPES.includes(card.card_type);
-  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType);
+  const roundSentenceRowsAll = useRoundSentences(card.note, roundCardType, { fetchClueEnglish: card.card_type === 'audio_to_hanzi' });
   // His practice history of these sentences: hidden ones never come (docs/STUDY_SESSION.md "Sentence practice history").
   const roundStats = useSentenceStats(card.note.id);
   // (null until both the sentences and the history are read)
   const roundSentenceRows = roundCardType ? (roundStats ? roundSentenceRowsAll : null) : roundSentenceRowsAll;
-  const roundVisibleCount = roundSentenceRows ? roundSentenceRows.filter((r) => !roundStats?.get(sentenceHistoryKey(r.key))?.hidden).length : null;
+  // The listening card's round asks only for the English sentences that carry the word (shared/study/sentenceRound.ts).
+  const listenRound = card.card_type === 'audio_to_hanzi';
+  const roundVisibleCount = !roundSentenceRows ? null
+    : listenRound ? listenRoundSentenceCount(roundSentenceRows, card.note.hanzi, roundStats ?? undefined)
+      : roundSentenceRows.filter((r) => !roundStats?.get(sentenceHistoryKey(r.key))?.hidden).length;
   const [roundOpen, setRoundOpen] = useState(() => roundCardType && !!restored.point?.round_open && !restored.point?.revealed);
   const [sentenceCount, setSentenceCount] = useState<number | null>(null);
-  const [gateNote, setGateNote] = useState(false);
-  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
+  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: listenRound ? roundVisibleCount : sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
   // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
   const roundMarks = useMemo(() => (roundLog.length ? roundRowMarks(roundLog, gateKeys) : undefined), [roundLog, gateKeys]);
-  const lock = hardModeLock(gate, gaveUp && gateOn, sentenceGateLabel(gate), sentenceGateBlockedNote(gate));
-  // The pass: Got it needs the ladder — giving up locks it (the round's sentences don't, skipped or not).
+  // Greyed, never locked: a second tap within 3 s still rates (shared/study/hardMode.ts `overrideTap`).
+  const goodEasy = goodEasyGate(gate, gaveUp && gateOn, sentenceGateLabel(gate));
+  // The pass: Got it is greyed after giving up (the round's sentences don't, skipped or not).
   const passGotItLocked = !!pass && gaveUp && gateOn;
   const gateWasLocked = useRef(gate.locked);
   useEffect(() => {
     if (gateWasLocked.current && !gate.locked && gate.needed > 0) {
-      setGateNote(false);
       track('study.sentence_gate', { action: 'unlocked', unlocked: true, needed: gate.needed, got: gate.got, card_type: card.card_type });
     }
     gateWasLocked.current = gate.locked;
   }, [gate.locked, gate.needed, gate.got, card.card_type]);
-  // A sentence said right: the line goes back to the count.
-  useEffect(() => {
-    setGateNote(false);
-  }, [gate.got]);
-  useEffect(() => {
-    if (!gateNote) return;
-    const id = window.setTimeout(() => setGateNote(false), 5000);
-    return () => window.clearTimeout(id);
-  }, [gateNote]);
   const onSentenceRight = useCallback((key: string) => {
     setGateKeys((prev) => (prev.includes(key) ? prev : [...prev, key]));
   }, []);
@@ -601,15 +598,25 @@ export function StudyCard({
     setHardAtReveal(hardApplies);
     setFlipped(true);
   };
-  /** Gave up (Show answer / Skip before a right answer): the answer at once, Good / Easy locked. */
+  /**
+   * Gave up (Show answer / Skip before a right answer): Good / Easy greyed. The answer shows IN PLACE on
+   * the question, then "Continue to the sentences ›" goes on to the round (`hardModeGiveUpInPlace`); a
+   * card with no sentences goes to the answer side at once.
+   */
   const giveUp = () => {
-    setFeedbackOpen(false);
     setRoundOpen(false);
     setGaveUp(true);
     setHardAtReveal(true);
-    setFlipped(true);
     track('study.hard_mode', { action: 'give_up', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
+    if (hardModeGiveUpInPlace(gateOn ? roundVisibleCount : 0)) {
+      setFeedbackOpen(true);
+      return;
+    }
+    setFeedbackOpen(false);
+    setFlipped(true);
   };
+  // The answer is up in place (gave up on the question, the round still to come).
+  const answerInPlace = feedbackOpen && gaveUp && !flipped;
   /**
    * The question's Show answer / Check / a spoken or multiple-choice answer. Without Hard mode: the
    * answer. In Hard mode: the answer checked on the question first (`attempted`), or — nothing tried —
@@ -1466,13 +1473,8 @@ export function StudyCard({
   };
 
   const handleRate = (rating: Rating) => {
-    // Good / Easy wait for the sentences (every way of rating comes through here).
-    if (lock.locked && rating >= 2) {
-      setGateNote(true);
-      track('study.sentence_gate', { action: 'blocked', unlocked: false, needed: gate.needed, got: gate.got, card_type: card.card_type });
-      if (!lock.gaveUp) scrollToSentences();
-      return;
-    }
+    // Good / Easy greyed while the sentences wait reach here only on their second tap (HardModeRatings,
+    // `overrideTap` — Jerome: "I don't like the locked answers … but I can still override it").
     if (gate.needed > 0) {
       track('study.sentence_gate', { action: 'rated', unlocked: !gate.locked, needed: gate.needed, got: gate.got, card_type: card.card_type });
     }
@@ -1834,6 +1836,7 @@ export function StudyCard({
     if (!questionResult || questionResult === 'checking') { if (!feedbackOpen) trackedResult.current = null; return; }
     if (trackedResult.current === questionResult) return;
     trackedResult.current = questionResult;
+    if (gaveUp) return;
     if (questionResult === 'right') {
       track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
       if (questionHeld) {
@@ -1847,8 +1850,8 @@ export function StudyCard({
   }, [questionResult, feedbackOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reopened with nothing to judge (the take didn't survive a reload): back to the question.
   useEffect(() => {
-    if (feedbackOpen && questionResult === null) setFeedbackOpen(false);
-  }, [feedbackOpen, questionResult]);
+    if (feedbackOpen && questionResult === null && !gaveUp) setFeedbackOpen(false);
+  }, [feedbackOpen, questionResult, gaveUp]);
   // Hard mode switched off (header chip / Settings) while the check or the round is up: the answer.
   useEffect(() => {
     if (!hardApplies && !flipped && (feedbackOpen || roundOpen)) {
@@ -3168,15 +3171,17 @@ export function StudyCard({
             <SentenceRound
               showingKey={card.id}
               noteId={card.note.id}
-              question={card.card_type === 'hanzi_to_meaning' ? card.note.hanzi : card.note.english}
-              questionIsChinese={card.card_type === 'hanzi_to_meaning'}
+              question={card.card_type === 'meaning_to_hanzi' ? card.note.english : card.note.hanzi}
+              questionIsChinese={card.card_type !== 'meaning_to_hanzi'}
               sentences={roundSentenceRows}
+              kind={listenRound ? 'listen' : 'card'}
+              word={card.note.hanzi}
               right={gateKeys}
               onRight={onSentenceRight}
               onDone={closeRound}
               onSkip={closeRound}
-              skipNote={pass ? PASS_ROUND_SKIP_NOTE : undefined}
-              doneCheer={pass ? passRoundDoneCheer : undefined}
+              skipNote={pass ? PASS_ROUND_SKIP_NOTE : gaveUp ? HARD_MODE_GAVE_UP_SKIP_NOTE : undefined}
+              doneCheer={pass ? passRoundDoneCheer : gaveUp ? hardModeGaveUpCheer : undefined}
               initialIds={roundLog.map((e) => e.id)}
               onPicked={onRoundPicked}
               onResult={onRoundResult}
@@ -3282,7 +3287,19 @@ export function StudyCard({
               )}
 
               <div className="study-card-actions text-center">
-                {feedbackOpen && questionResult ? (
+                {answerInPlace ? (
+                  <HardModeFeedback
+                    result="revealed"
+                    said={questionSaid}
+                    spoken={!isTypingCard || answerWasSpoken}
+                    roundFollows={hardModeGiveUpInPlace(roundVisibleCount)}
+                    answer={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, english: card.note.english }}
+                    onPlayAnswer={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+                    onTryAgain={hardTryAgain}
+                    onShowAnswer={giveUp}
+                    onNext={hardNext}
+                  />
+                ) : feedbackOpen && questionResult ? (
                   <HardModeFeedback
                     result={questionResult}
                     said={questionSaid}
@@ -3363,28 +3380,19 @@ export function StudyCard({
                 suggested={passSuggested}
                 onAnswer={handlePassAnswer}
                 disabled={isRating}
-                gotItLocked={passGotItLocked ? { line: PASS_GAVE_UP_LINE, blockedNote: PASS_GAVE_UP_BLOCKED } : undefined}
+                gotItLocked={passGotItLocked ? { line: PASS_GAVE_UP_LINE, overridePrompt: PASS_GOT_IT_OVERRIDE } : undefined}
               />
             ) : (
               <>
-                {lock.label && (
-                  <button
-                    type="button"
-                    className={`sentence-gate-line${lock.locked ? ' is-locked' : ' is-open'}${lock.gaveUp ? ' is-gave-up' : ''}`}
-                    onClick={lock.gaveUp ? undefined : scrollToSentences}
-                    data-testid="sentence-gate"
-                    data-locked={lock.locked}
-                    data-gave-up={lock.gaveUp}
-                    aria-live="polite"
-                  >
-                    {gateNote && lock.locked ? lock.blockedNote : lock.label}
-                  </button>
-                )}
-                <RatingButtons
+                <HardModeRatings
+                  goodEasy={goodEasy}
                   intervalPreviews={intervalPreviews}
                   onRate={handleRate}
                   disabled={isRating}
-                  locked={lock.locked ? [2, 3] : undefined}
+                  resetKey={gate.got}
+                  onLineClick={scrollToSentences}
+                  onArmed={() => track('study.sentence_gate', { action: 'blocked', unlocked: false, needed: gate.needed, got: gate.got, card_type: card.card_type })}
+                  onOverride={(rating) => track('study.hard_mode_override', { rating: rating === 3 ? 'easy' : 'good', reason: goodEasy.reason ?? 'sentences', card_type: card.card_type })}
                 />
               </>
             )}

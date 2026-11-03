@@ -176,31 +176,39 @@ fun rememberReaderTakeLock(): ReaderTakeLock = remember { ReaderTakeLock() }
  * then a disabled "Checking your reading…" until the result shows (web `ReadAloudStopFooter`).
  */
 @Composable
-fun ReadAloudStopFooter(recording: Boolean, onStop: () -> Unit) {
+fun ReadAloudStopFooter(
+    recording: Boolean,
+    onStop: () -> Unit,
+    /** The sentence takes reuse it (ui/study `SentenceStopBar`) with their words and tags. */
+    label: String = ReadAloud.STOP_RECORDING,
+    checkingLabel: String = ReadAloud.CHECKING,
+    footerTag: String = ReadAloudTags.FOOTER,
+    stopTag: String = ReadAloudTags.STOP_FOOTER,
+) {
     val pulse = rememberInfiniteTransition(label = "stopFooter")
     val glow by pulse.animateFloat(0f, if (recording) 1f else 0f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "glow")
     val red = Palette.Again
-    Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp).testTag(ReadAloudTags.FOOTER)) {
+    Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp).testTag(footerTag)) {
         Row(
             Modifier.fillMaxWidth().height(54.dp)
                 .border(if (recording) (glow * 4f).dp else 0.dp, red.copy(alpha = 0.35f * (1f - glow * 0.5f)), RoundedCornerShape(27.dp))
                 .clip(RoundedCornerShape(27.dp))
                 .background(if (recording) red else red.copy(alpha = 0.16f))
                 .bouncyClickable(recording, 0.97f, role = Role.Button, onClick = onStop)
-                .semantics { contentDescription = if (recording) ReadAloud.STOP_RECORDING else ReadAloud.CHECKING }
-                .testTag(ReadAloudTags.STOP_FOOTER),
+                .semantics { contentDescription = if (recording) label else checkingLabel }
+                .testTag(stopTag),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (recording) {
                 Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).background(Color.White))
                 Spacer(Modifier.width(10.dp))
-                Text(ReadAloud.STOP_RECORDING, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text(label, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
             } else {
                 // Stopped, the transcript on its way: quiet and not tappable (red ink on a soft red tint).
                 CircularProgressIndicator(Modifier.size(18.dp), color = red, strokeWidth = 2.dp)
                 Spacer(Modifier.width(10.dp))
-                Text(ReadAloud.CHECKING, color = red, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(checkingLabel, color = red, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             }
         }
     }

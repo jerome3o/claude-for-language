@@ -21,7 +21,7 @@ import {
   passStepId,
   passWordMissed,
   secondAngleType,
-  PASS_GAVE_UP_BLOCKED,
+  PASS_GOT_IT_OVERRIDE,
   PASS_GAVE_UP_LINE,
   PASS_ROUND_SKIP_NOTE,
   PASS_HARD_MODE_DESCRIPTION,
@@ -121,7 +121,7 @@ const words = {
   gave_up_line: PASS_GAVE_UP_LINE,
   round_skip_note: PASS_ROUND_SKIP_NOTE,
   round_done_cheers: [[1, 1], [2, 2], [0, 2]].map(([got, needed]) => ({ got, needed, cheer: passRoundDoneCheer(got, needed) })),
-  gave_up_blocked: PASS_GAVE_UP_BLOCKED,
+  got_it_override: PASS_GOT_IT_OVERRIDE,
 };
 
 writeFileSync(join(OUT, 'pass-angles.json'), JSON.stringify({ plans, rules, words }));

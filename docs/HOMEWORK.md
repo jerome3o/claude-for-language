@@ -272,11 +272,13 @@ these, as I'm not going to come back to them for a long time, so it's good to do
   **🎯 chip** (`HardModeChip pass` / Lab `HardModeChip(pass = true)`) or **Settings → Study → 🎯 Hard mode in
   homework** (both settings listed there). The header says "🎯 2 angles per word" (Red: "… for words you miss").
 - **Got it needs the ladder**: giving up (👁 Show answer / Skip recording / Show with nothing typed before a right
-  answer) → the answer side with **Got it locked** (🔒, faded; "👁 You looked at the answer — Not yet this time"
-  above; a tap says why) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
+  answer) → the answer IN PLACE on the question, then "Continue to the sentences ›" (docs/STUDY_SESSION.md "Hard
+  mode") → the answer side with **Got it greyed** (faded, "tap twice"; "👁 You looked at the answer — Not yet
+  suggested" above; never locked — the first tap says "Tap again to say Got it anyway", a second within 3 s counts it,
+  `study.hard_mode_override { rating: got_it }`) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
   the round was passed or skipped (its Skip line says "Skipping is fine — Got it stays open …", and two right cheer
   "🎉 2 / 2 — Got it unlocked" — `passRoundDoneCheer` — never the session's "Good and Easy"; the sentences never
-  lock Got it).
+  grey Got it).
 - **A second angle**: a word got right in Hard mode on its first angle is owed ONE more showing later in the pass on a
   different card type (`secondAngleType`: reading → meaning, meaning → reading; then the listening card when the note
   has audio and the other is done or missing) — at most 2 angles a word (`PASS_MAX_ANGLES`). It comes back once 3

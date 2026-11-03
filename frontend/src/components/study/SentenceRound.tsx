@@ -30,8 +30,17 @@ import {
   SENTENCE_ROUND_TITLE,
   SENTENCE_ROUND_TRY_AGAIN,
   exercisesFromLog,
+  pickListenRoundExercises,
+  listenRoundIntro,
+  sentenceRoundProgress as roundProgressOf,
+  LISTEN_ROUND_SELF_CHECK_NOTE,
+  LISTEN_ROUND_SHOW_CHINESE,
+  LISTEN_ROUND_SELF_RIGHT,
+  LISTEN_ROUND_SELF_WRONG,
   type RoundExercise,
 } from '@shared/study/sentenceRound';
+import { roundTakeFeel } from '@shared/study/hardMode';
+import { studyFeel } from '../../services/studyFeel';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
 import {
   roundTakeDifference,
@@ -69,7 +78,7 @@ import { useNoteAudio } from '../../hooks/useAudio';
 import { track } from '../../services/analytics';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { Confetti } from '../Confetti';
-import { SentenceMicButton, SentencePractiseOutcome, useSentencePractise, type PractiseRow, type RowTake } from './SentencePractise';
+import { SentenceMicButton, SentencePractiseOutcome, SentenceStopBar, useSentencePractise, type PractiseRow, type RowTake } from './SentencePractise';
 import './DifferenceCompare.css';
 import './SentenceRound.css';
 
@@ -88,7 +97,8 @@ type NoteSentenceFields = Pick<Note, 'id' | 'sentence_clue' | 'sentence_clue_pin
  * The card's sentences (the answer side's list: the card's own first, then the set), read from the
  * device — and from the server once when the device has no set yet. null while loading; off → [].
  */
-export function useRoundSentences(note: NoteSentenceFields, enabled: boolean): RoundSentenceRow[] | null {
+export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, opts: { fetchClueEnglish?: boolean } = {}): RoundSentenceRow[] | null {
+  const fetchClueEnglish = !!opts.fetchClueEnglish;
   const [set, setSet] = useState<RoundSentenceRow[] | null>(null);
   const [clueEnglish, setClueEnglish] = useState<string | null>(null);
   const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
@@ -124,13 +134,18 @@ export function useRoundSentences(note: NoteSentenceFields, enabled: boolean): R
     setClueEnglish(null);
     if (!enabled || !clue || note.sentence_clue_translation?.trim()) return;
     let live = true;
-    void getCachedClueTranslation(clue).then((t) => {
-      if (live && t) setClueEnglish(t);
-    });
+    // The listening card's round asks for English sentences: the card's own one, when its English isn't on
+    // the device yet, is fetched once online (cached by text, like the rows').
+    void getCachedClueTranslation(clue)
+      .then((t) => t ?? (fetchClueEnglish && navigator.onLine !== false ? getClueTranslation({ hanzi: clue, pinyin: note.sentence_clue_pinyin ?? null }) : null))
+      .then((t) => {
+        if (live && t) setClueEnglish(t);
+      })
+      .catch(() => {});
     return () => {
       live = false;
     };
-  }, [clue, note.sentence_clue_translation, enabled]);
+  }, [clue, note.sentence_clue_translation, enabled, fetchClueEnglish]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return useMemo(() => {
     if (!enabled) return [];
@@ -179,9 +194,17 @@ interface SentenceRoundProps {
   onResult?: (id: string, result: 'right' | 'close' | 'wrong') => void;
   /** Analytics: the regular session or the homework pass. */
   where?: 'session' | 'homework';
+  /**
+   * 'listen' = the listening card's round: only "🔁 Say it in Chinese", over the English sentences that carry
+   * `word` (`pickListenRoundExercises`); offline / no microphone → say it aloud, show the Chinese, check yourself.
+   */
+  kind?: 'card' | 'listen';
+  /** The card's word (the listening round's sentences carry it). */
+  word?: string;
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer, where = 'session' }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer, where = 'session', kind = 'card', word = '' }: SentenceRoundProps) {
+  const listen = kind === 'listen';
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
@@ -189,7 +212,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   useEffect(() => {
     if (picked || !sentences || !stats) return;
     const hidden = (key: string) => !!stats.get(sentenceHistoryKey(key))?.hidden;
-    const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null) ?? pickRoundExercises(sentences, stats);
+    const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null)
+      ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(sentences, stats));
     setPicked(next);
     onPicked?.(next.map((e) => e.id));
   }, [picked, sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -240,7 +264,16 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   exerciseKey.current = new Map((picked ?? []).map((e) => [e.id, e.key]));
   // The exercise said right last: when it was right in other words, the round waits for Continue.
   const lastRight = useRef<string | null>(null);
+  // The feel of a take: the one that makes the count = round_done (Good and Easy open), else round_right.
+  const feelState = useRef({ exercises: [] as RoundExercise[], right: [] as readonly string[], visibleKeys: [] as string[] });
+  feelState.current = { exercises, right, visibleKeys };
   const practise = useSentencePractise({
+    feel: (id, result) => {
+      const f = feelState.current;
+      const before = roundProgressOf(f.exercises, f.right, f.visibleKeys);
+      const after = roundProgressOf(f.exercises, result === 'right' ? [...f.right, id] : f.right, f.visibleKeys);
+      studyFeel(roundTakeFeel(result, after.done && !before.done));
+    },
     showingKey: `${showingKey}:round`,
     onRight: (id) => {
       lastRight.current = id;
@@ -332,7 +365,25 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   }, [progress.done, cheer, heldId, stayPut]);
 
   const blocked = practise.dictation.state.blocked;
-  const blockNote = practiseMicEnabled(blocked) ? null : practiseBlockNote(blocked);
+  // The listening round with no microphone (offline, blocked): say it aloud, show the Chinese, check yourself.
+  const selfCheck = listen && !practiseMicEnabled(blocked);
+  const blockNote = selfCheck ? LISTEN_ROUND_SELF_CHECK_NOTE : practiseMicEnabled(blocked) ? null : practiseBlockNote(blocked);
+  const [selfShown, setSelfShown] = useState<Record<string, boolean>>({});
+  const [selfResult, setSelfResult] = useState<Record<string, 'right' | 'wrong'>>({});
+  const selfCheckTake = (ex: RoundExercise, index: number, said: boolean) => {
+    const result = said ? 'right' : 'wrong';
+    const before = sentenceRoundProgress(exercises, right, visibleKeys);
+    setSelfResult((p) => ({ ...p, [ex.id]: result }));
+    onResult?.(ex.id, result);
+    recordSentenceAttempt(noteId, ex.key, ex.mode, result);
+    if (said) {
+      lastRight.current = ex.id;
+      onRight(ex.id);
+    }
+    const after = sentenceRoundProgress(exercises, said ? [...right, ex.id] : right, visibleKeys);
+    studyFeel(roundTakeFeel(result, after.done && !before.done));
+    track('study.sentence_round', { action: said ? 'right' : 'miss', index, mode: ex.mode, got: after.got, needed: after.needed });
+  };
 
   const playRow = (key: string, row: RoundSentenceRow) => {
     setPlaying(key);
@@ -356,8 +407,9 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       ? sentencePractiseResult(take.take.practised, take.claude?.status === 'done' ? take.claude.check.verdict : null)
       : null;
     const isRight = right.includes(ex.id);
-    const status: 'right' | 'close' | 'wrong' | null = isRight ? 'right' : result === 'close' || result === 'wrong' ? result : null;
-    const answered = isRight || !!take;
+    const self = selfResult[ex.id];
+    const status: 'right' | 'close' | 'wrong' | null = isRight ? 'right' : result === 'close' || result === 'wrong' ? result : self === 'wrong' ? 'wrong' : null;
+    const answered = isRight || !!take || !!selfShown[ex.id];
     // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless
     // it was correct in the very same words (`roundTakeView`): then the sentence shows once, here.
     const fullCheck = ex.mode === 'translate' && take?.claude?.status === 'done' && roundTakeView({
@@ -435,7 +487,16 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 <span className="sentence-round-en-chip-dot" aria-hidden="true">{SENTENCE_ROUND_ENGLISH_CHIP}</span>
               </button>
             )}
-            {(!isRight || busy) && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
+            {selfCheck ? (!selfShown[ex.id] && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm sentence-round-show-chinese"
+                onClick={() => setSelfShown((p) => ({ ...p, [ex.id]: true }))}
+                data-testid="listen-round-show-chinese"
+              >
+                {LISTEN_ROUND_SHOW_CHINESE}
+              </button>
+            )) : (!isRight || busy) && <SentenceMicButton practise={practise} row={practiseRow} mode={ex.mode} />}
             {answered && !fullCheck && (
               <button
                 type="button"
@@ -459,7 +520,17 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           onPlayModel={() => playRow(ex.id, row)}
           speak={(text) => play(null, text, API_BASE)}
         />
-        {answered && (
+        {selfCheck && selfShown[ex.id] && !isRight && (
+          <div className="sentence-round-ex-actions">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => selfCheckTake(ex, index, false)} data-testid="listen-round-self-wrong">
+              ✗ {LISTEN_ROUND_SELF_WRONG}
+            </button>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => selfCheckTake(ex, index, true)} data-testid="listen-round-self-right">
+              ✓ {LISTEN_ROUND_SELF_RIGHT}
+            </button>
+          </div>
+        )}
+        {answered && !selfCheck && (
           <div className="sentence-round-ex-actions">
             {(status === 'close' || status === 'wrong') && !busy && (
               <button
@@ -518,7 +589,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       {sentences == null || picked == null ? (
         <p className="sentence-round-intro">Loading sentences…</p>
       ) : (
-        <p className="sentence-round-intro">{sentenceRoundIntro(progress, exercises.length)}</p>
+        <p className="sentence-round-intro">{listen ? listenRoundIntro(progress, exercises.length) : sentenceRoundIntro(progress, exercises.length)}</p>
       )}
       {blockNote && <p className="sentence-round-blocked" role="status">{blockNote}</p>}
       {coming && <p className="sentence-round-coming" role="status" data-testid="sentences-coming">{SENTENCES_COMING_NOTE}</p>}
@@ -553,6 +624,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           </>
         )}
       </div>
+      <SentenceStopBar practise={practise} />
       {hiding && rows.get(hiding.key) && (
         <SentenceHideSheet
           hanzi={rows.get(hiding.key)!.hanzi}

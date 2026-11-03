@@ -79,12 +79,17 @@ class HardModeUiTest : LabScreenshotTest() {
     ) {
         prefs.setHardMode(mode)
         compose.setContent {
-            LabTheme(dark = dark) {
-                StudyScreen(ui(view(type, learning, sentences), take), playingKey = null, actions = actions, cardStart = start, autoplay = false, sentencePractisePreview = practise)
+            androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.fx.LocalStudyFeel provides dev.jeromeswannack.chineselearning.lab.fx.StudyFeelPlayer { felt += it }) {
+                LabTheme(dark = dark) {
+                    StudyScreen(ui(view(type, learning, sentences), take), playingKey = null, actions = actions, cardStart = start, autoplay = false, sentencePractisePreview = practise)
+                }
             }
         }
         compose.mainClock.advanceTimeBy(600)
     }
+
+    /** What the card made him feel (fx/StudyFeel, a recording player). */
+    private val felt = mutableListOf<String>()
 
     private fun count(tag: String) = compose.onAllNodesWithTag(tag, useUnmergedTree = true).fetchSemanticsNodes().size
 
@@ -138,20 +143,89 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Use in a sentence", useUnmergedTree = true).assertDoesNotExist()
     }
 
-    @Test fun showAnswerAfterAMissLocksGoodAndEasy() {
+    @Test fun showAnswerAfterAMissShowsItInPlaceThenTheRoundThenGreysGoodAndEasy() {
         val rated = mutableListOf<Int>()
         card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
         compose.onNodeWithTag(HardModeTags.SHOW_ANSWER, useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(1_000)
-        assertEquals(0, count(SentenceRoundTags.ROUND))
+        // The answer in place on the question — not the card's back.
+        compose.onNodeWithTag(HardModeTags.REVEALED_ANSWER, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("yuànzi", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("courtyard; yard", useUnmergedTree = true).assertExists()
+        assertEquals(0, count(CARD_BACK_TAG))
+        compose.onNodeWithText("${HardMode.revealedNextLabel(true)} ›", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.CONTINUE, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithTag(SentenceRoundTags.ROUND, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText(HardMode.GAVE_UP_SKIP_NOTE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithText(HardMode.GAVE_UP_LINE, useUnmergedTree = true).assertExists()
+        // Greyed, never locked: the first tap on Good asks again, the second rates.
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
-        compose.onNodeWithText(HardMode.GAVE_UP_BLOCKED, useUnmergedTree = true).assertExists()
-        compose.onNodeWithTag("rating-hard", useUnmergedTree = true).performClick()
+        compose.onNodeWithText(HardMode.overridePrompt(2), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
+        assertEquals(listOf(2), rated)
+    }
+
+    @Test fun aGreyedGoodWearsOffAfterThreeSecondsAndHardRatesAtOnce() {
+        val rated = mutableListOf<Int>()
+        card(start = CardStartState(flipped = true, gaveUp = true), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
+        compose.onNodeWithTag("rating-easy", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(HardMode.OVERRIDE_MS + 500)
+        compose.onNodeWithText(HardMode.GAVE_UP_LINE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("rating-easy", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertEquals(emptyList(), rated)
+        compose.onNodeWithTag("rating-hard", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
         assertEquals(listOf(1), rated)
+    }
+
+    @Test fun aRightAnswerIsFeltAsASuccess() {
+        card(start = CardStartState(feedbackOpen = true), take = heard("院子", match = true))
+        assertEquals(HardMode.FEEL_SUCCESS, felt.firstOrNull())
+    }
+
+    @Test fun aMissIsFeltDifferently() {
+        card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false))
+        assertEquals(listOf(HardMode.FEEL_MISS), felt)
+    }
+
+    @Test fun theListeningCardGetsASayItInChineseRound() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI)
+        val translate = (0 until 3).count { i -> count("${SentenceRoundTags.EXERCISE}-$i-translate-open") > 0 }
+        assertEquals(3, translate)
+        assertEquals(0, (0 until 4).sumOf { i -> count("${SentenceRoundTags.EXERCISE}-$i-read-open") })
+        compose.onNodeWithText(SentenceRound.listenIntro(SentenceRound.Progress(2, 0, false), 3), useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun theListeningRoundOfflineIsASelfCheck() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI, practise = previewSentencePractise(dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(blocked = "offline")))
+        compose.onNodeWithText(SentenceRound.LISTEN_SELF_CHECK_NOTE, useUnmergedTree = true).assertExists()
+        compose.onAllNodesWithTag(SentenceRoundTags.SHOW_CHINESE, useUnmergedTree = true)[0].performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag(SentenceRoundTags.SELF_RIGHT, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertEquals(1, count("${SentenceRoundTags.EXERCISE}-0-translate-right"))
+        assertEquals(HardMode.FEEL_ROUND_RIGHT, felt.last())
+    }
+
+    @Test fun aSentenceTakeStopsOnlyOnPurpose() {
+        val practise = previewSentencePractise(
+            dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(phase = "listening", partialText = "孩子们在"),
+            activeKey = "read:$clueKey", activeMode = "read",
+        )
+        card(start = CardStartState(roundOpen = true), practise = practise)
+        compose.onNodeWithTag(SentencePractiseTags.STOP_RECORDING, useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.SentencePractise.STOP_RECORDING, useUnmergedTree = true).assertExists()
+        // A tap on the page doesn't stop it (nothing to stop in a preview, but the take is still under way).
+        compose.onNodeWithTag(SentenceRoundTags.QUESTION, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag(SentencePractiseTags.STOP_RECORDING, useUnmergedTree = true).assertExists()
     }
 
     @Test fun rightGoesOnToTheRound() {
@@ -175,7 +249,8 @@ class HardModeUiTest : LabScreenshotTest() {
         card(mode = HardMode.RED, learning = true)
         compose.onNodeWithText("Show answer", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithTag(HardModeTags.GAVE_UP, useUnmergedTree = true).assertExists()
+        // Gave up: the answer in place, the round still to come.
+        compose.onNodeWithTag(HardModeTags.CONTINUE, useUnmergedTree = true).assertExists()
     }
 
     @Test fun twoSentencesGiveARoundOfTwo() {
@@ -240,5 +315,51 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Example sentences").performScrollTo()
         compose.mainClock.advanceTimeBy(800)
         shot("hard-mode-07-answer-round-sentences")
+    }
+
+    @Test fun shotRevealedInPlace() {
+        card(start = CardStartState(feedbackOpen = true, gaveUp = true), take = heard("圆子", match = false))
+        shot("hard-mode-10-revealed-in-place")
+    }
+
+    @Test fun shotRevealedInPlaceDark() {
+        card(start = CardStartState(feedbackOpen = true, gaveUp = true), take = heard("圆子", match = false), dark = true)
+        shot("hard-mode-10b-revealed-in-place-dark")
+    }
+
+    @Test fun shotGreyedArmed() {
+        card(start = CardStartState(flipped = true, gaveUp = true))
+        compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(200)
+        shot("hard-mode-11-greyed-tap-again")
+    }
+
+    @Test fun shotGreyedDark() {
+        card(start = CardStartState(flipped = true, gaveUp = true), dark = true)
+        shot("hard-mode-11b-greyed-dark")
+    }
+
+    @Test fun shotListeningRound() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI)
+        shot("hard-mode-12-listening-round")
+    }
+
+    @Test fun shotListeningRoundDark() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI, dark = true)
+        shot("hard-mode-12b-listening-round-dark")
+    }
+
+    @Test fun shotListeningRoundOffline() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI, practise = previewSentencePractise(dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(blocked = "offline")))
+        shot("hard-mode-13-listening-round-offline")
+    }
+
+    @Test fun shotRecordingStopBar() {
+        val practise = previewSentencePractise(
+            dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(phase = "listening", partialText = "孩子们在"),
+            activeKey = "read:$clueKey", activeMode = "read",
+        )
+        card(start = CardStartState(roundOpen = true), practise = practise)
+        shot("hard-mode-14-recording-stop-bar")
     }
 }

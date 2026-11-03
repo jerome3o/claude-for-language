@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   sentencePractiseMode, sentenceTake, sentencePractiseResult, sentencePractiseVia, showCheckOnline,
-  sentenceAnswerCheckInput, sentenceGate, ratingLockedByGate, sentenceGateLabel, sentenceGateBlockedNote,
+  sentenceAnswerCheckInput, sentenceGate, sentenceGateLabel, sentenceStopBar,
   SENTENCE_GATE_TARGET,
 } from './sentencePractise';
 
@@ -67,21 +67,24 @@ describe('sentenceGate', () => {
     expect(sentenceGate({ ...base, sentenceCount: 0 })).toEqual({ needed: 0, got: 0, locked: false });
     expect(sentenceGate({ ...base, sentenceCount: null }).needed).toBe(SENTENCE_GATE_TARGET);
   });
-  it('only gates the reading and meaning cards, only when on', () => {
+  it('gates the reading, meaning and listening cards, only when on', () => {
     expect(sentenceGate({ ...base, cardType: 'meaning_to_hanzi' }).locked).toBe(true);
-    expect(sentenceGate({ ...base, cardType: 'audio_to_hanzi' }).needed).toBe(0);
+    expect(sentenceGate({ ...base, cardType: 'audio_to_hanzi' }).needed).toBe(2);
+    expect(sentenceGate({ ...base, cardType: 'other' }).needed).toBe(0);
     expect(sentenceGate({ ...base, enabled: false }).needed).toBe(0);
   });
-  it('leaves Again and Hard alone', () => {
-    const g = sentenceGate(base);
-    expect([0, 1, 2, 3].map((r) => ratingLockedByGate(r, g))).toEqual([false, false, true, true]);
-    expect([0, 1, 2, 3].map((r) => ratingLockedByGate(r, { ...g, locked: false }))).toEqual([false, false, false, false]);
-  });
-  it('words the line and the blocked note', () => {
-    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a'] }))).toBe('🎤 Get 2 sentences right to unlock Good · 1/2');
-    expect(sentenceGateLabel(sentenceGate({ ...base, sentenceCount: 1 }))).toBe('🎤 Get 1 sentence right to unlock Good · 0/1');
+  it('words the line', () => {
+    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a'] }))).toBe('🎤 Try the sentences first · 1/2 right');
+    expect(sentenceGateLabel(sentenceGate({ ...base, sentenceCount: 1 }))).toBe('🎤 Try the sentences first · 0/1 right');
     expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a', 'b'] }))).toBe('✓ 2/2 right — Good and Easy unlocked');
     expect(sentenceGateLabel(sentenceGate({ ...base, enabled: false }))).toBeNull();
-    expect(sentenceGateBlockedNote(sentenceGate({ ...base, rightKeys: ['a'] }))).toBe('Say 1 more sentence right with 🎤 to unlock Good and Easy — Again and Hard are always there.');
+  });
+});
+
+describe('stopping a take is intentional', () => {
+  it('the pinned bar: Stop while recording, Checking while judged, none otherwise', () => {
+    expect(sentenceStopBar(true, false)).toBe('stop');
+    expect(sentenceStopBar(false, true)).toBe('checking');
+    expect(sentenceStopBar(false, false)).toBeNull();
   });
 });

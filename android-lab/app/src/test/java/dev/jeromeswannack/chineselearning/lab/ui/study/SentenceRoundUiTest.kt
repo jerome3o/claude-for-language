@@ -24,6 +24,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.After
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The Sentence round between the question and the answer (docs/STUDY_SESSION.md "Sentence round";
@@ -84,8 +85,12 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         card(previewSentencePractise(), start = CardStartState())
         compose.onNodeWithText("Show answer", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(800)
+        // A miss: the answer in place on the question, no round yet — Continue leads to it.
         assertEquals(0, count(SentenceRoundTags.ROUND))
-        compose.onNodeWithTag(HardModeTags.GAVE_UP, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.REVEALED_ANSWER, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.CONTINUE, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        assertEquals(1, count(SentenceRoundTags.ROUND))
     }
 
     @Test fun fourExercisesTranslateChineseHidden() {
@@ -146,15 +151,19 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(0, count(SentenceRoundTags.ROUND))
         // The round's count carries over: 1 of 2.
-        compose.onNodeWithText("🎤 Get 2 sentences right to unlock Good · 1/2", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("🎤 Try the sentences first · 1/2 right", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
     }
 
-    @Test fun noRoundOnTheListeningCard() {
+    @Test fun theListeningCardsRoundIsSayItInChinese() {
         card(previewSentencePractise(), start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI)
-        assertEquals(0, count(SentenceRoundTags.ROUND))
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        val translate = (0 until 4).count { i -> count("${SentenceRoundTags.EXERCISE}-$i-translate-open") > 0 }
+        val read = (0 until 4).count { i -> count("${SentenceRoundTags.EXERCISE}-$i-read-open") > 0 }
+        assertEquals(0, read)
+        assertTrue(translate in 1..SentenceRound.LISTEN_SIZE)
     }
 
     @Test fun missOffersTryAgain() {

@@ -191,11 +191,19 @@ describe('SentenceSet 🎤', () => {
     expect(track).toHaveBeenCalledWith('study.sentence_practise', { mode: 'translate', result: 'wrong', via: 'offline' });
   });
 
-  it('one microphone: a tap elsewhere stops the take; no 🎤 in the card editor', async () => {
+  it('one microphone: a tap or scroll elsewhere never stops the take — the 🎤 again or the pinned Stop bar do; no 🎤 in the card editor', async () => {
     await render();
     act(() => (rows()[0].querySelector('.sentence-set-hidden') as HTMLElement).click());
     act(() => inRow(0, 'sentence-practise-mic')!.click());
     act(() => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    act(() => (rows()[0].querySelector('.sentence-set-hanzi, .sentence-set-row') as HTMLElement).click());
+    expect(dictation().stop).not.toHaveBeenCalled();
+    // The pinned bar: one big "■ Stop recording".
+    const bar = host.querySelector('[data-testid="sentence-stop-bar"]') as HTMLElement;
+    expect(bar.dataset.state).toBe('stop');
+    expect(bar.textContent).toContain('Stop recording');
+    act(() => (host.querySelector('[data-testid="sentence-stop-recording"]') as HTMLElement).click());
     expect(dictation().stop).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
     root = createRoot(host);

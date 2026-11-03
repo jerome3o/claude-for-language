@@ -2112,17 +2112,40 @@ button.queue-counts:active {
   color: #1e40af;
 }
 
-/* "Get two sentences right before Good / Easy": held-back ratings look disabled (🔒 + faded, not
-   colour alone) but still take a tap, which says why. */
-.rating-btn.is-locked {
-  opacity: 0.45;
-  filter: grayscale(0.6);
-  cursor: not-allowed;
+/* Hard mode: Good / Easy GREYED (never locked) while the sentences wait or after giving up — faded with a
+   small "tap twice" mark (not colour alone); the first tap arms it ("Tap again to rate Good anyway"), the
+   second rates. The suggested rating (Hard) gets the emphasis. */
+.rating-btn.is-greyed {
+  opacity: 0.5;
+  filter: grayscale(0.7);
 }
-.rating-btn.is-locked:hover {
+.rating-btn.is-greyed:hover {
   transform: none;
   box-shadow: none;
 }
+.rating-btn.is-armed {
+  opacity: 1;
+  filter: none;
+  outline: 2px dashed currentColor;
+  outline-offset: 2px;
+  animation: rating-armed-pulse 0.9s ease-in-out infinite;
+}
+/* A glow, not a scale: the button never moves under the second tap. */
+@keyframes rating-armed-pulse {
+  50% { box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.35); }
+}
+.rating-btn.is-suggested {
+  box-shadow: 0 0 0 3px #f97316, var(--shadow-md);
+  transform: translateY(-2px);
+}
+.rating-suggested-mark,
+.rating-greyed-mark {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.rating-greyed-mark { text-transform: none; }
 .sentence-gate-line {
   display: block;
   width: 100%;
@@ -2137,6 +2160,12 @@ button.queue-counts:active {
   font-weight: 600;
   text-align: center;
   cursor: pointer;
+}
+.sentence-gate-line.is-armed {
+  border-style: solid;
+  border-color: #f97316;
+  background: #fff7ed;
+  color: #9a3412;
 }
 .sentence-gate-line.is-open {
   border-style: solid;

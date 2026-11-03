@@ -12,7 +12,7 @@ import {
   SENTENCE_HIDE_HINT, SENTENCE_HIDDEN_TOAST, SENTENCE_SHOW_AGAIN, SENTENCE_ROUND_MIN_VISIBLE, CLUE_SENTENCE_KEY,
   type SentencePracticeEvent, type SentenceStats,
 } from '../../../shared/study/sentenceHistory';
-import { pickRoundExercises, sentenceRoundProgress, spreadOrder, type RoundSentence } from '../../../shared/study/sentenceRound';
+import { pickRoundExercises, pickListenRoundExercises, listenRoundSentenceCount, sentenceRoundProgress, spreadOrder, type RoundSentence } from '../../../shared/study/sentenceRound';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: sentence-history <out-dir>');
@@ -27,6 +27,7 @@ const r = () => {
 };
 const pick = <T,>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
 
+const LISTEN_WORDS = ['银行', '句子', '句子2', '', ' 句\u3000子 ', '没有'];
 const statsJson = (m: Map<string, SentenceStats>) => Object.fromEntries([...m.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
 const cases = [] as unknown[];
@@ -67,6 +68,8 @@ for (let i = 0; i < 200; i++) {
     sentences, events, stats: statsJson(stats), known, compares,
     wantsMore: wantsMoreSentences(sentences, stats),
     exercises: pickRoundExercises(sentences, stats),
+    // The listening card's round: "say it in Chinese" over the sentences that carry the word.
+    listen: LISTEN_WORDS.map((word) => ({ word, exercises: pickListenRoundExercises(sentences, word, stats), count: listenRoundSentenceCount(sentences, word, stats) })),
     progress: [[], ['read:s0', 'translate:clue:n1'], ['read:s7', 'translate:s1', 'read:zzz']].map((ids) => ({
       ids, progress: sentenceRoundProgress(pickRoundExercises(sentences, stats), ids, sentences.map((x) => x.key)),
     })),

@@ -89,9 +89,7 @@ class SentencePractiseParityTest {
             val want = o["gate"]!!.jsonObject
             val what = o.toString()
             assertEquals(SentencePractise.Gate(want["needed"]!!.jsonPrimitive.int, want["got"]!!.jsonPrimitive.int, want["locked"]!!.bool), g, what)
-            assertEquals(o["locked"]!!.jsonArray.map { it.bool }, (0..3).map { SentencePractise.ratingLocked(it, g) }, what)
             assertEquals(o["label"]?.str, SentencePractise.label(g), what)
-            assertEquals(o["note"]!!.str, SentencePractise.blockedNote(g), what)
         }
     }
 
@@ -105,5 +103,11 @@ class SentencePractiseParityTest {
         assertEquals(copy["checkOnline"]!!.str, SentencePractise.CHECK_ONLINE)
         assertEquals(copy["target"]!!.jsonPrimitive.int, SentencePractise.GATE_TARGET)
         assertEquals(copy["cardTypes"]!!.jsonArray.map { it.str }, SentencePractise.GATE_CARD_TYPES)
+        assertEquals(copy["stopRecording"]!!.str, SentencePractise.STOP_RECORDING)
+        assertEquals(copy["checkingTake"]!!.str, SentencePractise.CHECKING_TAKE)
+        for (b in copy["stopBar"]!!.jsonArray) {
+            val o = b.jsonObject
+            assertEquals(o["bar"]?.str, SentencePractise.stopBar(o["listening"]!!.bool, o["finishing"]!!.bool), o.toString())
+        }
     }
 }

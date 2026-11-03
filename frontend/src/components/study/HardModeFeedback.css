@@ -84,3 +84,30 @@
 :root[data-theme='dark'] .hard-feedback--right .hard-feedback-title { color: #4ade80; }
 :root[data-theme='dark'] .hard-feedback--wrong .hard-feedback-title { color: #f87171; }
 :root[data-theme='dark'] .hard-feedback--close .hard-feedback-title { color: #facc15; }
+
+/* 👁 Show answer before a right answer: the answer in place, then on to the sentences. */
+.hard-feedback--revealed {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.07);
+}
+.hard-feedback--revealed .hard-feedback-title { color: #c2410c; font-size: 1.1rem; }
+.hard-feedback-answer { margin: 0.4rem 0 0.2rem; }
+.hard-feedback-answer-zh {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hard-feedback-answer-pinyin { margin: 0.1rem 0 0; font-size: 1.1rem; color: var(--color-text-light); }
+.hard-feedback-answer-en { margin: 0.15rem 0 0; font-size: 1.05rem; }
+.hard-feedback-play {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 1rem;
+  cursor: pointer;
+}
