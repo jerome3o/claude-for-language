@@ -38,15 +38,31 @@ export function ReaderRecapPage() {
     const missing = run.words.filter((w) => !w.gloss).map((w) => w.hanzi);
     if (missing.length === 0) return;
     let cancelled = false;
-    void lookupWords(missing).then((found) => {
-      if (cancelled) return;
+    void (async () => {
+      const found = await lookupWords(missing);
       const out = new Map<string, string>();
-      for (const [hanzi, r] of found) if (r.status !== 'ok') continue;
-        // CC-CEDICT's cross-references ("see 成都市") aren't a meaning: the first real sense instead.
-        const meaning = [r.record.english, ...r.record.senses].find((m) => m && !/^see\s/i.test(m));
+      // CC-CEDICT's cross-references ("see 成都市") aren't a meaning: the first real sense, else the target's.
+      const seeAlso = new Map<string, string>();
+      for (const [hanzi, r] of found) {
+        if (r.status !== 'ok') continue;
+        const senses = [r.record.english, ...r.record.senses].filter(Boolean);
+        const meaning = senses.find((m) => !/^see\s/i.test(m));
         if (meaning) out.set(recapKey(hanzi), meaning);
-      setGlosses(out);
-    }).catch(() => undefined);
+        else {
+          const target = senses.map((m) => /^see\s+([\p{Script=Han}]+)/u.exec(m)?.[1]).find(Boolean);
+          if (target) seeAlso.set(hanzi, target);
+        }
+      }
+      if (seeAlso.size) {
+        const targets = await lookupWords([...seeAlso.values()]);
+        for (const [hanzi, target] of seeAlso) {
+          const r = targets.get(target);
+          const meaning = r?.status === 'ok' ? [r.record.english, ...r.record.senses].find((m) => m && !/^see\s/i.test(m)) : undefined;
+          if (meaning) out.set(recapKey(hanzi), meaning);
+        }
+      }
+      if (!cancelled) setGlosses(out);
+    })().catch(() => undefined);
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordsKey]);

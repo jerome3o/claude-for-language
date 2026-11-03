@@ -147,7 +147,11 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   await expect(page.getByTestId('recap-keep-switch')).not.toBeChecked();
   await page.getByTestId('recap-keep').click();
   await expect(page.getByTestId('recap-keep-switch')).toBeChecked();
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-card-back.png` });
+  await expect(page.getByTestId('recap-keep')).toHaveClass(/is-on/);
+  if (SHOTS) {
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${SHOTS}/web-03-card-back.png` });
+  }
   await page.getByTestId('recap-not-yet').click();
 
   await expect(page.getByTestId('recap-card')).toContainText('麻辣');
