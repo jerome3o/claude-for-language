@@ -133,11 +133,11 @@ test('listening mode: a new message is hidden, tap plays, long-press reveals, re
   await expect(page.getByText('我们明天去商店吧！')).toBeVisible({ timeout: 20000 });
   await expect(page.getByTestId('chat-listening-bubble')).toHaveCount(0);
 
-  // Another message hides; the inbox shows "🎧 New message" for it.
+  // Another message hides; the inbox (compact rows, no preview line) never shows its text.
   await say(request, tutor, convId, '你几点有空？');
   await expect(page.getByTestId('chat-listening-bubble')).toHaveCount(1, { timeout: 20000 });
   await page.goto('/chats');
-  await expect(page.getByTestId('chats-row').first()).toContainText('🎧 New message', { timeout: 20000 });
+  await expect(page.getByTestId('chats-row').first()).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('你几点有空？')).toHaveCount(0);
 
   await page.context().close();

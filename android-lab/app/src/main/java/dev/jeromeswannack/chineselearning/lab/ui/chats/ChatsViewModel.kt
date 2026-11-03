@@ -12,11 +12,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
-import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreadList
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads
-import dev.jeromeswannack.chineselearning.lab.ui.chat.ChatViewModel
 import dev.jeromeswannack.chineselearning.lab.ui.claude.ClaudeThreadViewModel
 import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
@@ -37,12 +35,11 @@ import java.util.TimeZone
  * people (`/api/me/chats`, [Chats]) and the cached Claude threads ([ClaudeThreadList]) in ONE list,
  * both rendered at once (also offline) and refreshed when the screen opens / resumes, every minute,
  * on a socket reconnect and when a Claude reply finishes (a reply starting marks its row "Writing a
- * reply…" at once). The box at the bottom starts a Claude thread (offline: queued) or opens a
- * tutor's chat with the text as its draft.
+ * reply…" at once). The box at the bottom starts a Claude thread (offline: queued).
  */
 class ChatsViewModel(private val app: LabApp) : ViewModel() {
     private val local = MutableStateFlow(
-        Local(language = app.prefs.askClaudeLanguage, claudeOpen = runCatching { app.prefs.chatsClaudeSectionOpen }.getOrDefault(false)),
+        Local(language = app.prefs.askClaudeLanguage),
     )
 
     private data class Local(
@@ -54,8 +51,8 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
         val myId: String? = null,
         val now: Long = System.currentTimeMillis(),
         val teacher: Boolean = false,
-        val filter: String = ClaudeInbox.ALL,
-        val claudeOpen: Boolean = false,
+        /** The Claude row whose context popover is open. */
+        val contextInfo: String? = null,
         val draft: String = "",
         val sending: Boolean = false,
         val sendError: String? = null,
@@ -75,18 +72,13 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
             app.analytics.track("chat.inbox_open", mapOf("conversations" to items.size, "unread" to items.count { it.unread > 0 }))
         }
         viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
-        // Listening mode: the settings + what was revealed on this phone (the "🎧 New message" previews).
-        val listening = combine(ChatListeningStore.observe(app.cache), ChatListeningStore.observeRevealed(app.cache)) { state, _ -> state }
-        val humans = combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), listening) { list, rels, state -> Triple(list, rels, state) }
+        val humans = combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS)) { list, rels -> list to rels }
         viewModelScope.launch {
             // The tutor's Students rows: "✦ Asked Claude 3× today" from the cached dashboard (core claude.TutorVisibility).
             val claudeToday = app.cache.observe<dev.jeromeswannack.chineselearning.lab.data.api.TutorDashboardDto>(dev.jeromeswannack.chineselearning.lab.ui.teaching.TeachingKeys.DASHBOARD)
-            combine(humans, ClaudeThreadList.observeInbox(app.cache), local, app.online, claudeToday) { (list, rels, state), threads, l, online, dash ->
+            combine(humans, ClaudeThreadList.observeInbox(app.cache), local, app.online, claudeToday) { (list, rels), threads, l, online, dash ->
                 val rows = list?.conversations.orEmpty()
-                val revealed = rows.filter { !it.isAi }.associate { it.conversationId to ChatListeningStore.revealed(app.cache, it.conversationId) }
                 ChatsUi(
-                    listening = state,
-                    revealed = revealed,
                     loaded = list != null,
                     rows = rows,
                     threads = threads.orEmpty(),
@@ -101,8 +93,7 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                     pickerOpen = l.picker,
                     practiceOpen = l.practice,
                     teacher = l.teacher,
-                    filter = l.filter,
-                    claudeOpen = l.claudeOpen,
+                    contextInfo = l.contextInfo,
                     draft = l.draft,
                     sending = l.sending,
                     sendError = l.sendError,
@@ -161,15 +152,19 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
 
     fun setQuery(q: String) = local.update { it.copy(query = q) }
 
-    fun setFilter(f: String) {
-        local.update { it.copy(filter = f) }
-        app.analytics.track("chats.filter", mapOf("filter" to f))
+    /** A Claude row's context emoji: its popover (analytics `chats.context_info` show), or null to close it. */
+    fun setContextInfo(key: String?) {
+        local.update { it.copy(contextInfo = key) }
+        if (key == null) return
+        val kind = _ui.value.items.firstOrNull { it.key == key }?.thread?.context?.kind ?: ClaudeChats.PRACTICE
+        app.analytics.track("chats.context_info", mapOf("context_kind" to kind, "action" to "show"))
     }
 
-    fun toggleClaudeSection() {
-        val open = !local.value.claudeOpen
-        runCatching { app.prefs.chatsClaudeSectionOpen = open }
-        local.update { it.copy(claudeOpen = open) }
+    /** The popover's "Open card / story / lesson ›" (analytics `chats.context_info` open). */
+    fun contextOpened(key: String) {
+        val kind = _ui.value.items.firstOrNull { it.key == key }?.thread?.context?.kind ?: ClaudeChats.PRACTICE
+        app.analytics.track("chats.context_info", mapOf("context_kind" to kind, "action" to "open"))
+        local.update { it.copy(contextInfo = null) }
     }
 
     fun setDraft(s: String) = local.update { it.copy(draft = s, sendError = null) }
@@ -210,17 +205,6 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
             } catch (e: Exception) {
                 local.update { it.copy(sending = false, sendError = ClaudeThreadViewModel.sendErrorText(e)) }
             }
-        }
-    }
-
-    /** "To: <tutor>": her chat opens with the text as its draft (the chat restores it). */
-    fun sendToPerson(to: ClaudeInbox.Recipient, text: String, open: (String) -> Unit) {
-        val had = text.isNotBlank()
-        app.analytics.track("chats.compose_to_person", mapOf("had_text" to had))
-        viewModelScope.launch {
-            if (had) runCatching { ChatViewModel.saveDraft(app, to.conversationId, text.trim()) }
-            local.update { it.copy(draft = "") }
-            open(Routes.chat(to.relationshipId, to.conversationId))
         }
     }
 

@@ -1,9 +1,10 @@
 /**
  * The unified Chats tab (pages/ChatsPage.tsx; docs/CHAT.md "Chats tab — one list for people and
- * Claude"): people and Claude in one list, each row's kind written on its outline (icon + word, never
- * colour alone), a learner's unread tutor chat pinned on top, filter chips, a Claude row's context
- * chip (→ the card), the bottom box (Ask by default, ✏️ Check / 🔍 Explain for Chinese, Translate for
- * English, "To:" a tutor), offline (the cached list, a queued send) and the tutor's student-centric view.
+ * Claude"): the people first (a learner's unread tutor chat on top), a thin divider, then Claude —
+ * compact one-line rows, no previews, no filter chips; a Claude row's ONE context emoji (→ a popover
+ * with the full text + "Open card ›"); the bottom box (always to Claude; Ask, and ✏️ Check / 🔍 Explain
+ * for Chinese or Translate for English only once there is text), offline (the cached list, a queued
+ * send) and the tutor's view (the same layout).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
@@ -66,7 +67,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { db } from '../db/database';
 import { ChatsPage } from './ChatsPage';
-import { loadDraft } from '../services/chatDrafts';
 
 const NOW = Date.now();
 const ago = (min: number) => new Date(NOW - min * 60_000).toISOString();
@@ -163,7 +163,7 @@ afterEach(() => {
 });
 
 describe('ChatsPage — the learner', () => {
-  it('lists the tutor and Claude in one list, each kind written on its outline, unread tutor pinned', async () => {
+  it('people first (unread tutor on top), a divider, then Claude — one line each, no previews', async () => {
     chatList.rows = [person('c1', { unread: 2, last_activity_at: ago(120) })];
     api.listClaudeThreads.mockResolvedValue({
       threads: [
@@ -177,30 +177,69 @@ describe('ChatsPage — the learner', () => {
     await render();
     await waitFor(() => qa('chats-item').length === 4, 'four rows');
     expect(kinds()).toEqual(['tutor:Minghui', 'claude:我昨天去了商店买东西了', 'claude:银行 和 行 的读音', 'claude:你好']);
-    const labels = qa('chats-row-kind').map((el) => el.textContent?.trim());
-    expect(labels).toEqual(['🧑‍🏫 Tutor', '✦ Claude', '✦ Claude', '✦ Claude']);
-    expect(qa('chats-item')[0].className).toContain('chats-row-wrap-tutor');
+    // Two sections with the divider between them; the kind in words for screen readers only.
+    expect(q('chats-people')!.querySelectorAll('[data-testid="chats-item"]')).toHaveLength(1);
+    expect(q('chats-claude')!.querySelectorAll('[data-testid="chats-item"]')).toHaveLength(3);
+    expect(q('chats-divider')).not.toBeNull();
+    expect(qa('chats-row-kind').map((el) => el.textContent)).toEqual([', Tutor']);
     expect(qa('chats-item')[0].className).toContain('chats-row-pinned');
-    expect(qa('chats-item')[1].className).toContain('chats-row-wrap-claude');
-    const chips = qa('chats-context-chip').map((el) => el.textContent?.trim());
-    expect(chips).toEqual(['📇 Asked on card · 银行 ›', '✏️ Check']);
-
-    // The card chip opens the card; the row opens the thread.
-    await act(async () => qa('chats-context-chip')[0].click());
-    expect(location).toBe('/cards/n1');
+    // No previews, no filter chips, no "To:".
+    expect(host.textContent).not.toContain('很好！');
+    expect(host.textContent).not.toContain('明天上课见');
+    expect(q('chats-filter-all')).toBeNull();
+    expect(q('chats-compose-to')).toBeNull();
+    // A Claude row's context is ONE emoji.
+    expect(qa('chats-context-chip').map((el) => el.textContent?.trim())).toEqual(['📇', '✏️']);
+    expect(qa('chats-context-chip')[0].getAttribute('aria-label')).toBe('Asked on card · 银行 — more');
   });
 
-  it('filters: All · Tutor · Claude', async () => {
-    chatList.rows = [person('c1')];
-    await db.claudeThreads.put({ ...thread('t1'), local: false } as never);
+  it('the context emoji: a popover with the full text and "Open card ›"; the row still opens the thread', async () => {
+    api.listClaudeThreads.mockResolvedValue({
+      threads: [
+        thread('t2', { title: '栋 怎么用', context_kind: 'card', context: { kind: 'card', note_id: 'n1', label: '栋' } }),
+        thread('t3', { title: '你好', first_intent: 'check', last_message_at: ago(200) }),
+      ],
+      deleted_ids: [],
+      server_time: new Date().toISOString(),
+    });
     await render();
     await waitFor(() => qa('chats-item').length === 2, 'two rows');
-    expect(qa('chats-filter-people')[0].textContent).toBe('🧑‍🏫 Tutor');
-    await act(async () => q('chats-filter-claude')!.click());
-    expect(kinds()).toEqual(['claude:我昨天去了商店买东西了']);
-    expect(track).toHaveBeenCalledWith('chats.filter', { filter: 'claude' });
-    await act(async () => q('chats-filter-people')!.click());
-    expect(kinds()).toEqual(['tutor:Minghui']);
+    expect(q('chats-context-pop')).toBeNull();
+    await act(async () => qa('chats-context-chip')[0].click());
+    expect(location).toBe('/chats');
+    expect(q('chats-context-pop')!.textContent).toContain('Asked on card · 栋');
+    expect(q('chats-context-open')!.textContent).toBe('Open card ›');
+    expect(track).toHaveBeenCalledWith('chats.context_info', { context_kind: 'card', action: 'show' });
+    // A Check chat has no target: the text only.
+    await act(async () => qa('chats-context-chip')[1].click());
+    expect(q('chats-context-pop')!.textContent).toContain('Check');
+    expect(q('chats-context-open')).toBeNull();
+    // Escape closes it.
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(q('chats-context-pop')).toBeNull();
+    await act(async () => qa('chats-context-chip')[0].click());
+    await act(async () => q('chats-context-open')!.click());
+    expect(location).toBe('/cards/n1');
+    expect(track).toHaveBeenCalledWith('chats.context_info', { context_kind: 'card', action: 'open' });
+  });
+
+  it('a Claude row says "Writing…" / "Failed" where the time goes', async () => {
+    api.listClaudeThreads.mockResolvedValue({
+      threads: [thread('t1', { pending: true }), thread('t2', { title: '失败了', failed: true, last_message_at: ago(50) })],
+      deleted_ids: [],
+      server_time: new Date().toISOString(),
+    });
+    await render();
+    await waitFor(() => qa('chats-row-status').length === 2, 'two statuses');
+    expect(qa('chats-row-status').map((el) => el.getAttribute('aria-label'))).toEqual(['Claude is writing a reply', 'The reply failed — open to retry']);
+    expect(qa('chats-row-status')[0].textContent).toContain('Writing…');
+  });
+
+  it('no divider with only one kind', async () => {
+    chatList.rows = [person('c1')];
+    await render();
+    await waitFor(() => qa('chats-item').length === 1, 'one row');
+    expect(q('chats-divider')).toBeNull();
   });
 
   it('an old practice chat shows once, as its thread', async () => {
@@ -212,8 +251,8 @@ describe('ChatsPage — the learner', () => {
     });
     await render();
     await waitFor(() => qa('chats-item').length === 2, 'two rows');
-    expect(kinds()).toEqual(['claude:点菜', 'tutor:Minghui']);
-    expect(q('chats-context-chip')!.textContent?.trim()).toBe('🎭 Practice · 点菜');
+    expect(kinds()).toEqual(['tutor:Minghui', 'claude:点菜']);
+    expect(q('chats-context-chip')!.getAttribute('aria-label')).toBe('Practice · 点菜 — more');
   });
 
   it('the box: Chinese → Ask · ✏️ Check · 🔍 Explain; Check starts a thread with that intent and opens it', async () => {
@@ -226,8 +265,13 @@ describe('ChatsPage — the learner', () => {
     const box = host.querySelector('[data-testid="claude-chat-voice-text"]') as HTMLTextAreaElement;
     expect(box.placeholder).toBe('Ask Claude anything…');
     expect(q('claude-chat-voice-submit')!.textContent).toContain('Ask');
+    // Nothing typed yet: no Check / Explain.
+    expect(q('claude-composer-check')).toBeNull();
+    expect(q('claude-composer-explain')).toBeNull();
     typeInto(box, '我昨天去了商店买东西了');
     await flush();
+    // Typed: beside Ask, in its row.
+    expect(q('claude-composer-check')!.closest('.voice-input-row')).not.toBeNull();
     expect(q('claude-composer-check')!.textContent).toBe('✏️ Check');
     expect(q('claude-composer-explain')!.textContent).toBe('🔍 Explain');
     expect(q('claude-composer-translate')).toBeNull();
@@ -255,20 +299,6 @@ describe('ChatsPage — the learner', () => {
     expect(api.createClaudeThread).toHaveBeenCalledWith(expect.objectContaining({ intent: 'ask' }));
   });
 
-  it('"To:" a tutor opens her chat with the text as its draft', async () => {
-    chatList.rows = [person('c1')];
-    await render();
-    const box = host.querySelector('[data-testid="claude-chat-voice-text"]') as HTMLTextAreaElement;
-    typeInto(box, '老师，明天几点上课？');
-    await act(async () => q('chats-compose-to')!.click());
-    const menu = q('chats-compose-to-menu')!;
-    const minghui = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes('Minghui'))!;
-    await act(async () => minghui.click());
-    expect(location).toBe('/connections/rel-c1/chat/c1');
-    expect(loadDraft('c1')).toBe('老师，明天几点上课？');
-    expect(track).toHaveBeenCalledWith('chats.compose_to_person', { had_text: true });
-  });
-
   it('offline: the list comes from the device and a send is queued, then opened', async () => {
     setOnline(false);
     await db.claudeThreads.put({ ...thread('t1', { title: '离线的聊天' }), local: false } as never);
@@ -285,8 +315,8 @@ describe('ChatsPage — the learner', () => {
   });
 });
 
-describe('ChatsPage — the tutor (student-centric)', () => {
-  it('students first, her Claude chats folded away, a small box with Ask · Translate only', async () => {
+describe('ChatsPage — the tutor', () => {
+  it('the same layout: students first (no pinning), the divider, her Claude chats; a box with Ask · Translate only', async () => {
     role.value = { hasStudents: true, hasTutor: false, isTutorOnly: true, loaded: true, isTutorAccount: true };
     chatList.rows = [
       person('s1', { other_role: 'student', other_user: { id: 'u-j', name: 'Jerome', picture_url: null }, unread: 1, last_activity_at: ago(300) }),
@@ -294,19 +324,14 @@ describe('ChatsPage — the tutor (student-centric)', () => {
     ];
     api.listClaudeThreads.mockResolvedValue({ threads: [thread('t1', { last_message_at: ago(1) })], deleted_ids: [], server_time: new Date().toISOString() });
     await render();
-    await waitFor(() => !!q('chats-claude-section'), 'the Claude section');
-    expect(host.querySelector('.chats-section-title')!.textContent).toBe('Students');
-    // No pinning in her view: newest first.
-    expect(kinds()).toEqual(['student:Lily', 'student:Jerome']);
-    expect(qa('chats-row-kind').map((el) => el.textContent?.trim())).toEqual(['🎓 Student', '🎓 Student']);
-    expect(q('chats-filter-all')).toBeNull();
-    expect(q('chats-claude-section')!.getAttribute('aria-expanded')).toBe('false');
-    await act(async () => q('chats-claude-section')!.click());
+    await waitFor(() => qa('chats-item').length === 3, 'three rows');
+    // No pinning in her view: newest first, then Claude below the divider (the Claude chat is newest).
     expect(kinds()).toEqual(['student:Lily', 'student:Jerome', 'claude:我昨天去了商店买东西了']);
+    expect(q('chats-people')!.getAttribute('aria-label')).toBe('Students');
+    expect(q('chats-divider')).not.toBeNull();
+    expect(qa('chats-row-kind').map((el) => el.textContent)).toEqual([', Student', ', Student']);
+    expect(q('chats-filter-all')).toBeNull();
 
-    // The box starts as one button; open, Chinese has no Check / Explain, English has Translate.
-    expect(q('claude-chat-voice-text')).toBeNull();
-    await act(async () => q('chats-compose-open')!.click());
     const box = host.querySelector('[data-testid="claude-chat-voice-text"]') as HTMLTextAreaElement;
     typeInto(box, '这个句子对吗');
     await flush();

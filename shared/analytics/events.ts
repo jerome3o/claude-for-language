@@ -377,9 +377,10 @@ export const ANALYTICS_EVENTS = {
   'claude.discuss_open': e('chat', 'Discuss with Claude on a chat message: the message\'s Claude thread opened as a sheet over the chat (resumed = its earlier thread continued rather than a new one).', ['resumed']),
   'claude.share_with_tutor': e('chat', 'Shared a Claude chat with the tutor or hid it (on = she can read it now; scope = thread: the thread ⋯ → Share with my tutor / Hide from my tutor | account: Settings → Chat → "Your tutor can see", visibility = card_only | all | none).', ['on', 'scope', 'visibility', 'context_kind']),
   'chats.open': e('chat', 'Opened a row of the unified Chats tab (kind = tutor | student | claude).', ['kind']),
-  'chats.filter': e('chat', 'Picked a filter chip on the Chats tab (filter = all | people | claude).', ['filter']),
+  'chats.filter': e('chat', 'Picked a filter chip on the Chats tab (filter = all | people | claude) — apps before Nov 2026 (the chips are gone: people first, a divider, then Claude).', ['filter'], { replacedBy: 'chats.open' }),
+  'chats.context_info': e('chat', 'Tapped a Claude row\'s context emoji on the Chats tab (action = show: the popover with the full text | open: its "Open card / story / lesson ›"; context_kind).', ['context_kind', 'action']),
   'chats.compose_send': e('chat', 'Sent from the Chats tab\'s bottom box to Claude — a new thread (intent = ask | check | explain | translate; offline = queued until a connection; spoken = said with 🎤).', ['intent', 'offline', 'spoken']),
-  'chats.compose_to_person': e('chat', 'The Chats tab\'s bottom box switched "To:" from Claude to a tutor: that chat opened with the text as its draft.', ['had_text']),
+  'chats.compose_to_person': e('chat', 'The Chats tab\'s bottom box switched "To:" from Claude to a tutor: that chat opened with the text as its draft — apps before Nov 2026 (the box always goes to Claude; ✏️ New chat reaches a person).', ['had_text'], { replacedBy: 'chats.open' }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
   // ── decks ──────────────────────────────────────────────────────────────

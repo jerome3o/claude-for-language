@@ -122,12 +122,14 @@ test('📖 Ask Claude about this page: the page thread streams a reply and shows
   await expect(page.getByTestId('context-claude-new')).toBeVisible();
   await page.getByTestId('claude-thread-close').click();
 
-  // The Chats tab: the thread with its chip, which leads back to the page.
+  // The Chats tab: the thread with its context emoji, which leads back to the page.
   await page.goto('/chats');
-  const chip = page.getByTestId('chats-context-chip').filter({ hasText: 'Reader · 小明在巴黎 p.2' });
+  // The thread's ONE context emoji 📖 → its popover → "Open story ›".
+  const chip = page.getByRole('button', { name: 'Reader · 小明在巴黎 p.2 — more' });
   await expect(chip).toBeVisible({ timeout: 30_000 });
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03-chats-tab.png` });
   await chip.click();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03-chats-tab.png` });
+  await page.getByTestId('chats-context-open').click();
   await expect(page).toHaveURL(new RegExp(`/readers/${readerId}\\?page=2$`));
   await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 2 of 2');
 });

@@ -1,10 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chats
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +11,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,12 +18,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,13 +57,11 @@ import dev.jeromeswannack.chineselearning.lab.ui.chat.chatColors
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ErrorState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabChip
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabScreenFrame
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LoadingState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ScreenTitle
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi
-import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.profile.ProfilePhoto
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
@@ -98,15 +93,10 @@ data class ChatsUi(
     val pickerOpen: Boolean = false,
     /** "🎭 Practice a situation" is open (drawn by the route: ChatsNav). */
     val practiceOpen: Boolean = false,
-    /** Listening mode (docs/CHAT.md): the settings, and the ids revealed on this phone per conversation. */
-    val listening: dev.jeromeswannack.chineselearning.lab.data.api.ListeningStateDto? = null,
-    val revealed: Map<String, List<String>> = emptyMap(),
-    /** A tutor account / an account with students: people first, "Your Claude chats" folded, a smaller box. */
+    /** A tutor account / an account with students: no pinning, a box with Ask · Translate only. */
     val teacher: Boolean = false,
-    /** The filter chip picked (all · people · claude). */
-    val filter: String = ClaudeInbox.ALL,
-    /** The tutor's "✦ Your Claude chats" unfolded (per device). */
-    val claudeOpen: Boolean = false,
+    /** The Claude row (its key) whose context emoji's popover is open. */
+    val contextInfo: String? = null,
     /** The box at the bottom. */
     val draft: String = "",
     val sending: Boolean = false,
@@ -118,43 +108,23 @@ data class ChatsUi(
     /** The tutor's view: per student relationship, his chats with Claude she may read written in today. */
     val claudeToday: Map<String, Int> = emptyMap(),
 ) {
-    /** The row's last line: "🎧 New message" while listening mode hides it, else the usual preview. */
-    fun previewOf(row: ChatListRow): String =
-        dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.inboxPreview(row, myId, listening, revealed[row.conversationId].orEmpty())
-            ?: ChatInbox.rowPreview(row, myId)
-
     /** People and Claude in one list (a learner's unread tutor chats pinned). */
     val items: List<ClaudeInbox.Item> get() = ClaudeInbox.merge(rows, threads, pinUnreadTutors = !teacher)
 
-    /** All · Tutor · ✦ Claude — a learner's, only when there are both. */
-    val chips: List<ClaudeInbox.FilterChip> get() = if (teacher) emptyList() else ClaudeInbox.filters(items)
-
-    val activeFilter: String get() = if (chips.any { it.id == filter }) filter else ClaudeInbox.ALL
-
-    /** What the list shows: the filter, then the search. */
-    val shown: List<ClaudeInbox.Item> get() {
-        val byFilter = when (activeFilter) {
-            ClaudeInbox.CLAUDE -> items.filter { it.kind == ClaudeInbox.CLAUDE }
-            ClaudeInbox.PEOPLE -> items.filter { it.kind != ClaudeInbox.CLAUDE }
-            else -> items
-        }
-        return ClaudeInbox.search(byFilter, query)
-    }
-
-    /** The composer's "To:" — each tutor once. */
-    val recipients: List<ClaudeInbox.Recipient> get() = ClaudeInbox.composeRecipients(rows)
+    /** What the list shows: the search. */
+    val shown: List<ClaudeInbox.Item> get() = ClaudeInbox.search(items, query)
 }
 
 class ChatsActions(
     /** A row (a chat with a person, or with Claude). */
     val onOpen: (ClaudeInbox.Item) -> Unit = {},
-    /** A Claude row's "📇 Asked on card · 银行" chip: that card's hub (the note id). */
+    /** A Claude row's context popover → "Open card ›": that card's hub (the note id). */
     val onCard: (String) -> Unit = {},
-    /** A reader page's / exercise's chip ("📖 Reader · 成都 p.3", "🧩 Exercise · Translate"): that page / lesson (a path). */
+    /** "Open story ›" / "Open lesson ›" (a reader page, an exercise) — and "✦ Asked Claude 3× today": a path. */
     val onPath: (String) -> Unit = {},
     val onQuery: (String) -> Unit = {},
-    val onFilter: (String) -> Unit = {},
-    val onToggleClaude: () -> Unit = {},
+    /** A Claude row's context emoji: its popover (the row's key), or null to close it. */
+    val onContextInfo: (String?) -> Unit = {},
     val onNewChat: () -> Unit = {},
     /** The picker's "✦ Claude": the box, typing. */
     val onPickClaude: () -> Unit = {},
@@ -173,41 +143,41 @@ object ChatsTags {
     const val NEW_CLAUDE = "chats-new-claude"
     const val NEW_PRACTICE = "chats-new-practice"
     const val CONTEXT_CHIP = "chats-context-chip"
-    const val CLAUDE_SECTION = "chats-claude-section"
+    const val CONTEXT_POP = "chats-context-pop"
+    const val CONTEXT_OPEN = "chats-context-open"
+    const val DIVIDER = "chats-divider"
     const val EMPTY = "chats-empty"
-    const val PEOPLE_TITLE = "chats-people-title"
     fun item(key: String) = "chats-item-$key"
+    /** The avatar, which carries the kind in words ("Tutor", "Claude") for screen readers. */
     fun kind(key: String) = "chats-kind-$key"
-    fun filter(id: String) = "chats-filter-$id"
+    fun status(key: String) = "chats-status-$key"
 }
 
 /**
  * The Chats tab (`/chats`; docs/CHAT.md "Chats tab — one list for people and Claude"; the web's
- * pages/ChatsPage.tsx): ONE list of the chats with people and the chats with Claude
- * ([ClaudeInbox.merge]). Every row is its own outlined card with its kind written ON the outline —
- * "🧑‍🏫 TUTOR" (blue), "✦ CLAUDE" (orange), "🎓 STUDENT" (grey): the icon + the word are the signal,
- * the colour only a second one (Jerome is red / green colour-blind). A Claude row carries its context
- * chip (📇 Asked on card · 银行 → the card hub). A learner's unread tutor chats are pinned on top;
- * filter chips All · Tutor · ✦ Claude. The box at the bottom ([ChatsComposer]) sends to Claude, or
- * "To:" a tutor.
+ * pages/ChatsPage.tsx): the chats with people first (a learner's unread tutor chats on top), a thin
+ * full-width divider, then the chats with Claude ([ClaudeInbox.merge] + [ClaudeInbox.sections]).
+ * Compact one-line rows (~60 dp): avatar, name, time, unread — a Claude row adds ONE context emoji
+ * (📇 / 📖 / 🧩 / 🎭 / ✏️ …) whose popover has the full text and "Open card ›". No previews, no filter
+ * chips, no outlines (Jerome, Nov 2026). The sections + avatars carry the kind — never colour (Jerome is
+ * red / green colour-blind); the avatar says it in words for TalkBack. The box at the bottom
+ * ([ChatsComposer]) always goes to Claude.
  *
- * A tutor account / an account with students ([ChatsUi.teacher]): people first under "Students",
- * newest first, no pinning, no chips; "✦ Your Claude chats (N)" folded; a smaller box.
+ * A tutor account / an account with students ([ChatsUi.teacher]): the same layout, no pinning, a
+ * box with Ask · Translate only.
  */
 @Composable
 fun ChatsScreen(ui: ChatsUi, actions: ChatsActions, voicePreview: VoiceDictationUi? = null) {
     val items = ui.items
     val shown = ui.shown
-    val chips = ui.chips
     LabScreenFrame { Column(Modifier.fillMaxSize()) {
         ScreenTitle("Chats", actions = {
             IconButton(onClick = actions.onNewChat, modifier = Modifier.testTag(ChatsTags.NEW)) {
                 Icon(Icons.Outlined.Edit, "New chat", tint = SignalBlue)
             }
         })
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 8.dp)) {
             if (items.isNotEmpty() || ui.query.isNotEmpty()) item(key = "search") { SearchField(ui.query, actions.onQuery) }
-            if (chips.isNotEmpty()) item(key = "filters") { FilterChips(chips, ui.activeFilter, actions.onFilter) }
             if (ui.offline && ui.loaded) item(key = "offline") {
                 Text(
                     "Offline — showing your chats as they were at the last sync.",
@@ -226,8 +196,7 @@ fun ChatsScreen(ui: ChatsUi, actions: ChatsActions, voicePreview: VoiceDictation
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 24.dp),
                     )
                 }
-                !ui.teacher -> items(shown, key = { it.key }) { item -> InboxRow(item, ui, actions) }
-                else -> teacherList(ui, shown, actions)
+                else -> sectionedList(ui, shown, actions)
             }
         }
         ChatsComposer(ui, actions.compose, compact = ui.teacher, voicePreview = voicePreview)
@@ -235,50 +204,14 @@ fun ChatsScreen(ui: ChatsUi, actions: ChatsActions, voicePreview: VoiceDictation
     if (ui.pickerOpen) PersonPicker(ui.people, actions)
 }
 
-/** The tutor's view: the people first ("Students" / "People"), then "✦ Your Claude chats (N)", folded. */
-private fun LazyListScope.teacherList(ui: ChatsUi, shown: List<ClaudeInbox.Item>, actions: ChatsActions) {
-    val sections = ClaudeInbox.teacherSections(shown)
-    if (sections.people.isNotEmpty()) {
-        val title = if (sections.people.all { it.kind == ClaudeInbox.STUDENT }) "Students" else "People"
-        item(key = "people-title") {
-            Text(
-                title, style = MaterialTheme.typography.titleSmall, color = Lab.colors.muted,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 2.dp).testTag(ChatsTags.PEOPLE_TITLE),
-            )
-        }
-        items(sections.people, key = { it.key }) { item -> InboxRow(item, ui, actions) }
+/** The people (tutors / students), a thin full-width divider, then the Claude chats. */
+private fun LazyListScope.sectionedList(ui: ChatsUi, shown: List<ClaudeInbox.Item>, actions: ChatsActions) {
+    val sections = ClaudeInbox.sections(shown)
+    items(sections.people, key = { it.key }) { item -> InboxRow(item, ui, actions) }
+    if (sections.people.isNotEmpty() && sections.claude.isNotEmpty()) item(key = "divider") {
+        HorizontalDivider(Modifier.padding(vertical = 4.dp).testTag(ChatsTags.DIVIDER), thickness = 1.dp, color = Lab.colors.outline.copy(alpha = 0.6f))
     }
-    if (sections.claude.isNotEmpty()) {
-        val open = ui.claudeOpen || ui.query.isNotBlank()
-        item(key = "claude-toggle") {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .heightIn(min = 52.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .bouncyClickable(pressedScale = 0.98f, role = Role.Button, onClick = actions.onToggleClaude)
-                    .padding(horizontal = 8.dp)
-                    .semantics { contentDescription = "Your Claude chats, ${sections.claude.size}, ${if (open) "open" else "folded"}" }
-                    .testTag(ChatsTags.CLAUDE_SECTION),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(if (open) "▾" else "▸", color = Lab.colors.muted, fontSize = 16.sp)
-                Spacer(Modifier.width(8.dp))
-                Text("✦ Your Claude chats", color = Lab.colors.ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    sections.claude.size.toString(), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint).padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-                if (!open && sections.claude.any { it.unread > 0 }) {
-                    Spacer(Modifier.width(8.dp))
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(SignalBlue).semantics { contentDescription = "unread replies" })
-                }
-            }
-        }
-        if (open) items(sections.claude, key = { it.key }) { item -> InboxRow(item, ui, actions) }
-    }
+    items(sections.claude, key = { it.key }) { item -> InboxRow(item, ui, actions) }
 }
 
 @Composable
@@ -327,144 +260,116 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
     )
 }
 
-@Composable
-private fun FilterChips(chips: List<ClaudeInbox.FilterChip>, active: String, onFilter: (String) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for (c in chips) {
-            LabChip(c.label, Modifier.testTag(ChatsTags.filter(c.id)), selected = c.id == active) { onFilter(c.id) }
-        }
-    }
+/** Where a Claude row's context leads ("Open card ›" → the card hub, a reader page, a lesson), or null. */
+private fun contextTarget(item: ClaudeInbox.Item, actions: ChatsActions): Pair<String, () -> Unit>? {
+    val link = item.thread?.let { ClaudeChats.headerChipFor(it.context)?.link } ?: return null
+    val label = ClaudeInbox.contextOpenLabel(link.kind) ?: return null
+    val go: () -> Unit = when (link.kind) {
+        ClaudeChats.CARD -> link.noteId?.let { id -> { actions.onCard(id) } }
+        ClaudeChats.READER -> link.readerId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.reader(id, link.page)) } }
+        ClaudeChats.EXERCISE -> link.lessonId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.lessonPlay(id, from = "claude")) } }
+        else -> null
+    } ?: return null
+    return label to go
 }
-
-/** The outline's colours per kind (light / dark, as the web's ChatsPage.css): outline, label. */
-@Composable
-private fun kindColors(kind: String): Pair<Color, Color> {
-    val dark = chatColors().dark
-    return when (kind) {
-        ClaudeInbox.TUTOR -> if (dark) Color(0xFF6E9BFF) to Color(0xFF9DBBFF) else Color(0xFF2C6BED) to Color(0xFF1F56C8)
-        ClaudeInbox.CLAUDE -> if (dark) Color(0xFFE8956F) to Color(0xFFF0B08F) else Color(0xFFD97757) to Color(0xFFA8482A)
-        else -> Lab.colors.outline to Lab.colors.muted
-    }
-}
-
-/** Claude's orange (the ✦ avatar, the context chip's edge). */
-private val ClaudeOrange = Color(0xFFD97757)
 
 /**
- * One row: an outlined card with its kind written on the outline (a fieldset legend: "🧑‍🏫 TUTOR",
- * "✦ CLAUDE"), the avatar, the name, the time, one line of preview, the unread count — and for a
- * Claude row its context chip.
+ * One compact row (~60 dp): the avatar (a photo / ✦ — it says the kind to TalkBack), the name on one
+ * line, a Claude row's ONE context emoji (its popover: the full text + "Open card ›"), the time (or a
+ * Claude row's "Writing…" / "Failed"), the unread count. A student's row (the tutor's view) adds
+ * "✦ Asked Claude 3× today".
  */
 @Composable
 private fun InboxRow(item: ClaudeInbox.Item, ui: ChatsUi, actions: ChatsActions) {
-    val (outline, labelColor) = kindColors(item.kind)
-    val label = ClaudeInbox.rowLabel(item.kind)
-    val shape = RoundedCornerShape(16.dp)
-    val width = if (item.kind == ClaudeInbox.STUDENT) 1.5.dp else 2.dp
     val name = ClaudeInbox.rowName(item)
-    Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 6.dp).testTag(ChatsTags.item(item.key))) {
-        Column(
-            Modifier
-                .padding(top = 10.dp)
-                .fillMaxWidth()
-                .clip(shape)
-                .background(Lab.colors.card)
-                .then(if (item.pinned) Modifier.background(outline.copy(alpha = 0.07f)) else Modifier)
-                .border(width, outline, shape)
-                .bouncyClickable(pressedScale = 0.985f, role = Role.Button) { actions.onOpen(item) }
-                .padding(start = 14.dp, end = 14.dp, top = 16.dp, bottom = 12.dp)
-                .animateContentSize(),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (item.kind == ClaudeInbox.CLAUDE) ClaudeAvatar(48.dp) else item.human?.let { ChatAvatar(it, 48.dp) }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) { RowBody(item, name, ui, actions) }
-            }
-        }
-        // The kind, written on the outline (icon + word: never the colour alone).
-        Text(
-            "${label.icon} ${label.text.uppercase()}",
-            color = labelColor, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.7.sp, maxLines = 1,
-            modifier = Modifier
-                .offset(x = 14.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Lab.colors.background)
-                .padding(horizontal = 6.dp, vertical = 2.dp)
-                .testTag(ChatsTags.kind(item.key)),
-        )
-    }
-}
-
-@Composable
-private fun RowBody(item: ClaudeInbox.Item, name: String, ui: ChatsUi, actions: ChatsActions) {
     val unread = item.unread > 0
     val thread = item.thread
-    val time = ChatInbox.relativeTime(item.activityAt, ui.nowMs, ui.offsetMinutes)
-    val preview = when {
-        thread != null -> ClaudeInbox.claudeRowPreview(thread.preview, thread.pending, thread.failed, thread.local, thread.title)
-        item.kind == ClaudeInbox.CLAUDE -> item.human?.lastMessage?.preview?.takeIf { it.isNotBlank() } ?: "No messages yet"
-        else -> ui.previewOf(item.human!!)
-    }
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            name, color = Lab.colors.ink, fontSize = 17.sp,
-            fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(time, fontSize = 13.sp, color = if (unread) SignalBlue else Lab.colors.muted, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
-    }
-    if (preview.isNotEmpty() || unread) {
-        Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                preview, fontSize = 15.sp,
-                color = if (unread) Lab.colors.ink else Lab.colors.muted,
-                fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-            )
+    val status = thread?.let { ClaudeInbox.claudeRowStatus(it.pending, it.failed, it.local) }
+    val kindWord = ClaudeInbox.rowLabel(item.kind).text
+    Column(Modifier.fillMaxWidth().testTag(ChatsTags.item(item.key))) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 60.dp)
+                .clickable(role = Role.Button) { actions.onOpen(item) }
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.semantics { contentDescription = kindWord }.testTag(ChatsTags.kind(item.key))) {
+                if (item.kind == ClaudeInbox.CLAUDE) ClaudeAvatar(40.dp) else item.human?.let { ChatAvatar(it, 40.dp) }
+            }
+            Spacer(Modifier.width(12.dp))
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    name, color = Lab.colors.ink, fontSize = 16.sp,
+                    fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
+                item.badge?.let { ContextEmoji(item, it, ui.contextInfo == item.key, actions) }
+            }
+            Spacer(Modifier.width(8.dp))
+            if (status != null) {
+                Text(
+                    "${status.icon} ${status.short}", fontSize = 12.sp, maxLines = 1,
+                    color = if (status == ClaudeInbox.ROW_FAILED) Lab.colors.ink else Lab.colors.muted,
+                    fontWeight = if (status == ClaudeInbox.ROW_FAILED) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.semantics { contentDescription = status.text }.testTag(ChatsTags.status(item.key)),
+                )
+            } else {
+                val time = ChatInbox.relativeTime(item.activityAt, ui.nowMs, ui.offsetMinutes)
+                Text(time, fontSize = 12.sp, color = if (unread) SignalBlue else Lab.colors.muted, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+            }
             if (unread) {
                 Spacer(Modifier.width(8.dp))
                 UnreadPill(item.unread)
             }
         }
-    }
-    item.badge?.let { badge ->
-        val link = thread?.let { ClaudeChats.headerChipFor(it.context)?.link }
-        val onClick: (() -> Unit)? = when (link?.kind) {
-            ClaudeChats.CARD -> link.noteId?.let { id -> { actions.onCard(id) } }
-            ClaudeChats.READER -> link.readerId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.reader(id, link.page)) } }
-            ClaudeChats.EXERCISE -> link.lessonId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.lessonPlay(id, from = "claude")) } }
-            else -> null
+        // A student's row (the tutor's view): "✦ Asked Claude 3× today" → his shared Claude chats.
+        if (item.kind == ClaudeInbox.STUDENT) item.human?.let { h ->
+            Box(Modifier.padding(start = 68.dp, end = 16.dp)) {
+                dev.jeromeswannack.chineselearning.lab.ui.teaching.AskedClaudeTodayLine(h.relationshipId, ui.claudeToday[h.relationshipId] ?: 0, actions.onPath)
+            }
         }
-        ContextChip(badge, onClick = onClick)
-    }
-    // A student's row (the tutor's view): "✦ Asked Claude 3× today" → his shared Claude chats.
-    if (item.kind == ClaudeInbox.STUDENT) item.human?.let { h ->
-        dev.jeromeswannack.chineselearning.lab.ui.teaching.AskedClaudeTodayLine(h.relationshipId, ui.claudeToday[h.relationshipId] ?: 0, actions.onPath)
     }
 }
 
-/** "📇 Asked on card · 银行 ›" — a button to the card when it leads somewhere, else a plain chip. */
+/** A Claude row's ONE context emoji (40 dp target): tap → a small popover with the full text and "Open card ›". */
 @Composable
-private fun ContextChip(badge: ClaudeChats.Badge, onClick: (() -> Unit)?) {
-    val shape = RoundedCornerShape(50)
-    Row(
-        Modifier
-            .padding(top = 6.dp)
-            .heightIn(min = if (onClick != null) 36.dp else 28.dp)
-            .clip(shape)
-            .background(ClaudeOrange.copy(alpha = 0.08f))
-            .border(1.dp, ClaudeOrange.copy(alpha = 0.55f), shape)
-            .then(if (onClick != null) Modifier.bouncyClickable(pressedScale = 0.95f, role = Role.Button, onClick = onClick) else Modifier)
-            .padding(horizontal = 10.dp)
-            .testTag(ChatsTags.CONTEXT_CHIP),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text("${badge.icon} ${badge.text}", color = Lab.colors.ink, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-        if (onClick != null) Text(" ›", color = Lab.colors.muted, fontSize = 14.sp)
+private fun ContextEmoji(item: ClaudeInbox.Item, badge: ClaudeChats.Badge, open: Boolean, actions: ChatsActions) {
+    val target = contextTarget(item, actions)
+    Box {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(if (open) Lab.colors.faint else Color.Transparent)
+                .clickable(role = Role.Button, onClickLabel = "Show where this chat started") { actions.onContextInfo(if (open) null else item.key) }
+                .semantics { contentDescription = badge.text }
+                .testTag(ChatsTags.CONTEXT_CHIP),
+            contentAlignment = Alignment.Center,
+        ) { Text(badge.icon, fontSize = 15.sp) }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { actions.onContextInfo(null) },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = Lab.colors.card,
+            modifier = Modifier.testTag(ChatsTags.CONTEXT_POP),
+        ) {
+            Text(
+                "${badge.icon} ${badge.text}", color = Lab.colors.ink, fontSize = 14.sp,
+                modifier = Modifier.widthIn(max = 280.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            if (target != null) {
+                DropdownMenuItem(
+                    text = { Text("${target.first} ›", color = SignalBlue, fontWeight = FontWeight.SemiBold, fontSize = 15.sp) },
+                    onClick = {
+                        actions.onContextInfo(null)
+                        target.second()
+                    },
+                    modifier = Modifier.testTag(ChatsTags.CONTEXT_OPEN),
+                )
+            }
+        }
     }
 }
 

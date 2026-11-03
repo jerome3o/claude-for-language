@@ -101,11 +101,6 @@ class Prefs(context: Context) {
         get() = dev.jeromeswannack.chineselearning.lab.core.AskClaude.effectiveLanguage(sp.getString("ask_claude_language", null))
         set(v) = sp.edit().putString("ask_claude_language", v).apply()
 
-    /** The tutor's Chats tab: "✦ Your Claude chats" unfolded (per device; folded by default — web `chats-claude-section-open-v1`). */
-    var chatsClaudeSectionOpen: Boolean
-        get() = sp.getBoolean("chats_claude_section_open", false)
-        set(v) = sp.edit().putBoolean("chats_claude_section_open", v).apply()
-
     /**
      * Settings → Chat → "Your tutor can see" (users.claude_tutor_visibility, core claude.TutorVisibility):
      * card_only (default) | all | none — the account's, or what was picked on this phone since.

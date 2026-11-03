@@ -72,11 +72,10 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
         ui,
         ChatsActions(
             onOpen = { item -> nav.open(vm.open(item)) },
-            onCard = { noteId -> nav.open(Routes.cardHub(noteId)) },
-            onPath = { path -> nav.open(path) },
+            onCard = { noteId -> ui.contextInfo?.let(vm::contextOpened); nav.open(Routes.cardHub(noteId)) },
+            onPath = { path -> ui.contextInfo?.let(vm::contextOpened); nav.open(path) },
             onQuery = vm::setQuery,
-            onFilter = vm::setFilter,
-            onToggleClaude = vm::toggleClaudeSection,
+            onContextInfo = vm::setContextInfo,
             onNewChat = vm::openPicker,
             onPickClaude = { vm.compose() },
             onPickPractice = vm::openPractice,
@@ -88,7 +87,6 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
             compose = ChatsComposeActions(
                 onDraft = vm::setDraft,
                 onSendToClaude = { text, intent, spoken -> vm.sendToClaude(text, intent, spoken) { id -> nav.open(Routes.claudeThread(id) + "?source=chats") } },
-                onSendToPerson = { to, text -> vm.sendToPerson(to, text) { path -> nav.open(path) } },
             ),
         ),
     )

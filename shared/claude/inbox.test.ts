@@ -1,13 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  claudeRowPreview,
-  composeRecipients,
+  claudeRowStatus,
+  contextOpenLabel,
   filterInbox,
-  inboxFilters,
   inboxRowLabel,
   inboxRowName,
+  inboxSections,
   mergeInbox,
-  teacherSections,
   CLAUDE_ROW_FAILED,
   CLAUDE_ROW_QUEUED,
   CLAUDE_ROW_WRITING,
@@ -88,12 +87,10 @@ describe('mergeInbox', () => {
     expect(mergeInbox([ai], [{ ...practice, archived: true }])).toEqual([]);
   });
 
-  it('leaves archived threads out and filters', () => {
+  it('leaves archived threads out', () => {
     const humans = [human('t')];
     const threads = [thread('c1'), thread('c2', { archived: true })];
     expect(mergeInbox(humans, threads).map((i) => i.key)).toEqual(['c:c1', 'h:t']);
-    expect(mergeInbox(humans, threads, { filter: 'claude' }).map((i) => i.key)).toEqual(['c:c1']);
-    expect(mergeInbox(humans, threads, { filter: 'people' }).map((i) => i.key)).toEqual(['h:t']);
   });
 
   it('sorts a thread by its last message, else its creation; ties by key; bad dates last', () => {
@@ -111,32 +108,27 @@ describe('mergeInbox', () => {
   });
 });
 
-describe('labels, previews, filters', () => {
+describe('labels, status, search', () => {
   it('every kind has an icon and a word', () => {
     expect(inboxRowLabel('tutor')).toEqual({ icon: '🧑‍🏫', text: 'Tutor' });
     expect(inboxRowLabel('student')).toEqual({ icon: '🎓', text: 'Student' });
     expect(inboxRowLabel('claude')).toEqual({ icon: '✦', text: 'Claude' });
   });
 
-  it('Claude previews say what is going on', () => {
-    expect(claudeRowPreview({ preview: 'a  b\nc', pending: false, failed: false })).toBe('a b c');
-    expect(claudeRowPreview({ preview: 'x', pending: true, failed: false })).toBe(CLAUDE_ROW_WRITING);
-    expect(claudeRowPreview({ preview: 'x', pending: false, failed: true })).toBe(CLAUDE_ROW_FAILED);
-    expect(claudeRowPreview({ preview: 'x', pending: true, failed: false, local: true })).toBe(CLAUDE_ROW_QUEUED);
-    expect(claudeRowPreview({ preview: null, pending: false, failed: false })).toBe('');
-    // A Check chat: its title is the sentence, so the preview would only repeat it.
-    expect(claudeRowPreview({ title: '我昨天去了商店', preview: '我昨天去了商店', pending: false, failed: false })).toBe('');
-    expect(claudeRowPreview({ title: '我昨天去了商店', preview: '很好', pending: false, failed: false })).toBe('很好');
+  it("a Claude row's status replaces its time: waiting, writing, failed, else none", () => {
+    expect(claudeRowStatus({ pending: false, failed: false })).toBeNull();
+    expect(claudeRowStatus({ pending: true, failed: false })).toBe(CLAUDE_ROW_WRITING);
+    expect(claudeRowStatus({ pending: false, failed: true })).toBe(CLAUDE_ROW_FAILED);
+    expect(claudeRowStatus({ pending: true, failed: true, local: true })).toBe(CLAUDE_ROW_QUEUED);
+    expect(CLAUDE_ROW_WRITING.short).toBe('Writing…');
   });
 
-  it('filter chips only when there are people and Claude', () => {
-    const t = mergeInbox([human('t')], [thread('c')]);
-    expect(inboxFilters(t).map((f) => f.label)).toEqual(['All', '🧑‍🏫 Tutor', '✦ Claude']);
-    expect(inboxFilters(mergeInbox([human('t'), human('t2')], [thread('c')]))[1].label).toBe('🧑‍🏫 Tutors');
-    expect(inboxFilters(mergeInbox([human('s', { other_role: 'student' })], [thread('c')]))[1].label).toBe('🎓 Students');
-    expect(inboxFilters(mergeInbox([human('s', { other_role: 'student' }), human('t')], [thread('c')]))[1].label).toBe('People');
-    expect(inboxFilters(mergeInbox([human('t')], []))).toEqual([]);
-    expect(inboxFilters(mergeInbox([], [thread('c')]))).toEqual([]);
+  it('the context emoji opens its target', () => {
+    expect(contextOpenLabel('card')).toBe('Open card');
+    expect(contextOpenLabel('reader')).toBe('Open story');
+    expect(contextOpenLabel('exercise')).toBe('Open lesson');
+    expect(contextOpenLabel(null)).toBeNull();
+    expect(contextOpenLabel('practice')).toBeNull();
   });
 
   it('search looks at names, previews and context chips', () => {
@@ -149,27 +141,15 @@ describe('labels, previews, filters', () => {
   });
 });
 
-describe('the tutor view and the To: line', () => {
-  it('people (newest first), then Claude', () => {
+describe('sections', () => {
+  it('people first (unread tutors pinned, as merged), then Claude — the divider goes between', () => {
     const items = mergeInbox(
-      [human('t', { last_activity_at: '2026-11-03T12:00:00.000Z' }), human('s', { other_role: 'student' })],
-      [thread('c')],
+      [human('t', { last_activity_at: '2026-11-03T12:00:00.000Z' }), human('s', { other_role: 'student' }), human('t2', { unread: 1, last_activity_at: '2026-11-01T00:00:00.000Z' })],
+      [thread('c', { last_message_at: '2026-11-03T13:00:00.000Z' }), thread('d', { last_message_at: '2026-11-02T00:00:00.000Z' })],
+      { pinUnreadTutors: true },
     );
-    const s = teacherSections(items);
-    expect(s.people.map((i) => i.key)).toEqual(['h:t', 'h:s']);
-    expect(s.claude.map((i) => i.key)).toEqual(['c:c']);
-  });
-
-  it('recipients: each tutor once, newest chat first, never students or practice chats', () => {
-    const out = composeRecipients([
-      human('a', { relationship_id: 'r1', last_activity_at: '2026-11-01T00:00:00.000Z' }),
-      human('b', { relationship_id: 'r2', other_user: { id: 'x', name: 'Laoshi', picture_url: null }, last_activity_at: '2026-11-02T00:00:00.000Z' }),
-      human('c', { relationship_id: 'r3', other_role: 'student' }),
-      human('d', { relationship_id: 'r4', is_ai: true }),
-    ]);
-    expect(out).toEqual([
-      { relationship_id: 'r2', conversation_id: 'b', name: 'Laoshi' },
-      { relationship_id: 'r1', conversation_id: 'a', name: 'Minghui' },
-    ]);
+    const s = inboxSections(items);
+    expect(s.people.map((i) => i.key)).toEqual(['h:t2', 'h:t', 'h:s']);
+    expect(s.claude.map((i) => i.key)).toEqual(['c:c', 'c:d']);
   });
 });
