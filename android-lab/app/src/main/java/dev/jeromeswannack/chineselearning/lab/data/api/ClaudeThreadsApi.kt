@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.data.api
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /*
@@ -76,6 +77,8 @@ data class ClaudeMessageDto(
     val answer_lang: String? = null,
     val translation: String? = null,
     val tool_results: String? = null,
+    /** My message in a card thread: the chat's "check my Chinese" of it (✎, How to say it better), once the server ran it. */
+    val auto_check: AutoCheckDto? = null,
     val created_at: String = "",
     val updated_at: String? = null,
     val queued: Boolean = false,
@@ -107,10 +110,28 @@ data class ClaudeCreateBody(
     val intent: String,
     val text: String,
     val language: String? = null,
+    /** A suggestion chip (the app wrote it): not checked. */
+    val quick: Boolean? = null,
 )
 
+/**
+ * `POST /api/claude/threads/:id/messages`. [typed] (a card thread): the answer typed on this showing
+ * of the card — a `{ answer, correct }` object, [kotlinx.serialization.json.JsonNull] = none (clears an
+ * older one), null = leave it.
+ */
 @Serializable
-data class ClaudeSendBody(val client_id: String, val text: String, val intent: String = "ask", val language: String? = null)
+data class ClaudeSendBody(
+    val client_id: String,
+    val text: String,
+    val intent: String = "ask",
+    val language: String? = null,
+    val quick: Boolean? = null,
+    val typed: JsonElement? = null,
+)
+
+/** `GET /api/claude/threads?…` (the rows only). */
+@Serializable
+data class ClaudeThreadListRes(val threads: List<ClaudeThreadDto> = emptyList(), val server_time: String? = null)
 
 /** The live `claude_turn` frame (ChatHub, my sockets only): [text] is the WHOLE text so far; keep the highest [seq]. */
 @Serializable
@@ -135,6 +156,10 @@ suspend fun Api.claudeThread(id: String, since: String? = null): ClaudeThreadRes
     get(claudeThreadPath(id) + (since?.let { "?since=${enc(it)}" } ?: ""))
 
 suspend fun Api.sendClaudeMessage(id: String, body: ClaudeSendBody): ClaudeThreadRes = post(claudeMessagesPath(id), body)
+
+/** One card's threads (Ask Claude on a study card: the resume rule + "Earlier about 银行"). */
+suspend fun Api.cardClaudeThreads(noteId: String): ClaudeThreadListRes =
+    get("$CLAUDE_THREADS_PATH?context_kind=${ClaudeChats.CARD}&note_id=${enc(noteId)}&limit=50")
 
 suspend fun Api.retryClaudeMessage(id: String, messageId: String): ClaudeThreadRes =
     exchange("POST", "${claudeMessagesPath(id)}/${enc(messageId)}/retry", "{}", ClaudeThreadRes.serializer())

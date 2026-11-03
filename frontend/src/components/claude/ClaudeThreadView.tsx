@@ -3,7 +3,8 @@
  * plan §6.3–6.4): a plain chat (`general` — the Coach's "💬 Ask Claude", a `/coach?text=&action=`
  * deep link), Ask Claude on a card (`card`), Discuss with Claude (`chat_message`) or a practice chat
  * (`practice`, read-only for now). Route `/chats/claude/:id` (pages/ClaudeThreadPage.tsx, immersive);
- * `variant="sheet"` is the same screen without page chrome, for the study card's sheet later.
+ * `variant="sheet"` is the same screen without page chrome: the study card's Ask Claude
+ * (components/claude/CardClaudeSheet.tsx).
  *
  * - Header: ← / ✕, the title, 🎧 Listen first, 中文 | EN, ⋯ (Make flashcards from this chat,
  *   📝 words to recap); under it the context chip ("📇 Asked on card · 银行" → the card hub,
@@ -15,11 +16,15 @@
  * - Suggestion chips (`chipsFor`) above the composer while empty and after each reply (≤ 3).
  * - The composer (`composerFor`): a new general chat offers Ask + Check / Explain / Translate;
  *   anything else Ask only. Offline, a message is queued (services/claudeThreads.ts) and shown at once.
+ * - The card sheet's hooks: `typed` rides with each card question, `onReplyFinished` hears a reply this
+ *   screen saw being written finish (Claude's card tools reach the device there), `renderToolResults`
+ *   draws its tool results, `autoSend` with a `key` asks into the thread on screen (the leech sheet).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { askCardChecked, recapCountLabel, recapFocusWords, COACH_ASK_EMPTY_EN, COACH_ASK_HINT, COACH_ASK_ICON, COACH_ASK_LABEL, COACH_ASK_THINKING_EN, COACH_ASK_THINKING_ZH } from '@shared/coach/askChat';
 import { revealedWhenListeningOn } from '@shared/study/askClaude';
+import { coachDeepLink, openInCoachRequest } from '@shared/chats/autoCheck';
 import { chipsFor, composerFor, headerChipFor, turnStatusLine, type ClaudeChip } from '@shared/claude/contexts';
 import type { ClaudeContextSnapshot, ClaudeIntent, ClaudeThreadContext, StoredClaudeContext } from '@shared/claude/context';
 import {
@@ -59,8 +64,23 @@ export interface ClaudeThreadViewProps {
   threadId: string;
   /** The context of a fresh thread (default: a plain chat) and its badge snapshot. */
   newContext?: ClaudeThreadContext & ClaudeContextSnapshot;
-  /** Send this at once in a fresh thread (a `/coach?text=&action=` deep link). */
-  autoSend?: { text: string; intent: ClaudeIntent } | null;
+  /**
+   * Send this at once in a fresh thread (a `/coach?text=&action=` deep link); with a `key`, also into
+   * the thread on screen once it is loaded (once per key — the leech sheet's "memory hook").
+   */
+  autoSend?: { text: string; intent: ClaudeIntent; key?: string } | null;
+  /** A card thread: the answer typed on this showing of the card, sent with each question (null = none). */
+  typed?: { answer: string; correct?: string } | null;
+  /** Under the header chip (the card sheet's "Earlier about 银行"). */
+  headerExtra?: ReactNode;
+  /** A reply this screen saw being written has finished (the card sheet applies Claude's card tools). */
+  onReplyFinished?: (reply: LocalClaudeMessage) => void;
+  /** A finished reply's tool results, drawn by the caller (default: the Coach's chips). */
+  renderToolResults?: (reply: LocalClaudeMessage) => ReactNode;
+  /** No composer, this line instead (the card was deleted). */
+  closedNote?: string | null;
+  /** The study card's type (analytics: `study.ask_claude`). */
+  cardType?: string;
   /** Text waiting in the box. */
   initialDraft?: string;
   variant?: 'page' | 'sheet';
@@ -90,6 +110,7 @@ export function toChatMessage(m: LocalClaudeMessage): ClaudeChatMessage {
     streaming: m.streaming,
     queued: m.queued,
     queueFailed: m.queue_failed,
+    auto_check: m.auto_check ?? null,
   };
 }
 
@@ -121,6 +142,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const [addedNote, setAddedNote] = useState<string | null>(null);
   const [lessonBusy, setLessonBusy] = useState(false);
   const [lessonError, setLessonError] = useState<unknown>(null);
+  const [typeRequest, setTypeRequest] = useState(0);
   const recap = useRecapWords(threadId ?? 'new');
   const recapCount = useChatRecapCount(threadId ?? 'new');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -151,23 +173,25 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
 
   useEffect(() => {
     if (rows.length > 1) bottomRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
-  }, [rows.length, rows[rows.length - 1]?.content.length]);
+  }, [rows.length, rows[rows.length - 1]?.content.length, rows[rows.length - 1]?.tool_results]);
 
   const send = async (text: string, spoken: boolean, intent: ClaudeIntent = 'ask', fromChip?: string) => {
     const msg = text.trim();
-    if (!msg || busy || readOnly) return;
+    if (!msg || busy || readOnly || props.closedNote) return;
     setSendError(null);
     setSending({ text: msg });
+    const quick = !!fromChip;
     try {
       let res;
       if (!threadId) {
         const context: ClaudeThreadContext = newContext ? stripSnapshot(newContext) : { kind: 'general' };
-        res = await startClaudeThread({ context, snapshot: snapshotOf(newContext), text: msg, intent, language });
+        res = await startClaudeThread({ context, snapshot: snapshotOf(newContext), text: msg, intent, language, quick });
         props.onThreadCreated?.(res.threadId);
       } else {
-        res = await sendClaudeMessage(threadId, { text: msg, language });
+        res = await sendClaudeMessage(threadId, { text: msg, language, quick, ...(ctx.kind === 'card' ? { typed: props.typed ?? null } : {}) });
       }
       track('claude.message_send', { context_kind: ctx.kind, intent, offline: res.queued, chip: !!fromChip, spoken });
+      if (ctx.kind === 'card') track('study.ask_claude', { card_type: props.cardType ?? (ctx as { card_type?: string }).card_type ?? null, language, quick, via: 'thread' });
       setDraft('');
     } catch (err) {
       setSendError(err);
@@ -178,14 +202,40 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     }
   };
 
-  // A deep link's text runs at once (once).
-  const autoRef = useRef(false);
+  // A deep link's text runs at once (once); a keyed one also into the thread on screen, once it is loaded.
+  const autoRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!isNew || !autoSend || autoRef.current) return;
-    autoRef.current = true;
+    if (!autoSend) return;
+    const key = autoSend.key ?? 'deep-link';
+    if (autoRef.current === key) return;
+    if (!isNew && (!autoSend.key || !thread || busy)) return;
+    autoRef.current = key;
     void send(autoSend.text, false, autoSend.intent);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, autoSend]);
+  }, [isNew, autoSend, thread, busy]);
+
+  // A reply this screen saw being written has finished: the caller hears it once (Claude's card
+  // tools reach the device). A card question's "check my Chinese" may land a moment after the
+  // reply — look again shortly.
+  const seenPending = useRef<Set<string>>(new Set());
+  const onReplyFinished = props.onReplyFinished;
+  useEffect(() => {
+    for (const m of rows) {
+      if (m.role !== 'assistant') continue;
+      if (m.status === 'pending') {
+        seenPending.current.add(m.id);
+      } else if (seenPending.current.has(m.id)) {
+        seenPending.current.delete(m.id);
+        if (m.status === null) {
+          onReplyFinished?.(m);
+          if (ctx.kind === 'card') {
+            for (const ms of [2500, 8000]) window.setTimeout(() => void state.refresh(), ms);
+          }
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   const translate = async (m: ClaudeChatMessage): Promise<string | null> => {
     if (!threadId) return null;
@@ -261,6 +311,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   };
   const renderAfter = (m: ClaudeChatMessage) => {
     const row = rows.find((r) => r.id === m.id);
+    if (row && props.renderToolResults) return props.renderToolResults(row);
     const results = parseToolResults(row?.tool_results ?? null);
     return results.length > 0 ? <ToolResultChips results={results} /> : null;
   };
@@ -294,6 +345,14 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     }
   };
 
+  // "Open in Coach" from a bubble: my own Chinese is checked there, Claude's explained.
+  const openInCoach = (m: ClaudeChatMessage, source: 'menu' | 'chip' | 'sheet') => {
+    const req = openInCoachRequest({ sender_id: m.role === 'user' ? 'me' : 'claude', content: m.text }, 'me');
+    if (!req) return;
+    track('coach.ask_tool', { action: source === 'menu' ? 'open_coach' : `open_coach_${source}`, role: m.role === 'user' ? 'mine' : 'claude' });
+    navigate(coachDeepLink(req));
+  };
+
   const toggleListening = () => {
     const on = !listening;
     if (on) setAskRevealed(revealedWhenListeningOn(messages.filter((m) => m.role === 'assistant').map((m) => ({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null })), getAskRevealed()));
@@ -309,7 +368,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const hasClaude = rows.some((m) => m.role === 'assistant' && !m.status && m.content_type === 'text');
   const empty = rows.length === 0 && !sending;
   const offlineNoCache = !isNew && !thread && !state.loading && !!state.error;
-  const title = thread?.title || (ctx.kind === 'general' ? COACH_ASK_LABEL : chip?.text ?? COACH_ASK_LABEL);
+  const cardLabel = ctx.kind === 'card' ? (ctx as { label?: string }).label : undefined;
+  const title = thread?.title || (ctx.kind === 'general' ? COACH_ASK_LABEL : cardLabel ? `Ask about ${cardLabel}` : chip?.text ?? COACH_ASK_LABEL);
   const sheet = variant === 'sheet';
 
   return (
@@ -366,6 +426,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         </div>
       )}
 
+      {props.headerExtra}
+
       <main className="claude-chat-body">
         {empty && !state.loading && !offlineNoCache && (
           <div className="claude-chat-empty" data-testid="claude-thread-empty">
@@ -377,6 +439,14 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
                 <p>{language === 'zh' ? COACH_ASK_HINT : COACH_ASK_EMPTY_EN}</p>
                 <p>Write a sentence and ✏️ Check it, 🔍 Explain one, or just ask. Under each answer: ▶ listen · 拼 pinyin · EN · 🎤 read it back.</p>
               </>
+            ) : ctx.kind === 'card' ? (
+              <p data-testid="claude-thread-card-hint">
+                {listening
+                  ? '🎧 Listen first: Claude’s Chinese answers arrive hidden and play by themselves. Tap to hear again · hold to reveal.'
+                  : language === 'zh'
+                    ? 'Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below.'
+                    : 'Ask Claude anything about this card — or tap a suggestion below.'}
+              </p>
             ) : (
               <p>Ask Claude anything about it — tap a suggestion below to start.</p>
             )}
@@ -407,6 +477,14 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           renderAfter={renderAfter}
           statusLineFor={statusLineFor}
           onDiscardQueued={(m) => void discardQueuedMessage(m.id)}
+          onOpenInCoach={openInCoach}
+          onDraft={(text) => {
+            setDraft(text);
+            setTypeRequest((n) => n + 1);
+          }}
+          language={language}
+          online={isOnline}
+          explorerSource={ctx.kind === 'card' ? 'ask_claude' : undefined}
         />
         {sending && (
           <div className="ask-thread">
@@ -437,7 +515,12 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         <div ref={bottomRef} />
       </main>
 
-      {!readOnly && (
+      {props.closedNote && (
+        <p className="claude-thread-closed" data-testid="claude-thread-closed">
+          {props.closedNote}
+        </p>
+      )}
+      {!readOnly && !props.closedNote && (
         <div className="claude-chat-composer">
           {chips.length > 0 && (
             <div className="claude-thread-chips" role="group" aria-label="Suggestions" data-testid="claude-thread-chips">
@@ -456,8 +539,9 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             failed={sendError != null}
             language={language}
             online={isOnline}
-            surface="claude_thread"
+            surface={ctx.kind === 'card' ? 'ask_claude' : 'claude_thread'}
             composer={(text) => composerFor(ctx.kind, text, { started })}
+            typeRequest={typeRequest}
           />
         </div>
       )}

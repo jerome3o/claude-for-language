@@ -23,9 +23,6 @@ import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
-import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
-import dev.jeromeswannack.chineselearning.lab.data.api.AskToolResult
-import dev.jeromeswannack.chineselearning.lab.data.api.ReadOnlyToolCall
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -135,40 +132,29 @@ class StudyCardScreenshots : LabScreenshotTest() {
         }
     }
 
-    private val askConversation = AskUi(
-        conversation = listOf(
-            AskAnswer(
-                id = "q1",
-                question = "What's the difference between 打算 and 计划?",
-                answer = "**打算** is everyday: what you *intend* to do — 我打算明天去。\n**计划** is a planned-out *plan*, often formal or written — 公司的五年计划.\nAs a verb both work, but 打算 sounds natural in conversation.",
-                readOnlyToolCalls = listOf(ReadOnlyToolCall("search_cards", buildJsonObject { put("query", "计划") })),
-                toolResults = listOf(
-                    AskToolResult(
-                        "create_flashcards",
-                        success = true,
-                        data = buildJsonObject {
-                            put("count", 1)
-                            put("created", buildJsonArray { add(buildJsonObject { put("hanzi", "计划"); put("pinyin", "jìhuà"); put("english", "plan; to plan (formal)") }) })
-                        },
-                    ),
-                ),
+    /** Ask Claude on a card = the card's Claude thread (CardClaudeSheet.kt): an English answer, Claude added a card. */
+    private val askConversation = CardClaudeSamples.ui(
+        listOf(
+            CardClaudeSamples.mine("u1", "What's the difference between 打算 and 计划?"),
+            CardClaudeSamples.claude(
+                "a2",
+                "**打算** is everyday: what you *intend* to do — 我打算明天去。\n**计划** is a planned-out *plan*, often formal or written — 公司的五年计划.\nAs a verb both work, but 打算 sounds natural in conversation.",
+                lang = "en",
+                tools = """[{"tool":"create_flashcards","success":true,"data":{"count":1,"created":[{"hanzi":"计划","pinyin":"jìhuà","english":"plan; to plan (formal)"}]}}]""",
             ),
         ),
-        pending = listOf(AskToolResult("create_flashcards", success = true, data = buildJsonObject { put("count", JsonPrimitive(1)) })),
+        hanzi = "打算",
+        language = "en",
     )
 
     @Test fun askClaude() = shoot("study-a09-ask-claude") {
         val v = view(CardTypes.MEANING_TO_HANZI)
-        overCard(ui(v, CardExtras(ask = askConversation)), CardStartState(flipped = true, answer = "打算")) {
-            AskClaudeBody(v, askConversation, "en", "打算", true, AskActions())
-        }
+        overCard(ui(v), CardStartState(flipped = true, answer = "打算")) { CardThreadPreview(askConversation, height = 640.dp) }
     }
 
     @Test fun askClaudeStart() = shoot("study-a10-ask-claude-start") {
         val v = view(CardTypes.MEANING_TO_HANZI)
-        overCard(ui(v), CardStartState(flipped = true, answer = "打蒜")) {
-            AskClaudeBody(v, AskUi(), "en", "打蒜", true, AskActions())
-        }
+        overCard(ui(v), CardStartState(flipped = true, answer = "打蒜")) { CardThreadPreview(CardClaudeSamples.ui(emptyList(), hanzi = "打算", language = "en"), height = 560.dp) }
     }
 
     @Test fun frontNeedsSentenceOffline() = shoot("study-a11-front-offline-forced") {

@@ -23,6 +23,7 @@ import {
   type ClaudeContextSnapshot,
 } from '@shared/claude/context';
 import { sqliteToIso } from '@shared/chats/threads';
+import { parseAutoCheck } from '@shared/chats/autoCheck';
 
 /** SQLite's now as ISO with milliseconds ("2026-11-03T10:00:00.123Z"). */
 export const NOW_ISO = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
@@ -138,6 +139,7 @@ export function toThreadMessage(row: MessageRow): ClaudeThreadMessage {
     answer_lang: row.answer_lang === 'zh' || row.answer_lang === 'en' ? row.answer_lang : null,
     translation: row.translation ?? null,
     tool_results: row.tool_results ?? null,
+    auto_check: row.role === 'user' ? parseAutoCheck(row.auto_check, row.content ?? '') : null,
     created_at: sqliteToIso(row.created_at),
     updated_at: row.updated_at ?? null,
   };
@@ -467,6 +469,42 @@ export async function appendTurn(
   const u = rows.find((r) => r.id === userId);
   if (!u) throw new Error('Message could not be stored');
   return { user: u, reply: rows.find((r) => r.id === replyId) ?? null, created: true };
+}
+
+/**
+ * The background "check my Chinese" of my message (a card thread's question): stored only while the
+ * message still says the checked text; `updated_at` moves so a `?since=` fetch brings it.
+ */
+export async function setMessageAutoCheck(db: D1Database, messageId: string, result: { text: string }): Promise<void> {
+  await db
+    .prepare(`UPDATE coach_messages SET auto_check = ?, updated_at = ${NOW_ISO} WHERE id = ? AND role = 'user' AND content = ?`)
+    .bind(JSON.stringify(result), messageId, result.text)
+    .run();
+}
+
+/**
+ * A card thread's typed answer (the answer he typed on a meaning → hanzi / audio → hanzi card), set
+ * again when he asks on a later showing of the card — the card context reads it every turn.
+ * `null` takes it out. Only `card` threads.
+ */
+export async function setCardTyped(db: D1Database, userId: string, threadId: string, typed: { answer: string; correct?: string } | null): Promise<void> {
+  const row = await db
+    .prepare("SELECT context_json FROM coach_conversations WHERE id = ? AND user_id = ? AND context_kind = 'card'")
+    .bind(threadId, userId)
+    .first<{ context_json: string | null }>();
+  if (!row) return;
+  let ctx: Record<string, unknown> = {};
+  try {
+    const v = row.context_json ? JSON.parse(row.context_json) : {};
+    if (v && typeof v === 'object') ctx = v as Record<string, unknown>;
+  } catch {
+    /* rewritten below */
+  }
+  const before = JSON.stringify(ctx.typed ?? null);
+  if (typed) ctx.typed = typed;
+  else delete ctx.typed;
+  if (JSON.stringify(ctx.typed ?? null) === before) return;
+  await db.prepare('UPDATE coach_conversations SET context_json = ? WHERE id = ? AND user_id = ?').bind(JSON.stringify(ctx), threadId, userId).run();
 }
 
 export async function getMessagesByIds(db: D1Database, ids: string[]): Promise<MessageRow[]> {

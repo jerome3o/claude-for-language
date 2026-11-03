@@ -8,12 +8,18 @@
  *   GET    /claude/threads?since=&limit=&context_kind=&note_id=&archived=
  *          → { threads: ClaudeThreadSummary[], deleted_ids, server_time } (the first call copies the older
  *            chats in; `since` = a previous server_time: threads changed since + the ids deleted since)
- *   POST   /claude/threads { client_id, context, intent?, text, message_client_id?, language?, title? }
+ *   POST   /claude/threads { client_id, context, intent?, text, message_client_id?, language?, title?, quick? }
  *          → 202 { thread, messages: [mine, pending reply] } (200 { …, existing: true } for a known client_id)
  *   GET    /claude/threads/:id?since= → { thread, messages, server_time } (a reply being written comes
  *          with its text so far, `streaming: true`; the thread's unread count is cleared)
- *   POST   /claude/threads/:id/messages { client_id?, text, intent?, language? } → 202 { thread, messages }
+ *   POST   /claude/threads/:id/messages { client_id?, text, intent?, language?, quick?, typed? } → 202 { thread, messages }
  *          (200 for a known client_id; 409 while a reply is being written or for a read-only thread)
+ *
+ * A card thread (Ask Claude on a study card): my own Chinese question goes through the chat's
+ * "check my Chinese" in the background (`checkAskQuestion`, the `chat_auto_check` switch) — its result
+ * lands on my message as `auto_check` (a suggestion chip, `quick: true`, isn't checked); `typed`
+ * ({ answer, correct } | null) is the answer typed on this showing of the card, kept on the thread's
+ * context for Claude (null takes an older one out).
  *   POST   /claude/threads/:id/messages/:messageId/retry → 202 { thread, messages }
  *   PATCH  /claude/threads/:id { title?, archived?, read?, tutor_visible?, language? } → { thread }
  *   DELETE /claude/threads/:id → { deleted: true } (a tombstone the next `?since=` list reports)
@@ -33,6 +39,7 @@ import {
   intentsFor,
   parseClaudeContext,
   parseIntent,
+  parseStoredContext,
   previewOf,
   titleFor,
   type ClaudeContextKind,
@@ -43,7 +50,8 @@ import {
 import { resolveCoachAction } from '@shared/coach';
 import { COACH_ASK_MAX_CHARS } from '@shared/coach/askChat';
 import { parseAskLanguage, turnLanguage, type AskLanguage } from '@shared/study/askClaude';
-import { askSettings } from '../services/ask-claude';
+import { askCheckContext, askSettings, checkAskQuestion } from '../services/ask-claude';
+import { fakeAskChecker } from '../services/claude-agent/check-fake';
 import { coachAvailable, enqueueCoachReply, retryCoachReply, sweepStaleCoachReplies } from '../services/coach-replies';
 import { loadDiscussedMessage } from '../services/claude-agent/contexts/chat_message';
 import { ClaudeContextError } from '../services/claude-agent/types';
@@ -100,6 +108,44 @@ async function checkedContext(c: Context<{ Bindings: Env }>, userId: string, ctx
 
 function badRequest(c: Context<{ Bindings: Env }>, error: string) {
   return c.json({ error }, 400);
+}
+
+/** A card question's typed answer from the body: { answer, correct? }, null to clear, undefined = leave it. */
+function typedOf(v: unknown): { answer: string; correct?: string } | null | undefined {
+  if (v === null) return null;
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const answer = typeof r.answer === 'string' ? r.answer.trim().slice(0, 400) : '';
+  if (!answer) return null;
+  const correct = typeof r.correct === 'string' && r.correct.trim() ? r.correct.trim().slice(0, 400) : undefined;
+  return correct ? { answer, correct } : { answer };
+}
+
+/**
+ * A card thread: my question through the chat's "check my Chinese", in the background (never in the
+ * reply's way). Stored on my message as `auto_check`. Never throws.
+ */
+async function checkCardQuestion(c: Context<{ Bindings: Env }>, userId: string, noteId: string, threadId: string, message: store.MessageRow): Promise<void> {
+  const work = (async () => {
+    const [settings, note, before] = await Promise.all([
+      askSettings(c.env.DB, userId),
+      db.getNoteById(c.env.DB, noteId, userId),
+      store.getThreadMessages(c.env.DB, threadId),
+    ]);
+    if (!note) return;
+    // The conversation so far (question / answer pairs before this message), as the check's context.
+    const history: Array<{ question: string; answer: string }> = [];
+    for (const m of before) {
+      if (m.id === message.id) break;
+      if (m.role === 'user') history.push({ question: m.content, answer: '' });
+      else if (history.length && m.content_type === 'text' && !m.status) history[history.length - 1].answer = m.content;
+    }
+    const result = await checkAskQuestion(c.env, settings.autoCheck, message.content, askCheckContext(note, history), c.env.E2E_TEST_MODE === 'true' ? { check: fakeAskChecker } : {});
+    if (result) await store.setMessageAutoCheck(c.env.DB, message.id, result);
+  })().catch((err) => console.error('[claude-threads] question check failed', message.id, err instanceof Error ? err.message : err));
+  const wait = waitUntilOf(c);
+  if (wait) wait(work);
+  else await work;
 }
 
 threads.get('/claude/threads', async (c) => {
@@ -189,6 +235,7 @@ threads.post('/claude/threads', async (c) => {
     { contentType: intent === 'ask' ? 'text' : 'analysis', answerLang: language },
   );
   if (turn.reply) await startReply(c, turn.reply);
+  if (context.kind === 'card' && intent === 'ask' && body.quick !== true) await checkCardQuestion(c, userId, context.note_id, thread.id, turn.user);
   const messages = [turn.user, turn.reply].filter((m): m is store.MessageRow => !!m).map(store.toThreadMessage);
   return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, thread.id), messages }, 202);
 });
@@ -246,10 +293,17 @@ threads.post('/claude/threads/:id/messages', async (c) => {
   if (busy) return c.json({ error: 'Claude is still answering your last message.' }, 409);
 
   const kind = thread.context_kind ?? 'general';
+  // A card question asked on a later showing of the card: its typed answer (or none) for Claude.
+  const typed = kind === 'card' ? typedOf(body.typed) : undefined;
+  if (typed !== undefined) await store.setCardTyped(c.env.DB, userId, id, typed);
   const coachFollowUp = kind === 'general' && !!(await c.env.DB.prepare("SELECT 1 FROM coach_messages WHERE conversation_id = ? AND content_type = 'analysis' LIMIT 1").bind(id).first());
   const language = kind === 'chat_message' || coachFollowUp ? null : await askTurnLanguage(c.env.DB, userId, body.language, thread.language, text);
   const turn = await store.appendTurn(c.env.DB, { threadId: id, clientId, role: 'user', content: text, intent: 'ask' }, { contentType: 'text', answerLang: language });
   if (turn.reply && turn.created) await startReply(c, turn.reply);
+  if (turn.created && kind === 'card' && body.quick !== true) {
+    const ctx = parseStoredContext(thread.context_kind, thread.context_json);
+    if (ctx.kind === 'card') await checkCardQuestion(c, userId, ctx.note_id, id, turn.user);
+  }
   const messages = [turn.user, turn.reply].filter((m): m is store.MessageRow => !!m).map(store.toThreadMessage);
   return c.json({ thread: await store.getThreadSummary(c.env.DB, userId, id), messages }, turn.created ? 202 : 200);
 });

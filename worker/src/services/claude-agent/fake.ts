@@ -2,7 +2,12 @@
  * The E2E_TEST_MODE stand-in model of Claude threads (CLAUDE.md "E2E is hermetic": checked FIRST,
  * whatever key is set). A client with the two calls the harness makes: `messages.stream` streams the
  * answer in THREE chunks a moment apart (so a spec sees the reply grow), `messages.create` returns it
- * whole. No tools are ever called. Also used by the unit tests of the turn runner.
+ * whole. Also used by the unit tests of the turn runner.
+ *
+ * One tool, so a spec can see a card tool reach the device: on a card turn (edit_current_card among
+ * the tools) whose question asks for a fun fact (the "Add a fun fact" chip, 小知识 / "fun fact"), the
+ * first round calls edit_current_card with `FAKE_FUN_FACT`; the round after the tool result is the
+ * usual streamed answer.
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AskLanguage } from '@shared/study/askClaude';
@@ -13,6 +18,32 @@ export const FAKE_STREAM_CHUNKS: Record<AskLanguage, readonly string[]> = {
 };
 
 export const FAKE_STREAM_MODEL = 'e2e-fake-model';
+
+/** What the stand-in writes into the card's notes when asked for a fun fact. */
+export const FAKE_FUN_FACT = '(E2E) 小知识: Claude added this fun fact.';
+
+type Params = { tools?: Array<{ name?: string }>; messages?: Array<{ role: string; content: unknown }> };
+
+function textOf(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content.map((b) => (b && typeof b === 'object' && (b as { type?: string }).type === 'text' ? String((b as { text?: unknown }).text ?? '') : '')).join('\n');
+}
+
+/** The fun-fact tool call, when this round should make it (see the file comment). */
+function funFactToolUse(params: Params | undefined): Anthropic.Message | null {
+  if (!params?.tools?.some((t) => t.name === 'edit_current_card')) return null;
+  const messages = params.messages ?? [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return null;
+  // Already answered with a tool result: this is the round after it.
+  if (Array.isArray(last.content) && last.content.some((b) => (b as { type?: string })?.type === 'tool_result')) return null;
+  const text = textOf(last.content);
+  if (!/小知识|fun fact/i.test(text)) return null;
+  const m = message('', 'tool_use');
+  m.content = [{ type: 'tool_use', id: `toolu_e2e_${Math.random().toString(36).slice(2, 10)}`, name: 'edit_current_card', input: { fun_facts: FAKE_FUN_FACT } } as Anthropic.ToolUseBlock];
+  return m;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -34,7 +65,7 @@ function message(text: string, stop: Anthropic.Message['stop_reason']): Anthropi
 class FakeMessageStream {
   private readonly listeners: StreamListener[] = [];
 
-  constructor(private readonly chunks: readonly string[], private readonly delayMs: number) {}
+  constructor(private readonly chunks: readonly string[], private readonly delayMs: number, private readonly toolUse: Anthropic.Message | null = null) {}
 
   on(event: string, listener: StreamListener): this {
     if (event === 'streamEvent') this.listeners.push(listener);
@@ -42,6 +73,10 @@ class FakeMessageStream {
   }
 
   async finalMessage(): Promise<Anthropic.Message> {
+    if (this.toolUse) {
+      if (this.delayMs > 0) await sleep(this.delayMs);
+      return this.toolUse;
+    }
     const snapshot = message('', null);
     const block = snapshot.content[0] as Anthropic.TextBlock;
     for (const [i, chunk] of this.chunks.entries()) {
@@ -60,8 +95,8 @@ export function fakeStreamingClient(language: AskLanguage = 'zh', delayMs = 250)
   const chunks = FAKE_STREAM_CHUNKS[language];
   return {
     messages: {
-      create: async () => message(chunks.join(''), 'end_turn'),
-      stream: () => new FakeMessageStream(chunks, delayMs),
+      create: async (params: Params) => funFactToolUse(params) ?? message(chunks.join(''), 'end_turn'),
+      stream: (params: Params) => new FakeMessageStream(chunks, delayMs, funFactToolUse(params)),
     },
   } as unknown as Pick<Anthropic, 'messages'>;
 }

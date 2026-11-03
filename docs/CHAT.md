@@ -1027,7 +1027,8 @@ thread). This part is worker + shared types only; the screens come later.
 
 ONE screen for every chat with Claude, whatever its context (the unified-Claude-chats plan §6.3–6.4):
 web `components/claude/ClaudeThreadView.tsx` at **`/chats/claude/:id`** (immersive, `pages/ClaudeThreadPage.tsx`;
-`variant="sheet"` = the same screen without page chrome, for Ask Claude on the study card later). Lab:
+`variant="sheet"` = the same screen without page chrome — **Ask Claude on the study card**,
+`components/claude/CardClaudeSheet.tsx`, docs/STUDY_SESSION.md "Ask Claude"). Lab:
 `ui/claude/ClaudeThreadScreen.kt` (+ `sheet = true`) / `ClaudeThreadViewModel.kt` / `ClaudeThreadNav.kt` (the same
 routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind `claude-message`, below), the
 `claude_turn` frames from `ChatLive.claudeTurns`; its rules are core `core/…/claude/ClaudeChats.kt` (parity-tested).
@@ -1066,7 +1067,7 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   `claudeOutbox`; `hooks/useClaudeThread.ts`): every thread and message is cached as fetched (whole the first time,
   then `?since=` from the stored `server_time`), so a thread reads offline. A message sent without a connection
   (or whose request didn't get through / 5xx / 429) goes to the outbox with client ids and shows at once with
-  "🕓 Waiting for a connection — it sends by itself"; a thread started offline lives under its client id until
+  "🕓 Will send when you're online"; a thread started offline lives under its client id until
   the server has it, then its rows move to the server id and the screen follows (`resolveThreadId`).
   `flushClaudeOutbox` sends in order on `online`, when a thread opens and in every sync; the server is idempotent
   by client id; a refusal (4xx) marks the message "Couldn't send" with ✕; a 409 (a reply still being written)
@@ -1074,9 +1075,19 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   `claude-message` 409 stays pending (`Outbox.WAIT_ON_CONFLICT`) instead of counting as done; a message written in a
   thread that isn't on the server yet is held on the phone and queued once the `claude-threads` sync step (or the
   open screen) has the thread's server id (`resolveLocal`: the create re-sent, idempotent by its client id).
+- **Message menu + my checked Chinese** (every thread, Nov 2026 — ported from the old card sheet): a long press /
+  right-click / the hover ⋯ on any finished bubble opens the chat's message menu (`askClaudeMenu`: Copy · Translate ·
+  Pinyin · Explain / Save as flashcard · Open in Coach · Read aloud); my message carries the server's "check my
+  Chinese" when it ran (a card question: `auto_check` on `ClaudeThreadMessage`) → the ✎ mark, "✨ How to say it
+  better" first in the menu (its "Ask why" fills the composer), the 🎓 Open in Coach chip.
+- **Ask Claude on a study card** = the card's thread in this screen's sheet variant (docs/STUDY_SESSION.md "Ask
+  Claude"): resumes the card's thread from the last 30 min, "🕘 Earlier about 银行 · N chats" / ＋ New chat, the typed
+  answer sent with each question (`typed`), Claude's card tools applied on the device once per reply with "✓ Claude
+  edited this card · Undo" (`shared/claude/cardTools.ts`), a chip sends `quick: true` (not checked).
 - **Analytics**: `claude.thread_open { context_kind, source, resumed }`, `claude.message_send { context_kind,
   intent, offline, chip, spoken }`, `claude.reply_shown { first_text_ms, done_ms, via: socket | poll, intent,
-  context_kind }` (+ the Kotlin mirror).
+  context_kind }`, `claude.thread_action { action: new | switch, context_kind }`, `claude.undo_card_edit` (+ the
+  Kotlin mirror); a card question also `study.ask_claude { …, via: 'thread' }`.
 - **Resuming** (`resumeThreadFor`, for the card sheet / Chats tab PRs): a card resumes its newest thread whose
   last message is within 30 minutes (the server's card-question rule), a chat message / practice chat always its
   one thread, a plain chat never.

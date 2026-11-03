@@ -42,7 +42,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AskClaude
 import dev.jeromeswannack.chineselearning.lab.core.CoachAsk
+import dev.jeromeswannack.chineselearning.lab.core.MessageMenu
 import dev.jeromeswannack.chineselearning.lab.core.MessageTools
+import dev.jeromeswannack.chineselearning.lab.core.NoteSearch
+import dev.jeromeswannack.chineselearning.lab.core.SayBetter
+import dev.jeromeswannack.chineselearning.lab.data.api.AutoCheckDto
+import dev.jeromeswannack.chineselearning.lab.ui.chat.CoachChip
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ExplainContent
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ExplainUi
+import dev.jeromeswannack.chineselearning.lab.ui.chat.MessageMenuContent
+import dev.jeromeswannack.chineselearning.lab.ui.chat.SayBetterAmber
+import dev.jeromeswannack.chineselearning.lab.ui.chat.SayBetterContent
+import dev.jeromeswannack.chineselearning.lab.ui.chat.SayBetterView
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
+import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceRow
 import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
@@ -84,8 +99,14 @@ import kotlinx.coroutines.launch
  * what Claude is doing ([ClaudeChatThreadActions.statusLine], e.g. "Looking through your cards…"); a
  * reply being STREAMED shows its text so far with a caret; anything that isn't a plain text message
  * (a Coach check / explain / translate result, a mistake lesson) is drawn by the caller (`special`),
- * tool results under a reply by `after`; my message written offline says "🕓 Waiting for a
- * connection" until it is sent, or why it was refused (✕ forgets it).
+ * tool results under a reply by `after`; my message written offline says "🕓 Will send when you're
+ * online" until it is sent, or why it was refused (✕ forgets it).
+ *
+ * A long press on any finished bubble opens the chat's message menu with the parts that fit (core
+ * [AskClaude.menu]: Copy, Translate, Pinyin, Explain, Save as flashcard, Open in Coach, Read aloud) —
+ * Explain / Save as flashcard need [ClaudeChatThreadActions.cards]. My own Chinese carries the chat's
+ * auto-check when the server ran it (a card question, [ClaudeChatMsg.autoCheck]): the ✎ mark, "How to
+ * say it better" first in the menu, and the "Open in Coach" chip.
  */
 data class ClaudeChatMsg(
     val id: String,
@@ -103,7 +124,12 @@ data class ClaudeChatMsg(
     val queued: Boolean = false,
     /** Mine, refused when the outbox sent it ([error] says why). */
     val queueFailed: Boolean = false,
+    /** Mine: the chat's "check my Chinese" of it (a card question), once the server ran it. */
+    val autoCheck: AutoCheckDto? = null,
 ) {
+    /** My message as a chat message (the auto-check rules and the How-to-say-it-better sheet read it). */
+    fun asChat(): ChatMessageDto = ChatMessageDto(id = id, sender_id = if (mine) ME else "claude", content = text, translation = translation, auto_check = autoCheck)
+
     val mine: Boolean get() = role == "user"
     val isText: Boolean get() = contentType == "text"
 }
@@ -131,7 +157,19 @@ class ClaudeChatThreadActions(
     val statusLine: (ClaudeChatMsg) -> String? = { null },
     /** ✕ on my message the outbox couldn't send. */
     val onDiscardQueued: (ClaudeChatMsg) -> Unit = {},
+    /** Explain / Save as flashcard (the menu) and the How-to-say-it-better sheet's cards; null = left out. */
+    val cards: SentenceActions? = null,
+    /** "Open in Coach" (the menu, the chip under my checked question: menu | chip | sheet); null = left out. */
+    val openCoach: ((ClaudeChatMsg, String) -> Unit)? = null,
+    /** How to say it better → "Ask why": a question for the composer. */
+    val onAskWhy: (String) -> Unit = {},
+    /** Answers in Chinese (the "Ask why" wording). */
+    val language: String = AskClaude.ZH,
+    val online: Boolean = true,
 )
+
+/** "Me" in the auto-check rules (they compare a sender id with the viewer). */
+private const val ME = "me"
 
 object ClaudeChatTags {
     const val THREAD = "claude-chat-thread"
@@ -151,6 +189,8 @@ object ClaudeChatTags {
     const val QUEUE_FAILED = "claude-chat-queue-failed"
     const val DISCARD = "claude-chat-queue-discard"
     const val SPECIAL = "claude-chat-special"
+    const val MARK = "claude-chat-say-better-mark"
+    const val MENU = "claude-chat-menu"
 }
 
 @Composable
@@ -176,7 +216,37 @@ fun ClaudeChatThread(
     var pinyinOn by remember { mutableStateOf(pinyinPreview) }
     var translateOn by remember { mutableStateOf(translatePreview) }
     var translations by remember { mutableStateOf(emptyMap<String, String?>()) }
+    var menuFor by remember { mutableStateOf<ClaudeChatMsg?>(null) }
+    var explain by remember { mutableStateOf<Pair<ExplainUi, Boolean>?>(null) }
+    var sayBetterFor by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+    fun toggleTranslate(m: ClaudeChatMsg) {
+        if (m.id in translateOn) { translateOn = translateOn - m.id; return }
+        actions.track("translate", m.mine)
+        translateOn = translateOn + m.id
+        if (m.translation == null && translations[m.id] == null) scope.launch {
+            val t = actions.translate(m.id)
+            if (t == null) translateOn = translateOn - m.id else translations = translations + (m.id to t)
+        }
+    }
+    fun loadExplain(m: ClaudeChatMsg, save: Boolean) {
+        val cards = actions.cards ?: return
+        val text = NoteSearch.jsTrim(m.text)
+        val translation = m.translation ?: translations[m.id]
+        val row = SentenceRow(key = "claude-${m.id}", sentenceId = null, hanzi = text, pinyin = null, translation = translation, audioUrl = null, badge = null)
+        explain = ExplainUi(m.id, text, translation) to save
+        scope.launch {
+            val r = runCatching { cards.cachedExplanation(row) ?: cards.explain(row) }
+            val cur = explain?.takeIf { it.first.messageId == m.id } ?: return@launch
+            val e = cur.first
+            explain = r.fold(
+                { x -> e.copy(loading = false, result = x, translation = e.translation ?: x.translation) },
+                { e.copy(loading = false, error = if (actions.online) "Couldn't explain it just now." else "You're offline — explaining needs a connection the first time.") },
+            ) to cur.second
+        }
+    }
+    val openMenu: (ClaudeChatMsg) -> Unit = { m -> if (!m.queued && !m.queueFailed) menuFor = m }
     // 🎧 a new answer that arrives hidden plays once by itself (Ask Claude's rule).
     val seen = remember { messages.mapTo(HashSet()) { it.id } }
     val entries = messages.filter { !it.mine && it.status == null && it.isText }.map { AskClaude.ListeningEntry(it.id, it.text, it.answerLang) }
@@ -188,7 +258,7 @@ fun ClaudeChatThread(
     Column(Modifier.fillMaxWidth().testTag(ClaudeChatTags.THREAD), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         for (m in messages) key(m.id) {
             when {
-                m.mine -> Mine(m, known, m.id in pinyinOn, actions)
+                m.mine -> Mine(m, known, m.id in pinyinOn, m.id in translateOn, m.translation ?: translations[m.id], actions, onLongPress = { openMenu(m) })
                 !m.isText && special != null -> Box(Modifier.fillMaxWidth().testTag(ClaudeChatTags.SPECIAL)) { special(m) }
                 m.status == "pending" && m.text.isNotEmpty() -> Streaming(m, actions.statusLine(m))
                 m.status == "pending" -> Thinking(actions.statusLine(m) ?: thinking)
@@ -208,23 +278,70 @@ fun ClaudeChatThread(
                             playing = playingText != null && playingText == m.text,
                             actions = actions,
                             preview = readBackPreview[m.id],
+                            onLongPress = { openMenu(m) },
                             onPinyin = { actions.track("pinyin", false); pinyinOn = if (m.id in pinyinOn) pinyinOn - m.id else pinyinOn + m.id },
-                            onTranslate = {
-                                if (m.id in translateOn) translateOn = translateOn - m.id
-                                else {
-                                    actions.track("translate", false)
-                                    translateOn = translateOn + m.id
-                                    if (m.translation == null && translations[m.id] == null) scope.launch {
-                                        val t = actions.translate(m.id)
-                                        if (t == null) translateOn = translateOn - m.id else translations = translations + (m.id to t)
-                                    }
-                                }
-                            },
+                            onTranslate = { toggleTranslate(m) },
                         )
                     }
                     after?.invoke(m)
                 }
             }
+        }
+    }
+
+    // ---- The chat's sheets, over this one ----
+    menuFor?.let { m ->
+        val menu = AskClaude.menu(
+            AskClaude.MenuMessage(m.mine, m.text, m.translation ?: translations[m.id], m.autoCheck?.status.takeIf { m.mine }, m.autoCheck?.text.takeIf { m.mine }, markdown = !m.mine && m.answerLang != AskClaude.ZH && !MessageTools.looksLikeChinese(m.text)),
+            pinyinOn = m.id in pinyinOn, translateOn = m.id in translateOn,
+        ).let { menu ->
+            menu.copy(items = menu.items.filter {
+                (it.id != MessageMenu.OPEN_COACH || actions.openCoach != null) && ((it.id != MessageMenu.EXPLAIN && it.id != MessageMenu.SAVE_CARD) || actions.cards != null)
+            })
+        }
+        LabBottomSheet(onDismiss = { menuFor = null }) {
+            Box(Modifier.testTag(ClaudeChatTags.MENU)) {
+                MessageMenuContent(
+                    m.asChat(), menu, actions.online, recent = emptyList(), mine = m.mine,
+                    onReact = {},
+                    onAction = { id ->
+                        menuFor = null
+                        if (id != MessageMenu.OPEN_COACH) actions.track(id, m.mine)
+                        when (id) {
+                            MessageMenu.SAY_BETTER -> sayBetterFor = m.id
+                            MessageMenu.OPEN_COACH -> actions.openCoach?.invoke(m, "menu")
+                            MessageMenu.COPY -> clipboard.setText(androidx.compose.ui.text.AnnotatedString(m.text))
+                            MessageMenu.TRANSLATE -> toggleTranslate(m)
+                            MessageMenu.PINYIN -> pinyinOn = if (m.id in pinyinOn) pinyinOn - m.id else pinyinOn + m.id
+                            MessageMenu.EXPLAIN -> loadExplain(m, false)
+                            MessageMenu.SAVE_CARD -> loadExplain(m, true)
+                            MessageMenu.PLAY -> actions.play(m)
+                        }
+                    },
+                )
+            }
+        }
+    }
+    explain?.let { (e, save) ->
+        val cards = actions.cards
+        if (cards != null) LabFooterSheet(onDismiss = { explain = null }) {
+            ExplainContent(e, save, actions.online, cards, onRetry = { messages.firstOrNull { it.id == e.messageId }?.let { loadExplain(it, save) } }, onClose = { explain = null })
+        }
+    }
+    sayBetterFor?.let { id ->
+        val m = messages.firstOrNull { it.id == id }
+        val v = m?.let { SayBetterView.of(it.asChat(), ME, "Claude") }
+        if (m != null && v != null) LabBottomSheet(onDismiss = { sayBetterFor = null }) {
+            SayBetterContent(
+                v, actions.online, playing = false, cards = actions.cards ?: SentenceActions(),
+                onPlay = { actions.play(m.copy(id = "better:${m.id}", text = v.corrected)) },
+                onAsk = {
+                    sayBetterFor = null
+                    actions.onAskWhy(if (actions.language == AskClaude.ZH) "为什么「${v.corrected}」更好？" else "Why is \"${v.corrected}\" better?")
+                },
+                onClose = { sayBetterFor = null },
+                onOpenCoach = actions.openCoach?.let { open -> { sayBetterFor = null; open(m, "sheet") } },
+            )
         }
     }
 }
@@ -239,16 +356,32 @@ private fun onChipOf(text: String, words: List<ReaderWordDto>?, mine: Boolean, a
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Mine(m: ClaudeChatMsg, known: Set<String>, pinyin: Boolean, actions: ClaudeChatThreadActions) {
+private fun Mine(m: ClaudeChatMsg, known: Set<String>, pinyin: Boolean, translateOn: Boolean, translation: String?, actions: ClaudeChatThreadActions, onLongPress: () -> Unit) {
     val c = chatColors()
+    val haptics = LocalHapticFeedback.current
+    val long = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
     val words = wordsOf(m.text)
+    val sent = !m.queued && !m.queueFailed
+    val check = m.autoCheck
+    val better = sent && SayBetter.state(ME, m.text, null, null, false, null, check?.status, check?.text, ME) != null
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Column(
             Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(18.dp)).background(if (m.queued || m.queueFailed) c.mine.copy(alpha = 0.6f) else c.mine)
+                .then(if (sent) Modifier.combinedClickable(onClick = {}, onLongClick = long) else Modifier)
                 .testTag(ClaudeChatTags.MINE).padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
-            ChineseWords(text = m.text, words = words, isMe = true, color = c.onMine, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, true, actions), fontSize = 17.sp)
+            ChineseWords(text = m.text, words = words, isMe = true, color = c.onMine, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, true, actions), fontSize = 17.sp, onLongPress = if (sent) long else null)
+            if (translateOn) TranslationLine(translation ?: "Translating…", true)
+            if (better) Text(
+                "✎", color = SayBetterAmber, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                modifier = Modifier.align(Alignment.End).semantics { contentDescription = SayBetter.label(SayBetter.IMPROVABLE, null) }.testTag(ClaudeChatTags.MARK),
+            )
+        }
+        val open = actions.openCoach
+        if (sent && open != null && SayBetter.showCoachChip(ME, m.text, null, null, null, null, check?.status, check?.text, ME)) {
+            CoachChip { actions.track("open_coach_chip", true); open(m, "chip") }
         }
         if (m.queueFailed) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag(ClaudeChatTags.QUEUE_FAILED)) {
@@ -260,7 +393,7 @@ private fun Mine(m: ClaudeChatMsg, known: Set<String>, pinyin: Boolean, actions:
                 ) { Text("✕", color = Palette.Again, fontSize = 15.sp) }
             }
         } else if (m.queued) {
-            Text("🕓 Waiting for a connection — it sends by itself", color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.testTag(ClaudeChatTags.QUEUED))
+            Text("🕓 Will send when you’re online", color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.testTag(ClaudeChatTags.QUEUED))
         }
     }
 }
@@ -328,6 +461,7 @@ private fun Hidden(m: ClaudeChatMsg, listen: ListeningUi, notice: String?, actio
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Claude(
     m: ClaudeChatMsg,
@@ -340,8 +474,11 @@ private fun Claude(
     preview: ReadAloudHandle?,
     onPinyin: () -> Unit,
     onTranslate: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     val c = chatColors()
+    val haptics = LocalHapticFeedback.current
+    val long = { haptics.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
     val offered = CoachAsk.readBackOffered(m.role, m.text, m.answerLang, m.status)
     val markdown = m.answerLang != "zh"
     val words = if (markdown) null else wordsOf(m.text)
@@ -358,12 +495,13 @@ private fun Claude(
     val result = readBack?.ui?.result?.takeIf { readBack.ui.phase != "listening" }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(
-            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(18.dp)).background(c.theirs).testTag(ClaudeChatTags.REPLY).padding(horizontal = 14.dp, vertical = 9.dp),
+            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(18.dp)).background(c.theirs).combinedClickable(onClick = {}, onLongClick = long)
+                .testTag(ClaudeChatTags.REPLY).padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             when {
                 markdown -> MarkdownText(m.text, style = MaterialTheme.typography.bodyMedium.copy(color = c.onTheirs))
                 result != null -> MarkedChars(result.chars, result.extraAtEnd, fontSize = 18.sp, lineHeight = 30.sp)
-                else -> ChineseWords(text = m.text, words = words, isMe = false, color = c.onTheirs, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, false, actions), fontSize = 18.sp)
+                else -> ChineseWords(text = m.text, words = words, isMe = false, color = c.onTheirs, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, false, actions), fontSize = 18.sp, onLongPress = long)
             }
             if (translateOn) TranslationLine(translation ?: "Translating…", false)
         }

@@ -1691,12 +1691,51 @@ person-made; both in `STORAGE_PREFIXES`). Events: `card.picture_generate | uploa
 
 ## Ask Claude — answers in Chinese, the chat's look and tools
 
-**Ask Claude** (the action row on the card back) is an immersion chat about the card. Web
-`components/askClaude/` (`AskClaudeSheet`, `useAskClaude`); Lab `ui/study/AskClaudeSheet.kt`;
-worker `routes/ask-claude.ts`, `services/ask-claude.ts`, the `card` context of the Claude agent harness
-(`services/claude-agent/contexts/card.ts`, prompt in `claude-agent/persona.ts`; CLAUDE.md "Claude agent harness"); pure rules
-`shared/study/askClaude.ts` + `askClaudeMenu` in `shared/chats/messageMenu.ts` (Lab core `AskClaude.kt`,
-parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
+**Ask Claude** (the action row on the card back) is an immersion chat about the card — and since Nov 2026 it IS
+the card's **Claude thread** (docs/CHAT.md "Claude threads"; Jerome: "it should look pretty similar … unified with
+however the chats with the coach in the new chat session look … it should just be sending a question to it"). Web
+`components/claude/CardClaudeSheet.tsx` (the shared `ClaudeThreadView` with `variant="sheet"`), Lab
+`ui/study/CardClaudeSheet.kt` (the shared `ClaudeThreadContent` / `ClaudeThreadScreen`, `sheet`); worker
+`routes/claude-threads.ts` + the `card` context of the Claude agent harness
+(`services/claude-agent/contexts/card.ts`, prompt in `claude-agent/persona.ts`; CLAUDE.md "Claude agent harness");
+pure rules `shared/claude/contexts.ts` (chips, composer, resume), `shared/claude/cardTools.ts` (Claude's card tools on
+the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMenu` in `shared/chats/messageMenu.ts`
+(Lab core `claude/ClaudeChats.kt`, `claude/CardTools.kt`, `AskClaude.kt`, parity-tested by
+`android-lab/parity/fixtures/claude-chats.ts`, `claude-card-tools.ts`, `ask-claude.ts`). The old in-memory sheet
+(`components/askClaude/AskClaudeSheet.tsx` / `useAskClaude.ts`, Lab `ui/study/AskClaudeSheet.kt`) is gone;
+`POST /api/notes/:id/ask` stays for older app builds (it dual-writes into the card's thread).
+
+- **The sheet = the thread.** Opening it resumes the card's thread when its last message is within 30 minutes
+  (`resumeThreadFor`, the same rule the server groups older card questions by), else the first question starts a new
+  one. **"🕘 Earlier about 银行 · 2 chats"** under the header lists the card's other threads (`earlierCardThreads`; tap
+  one to continue it), **＋ New chat** starts afresh (`claude.thread_action { action: switch | new }`). The header:
+  "Ask about 银行" / the thread's title, 🎧, 中文 | EN, ⋯ (Make flashcards from this chat, 📝 words to recap), ✕; the
+  chip "📇 Asked on card · 银行" → the card hub. The card's suggestion chips (`chipsFor` → `cardChips`: 造句 Use in
+  sentence · 每个字 Explain characters · 相关的词 Related words · 我的答案 Check my answer (typing card with an answer) ·
+  语法 · 小知识 Add a fun fact · 例句 Explain sentence (with an example sentence)) while empty and ≤ 3 after a reply;
+  the composer is **Ask only** (`composerFor('card')` — no ✏️ Check / 🔍 Explain: those start a Coach chat). Replies
+  STREAM in (`claude_turn` over the ChatHub socket, else the poll). The thread is in the Chats tab with "📇 Asked on
+  card · 银行" (docs/CHAT.md), and the card hub / the deck page's History modal list the card's threads ("Open
+  conversation" → `/chats/claude/:id`, `components/claude/CardClaudeThreads.tsx`).
+- **The typed answer** of a typing card rides with the question: in the new thread's context (`typed`), and on every
+  later question as `typed` on `POST /api/claude/threads/:id/messages` (`null` = this showing has none — an older one
+  is taken out; `setCardTyped`), so "Check my answer" always checks THIS answer.
+- **Claude's card tools** (edit / delete this card, make cards, ⚡ bump, a mini lesson) are applied by the server when
+  the reply finishes (`claude-agent/apply.ts`, checkpointed); the reply keeps their results (`tool_results`). When a
+  reply the sheet saw being written finishes, the study page brings the device in line ONCE per reply
+  (`cardToolEffects`; web `StudyPage.processToolResults` + `markCardEffectsApplied` in `services/cardClaudeThreads.ts`,
+  Lab `StudyViewModel.claudeToolResults` + `ClaudeThreads.markCardEffectsApplied`): the edited note into IndexedDB /
+  Room and on screen, a deleted card leaves the session after 2 s, made cards / lessons / bumps come down by a sync.
+  Under the reply one line per result (`cardToolLines`): **"✓ Claude edited this card · notes  [Undo]"**, "✓ Added 2
+  cards: 存钱、取钱", "🗑 Claude deleted this card", "🎓 Mini lesson made: …", "⚡ Study it today: 银行". **Undo** puts the
+  changed fields back (`undoEditFields`, a normal `PUT /api/notes/:id`; needs a connection; `claude.undo_card_edit`).
+  The old **Approve / Reject** is gone — it only ever decided whether the device heard about a change the server had
+  already made. The sheet stays mounted (hidden) while closed (web) / its ViewModel keeps listening
+  (`CardClaudeEffects`, Lab), so a reply still being written lands and its tools apply. The leech sheet's "memory
+  hook" asks into the card's thread at once (`autoSend` with a key).
+- **E2E stand-in**: the worker's fake model streams three chunks; on a card turn asking for a fun fact (小知识 / "fun
+  fact") it first calls `edit_current_card` (`FAKE_FUN_FACT`), so `e2e/tests/ask-claude-card-thread.spec.ts` sees a
+  card tool reach the device and Undo.
 
 - **Speed.** The reply is a `card` turn of the Claude agent harness (`worker/src/services/claude-agent/`, shared with
   the Coach's follow-ups, the Coach's Ask chat and Discuss with Claude; model policy in `claude-agent/model.ts`): the Sonnet (`SONNET_MODEL` in `services/models.ts`) with thinking **off**, so the
@@ -1717,8 +1756,8 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
   character, usage, one or two examples). An explicit "in English please" / 用英文 (`asksForEnglish`) answers
   that turn in English. A Chinese answer is stored as plain text (`plainAnswerText` strips stray Markdown) with
   `note_questions.answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
-  mode (`askQuickActions`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
-  mini lesson) work in both, still behind Approve / Reject.
+  mode (`cardChips`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
+  mini lesson) work in both.
 - **Bubbles.** The tutor chat's bubbles (`chat-signal.css`): mine blue on the right, Claude's grey on the left.
   Every Chinese word is a chip (`ChatWordsText` / Lab `ChineseWords`), made on the device the moment the
   answer arrives by the deterministic segmenter (`shared/chinese/segment.ts`; web `services/chineseSegmenter.ts`,
@@ -1726,14 +1765,17 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
   text after the answer, `POST /api/note-questions/:id/words`: 2–31 s, sometimes failing, with every character
   tappable meanwhile; the apps no longer call it.) A tap opens the **language explorer** (source `ask_claude`).
 - **Long press** (right-click / the hover ⋯ on desktop) → the chat's message menu with only what fits
-  (`askClaudeMenu`): Copy · Translate (`POST /api/note-questions/:id/translate`, cached on the row) · Pinyin ·
+  (`askClaudeMenu`; now on every Claude thread's bubbles, `ClaudeChatThread`): Copy · Translate (`POST
+  /api/coach/conversations/:id/messages/:mid/translate` — a thread IS a coach conversation —, cached on the row) · Pinyin ·
   Explain / Save as flashcard (sentence-sized text, ≤ 120 characters — the chat's Explain sheet) · Open in
-  Coach (mine checked, Claude's explained) · Read aloud (Claude in the app voice, mine in my voice; cached per
-  text). An English Markdown answer has Copy only. No reactions, reply, pin, edit or delete.
+  Coach (mine checked, Claude's explained) · Read aloud (Claude's voice; cached per text). An English Markdown
+  answer has Copy only. No reactions, reply, pin, edit or delete.
 - **My own Chinese is checked** like a chat message: the question goes through the chat's auto-check
   (`checkAskQuestion` = `defaultAutoChecker` + `normalizeAutoCheck`, the `chat_auto_check` switch, the same skip
-  rules) in parallel with the answer; done within 0.8 s of the answer it comes back with it, else it is stored
-  in the background (`question_check_pending` → the app reads `GET /api/note-questions/:id` again). An
+  rules) in the background beside the reply (`checkCardQuestion` in `routes/claude-threads.ts`; E2E stand-in
+  `claude-agent/check-fake.ts`); the result lands on my message as `auto_check` (`setMessageAutoCheck` moves
+  `updated_at`, so `?since=` brings it; the sheet looks again 2.5 s / 8 s after a reply). A suggestion chip is not
+  checked (`quick: true`). An
   improvable question gets the ✎ mark, "✨ How to say it better" first in its menu (the chat's sheet; "Ask
   Claude about this" fills the box with 为什么「…」更好？) and the **🎓 Open in Coach** chip under it.
 - **🎧 Listen first** (Jerome: "Please also allow it to be toggled to audio first, in the same way the messages
@@ -1750,8 +1792,7 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
     mode, "in English please", older Markdown answers) never hide. Revealed ids are device-local (web localStorage
     `ask-claude-revealed-v1`, Lab JsonCache `study/ask/listening/revealed`; newest 500).
   - **Gestures**: tap plays (again, from the start); long press / right-click / 👁 reveals with the chat's un-blur —
-    no menu until revealed; then the normal word chips and long-press menu. Claude's tool results (Approve / Reject)
-    stay visible under a hidden answer.
+    no menu until revealed; then the normal word chips and long-press menu.
   - **Auto-play** (Ask Claude's own — the chat has none): a new answer that arrives hidden while the sheet is open
     plays once by itself, unless audio is already playing or loading (Read aloud, another answer) — `askAutoPlayId`.
     Answers on screen when the sheet opened never auto-play. Closing the sheet stops the clip.
@@ -1768,10 +1809,14 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
     time, and a long press still reveals the text.
   - Analytics: `study.ask_claude_listening { on, source: sheet | settings }`, `study.ask_claude_listen_play { auto, slow }`,
     `study.ask_claude_listen_reveal`.
-- **Offline.** Ask Claude needs the network (the button is disabled offline, errors are inline). Translations
-  and word chips are stored on the row, so a reopened conversation (card hub) has them.
-- Analytics: `study.ask_claude { card_type, language, quick }`, `study.ask_claude_language { language, source }`,
-  `study.ask_claude_tool { action, role }`.
+- **Offline.** The button works offline now: the card's threads read from the device (IndexedDB `claudeThreads` /
+  Lab JsonCache), and a question is queued in the outbox with the thread's client ids — my bubble at once with
+  **"🕓 Will send when you're online"** — and sent when the connection is back (idempotent by client id: never two
+  threads). (Until Nov 2026 the button was disabled offline.)
+- Analytics: `study.ask_claude { card_type, language, quick, via: 'thread' }` (+ the thread events
+  `claude.thread_open { source: study_card }`, `claude.message_send`, `claude.reply_shown`, `claude.thread_action`,
+  `claude.undo_card_edit`), `study.ask_claude_language { language, source }`, `study.ask_claude_tool { action, role }`
+  (a card tool applied: `action` = the tool).
 
 ## Character sheet
 

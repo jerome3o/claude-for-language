@@ -157,14 +157,6 @@ data class StudyUi(
     val cardAudio: CardAudio = CardAudio(),
     /** Lab "today split": mini lessons / today's story still to do (the top bar's "📘2 📖1"). */
     val todayLeft: TodayLeft = TodayLeft(),
-    /** "Ask Claude answers in": 'zh' (the default) | 'en' (core AskClaude; Settings + the sheet's 中 / EN). */
-    val askLanguage: String = dev.jeromeswannack.chineselearning.lab.core.AskClaude.DEFAULT_LANGUAGE,
-    /** Ask Claude 🎧 Listen first (Settings + the sheet's 🎧). */
-    val askListening: Boolean = false,
-    /** The hidden answers' playback + the ids revealed on this phone (the chat's [ListeningUi]; `setting` unused). */
-    val askListen: dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi = dev.jeromeswannack.chineselearning.lab.ui.chat.ListeningUi(),
-    /** A hidden answer that couldn't play (offline, never fetched): the line under it. */
-    val askListenNotice: AskListenNotice? = null,
     /** Suspend… / Snooze… in the ⋯ menu (core CardHolds): the regular session only, never a homework pass / practice. */
     val cardControls: Boolean = false,
     /** A short confirmation at the bottom ("Snoozed until tomorrow."), cleared after a few seconds. */
@@ -304,15 +296,11 @@ data class McUi(
     val auto: Boolean = false,
 )
 
-/** Ask Claude on a card (the web's StudyCard `conversation` / `pendingToolResults` state). */
+/**
+ * Ask Claude on a card: the conversation itself is the card's Claude thread (ui/study/CardClaudeSheet.kt);
+ * the study state only keeps whether Claude deleted the card.
+ */
 data class AskUi(
-    val conversation: List<dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer> = emptyList(),
-    val asking: Boolean = false,
-    /** The question being asked (shown while Claude thinks). */
-    val pendingQuestion: String? = null,
-    val error: String? = null,
-    /** Tool results of the latest answer waiting for Approve / Reject. */
-    val pending: List<dev.jeromeswannack.chineselearning.lab.data.api.AskToolResult>? = null,
-    /** Claude deleted this card: the input goes, the session moves on after a moment. */
+    /** Claude deleted this card: the composer goes, the session moves on after a moment. */
     val cardDeleted: Boolean = false,
 )

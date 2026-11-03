@@ -52,6 +52,10 @@ export interface ClaudeOutboxEntry {
   text: string;
   intent: ClaudeIntent;
   language?: 'zh' | 'en';
+  /** A suggestion chip (not checked). */
+  quick?: boolean;
+  /** A card thread: the answer typed on that showing of the card (null = none; absent = leave it). */
+  typed?: { answer: string; correct?: string } | null;
   created_at: string;
   status: 'pending' | 'sending' | 'failed';
   attempts: number;
@@ -248,10 +252,19 @@ export async function startClaudeThread(input: {
   text: string;
   intent: ClaudeIntent;
   language?: 'zh' | 'en';
+  quick?: boolean;
 }): Promise<SendResult> {
   const threadClientId = newClientId();
   const messageClientId = newClientId();
-  const body = { client_id: threadClientId, message_client_id: messageClientId, context: input.context, intent: input.intent, text: input.text, ...(input.language ? { language: input.language } : {}) };
+  const body = {
+    client_id: threadClientId,
+    message_client_id: messageClientId,
+    context: input.context,
+    intent: input.intent,
+    text: input.text,
+    ...(input.language ? { language: input.language } : {}),
+    ...(input.quick ? { quick: true } : {}),
+  };
   if (!isOffline()) {
     try {
       const res = await createClaudeThread(body);
@@ -271,6 +284,7 @@ export async function startClaudeThread(input: {
       text: input.text,
       intent: input.intent,
       language: input.language,
+      ...(input.quick ? { quick: true } : {}),
       created_at: nowIso(),
       status: 'pending',
       attempts: 0,
@@ -280,12 +294,16 @@ export async function startClaudeThread(input: {
 }
 
 /** A message in an existing thread (Ask). Offline → queued like `startClaudeThread`. */
-export async function sendClaudeMessage(threadId: string, input: { text: string; language?: 'zh' | 'en' }): Promise<SendResult> {
+export async function sendClaudeMessage(
+  threadId: string,
+  input: { text: string; language?: 'zh' | 'en'; quick?: boolean; typed?: { answer: string; correct?: string } | null },
+): Promise<SendResult> {
   const clientId = newClientId();
   const thread = await db.claudeThreads.get(threadId);
+  const extras = { ...(input.language ? { language: input.language } : {}), ...(input.quick ? { quick: true } : {}), ...(input.typed !== undefined ? { typed: input.typed } : {}) };
   if (!isOffline() && !thread?.local) {
     try {
-      const res = await sendClaudeThreadMessage(threadId, { client_id: clientId, text: input.text, ...(input.language ? { language: input.language } : {}) });
+      const res = await sendClaudeThreadMessage(threadId, { client_id: clientId, text: input.text, ...extras });
       await cacheThreadResponse(res);
       return { threadId, queued: false };
     } catch (err) {
@@ -294,7 +312,18 @@ export async function sendClaudeMessage(threadId: string, input: { text: string;
   }
   await db.transaction('rw', db.claudeMessages, db.claudeOutbox, async () => {
     await db.claudeMessages.put(localUserMessage(threadId, clientId, input.text, 'ask'));
-    await db.claudeOutbox.put({ client_id: clientId, thread_id: threadId, text: input.text, intent: 'ask', language: input.language, created_at: nowIso(), status: 'pending', attempts: 0 });
+    await db.claudeOutbox.put({
+      client_id: clientId,
+      thread_id: threadId,
+      text: input.text,
+      intent: 'ask',
+      language: input.language,
+      ...(input.quick ? { quick: true } : {}),
+      ...(input.typed !== undefined ? { typed: input.typed } : {}),
+      created_at: nowIso(),
+      status: 'pending',
+      attempts: 0,
+    });
   });
   return { threadId, queued: true };
 }
@@ -337,8 +366,15 @@ export function flushClaudeOutbox(): Promise<{ sent: number; failed: number }> {
               intent: current.intent,
               text: current.text,
               ...(current.language ? { language: current.language } : {}),
+              ...(current.quick ? { quick: true } : {}),
             })
-          : await sendClaudeThreadMessage(current.thread_id, { client_id: current.client_id, text: current.text, ...(current.language ? { language: current.language } : {}) });
+          : await sendClaudeThreadMessage(current.thread_id, {
+              client_id: current.client_id,
+              text: current.text,
+              ...(current.language ? { language: current.language } : {}),
+              ...(current.quick ? { quick: true } : {}),
+              ...(current.typed !== undefined ? { typed: current.typed } : {}),
+            });
         await db.claudeOutbox.delete(current.client_id);
         await cacheThreadResponse(res, { full: !!current.create });
         sent++;
