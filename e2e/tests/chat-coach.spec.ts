@@ -176,13 +176,13 @@ test('the coach has no chips or deck picker: a word of the answer opens the expl
   await api(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'HSK 2' } });
   const page = await openAs(browser, user, '/decks');
   await expect(page.getByText('HSK 2').first()).toBeVisible({ timeout: 30000 });
+  // A deep link with an action starts a Claude thread with that intent; the result shows there.
   await page.goto(`/coach?text=${encodeURIComponent('我昨天去银行取钱了')}&action=explain`);
-  await expect(page).toHaveURL(/\/coach\?c=/, { timeout: 15000 });
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+/, { timeout: 15000 });
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 20000 });
   await expect(page.getByTestId('coach-quick-actions')).toHaveCount(0);
   await expect(page.getByText('Cards go to')).toHaveCount(0);
   await expect(page.getByTestId('coach-practise-mic')).toContainText('Practise saying it');
-  await expect(page.getByTestId('coach-followup-say')).toContainText('Respond');
   await shoot(page, 'web-06-no-chips');
   // The big sentence: its words open the language explorer (+ Add as card there).
   await page.locator('.coach-sentence [data-testid="explorable-text"] [role="button"]', { hasText: '银行' }).first().click();

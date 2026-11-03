@@ -190,3 +190,188 @@
 .claude-chat-read-back .reader-read-aloud-hint {
   margin: 0.25rem 0 0.5rem;
 }
+
+/* ---- Claude threads (components/claude/ClaudeThreadView.tsx) ---- */
+
+/* A reply being streamed: its text so far + a blinking caret, and what Claude is doing. */
+.claude-chat-streaming .claude-chat-stream-text {
+  white-space: pre-wrap;
+}
+.claude-chat-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 0.15em;
+  vertical-align: -0.12em;
+  background: currentColor;
+  opacity: 0.55;
+  animation: claude-chat-caret 1s steps(2, start) infinite;
+}
+@keyframes claude-chat-caret {
+  to {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .claude-chat-caret {
+    animation: none;
+  }
+}
+.claude-chat-status-line {
+  font-size: 0.8rem;
+  color: var(--color-text-light, #666);
+  margin: 0.2rem 0 0 0.25rem;
+}
+
+/* My message written offline: waiting in the outbox. */
+.claude-chat-queued {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--color-text-light, #666);
+  margin-top: 0.15rem;
+}
+.claude-chat-queued.failed {
+  color: var(--color-danger, #b42318);
+}
+.claude-chat-queued-discard {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* A Coach result card / mistake lesson inside a thread: the full width of the column. */
+.claude-chat-special {
+  align-self: stretch;
+  margin: 0.35rem 0;
+}
+.claude-chat-with-after {
+  display: flex;
+  flex-direction: column;
+}
+.claude-chat-with-after .coach-tool-results {
+  margin: 0.2rem 0 0.4rem;
+}
+
+/* The header's context chip ("📇 Asked on card · 银行") — a second header line. */
+.claude-thread-context {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-bg, #fff);
+}
+.claude-thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #d97706;
+  background: rgba(217, 119, 6, 0.08);
+  color: var(--color-text, #1f2937);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.claude-thread-chip {
+  cursor: pointer;
+}
+button.claude-thread-chip::after {
+  content: '›';
+  margin-left: 0.15rem;
+  opacity: 0.6;
+}
+.claude-thread-readonly {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+  color: var(--color-text-light, #555);
+  font-size: 0.9rem;
+}
+.claude-thread-offline {
+  margin: 0.5rem 0;
+  font-size: 0.85rem;
+  color: var(--color-text-light, #666);
+}
+
+/* Suggestion chips above the composer: one scrolling row. */
+.claude-thread-chips {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  padding: 0.25rem 0 0.5rem;
+  scrollbar-width: none;
+}
+.claude-thread-chips::-webkit-scrollbar {
+  display: none;
+}
+.claude-thread-chips button {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #f8fafc);
+  color: var(--color-text, #1f2937);
+  font-size: 0.875rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.claude-thread-chips button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The composer's other intents (a new general chat): ✏️ Check · 🔍 Explain · 🔤 Translate. */
+.claude-composer-intents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+.claude-composer-intents button {
+  min-height: 44px;
+  padding: 0 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-primary, #2c6bed);
+  background: transparent;
+  color: var(--color-primary, #2c6bed);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+.claude-composer-intents button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.claude-composer-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light, #666);
+  margin: 0.35rem 0 0;
+}
+
+/* The sheet variant (Ask Claude on a card, later): no page chrome, the sheet scrolls. */
+.claude-thread-sheet {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  min-height: 0;
+}
+.claude-thread-sheet .claude-chat-body {
+  flex: 1;
+  overflow-y: auto;
+}

@@ -6,7 +6,7 @@ import { track } from '../services/analytics';
 import { WordRecapPass } from '../components/readerRecap/WordRecapPass';
 
 /**
- * `/coach/chat/:id/recap` — "📝 N words to recap" from a "💬 Ask Claude" chat's ⋯ menu: the SAME
+ * `/chats/claude/:id/recap` (and the older `/coach/chat/:id/recap`) — "📝 N words to recap" from a "💬 Ask Claude" chat's ⋯ menu: the SAME
  * word recap pass as the readers' (components/readerRecap/WordRecapPass) over the words tapped in
  * the chat and the words a 🎤 Read it back found mistakes in (services/claudeChatRecap.ts), each
  * card's cue the sentence of Claude's message it came from. Switches OFF by default: "Add to my
@@ -30,7 +30,7 @@ export function ClaudeChatRecapPage() {
       runId={chatRecapRunId(id)}
       source="chat"
       sourceLabel={recapSourceLabel('chat')}
-      backTo={{ path: `/coach/chat/${encodeURIComponent(id)}`, label: 'Back to the chat' }}
+      backTo={{ path: `/chats/claude/${encodeURIComponent(id)}`, label: 'Back to the chat' }}
       onRun={onRun}
     />
   );

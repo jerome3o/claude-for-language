@@ -116,11 +116,11 @@ describe('activeTab', () => {
 
 describe('isImmersiveRoute', () => {
   it.each(['/study', '/study/', '/quests/abc', '/picture-hunt/h1', '/readers/r1', '/readers/r1/edit', '/readers/r1/print',
-    '/library/l1/edit', '/lessons/l1/print', '/lessons/l1/play', '/coach/c1/lesson/m1', '/library/catalogue/conversation', '/connections/1/chat/2', '/connections/1/chat/new', '/connections/1/chat', '/join/token', '/calls/c1', '/group-class/g1', '/homework/a1', '/tutor-notes/practice', '/clips', '/clips/c1', '/coach/chat/c1', '/coach/chat/c1/recap', '/readers/r1/recap'])(
+    '/library/l1/edit', '/lessons/l1/print', '/lessons/l1/play', '/coach/c1/lesson/m1', '/library/catalogue/conversation', '/connections/1/chat/2', '/connections/1/chat/new', '/connections/1/chat', '/join/token', '/calls/c1', '/group-class/g1', '/homework/a1', '/tutor-notes/practice', '/clips', '/clips/c1', '/coach/chat/c1', '/coach/chat/c1/recap', '/chats/claude/t1', '/chats/claude/new', '/chats/claude/t1/recap', '/readers/r1/recap'])(
     '%s hides the bar', (p) => expect(isImmersiveRoute(p)).toBe(true),
   );
   it.each(['/', '/study/review/abc', '/quests', '/picture-hunt', '/readers', '/readers/generate', '/library', '/library/l1', '/library/catalogue',
-    '/lessons', '/connections/1', '/decks', '/chats', '/more', '/settings', '/calls', '/calls/c1/review', '/group-classes', '/homework', '/tutor-notes', '/coach', '/coach/chat/c1/other'])(
+    '/lessons', '/connections/1', '/decks', '/chats', '/more', '/settings', '/calls', '/calls/c1/review', '/group-classes', '/homework', '/tutor-notes', '/coach', '/coach/chat/c1/other', '/chats/claude/t1/other'])(
     '%s keeps the bar', (p) => expect(isImmersiveRoute(p)).toBe(false),
   );
 });
