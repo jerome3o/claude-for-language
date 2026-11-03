@@ -7,6 +7,7 @@
 
 import type { Env } from '../../types';
 import type { MessageWithSender } from '../../types';
+import type { ClaudeTurnEvent } from '@shared/claude/api';
 
 export type ChatLiveEvent =
   | { type: 'hello'; user_id: string; server_time: string }
@@ -14,7 +15,9 @@ export type ChatLiveEvent =
   | { type: 'message'; message: MessageWithSender; relationship_id: string; album_count?: number }
   | { type: 'message_updated'; message: MessageWithSender; relationship_id: string }
   | { type: 'read'; conversation_id: string; user_id: string; last_read_at: string }
-  | { type: 'typing'; conversation_id: string; user_id: string };
+  | { type: 'typing'; conversation_id: string; user_id: string }
+  /** A Claude reply being written (docs/CHAT.md "Claude threads — live"); only ever to the thread's owner. */
+  | ClaudeTurnEvent;
 
 type HubEnv = Pick<Env, 'CHAT_HUB'>;
 

@@ -332,7 +332,7 @@ coach.post('/coach/conversations/:id/messages/:messageId/translate', async (c) =
     const retryable = !(err instanceof StructuredCallError) || err.retryable;
     return c.json({ error: "Couldn't translate that just now — try again", retryable }, retryable ? 503 : 502);
   }
-  await c.env.DB.prepare('UPDATE coach_messages SET translation = ? WHERE id = ?').bind(translation, row.id).run();
+  await c.env.DB.prepare("UPDATE coach_messages SET translation = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(translation, row.id).run();
   return c.json({ translation, cached: false });
 });
 
@@ -444,7 +444,7 @@ coach.post('/coach/conversations/:id/messages/:messageId/save-lesson', async (c)
     if (attempt) await insertLessonAttempt(c.env.DB, userId, event, attempt);
     content.completed = true;
   }
-  await c.env.DB.prepare('UPDATE coach_messages SET content = ? WHERE id = ?').bind(JSON.stringify(content), messageId).run();
+  await c.env.DB.prepare("UPDATE coach_messages SET content = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").bind(JSON.stringify(content), messageId).run();
   const saved = (await db.getCoachMessages(c.env.DB, id)).find((m) => m.id === messageId)!;
   return c.json({ lesson_id: lessonId, title, completed: content.completed === true, message: publicCoachMessage(saved) });
 });
@@ -465,7 +465,7 @@ function parseCompletion(raw: unknown): { id: string; correct: number; total: nu
 
 /** A coach message as the client sees it (no checkpoint / attempts bookkeeping). */
 function publicCoachMessage(m: CoachMessage): CoachMessage {
-  const { checkpoint: _cp, attempts: _a, started_at: _s, ...rest } = m as CoachMessage & { checkpoint?: unknown; attempts?: unknown; started_at?: unknown };
+  const { checkpoint: _cp, attempts: _a, started_at: _s, lease_until: _l, ...rest } = m as CoachMessage & { checkpoint?: unknown; attempts?: unknown; started_at?: unknown; lease_until?: unknown };
   return { ...rest, status: m.status ?? null, error: m.error ?? null };
 }
 

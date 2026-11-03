@@ -37,7 +37,8 @@ export interface Env {
   /** Word checks (services/card-check.ts): new / edited notes and per-deck "Check for errors" runs. */
   CARD_CHECK_QUEUE?: Queue<import('./services/card-check').CardCheckMessage>;
   /** Sentence Coach replies in the background (services/coach-replies.ts). */
-  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage>;
+  /** Coach replies `{ messageId }` and Claude thread turns `{ kind: 'claude_turn', messageId }` (the watchdog). */
+  COACH_REPLY_QUEUE?: Queue<import('./services/coach-replies').CoachReplyMessage | import('./services/claude-agent/thread-turn').ClaudeTurnQueueMessage>;
   RECORDING_CHECK_QUEUE?: Queue<import('./services/recording-checks').RecordingCheckMessage>;
   /** 成语 Idioms (beta): one generated entry per idiom (services/idioms.ts, docs/IDIOMS.md). */
   IDIOM_QUEUE?: Queue<import('./services/idioms').IdiomQueueMessage>;
@@ -995,6 +996,24 @@ export interface CoachConversation {
   source_message_id?: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Claude threads (migration 0144, docs/CHAT.md "Claude threads"; all SQL in
+   * services/claude-agent/store.ts): the context (general | card | practice | chat_message), the inbox
+   * fields, the backfill's keys. The Coach page lists only general threads.
+   */
+  context_kind?: string | null;
+  context_ref?: string | null;
+  context_json?: string | null;
+  client_id?: string | null;
+  last_message_at?: string | null;
+  preview?: string | null;
+  unread?: number;
+  changed_at?: string | null;
+  language?: string | null;
+  tutor_visible?: number | null;
+  read_only?: number;
+  archived_at?: string | null;
+  source?: string | null;
 }
 
 export interface CoachMessage {
@@ -1012,6 +1031,10 @@ export interface CoachMessage {
   answer_lang?: 'zh' | 'en' | null;
   /** The English of a Chinese message, made on request (migration 0143). */
   translation?: string | null;
+  /** Claude threads (migration 0144): the learner message's intent, client id, last write (ISO ms). */
+  intent?: string | null;
+  client_id?: string | null;
+  updated_at?: string | null;
 }
 
 // ============ Graded Readers ============

@@ -24,11 +24,11 @@
 
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import type { Env, Note } from '../types';
+import type { Env } from '../types';
 import * as db from '../db/queries';
-import * as content from '../services/content';
-import { createCustomLessonFromSpec } from '../services/custom-lesson';
-import { askTurns, runClaudeTurn, type ToolAction } from '../services/claude-agent';
+import { askTurns, runClaudeTurn } from '../services/claude-agent';
+import { applyCardActions } from '../services/claude-agent/apply';
+import { appendCardQuestion } from '../services/claude-agent/backfill';
 import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from '../services/tts-cache';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
@@ -58,8 +58,6 @@ const askClaude = new Hono<{ Bindings: Env }>();
  */
 export const CHECK_GRACE_MS = 800;
 
-type ToolResult = { tool: string; success: boolean; data?: Record<string, unknown>; error?: string };
-
 function userIdOf(c: Context<{ Bindings: Env }>): string {
   return (c.get('user' as never) as { id: string }).id;
 }
@@ -67,78 +65,6 @@ function userIdOf(c: Context<{ Bindings: Env }>): string {
 function errorResponse(c: Context<{ Bindings: Env }>, err: unknown): Response {
   if (err instanceof AskClaudeError) return c.json({ error: err.message, retryable: err.status === 503 }, err.status);
   throw err;
-}
-
-/** Claude's changes (already approved by being asked for): edit / add / delete the card, a mini lesson. */
-async function applyToolActions(c: Context<{ Bindings: Env }>, userId: string, note: Note, actions: ToolAction[]): Promise<ToolResult[]> {
-  const id = note.id;
-  const toolResults: ToolResult[] = [];
-  for (const action of actions) {
-    try {
-      switch (action.tool) {
-        case 'edit_current_card': {
-          const input = action.input as { hanzi?: string; pinyin?: string; english?: string; fun_facts?: string; sentence_clue?: string; sentence_clue_pinyin?: string; sentence_clue_translation?: string };
-          const updatedNote = await content.updateNote(c.env, userId, id, {
-            hanzi: input.hanzi || undefined,
-            pinyin: input.pinyin || undefined,
-            english: input.english || undefined,
-            fun_facts: input.fun_facts,
-            sentence_clue: input.sentence_clue,
-            sentence_clue_pinyin: input.sentence_clue_pinyin,
-            sentence_clue_translation: input.sentence_clue_translation,
-          }, c.executionCtx);
-          if (updatedNote) {
-            toolResults.push({ tool: 'edit_current_card', success: true, data: { note: updatedNote, changes: input } });
-          } else {
-            toolResults.push({ tool: 'edit_current_card', success: false, error: 'Failed to update note' });
-          }
-          break;
-        }
-
-        case 'create_flashcards': {
-          const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
-          // Determine target deck — use provided deck_id if valid, otherwise current deck
-          let targetDeckId = note.deck_id;
-          if (input.deck_id && input.deck_id !== note.deck_id) {
-            const targetDeck = await db.getDeckById(c.env.DB, input.deck_id, userId);
-            if (targetDeck) {
-              targetDeckId = input.deck_id;
-            } else {
-              toolResults.push({ tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' });
-              break;
-            }
-          }
-          const made = await content.createNotes(c.env, userId, targetDeckId, input.flashcards, { audio: 'background', bg: c.executionCtx });
-          toolResults.push({ tool: 'create_flashcards', success: true, data: { created: made.created, count: made.created.length, targetDeckId } });
-          break;
-        }
-
-        case 'delete_current_card': {
-          await content.deleteNote(c.env, userId, id, c.executionCtx);
-          toolResults.push({
-            tool: 'delete_current_card',
-            success: true,
-            data: { deletedNoteId: id, reason: (action.input as { reason?: string }).reason || 'Deleted by user request' },
-          });
-          break;
-        }
-
-        case 'create_custom_lesson': {
-          const result = await createCustomLessonFromSpec(c.env, userId, action.input, 'chat');
-          if (result.ok) {
-            toolResults.push({ tool: 'create_custom_lesson', success: true, data: { lesson_id: result.lesson.id, title: result.lesson.title, image_jobs: result.imageJobs, ...(result.pinyinFixes.length ? { pinyin_fixes: result.pinyinFixes } : {}) } });
-          } else {
-            toolResults.push({ tool: 'create_custom_lesson', success: false, error: `Invalid lesson spec: ${result.errors.join('; ')}` });
-          }
-          break;
-        }
-      }
-    } catch (toolError) {
-      console.error(`Tool ${action.tool} error:`, toolError);
-      toolResults.push({ tool: action.tool, success: false, error: `Failed to execute ${action.tool}` });
-    }
-  }
-  return toolResults;
 }
 
 askClaude.post('/notes/:id/ask', async (c) => {
@@ -181,9 +107,14 @@ askClaude.post('/notes/:id/ask', async (c) => {
       { userId, language, turns: askTurns(question, history) },
     );
 
-    const toolResults = await applyToolActions(c, userId, note, toolActions);
+    // Claude's changes (already approved by being asked for): edit / add / delete the card, a mini lesson.
+    const toolResults = await applyCardActions(c.env, userId, note, toolActions, c.executionCtx);
     const created = await db.createNoteQuestion(c.env.DB, id, question, answer, language);
     const row = created as unknown as NoteQuestionRow;
+    // The same Q&A in the card's Claude thread (docs/CHAT.md "Claude threads"; older apps keep this route).
+    c.executionCtx.waitUntil(
+      appendCardQuestion(c.env.DB, userId, note, row).catch((err) => console.error('[ask] thread dual-write failed', row.id, err instanceof Error ? err.message : err)),
+    );
 
     // 🎧 Listen first: the answer's clip, made in the background — never waited for.
     const listening = typeof body.listening === 'boolean' ? body.listening : settings.listening;

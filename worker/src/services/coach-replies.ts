@@ -37,6 +37,7 @@ import { COACH_ASK_ACTION } from '@shared/coach/askChat';
 import { coachAskTurns, defaultCoachAskReply, storedAskAnswer, type CoachAskReplyFn } from './claude-chat';
 import { askSettings, pregenerateAskClip, type AskClipMaker } from './ask-claude';
 import { cachedConversationTTS } from './tts-cache';
+import { NOW_ISO, touchThreadStatement } from './claude-agent/store';
 
 export interface CoachReplyMessage {
   messageId: string;
@@ -305,7 +306,7 @@ export async function sweepStaleCoachReplies(database: D1Database, userId: strin
   const res = await database
     .prepare(
       `UPDATE coach_messages
-          SET status = 'failed', error = 'This reply took too long — try again.'
+          SET status = 'failed', error = 'This reply took too long — try again.', lease_until = NULL, updated_at = ${NOW_ISO}
         WHERE status = 'pending'
           AND COALESCE(started_at, created_at) < datetime('now', '-${COACH_REPLY_STALE_MINUTES} minutes')
           AND conversation_id IN (SELECT id FROM coach_conversations WHERE user_id = ?${conversationId ? ' AND id = ?' : ''})`,
@@ -437,7 +438,7 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
     console.error('[coach] reply failed', messageId, `attempt ${attempt}`, err instanceof Error ? err.message : err);
     if (retryable && attempt < COACH_REPLY_MAX_ATTEMPTS) return 'retry';
     await env.DB
-      .prepare(`UPDATE coach_messages SET status = 'failed', error = ? WHERE id = ? AND status = 'pending'`)
+      .prepare(`UPDATE coach_messages SET status = 'failed', error = ?, updated_at = ${NOW_ISO} WHERE id = ? AND status = 'pending'`)
       .bind(readableError(err, retryable, row.content_type), messageId)
       .run();
     return 'failed';
@@ -451,21 +452,21 @@ async function saveCheckpoint(database: D1Database, messageId: string, cp: Check
 async function finish(database: D1Database, messageId: string, body: string, toolResults: string | null): Promise<void> {
   await database
     .prepare(
-      `UPDATE coach_messages SET content = ?, tool_results = ?, status = NULL, error = NULL, checkpoint = NULL
+      `UPDATE coach_messages SET content = ?, tool_results = ?, status = NULL, error = NULL, checkpoint = NULL,
+              updated_at = ${NOW_ISO}
         WHERE id = ? AND status = 'pending'`,
     )
     .bind(body, toolResults, messageId)
     .run();
-  await database
-    .prepare(`UPDATE coach_conversations SET updated_at = datetime('now') WHERE id = (SELECT conversation_id FROM coach_messages WHERE id = ?)`)
-    .bind(messageId)
-    .run();
+  // The thread's inbox fields + one unread reply (claude-agent/store.ts; touch also bumps updated_at).
+  const conv = await database.prepare('SELECT conversation_id FROM coach_messages WHERE id = ?').bind(messageId).first<{ conversation_id: string }>();
+  if (conv) await touchThreadStatement(database, conv.conversation_id, 1).run();
 }
 
 /** Back to pending for another go (Retry); the checkpoint is kept so finished tool actions don't run twice. */
 export async function retryCoachReply(database: D1Database, messageId: string): Promise<boolean> {
   const res = await database
-    .prepare(`UPDATE coach_messages SET status = 'pending', error = NULL, attempts = 0, started_at = NULL WHERE id = ? AND status = 'failed'`)
+    .prepare(`UPDATE coach_messages SET status = 'pending', error = NULL, attempts = 0, started_at = NULL, lease_until = NULL, updated_at = ${NOW_ISO} WHERE id = ? AND status = 'failed'`)
     .bind(messageId)
     .run();
   return (res.meta?.changes ?? 0) > 0;

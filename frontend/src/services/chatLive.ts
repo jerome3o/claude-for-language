@@ -12,6 +12,7 @@
 
 import { getLiveTicket, liveSocketUrl } from '../api/chat';
 import type { MessageWithSender } from '../types';
+import type { ClaudeTurnEvent } from '@shared/claude/api';
 
 export type ChatLiveEvent =
   | { type: 'hello'; user_id: string; server_time?: string }
@@ -20,6 +21,8 @@ export type ChatLiveEvent =
   | { type: 'message_updated'; message: MessageWithSender }
   | { type: 'read'; conversation_id: string; user_id: string; last_read_at: string }
   | { type: 'typing'; conversation_id: string; user_id: string }
+  /** A Claude reply being written, the whole text so far (docs/CHAT.md "Claude threads — live"; handled by the thread view, a later PR). */
+  | ClaudeTurnEvent
   | { type: 'pong' };
 
 export type ChatLiveStatus = 'idle' | 'connecting' | 'open' | 'down';
@@ -53,6 +56,10 @@ export function parseLiveFrame(data: unknown): ChatLiveEvent | null {
       return typeof e.conversation_id === 'string' && typeof e.last_read_at === 'string' ? (v as ChatLiveEvent) : null;
     case 'typing':
       return typeof e.conversation_id === 'string' && typeof e.user_id === 'string' ? (v as ChatLiveEvent) : null;
+    case 'claude_turn':
+      return typeof e.thread_id === 'string' && typeof e.message_id === 'string' && typeof e.seq === 'number' && typeof e.status === 'string'
+        ? (v as ChatLiveEvent)
+        : null;
     case 'hello':
     case 'pong':
       return v as ChatLiveEvent;

@@ -50,6 +50,9 @@ describe('which requests count', () => {
     expect(costGroupFor('POST', '/api/sentences/explain-text')).toBe('ai');
     expect(costGroupFor('POST', '/api/sentences/abc123/explain')).toBe('ai');
     expect(costGroupFor('POST', '/api/coach/conversations/c1/messages')).toBe('ai');
+    expect(costGroupFor('POST', '/api/claude/threads')).toBe('ai');
+    expect(costGroupFor('POST', '/api/claude/threads/t1/messages')).toBe('ai');
+    expect(costGroupFor('POST', '/api/claude/threads/t1/messages/m1/retry')).toBe('ai');
     expect(costGroupFor('POST', '/api/phone/persona-reply')).toBe('ai');
     expect(costGroupFor('POST', '/api/transcribe')).toBe('ai');
     expect(costGroupFor('POST', '/api/transcribe/live')).toBe('ai');
@@ -69,6 +72,7 @@ describe('which requests count', () => {
     expect(costGroupFor('POST', '/api/relationships/r1/session-notes')).toBe('jobs');
     // not costly / not a job
     expect(costGroupFor('GET', '/api/coach/conversations')).toBeNull();
+    expect(costGroupFor('GET', '/api/claude/threads/t1')).toBeNull();
     expect(costGroupFor('POST', '/api/picture-hunts/plays')).toBeNull();
     expect(costGroupFor('POST', '/api/audio-lessons/listened')).toBeNull();
     expect(costGroupFor('POST', '/api/sentences/s1/ensure-audio')).toBeNull();

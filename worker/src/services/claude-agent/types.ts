@@ -73,6 +73,23 @@ export interface TurnOptions {
   runtime?: AgentRuntime;
   /** Called after every model round with the transcript so far (checkpoints). */
   onRound?: RoundHook;
+  /**
+   * Stream the reply (the Anthropic streaming API inside the runtime): the hooks get the text as it
+   * comes. Unset = one non-streamed call per round, exactly as before (the inline routes).
+   */
+  stream?: TurnStreamHooks;
+  /** `server.claude_turn` `inline`: the reply started in the request that asked (not a queue delivery). */
+  inline?: boolean;
+}
+
+/** What a streamed turn reports while it runs (thread-turn.ts → live.ts → ChatHub `claude_turn`). */
+export interface TurnStreamHooks {
+  /** The WHOLE answer text so far (every round's text, joined like the final answer). */
+  onText(text: string): void;
+  /** A read tool is about to run (the app says "Looking through your cards…"). */
+  onTool?(tool: string): void;
+  /** Any stream event (keeps the runner's lease alive while the model writes a long tool input). */
+  onActivity?(): void;
 }
 
 export type ToolName =
@@ -214,6 +231,9 @@ export interface PreparedTurn {
   deferredAck(tool: string): string;
   client: Pick<Anthropic, 'messages'>;
   onRound?: RoundHook;
+  /** Set = stream (TurnOptions.stream). */
+  stream?: TurnStreamHooks;
+  inline?: boolean;
 }
 
 /** What a runtime returns: the text of every round, joined, and the tool calls. */

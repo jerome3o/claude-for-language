@@ -1,0 +1,153 @@
+/**
+ * `/api/claude/threads*` (routes/claude-threads.ts) against REAL SQLite with every migration, the model
+ * being the E2E stand-in (E2E_TEST_MODE, streaming three chunks): create (idempotent by client id,
+ * context checked against the caller, intents per context), the reply written inline, the list (the
+ * first call copies the older chats in; badges; `since` with tombstones), a thread with `?since=`
+ * (unread cleared), follow-ups (409 while a reply is pending, idempotent by client id), read-only
+ * practice threads, the Coach's check intent on its own queue, PATCH and DELETE.
+ */
+import { beforeEach, describe, expect, it } from 'vitest';
+import { Hono } from 'hono';
+import type { ClaudeThreadMessage, ClaudeThreadSummary } from '@shared/claude/api';
+import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
+import claudeThreads from '../claude-threads';
+import { FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
+import type { Env } from '../../types';
+
+const U = 'u1';
+
+function seed(db: SqliteD1) {
+  db.raw.run("INSERT INTO users (id, email, name, role, is_admin) VALUES ('u1', 'j@x.test', 'Jerome', 'student', 0)");
+  db.raw.run("INSERT INTO users (id, email, name, role) VALUES ('x1', 'x@x.test', 'Someone', 'student')");
+  db.raw.run("INSERT INTO decks (id, user_id, name) VALUES ('d1', 'u1', 'HSK 2')");
+  db.raw.run("INSERT INTO notes (id, deck_id, hanzi, pinyin, english) VALUES ('n1', 'd1', '银行', 'yínháng', 'bank')");
+  db.raw.run("INSERT INTO decks (id, user_id, name) VALUES ('dx', 'x1', 'Theirs')");
+  db.raw.run("INSERT INTO notes (id, deck_id, hanzi, pinyin, english) VALUES ('nx', 'dx', '学生', 'xuésheng', 'student')");
+  db.raw.run("INSERT INTO note_questions (id, note_id, question, answer, asked_at) VALUES ('q1', 'n1', '行怎么读？', 'háng', '2026-10-01 10:00:00')");
+}
+
+type ThreadBody = { thread: ClaudeThreadSummary; messages: ClaudeThreadMessage[]; existing?: boolean; server_time?: string };
+
+function world(db: SqliteD1) {
+  const sent: unknown[] = [];
+  const env = { DB: db, E2E_TEST_MODE: 'true', COACH_REPLY_QUEUE: { send: async (m: unknown) => void sent.push(m) } } as unknown as Env;
+  const app = new Hono<{ Bindings: Env }>();
+  app.use('/api/*', async (c, next) => {
+    c.set('user', { id: U } as never);
+    await next();
+  });
+  app.route('/api', claudeThreads);
+  const call = async <T,>(method: string, path: string, body?: unknown) => {
+    const res = await app.request(path, body === undefined ? { method } : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }, env);
+    return { status: res.status, body: (await res.json()) as T };
+  };
+  return { env, sent, call };
+}
+
+describe('/api/claude/threads', () => {
+  let db: SqliteD1;
+  let w: ReturnType<typeof world>;
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    seed(db);
+    w = world(db);
+  });
+
+  it('creates a chat (idempotent by client id) and writes the reply; the list carries it with the copied card chats', async () => {
+    const created = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-1', message_client_id: 'm-1', context: { kind: 'general' }, text: '成都有什么好吃的？', language: 'zh' });
+    expect(created.status).toBe(202);
+    expect(created.body.messages.map((m) => [m.role, m.status, m.intent, m.client_id])).toEqual([['user', null, 'ask', 'm-1'], ['assistant', 'pending', null, null]]);
+    expect(created.body.thread).toMatchObject({ client_id: 'c-1', context_kind: 'general', title: '成都有什么好吃的？', first_intent: 'ask', badge: null, language: 'zh' });
+    // The watchdog went on the queue; the reply ran inline (no waitUntil in tests: awaited).
+    expect(w.sent).toEqual([{ kind: 'claude_turn', messageId: created.body.messages[1].id }]);
+
+    const again = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-1', context: { kind: 'general' }, text: '成都有什么好吃的？' });
+    expect(again.status).toBe(200);
+    expect(again.body.existing).toBe(true);
+    expect(again.body.messages[1]).toMatchObject({ status: null, streaming: false, content: FAKE_STREAM_CHUNKS.zh.join(''), answer_lang: 'zh' });
+
+    const list = await w.call<{ threads: ClaudeThreadSummary[]; server_time: string }>('GET', '/api/claude/threads');
+    expect(list.status).toBe(200);
+    expect(list.body.threads.map((t) => [t.id === created.body.thread.id ? 'new' : t.id, t.context_kind, t.unread])).toEqual([
+      ['new', 'general', 1],
+      ['nq-q1', 'card', 0],
+    ]);
+    expect(list.body.threads[1].badge).toEqual({ icon: '📇', text: 'Asked on card · 银行' });
+
+    // Opening it clears unread; `since` = only what changed.
+    const opened = await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}`);
+    expect(opened.body.messages).toHaveLength(2);
+    expect((await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}`)).body.thread.unread).toBe(0);
+    const since = await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}?since=${encodeURIComponent(opened.body.server_time!)}`);
+    expect(since.body.messages).toEqual([]);
+    const changed = await w.call<{ threads: ClaudeThreadSummary[] }>('GET', `/api/claude/threads?since=${encodeURIComponent(list.body.server_time)}`);
+    expect(changed.body.threads.map((t) => t.id)).toEqual([created.body.thread.id]);
+  });
+
+  it("checks the context against the caller and the intents a context takes", async () => {
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'nx' }, text: '?' })).status).toBe(404);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, intent: 'check', text: '我去银行' })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader', reader_id: 'r' }, text: '?' })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'practice', conversation_id: 'p' }, text: '?' })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'general' }, intent: 'check', text: 'no Chinese here' })).status).toBe(400);
+    const card = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, text: 'Why háng?', language: 'en' });
+    expect(card.status).toBe(202);
+    expect(card.body.thread).toMatchObject({ context_kind: 'card', context: { note_id: 'n1', label: '银行', sublabel: 'HSK 2' }, badge: { text: 'Asked on card · 银行' } });
+    // The card turn also landed in note_questions (older apps' history).
+    expect(db.rows("SELECT question FROM note_questions WHERE note_id = 'n1' ORDER BY asked_at")).toEqual([{ question: '行怎么读？' }, { question: 'Why háng?' }]);
+  });
+
+  it("✏️ Check starts a Coach chat: its structured reply goes on the Coach's queue, not the stream", async () => {
+    const res = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'general' }, intent: 'check', text: '我昨天去了商店买东西了' });
+    expect(res.status).toBe(202);
+    expect(res.body.messages[1]).toMatchObject({ content_type: 'analysis', status: 'pending' });
+    expect(res.body.thread).toMatchObject({ first_intent: 'check', badge: { icon: '✏️', text: 'Check' } });
+    expect(w.sent).toEqual([{ messageId: res.body.messages[1].id }]);
+    // Older apps see it on the Coach page as a check.
+    expect(db.rows('SELECT action, kind FROM coach_conversations WHERE id = ?', [res.body.thread.id])).toEqual([{ action: 'check', kind: null }]);
+  });
+
+  it('follow-ups: 409 while a reply is pending, idempotent by client id, refused on read-only chats', async () => {
+    const t = (await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'general' }, text: '你好', language: 'zh' })).body.thread;
+    const next = await w.call<ThreadBody>('POST', `/api/claude/threads/${t.id}/messages`, { client_id: 'f-1', text: '再说一遍' });
+    expect(next.status).toBe(202);
+    const same = await w.call<ThreadBody>('POST', `/api/claude/threads/${t.id}/messages`, { client_id: 'f-1', text: '再说一遍' });
+    expect(same.status).toBe(200);
+    expect(same.body.messages.map((m) => m.id)).toEqual(next.body.messages.map((m) => m.id));
+    expect((await w.call('POST', `/api/claude/threads/${t.id}/messages`, { text: 'x', intent: 'check' })).status).toBe(400);
+
+    db.raw.run("INSERT INTO coach_messages (id, conversation_id, role, content_type, content, status) VALUES ('p1', ?, 'assistant', 'text', '', 'pending')", [t.id]);
+    expect((await w.call('POST', `/api/claude/threads/${t.id}/messages`, { text: '还有吗？' })).status).toBe(409);
+
+    db.raw.run("UPDATE coach_conversations SET read_only = 1 WHERE id = ?", [t.id]);
+    expect((await w.call('POST', `/api/claude/threads/${t.id}/messages`, { text: '还有吗？' })).status).toBe(409);
+    expect((await w.call('POST', '/api/claude/threads/nope/messages', { text: '还有吗？' })).status).toBe(404);
+  });
+
+  it('retry re-runs a failed reply; PATCH renames / archives; DELETE leaves a tombstone the next list reports', async () => {
+    const t = (await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'general' }, text: '你好' })).body;
+    const replyId = t.messages[1].id;
+    db.raw.run("UPDATE coach_messages SET status = 'failed', error = 'x', content = '' WHERE id = ?", [replyId]);
+    const retried = await w.call<ThreadBody>('POST', `/api/claude/threads/${t.thread.id}/messages/${replyId}/retry`);
+    expect(retried.status).toBe(202);
+    expect(retried.body.messages[1]).toMatchObject({ status: null, content: FAKE_STREAM_CHUNKS.zh.join('') });
+    expect((await w.call('POST', `/api/claude/threads/${t.thread.id}/messages/${replyId}/retry`)).status).toBe(409);
+
+    const patched = await w.call<{ thread: ClaudeThreadSummary }>('PATCH', `/api/claude/threads/${t.thread.id}`, { title: '打招呼', archived: true, tutor_visible: false });
+    expect(patched.body.thread).toMatchObject({ title: '打招呼', archived: true, tutor_visible: false });
+    expect((await w.call('PATCH', `/api/claude/threads/${t.thread.id}`, { archived: 'yes' })).status).toBe(400);
+    const listed = await w.call<{ threads: ClaudeThreadSummary[]; server_time: string }>('GET', '/api/claude/threads');
+    expect(listed.body.threads.map((x) => x.id)).not.toContain(t.thread.id);
+    expect((await w.call<{ threads: ClaudeThreadSummary[] }>('GET', '/api/claude/threads?archived=1')).body.threads.map((x) => x.id)).toEqual([t.thread.id]);
+
+    expect((await w.call('DELETE', `/api/claude/threads/${t.thread.id}`)).status).toBe(200);
+    expect((await w.call('GET', `/api/claude/threads/${t.thread.id}`)).status).toBe(404);
+    const after = await w.call<{ deleted_ids: string[] }>('GET', `/api/claude/threads?since=${encodeURIComponent(listed.body.server_time)}`);
+    expect(after.body.deleted_ids).toEqual([t.thread.id]);
+    expect(db.rows('SELECT COUNT(*) AS n FROM coach_messages WHERE conversation_id = ?', [t.thread.id])).toEqual([{ n: 0 }]);
+  });
+
+  it('the admin backfill is admin only', async () => {
+    expect((await w.call('POST', '/api/admin/claude-threads/backfill', {})).status).toBe(403);
+  });
+});

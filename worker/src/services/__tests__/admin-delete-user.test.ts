@@ -111,6 +111,13 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO feature_requests (id, user_id, content, screenshot_url) VALUES ('fr-1', ?, 'bug', '/api/feature-requests/screenshot/screenshots/tutor-1/x.png')", TUTOR);
   exec(db, "INSERT INTO quests (id, user_id, title, status, world) VALUES ('q-1', ?, 'Q', 'ready', '{}')", TUTOR);
   exec(db, "INSERT INTO coach_conversations (id, user_id, title) VALUES ('cc-1', ?, 'c')", TUTOR);
+  // Claude threads (migration 0144): the tutor's card thread with a streaming reply, and the student's
+  // Discuss thread about the tutor's message (context ids only — never the tutor's user id).
+  exec(db, `INSERT INTO coach_conversations (id, user_id, title, context_kind, context_ref, context_json, client_id, source, legacy_id) VALUES ('nq-t-q', ?, '边', 'card', 't-note', '{"kind":"card","note_id":"t-note","label":"边"}', 'cl-1', 'note_questions', 't-q')`, TUTOR);
+  exec(db, "INSERT INTO coach_messages (id, conversation_id, role, content, client_id, intent, legacy_id) VALUES ('nq-t-q-q', 'nq-t-q', 'user', 'q', 'cm-1', 'ask', 't-q')");
+  exec(db, "INSERT INTO coach_messages (id, conversation_id, role, content, status, lease_until) VALUES ('cm-pending', 'nq-t-q', 'assistant', 'partial', 'pending', '2030-01-01T00:00:00.000Z')");
+  exec(db, `INSERT INTO coach_conversations (id, user_id, title, context_kind, context_ref, context_json, source) VALUES ('md-s', ?, 'about', 'chat_message', 'm-1', '{"kind":"chat_message","message_id":"m-1","conversation_id":"conv-1"}', 'discussion')`, STUDENT);
+  exec(db, "INSERT INTO coach_messages (id, conversation_id, role, content) VALUES ('md-s-0', 'md-s', 'user', '什么意思？')");
   exec(db, "INSERT INTO study_sessions (id, user_id, deck_id) VALUES ('ss-study', ?, 't-deck')", TUTOR);
   exec(db, "INSERT INTO sync_metadata (user_id, last_event_at, last_sync_at) VALUES (?, 'a', 'b')", TUTOR);
   exec(db, "INSERT INTO lesson_notes (id, user_id, raw_text) VALUES ('ln-1', ?, 'notes')", TUTOR);

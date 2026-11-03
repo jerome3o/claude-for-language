@@ -58,13 +58,12 @@ export async function runToolLoop(turn: PreparedTurn): Promise<LoopResult> {
   const toolActions: ToolAction[] = [];
   const readOnlyToolCalls: ReadOnlyToolCall[] = [];
   const textParts: string[] = [];
-  const meter = new ChatTurnMeter(turn.surface, turn.userId);
+  const meter = new ChatTurnMeter(turn.surface, turn.userId, turn.inline !== undefined ? { inline: turn.inline } : {});
   let rounds = 0;
 
   for (let i = 0; i < turn.maxRounds; i++) {
-    const response = await turn.client.messages.create(
-      chatTurnParams({ system: turn.system, tools, messages, maxTokens: turn.maxTokens, policy: turn.policy }),
-    );
+    const params = chatTurnParams({ system: turn.system, tools, messages, maxTokens: turn.maxTokens, policy: turn.policy });
+    const response = turn.stream ? await streamRound(turn, params, textParts, meter) : await turn.client.messages.create(params);
     meter.add(response);
     rounds++;
 
@@ -93,6 +92,7 @@ export async function runToolLoop(turn: PreparedTurn): Promise<LoopResult> {
     for (const block of toolUseBlocks) {
       const tool = byName.get(block.name);
       const input = block.input as Record<string, unknown>;
+      if (tool?.kind === 'read') turn.stream?.onTool?.(block.name);
       if (!tool) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, is_error: true, content: JSON.stringify({ error: `Unknown tool: ${block.name}` }) });
       } else if (tool.kind === 'read' && tool.execute) {
@@ -112,6 +112,29 @@ export async function runToolLoop(turn: PreparedTurn): Promise<LoopResult> {
 
   meter.finish();
   return { text: textParts.join('\n'), toolActions, readOnlyToolCalls, rounds };
+}
+
+/**
+ * One streamed model round (TurnOptions.stream): the Anthropic streaming API, the whole answer so far
+ * reported on every text delta — the earlier rounds' text (`done`) joined like the final answer,
+ * then this round's text blocks — and the final message returned like `messages.create` would.
+ */
+async function streamRound(
+  turn: PreparedTurn,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  done: readonly string[],
+  meter: ChatTurnMeter,
+): Promise<Anthropic.Message> {
+  const hooks = turn.stream!;
+  const stream = turn.client.messages.stream(params);
+  stream.on('streamEvent', (event, snapshot) => {
+    hooks.onActivity?.();
+    if (event.type !== 'content_block_delta' || event.delta.type !== 'text_delta') return;
+    meter.firstToken();
+    const round = snapshot.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map((b) => b.text);
+    hooks.onText([...done, ...round].join('\n'));
+  });
+  return stream.finalMessage();
 }
 
 /** Today's runtime: the loop above, in the Worker that took the request (or the queue consumer). */
