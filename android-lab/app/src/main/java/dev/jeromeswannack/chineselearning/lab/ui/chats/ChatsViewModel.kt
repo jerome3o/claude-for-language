@@ -5,46 +5,79 @@ import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatInbox
 import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListRow
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeInbox
 import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.other
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
+import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreadList
+import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads
+import dev.jeromeswannack.chineselearning.lab.ui.chat.ChatViewModel
+import dev.jeromeswannack.chineselearning.lab.ui.claude.ClaudeThreadViewModel
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavKeys
+import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
 /**
- * The Chats inbox: the cached list (rendered at once, also offline), refetched when the screen
- * opens / resumes. Live socket events patch the same cache (Chats.unreadBadge, collected by the
- * shell), so the list follows without this screen doing anything.
+ * The Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"): the cached chats with
+ * people (`/api/me/chats`, [Chats]) and the cached Claude threads ([ClaudeThreadList]) in ONE list,
+ * both rendered at once (also offline) and refreshed when the screen opens / resumes, every minute,
+ * on a socket reconnect and when a Claude reply finishes (a reply starting marks its row "Writing a
+ * reply…" at once). The box at the bottom starts a Claude thread (offline: queued) or opens a
+ * tutor's chat with the text as its draft.
  */
 class ChatsViewModel(private val app: LabApp) : ViewModel() {
-    private val local = MutableStateFlow(Local())
-    private data class Local(val query: String = "", val picker: Boolean = false, val error: String? = null, val myId: String? = null, val now: Long = System.currentTimeMillis())
+    private val local = MutableStateFlow(
+        Local(language = app.prefs.askClaudeLanguage, claudeOpen = runCatching { app.prefs.chatsClaudeSectionOpen }.getOrDefault(false)),
+    )
+
+    private data class Local(
+        val query: String = "",
+        val picker: Boolean = false,
+        val error: String? = null,
+        val myId: String? = null,
+        val now: Long = System.currentTimeMillis(),
+        val teacher: Boolean = false,
+        val filter: String = ClaudeInbox.ALL,
+        val claudeOpen: Boolean = false,
+        val draft: String = "",
+        val sending: Boolean = false,
+        val sendError: String? = null,
+        val composeRequest: Int = 0,
+        val language: String = "zh",
+    )
 
     private val _ui = MutableStateFlow(ChatsUi())
     val ui: StateFlow<ChatsUi> = _ui
 
     init {
         viewModelScope.launch { val me = Connections.myId(app.cache); local.update { it.copy(myId = me) } }
+        // chat.inbox_open once, when both lists are in (cached or fetched) — both kinds counted.
         viewModelScope.launch {
-            val list = runCatching { Chats.observe(app.cache).first() }.getOrNull()
-            app.analytics.track("chat.inbox_open", mapOf("conversations" to list?.conversations?.size, "unread" to list?.conversations?.count { it.unread > 0 }))
+            val ready = _ui.filter { it.loaded && it.threadsLoaded }.first()
+            val items = ready.items
+            app.analytics.track("chat.inbox_open", mapOf("conversations" to items.size, "unread" to items.count { it.unread > 0 }))
         }
         viewModelScope.launch { while (true) { delay(30_000); local.update { it.copy(now = System.currentTimeMillis()) } } }
         // Listening mode: the settings + what was revealed on this phone (the "🎧 New message" previews).
         val listening = combine(ChatListeningStore.observe(app.cache), ChatListeningStore.observeRevealed(app.cache)) { state, _ -> state }
+        val humans = combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), listening) { list, rels, state -> Triple(list, rels, state) }
         viewModelScope.launch {
-            combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), local, app.online, listening) { list, rels, l, online, state ->
+            combine(humans, ClaudeThreadList.observeInbox(app.cache), local, app.online) { (list, rels, state), threads, l, online ->
                 val rows = list?.conversations.orEmpty()
                 val revealed = rows.filter { !it.isAi }.associate { it.conversationId to ChatListeningStore.revealed(app.cache, it.conversationId) }
                 ChatsUi(
@@ -52,6 +85,8 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                     revealed = revealed,
                     loaded = list != null,
                     rows = rows,
+                    threads = threads.orEmpty(),
+                    threadsLoaded = threads != null || !online,
                     myId = l.myId,
                     query = l.query,
                     nowMs = l.now,
@@ -60,12 +95,38 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                     offline = !online,
                     people = peopleFor(rows, rels, l.myId),
                     pickerOpen = l.picker,
+                    teacher = l.teacher,
+                    filter = l.filter,
+                    claudeOpen = l.claudeOpen,
+                    draft = l.draft,
+                    sending = l.sending,
+                    sendError = l.sendError,
+                    composeRequest = l.composeRequest,
+                    language = l.language,
                 )
             }.collect { _ui.value = it }
+        }
+        // Claude replies: one starting → "Writing a reply…" on its row; finished / failed → the list again.
+        viewModelScope.launch {
+            app.chatLive.claudeTurns.collect { e ->
+                if (e.status == "done" || e.status == "failed") refreshThreads()
+                else runCatching { ClaudeThreadList.markPending(app.cache, e.thread_id) }
+            }
+        }
+        viewModelScope.launch {
+            var first = true
+            app.chatLive.connected.collect { up -> if (up && !first) refreshThreads(); first = false }
+        }
+        viewModelScope.launch {
+            while (true) {
+                delay(REFRESH_MS)
+                refreshThreads()
+            }
         }
         refresh()
     }
 
+    /** Both lists again (open / resume / Retry). */
     fun refresh() {
         viewModelScope.launch {
             try {
@@ -76,9 +137,86 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                 local.update { it.copy(error = "Couldn't load your chats. ${e.userMessage()}") }
             }
         }
+        viewModelScope.launch { refreshThreads() }
     }
 
+    private suspend fun refreshThreads() {
+        if (!app.online.value || app.prefs.sessionToken == null) return
+        try {
+            ClaudeThreadList.sync(app.repo.api, app.cache)
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // offline / server error: the cached list stays
+        }
+    }
+
+    /** A tutor account / an account with students: the student-centric view (from the shell's role). */
+    fun setTeacher(teacher: Boolean) = local.update { if (it.teacher == teacher) it else it.copy(teacher = teacher) }
+
     fun setQuery(q: String) = local.update { it.copy(query = q) }
+
+    fun setFilter(f: String) {
+        local.update { it.copy(filter = f) }
+        app.analytics.track("chats.filter", mapOf("filter" to f))
+    }
+
+    fun toggleClaudeSection() {
+        val open = !local.value.claudeOpen
+        runCatching { app.prefs.chatsClaudeSectionOpen = open }
+        local.update { it.copy(claudeOpen = open) }
+    }
+
+    fun setDraft(s: String) = local.update { it.copy(draft = s, sendError = null) }
+
+    /** `?compose=1` / `?text=` (More → Ask Claude, `/coach`, a sentence handed over) or ✏️ → ✦ Claude: the box, typing. */
+    fun compose(text: String? = null) = local.update {
+        it.copy(draft = text?.takeIf { t -> t.isNotBlank() } ?: it.draft, composeRequest = it.composeRequest + 1, picker = false)
+    }
+
+    /** A row opened (analytics `chats.open`; a Claude row's unread drops at once). Returns where it goes. */
+    fun open(item: ClaudeInbox.Item): String {
+        app.analytics.track("chats.open", mapOf("kind" to item.kind))
+        app.haptics.tick()
+        item.thread?.let { t -> viewModelScope.launch { runCatching { ClaudeThreadList.markOpened(app.cache, t.id) } } }
+        return pathFor(item)
+    }
+
+    /**
+     * The box → Claude: a new general thread with that intent (offline: kept here and queued), then
+     * [onStarted] with its id (the thread screen opens it; the reply streams there).
+     */
+    fun sendToClaude(text: String, intent: String, spoken: Boolean, onStarted: (String) -> Unit) {
+        val msg = text.trim()
+        if (msg.isEmpty() || local.value.sending) return
+        local.update { it.copy(sending = true, sendError = null) }
+        val language = local.value.language
+        viewModelScope.launch {
+            try {
+                val res = ClaudeThreads.of(app).start(ClaudeContextDto(ClaudeChats.GENERAL), msg, intent, language, app.online.value)
+                app.analytics.track("chats.compose_send", mapOf("intent" to intent, "offline" to res.queued, "spoken" to spoken))
+                app.analytics.track("claude.message_send", mapOf("context_kind" to ClaudeChats.GENERAL, "intent" to intent, "offline" to res.queued, "chip" to false, "spoken" to spoken))
+                if (res.queued) app.scheduleBackgroundUpload()
+                app.haptics.tick()
+                local.update { it.copy(sending = false, draft = "") }
+                onStarted(res.threadId)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                local.update { it.copy(sending = false, sendError = ClaudeThreadViewModel.sendErrorText(e)) }
+            }
+        }
+    }
+
+    /** "To: <tutor>": her chat opens with the text as its draft (the chat restores it). */
+    fun sendToPerson(to: ClaudeInbox.Recipient, text: String, open: (String) -> Unit) {
+        val had = text.isNotBlank()
+        app.analytics.track("chats.compose_to_person", mapOf("had_text" to had))
+        viewModelScope.launch {
+            if (had) runCatching { ChatViewModel.saveDraft(app, to.conversationId, text.trim()) }
+            local.update { it.copy(draft = "") }
+            open(Routes.chat(to.relationshipId, to.conversationId))
+        }
+    }
 
     /**
      * THE chat with the person of [relId] (one chat per pair): their inbox row when it's listed
@@ -96,25 +234,21 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
         }
     }
 
-    /** ✏️: one person → straight into THE chat with them; several → the picker; nobody → Connections. */
-    fun newChatTarget(): NewChat {
-        val people = _ui.value.people
-        return when (people.size) {
-            0 -> NewChat.Connect
-            1 -> NewChat.Open(people[0].relationshipId)
-            else -> { local.update { it.copy(picker = true) }; NewChat.Picking }
-        }
-    }
+    /** ✏️: "New chat with…" — ✦ Claude first, then the people. */
+    fun openPicker() = local.update { it.copy(picker = true) }
 
     fun closePicker() = local.update { it.copy(picker = false) }
 
-    sealed interface NewChat {
-        data object Connect : NewChat
-        data object Picking : NewChat
-        data class Open(val relationshipId: String) : NewChat
-    }
-
     companion object {
+        const val REFRESH_MS = 60_000L
+
+        /** Where a row goes: a thread → its screen; a chat with a person (or an old practice chat with no thread) → that chat. */
+        fun pathFor(item: ClaudeInbox.Item): String {
+            item.thread?.let { return Routes.claudeThread(it.id) + "?source=chats" }
+            val h = item.human!!
+            return Routes.chat(h.relationshipId, h.conversationId)
+        }
+
         /**
          * Who a new conversation can be with: the people of the listed (non-Claude) chats, then
          * any other active relationship from the cached relationships (one with no chat yet).

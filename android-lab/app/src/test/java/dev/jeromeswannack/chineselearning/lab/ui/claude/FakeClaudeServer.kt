@@ -30,6 +30,13 @@ class FakeClaudeServer {
     private data class Thread(val id: String, val clientId: String, val kind: String, val title: String, val context: String, val messages: MutableList<Msg> = mutableListOf())
 
     private val threads = LinkedHashMap<String, Thread>()
+    /** Threads changed since the last list call (what a `?since=` list returns). */
+    private val dirty = LinkedHashSet<String>()
+    private val deleted = LinkedHashSet<String>()
+    /** Unread replies per thread, as the list reports them (cleared when the thread is fetched). */
+    private val unread = HashMap<String, Int>()
+    /** The list requests' `since` values (null = a whole list). */
+    val listSince = mutableListOf<String?>()
     private var n = 0
     private var clock = 0
 
@@ -53,11 +60,20 @@ class FakeClaudeServer {
 
     @Synchronized fun pendingReplyId(threadId: String): String? = threads[threadId]?.messages?.lastOrNull { it.role == "assistant" && it.status == "pending" }?.id
 
-    /** Claude's reply is written: [text], done. */
+    /** Claude's reply is written: [text], done (one unread reply on the list until the thread is opened). */
     @Synchronized fun finish(threadId: String, text: String) {
         val m = threads.getValue(threadId).messages.last { it.role == "assistant" && it.status == "pending" }
         m.content = text
         m.status = null
+        unread[threadId] = (unread[threadId] ?: 0) + 1
+        dirty += threadId
+    }
+
+    /** The thread is deleted elsewhere: a `?since=` list reports its id. */
+    @Synchronized fun delete(threadId: String) {
+        threads.remove(threadId)
+        dirty.remove(threadId)
+        deleted += threadId
     }
 
     /** Text so far on the server's row (the row is written less often than the socket). */
@@ -89,10 +105,21 @@ class FakeClaudeServer {
                 val reply = Msg("m${++n}", null, "assistant", "", "pending", at(), contentType = if (intent == "ask") "text" else "analysis")
                 t.messages += listOf(mine, reply)
                 threads[id] = t
+                dirty += id
                 ok(res(t, listOf(mine, reply)), 202)
+            }
+            r.method == "GET" && parts.isEmpty() -> {
+                val since = Regex("[?&]since=([^&]+)").find(path)?.groupValues?.get(1)?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+                listSince += since
+                val rows = if (since == null) threads.values.toList() else dirty.mapNotNull { threads[it] }
+                val gone = if (since == null) emptyList() else deleted.toList()
+                dirty.clear()
+                deleted.clear()
+                ok("""{"threads":[${rows.joinToString(",") { threadJson(it) }}],"deleted_ids":[${gone.joinToString(",") { "\"$it\"" }}],"server_time":"${at()}"}""")
             }
             r.method == "GET" && parts.size == 1 -> {
                 val t = threads[parts[0]] ?: return ok("""{"error":"Chat not found"}""", 404)
+                unread.remove(t.id)
                 ok(res(t, t.messages))
             }
             r.method == "POST" && parts.size == 2 && parts[1] == "messages" -> {
@@ -107,6 +134,14 @@ class FakeClaudeServer {
             }
             else -> ok("""{"error":"not here"}""", 404)
         }
+    }
+
+    private fun threadJson(t: Thread): String {
+        val title = kotlinx.serialization.json.JsonPrimitive(t.title).toString()
+        val last = t.messages.lastOrNull { it.status == null }
+        val preview = last?.let { kotlinx.serialization.json.JsonPrimitive(it.content).toString() } ?: "null"
+        val intent = t.messages.firstOrNull { it.role == "user" }?.intent?.let { "\"$it\"" } ?: "null"
+        return """{"id":"${t.id}","client_id":"${t.clientId}","title":$title,"context_kind":"${t.kind}","context":${t.context},"first_intent":$intent,"preview":$preview,"last_message_at":${t.messages.lastOrNull()?.let { "\"${it.createdAt}\"" } ?: "null"},"created_at":"2026-01-01T10:00:00.000Z","unread":${unread[t.id] ?: 0},"pending":${t.messages.any { it.status == "pending" }}}"""
     }
 
     private fun res(t: Thread, messages: List<Msg>, existing: Boolean = false): String {

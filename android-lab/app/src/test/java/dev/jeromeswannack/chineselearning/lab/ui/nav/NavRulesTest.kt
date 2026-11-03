@@ -123,4 +123,19 @@ class NavRulesTest {
         }
         assertNull(WebDestinations.find("/nope/nothing/here"))
     }
+
+    /** The unified Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"): its box and its Claude threads. */
+    @Test fun chatsComposeAndClaudeThreads() {
+        for (role in listOf(NavRole(), NavRole(hasStudents = true, loaded = true), NavRole(isTutorAccount = true, hasStudents = true, isTutorOnly = true, loaded = true))) {
+            val tabs = NavRules.tabsFor(role)
+            // More → "✦ Ask Claude / Coach" and /coach land on the Chats tab's box, tab bar up.
+            for (p in listOf("/chats?compose=1", "/chats?compose=1&text=%E4%BD%A0%E5%A5%BD", "/chats/claude/t1", "/chats/claude/new?text=x&intent=check")) {
+                assertEquals(p, TabId.CHATS, NavRules.activeTab(tabs, p))
+            }
+            assertFalse(NavRules.isImmersiveRoute("/chats?compose=1"))
+            assertTrue(NavRules.isImmersiveRoute("/chats/claude/t1?source=chats"))
+            // The Coach page itself (from a chat message / a study card) stays under More, as on the web.
+            assertEquals(TabId.MORE, NavRules.activeTab(tabs, "/coach?text=x&from=card"))
+        }
+    }
 }

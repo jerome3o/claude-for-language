@@ -127,6 +127,8 @@ class ClaudeThreads(
             rows = if (i >= 0) rows.toMutableList().also { it[i] = merged } else rows + merged
         }
         save(CachedClaudeThread(thread, rows, res.server_time ?: prev?.cursor, local = false, create = null))
+        // The Chats tab's row follows (unread cleared on open, a new thread listed at once).
+        runCatching { ClaudeThreadList.upsert(cache, thread) }
     }
 
     /** Fetch a thread (whole the first time, then what changed since the cursor) into the cache. */

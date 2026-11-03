@@ -548,7 +548,7 @@ there's more than one) → `/connections/:relId/chat` → THE chat with them. A 
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
 
-## Chats tab — one list for people and Claude (web; Lab next)
+## Chats tab — one list for people and Claude
 
 Jerome: "Unify the coach page and the chats page. Really easy to get to the coach, but also easy to
 message your tutor(s)." The Chats tab (`/chats`, web `pages/ChatsPage.tsx`) is ONE list of the chats
@@ -607,6 +607,13 @@ threads" below), merged by ONE pure rule — `mergeInbox` in `shared/claude/inbo
 - **Analytics**: `chats.open { kind }`, `chats.filter { filter }`, `chats.compose_send { intent,
   offline, spoken }` (+ `claude.message_send`), `chats.compose_to_person { had_text }`;
   `chat.inbox_open` counts both kinds.
+- **Lab app** (`android-lab/app/…/ui/chats/`): the same screen — `ChatsScreen` (the rows over core
+  `ClaudeInbox`, the kind written on each outline), `ChatsComposer` (the voice-first box, "To:" as a
+  dropdown, the tutor's "✦ Ask Claude…" button), `ChatsViewModel`; the thread list in the JsonCache
+  (`data/claude/ClaudeThreadList.kt`: whole once, then `?since=` + `deleted_ids`; every thread response
+  the thread screen caches is written over its row; threads started offline from their own entries;
+  synced after every core sync too). Route `/chats?compose=1&text=`; `/coach` → `CoachEntry` in
+  `ui/coach/CoachNav.kt` (the study card's links carry `from=card`, the Coach page's own `from=coach`).
 
 ## One chat per pair (migration 0102_one_chat_per_pair.sql)
 

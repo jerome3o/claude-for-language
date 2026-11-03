@@ -46,6 +46,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.SectionHeader
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ToggleRow
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRole
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsCompose
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 data class MoreUi(
@@ -138,7 +139,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                 NavSection(
                     "Tools",
                     rows = listOf(
-                        row("🧑‍🏫", "Sentence Coach", "Check or translate a sentence", Routes.coach()),
+                        row("✦", "Ask Claude / Coach", "Ask, check or translate — in your Chats", Routes.chatsCompose()),
                         row("🔍", "Sentence Breakdown", "Split any sentence into words", Routes.analyze()),
                         row("📱", "Phone practice", "手机练习 · Real-life tasks on a simulated Chinese phone", Routes.phone()),
                         row("📜", "成语 Idioms (beta)", "The story behind each idiom, and how to use it", Routes.idioms()),
@@ -151,7 +152,7 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
                 NavSection(
                     "Practice",
                     rows = buildList {
-                        add(row("🧑‍🏫", "Sentence Coach", "Check a sentence you wrote", Routes.coach()))
+                        add(row("✦", "Ask Claude / Coach", "Ask anything, check or explain a sentence — in your Chats", Routes.chatsCompose()))
                         add(row("🔍", "Sentence Breakdown", "Split any sentence into words", Routes.analyze()))
                         if (!role.isTutorOnly) add(row("📚", "Readers", "Short stories at your level", Routes.readers()))
                         add(row("🎓", "Mini Lessons", "Lessons made for you, mixed into study", Routes.lessons()))

@@ -138,3 +138,14 @@ suspend fun Api.sendClaudeMessage(id: String, body: ClaudeSendBody): ClaudeThrea
 
 suspend fun Api.retryClaudeMessage(id: String, messageId: String): ClaudeThreadRes =
     exchange("POST", "${claudeMessagesPath(id)}/${enc(messageId)}/retry", "{}", ClaudeThreadRes.serializer())
+
+/** `GET /api/claude/threads?since=&limit=` — the Chats tab's thread list: changed threads + the ids deleted since. */
+@Serializable
+data class ClaudeThreadListRes(
+    val threads: List<ClaudeThreadDto> = emptyList(),
+    val deleted_ids: List<String> = emptyList(),
+    val server_time: String? = null,
+)
+
+suspend fun Api.claudeThreadList(since: String? = null, limit: Int = 200): ClaudeThreadListRes =
+    get("$CLAUDE_THREADS_PATH?limit=$limit" + (since?.let { "&since=${enc(it)}" } ?: ""))
