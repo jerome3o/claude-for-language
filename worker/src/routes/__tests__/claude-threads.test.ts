@@ -83,7 +83,11 @@ describe('/api/claude/threads', () => {
     const since = await w.call<ThreadBody>('GET', `/api/claude/threads/${created.body.thread.id}?since=${encodeURIComponent(opened.body.server_time!)}`);
     expect(since.body.messages).toEqual([]);
     const changed = await w.call<{ threads: ClaudeThreadSummary[] }>('GET', `/api/claude/threads?since=${encodeURIComponent(list.body.server_time)}`);
-    expect(changed.body.threads.map((t) => t.id)).toEqual([created.body.thread.id]);
+    // `since` is inclusive (changed_at >= cursor), so a chat the first list call copied in during the cursor's own
+    // millisecond comes again — harmless for a client, and timing-dependent on a slow runner. Everything else stays out.
+    const copied = (await db.prepare("SELECT changed_at FROM coach_conversations WHERE id = 'nq-q1'").first<{ changed_at: string }>())!;
+    const expected = [created.body.thread.id, ...(copied.changed_at >= list.body.server_time ? ['nq-q1'] : [])];
+    expect(changed.body.threads.map((t) => t.id)).toEqual(expected);
   });
 
   it("checks the context against the caller and the intents a context takes", async () => {
