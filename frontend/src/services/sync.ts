@@ -49,6 +49,7 @@ import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
 import { flushRecapAdds } from './wordRecap';
 import { flushFeedback } from './feedback';
+import { flushClaudeOutbox } from './claudeThreads';
 import { applyPendingNotePrefs, uploadPendingNotePrefs } from './longTerm';
 import { syncPictureHunts } from './pictureHunts';
 import { closeOrphanPieces, drainCallUploads } from './calls/uploads';
@@ -602,6 +603,13 @@ class SyncService {
       if (recap.sent > 0) console.log('[Sync] Reader recap words added:', recap.sent);
     } catch (err) {
       console.error('[Sync] Reader recap words failed:', err);
+    }
+    try {
+      // Messages to Claude written offline (docs/CHAT.md "Claude thread view"); idempotent by client id.
+      const claude = await flushClaudeOutbox();
+      if (claude.sent > 0 || claude.failed > 0) console.log('[Sync] Claude messages sent:', claude.sent, 'refused:', claude.failed);
+    } catch (err) {
+      console.error('[Sync] Claude message upload failed:', err);
     }
     try {
       // In-app feedback written offline (docs/FEEDBACK.md); idempotent by client id.

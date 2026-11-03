@@ -363,6 +363,9 @@ export const ANALYTICS_EVENTS = {
   'coach.ask_recap_start': e('coach', '📝 "N words to recap" in an Ask Claude chat\'s ⋯ menu: started the word recap pass (the readers\' one) over the words tapped / read back wrong in the chat — from = menu; words = how many.', ['from', 'words']),
   'coach.ask_recap_finish': e('coach', '📝 Ask Claude chat word recap: Done — words = in the recap, got_it_first_time, added = switched to "Add to my long-term review" (new cards in "From my chats"), bumped = "⚡ Study it today".', ['words', 'got_it_first_time', 'added', 'bumped']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
+  'claude.thread_open': e('chat', 'Opened a Claude thread (the unified thread view; context_kind = general | card | practice | chat_message; source = coach | coach_link | chats | card | link; resumed = continued an existing thread rather than a new one).', ['context_kind', 'source', 'resumed']),
+  'claude.message_send': e('chat', 'Sent a message in a Claude thread (context_kind; intent = ask | check | explain | translate; offline = queued until a connection; chip = sent from a suggestion chip; spoken = said with 🎤).', ['context_kind', 'intent', 'offline', 'chip', 'spoken']),
+  'claude.reply_shown': e('chat', 'A Claude reply on screen in the thread view: first_text_ms = from sending (or the screen first seeing it pending) to its first words, done_ms = to the whole reply, via = socket (live claude_turn events) | poll (GET ?since=); intent of the message it answers.', ['first_text_ms', 'done_ms', 'via', 'intent', 'context_kind']),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
   // ── decks ──────────────────────────────────────────────────────────────

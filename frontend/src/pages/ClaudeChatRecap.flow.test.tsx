@@ -21,13 +21,19 @@ vi.mock('../hooks/useVoiceDictation', () => ({
 }));
 const track = vi.fn();
 vi.mock('../services/analytics', () => ({ track: (...a: unknown[]) => track(...a), trackError: vi.fn() }));
+const msg = (id: string, role: 'user' | 'assistant', content: string, extra: Record<string, unknown> = {}) => ({
+  id, thread_id: 't1', client_id: null, role, content_type: 'text', content, intent: role === 'user' ? 'ask' : null, status: null, streaming: false,
+  error: null, answer_lang: null, translation: null, tool_results: null, created_at: `2026-11-03T10:00:0${role === 'user' ? 1 : 2}.000Z`, updated_at: null, ...extra,
+});
 const api = vi.hoisted(() => ({
-  getCoachConversation: vi.fn(async () => ({
-    conversation: { id: 't1', title: '成都有什么好吃的？', kind: 'ask', action: 'ask' },
-    messages: [
-      { id: 'u1', role: 'user', content: '成都有什么好吃的？', content_type: 'text' },
-      { id: 'a1', role: 'assistant', content: '成都的火锅很辣。', content_type: 'text', answer_lang: 'zh' },
-    ],
+  getClaudeThread: vi.fn(async () => ({
+    thread: {
+      id: 't1', client_id: null, title: '成都有什么好吃的？', context_kind: 'general', context: { kind: 'general' }, badge: null, first_intent: 'ask', preview: '成都的火锅很辣。',
+      last_message_at: '2026-11-03T10:00:02.000Z', created_at: '2026-11-03T10:00:01.000Z', unread: 0, pending: false, failed: false, read_only: false, archived: false,
+      tutor_visible: null, language: null, source: 'coach',
+    },
+    messages: [msg('u1', 'user', '成都有什么好吃的？'), msg('a1', 'assistant', '成都的火锅很辣。', { answer_lang: 'zh' })],
+    server_time: '2026-11-03T10:00:03.000Z',
   })),
   createDeck: vi.fn(async (name: string) => ({ id: 'deck-chats', name })),
   getDecks: vi.fn(async () => []),
@@ -38,10 +44,11 @@ const api = vi.hoisted(() => ({
   addUpNextApi: vi.fn(async () => ({})),
   bumpNotes: vi.fn(async (ids: string[]) => ({ added: ids, already: [], message: '' })),
 }));
+vi.mock('../api/claudeThreads', () => ({ getClaudeThread: api.getClaudeThread, createClaudeThread: vi.fn(), sendClaudeThreadMessage: vi.fn(), retryClaudeThreadMessage: vi.fn() }));
+vi.mock('../services/chatLive', () => ({ chatLive: { acquire: () => () => {}, onEvent: () => () => {}, onStatus: () => () => {}, getStatus: () => 'idle' } }));
 vi.mock('../api/client', () => ({
   API_BASE: '', apiErrorStatus: () => undefined, backfillReaderWords: vi.fn(), setAskClaudeListening: vi.fn(),
-  getCoachConversation: api.getCoachConversation, proposeCoachFlashcards: vi.fn(), retryCoachReply: vi.fn(), sendCoachMessage: vi.fn(),
-  startCoachAsk: vi.fn(), translateCoachMessage: vi.fn(),
+  proposeCoachFlashcards: vi.fn(), translateCoachMessage: vi.fn(), getConversation: vi.fn(), requestCoachMistakeLesson: vi.fn(), saveCoachMistakeLesson: vi.fn(),
   createDeck: api.createDeck, getDecks: api.getDecks, moveDeck: api.moveDeck, glossWords: api.glossWords,
   enrichWords: api.enrichWords, createNotesBatch: api.createNotesBatch,
 }));
@@ -75,7 +82,7 @@ vi.mock('../components/explorer/ExplorerContext', () => ({
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { db } from '../db/database';
-import { ClaudeChatPage } from './ClaudeChatPage';
+import { ClaudeThreadPage } from './ClaudeThreadPage';
 import { ClaudeChatRecapPage } from './ClaudeChatRecapPage';
 import { clearRecapWords, resetRecapMemory } from '../services/claudeChatRecap';
 import { recapDb } from '../services/wordRecap';
@@ -102,6 +109,8 @@ beforeEach(async () => {
   resetRecapMemory();
   // 成都 is already one of his cards: its switch is ⚡ Study it today.
   await db.notes.clear();
+  await db.claudeThreads.clear();
+  await db.claudeMessages.clear();
   await db.notes.put({ id: 'note-chengdu', deck_id: 'd1', hanzi: '成都', pinyin: 'Chéngdū', english: 'Chengdu' } as never);
   Object.values(api).forEach((f) => f.mockClear());
   track.mockClear();
@@ -111,10 +120,10 @@ beforeEach(async () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => root.render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={['/coach/chat/t1']}>
+      <MemoryRouter initialEntries={['/chats/claude/t1']}>
         <Routes>
-          <Route path="/coach/chat/:id" element={<ClaudeChatPage />} />
-          <Route path="/coach/chat/:id/recap" element={<ClaudeChatRecapPage />} />
+          <Route path="/chats/claude/:id" element={<ClaudeThreadPage />} />
+          <Route path="/chats/claude/:id/recap" element={<ClaudeChatRecapPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -129,18 +138,19 @@ afterEach(() => {
 describe('Ask Claude chat → 📝 words to recap', () => {
   it('opens the readers’ recap pass on the chat’s words and adds only the switched-on ones', async () => {
     // Nothing tapped yet: no recap row in the menu.
-    await click(q('claude-chat-more'));
-    expect(q('claude-chat-menu')).toBeTruthy();
-    expect(q('claude-chat-recap')).toBeNull();
-    await click(q('claude-chat-menu')?.parentElement);
+    await waitFor('claude-chat-reply');
+    await click(q('claude-thread-more'));
+    expect(q('claude-thread-menu')).toBeTruthy();
+    expect(q('claude-thread-recap')).toBeNull();
+    await click(q('claude-thread-menu')?.parentElement);
 
     // Tap 成都 and 火锅 in Claude's answer (→ the explorer, and kept to recap).
     await click(chip('成都'));
     await click(chip('火锅'));
     expect(explorerOpen).toHaveBeenCalledTimes(2);
 
-    await click(q('claude-chat-more'));
-    const entry = q('claude-chat-recap') as HTMLButtonElement;
+    await click(q('claude-thread-more'));
+    const entry = q('claude-thread-recap') as HTMLButtonElement;
     expect(entry.textContent).toBe('📝 2 words to recap');
     expect(entry.disabled).toBe(false);
     await click(entry);
@@ -187,8 +197,9 @@ describe('Ask Claude chat → 📝 words to recap', () => {
 
     // Back in the chat (Done leaves): nothing left to recap — the entry is gone.
     await act(async () => { await new Promise((r) => setTimeout(r, 1300)); });
-    await waitFor('claude-chat-page');
-    await click(q('claude-chat-more'));
-    expect(q('claude-chat-recap')).toBeNull();
+    await waitFor('claude-thread');
+    await waitFor('claude-chat-reply');
+    await click(q('claude-thread-more'));
+    expect(q('claude-thread-recap')).toBeNull();
   });
 });

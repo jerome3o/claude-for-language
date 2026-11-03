@@ -807,6 +807,10 @@ export class ChineseLearningDB extends Dexie {
   charExplanations!: Table<LocalCharExplanation, string>;
   wordDict!: Table<LocalWordDictEntry, string>;
   idioms!: Table<LocalIdiom, string>;
+  /** Claude threads read offline + sends queued without a connection (services/claudeThreads.ts). */
+  claudeThreads!: Table<import('../services/claudeThreads').LocalClaudeThread, string>;
+  claudeMessages!: Table<import('../services/claudeThreads').LocalClaudeMessage, string>;
+  claudeOutbox!: Table<import('../services/claudeThreads').ClaudeOutboxEntry, string>;
 
   // Debug tables
   syncLogs!: Table<SyncLogEntry, string>;
@@ -1304,6 +1308,14 @@ export class ChineseLearningDB extends Dexie {
     // with this device's not-yet-uploaded ones on top; services/cardForgets.ts).
     this.version(36).stores({
       cardForgets: 'id, card_id',
+    });
+    // v37: Claude threads (docs/CHAT.md "Claude thread view") — every thread and message as last
+    // fetched (read offline), and the messages written without a connection, sent in order by
+    // services/claudeThreads.ts `flushClaudeOutbox` (on reconnect, in every sync).
+    this.version(37).stores({
+      claudeThreads: 'id, client_id, last_message_at',
+      claudeMessages: 'id, thread_id, client_id',
+      claudeOutbox: 'client_id, thread_id, created_at',
     });
   }
 }

@@ -12,9 +12,13 @@
  *   real mistake join the recap words. Practice only: nothing is stored on the server.
  * - 🎧 Listen first: Claude's Chinese arrives as the chat's hidden bubble (tap plays, hold / 👁
  *   reveals) and a new one plays once by itself (`askAutoPlayId`), like Ask Claude on a card.
- * - English answers are Markdown; a pending reply shows "Thinking…", a failed one Retry.
+ * - English answers are Markdown; a pending reply shows "Thinking…" (or what Claude is doing, e.g.
+ *   "Looking through your cards…"), a reply being STREAMED shows its text so far, a failed one Retry.
+ * - Anything that isn't a plain text message (a Coach check / explain / translate result, a mistake
+ *   lesson) is drawn by the caller (`renderSpecial`); tool results under a reply by `renderAfter`.
+ * - My message written offline shows "🕓 Waiting for a connection" until it is sent.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { readBackMistakeWords, readBackOffered, READ_BACK_LABEL, READ_BACK_LISTENING } from '@shared/coach/askChat';
@@ -53,6 +57,14 @@ export interface ClaudeChatMessage {
   status?: 'pending' | 'failed' | null;
   error?: string | null;
   translation?: string | null;
+  /** 'text' (default) | 'analysis' | 'mistake_lesson' — anything but text goes to `renderSpecial`. */
+  content_type?: string;
+  /** Pending with some text: the reply is being streamed (its text so far). */
+  streaming?: boolean;
+  /** Mine, written offline: waiting in the outbox. */
+  queued?: boolean;
+  /** Mine, refused when the outbox sent it (`error` says why). */
+  queueFailed?: boolean;
 }
 
 export interface ClaudeChatThreadProps {
@@ -68,11 +80,19 @@ export interface ClaudeChatThreadProps {
   explorerSource?: ExplorerSource;
   /** A message the learner is sending (shown until the server has it). */
   pendingText?: string | null;
+  /** A non-text message (Coach result card, mistake lesson): the caller draws it. */
+  renderSpecial?: (m: ClaudeChatMessage) => ReactNode;
+  /** Under one of Claude's finished text replies (tool results). */
+  renderAfter?: (m: ClaudeChatMessage) => ReactNode;
+  /** What a pending reply says instead of `thinkingLabel` (Claude using a tool). */
+  statusLineFor?: (m: ClaudeChatMessage) => string | null;
+  /** ✕ on my message the outbox couldn't send. */
+  onDiscardQueued?: (m: ClaudeChatMessage) => void;
 }
 
 type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word';
 
-export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText }: ClaudeChatThreadProps) {
+export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued }: ClaudeChatThreadProps) {
   const explorer = useExplorer();
   const known = useKnownHanzi();
   const revealed = useAskRevealed();
@@ -97,7 +117,7 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
 
   const tool = (action: Tool, role: 'mine' | 'claude') => track('coach.ask_tool', { action, role });
 
-  const entries = useMemo(() => messages.filter((m) => m.role === 'assistant' && !m.status).map((m) => ({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null })), [messages]);
+  const entries = useMemo(() => messages.filter((m) => m.role === 'assistant' && !m.status && (m.content_type ?? 'text') === 'text').map((m) => ({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null })), [messages]);
   const hidden = (m: ClaudeChatMessage) => askAnswerHidden({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null }, { listening, revealed });
 
   // A new answer that arrives hidden plays once by itself — unless audio is already going.
@@ -183,15 +203,21 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
       {messages.map((m) => {
         if (m.role === 'user') {
           return (
-            <MineBubble key={m.id} m={m} known={known} pinyin={pinyinOn.has(m.id)} onTapWord={(w) => tapWord(w, 'mine')} />
+            <MineBubble key={m.id} m={m} known={known} pinyin={pinyinOn.has(m.id)} onTapWord={(w) => tapWord(w, 'mine')} onDiscard={onDiscardQueued} />
           );
+        }
+        if ((m.content_type ?? 'text') !== 'text' && renderSpecial) {
+          return <div key={m.id} className="claude-chat-special" data-testid="claude-chat-special">{renderSpecial(m)}</div>;
+        }
+        if (m.status === 'pending' && m.text) {
+          return <StreamingBubble key={m.id} m={m} statusLine={statusLineFor?.(m) ?? null} />;
         }
         if (m.status === 'pending') {
           return (
             <div key={m.id} className="chat-message received group-first group-last" data-testid="claude-chat-pending">
               <div className="chat-message-content">
                 <div className="chat-bubble claude-chat-thinking">
-                  <span className="chat-spinner" aria-hidden="true" /> {thinkingLabel}
+                  <span className="chat-spinner" aria-hidden="true" /> {statusLineFor?.(m) ?? thinkingLabel}
                 </div>
               </div>
             </div>
@@ -225,7 +251,8 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
             />
           );
         }
-        return (
+        const after = renderAfter?.(m);
+        const bubble = (
           <ClaudeBubble
             key={m.id}
             threadId={threadId}
@@ -250,6 +277,12 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
             }}
           />
         );
+        return after ? (
+          <div key={m.id} className="claude-chat-with-after">
+            {bubble}
+            {after}
+          </div>
+        ) : bubble;
       })}
       {pendingText && (
         <div className="chat-message sent group-first group-last">
@@ -262,13 +295,49 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
   );
 }
 
-function MineBubble({ m, known, pinyin, onTapWord }: { m: ClaudeChatMessage; known: Set<string>; pinyin: boolean; onTapWord: (w: TappedWord) => void }) {
+function MineBubble({ m, known, pinyin, onTapWord, onDiscard }: { m: ClaudeChatMessage; known: Set<string>; pinyin: boolean; onTapWord: (w: TappedWord) => void; onDiscard?: (m: ClaudeChatMessage) => void }) {
   return (
-    <div className="chat-message sent group-first group-last" data-testid="claude-chat-mine">
+    <div className="chat-message sent group-first group-last" data-testid="claude-chat-mine" data-queued={m.queued ? 'true' : undefined}>
       <div className="chat-message-content">
-        <div className="chat-bubble">
+        <div className={`chat-bubble${m.queued ? ' pending' : ''}`}>
           {looksLikeChinese(m.text) ? <ChatWordsText text={m.text} words={null} showPinyin={pinyin} known={known} onTapWord={onTapWord} /> : <span className="chat-text">{m.text}</span>}
         </div>
+        {m.queued && (
+          <div className="claude-chat-queued" data-testid="claude-chat-queued">
+            🕓 Waiting for a connection — it sends by itself
+          </div>
+        )}
+        {m.queueFailed && (
+          <div className="claude-chat-queued failed" role="alert" data-testid="claude-chat-queue-failed">
+            Couldn’t send: {m.error || 'refused'}
+            {onDiscard && (
+              <button type="button" className="claude-chat-queued-discard" onClick={() => onDiscard(m)} aria-label="Remove this message">
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A reply being written: its text so far (plain Chinese, or Markdown), a caret, what Claude is doing. */
+function StreamingBubble({ m, statusLine }: { m: ClaudeChatMessage; statusLine: string | null }) {
+  return (
+    <div className="chat-message received group-first group-last" data-testid="claude-chat-streaming" aria-live="polite" aria-busy="true">
+      <div className="chat-message-content">
+        <div className="chat-bubble claude-chat-streaming">
+          {m.answer_lang === 'zh' ? (
+            <span className="chat-text claude-chat-stream-text">{m.text}</span>
+          ) : (
+            <div className="claude-response">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+            </div>
+          )}
+          <span className="claude-chat-caret" aria-hidden="true" />
+        </div>
+        {statusLine && <div className="claude-chat-status-line">{statusLine}</div>}
       </div>
     </div>
   );

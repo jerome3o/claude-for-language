@@ -69,7 +69,8 @@ const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => (
 const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(m => ({ default: m.StrokePracticePage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const LessonReplayPage = lazy(() => import('./pages/LessonReplayPage').then(m => ({ default: m.LessonReplayPage })));
-const ClaudeChatPage = lazy(() => import('./pages/ClaudeChatPage').then(m => ({ default: m.ClaudeChatPage })));
+const ClaudeThreadPage = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.ClaudeThreadPage })));
+const CoachChatRedirect = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.CoachChatRedirect })));
 const ClaudeChatRecapPage = lazy(() => import('./pages/ClaudeChatRecapPage').then(m => ({ default: m.ClaudeChatRecapPage })));
 const CoachLessonPage = lazy(() => import('./pages/CoachLessonPage').then(m => ({ default: m.CoachLessonPage })));
 const GenerateReaderPage = lazy(() => import('./pages/GenerateReaderPage').then(m => ({ default: m.GenerateReaderPage })));
@@ -745,7 +746,11 @@ function AppRoutes() {
       <Route path="/lessons/:id/print" element={<ProtectedRoute><LessonPrintPage target="lesson" /></ProtectedRoute>} />
       <Route path="/lessons/:id/play" element={<ProtectedRoute><LessonReplayPage /></ProtectedRoute>} />
       <Route path="/coach/:conversationId/lesson/:messageId" element={<ProtectedRoute><CoachLessonPage /></ProtectedRoute>} />
-      <Route path="/coach/chat/:id" element={<ProtectedRoute><ClaudeChatPage /></ProtectedRoute>} />
+      {/* Claude threads (docs/CHAT.md "Claude thread view"): every chat with Claude, one screen. The
+          Coach's "💬 Ask Claude" chats were /coach/chat/:id — the same rows, redirected. */}
+      <Route path="/chats/claude/:id" element={<ProtectedRoute><ClaudeThreadPage /></ProtectedRoute>} />
+      <Route path="/chats/claude/:id/recap" element={<ProtectedRoute><ClaudeChatRecapPage /></ProtectedRoute>} />
+      <Route path="/coach/chat/:id" element={<ProtectedRoute><CoachChatRedirect /></ProtectedRoute>} />
       <Route path="/coach/chat/:id/recap" element={<ProtectedRoute><ClaudeChatRecapPage /></ProtectedRoute>} />
       <Route
         path="/duplicate-finder"

@@ -837,8 +837,9 @@ Claude's words — for me to be able to read them and have them checked … a ni
 a flashcard."
 
 - **Entry**: the Coach page's 💬 Ask Claude card (web `pages/SentenceCoachPage.tsx`, Lab
-  `ui/coach/CoachScreens.kt`) → `/coach/chat/new` (immersive). Past chats are in the Coach's Recent
-  conversations with 💬 and open `/coach/chat/:id` (a `?c=` link to one redirects there).
+  `ui/coach/CoachScreens.kt`) → web `/chats/claude/new` (the Claude thread view, below; the Lab app still
+  `/coach/chat/new`). Past chats are in the Coach's Recent conversations with 💬 and open
+  `/chats/claude/:id` on the web (`/coach/chat/:id` and a `?c=` link to one redirect there).
 - **Data**: a coach conversation with `kind = 'ask'` (+ `action = 'ask'` for older apps; `kind` is the
   generic column other Claude chats can join). `coach_messages.answer_lang` = the language of a reply
   ('zh' plain Chinese / 'en' Markdown), written on the pending row from the turn's language — the
@@ -875,7 +876,7 @@ a flashcard."
   word a Read it back found a real mistake in (tone off / wrong / missed), merged by hanzi, newest 200,
   kept ON THE DEVICE per thread (web localStorage `claude-chat-recap-v1:<thread>`, Lab JsonCache
   `claude-chat/recap/<thread>`). ⋯ shows **"📝 N words to recap"** only when N ≥ 1 (N = the chat's words
-  not yet recapped, `chatRecapCount`) → `/coach/chat/:id/recap`: the READER WORD RECAP pass with the chat as
+  not yet recapped, `chatRecapCount`) → `/chats/claude/:id/recap` (`/coach/chat/:id/recap` too): the READER WORD RECAP pass with the chat as
   its source (docs/STUDY_SESSION.md "Reader word recap" → "A chat as the source"): the cue is the sentence of
   the message the word came from, switches OFF by default, new words → the "From my chats" deck + Up next
   (`chat_recap`), words he has → ⚡ (`coach_chat`); after Done only words met since count. ⋯ → **🃏 Make flashcards from this chat**: the chat's review sheet
@@ -928,3 +929,61 @@ thread). This part is worker + shared types only; the screens come later.
   (`streaming: true` = text so far). `server.claude_turn` gains `first_token_ms` and `inline`.
 - **API**: see CLAUDE.md "Claude threads". E2E_TEST_MODE streams a stand-in answer in three chunks
   (`claude-agent/fake.ts`), checked before any key.
+
+## Claude thread view (web; Lab next)
+
+ONE screen for every chat with Claude, whatever its context (the unified-Claude-chats plan §6.3–6.4):
+web `components/claude/ClaudeThreadView.tsx` at **`/chats/claude/:id`** (immersive, `pages/ClaudeThreadPage.tsx`;
+`variant="sheet"` = the same screen without page chrome, for Ask Claude on the study card later). The Lab
+thread screen (`ui/claude/ClaudeThreadScreen.kt`) is the next PR; its rules are already in core
+(`core/…/claude/ClaudeChats.kt`, parity-tested).
+
+- **Routes**: `/chats/claude/new` starts a thread — a plain chat by default, `?context=card&note_id=&label=`
+  for a card, `?context=chat_message&message_id=&conversation_id=`; `?text=&intent=ask|check|explain|translate`
+  sends at once, `?draft=` only fills the box. `/coach/chat/:id` (the Coach's 💬 Ask chats — the same rows: a
+  coach conversation IS a thread) redirects to `/chats/claude/:id`; the Coach's 💬 Ask Claude card opens
+  `/chats/claude/new`; a `/coach?text=&action=` deep link (no `from_message`, not from a study card) starts a
+  general thread with that intent and opens it. "Open in Coach" from a chat message (`from_message`, reuses the
+  stored auto-check) and the study card's ✎ Check in Coach ("Back to your card") stay on the Coach page for now.
+- **Header**: ← · title · 🎧 Listen first · 中文 | EN · ⋯ (🃏 Make flashcards from this chat, 📝 N words to
+  recap → `/chats/claude/:id/recap`); under it the **context chip** (`headerChipFor`, `shared/claude/contexts.ts`):
+  "📇 Asked on card · 银行" → the card hub `/cards/:noteId`, "💬 From a chat message" → that chat
+  (`/connections/:relId/chat/:convId`, looked up from the conversation), "🎭 Practice · 点菜" (no link) with a
+  read-only banner and no composer (`PRACTICE_READ_ONLY_NOTE`). Colour is never the only signal: icon + words.
+- **Messages**: the context-agnostic `components/claudeChat/` pieces (word chips → explorer, ▶, 拼 / EN, 🎧,
+  🎤 Read it back, words to recap per thread). A reply being written **streams**: the ChatHub `claude_turn`
+  frames (`services/chatLive.ts`) patch the pending row's text (highest `seq` wins; `applyTurnEvent`) and the
+  bubble shows it with a caret and what Claude is doing (`turnStatusLine`: "Looking through your cards…" while a
+  read tool runs). Poll fallback (`claudeReplyPollMs`): while a reply is pending and no frame came in the last
+  3 s (socket down, a Check / Explain / Translate reply — not streamed), `GET …?since=` every **400 ms for the
+  first 10 s, then 1.5 s**; while frames arrive, only a 1.5 s safety net. A poll's shorter text never overwrites
+  a longer streamed one (`mergeMessage`). Coach results — ✏️ Check (+ 🎯 mini lesson), 🔍 Explain, Translate,
+  the mistake-lesson card, tool-result chips — are the Coach's own cards, moved to
+  `components/coach/CoachResults.tsx` (shared with `SentenceCoachPage`).
+- **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
+  still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
+  it mean · Is it natural · How to reply, practice = none; all while the thread is empty, at most three after a
+  reply, never one already used in the thread.
+- **Composer** (`composerFor`): Check / Explain / Translate only START a general chat (the server answers them
+  with the Coach's structured reply), so a NEW general chat shows Send (= Ask) + the Coach's buttons for what is in
+  the box (`coachButtons`: Chinese → ✏️ Check · 🔍 Explain, English → 🔤 Translate, with the hint line); every
+  other thread — and a general one with messages — is Ask only.
+- **Offline-first** (`services/claudeThreads.ts`, Dexie **v37** `claudeThreads` / `claudeMessages` /
+  `claudeOutbox`; `hooks/useClaudeThread.ts`): every thread and message is cached as fetched (whole the first time,
+  then `?since=` from the stored `server_time`), so a thread reads offline. A message sent without a connection
+  (or whose request didn't get through / 5xx / 429) goes to the outbox with client ids and shows at once with
+  "🕓 Waiting for a connection — it sends by itself"; a thread started offline lives under its client id until
+  the server has it, then its rows move to the server id and the screen follows (`resolveThreadId`).
+  `flushClaudeOutbox` sends in order on `online`, when a thread opens and in every sync; the server is idempotent
+  by client id; a refusal (4xx) marks the message "Couldn't send" with ✕; a 409 (a reply still being written)
+  waits for the next run.
+- **Analytics**: `claude.thread_open { context_kind, source, resumed }`, `claude.message_send { context_kind,
+  intent, offline, chip, spoken }`, `claude.reply_shown { first_text_ms, done_ms, via: socket | poll, intent,
+  context_kind }` (+ the Kotlin mirror).
+- **Resuming** (`resumeThreadFor`, for the card sheet / Chats tab PRs): a card resumes its newest thread whose
+  last message is within 30 minutes (the server's card-question rule), a chat message / practice chat always its
+  one thread, a plain chat never.
+- Tests: `shared/claude/contexts.test.ts`, `ClaudeChatsParityTest` (`parity/fixtures/claude-chats.ts`),
+  `components/claude/ClaudeThreadView.test.tsx` (streaming via a fake socket, the offline outbox, composer
+  intents, the card chip), `services/claudeThreads.test.ts`, E2E `e2e/tests/claude-thread.spec.ts` (Coach → Ask →
+  a streamed reply; a card thread's chip → the card hub; offline → queued → sent).
