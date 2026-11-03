@@ -22,6 +22,11 @@ data class ClaudeContextDto(
     val typed: JsonObject? = null,
     val conversation_id: String? = null,
     val scenario: String? = null,
+    /** A role-play (practice): who Claude plays, who he is, the level, the persona's voice (the server picks it). */
+    val ai_role: String? = null,
+    val user_role: String? = null,
+    val level: String? = null,
+    val voice_id: String? = null,
     val message_id: String? = null,
     /** A reader page's thread: the reader, its page (id + 1-based number), the page's looked-up / misread words. */
     val reader_id: String? = null,
@@ -117,7 +122,7 @@ data class ClaudeThreadRes(
     val existing: Boolean = false,
 )
 
-/** `POST /api/claude/threads`: [client_id] = the thread's, [message_client_id] = the first message's. */
+/** `POST /api/claude/threads`: [client_id] = the thread's, [message_client_id] = the first message's; [text] '' = Claude speaks first (a role-play). */
 @Serializable
 data class ClaudeCreateBody(
     val client_id: String,
@@ -189,6 +194,9 @@ suspend fun Api.cardClaudeThreads(noteId: String): ClaudeThreadListRes =
 /** One reader page's / exercise's threads (`context_ref` = its canonical ref: `reader:page`, `lesson:s0e1`). */
 suspend fun Api.contextClaudeThreads(kind: String, ref: String): ClaudeThreadListRes =
     get("$CLAUDE_THREADS_PATH?context_kind=${enc(kind)}&context_ref=${enc(ref)}&limit=20")
+/** The Discuss-with-Claude threads (context chat_message): the sheet resumes a message's own. */
+suspend fun Api.messageClaudeThreads(): ClaudeThreadListRes =
+    get("$CLAUDE_THREADS_PATH?context_kind=${ClaudeChats.CHAT_MESSAGE}&limit=100")
 
 suspend fun Api.retryClaudeMessage(id: String, messageId: String): ClaudeThreadRes =
     exchange("POST", "${claudeMessagesPath(id)}/${enc(messageId)}/retry", "{}", ClaudeThreadRes.serializer())

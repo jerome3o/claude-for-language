@@ -46,14 +46,14 @@ describe('GET /api/me/chats', () => {
     seed(db);
   });
 
-  async function list(userId: string): Promise<ChatListResponse> {
+  async function list(userId: string, query = ''): Promise<ChatListResponse> {
     const app = new Hono<{ Bindings: Env }>();
     app.use('/api/*', async (c, next) => {
       c.set('user', { id: userId } as never);
       await next();
     });
     app.route('/api', chatLive);
-    const res = await app.request('/api/me/chats', { method: 'GET' }, { DB: db } as unknown as Env);
+    const res = await app.request(`/api/me/chats${query}`, { method: 'GET' }, { DB: db } as unknown as Env);
     expect(res.status).toBe(200);
     return res.json() as Promise<ChatListResponse>;
   }
@@ -88,5 +88,14 @@ describe('GET /api/me/chats', () => {
     const tutor = await list('tutor');
     expect(tutor.conversations.map((c) => c.conversation_id)).toEqual(['c-home']);
     expect(tutor.conversations[0]).toMatchObject({ other_role: 'student', other_user: { id: ME }, unread: 0 });
+  });
+
+  it('?exclude_ai=1 leaves out the Claude practice chats copied into the Claude threads (pc-<id>), keeps the rest', async () => {
+    // Not copied yet: still listed, so nothing goes missing.
+    expect((await list(ME, '?exclude_ai=1')).conversations.map((c) => c.conversation_id)).toEqual(['c-li', 'c-home', 'c-ai']);
+    db.raw.run("INSERT INTO coach_conversations (id, user_id, title, context_kind, source, read_only) VALUES ('pc-c-ai', ?, 'Café', 'practice', 'practice', 1)", [ME]);
+    expect((await list(ME, '?exclude_ai=1')).conversations.map((c) => c.conversation_id)).toEqual(['c-li', 'c-home']);
+    // Without the flag (older apps): as before.
+    expect((await list(ME)).conversations.map((c) => c.conversation_id)).toEqual(['c-li', 'c-home', 'c-ai']);
   });
 });

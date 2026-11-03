@@ -37,6 +37,8 @@ class AskListening(
     private val notice: (AskListenNotice?) -> Unit,
     /** Stops Read aloud (the lessons' player) before a clip plays. */
     private val stopOthers: () -> Unit,
+    /** The voice + speed Claude's answers are read in (a role-play: the persona's). */
+    private val voice: () -> Pair<String, Double> = { AskClaude.VOICE to AskClaude.SPEED },
 ) {
     private val clips: ChatClips get() = ChatClips.of(app)
     private var player: ListeningPlayer? = null
@@ -64,7 +66,8 @@ class AskListening(
         notice(null)
         update { it.copy(loading = entry.id) }
         scope.launch {
-            val file = runCatching { clips.clip(entry.answer, AskClaude.VOICE, AskClaude.SPEED) }.getOrNull()
+            val (v, speed) = voice()
+            val file = runCatching { clips.clip(entry.answer, v, speed) }.getOrNull()
             if (state().loading != entry.id) return@launch
             if (file == null) {
                 update { it.copy(loading = null) }

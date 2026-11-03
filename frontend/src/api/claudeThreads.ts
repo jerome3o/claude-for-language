@@ -44,7 +44,9 @@ export function listClaudeThreads(opts: { since?: string | null; contextKind?: s
 export function createClaudeThread(body: {
   client_id: string;
   context: ClaudeThreadContext;
-  intent: ClaudeIntent;
+  /** Default ask. */
+  intent?: ClaudeIntent;
+  /** '' = Claude speaks first (a role-play). */
   text: string;
   message_client_id?: string;
   language?: 'zh' | 'en';

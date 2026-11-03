@@ -9,11 +9,13 @@ import { coachContext } from './coach';
 import { exerciseContext } from './exercise';
 import { generalContext } from './general';
 import { readerContext } from './reader';
+import { practiceContextProvider } from './practice';
 
 export const CONTEXT_PROVIDERS: { [K in ContextKind]: ContextProvider<K, any> } = {
   general: generalContext,
   card: cardContext,
   coach: coachContext,
+  practice: practiceContextProvider,
   chat_message: chatMessageContext,
   reader: readerContext,
   exercise: exerciseContext,

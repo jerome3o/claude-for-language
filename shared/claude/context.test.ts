@@ -12,6 +12,10 @@ describe('Claude thread contexts', () => {
     expect(parseClaudeContext({ kind: 'card' })).toBeNull();
     expect(parseClaudeContext({ kind: 'chat_message', message_id: 'm1', conversation_id: 'c1' })).toEqual({ kind: 'chat_message', message_id: 'm1', conversation_id: 'c1' });
     expect(parseClaudeContext({ kind: 'practice', conversation_id: 'c9', scenario: '点菜' })).toEqual({ kind: 'practice', conversation_id: 'c9', scenario: '点菜' });
+    // A new role-play: a situation and / or a card's word (no conversation); nothing to practise → null.
+    expect(parseClaudeContext({ kind: 'practice', scenario: ' 问路 ', level: 'beginner', note_id: 'n1', extra: 1 })).toEqual({ kind: 'practice', scenario: '问路', level: 'beginner', note_id: 'n1' });
+    expect(parseClaudeContext({ kind: 'practice', ai_role: '服务员' })).toBeNull();
+    expect(contextRef({ kind: 'practice', scenario: '问路' })).toBeNull();
     expect(parseClaudeContext({ kind: 'reader' })).toBeNull();
     expect(parseClaudeContext(null)).toBeNull();
     expect(parseClaudeContext({ kind: 'card', note_id: 'x'.repeat(101) })).toBeNull();
@@ -56,7 +60,7 @@ describe('Claude thread contexts', () => {
   it('offers the Coach buttons only in a general chat', () => {
     expect(intentsFor('general')).toEqual(['ask', 'check', 'explain', 'translate']);
     expect(intentsFor('card')).toEqual(['ask']);
-    expect(intentsFor('practice')).toEqual([]);
+    expect(intentsFor('practice')).toEqual(['ask']);
     expect(parseIntent('explain')).toBe('explain');
     expect(parseIntent('quick')).toBeNull();
   });

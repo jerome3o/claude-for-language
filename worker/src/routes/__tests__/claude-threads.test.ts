@@ -11,7 +11,8 @@ import { Hono } from 'hono';
 import type { ClaudeThreadMessage, ClaudeThreadSummary } from '@shared/claude/api';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import claudeThreads from '../claude-threads';
-import { FAKE_FUN_FACT, FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
+import { FAKE_FUN_FACT, FAKE_PRACTICE_CHUNKS, FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
+import { LESSON_VOICE_IDS } from '@shared/lesson/voices';
 import type { Env } from '../../types';
 import { seedReaderAndLesson } from '../../services/claude-agent/__tests__/context-seed';
 
@@ -213,6 +214,45 @@ describe('/api/claude/threads', () => {
     const after = await w.call<{ deleted_ids: string[] }>('GET', `/api/claude/threads?since=${encodeURIComponent(listed.body.server_time)}`);
     expect(after.body.deleted_ids).toEqual([t.thread.id]);
     expect(db.rows('SELECT COUNT(*) AS n FROM coach_messages WHERE conversation_id = ?', [t.thread.id])).toEqual([{ n: 0 }]);
+  });
+
+  it('a role-play: started with no message, Claude speaks first (streamed), the persona voice kept; help is answered in his language', async () => {
+    const res = await w.call<ThreadBody>('POST', '/api/claude/threads', {
+      client_id: 'p-1',
+      context: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员 (a waiter)', user_role: '客人', level: 'beginner' },
+      text: '',
+    });
+    expect(res.status).toBe(202);
+    expect(res.body.messages.map((m) => [m.role, m.status])).toEqual([['assistant', 'pending']]);
+    expect(res.body.thread).toMatchObject({
+      context_kind: 'practice',
+      title: 'Practice: 在饭店点菜',
+      badge: { icon: '🎭', text: 'Practice · 在饭店点菜' },
+      read_only: false,
+      source: 'practice',
+      context: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员 (a waiter)', level: 'beginner', label: '在饭店点菜', sublabel: '服务员 (a waiter)' },
+    });
+    expect(LESSON_VOICE_IDS.has((res.body.thread.context as { voice_id?: string }).voice_id ?? '')).toBe(true);
+    const id = res.body.thread.id;
+    const opened = await w.call<ThreadBody>('GET', `/api/claude/threads/${id}`);
+    expect(opened.body.messages).toEqual([expect.objectContaining({ role: 'assistant', status: null, content: FAKE_PRACTICE_CHUNKS.join(''), answer_lang: 'zh' })]);
+
+    // His line → a Chinese reply; a hint (his Ask language English) → an English one.
+    const line = await w.call<ThreadBody>('POST', `/api/claude/threads/${id}/messages`, { text: '两位，谢谢。' });
+    expect(line.status).toBe(202);
+    expect(line.body.messages[1]).toMatchObject({ answer_lang: 'zh' });
+    const hint = await w.call<ThreadBody>('POST', `/api/claude/threads/${id}/messages`, { text: '💡 Give me a hint: what could I say next?', language: 'en' });
+    expect(hint.body.messages[1]).toMatchObject({ answer_lang: 'en' });
+    const after = await w.call<ThreadBody>('GET', `/api/claude/threads/${id}`);
+    expect(after.body.messages.at(-1)).toMatchObject({ status: null, content: FAKE_STREAM_CHUNKS.en.join('') });
+
+    // Idempotent by client id; a card's role-play is checked against the caller; an old chat can't be restarted.
+    expect((await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'p-1', context: { kind: 'practice', scenario: '在饭店点菜' } })).body.existing).toBe(true);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'practice', note_id: 'nx' } })).status).toBe(404);
+    const card = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'practice', note_id: 'n1', scenario: '用「银行」聊天' } });
+    expect(card.body.thread.context).toMatchObject({ note_id: 'n1', label: '银行' });
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'practice' } })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'general' }, text: '' })).status).toBe(400);
   });
 
   it('the admin backfill is admin only', async () => {

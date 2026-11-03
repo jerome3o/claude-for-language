@@ -864,9 +864,14 @@ class StudyViewModel(
         onDone()
     }
 
+    /**
+     * 🎭 Roleplay this word: a role-play with Claude around the card's word — a practice thread, Claude
+     * speaks first (docs/CHAT.md "Practice with Claude"; the web's StudyPage `handleUseInConversation`).
+     */
     fun roleplay(onOpen: (String) -> Unit) = busy(CardBusy.ROLEPLAY) { v ->
-        val rel = _ui.value.extras.roleplayRelId ?: return@busy
-        onOpen(tools.roleplay(rel, v.note))
+        val ctx = dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.fromCard(v.note.id, v.note.hanzi)
+        val id = dev.jeromeswannack.chineselearning.lab.ui.claude.startPractice(app, ctx, source = "card", preset = "card")
+        onOpen("/chats/claude/${android.net.Uri.encode(id)}?source=card")
     }
 
     /** Play on the card: the note's recordings in turn (primary first), else its own clip. */

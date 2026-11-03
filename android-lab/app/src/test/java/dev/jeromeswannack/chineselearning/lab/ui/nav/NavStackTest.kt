@@ -41,10 +41,10 @@ class NavStackTest {
         controller.navigatorProvider.addNavigator(ComposeNavigator())
         controller.graph = controller.createGraph(startDestination = start) {
             composable(Routes.route("/")) {}
-            // The real Chats route takes ?compose=1&text= (More → "✦ Ask Claude / Coach", /coach).
+            // The real Chats route takes ?compose=1&text= (More → "✦ Ask Claude / Coach", /coach) and ?practice=1.
             composable(
                 Routes.route(CHATS_ROUTE_PATTERN),
-                arguments = listOf("compose", "text").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
+                arguments = listOf("compose", "text", "practice").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
             ) {}
             composable(Routes.route("/chats/claude/{id}")) {}
             composable(Routes.route("/connections")) {}

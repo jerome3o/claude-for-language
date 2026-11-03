@@ -222,7 +222,9 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `chat.forward` | `kind` | Forwarded a message. |
 | `chat.search` | `results` | Searched inside a conversation. |
 | `chat.pinyin_toggle` | `aid`, `on` | Switched the 拼 / EN reading aids of a conversation. |
-| `chat.discuss` | — | Discuss with Claude on a message. |
+| `chat.discuss` | — | Discuss with Claude on a message — the old discussion sheet (apps before Nov 2026; replaced by `claude.discuss_open`). |
+| `claude.discuss_open` | resumed | Discuss with Claude: the message's Claude thread opened as a sheet over the chat (resumed = its earlier thread). |
+| `claude.practice_start` | source, preset, level | Started a role-play with Claude — a practice thread, Claude speaks first (source chats / card / claude_page / chat_link; preset = restaurant… / custom / card). |
 | `chat.listening_mode` | `scope`, `on` | Listening mode switched for a conversation, or the default for new chats. |
 | `chat.listening_play` | `slow` | Listening mode: tapped a hidden message to hear it. |
 | `chat.listening_reveal` | — | Listening mode: held a hidden message to reveal its text. |

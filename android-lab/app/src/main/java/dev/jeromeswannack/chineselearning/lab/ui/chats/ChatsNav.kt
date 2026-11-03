@@ -11,13 +11,17 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import dev.jeromeswannack.chineselearning.lab.ui.claude.PracticeSituationSheet
 import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 import dev.jeromeswannack.chineselearning.lab.ui.connections.factory
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 
-/** The Chats tab's route: `/chats`, `?compose=1` (the box, typing) and `?text=` (the box with a sentence). */
-const val CHATS_ROUTE_PATTERN = "/chats?compose={compose}&text={text}"
+/**
+ * The Chats tab's route: `/chats`, `?compose=1` (the box, typing), `?text=` (the box with a sentence)
+ * and `?practice=1` (the "🎭 Practice a situation" sheet — an old "new chat with Claude" link).
+ */
+const val CHATS_ROUTE_PATTERN = "/chats?compose={compose}&text={text}&practice={practice}"
 
 /** `/chats?compose=1[&text=]` — More → "✦ Ask Claude / Coach", `/coach`, a sentence handed over. */
 fun Routes.chatsCompose(text: String? = null): String =
@@ -27,7 +31,7 @@ fun Routes.chatsCompose(text: String? = null): String =
 fun NavGraphBuilder.chatsGraph(nav: LabNav) {
     composable(
         Routes.route(CHATS_ROUTE_PATTERN),
-        arguments = listOf("compose", "text").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
+        arguments = listOf("compose", "text", "practice").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
     ) { entry -> ChatsRoute(nav, entry) }
 }
 
@@ -48,6 +52,16 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
             args?.remove("compose")
             args?.remove("text")
         }
+        if (args?.getString("practice") == "1") {
+            vm.openPractice()
+            args.remove("practice")
+        }
+    }
+    if (ui.practiceOpen) {
+        PracticeSituationSheet("chats", onDismiss = vm::closePractice) { id ->
+            vm.closePractice()
+            nav.open(Routes.claudeThread(id) + "?source=practice")
+        }
     }
     // Back from a chat (or into the app): refetch, so unread counts and order are the server's.
     LifecycleResumeEffect(vm) {
@@ -65,6 +79,7 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
             onToggleClaude = vm::toggleClaudeSection,
             onNewChat = vm::openPicker,
             onPickClaude = { vm.compose() },
+            onPickPractice = vm::openPractice,
             // One chat per pair: picking a person opens THE chat with them, never a second one.
             onPick = { p -> vm.closePicker(); vm.openChat(p.relationshipId) { id -> nav.open(Routes.chat(p.relationshipId, id)) } },
             onDismissPicker = vm::closePicker,

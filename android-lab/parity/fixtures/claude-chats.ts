@@ -32,7 +32,7 @@ function stored(c: FlatCtx): StoredClaudeContext {
     case 'card':
       return { kind: 'card', note_id: c.note_id!, ...(c.typed ? { typed: { answer: '银航' } } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'practice':
-      return { kind: 'practice', conversation_id: c.conversation_id!, ...(c.scenario ? { scenario: c.scenario } : {}), ...(c.label ? { label: c.label } : {}) };
+      return { kind: 'practice', ...(c.conversation_id ? { conversation_id: c.conversation_id } : {}), ...(c.scenario ? { scenario: c.scenario } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'chat_message':
       return { kind: 'chat_message', message_id: c.message_id!, ...(c.conversation_id ? { conversation_id: c.conversation_id } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'reader':
@@ -72,6 +72,8 @@ const CTXS: FlatCtx[] = [
   { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e1', exercise_type: 'note' },
   { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e2', exercise_type: 'conversation', answer_verdict: 'almost' },
   { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e3' },
+  // A new role-play (no conversation): the help chips, Ask, never resumed.
+  { kind: 'practice', scenario: '在饭店点菜', label: '在饭店点菜' },
 ];
 
 const chips: unknown[] = [];
@@ -91,7 +93,7 @@ for (const ctx of CTXS) {
 
 const TEXTS = ['', '   ', '我昨天去了商店', '我想买iPhone', 'How do I say hello?', '　你好　', '123'];
 const composers = ['general', 'card', 'chat_message', 'practice', 'reader', 'exercise'].flatMap((kind) =>
-  TEXTS.flatMap((text) => [false, true].map((started) => ({ kind, text, started, out: composerFor(kind as 'general', text, { started }) }))));
+  TEXTS.flatMap((text) => [false, true].flatMap((started) => [false, true].map((readOnly) => ({ kind, text, started, readOnly, out: composerFor(kind as 'general', text, { started, readOnly }) })))));
 
 const badges = CTXS.flatMap((ctx) =>
   ([null, 'ask', 'check', 'explain', 'translate'] as (ClaudeIntent | null)[]).map((firstIntent) => ({ ctx, firstIntent, out: contextBadge(stored(ctx), firstIntent) })));
@@ -116,13 +118,14 @@ const THREADS: FlatThread[] = [
   { id: 'g', ctx: { kind: 'chat_message', message_id: 'm1', conversation_id: 'c1' }, last_message_at: iso(60 * 24 * 40), created_at: iso(60 * 24 * 41) },
   { id: 'h', ctx: { kind: 'practice', conversation_id: 'c9' }, last_message_at: 'not a date', created_at: iso(3) },
   { id: 'i', ctx: { kind: 'card', note_id: 'n5' }, last_message_at: iso(30), created_at: iso(31) },
-  { id: 'j', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, last_message_at: iso(12), created_at: iso(13) },
-  { id: 'k', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, last_message_at: iso(45), created_at: iso(46) },
-  { id: 'l', ctx: { kind: 'reader', reader_id: 'r1' }, last_message_at: iso(2), created_at: iso(3) },
-  { id: 'm', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, last_message_at: iso(29), created_at: iso(30) },
-  { id: 'o', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }, last_message_at: iso(60), created_at: iso(61) },
+  { id: 'j', ctx: { kind: 'practice', scenario: '点菜' }, last_message_at: iso(1), created_at: iso(2) },
+  { id: 'rj', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, last_message_at: iso(12), created_at: iso(13) },
+  { id: 'rk', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, last_message_at: iso(45), created_at: iso(46) },
+  { id: 'rl', ctx: { kind: 'reader', reader_id: 'r1' }, last_message_at: iso(2), created_at: iso(3) },
+  { id: 'rm', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, last_message_at: iso(29), created_at: iso(30) },
+  { id: 'ro', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }, last_message_at: iso(60), created_at: iso(61) },
 ];
-const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' },
+const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' }, { kind: 'practice', scenario: '点菜' },
   { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, { kind: 'reader', reader_id: 'r1' }, { kind: 'reader', reader_id: 'r2' },
   { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }];
 const resume = resumeQueries.map((ctx) => ({ ctx, out: resumeThreadFor(THREADS.map(toCandidate), stored(ctx), NOW) }));

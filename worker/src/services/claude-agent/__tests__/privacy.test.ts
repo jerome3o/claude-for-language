@@ -76,6 +76,7 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
       chat_message: { kind: 'chat_message', message_id: 'm1' },
       reader: { kind: 'reader', reader_id: 'rd1', page_id: 'pg2' },
       exercise: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1' },
+      practice: { kind: 'practice', scenario: '在饭店点菜', note_id: 'n1' },
     };
     for (const kind of CONTEXT_KINDS) {
       const seen: unknown[] = [];
@@ -83,7 +84,7 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
       const create = vi.fn(async (p: unknown) => {
         seen.push(p);
         round++;
-        return round === 1 && kind !== 'general'
+        return round === 1 && kind !== 'general' && kind !== 'practice'
           ? { model: 'm', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'search_cards', input: { query: '银' } }], usage: {} }
           : { model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: '好' }], usage: {} };
       });

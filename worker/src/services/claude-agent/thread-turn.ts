@@ -23,14 +23,16 @@
  *
  * Contexts (the thread's `context_kind`): `general` (a plain chat — or, when it began with ✏️ Check /
  * 🔍 Explain / Translate, the Coach's follow-up context `coach`), `card` (Ask Claude on a card),
- * `chat_message` (Discuss with Claude — create_flashcards proposals are returned, never saved), `reader`
- * (a graded reader's page) and `exercise` (a mini lesson's exercise) — their create_flashcards saved into
- * the deck Claude picked from the listed ones, like the Coach's chat.
- * `practice` threads are read-only for now. The Coach's structured first replies (check / explain /
+ * `chat_message` (Discuss with Claude — create_flashcards proposals are returned, never saved),
+ * `practice` (a role-play: Claude may speak first — a reply with no learner message before it is the
+ * opener; its Chinese lines' clip in the persona's voice is made after the reply, never awaited). Old
+ * practice chats copied in are read-only. `reader` (a graded reader's page) and `exercise` (a mini lesson's
+ * exercise): their create_flashcards saved into the deck Claude picked from the listed ones, like the Coach's. The Coach's structured first replies (check / explain /
  * translate) and mistake lessons stay on `runCoachReply` (coach-replies.ts) — not streamed.
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { parseStoredContext } from '@shared/claude/context';
+import { PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
 import type { AskLanguage } from '@shared/study/askClaude';
 import type { CoachMessage, Env } from '../../types';
 import * as db from '../../db/queries';
@@ -45,6 +47,7 @@ import { LiveTurn, type LiveTurnOptions } from './live';
 import { rememberThread, type MemoryDeps } from './memory';
 import { applyCheckpointed, type ActionCheckpoint } from './run';
 import { proposedFlashcards } from './contexts/chat_message';
+import { practiceTurns } from './contexts/practice';
 import { runClaudeTurn } from './index';
 import * as store from './store';
 import { ClaudeContextError, type AgentRuntime, type ChatTurn, type ClaudeContext, type ToolAction } from './types';
@@ -84,7 +87,7 @@ export interface ThreadTurnDeps {
 
 type Checkpoint = ActionCheckpoint<ToolAction, AppliedToolResult>;
 
-type Mode = 'general' | 'coach' | 'card' | 'chat_message' | 'reader' | 'exercise';
+type Mode = 'general' | 'coach' | 'card' | 'chat_message' | 'practice' | 'reader' | 'exercise';
 
 interface PreparedThreadTurn {
   mode: Mode;
@@ -140,8 +143,18 @@ export async function prepareThreadTurn(database: D1Database, row: store.TurnRow
         language: language ?? 'en',
         question,
       };
-    case 'practice':
-      throw new StructuredCallError('This chat can’t continue here yet', false);
+    case 'practice': {
+      // An old practice chat (its conversation, no situation of its own) has no reply path.
+      if (!context.scenario && !context.note_id) throw new StructuredCallError('This chat can’t continue here yet', false);
+      const { scenario, ai_role, user_role, level, note_id } = context;
+      return {
+        mode: 'practice',
+        ctx: { kind: 'practice', ...(scenario ? { scenario } : {}), ...(ai_role ? { ai_role } : {}), ...(user_role ? { user_role } : {}), ...(level ? { level } : {}), ...(note_id ? { note_id } : {}) },
+        turns: practiceTurns(before),
+        language: language ?? 'zh',
+        question,
+      };
+    }
     default: {
       // A chat that began with the Coach's ✏️ Check / 🔍 Explain / Translate continues as a coach follow-up.
       if (before.some((m) => m.content_type === 'analysis')) {
@@ -176,8 +189,8 @@ function retryableOf(err: unknown): boolean {
 }
 
 /** The model of a turn: the E2E stand-in first (hermetic E2E), else the caller's, else the real one (null = none). */
-function clientFor(env: ThreadTurnEnv, deps: ThreadTurnDeps, language: AskLanguage | undefined): Pick<Anthropic, 'messages'> | undefined | null {
-  if (env.E2E_TEST_MODE === 'true') return fakeStreamingClient(language ?? 'en');
+function clientFor(env: ThreadTurnEnv, deps: ThreadTurnDeps, language: AskLanguage | undefined, mode: Mode): Pick<Anthropic, 'messages'> | undefined | null {
+  if (env.E2E_TEST_MODE === 'true') return fakeStreamingClient(language ?? 'en', undefined, mode === 'practice' && language === 'zh' ? 'practice' : undefined);
   if (deps.client) return deps.client;
   return env.ANTHROPIC_API_KEY ? undefined : null;
 }
@@ -211,7 +224,7 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
 
     let cp = parseCheckpoint(row.checkpoint);
     if (!cp) {
-      const client = clientFor(env, opts, prepared.language);
+      const client = clientFor(env, opts, prepared.language, prepared.mode);
       if (client === null) throw new StructuredCallError('AI is not configured', false);
       const out = await runClaudeTurn(
         env,
@@ -232,7 +245,7 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
         },
       );
       rounds = out.rounds;
-      const answer = prepared.mode === 'general' ? storedAskAnswer(out.answer, prepared.language ?? 'zh') : out.answer;
+      const answer = prepared.mode === 'general' || prepared.mode === 'practice' ? storedAskAnswer(out.answer, prepared.language ?? 'zh') : out.answer;
       if (!answer.trim()) throw new StructuredCallError('Claude gave an empty answer', true);
       const results: AppliedToolResult[] = readOnlyResults(out.readOnlyToolCalls);
       let actions = out.toolActions;
@@ -264,7 +277,22 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
     await live.done(cp.answer);
 
     if (prepared.mode === 'card' && prepared.question) await dualWriteNoteQuestion(env.DB, row, prepared, cp.answer, messageId);
-    if (prepared.mode !== 'coach' && prepared.mode !== 'chat_message' && prepared.language === 'zh') {
+    if (prepared.mode === 'practice' && prepared.language === 'zh') {
+      // A role-play line is meant to be heard: its clip in the persona's voice, made now in the
+      // background (never awaited) so ▶ / 🎧 play at once — the same R2 `tts-cache/` key
+      // `POST /api/practice/tts` serves both apps.
+      const clip = clipMaker(env, opts);
+      if (clip) {
+        const ctx = parseStoredContext(row.t_context_kind, row.t_context_json);
+        const voiceId = ctx.kind === 'practice' ? practiceVoiceFor(ctx) : undefined;
+        const work = (async () => {
+          if (voiceId) await clip(env, cp!.answer, { voiceId, speed: PRACTICE_VOICE_SPEED });
+        })().catch((err) => console.error('[claude-turn] practice clip failed', messageId, err instanceof Error ? err.message : err));
+        if (opts.waitUntil) opts.waitUntil(work);
+        else await work;
+      }
+    }
+    if ((prepared.mode === 'general' || prepared.mode === 'card' || prepared.mode === 'reader' || prepared.mode === 'exercise') && prepared.language === 'zh') {
       const clip = clipMaker(env, opts);
       if (clip) {
         const work = (async () => {

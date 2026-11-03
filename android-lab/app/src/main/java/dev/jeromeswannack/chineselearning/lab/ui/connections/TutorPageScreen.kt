@@ -36,7 +36,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
@@ -90,7 +89,8 @@ data class TutorPageUi(
 class TutorPageActions(
     val onBack: () -> Unit = {},
     val onMessage: () -> Unit = {},
-    val onNewPracticeConversation: (PracticeConversationBody) -> Unit = {},
+    /** A role-play started from the Claude page ("🎭 Practice a situation"): its Claude thread's id. */
+    val onPracticeStarted: (String) -> Unit = {},
     val onVideoCall: () -> Unit = {},
     val onJoinCall: (String) -> Unit = {},
     /** The lesson board (`/connections/:relId/board`). */
@@ -147,7 +147,7 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                PrimaryPill(if (isClaude) "💬 New practice conversation" else "💬 Message", Modifier.weight(1f).height(52.dp), enabled = !ui.busy) {
+                PrimaryPill(if (isClaude) "🎭 Practice a situation" else "💬 Message", Modifier.weight(1f).height(52.dp), enabled = !ui.busy) {
                     if (isClaude) newConv = true else actions.onMessage()
                 }
                 if (!isClaude) SecondaryPill(if (ui.callBusy) "Starting…" else "📹 Video call", Modifier.weight(0.8f), enabled = !ui.callBusy) { actions.onVideoCall() }
@@ -162,7 +162,7 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
             item { SectionHeader("Conversations") }
             item {
                 LoadableContent(ui.conversations, onRetry = actions.onRetry, isEmpty = { it.isEmpty() }, empty = {
-                    EmptyState("💬", "No conversations yet", body = "Start a practice conversation", actionLabel = "New conversation", onAction = { newConv = true })
+                    EmptyState("🎭", "No old practice chats", body = "Role-plays with Claude are in Chats now", actionLabel = "Practice a situation", onAction = { newConv = true })
                 }) { list -> ConversationList(list, actions.onOpenConversation) }
             }
         } else {
@@ -214,7 +214,8 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
             danger = true,
         )
     }
-    if (newConv) NewPracticeConversationSheet(onDismiss = { newConv = false }, busy = ui.busy) { newConv = false; actions.onNewPracticeConversation(it) }
+    // Claude: a new role-play is a Claude thread (docs/CHAT.md "Practice with Claude").
+    if (newConv) dev.jeromeswannack.chineselearning.lab.ui.claude.PracticeSituationSheet("claude_page", onDismiss = { newConv = false }) { id -> newConv = false; actions.onPracticeStarted(id) }
 }
 
 /**
@@ -360,28 +361,3 @@ private fun FlagCard(flag: FlagDto, actions: TutorPageActions, onDelete: () -> U
     }
 }
 
-/** Claude practice conversation: title, scenario, roles — all optional (web: New Conversation modal). */
-@Composable
-private fun NewPracticeConversationSheet(onDismiss: () -> Unit, busy: Boolean, onStart: (PracticeConversationBody) -> Unit) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var scenario by rememberSaveable { mutableStateOf("") }
-    var userRole by rememberSaveable { mutableStateOf("") }
-    var aiRole by rememberSaveable { mutableStateOf("") }
-    LabFormSheet(
-        onDismiss = onDismiss,
-        title = "New Practice Conversation",
-        footer = {
-            PrimaryPill(if (busy) "Creating..." else "Start Chat", Modifier.weight(1f).height(52.dp), enabled = !busy) {
-                onStart(PracticeConversationBody(title.trim().ifEmpty { null }, scenario.trim().ifEmpty { null }, userRole.trim().ifEmpty { null }, aiRole.trim().ifEmpty { null }))
-            }
-        },
-    ) {
-        run {
-            OutlinedTextField(title, { title = it }, label = { Text("Title (optional)") }, placeholder = { Text("e.g., Restaurant Practice") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(scenario, { scenario = it }, label = { Text("Scenario (optional)") }, placeholder = { Text("You are ordering food at a Chinese restaurant. The waiter only speaks Mandarin.") }, minLines = 3, modifier = Modifier.fillMaxWidth())
-            Text("This helps Claude understand the context for the conversation.", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
-            OutlinedTextField(userRole, { userRole = it }, label = { Text("Your role (optional)") }, placeholder = { Text("e.g., A tourist visiting Beijing") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(aiRole, { aiRole = it }, label = { Text("Claude's role (optional)") }, placeholder = { Text("e.g., A friendly restaurant waiter") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        }
-    }
-}

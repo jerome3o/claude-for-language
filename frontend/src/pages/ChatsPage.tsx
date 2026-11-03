@@ -28,6 +28,7 @@ import type { ClaudeIntent } from '@shared/claude/context';
 import { effectiveListening, listeningPreview } from '@shared/chats/listening';
 import { loadRevealed, refreshChatListening, useAllChatListening } from '../services/chatListening';
 import { startClaudeThread, wireClaudeOutbox, type LocalClaudeThread } from '../services/claudeThreads';
+import { PracticeSituationSheet } from '../components/claude/PracticeSituationSheet';
 import { saveDraft } from '../services/chatDrafts';
 import { useAskLanguage } from '../services/askClaudeLanguage';
 import { ChatsComposer } from '../components/chats/ChatsComposer';
@@ -258,6 +259,7 @@ export function ChatsPage() {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<InboxFilter>('all');
   const [picking, setPicking] = useState(false);
+  const [practising, setPractising] = useState(false);
   const [claudeOpen, setClaudeOpen] = useState(readSectionOpen);
   const [draft, setDraft] = useState('');
   const [composeRequest, setComposeRequest] = useState(0);
@@ -272,8 +274,14 @@ export function ChatsPage() {
   }, []);
 
   // ?compose=1 (More → Ask Claude, /coach) and ?text= (a sentence handed over): the box comes into
-  // view, typing, with the text; the URL is cleaned.
+  // view, typing, with the text; the URL is cleaned. ?practice=1 (an old "new chat with Claude" link):
+  // the "Practice a situation" sheet.
   useEffect(() => {
+    if (params.get('practice') === '1') {
+      setPractising(true);
+      setParams({}, { replace: true });
+      return;
+    }
     const text = params.get('text');
     if (params.get('compose') !== '1' && !text) return;
     if (text) setDraft(text);
@@ -510,6 +518,23 @@ export function ChatsPage() {
                 <span className="chats-muted"> · ask anything</span>
               </span>
             </button>
+            <button
+              type="button"
+              className="chats-sheet-person"
+              onClick={() => {
+                setPicking(false);
+                setPractising(true);
+              }}
+              data-testid="chats-new-practice"
+            >
+              <span className="chats-avatar chats-avatar-claude" style={{ width: 40, height: 40, fontSize: 18 }} aria-hidden="true">
+                🎭
+              </span>
+              <span>
+                <strong>🎭 Practice a situation…</strong>
+                <span className="chats-muted"> · a role-play with Claude</span>
+              </span>
+            </button>
             {people.map((p) => (
               <button
                 key={p.relId}
@@ -531,6 +556,7 @@ export function ChatsPage() {
           </div>
         </div>
       )}
+      {practising && <PracticeSituationSheet source="chats" onClose={() => setPractising(false)} />}
     </div>
   );
 }

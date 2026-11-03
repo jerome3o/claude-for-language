@@ -20,6 +20,8 @@ export interface ClaudeChip {
   id: string;
   label: string;
   question: string;
+  /** The question goes into the box for the learner to finish (🆘 How do I say…) instead of being sent. */
+  fill?: boolean;
 }
 
 /**
@@ -96,6 +98,20 @@ function chatMessageChips(zh: boolean): ClaudeChip[] {
     chip('meaning', zh, '什么意思 What does it mean', 'What does it mean', '这条消息是什么意思？请一个词一个词地解释。', 'What does this message mean? Break it down word by word.'),
     chip('natural', zh, '自然吗 Is it natural', 'Is it natural', '这样说自然吗？有没有更地道的说法？', 'Is this natural Chinese? How would a native speaker say it?'),
     chip('reply', zh, '怎么回复 How to reply', 'How to reply', '我可以怎么回复？给我两三个简单的回答。', 'How could I reply? Give me two or three simple replies with pinyin.'),
+    chip('cards', zh, '做卡片 Make flashcards', 'Make flashcards', '请把这条消息里值得学的词做成卡片。', 'Please make flashcards for the key words and phrases in this message.'),
+  ];
+}
+
+/**
+ * A role-play (practice): the learner steps out of it for help — Claude answers as a tutor, then
+ * carries on in character (shared/claude/practice.ts `isPracticeHelpRequest`). "How do I say…" goes
+ * into the box to be finished.
+ */
+function practiceChips(zh: boolean): ClaudeChip[] {
+  return [
+    chip('hint', zh, '💡 提示 Give me a hint', '💡 Give me a hint', '💡 提示一下：我下一句可以说什么？', '💡 Give me a hint: what could I say next?'),
+    { ...chip('say', zh, '🆘 怎么说 How do I say…', '🆘 How do I say…', '🆘 怎么说：', '🆘 How do I say: '), fill: true },
+    chip('correct', zh, '✏️ 纠正 Correct my last message', '✏️ Correct my last message', '✏️ 请改一下我上一句话。', '✏️ Please correct my last message.'),
   ];
 }
 
@@ -171,7 +187,7 @@ export interface ChipOptions {
 
 /**
  * The suggestion chips above a thread's composer: shown while the thread is empty and after each
- * reply (at most three then). A practice chat (read-only) has none.
+ * reply (at most three then). A practice chat's help chips are offered again and again (never "used").
  */
 export function chipsFor(
   ctx: Pick<ClaudeThreadContext, 'kind'> & { typed?: unknown; looked_up?: readonly string[]; said_wrong?: readonly string[]; exercise_type?: string; answer?: { verdict?: string } },
@@ -195,6 +211,8 @@ export function chipsFor(
     case 'exercise':
       list = exerciseChips(zh, ctx);
       break;
+    case 'practice':
+      return practiceChips(zh);
     default:
       return [];
   }
@@ -212,7 +230,7 @@ export const CLAUDE_INTENT_LABELS: Record<ClaudeIntent, string> = {
   translate: '🔤 Translate',
 };
 
-export const PRACTICE_READ_ONLY_NOTE = 'This practice chat is read-only for now — practise a new situation from the chat with your tutor.';
+export const PRACTICE_READ_ONLY_NOTE = 'This practice chat is from the old chat screen and can’t go on — start a new one: ✏️ → 🎭 Practice a situation.';
 
 export interface ClaudeComposer {
   /** The buttons, in order; the first is the primary one (Enter / ➤). Empty = no composer. */
@@ -222,21 +240,21 @@ export interface ClaudeComposer {
   enabled: boolean;
   /** A line under the box (what Check / Explain / Translate would do), or null. */
   hint: string | null;
-  /** A practice chat: no composer, a read-only banner instead. */
+  /** A read-only thread (an old practice chat copied in): no composer, a banner instead. */
   readOnly: boolean;
 }
 
 /**
  * Which buttons a thread's composer offers for what is in the box. Check / Explain / Translate
  * only START a general chat (the server answers them with the Coach's structured reply), so a
- * general thread that already has messages — and every card / chat-message / reader / exercise
- * thread — has Ask only.
- * A new general chat: Ask first, then the Coach's buttons for the text (`coachButtons`): Chinese →
- * ✏️ Check + 🔍 Explain, English → Translate; empty → Ask / Check / Explain, disabled.
+ * general thread that already has messages — and every card / chat-message / practice / reader /
+ * exercise thread — has Ask only. A new general chat: Ask first, then the Coach's buttons for the text
+ * (`coachButtons`): Chinese → ✏️ Check + 🔍 Explain, English → Translate; empty → Ask / Check / Explain,
+ * disabled. A read-only thread (an old practice chat copied in) has no composer.
  */
-export function composerFor(kind: ClaudeContextKind, text: string, opts: { started: boolean }): ClaudeComposer {
+export function composerFor(kind: ClaudeContextKind, text: string, opts: { started: boolean; readOnly?: boolean }): ClaudeComposer {
   const hasText = text.trim().length > 0;
-  if (kind === 'practice') return { intents: [], primary: null, enabled: false, hint: PRACTICE_READ_ONLY_NOTE, readOnly: true };
+  if (opts.readOnly) return { intents: [], primary: null, enabled: false, hint: PRACTICE_READ_ONLY_NOTE, readOnly: true };
   if (kind !== 'general' || opts.started) return { intents: ['ask'], primary: 'ask', enabled: hasText, hint: null, readOnly: false };
   const b = coachButtons(text);
   return { intents: ['ask', ...b.actions], primary: 'ask', enabled: b.enabled, hint: b.hint, readOnly: false };
@@ -314,14 +332,14 @@ function timeOf(iso: string | null | undefined): number {
 
 /**
  * Which existing thread opening Claude in a context continues, or null for a new one. A plain chat
- * never resumes (each is new). A card's, a reader page's or an exercise's newest thread resumes
- * while its last message is within RESUME_WINDOW_MS of now (the 30-minute rule the server groups
- * card questions by); a chat
- * message's or a practice chat's thread always resumes (one per message / chat). Archived threads
- * never do. Ties: the newest activity, then the id.
+ * and a new role-play never resume (each is new). A card's, a reader page's or an exercise's newest
+ * thread resumes while its last message is within RESUME_WINDOW_MS of now (the 30-minute rule the server
+ * groups card questions by); a chat message's thread (Discuss with Claude) or an old practice chat's
+ * always resumes (one per message / chat). Archived threads never do. Ties: the newest activity, then the id.
  */
 export function resumeThreadFor(threads: readonly ResumeCandidate[], ctx: ClaudeThreadContext, nowMs: number): string | null {
   if (ctx.kind === 'general') return null;
+  if (ctx.kind === 'practice' && !ctx.conversation_id) return null;
   const ref = contextRef(ctx);
   let best: { id: string; at: number } | null = null;
   for (const t of threads) {

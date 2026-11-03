@@ -34,6 +34,18 @@ export type ClaudeContext =
     }
   /** A Sentence Coach follow-up about a checked / explained / translated sentence (the history carries the sentence). */
   | { kind: 'coach'; conversation_id?: string }
+  /**
+   * A role-play (practice thread): Claude plays someone in a situation; the descriptor as stored on
+   * the thread (shared/claude/practice.ts). `note_id` = started from a study card (its word is woven in).
+   */
+  | {
+      kind: 'practice';
+      scenario?: string;
+      ai_role?: string;
+      user_role?: string;
+      level?: string;
+      note_id?: string;
+    }
   /** Discuss with Claude about one chat message. */
   | {
       kind: 'chat_message';
@@ -64,7 +76,7 @@ export type ClaudeContext =
 export type ContextKind = ClaudeContext['kind'];
 export type ContextOf<K extends ContextKind> = Extract<ClaudeContext, { kind: K }>;
 
-export const CONTEXT_KINDS: readonly ContextKind[] = ['general', 'card', 'coach', 'chat_message', 'reader', 'exercise'];
+export const CONTEXT_KINDS: readonly ContextKind[] = ['general', 'card', 'coach', 'practice', 'chat_message', 'reader', 'exercise'];
 
 // ---------- A turn ----------
 

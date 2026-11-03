@@ -202,30 +202,8 @@ data class VoiceSettingsBody(val voice_id: String? = null, val voice_speed: Doub
 suspend fun Api.setVoiceSettings(conversationId: String, voiceId: String?, speed: Double?): ChatConversationDto =
     patch("/api/conversations/${enc(conversationId)}/voice-settings", VoiceSettingsBody(voiceId, speed))
 
-// ---------------- Discuss with Claude ----------------
-
-@Serializable
-data class DiscussionTurn(val role: String, val content: String)
-
-@Serializable
-data class DiscussionDto(val id: String? = null, val messages: List<DiscussionTurn> = emptyList())
-
-suspend fun Api.messageDiscussion(messageId: String): DiscussionDto = get("/api/messages/${enc(messageId)}/discussion")
-
-@Serializable
-data class SaveDiscussionBody(val messages: List<DiscussionTurn>)
-
-suspend fun Api.saveMessageDiscussion(messageId: String, turns: List<DiscussionTurn>): Unit =
-    exchange("PUT", "/api/messages/${enc(messageId)}/discussion", encode(SaveDiscussionBody(turns)), Unit.serializer())
-
-@Serializable
-data class DiscussBody(val question: String, val conversationHistory: List<DiscussionTurn>? = null)
-
-@Serializable
-data class DiscussAnswer(val response: String = "", val flashcards: List<SuggestedCard>? = null)
-
-suspend fun Api.discussMessage(messageId: String, question: String, history: List<DiscussionTurn>?): DiscussAnswer =
-    post("/api/messages/${enc(messageId)}/discuss", DiscussBody(question, history))
+// Discuss with Claude is a Claude thread now (ui/claude/DiscussClaudeSheet.kt, context chat_message);
+// the old `/api/messages/:id/discuss|discussion` stay on the server for older builds only.
 
 // ---------------- saving cards ----------------
 

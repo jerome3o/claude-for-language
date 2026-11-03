@@ -128,7 +128,8 @@ fun studyMenuItems(view: CardView, ui: StudyUi, actions: StudyActions, hasRecord
         if (view.note.funFacts.isNullOrBlank()) add(StudyMenuItem("fun-fact", "Generate fun fact", "💡", needsInternet, !ui.aiAvailable, CardBusy.FUN_FACT in busy, actions.onGenerateFunFact))
         add(StudyMenuItem("regen-audio", "Regenerate audio", "🔊", needsInternet, !ui.aiAvailable, CardBusy.REGEN_AUDIO in busy, actions.onRegenerateAudio))
         add(StudyMenuItem("new-voice", "New voice", "🗣️", needsInternet, !ui.aiAvailable, CardBusy.NEW_VOICE in busy, actions.onNewVoice))
-        if (ui.extras.roleplayRelId != null) add(StudyMenuItem("roleplay", "Roleplay this word", "🎭", needsInternet, !ui.aiAvailable, CardBusy.ROLEPLAY in busy, actions.onRoleplay))
+        // A role-play with Claude around this word (a practice thread) — no Claude connection needed any more.
+        add(StudyMenuItem("roleplay", "Roleplay this word", "🎭", needsInternet, !ui.aiAvailable, CardBusy.ROLEPLAY in busy, actions.onRoleplay))
         // To the coach and back: the card stays exactly as it is (the session keeps it) and the
         // coach's back returns to it. Prefilled with the card's sentence, not sent (web: same item).
         add(StudyMenuItem("coach", "Sentence coach", "✏️", needsInternet, onSelect = { actions.onOpenCoach(view.note.sentenceClue?.takeIf { it.isNotBlank() } ?: view.note.hanzi) }))

@@ -2,9 +2,10 @@
  * Claude threads — the context descriptor (docs/CHAT.md "Claude threads"; the unified-Claude-chats
  * plan §2.3). Every conversation with Claude is a THREAD in some context: a chat about anything
  * (`general` — the Chats composer, the Sentence Coach, its "💬 Ask Claude" chat), Ask Claude on a
- * study card (`card`), a Claude practice / role-play chat (`practice`, read-only for now),
- * Discuss with Claude about one chat message (`chat_message`), a page of a graded reader (`reader`)
- * or one exercise of a mini lesson (`exercise`).
+ * study card (`card`), a Claude practice / role-play chat (`practice` — the copied old ones from
+ * the tutor-chat tables carry their `conversation_id` and stay read-only; new ones carry the scenario,
+ * shared/claude/practice.ts), Discuss with Claude about one chat message (`chat_message`), a page of a
+ * graded reader (`reader`) or one exercise of a mini lesson (`exercise`).
  *
  * Stored on the thread as `context_kind` + `context_ref` (canonical ref) + `context_json` (the
  * descriptor + a snapshot — label / sublabel — so the inbox draws a badge offline, without a fetch).
@@ -41,7 +42,21 @@ export type ClaudeThreadContext =
       /** The answer typed on a meaning → hanzi / audio → hanzi card, when he asks right after it. */
       typed?: { answer: string; correct?: string };
     }
-  | { kind: 'practice'; conversation_id: string; scenario?: string; ai_role?: string; user_role?: string; voice_id?: string }
+  | {
+      kind: 'practice';
+      /** An old practice chat copied from the tutor-chat tables (`pc-<id>`, read-only). New ones have none. */
+      conversation_id?: string;
+      /** The situation ("在饭店点菜"), who Claude plays, who the learner is. */
+      scenario?: string;
+      ai_role?: string;
+      user_role?: string;
+      /** beginner | intermediate | advanced (shared/claude/practice.ts PRACTICE_LEVELS). */
+      level?: string;
+      /** The persona's voice for read-aloud (a LESSON_VOICE_IDS id; the server picks it at creation). */
+      voice_id?: string;
+      /** Started from a study card ("Roleplay this word"): its note. */
+      note_id?: string;
+    }
   | { kind: 'chat_message'; message_id: string; conversation_id?: string }
   | {
       kind: 'reader';
@@ -151,13 +166,19 @@ export function parseClaudeContext(raw: unknown): ClaudeThreadContext | null {
       return out;
     }
     case 'practice': {
+      // An old copied chat (its conversation), or a new one: a situation and / or a card's word.
+      const out: Extract<ClaudeThreadContext, { kind: 'practice' }> = { kind: 'practice' };
       const conversationId = id(r.conversation_id);
-      if (!conversationId) return null;
-      const out: ClaudeThreadContext = { kind: 'practice', conversation_id: conversationId };
+      if (conversationId) out.conversation_id = conversationId;
       for (const k of ['scenario', 'ai_role', 'user_role', 'voice_id'] as const) {
         const v = text(r[k]);
         if (v) out[k] = v;
       }
+      const level = text(r.level, 40);
+      if (level) out.level = level;
+      const noteId = id(r.note_id);
+      if (noteId) out.note_id = noteId;
+      if (!out.conversation_id && !out.scenario && !out.note_id) return null;
       return out;
     }
     case 'chat_message': {
@@ -218,7 +239,7 @@ export function contextRef(ctx: ClaudeThreadContext): string | null {
     case 'card':
       return ctx.note_id;
     case 'practice':
-      return ctx.conversation_id;
+      return ctx.conversation_id ?? null;
     case 'chat_message':
       return ctx.message_id;
     case 'reader':
@@ -230,10 +251,9 @@ export function contextRef(ctx: ClaudeThreadContext): string | null {
   }
 }
 
-/** Which intents a context's composer offers: the Coach's buttons only in a general chat. */
+/** Which intents a context's composer offers: the Coach's buttons only in a general chat; Ask elsewhere. */
 export function intentsFor(kind: ClaudeContextKind): readonly ClaudeIntent[] {
   if (kind === 'general') return CLAUDE_INTENTS;
-  if (kind === 'practice') return [];
   return ['ask'];
 }
 

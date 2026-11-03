@@ -96,6 +96,8 @@ data class ChatsUi(
     /** People with an active relationship (new chat). */
     val people: List<ChatPerson> = emptyList(),
     val pickerOpen: Boolean = false,
+    /** "🎭 Practice a situation" is open (drawn by the route: ChatsNav). */
+    val practiceOpen: Boolean = false,
     /** Listening mode (docs/CHAT.md): the settings, and the ids revealed on this phone per conversation. */
     val listening: dev.jeromeswannack.chineselearning.lab.data.api.ListeningStateDto? = null,
     val revealed: Map<String, List<String>> = emptyMap(),
@@ -154,6 +156,8 @@ class ChatsActions(
     val onNewChat: () -> Unit = {},
     /** The picker's "✦ Claude": the box, typing. */
     val onPickClaude: () -> Unit = {},
+    /** The picker's "🎭 Practice a situation…": the situation sheet. */
+    val onPickPractice: () -> Unit = {},
     val onPick: (ChatPerson) -> Unit = {},
     val onDismissPicker: () -> Unit = {},
     val onConnections: () -> Unit = {},
@@ -165,6 +169,7 @@ object ChatsTags {
     const val SEARCH = "chats-search"
     const val NEW = "chats-new"
     const val NEW_CLAUDE = "chats-new-claude"
+    const val NEW_PRACTICE = "chats-new-practice"
     const val CONTEXT_CHIP = "chats-context-chip"
     const val CLAUDE_SECTION = "chats-claude-section"
     const val EMPTY = "chats-empty"
@@ -500,7 +505,7 @@ private fun PersonInitial(name: String?, size: Dp) {
     }
 }
 
-/** ✏️ "New chat with…": ✦ Claude first (the box, typing), then each person (THE chat with them). */
+/** ✏️ "New chat with…": ✦ Claude first (the box, typing), 🎭 Practice a situation…, then each person (THE chat with them). */
 @Composable
 private fun PersonPicker(people: List<ChatPerson>, actions: ChatsActions) {
     LabBottomSheet(onDismiss = actions.onDismissPicker, title = "New chat with…") {
@@ -513,6 +518,18 @@ private fun PersonPicker(people: List<ChatPerson>, actions: ChatsActions) {
             Column(Modifier.weight(1f)) {
                 Text("✦ Claude", color = Lab.colors.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text("Ask anything", color = Lab.colors.muted, fontSize = 13.sp)
+            }
+        }
+        HorizontalDivider(Modifier.padding(start = 82.dp), color = Lab.colors.faint)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 64.dp).clickable(onClick = actions.onPickPractice).padding(horizontal = 20.dp, vertical = 8.dp).testTag(ChatsTags.NEW_PRACTICE),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0xFFD97706).copy(alpha = 0.14f)), contentAlignment = Alignment.Center) { Text("🎭", fontSize = 20.sp) }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text("🎭 Practice a situation…", color = Lab.colors.ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("A role-play with Claude", color = Lab.colors.muted, fontSize = 13.sp)
             }
         }
         people.forEach { p ->

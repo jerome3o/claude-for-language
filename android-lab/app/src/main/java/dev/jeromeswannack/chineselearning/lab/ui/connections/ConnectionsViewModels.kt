@@ -19,7 +19,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MyClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.PracticeConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentSharedDeckDto
@@ -169,20 +168,6 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
                 val id = ChatPair.theChat(app, relId)
                 status.value = Busy()
                 open(id)
-            } catch (e: Exception) {
-                status.value = Busy(false, e.userMessage(), error = true)
-            }
-        }
-    }
-
-    fun newPracticeConversation(body: PracticeConversationBody, open: (String) -> Unit) {
-        status.value = Busy(true)
-        viewModelScope.launch {
-            try {
-                val c = app.repo.api.startConversation(relId, body)
-                status.value = Busy()
-                conversations.refresh()
-                open(c.id)
             } catch (e: Exception) {
                 status.value = Busy(false, e.userMessage(), error = true)
             }

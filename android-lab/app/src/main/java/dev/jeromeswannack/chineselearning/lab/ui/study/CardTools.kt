@@ -16,7 +16,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.FlashcardDraft
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateAudioOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateRecordingBody
 import dev.jeromeswannack.chineselearning.lab.data.api.GenerateSentencesBody
-import dev.jeromeswannack.chineselearning.lab.data.api.NewConversationBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteUpdate
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceClueOptions
@@ -30,7 +29,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestionWords
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
 import dev.jeromeswannack.chineselearning.lab.data.api.translateNoteQuestion
-import dev.jeromeswannack.chineselearning.lab.data.api.createConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.createNote
 import dev.jeromeswannack.chineselearning.lab.data.api.defineVocabulary
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteNote
@@ -42,7 +40,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.generateNoteAudio
 import dev.jeromeswannack.chineselearning.lab.data.api.generateNoteAudioRecording
 import dev.jeromeswannack.chineselearning.lab.data.api.generateSentenceClue
 import dev.jeromeswannack.chineselearning.lab.data.api.generateSentenceSet
-import dev.jeromeswannack.chineselearning.lab.data.api.initiateAIConversation
 import dev.jeromeswannack.chineselearning.lab.data.api.noteAudioRecordings
 import dev.jeromeswannack.chineselearning.lab.data.api.noteSentences
 import dev.jeromeswannack.chineselearning.lab.data.api.textToFlashcard
@@ -321,23 +318,6 @@ class CardTools(private val app: LabApp) {
     /** `{"error":"…"}` → "…" for a refused outbox item. */
     private fun serverSentence(body: String): String =
         runCatching { (kotlinx.serialization.json.Json.parseToJsonElement(body) as kotlinx.serialization.json.JsonObject)["error"]!!.let { (it as kotlinx.serialization.json.JsonPrimitive).content } }.getOrDefault(body)
-
-    // ---------------- roleplay ----------------
-
-    /** "Roleplay this word": a Claude conversation about this word; returns the chat route. */
-    suspend fun roleplay(relId: String, note: NoteEntity): String {
-        val conv = api.createConversation(
-            relId,
-            NewConversationBody(
-                title = "Practice: ${note.hanzi}",
-                scenario = "The student is practicing the word/phrase: ${note.hanzi} (${note.pinyin}) meaning \"${note.english}\". Start a conversation that naturally uses this vocabulary. Keep it at a beginner-intermediate level.",
-                user_role = "Chinese language student practicing vocabulary",
-                ai_role = "Friendly Chinese conversation partner",
-            ),
-        )
-        api.initiateAIConversation(conv.id)
-        return "/connections/$relId/chat/${conv.id}"
-    }
 
     // ---------------- Ask Claude ----------------
 

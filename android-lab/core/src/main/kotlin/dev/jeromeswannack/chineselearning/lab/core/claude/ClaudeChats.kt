@@ -86,7 +86,8 @@ object ClaudeChats {
 
     // ---------- chipsFor ----------
 
-    data class Chip(val id: String, val label: String, val question: String)
+    /** [fill] = the question goes into the box to be finished (🆘 How do I say…) instead of being sent. */
+    data class Chip(val id: String, val label: String, val question: String, val fill: Boolean = false)
 
     const val CHIPS_AFTER_REPLY_MAX = 3
 
@@ -103,6 +104,14 @@ object ClaudeChats {
         chip("meaning", zh, "什么意思 What does it mean", "What does it mean", "这条消息是什么意思？请一个词一个词地解释。", "What does this message mean? Break it down word by word."),
         chip("natural", zh, "自然吗 Is it natural", "Is it natural", "这样说自然吗？有没有更地道的说法？", "Is this natural Chinese? How would a native speaker say it?"),
         chip("reply", zh, "怎么回复 How to reply", "How to reply", "我可以怎么回复？给我两三个简单的回答。", "How could I reply? Give me two or three simple replies with pinyin."),
+        chip("cards", zh, "做卡片 Make flashcards", "Make flashcards", "请把这条消息里值得学的词做成卡片。", "Please make flashcards for the key words and phrases in this message."),
+    )
+
+    /** A role-play's help chips (port of practiceChips): 💡 hint, 🆘 how do I say… (into the box), ✏️ correct me. */
+    private fun practiceChips(zh: Boolean) = listOf(
+        chip("hint", zh, "💡 提示 Give me a hint", "💡 Give me a hint", "💡 提示一下：我下一句可以说什么？", "💡 Give me a hint: what could I say next?"),
+        chip("say", zh, "🆘 怎么说 How do I say…", "🆘 How do I say…", "🆘 怎么说：", "🆘 How do I say: ").copy(fill = true),
+        chip("correct", zh, "✏️ 纠正 Correct my last message", "✏️ Correct my last message", "✏️ 请改一下我上一句话。", "✏️ Please correct my last message."),
     )
 
     private fun readerChips(zh: Boolean, ctx: Context): List<Chip> {
@@ -156,6 +165,8 @@ object ClaudeChats {
             CHAT_MESSAGE -> chatMessageChips(zh)
             READER -> readerChips(zh, ctx)
             EXERCISE -> exerciseChips(zh, ctx)
+            // Offered every time (never "used", never trimmed).
+            PRACTICE -> return practiceChips(zh)
             else -> return emptyList()
         }.filter { it.id !in used }
         return if (replies > 0) list.take(CHIPS_AFTER_REPLY_MAX) else list
@@ -165,14 +176,17 @@ object ClaudeChats {
 
     val INTENT_LABELS = mapOf("ask" to "Ask", "check" to "✏️ Check", "explain" to "🔍 Explain", "translate" to "🔤 Translate")
 
-    const val PRACTICE_READ_ONLY_NOTE = "This practice chat is read-only for now — practise a new situation from the chat with your tutor."
+    const val PRACTICE_READ_ONLY_NOTE = "This practice chat is from the old chat screen and can’t go on — start a new one: ✏️ → 🎭 Practice a situation."
 
     data class Composer(val intents: List<String>, val primary: String?, val enabled: Boolean, val hint: String?, val readOnly: Boolean)
 
-    /** Port of composerFor: Check / Explain / Translate only start a general chat; everything else asks. */
-    fun composerFor(kind: String, text: String, started: Boolean): Composer {
+    /**
+     * Port of composerFor: Check / Explain / Translate only start a general chat; everything else
+     * (a card, a chat message, a role-play) asks. A [readOnly] thread (an old practice chat copied in) has none.
+     */
+    fun composerFor(kind: String, text: String, started: Boolean, readOnly: Boolean = false): Composer {
         val hasText = NoteSearch.jsTrim(text).isNotEmpty()
-        if (kind == PRACTICE) return Composer(emptyList(), null, false, PRACTICE_READ_ONLY_NOTE, true)
+        if (readOnly) return Composer(emptyList(), null, false, PRACTICE_READ_ONLY_NOTE, true)
         if (kind != GENERAL || started) return Composer(listOf("ask"), "ask", hasText, null, false)
         val b = CoachActions.buttons(text)
         return Composer(listOf("ask") + b.actions.map { it.id }, "ask", b.enabled, b.hint, false)
@@ -232,6 +246,8 @@ object ClaudeChats {
     /** Port of resumeThreadFor: the thread opening Claude in [ctx] continues, or null for a new one. */
     fun resumeThreadFor(threads: List<ResumeCandidate>, ctx: Context, nowMs: Long): String? {
         if (ctx.kind == GENERAL) return null
+        // A new role-play never resumes (each is a new scene); an old copied one (its conversation) does.
+        if (ctx.kind == PRACTICE && ctx.conversationId == null) return null
         val ref = ctx.ref
         var bestId: String? = null
         var bestAt = Long.MIN_VALUE

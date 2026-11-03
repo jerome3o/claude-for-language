@@ -1,0 +1,151 @@
+/* "🎭 Practice a situation" (PracticeSituationSheet.tsx): a bottom sheet on phones, a centred card ≥ 640px. */
+.practice-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.practice-sheet {
+  width: 100%;
+  max-width: 520px;
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface, #fff);
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+}
+.practice-sheet-body {
+  --sheet-pad: 1rem;
+  --sheet-pad-bottom: 0px;
+  overflow-y: auto;
+  padding: 1rem 1rem 0;
+}
+.practice-sheet h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.125rem;
+}
+.practice-sheet-lead {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light, #555);
+}
+.practice-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.practice-preset {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 56px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-bg, #fff);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.practice-preset.on {
+  border-color: #d97706;
+  background: rgba(217, 119, 6, 0.08);
+}
+.practice-preset-icon {
+  font-size: 1.4rem;
+}
+.practice-preset-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 0.8125rem;
+}
+.practice-preset-text strong {
+  font-size: 0.875rem;
+  line-height: 1.2;
+}
+.practice-preset-text span {
+  color: var(--color-text-light, #555);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.practice-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-width: 0;
+}
+.practice-field textarea,
+.practice-field input {
+  font: inherit;
+  font-weight: 400;
+  font-size: 1rem; /* no iOS zoom */
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background: var(--color-bg, #fff);
+  color: inherit;
+  min-height: 44px;
+}
+.practice-roles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.practice-levels {
+  display: flex;
+  gap: 0.4rem;
+}
+.practice-level {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background: var(--color-bg, #fff);
+  color: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.practice-level.on {
+  border-color: #d97706;
+  background: #d97706;
+  color: #fff;
+  font-weight: 600;
+}
+.practice-level-hint {
+  margin: 0.3rem 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #555);
+}
+.practice-error {
+  margin: 0.25rem 0;
+  color: var(--color-error, #b91c1c);
+  font-size: 0.875rem;
+}
+.practice-footer {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.practice-footer .btn {
+  min-height: 44px;
+  min-width: 96px;
+}
+@media (min-width: 640px) {
+  .practice-sheet-backdrop {
+    align-items: center;
+  }
+  .practice-sheet {
+    border-radius: 16px;
+  }
+}

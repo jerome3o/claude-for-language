@@ -1164,24 +1164,6 @@ export async function toggleMessageReaction(
   });
 }
 
-export async function getMessageDiscussion(
-  messageId: string
-): Promise<{ id: string; messages: Array<{ role: string; content: string }> }> {
-  return fetchJSON<{ id: string; messages: Array<{ role: string; content: string }> }>(
-    `/messages/${messageId}/discussion`
-  );
-}
-
-export async function saveMessageDiscussion(
-  messageId: string,
-  messages: Array<{ role: string; content: string }>
-): Promise<void> {
-  await fetchJSON<{ success: boolean }>(`/messages/${messageId}/discussion`, {
-    method: 'PUT',
-    body: JSON.stringify({ messages }),
-  });
-}
-
 export interface GeneratedFlashcard {
   hanzi: string;
   pinyin: string;
@@ -1280,20 +1262,6 @@ export async function uploadMessageRecording(
   }
 
   return response.json();
-}
-
-export async function discussMessage(
-  messageId: string,
-  question: string,
-  conversationHistory?: { role: 'user' | 'assistant'; content: string }[]
-): Promise<{ response: string; flashcards: GeneratedNote[] | null }> {
-  return fetchJSON<{ response: string; flashcards: GeneratedNote[] | null }>(
-    `/messages/${messageId}/discuss`,
-    {
-      method: 'POST',
-      body: JSON.stringify({ question, conversationHistory }),
-    }
-  );
 }
 
 export interface TranslateFlashcardResponse {

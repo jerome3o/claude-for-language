@@ -292,6 +292,18 @@ button.claude-thread-chip::after {
   margin-left: 0.15rem;
   opacity: 0.6;
 }
+/* A role-play: who Claude plays and who he is, under the context chip. */
+.claude-thread-roles {
+  margin: 0;
+  padding: 0.3rem 0.75rem 0.45rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #555);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-bg, #fff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .claude-thread-readonly {
   margin: 0.75rem 0;
   padding: 0.75rem 1rem;

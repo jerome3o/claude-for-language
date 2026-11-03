@@ -284,8 +284,17 @@ export async function getChatInbox(db: D1Database, userId: string, since?: strin
  * query (the last message by a correlated subquery per conversation, the
  * unread count by another; both on the messages(conversation_id, created_at)
  * index).
+ *
+ * `excludeAi` (`?exclude_ai=1`, the apps' unified Chats tab): leaves out the Claude practice chats
+ * already copied into the Claude threads (`pc-<conversation id>`, claude-agent/backfill.ts) — the
+ * threads list carries them, and new role-plays are threads (docs/CHAT.md "Practice with Claude").
+ * One not copied yet (the copy runs on the first thread list) still comes, so nothing goes missing.
  */
-export async function getChatList(db: D1Database, userId: string, now = new Date()): Promise<ChatListResponse> {
+export async function getChatList(db: D1Database, userId: string, now = new Date(), opts: { excludeAi?: boolean } = {}): Promise<ChatListResponse> {
+  const excludeAi = opts.excludeAi
+    ? `AND NOT ((COALESCE(c.is_ai_conversation, 0) = 1 OR r.requester_id = 'claude-ai' OR r.recipient_id = 'claude-ai')
+               AND EXISTS (SELECT 1 FROM coach_conversations cc WHERE cc.id = 'pc-' || c.id AND cc.user_id = ?1))`
+    : '';
   const rows = await db
     .prepare(
       `SELECT c.id AS conversation_id, c.relationship_id, c.title, c.created_at AS conv_created_at, c.last_message_at,
@@ -315,6 +324,7 @@ export async function getChatList(db: D1Database, userId: string, now = new Date
         WHERE (r.requester_id = ?1 OR r.recipient_id = ?1)
           AND r.status = 'active'
           AND c.merged_into IS NULL
+          ${excludeAi}
         ORDER BY COALESCE(m.created_at, c.last_message_at, c.created_at) DESC`,
     )
     .bind(userId)

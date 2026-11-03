@@ -5,7 +5,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ChatReplyToDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatSenderDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CheckResultDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
-import dev.jeromeswannack.chineselearning.lab.data.api.DiscussionTurn
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ReactionUserDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SegmentChunk
