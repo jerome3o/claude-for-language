@@ -3,7 +3,10 @@ import { isTappableWord, sentenceAround, wordOffsets } from '@shared/reader/word
 import { looksLikeChinese } from './messageTools';
 import { preloadSegmenter, useSegmentedWords } from '../../services/chineseSegmenter';
 import type { ChatWord } from '../../types';
+import type { ReadAloudResult } from '@shared/reader/readAloud';
+import { MarkedChars } from '../reader/ReaderWords';
 import '../reader/ReaderWords.css';
+import '../reader/ReadAloud.css';
 
 export { tidyPinyin, devicePinyinLine } from '../../utils/autoPinyin';
 
@@ -40,6 +43,7 @@ export function ChatWordsText({
   onTapWord,
   suppressTap,
   lang = 'zh',
+  marks = null,
 }: {
   text: string;
   words: ChatWord[] | null;
@@ -50,9 +54,23 @@ export function ChatWordsText({
   suppressTap?: () => boolean;
   /** The words' language tag (an English line with Chinese inside keeps 'en' for its Latin glyphs). */
   lang?: string;
+  /** 🎤 Read it back: the text's own characters marked in place (shared/reader/readAloud.ts), as on a reader page. */
+  marks?: ReadAloudResult | null;
 }) {
   const local = useSegmentedWords(text, !given && looksLikeChinese(text));
   const words = given ?? local;
+  const markedChars = marks && marks.chars.length === [...text].length ? marks.chars : null;
+  const extraAtEnd = markedChars && marks?.extraAtEnd ? (
+    <span className="ra-extra" title={`You also said ${marks.extraAtEnd}`} aria-label={`You also said ${marks.extraAtEnd}`}>‸</span>
+  ) : null;
+  if (!words && markedChars) {
+    return (
+      <span className="chat-text" lang="zh" data-read-aloud="marked">
+        <MarkedChars chars={markedChars} />
+        {extraAtEnd}
+      </span>
+    );
+  }
   if (!words) {
     const line = showPinyin && looksLikeChinese(text) ? devicePinyinLine(text) : '';
     return (
@@ -66,9 +84,14 @@ export function ChatWordsText({
   }
 
   const offsets = wordOffsets(words);
+  // The words concatenate to the text, so a running code-point count lines each up with its marks.
+  let cp = 0;
   return (
-    <span className={`chat-words${showPinyin ? ' with-pinyin' : ''}`} lang={lang} data-testid="chat-words">
+    <span className={`chat-words${showPinyin ? ' with-pinyin' : ''}`} lang={lang} data-testid="chat-words" data-read-aloud={markedChars ? 'marked' : undefined}>
       {words.map((w, i) => {
+        const len = [...w.text].length;
+        const marked = markedChars ? markedChars.slice(cp, cp + len) : null;
+        cp += len;
         // A chip only for Chinese (as the Lab app's ChineseWords): an English word inside a Chinese
         // line stays plain — the explorer has nothing to show for it.
         if (isTappableWord(w.text) && looksLikeChinese(w.text)) {
@@ -89,9 +112,11 @@ export function ChatWordsText({
             >
               {py ? (
                 <ruby>
-                  {w.text}
+                  {marked ? <MarkedChars chars={marked} /> : w.text}
                   <rt>{py}</rt>
                 </ruby>
+              ) : marked ? (
+                <MarkedChars chars={marked} />
               ) : (
                 w.text
               )}
@@ -101,10 +126,11 @@ export function ChatWordsText({
         if (w.text.includes('\n')) return <br key={i} />;
         return (
           <span key={i} className="chat-word-punct">
-            {w.text}
+            {marked ? <MarkedChars chars={marked} /> : w.text}
           </span>
         );
       })}
+      {extraAtEnd}
     </span>
   );
 }

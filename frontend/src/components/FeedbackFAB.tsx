@@ -150,6 +150,8 @@ export function FeedbackFAB() {
   if (/^\/connections\/[^/]+\/chat\/[^/]+\/?$/.test(location.pathname)) return null;
   // 📝 The reader word recap: a pass like the homework one, Got it sits in that corner.
   if (/^\/readers\/[^/]+\/recap\/?$/.test(location.pathname)) return null;
+  // A Claude chat (its composer's Send is in that corner).
+  if (/^\/coach\/chat\/[^/]+\/?$/.test(location.pathname)) return null;
   // 🎬 Clips: full-screen video-style feed with its own right rail.
   if (/^\/clips(\/[^/]+)?\/?$/.test(location.pathname)) return null;
   // 🥽 VR: the room has its own 💬 Feedback on the tray (with a screenshot of the 3D view).

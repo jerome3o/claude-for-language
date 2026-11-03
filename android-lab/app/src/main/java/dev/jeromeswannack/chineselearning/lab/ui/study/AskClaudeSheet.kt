@@ -417,7 +417,7 @@ private fun jsTrim(s: String) = dev.jeromeswannack.chineselearning.lab.core.Note
 
 /** 🎧 — Listen first on / off (Settings has the same switch). */
 @Composable
-private fun ListenToggle(on: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ListenToggle(on: Boolean, onChange: (Boolean) -> Unit) {
     val haptics = LocalHapticFeedback.current
     Box(
         Modifier.size(44.dp).clip(CircleShape)
@@ -458,7 +458,7 @@ private fun HiddenAnswer(qa: AskAnswer, listen: ListeningUi, notice: String?, ac
 
 /** 中文 | EN — what Claude answers in (Settings has the same switch). */
 @Composable
-private fun LanguageToggle(language: String, onChange: (String) -> Unit) {
+internal fun LanguageToggle(language: String, onChange: (String) -> Unit) {
     val haptics = LocalHapticFeedback.current
     Row(Modifier.clip(RoundedCornerShape(50)).background(Lab.colors.ink.copy(alpha = 0.06f)).padding(2.dp)) {
         for ((value, label, tag) in listOf(Triple(AskClaude.ZH, "中文", AskTags.LANG_ZH), Triple(AskClaude.EN, "EN", AskTags.LANG_EN))) {
