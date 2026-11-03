@@ -115,7 +115,7 @@ export async function executeReadTool(
         const deck = await ctx.db.prepare(`
           SELECT d.id, d.name, d.description, d.new_cards_per_day, d.created_at,
             (SELECT COUNT(*) FROM notes WHERE deck_id = d.id) as note_count,
-            (SELECT COUNT(*) FROM cards WHERE deck_id = d.id) as card_count
+            (SELECT COUNT(*) FROM cards c JOIN notes n ON c.note_id = n.id WHERE n.deck_id = d.id) as card_count
           FROM decks d
           WHERE d.id = ? AND d.user_id = ?
         `).bind(ctx.deckId, ctx.userId).first();

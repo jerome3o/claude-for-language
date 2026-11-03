@@ -126,6 +126,12 @@ describe('Claude agent harness', () => {
       expect(byTool('list_student_decks')).toMatchObject({ is_error: true });
     });
 
+    it('get_deck_info reads the current deck with its note and card counts (cards counted through their notes)', async () => {
+      const { client } = fakeModel([toolUse(['get_deck_info', {}]), text('好的。')]);
+      const r = await runClaudeTurn(env, CONTEXTS.card.ctx, CONTEXTS.card.input, { client });
+      expect(r.readOnlyToolCalls[0]).toMatchObject({ tool: 'get_deck_info', result: { deck: { id: 'd1', name: 'HSK 2', note_count: 1, card_count: 1 } } });
+    });
+
     it('stops at the round cap, even when the model keeps asking for tools', async () => {
       const { client, create } = fakeModel([toolUse(['search_cards', { query: '银' }])]);
       const r = await runClaudeTurn(env, CONTEXTS.card.ctx, CONTEXTS.card.input, { client });
