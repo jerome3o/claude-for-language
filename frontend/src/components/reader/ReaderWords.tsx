@@ -163,7 +163,7 @@ function WordChip({ text, known, marked, onOpen, onLong }: {
  * tint), a caret where extra words were said; the chips drop their fill meanwhile
  * (ReadAloud.css). A long press on a word that needs a look plays it (`onSpeak`).
  */
-export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak, onWords, onMarkTap }: {
+export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak, onWords, onMarkTap, onWordList, onWordTap }: {
   readerId: string;
   page: PageLike;
   className?: string;
@@ -173,6 +173,10 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
   onWords?: (texts: string[] | null) => void;
   /** A tap on a word a read-aloud take heard differently: its difference row instead of the explorer (`cp` = the word's first code point). */
   onMarkTap?: (cp: number) => void;
+  /** The words shown, whole (pinyin + gloss) — the reader word recap takes a take's mistakes' glosses from them. */
+  onWordList?: (words: ReaderWord[] | null) => void;
+  /** A word opened in the explorer (`pos` = its first code point on the page): the reader word recap collects it. */
+  onWordTap?: (word: ReaderWord, pos: number, sentence: string) => void;
 }) {
   const own = useReaderPageWords(readerId, page);
   const local = useSegmentedWords(page.content_chinese, !own);
@@ -180,8 +184,13 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
   const wordsKey = words ? words.map((w) => w.text).join('\u0000') : '';
   const reportWords = useRef(onWords);
   reportWords.current = onWords;
+  const reportList = useRef(onWordList);
+  reportList.current = onWordList;
+  const wordsRef = useRef(words);
+  wordsRef.current = words;
   useEffect(() => {
     reportWords.current?.(wordsKey ? wordsKey.split('\u0000') : null);
+    reportList.current?.(wordsKey ? wordsRef.current : null);
   }, [wordsKey]);
   const known = useKnownHanzi();
   const explorer = useExplorer();
@@ -200,14 +209,16 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
   }
 
   const offsets = wordOffsets(words);
-  const openWord = (i: number) => {
+  const openWord = (i: number, pos: number) => {
     const w = words[i];
+    const sentence = sentenceAround(page.content_chinese, offsets[i], offsets[i] + w.text.length);
     const item = itemForText(w.text, {
       pinyin: w.pinyin || undefined,
       gloss: w.gloss || undefined,
-      sentence: sentenceAround(page.content_chinese, offsets[i], offsets[i] + w.text.length),
+      sentence,
     });
     if (item) explorer.open(item, { source: 'reader' });
+    onWordTap?.(w, pos, sentence);
   };
 
   // The words concatenate to the page's text, so a running code-point count lines each up with its marks.
@@ -232,7 +243,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
                 text={w.text}
                 known={known.has(w.text)}
                 marked={marked}
-                onOpen={() => (marked && onMarkTap && hasDifference(marked) ? onMarkTap(start) : openWord(i))}
+                onOpen={() => (marked && onMarkTap && hasDifference(marked) ? onMarkTap(start) : openWord(i, start))}
                 onLong={marked && onSpeak && readAloudNeedsLook(marked) ? () => onSpeak(w.text) : null}
               />
             );

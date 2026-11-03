@@ -14,6 +14,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/database';
 import { isReaderRead } from '../services/reader-study';
 import { ReaderUpNext, useReaderQueue } from '../components/readers/ReaderUpNext';
+import { recapAvailable, useRecapRun } from '../services/wordRecap';
 import './ReadersListPage.css';
 
 /**
@@ -28,6 +29,31 @@ function ReaderReadLine({ readerId }: { readerId: string }) {
   return (
     <div className="reader-revisit-line" data-testid="reader-read">
       <span className="reader-revisit-chip reader-revisit-chip--done">✓ Read{when ? ` ${when}` : ''}</span>
+    </div>
+  );
+}
+
+/**
+ * "📝 Recap words from last read (4)": the reader word recap of the story's latest finished reading
+ * (docs/STUDY_SESSION.md "Reader word recap") — the words tapped / read aloud wrong, any time later.
+ */
+function ReaderRecapLine({ readerId }: { readerId: string }) {
+  const run = useRecapRun(readerId);
+  const navigate = useNavigate();
+  if (!run || !recapAvailable(run)) return null;
+  return (
+    <div className="reader-revisit-line">
+      <button
+        type="button"
+        className="reader-revisit-chip reader-recap-chip"
+        data-testid="reader-recap-line"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate(`/readers/${encodeURIComponent(readerId)}/recap?from=readers`);
+        }}
+      >
+        📝 Recap words from last read ({run.words.length})
+      </button>
     </div>
   );
 }
@@ -169,6 +195,7 @@ function ReaderCard({ reader, onDelete, onMoveToFolder, selecting = false, selec
           </p>
         )}
         {!isGenerating && <ReaderReadLine readerId={reader.id} />}
+        {!isGenerating && <ReaderRecapLine readerId={reader.id} />}
         {queuePosition !== undefined && (
           <div className="reader-revisit-line">
             <span className="reader-revisit-chip reader-queue-chip" data-testid="reader-queue-chip">{queuePosition === 1 ? 'Up next · #1' : `Up next · #${queuePosition}`}</span>

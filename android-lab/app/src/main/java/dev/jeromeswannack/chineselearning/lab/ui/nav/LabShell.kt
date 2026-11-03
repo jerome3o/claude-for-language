@@ -150,6 +150,8 @@ fun LabShell(
         dev.jeromeswannack.chineselearning.lab.ui.calls.CallTopBar(nav, path)
     }
     dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerHost(explorer, explorerEnv)
+    // 📝 Reader word recap: "Story finished ✓ — Recap N words" over whatever comes after a story.
+    dev.jeromeswannack.chineselearning.lab.ui.readers.RecapOfferHost(onStart = { o -> nav.open(Routes.readerRecap(o.readerId)) }, track = { e, p -> app.analytics.track(e, p) }, tick = { app.haptics.tick() })
     }
 }
 

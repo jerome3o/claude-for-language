@@ -127,7 +127,7 @@ export const ANALYTICS_EVENTS = {
   'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
   'study.other_card_types_open': e('study', 'Opened ⋯ → "Practise this word other ways…" on the study card.', ['from_type']),
   'study.other_card_types': e('study', '"Practise this word other ways…": sent other card types of the word into today (a card-level ⚡ bump). types = the chosen card types joined with /.', ['types', 'from_type', 'count', 'early']),
-  'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | mcp | tutor | other).', ['source', 'count', 'already']),
+  'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | reader_recap | mcp | tutor | other).', ['source', 'count', 'already']),
   'study.up_next_moved': e('study', 'Reordered the "Up next" list (how = drag | top | bottom | drop — a search result dragged into place).', ['how']),
   'study.up_next_removed': e('study', 'Took a word off the "Up next" list by hand (the card is kept).', ['source']),
   'card.suspend': e('study', 'Suspended cards — out of all study until unsuspended (scope = card | word; source = study | card_hub | held_list | mcp).', ['scope', 'count', 'source']),
@@ -248,6 +248,8 @@ export const ANALYTICS_EVENTS = {
   'reader.speed_changed': e('readers', 'Changed the reader playback speed (1 / 0.75 / 0.5).', ['speed']),
   'reader.read_aloud': e('readers', '🎤 Read it aloud on a reader page: a take judged against the page (practice only; result_bucket = all | 90 | 75 | 50 | under_50 — the % read right — or failed | empty; chars = characters on the page; via = live | upload | none; all_right = the whole page read right, no extra words — the take that throws confetti).', ['result_bucket', 'chars', 'via', 'all_right']),
   'reader.read_aloud_diff': e('readers', '🎤 Read it aloud: used a difference row (what it heard vs the page) — action = play (▶ the page word) | tap_page (tapped a marked word on the page → its row); kind = wrong | missed | tone | extra | sound.', ['action', 'kind']),
+  'reader.word_recap_start': e('readers', '📝 Reader word recap: started the recap of the words collected while reading (tapped / read aloud wrong) — from = finish (the end-of-story offer) | readers (the Readers list, afterwards); words = how many.', ['from', 'words']),
+  'reader.word_recap_finish': e('readers', '📝 Reader word recap: Done — words = in the recap, got_it_first_time = right the first time, added = switched to "Add to my long-term review" (new cards), bumped = "⚡ Study it today" on words already in the decks.', ['words', 'got_it_first_time', 'added', 'bumped']),
   'reader.queue_move': e('readers', 'Moved a story in the reader queue ("Up next" on the Readers list, or an agent): how = top / up / down / bottom / position / drag / reorder; via = app / mcp.', ['how', 'position', 'total', 'via']),
 
   // ── quests & picture hunts ─────────────────────────────────────────────

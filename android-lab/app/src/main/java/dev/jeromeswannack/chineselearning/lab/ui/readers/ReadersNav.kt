@@ -26,6 +26,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.reader
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderStore
+import dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore
 import dev.jeromeswannack.chineselearning.lab.ui.editor.rememberReaderImporter
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -69,6 +70,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
                 onSlot = { nav.app.haptics.tick() },
                 onQueueMove = vm::queueMove,
                 onQueueReorder = vm::queueReorder,
+                onRecap = { id -> nav.open(Routes.readerRecap(id, from = "readers")) },
             ),
             folders = folderUi,
             folderActions = remember(vm) { dev.jeromeswannack.chineselearning.lab.ui.folders.FolderActions.of(vm.folders) },
@@ -91,6 +93,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
             ),
         )
     }
+    recapRoute(nav)
     composable(Routes.route("/readers/{id}")) { entry ->
         val id = entry.arguments?.getString("id").orEmpty()
         val vm: ReaderViewModel = viewModel(key = "reader-$id", factory = factory { ReaderViewModel(nav.app, id) })
@@ -104,6 +107,54 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
             onEdit = { nav.open(Routes.readerEdit(id)) },
             onFinish = { ms, how -> vm.finish(ms, how) { nav.back() } },
             onAnki = { state.first?.let { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) } },
+        )
+    }
+}
+
+/** `/readers/:id/recap` — the reader word recap of the story's latest reading (data/readers/WordRecapStore.kt). */
+private fun NavGraphBuilder.recapRoute(nav: LabNav) {
+    composable(Routes.route("/readers/{id}/recap?from={from}")) { entry ->
+        val id = entry.arguments?.getString("id").orEmpty()
+        val from = entry.arguments?.getString("from")
+        val app = nav.app
+        val run by remember(id) { WordRecapStore.observe(app.cache, id) }.collectAsState(initial = null)
+        val title by produceState("Word recap", id) {
+            value = runCatching { LessonRuntime.of(app).readers.entry(id)?.reader?.titleChinese }.getOrNull() ?: "Word recap"
+        }
+        val wordsKey = run?.words?.joinToString("|") { it.hanzi }
+        val owned by produceState(emptySet<String>(), wordsKey) { value = run?.let { WordRecapStore.owned(app, it).keys } ?: emptySet() }
+        val online by app.online.collectAsState()
+        var doneLine by remember { mutableStateOf<String?>(null) }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        val runtime = remember(app) { LessonRuntime.of(app) }
+        var tracked by remember { mutableStateOf(false) }
+        androidx.compose.runtime.LaunchedEffect(run != null) {
+            if (run != null && !tracked) {
+                tracked = true
+                if (from == "readers") app.analytics.track("reader.word_recap_start", mapOf("from" to "readers", "words" to run!!.words.size))
+            }
+        }
+        ReaderRecapScreen(
+            RecapUi(title = title, run = run, owned = owned, online = online, doneLine = doneLine),
+            RecapActions(
+                answer = { key, right ->
+                    if (right) app.haptics.correct() else app.haptics.wrong()
+                    scope.launch { WordRecapStore.answer(app.cache, id, key, right) }
+                },
+                keep = { key, on -> app.haptics.tick(); scope.launch { WordRecapStore.keep(app.cache, id, key, on) } },
+                restart = { scope.launch { WordRecapStore.restart(app.cache, id) } },
+                done = {
+                    scope.launch {
+                        val o = WordRecapStore.finishRecap(app, id)
+                        app.haptics.celebrate()
+                        doneLine = dev.jeromeswannack.chineselearning.lab.core.WordRecap.doneLine(o.added, o.bumped)
+                        delay(1200)
+                        nav.back()
+                    }
+                },
+                close = nav::back,
+                speak = { text -> runtime.audio.speak(text) },
+            ),
         )
     }
 }
@@ -129,6 +180,8 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
     DisposableEffect(readerId) { onDispose { runtime.audio.stop() } }
     // Usage analytics: every reading view (page, session, homework, today) builds this env once per reader.
     androidx.compose.runtime.LaunchedEffect(readerId) { app.analytics.track("reader.open") }
+    // 📝 Reader word recap: one collector per opening of this reader (data/readers/WordRecapStore.kt).
+    val recap = remember(readerId) { if (readerId.isBlank()) null else dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore.Collector(app, readerId) }
     var knownVersion by remember { mutableStateOf(0) }
     val known by produceState(emptySet<String>(), knownVersion) {
         value = withContext(Dispatchers.IO) { app.repo.dao.allNotes().mapTo(HashSet()) { it.hanzi.trim() } }
@@ -176,6 +229,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
         onTap = { app.haptics.tick() },
         readAloud = true,
         speak = { text -> runtime.audio.speak(text, speed = speedPref.speed.value) },
+        recap = recap,
     )
 }
 
@@ -210,6 +264,9 @@ class ReadersViewModel(private val app: LabApp) : ViewModel() {
                     if (list.any { it.reader.status == "generating" }) startPolling()
                 }
             }
+        }
+        viewModelScope.launch {
+            WordRecapStore.observeAvailable(app.cache).collect { recaps -> _ui.update { it.copy(recaps = recaps) } }
         }
         refresh()
     }

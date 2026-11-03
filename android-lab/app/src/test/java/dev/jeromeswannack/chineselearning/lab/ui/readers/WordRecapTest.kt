@@ -1,0 +1,133 @@
+package dev.jeromeswannack.chineselearning.lab.ui.readers
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
+import dev.jeromeswannack.chineselearning.lab.core.WordRecap
+import dev.jeromeswannack.chineselearning.lab.core.WordRecapRun
+import dev.jeromeswannack.chineselearning.lab.data.readers.RecapOffer
+import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+/**
+ * 📝 Reader word recap (docs/STUDY_SESSION.md "Reader word recap"): the end-of-story offer, a card's
+ * front (the story sentence, the word marked) and back (why it is here, the switch OFF by default),
+ * Not yet bringing a word back, and the list of every word with its switch.
+ */
+class WordRecapTest : LabScreenshotTest() {
+    private val p1 = WordRecap.Page(
+        0, "今天我们在成都，先去春熙路采耳。", "Today we're in Chengdu; first we get our ears cleaned on Chunxi Road.",
+        listOf(
+            WordRecap.Word("今天", "jīntiān", "today"), WordRecap.Word("我们", "wǒmen", "we"), WordRecap.Word("在", "zài", "in"),
+            WordRecap.Word("成都", "Chéngdū", "Chengdu"), WordRecap.Word("，", "", ""), WordRecap.Word("先", "xiān", "first"),
+            WordRecap.Word("去", "qù", "go"), WordRecap.Word("春熙路", "Chūnxī Lù", "Chunxi Road"), WordRecap.Word("采耳", "cǎi'ěr", "ear cleaning"),
+            WordRecap.Word("。", "", ""),
+        ),
+    )
+    private val p2 = WordRecap.Page(
+        1, "晚上我们吃麻辣兔头。", "In the evening we eat spicy rabbit heads.",
+        listOf(
+            WordRecap.Word("晚上", "wǎnshang", "evening"), WordRecap.Word("我们", "wǒmen", "we"), WordRecap.Word("吃", "chī", "eat"),
+            WordRecap.Word("麻辣", "málà", "numbing and spicy"), WordRecap.Word("兔头", "tùtóu", "rabbit head"), WordRecap.Word("。", "", ""),
+        ),
+    )
+
+    private fun run(): WordRecapRun {
+        var r = WordRecap.emptyRun("r-cd", "2026-11-03T10:00:00Z")
+        r = WordRecap.addTap(r, WordRecap.Tap("采耳", "cǎi'ěr", "ear cleaning", p1.text, 0, 13, p1.english), "2026-11-03T10:00:01Z")
+        r = WordRecap.addMistakes(r, p1, ReadAloud.judge(p1.text, "今天我们在程度先去春熙路采耳"), "2026-11-03T10:00:02Z")
+        r = WordRecap.addMistakes(r, p2, ReadAloud.judge(p2.text, "晚上我们吃兔头"), "2026-11-03T10:00:03Z")
+        r = WordRecap.addTap(r, WordRecap.Tap("兔头", "tùtóu", "rabbit head", p2.text, 1, 7, p2.english), "2026-11-03T10:00:04Z")
+        return WordRecap.finish(r, "2026-11-03T10:05:00Z")
+    }
+
+    @Test
+    fun collectsInStoryOrder() {
+        val r = run()
+        assertEquals(listOf("成都", "采耳", "麻辣", "兔头"), r.words.map { it.hanzi })
+        assertEquals(listOf("Read aloud: 都 dū → you said dù (4th tone instead of 1st)"), WordRecap.whyLines(r.words[0]))
+    }
+
+    @Test fun offer() = shoot("reader-recap-01-offer") { OfferOverPage() }
+    @Test fun offerDark() = shoot("reader-recap-01-offer-dark", dark = true) { OfferOverPage() }
+
+    @androidx.compose.runtime.Composable
+    private fun OfferOverPage() {
+        val r = run()
+        Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(12.dp), contentAlignment = Alignment.BottomCenter) {
+            RecapOfferCard(RecapOffer("r-cd", r.words.size, WordRecap.promptLine(r)), onStart = {}, onDone = {})
+        }
+    }
+
+    @Test fun front() = shoot("reader-recap-02-front") { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头")), RecapActions()) }
+
+    @Test fun back() = shoot("reader-recap-03-back") { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头"), revealed = true), RecapActions()) }
+    @Test fun backDark() = shoot("reader-recap-03-back-dark", dark = true) { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头"), revealed = true), RecapActions()) }
+
+    private fun answered(): WordRecapRun {
+        var r = run()
+        r = WordRecap.answer(r, "成都", false, "2026-11-03T10:06:01Z", "e1")
+        r = WordRecap.answer(r, "采耳", true, "2026-11-03T10:06:02Z", "e2")
+        r = WordRecap.answer(r, "麻辣", true, "2026-11-03T10:06:03Z", "e3")
+        r = WordRecap.answer(r, "兔头", true, "2026-11-03T10:06:04Z", "e4")
+        r = WordRecap.answer(r, "成都", true, "2026-11-03T10:06:05Z", "e5")
+        r = WordRecap.setKeep(r, "成都", true)
+        r = WordRecap.setKeep(r, "兔头", true)
+        return r
+    }
+
+    @Test fun summary() = shoot("reader-recap-04-summary", settleMs = 3_500) { ReaderRecapScreen(RecapUi("成都的一天", answered(), owned = setOf("兔头")), RecapActions()) }
+    @Test fun summaryDark() = shoot("reader-recap-04-summary-dark", dark = true, settleMs = 3_500) { ReaderRecapScreen(RecapUi("成都的一天", answered(), owned = setOf("兔头")), RecapActions()) }
+
+    @Test
+    fun notYetComesBackAndSwitchesStartOff() {
+        val answers = ArrayList<Pair<String, Boolean>>()
+        compose.setContent {
+            LabTheme {
+                var r by remember { mutableStateOf(run()) }
+                ReaderRecapScreen(
+                    RecapUi("成都的一天", r, owned = setOf("兔头")),
+                    RecapActions(
+                        answer = { k, right -> answers += k to right; r = WordRecap.answer(r, k, right, "2026-11-03T10:0${answers.size}:00Z", "e${answers.size}") },
+                        keep = { k, on -> r = WordRecap.setKeep(r, k, on) },
+                    ),
+                )
+            }
+        }
+        fun answer(word: String, right: Boolean) {
+            assertTrue(compose.onAllNodesWithText(word).fetchSemanticsNodes().isNotEmpty(), "card shows $word")
+            compose.onNodeWithTag(WordRecapTags.SHOW).performClick()
+            compose.onNodeWithTag(WordRecapTags.KEEP).assertIsOff()
+            compose.onNodeWithTag(if (right) WordRecapTags.GOT_IT else WordRecapTags.NOT_YET).performClick()
+            compose.waitForIdle()
+        }
+        answer("成都", false)
+        answer("采耳", true)
+        answer("麻辣", true)
+        answer("兔头", true)
+        answer("成都", true)
+        compose.onNodeWithText("Recap done 🎉").assertExists()
+        compose.onNodeWithText("3 right first time", substring = true).assertExists()
+        assertEquals(4, compose.onAllNodesWithTag(WordRecapTags.KEEP).fetchSemanticsNodes().size)
+        compose.onNodeWithText("⚡ Study it today").assertExists()
+    }
+}

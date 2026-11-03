@@ -21,7 +21,7 @@ object UpNext {
     val CARD_TYPE_ORDER = listOf(CardTypes.HANZI_TO_MEANING, CardTypes.MEANING_TO_HANZI, CardTypes.AUDIO_TO_HANZI)
 
     /** Port of UP_NEXT_SOURCES. */
-    val SOURCES = listOf("up_next_page", "search", "deck", "card_hub", "explorer", "mcp", "tutor", "other")
+    val SOURCES = listOf("up_next_page", "search", "deck", "card_hub", "explorer", "reader_recap", "mcp", "tutor", "other")
 
     fun normalizeSource(s: String?): String = if (s != null && s in SOURCES) s else "other"
 

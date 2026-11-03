@@ -13,6 +13,9 @@ import { ReadAloudMic, ReadAloudPanel, ReadAloudStopFooter, useReadAloud } from 
 import { Confetti } from '../Confetti';
 import { useBackLevels } from '../../hooks/useBackLevels';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
+import type { ReaderWord } from '@shared/reader/words';
+import { recapPromptLine } from '@shared/study/wordRecap';
+import { offerRecap, useRecapCollector, type RecapCollector } from '../../services/wordRecap';
 import '../../pages/ReaderPage.css';
 import '../../pages/StudyPage.css';
 import '../StudyReader.css';
@@ -73,12 +76,18 @@ export interface ReaderTakeLock {
 function ReaderPageBody({
   readerId,
   page,
+  pageIndex,
   story,
+  recap,
   onTakeLock,
 }: {
   readerId: string;
   page: LocalReaderPage;
+  /** 0-based: the reader word recap keeps its words in story order. */
+  pageIndex: number;
   story: StoryPlaybackHooks;
+  /** The reader word recap's collector: taps and read-aloud mistakes (shared/study/wordRecap.ts). */
+  recap: RecapCollector;
   /** The page's take started / stopped / was checked: null = unlocked. */
   onTakeLock: (lock: ReaderTakeLock | null) => void;
 }) {
@@ -107,6 +116,14 @@ function ReaderPageBody({
     lockRef.current(locked ? { recording, stop: () => stopRef.current() } : null);
   }, [locked, recording]);
   useEffect(() => () => lockRef.current(null), []);
+  // 📝 Reader word recap: the words a take read wrong join the run (with their glosses from the chips).
+  const wordListRef = useRef<ReaderWord[] | null>(null);
+  const takeResult = readAloud.result;
+  useEffect(() => {
+    if (!takeResult) return;
+    recap.take({ index: pageIndex, text: page.content_chinese, english: page.content_english, words: wordListRef.current }, takeResult);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeResult]);
 
   return (
     <div className="reader-page-view">
@@ -155,7 +172,18 @@ function ReaderPageBody({
               }}
             >
               {/* Word chips: tap a word → its sheet (the tap never hides the Chinese). Plain text until they arrive. */}
-              <ReaderWordsText readerId={readerId} page={page} marks={readAloud.result} onSpeak={speak} onWords={readAloud.setWords} onMarkTap={readAloud.focusAt} />
+              <ReaderWordsText
+                readerId={readerId}
+                page={page}
+                marks={readAloud.result}
+                onSpeak={speak}
+                onWords={readAloud.setWords}
+                onMarkTap={readAloud.focusAt}
+                onWordList={(w) => { wordListRef.current = w; }}
+                onWordTap={(w, pos, sentence) => recap.tap({
+                  text: w.text, pinyin: w.pinyin, gloss: w.gloss, sentence, page: pageIndex, pos, page_english: page.content_english,
+                })}
+              />
             </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>
@@ -245,6 +273,9 @@ export function ReaderView({
   takeRef.current = take;
   useBackLevels(take ? 1 : 0, () => takeRef.current?.stop(), 'read-aloud');
 
+  // 📝 Reader word recap: what this reading collects (taps, read-aloud mistakes), offered after the finish.
+  const recap = useRecapCollector(reader.id);
+
   const page = reader.pages[Math.min(currentPage, reader.pages.length - 1)];
   const isLastPage = currentPage >= reader.pages.length - 1;
 
@@ -265,7 +296,12 @@ export function ReaderView({
     finishedRef.current = true;
     track('reader.finish', { how, pages: reader.pages.length });
     onFinish(Date.now() - startTime, how);
-  }, [onFinish, reader.pages.length, startTime]);
+    // The read is recorded as always; then, when words were collected, "📝 Recap N words" is offered
+    // over whatever comes next (never forced).
+    void recap.finish().then((run) => {
+      if (run && run.words.length > 0) offerRecap({ readerId: reader.id, words: run.words.length, line: recapPromptLine(run) });
+    });
+  }, [onFinish, reader.pages.length, reader.id, startTime, recap]);
 
   const stopStory = useCallback(() => {
     if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
@@ -388,7 +424,7 @@ export function ReaderView({
           {storyNote && <div className="study-reader-story-note" role="status">{storyNote}</div>}
         </div>
 
-        <ReaderPageBody key={page.id} readerId={reader.id} page={page} story={story} onTakeLock={setTake} />
+        <ReaderPageBody key={page.id} readerId={reader.id} page={page} pageIndex={Math.min(currentPage, reader.pages.length - 1)} story={story} recap={recap} onTakeLock={setTake} />
       </div>
 
       {/* Fixed footer: page navigation, or Finish once the last page is reached — or, while a

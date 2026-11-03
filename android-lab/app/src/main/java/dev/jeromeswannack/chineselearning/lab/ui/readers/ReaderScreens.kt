@@ -135,6 +135,8 @@ fun StudyReaderView(
         if (finished) return
         finished = true
         onFinish(System.currentTimeMillis() - started, how)
+        // The read is recorded as always; then "📝 Recap N words" is offered when this reading collected words.
+        env.recap?.finish()
     }
     fun stopStory(track: Boolean) {
         gapJob?.cancel()
@@ -278,7 +280,7 @@ private fun PagesContent(
     ) { p ->
         reader.pages.getOrNull(p)?.let {
             // Only the page on screen plays the story and reports its 🎤 take.
-            ReaderPageView(it, env, story?.takeIf { p == page }, readAloudPreview?.takeIf { p == page }, takeLock?.takeIf { p == page })
+            ReaderPageView(it, env, story?.takeIf { p == page }, readAloudPreview?.takeIf { p == page }, takeLock?.takeIf { p == page }, pageIndex = p)
         }
     }
 }

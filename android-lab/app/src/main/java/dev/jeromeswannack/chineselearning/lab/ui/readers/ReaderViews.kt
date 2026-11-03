@@ -98,6 +98,8 @@ class ReaderEnv(
     val readAloud: Boolean = false,
     /** Say a word (a long press on a word marked by a read-aloud take). */
     val speak: (text: String) -> Unit = {},
+    /** 📝 Reader word recap: what this reading collects (taps, read-aloud mistakes), offered after the finish. */
+    val recap: dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore.Collector? = null,
 )
 
 val Violet = Color(0xFF8B5CF6)
@@ -132,6 +134,8 @@ fun ReaderPageView(
     readAloudPreview: ReadAloudHandle? = null,
     /** The reading view's lock: this page reports its 🎤 take there (only the page on screen gets one). */
     takeLock: ReaderTakeLock? = null,
+    /** 0-based: the reader word recap keeps its words in story order. */
+    pageIndex: Int = 0,
 ) {
     var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
@@ -158,9 +162,19 @@ fun ReaderPageView(
     val locked = readAloud != null && ReadAloud.locksPage(readAloud.ui.phase)
     // What it heard vs the page: the differences group by the page's words; a tap on a marked word lights its row.
     var pageWords by remember(page.id) { mutableStateOf<List<String>?>(null) }
+    var pageWordList by remember(page.id) { mutableStateOf<List<ReaderWordDto>?>(null) }
     var diffFocus by remember(page.id) { mutableStateOf<Pair<Int, Int>?>(null) }
     val resultNow = readAloud?.ui?.result
     LaunchedEffect(resultNow) { diffFocus = null }
+    // 📝 Reader word recap: the words a take read wrong join the run (glosses from the chips).
+    LaunchedEffect(resultNow) {
+        val r = resultNow ?: return@LaunchedEffect
+        if (readAloudPreview != null) return@LaunchedEffect
+        env.recap?.take(
+            dev.jeromeswannack.chineselearning.lab.core.WordRecap.Page(pageIndex, page.contentChinese, page.contentEnglish, pageWordList?.map { dev.jeromeswannack.chineselearning.lab.core.WordRecap.Word(it.text, it.pinyin, it.gloss) }),
+            r,
+        )
+    }
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? dev.jeromeswannack.chineselearning.lab.LabApp
     val onMarkTap: (Int) -> Unit = { cp ->
         val r = resultNow
@@ -202,7 +216,7 @@ fun ReaderPageView(
             Column(m, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
                     if (shown) {
-                        RevealedChinese(page, env, readAloud?.ui?.result, onWords = { pageWords = it }, onMarkTap = onMarkTap) { showChinese = false; env.onTap() }
+                        RevealedChinese(page, env, readAloud?.ui?.result, onWords = { pageWords = it }, onWordList = { pageWordList = it }, onMarkTap = onMarkTap, pageIndex = pageIndex) { showChinese = false; env.onTap() }
                     } else {
                         RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
                     }
@@ -242,7 +256,9 @@ private fun RevealedChinese(
     env: ReaderEnv,
     marks: ReadAloud.Result?,
     onWords: (List<String>?) -> Unit = {},
+    onWordList: (List<ReaderWordDto>?) -> Unit = {},
     onMarkTap: ((Int) -> Unit)? = null,
+    pageIndex: Int = 0,
     onHide: () -> Unit,
 ) {
     val load = env.words
@@ -257,7 +273,8 @@ private fun RevealedChinese(
     // Without Claude's words (yet, or they failed): the words made on the phone.
     val w = words ?: DeviceWords.of(page.contentChinese)
     val report by androidx.compose.runtime.rememberUpdatedState(onWords)
-    LaunchedEffect(w) { report(w?.map { it.text }) }
+    val reportList by androidx.compose.runtime.rememberUpdatedState(onWordList)
+    LaunchedEffect(w) { report(w?.map { it.text }); reportList(w) }
     if (w == null) {
         if (marked != null) MarkedChars(marked, extraAtEnd, lineHeight = 38.sp, modifier = box.testTag("reader-read-aloud-marked"))
         else Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
@@ -284,7 +301,11 @@ private fun RevealedChinese(
                 ) {
                     // A word the take heard differently: its row in "what it heard vs the page", not the explorer.
                     if (wordMarks != null && onMarkTap != null && (ReadAloud.needsLook(wordMarks) || wordMarks.any { it.mark == ReadAloud.Mark.SOUND })) onMarkTap(start)
-                    else env.onWord(word, ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length))
+                    else {
+                        val sentence = ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length)
+                        env.onWord(word, sentence)
+                        env.recap?.tap(dev.jeromeswannack.chineselearning.lab.core.WordRecap.Tap(word.text, word.pinyin, word.gloss, sentence, pageIndex, start, page.contentEnglish))
+                    }
                 }
             }
         }

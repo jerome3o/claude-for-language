@@ -275,3 +275,13 @@
 
 .reader-up-next-link:hover,
 .reader-up-next-link:focus { text-decoration: none; }
+/* 📝 Reader word recap: a real button (44px tap target around the chip). */
+.reader-recap-chip {
+  background: rgba(139, 92, 246, 0.14);
+  color: #6d28d9;
+  border: none;
+  cursor: pointer;
+  min-height: 32px;
+  padding: 0.35rem 0.75rem;
+  margin: 0.25rem 0;
+}

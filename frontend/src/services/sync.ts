@@ -47,6 +47,7 @@ import { syncTutorNotes } from './tutorNotes';
 import { prefetchModelRecordings } from './modelRecordings';
 import { syncHomework } from './homework';
 import { uploadPendingCardFlags } from './cardFlags';
+import { flushRecapAdds } from './wordRecap';
 import { flushFeedback } from './feedback';
 import { applyPendingNotePrefs, uploadPendingNotePrefs } from './longTerm';
 import { syncPictureHunts } from './pictureHunts';
@@ -594,6 +595,13 @@ class SyncService {
       if (flags.uploaded > 0) console.log('[Sync] Card flags posted:', flags.uploaded);
     } catch (err) {
       console.error('[Sync] Card flag upload failed:', err);
+    }
+    try {
+      // 📝 Reader word recap: words switched to "Add to my long-term review" while offline.
+      const recap = await flushRecapAdds();
+      if (recap.sent > 0) console.log('[Sync] Reader recap words added:', recap.sent);
+    } catch (err) {
+      console.error('[Sync] Reader recap words failed:', err);
     }
     try {
       // In-app feedback written offline (docs/FEEDBACK.md); idempotent by client id.

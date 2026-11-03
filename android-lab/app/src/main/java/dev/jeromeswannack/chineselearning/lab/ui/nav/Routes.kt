@@ -97,6 +97,7 @@ object Routes {
     fun lessonAttempts(attemptId: String? = null) = "/lesson-attempts" + (attemptId?.let { "/${seg(it)}" } ?: "")
     fun readers() = "/readers"
     fun reader(id: String) = "/readers/${seg(id)}"
+    fun readerRecap(id: String, from: String? = null) = "/readers/${seg(id)}/recap" + (if (from != null) "?from=$from" else "")
     fun readerEdit(id: String) = "/readers/${seg(id)}/edit"
 
     // ---- practice (package H) ----
