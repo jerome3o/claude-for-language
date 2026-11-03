@@ -13,7 +13,24 @@ package dev.jeromeswannack.chineselearning.lab.core
 object ReadAloud {
     enum class Mark { OK, SOUND, CLOSE, WRONG, MISSED, PLAIN }
 
-    data class Char(val char: String, val mark: Mark, val heard: String, val extraBefore: String)
+    /**
+     * One page character as read. [pinyin] = the page's syllable(s) in context ('' for punctuation, an
+     * unaligned run or a digit run's later characters), [heardPinyin] the heard one's, [extraBeforePinyin]
+     * the extras', [unitCont] = a later character of a digit run ("12").
+     */
+    data class Char(
+        val char: String,
+        val mark: Mark,
+        val heard: String,
+        val extraBefore: String,
+        val pinyin: String = "",
+        val heardPinyin: String = "",
+        val extraBeforePinyin: String = "",
+        val unitCont: Boolean = false,
+    )
+
+    /** `ReadAloudHeardChar`: a transcript character (numbers as hanzi) and how it lined up — ok | sound | close | wrong | extra | plain. */
+    data class HeardChar(val char: String, val mark: String)
 
     data class Result(
         val chars: List<Char>,
@@ -22,6 +39,8 @@ object ReadAloud {
         val right: Int,
         val pct: Int,
         val toCheck: Int,
+        val extraAtEndPinyin: String = "",
+        val heard: List<HeardChar> = emptyList(),
     )
 
     const val LABEL = "Read it aloud"
@@ -89,8 +108,11 @@ object ReadAloud {
         return keys
     }
 
+    private fun transcriptText(transcript: String): String =
+        AnswerKey.normalizeNumbersToHanzi(AnswerKey.jsTrim(transcript).lowercase(java.util.Locale.ROOT))
+
     private fun transcriptKeys(transcript: String): Keys {
-        val text = AnswerKey.normalizeNumbersToHanzi(AnswerKey.jsTrim(transcript).lowercase(java.util.Locale.ROOT))
+        val text = transcriptText(transcript)
         val keys = Keys()
         var gap = true
         for (c in codePoints(text)) {
@@ -184,13 +206,18 @@ object ReadAloud {
         }
         val keyMarks = MutableList(n) { Mark.MISSED }
         val keyHeard = MutableList(n) { "" }
+        val keyHeardIdx = IntArray(n) { -1 }
         val extraBeforeKey = MutableList(n + 1) { "" }
+        val extraBeforePy = MutableList(n + 1) { "" }
+        val heardMark = MutableList(m) { "extra" }
         var i = 0
         var j = 0
         while (i < n || j < m) {
             if (i < n && j < m && dp[i][j] == cost(pair[i][j]!!) + dp[i + 1][j + 1]) {
                 keyMarks[i] = pair[i][j]!!
                 keyHeard[i] = heard.keys[j]
+                keyHeardIdx[i] = j
+                heardMark[j] = markName(pair[i][j]!!)
                 i++
                 j++
             } else if (i < n && dp[i][j] == COST_GAP + dp[i + 1][j]) {
@@ -198,6 +225,7 @@ object ReadAloud {
                 i++
             } else {
                 extraBeforeKey[i] = extraBeforeKey[i] + heard.keys[j]
+                extraBeforePy[i] = extraBeforePy[i] + (hs[j] ?: "")
                 j++
             }
         }
@@ -208,15 +236,171 @@ object ReadAloud {
             val mark = unitMark(keyMarks.subList(u.firstKey, u.firstKey + u.keyCount))
             val said = keyHeard.subList(u.firstKey, u.firstKey + u.keyCount).joinToString("")
             val extra = extraBeforeKey.subList(u.firstKey, u.firstKey + u.keyCount).joinToString("")
-            for (c in u.start until u.end) chars[c] = Char(cps[c], mark, if (mark == Mark.MISSED) "" else said, if (c == u.start) extra else "")
+            val extraPy = StringBuilder()
+            val py = StringBuilder()
+            val heardPy = StringBuilder()
+            for (k in u.firstKey until u.firstKey + u.keyCount) {
+                extraPy.append(extraBeforePy[k])
+                py.append(ps[k] ?: "")
+                if (keyHeardIdx[k] >= 0) heardPy.append(hs[keyHeardIdx[k]] ?: "")
+            }
+            for (c in u.start until u.end) {
+                val first = c == u.start
+                chars[c] = Char(
+                    cps[c], mark, if (mark == Mark.MISSED) "" else said, if (first) extra else "",
+                    pinyin = if (first) py.toString() else "",
+                    heardPinyin = if (first && mark != Mark.MISSED) heardPy.toString() else "",
+                    extraBeforePinyin = if (first) extraPy.toString() else "",
+                    unitCont = !first,
+                )
+            }
             if (mark == Mark.OK || mark == Mark.SOUND) right++ else toCheck++
             if (extra.isNotEmpty()) toCheck++
         }
         val extraAtEnd = extraBeforeKey[n]
         if (extraAtEnd.isNotEmpty()) toCheck++
         val total = units.size
-        return Result(chars, extraAtEnd, total, right, if (total > 0) right * 100 / total else 0, toCheck)
+        // The transcript as checked, each of its characters marked by how it lined up.
+        val heardChars = ArrayList<HeardChar>()
+        var hk = 0
+        for (c in codePoints(transcriptText(transcript))) {
+            heardChars += if (markable(c.codePointAt(0))) HeardChar(c, heardMark[hk++]) else HeardChar(c, "plain")
+        }
+        return Result(chars, extraAtEnd, total, right, if (total > 0) right * 100 / total else 0, toCheck, extraBeforePy[n], heardChars)
     }
+
+    // --- the differences, one per word -------------------------------------------------------------
+
+    /** `ReadAloudDifference`: one word of the page that was heard differently (see [differences]). kind = wrong | missed | tone | extra | sound. */
+    data class Difference(
+        val start: Int,
+        val end: Int,
+        val page: String,
+        val pagePinyin: String,
+        val heard: String,
+        val heardPinyin: String,
+        val kind: String,
+        val toCheck: Boolean,
+        val reasons: List<String>,
+    )
+
+    private val TONE_VOWELS = listOf("āēīōūǖ", "áéíóúǘ", "ǎěǐǒǔǚ", "àèìòùǜ")
+
+    /** `pinyinTone`: 1–4 from the tone mark, 0 = neutral. */
+    fun pinyinTone(py: String): Int {
+        for (ch in codePoints(py)) for (t in 0 until 4) if (TONE_VOWELS[t].contains(ch)) return t + 1
+        return 0
+    }
+
+    /** `toneName`: "1st" · "2nd" · "3rd" · "4th" · "neutral". */
+    fun toneName(tone: Int): String = listOf("neutral", "1st", "2nd", "3rd", "4th").getOrElse(tone) { "neutral" }
+
+    private fun withPy(text: String, py: String) = if (py.isNotEmpty()) "$text $py" else text
+
+    private fun reasonFor(text: String, c: Char): String = when (c.mark) {
+        Mark.SOUND -> "${withPy(text, c.pinyin)} — sounded right (written ${c.heard})"
+        Mark.CLOSE -> "${withPy(text, c.pinyin)} → you said ${c.heardPinyin.ifEmpty { c.heard }} (${toneName(pinyinTone(c.heardPinyin))} tone instead of ${toneName(pinyinTone(c.pinyin))})"
+        Mark.WRONG -> "${withPy(text, c.pinyin)} → you said ${withPy(c.heard, c.heardPinyin)}"
+        Mark.MISSED -> "missed ${withPy(text, c.pinyin)}"
+        else -> ""
+    }
+
+    private fun kindRank(k: String) = when (k) { "sound" -> 0; "extra" -> 1; "tone" -> 2; "missed" -> 3; else -> 4 }
+    private fun kindOf(m: Mark): String? = when (m) { Mark.SOUND -> "sound"; Mark.CLOSE -> "tone"; Mark.WRONG -> "wrong"; Mark.MISSED -> "missed"; else -> null }
+    private fun differs(c: Char) = c.mark == Mark.SOUND || c.mark == Mark.CLOSE || c.mark == Mark.WRONG || c.mark == Mark.MISSED || c.extraBefore.isNotEmpty()
+
+    /**
+     * `readAloudDifferences`: the take's differences in page order (+ extra words at the end). [words]
+     * = the page's word chips (concatenating to the page): a difference covers the whole word; without
+     * them each run of differing characters is one. A homophone-only word is listed, not to check.
+     */
+    fun differences(r: Result, words: List<String>? = null): List<Difference> {
+        val chars = r.chars
+        val spans = ArrayList<Pair<Int, Int>>()
+        val pageText = chars.joinToString("") { it.char }
+        if (!words.isNullOrEmpty() && words.joinToString("") == pageText) {
+            var at = 0
+            for (w in words) {
+                val len = w.codePointCount(0, w.length)
+                if (len > 0) spans += at to at + len
+                at += len
+            }
+        } else {
+            var i = 0
+            while (i < chars.size) {
+                if (!differs(chars[i])) { i++; continue }
+                var j = i + 1
+                while (j < chars.size && (differs(chars[j]) || chars[j].unitCont)) j++
+                spans += i to j
+                i = j
+            }
+        }
+        val out = ArrayList<Difference>()
+        for ((start, end) in spans) {
+            val span = chars.subList(start, end)
+            if (span.none(::differs)) continue
+            val page = StringBuilder()
+            val pagePy = StringBuilder()
+            val heard = StringBuilder()
+            val heardPy = StringBuilder()
+            var kind = "sound"
+            val reasons = ArrayList<String>()
+            for ((k, c) in span.withIndex()) {
+                page.append(c.char)
+                pagePy.append(c.pinyin)
+                heard.append(c.extraBefore)
+                heardPy.append(c.extraBeforePinyin)
+                if (c.unitCont) continue
+                if (c.mark != Mark.MISSED) {
+                    heard.append(c.heard)
+                    heardPy.append(c.heardPinyin)
+                }
+                var text = c.char
+                var n = k + 1
+                while (n < span.size && span[n].unitCont) { text += span[n].char; n++ }
+                if (c.extraBefore.isNotEmpty()) {
+                    reasons += "extra ${withPy(c.extraBefore, c.extraBeforePinyin)}"
+                    if (kindRank("extra") > kindRank(kind)) kind = "extra"
+                }
+                reasonFor(text, c).takeIf { it.isNotEmpty() }?.let { reasons += it }
+                kindOf(c.mark)?.let { if (kindRank(it) > kindRank(kind)) kind = it }
+            }
+            out += Difference(start, end, page.toString(), pagePy.toString(), heard.toString(), heardPy.toString(), kind, kind != "sound", reasons)
+        }
+        if (r.extraAtEnd.isNotEmpty()) {
+            val n = chars.size
+            out += Difference(n, n, "", "", r.extraAtEnd, r.extraAtEndPinyin, "extra", true, listOf("extra ${withPy(r.extraAtEnd, r.extraAtEndPinyin)}"))
+        }
+        return out
+    }
+
+    /** `readAloudDifferenceAt`: the difference a tap on page character [cp] belongs to, or -1. */
+    fun differenceAt(diffs: List<Difference>, cp: Int): Int = diffs.indexOfFirst { cp >= it.start && cp < it.end }
+
+    /** `READ_ALOUD_DIFF_KIND`: a difference's kind in words. */
+    fun diffKindLabel(kind: String): String = when (kind) {
+        "wrong" -> "Another word"
+        "missed" -> "Missed"
+        "tone" -> "Tone"
+        "extra" -> "Extra words"
+        else -> "Sounded right"
+    }
+
+    /** `READ_ALOUD_STOP_RECORDING`: the footer's big red button while a take records. */
+    const val STOP_RECORDING = "Stop recording"
+
+    /**
+     * `readAloudLocksPage`: a take is under way (the dictation phase is `listening` or `finishing`),
+     * so the page is locked — the footer becomes one big red "■ Stop recording", the audio row and
+     * ▶ Play whole story are disabled, and back / ✕ stop the take instead of leaving.
+     */
+    fun locksPage(phase: String): Boolean = phase == "listening" || phase == "finishing"
+
+    /**
+     * `readAloudAllRight`: the WHOLE page read right — every character ok or a homophone, nothing
+     * tone-off / wrong / missed, no extra words — and something to read. Confetti once per such take.
+     */
+    fun allRight(r: Result): Boolean = r.total > 0 && r.right == r.total && r.toCheck == 0
 
     /** `readAloudLine`: "✓ 92% — 2 to check". */
     fun line(pct: Int, toCheck: Int): String {

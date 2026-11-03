@@ -420,10 +420,13 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
     var copyTick by remember { mutableIntStateOf(0) }
     LaunchedEffect(copyTick) { if (copyTick > 0) { kotlinx.coroutines.delay(2500); countsCopy = null } }
     val context = androidx.compose.ui.platform.LocalContext.current
+    // The session's reader: ✕ while a 🎤 Read it aloud take is under way stops the take first.
+    val readerTake = dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderTakeLock()
+    val onClose = readerTake.guard(actions.onClose)
     Box(modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
-            if (pass != null) PassTopBar(pass, ui, actions, pendingReviews)
-            else StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ })
+            if (pass != null) PassTopBar(pass, ui, actions, pendingReviews, onClose)
+            else StudyTopBar(ui, actions, pendingReviews, onCountsCopied = { countsCopy = it; copyTick++ }, onClose = onClose)
             ui.practice?.let { p -> if (ui.phase is StudyPhase.Showing) PracticeBanner(p.counts) }
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(
@@ -435,7 +438,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
                     when (phase) {
                         StudyPhase.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Lab.colors.accent) }
                         is StudyPhase.Showing -> CardStage(phase.view, ui, playingKey, actions, cardStart ?: phase.view.start, autoplay, pass = pass, practisePreview = sentencePractisePreview)
-                        is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished) // Package B
+                        is StudyPhase.Reader -> dev.jeromeswannack.chineselearning.lab.ui.readers.StudyReaderView(phase.reader, actions.readerEnv(phase.reader.reader.id), actions.onReaderFinished, readerTake) // Package B
                         is StudyPhase.Extras -> ExtrasBreakView(phase, ui, actions) // Lab today split
                         StudyPhase.Done -> DoneView(ui, actions)
                     }
@@ -461,7 +464,7 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
 private fun cardTransition(lastRating: Int?): ContentTransform = studyCardTransition(lastRating)
 
 @Composable
-private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit) {
+private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int, onCountsCopied: (CountsCopy) -> Unit, onClose: () -> Unit = actions.onClose) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = remember { StudyPrefs.get(ctx) }
     val hardMode by prefs.hardMode.collectAsState()
@@ -480,7 +483,7 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
         )
         Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
+                IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Leave study (you can come back to this card)", tint = Lab.colors.muted) }
                 QueueCountsBar(ui.counts, ui.activeBucket, Modifier.weight(1f), onCountsCopied, style = fit.counts)
                 // Lab today split: what's waiting after the cards ("📘2 📖1").
                 if (showTodayLeft && fit.showTodayLeft) TodayLeftChip(ui.todayLeft)
@@ -518,10 +521,10 @@ const val STUDY_TOP_BAR_TAG = "study-top-bar"
  * (docs/HOMEWORK.md §3b), where Study's undo is.
  */
 @Composable
-private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pendingReviews: Int) {
+private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pendingReviews: Int, onClose: () -> Unit = actions.onClose) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = actions.onClose) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
             Text(
                 pass.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f),

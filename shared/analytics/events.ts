@@ -246,7 +246,8 @@ export const ANALYTICS_EVENTS = {
   'reader.editor_save': e('readers', 'Saved a reader in the editor.', ['pages']),
   'reader.audio_block': e('readers', 'Used the phrase-block scrubber (jump / step).', ['action']),
   'reader.speed_changed': e('readers', 'Changed the reader playback speed (1 / 0.75 / 0.5).', ['speed']),
-  'reader.read_aloud': e('readers', '🎤 Read it aloud on a reader page: a take judged against the page (practice only; result_bucket = all | 90 | 75 | 50 | under_50 — the % read right — or failed | empty; chars = characters on the page; via = live | upload | none).', ['result_bucket', 'chars', 'via']),
+  'reader.read_aloud': e('readers', '🎤 Read it aloud on a reader page: a take judged against the page (practice only; result_bucket = all | 90 | 75 | 50 | under_50 — the % read right — or failed | empty; chars = characters on the page; via = live | upload | none; all_right = the whole page read right, no extra words — the take that throws confetti).', ['result_bucket', 'chars', 'via', 'all_right']),
+  'reader.read_aloud_diff': e('readers', '🎤 Read it aloud: used a difference row (what it heard vs the page) — action = play (▶ the page word) | tap_page (tapped a marked word on the page → its row); kind = wrong | missed | tone | extra | sound.', ['action', 'kind']),
   'reader.queue_move': e('readers', 'Moved a story in the reader queue ("Up next" on the Readers list, or an agent): how = top / up / down / bottom / position / drag / reorder; via = app / mcp.', ['how', 'position', 'total', 'via']),
 
   // ── quests & picture hunts ─────────────────────────────────────────────

@@ -35,14 +35,14 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
  * Neutral at 1×, accent while slowed so a slowed reader is obvious at a glance. 44dp tall.
  */
 @Composable
-fun ReaderSpeedChip(speed: Double, onClick: () -> Unit, minWidth: Dp = 60.dp) {
+fun ReaderSpeedChip(speed: Double, onClick: () -> Unit, minWidth: Dp = 60.dp, enabled: Boolean = true) {
     val slowed = speed != 1.0
     val bg by animateColorAsState(if (slowed) Lab.colors.accentSoft else Lab.colors.faint, label = "speed-bg")
     val fg by animateColorAsState(if (slowed) Lab.colors.accent else Lab.colors.muted, label = "speed-fg")
     val label = ReaderSpeed.label(speed)
     Box(
         Modifier.widthIn(min = minWidth).height(44.dp)
-            .bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+            .bouncyClickable(enabled, pressedScale = 0.9f, onClick = onClick)
             .clip(CircleShape).background(bg)
             .border(1.dp, if (slowed) Color.Transparent else Lab.colors.outline, CircleShape)
             .padding(horizontal = 12.dp)
