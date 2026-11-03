@@ -100,6 +100,11 @@ class Prefs(context: Context) {
         get() = dev.jeromeswannack.chineselearning.lab.core.AskClaude.effectiveLanguage(sp.getString("ask_claude_language", null))
         set(v) = sp.edit().putString("ask_claude_language", v).apply()
 
+    /** The tutor's Chats tab: "✦ Your Claude chats" unfolded (per device; folded by default — web `chats-claude-section-open-v1`). */
+    var chatsClaudeSectionOpen: Boolean
+        get() = sp.getBoolean("chats_claude_section_open", false)
+        set(v) = sp.edit().putBoolean("chats_claude_section_open", v).apply()
+
     /** Ask Claude 🎧 Listen first (the account's, from /api/auth/me; or what was switched on this phone since). Off by default. */
     var askClaudeListening: Boolean
         get() = sp.getBoolean("ask_claude_listening", false)

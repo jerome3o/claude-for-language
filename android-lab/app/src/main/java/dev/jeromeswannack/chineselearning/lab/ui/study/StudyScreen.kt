@@ -308,7 +308,7 @@ fun StudyRoute(
             onCardProgress = vm::onCardProgress,
             onCardRound = vm::onCardRound,
             onCardHard = vm::onCardHard,
-            onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true)) },
+            onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true, from = "card")) }, // from a card: the Coach page stays (docs/CHAT.md "Coach entry points")
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
                 vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source) + where) }

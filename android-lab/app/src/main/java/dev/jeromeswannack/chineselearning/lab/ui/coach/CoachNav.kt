@@ -38,6 +38,9 @@ import dev.jeromeswannack.chineselearning.lab.core.CoachAsk
 import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThreadNew
 import dev.jeromeswannack.chineselearning.lab.ui.claudechat.claudeChatGraph
+import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsCompose
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,7 +81,15 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
         val action = entry.arguments?.getString("action")
         val fromMessage = entry.arguments?.getString("from_message")
         val from = entry.arguments?.getString("from")
-        if (conversationId != null) {
+        // The Coach lives in the Chats tab now (web pages/CoachEntry.tsx): decided once per visit.
+        val redirect = androidx.compose.runtime.remember(entry) { CoachEntry.target(conversationId, text, action, draft, fromMessage, from) }
+        if (redirect != null) {
+            LaunchedEffect(redirect) {
+                nav.back()
+                nav.open(redirect)
+            }
+            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.background))
+        } else if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
             // A "💬 Ask Claude" chat opened by its ?c= link: its own screen, the Claude thread (same id).
@@ -95,7 +106,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                 ui,
                 CoachChatActions(
                     onBack = nav::back,
-                    onNew = { nav.back(); nav.open(Routes.coach()) },
+                    onNew = { nav.back(); nav.open(Routes.coach(from = CoachEntry.COACH)) },
                     onFollowUp = vm::setFollowUp,
                     onSend = vm::send,
                     onRetryLoad = vm::reload,
@@ -169,8 +180,46 @@ internal fun coachCardActions(app: LabApp): SentenceActions {
     )
 }
 
-/** The conversation route (web: `/coach?c=<id>`). */
-fun Routes.coachConversation(id: String) = "/coach?c=${android.net.Uri.encode(id)}"
+/**
+ * The conversation route (web: `/coach?c=<id>`), opened by the Coach page itself — `from=coach`
+ * keeps it on the Coach (a bare `/coach?c=` link goes to the thread, [CoachEntry]).
+ */
+fun Routes.coachConversation(id: String) = "/coach?c=${android.net.Uri.encode(id)}&from=${CoachEntry.COACH}"
+
+/**
+ * `/coach` — the Sentence Coach's old address (docs/CHAT.md "Chats tab — one list for people and
+ * Claude" → "Coach entry points"; port of coachEntryTarget, web pages/CoachEntry.tsx). The Coach lives
+ * in the Chats tab: its box at the bottom does Ask · ✏️ Check · 🔍 Explain · Translate, and every result
+ * is a Claude thread.
+ *
+ * - `/coach` (also `?focus=1`, the widget's ✏️) → `/chats?compose=1` (the box, ready to type);
+ * - `?c=<id>` → `/chats/claude/<id>` (a coach conversation IS a thread: same id);
+ * - `?text=&action=` (or English text, which can only be translated) → a new thread with that intent,
+ *   sent at once; Chinese text without an action → the Chats box with the text; `?draft=` → the box.
+ *
+ * The exceptions keep the Coach page, as #690 left them: "Open in Coach" from a chat message
+ * (`from_message`: the stored auto-check is reused) and anything from a study card (`from=card`: ✎ Check
+ * on "You said", ⋯ → Sentence coach). The Coach page's own links carry `from=coach` (once shown, it
+ * keeps its conversations for that visit).
+ */
+object CoachEntry {
+    const val CARD = "card"
+    const val COACH = "coach"
+
+    /** Where a `/coach` address goes: a path, or null = the Coach page. */
+    fun target(c: String?, text: String?, action: String?, draft: String?, fromMessage: String?, from: String?): String? {
+        if (!fromMessage.isNullOrEmpty() || from == CARD || from == COACH) return null
+        if (!c.isNullOrEmpty()) return Routes.claudeThread(c)
+        val t = text?.trim().orEmpty()
+        if (t.isNotEmpty()) {
+            val run = CoachActions.deepLinkAction(t, action)
+            return if (run != null) Routes.claudeThreadNew(text = t, intent = run.id, source = "coach_link") else Routes.chatsCompose(t)
+        }
+        val d = draft?.trim().orEmpty()
+        if (d.isNotEmpty()) return Routes.chatsCompose(d)
+        return Routes.chatsCompose()
+    }
+}
 
 /**
  * "Open in Coach" from a chat message (docs/CHAT.md "Chat ↔ Coach"): `/coach?text=&action=&from_message=`

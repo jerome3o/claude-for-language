@@ -42,5 +42,6 @@ object FeatureSyncs {
         platform.register("reader-recap", dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore.Sync) // 📝 reader word recap: words switched to "Add to my long-term review" offline → cards
         platform.register("chat-listening", dev.jeromeswannack.chineselearning.lab.data.chat.ChatListeningStore.Sync) // listening mode settings + message clips for offline taps
         platform.register("claude-threads", dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads.Sync) // Claude threads started offline: server id once the outbox sent them, then their queued messages
+        platform.register("claude-thread-list", dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreadList.Sync) // the Chats tab's Claude threads (?since=), listed offline
     }
 }

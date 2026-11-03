@@ -129,9 +129,13 @@ data class ClaudeSendBody(
     val typed: JsonElement? = null,
 )
 
-/** `GET /api/claude/threads?…` (the rows only). */
+/** `GET /api/claude/threads?…`: the rows; with `?since=`, the ids deleted since too (the Chats tab's list). */
 @Serializable
-data class ClaudeThreadListRes(val threads: List<ClaudeThreadDto> = emptyList(), val server_time: String? = null)
+data class ClaudeThreadListRes(
+    val threads: List<ClaudeThreadDto> = emptyList(),
+    val deleted_ids: List<String> = emptyList(),
+    val server_time: String? = null,
+)
 
 /** The live `claude_turn` frame (ChatHub, my sockets only): [text] is the WHOLE text so far; keep the highest [seq]. */
 @Serializable
@@ -163,3 +167,7 @@ suspend fun Api.cardClaudeThreads(noteId: String): ClaudeThreadListRes =
 
 suspend fun Api.retryClaudeMessage(id: String, messageId: String): ClaudeThreadRes =
     exchange("POST", "${claudeMessagesPath(id)}/${enc(messageId)}/retry", "{}", ClaudeThreadRes.serializer())
+
+/** `GET /api/claude/threads?since=&limit=` — the Chats tab's thread list: changed threads + the ids deleted since. */
+suspend fun Api.claudeThreadList(since: String? = null, limit: Int = 200): ClaudeThreadListRes =
+    get("$CLAUDE_THREADS_PATH?limit=$limit" + (since?.let { "&since=${enc(it)}" } ?: ""))

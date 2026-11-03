@@ -9,6 +9,7 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsCompose
 import kotlinx.coroutines.launch
 
 /** `/more` — the More tab (shell-owned; features add rows through MoreExtraRows.kt or by landing their route). */
@@ -52,7 +53,7 @@ fun NavGraphBuilder.moreGraph(nav: LabNav) {
 
 /** Every path a More row can open (to mark which ones are native). */
 private val MORE_PATHS = listOf(
-    Routes.DECKS, Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.analyze(),
+    Routes.DECKS, Routes.SETTINGS, Routes.profile(), Routes.CONNECTIONS, Routes.LIBRARY, Routes.readers(), Routes.calls(), Routes.coach(), Routes.chatsCompose(), Routes.analyze(),
     Routes.lessons(), Routes.claudeChats(), Routes.strokes(), Routes.quests(), Routes.pictureHunts(), Routes.audioLessons(), Routes.homework(), Routes.tutorNotes(), Routes.lessonNotes(),
     Routes.catalogue(), Routes.duplicateFinder(), Routes.sentenceCoverage(), Routes.admin(),
 )
