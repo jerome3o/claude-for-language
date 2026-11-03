@@ -661,15 +661,17 @@ export async function finishTurn(
   content: string,
   toolResults: string | null,
   meta: Record<string, unknown> | null,
+  /** The language the reply is written in (`replyLanguage`); undefined = leave the turn's as it is. */
+  answerLang?: 'zh' | 'en' | null,
 ): Promise<boolean> {
   const [res] = await db.batch([
     db
       .prepare(
         `UPDATE coach_messages SET content = ?, tool_results = ?, meta = ?, status = NULL, error = NULL, checkpoint = NULL,
-                lease_until = NULL, updated_at = ${NOW_ISO}
+                lease_until = NULL, updated_at = ${NOW_ISO}${answerLang !== undefined ? ', answer_lang = ?' : ''}
           WHERE id = ? AND status = 'pending'`,
       )
-      .bind(content, toolResults, meta ? JSON.stringify(meta) : null, messageId),
+      .bind(content, toolResults, meta ? JSON.stringify(meta) : null, ...(answerLang !== undefined ? [answerLang] : []), messageId),
     touchThreadStatement(db, threadId, 1),
   ]);
   return ((res as D1Result).meta?.changes ?? 0) > 0;

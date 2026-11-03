@@ -1156,7 +1156,9 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   stored `answer_lang` is what the turn was ASKED for, so a question asking for English ("把说明改成英文") stored 'en'
   while Claude answered in Chinese — that bubble was Markdown with no word chips or ▶ / 拼 / EN / 🎤 (Jerome, Nov 2026,
   the second reply after a card edit). Asked in Chinese stays Chinese; otherwise text with at least twice as many Han
-  characters as Latin words is Chinese.
+  characters as Latin words is Chinese. The worker stores it the same way when a reply finishes (`finishTurn`
+  in `claude-agent/thread-turn.ts`, the Coach's 💬 Ask reply in `coach-replies.ts`), so `answer_lang` = the language
+  the reply is written in and the 🎧 Listen-first clip is made for it; the apps' rule stays for older rows.
 - **The composer is compact** (`ClaudeChatComposer compact` → `VoiceTextInput compact`; Lab
   `VoiceTextFieldContent(compact = true)`): voice first (✏️ Type · 🎤 Say it on one 44–48px row); typing is ONE row —
   a box that starts at one line and grows to four, 🎤, and a round ➤ (aria "Send") — no separate full-width Send row.

@@ -141,6 +141,27 @@ describe('a Claude thread reply', () => {
     expect(JSON.parse(row.tool_results!)).toHaveLength(2);
   });
 
+  it('a turn asked for English that Claude answers in Chinese is stored zh (word chips) and its 🎧 clip is made', async () => {
+    // Jerome, Nov 2026: "把说明改成英文" asks for English (the pending reply is 'en'); Claude edits the card
+    // and answers in Chinese. Stored in the language it is WRITTEN in (replyLanguage), so the apps draw
+    // word chips and Listen first has its clip.
+    db.raw.run("UPDATE users SET ask_claude_listening = 1 WHERE id = 'u1'");
+    const { replyId } = await newTurn(db, { kind: 'card', note_id: 'n1' }, '请把说明用英文写', 'en');
+    const clip = vi.fn(async () => true);
+    expect(await runThreadTurn(envOf(db), replyId, { client: fakeStreamingClient('zh', 0), live: recorder().live, clip, memory: null })).toBe('done');
+    const zh = FAKE_STREAM_CHUNKS.zh.join('');
+    expect(reply(db, replyId)).toMatchObject({ status: null, answer_lang: 'zh' });
+    expect(clip).toHaveBeenCalledTimes(1);
+    expect((clip.mock.calls[0] as unknown[])[1]).toBe(zh);
+    expect(db.rows<{ answer_lang: string }>('SELECT answer_lang FROM note_questions')).toEqual([{ answer_lang: 'zh' }]);
+    // An English answer to an English turn stays 'en', no clip.
+    const en = await newTurn(db, { kind: 'card', note_id: 'n1' }, 'In English please', 'en');
+    const clip2 = vi.fn(async () => true);
+    expect(await runThreadTurn(envOf(db), en.replyId, { client: fakeStreamingClient('en', 0), live: recorder().live, clip: clip2, memory: null })).toBe('done');
+    expect(reply(db, en.replyId)).toMatchObject({ answer_lang: 'en' });
+    expect(clip2).not.toHaveBeenCalled();
+  });
+
   it('a card turn answers with the card in the first message, and lands in note_questions (no double copy later)', async () => {
     const { replyId, userMessageId } = await newTurn(db, { kind: 'card', note_id: 'n1' }, '行 has two readings?', 'en');
     const seen: Anthropic.MessageCreateParamsNonStreaming[] = [];
