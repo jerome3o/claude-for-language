@@ -76,10 +76,20 @@ object SentencePractise {
     /** `showCheckOnline`. */
     fun showCheckOnline(take: Take, claudeAnswered: Boolean, checking: Boolean): Boolean = take.askClaude && !claudeAnswered && !checking
 
+    /** `sentenceStopBar`: "stop" while recording, "checking" while judged, null — a tap elsewhere never stops a take. */
+    fun stopBar(listening: Boolean, finishing: Boolean): String? = when {
+        listening -> "stop"
+        finishing -> "checking"
+        else -> null
+    }
+    const val STOP_RECORDING = "Stop recording"
+    const val CHECKING_TAKE = "Checking what you said…"
+
     // --- the gate ---------------------------------------------------------------------------------
 
     const val GATE_TARGET = 2
-    val GATE_CARD_TYPES = listOf("hanzi_to_meaning", "meaning_to_hanzi")
+    /** `SENTENCE_GATE_CARD_TYPES`: Hard mode's reading, meaning and listening cards. */
+    val GATE_CARD_TYPES = listOf("hanzi_to_meaning", "meaning_to_hanzi", "audio_to_hanzi")
 
     data class Gate(val needed: Int, val got: Int, val locked: Boolean)
 
@@ -92,21 +102,10 @@ object SentencePractise {
         return Gate(needed, got, got < needed)
     }
 
-    /** `ratingLockedByGate`: only Good (2) / Easy (3) wait. */
-    fun ratingLocked(rating: Int, gate: Gate): Boolean = gate.locked && rating >= 2
-
-    private fun sentences(n: Int) = if (n == 1) "1 sentence" else "$n sentences"
-
     /** `sentenceGateLabel`. */
     fun label(gate: Gate): String? = when {
         gate.needed == 0 -> null
-        gate.locked -> "🎤 Get ${sentences(gate.needed)} right to unlock Good · ${gate.got}/${gate.needed}"
+        gate.locked -> "🎤 Try the sentences first · ${gate.got}/${gate.needed} right"
         else -> "✓ ${gate.got}/${gate.needed} right — Good and Easy unlocked"
-    }
-
-    /** `sentenceGateBlockedNote`. */
-    fun blockedNote(gate: Gate): String {
-        val left = maxOf(0, gate.needed - gate.got)
-        return "Say ${if (left == 1) "1 more sentence" else "$left more sentences"} right with 🎤 to unlock Good and Easy — Again and Hard are always there."
     }
 }

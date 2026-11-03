@@ -8,7 +8,8 @@
  * "Get two sentences right before Good / Easy" gate counts it).
  *
  * ONE microphone per list (`useSentencePractise`): a 🎤 on another row stops this one's take; tap
- * 🎤 again, press Enter or tap anywhere else to stop. Lab: `SentencePractiseState` in ui/study/Sentences.kt.
+ * 🎤 again, press Enter or the pinned "■ Stop recording" bar (`SentenceStopBar`) to stop. A tap or a scroll
+ * anywhere else NEVER stops it (Jerome: finishing should be an intentional action — `sentenceStopBar`). Lab: `SentencePractiseState` in ui/study/Sentences.kt.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -25,21 +26,29 @@ import {
   sentenceAnswerCheckInput,
   sentencePractiseResult,
   sentencePractiseVia,
+  sentenceStopBar,
+  SENTENCE_PRACTISE_STOP_RECORDING,
+  SENTENCE_PRACTISE_CHECKING_TAKE,
   sentenceTake,
   showCheckOnline,
   type SentencePractiseMode,
+  type SentencePractiseResult,
   type SentenceTake,
 } from '@shared/study/sentencePractise';
 import { answerCheckChip, type AnswerCheck } from '@shared/lesson/answerCheck';
 import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { checkLessonAnswer } from '../../services/answerCheck';
 import { track } from '../../services/analytics';
+import { studyFeel } from '../../services/studyFeel';
+import { roundTakeFeel } from '@shared/study/hardMode';
 import { YouSaidFailed, YouSaidRow } from './YouSaid';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import { DifferenceCompare } from './DifferenceCompare';
+import { StopRecordingFooter } from '../reader/StopRecordingFooter';
 import { roundTakeView } from '@shared/study/answerDifference';
 import '../lessons/AnswerCheckCard.css';
+import './SentenceRound.css';
 
 /** The row a take is about. */
 export interface PractiseRow {
@@ -56,7 +65,7 @@ export interface RowTake {
   claude: { status: 'checking' } | { status: 'done'; check: AnswerCheck } | { status: 'unavailable' } | null;
 }
 
-export function useSentencePractise({ enabled = true, showingKey, onRight, onTranslated, onResult }: {
+export function useSentencePractise({ enabled = true, showingKey, onRight, onTranslated, onResult, feel }: {
   /** Off (the card editor): no 🎤, and the microphone's live session is never prefetched. */
   enabled?: boolean;
   /** A new showing of the card (or another note) starts from scratch. */
@@ -67,6 +76,11 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
   onTranslated?: (rowKey: string) => void;
   /** A take judged right / close / wrong (the sentence's practice history records it). */
   onResult?: (rowKey: string, mode: SentencePractiseMode, result: 'right' | 'close' | 'wrong') => void;
+  /**
+   * A judged take's haptic + sound (services/studyFeel.ts). Default: a right row = round_right, close =
+   * nearly, wrong = miss (`roundTakeFeel`). The Sentence round passes its own (its last one = round_done).
+   */
+  feel?: (rowKey: string, result: SentencePractiseResult) => void;
 }) {
   const [active, setActive] = useState<{ row: PractiseRow; mode: SentencePractiseMode } | null>(null);
   const activeRef = useRef(active);
@@ -74,14 +88,16 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
   const [takes, setTakes] = useState<Record<string, RowTake>>({});
   const showing = useRef(showingKey);
   showing.current = showingKey;
-  const latest = useRef({ onRight, onTranslated, onResult });
-  latest.current = { onRight, onTranslated, onResult };
+  const latest = useRef({ onRight, onTranslated, onResult, feel });
+  latest.current = { onRight, onTranslated, onResult, feel };
 
   const finish = useCallback((rowKey: string, mode: SentencePractiseMode, take: SentenceTake, claude: AnswerCheck | null) => {
     const result = sentencePractiseResult(take.practised, claude?.verdict ?? null);
     track('study.sentence_practise', { mode, result, via: sentencePractiseVia(take, !!claude) });
     if (result === 'right' || result === 'close' || result === 'wrong') latest.current.onResult?.(rowKey, mode, result);
     if (result === 'right') latest.current.onRight?.(rowKey);
+    if (latest.current.feel) latest.current.feel(rowKey, result);
+    else studyFeel(roundTakeFeel(result, false));
   }, []);
 
   const dictation = useVoiceDictation({
@@ -139,10 +155,10 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
     cancelRef.current();
   }, [showingKey]);
 
-  // While recording: Enter, or a tap anywhere but this row's 🎤, stops the take (the Coach's rule).
+  // While recording: Enter stops the take. A tap or a scroll elsewhere does NOT (he may scroll to look at
+  // something that popped up): only the 🎤 again, Enter or the pinned "■ Stop recording" bar.
   const stopRef = useRef(dictation.stop);
   stopRef.current = dictation.stop;
-  const activeKey = active?.row.key ?? null;
   useEffect(() => {
     if (!listening) return;
     const onKey = (e: KeyboardEvent) => {
@@ -151,26 +167,17 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
         stopRef.current();
       }
     };
-    const onTap = (e: PointerEvent) => {
-      const mic = e.target instanceof Element ? e.target.closest('[data-sentence-mic]') : null;
-      if (mic && mic.getAttribute('data-sentence-mic') === activeKey) return;
-      stopRef.current();
-    };
     window.addEventListener('keydown', onKey);
-    document.addEventListener('pointerdown', onTap, true);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.removeEventListener('pointerdown', onTap, true);
-    };
-  }, [listening, activeKey]);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [listening]);
 
   /**
    * 🎤 on a row: stop this take, or start one. A 🎤 on another row while a take is under way only
-   * stops that take (the tap did, above) — its result must land on its own row first.
+   * stops that take — its result must land on its own row first.
    */
   const toggle = (row: PractiseRow, mode: SentencePractiseMode) => {
-    if (listening && activeKey === row.key) return dictation.stop();
-    if (listening || finishing) return;
+    if (listening) return dictation.stop();
+    if (finishing) return;
     setTakes((prev) => {
       if (!prev[row.key]) return prev;
       const next = { ...prev };
@@ -191,10 +198,30 @@ export function useSentencePractise({ enabled = true, showingKey, onRight, onTra
     });
   };
 
-  return { dictation, active, takes, toggle, clear, listening, finishing };
+  /** The pinned bar's ■ Stop recording. */
+  const stop = () => {
+    if (listening) dictation.stop();
+  };
+
+  return { dictation, active, takes, toggle, clear, listening, finishing, stop };
 }
 
 export type SentencePractise = ReturnType<typeof useSentencePractise>;
+
+/**
+ * While a take is under way: ONE big red "■ Stop recording" pinned at the bottom of the screen (the graded
+ * reader's read-aloud footer, `StopRecordingFooter`), easy to hit while the page scrolls under it; then
+ * "Checking…" until the result lands. Nothing else stops the take but the 🎤 again and Enter.
+ */
+export function SentenceStopBar({ practise }: { practise: SentencePractise }) {
+  const bar = sentenceStopBar(practise.listening, practise.finishing);
+  if (!bar) return null;
+  return (
+    <div className="sentence-stop-bar" data-testid="sentence-stop-bar" data-state={bar}>
+      <StopRecordingFooter recording={bar === 'stop'} onStop={practise.stop} label={SENTENCE_PRACTISE_STOP_RECORDING} checkingLabel={SENTENCE_PRACTISE_CHECKING_TAKE} testId="sentence-stop-recording" />
+    </div>
+  );
+}
 
 /** 🎤 left of ▶ (36px like ▶, a 44px target). */
 export function SentenceMicButton({ practise, row, mode }: { practise: SentencePractise; row: PractiseRow; mode: SentencePractiseMode }) {

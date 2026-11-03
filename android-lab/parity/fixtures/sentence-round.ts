@@ -12,6 +12,8 @@ import {
   SENTENCE_ROUND_SHOW_ENGLISH, SENTENCE_ROUND_HIDE_ENGLISH, SENTENCE_ROUND_PROMPT, SENTENCE_ROUND_RESULT,
   SENTENCE_ROUND_ENGLISH_CHIP, SENTENCE_ROUND_TRANSLATION_OFFLINE, SENTENCE_ROUND_TRANSLATING, SENTENCE_ROUND_TRANSLATION_FAILED,
   roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts, roundEnglishShown,
+  listenRoundIntro, isCardSentenceKey, LISTEN_ROUND_SIZE, LISTEN_ROUND_LEAD, LISTEN_ROUND_SELF_CHECK_NOTE, LISTEN_ROUND_SHOW_CHINESE,
+  LISTEN_ROUND_SELF_RIGHT, LISTEN_ROUND_SELF_WRONG,
   type RoundSentence, type RoundLogEntry,
 } from '../../../shared/study/sentenceRound';
 
@@ -114,5 +116,9 @@ writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
     prompt: SENTENCE_ROUND_PROMPT, result: SENTENCE_ROUND_RESULT,
     englishChip: SENTENCE_ROUND_ENGLISH_CHIP, translationOffline: SENTENCE_ROUND_TRANSLATION_OFFLINE,
     translating: SENTENCE_ROUND_TRANSLATING, translationFailed: SENTENCE_ROUND_TRANSLATION_FAILED,
+    listenSize: LISTEN_ROUND_SIZE, listenLead: LISTEN_ROUND_LEAD, listenSelfCheck: LISTEN_ROUND_SELF_CHECK_NOTE,
+    listenShowChinese: LISTEN_ROUND_SHOW_CHINESE, listenSelfRight: LISTEN_ROUND_SELF_RIGHT, listenSelfWrong: LISTEN_ROUND_SELF_WRONG,
+    listenIntros: [[0, 2, 3], [1, 2, 3], [0, 1, 1], [0, 2, 2]].map(([got, needed, n]) => ({ got, needed, n, intro: listenRoundIntro({ got, needed, done: got >= needed }, n) })),
+    cardKeys: ['clue:n1', 'clue:', 'clue', 's1', 'xclue:a'].map((key) => ({ key, card: isCardSentenceKey(key) })),
   },
 }, null, 1));

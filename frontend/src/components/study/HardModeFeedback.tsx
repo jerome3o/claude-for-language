@@ -1,13 +1,20 @@
 import {
   HARD_MODE_CHECKING, HARD_MODE_MISS_NOTE, HARD_MODE_RESULT, HARD_MODE_SHOW_ANSWER, HARD_MODE_TRY_AGAIN, HARD_MODE_UNKNOWN,
-  hardModeNextLabel, hardModeSaidLine, type HardModeQuestionResult,
+  HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE, hardModeNextLabel, hardModeRevealedNextLabel, hardModeSaidLine,
+  hardModeQuestionFeel, type HardModeQuestionResult,
 } from '@shared/study/hardMode';
+import { useEffect } from 'react';
+import { studyFeel } from '../../services/studyFeel';
 import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
 import { DifferenceCompare } from './DifferenceCompare';
 import './HardModeFeedback.css';
 
 export interface HardModeFeedbackProps {
-  result: HardModeQuestionResult;
+  /** 'revealed' = he gave up: the answer is shown in place, the round still to come. */
+  result: HardModeQuestionResult | 'revealed';
+  /** The card's answer, for 'revealed'. */
+  answer?: { hanzi: string; pinyin: string | null; english: string };
+  onPlayAnswer?: () => void;
   /** His own answer / what was heard (never the card's answer); null = nothing to show. */
   said: string | null;
   spoken: boolean;
@@ -29,9 +36,42 @@ export interface HardModeFeedbackProps {
  * characters: then it holds with "You said" vs the card, `difference`); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Nothing here gives the answer away.
  */
-export function HardModeFeedback({ result, said, spoken, roundFollows, difference, onTryAgain, onShowAnswer, onNext }: HardModeFeedbackProps) {
+export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext }: HardModeFeedbackProps) {
+  // The check's result you can FEEL (Jerome: "when I get it right on the very first page there's no
+  // satisfying haptics … I find myself quite dependent on it"): ✓ Right = a firm double buzz + chime,
+  // ✗ / ≈ a short one; checking / unknown / revealed none. Once per result (a Try again remounts it).
+  useEffect(() => {
+    if (result !== 'revealed') studyFeel(hardModeQuestionFeel(result));
+  }, [result]);
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   const saidLine = said ? <p className="hard-feedback-said" data-testid="hard-said">{hardModeSaidLine(said, spoken)}</p> : null;
+  if (result === 'revealed') {
+    // 👁 Show answer before a right answer: the answer IN PLACE, then on to the sentences (a miss all the same).
+    return (
+      <div className="hard-feedback hard-feedback--revealed" data-testid="hard-feedback" data-result="revealed" aria-live="polite">
+        <p className="hard-feedback-title">{HARD_MODE_REVEALED_TITLE}</p>
+        {answer && (
+          <div className="hard-feedback-answer" data-testid="hard-revealed-answer">
+            <p className="hard-feedback-answer-zh" lang="zh-CN">
+              {answer.hanzi}
+              {onPlayAnswer && (
+                <button type="button" className="hard-feedback-play" onClick={stop(onPlayAnswer)} aria-label={`Play: ${answer.hanzi}`} data-testid="hard-revealed-play">▶</button>
+              )}
+            </p>
+            {answer.pinyin && <p className="hard-feedback-answer-pinyin">{answer.pinyin}</p>}
+            <p className="hard-feedback-answer-en">{answer.english}</p>
+          </div>
+        )}
+        {saidLine}
+        <div className="hard-feedback-row">
+          <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-continue" autoFocus>
+            {hardModeRevealedNextLabel(roundFollows)} ›
+          </button>
+        </div>
+        <p className="hard-feedback-note">{HARD_MODE_REVEALED_NOTE}</p>
+      </div>
+    );
+  }
   if (result === 'checking') {
     return (
       <div className="hard-feedback hard-feedback--checking" data-testid="hard-feedback" data-result="checking" aria-live="polite">

@@ -138,5 +138,18 @@ class SentenceRoundParityTest {
         assertEquals(c["translationOffline"]!!.str, SentenceRound.TRANSLATION_OFFLINE)
         assertEquals(c["translating"]!!.str, SentenceRound.TRANSLATING)
         assertEquals(c["translationFailed"]!!.str, SentenceRound.TRANSLATION_FAILED)
+        assertEquals(c["listenSize"]!!.jsonPrimitive.int, SentenceRound.LISTEN_SIZE)
+        assertEquals(c["listenLead"]!!.str, SentenceRound.LISTEN_LEAD)
+        assertEquals(c["listenSelfCheck"]!!.str, SentenceRound.LISTEN_SELF_CHECK_NOTE)
+        assertEquals(c["listenShowChinese"]!!.str, SentenceRound.LISTEN_SHOW_CHINESE)
+        assertEquals(c["listenSelfRight"]!!.str, SentenceRound.LISTEN_SELF_RIGHT)
+        assertEquals(c["listenSelfWrong"]!!.str, SentenceRound.LISTEN_SELF_WRONG)
+        for (i in c["listenIntros"]!!.jsonArray) {
+            val o = i.jsonObject
+            val got = o["got"]!!.jsonPrimitive.int
+            val needed = o["needed"]!!.jsonPrimitive.int
+            assertEquals(o["intro"]!!.str, SentenceRound.listenIntro(SentenceRound.Progress(needed, got, got >= needed), o["n"]!!.jsonPrimitive.int), o.toString())
+        }
+        for (k in c["cardKeys"]!!.jsonArray) assertEquals(k.jsonObject["card"]!!.jsonPrimitive.boolean, SentenceRound.isCardSentenceKey(k.jsonObject["key"]!!.str!!), k.toString())
     }
 }

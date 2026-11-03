@@ -65,6 +65,8 @@ object HardModeTags {
     const val SHOW_ANSWER = "hard-show-answer"
     const val NEXT = "hard-next"
     const val GAVE_UP = "hard-gave-up"
+    const val CONTINUE = "hard-continue"
+    const val REVEALED_ANSWER = "hard-revealed-answer"
     const val CHIP_DOT = "hard-mode-chip-dot"
 }
 
@@ -207,6 +209,7 @@ data class HardModeDifference(val reason: String, val said: String, val model: S
  */
 @Composable
 fun HardModeFeedbackPanel(
+    /** "right" | "close" | "wrong" | "checking" | "unknown", or "revealed" (👁 Show answer: the answer in place). */
     result: String,
     said: String?,
     spoken: Boolean,
@@ -215,7 +218,18 @@ fun HardModeFeedbackPanel(
     onShowAnswer: () -> Unit,
     onNext: () -> Unit,
     difference: HardModeDifference? = null,
+    /** The card's answer, for "revealed": hanzi, pinyin, meaning. */
+    answer: Triple<String, String?, String>? = null,
+    onPlayAnswer: (() -> Unit)? = null,
 ) {
+    // The check's result you can FEEL (fx/StudyFeel; core HardMode.questionFeel): ✓ Right = Haptics.success +
+    // the correct chime; ✗ / ≈ a short one; checking / unknown / revealed none. Once per result.
+    val studyFeel = dev.jeromeswannack.chineselearning.lab.fx.rememberStudyFeel()
+    LaunchedEffect(result) { if (result != "revealed") studyFeel(HardMode.questionFeel(result)) }
+    if (result == "revealed") {
+        RevealedInPlace(answer, said, spoken, roundFollows, onNext, onPlayAnswer)
+        return
+    }
     val (border, ink) = when (result) {
         "right" -> Palette.Good to Palette.Good
         "close" -> Palette.Gold to Palette.Gold
@@ -272,5 +286,47 @@ fun HardModeFeedbackPanel(
         if (result == "wrong" || result == "close") {
             Text(HardMode.MISS_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
         }
+    }
+}
+
+/** 👁 Show answer before a right answer (core [HardMode.giveUpInPlace]): the answer on the question, then on to the sentences. */
+@Composable
+private fun RevealedInPlace(
+    answer: Triple<String, String?, String>?,
+    said: String?,
+    spoken: Boolean,
+    roundFollows: Boolean,
+    onNext: () -> Unit,
+    onPlayAnswer: (() -> Unit)?,
+) {
+    val tone = Palette.Hard
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(tone.copy(alpha = 0.08f))
+            .border(2.dp, tone, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag(HardModeTags.FEEDBACK),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(HardMode.REVEALED_TITLE, color = tone, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        if (answer != null) {
+            Column(Modifier.testTag(HardModeTags.REVEALED_ANSWER), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(answer.first, color = Lab.colors.ink, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
+                    if (onPlayAnswer != null) {
+                        SecondaryPill("▶", Modifier.size(44.dp).testTag("hard-revealed-play"), horizontalPadding = 0.dp, fontSize = 15.sp, onClick = onPlayAnswer)
+                    }
+                }
+                answer.second?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.muted, fontSize = 17.sp) }
+                Text(answer.third, color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
+        }
+        if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 15.sp, textAlign = TextAlign.Center)
+        PrimaryPill("${HardMode.revealedNextLabel(roundFollows)} ›", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.CONTINUE), onClick = onNext)
+        Text(HardMode.REVEALED_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }

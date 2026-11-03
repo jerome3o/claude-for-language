@@ -43,6 +43,7 @@ import { useVoiceDictation, type VoiceDictation } from '../../hooks/useVoiceDict
 import { YouSaidFailed } from '../study/YouSaid';
 import { track } from '../../services/analytics';
 import './ReadAloud.css';
+import { StopRecordingFooter } from './StopRecordingFooter';
 
 export interface ReadAloud {
   dictation: VoiceDictation;
@@ -182,27 +183,13 @@ export function useReadAloud(
  */
 export function ReadAloudStopFooter({ recording, onStop }: { recording: boolean; onStop: () => void }) {
   return (
-    <div className="study-reader-nav reader-read-aloud-footer" data-testid="reader-read-aloud-footer">
-      <button
-        type="button"
-        className={`btn reader-read-aloud-stop-btn${recording ? '' : ' checking'}`}
-        onClick={onStop}
-        disabled={!recording}
-        data-testid="reader-read-aloud-stop-footer"
-      >
-        {recording ? (
-          <>
-            <span className="reader-read-aloud-stop-square" aria-hidden="true" />
-            {READ_ALOUD_STOP_RECORDING}
-          </>
-        ) : (
-          <>
-            <span className="spinner reader-read-aloud-spinner" aria-hidden="true" />
-            {READ_ALOUD_CHECKING}
-          </>
-        )}
-      </button>
-    </div>
+    <StopRecordingFooter
+      recording={recording}
+      onStop={onStop}
+      label={READ_ALOUD_STOP_RECORDING}
+      checkingLabel={READ_ALOUD_CHECKING}
+      testId="reader-read-aloud-stop-footer"
+    />
   );
 }
 

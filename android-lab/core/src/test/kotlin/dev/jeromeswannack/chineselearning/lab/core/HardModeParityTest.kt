@@ -59,14 +59,41 @@ class HardModeParityTest {
     }
 
     @Test
-    fun locks() {
-        for (c in fixture()["locks"]!!.jsonArray) {
+    fun goodEasyGates() {
+        val cases = fixture()["locks"]!!.jsonArray
+        assertTrue(cases.size >= 48)
+        for (c in cases) {
             val o = c.jsonObject
             val right = o["right"]!!.jsonArray.map { it.str!! }
-            val gate = SentencePractise.gate(true, "hanzi_to_meaning", o["count"]!!.intOrNull, right)
+            val gate = SentencePractise.gate(true, o["cardType"]!!.str!!, o["count"]!!.intOrNull, right)
             val want = o["lock"]!!.jsonObject
-            val lock = HardMode.lock(gate, o["gaveUp"]!!.jsonPrimitive.boolean, SentencePractise.label(gate), SentencePractise.blockedNote(gate))
-            assertEquals(HardMode.Lock(want["locked"]!!.jsonPrimitive.boolean, want["label"]!!.str, want["blockedNote"]!!.str!!, want["gaveUp"]!!.jsonPrimitive.boolean), lock, o.toString())
+            val g = HardMode.goodEasy(gate, o["gaveUp"]!!.jsonPrimitive.boolean, SentencePractise.label(gate))
+            assertEquals(HardMode.GoodEasy(want["state"]!!.str!!, want["reason"]!!.str, want["label"]!!.str, want["gaveUp"]!!.jsonPrimitive.boolean), g, o.toString())
+            assertEquals(o["needsOverride"]!!.jsonArray.map { it.jsonPrimitive.boolean }, (0..3).map { HardMode.needsOverride(it, g) }, o.toString())
+            assertEquals(o["suggested"]!!.intOrNull, HardMode.suggestedRating(g), o.toString())
+        }
+    }
+
+    @Test
+    fun overrideTaps() {
+        val cases = fixture()["taps"]!!.jsonArray
+        assertTrue(cases.size >= 100)
+        fun arm(e: JsonElement?): HardMode.Arm? = if (e == null || e is JsonNull) null else HardMode.Arm(e.jsonObject["rating"]!!.jsonPrimitive.int, e.jsonObject["at"]!!.jsonPrimitive.long)
+        for (c in cases) {
+            val o = c.jsonObject
+            val want = o["tap"]!!.jsonObject
+            val tap = HardMode.overrideTap(o["needsOverride"]!!.jsonPrimitive.boolean, o["rating"]!!.jsonPrimitive.int, arm(o["armed"]), o["now"]!!.jsonPrimitive.long)
+            assertEquals(HardMode.Tap(want["rate"]!!.jsonPrimitive.boolean, want["override"]!!.jsonPrimitive.boolean, arm(want["armed"])), tap, o.toString())
+        }
+    }
+
+    @Test
+    fun feels() {
+        val f = fixture()["feels"]!!.jsonObject
+        for (c in f["question"]!!.jsonArray) assertEquals(c.jsonObject["feel"]!!.str, HardMode.questionFeel(c.jsonObject["result"]!!.str), c.toString())
+        for (c in f["round"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["feel"]!!.str, HardMode.roundTakeFeel(o["result"]!!.str!!, o["done"]!!.jsonPrimitive.boolean), o.toString())
         }
     }
 
@@ -87,7 +114,18 @@ class HardModeParityTest {
         assertEquals(c["showAnswer"]!!.str, HardMode.SHOW_ANSWER)
         assertEquals(c["missNote"]!!.str, HardMode.MISS_NOTE)
         assertEquals(c["gaveUpLine"]!!.str, HardMode.GAVE_UP_LINE)
-        assertEquals(c["gaveUpBlocked"]!!.str, HardMode.GAVE_UP_BLOCKED)
+        assertEquals(c["overrideMs"]!!.jsonPrimitive.long, HardMode.OVERRIDE_MS)
+        for (g in c["giveUpInPlace"]!!.jsonArray) assertEquals(g.jsonObject["inPlace"]!!.jsonPrimitive.boolean, HardMode.giveUpInPlace(g.jsonObject["count"]!!.intOrNull), g.toString())
+        assertEquals(c["revealedTitle"]!!.str, HardMode.REVEALED_TITLE)
+        assertEquals(c["revealedNote"]!!.str, HardMode.REVEALED_NOTE)
+        assertEquals(c["gaveUpSkipNote"]!!.str, HardMode.GAVE_UP_SKIP_NOTE)
+        assertEquals(c["revealedNext"]!!.jsonArray.map { it.str }, listOf(true, false).map { HardMode.revealedNextLabel(it) })
+        assertEquals(c["gaveUpCheer"]!!.str, HardMode.gaveUpCheer(2, 2))
+        assertEquals(c["suggested"]!!.str, HardMode.SUGGESTED)
+        assertEquals(c["tapTwice"]!!.str, HardMode.TAP_TWICE)
+        assertEquals(c["tapAgain"]!!.str, HardMode.TAP_AGAIN)
+        assertEquals(c["prompts"]!!.jsonArray.map { it.str }, listOf(0, 1, 2, 3, 9).map { HardMode.overridePrompt(it) })
+        assertEquals(c["vibration"]!!.jsonObject.mapValues { e -> e.value.jsonArray.map { it.jsonPrimitive.long } }, HardMode.FEEL_VIBRATION)
         assertEquals(c["beatMs"]!!.jsonPrimitive.long, HardMode.RIGHT_BEAT_MS)
         assertEquals(c["nextRound"]!!.str, HardMode.nextLabel(true))
         assertEquals(c["nextAnswer"]!!.str, HardMode.nextLabel(false))

@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseHardMode, nextHardMode, isRedCard, hardModeApplies, hardModeQuestionResult, hardModeRoundFollows, hardModeLock,
-  hardModeChipLabel, hardModeNextLabel, hardModeSaidLine, HARD_MODE_GAVE_UP_LINE, HARD_MODE_CHIP,
+  parseHardMode, nextHardMode, isRedCard, hardModeApplies, hardModeQuestionResult, hardModeRoundFollows, goodEasyGate,
+  ratingNeedsOverride, suggestedRating, overrideTap, overridePrompt, hardModeQuestionFeel, roundTakeFeel,
+  hardModeChipLabel, hardModeNextLabel, hardModeSaidLine, HARD_MODE_GAVE_UP_LINE, HARD_MODE_CHIP, HARD_MODE_OVERRIDE_MS,
+  STUDY_FEEL_VIBRATION, hardModeGiveUpInPlace, hardModeRevealedNextLabel, hardModeGaveUpCheer,
 } from './hardMode';
-import { sentenceGate, sentenceGateBlockedNote, sentenceGateLabel } from './sentencePractise';
+import { sentenceGate, sentenceGateLabel } from './sentencePractise';
 
 describe('the setting', () => {
   it('reads the old switch as All cards / Off, and cycles Off → Red → All', () => {
@@ -25,10 +27,12 @@ describe('which cards', () => {
     expect([0, 1, 2, 3].map(isRedCard)).toEqual([false, true, false, true]);
     expect(isRedCard(undefined)).toBe(false);
   });
-  it('off never; all = reading + meaning cards; red = only the red ones; never the listening card', () => {
+  it('off never; all = reading + meaning + listening cards; red = only the red ones', () => {
     expect(hardModeApplies({ mode: 'off', cardType: 'hanzi_to_meaning', queue: 1 })).toBe(false);
     expect(hardModeApplies({ mode: 'all', cardType: 'meaning_to_hanzi', queue: 2 })).toBe(true);
-    expect(hardModeApplies({ mode: 'all', cardType: 'audio_to_hanzi', queue: 1 })).toBe(false);
+    expect(hardModeApplies({ mode: 'red', cardType: 'audio_to_hanzi', queue: 1 })).toBe(true);
+    expect(hardModeApplies({ mode: 'red', cardType: 'audio_to_hanzi', queue: 2 })).toBe(false);
+    expect(hardModeApplies({ mode: 'all', cardType: 'other', queue: 1 })).toBe(false);
     expect(hardModeApplies({ mode: 'red', cardType: 'hanzi_to_meaning', queue: 3 })).toBe(true);
     expect(hardModeApplies({ mode: 'red', cardType: 'hanzi_to_meaning', queue: 2 })).toBe(false);
     expect(hardModeApplies({ mode: 'red', cardType: 'meaning_to_hanzi', queue: 0 })).toBe(false);
@@ -67,18 +71,63 @@ describe('the question, checked at once', () => {
   });
 });
 
-describe('Good / Easy', () => {
+describe('Good / Easy: greyed, never locked', () => {
   const gate = (rightKeys: string[]) => sentenceGate({ enabled: true, cardType: 'hanzi_to_meaning', sentenceCount: 4, rightKeys });
-  it('gave up: locked whatever the sentences say', () => {
-    const g = gate(['read:a', 'read:b']);
-    const lock = hardModeLock(g, true, sentenceGateLabel(g), sentenceGateBlockedNote(g));
-    expect(lock.locked).toBe(true);
-    expect(lock.label).toBe(HARD_MODE_GAVE_UP_LINE);
+  it('gave up: Again or Hard suggested whatever the sentences say', () => {
+    const g = goodEasyGate(gate(['read:a', 'read:b']), true, null);
+    expect(g).toEqual({ state: 'suggest_lower', reason: 'gave_up', label: HARD_MODE_GAVE_UP_LINE, gaveUp: true });
+    expect([0, 1, 2, 3].map((r) => ratingNeedsOverride(r, g))).toEqual([false, false, true, true]);
+    expect(suggestedRating(g)).toBe(1);
   });
   it('otherwise the sentence gate', () => {
-    const g = gate(['read:a', 'read:b']);
-    expect(hardModeLock(g, false, sentenceGateLabel(g), sentenceGateBlockedNote(g)).locked).toBe(false);
+    const g2 = gate(['read:a', 'read:b']);
+    const open = goodEasyGate(g2, false, sentenceGateLabel(g2));
+    expect(open.state).toBe('open');
+    expect([0, 1, 2, 3].map((r) => ratingNeedsOverride(r, open))).toEqual([false, false, false, false]);
+    expect(suggestedRating(open)).toBeNull();
     const g1 = gate(['read:a']);
-    expect(hardModeLock(g1, false, sentenceGateLabel(g1), sentenceGateBlockedNote(g1))).toMatchObject({ locked: true, gaveUp: false, label: '🎤 Get 2 sentences right to unlock Good · 1/2' });
+    expect(goodEasyGate(g1, false, sentenceGateLabel(g1))).toEqual({ state: 'suggest_lower', reason: 'sentences', gaveUp: false, label: '🎤 Try the sentences first · 1/2 right' });
+  });
+  it('a second tap on the same greyed rating within 3 s rates it anyway', () => {
+    const first = overrideTap({ needsOverride: true, rating: 2, armed: null, now: 1000 });
+    expect(first).toEqual({ rate: false, override: false, armed: { rating: 2, at: 1000 } });
+    expect(overrideTap({ needsOverride: true, rating: 2, armed: first.armed, now: 1000 + HARD_MODE_OVERRIDE_MS })).toEqual({ rate: true, override: true, armed: null });
+    // too late, or another rating: armed afresh
+    expect(overrideTap({ needsOverride: true, rating: 2, armed: first.armed, now: 1001 + HARD_MODE_OVERRIDE_MS })).toEqual({ rate: false, override: false, armed: { rating: 2, at: 1001 + HARD_MODE_OVERRIDE_MS } });
+    expect(overrideTap({ needsOverride: true, rating: 3, armed: first.armed, now: 1500 }).armed).toEqual({ rating: 3, at: 1500 });
+    // not greyed: straight through
+    expect(overrideTap({ needsOverride: false, rating: 1, armed: first.armed, now: 1500 })).toEqual({ rate: true, override: false, armed: null });
+    expect(overridePrompt(2)).toBe('Tap again to rate Good anyway');
+    expect(overridePrompt(3)).toBe('Tap again to rate Easy anyway');
+  });
+});
+
+describe('the feel', () => {
+  it('a right answer is a success; the round counts and finishes', () => {
+    expect(hardModeQuestionFeel('right')).toBe('success');
+    expect(hardModeQuestionFeel('close')).toBe('nearly');
+    expect(hardModeQuestionFeel('wrong')).toBe('miss');
+    expect(hardModeQuestionFeel('checking')).toBeNull();
+    expect(hardModeQuestionFeel(null)).toBeNull();
+    expect(roundTakeFeel('right', false)).toBe('round_right');
+    expect(roundTakeFeel('right', true)).toBe('round_done');
+    expect(roundTakeFeel('failed', true)).toBeNull();
+  });
+  it('vibrates firmly enough to feel (≥ 35 ms pulses for a right answer)', () => {
+    for (const f of ['success', 'round_right', 'round_done'] as const) {
+      const on = STUDY_FEEL_VIBRATION[f].filter((_, i) => i % 2 === 0);
+      expect(Math.min(...on)).toBeGreaterThanOrEqual(35);
+    }
+  });
+});
+
+describe('👁 Show answer on the question', () => {
+  it('shows the answer in place, then on to the sentences — unless there are none', () => {
+    expect(hardModeGiveUpInPlace(null)).toBe(true);
+    expect(hardModeGiveUpInPlace(3)).toBe(true);
+    expect(hardModeGiveUpInPlace(0)).toBe(false);
+    expect(hardModeRevealedNextLabel(true)).toBe('Continue to the sentences');
+    expect(hardModeRevealedNextLabel(false)).toBe('See the full answer');
+    expect(hardModeGaveUpCheer(2, 2)).toBe('🎉 2 / 2 — nice recovery');
   });
 });

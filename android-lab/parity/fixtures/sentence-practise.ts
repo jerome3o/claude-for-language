@@ -9,7 +9,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   sentencePractiseMode, sentenceTake, sentencePractiseResult, sentencePractiseVia, showCheckOnline,
-  sentenceAnswerCheckInput, sentenceGate, ratingLockedByGate, sentenceGateLabel, sentenceGateBlockedNote,
+  sentenceAnswerCheckInput, sentenceGate, sentenceGateLabel, sentenceStopBar, SENTENCE_PRACTISE_STOP_RECORDING, SENTENCE_PRACTISE_CHECKING_TAKE,
   SENTENCE_PRACTISE_LABEL, SENTENCE_PRACTISE_LISTENING, SENTENCE_PRACTISE_STOP, SENTENCE_PRACTISE_CHECKING,
   SENTENCE_PRACTISE_CHECK_ONLINE, SENTENCE_GATE_TARGET, SENTENCE_GATE_CARD_TYPES,
   type SentencePractiseMode,
@@ -58,9 +58,7 @@ for (const enabled of [true, false]) for (const cardType of ['hanzi_to_meaning',
   const g = sentenceGate({ enabled, cardType, sentenceCount, rightKeys });
   gates.push({
     enabled, cardType, sentenceCount, rightKeys, gate: g,
-    locked: [0, 1, 2, 3].map((r) => ratingLockedByGate(r, g)),
     label: sentenceGateLabel(g),
-    note: sentenceGateBlockedNote(g),
   });
 }
 
@@ -70,5 +68,7 @@ writeFileSync(join(OUT, 'sentence-practise.json'), JSON.stringify({
     label: SENTENCE_PRACTISE_LABEL, listening: SENTENCE_PRACTISE_LISTENING, stop: SENTENCE_PRACTISE_STOP,
     checking: SENTENCE_PRACTISE_CHECKING, checkOnline: SENTENCE_PRACTISE_CHECK_ONLINE,
     target: SENTENCE_GATE_TARGET, cardTypes: SENTENCE_GATE_CARD_TYPES,
+    stopRecording: SENTENCE_PRACTISE_STOP_RECORDING, checkingTake: SENTENCE_PRACTISE_CHECKING_TAKE,
+    stopBar: [[false, false], [true, false], [false, true], [true, true]].map(([l, f]) => ({ listening: l, finishing: f, bar: sentenceStopBar(l, f) })),
   },
 }, null, 1));

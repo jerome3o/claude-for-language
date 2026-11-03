@@ -86,6 +86,48 @@ object SentenceRound {
         return picked.sortedBy { it.first }.map { make(it.first, it.second) }
     }
 
+    // --- the listening card's round: "say it in Chinese" -------------------------------------------
+
+    /** `LISTEN_ROUND_SIZE` */
+    const val LISTEN_SIZE = 3
+
+    /** `isCardSentenceKey`: the card's own sentence (`clue:<noteId>`). */
+    fun isCardSentenceKey(key: String) = key.startsWith("clue:")
+
+    /** Spaces (ASCII and the ideographic one) never count when looking for the word (`squeeze`). */
+    private fun squeeze(text: String): String = text.filterNot { it == ' ' || it == '\t' || it == '\n' || it == '\r' || it == '\u3000' }
+
+    /** `listenRoundCandidates`: the card's sentence and the set's ones carrying the word, with English, not hidden; list order. */
+    fun listenCandidates(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): List<IndexedValue<Sentence>> {
+        val w = squeeze(word)
+        return sentences.withIndex()
+            .filter { hasTranslation(it.value) && stats?.get(SentenceHistory.key(it.value.key))?.hidden == null }
+            .filter { isCardSentenceKey(it.value.key) || w.isEmpty() || squeeze(it.value.hanzi).contains(w) }
+    }
+
+    /** `pickListenRoundExercises`: up to [LISTEN_SIZE] translate exercises, least known first, shown easiest → harder. */
+    fun pickListen(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): List<Exercise> {
+        fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))?.translate
+        return listenCandidates(sentences, word, stats)
+            .sortedWith { a, b -> SentenceHistory.compareLeastKnown(statsOf(a.value), statsOf(b.value)).let { if (it != 0) it else a.index - b.index } }
+            .take(LISTEN_SIZE)
+            .sortedBy { it.index }
+            .map { Exercise(exerciseId(SentencePractise.TRANSLATE, it.value.key), it.value.key, SentencePractise.TRANSLATE, it.index) }
+    }
+
+    /** `listenRoundSentenceCount` */
+    fun listenSentenceCount(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): Int =
+        listenCandidates(sentences, word, stats).size
+
+    const val LISTEN_LEAD = "You heard it — now say these in Chinese."
+    const val LISTEN_SELF_CHECK_NOTE = "Say each one out loud, then show the Chinese and check yourself."
+    const val LISTEN_SHOW_CHINESE = "Show the Chinese"
+    const val LISTEN_SELF_RIGHT = "I said it"
+    const val LISTEN_SELF_WRONG = "Not quite"
+
+    /** `listenRoundIntro` */
+    fun listenIntro(p: Progress, exerciseCount: Int): String = "$LISTEN_LEAD ${intro(p, exerciseCount)}"
+
     /** `sentenceRoundOpens`: [sentenceCount] null = still loading. */
     fun opens(enabled: Boolean, cardType: String, sentenceCount: Int?): Boolean {
         if (!enabled || cardType !in SentencePractise.GATE_CARD_TYPES) return false
@@ -145,7 +187,7 @@ object SentenceRound {
     fun skipNote(p: Progress): String {
         val left = maxOf(0, p.needed - p.got)
         if (left == 0) return "Good and Easy are unlocked."
-        return "Good and Easy stay locked until ${if (left == 1) "1 more sentence is" else "$left more sentences are"} right — the sentences on the answer side still count."
+        return "Good and Easy stay greyed (Again or Hard suggested) until ${if (left == 1) "1 more sentence is" else "$left more sentences are"} right — the sentences on the answer side still count."
     }
 
     // --- the round on the answer side (`roundRowMarks` …) -------------------------------------------

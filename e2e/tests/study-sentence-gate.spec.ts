@@ -4,8 +4,8 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
 /**
  * 🎤 on the study card's example sentence rows + "Get two sentences right before Good / Easy"
  * (docs/STUDY_SESSION.md "Practise a sentence aloud"; shared/study/sentencePractise.ts). With the
- * setting on (per device), a reading card's answer side says what unlocks Good, a tap on a locked
- * Good / Easy rates nothing and says why, Again still rates. A blank row has no 🎤; an open row has
+ * setting on (per device), a reading card's answer side says what unlocks Good, Good / Easy are GREYED
+ * (never locked): the first tap says "Tap again to rate Good anyway", the second rates; Again still rates. A blank row has no 🎤; an open row has
  * a read 🎤 left of ▶; EN with the Chinese hidden makes it "Say it in Chinese".
  *
  * The Sentence round (docs/STUDY_SESSION.md "Sentence round"; shared/study/sentenceRound.ts): with
@@ -14,7 +14,7 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
  *
  * Hard mode (docs/STUDY_SESSION.md "Hard mode"; shared/study/hardMode.ts): the question's own answer
  * is checked first — wrong → 🔁 Try again → right → the round; 👁 Show answer / Skip recording = a miss
- * (the answer at once, Good / Easy locked); the header chip switches Off · Red cards only · All cards,
+ * (the answer IN PLACE, then "Continue to the sentences ›" → the round; Good / Easy greyed after); the header chip switches Off · Red cards only · All cards,
  * and "Red cards only" leaves a card he's doing fine with alone but takes one rated Again today.
  */
 test.use({
@@ -219,7 +219,7 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   await expect(exercises.nth(1)).toContainText(SET[0].translation);
   await expect(exercises.nth(1)).not.toContainText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
-  await expect(round).toContainText('Good and Easy stay locked until 2 more sentences are right');
+  await expect(round).toContainText('Good and Easy stay greyed (Again or Hard suggested) until 2 more sentences are right');
   await shot(page, 'hard-04-round');
   await page.getByTestId('sentence-round-skip').click();
 
@@ -228,10 +228,11 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   const gate = page.getByTestId('sentence-gate');
   await expect(gate).toBeVisible({ timeout: 15000 });
   await expect(gate).toHaveAttribute('data-locked', 'true');
-  await expect(gate).toContainText('Get 2 sentences right to unlock Good · 0/2');
-  await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('rating-easy')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('rating-again')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(gate).toContainText('Try the sentences first · 0/2 right');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
+  await expect(page.getByTestId('rating-easy')).toHaveAttribute('data-greyed', 'true');
+  await expect(page.getByTestId('rating-again')).not.toHaveAttribute('data-greyed', 'true');
+  await expect(page.getByTestId('rating-hard')).toHaveAttribute('data-suggested', 'true');
   // The round's sentences lead the list, opened, outlined "In the round" (untried: he skipped them).
   const roundRows = page.locator('.sentence-set-row.is-round');
   await expect(roundRows).toHaveCount(4);
@@ -239,10 +240,14 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   await expect(roundRows.first().locator('.sentence-set-hanzi')).toHaveText(CLUE.hanzi);
   await expect(roundRows.nth(1).locator('.sentence-set-translation')).toHaveText(SET[0].translation);
 
-  // A tap on a locked Good rates nothing and says why.
-  await page.getByTestId('rating-good').click({ force: true }); // aria-disabled: Playwright won't tap it otherwise
-  await expect(gate).toContainText('right with 🎤 to unlock Good and Easy');
+  // A first tap on a greyed Good rates nothing and asks for a second.
+  await page.getByTestId('rating-good').click();
+  await expect(gate).toContainText('Tap again to rate Good anyway');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('data-armed', 'true');
+  await shot(page, 'hard-06-tap-again');
   await expect(back).toBeVisible();
+  // …it wears off after 3 s.
+  await expect(gate).toContainText('Try the sentences first', { timeout: 5000 });
 
   // The card's sentence (opened: it was in the round): a read 🎤 left of ▶…
   const row = page.locator('.sentence-set-row').first();
@@ -280,8 +285,19 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
     return ex;
   };
 
-  // A miss: Try again is offered, nothing counted.
-  const first = await say(0, '我去学校。');
+  // Stopping is intentional: a tap on the page or a scroll while recording does NOT stop the take; the big
+  // pinned "■ Stop recording" does.
+  await hear(page, '我去学校。');
+  const ex0 = page.getByTestId('sentence-round-exercise').nth(0);
+  await ex0.getByTestId('sentence-practise-mic').click();
+  await expect(ex0.getByTestId('sentence-practise-live')).toContainText('我去学校', { timeout: 10000 });
+  await page.getByTestId('sentence-round-question').click();
+  await page.mouse.wheel(0, 300);
+  await expect(page.getByTestId('sentence-stop-bar')).toHaveAttribute('data-state', 'stop');
+  await expect(ex0.getByTestId('sentence-practise-live')).toBeVisible();
+  await shot(page, 'hard-08-recording-stop-bar');
+  await page.getByTestId('sentence-stop-recording').click();
+  const first = ex0;
   await expect(first).toHaveAttribute('data-status', /close|wrong/, { timeout: 10000 });
   await expect(first.getByTestId('sentence-round-retry')).toBeVisible();
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
@@ -315,7 +331,7 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   const gate = page.getByTestId('sentence-gate');
   await expect(gate).toHaveAttribute('data-locked', 'false', { timeout: 15000 });
   await expect(gate).toContainText('2/2 right — Good and Easy unlocked');
-  await expect(page.getByTestId('rating-good')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('rating-good')).not.toHaveAttribute('data-greyed', 'true');
   // The round's sentences first, opened, outlined with how each went.
   const roundRows = page.locator('.sentence-set-row.is-round');
   await expect(roundRows).toHaveCount(4);
@@ -451,24 +467,67 @@ test('sentence history: hide a sentence in the round (Undo), more sentences aske
   await expect(page.locator('.sentence-set-row')).toHaveCount(4);
 });
 
-test('hard mode: Show answer before a right answer is a miss — the answer at once, no round, Good / Easy locked', async ({ page, request }) => {
+test('hard mode: Show answer before a right answer — the answer in place, then the sentences; Good / Easy greyed, a second tap rates', async ({ page, request }) => {
   test.setTimeout(120_000);
   await setHardMode(page, 'all');
   const { token, deck, note } = await seedBankNote(request, 'hard-give-up');
   await stubSet(page, note.id);
   await openCard(page, token, deck.id);
   await page.getByTestId('skip-recording').click();
+  // The answer IN PLACE on the question — not the card's back.
+  const feedback = page.getByTestId('hard-feedback');
+  await expect(feedback).toHaveAttribute('data-result', 'revealed', { timeout: 15000 });
+  await expect(page.getByTestId('hard-revealed-answer')).toContainText('银行');
+  await expect(page.getByTestId('hard-revealed-answer')).toContainText('yínháng');
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await expect(page.getByTestId('hard-continue')).toContainText('Continue to the sentences');
+  await shot(page, 'hard-05-revealed-in-place');
+  // Continue → the round (looked at: its cheer and skip line say so).
+  await page.getByTestId('hard-continue').click();
+  const round = page.getByTestId('sentence-round');
+  await expect(round).toBeVisible({ timeout: 15000 });
+  await expect(round).toContainText('You looked at the answer, so Again or Hard is suggested');
+  await page.getByTestId('sentence-round-skip').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('sentence-round')).toHaveCount(0);
   const gate = page.getByTestId('sentence-gate');
   await expect(gate).toHaveAttribute('data-gave-up', 'true');
-  await expect(gate).toContainText('You looked at the answer — Again or Hard this time');
-  await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.getByTestId('rating-hard')).not.toHaveAttribute('aria-disabled', 'true');
-  await shot(page, 'hard-05-gave-up');
-  await page.getByTestId('rating-good').click({ force: true });
-  await expect(gate).toContainText('Good and Easy stay locked on this card');
-  await expect(page.getByTestId('study-card-back')).toBeVisible();
+  await expect(gate).toContainText('You looked at the answer — Again or Hard suggested');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
+  await expect(page.getByTestId('rating-hard')).toHaveAttribute('data-suggested', 'true');
+  await shot(page, 'hard-07-gave-up-greyed');
+  // Two taps on Good: rated anyway (on the train, he doesn't want to turn it all off).
+  await page.getByTestId('rating-good').click();
+  await expect(gate).toContainText('Tap again to rate Good anyway');
+  await page.getByTestId('rating-good').click();
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0, { timeout: 15000 });
+});
+
+test('hard mode on the listening card: checked first, then a round of "Say it in Chinese"', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  await setHardMode(page, 'all');
+  const { token, deck, note } = await seedBankNote(request, 'hard-listen');
+  // Only the listening card in the queue: the other two suspended.
+  await api(request, '/api/me/card-holds', { method: 'POST', token, data: { note_ids: [note.id], card_types: ['hanzi_to_meaning', 'meaning_to_hanzi'], kind: 'suspend' } });
+  await stubSet(page, note.id);
+  await page.goto(`/decks?session_token=${token}`);
+  await expect(page.getByText('Bank words').first()).toBeVisible({ timeout: 30000 });
+  const listen = page.getByTestId('listen-context');
+  await expect(async () => {
+    await page.goto(`/study?deck=${deck.id}&autostart=true`);
+    await expect(listen).toBeVisible({ timeout: 5000 });
+  }).toPass({ timeout: 60000 });
+  await page.getByRole('button', { name: 'Type the answer' }).first().click();
+  await page.locator('.study-typing-input').fill('银行');
+  await page.locator('.study-typing-input').press('Enter');
+  await expect(page.getByTestId('hard-feedback')).toHaveAttribute('data-result', 'right', { timeout: 15000 });
+  const round = page.getByTestId('sentence-round');
+  await expect(round).toBeVisible({ timeout: 15000 });
+  await expect(round).toContainText('You heard it — now say these in Chinese');
+  const exercises = page.getByTestId('sentence-round-exercise');
+  await expect(exercises).toHaveCount(3);
+  await expect(page.locator('[data-testid="sentence-round-exercise"][data-mode="read"]')).toHaveCount(0);
+  await expect(exercises.first()).toContainText(CLUE.translation);
+  await shot(page, 'hard-09-listening-round');
 });
 
 test('hard mode chip: Off · Red cards only · All in the header; Red cards only leaves a new card alone', async ({ page, request }) => {
@@ -490,7 +549,7 @@ test('hard mode chip: Off · Red cards only · All in the header; Red cards only
   await page.getByTestId('skip-recording').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
-  await expect(page.getByTestId('rating-good')).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('rating-good')).not.toHaveAttribute('data-greyed', 'true');
   await chip.click();
   await page.getByTestId('hard-mode-option-off').click();
   await expect(chip).toHaveText('🎯 Off');

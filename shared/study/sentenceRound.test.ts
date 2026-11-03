@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
   sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, roundRowMarks, orderKeysForRound, exercisesFromLog, roundEnglishShown, type RoundSentence,
+  pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
-import { wantsMoreSentences } from './sentenceHistory';
+import { sentenceStats, wantsMoreSentences, type SentencePracticeEvent } from './sentenceHistory';
 
 const s = (key: string, translation: string | null = `${key} en`): RoundSentence => ({ key, hanzi: `${key}汉字`, translation });
 const brief = (ex: ReturnType<typeof pickRoundExercises>) => ex.map((e) => e.id);
@@ -73,7 +74,8 @@ describe('progress + the gate', () => {
   it('opens on the gated card types only, not when there are no sentences', () => {
     expect(sentenceRoundOpens({ enabled: true, cardType: 'hanzi_to_meaning', sentenceCount: null })).toBe(true);
     expect(sentenceRoundOpens({ enabled: true, cardType: 'meaning_to_hanzi', sentenceCount: 0 })).toBe(false);
-    expect(sentenceRoundOpens({ enabled: true, cardType: 'audio_to_hanzi', sentenceCount: 3 })).toBe(false);
+    expect(sentenceRoundOpens({ enabled: true, cardType: 'audio_to_hanzi', sentenceCount: 3 })).toBe(true);
+    expect(sentenceRoundOpens({ enabled: true, cardType: 'other', sentenceCount: 3 })).toBe(false);
     expect(sentenceRoundOpens({ enabled: false, cardType: 'hanzi_to_meaning', sentenceCount: 3 })).toBe(false);
   });
   it('words', () => {
@@ -82,7 +84,7 @@ describe('progress + the gate', () => {
     expect(sentenceRoundIntro(p, 4)).toBe('Get any 2 of these 4 right');
     expect(sentenceRoundCheer(p)).toBe('🎉 Nice — 1 / 2');
     expect(sentenceRoundCheer(sentenceRoundProgress(ex, ['read:a', 'read:c']))).toBe('🎉 2 / 2 — Good and Easy unlocked');
-    expect(sentenceRoundSkipNote(p)).toBe('Good and Easy stay locked until 1 more sentence is right — the sentences on the answer side still count.');
+    expect(sentenceRoundSkipNote(p)).toBe('Good and Easy stay greyed (Again or Hard suggested) until 1 more sentence is right — the sentences on the answer side still count.');
     expect(sentenceRoundIntro({ needed: 1, got: 0, done: false }, 1)).toBe('Get this one right');
   });
 });
@@ -126,5 +128,39 @@ describe('roundEnglishShown', () => {
   });
   it('a translate exercise\'s English is its question', () => {
     expect(roundEnglishShown('translate', null, false, null)).toBe(true);
+  });
+});
+
+describe("the listening card's round: say it in Chinese", () => {
+  const list: RoundSentence[] = [
+    { key: 'clue:n1', hanzi: '我去银行。', translation: 'I go to the bank.' },
+    { key: 's1', hanzi: '银行几点开门？', translation: 'When does the bank open?' },
+    { key: 's2', hanzi: '他在 银行 工作。', translation: 'He works at a bank.' },
+    { key: 's3', hanzi: '我们去吃饭吧。', translation: 'Let’s eat.' },
+    { key: 's4', hanzi: '银行旁边有饭馆。', translation: null },
+    { key: 's5', hanzi: '你知道附近有银行吗？', translation: 'Is there a bank nearby?' },
+  ];
+  it('English sentences that carry the word, the card sentence first, at most three, all translate', () => {
+    const ex = pickListenRoundExercises(list, '银行');
+    expect(brief(ex)).toEqual(['translate:clue:n1', 'translate:s1', 'translate:s2']);
+    expect(ex.every((e) => e.mode === 'translate')).toBe(true);
+    expect(listenRoundSentenceCount(list, '银行')).toBe(4); // s3 lacks the word, s4 lacks English
+  });
+  it('least practised first, shown easiest → harder; hidden ones never', () => {
+    const at = '2026-10-02T00:00:00.000Z';
+    const events: SentencePracticeEvent[] = [
+      { id: 'e1', note_id: 'n1', sentence_key: 'clue', kind: 'attempt', mode: 'translate', result: 'right', at },
+      { id: 'e2', note_id: 'n1', sentence_key: 's1', kind: 'attempt', mode: 'translate', result: 'right', at },
+      { id: 'e3', note_id: 'n1', sentence_key: 's2', kind: 'hide', reason: 'weird', at },
+    ];
+    const stats = sentenceStats(events, 'n1');
+    expect(brief(pickListenRoundExercises(list, '银行', stats))).toEqual(['translate:clue:n1', 'translate:s1', 'translate:s5']);
+    expect(listenRoundSentenceCount(list, '银行', stats)).toBe(3);
+  });
+  it('no English sentences with the word: no round', () => {
+    expect(pickListenRoundExercises([list[3], list[4]], '银行')).toEqual([]);
+  });
+  it('words', () => {
+    expect(listenRoundIntro({ needed: 2, got: 0, done: false }, 3)).toBe('You heard it — now say these in Chinese. Get any 2 of these 3 right');
   });
 });

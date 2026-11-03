@@ -6,13 +6,16 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  parseHardMode, nextHardMode, isRedCard, hardModeApplies, hardModeQuestionResult, hardModeRoundFollows, hardModeLock,
+  parseHardMode, nextHardMode, isRedCard, hardModeApplies, hardModeQuestionResult, hardModeRoundFollows, goodEasyGate,
+  ratingNeedsOverride, suggestedRating, overrideTap, overridePrompt, hardModeQuestionFeel, roundTakeFeel,
   hardModeChipLabel, hardModeNextLabel, hardModeSaidLine, HARD_MODES, HARD_MODE_TITLE, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION,
   HARD_MODE_OPTION_HINT, HARD_MODE_CHIP, HARD_MODE_RESULT, HARD_MODE_CHECKING, HARD_MODE_UNKNOWN, HARD_MODE_TRY_AGAIN,
-  HARD_MODE_SHOW_ANSWER, HARD_MODE_MISS_NOTE, HARD_MODE_GAVE_UP_LINE, HARD_MODE_GAVE_UP_BLOCKED, HARD_MODE_RIGHT_BEAT_MS,
-  type HardModeTake,
+  HARD_MODE_SHOW_ANSWER, HARD_MODE_MISS_NOTE, HARD_MODE_GAVE_UP_LINE, HARD_MODE_RIGHT_BEAT_MS, HARD_MODE_OVERRIDE_MS,
+  HARD_MODE_SUGGESTED, HARD_MODE_TAP_TWICE, HARD_MODE_TAP_AGAIN, STUDY_FEEL_VIBRATION, hardModeGiveUpInPlace, hardModeRevealedNextLabel, hardModeGaveUpCheer,
+  HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE, HARD_MODE_GAVE_UP_SKIP_NOTE,
+  type HardModeTake, type OverrideArm,
 } from '../../../shared/study/hardMode';
-import { sentenceGate, sentenceGateLabel, sentenceGateBlockedNote } from '../../../shared/study/sentencePractise';
+import { sentenceGate, sentenceGateLabel } from '../../../shared/study/sentencePractise';
 import type { AnswerVerdict } from '../../../shared/cards/answer';
 
 const OUT = process.argv[2];
@@ -41,18 +44,34 @@ for (const answerVerdict of VERDICTS) for (const take of TAKES) {
   });
 }
 const locks = [] as unknown[];
-for (const count of [null, 0, 1, 4]) for (const right of [[], ['read:a'], ['read:a', 'translate:b']]) for (const gaveUp of [false, true]) {
-  const gate = sentenceGate({ enabled: true, cardType: 'hanzi_to_meaning', sentenceCount: count, rightKeys: right });
-  locks.push({ count, right, gaveUp, gate, lock: hardModeLock(gate, gaveUp, sentenceGateLabel(gate), sentenceGateBlockedNote(gate)) });
+for (const cardType of ['hanzi_to_meaning', 'audio_to_hanzi']) for (const count of [null, 0, 1, 4]) for (const right of [[], ['read:a'], ['read:a', 'translate:b']]) for (const gaveUp of [false, true]) {
+  const gate = sentenceGate({ enabled: true, cardType, sentenceCount: count, rightKeys: right });
+  const g = goodEasyGate(gate, gaveUp, sentenceGateLabel(gate));
+  locks.push({ cardType, count, right, gaveUp, gate, lock: g, needsOverride: [0, 1, 2, 3].map((r) => ratingNeedsOverride(r, g)), suggested: suggestedRating(g) });
 }
+// Taps on a rating: greyed or not, a first tap arms it, a second on the same rating within the window rates.
+const ARMS: (OverrideArm | null)[] = [null, { rating: 2, at: 1000 }, { rating: 3, at: 1000 }, { rating: 2, at: 5000 }];
+const taps = [] as unknown[];
+for (const needsOverride of [false, true]) for (const rating of [0, 1, 2, 3]) for (const armed of ARMS) for (const now of [1000, 2500, 4000, 4001, 999]) {
+  taps.push({ needsOverride, rating, armed, now, tap: overrideTap({ needsOverride, rating, armed, now }) });
+}
+const feels = {
+  question: ([null, 'right', 'close', 'wrong', 'checking', 'unknown'] as const).map((result) => ({ result, feel: hardModeQuestionFeel(result) })),
+  round: (['right', 'close', 'wrong', 'failed', 'empty'] as const).flatMap((result) => [false, true].map((done) => ({ result, done, feel: roundTakeFeel(result, done) }))),
+};
 
 writeFileSync(join(OUT, 'hard-mode.json'), JSON.stringify({
-  parse, next, red, applies, results, locks,
+  parse, next, red, applies, results, locks, taps, feels,
   copy: {
     modes: HARD_MODES, title: HARD_MODE_TITLE, description: HARD_MODE_DESCRIPTION, option: HARD_MODE_OPTION, optionHint: HARD_MODE_OPTION_HINT,
     chip: HARD_MODE_CHIP, chipLabel: Object.fromEntries(HARD_MODES.map((m) => [m, hardModeChipLabel(m)])), result: HARD_MODE_RESULT,
     checking: HARD_MODE_CHECKING, unknown: HARD_MODE_UNKNOWN, tryAgain: HARD_MODE_TRY_AGAIN, showAnswer: HARD_MODE_SHOW_ANSWER,
-    missNote: HARD_MODE_MISS_NOTE, gaveUpLine: HARD_MODE_GAVE_UP_LINE, gaveUpBlocked: HARD_MODE_GAVE_UP_BLOCKED, beatMs: HARD_MODE_RIGHT_BEAT_MS,
+    missNote: HARD_MODE_MISS_NOTE, gaveUpLine: HARD_MODE_GAVE_UP_LINE, beatMs: HARD_MODE_RIGHT_BEAT_MS,
+    overrideMs: HARD_MODE_OVERRIDE_MS, suggested: HARD_MODE_SUGGESTED, tapTwice: HARD_MODE_TAP_TWICE, tapAgain: HARD_MODE_TAP_AGAIN, prompts: [0, 1, 2, 3, 9].map(overridePrompt),
+    vibration: STUDY_FEEL_VIBRATION,
+    giveUpInPlace: [null, 0, 1, 4].map((count) => ({ count, inPlace: hardModeGiveUpInPlace(count) })),
+    revealedTitle: HARD_MODE_REVEALED_TITLE, revealedNote: HARD_MODE_REVEALED_NOTE, gaveUpSkipNote: HARD_MODE_GAVE_UP_SKIP_NOTE,
+    revealedNext: [true, false].map(hardModeRevealedNextLabel), gaveUpCheer: hardModeGaveUpCheer(2, 2),
     nextRound: hardModeNextLabel(true), nextAnswer: hardModeNextLabel(false),
     saidSpoken: hardModeSaidLine('银航', true), saidTyped: hardModeSaidLine('银行。', false),
   },

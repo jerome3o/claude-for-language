@@ -8,8 +8,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,13 +39,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -79,6 +76,8 @@ object SentencePractiseTags {
     const val RETRY = "sentence-practise-retry"
     const val EMPTY = "sentence-practise-empty"
     const val GATE = "sentence-gate"
+    const val STOP_BAR = "sentence-stop-bar"
+    const val STOP_RECORDING = "sentence-stop-recording"
 }
 
 /** Claude's check of a translate take that wasn't the row's sentence. */
@@ -93,9 +92,9 @@ data class SentenceRowTake(val mode: String, val take: SentencePractise.Take, va
 /**
  * One list's 🎤 (the web's `useSentencePractise`, components/study/SentencePractise.tsx; rules in core
  * [SentencePractise]): ONE microphone for every row of the list — the active row and its mode, the
- * takes per row, Claude's check of a translate take. A press anywhere on the card while listening
- * stops the take ([sentencePractiseWatch]); 🎤 on another row only stops it (the take lands on its
- * own row first). Practice only: nothing is stored; [onRight] gets each row said right.
+ * takes per row, Claude's check of a translate take. A press or a scroll elsewhere NEVER stops a take:
+ * the 🎤 again or the pinned [SentenceStopBar] does; 🎤 on another row only stops it (the take lands on
+ * its own row first). Practice only: nothing is stored; [onRight] gets each row said right.
  */
 @Stable
 class SentencePractiseState internal constructor(
@@ -115,6 +114,12 @@ class SentencePractiseState internal constructor(
     internal var say: () -> Unit = {}
     /** Every take judged right / close / wrong (row key or round exercise id, mode, result): the sentence's practice history. */
     var onResult: ((key: String, mode: String, result: String) -> Unit)? = null
+    /**
+     * A judged take's haptic + sound (fx/StudyFeel): null = the rows' default (right = round_right, close =
+     * nearly, wrong = miss — core HardMode.roundTakeFeel). The Sentence round sets its own while it is up
+     * (its last one needed = round_done). Called after [rightKeys] holds the take.
+     */
+    var feel: ((key: String, result: String) -> Unit)? = null
 
     /** Brings the sentence list into view (the gate line's tap, a locked Good / Easy). */
     @OptIn(ExperimentalFoundationApi::class)
@@ -165,14 +170,13 @@ fun rememberSentencePractise(key: Any?): SentencePractiseState {
     val controller = rememberVoiceDictation("sentence_practise", autoSubmit = true)
     val ui = controller.ui.collectAsState()
     val state = remember(key, controller) { SentencePractiseState(controller, ui) }
+    val studyFeel = dev.jeromeswannack.chineselearning.lab.fx.rememberStudyFeel()
     fun finish(rowKey: String, mode: String, take: SentencePractise.Take, claude: AnswerCheck?) {
         val result = SentencePractise.result(take.practised, claude?.verdict)
         app?.analytics?.track("study.sentence_practise", mapOf("mode" to mode, "result" to result, "via" to SentencePractise.via(take, claude != null)))
         if (result == "right" || result == "close" || result == "wrong") state.onResult?.invoke(rowKey, mode, result)
-        if (result == "right") {
-            app?.haptics?.correct()
-            if (rowKey !in state.rightKeys) state.rightKeys.add(rowKey)
-        } else app?.haptics?.tick()
+        if (result == "right" && rowKey !in state.rightKeys) state.rightKeys.add(rowKey)
+        state.feel?.invoke(rowKey, result) ?: studyFeel(dev.jeromeswannack.chineselearning.lab.core.HardMode.roundTakeFeel(result, false))
     }
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
         val row = state.activeRow ?: return@rememberVoiceFirstActions
@@ -223,14 +227,32 @@ fun previewSentencePractise(
         this.rightKeys.addAll(rightKeys)
     }
 
-/** Watches every press on the card without consuming it: a press while recording stops the take. */
-fun Modifier.sentencePractiseWatch(state: SentencePractiseState?): Modifier =
-    if (state == null) this else pointerInput(state) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            state.stopIfListening()
-        }
+/**
+ * Kept for callers, a no-op now: a press or a scroll elsewhere NEVER stops a take (Jerome: "when I tap anywhere
+ * on the screen it finishes the audio recording, which is bad"). Only the 🎤 again or [SentenceStopBar].
+ */
+@Suppress("UNUSED_PARAMETER")
+fun Modifier.sentencePractiseWatch(state: SentencePractiseState?): Modifier = this
+
+/**
+ * While a take is under way: ONE big red "■ Stop recording" pinned at the bottom (the graded reader's
+ * read-aloud footer, [dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudStopFooter]), then
+ * "Checking what you said…" (core SentencePractise.stopBar). Null when no take is under way.
+ */
+@Composable
+fun SentenceStopBar(state: SentencePractiseState, modifier: Modifier = Modifier) {
+    val bar = SentencePractise.stopBar(state.listening, state.finishing) ?: return
+    Box(modifier.fillMaxWidth()) {
+        dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudStopFooter(
+            recording = bar == "stop",
+            onStop = { state.stopIfListening() },
+            label = SentencePractise.STOP_RECORDING,
+            checkingLabel = SentencePractise.CHECKING_TAKE,
+            footerTag = SentencePractiseTags.STOP_BAR,
+            stopTag = SentencePractiseTags.STOP_RECORDING,
+        )
     }
+}
 
 /** 🎤 left of ▶ (40dp like ▶, a 44dp target). Red with ⏹ while recording (shape + colour). */
 @Composable
@@ -351,40 +373,31 @@ fun SentencePractiseOutcome(
 }
 
 /**
- * "Get two sentences right before Good / Easy": the line above the ratings ("🎤 Get 2 sentences
- * right to unlock Good · 1/2"; the blocked note after a locked tap). A tap brings the sentences into view.
+ * The line above the ratings with Hard mode's greyed Good / Easy (core [HardMode.goodEasy]): the sentence gate
+ * ("🎤 Try the sentences first · 1/2 right"), or "👁 You looked at the answer — Again or Hard suggested"; after a
+ * first tap on a greyed rating, "Tap again to rate Good anyway" ([armed]). A tap brings the sentences into view.
  */
 @Composable
-fun SentenceGateLine(gate: SentencePractise.Gate, showNote: Boolean, onTap: () -> Unit) {
-    val text = if (showNote && gate.locked) SentencePractise.blockedNote(gate) else SentencePractise.label(gate) ?: return
+fun SentenceGateLine(goodEasy: dev.jeromeswannack.chineselearning.lab.core.HardMode.GoodEasy, armed: Int?, onTap: () -> Unit) {
+    val hm = dev.jeromeswannack.chineselearning.lab.core.HardMode
+    val text = armed?.let { hm.overridePrompt(it) } ?: goodEasy.label ?: return
     val shape = RoundedCornerShape(14.dp)
-    Box(
-        Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 44.dp).clip(shape)
-            .background(if (gate.locked) Lab.colors.faint else Palette.Good.copy(alpha = 0.12f))
-            .border(1.dp, if (gate.locked) Lab.colors.cardBorder else Palette.Good.copy(alpha = 0.6f), shape)
-            .bouncyClickable(true, 0.98f, role = Role.Button, onClick = onTap)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag(SentencePractiseTags.GATE),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text, color = if (gate.locked) Lab.colors.ink else Palette.Good, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    val greyed = goodEasy.suggestLower
+    val (bg, line, ink) = when {
+        armed != null -> Triple(Palette.Hard.copy(alpha = 0.12f), Palette.Hard, Lab.colors.ink)
+        greyed -> Triple(Lab.colors.faint, Lab.colors.cardBorder, Lab.colors.ink)
+        else -> Triple(Palette.Good.copy(alpha = 0.12f), Palette.Good.copy(alpha = 0.6f), Palette.Good)
     }
-}
-
-/** The line above the ratings with Hard mode's lock (core HardMode.lock): the sentence gate, or "You looked at the answer". */
-@Composable
-fun SentenceGateLine(lock: dev.jeromeswannack.chineselearning.lab.core.HardMode.Lock, showNote: Boolean, onTap: () -> Unit) {
-    val text = (if (showNote && lock.locked) lock.blockedNote else lock.label) ?: return
-    val shape = RoundedCornerShape(14.dp)
     Box(
         Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 44.dp).clip(shape)
-            .background(if (lock.locked) Lab.colors.faint else Palette.Good.copy(alpha = 0.12f))
-            .border(1.dp, if (lock.locked) Lab.colors.cardBorder else Palette.Good.copy(alpha = 0.6f), shape)
+            .background(bg)
+            .border(1.dp, line, shape)
             .bouncyClickable(true, 0.98f, role = Role.Button, onClick = onTap)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag(if (lock.gaveUp) HardModeTags.GAVE_UP else SentencePractiseTags.GATE),
+            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+            .testTag(if (goodEasy.gaveUp) HardModeTags.GAVE_UP else SentencePractiseTags.GATE),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = if (lock.locked) Lab.colors.ink else Palette.Good, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(text, color = ink, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

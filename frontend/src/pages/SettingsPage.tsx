@@ -19,6 +19,7 @@ import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
 import { useHardMode, usePassHardMode, writeHardMode, writePassHardMode } from '../services/hardModePrefs';
+import { studyFeel, useStudyFeelOn, writeStudyFeelOn } from '../services/studyFeel';
 import { PASS_HARD_MODE_DESCRIPTION, PASS_HARD_MODE_OPTION, PASS_HARD_MODE_OPTION_HINT, PASS_HARD_MODE_TITLE } from '@shared/homework/pass-angles';
 import { HARD_MODES, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION, HARD_MODE_OPTION_HINT, HARD_MODE_TITLE } from '@shared/study/hardMode';
 import { isSharingUsage, setSharingUsage, track } from '../services/analytics';
@@ -728,6 +729,29 @@ function HardModeSetting() {
 }
 
 /**
+ * Settings → Study → "Haptics and sounds on right answers" (on by default, per device; services/studyFeel.ts):
+ * a firm buzz + chime when Hard mode's check is right, a sentence is said right, the round is done.
+ */
+function StudyFeelSetting() {
+  const on = useStudyFeelOn();
+  return (
+    <label className="settings-toggle-row" style={{ marginTop: '0.75rem' }}>
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          writeStudyFeelOn(e.target.checked);
+          track('settings.change', { setting: 'study_feel', value: e.target.checked ? 'on' : 'off' });
+          if (e.target.checked) studyFeel('success');
+        }}
+        data-testid="study-feel-toggle"
+      />
+      <span>📳 Haptics and sounds on right answers</span>
+    </label>
+  );
+}
+
+/**
  * Settings → Study → "Hard mode in homework" (docs/HOMEWORK.md §3e): the one-off pass's own setting,
  * per device, All by default (services/hardModePrefs.ts `usePassHardMode`, also the pass header's 🎯
  * chip) — the session's setting above is untouched.
@@ -792,6 +816,7 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <HardModeSetting />
+      <StudyFeelSetting />
       <PassHardModeSetting />
       <WordTagsSetting />
       <CardPicturesSetting />

@@ -17,7 +17,7 @@ interface FakeDictation {
   fail: (failure: 'failed' | 'empty') => void;
   stop: ReturnType<typeof vi.fn>;
 }
-const fakes = vi.hoisted(() => ({ list: [] as FakeDictation[] }));
+const fakes = vi.hoisted(() => ({ list: [] as FakeDictation[], blocked: null as string | null }));
 vi.mock('../../hooks/useVoiceDictation', async () => {
   const React = await import('react');
   return {
@@ -38,7 +38,7 @@ vi.mock('../../hooks/useVoiceDictation', async () => {
         fakes.list.push(fake.current);
       }
       return {
-        state: { mode: 'voice', phase, failure, blocked: null },
+        state: { mode: 'voice', phase, failure, blocked: fakes.blocked },
         finalText: '', partialText: '', listening: phase === 'listening', busy: false, level: 0,
         say: () => { setPhase('listening'); setFailure(null); },
         stop: stop.current,
@@ -88,6 +88,10 @@ vi.mock('../../services/sentence-sets', () => ({
 }));
 
 
+// The feel (services/studyFeel.ts): navigator.vibrate is what a phone feels.
+const vibrate = vi.fn();
+Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true, writable: true });
+
 let host: HTMLDivElement;
 let root: Root;
 const all = (id: string) => [...host.querySelectorAll(`[data-testid="${id}"]`)] as HTMLElement[];
@@ -97,7 +101,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const dictation = () => fakes.list.find((f) => f.surface === 'sentence_practise')!;
 const NOTE = { id: 'n1', sentence_clue: '我去银行取钱。', sentence_clue_pinyin: 'Wǒ qù yínháng qǔ qián.', sentence_clue_translation: 'I go to the bank to get money.', sentence_clue_audio_url: null };
 
-async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string } = {}) {
+async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string; kind?: 'card' | 'listen'; word?: string } = {}) {
   const { SentenceRound, useRoundSentences } = await import('./SentenceRound');
   function Harness() {
     const sentences = useRoundSentences(opts.note ?? NOTE, true);
@@ -108,7 +112,7 @@ async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: 
         onRight={(id) => setRight((p) => (p.includes(id) ? p : [...p, id]))}
         onDone={opts.onDone ?? vi.fn()} onSkip={opts.onSkip ?? vi.fn()}
         initialIds={opts.initialIds} onPicked={opts.onPicked} onResult={opts.onResult}
-        skipNote={opts.skipNote} doneCheer={opts.doneCheer}
+        skipNote={opts.skipNote} doneCheer={opts.doneCheer} kind={opts.kind} word={opts.word}
       />
     );
   }
@@ -121,6 +125,9 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   fakes.list.length = 0;
+  fakes.blocked = null;
+  vibrate.mockClear();
+  try { localStorage.removeItem('study-feel-v1'); } catch { /* none */ }
   track.mockClear();
   checkLessonAnswer.mockReset();
   history.stats = new Map();
@@ -316,7 +323,7 @@ describe('SentenceRound', () => {
   it('Skip is always there and says the gate stays', async () => {
     const onSkip = vi.fn();
     await render({ onSkip });
-    expect(host.textContent).toContain('Good and Easy stay locked until 2 more sentences are right');
+    expect(host.textContent).toContain('Good and Easy stay greyed (Again or Hard suggested) until 2 more sentences are right');
     act(() => all('sentence-round-skip')[0].click());
     expect(onSkip).toHaveBeenCalled();
     expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'skip', got: 0, needed: 2 }));
@@ -435,5 +442,86 @@ describe('SentenceRound', () => {
       expect(inEx(1, 'sentence-round-retry')).not.toBeNull();
       expect(track).not.toHaveBeenCalledWith('study.round_difference_shown', expect.anything());
     });
+  });
+
+  it('a right take is felt; the one that finishes the round is a bigger moment', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    expect(vibrate).toHaveBeenLastCalledWith(expect.any(Array));
+    const miss = vibrate.mock.calls.at(-1)![0] as number[];
+    act(() => inEx(0, 'sentence-round-retry')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    const right = vibrate.mock.calls.at(-1)![0] as number[];
+    expect(right).toEqual([35, 60, 50]);
+    expect(miss).not.toEqual(right);
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行'));
+    expect(vibrate.mock.calls.at(-1)![0]).toEqual([40, 60, 40, 60, 110]);
+  });
+
+  it('no haptics with Settings → "Haptics and sounds on right answers" off', async () => {
+    localStorage.setItem('study-feel-v1', '0');
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(ex(0).dataset.status).toBe('right');
+    expect(vibrate).not.toHaveBeenCalled();
+  });
+});
+
+describe('stopping a take is intentional', () => {
+  it('a tap or a scroll elsewhere never stops it; the 🎤 again and the pinned Stop bar do', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
+    act(() => ex(1).dispatchEvent(new Event('pointerdown', { bubbles: true })));
+    act(() => { window.dispatchEvent(new Event('scroll')); });
+    expect(dictation().stop).not.toHaveBeenCalled();
+    expect(all('sentence-stop-bar')[0].dataset.state).toBe('stop');
+    act(() => all('sentence-stop-recording')[0].click());
+    expect(dictation().stop).toHaveBeenCalledTimes(1);
+    act(() => dictation().land('我去银行取钱'));
+    expect(all('sentence-stop-bar')).toHaveLength(0);
+    // The 🎤 itself toggles off.
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    expect(dictation().stop).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the listening card's round", () => {
+  it('only "Say it in Chinese", over the English sentences that carry the word; any 2 right', async () => {
+    const onDone = vi.fn();
+    await render({ kind: 'listen', word: '银行', onDone });
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'translate', 'translate']);
+    expect(host.textContent).toContain('You heard it — now say these in Chinese. Get any 2 of these 3 right');
+    expect(inEx(0, 'sentence-round-english')!.textContent).toBe('I go to the bank to get money.');
+    expect(inEx(0, 'sentence-round-chinese')).toBeNull();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(ex(0).dataset.status).toBe('right');
+    act(() => inEx(2, 'sentence-practise-mic')!.click());
+    vi.useFakeTimers();
+    act(() => dictation().land('银行在哪儿'));
+    expect(ex(2).dataset.status).toBe('right');
+    expect(all('sentence-round-cheer')[0].textContent).toContain('2 / 2');
+    act(() => { vi.advanceTimersByTime(1500); });
+    expect(onDone).toHaveBeenCalled();
+  });
+
+  it('offline: say it aloud, show the Chinese, check yourself — "I said it" counts', async () => {
+    fakes.blocked = 'offline';
+    await render({ kind: 'listen', word: '银行' });
+    expect(host.textContent).toContain('Say each one out loud, then show the Chinese and check yourself.');
+    expect(inEx(0, 'sentence-practise-mic')).toBeNull();
+    act(() => inEx(0, 'listen-round-show-chinese')!.click());
+    expect(inEx(0, 'sentence-round-chinese')!.textContent).toBe('我去银行取钱。');
+    act(() => inEx(0, 'listen-round-self-wrong')!.click());
+    expect(ex(0).dataset.status).toBe('wrong');
+    act(() => inEx(0, 'listen-round-self-right')!.click());
+    expect(ex(0).dataset.status).toBe('right');
+    expect(history.record.at(-1)).toEqual(['n1', 'clue:n1', 'translate', 'right']);
+    expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
   });
 });

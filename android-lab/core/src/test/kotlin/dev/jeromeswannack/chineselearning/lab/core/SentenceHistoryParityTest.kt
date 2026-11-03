@@ -33,6 +33,7 @@ class SentenceHistoryParityTest {
         val cases = fixture()["cases"]!!.jsonArray
         assertTrue(cases.size >= 100)
         var withHistory = 0
+        var listenPicked = 0
         for (c in cases) {
             val o = c.jsonObject
             val what = o.toString().take(2000)
@@ -65,6 +66,17 @@ class SentenceHistoryParityTest {
             }
             val picked = SentenceRound.pick(sentences, stats)
             assertEquals(expected, picked, what)
+            for (l in o["listen"]!!.jsonArray) {
+                val lo = l.jsonObject
+                val word = lo.s("word")!!
+                val want = lo["exercises"]!!.jsonArray.map {
+                    val e = it.jsonObject
+                    SentenceRound.Exercise(e.s("id")!!, e.s("key")!!, e.s("mode")!!, e["index"]!!.jsonPrimitive.int)
+                }
+                assertEquals(want, SentenceRound.pickListen(sentences, word, stats), "$what listen $word")
+                assertEquals(lo["count"]!!.jsonPrimitive.int, SentenceRound.listenSentenceCount(sentences, word, stats), "$what listen $word")
+                if (want.isNotEmpty()) listenPicked++
+            }
             for (p in o["progress"]!!.jsonArray) {
                 val po = p.jsonObject
                 val w = po["progress"]!!.jsonObject
@@ -76,6 +88,7 @@ class SentenceHistoryParityTest {
             }
         }
         assertTrue(withHistory > 50)
+        assertTrue(listenPicked > 100, "listening rounds picked")
     }
 
     @Test
