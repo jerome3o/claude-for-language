@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -103,6 +104,8 @@ data class ReadersUi(
     val readAt: Map<String, String> = emptyMap(),
     /** "Up next": the unread stories in reader-queue order (the study session offers the first, one a day). */
     val upNext: List<GradedReaderDto> = emptyList(),
+    /** 📝 Reader word recap: reader id → words of its latest finished reading (data/readers/WordRecapStore.kt). */
+    val recaps: Map<String, Int> = emptyMap(),
 )
 
 class ReadersActions(
@@ -128,6 +131,8 @@ class ReadersActions(
     val onQueueMove: (String, DeckQueue.Move) -> Unit = { _, _ -> },
     /** Up next press-and-hold drag: the whole new order. */
     val onQueueReorder: (List<String>) -> Unit = {},
+    /** "📝 Recap words from last read" → `/readers/:id/recap?from=readers`. */
+    val onRecap: (String) -> Unit = {},
 )
 
 /** `formatDate` of the list: "Sep 27", with the year when it isn't this year. */
@@ -257,6 +262,7 @@ fun ReadersListScreen(
                                 onSelect = { folderActions.onToggleSelected(row.item.id) },
                                 canMove = folders != null,
                                 queuePosition = queuePositions[row.item.id],
+                                recapWords = ui.recaps[row.item.id],
                             ) { confirm = row.item.id }
                         }
                     }
@@ -300,6 +306,8 @@ private fun ReaderCard(
     canMove: Boolean = false,
     /** 1-based place in "Up next" (unread stories), else null. */
     queuePosition: Int? = null,
+    /** Words of the latest finished reading that can be recapped, else null. */
+    recapWords: Int? = null,
     onDelete: () -> Unit,
 ) {
     val generating = r.status == "generating"
@@ -319,6 +327,17 @@ private fun ReaderCard(
             if (generating) Text("Generating story and illustrations...", fontSize = 12.sp, fontStyle = FontStyle.Italic, color = Palette.Easy)
             else Text("${r.vocabularyUsed.size} vocabulary items · ${readerDate(r.createdAt)}", fontSize = 12.sp, color = Lab.colors.muted)
             if (!generating && r.status == "ready" && readAt != null) ReaderReadLine(readAt)
+            if (!generating && recapWords != null && recapWords > 0) {
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                    Text(
+                        "📝 Recap words from last read ($recapWords)",
+                        color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        modifier = Modifier.heightIn(min = 36.dp).clip(RoundedCornerShape(50)).background(Violet.copy(alpha = 0.12f))
+                            .bouncyClickable { actions.onRecap(r.id) }.padding(horizontal = 12.dp, vertical = 9.dp)
+                            .testTag("reader-recap-line"),
+                    )
+                }
+            }
             if (queuePosition != null) {
                 Row(Modifier.fillMaxWidth().padding(top = 6.dp)) { dev.jeromeswannack.chineselearning.lab.ui.kit.StatusPill("Up next · #$queuePosition", Lab.colors.accent) }
             }

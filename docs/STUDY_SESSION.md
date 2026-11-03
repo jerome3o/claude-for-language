@@ -958,6 +958,60 @@ Readers list, Today's story):
 - Not built (yet): a whole-story "🎤 Read the story" mode (page by page, then a summary of the characters
   missed most).
 
+### 📝 Reader word recap: the words I tapped or said wrong
+
+Jerome (Nov 2026): "During a graded reader … record which words I get wrong when speaking … and also look at
+which words I tap on. If I tap on a word it probably means I didn't remember or needed to know it … then
+optionally have a recap at the end which is kind of like a one-off, but just for the words that I tapped, and
+then maybe we have the option to add them to long term if I want but it's default toggled off, for each of those
+words."
+
+- **What is collected** — per READING RUN (one reading of one reader, in any reading view: the session's reader,
+  a homework pass, `/readers/:id`, the Lab's Today's story — they share `ReaderView` / `StudyReaderView`):
+  every word chip opened in the explorer (its text, the chip's pinyin + gloss, the sentence, the page and place),
+  and every word a 🎤 Read it aloud take got WRONG — a word of `readAloudDifferences` with a character read as
+  another character, a tone slip or a missed one (never a homophone that "sounded right", never extra words),
+  with its reason lines ("都 dū → you said dù (4th tone instead of 1st)"). Words without a Chinese character are
+  left out. Deduplicated by `recapKey` (letters / digits only, NFC); a word both tapped and read wrong carries
+  both reasons. Rules: `shared/study/wordRecap.ts` (Lab `core/…/WordRecap.kt`, parity-tested by
+  `android-lab/parity/fixtures/word-recap.ts`).
+- **Order: story order** (page, then place on the page) — not "said wrong first": the recap retells the story,
+  and each card's cue is the sentence the word came from, so the sentences come in the order he read them.
+- **Kept on the device**, one run per reader: web IndexedDB `reader-word-recap` (its own small Dexie db:
+  `runs`, `adds`; `services/wordRecap.ts`), Lab JsonCache `reader-recap/run/<readerId>`
+  (`data/readers/WordRecapStore.kt`). A story closed half-way carries on into the same run (the next day too);
+  opening a story whose run was FINISHED starts a new run — which replaces the old one only once it collects a
+  word (`recapRunFor`), so "Recap words from last read" never disappears just because he re-opened the story.
+- **At the end**: the read is recorded exactly as before (the reader-review event, homework done); then, when the
+  run has ≥ 1 word, "Story finished ✓ — 📝 Recap N words · Done" slides up over whatever comes next (the session's
+  next card, the homework pass's end, the Readers list) — web `ReaderRecapOffer` in App.tsx, Lab
+  `RecapOfferHost` in LabShell. Never forced: Done / ✕ closes it. Afterwards the Readers list shows "📝 Recap words
+  from last read (N)" on that story.
+- **The recap** (`/readers/:id/recap`, immersive; web `pages/ReaderRecapPage.tsx` +
+  `components/readerRecap/ReaderRecapView.tsx`, Lab `ui/readers/WordRecapScreens.kt`) is a ONE-OFF pass with the
+  homework pass's rules (`passProgress`: each word once, "Not yet" words come back after the others until "Got
+  it"; the homework retry bar) — practice only, NO review events. Front: the word + the story sentence with the
+  word marked. Show answer: ▶ (practice TTS, cached), pinyin, the meaning (the chip's gloss, else the word
+  dictionary's), "The page: <its English>", why it's here ("You tapped it while reading", "Read aloud: …"), the
+  switch. Words and sentences on the back open the explorer. "Choose words" jumps to the list at any time.
+  (Deliberately not the study card that the homework pass uses: most recap words are not notes yet, and the study
+  card's tools — Ask Claude, Edit, ⋯ — need one.)
+- **The switch, OFF by default, per word** (on each card's back and on the list at the end): "Add to my long-term
+  review" for a word he doesn't have; "⚡ Study it today" for one already in his decks (a bump, source `reader`).
+  **Done** applies them: bumps at once (offline-first); new words are queued (web `adds` table, Lab
+  `reader-recap-adds`) and sent at once when online, else by the next sync (`flushRecapAdds` / `WordRecapStore.Sync`):
+  the deck **"From my readers"** (made on first use with the shared defaults, moved to the BOTTOM of the deck queue),
+  missing meanings via `POST /api/ai/gloss-words`, the card-standard explanation via `POST /api/ai/enrich-words`, the
+  story sentence as the card's `sentence_clue` when it is ≤ 24 characters, one line and clean (`recapSentenceClue`;
+  else enrich-words writes one), ONE `POST /api/decks/:id/notes/batch?skip_existing=1` (the content service; a resend
+  never duplicates), then the new notes go on **Up next** (bottom, source `reader_recap`) — he chose these words on
+  purpose, so they are introduced first within the daily budget instead of waiting behind the whole deck queue.
+- Analytics: `reader.word_recap_start { from: finish | readers, words }`, `reader.word_recap_finish { words,
+  got_it_first_time, added, bumped }`.
+- Tests: `shared/study/wordRecap.test.ts`, `components/readerRecap/ReaderRecap.flow.test.tsx` (taps → take → offer →
+  pass → switches → only the switched-on word added, the owned one bumped), `e2e/tests/reader-word-recap.spec.ts`,
+  Lab `WordRecapParityTest`, `WordRecapTest` (flow + Roborazzi `reader-recap-01…04`, light + dark).
+
 ### Page audio: phrase blocks and a restart point that follows the audio
 
 Each reader page's narration is a waveform scrubber (web `components/ReaderAudioScrubber.tsx`,

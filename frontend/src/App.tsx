@@ -11,6 +11,7 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { FeedbackFAB } from './components/FeedbackFAB';
 import { FeedbackProvider } from './components/feedback/FeedbackProvider';
 import { CallAlerts } from './components/calls/CallAlerts';
+import { ReaderRecapOffer } from './components/readerRecap/ReaderRecapOffer';
 import { SignedOutBanner } from './components/auth/SignedOutBanner';
 import { AccountGuards } from './components/auth/AccountGuards';
 import { ExplorerProvider } from './components/explorer/ExplorerContext';
@@ -27,6 +28,7 @@ const DeckDetailPage = lazy(() => import('./pages/DeckDetailPage').then(m => ({ 
 const ClipsPage = lazy(() => import('./pages/ClipsPage').then(m => ({ default: m.ClipsPage })));
 // 🥽 VR (beta, docs/VR.md): three.js + the Chinese font live only in this chunk.
 const VrPage = lazy(() => import('./vr/VrPage').then(m => ({ default: m.VrPage })));
+const ReaderRecapPage = lazy(() => import('./pages/ReaderRecapPage').then(m => ({ default: m.ReaderRecapPage })));
 const StudyPage = lazy(() => import('./pages/StudyPage').then(m => ({ default: m.StudyPage })));
 const HomeworkLibraryPage = lazy(() => import('./pages/tutor/HomeworkLibraryPage').then(m => ({ default: m.HomeworkLibraryPage })));
 const HomeworkDraftPage = lazy(() => import('./pages/tutor/HomeworkDraftPage').then(m => ({ default: m.HomeworkDraftPage })));
@@ -626,6 +628,7 @@ function AppRoutes() {
         }
       />
       <Route path="/readers/:id/print" element={<ProtectedRoute><ReaderPrintPage /></ProtectedRoute>} />
+      <Route path="/readers/:id/recap" element={<ProtectedRoute><ReaderRecapPage /></ProtectedRoute>} />
       <Route
         path="/readers/:id"
         element={
@@ -772,6 +775,7 @@ function App() {
                 <OfflineBanner />
                 <FeedbackFAB />
                 <CallAlerts />
+                <ReaderRecapOffer />
                 <AccountGuards />
               </FeedbackProvider>
             </ExplorerProvider>
