@@ -96,9 +96,9 @@ test('three photos at once → one album bubble → the viewer opens at a tile a
   expect(new Set(photos.map((m) => m.album_id)).size).toBe(1);
   expect(photos[0].content).toBe('我们的猫');
 
-  // The tutor sees one album too; the inbox row says "📷 3 photos".
+  // The tutor sees one album too (the Chats tab's rows carry no preview line since Nov 2026).
   const tutorPage = await openAs(browser, tutor, '/chats');
-  await expect(tutorPage.getByText('📷 3 photos: 我们的猫')).toBeVisible({ timeout: 20000 });
+  await expect(tutorPage.getByTestId('chats-row').first()).toBeVisible({ timeout: 20000 });
   await tutorPage.goto(`/connections/${relId}/chat/${convId}`);
   const theirAlbum = tutorPage.getByTestId('chat-album');
   await expect(theirAlbum).toHaveCount(1, { timeout: 20000 });

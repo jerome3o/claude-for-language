@@ -8,7 +8,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreadList
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.testing.awaitOnMain
-import dev.jeromeswannack.chineselearning.lab.ui.chat.ChatViewModel
 import dev.jeromeswannack.chineselearning.lab.ui.claude.FakeClaudeServer
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -107,7 +106,7 @@ class ChatsInboxAppTest {
         val id = awaitOnMain(describe = { "the queued thread" }) { opened }
         val row = awaitOnMain(describe = { "listed: ${vm.ui.value.threads}" }) { vm.ui.value.threads.firstOrNull { it.id == id } }
         assertTrue(row.local)
-        assertEquals("🕓 Waiting for a connection", ClaudeInbox.claudeRowPreview(row.preview, row.pending, row.failed, row.local, row.title))
+        assertEquals(ClaudeInbox.ROW_QUEUED, ClaudeInbox.claudeRowStatus(row.pending, row.failed, row.local))
         assertEquals(listOf("/api/claude/threads"), runBlocking { app.outbox.all() }.filter { it.kind == ClaudeThreads.OUTBOX_KIND }.map { it.path })
         assertEquals("", vm.ui.value.draft)
         val events = app.analytics.recentEventNames()
@@ -115,24 +114,16 @@ class ChatsInboxAppTest {
         assertTrue("claude.message_send" in events, events.toString())
     }
 
-    @Test fun toATutorKeepsTheTextAsHerChatsDraft() {
+    @Test fun theContextPopoverAndOpeningAreCounted() {
         val vm = ChatsViewModel(app)
-        var opened: String? = null
-        vm.sendToPerson(ClaudeInbox.Recipient("rel-minghui", "c-hw", "Minghui"), "  老师，明天几点上课？ ") { opened = it }
-        assertEquals("/connections/rel-minghui/chat/c-hw", awaitOnMain(describe = { "opened" }) { opened })
-        val drafts = runBlocking { ChatViewModel.loadDrafts(app) }
-        assertEquals("老师，明天几点上课？", drafts.single { it.conversationId == "c-hw" }.text)
-        assertTrue("chats.compose_to_person" in app.analytics.recentEventNames())
-    }
-
-    @Test fun filtersAndOpeningAreCounted() {
-        val vm = ChatsViewModel(app)
-        vm.setFilter(ClaudeInbox.CLAUDE)
-        assertEquals(ClaudeInbox.CLAUDE, awaitOnMain(describe = { "filter" }) { vm.ui.value.filter.takeIf { it == ClaudeInbox.CLAUDE } })
+        vm.setContextInfo("c:t5")
+        assertEquals("c:t5", awaitOnMain(describe = { "context popover" }) { vm.ui.value.contextInfo })
+        vm.contextOpened("c:t5")
+        awaitOnMain(describe = { "popover closed" }) { (vm.ui.value.contextInfo == null).takeIf { it } }
         val item = ClaudeInbox.merge(emptyList(), listOf(ClaudeThreadList.toInbox(ClaudeThreadDto("t5", title = "你好", created_at = "2026-10-01T00:00:00Z"), local = false))).single()
         assertEquals("/chats/claude/t5?source=chats", vm.open(item))
         val events = app.analytics.recentEventNames()
-        assertTrue("chats.filter" in events && "chats.open" in events, events.toString())
+        assertTrue("chats.context_info" in events && "chats.open" in events, events.toString())
         assertFalse(vm.ui.value.teacher)
         vm.setTeacher(true)
         awaitOnMain(describe = { "teacher" }) { vm.ui.value.teacher.takeIf { it } }

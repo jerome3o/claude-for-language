@@ -96,17 +96,17 @@ test.describe('Chats tab', () => {
     await expect(bar.locator('[data-tab="chats"]')).toHaveAttribute('aria-current', 'page');
 
     const rows = page.getByTestId('chats-row');
-    // One row per person, newest first, no titles.
+    // One compact row per person, newest first, no titles and no preview line (Nov 2026).
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toContainText('王明慧');
     await expect(rows.nth(0)).not.toContainText('Homework');
-    await expect(rows.nth(0)).toContainText('别忘了听写');
+    await expect(rows.nth(0)).not.toContainText('别忘了听写');
     await expect(rows.nth(0).locator('.chats-unread')).toHaveText('3');
     await expect(rows.nth(1)).toContainText('Lily');
-    await expect(rows.nth(1)).toContainText('You: 明天见');
+    await expect(rows.nth(1)).not.toContainText('明天见');
     await expect(rows.nth(1).locator('.chats-unread')).toHaveCount(0);
 
-    // Search by person and message.
+    // Search by person and by message (the last message is searched though not shown).
     const search = page.getByRole('searchbox', { name: 'Search chats' });
     await search.fill('lily');
     await expect(rows).toHaveCount(1);
@@ -127,7 +127,7 @@ test.describe('Chats tab', () => {
 
     // A new message arrives live (or on the next refresh) and moves its chat up.
     await say(request, student, lily, '老师好！');
-    await expect(rows.nth(0)).toContainText('老师好！', { timeout: 30000 });
+    await expect(rows.nth(0)).toContainText('Lily', { timeout: 30000 });
     await expect(rows.nth(0).locator('.chats-unread')).toHaveText('1');
 
     // New chat → pick the person when there are several → THE chat with her (no second one).

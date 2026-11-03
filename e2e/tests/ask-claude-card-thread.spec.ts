@@ -123,12 +123,13 @@ test('Ask Claude on a card: the card’s thread — streamed answer, ✎ check, 
   await expect(page.getByTestId('study-card-back')).not.toContainText('Claude added this fun fact');
   expect((await api<{ fun_facts: string }>(request, `/api/notes/${note.id}`, { token })).fun_facts).toBe(NOTES);
 
-  // The Chats tab lists the card's thread with its 📇 chip; the chip opens the card hub.
+  // The Chats tab lists the card's thread with its 📇 emoji; its popover's "Open card ›" opens the card hub.
   await page.goto('/chats');
-  const chip = page.getByTestId('chats-context-chip').filter({ hasText: 'Asked on card · 银行' });
+  const chip = page.getByRole('button', { name: 'Asked on card · 银行 — more' });
   await expect(chip).toBeVisible({ timeout: 20_000 });
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-05-chats-tab.png` });
   await chip.click();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-05-chats-tab.png` });
+  await page.getByTestId('chats-context-open').click();
   await expect(page).toHaveURL(new RegExp(`/cards/${note.id}$`));
   await expect(page.getByTestId('card-hub')).toBeVisible({ timeout: 20_000 });
   // The hub lists the card's conversation → it opens the thread.

@@ -89,7 +89,7 @@ test('Practice a situation: Claude opens the scene (streamed), the help chips, t
 
   // The Chats tab lists it as a Claude row with the 🎭 chip.
   await page.goto('/chats');
-  await expect(page.getByTestId('chats-claude-row').first()).toContainText('Practice', { timeout: 20_000 });
+  await expect(page.getByTestId('chats-claude-row').first()).toHaveAttribute('aria-label', /Practice/, { timeout: 20_000 });
   await page.context().close();
 });
 

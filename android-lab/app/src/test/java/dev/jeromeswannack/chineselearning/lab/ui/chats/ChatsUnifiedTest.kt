@@ -1,9 +1,11 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chats
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -52,7 +54,15 @@ object UnifiedSamples {
         "t-ask", "“随便”什么时候不礼貌？", ClaudeChats.Context(ClaudeChats.GENERAL), firstIntent = "ask",
         preview = "", lastMessageAt = "2026-10-01T08:00:00Z", createdAt = "2026-10-01T08:00:00Z", pending = true,
     )
-    val threads = listOf(checkThread, cardThread, writingThread)
+    val exerciseThread = ClaudeInbox.Thread(
+        "t-ex", "explain this please", ClaudeChats.Context(ClaudeChats.EXERCISE, lessonId = "l-zenme", exerciseKey = "s0e2", exerciseType = "judge", label = "Judge each sentence"),
+        firstIntent = "ask", preview = "这个练习是判断「怎么…了」的句子对不对。", lastMessageAt = "2026-10-03T08:42:00Z", createdAt = "2026-10-03T08:41:00Z",
+    )
+    val readerThread = ClaudeInbox.Thread(
+        "t-reader", "熊猫为什么喜欢成都？", ClaudeChats.Context(ClaudeChats.READER, readerId = "r-panda", pageId = "p3", page = 3, label = "小明在成都"),
+        firstIntent = "ask", preview = "因为成都有很多竹子。", lastMessageAt = "2026-10-02T21:10:00Z", createdAt = "2026-10-02T21:09:00Z",
+    )
+    val threads = listOf(checkThread, cardThread, writingThread, exerciseThread, readerThread)
 
     val learner = ChatsUi(
         loaded = true, rows = learnerRows, threads = threads, myId = "me", nowMs = now, offsetMinutes = 60,
@@ -80,14 +90,16 @@ object UnifiedSamples {
 }
 
 /**
- * The unified Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"): the kind written on
- * each outline, a learner's unread tutor chats pinned, the filter chips, the context chip → the card, the
- * box's intents for Chinese / English, "To:" a tutor, the tutor's view — plus the Roborazzi shots,
- * light + dark.
+ * The unified Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"): the people first
+ * (a learner's unread tutor chats on top), a thin divider, then Claude — compact one-line rows, no
+ * previews, no filter chips; a Claude row's ONE context emoji → its popover (full text + "Open card ›");
+ * the box (always to Claude; Check / Explain / Translate only once there is text); the tutor's view
+ * (the same layout) — plus the Roborazzi shots, light + dark.
  */
 class ChatsUnifiedTest : LabScreenshotTest() {
     private val S = UnifiedSamples
     private val typing = VoiceDictationUi(mode = "type")
+    private val idle = VoiceDictationUi()
     private val studentTabs = NavRules.tabsFor(NavRole(hasTutor = true, loaded = true))
     private val tutorTabs = NavRules.tabsFor(NavRole(hasStudents = true, isTutorOnly = true, loaded = true, isTutorAccount = true))
 
@@ -109,25 +121,43 @@ class ChatsUnifiedTest : LabScreenshotTest() {
     private fun inShell(name: String, tabs: List<TabSpec> = studentTabs, dark: Boolean = false, content: @Composable () -> Unit) =
         shoot(name, dark) { ShellFrame(tabs, TabId.CHATS, showBar = true, onSelect = {}, badges = mapOf(TabId.CHATS to 1)) { content() } }
 
-    // ---------------- the list ----------------
-
-    @Test fun everyRowSaysItsKindOnTheOutline() {
-        show(S.learner)
-        compose.onNodeWithTag(ChatsTags.kind("h:c-hw")).assertTextEquals("🧑‍🏫 TUTOR")
-        compose.onNodeWithTag(ChatsTags.kind("c:t-check")).assertTextEquals("✦ CLAUDE")
-        // The old practice chat is a Claude row too, once.
-        assertEquals(ClaudeInbox.CLAUDE, S.learner.items.single { it.key == "h:c-cafe" }.kind)
-        compose.onNodeWithText("✦ Writing a reply…").assertExists()
+    /** Screenshots with a popup (the context popover) need the whole screen. */
+    private fun shootScreen(name: String, dark: Boolean = false, tabs: List<TabSpec> = studentTabs, content: @Composable () -> Unit) {
+        compose.setContent {
+            LabTheme(dark = dark) { ShellFrame(tabs, TabId.CHATS, showBar = true, onSelect = {}, badges = mapOf(TabId.CHATS to 1)) { content() } }
+        }
+        compose.mainClock.advanceTimeBy(2_000)
+        compose.waitForIdle()
+        com.github.takahirom.roborazzi.captureScreenRoboImage("screenshots/$name.png")
     }
 
-    @Test fun aLearnersUnreadTutorChatIsPinnedOnTop() {
+    // ---------------- the list ----------------
+
+    @Test fun peopleFirstThenADividerThenClaude() {
+        show(S.learner)
         val keys = S.learner.shown.map { it.key }
-        // The Check thread is newer, but Minghui's unread message comes first.
-        assertEquals("h:c-hw", keys.first())
-        assertEquals(listOf("h:c-hw", "c:t-check", "c:t-card", "h:c-zhang", "c:t-ask", "h:c-cafe"), keys)
+        val sections = ClaudeInbox.sections(S.learner.shown)
+        // Minghui's unread chat first, then 张老师 — the people — then every Claude chat, newest first.
+        assertEquals(listOf("h:c-hw", "h:c-zhang"), sections.people.map { it.key })
+        assertEquals(listOf("c:t-check", "c:t-card", "c:t-ex", "c:t-reader", "c:t-ask", "h:c-cafe"), sections.claude.map { it.key })
+        assertEquals(sections.people.map { it.key } + sections.claude.map { it.key }, keys)
         assertTrue(S.learner.items.first().pinned)
+        compose.onNodeWithTag(ChatsTags.DIVIDER).assertExists()
+        // The kind is in words for TalkBack, on the avatar (no outline label any more).
+        compose.onNodeWithTag(ChatsTags.kind("h:c-hw")).assertContentDescriptionEquals("Tutor")
+        compose.onNodeWithTag(ChatsTags.kind("c:t-check")).assertContentDescriptionEquals("Claude")
+        // No previews, no filter chips.
+        compose.onNodeWithText("明天上课见！别忘了带作业。").assertDoesNotExist()
+        compose.onNodeWithText("All").assertDoesNotExist()
+        // A Claude chat being written says so where the time goes.
+        compose.onNodeWithTag(ChatsTags.status("c:t-ask"), useUnmergedTree = true).assertContentDescriptionEquals(ClaudeInbox.ROW_WRITING.text)
         // The tutor's view never pins.
         assertTrue(S.tutor.items.none { it.pinned })
+    }
+
+    @Test fun noDividerWithOnlyPeople() {
+        show(S.learner.copy(threads = emptyList(), rows = S.learnerRows.filter { !it.isAi }))
+        compose.onNodeWithTag(ChatsTags.DIVIDER).assertDoesNotExist()
     }
 
     @Test fun anOldPracticeChatWithItsThreadShowsOnce() {
@@ -135,44 +165,69 @@ class ChatsUnifiedTest : LabScreenshotTest() {
         val ui = S.learner.copy(threads = S.threads + practice)
         assertEquals(1, ui.items.count { it.key == "c:pc-c-cafe" || it.key == "h:c-cafe" })
         assertEquals("c:pc-c-cafe", ui.items.single { it.badge?.icon == "🎭" }.key)
-    }
-
-    @Test fun filterChipsAllTutorClaude() {
-        val picked = mutableListOf<String>()
-        show(S.learner, ChatsActions(onFilter = { picked += it }))
-        compose.onNodeWithTag(ChatsTags.filter(ClaudeInbox.ALL)).assertTextEquals("All")
-        compose.onNodeWithTag(ChatsTags.filter(ClaudeInbox.PEOPLE)).assertTextEquals("🧑‍🏫 Tutors")
-        compose.onNodeWithTag(ChatsTags.filter(ClaudeInbox.CLAUDE)).performClick()
-        assertEquals(listOf(ClaudeInbox.CLAUDE), picked)
-        show(S.learner.copy(filter = ClaudeInbox.CLAUDE))
-        compose.onNodeWithTag(ChatsTags.item("h:c-hw")).assertDoesNotExist()
-        compose.onNodeWithTag(ChatsTags.item("c:t-check")).assertExists()
-        // Search looks at the context chips too.
+        // Search still looks at the context too.
         assertEquals(listOf("c:t-card"), S.learner.copy(query = "银行").shown.map { it.key })
     }
 
-    @Test fun noChipsWithoutBothKinds() {
-        show(S.learner.copy(threads = emptyList(), rows = S.learnerRows.filter { !it.isAi }))
-        compose.onNodeWithTag(ChatsTags.filter(ClaudeInbox.ALL)).assertDoesNotExist()
-    }
-
-    @Test fun theCardChipOpensTheCardAndTheRowTheThread() {
+    @Test fun theContextEmojiOpensItsPopoverAndTheCard() {
+        val info = mutableListOf<String?>()
         val cards = mutableListOf<String>()
         val opened = mutableListOf<String>()
-        show(S.learner, ChatsActions(onCard = { cards += it }, onOpen = { opened += it.key }))
-        compose.onAllNodesWithTag(ChatsTags.CONTEXT_CHIP, useUnmergedTree = true).fetchSemanticsNodes().let { assertTrue(it.size >= 2) }
-        compose.onNodeWithText("📇 Asked on card · 银行").performClick()
-        assertEquals(listOf("n-yinhang"), cards)
+        show(S.learner, ChatsActions(onContextInfo = { info += it }, onCard = { cards += it }, onOpen = { opened += it.key }))
+        val emojis = compose.onAllNodesWithTag(ChatsTags.CONTEXT_CHIP, useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue(emojis.size >= 4)
+        compose.onNodeWithContentDescription("Asked on card · 银行", useUnmergedTree = true).performClick()
+        assertEquals(listOf<String?>("c:t-card"), info)
         assertEquals(emptyList(), opened)
+        // Open: the full text and "Open card ›".
+        show(S.learner.copy(contextInfo = "c:t-card"), ChatsActions(onContextInfo = { info += it }, onCard = { cards += it }, onOpen = { opened += it.key }))
+        compose.onNodeWithText("📇 Asked on card · 银行").assertExists()
+        compose.onNodeWithText("Open card ›").performClick()
+        assertEquals(listOf("n-yinhang"), cards)
+        assertEquals(null, info.last())
+        // A Check chat's popover has no action.
+        show(S.learner.copy(contextInfo = "c:t-check"))
+        compose.onNodeWithText("✏️ Check").assertExists()
+        compose.onNodeWithTag(ChatsTags.CONTEXT_OPEN).assertDoesNotExist()
+        // The row still opens the thread.
+        show(S.learner, ChatsActions(onOpen = { opened += it.key }))
         compose.onNodeWithText("银行的“行”为什么读 háng？").performClick()
         assertEquals(listOf("c:t-card"), opened)
         assertEquals("/chats/claude/t-card?source=chats", ChatsViewModel.pathFor(S.learner.items.first { it.key == "c:t-card" }))
         assertEquals("/connections/rel-claude/chat/c-cafe", ChatsViewModel.pathFor(S.learner.items.first { it.key == "h:c-cafe" }))
     }
 
+    @Test fun aReaderAndAnExerciseOpenTheirPages() {
+        val paths = mutableListOf<String>()
+        show(S.learner.copy(contextInfo = "c:t-reader"), ChatsActions(onPath = { paths += it }))
+        compose.onNodeWithText("Open story ›").performClick()
+        show(S.learner.copy(contextInfo = "c:t-ex"), ChatsActions(onPath = { paths += it }))
+        compose.onNodeWithText("Open lesson ›").performClick()
+        assertEquals(2, paths.size)
+        assertTrue(paths[0].contains("r-panda"), paths.toString())
+        assertTrue(paths[1].contains("l-zenme"), paths.toString())
+    }
+
     // ---------------- the box ----------------
 
     private data class Sent(val text: String, val intent: String, val spoken: Boolean)
+
+    @Test fun idleTheBoxIsOneRowWithoutCheckOrExplain() {
+        show(S.learner, voice = idle)
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.SAY).assertExists()
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.TYPE).assertExists()
+        compose.onNodeWithTag(ChatsComposeTags.intent("check")).assertDoesNotExist()
+        compose.onNodeWithTag(ChatsComposeTags.intent("explain")).assertDoesNotExist()
+        compose.onNodeWithText("To: ").assertDoesNotExist()
+        // Typing, but nothing typed yet: still none.
+        show(S.learner, voice = typing)
+        compose.onNodeWithTag(ChatsComposeTags.intent("check")).assertDoesNotExist()
+        // Mid-speech: none; under the review of a finished take: there they are.
+        show(S.learner, voice = VoiceDictationUi(phase = "listening", finalText = "我昨天"))
+        compose.onNodeWithTag(ChatsComposeTags.intent("check")).assertDoesNotExist()
+        show(S.learner, voice = VoiceDictationUi(phase = "review", finalText = "我昨天去了商店"))
+        compose.onNodeWithTag(ChatsComposeTags.intent("check")).assertExists()
+    }
 
     @Test fun chineseOffersAskCheckAndExplain() {
         val sent = mutableListOf<Sent>()
@@ -200,16 +255,6 @@ class ChatsUnifiedTest : LabScreenshotTest() {
         assertEquals("translate", sent.single().intent)
     }
 
-    @Test fun toATutorOpensHerChatWithTheText() {
-        val to = mutableListOf<Pair<String, String>>()
-        show(S.learner.copy(draft = "老师，明天几点上课？"), ChatsActions(compose = ChatsComposeActions(onSendToPerson = { r, t -> to += r.conversationId to t })), typing)
-        compose.onNodeWithTag(ChatsComposeTags.TO).performClick()
-        compose.waitForIdle()
-        compose.onNodeWithTag(ChatsComposeTags.to("rel-zhang")).assertExists()
-        compose.onNodeWithTag(ChatsComposeTags.to("rel-minghui")).performClick()
-        assertEquals(listOf("c-hw" to "老师，明天几点上课？"), to)
-    }
-
     @Test fun offlineTheBoxSaysItWaits() {
         show(S.learner.copy(offline = true, draft = "你好"), voice = typing)
         compose.onNodeWithTag(ChatsComposeTags.OFFLINE).assertTextEquals(ChatsCompose.OFFLINE_NOTE)
@@ -226,35 +271,20 @@ class ChatsUnifiedTest : LabScreenshotTest() {
 
     // ---------------- the tutor's view ----------------
 
-    @Test fun theTutorSeesStudentsFirstAndHerClaudeChatsFolded() {
-        var toggled = 0
-        show(S.tutor, ChatsActions(onToggleClaude = { toggled++ }))
-        compose.onNodeWithTag(ChatsTags.PEOPLE_TITLE).assertTextEquals("Students")
-        compose.onNodeWithTag(ChatsTags.filter(ClaudeInbox.ALL)).assertDoesNotExist()
-        compose.onNodeWithTag(ChatsTags.kind("h:c-jerome")).assertTextEquals("🎓 STUDENT")
-        compose.onNodeWithTag(ChatsTags.item("c:t-plan")).assertDoesNotExist()
-        compose.onNodeWithTag(ChatsTags.CLAUDE_SECTION).performClick()
-        assertEquals(1, toggled)
-        show(S.tutor.copy(claudeOpen = true))
+    @Test fun theTutorSeesTheSameLayout() {
+        show(S.tutor)
+        compose.onNodeWithTag(ChatsTags.kind("h:c-jerome")).assertContentDescriptionEquals("Student")
+        // Her Claude chats are right there, below the divider — no fold.
+        compose.onNodeWithTag(ChatsTags.DIVIDER).assertExists()
         compose.onNodeWithTag(ChatsTags.item("c:t-plan")).assertExists()
-        // Search opens the folded section.
-        show(S.tutor.copy(query = "了"))
-        compose.onNodeWithTag(ChatsTags.item("c:t-plan")).assertExists()
+        assertEquals(listOf("h:c-jerome", "h:c-wei", "h:c-anna"), ClaudeInbox.sections(S.tutor.shown).people.map { it.key })
     }
 
-    @Test fun theTutorsBoxStartsAsOneButton() {
+    @Test fun theTutorsBoxHasNoCheckOrExplain() {
         show(S.tutor.copy(draft = "我想学中文"), voice = typing)
-        compose.onNodeWithTag(ChatsComposeTags.ROOT).assertDoesNotExist()
-        compose.onNodeWithTag(ChatsComposeTags.OPEN).performClick()
-        compose.waitForIdle()
         compose.onNodeWithTag(ChatsComposeTags.ROOT).assertExists()
         compose.onNodeWithTag(ChatsComposeTags.intent("check")).assertDoesNotExist()
         compose.onNodeWithTag(ChatsComposeTags.intent("explain")).assertDoesNotExist()
-    }
-
-    @Test fun aComposeRequestOpensTheTutorsBox() {
-        show(S.tutor.copy(composeRequest = 1), voice = typing)
-        compose.onNodeWithTag(ChatsComposeTags.ROOT).assertExists()
     }
 
     @Test fun theNewChatPickerOffersClaudeFirst() {
@@ -266,9 +296,9 @@ class ChatsUnifiedTest : LabScreenshotTest() {
 
     // ---------------- shots ----------------
 
-    @Test fun shotLearnerList() = inShell("chats-claude-01-learner-list") { ChatsScreen(S.learner, ChatsActions()) }
+    @Test fun shotLearnerList() = inShell("chats-claude-01-learner-list") { ChatsScreen(S.learner, ChatsActions(), voicePreview = idle) }
 
-    @Test fun shotLearnerListDark() = inShell("chats-claude-02-learner-list-dark", dark = true) { ChatsScreen(S.learner, ChatsActions()) }
+    @Test fun shotLearnerListDark() = inShell("chats-claude-02-learner-list-dark", dark = true) { ChatsScreen(S.learner, ChatsActions(), voicePreview = idle) }
 
     @Test fun shotComposerChinese() = inShell("chats-claude-03-composer-chinese") {
         ChatsScreen(S.learner.copy(draft = "我昨天去了商店买东西了"), ChatsActions(), voicePreview = typing)
@@ -278,17 +308,21 @@ class ChatsUnifiedTest : LabScreenshotTest() {
         ChatsScreen(S.learner.copy(draft = "我昨天去了商店买东西了"), ChatsActions(), voicePreview = typing)
     }
 
-    @Test fun shotFilterClaude() = inShell("chats-claude-05-filter-claude") { ChatsScreen(S.learner.copy(filter = ClaudeInbox.CLAUDE), ChatsActions()) }
-
-    @Test fun shotFilterClaudeDark() = inShell("chats-claude-06-filter-claude-dark", dark = true) { ChatsScreen(S.learner.copy(filter = ClaudeInbox.CLAUDE), ChatsActions()) }
-
-    @Test fun shotTutorView() = inShell("chats-claude-07-tutor-view", tabs = tutorTabs) { ChatsScreen(S.tutor, ChatsActions()) }
-
-    @Test fun shotTutorViewDark() = inShell("chats-claude-08-tutor-view-dark", tabs = tutorTabs, dark = true) { ChatsScreen(S.tutor, ChatsActions()) }
-
-    @Test fun shotTutorViewOpen() = inShell("chats-claude-09-tutor-claude-open", tabs = tutorTabs) {
-        ChatsScreen(S.tutor.copy(claudeOpen = true, composeRequest = 1, draft = "We'll review the homework next lesson"), ChatsActions(), voicePreview = typing)
+    @Test fun shotContextPopover() = shootScreen("chats-claude-05-context-popover") {
+        ChatsScreen(S.learner.copy(contextInfo = "c:t-card"), ChatsActions(), voicePreview = idle)
     }
 
-    @Test fun shotEmpty() = inShell("chats-claude-10-empty") { ChatsScreen(ChatsUi(loaded = true, nowMs = S.now), ChatsActions()) }
+    @Test fun shotContextPopoverDark() = shootScreen("chats-claude-06-context-popover-dark", dark = true) {
+        ChatsScreen(S.learner.copy(contextInfo = "c:t-card"), ChatsActions(), voicePreview = idle)
+    }
+
+    @Test fun shotTutorView() = inShell("chats-claude-07-tutor-view", tabs = tutorTabs) { ChatsScreen(S.tutor, ChatsActions(), voicePreview = idle) }
+
+    @Test fun shotTutorViewDark() = inShell("chats-claude-08-tutor-view-dark", tabs = tutorTabs, dark = true) { ChatsScreen(S.tutor, ChatsActions(), voicePreview = idle) }
+
+    @Test fun shotComposerReview() = inShell("chats-claude-09-composer-spoken-review") {
+        ChatsScreen(S.learner, ChatsActions(), voicePreview = VoiceDictationUi(phase = "review", finalText = "说不定明天会下雨"))
+    }
+
+    @Test fun shotEmpty() = inShell("chats-claude-10-empty") { ChatsScreen(ChatsUi(loaded = true, nowMs = S.now), ChatsActions(), voicePreview = idle) }
 }

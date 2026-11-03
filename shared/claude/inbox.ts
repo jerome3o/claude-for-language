@@ -2,19 +2,22 @@
  * The unified Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"; the
  * unified-Claude-chats plan §2.5 / §6.1 / §6.6): the chats with people (`GET /api/me/chats`,
  * shared/chats/inbox.ts) and the Claude threads (`GET /api/claude/threads`, cached on the device)
- * merged into ONE list by one pure rule, `mergeInbox`:
+ * merged by one pure rule, `mergeInbox`, then split by `inboxSections`:
  *
- * - every row is a `tutor`, a `student` or a `claude` row — the apps draw a tutor row with a blue
- *   outline + 🧑‍🏫 "Tutor", a Claude row with an orange outline + ✦ "Claude" and its context chip
- *   ("📇 Asked on card · 银行", "🎭 Practice · 点菜", "✏️ Check"…). Colour is never the only signal
- *   (Jerome is red / green colour-blind): `inboxRowLabel` gives the icon + the word;
- * - a learner's UNREAD tutor chats are pinned on top; everything else is newest activity first;
+ * - the people first (tutors / students — persistent chats, one per person), a learner's UNREAD tutor
+ *   chats pinned on top; then a thin divider; then the Claude chats, newest first. The sections and the
+ *   avatars (a photo / ✦) carry the kind — never colour (Jerome is red / green colour-blind);
+ *   `inboxRowLabel` gives the word for screen readers;
+ * - a Claude row is ONE compact line: ✦, its title, ONE context emoji (📇 card, 📖 reader, 🧩 exercise,
+ *   🎭 practice, 💬 message, ✏️ check, 🔍 explain, 🔤 translate — `ContextBadge.icon`) that opens the
+ *   full text ("Asked on card · 银行") and, when it has a target, "Open card ›" (`contextOpenLabel`);
+ *   no preview line — only `claudeRowStatus` (waiting / writing / failed) when there is one;
  * - an old Claude practice chat (an `is_ai` conversation) shows ONCE: as its practice thread when the
  *   device has it, else as a Claude row of its own (opening the old chat) — never also as a person;
- * - archived threads are left out; the filter chips are All · Tutor (People / Students) · Claude.
+ * - archived threads are left out. No filter chips (Nov 2026: the sections replace them).
  *
- * The tutor's view (a tutor account / an account with students) is student-centric:
- * `teacherSections` = the people first, then "Your Claude chats" (collapsed by the app).
+ * The tutor's view (a tutor account / an account with students) is the same: her students first,
+ * the divider, her Claude chats (no pinning).
  *
  * Pure; the Lab app's port is core `claude/ClaudeInbox.kt`, parity-tested
  * (android-lab/parity/fixtures/claude-chats.ts → ClaudeChatsParityTest).
@@ -53,14 +56,9 @@ export interface InboxItem<H extends InboxHuman = InboxHuman, T extends InboxThr
   thread: T | null;
 }
 
-export type InboxFilter = 'all' | 'people' | 'claude';
-
-export const INBOX_FILTERS: readonly InboxFilter[] = ['all', 'people', 'claude'];
-
 export interface MergeInboxOptions {
   /** Pin unread tutor chats on top (the learner's list; off in the tutor's student-centric view). */
   pinUnreadTutors?: boolean;
-  filter?: InboxFilter;
 }
 
 function timeOf(iso: string | null | undefined): number {
@@ -82,12 +80,6 @@ export function threadActivityAt(t: Pick<InboxThread, 'last_message_at' | 'creat
   return t.last_message_at || t.created_at;
 }
 
-function matchesFilter(kind: InboxRowKind, filter: InboxFilter): boolean {
-  if (filter === 'people') return kind !== 'claude';
-  if (filter === 'claude') return kind === 'claude';
-  return true;
-}
-
 /**
  * The one list: people and Claude, newest activity first, a learner's unread tutor chats pinned on
  * top (`pinUnreadTutors`). Archived threads are left out. An `is_ai` conversation (an old Claude
@@ -99,7 +91,6 @@ export function mergeInbox<H extends InboxHuman, T extends InboxThread>(
   threads: readonly T[],
   opts: MergeInboxOptions = {},
 ): InboxItem<H, T>[] {
-  const filter = opts.filter ?? 'all';
   const practiceConversations = new Set<string>();
   for (const t of threads) {
     if (t.context.kind === 'practice' && t.context.conversation_id) practiceConversations.add(t.context.conversation_id);
@@ -147,7 +138,7 @@ export function mergeInbox<H extends InboxHuman, T extends InboxThread>(
       thread: t,
     });
   }
-  return items.filter((i) => matchesFilter(i.kind, filter)).sort(compareItems);
+  return items.sort(compareItems);
 }
 
 // ---------- Labels ----------
@@ -157,7 +148,7 @@ export interface InboxRowLabel {
   text: string;
 }
 
-/** The word + icon on every row (never colour alone): 🧑‍🏫 Tutor · 🎓 Student · ✦ Claude. */
+/** The kind in words, for screen readers (the sections + avatars show it): 🧑‍🏫 Tutor · 🎓 Student · ✦ Claude. */
 export function inboxRowLabel(kind: InboxRowKind): InboxRowLabel {
   switch (kind) {
     case 'tutor':
@@ -177,46 +168,41 @@ export function inboxRowName(item: Pick<InboxItem, 'kind' | 'human' | 'thread'>)
   return chatPersonName(h.other_user);
 }
 
-export const CLAUDE_ROW_WRITING = '✦ Writing a reply…';
-export const CLAUDE_ROW_FAILED = '⚠ The reply failed — open to retry';
-export const CLAUDE_ROW_QUEUED = '🕓 Waiting for a connection';
+export interface ClaudeRowStatus {
+  icon: string;
+  /** In the row, where the time goes: "Writing…". */
+  short: string;
+  /** For screen readers / the tooltip. */
+  text: string;
+}
+
+export const CLAUDE_ROW_QUEUED: ClaudeRowStatus = { icon: '🕓', short: 'Waiting', text: 'Waiting for a connection' };
+export const CLAUDE_ROW_WRITING: ClaudeRowStatus = { icon: '✦', short: 'Writing…', text: 'Claude is writing a reply' };
+export const CLAUDE_ROW_FAILED: ClaudeRowStatus = { icon: '⚠', short: 'Failed', text: 'The reply failed — open to retry' };
 
 /**
- * A Claude row's preview line: waiting for a connection (started offline), Claude writing, a failed
- * reply, else the last message (one line) — nothing when that only repeats the title (a chat started
- * with ✏️ Check: its title IS the sentence).
+ * A Claude row's state, shown in place of its time (the rows carry no preview line): waiting for a
+ * connection (started offline), Claude writing, a failed reply — else null (the time shows).
  */
-export function claudeRowPreview(t: Pick<InboxThread, 'preview' | 'pending' | 'failed' | 'local'> & { title?: string }): string {
+export function claudeRowStatus(t: Pick<InboxThread, 'pending' | 'failed' | 'local'>): ClaudeRowStatus | null {
   if (t.local) return CLAUDE_ROW_QUEUED;
   if (t.pending) return CLAUDE_ROW_WRITING;
   if (t.failed) return CLAUDE_ROW_FAILED;
-  const line = (t.preview ?? '').replace(/\s+/g, ' ').trim();
-  return t.title !== undefined && line === t.title.replace(/\s+/g, ' ').trim() ? '' : line;
+  return null;
 }
 
-// ---------- Filters ----------
-
-export interface InboxFilterChip {
-  id: InboxFilter;
-  label: string;
-}
-
-/**
- * The filter chips: All · <people> · ✦ Claude — only when the list has both people and Claude (else
- * there is nothing to filter). The people chip says who they are: "Tutor" (one) / "Tutors",
- * "Students", or "People" when both.
- */
-export function inboxFilters(items: readonly Pick<InboxItem, 'kind'>[]): InboxFilterChip[] {
-  const tutors = items.filter((i) => i.kind === 'tutor').length;
-  const students = items.filter((i) => i.kind === 'student').length;
-  const claude = items.some((i) => i.kind === 'claude');
-  if (!claude || tutors + students === 0) return [];
-  const people = students === 0 ? (tutors === 1 ? '🧑‍🏫 Tutor' : '🧑‍🏫 Tutors') : tutors === 0 ? '🎓 Students' : 'People';
-  return [
-    { id: 'all', label: 'All' },
-    { id: 'people', label: people },
-    { id: 'claude', label: '✦ Claude' },
-  ];
+/** The context emoji's popover action, by where the chat happened (headerChipFor's link kind). */
+export function contextOpenLabel(linkKind: string | null | undefined): string | null {
+  switch (linkKind) {
+    case 'card':
+      return 'Open card';
+    case 'reader':
+      return 'Open story';
+    case 'exercise':
+      return 'Open lesson';
+    default:
+      return null;
+  }
 }
 
 function fold(s: string): string {
@@ -236,36 +222,16 @@ export function filterInbox<I extends InboxItem<InboxHuman, InboxThread>>(items:
   });
 }
 
-// ---------- The tutor's view ----------
+// ---------- Sections ----------
 
-/**
- * The tutor's Chats tab: the people above (her students — and her own tutor, if she has one — newest
- * first, as merged), then her own Claude chats.
- */
-export function teacherSections<I extends Pick<InboxItem, 'kind'>>(items: readonly I[]): { people: I[]; claude: I[] } {
+export interface InboxSections<I> {
+  /** Tutors / students (a learner's unread tutor chats first, as merged). */
+  people: I[];
+  /** The Claude chats, newest first — below a thin divider. */
+  claude: I[];
+}
+
+/** Both views: the people above (as merged), then the Claude chats. */
+export function inboxSections<I extends Pick<InboxItem, 'kind'>>(items: readonly I[]): InboxSections<I> {
   return { people: items.filter((i) => i.kind !== 'claude'), claude: items.filter((i) => i.kind === 'claude') };
-}
-
-// ---------- The composer's "To:" ----------
-
-export interface ComposeRecipient {
-  relationship_id: string;
-  conversation_id: string;
-  name: string;
-}
-
-/**
- * Who the bottom box can go to besides Claude: each tutor I have a chat with (one per relationship,
- * newest chat first). Students are reached from their rows — the box is for Claude first.
- */
-export function composeRecipients(humans: readonly InboxHuman[]): ComposeRecipient[] {
-  const seen = new Set<string>();
-  const out: ComposeRecipient[] = [];
-  const sorted = [...humans].sort((a, b) => timeOf(b.last_activity_at) - timeOf(a.last_activity_at) || (a.conversation_id < b.conversation_id ? -1 : 1));
-  for (const h of sorted) {
-    if (h.is_ai || h.other_role !== 'tutor' || seen.has(h.relationship_id)) continue;
-    seen.add(h.relationship_id);
-    out.push({ relationship_id: h.relationship_id, conversation_id: h.conversation_id, name: chatPersonName(h.other_user) });
-  }
-  return out;
 }
