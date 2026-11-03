@@ -78,10 +78,10 @@ class WordRecapTest : LabScreenshotTest() {
         }
     }
 
-    @Test fun front() = shoot("reader-recap-02-front") { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头")), RecapActions()) }
+    @Test fun front() = shoot("reader-recap-02-front") { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天"), owned = setOf("兔头")), RecapActions()) }
 
-    @Test fun back() = shoot("reader-recap-03-back") { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头"), revealed = true), RecapActions()) }
-    @Test fun backDark() = shoot("reader-recap-03-back-dark", dark = true) { ReaderRecapScreen(RecapUi("成都的一天", run(), owned = setOf("兔头"), revealed = true), RecapActions()) }
+    @Test fun back() = shoot("reader-recap-03-back") { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天"), owned = setOf("兔头"), revealed = true), RecapActions()) }
+    @Test fun backDark() = shoot("reader-recap-03-back-dark", dark = true) { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天"), owned = setOf("兔头"), revealed = true), RecapActions()) }
 
     private fun answered(): WordRecapRun {
         var r = run()
@@ -95,8 +95,8 @@ class WordRecapTest : LabScreenshotTest() {
         return r
     }
 
-    @Test fun summary() = shoot("reader-recap-04-summary", settleMs = 3_500) { ReaderRecapScreen(RecapUi("成都的一天", answered(), owned = setOf("兔头")), RecapActions()) }
-    @Test fun summaryDark() = shoot("reader-recap-04-summary-dark", dark = true, settleMs = 3_500) { ReaderRecapScreen(RecapUi("成都的一天", answered(), owned = setOf("兔头")), RecapActions()) }
+    @Test fun summary() = shoot("reader-recap-04-summary", settleMs = 3_500) { ReaderRecapScreen(RecapUi("Word recap", answered(), sourceLabel = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天"), owned = setOf("兔头")), RecapActions()) }
+    @Test fun summaryDark() = shoot("reader-recap-04-summary-dark", dark = true, settleMs = 3_500) { ReaderRecapScreen(RecapUi("Word recap", answered(), sourceLabel = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天"), owned = setOf("兔头")), RecapActions()) }
 
     @Test
     fun notYetComesBackAndSwitchesStartOff() {

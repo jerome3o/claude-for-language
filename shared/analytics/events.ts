@@ -127,7 +127,7 @@ export const ANALYTICS_EVENTS = {
   'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
   'study.other_card_types_open': e('study', 'Opened ⋯ → "Practise this word other ways…" on the study card.', ['from_type']),
   'study.other_card_types': e('study', '"Practise this word other ways…": sent other card types of the word into today (a card-level ⚡ bump). types = the chosen card types joined with /.', ['types', 'from_type', 'count', 'early']),
-  'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | reader_recap | mcp | tutor | other).', ['source', 'count', 'already']),
+  'study.up_next_added': e('study', '"Up next": put words the learner already has on the ordered list introduced first within the daily budget (source = up_next_page | search | deck | card_hub | explorer | reader_recap | chat_recap | mcp | tutor | other).', ['source', 'count', 'already']),
   'study.up_next_moved': e('study', 'Reordered the "Up next" list (how = drag | top | bottom | drop — a search result dragged into place).', ['how']),
   'study.up_next_removed': e('study', 'Took a word off the "Up next" list by hand (the card is kept).', ['source']),
   'card.suspend': e('study', 'Suspended cards — out of all study until unsuspended (scope = card | word; source = study | card_hub | held_list | mcp).', ['scope', 'count', 'source']),
@@ -360,6 +360,8 @@ export const ANALYTICS_EVENTS = {
   'coach.ask_tool': e('coach', 'Used a tool on an Ask Claude message (action = play | pinyin | translate | listen | listen_auto | reveal | word | listening_on | listening_off | language; role = mine | claude).', ['action', 'role']),
   'coach.ask_read_back': e('coach', '"🎤 Read it back" on one of Claude\'s messages: a take judged against it (practice only; result_bucket = all | 90 | 75 | 50 | under_50 or failed | empty; chars; wrong_words = words with a real mistake; all_right = every character right; via).', ['result_bucket', 'chars', 'wrong_words', 'all_right', 'via']),
   'coach.ask_flashcards': e('coach', '"Make flashcards from this chat": cards added (count; focus = recap words sent as the default selection).', ['count', 'focus']),
+  'coach.ask_recap_start': e('coach', '📝 "N words to recap" in an Ask Claude chat\'s ⋯ menu: started the word recap pass (the readers\' one) over the words tapped / read back wrong in the chat — from = menu; words = how many.', ['from', 'words']),
+  'coach.ask_recap_finish': e('coach', '📝 Ask Claude chat word recap: Done — words = in the recap, got_it_first_time, added = switched to "Add to my long-term review" (new cards in "From my chats"), bumped = "⚡ Study it today".', ['words', 'got_it_first_time', 'added', 'bumped']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 

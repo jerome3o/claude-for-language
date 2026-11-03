@@ -1006,11 +1006,31 @@ words."
   else enrich-words writes one), ONE `POST /api/decks/:id/notes/batch?skip_existing=1` (the content service; a resend
   never duplicates), then the new notes go on **Up next** (bottom, source `reader_recap`) — he chose these words on
   purpose, so they are introduced first within the daily budget instead of waiting behind the whole deck queue.
+- **A chat as the source** (the Coach's "💬 Ask Claude" chat, docs/CHAT.md "Ask Claude chat"): the SAME pass, not
+  a copy — the run carries `source: 'chat'` (absent = a reader) and the screen, the switches and Done follow it.
+  The chat keeps its words to recap per thread (`AskRecapWord`, tapped / said wrong in a Read it back); ⋯ →
+  "📝 N words to recap" (only when N ≥ 1) opens `/coach/chat/:id/recap` (web `pages/ClaudeChatRecapPage.tsx`, Lab
+  `ui/claudechat/ClaudeChatNav.kt`; both through the shared pass — web `components/readerRecap/WordRecapPass.tsx`,
+  Lab `ui/readers/WordRecapRoute.kt`). `chatRecapRun` brings the thread's run (id `chat:<thread>`, web IndexedDB
+  `runs`, Lab JsonCache `chat-recap/run/chat:<thread>`) up to date: words in chat order, each card's cue the
+  sentence of the message it came from, "from your chat with Claude" under the title, why lines "You tapped it in
+  the chat" / "Read it back: …"; a run not done carries on (answers + switches kept, new words appended), after Done
+  the words it covered never come back (`before`) — N counts only words met since. A chat run is available at once
+  (no "finish"). New words go to their own deck **"From my chats"** (`recapDeck`; the readers' deck keeps its name,
+  since devices find it by name) and on Up next with source `chat_recap`; ⚡ bumps use source `coach_chat`. Queued
+  adds carry their `source`, one deck per source when sent. Rules: `chatRecapRun`, `chatRecapPending`,
+  `chatRecapCount`, `recapSourceLabel`, `recapDeck`, `recapUpNextSource`, `recapBumpSource`, `recapEvent`
+  (parity-tested, the `chat` section of the word-recap fixture).
 - Analytics: `reader.word_recap_start { from: finish | readers, words }`, `reader.word_recap_finish { words,
   got_it_first_time, added, bumped }`.
+  A chat's recap emits `coach.ask_recap_start { from: menu, words }` / `coach.ask_recap_finish` (same props) —
+  `recapEvent(source, …)`, so adoption is told per place.
 - Tests: `shared/study/wordRecap.test.ts`, `components/readerRecap/ReaderRecap.flow.test.tsx` (taps → take → offer →
   pass → switches → only the switched-on word added, the owned one bumped), `e2e/tests/reader-word-recap.spec.ts`,
-  Lab `WordRecapParityTest`, `WordRecapTest` (flow + Roborazzi `reader-recap-01…04`, light + dark).
+  Lab `WordRecapParityTest`, `WordRecapTest` (flow + Roborazzi `reader-recap-01…04`, light + dark); the chat
+  source: `pages/ClaudeChatRecap.flow.test.tsx` (taps → ⋯ entry → pass → only the switched-on new word in "From my
+  chats", the owned one bumped, the entry gone after), Lab `ChatWordRecapTest` (Roborazzi `chat-recap-01…03`) and
+  `ClaudeChatScreenshots.recapEntry`.
 
 ### Page audio: phrase blocks and a restart point that follows the audio
 

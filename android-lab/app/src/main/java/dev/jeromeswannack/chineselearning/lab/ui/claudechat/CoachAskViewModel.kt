@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
 import dev.jeromeswannack.chineselearning.lab.data.api.startCoachAsk
 import dev.jeromeswannack.chineselearning.lab.data.api.translateCoachMessage
 import dev.jeromeswannack.chineselearning.lab.data.claudechat.ClaudeChatRecap
+import dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.chat.ChatViewModel
@@ -79,9 +80,9 @@ class CoachAskViewModel(private val app: LabApp, private val id: String) : ViewM
         threadState,
         local,
         app.online,
-        recap.observe(id),
+        WordRecapStore.observeChatCount(app, id),
         LessonRuntime.of(app).audio.playing,
-    ) { t, u, online, words, playing ->
+    ) { t, u, online, recapCount, playing ->
         val data = t?.data
         u.copy(
             title = data?.conversation?.title.orEmpty(),
@@ -91,7 +92,7 @@ class CoachAskViewModel(private val app: LabApp, private val id: String) : ViewM
             loading = !isNew && data == null && t?.loading != false,
             loadError = if (data == null) t?.error else null,
             online = online,
-            recapCount = words.size,
+            recapCount = recapCount,
             playingText = playing,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)

@@ -8,6 +8,11 @@ import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudActions
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudHandle
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudUi
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -46,8 +51,29 @@ class ClaudeChatScreenshots : LabScreenshotTest() {
     }
 
     @Test fun menu() = shoot("claude-chat-07-menu") { ClaudeChatScreen(ui, ClaudeChatActions(), menuPreview = true) }
+    @Test fun menuDark() = shoot("claude-chat-07-menu-dark", dark = true) { ClaudeChatScreen(ui, ClaudeChatActions(), menuPreview = true) }
 
     @Test fun recapLabel() {
         kotlin.test.assertEquals("📝 3 words to recap", CoachAsk.recapCountLabel(ui.recapCount))
+    }
+
+    /** ⋯ → "📝 N words to recap" opens the recap; with nothing left to recap the row isn't there. */
+    @Test fun recapEntry() {
+        var opened = 0
+        var count by androidx.compose.runtime.mutableStateOf(3)
+        compose.setContent {
+            dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme {
+                ClaudeChatScreen(ui.copy(recapCount = count), ClaudeChatActions(onRecap = { opened++ }), menuPreview = true)
+            }
+        }
+        compose.onNodeWithTag(ClaudeChatScreenTags.RECAP).assertTextEquals("📝 3 words to recap").performClick()
+        compose.waitForIdle()
+        kotlin.test.assertEquals(1, opened)
+        compose.onNodeWithTag(ClaudeChatScreenTags.MORE).performClick()
+        compose.waitForIdle()
+        count = 0
+        compose.waitForIdle()
+        compose.onNodeWithTag(ClaudeChatScreenTags.MENU).assertExists()
+        compose.onNodeWithTag(ClaudeChatScreenTags.RECAP).assertDoesNotExist()
     }
 }

@@ -24,7 +24,6 @@ object CoachAsk {
     const val READ_BACK_LISTENING = "Listening… read Claude’s message aloud"
     const val READ_BACK_MAX_CHARS = 2000
     const val RECAP_MAX = 200
-    const val RECAP_COMING_SOON = "Coming soon"
 
     const val TAPPED = "tapped"
     const val SAID_WRONG = "said_wrong"

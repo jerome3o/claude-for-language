@@ -1,25 +1,29 @@
 /**
- * Reader word recap on the device (docs/STUDY_SESSION.md "Reader word recap"; rules in
- * shared/study/wordRecap.ts). Its own small IndexedDB (`reader-word-recap`):
- *   - `runs`: ONE run per reader — the words tapped / read aloud wrong while reading, the recap's
- *     answers and the switches. Kept across closes and days.
+ * The word recap on the device (docs/STUDY_SESSION.md "Reader word recap"; rules in
+ * shared/study/wordRecap.ts) — for a graded reader's reading AND for a "💬 Ask Claude" chat (the
+ * same pass; the chat's words come from services/claudeChatRecap.ts). Its own small IndexedDB
+ * (`reader-word-recap`):
+ *   - `runs`: ONE run per reader (key = the reader id) or per chat (key = `chat:<thread id>`) — the
+ *     words, the recap's answers and the switches. Kept across closes and days.
  *   - `adds`: words switched to "Add to my long-term review" waiting to become cards. Sent at once
- *     when online, else on the next sync (`flushRecapAdds`): the "From my readers" deck (made on first
- *     use, at the BOTTOM of the deck queue), the card standard's explanation + an example sentence
- *     (the story's own sentence when it is short enough — POST /api/ai/enrich-words writes the rest),
- *     one POST /api/decks/:id/notes/batch (`skip_existing`, so a resend never duplicates), then Up
- *     next, so the chosen words are introduced first within the daily budget.
+ *     when online, else on the next sync (`flushRecapAdds`): the source's deck — "From my readers" /
+ *     "From my chats" (made on first use, at the BOTTOM of the deck queue) —, the card standard's
+ *     explanation + an example sentence (the story's / message's own sentence when it is short enough
+ *     — POST /api/ai/enrich-words writes the rest), one POST /api/decks/:id/notes/batch
+ *     (`skip_existing`, so a resend never duplicates), then Up next, so the chosen words are
+ *     introduced first within the daily budget.
  * "⚡ Study it today" for a word he already has is a bump (services/studyBumps, offline-first).
  */
 import Dexie, { type Table } from 'dexie';
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
-  addRecapMistakes, addRecapTap, answerRecap, finishRecapRun, markRecapped, recapAvailable, recapChoices, recapKey,
-  recapRightFirstTime, recapRunFor, recapSentenceClue, restartRecap, setRecapKeep,
-  READER_RECAP_DECK, READER_RECAP_DECK_DESCRIPTION,
-  type WordRecapPage, type WordRecapRun, type WordRecapTap, type WordRecapWord,
+  addRecapMistakes, addRecapTap, answerRecap, chatRecapCount, chatRecapRun, chatRecapRunId, finishRecapRun, markRecapped,
+  recapAvailable, recapBumpSource, recapChoices, recapDeck, recapEvent, recapKey, recapRightFirstTime, recapRunFor,
+  recapSentenceClue, recapSource, recapUpNextSource, restartRecap, setRecapKeep,
+  type WordRecapPage, type WordRecapRun, type WordRecapSource, type WordRecapTap, type WordRecapWord,
 } from '@shared/study/wordRecap';
+import type { AskRecapWord } from '@shared/coach/askChat';
 import type { ReadAloudResult } from '@shared/reader/readAloud';
 import { autoPinyin } from '../utils/autoPinyin';
 import { db } from '../db/database';
@@ -27,10 +31,14 @@ import { bumpNotes } from './studyBumps';
 import { track } from './analytics';
 import { createDeck, createNotesBatch, enrichWords, getDecks, glossWords, moveDeck, type BatchNoteInput } from '../api/client';
 import { addUpNextApi } from '../api/upNext';
+import { getRecapWords, useRecapWords } from './claudeChatRecap';
 
 export interface PendingRecapAdd {
   id: string;
+  /** The run's id (a reader id, or `chat:<thread>`). */
   reader_id: string;
+  /** Absent = 'reader' (adds queued before chat recaps). Decides the deck and Up next's source. */
+  source?: WordRecapSource;
   word: WordRecapWord;
   created_at: string;
 }
@@ -71,7 +79,7 @@ export async function getRecapRun(readerId: string): Promise<WordRecapRun | null
   return (await recapDb().runs.get(readerId).catch(() => undefined)) ?? null;
 }
 
-/** The reader's run, live (undefined while loading, null = none). */
+/** A run, live (undefined while loading, null = none): a reader id or `chatRecapRunId(thread)`. */
 export function useRecapRun(readerId: string | undefined): WordRecapRun | null | undefined {
   return useLiveQuery(async () => (readerId ? (await recapDb().runs.get(readerId)) ?? null : null), [readerId]);
 }
@@ -171,22 +179,24 @@ export interface RecapDoneOutcome {
 
 /**
  * Done: the switched-on words he already has are bumped, the new ones queued as cards (sent now when
- * online). The run is marked recapped; `reader.word_recap_finish` is recorded.
+ * online). The run is marked recapped; the source's finish event (`reader.word_recap_finish` /
+ * `coach.ask_recap_finish`) is recorded. `runId` = a reader id or `chatRecapRunId(thread)`.
  */
-export async function finishRecap(readerId: string): Promise<RecapDoneOutcome> {
-  const run = await getRecapRun(readerId);
+export async function finishRecap(runId: string): Promise<RecapDoneOutcome> {
+  const run = await getRecapRun(runId);
   if (!run) return { added: 0, bumped: 0 };
+  const source = recapSource(run);
   const owned = await ownedRecapNotes(run);
   const { add, bump } = recapChoices(run, (k) => owned.has(k));
   if (bump.length) {
-    await bumpNotes(bump.map((w) => owned.get(recapKey(w.hanzi))!), 'reader').catch(() => undefined);
+    await bumpNotes(bump.map((w) => owned.get(recapKey(w.hanzi))!), recapBumpSource(source)).catch(() => undefined);
   }
   if (add.length) {
     const now = nowIso();
-    await recapDb().adds.bulkPut(add.map((word) => ({ id: `${readerId}:${recapKey(word.hanzi)}`, reader_id: readerId, word, created_at: now })));
+    await recapDb().adds.bulkPut(add.map((word) => ({ id: `${runId}:${recapKey(word.hanzi)}`, reader_id: runId, source, word, created_at: now })));
   }
-  await updateRecapRun(readerId, (cur) => (cur ? markRecapped(cur, nowIso()) : cur));
-  track('reader.word_recap_finish', {
+  await updateRecapRun(runId, (cur) => (cur ? markRecapped(cur, nowIso()) : cur));
+  track(recapEvent(source, 'finish'), {
     words: run.words.length,
     got_it_first_time: recapRightFirstTime(run),
     added: add.length,
@@ -198,6 +208,28 @@ export async function finishRecap(readerId: string): Promise<RecapDoneOutcome> {
 
 export { recapAvailable };
 
+// ---- a chat's recap (the "💬 Ask Claude" chat's words, services/claudeChatRecap.ts) ----
+
+/**
+ * Bring the chat's run up to date with the words collected in it (shared `chatRecapRun`: a run not
+ * done carries on with the new words appended; after a Done only words met since). Written only
+ * when it changed.
+ */
+export function openChatRecap(threadId: string, words: readonly AskRecapWord[] = getRecapWords(threadId)): Promise<WordRecapRun | null> {
+  return updateRecapRun(chatRecapRunId(threadId), (cur) => {
+    const next = chatRecapRun(threadId, words, cur, nowIso());
+    if (cur && JSON.stringify({ ...next, started_at: '', finished_at: '' }) === JSON.stringify({ ...cur, started_at: '', finished_at: '' })) return cur;
+    return next;
+  });
+}
+
+/** "📝 N words to recap" in the chat's ⋯ menu: the chat's words not recapped yet (live). */
+export function useChatRecapCount(threadId: string): number {
+  const words = useRecapWords(threadId);
+  const stored = useRecapRun(threadId === 'new' ? undefined : chatRecapRunId(threadId));
+  return chatRecapCount(words, stored ?? null);
+}
+
 // ---- sending the chosen words ----
 
 let flushing: Promise<{ sent: number }> | null = null;
@@ -208,12 +240,13 @@ export function flushRecapAdds(): Promise<{ sent: number }> {
   return flushing;
 }
 
-async function recapDeckId(): Promise<string> {
-  const local = await db.decks.filter((d) => d.name === READER_RECAP_DECK).first().catch(() => undefined);
+async function recapDeckId(source: WordRecapSource): Promise<string> {
+  const { name, description } = recapDeck(source);
+  const local = await db.decks.filter((d) => d.name === name).first().catch(() => undefined);
   if (local) return local.id;
-  const remote = (await getDecks()).find((d) => d.name === READER_RECAP_DECK);
+  const remote = (await getDecks()).find((d) => d.name === name);
   if (remote) return remote.id;
-  const deck = await createDeck(READER_RECAP_DECK, READER_RECAP_DECK_DESCRIPTION);
+  const deck = await createDeck(name, description);
   // Organisation only: the chosen words go on Up next, so the deck itself waits at the bottom.
   await moveDeck(deck.id, 'bottom').catch(() => undefined);
   return deck.id;
@@ -221,9 +254,18 @@ async function recapDeckId(): Promise<string> {
 
 async function doFlush(): Promise<{ sent: number }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0 };
-  const rows = await recapDb().adds.orderBy('created_at').toArray().catch(() => [] as PendingRecapAdd[]);
-  if (rows.length === 0) return { sent: 0 };
-  const deckId = await recapDeckId();
+  const all = await recapDb().adds.orderBy('created_at').toArray().catch(() => [] as PendingRecapAdd[]);
+  let sent = 0;
+  // One deck per source: a reader's words go to "From my readers", a chat's to "From my chats".
+  for (const source of ['reader', 'chat'] as const) {
+    const rows = all.filter((r) => (r.source ?? 'reader') === source);
+    if (rows.length) sent += (await flushSource(source, rows)).sent;
+  }
+  return { sent };
+}
+
+async function flushSource(source: WordRecapSource, rows: PendingRecapAdd[]): Promise<{ sent: number }> {
+  const deckId = await recapDeckId(source);
   const notes: BatchNoteInput[] = rows.map(({ word }) => {
     // The story's own sentence when it suits the card (its English comes like any card sentence's).
     const clue = recapSentenceClue(word);
@@ -273,7 +315,7 @@ async function doFlush(): Promise<{ sent: number }> {
   await recapDb().adds.bulkDelete(done);
   const noteIds = result.created.map((c) => c.id);
   if (noteIds.length) {
-    await addUpNextApi({ note_ids: noteIds, position: 'bottom', source: 'reader_recap' }).catch(() => undefined);
+    await addUpNextApi({ note_ids: noteIds, position: 'bottom', source: recapUpNextSource(source) }).catch(() => undefined);
   }
   return { sent: done.length };
 }
