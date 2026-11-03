@@ -29,6 +29,7 @@ import * as db from '../db/queries';
 import { askTurns, runClaudeTurn } from '../services/claude-agent';
 import { applyCardActions } from '../services/claude-agent/apply';
 import { appendCardQuestion } from '../services/claude-agent/backfill';
+import { rememberThread } from '../services/claude-agent/memory';
 import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from '../services/tts-cache';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
@@ -113,7 +114,10 @@ askClaude.post('/notes/:id/ask', async (c) => {
     const row = created as unknown as NoteQuestionRow;
     // The same Q&A in the card's Claude thread (docs/CHAT.md "Claude threads"; older apps keep this route).
     c.executionCtx.waitUntil(
-      appendCardQuestion(c.env.DB, userId, note, row).catch((err) => console.error('[ask] thread dual-write failed', row.id, err instanceof Error ? err.message : err)),
+      appendCardQuestion(c.env.DB, userId, note, row)
+        // Claude memory: the card thread's summary once the Q&A is in it (never in the answer's way).
+        .then((threadId) => (threadId ? rememberThread(c.env, threadId) : undefined))
+        .catch((err) => console.error('[ask] thread dual-write failed', row.id, err instanceof Error ? err.message : err)),
     );
 
     // 🎧 Listen first: the answer's clip, made in the background — never waited for.

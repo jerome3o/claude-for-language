@@ -17,6 +17,8 @@ export const COACH_TOOLS: readonly ToolName[] = [
   'get_note_cards',
   'get_note_history',
   'get_overall_stats',
+  'search_my_chats',
+  'read_chat',
 ];
 
 export const coachContext: ContextProvider<'coach', Record<string, never>> = {

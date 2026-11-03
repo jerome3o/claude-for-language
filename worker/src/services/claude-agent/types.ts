@@ -64,6 +64,11 @@ export interface TurnInput {
   knownWords?: string[];
   /** Where a bump_cards call is recorded as coming from (else the context's default). */
   bumpSource?: string;
+  /**
+   * The Claude thread this turn belongs to (memory.ts): its summary stands in for the older turns of a
+   * long history (`compactMessages`), and search_my_chats leaves it out. Unset = no thread (Ask's old route).
+   */
+  threadId?: string | null;
 }
 
 export interface TurnOptions {
@@ -106,7 +111,9 @@ export type ToolName =
   | 'get_due_cards'
   | 'get_overall_stats'
   | 'bump_cards'
-  | 'list_student_decks';
+  | 'list_student_decks'
+  | 'search_my_chats'
+  | 'read_chat';
 
 /** A mutating tool call the loop did NOT run: the caller applies it (route / coach-replies with a checkpoint). */
 export interface ToolAction {
@@ -141,6 +148,8 @@ export interface ToolContext {
   deckId: string;
   bumpSource: string;
   context: ContextKind;
+  /** The thread the turn belongs to (search_my_chats leaves it out). */
+  threadId?: string | null;
 }
 
 /**

@@ -61,6 +61,7 @@ import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { runCoachReply, type CoachReplyMessage } from './services/coach-replies';
 import { runThreadTurn, type ClaudeTurnQueueMessage } from './services/claude-agent/thread-turn';
 import { syncDiscussionThread } from './services/claude-agent/backfill';
+import { rememberInBackground, rememberThread, runClaudeMemoryCron } from './services/claude-agent/memory';
 import { normalizeHanzi } from '@shared/import/parse';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
@@ -4165,7 +4166,10 @@ app.put('/api/messages/:id/discussion', async (c) => {
     await saveMessageDiscussion(c.env.DB, msgId, userId, messages);
     // The same discussion in its Claude thread (docs/CHAT.md "Claude threads"; claude-agent/backfill.ts).
     c.executionCtx.waitUntil(
-      syncDiscussionThread(c.env.DB, userId, msgId).catch((err) => console.error('[discuss] thread sync failed', msgId, err instanceof Error ? err.message : err)),
+      syncDiscussionThread(c.env.DB, userId, msgId)
+        // Claude memory: the discussion's summary once it is in its thread.
+        .then((threadId) => (threadId ? rememberThread(c.env, threadId) : undefined))
+        .catch((err) => console.error('[discuss] thread sync failed', msgId, err instanceof Error ? err.message : err)),
     );
     return c.json({ success: true });
   } catch (error) {
@@ -6440,6 +6444,16 @@ export default {
           console.error('[cron] meme review failed:', err);
         }
       }
+      // Claude memory (docs/CHAT.md "Claude threads" → "Memory"): the daily catch-up — summaries of the
+      // threads that are behind, then the learner digests with new summaries (bounded per run).
+      if (event.cron === '17 3 * * *') {
+        try {
+          const memory = await runClaudeMemoryCron(env, { now: event.scheduledTime || Date.now() });
+          console.log(JSON.stringify({ type: 'cron', job: 'claude_memory', ...memory }));
+        } catch (err) {
+          console.error('[cron] claude memory failed:', err);
+        }
+      }
       // Prepared in-call activities: catch up students whose newest lesson has none yet.
       try {
         const queued = await prepareNightly(env, new Date(event.scheduledTime || Date.now()));
@@ -6882,6 +6896,8 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           try {
             const outcome = await runThreadTurn(env, turn.messageId, { inline: false });
             console.log('[Queue] claude turn', turn.messageId, outcome);
+            // Claude memory after a reply this delivery finished (the reply is out; never throws).
+            if (outcome === 'done') rememberInBackground(env, { messageId: turn.messageId });
             if (outcome === 'busy') message.retry({ delaySeconds: 45 });
             else if (outcome === 'retry') message.retry({ delaySeconds: 10 });
             else message.ack();
@@ -6895,6 +6911,8 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         try {
           const outcome = await runCoachReply(env, messageId);
           console.log('[Queue] coach reply', messageId, outcome);
+          // Claude memory: the Coach / Ask chat is a thread too (its summary; never throws).
+          if (outcome === 'done') rememberInBackground(env, { messageId });
           if (outcome === 'retry') message.retry({ delaySeconds: 10 });
           else message.ack();
         } catch (err) {

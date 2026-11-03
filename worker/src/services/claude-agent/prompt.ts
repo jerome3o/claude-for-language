@@ -4,9 +4,13 @@
  *
  *   tools      the context's tools from the registry, stable order        ← breakpoint on the last one
  *   system[0]  persona + language rules + tool rules + card standard      ← breakpoint (static, everyone)
- *   system[1]  the learner block (known-words sample; per user, ~daily)   ← breakpoint
- *   system[2]  the context block (per thread; '' today — card facts ride in the first user message)
- *   messages   the conversation, the first user turn framed by the context ← breakpoint on the tail
+ *   system[1]  the learner block (known-words sample; per user, ~daily)
+ *              + "What you know from earlier chats" (memory.ts: the learner digest + recent-chats index,
+ *              ≤ 800 tokens; rebuilt a few times a day at most)                 ← breakpoint
+ *   system[2]  the context block (per thread: '' — card facts ride in the first user message — plus,
+ *              for a compacted thread, "Earlier in this chat" with its summary)
+ *   messages   the conversation, the first user turn framed by the context, compacted when over
+ *              ~12k tokens (memory.ts `compactMessages`)                         ← breakpoint on the tail
  *
  * The learner block comes BEFORE the context block: it is the more stable of the two (one per user per
  * day vs one per thread), so a new thread still reads the learner block from the cache. At most four
@@ -22,12 +26,18 @@ import type { ChatTurn } from './types';
 export interface SystemParts {
   persona: string;
   learner: string;
+  /** The memory block (memory.ts `memoryBlock`): joined to the learner block — one cached block, no new breakpoint. */
+  memory?: string;
   context: string;
 }
 
-/** The system blocks: persona and learner cached (empty ones dropped), the context block after them uncached. */
+/**
+ * The system blocks: persona and learner (+ memory) cached (empty ones dropped), the context block after
+ * them uncached. Still at most two system breakpoints.
+ */
 export function assembleSystem(parts: SystemParts): Anthropic.TextBlockParam[] {
-  const system = cachedSystem(parts.persona, parts.learner);
+  const learner = [parts.learner, parts.memory ?? ''].filter((b) => b && b.trim()).join('\n\n');
+  const system = cachedSystem(parts.persona, learner);
   if (parts.context && parts.context.trim()) system.push({ type: 'text', text: parts.context });
   return system;
 }

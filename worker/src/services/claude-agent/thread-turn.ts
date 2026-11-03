@@ -14,7 +14,9 @@
  *      a resume never asks Claude again nor makes a card twice; then the row is finished, the thread
  *      touched (+1 unread), `claude_turn {done}` pushed; a card turn also writes `note_questions`
  *      (the older apps' history, card hub, tutor view read it).
- *   6. The watchdog delivery finds the row done (ack), still leased (`busy` → again in 45 s) or
+ *   6. After the reply (still in the inline run's waitUntil / the queue delivery — never in its way): Claude
+ *      memory writes the thread's summary and, when due, the learner digest (memory.ts, `rememberReply`).
+ *   7. The watchdog delivery finds the row done (ack), still leased (`busy` → again in 45 s) or
  *      abandoned — an isolate killed mid-stream, the waitUntil limit — and resumes it. A busy model
  *      → `retry` (another delivery); a refusal or the last attempt → failed + a readable reason
  *      (Retry: `POST /api/claude/threads/:id/messages/:mid/retry`).
@@ -38,6 +40,7 @@ import { StructuredCallError } from '../structured-call';
 import { applyCardAction, type AppliedToolResult } from './apply';
 import { fakeStreamingClient } from './fake';
 import { LiveTurn, type LiveTurnOptions } from './live';
+import { rememberThread, type MemoryDeps } from './memory';
 import { applyCheckpointed, type ActionCheckpoint } from './run';
 import { proposedFlashcards } from './contexts/chat_message';
 import { runClaudeTurn } from './index';
@@ -73,6 +76,8 @@ export interface ThreadTurnDeps {
   clip?: AskClipMaker | null;
   /** Background work after the reply (the clip); default: awaited. */
   waitUntil?: (p: Promise<unknown>) => void;
+  /** Claude memory after a finished reply (memory.ts; null = off). Default: the thread's summary (+ digest). */
+  memory?: MemoryDeps | null;
 }
 
 type Checkpoint = ActionCheckpoint<ToolAction, AppliedToolResult>;
@@ -187,7 +192,7 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
       const out = await runClaudeTurn(
         env,
         prepared.ctx,
-        { userId, turns: prepared.turns, ...(prepared.language ? { language: prepared.language } : {}), bumpSource: bumpSourceOf(prepared.mode) },
+        { userId, threadId, turns: prepared.turns, ...(prepared.language ? { language: prepared.language } : {}), bumpSource: bumpSourceOf(prepared.mode) },
         {
           ...(client ? { client } : {}),
           ...(opts.runtime ? { runtime: opts.runtime } : {}),
@@ -305,6 +310,18 @@ async function dualWriteNoteQuestion(database: D1Database, row: store.TurnRow, p
   }
 }
 
+// ---------- Memory after a reply ----------
+
+/** The thread's summary (+ the learner digest when due) after a reply finished. Never throws. */
+export async function rememberReply(env: ThreadTurnEnv, messageId: string, deps: MemoryDeps = {}): Promise<void> {
+  try {
+    const row = await env.DB.prepare('SELECT conversation_id FROM coach_messages WHERE id = ?').bind(messageId).first<{ conversation_id: string }>();
+    if (row) await rememberThread(env, row.conversation_id, deps);
+  } catch (err) {
+    console.error('[claude-turn] memory failed', messageId, err instanceof Error ? err.message : err);
+  }
+}
+
 // ---------- Starting a reply ----------
 
 type QueueEnv = Pick<Env, 'COACH_REPLY_QUEUE'>;
@@ -331,6 +348,8 @@ export async function startThreadTurn(env: ThreadTurnEnv, messageId: string, opt
   const run = runThreadTurn(env, messageId, { ...opts, inline: true }).then(async (outcome) => {
     console.log('[claude-turn] inline', messageId, outcome);
     if (outcome === 'retry') await scheduleThreadTurn(env, messageId, RETRY_DELAY_SECONDS);
+    // Claude memory: the reply is out (row finished, `done` pushed) — now the thread's summary (never throws).
+    if (outcome === 'done' && opts.memory !== null) await rememberReply(env, messageId, opts.memory ?? {});
     return outcome;
   });
   if (opts.waitUntil) opts.waitUntil(run);

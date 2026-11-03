@@ -3,9 +3,10 @@
  * shared/students/profile.ts — "never visible to the student"). The learner's agent sees the learner's
  * own rows only.
  *
- * Two checks: (1) no harness source reads the table or imports the profile helpers; (2) every context
+ * Three checks: (1) no harness source reads the table or imports the profile helpers; (2) every context
  * run against a database holding a profile of this learner sends none of it to the model and never
- * names the table in a query.
+ * names the table in a query; (3) Claude memory (memory.ts, tools/memory.ts) — the summaries, the digest
+ * and the look-ups read the learner's own chats only: its memory reaches the model, the profile never.
  */
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
@@ -13,6 +14,8 @@ import path from 'path';
 import type Anthropic from '@anthropic-ai/sdk';
 import { createSqliteD1 } from '../../__tests__/sqlite-d1';
 import { CONTEXT_KINDS, runClaudeTurn, type ClaudeContext, type ContextKind } from '..';
+import { rebuildLearnerDigest, summarizeThread } from '../memory';
+import { executeReadChat, executeSearchMyChats } from '../tools/memory';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -50,6 +53,12 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
     db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content) VALUES ('m1', 'cv1', 't1', '你好')");
     const SECRET = 'PRIVATE-TUTOR-NOTE-7f3a';
     db.raw.run("INSERT INTO student_profiles (relationship_id, tutor_id, student_id, body, level) VALUES ('r1', 't1', 'u1', ?, 'intermediate')", [SECRET]);
+    // Claude memory: the learner's own digest + a thread with a summary.
+    const MEMORY = 'MEMORY-DIGEST-OWN-9c1e';
+    db.raw.run("INSERT INTO claude_learner_memory (user_id, digest, threads_index) VALUES ('u1', ?, '[]')", [MEMORY]);
+    db.raw.run("INSERT INTO coach_conversations (id, user_id, title, context_kind, summary) VALUES ('th1', 'u1', '银行', 'general', 'Asked about 银行.')");
+    db.raw.run("INSERT INTO coach_messages (id, conversation_id, role, content, created_at) VALUES ('th1-a', 'th1', 'user', '银行怎么用？', '2026-11-01 10:00:00')");
+    db.raw.run("INSERT INTO coach_messages (id, conversation_id, role, content, created_at) VALUES ('th1-b', 'th1', 'assistant', '放钱的地方。', '2026-11-01 10:00:01')");
 
     const queries: string[] = [];
     const prepare = db.prepare.bind(db);
@@ -81,7 +90,30 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
         { client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> },
       );
       expect(JSON.stringify(seen), kind).not.toContain(SECRET);
+      expect(JSON.stringify(seen), kind).toContain(MEMORY);
     }
+
+    // The memory's own model calls and look-ups.
+    const memorySeen: unknown[] = [];
+    const memoryClient = {
+      messages: {
+        create: vi.fn(async (p: { tool_choice: { name: string } }) => {
+          memorySeen.push(p);
+          const input = p.tool_choice.name === 'write_chat_summary' ? { summary: 'Asked about 银行.', topics: ['银行'] } : { notes: 'Working on: 银行' };
+          return { model: 'm', stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: p.tool_choice.name, input }], usage: { input_tokens: 1, output_tokens: 1 } };
+        }),
+      },
+    } as unknown as Pick<Anthropic, 'messages'>;
+    const env = { DB: spied, ANTHROPIC_API_KEY: 'k' };
+    expect(await summarizeThread(env, 'th1', { client: memoryClient })).toBe('written');
+    expect(await rebuildLearnerDigest(env, 'u1', { client: memoryClient })).toBe('written');
+    const toolCtx = { db: spied, userId: 'u1', deckId: '', bumpSource: 'x', context: 'general' as const };
+    const looked = [await executeSearchMyChats({ query: '银行' }, toolCtx), await executeReadChat({ thread_id: 'th1' }, toolCtx)];
+    expect(memorySeen.length).toBe(2);
+    expect(JSON.stringify(memorySeen)).not.toContain(SECRET);
+    expect(JSON.stringify(looked)).not.toContain(SECRET);
+    expect(JSON.stringify(db.rows('SELECT * FROM claude_learner_memory'))).not.toContain(SECRET);
+
     expect(queries.length).toBeGreaterThan(0);
     for (const q of queries) expect(q).not.toMatch(/student_profiles/i);
   });

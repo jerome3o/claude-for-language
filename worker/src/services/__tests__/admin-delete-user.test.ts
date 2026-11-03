@@ -118,6 +118,9 @@ function seed(db: SqliteD1) {
   exec(db, "INSERT INTO coach_messages (id, conversation_id, role, content, status, lease_until) VALUES ('cm-pending', 'nq-t-q', 'assistant', 'partial', 'pending', '2030-01-01T00:00:00.000Z')");
   exec(db, `INSERT INTO coach_conversations (id, user_id, title, context_kind, context_ref, context_json, source) VALUES ('md-s', ?, 'about', 'chat_message', 'm-1', '{"kind":"chat_message","message_id":"m-1","conversation_id":"conv-1"}', 'discussion')`, STUDENT);
   exec(db, "INSERT INTO coach_messages (id, conversation_id, role, content) VALUES ('md-s-0', 'md-s', 'user', '什么意思？')");
+  // Claude memory (migration 0145): the tutor's digest + index (the thread summaries live on the threads).
+  exec(db, "UPDATE coach_conversations SET summary = 'Asked about 边.', summary_upto = 'nq-t-q-q', summary_at = '2026-11-01T00:00:00.000Z' WHERE id = 'nq-t-q'");
+  exec(db, `INSERT INTO claude_learner_memory (user_id, digest, threads_index, digest_at, watermark, input_tokens, output_tokens) VALUES (?, 'Working on: 边', '[{"id":"nq-t-q","title":"边","badge":"📇 Asked on card · 边","last_at":"2026-11-01T00:00:00.000Z","line":"Asked about 边."}]', '2026-11-01T00:00:00.000Z', '2026-11-01T00:00:00.000Z', 10, 5)`, TUTOR);
   exec(db, "INSERT INTO study_sessions (id, user_id, deck_id) VALUES ('ss-study', ?, 't-deck')", TUTOR);
   exec(db, "INSERT INTO sync_metadata (user_id, last_event_at, last_sync_at) VALUES (?, 'a', 'b')", TUTOR);
   exec(db, "INSERT INTO lesson_notes (id, user_id, raw_text) VALUES ('ln-1', ?, 'notes')", TUTOR);
@@ -175,6 +178,7 @@ describe('deleteUserAccount', () => {
     expect(db.rows("SELECT assigned_by, library_item_id, assigned_relationship_id FROM custom_lessons WHERE id = 's-lesson'"))
       .toEqual([{ assigned_by: null, library_item_id: null, assigned_relationship_id: null }]);
     // The relationship and everything in it are gone (incl. the student's messages there).
+    expect(db.rows('SELECT COUNT(*) AS n FROM claude_learner_memory')[0]).toEqual({ n: 0 });
     for (const table of ['tutor_relationships', 'conversations', 'messages', 'shared_decks', 'shared_readers', 'card_flags', 'calls', 'call_recording_pieces', 'call_transcript_segments', 'tutor_note_jobs', 'student_profiles', 'student_summaries', 'tutor_lesson_log', 'homework_assignments', 'tutor_recording_marks']) {
       expect(db.rows(`SELECT COUNT(*) AS n FROM ${table}`)[0], table).toEqual({ n: 0 });
     }
