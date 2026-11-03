@@ -56,7 +56,6 @@ class CoachAskParityTest {
         assertEquals(copy["thinkingEn"].str, CoachAsk.THINKING_EN)
         assertEquals(copy["readBack"].str, CoachAsk.READ_BACK_LABEL)
         assertEquals(copy["readBackListening"].str, CoachAsk.READ_BACK_LISTENING)
-        assertEquals(copy["comingSoon"].str, CoachAsk.RECAP_COMING_SOON)
         assertEquals(copy["recapMax"]!!.jsonPrimitive.int, CoachAsk.RECAP_MAX)
         assertEquals(copy["maxChars"]!!.jsonPrimitive.int, CoachAsk.MAX_CHARS)
     }

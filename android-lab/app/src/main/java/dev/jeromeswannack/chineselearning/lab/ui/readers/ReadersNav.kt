@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderStore
 import dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore
+import dev.jeromeswannack.chineselearning.lab.core.WordRecap
 import dev.jeromeswannack.chineselearning.lab.ui.editor.rememberReaderImporter
 import dev.jeromeswannack.chineselearning.lab.ui.kit.AnkiExportSheet
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
@@ -117,45 +118,13 @@ private fun NavGraphBuilder.recapRoute(nav: LabNav) {
         val id = entry.arguments?.getString("id").orEmpty()
         val from = entry.arguments?.getString("from")
         val app = nav.app
-        val run by remember(id) { WordRecapStore.observe(app.cache, id) }.collectAsState(initial = null)
-        val title by produceState("Word recap", id) {
-            value = runCatching { LessonRuntime.of(app).readers.entry(id)?.reader?.titleChinese }.getOrNull() ?: "Word recap"
+        val title by produceState<String?>(null, id) {
+            value = runCatching { LessonRuntime.of(app).readers.entry(id)?.reader?.titleChinese }.getOrNull()
         }
-        val wordsKey = run?.words?.joinToString("|") { it.hanzi }
-        val owned by produceState(emptySet<String>(), wordsKey) { value = run?.let { WordRecapStore.owned(app, it).keys } ?: emptySet() }
-        val online by app.online.collectAsState()
-        var doneLine by remember { mutableStateOf<String?>(null) }
-        val scope = androidx.compose.runtime.rememberCoroutineScope()
-        val runtime = remember(app) { LessonRuntime.of(app) }
-        var tracked by remember { mutableStateOf(false) }
-        androidx.compose.runtime.LaunchedEffect(run != null) {
-            if (run != null && !tracked) {
-                tracked = true
-                if (from == "readers") app.analytics.track("reader.word_recap_start", mapOf("from" to "readers", "words" to run!!.words.size))
-            }
+        WordRecapRoute(nav, id, WordRecap.SOURCE_READER, WordRecap.sourceLabel(WordRecap.SOURCE_READER, title)) { words ->
+            // Opened from the Readers list (the end-of-story offer tracks its own start).
+            if (from == "readers") app.analytics.track("reader.word_recap_start", mapOf("from" to "readers", "words" to words))
         }
-        ReaderRecapScreen(
-            RecapUi(title = title, run = run, owned = owned, online = online, doneLine = doneLine),
-            RecapActions(
-                answer = { key, right ->
-                    if (right) app.haptics.correct() else app.haptics.wrong()
-                    scope.launch { WordRecapStore.answer(app.cache, id, key, right) }
-                },
-                keep = { key, on -> app.haptics.tick(); scope.launch { WordRecapStore.keep(app.cache, id, key, on) } },
-                restart = { scope.launch { WordRecapStore.restart(app.cache, id) } },
-                done = {
-                    scope.launch {
-                        val o = WordRecapStore.finishRecap(app, id)
-                        app.haptics.celebrate()
-                        doneLine = dev.jeromeswannack.chineselearning.lab.core.WordRecap.doneLine(o.added, o.bumped)
-                        delay(1200)
-                        nav.back()
-                    }
-                },
-                close = nav::back,
-                speak = { text -> runtime.audio.speak(text) },
-            ),
-        )
     }
 }
 

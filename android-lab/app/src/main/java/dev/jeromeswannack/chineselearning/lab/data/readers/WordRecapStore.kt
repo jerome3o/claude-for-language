@@ -23,6 +23,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.enrichWords
 import dev.jeromeswannack.chineselearning.lab.data.api.glossWords
 import dev.jeromeswannack.chineselearning.lab.data.api.upNextPosition
 import dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
+import dev.jeromeswannack.chineselearning.lab.data.claudechat.ClaudeChatRecap
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -39,29 +41,39 @@ import kotlinx.serialization.Serializable
 import java.time.Instant
 import java.util.UUID
 
-/** A word switched to "Add to my long-term review", waiting to become a card (sent when online). */
+/**
+ * A word switched to "Add to my long-term review", waiting to become a card (sent when online).
+ * [reader_id] = the run's id; [source] = "reader" | "chat" (decides the deck and Up next's source).
+ */
 @Serializable
-data class PendingRecapAdd(val id: String, val reader_id: String, val word: WordRecapWord, val created_at: String)
+data class PendingRecapAdd(val id: String, val reader_id: String, val word: WordRecapWord, val created_at: String, val source: String = WordRecap.SOURCE_READER)
 
 /** The end-of-story offer ("📝 Recap N words"), shown over whatever comes next (ui/readers/WordRecapScreens.kt). */
 data class RecapOffer(val readerId: String, val words: Int, val line: String)
 
 /**
- * The reader word recap on the phone — the web's services/wordRecap.ts (docs/STUDY_SESSION.md
- * "Reader word recap"; rules in core [WordRecap]). ONE run per reader in the JsonCache
- * (`reader-recap/run/<readerId>`, kept across closes and days) and the words switched to "Add to my
- * long-term review" (`reader-recap/adds`), sent at once when online or by [Sync]: the "From my
- * readers" deck (made on first use, moved to the bottom of the deck queue), gloss / explanation via
- * gloss-words + enrich-words (the story sentence as the card's sentence when it is short enough),
- * one notes/batch (skip_existing — a resend never duplicates), then Up next. "⚡ Study it today" on a
- * word he already has = [BumpStore.bumpNotes] (offline-first).
+ * The word recap on the phone — the web's services/wordRecap.ts (docs/STUDY_SESSION.md "Reader word
+ * recap"; rules in core [WordRecap]) — for a graded reader's reading AND a "💬 Ask Claude" chat (the
+ * same pass; the chat's words come from data/claudechat/ClaudeChatRecap). ONE run per reader
+ * (`reader-recap/run/<readerId>`) or per chat (`chat-recap/run/chat:<thread>`, its own kind so the
+ * Readers list never sees it) in the JsonCache, kept across closes and days, and the words switched
+ * to "Add to my long-term review" (`reader-recap/adds`), sent at once when online or by [Sync]: the
+ * source's deck — "From my readers" / "From my chats" (made on first use, moved to the bottom of the
+ * deck queue) —, gloss / explanation via gloss-words + enrich-words (the story / message sentence as
+ * the card's sentence when it is short enough), one notes/batch (skip_existing — a resend never
+ * duplicates), then Up next. "⚡ Study it today" on a word he already has = [BumpStore.bumpNotes]
+ * (offline-first).
  */
 object WordRecapStore {
     /** Runs only (so `cache.observeAll(KIND)` reads them all); the queued adds have their own kind. */
     const val KIND = "reader-recap"
+    /** Chat runs (`chat:<thread>` ids). */
+    const val CHAT_KIND = "chat-recap"
     private const val ADDS_KIND = "reader-recap-adds"
     private const val ADDS = "reader-recap-adds/list"
-    fun runKey(readerId: String) = "reader-recap/run/$readerId"
+    private fun kindOf(runId: String) = if (runId.startsWith("chat:")) CHAT_KIND else KIND
+    /** A reader id, or [WordRecap.chatRunId] for a chat. */
+    fun runKey(runId: String) = "${kindOf(runId)}/run/$runId"
 
     private val lock = Mutex()
     private fun now() = Instant.now().toString()
@@ -81,7 +93,7 @@ object WordRecapStore {
     suspend fun update(cache: JsonCache, readerId: String, fn: (WordRecapRun?) -> WordRecapRun?): WordRecapRun? = lock.withLock {
         val cur = runCatching { run(cache, readerId) }.getOrNull()
         val next = fn(cur)
-        if (next != null && next != cur) cache.put(runKey(readerId), KIND, next)
+        if (next != null && next != cur) cache.put(runKey(readerId), kindOf(readerId), next)
         next
     }
 
@@ -138,22 +150,26 @@ object WordRecapStore {
 
     data class Outcome(val added: Int, val bumped: Int)
 
-    /** Done: bump the switched-on words he has, queue the new ones (sent now when online), mark recapped. */
+    /**
+     * Done: bump the switched-on words he has, queue the new ones (sent now when online), mark
+     * recapped. [readerId] = the run's id (a reader id, or [WordRecap.chatRunId]).
+     */
     suspend fun finishRecap(app: LabApp, readerId: String): Outcome {
         val run = run(app.cache, readerId) ?: return Outcome(0, 0)
+        val source = WordRecap.source(run)
         val owned = owned(app, run)
         val c = WordRecap.choices(run) { it in owned }
-        if (c.bump.isNotEmpty()) runCatching { BumpStore.bumpNotes(app, c.bump.mapNotNull { owned[WordRecap.key(it.hanzi)] }, "reader") }
+        if (c.bump.isNotEmpty()) runCatching { BumpStore.bumpNotes(app, c.bump.mapNotNull { owned[WordRecap.key(it.hanzi)] }, WordRecap.bumpSource(source)) }
         if (c.add.isNotEmpty()) lock.withLock {
             val pending = app.cache.get<List<PendingRecapAdd>>(ADDS).orEmpty()
             val t = now()
-            val fresh = c.add.map { PendingRecapAdd("$readerId:${WordRecap.key(it.hanzi)}", readerId, it, t) }
+            val fresh = c.add.map { PendingRecapAdd("$readerId:${WordRecap.key(it.hanzi)}", readerId, it, t, source) }
             val ids = fresh.map { it.id }.toHashSet()
             app.cache.put(ADDS, ADDS_KIND, pending.filter { it.id !in ids } + fresh)
         }
         update(app.cache, readerId) { it?.let { r -> WordRecap.markRecapped(r, now()) } }
         app.analytics.track(
-            "reader.word_recap_finish",
+            WordRecap.event(source, "finish"),
             mapOf("words" to run.words.size, "got_it_first_time" to WordRecap.rightFirstTime(run), "added" to c.add.size, "bumped" to c.bump.size),
         )
         if (c.add.isNotEmpty() && app.online.value) app.scope.launch { runCatching { flush(app.repo.api, app.cache, app.repo.dao) } }
@@ -162,11 +178,19 @@ object WordRecapStore {
 
     private val flushing = Mutex()
 
-    /** Send the queued words (online; idempotent by hanzi). Returns how many were sent. */
+    /** Send the queued words (online; idempotent by hanzi), one deck per source. Returns how many were sent. */
     suspend fun flush(api: Api, cache: JsonCache, dao: LabDao): Int = flushing.withLock {
-        val rows = cache.get<List<PendingRecapAdd>>(ADDS).orEmpty()
-        if (rows.isEmpty()) return 0
-        val deckId = deckId(api, dao)
+        val all = cache.get<List<PendingRecapAdd>>(ADDS).orEmpty()
+        var sent = 0
+        for (source in listOf(WordRecap.SOURCE_READER, WordRecap.SOURCE_CHAT)) {
+            val rows = all.filter { (if (it.source == WordRecap.SOURCE_CHAT) WordRecap.SOURCE_CHAT else WordRecap.SOURCE_READER) == source }
+            if (rows.isNotEmpty()) sent += flushSource(api, cache, dao, source, rows)
+        }
+        sent
+    }
+
+    private suspend fun flushSource(api: Api, cache: JsonCache, dao: LabDao, source: String, rows: List<PendingRecapAdd>): Int {
+        val deckId = deckId(api, dao, source)
         val notes = rows.map { r ->
             val w = r.word
             val clue = WordRecap.sentenceClue(w)
@@ -209,8 +233,8 @@ object WordRecapStore {
             cache.put(ADDS, ADDS_KIND, now.filter { it.id !in sent })
         }
         val created = result.created.map { it.id }
-        if (created.isNotEmpty()) runCatching { api.addUpNext(UpNextAddBody(note_ids = created, position = upNextPosition("bottom"), source = "reader_recap")) }
-        sent.size
+        if (created.isNotEmpty()) runCatching { api.addUpNext(UpNextAddBody(note_ids = created, position = upNextPosition("bottom"), source = WordRecap.upNextSource(source))) }
+        return sent.size
     }
 
     private data class NoteFields(
@@ -231,10 +255,11 @@ object WordRecapStore {
         )
     }
 
-    private suspend fun deckId(api: Api, dao: LabDao): String {
-        withContext(Dispatchers.IO) { dao.decks() }.firstOrNull { it.name == WordRecap.DECK }?.let { return it.id }
-        api.decks().firstOrNull { it.name == WordRecap.DECK }?.let { return it.id }
-        val deck = api.createDeck(WordRecap.DECK, WordRecap.DECK_DESCRIPTION)
+    private suspend fun deckId(api: Api, dao: LabDao, source: String): String {
+        val d = WordRecap.deck(source)
+        withContext(Dispatchers.IO) { dao.decks() }.firstOrNull { it.name == d.name }?.let { return it.id }
+        api.decks().firstOrNull { it.name == d.name }?.let { return it.id }
+        val deck = api.createDeck(d.name, d.description)
         // Organisation only: the chosen words go on Up next, so the deck itself waits at the bottom.
         runCatching { api.post<MoveDeckBody, DeckDto>(DeckPaths.move(deck.id), MoveDeckBody("bottom")) }
         return deck.id
@@ -245,6 +270,21 @@ object WordRecapStore {
         if (ctx.cache.get<List<PendingRecapAdd>>(ADDS).isNullOrEmpty()) return@FeatureSync
         flush(ctx.api, ctx.cache, ctx.db.dao())
     }
+
+    // ---- a chat's recap (the "💬 Ask Claude" chat's words, data/claudechat/ClaudeChatRecap) ----
+
+    /** Bring the chat's run up to date with its words (core [WordRecap.chatRun]); written only when it changed. */
+    suspend fun openChat(app: LabApp, threadId: String): WordRecapRun? {
+        val words = ClaudeChatRecap(app).words(threadId)
+        return update(app.cache, WordRecap.chatRunId(threadId)) { cur ->
+            val next = WordRecap.chatRun(threadId, words, cur, now())
+            if (cur != null && next.copy(started_at = "", finished_at = "") == cur.copy(started_at = "", finished_at = "")) cur else next
+        }
+    }
+
+    /** "📝 N words to recap" in the chat's ⋯ menu: the chat's words not recapped yet (live). */
+    fun observeChatCount(app: LabApp, threadId: String): Flow<Int> =
+        combine(ClaudeChatRecap(app).observe(threadId), observe(app.cache, WordRecap.chatRunId(threadId))) { words, run -> WordRecap.chatCount(words, run) }
 
     /** How many words wait to become cards (Settings / tests). */
     suspend fun pending(cache: JsonCache): List<PendingRecapAdd> = cache.get<List<PendingRecapAdd>>(ADDS).orEmpty()

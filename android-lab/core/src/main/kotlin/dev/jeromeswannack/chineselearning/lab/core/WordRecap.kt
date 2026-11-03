@@ -29,7 +29,12 @@ data class WordRecapWord(
 
 @Serializable
 data class WordRecapRun(
+    /** The run's id: the reader's id, or `chat:<thread id>` for a chat run ([WordRecap.chatRunId]). */
     val reader_id: String,
+    /** "reader" | "chat"; null = a reader (runs stored before chat recaps existed). */
+    val source: String? = null,
+    /** Chat runs only: the keys recapped in this chat's earlier runs. */
+    val before: List<String>? = null,
     val started_at: String,
     val finished_at: String? = null,
     val recapped_at: String? = null,
@@ -226,12 +231,14 @@ object WordRecap {
         return if (parts.isEmpty()) "" else "Words from this story: ${parts.joinToString(" · ")}."
     }
 
-    fun whyLines(word: WordRecapWord): List<String> {
+    /** `recapWhyLines`. */
+    fun whyLines(word: WordRecapWord, source: String = SOURCE_READER): List<String> {
         val out = ArrayList<String>()
-        if (TAPPED in word.reasons) out += "You tapped it while reading"
+        val chat = source == SOURCE_CHAT
+        if (TAPPED in word.reasons) out += if (chat) "You tapped it in the chat" else "You tapped it while reading"
         if (SAID_WRONG in word.reasons) {
-            if (word.said.isEmpty()) out += "You read it aloud differently"
-            for (line in word.said) out += "Read aloud: $line"
+            if (word.said.isEmpty()) out += if (chat) "You read it back differently" else "You read it aloud differently"
+            for (line in word.said) out += "${if (chat) "Read it back" else "Read aloud"}: $line"
         }
         return out
     }
@@ -245,5 +252,114 @@ object WordRecap {
         if (added > 0) parts += "$added ${if (added == 1) "word" else "words"} added to your long-term review"
         if (bumped > 0) parts += "$bumped for today ⚡"
         return if (parts.isEmpty()) "Nothing kept — that’s fine." else parts.joinToString(" · ")
+    }
+
+    // ---------- Sources: a graded reader or a chat with Claude (shared/study/wordRecap.ts) ----------
+
+    const val SOURCE_READER = "reader"
+    const val SOURCE_CHAT = "chat"
+
+    /** `recapSource`. */
+    fun source(run: WordRecapRun): String = if (run.source == SOURCE_CHAT) SOURCE_CHAT else SOURCE_READER
+
+    /** `recapSourceLabel`. */
+    fun sourceLabel(source: String, title: String? = null): String {
+        if (source == SOURCE_CHAT) return "from your chat with Claude"
+        val t = NoteSearch.jsTrim(title.orEmpty())
+        return if (t.isNotEmpty()) "from the story “$t”" else "from your graded reader"
+    }
+
+    /** `recapKeepHint`. */
+    fun keepHint(source: String) =
+        "Switch on the words you want to remember on purpose — the rest were just for this ${if (source == SOURCE_CHAT) "chat" else "story"}."
+
+    /** `recapEmptyLine`. */
+    fun emptyLine(source: String) = if (source == SOURCE_CHAT) {
+        "No words to recap from this chat yet. Tap words in Claude’s answers, or read one back — they gather here."
+    } else {
+        "No words to recap from this story yet. Tap words while you read, or read a page aloud — they gather here."
+    }
+
+    const val CHAT_DECK = "From my chats"
+    const val CHAT_DECK_DESCRIPTION = "Words you chose to keep from your chats with Claude."
+
+    data class Deck(val name: String, val description: String)
+
+    /** `recapDeck`: one deck per source ("From my readers" keeps its name). */
+    fun deck(source: String) = if (source == SOURCE_CHAT) Deck(CHAT_DECK, CHAT_DECK_DESCRIPTION) else Deck(DECK, DECK_DESCRIPTION)
+
+    /** `recapUpNextSource`. */
+    fun upNextSource(source: String) = if (source == SOURCE_CHAT) "chat_recap" else "reader_recap"
+
+    /** `recapBumpSource`. */
+    fun bumpSource(source: String) = if (source == SOURCE_CHAT) "coach_chat" else "reader"
+
+    /** `recapEvent`: `reader.word_recap_*` / `coach.ask_recap_*`. */
+    fun event(source: String, what: String) = if (source == SOURCE_CHAT) "coach.ask_recap_$what" else "reader.word_recap_$what"
+
+    /** `chatRecapRunId`. */
+    fun chatRunId(threadId: String) = "chat:$threadId"
+
+    /** `chatRecapWord`. */
+    fun chatWord(w: CoachAsk.RecapWord, index: Int, at: String): WordRecapWord {
+        val line = NoteSearch.jsTrim(w.reasonLine.orEmpty())
+        return WordRecapWord(
+            hanzi = w.hanzi,
+            pinyin = NoteSearch.jsTrim(w.pinyin.orEmpty()),
+            gloss = NoteSearch.jsTrim(w.gloss.orEmpty()),
+            sentence = NoteSearch.jsTrim(w.sentence),
+            page_english = "",
+            page = index,
+            pos = 0,
+            reasons = REASON_ORDER.filter { it in w.reasons },
+            said = if (line.isNotEmpty()) listOf(line) else emptyList(),
+            at = at,
+        )
+    }
+
+    private fun chatRecappedBefore(stored: WordRecapRun?): LinkedHashSet<String> {
+        val out = LinkedHashSet(stored?.before.orEmpty())
+        if (stored?.recapped_at != null) for (w in stored.words) out += key(w.hanzi)
+        return out
+    }
+
+    /** `chatRecapPending`. */
+    fun chatPending(words: List<CoachAsk.RecapWord>, stored: WordRecapRun?): List<CoachAsk.RecapWord> {
+        val before = chatRecappedBefore(stored)
+        val seen = HashSet<String>()
+        val out = ArrayList<CoachAsk.RecapWord>()
+        for (w in words) {
+            val k = key(w.hanzi)
+            if (k.isEmpty() || !HAN.containsMatchIn(k) || k in before || !seen.add(k)) continue
+            out += w
+        }
+        return out
+    }
+
+    /** `chatRecapCount`. */
+    fun chatCount(words: List<CoachAsk.RecapWord>, stored: WordRecapRun?): Int = chatPending(words, stored).size
+
+    /** `chatRecapRun`. */
+    fun chatRun(threadId: String, words: List<CoachAsk.RecapWord>, stored: WordRecapRun?, now: String): WordRecapRun {
+        val id = chatRunId(threadId)
+        val own = stored?.takeIf { it.reader_id == id }
+        val carry = own?.takeIf { it.recapped_at == null }
+        val old = carry?.words.orEmpty().associateBy { key(it.hanzi) }
+        val list = chatPending(words, own).mapIndexed { i, w ->
+            val fresh = chatWord(w, i, now)
+            old[key(w.hanzi)]?.let { fresh.copy(at = it.at) } ?: fresh
+        }
+        val keys = list.map { key(it.hanzi) }.toHashSet()
+        return WordRecapRun(
+            reader_id = id,
+            source = SOURCE_CHAT,
+            before = chatRecappedBefore(own).toList(),
+            started_at = carry?.started_at ?: now,
+            finished_at = carry?.finished_at ?: now,
+            recapped_at = null,
+            words = list,
+            events = carry?.events.orEmpty().filter { it.item_id in keys },
+            keep = carry?.keep.orEmpty().filter { it in keys },
+        )
     }
 }

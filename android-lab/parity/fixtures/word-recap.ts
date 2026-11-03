@@ -10,8 +10,12 @@ import {
   addRecapMistakes, addRecapTap, answerRecap, emptyRecapRun, finishRecapRun, isRecapWord, markRecapped, recapAvailable,
   recapBar, recapChoices, recapDoneLine, recapKeepLabel, recapKey, recapMistakes, recapProgress, recapPromptLabel,
   recapPromptLine, recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, restartRecap, setRecapKeep,
-  type WordRecapPage, type WordRecapRun, type WordRecapTap, type WordRecapWord,
+  chatRecapCount, chatRecapPending, chatRecapRun, chatRecapRunId, recapBumpSource, recapDeck, recapEmptyLine, recapEvent,
+  recapKeepHint, recapSource, recapSourceLabel, recapUpNextSource,
+  type WordRecapPage, type WordRecapSource, type WordRecapRun, type WordRecapTap, type WordRecapWord,
 } from '../../../shared/study/wordRecap';
+
+import type { AskRecapWord } from '../../../shared/coach/askChat';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: word-recap <out-dir>');
@@ -143,7 +147,98 @@ const labels = {
   done: [[0, 0], [1, 0], [0, 1], [3, 2], [1, 1]].map(([a, b]) => [a, b, recapDoneLine(a, b)]),
 };
 
+// ---- A chat's recap: words kept per chat (AskRecapWord) → the same pass ----
+const aw = (hanzi: string, sentence: string, reasons: AskRecapWord['reasons'], extra: Partial<AskRecapWord> = {}): AskRecapWord => ({ hanzi, sentence, reasons, ...extra });
+const CHAT1: AskRecapWord[] = [
+  aw('成都', '我们明天去成都吧。', ['tapped'], { pinyin: 'Chéngdū', gloss: 'Chengdu' }),
+  aw('银行', '“我去银行。”', ['tapped', 'said_wrong'], { reason_line: 'Tone off on 银 (heard 音)' }),
+  aw('OK', 'OK', ['tapped']),
+  aw('采耳', '  他在春熙路采耳。 ', ['said_wrong'], { reason_line: '  missed 耳 ', pinyin: '  ', gloss: 'ear cleaning' }),
+  aw('成都', '成都很热闹。', ['said_wrong']),
+  aw('，', '，', ['tapped']),
+];
+const CHAT2: AskRecapWord[] = [...CHAT1, aw('麻辣', '麻辣兔头很好吃。', ['tapped'], { pinyin: 'málà' }), aw('兔头', '麻辣兔头很好吃。', ['tapped'])];
+
+type ChatOp =
+  | { op: 'open'; words: AskRecapWord[]; now: string }
+  | { op: 'answer'; key: string; right: boolean; now: string; id: string }
+  | { op: 'keep'; key: string; on: boolean }
+  | { op: 'recapped'; now: string };
+
+const CHAT_OPS: ChatOp[] = [
+  { op: 'open', words: CHAT1, now: '2026-11-03T12:00:00Z' },
+  { op: 'answer', key: '成都', right: true, now: '2026-11-03T12:00:05Z', id: 'c1' },
+  { op: 'keep', key: '银行', on: true },
+  { op: 'answer', key: '银行', right: false, now: '2026-11-03T12:00:06Z', id: 'c2' },
+  { op: 'open', words: CHAT2, now: '2026-11-03T12:30:00Z' },
+  { op: 'keep', key: '麻辣', on: true },
+  { op: 'answer', key: '采耳', right: true, now: '2026-11-03T12:30:05Z', id: 'c3' },
+  { op: 'answer', key: '银行', right: true, now: '2026-11-03T12:30:06Z', id: 'c4' },
+  { op: 'answer', key: '麻辣', right: true, now: '2026-11-03T12:30:07Z', id: 'c5' },
+  { op: 'answer', key: '兔头', right: true, now: '2026-11-03T12:30:08Z', id: 'c6' },
+  { op: 'recapped', now: '2026-11-03T12:31:00Z' },
+  { op: 'open', words: CHAT2, now: '2026-11-03T13:00:00Z' },
+  { op: 'open', words: [...CHAT2, aw('兔头', 'x', ['said_wrong']), aw('热闹', '成都很热闹。', ['tapped'], { gloss: 'lively' })], now: '2026-11-03T13:05:00Z' },
+  { op: 'answer', key: '热闹', right: false, now: '2026-11-03T13:05:05Z', id: 'c7' },
+  { op: 'open', words: [aw('热闹', '成都很热闹。', ['tapped'], { gloss: 'lively' })], now: '2026-11-03T13:06:00Z' },
+];
+
+const CHAT_OWNED = new Set(['银行']);
+let chatRun: WordRecapRun | null = null;
+const chatSteps = CHAT_OPS.map((o) => {
+  let count: number | null = null;
+  switch (o.op) {
+    case 'open':
+      count = chatRecapCount(o.words, chatRun);
+      chatRun = chatRecapRun('t-1', o.words, chatRun, o.now);
+      break;
+    case 'answer': chatRun = answerRecap(chatRun!, o.key, o.right, o.now, o.id); break;
+    case 'keep': chatRun = setRecapKeep(chatRun!, o.key, o.on); break;
+    case 'recapped': chatRun = markRecapped(chatRun!, o.now); break;
+  }
+  const run = chatRun!;
+  const c = recapChoices(run, (k) => CHAT_OWNED.has(k));
+  return {
+    count,
+    source: recapSource(run),
+    run,
+    available: recapAvailable(run),
+    progress: recapProgress(run),
+    rightFirstTime: recapRightFirstTime(run),
+    add: c.add.map((x) => x.hanzi),
+    bump: c.bump.map((x) => x.hanzi),
+    why: run.words.map((x) => recapWhyLines(x, 'chat')),
+    clues: run.words.map(recapSentenceClue),
+  };
+});
+
+const chatPending = [
+  { words: CHAT1, stored: null },
+  { words: CHAT2, stored: chatSteps[10].run },
+  { words: CHAT2, stored: chatSteps[9].run },
+].map((c) => ({ ...c, out: chatRecapPending(c.words, c.stored).map((x) => x.hanzi) }));
+
+const SOURCES: WordRecapSource[] = ['reader', 'chat'];
+const sources = SOURCES.map((src) => ({
+  source: src,
+  label: recapSourceLabel(src, '小明在成都'),
+  labelNoTitle: recapSourceLabel(src, '  '),
+  labelNull: recapSourceLabel(src, null),
+  hint: recapKeepHint(src),
+  empty: recapEmptyLine(src),
+  deck: recapDeck(src),
+  upNext: recapUpNextSource(src),
+  bump: recapBumpSource(src),
+  start: recapEvent(src, 'start'),
+  finish: recapEvent(src, 'finish'),
+  why: [
+    recapWhyLines({ ...emptyWord, reasons: ['tapped', 'said_wrong'], said: [] }, src),
+    recapWhyLines({ ...emptyWord, reasons: ['said_wrong'], said: ['a', 'b'] }, src),
+  ],
+}));
+
 writeFileSync(join(OUT, 'word-recap.json'), JSON.stringify({
+  chat: { ops: CHAT_OPS, steps: chatSteps, pending: chatPending, runId: chatRecapRunId('t-1'), sources, sourceOf: [recapSource({}), recapSource({ source: 'chat' }), recapSource({ source: 'reader' })] },
   keys: KEYS.map((k) => ({ text: k, key: recapKey(k), word: isRecapWord(k) })),
   mistakes: MISTAKES.map(([page, transcript]) => ({
     page: page.text,

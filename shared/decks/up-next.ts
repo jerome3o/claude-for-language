@@ -40,7 +40,7 @@ export const MAX_UP_NEXT_PER_REQUEST = 100;
 export const UP_NEXT_CARD_TYPE_ORDER = ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'] as const;
 
 /** Where an add came from (analytics + the API's `source`). */
-export const UP_NEXT_SOURCES = ['up_next_page', 'search', 'deck', 'card_hub', 'explorer', 'reader_recap', 'mcp', 'tutor', 'other'] as const;
+export const UP_NEXT_SOURCES = ['up_next_page', 'search', 'deck', 'card_hub', 'explorer', 'reader_recap', 'chat_recap', 'mcp', 'tutor', 'other'] as const;
 export type UpNextSource = (typeof UP_NEXT_SOURCES)[number];
 
 export function normalizeUpNextSource(s: unknown): UpNextSource {

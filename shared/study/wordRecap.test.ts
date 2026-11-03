@@ -4,7 +4,11 @@ import {
   addRecapMistakes, addRecapTap, answerRecap, emptyRecapRun, finishRecapRun, isRecapWord, markRecapped, recapAvailable,
   recapBar, recapChoices, recapDoneLine, recapItemIds, recapKey, recapMistakes, recapProgress, recapPromptLabel, recapPromptLine,
   recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, restartRecap, setRecapKeep, type WordRecapTap,
+  chatRecapCount, chatRecapRun, chatRecapRunId, recapBumpSource, recapDeck, recapEvent, recapSource, recapSourceLabel, recapUpNextSource,
 } from './wordRecap';
+import { UP_NEXT_SOURCES } from '../decks/up-next';
+import { BUMP_SOURCES } from '../decks/bumps';
+import { isAnalyticsEvent } from '../analytics/events';
 
 const PAGE0 = '我们去成都吃麻辣兔头。';
 const WORDS0 = [
@@ -102,5 +106,57 @@ describe('reader word recap', () => {
     expect(recapPromptLabel(4)).toBe('📝 Recap 4 words');
     expect(recapDoneLine(2, 1)).toBe('2 words added to your long-term review · 1 for today ⚡');
     expect(recapDoneLine(0, 0)).toBe('Nothing kept — that’s fine.');
+  });
+});
+
+describe('chat word recap (the same pass, a chat as the source)', () => {
+  const words = [
+    { hanzi: '成都', sentence: '我们明天去成都吧。', reasons: ['tapped' as const], pinyin: 'Chéngdū', gloss: 'Chengdu' },
+    { hanzi: '银行', sentence: '我去银行。', reasons: ['said_wrong' as const], reason_line: 'Tone off on 银 (heard 音)' },
+    { hanzi: 'OK', sentence: 'OK', reasons: ['tapped' as const] },
+  ];
+
+  it('builds a run of the chat words: the message sentence as the cue, finished from the start', () => {
+    const run = chatRecapRun('t1', words, null, 'NOW');
+    expect(run.reader_id).toBe(chatRecapRunId('t1'));
+    expect(recapSource(run)).toBe('chat');
+    expect(recapAvailable(run)).toBe(true);
+    expect(run.words.map((w) => [w.hanzi, w.sentence, w.page])).toEqual([['成都', '我们明天去成都吧。', 0], ['银行', '我去银行。', 1]]);
+    expect(recapWhyLines(run.words[1], 'chat')).toEqual(['Read it back: Tone off on 银 (heard 音)']);
+    expect(recapWhyLines(run.words[0], 'chat')).toEqual(['You tapped it in the chat']);
+    expect(chatRecapCount(words, null)).toBe(2);
+  });
+
+  it('carries answers and switches on; after Done only words met since count', () => {
+    let run = chatRecapRun('t1', words, null, 'T0');
+    run = setRecapKeep(answerRecap(run, '成都', true, 'T1', 'e1'), '银行', true);
+    const more = [...words, { hanzi: '热闹', sentence: '成都很热闹。', reasons: ['tapped' as const] }];
+    run = chatRecapRun('t1', more, run, 'T2');
+    expect(run.words.map((w) => w.hanzi)).toEqual(['成都', '银行', '热闹']);
+    expect(run.events.map((e) => e.item_id)).toEqual(['成都']);
+    expect(run.keep).toEqual(['银行']);
+    expect(run.words[0].at).toBe('T0');
+    run = markRecapped(run, 'T3');
+    expect(chatRecapCount(more, run)).toBe(0);
+    const next = [...more, { hanzi: '麻辣', sentence: '麻辣兔头。', reasons: ['tapped' as const] }];
+    expect(chatRecapCount(next, run)).toBe(1);
+    const run2 = chatRecapRun('t1', next, run, 'T4');
+    expect(run2.words.map((w) => w.hanzi)).toEqual(['麻辣']);
+    expect(run2.before).toEqual(['成都', '银行', '热闹']);
+    expect(run2.events).toEqual([]);
+    expect(run2.keep).toEqual([]);
+  });
+
+  it('per-source copy, deck, Up next / bump sources and events', () => {
+    expect(recapSourceLabel('chat')).toBe('from your chat with Claude');
+    expect(recapSourceLabel('reader', '小明在成都')).toBe('from the story “小明在成都”');
+    expect(recapDeck('chat').name).toBe('From my chats');
+    expect(recapDeck('reader').name).toBe('From my readers');
+    expect(recapUpNextSource('chat')).toBe('chat_recap');
+    expect(UP_NEXT_SOURCES).toContain('chat_recap');
+    expect(BUMP_SOURCES).toContain(recapBumpSource('chat'));
+    expect(recapEvent('chat', 'finish')).toBe('coach.ask_recap_finish');
+    expect(recapEvent('reader', 'start')).toBe('reader.word_recap_start');
+    for (const src of ['reader', 'chat'] as const) for (const w of ['start', 'finish'] as const) expect(isAnalyticsEvent(recapEvent(src, w))).toBe(true);
   });
 });

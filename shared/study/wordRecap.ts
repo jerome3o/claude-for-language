@@ -27,6 +27,7 @@ import { passRetryBar, type RetryBar } from '../homework/retry-bar';
 import { readAloudDifferences, type ReadAloudResult } from '../reader/readAloud';
 import { sentenceAround, type ReaderWord } from '../reader/words';
 import { cardTextProblems } from '../cards/standard';
+import type { AskRecapWord } from '../coach/askChat';
 
 /** Why a word is in the recap: tapped while reading, or read aloud wrong. */
 export type WordRecapReason = 'tapped' | 'said_wrong';
@@ -55,8 +56,24 @@ export interface WordRecapWord {
   at: string;
 }
 
+/**
+ * Where a recap's words come from: a reading of a graded reader, or a chat with Claude (the Coach's
+ * "💬 Ask Claude" — the words tapped there and the words a 🎤 Read it back found mistakes in,
+ * shared/coach/askChat.ts `AskRecapWord`). The pass, the switches and what Done does are the same;
+ * the copy, the deck the new words go into and the analytics events follow the source.
+ */
+export type WordRecapSource = 'reader' | 'chat';
+
 export interface WordRecapRun {
+  /**
+   * The run's id: the reader's id, or `chat:<thread id>` for a chat run (`chatRecapRunId`). The
+   * name stays: runs already stored on devices are keyed by it.
+   */
   reader_id: string;
+  /** Absent = 'reader' (every run stored before chat recaps existed). */
+  source?: WordRecapSource;
+  /** Chat runs only: the words recapped in this chat's EARLIER runs (keys) — they don't come back. */
+  before?: string[];
   started_at: string;
   /** The story was finished (Finish ✓ / listened to the end) — the recap is offered from then on. */
   finished_at: string | null;
@@ -371,12 +388,13 @@ export function recapPromptLine(run: WordRecapRun): string {
 }
 
 /** Why a word is in the recap, one line each. */
-export function recapWhyLines(word: WordRecapWord): string[] {
+export function recapWhyLines(word: WordRecapWord, source: WordRecapSource = 'reader'): string[] {
   const out: string[] = [];
-  if (word.reasons.includes('tapped')) out.push('You tapped it while reading');
+  const chat = source === 'chat';
+  if (word.reasons.includes('tapped')) out.push(chat ? 'You tapped it in the chat' : 'You tapped it while reading');
   if (word.reasons.includes('said_wrong')) {
-    if (word.said.length === 0) out.push('You read it aloud differently');
-    for (const line of word.said) out.push(`Read aloud: ${line}`);
+    if (word.said.length === 0) out.push(chat ? 'You read it back differently' : 'You read it aloud differently');
+    for (const line of word.said) out.push(`${chat ? 'Read it back' : 'Read aloud'}: ${line}`);
   }
   return out;
 }
@@ -395,4 +413,146 @@ export function recapDoneLine(added: number, bumped: number): string {
   if (added) parts.push(`${added} ${added === 1 ? 'word' : 'words'} added to your long-term review`);
   if (bumped) parts.push(`${bumped} for today ⚡`);
   return parts.length ? parts.join(' · ') : 'Nothing kept — that’s fine.';
+}
+
+// ---------- Sources: a graded reader or a chat with Claude ----------
+
+/** The run's source (runs stored before chat recaps carry none: a reader). */
+export function recapSource(run: Pick<WordRecapRun, 'source'>): WordRecapSource {
+  return run.source === 'chat' ? 'chat' : 'reader';
+}
+
+/** "from the story “小明在成都”" / "from your chat with Claude" — under the recap's title. */
+export function recapSourceLabel(source: WordRecapSource, title?: string | null): string {
+  if (source === 'chat') return 'from your chat with Claude';
+  const t = (title ?? '').trim();
+  return t ? `from the story “${t}”` : 'from your graded reader';
+}
+
+/** The summary's hint. */
+export function recapKeepHint(source: WordRecapSource): string {
+  return `Switch on the words you want to remember on purpose — the rest were just for this ${source === 'chat' ? 'chat' : 'story'}.`;
+}
+
+/** The recap page with no words. */
+export function recapEmptyLine(source: WordRecapSource): string {
+  return source === 'chat'
+    ? 'No words to recap from this chat yet. Tap words in Claude’s answers, or read one back — they gather here.'
+    : 'No words to recap from this story yet. Tap words while you read, or read a page aloud — they gather here.';
+}
+
+/**
+ * The deck chosen new words go into, one per source (made on first use, the shared new-deck
+ * defaults, at the bottom of the deck queue — the words themselves go on Up next). A chat's words get
+ * their own "From my chats" deck beside "From my readers": the deck says where a word was met, and
+ * the readers' deck keeps its name (devices find it by name — renaming it would leave a second deck).
+ */
+export const CHAT_RECAP_DECK = 'From my chats';
+export const CHAT_RECAP_DECK_DESCRIPTION = 'Words you chose to keep from your chats with Claude.';
+
+export function recapDeck(source: WordRecapSource): { name: string; description: string } {
+  return source === 'chat'
+    ? { name: CHAT_RECAP_DECK, description: CHAT_RECAP_DECK_DESCRIPTION }
+    : { name: READER_RECAP_DECK, description: READER_RECAP_DECK_DESCRIPTION };
+}
+
+/** Up next's `source` for the chosen new words (shared/decks/up-next.ts UP_NEXT_SOURCES). */
+export function recapUpNextSource(source: WordRecapSource): 'reader_recap' | 'chat_recap' {
+  return source === 'chat' ? 'chat_recap' : 'reader_recap';
+}
+
+/** The bump's `source` for "⚡ Study it today" (shared/decks/bumps.ts BUMP_SOURCES). */
+export function recapBumpSource(source: WordRecapSource): 'reader' | 'coach_chat' {
+  return source === 'chat' ? 'coach_chat' : 'reader';
+}
+
+/**
+ * The analytics event of a recap's start / finish (same props for both sources): a reader's are
+ * `reader.word_recap_*`, a chat's `coach.ask_recap_*` — so adoption is told per place.
+ */
+export type WordRecapEvent = `reader.word_recap_${'start' | 'finish'}` | `coach.ask_recap_${'start' | 'finish'}`;
+export function recapEvent(source: WordRecapSource, what: 'start' | 'finish'): WordRecapEvent {
+  return source === 'chat' ? `coach.ask_recap_${what}` : `reader.word_recap_${what}`;
+}
+
+// ---------- A chat's recap ----------
+
+/** The run id of a chat thread's recap. */
+export function chatRecapRunId(threadId: string): string {
+  return `chat:${threadId}`;
+}
+
+/** A chat's recap word as a recap card: its sentence is the message's sentence it was met in. */
+export function chatRecapWord(w: AskRecapWord, index: number, at: string): WordRecapWord {
+  const line = (w.reason_line ?? '').trim();
+  return {
+    hanzi: w.hanzi,
+    pinyin: (w.pinyin ?? '').trim(),
+    gloss: (w.gloss ?? '').trim(),
+    sentence: (w.sentence ?? '').trim(),
+    page_english: '',
+    page: index,
+    pos: 0,
+    reasons: REASON_ORDER.filter((r) => w.reasons.includes(r)),
+    said: line ? [line] : [],
+    at,
+  };
+}
+
+/** Keys this chat recapped before: an earlier run's `before`, plus a recapped run's own words. */
+function chatRecappedBefore(stored: WordRecapRun | null | undefined): Set<string> {
+  const out = new Set(stored?.before ?? []);
+  if (stored?.recapped_at) for (const w of stored.words) out.add(recapKey(w.hanzi));
+  return out;
+}
+
+/**
+ * The chat's words still to recap: those with Chinese, once each (by `recapKey`), in the chat's order,
+ * minus the ones an earlier recap of this chat covered. `stored` = the thread's stored run.
+ */
+export function chatRecapPending(words: readonly AskRecapWord[], stored: WordRecapRun | null | undefined): AskRecapWord[] {
+  const before = chatRecappedBefore(stored);
+  const seen = new Set<string>();
+  const out: AskRecapWord[] = [];
+  for (const w of words) {
+    const key = recapKey(w.hanzi);
+    if (!key || !HAN.test(key) || before.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(w);
+  }
+  return out;
+}
+
+/** "📝 N words to recap" in the chat's ⋯ menu (shown only when N ≥ 1). */
+export function chatRecapCount(words: readonly AskRecapWord[], stored: WordRecapRun | null | undefined): number {
+  return chatRecapPending(words, stored).length;
+}
+
+/**
+ * The run a chat's recap opens on. A run not yet done carries on (its answers and switches kept, the
+ * words collected since appended); after a Done the next run holds only words met since. A chat run
+ * is "finished" from the start — a chat has no end to wait for.
+ */
+export function chatRecapRun(threadId: string, words: readonly AskRecapWord[], stored: WordRecapRun | null | undefined, now: string): WordRecapRun {
+  const id = chatRecapRunId(threadId);
+  const own = stored && stored.reader_id === id ? stored : null;
+  const carry = own && !own.recapped_at ? own : null;
+  const old = new Map((carry?.words ?? []).map((w) => [recapKey(w.hanzi), w] as const));
+  const list = chatRecapPending(words, own).map((w, i) => {
+    const fresh = chatRecapWord(w, i, now);
+    const prev = old.get(recapKey(w.hanzi));
+    return prev ? { ...fresh, at: prev.at } : fresh;
+  });
+  const keys = new Set(list.map((w) => recapKey(w.hanzi)));
+  return {
+    reader_id: id,
+    source: 'chat',
+    before: [...chatRecappedBefore(own)],
+    started_at: carry?.started_at ?? now,
+    finished_at: carry?.finished_at ?? now,
+    recapped_at: null,
+    words: list,
+    events: (carry?.events ?? []).filter((e) => keys.has(e.item_id)),
+    keep: (carry?.keep ?? []).filter((k) => keys.has(k)),
+  };
 }
