@@ -367,6 +367,7 @@ Generated from `shared/analytics/events.ts` (the source of truth — regenerate 
 | `server.homework_assigned` | `kind`, `mode`, `count` | Homework assignments were written for a student. *(server)* |
 | `server.ai_call` | `provider`, `model`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `cost_usd`, `status`, `route` | One model call: model, tokens and an estimated cost. *(server)* |
 | `server.claude_turn` | `surface`, `model_tier`, `first_token_ms`, `total_ms`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `rounds`, `route` | One Claude chat reply (surface = ask, coach, coach_ask or discuss): model_tier sonnet, opus or haiku, total_ms of the whole agent loop, first_token_ms when streamed, model rounds, input tokens (uncached incl. cache writes), cache reads / writes. *(server)* |
+| `server.claude_memory` | `kind`, `input_tokens`, `output_tokens`, `ms`, `route` | Claude memory (docs/CHAT.md "Claude threads" → "Memory"): one background model call — kind = summary (a thread's rolling summary after a reply) or digest (the learner's notes + recent-chats index, daily or after 5 new summaries); tokens and how long it took. *(server)* |
 | `server.push_sent` | `channel`, `kind`, `ok` | A push notification was sent. *(server)* |
 | `server.email_sent` | `kind`, `ok` | An e-mail was sent. *(server)* |
 | `server.coach_auto_detect` | — | A coach conversation started WITHOUT an action (old clients). **Old path → `coach.start`.** *(server)* |

@@ -144,7 +144,7 @@ describe('Claude chat prompt + turns', () => {
     expect(en).not.toContain('ENTIRELY in simple Chinese');
   });
 
-  it('a fast chat reply: SONNET_MODEL, thinking off, no tools, both system blocks and the tail cached', async () => {
+  it('a fast chat reply: SONNET_MODEL, thinking off, only the memory look-ups as tools, both system blocks and the tail cached', async () => {
     const { SONNET_MODEL } = await import('../../services/models');
     const create = vi.fn(async () => ({ model: SONNET_MODEL, stop_reason: 'end_turn', content: [{ type: 'text', text: '**火锅**很好吃。' }], usage: { input_tokens: 10, output_tokens: 5 } }));
     const reply = defaultCoachAskReply({ DB: {} as D1Database, ANTHROPIC_API_KEY: 'k' }, { client: { messages: { create } } as never })!;
@@ -154,7 +154,9 @@ describe('Claude chat prompt + turns', () => {
     expect(p.model).toBe(SONNET_MODEL);
     expect(p.thinking).toEqual({ type: 'disabled' });
     expect(p.output_config).toBeUndefined();
-    expect(p.tools).toBeUndefined();
+    // Claude memory's look-ups are the general chat's only tools (the last one carries the cache breakpoint).
+    expect(p.tools.map((t: { name: string }) => t.name)).toEqual(['search_my_chats', 'read_chat']);
+    expect(p.tools.at(-1).cache_control).toEqual({ type: 'ephemeral' });
     expect(p.system).toHaveLength(2);
     expect(p.system.every((b: { cache_control?: unknown }) => !!b.cache_control)).toBe(true);
     expect(p.system[1].text).toContain('火锅');

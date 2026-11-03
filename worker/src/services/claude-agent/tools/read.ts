@@ -6,6 +6,7 @@
  */
 import { addBumps, MAX_BUMPS_PER_REQUEST } from '../../study-bumps';
 import type { ToolContext } from '../types';
+import { executeReadChat, executeSearchMyChats } from './memory';
 
 /**
  * "⚡ Study it today" for the in-app agents: bump words the learner ALREADY has to the front of
@@ -46,6 +47,12 @@ export async function executeReadTool(
     switch (toolName) {
       case 'bump_cards':
         return executeBumpCardsTool(input, ctx, ctx.bumpSource);
+
+      // Claude memory: the learner's own earlier chats (tools/memory.ts).
+      case 'search_my_chats':
+        return await executeSearchMyChats(input, ctx);
+      case 'read_chat':
+        return await executeReadChat(input, ctx);
 
       case 'search_cards': {
         const query = (input.query as string || '').toLowerCase();

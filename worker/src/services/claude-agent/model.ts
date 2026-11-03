@@ -11,7 +11,7 @@
  * (Was services/chat-turn.ts, which now re-exports this module.)
  */
 import Anthropic from '@anthropic-ai/sdk';
-import { SONNET_MODEL, modelTier } from '../models';
+import { HAIKU_MODEL, SONNET_MODEL, modelTier } from '../models';
 import { trackServer } from '../analytics/server-events';
 
 /** Fits a full custom-lesson spec (thinking is off, so it is all answer). */
@@ -21,10 +21,15 @@ export const CHAT_TURN_MAX_TOKENS = 12000;
  * The model policy of a chat turn — the ONE place the model / thinking of every Claude chat is chosen.
  * `chat`: `SONNET_MODEL` with thinking OFF ("Calling Claude reliably" in CLAUDE.md): the first words
  * come fast and `max_tokens` is all answer. Later policies (role-play, a background summary, an opt-in
- * `deep` turn on `OPUS_MODEL` with `withEffort`) are added here, never at a call site.
+ * `deep` turn on `OPUS_MODEL` with `withEffort`) are added here, never at a call site. `summary` /
+ * `digest` are the memory's background notes (`HAIKU_MODEL` via `structuredCall`).
  */
 export const MODEL_POLICY = {
   chat: { model: SONNET_MODEL, thinking: { type: 'disabled' as const }, maxTokens: CHAT_TURN_MAX_TOKENS },
+  /** Claude memory (memory.ts): a thread's rolling summary — background, `structuredCall`. */
+  summary: { model: HAIKU_MODEL, thinking: { type: 'disabled' as const }, maxTokens: 400 },
+  /** Claude memory: the learner digest — background (daily cron / after 5 new summaries), `structuredCall`. */
+  digest: { model: HAIKU_MODEL, thinking: { type: 'disabled' as const }, maxTokens: 1200 },
 } as const;
 
 export type ModelPolicyName = keyof typeof MODEL_POLICY;

@@ -157,6 +157,8 @@ export const CARD_TOOLS: readonly ToolName[] = [
   'get_deck_progress',
   'get_due_cards',
   'get_overall_stats',
+  'search_my_chats',
+  'read_chat',
 ];
 
 interface CardData {

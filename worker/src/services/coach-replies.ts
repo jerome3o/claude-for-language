@@ -57,7 +57,7 @@ export interface CoachToolResult {
 /** The answer + its tool actions, saved before any action runs (claude-agent/run.ts `applyCheckpointed`). */
 type Checkpoint = ActionCheckpoint<ToolAction, CoachToolResult>;
 
-export type CoachChatFn = (history: CoachChatTurn[], ctx: { db: D1Database; userId: string }) => Promise<{
+export type CoachChatFn = (history: CoachChatTurn[], ctx: { db: D1Database; userId: string; threadId?: string }) => Promise<{
   answer: string;
   toolActions: ToolAction[];
   readOnlyToolCalls: ReadOnlyToolCall[];
@@ -106,7 +106,7 @@ export function defaultChat(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'
   if (!env.ANTHROPIC_API_KEY) return null;
   const key = env.ANTHROPIC_API_KEY;
   // A `coach` turn of the Claude agent harness (claude-agent/contexts/coach.ts).
-  return (history, ctx) => runClaudeTurn({ DB: ctx.db, ANTHROPIC_API_KEY: key }, { kind: 'coach' }, { userId: ctx.userId, turns: history });
+  return (history, ctx) => runClaudeTurn({ DB: ctx.db, ANTHROPIC_API_KEY: key }, { kind: 'coach' }, { userId: ctx.userId, threadId: ctx.threadId ?? null, turns: history });
 }
 
 // E2E_TEST_MODE stand-ins: slow enough (2.5 s) that a test can leave the page first.
@@ -402,7 +402,7 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       if (turns.length === 0 || turns[turns.length - 1].role !== 'user') throw new StructuredCallError('Nothing to answer', false);
       const language = row.answer_lang === 'en' ? 'en' : 'zh';
       const t0 = Date.now();
-      const answer = storedAskAnswer(await ask(turns, { kind: 'ask', language, userId }), language);
+      const answer = storedAskAnswer(await ask(turns, { kind: 'ask', language, userId, threadId: row.conversation_id }), language);
       await finish(env.DB, messageId, answer, null);
       // How long a reply takes (Jerome: "the first message is slow"): the model call, and since it was sent.
       const sent = Date.parse(`${(row.created_at || '').replace(' ', 'T')}${/Z$/.test(row.created_at || '') ? '' : 'Z'}`);
@@ -425,7 +425,7 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       if (!chat) throw new StructuredCallError('The coach is not configured', false);
       const history = buildCoachHistory(before, await deckListFor(env.DB, userId));
       if (history.length === 0 || history[history.length - 1].role !== 'user') throw new StructuredCallError('Nothing to answer', false);
-      const out = await chat(history, { db: env.DB, userId });
+      const out = await chat(history, { db: env.DB, userId, threadId: row.conversation_id });
       cp = { answer: out.answer, actions: out.toolActions, applied: 0, results: readOnlyResults(out.readOnlyToolCalls) };
       await saveCheckpoint(env.DB, messageId, cp);
     }

@@ -8,7 +8,8 @@
  * `wording`: the per-context schemas each surface had before the harness, kept byte-identical so the
  * move changed no answer (and no cached prefix). Unify them one context at a time later.
  *
- * Executors: tools/read.ts (reads + bump_cards). `write` tools (edit / delete the card,
+ * Executors: tools/read.ts (reads + bump_cards; the memory tools search_my_chats / read_chat in
+ * tools/memory.ts — the learner's own earlier chats, under hard token caps). `write` tools (edit / delete the card,
  * create_flashcards) are applied by the caller — routes/ask-claude.ts, services/coach-replies.ts (with
  * its checkpoint, run.ts `applyCheckpointed`), Discuss with Claude's review sheet.
  */
@@ -331,6 +332,41 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
       input_schema: {
         type: 'object' as const,
         properties: {},
+      },
+    },
+  },
+  search_my_chats: {
+    kind: 'read',
+    contexts: ['general', 'card', 'coach', 'chat_message'],
+    schema: {
+      name: 'search_my_chats',
+      description:
+        "Search the learner's EARLIER chats with you — every Claude chat in the app (Ask Claude on cards, the Sentence Coach, Discuss with Claude, general chats). Use it when the learner refers to something from before (\"like you told me last week\", \"that word we talked about\") or when an earlier chat would help your answer. Matches chat titles, summaries and messages (Chinese or English words); returns at most 5 chats with a summary and up to 2 short matching excerpts each — then read_chat for more. Call it without announcing it; never mention the tool to the learner.",
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          query: { type: 'string', description: 'Words to look for, in hanzi or English (a word, or e.g. "把 sentences"). Empty = the most recent chats.' },
+          limit: { type: 'number', description: 'How many chats (1–5, default 5).' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  read_chat: {
+    kind: 'read',
+    contexts: ['general', 'card', 'coach', 'chat_message'],
+    schema: {
+      name: 'read_chat',
+      description:
+        "Read one of the learner's earlier chats with you: up to 20 messages, each trimmed, with the chat's summary. thread_id comes from search_my_chats or the recent chats list (the short id works). `around` centres the messages on a word or phrase; without it you get the latest messages. Call it without announcing it.",
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          thread_id: { type: 'string', description: 'The chat id (full, or the short id from the recent chats list).' },
+          around: { type: 'string', description: 'Optional: a word or phrase to centre on.' },
+          max_messages: { type: 'number', description: 'How many messages (1–20, default 12).' },
+        },
+        required: ['thread_id'],
       },
     },
   },
