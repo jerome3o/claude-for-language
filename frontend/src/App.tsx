@@ -42,7 +42,7 @@ const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m =>
 const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
 const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
-const SentenceCoachPage = lazy(() => import('./pages/SentenceCoachPage').then(m => ({ default: m.SentenceCoachPage })));
+const CoachEntry = lazy(() => import('./pages/CoachEntry').then(m => ({ default: m.CoachEntry })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const AdminPage = lazy(() => import('./pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const AdminAudioPage = lazy(() => import('./pages/AdminAudioPage').then(m => ({ default: m.AdminAudioPage })));
@@ -321,12 +321,13 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
+      {/* The Coach lives in the Chats tab (its bottom box): /coach redirects there, except "Open in Coach"
+          from a chat message and the study card's Coach, which keep the Coach page (pages/CoachEntry.tsx). */}
       <Route
         path="/coach"
         element={
           <ProtectedRoute>
-            <Header />
-            <SentenceCoachPage />
+            <CoachEntry />
           </ProtectedRoute>
         }
       />

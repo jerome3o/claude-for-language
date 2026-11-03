@@ -40,7 +40,7 @@ const breakdown = {
   construction: 'Time word before the verb; 去 + place.',
 };
 
-test('Coach → a word I already have → ⚡ Study it today → Home → first in the session', async ({ page, request }) => {
+test('Coach (the Chats box) → a word I already have → ⚡ Study it today → Home → first in the session', async ({ page, request }) => {
   const email = `bump-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Bump learner' } });
   const token = auth.session_token;
@@ -53,18 +53,28 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
     await api(request, `/api/decks/${deck.id}/notes?check=none`, { method: 'POST', token, data: note });
   }
 
+  // The Coach's Explain is a Claude thread started from the Chats tab's box (its result stubbed here).
   const now = new Date().toISOString();
-  const payload = {
-    conversation: { id: 'conv-bump', user_id: 'u', title: SENTENCE, input_language: 'zh', action: 'explain', created_at: now, updated_at: now },
-    messages: [
-      { id: 'b1', conversation_id: 'conv-bump', role: 'user', content_type: 'text', content: SENTENCE, created_at: now },
-      { id: 'b2', conversation_id: 'conv-bump', role: 'assistant', content_type: 'analysis', content: JSON.stringify({ kind: 'explain', breakdown }), created_at: now },
-    ],
+  const thread = {
+    id: 'conv-bump', client_id: null, title: SENTENCE, context_kind: 'general', context: { kind: 'general' }, badge: { icon: '🔍', text: 'Explain' },
+    first_intent: 'explain', preview: SENTENCE, last_message_at: now, created_at: now, unread: 0, pending: false, failed: false, read_only: false,
+    archived: false, tutor_visible: null, language: null, source: 'app',
   };
-  await page.route('**/api/coach/conversations', (route) =>
-    route.request().method() === 'POST' ? route.fulfill({ json: payload }) : route.continue(),
-  );
-  await page.route('**/api/coach/conversations/conv-bump', (route) => route.fulfill({ json: payload }));
+  const message = (id: string, role: 'user' | 'assistant', content_type: string, content: string) => ({
+    id, thread_id: 'conv-bump', client_id: null, role, content_type, content, intent: role === 'user' ? 'explain' : null, status: null, streaming: false,
+    error: null, answer_lang: null, translation: null, tool_results: null, created_at: now, updated_at: now,
+  });
+  const payload = {
+    thread,
+    messages: [message('b1', 'user', 'text', SENTENCE), message('b2', 'assistant', 'analysis', JSON.stringify({ kind: 'explain', breakdown }))],
+    server_time: now,
+  };
+  await page.route('**/api/claude/threads**', (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === 'POST' && url.pathname.endsWith('/api/claude/threads')) return route.fulfill({ status: 202, json: payload });
+    if (url.pathname.endsWith('/api/claude/threads/conv-bump')) return route.fulfill({ json: payload });
+    return route.continue();
+  });
 
   // Sync the deck down first; nothing is due (budget 0).
   await page.goto(`/decks?session_token=${token}`);
@@ -73,11 +83,11 @@ test('Coach → a word I already have → ⚡ Study it today → Home → first 
   await expect(page.locator('.home-study-card')).toBeVisible({ timeout: 30000 });
   await expect(page.getByTestId('home-bumped')).toHaveCount(0);
 
-  // Coach → Explain → add 银行, which I already have.
-  await page.goto('/coach');
-  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
-  await page.locator('.sentence-input-form textarea').fill(SENTENCE);
-  await page.getByTestId('coach-action-explain').click();
+  // Chats → the box → 🔍 Explain → add 银行, which I already have.
+  await page.goto('/chats');
+  await page.getByTestId('claude-chat-voice-type').click(); // voice first: ✏️ Type opens the box
+  await page.getByTestId('claude-chat-voice-text').fill(SENTENCE);
+  await page.getByTestId('claude-composer-explain').click();
   await expect(page.getByTestId('coach-explain-result')).toBeVisible({ timeout: 15000 });
   // The word opens the language explorer's Word view, which knows I have it.
   await page.getByRole('button', { name: 'Explore 银行' }).click();

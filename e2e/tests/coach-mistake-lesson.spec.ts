@@ -44,11 +44,14 @@ async function shoot(page: Page, name: string) {
 
 type LessonList = { lessons: Array<{ id: string; title: string; source: string; completions: Array<{ rating: number | null; outcome?: { keys: string[]; missed: string[] } | null }> }> };
 
+/** ✏️ Check from the Chats tab's box (where /coach lands): a Claude thread with the Coach's result. */
 async function check(page: Page, sentence: string) {
-  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
-  await page.locator('.sentence-input-form textarea').fill(sentence);
-  await page.locator('.sentence-input-form').getByTestId('coach-action-check').click();
-  await expect(page).toHaveURL(/\/coach\?c=/);
+  await expect(page).toHaveURL(/\/chats$/);
+  const type = page.getByTestId('claude-chat-voice-type');
+  if (await type.isVisible()) await type.click(); // voice first: ✏️ Type opens the box
+  await page.getByTestId('claude-chat-voice-text').fill(sentence);
+  await page.getByTestId('claude-composer-check').click();
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+/, { timeout: 15_000 });
 }
 
 test('check → 🎯 chip → play the lesson → Save keeps it with this run as its completion', async ({ browser, request }) => {

@@ -1,13 +1,27 @@
-import { test, expect, APIRequestContext } from '@playwright/test';
+import { test, expect, APIRequestContext, type Page } from '@playwright/test';
 
 /**
  * Sentence Coach reliability: a dropped first request is retried on its own,
  * and a failure the retry can't fix says why and offers "Try again" with the
  * typed text kept. The coach's AI call is stubbed at the network level.
+ *
+ * The Coach page is only reached from a study card now (and "Open in Coach" from a chat message);
+ * /coach otherwise lands on the Chats tab's box (pages/CoachEntry.tsx). Each test arrives "from a
+ * card": the card's return path is set, as the study card sets it before opening the Coach.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
 const SENTENCE = '我的智能体在我们的app ostensibly加了视频电话功能';
+
+async function fromACard(page: Page) {
+  await page.addInitScript(() => {
+    try {
+      sessionStorage.setItem('coach-return-to', '/study?autostart=true');
+    } catch {
+      /* ignore */
+    }
+  });
+}
 
 async function seedUser(request: APIRequestContext) {
   const email = `coach-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
@@ -53,6 +67,7 @@ test('a dropped first request is retried automatically and the answer shows', as
   });
   await page.route('**/api/coach/conversations/conv-e2e', (route) => route.fulfill({ json: conversationPayload() }));
 
+  await fromACard(page);
   await page.goto(`/coach?session_token=${session_token}`);
   await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
@@ -75,6 +90,7 @@ test('a failure the retry cannot fix shows the reason and Try again, keeping the
   });
   await page.route('**/api/coach/conversations/conv-e2e', (route) => route.fulfill({ json: conversationPayload() }));
 
+  await fromACard(page);
   await page.goto(`/coach?session_token=${session_token}`);
   await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
   await page.locator('.sentence-input-form textarea').fill(SENTENCE);
@@ -123,6 +139,7 @@ test('Chinese offers Check and Explain; Explain shows the translation and word r
   await page.route('**/api/coach/conversations/conv-explain', (route) => route.fulfill({ json: payload }));
 
   // Empty box (the widget's ✏️ lands here): both buttons, disabled, nothing sent.
+  await fromACard(page);
   await page.goto(`/coach?focus=1&session_token=${session_token}`);
   await expect(page.getByTestId('coach-action-check')).toBeDisabled();
   await expect(page.getByTestId('coach-action-explain')).toBeDisabled();

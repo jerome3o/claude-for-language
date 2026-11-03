@@ -133,40 +133,39 @@ test('a photo caption is auto-checked → Open in Coach shows the check at once 
   await page.context().close();
 });
 
-test('a Coach reply keeps going when you leave: start, leave, come back; follow-up, leave, come back', async ({ browser, request }) => {
+test('a Coach reply keeps going when you leave: start from the Chats box, leave, come back; follow-up, leave, come back', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const user = await seedUser(request, 'solo', 'Jerome');
+  // The Coach lives in the Chats tab's box now (/coach lands there).
   const page = await openAs(browser, user, '/coach');
-  await page.getByTestId('coach-voice-type').click(); // voice first: ✏️ Type opens the box
-  await page.locator('.sentence-input-form textarea').fill('我们明天一起去公园吧');
-  await page.locator('.sentence-input-form').getByTestId('coach-action-check').click();
-  // The page moves to the conversation at once with the answer pending…
-  await expect(page).toHaveURL(/\/coach\?c=/);
-  await expect(page.getByTestId('coach-reply-pending')).toBeVisible();
-  const convUrl = page.url();
+  await expect(page).toHaveURL(/\/chats$/);
+  await page.getByTestId('claude-chat-voice-text').fill('我们明天一起去公园吧');
+  await page.getByTestId('claude-composer-check').click();
+  // The thread opens at once with the answer pending…
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+/, { timeout: 15000 });
+  const threadUrl = page.url().replace(/^https?:\/\/[^/]+/, '');
   // …and I leave straight away.
   await page.goto('/decks');
   await page.waitForTimeout(800);
-  await page.goto('/coach');
-  const row = page.locator('.coach-conv-item').filter({ hasText: '我们明天一起去公园吧' });
-  await expect(row).toBeVisible();
-  // Thinking… in the list while it is still being written (the fake takes 2.5 s).
-  if (await row.getByTestId('coach-conv-thinking').isVisible()) await shoot(page, 'web-04-list-thinking');
-  await expect(row.getByTestId('coach-conv-thinking')).toHaveCount(0, { timeout: 20000 });
-  await row.locator('.coach-conv-open').click();
+  await page.goto('/chats');
+  const row = page.getByTestId('chats-claude-row').filter({ hasText: '我们明天一起去公园吧' });
+  await expect(row).toBeVisible({ timeout: 20000 });
+  // "Writing a reply…" in the list while it is still being written (the fake takes 2.5 s).
+  if (await row.getByText('Writing a reply').isVisible()) await shoot(page, 'web-04-list-thinking');
+  await expect(row).not.toContainText('Writing a reply', { timeout: 20000 });
+  await row.click();
   await expect(page.getByText('(E2E) Looks fine.')).toBeVisible({ timeout: 15000 });
 
   // A follow-up, then leave before the reply.
-  await page.getByTestId('coach-followup-type').click();
-  await page.getByTestId('coach-followup-text').fill('Why 吧 here?');
+  await page.getByTestId('claude-chat-voice-type').click();
+  await page.getByTestId('claude-chat-voice-text').fill('Why 吧 here?');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByTestId('coach-reply-pending')).toBeVisible();
+  await expect(page.getByTestId('claude-chat-mine').last()).toContainText('Why 吧 here?');
   await shoot(page, 'web-05-thinking');
   await page.goto('/');
   await page.waitForTimeout(3500);
-  await page.goto(convUrl.replace(/^https?:\/\/[^/]+/, ''));
-  await expect(page.getByText("(E2E) The coach's answer to: Why 吧 here?")).toBeVisible({ timeout: 20000 });
-  await expect(page.getByTestId('coach-reply-pending')).toHaveCount(0);
+  await page.goto(threadUrl);
+  await expect(page.getByTestId('claude-chat-reply').last()).toContainText(/The coach's answer to: Why 吧 here\?|Claude streams this answer/, { timeout: 20000 });
   await page.context().close();
 });
 

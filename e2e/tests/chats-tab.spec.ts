@@ -142,8 +142,9 @@ test.describe('Chats tab', () => {
   test('empty state and Decks in More', async ({ browser, request }) => {
     const loner = await seedUser(request, 'loner', 'Solo');
     const page = await openAs(browser, loner, '/chats');
+    await expect(page.getByTestId('chats-empty')).toContainText('Ask Claude anything');
     await expect(page.getByTestId('chats-empty')).toContainText('connect with a tutor or student');
-    await page.getByRole('link', { name: 'Connect with someone' }).click();
+    await page.getByRole('link', { name: 'connect with a tutor or student' }).click();
     await expect(page).toHaveURL(/\/connections$/);
 
     await page.getByTestId('tab-bar').locator('[data-tab="more"]').click();

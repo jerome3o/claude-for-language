@@ -12,6 +12,10 @@ import {
   PRACTICE_READ_ONLY_NOTE, RESUME_WINDOW_MS, type ResumeCandidate,
 } from '../../../shared/claude/contexts';
 import { contextBadge, type ClaudeIntent, type StoredClaudeContext } from '../../../shared/claude/context';
+import {
+  claudeRowPreview, composeRecipients, filterInbox, inboxFilters, inboxRowLabel, inboxRowName, mergeInbox, teacherSections,
+  type InboxFilter, type InboxHuman, type InboxItem, type InboxThread,
+} from '../../../shared/claude/inbox';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: claude-chats <out-dir>');
@@ -99,9 +103,64 @@ const statuses = (['thinking', 'tool', 'streaming', 'done', 'failed', null] as c
   [null, 'search_cards', 'get_deck_info', 'get_overall_stats', 'get_due_cards', 'bump_cards'].flatMap((tool) =>
     (['zh', 'en'] as const).map((language) => ({ status, tool, language, out: turnStatusLine(status, tool, language) }))));
 
+// ---------- The unified Chats tab (shared/claude/inbox.ts) ----------
+
+const person = (id: string, name: string | null) => ({ id, name, picture_url: null });
+const HUMANS: InboxHuman[] = [
+  { conversation_id: 'h1', relationship_id: 'r1', title: null, is_ai: false, other_user: person('u1', 'Minghui'), other_role: 'tutor', last_message: { id: 'm1', sender_id: 'u1', preview: '明天上课见！', created_at: iso(30) }, unread: 2, last_activity_at: iso(30) },
+  { conversation_id: 'h2', relationship_id: 'r2', title: null, is_ai: false, other_user: person('u2', 'Lily'), other_role: 'student', last_message: { id: 'm2', sender_id: 'me', preview: '作业  做完了吗？', created_at: iso(5) }, unread: 4, last_activity_at: iso(5) },
+  { conversation_id: 'h3', relationship_id: 'r3', title: null, is_ai: false, other_user: person('u3', null), other_role: 'tutor', last_message: null, unread: 0, last_activity_at: iso(60 * 24 * 3) },
+  { conversation_id: 'h4', relationship_id: 'r1', title: '点菜', is_ai: true, other_user: person('claude', 'Claude'), other_role: 'tutor', last_message: { id: 'm4', sender_id: 'claude', preview: '您要喝什么？', created_at: iso(2) }, unread: 1, last_activity_at: iso(2) },
+  { conversation_id: 'h5', relationship_id: 'r1', title: '  ', is_ai: true, other_user: person('claude', 'Claude'), other_role: 'tutor', last_message: null, unread: -3, last_activity_at: 'bad date' },
+  { conversation_id: 'h6', relationship_id: 'r4', title: null, is_ai: false, other_user: person('u4', 'Laoshi Wang'), other_role: 'tutor', last_message: { id: 'm6', sender_id: 'u4', preview: '加油', created_at: iso(30) }, unread: 0, last_activity_at: iso(30) },
+];
+type FlatInboxThread = Omit<InboxThread, 'context' | 'context_kind'> & { ctx: FlatCtx };
+const INBOX_THREADS: FlatInboxThread[] = [
+  { id: 't1', title: '银行 和 行 的读音', ctx: { kind: 'card', note_id: 'n1', label: '银行' }, first_intent: 'ask', preview: '“行”在银行里\n读 háng。', last_message_at: iso(10), created_at: iso(12), unread: 1, pending: false, failed: false, archived: false },
+  { id: 't2', title: '我昨天去了商店买东西了', ctx: { kind: 'general' }, first_intent: 'check', preview: null, last_message_at: null, created_at: iso(1), unread: 0, pending: true, failed: false, archived: false },
+  { id: 't3', title: '', ctx: { kind: 'practice', conversation_id: 'h5', scenario: '买单' }, first_intent: null, preview: 'ok', last_message_at: iso(60 * 24 * 10), created_at: iso(60 * 24 * 11), unread: 0, pending: false, failed: false, archived: false },
+  { id: 't4', title: 'Archived', ctx: { kind: 'general' }, first_intent: 'ask', preview: 'x', last_message_at: iso(0), created_at: iso(0), unread: 3, pending: false, failed: false, archived: true },
+  { id: 't5', title: 'Hello in Chinese', ctx: { kind: 'chat_message', message_id: 'mm', conversation_id: 'h1', label: '明天见！' }, first_intent: 'ask', preview: 'Say 你好。', last_message_at: iso(30), created_at: iso(31), unread: 0, pending: false, failed: true, archived: false },
+  { id: 't7', title: '我昨天  去了商店', ctx: { kind: 'general' }, first_intent: 'check', preview: '我昨天 去了商店', last_message_at: iso(40), created_at: iso(41), unread: 2, pending: false, failed: false, archived: false },
+  { id: 't6', title: 'Queued', ctx: { kind: 'general' }, first_intent: 'explain', preview: 'q', last_message_at: iso(3), created_at: iso(3), unread: 0, pending: false, failed: false, archived: false, local: true },
+];
+const inboxThread = (t: FlatInboxThread): InboxThread => {
+  const { ctx, ...rest } = t;
+  const context = stored(ctx);
+  return { ...rest, context_kind: context.kind, context };
+};
+const flatItem = (i: InboxItem) => ({
+  key: i.key, kind: i.kind, activity_at: i.activity_at, unread: i.unread, pinned: i.pinned, badge: i.badge,
+  name: inboxRowName(i), label: inboxRowLabel(i.kind),
+  preview: i.thread ? claudeRowPreview(i.thread) : null,
+});
+const HUMAN_SETS: number[][] = [[0, 1, 2, 3, 4, 5], [0, 2, 5], [1], [3, 4], []];
+const THREAD_SETS: number[][] = [[0, 1, 2, 3, 4, 5, 6], [0], [2], []];
+const inbox: unknown[] = [];
+for (const hs of HUMAN_SETS) {
+  for (const ts of THREAD_SETS) {
+    const humans = hs.map((i) => HUMANS[i]);
+    const threads = ts.map((i) => inboxThread(INBOX_THREADS[i]));
+    for (const pin of [false, true]) {
+      for (const filter of ['all', 'people', 'claude'] as InboxFilter[]) {
+        const items = mergeInbox(humans, threads, { pinUnreadTutors: pin, filter });
+        inbox.push({
+          humans: hs, threads: ts, pin, filter,
+          items: items.map(flatItem),
+          filters: inboxFilters(items),
+          search: ['', 'minghui', 'asked card', 'hang', '作业', 'practice 买单', 'zzz'].map((q) => ({ q, keys: filterInbox(items, q).map((i) => i.key) })),
+          teacher: (() => { const s = teacherSections(items); return { people: s.people.map((i) => i.key), claude: s.claude.map((i) => i.key) }; })(),
+        });
+      }
+    }
+  }
+  inbox.push({ humans: hs, recipients: composeRecipients(hs.map((i) => HUMANS[i])) });
+}
+
 writeFileSync(
   join(OUT, 'claude-chats.json'),
   JSON.stringify({
+    inboxHumans: HUMANS, inboxThreads: INBOX_THREADS, inbox,
     chips, composers, badges, headerChips, now: NOW, threads: THREADS, resume, polls, statuses,
     copy: {
       chipsAfterReplyMax: CHIPS_AFTER_REPLY_MAX, intentLabels: CLAUDE_INTENT_LABELS, practiceReadOnly: PRACTICE_READ_ONLY_NOTE, resumeWindowMs: RESUME_WINDOW_MS,

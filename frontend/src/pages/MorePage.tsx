@@ -138,7 +138,7 @@ export function MorePage() {
               <NavRow icon="🧪" label="Group class (prototype)" desc="Teach a few students together on one call — an experiment" to="/group-classes" />
             </NavSection>
             <NavSection title="Tools">
-              <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check or translate a sentence" to="/coach" />
+              <NavRow icon="✦" label="Ask Claude / Coach" desc="Ask, check or translate — in your Chats" to="/chats?compose=1" />
               <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
               <NavRow icon="📱" label="Phone practice" desc="手机练习 · Real-life tasks on a simulated Chinese phone" to="/phone" />
               <NavRow icon="📜" label="成语 Idioms (beta)" desc="The story behind each idiom, and how to use it" to="/idioms" />
@@ -147,7 +147,7 @@ export function MorePage() {
           </>
         ) : (<>
         <NavSection title="Practice">
-          <NavRow icon="🧑‍🏫" label="Sentence Coach" desc="Check a sentence you wrote" to="/coach" />
+          <NavRow icon="✦" label="Ask Claude / Coach" desc="Ask anything, check or explain a sentence — in your Chats" to="/chats?compose=1" />
           <NavRow icon="🔍" label="Sentence Breakdown" desc="Split any sentence into words" to="/analyze" />
           {!role.isTutorOnly && (
             <NavRow icon="📚" label="Readers" desc="Short stories at your level" to="/readers" />

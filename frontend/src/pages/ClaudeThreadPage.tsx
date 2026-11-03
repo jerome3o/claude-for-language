@@ -2,7 +2,7 @@
  * `/chats/claude/:id` — one Claude thread (components/claude/ClaudeThreadView.tsx), immersive. `new`
  * starts a fresh one: `?context=card&note_id=` (+ `label`) for a card, else a plain chat;
  * `?text=&intent=check|explain|translate|ask` sends at once (the Coach's deep links), `?draft=`
- * only fills the box. Back goes where the learner came from (the Coach by default).
+ * only fills the box. Back goes where the learner came from (the Chats tab by default).
  * `/coach/chat/:id` (the Coach's "💬 Ask Claude" chats — the same rows) redirects here.
  */
 import { useMemo } from 'react';
@@ -44,7 +44,7 @@ export function ClaudeThreadPage() {
       initialDraft={params.get('draft') ?? undefined}
       source={params.get('source') ?? (id === 'new' ? 'coach' : 'link')}
       hasSentence={params.get('has_sentence') === '1'}
-      onBack={() => (from ? navigate(from) : window.history.length > 1 ? navigate(-1) : navigate('/coach'))}
+      onBack={() => (from ? navigate(from) : window.history.length > 1 ? navigate(-1) : navigate('/chats'))}
       onThreadCreated={(threadId) => {
         moveRecapWords('new', threadId);
         navigate(`/chats/claude/${encodeURIComponent(threadId)}`, { replace: true, state: location.state });

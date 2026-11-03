@@ -57,7 +57,7 @@ export function CoachLessonPage() {
     track('coach.mistake_lesson_play', { exercises: mistakeLessonExerciseCount(content.spec), saved: !!content.lesson_id });
   }, [content]);
 
-  const back = () => navigate(`/coach?c=${encodeURIComponent(conversationId)}`, { replace: true });
+  const back = () => navigate(`/chats/claude/${encodeURIComponent(conversationId)}`, { replace: true, state: { from: '/chats' } });
 
   const save = async (completion: Parameters<typeof saveCoachMistakeLesson>[2]) => {
     if (busy) return false;
