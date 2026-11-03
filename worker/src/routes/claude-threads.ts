@@ -5,7 +5,7 @@
  * services/claude-agent/thread-turn.ts (inline start + lease + watchdog, streamed over ChatHub
  * `claude_turn` events); the older chats are copied in lazily (claude-agent/backfill.ts).
  *
- *   GET    /claude/threads?since=&limit=&context_kind=&note_id=&archived=
+ *   GET    /claude/threads?since=&limit=&context_kind=&note_id=&context_ref=&archived=
  *          → { threads: ClaudeThreadSummary[], deleted_ids, server_time } (the first call copies the older
  *            chats in; `since` = a previous server_time: threads changed since + the ids deleted since)
  *   POST   /claude/threads { client_id, context, intent?, text, message_client_id?, language?, title?, quick? }
@@ -22,7 +22,9 @@
  * "check my Chinese" in the background (`checkAskQuestion`, the `chat_auto_check` switch) — its result
  * lands on my message as `auto_check` (a suggestion chip, `quick: true`, isn't checked); `typed`
  * ({ answer, correct } | null) is the answer typed on this showing of the card, kept on the thread's
- * context for Claude (null takes an older one out).
+ * context for Claude (null takes an older one out). The same way a reader thread takes `looked_up` /
+ * `said_wrong` (the words he tapped / misread on that page in this reading) and an exercise thread
+ * `answer` ({ text, verdict?, headline?, corrected?, tips? } | null — his answer and its check).
  *   POST   /claude/threads/:id/messages/:messageId/retry → 202 { thread, messages }
  *   PATCH  /claude/threads/:id { title?, archived?, read?, tutor_visible?, language? } → { thread }
  *   DELETE /claude/threads/:id → { deleted: true } (a tombstone the next `?since=` list reports)
@@ -41,6 +43,7 @@ import {
   CLAUDE_TITLE_MAX,
   intentsFor,
   parseClaudeContext,
+  parseExerciseAnswer,
   parseIntent,
   parseStoredContext,
   previewOf,
@@ -58,6 +61,8 @@ import { askCheckContext, askSettings, checkAskQuestion } from '../services/ask-
 import { fakeAskChecker } from '../services/claude-agent/check-fake';
 import { coachAvailable, enqueueCoachReply, retryCoachReply, sweepStaleCoachReplies } from '../services/coach-replies';
 import { loadDiscussedMessage } from '../services/claude-agent/contexts/chat_message';
+import { exerciseAt } from '../services/claude-agent/contexts/exercise';
+import { exerciseTypeInfo } from '@shared/lesson/registry';
 import { ClaudeContextError } from '../services/claude-agent/types';
 import { backfillClaudeThreads, ensureClaudeThreadsBackfilled } from '../services/claude-agent/backfill';
 import { adminMiddleware } from '../middleware/auth';
@@ -106,6 +111,27 @@ async function checkedContext(c: Context<{ Bindings: Env }>, userId: string, ctx
     const label = previewOf(m.content || '').slice(0, 40);
     return label ? { label } : {};
   }
+  if (ctx.kind === 'reader') {
+    const reader = await c.env.DB.prepare('SELECT user_id, title_chinese FROM graded_readers WHERE id = ?').bind(ctx.reader_id).first<{ user_id: string; title_chinese: string }>();
+    if (!reader) throw new ClaudeContextError('Reader not found', 404);
+    if (reader.user_id !== userId) throw new ClaudeContextError('Access denied', 403);
+    if (ctx.page_id) {
+      const page = await c.env.DB.prepare('SELECT page_number FROM reader_pages WHERE id = ? AND reader_id = ?').bind(ctx.page_id, ctx.reader_id).first<{ page_number: number }>();
+      if (!page) throw new ClaudeContextError('Page not found', 404);
+    }
+    return { label: reader.title_chinese.slice(0, 80) };
+  }
+  if (ctx.kind === 'exercise') {
+    const lesson = await c.env.DB.prepare('SELECT user_id, title, spec FROM custom_lessons WHERE id = ?').bind(ctx.lesson_id).first<{ user_id: string; title: string; spec: string }>();
+    if (!lesson) throw new ClaudeContextError('Lesson not found', 404);
+    if (lesson.user_id !== userId) throw new ClaudeContextError('Access denied', 403);
+    const found = exerciseAt(lesson.spec, ctx.exercise_key);
+    if (!found) throw new ClaudeContextError('Exercise not found', 404);
+    const type = String(found.exercise.type);
+    // The stored spec's type wins over what the app sent (the chips read it).
+    (ctx as { exercise_type?: string }).exercise_type = type;
+    return { label: (exerciseTypeInfo(type)?.name ?? type).slice(0, 80), ...(lesson.title ? { sublabel: lesson.title.slice(0, 80) } : {}) };
+  }
   if (ctx.kind === 'practice') {
     // An old practice chat (copied in, read-only) can't be started again; a card's role-play: its card.
     if (ctx.conversation_id) throw new ClaudeContextError('Old practice chats can’t be started again — start a new role-play', 400);
@@ -137,6 +163,25 @@ function typedOf(v: unknown): { answer: string; correct?: string } | null | unde
   if (!answer) return null;
   const correct = typeof r.correct === 'string' && r.correct.trim() ? r.correct.trim().slice(0, 400) : undefined;
   return correct ? { answer, correct } : { answer };
+}
+
+/**
+ * The fields of a reader / exercise context a follow-up may bring up to date: a reader's `looked_up` /
+ * `said_wrong` (arrays; [] / null take them out), an exercise's `answer` (null takes it out).
+ * Unset fields stay as they are; null when the body has none.
+ */
+function contextFieldsOf(kind: 'reader' | 'exercise', body: Record<string, unknown>): Record<string, unknown> | null {
+  const out: Record<string, unknown> = {};
+  if (kind === 'reader') {
+    for (const k of ['looked_up', 'said_wrong'] as const) {
+      if (body[k] === undefined) continue;
+      const parsed = parseClaudeContext({ kind: 'reader', reader_id: 'x', [k]: body[k] }) as Record<string, unknown> | null;
+      out[k] = parsed?.[k] ?? null;
+    }
+  } else if (body.answer !== undefined) {
+    out.answer = parseExerciseAnswer(body.answer) ?? null;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /**
@@ -187,6 +232,7 @@ threads.get('/claude/threads', async (c) => {
     limit: Number.isFinite(limit) ? limit : undefined,
     contextKind,
     noteId: q.note_id || null,
+    contextRef: q.context_ref ? q.context_ref.slice(0, 220) : null,
     archived: since ? null : archived,
   });
   return c.json(out);
@@ -196,7 +242,7 @@ threads.post('/claude/threads', async (c) => {
   const userId = userIdOf(c);
   const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
   let context = parseClaudeContext(body.context ?? { kind: 'general' });
-  if (!context) return badRequest(c, 'context must be { kind: general } | { kind: card, note_id } | { kind: practice, scenario | note_id } | { kind: chat_message, message_id }');
+  if (!context) return badRequest(c, 'context must be { kind: general } | { kind: card, note_id } | { kind: practice, scenario | note_id } | { kind: chat_message, message_id } | { kind: reader, reader_id, page_id? } | { kind: exercise, lesson_id, exercise_key }');
   const intent: ClaudeIntent | null = body.intent === undefined || body.intent === null ? 'ask' : parseIntent(body.intent);
   if (!intent) return badRequest(c, 'intent must be ask, check, explain or translate');
   if (!intentsFor(context.kind).includes(intent)) return badRequest(c, `A ${context.kind} chat takes ${intentsFor(context.kind).join(', ') || 'no messages'} here`);
@@ -330,6 +376,11 @@ threads.post('/claude/threads/:id/messages', async (c) => {
   // A card question asked on a later showing of the card: its typed answer (or none) for Claude.
   const typed = kind === 'card' ? typedOf(body.typed) : undefined;
   if (typed !== undefined) await store.setCardTyped(c.env.DB, userId, id, typed);
+  // A reader page's looked-up words / an exercise's answer, as they stand on this showing.
+  if (kind === 'reader' || kind === 'exercise') {
+    const fields = contextFieldsOf(kind, body);
+    if (fields) await store.setContextFields(c.env.DB, userId, id, kind, fields);
+  }
   const coachFollowUp = kind === 'general' && !!(await c.env.DB.prepare("SELECT 1 FROM coach_messages WHERE conversation_id = ? AND content_type = 'analysis' LIMIT 1").bind(id).first());
   const language =
     kind === 'chat_message' || coachFollowUp

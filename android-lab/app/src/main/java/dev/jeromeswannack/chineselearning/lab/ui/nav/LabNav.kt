@@ -17,6 +17,12 @@ import kotlinx.coroutines.flow.StateFlow
  *   nav.back()
  *   nav.openInMainApp("/decks/$id")    // straight to the hybrid app / website
  */
+/**
+ * The app's navigator for a deep composable that has no route of its own to hand it one (a Claude
+ * thread sheet over a reader page / a lesson exercise opening its context chip). Null in previews / tests.
+ */
+val LocalLabNav = androidx.compose.runtime.staticCompositionLocalOf<LabNav?> { null }
+
 /** A link from outside the app; [soft] = a "go study" entry (see NavResume). */
 data class NavRequest(val path: String, val soft: Boolean = false)
 

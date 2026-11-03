@@ -126,7 +126,10 @@ fun LabShell(
         dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerController(track = { e, p -> app.analytics.track(e, p) }, tick = { app.haptics.tick() }, warmUp = { dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerData.warm(app) })
     }
     val explorerEnv = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerEnv(app, nav, close = explorer::close)
-    androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer provides explorer) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer provides explorer,
+        LocalLabNav provides nav,
+    ) {
     ShellFrame(
         tabs = state.tabs,
         active = NavRules.activeTab(state.tabs, path),

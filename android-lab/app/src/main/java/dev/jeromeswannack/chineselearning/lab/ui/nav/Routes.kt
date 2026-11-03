@@ -96,7 +96,8 @@ object Routes {
     fun lessonPlay(id: String, from: String = "lessons_page", revision: Boolean = false) = "/lessons/${seg(id)}/play?from=$from" + (if (revision) "&mode=revision" else "")
     fun lessonAttempts(attemptId: String? = null) = "/lesson-attempts" + (attemptId?.let { "/${seg(it)}" } ?: "")
     fun readers() = "/readers"
-    fun reader(id: String) = "/readers/${seg(id)}"
+    /** [page] (1-based): opened at that page (a reader page's Claude thread chip). */
+    fun reader(id: String, page: Int? = null) = "/readers/${seg(id)}" + (if (page != null && page > 1) "?page=$page" else "")
     fun readerRecap(id: String, from: String? = null) = "/readers/${seg(id)}/recap" + (if (from != null) "?from=$from" else "")
     fun readerEdit(id: String) = "/readers/${seg(id)}/edit"
 

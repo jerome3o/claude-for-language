@@ -52,12 +52,31 @@ export type ClaudeContext =
       message_id: string;
       /** The message and its surrounding chat, already loaded with the caller's access checked. */
       message?: { content: string; chat_context: string };
+    }
+  /** A page of a graded reader ("📖 Ask Claude about this page"); the learner's reader only. */
+  | {
+      kind: 'reader';
+      reader_id: string;
+      /** The page he asked on (none = the first page). */
+      page_id?: string;
+      /** Words he tapped / read aloud wrong on that page in this reading (the device's word recap run). */
+      looked_up?: string[];
+      said_wrong?: string[];
+    }
+  /** One exercise of a mini lesson ("💬 Ask Claude" on it); the learner's lesson only. */
+  | {
+      kind: 'exercise';
+      lesson_id: string;
+      /** `s<section>e<index>`. */
+      exercise_key: string;
+      /** His answer on this showing + Claude's answer check of it, when he asks after answering. */
+      answer?: { text: string; verdict?: string; headline?: string; corrected?: string; tips?: string[] };
     };
 
 export type ContextKind = ClaudeContext['kind'];
 export type ContextOf<K extends ContextKind> = Extract<ClaudeContext, { kind: K }>;
 
-export const CONTEXT_KINDS: readonly ContextKind[] = ['general', 'card', 'coach', 'practice', 'chat_message'];
+export const CONTEXT_KINDS: readonly ContextKind[] = ['general', 'card', 'coach', 'practice', 'chat_message', 'reader', 'exercise'];
 
 // ---------- A turn ----------
 

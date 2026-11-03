@@ -242,6 +242,8 @@ export interface ListThreadsOptions {
   contextKind?: ClaudeContextKind | null;
   /** Card threads of one note. */
   noteId?: string | null;
+  /** With `contextKind`: the threads of one context (its canonical ref — a reader page `r:p`, an exercise `l:s0e1`). */
+  contextRef?: string | null;
   /** true = archived only; false (default) = not archived; null = both. */
   archived?: boolean | null;
 }
@@ -268,6 +270,10 @@ export async function listThreads(
     else {
       where.push('c.context_kind = ?');
       params.push(opts.contextKind);
+      if (opts.contextRef) {
+        where.push('c.context_ref = ?');
+        params.push(opts.contextRef);
+      }
     }
   }
   const archived = opts.archived === undefined ? false : opts.archived;
@@ -519,6 +525,32 @@ export async function setCardTyped(db: D1Database, userId: string, threadId: str
   if (typed) ctx.typed = typed;
   else delete ctx.typed;
   if (JSON.stringify(ctx.typed ?? null) === before) return;
+  await db.prepare('UPDATE coach_conversations SET context_json = ? WHERE id = ? AND user_id = ?').bind(JSON.stringify(ctx), threadId, userId).run();
+}
+
+/**
+ * A reader / exercise thread's fields as they stand on this showing (a reader page's `looked_up` /
+ * `said_wrong`, an exercise's `answer`): set, or taken out with null. The context reads them every turn.
+ */
+export async function setContextFields(db: D1Database, userId: string, threadId: string, kind: 'reader' | 'exercise', fields: Record<string, unknown>): Promise<void> {
+  const row = await db
+    .prepare('SELECT context_json FROM coach_conversations WHERE id = ? AND user_id = ? AND context_kind = ?')
+    .bind(threadId, userId, kind)
+    .first<{ context_json: string | null }>();
+  if (!row) return;
+  let ctx: Record<string, unknown> = {};
+  try {
+    const v = row.context_json ? JSON.parse(row.context_json) : {};
+    if (v && typeof v === 'object') ctx = v as Record<string, unknown>;
+  } catch {
+    /* rewritten below */
+  }
+  const before = JSON.stringify(ctx);
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === null || v === undefined) delete ctx[k];
+    else ctx[k] = v;
+  }
+  if (JSON.stringify(ctx) === before) return;
   await db.prepare('UPDATE coach_conversations SET context_json = ? WHERE id = ? AND user_id = ?').bind(JSON.stringify(ctx), threadId, userId).run();
 }
 

@@ -115,9 +115,13 @@ fun StudyReaderView(
     takeLock: ReaderTakeLock = rememberReaderTakeLock(),
     /** The page on screen's 🎤 state drawn as given (screenshots, tests). */
     readAloudPreview: ReadAloudHandle? = null,
+    /** The page to open on (0-based; `/readers/:id?page=` from a Claude thread's chip). */
+    startPage: Int = 0,
 ) {
     val reader = session.reader
-    var page by rememberSaveable(session.key) { mutableIntStateOf(0) }
+    var page by rememberSaveable(session.key) { mutableIntStateOf(startPage.coerceIn(0, (session.reader.pages.size - 1).coerceAtLeast(0))) }
+    // 📖 Ask Claude about this page: the page's Claude thread in a sheet (ui/claude/ContextClaudeSheet.kt).
+    var asking by remember(session.key) { mutableStateOf<Int?>(null) }
     val started = remember(session.key) { System.currentTimeMillis() }
     var finished by remember(session.key) { mutableStateOf(false) }
     var storyPlaying by rememberSaveable(session.key) { mutableStateOf(false) }
@@ -189,7 +193,9 @@ fun StudyReaderView(
                     Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}", leading = {
+                    PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}", trailing = if (env.askClaude) ({
+                        AskClaudeButton(enabled = !locked) { asking = page }
+                    }) else null, leading = {
                         StoryButton(
                             playing = storyPlaying,
                             enabled = !locked,
@@ -222,6 +228,11 @@ fun StudyReaderView(
                 }
             } else {
                 NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) })
+            }
+        }
+        asking?.let { index ->
+            reader.pages.getOrNull(index)?.let { p ->
+                ReaderClaudeSheet(reader, p, index, onDismiss = { asking = null })
             }
         }
         // The whole page read right: one burst over the reading view per perfect take.
@@ -310,6 +321,8 @@ fun ReaderScreen(
     onEdit: () -> Unit,
     onFinish: (timeSpentMs: Long, how: String) -> Unit,
     onAnki: (() -> Unit)? = null,
+    /** The page to open on (0-based). */
+    startPage: Int = 0,
 ) {
     val ready = reader != null && reader.status != "generating" && reader.pages.isNotEmpty()
     // ← / Edit / Anki while a 🎤 take is under way stop the take first instead of leaving.
@@ -334,7 +347,7 @@ fun ReaderScreen(
                 !ready -> CenterMessage("Generating your reader…\n${reader.titleEnglish}", spinner = reader.status == "generating")
                 else -> {
                     // Its state is keyed on the session key, so the server's copy replacing the cached one keeps the page.
-                    Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(SessionReader(reader, 1), env, onFinish, takeLock) }
+                    Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(SessionReader(reader, 1), env, onFinish, takeLock, startPage = startPage) }
                 }
             }
         }

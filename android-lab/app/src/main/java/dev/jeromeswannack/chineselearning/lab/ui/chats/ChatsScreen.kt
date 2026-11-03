@@ -148,6 +148,8 @@ class ChatsActions(
     val onOpen: (ClaudeInbox.Item) -> Unit = {},
     /** A Claude row's "📇 Asked on card · 银行" chip: that card's hub (the note id). */
     val onCard: (String) -> Unit = {},
+    /** A reader page's / exercise's chip ("📖 Reader · 成都 p.3", "🧩 Exercise · Translate"): that page / lesson (a path). */
+    val onPath: (String) -> Unit = {},
     val onQuery: (String) -> Unit = {},
     val onFilter: (String) -> Unit = {},
     val onToggleClaude: () -> Unit = {},
@@ -428,8 +430,14 @@ private fun RowBody(item: ClaudeInbox.Item, name: String, ui: ChatsUi, actions: 
         }
     }
     item.badge?.let { badge ->
-        val noteId = thread?.let { ClaudeChats.headerChipFor(it.context)?.link }?.takeIf { it.kind == ClaudeChats.CARD }?.noteId
-        ContextChip(badge, onClick = noteId?.let { id -> { actions.onCard(id) } })
+        val link = thread?.let { ClaudeChats.headerChipFor(it.context)?.link }
+        val onClick: (() -> Unit)? = when (link?.kind) {
+            ClaudeChats.CARD -> link.noteId?.let { id -> { actions.onCard(id) } }
+            ClaudeChats.READER -> link.readerId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.reader(id, link.page)) } }
+            ClaudeChats.EXERCISE -> link.lessonId?.let { id -> { actions.onPath(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.lessonPlay(id, from = "claude")) } }
+            else -> null
+        }
+        ContextChip(badge, onClick = onClick)
     }
 }
 

@@ -1032,6 +1032,33 @@ thread). This part is worker + shared types only; the screens come later.
     both (checked first). Privacy: only the learner's own Claude chats — never `student_profiles` (tested); the
     memory row goes with the account (`DELETE_STEPS`).
 
+## Reader and exercise threads (web + Lab)
+
+Jerome (Nov 2026): "add a chat with a graded reader or a chat with whatever exercise … you're talking to a unified
+Claude, but it is aware of the context you're invoking it from." Two more contexts of the same thread store, screen and
+harness (`contexts/reader.ts`, `contexts/exercise.ts`; CLAUDE.md "Claude agent harness"):
+
+- **`reader`** `{ reader_id, page_id?, page?, looked_up?, said_wrong? }`, ref `reader:page`. The reading view's **💬** (end
+  of the "📖 GRADED READER" row — every reading view: `/readers/:id`, the session's reader, a homework pass, the Lab's
+  Today's story) opens the PAGE's thread in a sheet (web `components/claude/ContextClaudeSheet.tsx`, Lab
+  `ui/claude/ContextClaudeSheet.kt` via `ui/readers/ReaderClaude.kt`), with the words of this reading's word recap run on
+  that page (`readerPageWords`). Chips: (The words I looked up) · What does this page mean? · Explain the grammar in this
+  sentence · Quiz me on this page. Badge "📖 Reader · 成都 p.3" → `/readers/:id?page=3`.
+- **`exercise`** `{ lesson_id, exercise_key, exercise_type?, answer? }`, ref `lesson:s0e1`. A real run of one of his
+  stored lessons: the player's top-bar **💬** (any exercise) and the answer check's **💬 Ask Claude** (his answer + the
+  check ride along) open the exercise's thread (web `components/lessons/ExerciseClaude.tsx`, Lab
+  `ui/lessons/ExerciseClaude.kt`); previews / the catalogue / a Coach mistake lesson keep the old inline "💬 Ask about
+  this" (`POST /api/lessons/answer-check/ask`, kept for older builds). Chips by type and answer: Why is my answer wrong? /
+  Is my answer OK? · Explain the right answer / the model answer / the word order / this note · Give me another example ·
+  One more like this. Badge "🧩 Exercise · Translate" → the lesson.
+- Both resume the context's thread from the last 30 min (`resumeThreadFor`), ＋ New chat; Ask only; the server checks the
+  reader / lesson is the caller's (404 / 403) and labels the badge from its own rows (the stored spec's exercise type
+  wins). A follow-up carries the fields as they stand now (`looked_up` / `said_wrong`, `answer`; null clears) →
+  `setContextFields`. `GET /api/claude/threads?context_kind=&context_ref=` lists one context's threads. Claude's cards go
+  into the deck it picks from the listed ones (the Coach's applier). Analytics `reader.ask_claude`, `lesson.exercise_ask`
+  (`lesson.answer_ask` → replaced by it). Rules `shared/claude/context.ts` + `contexts.ts`, Lab core `ClaudeChats.kt`
+  (parity-tested).
+
 ## Claude thread view (web + Lab)
 
 ONE screen for every chat with Claude, whatever its context (the unified-Claude-chats plan §6.3–6.4):

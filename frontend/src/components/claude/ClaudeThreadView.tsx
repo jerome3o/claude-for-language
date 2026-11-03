@@ -72,6 +72,11 @@ export interface ClaudeThreadViewProps {
   autoSend?: { text: string; intent: ClaudeIntent; key?: string } | null;
   /** A card thread: the answer typed on this showing of the card, sent with each question (null = none). */
   typed?: { answer: string; correct?: string } | null;
+  /**
+   * A reader / exercise thread: its context's fields as they stand on this showing (a page's
+   * `looked_up` / `said_wrong`, an exercise's `answer`), sent with each question; the chips read them.
+   */
+  contextFields?: Record<string, unknown>;
   /** Under the header chip (the card sheet's "Earlier about 银行"). */
   headerExtra?: ReactNode;
   /** A reply this screen saw being written has finished (the card sheet applies Claude's card tools). */
@@ -192,7 +197,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         res = await startClaudeThread({ context, snapshot: snapshotOf(newContext), text: msg, intent, language, quick });
         props.onThreadCreated?.(res.threadId);
       } else {
-        res = await sendClaudeMessage(threadId, { text: msg, language, quick, ...(ctx.kind === 'card' ? { typed: props.typed ?? null } : {}) });
+        res = await sendClaudeMessage(threadId, {
+          text: msg,
+          language,
+          quick,
+          ...(ctx.kind === 'card' ? { typed: props.typed ?? null } : {}),
+          ...((ctx.kind === 'reader' || ctx.kind === 'exercise') && props.contextFields ? { fields: props.contextFields } : {}),
+        });
       }
       track('claude.message_send', { context_kind: ctx.kind, intent, offline: res.queued, chip: !!fromChip, spoken });
       if (ctx.kind === 'card') track('study.ask_claude', { card_type: props.cardType ?? (ctx as { card_type?: string }).card_type ?? null, language, quick, via: 'thread' });
@@ -323,10 +334,12 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     state.liveTool?.messageId === m.id ? turnStatusLine(state.liveTool.status as 'tool', state.liveTool.tool, language) : null;
 
   // A chip is used once its question is one of my messages (also after the page moved to the new thread).
-  const allChips = chipsFor(ctx, { language, hasSentence: props.hasSentence });
+  // A reader / exercise thread's chips read its fields as they stand on this showing.
+  const chipCtx = (ctx.kind === 'reader' || ctx.kind === 'exercise') && props.contextFields ? ({ ...ctx, ...props.contextFields } as StoredClaudeContext) : ctx;
+  const allChips = chipsFor(chipCtx, { language, hasSentence: props.hasSentence });
   const asked = new Set(rows.filter((m) => m.role === 'user').map((m) => m.content.trim()));
   const used = [...usedChips, ...allChips.filter((c) => asked.has(c.question)).map((c) => c.id)];
-  const chips: ClaudeChip[] = readOnly || busy ? [] : chipsFor(ctx, { language, hasSentence: props.hasSentence, replies, used });
+  const chips: ClaudeChip[] = readOnly || busy ? [] : chipsFor(chipCtx, { language, hasSentence: props.hasSentence, replies, used });
   const useChip = (c: ClaudeChip) => {
     // 🆘 How do I say…: into the box, to be finished.
     if (c.fill) {
@@ -344,6 +357,14 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     if (!link) return;
     if (link.kind === 'card') {
       navigate(`/cards/${encodeURIComponent(link.note_id)}`);
+      return;
+    }
+    if (link.kind === 'reader') {
+      navigate(`/readers/${encodeURIComponent(link.reader_id)}${link.page ? `?page=${link.page}` : ''}`);
+      return;
+    }
+    if (link.kind === 'exercise') {
+      navigate(`/lessons/${encodeURIComponent(link.lesson_id)}/play?from=claude`);
       return;
     }
     if (link.conversation_id) {
@@ -380,7 +401,17 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const empty = rows.length === 0 && !sending;
   const offlineNoCache = !isNew && !thread && !state.loading && !!state.error;
   const cardLabel = ctx.kind === 'card' ? (ctx as { label?: string }).label : undefined;
-  const title = thread?.title || (ctx.kind === 'general' ? COACH_ASK_LABEL : cardLabel ? `Ask about ${cardLabel}` : chip?.text ?? COACH_ASK_LABEL);
+  const title =
+    thread?.title ||
+    (ctx.kind === 'general'
+      ? COACH_ASK_LABEL
+      : cardLabel
+        ? `Ask about ${cardLabel}`
+        : ctx.kind === 'reader'
+          ? 'Ask about this page'
+          : ctx.kind === 'exercise'
+            ? 'Ask about this exercise'
+            : chip?.text ?? COACH_ASK_LABEL);
   const sheet = variant === 'sheet';
 
   return (
@@ -465,6 +496,10 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
                     ? 'Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below.'
                     : 'Ask Claude anything about this card — or tap a suggestion below.'}
               </p>
+            ) : ctx.kind === 'reader' ? (
+              <p data-testid="claude-thread-reader-hint">Ask Claude about this page — what a sentence means, a word, the grammar — or tap a suggestion below. Claude can see the page and the words you looked up.</p>
+            ) : ctx.kind === 'exercise' ? (
+              <p data-testid="claude-thread-exercise-hint">Ask Claude about this exercise — why the answer is what it is, another example, one more to try — or tap a suggestion below.</p>
             ) : ctx.kind === 'practice' ? (
               <p data-testid="claude-thread-practice-hint">Claude is setting the scene… Answer in Chinese. Stuck? 💡 a hint, 🆘 how to say something, ✏️ a correction.</p>
             ) : (
@@ -504,7 +539,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           }}
           language={language}
           online={isOnline}
-          explorerSource={ctx.kind === 'card' ? 'ask_claude' : undefined}
+          explorerSource={ctx.kind === 'card' ? 'ask_claude' : ctx.kind === 'reader' ? 'reader' : ctx.kind === 'exercise' ? 'lesson' : undefined}
           voice={voice}
         />
         {sending && (

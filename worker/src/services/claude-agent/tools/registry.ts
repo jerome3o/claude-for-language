@@ -68,6 +68,30 @@ export interface ToolEntry {
   wording?: Partial<Record<ContextKind, ToolSchemaShape>>;
 }
 
+/**
+ * create_flashcards as the Sentence Coach's chat words it — the deck picked from the learner's decks
+ * listed in the context. Also the reader and exercise chats' wording (their cards go where he says).
+ */
+const DECK_PICKED_CREATE_FLASHCARDS: ToolSchemaShape = {
+  name: 'create_flashcards',
+  description: "Create new flashcards in one of the user's decks. The user's decks (with ids) are listed in the conversation context.",
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      deck_id: { type: 'string', description: 'Target deck ID (required — pick from the decks listed in the context).' },
+      flashcards: {
+        type: 'array',
+        description: 'Array of flashcards to create',
+        items: {
+          type: 'object',
+          ...FLASHCARD_ITEM_SCHEMA,
+        },
+      },
+    },
+    required: ['deck_id', 'flashcards'],
+  },
+};
+
 export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   edit_current_card: {
     kind: 'write',
@@ -91,7 +115,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   create_flashcards: {
     kind: 'write',
-    contexts: ['card', 'coach', 'chat_message'],
+    contexts: ['card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: {
       name: 'create_flashcards',
       description: 'Create new flashcards. By default, cards are added to the current deck. To add cards to a different deck, specify the deck_id. The user\'s available decks are listed in the context.',
@@ -112,25 +136,9 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
       },
     },
     wording: {
-      coach: {
-        name: 'create_flashcards',
-        description: "Create new flashcards in one of the user's decks. The user's decks (with ids) are listed in the conversation context.",
-        input_schema: {
-          type: 'object' as const,
-          properties: {
-            deck_id: { type: 'string', description: 'Target deck ID (required — pick from the decks listed in the context).' },
-            flashcards: {
-              type: 'array',
-              description: 'Array of flashcards to create',
-              items: {
-                type: 'object',
-                ...FLASHCARD_ITEM_SCHEMA,
-              },
-            },
-          },
-          required: ['deck_id', 'flashcards'],
-        },
-      },
+      coach: DECK_PICKED_CREATE_FLASHCARDS,
+      reader: DECK_PICKED_CREATE_FLASHCARDS,
+      exercise: DECK_PICKED_CREATE_FLASHCARDS,
       chat_message: {
         name: 'create_flashcards',
         description: 'Create flashcards for Chinese vocabulary or phrases that the user should learn. Use this when the user asks to create flashcards, or when you identify vocabulary worth learning from the discussion. Each flashcard should have Chinese characters, pinyin with tone marks, English translation, and optional notes.',
@@ -183,7 +191,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   search_cards: {
     kind: 'read',
-    contexts: ['card', 'coach', 'chat_message'],
+    contexts: ['card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: {
       name: 'search_cards',
       description: 'Search through all flashcards across all decks. Use this to find related vocabulary, check for duplicates, or answer questions about what cards exist.',
@@ -211,7 +219,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   bump_cards: {
     kind: 'read',
-    contexts: ['card', 'coach', 'chat_message'],
+    contexts: ['card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: BUMP_CARDS_TOOL,
   },
   list_conversations: {
@@ -243,7 +251,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   get_note_cards: {
     kind: 'read',
-    contexts: ['card', 'coach'],
+    contexts: ['card', 'coach', 'reader', 'exercise'],
     schema: {
       name: 'get_note_cards',
       description: `Get all cards for a specific note with their current SRS state (ease factor, interval, queue, repetitions). Use this to check detailed card scheduling data or compare cards for a note.`,
@@ -337,7 +345,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   search_my_chats: {
     kind: 'read',
-    contexts: ['general', 'card', 'coach', 'chat_message'],
+    contexts: ['general', 'card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: {
       name: 'search_my_chats',
       description:
@@ -354,7 +362,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
   },
   read_chat: {
     kind: 'read',
-    contexts: ['general', 'card', 'coach', 'chat_message'],
+    contexts: ['general', 'card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: {
       name: 'read_chat',
       description:

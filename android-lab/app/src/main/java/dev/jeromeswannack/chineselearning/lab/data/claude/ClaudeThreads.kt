@@ -14,6 +14,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadRes
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeTurnEvent
 import dev.jeromeswannack.chineselearning.lab.data.api.cardClaudeThreads
+import dev.jeromeswannack.chineselearning.lab.data.api.contextClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeThread
 import dev.jeromeswannack.chineselearning.lab.data.api.createClaudeThread
@@ -115,6 +116,27 @@ class ClaudeThreads(
         for (c in opened + local) byId[c.thread.id] = c.thread
         byId.values.filter { it.context_kind == ClaudeChats.CARD && it.context.note_id == noteId }
     }.distinctUntilChanged()
+
+    /**
+     * The threads of one reader page / exercise on this phone ([kind] + its canonical [ref]): the server's
+     * list as last fetched ([refreshContextThreads]) merged with every thread opened / started here.
+     */
+    fun observeContextThreads(kind: String, ref: String): Flow<List<ClaudeThreadDto>> = combine(
+        cache.observe(contextKey(kind, ref), ListSerializer(ClaudeThreadDto.serializer())),
+        cache.observeAll(KIND, CachedClaudeThread.serializer()),
+        cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
+    ) { listed, opened, local ->
+        val byId = LinkedHashMap<String, ClaudeThreadDto>()
+        for (t in listed.orEmpty()) byId[t.id] = t
+        for (c in opened + local) byId[c.thread.id] = c.thread
+        byId.values.filter { it.context_kind == kind && it.context.core().ref == ref }
+    }.distinctUntilChanged()
+
+    /** `GET /api/claude/threads?context_kind=&context_ref=` into the cache. Throws on a network / server error. */
+    suspend fun refreshContextThreads(kind: String, ref: String) {
+        val res = api.contextClaudeThreads(kind, ref)
+        cache.put(contextKey(kind, ref), CARD_LIST_KIND, res.threads, ListSerializer(ClaudeThreadDto.serializer()))
+    }
 
     /** True the first time for a reply id (remembered): its card tools are applied on this phone once. */
     suspend fun markCardEffectsApplied(replyId: String): Boolean = lock.withLock {
@@ -278,10 +300,19 @@ class ClaudeThreads(
      * A message in an existing thread (Ask). Offline → queued like [start]. [quick] = a suggestion chip
      * (not checked); [typed] = a card thread's typed answer (see [ClaudeSendBody.typed]).
      */
-    suspend fun send(threadId: String, text: String, language: String?, online: Boolean, quick: Boolean = false, typed: JsonElement? = null): SendResult {
+    suspend fun send(
+        threadId: String,
+        text: String,
+        language: String?,
+        online: Boolean,
+        quick: Boolean = false,
+        typed: JsonElement? = null,
+        /** A reader / exercise thread's context as it stands now (looked_up / said_wrong, answer). */
+        fields: ContextFields? = null,
+    ): SendResult {
         val clientId = newId()
         val cached = get(threadId)
-        val body = ClaudeSendBody(clientId, text, "ask", language, quick.takeIf { it }, typed)
+        val body = ClaudeSendBody(clientId, text, "ask", language, quick.takeIf { it }, typed, fields?.lookedUp, fields?.saidWrong, fields?.answer)
         if (online && cached?.local != true) {
             try {
                 cacheResponse(api.sendClaudeMessage(threadId, body))
@@ -397,6 +428,7 @@ class ClaudeThreads(
         const val EFFECTS_KIND = "claude-card-effects"
         const val EFFECTS_MAX = 200
         fun cardKey(noteId: String) = "claude/card/$noteId"
+        fun contextKey(kind: String, ref: String) = "claude/$kind/$ref"
 
         /** The Discuss-with-Claude threads as last fetched. */
         const val MESSAGE_LIST = "claude/messages"
@@ -464,3 +496,14 @@ class ClaudeThreads(
         }
     }
 }
+
+/**
+ * A reader / exercise thread's context fields as they stand on this showing, sent with each question
+ * (the server keeps them on the thread): a reader page's looked-up / misread words, an exercise's answer
+ * and its check. JsonNull takes one out.
+ */
+data class ContextFields(
+    val lookedUp: JsonElement? = null,
+    val saidWrong: JsonElement? = null,
+    val answer: JsonElement? = null,
+)

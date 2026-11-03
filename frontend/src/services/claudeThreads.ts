@@ -56,6 +56,8 @@ export interface ClaudeOutboxEntry {
   quick?: boolean;
   /** A card thread: the answer typed on that showing of the card (null = none; absent = leave it). */
   typed?: { answer: string; correct?: string } | null;
+  /** A reader / exercise thread: its context as it stands on this showing (looked_up / said_wrong, answer). */
+  fields?: Record<string, unknown>;
   created_at: string;
   status: 'pending' | 'sending' | 'failed';
   attempts: number;
@@ -314,11 +316,23 @@ function stripPracticeSnapshot<T extends Record<string, unknown>>(ctx: T): T {
 /** A message in an existing thread (Ask). Offline → queued like `startClaudeThread`. */
 export async function sendClaudeMessage(
   threadId: string,
-  input: { text: string; language?: 'zh' | 'en'; quick?: boolean; typed?: { answer: string; correct?: string } | null },
+  input: {
+    text: string;
+    language?: 'zh' | 'en';
+    quick?: boolean;
+    typed?: { answer: string; correct?: string } | null;
+    /** A reader / exercise thread: the context fields as they stand now (`looked_up`, `said_wrong`, `answer`). */
+    fields?: Record<string, unknown>;
+  },
 ): Promise<SendResult> {
   const clientId = newClientId();
   const thread = await db.claudeThreads.get(threadId);
-  const extras = { ...(input.language ? { language: input.language } : {}), ...(input.quick ? { quick: true } : {}), ...(input.typed !== undefined ? { typed: input.typed } : {}) };
+  const extras = {
+    ...(input.fields ?? {}),
+    ...(input.language ? { language: input.language } : {}),
+    ...(input.quick ? { quick: true } : {}),
+    ...(input.typed !== undefined ? { typed: input.typed } : {}),
+  };
   if (!isOffline() && !thread?.local) {
     try {
       const res = await sendClaudeThreadMessage(threadId, { client_id: clientId, text: input.text, ...extras });
@@ -338,6 +352,7 @@ export async function sendClaudeMessage(
       language: input.language,
       ...(input.quick ? { quick: true } : {}),
       ...(input.typed !== undefined ? { typed: input.typed } : {}),
+      ...(input.fields ? { fields: input.fields } : {}),
       created_at: nowIso(),
       status: 'pending',
       attempts: 0,
@@ -387,6 +402,7 @@ export function flushClaudeOutbox(): Promise<{ sent: number; failed: number }> {
               ...(current.quick ? { quick: true } : {}),
             })
           : await sendClaudeThreadMessage(current.thread_id, {
+              ...(current.fields ?? {}),
               client_id: current.client_id,
               text: current.text,
               ...(current.language ? { language: current.language } : {}),

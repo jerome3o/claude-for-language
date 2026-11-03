@@ -196,7 +196,14 @@ fun rememberLessonAnswerCheck(
 @Composable
 fun AnswerCheckView(state: LessonAnswerCheckState, answer: String, env: ExerciseEnv) {
     if (state.input == null) return
-    AnswerCheckCard(state.ui, answer, onPlay = env.speak, onRetry = state::retry, onAsk = { state.asking = true })
+    // A real run of one of his lessons: 💬 Ask Claude = the exercise's Claude thread (ExerciseClaude.kt),
+    // his answer + the check riding with it; else the old inline "Ask about this" chat.
+    val claude = LocalExerciseClaude.current
+    AnswerCheckCard(
+        state.ui, answer, onPlay = env.speak, onRetry = state::retry,
+        onAsk = if (claude != null) ({ claude.ask("answer_check", exerciseAnswerOf(state.input?.answer ?: answer, state.check)) }) else ({ state.asking = true }),
+        askLabel = if (claude != null) "💬 Ask Claude" else null,
+    )
     val input = state.input
     if (state.asking && input != null) {
         AskAboutAnswerSheet(input, state.check, ask = state::ask, onClose = { state.asking = false })
@@ -205,11 +212,11 @@ fun AnswerCheckView(state: LessonAnswerCheckState, answer: String, env: Exercise
 
 /** Stateless (screenshots): Checking… / the check / nothing. */
 @Composable
-fun AnswerCheckCard(ui: AnswerCheckUi, answer: String, onPlay: (String) -> Unit, onRetry: (() -> Unit)? = null, onAsk: (() -> Unit)? = null) {
+fun AnswerCheckCard(ui: AnswerCheckUi, answer: String, onPlay: (String) -> Unit, onRetry: (() -> Unit)? = null, onAsk: (() -> Unit)? = null, askLabel: String? = null) {
     when (ui) {
         AnswerCheckUi.Checking -> CheckingRow()
         is AnswerCheckUi.Done -> AnimatedVisibility(true, enter = fadeIn() + expandVertically()) {
-            AnswerCheckBody(ui.check, answer, onPlay, onRetry, onAsk)
+            AnswerCheckBody(ui.check, answer, onPlay, onRetry, onAsk, askLabel = askLabel)
         }
         else -> Unit
     }
@@ -245,6 +252,8 @@ fun AnswerCheckBody(
     onRetry: (() -> Unit)? = null,
     onAsk: (() -> Unit)? = null,
     compact: Boolean = false,
+    /** The 💬 action's words (default "💬 Ask about this"). */
+    askLabel: String? = null,
     /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
     afterHead: (@Composable () -> Unit)? = null,
 ) {
@@ -322,7 +331,7 @@ fun AnswerCheckBody(
             if (onRetry != null || onAsk != null) {
                 FlowRow(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     onRetry?.let { CheckAction("🔁 Try again", it) }
-                    onAsk?.let { CheckAction("💬 Ask about this", it) }
+                    onAsk?.let { CheckAction(askLabel ?: "💬 Ask about this", it) }
                 }
             }
         }

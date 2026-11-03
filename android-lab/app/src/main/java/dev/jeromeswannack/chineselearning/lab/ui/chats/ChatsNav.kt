@@ -73,6 +73,7 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
         ChatsActions(
             onOpen = { item -> nav.open(vm.open(item)) },
             onCard = { noteId -> nav.open(Routes.cardHub(noteId)) },
+            onPath = { path -> nav.open(path) },
             onQuery = vm::setQuery,
             onFilter = vm::setFilter,
             onToggleClaude = vm::toggleClaudeSection,

@@ -49,7 +49,7 @@ export function createAnthropicClient(apiKey: string): Pick<Anthropic, 'messages
 
 const EPHEMERAL = { type: 'ephemeral' } as const;
 
-export type ChatTurnSurface = 'ask' | 'coach' | 'coach_ask' | 'discuss' | 'practice';
+export type ChatTurnSurface = 'ask' | 'coach' | 'coach_ask' | 'discuss' | 'practice' | 'reader' | 'exercise';
 
 /** The tool list with a cache breakpoint on its last tool (caches every definition). */
 export function cachedTools(tools: Anthropic.Tool[]): Anthropic.Tool[] {

@@ -100,6 +100,8 @@ class ReaderEnv(
     val speak: (text: String) -> Unit = {},
     /** 📝 Reader word recap: what this reading collects (taps, read-aloud mistakes), offered after the finish. */
     val recap: dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore.Collector? = null,
+    /** 📖 Ask Claude about this page: the 💬 in the reading view opens the page's Claude thread (the app's reading views). */
+    val askClaude: Boolean = false,
 )
 
 val Violet = Color(0xFF8B5CF6)
@@ -379,13 +381,14 @@ fun ReaderProgress(fraction: Float) {
  * session's ▶ Play whole story) sits at the START of the label row, the label staying centred.
  */
 @Composable
-fun PageTitle(titleChinese: String, sub: String, leading: (@Composable () -> Unit)? = null) {
+fun PageTitle(titleChinese: String, sub: String, leading: (@Composable () -> Unit)? = null, trailing: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         val label = @Composable { Text("📖  GRADED READER", color = Violet, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 1.sp) }
-        if (leading == null) label()
+        if (leading == null && trailing == null) label()
         else Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Box(Modifier.align(Alignment.CenterStart)) { leading() }
+            leading?.let { Box(Modifier.align(Alignment.CenterStart)) { it() } }
             Box(Modifier.padding(horizontal = 52.dp)) { label() }
+            trailing?.let { Box(Modifier.align(Alignment.CenterEnd)) { it() } }
         }
         Text(titleChinese, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
         Text(sub, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, textAlign = TextAlign.Center)

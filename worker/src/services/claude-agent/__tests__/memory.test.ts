@@ -8,6 +8,7 @@
  * summary + the last turns, and E2E_TEST_MODE takes the stand-in first.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { seedReaderAndLesson } from './context-seed';
 import type Anthropic from '@anthropic-ai/sdk';
 import { createSqliteD1, type SqliteD1 } from '../../__tests__/sqlite-d1';
 import type { Env } from '../../../types';
@@ -46,6 +47,7 @@ function seed(db: SqliteD1) {
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('r1', 't1', 'u1', 'tutor', 'active')");
   db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('cv1', 'r1')");
   db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content) VALUES ('m1', 'cv1', 't1', '你去过银行吗？')");
+  seedReaderAndLesson(db, 'u1', null);
 }
 
 let clock = 0;
@@ -220,6 +222,8 @@ describe('Claude memory', () => {
       card: { ctx: { kind: 'card', note_id: 'n1' }, input: { userId: U, language: 'zh', turns: [{ role: 'user', content: '这个词怎么用？' }] } },
       coach: { ctx: { kind: 'coach' }, input: { userId: U, turns: [{ role: 'user', content: 'The user submitted this sentence: "我去银行。"' }, { role: 'assistant', content: 'analysis' }, { role: 'user', content: 'Why 去?' }] } },
       chat_message: { ctx: { kind: 'chat_message', message_id: 'm1' }, input: { userId: U, turns: [{ role: 'user', content: 'What does it mean?' }] } },
+      reader: { ctx: { kind: 'reader', reader_id: 'rd1', page_id: 'pg1' }, input: { userId: U, language: 'zh', turns: [{ role: 'user', content: '这页讲什么？' }] } },
+      exercise: { ctx: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1' }, input: { userId: U, turns: [{ role: 'user', content: 'Explain it' }] } },
       practice: { ctx: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员' }, input: { userId: U, language: 'zh', turns: [{ role: 'user', content: '你好' }] } },
     };
 
@@ -243,8 +247,8 @@ describe('Claude memory', () => {
         await runClaudeTurn(envOf(db), CONTEXTS[kind].ctx, CONTEXTS[kind].input, { client });
         const p = seen[0];
         const system = p.system as Anthropic.TextBlockParam[];
-        // A role-play adds its situation as the (uncached) context block after the two cached ones.
-        expect(system.length, kind).toBe(kind === 'practice' ? 3 : 2);
+        // reader / exercise / a role-play: + their context block after the two cached ones.
+        expect(system.length, kind).toBe(kind === 'practice' || kind === 'reader' || kind === 'exercise' ? 3 : 2);
         expect(system[1].text, kind).toContain(block);
         expect(system[1].cache_control, kind).toEqual({ type: 'ephemeral' });
         let n = 0;

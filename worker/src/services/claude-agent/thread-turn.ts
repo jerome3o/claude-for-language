@@ -26,7 +26,8 @@
  * `chat_message` (Discuss with Claude — create_flashcards proposals are returned, never saved),
  * `practice` (a role-play: Claude may speak first — a reply with no learner message before it is the
  * opener; its Chinese lines' clip in the persona's voice is made after the reply, never awaited). Old
- * practice chats copied in are read-only. The Coach's structured first replies (check / explain /
+ * practice chats copied in are read-only. `reader` (a graded reader's page) and `exercise` (a mini lesson's
+ * exercise): their create_flashcards saved into the deck Claude picked from the listed ones, like the Coach's. The Coach's structured first replies (check / explain /
  * translate) and mistake lessons stay on `runCoachReply` (coach-replies.ts) — not streamed.
  */
 import type Anthropic from '@anthropic-ai/sdk';
@@ -86,7 +87,7 @@ export interface ThreadTurnDeps {
 
 type Checkpoint = ActionCheckpoint<ToolAction, AppliedToolResult>;
 
-type Mode = 'general' | 'coach' | 'card' | 'chat_message' | 'practice';
+type Mode = 'general' | 'coach' | 'card' | 'chat_message' | 'practice' | 'reader' | 'exercise';
 
 interface PreparedThreadTurn {
   mode: Mode;
@@ -120,6 +121,28 @@ export async function prepareThreadTurn(database: D1Database, row: store.TurnRow
       };
     case 'chat_message':
       return { mode: 'chat_message', ctx: { kind: 'chat_message', message_id: context.message_id }, turns: threadTextTurns(before), question };
+    case 'reader':
+      return {
+        mode: 'reader',
+        ctx: {
+          kind: 'reader',
+          reader_id: context.reader_id,
+          ...(context.page_id ? { page_id: context.page_id } : {}),
+          ...(context.looked_up ? { looked_up: context.looked_up } : {}),
+          ...(context.said_wrong ? { said_wrong: context.said_wrong } : {}),
+        },
+        turns: threadTextTurns(before),
+        language: language ?? 'en',
+        question,
+      };
+    case 'exercise':
+      return {
+        mode: 'exercise',
+        ctx: { kind: 'exercise', lesson_id: context.lesson_id, exercise_key: context.exercise_key, ...(context.answer ? { answer: context.answer } : {}) },
+        turns: threadTextTurns(before),
+        language: language ?? 'en',
+        question,
+      };
     case 'practice': {
       // An old practice chat (its conversation, no situation of its own) has no reply path.
       if (!context.scenario && !context.note_id) throw new StructuredCallError('This chat can’t continue here yet', false);
@@ -269,7 +292,7 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
         else await work;
       }
     }
-    if ((prepared.mode === 'general' || prepared.mode === 'card') && prepared.language === 'zh') {
+    if ((prepared.mode === 'general' || prepared.mode === 'card' || prepared.mode === 'reader' || prepared.mode === 'exercise') && prepared.language === 'zh') {
       const clip = clipMaker(env, opts);
       if (clip) {
         const work = (async () => {
@@ -298,7 +321,19 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
 }
 
 function bumpSourceOf(mode: Mode): string | undefined {
-  return mode === 'card' ? 'ask_claude' : mode === 'coach' ? 'coach_chat' : mode === 'chat_message' ? 'chat_discuss' : undefined;
+  switch (mode) {
+    case 'card':
+    case 'exercise':
+      return 'ask_claude';
+    case 'coach':
+      return 'coach_chat';
+    case 'chat_message':
+      return 'chat_discuss';
+    case 'reader':
+      return 'reader';
+    default:
+      return undefined;
+  }
 }
 
 function clipMaker(env: ThreadTurnEnv, opts: ThreadTurnDeps): AskClipMaker | null {
@@ -320,6 +355,11 @@ function applierFor(env: ThreadTurnEnv, prepared: PreparedThreadTurn, userId: st
   if (prepared.mode === 'coach') {
     const apply = opts.applyCoach ?? defaultApply(env);
     return (action) => apply(userId, action);
+  }
+  if (prepared.mode === 'reader' || prepared.mode === 'exercise') {
+    // A reader page's / an exercise's cards: saved into the deck Claude picked, like the Coach's chat.
+    const apply = opts.applyCoach ?? defaultApply(env);
+    return async (action) => (action.tool === 'create_flashcards' ? apply(userId, action) : { tool: action.tool, success: false, error: 'Unsupported tool' });
   }
   return async (action) => ({ tool: action.tool, success: false, error: 'Unsupported tool' });
 }

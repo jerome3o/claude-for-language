@@ -13,6 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import type Anthropic from '@anthropic-ai/sdk';
 import { createSqliteD1 } from '../../__tests__/sqlite-d1';
+import { seedReaderAndLesson } from './context-seed';
 import { CONTEXT_KINDS, runClaudeTurn, type ClaudeContext, type ContextKind } from '..';
 import { rebuildLearnerDigest, summarizeThread } from '../memory';
 import { executeReadChat, executeSearchMyChats } from '../tools/memory';
@@ -51,6 +52,7 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
     db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('r1', 't1', 'u1', 'tutor', 'active')");
     db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('cv1', 'r1')");
     db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content) VALUES ('m1', 'cv1', 't1', '你好')");
+    seedReaderAndLesson(db, 'u1', null);
     const SECRET = 'PRIVATE-TUTOR-NOTE-7f3a';
     db.raw.run("INSERT INTO student_profiles (relationship_id, tutor_id, student_id, body, level) VALUES ('r1', 't1', 'u1', ?, 'intermediate')", [SECRET]);
     // Claude memory: the learner's own digest + a thread with a summary.
@@ -72,6 +74,8 @@ describe('no Claude chat reads the tutor’s private student profile', () => {
       card: { kind: 'card', note_id: 'n1' },
       coach: { kind: 'coach' },
       chat_message: { kind: 'chat_message', message_id: 'm1' },
+      reader: { kind: 'reader', reader_id: 'rd1', page_id: 'pg2' },
+      exercise: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1' },
       practice: { kind: 'practice', scenario: '在饭店点菜', note_id: 'n1' },
     };
     for (const kind of CONTEXT_KINDS) {

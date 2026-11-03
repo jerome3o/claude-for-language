@@ -6,6 +6,7 @@ import {
   composerFor,
   PRACTICE_READ_ONLY_NOTE,
   headerChipFor,
+  readerPageWords,
   resumeThreadFor,
   turnStatusLine,
   CHIPS_AFTER_REPLY_MAX,
@@ -124,5 +125,68 @@ describe('turnStatusLine', () => {
     expect(turnStatusLine('tool', 'other', 'zh')).toBe('在查… Looking it up…');
     expect(turnStatusLine('thinking', null, 'en')).toBe('Thinking…');
     expect(turnStatusLine('streaming', null, 'en')).toBeNull();
+  });
+});
+
+describe('reader + exercise contexts', () => {
+  it('reader chips: the page, its grammar, a quiz — the looked-up words first when there are any', () => {
+    expect(chipsFor({ kind: 'reader' }, { language: 'en' }).map((c) => c.label)).toEqual([
+      'What does this page mean?',
+      'Explain the grammar in this sentence',
+      'Quiz me on this page',
+    ]);
+    const zh = chipsFor({ kind: 'reader', looked_up: ['成都'] }, { language: 'zh' });
+    expect(zh.map((c) => c.id)).toEqual(['my_words', 'page_meaning', 'grammar', 'quiz']);
+    expect(zh[1].question).toBe('这一页讲的是什么？请一句一句地说一说。');
+    expect(chipsFor({ kind: 'reader', said_wrong: ['都'] }, { language: 'en' })[0].id).toBe('my_words');
+  });
+
+  it('exercise chips follow the type and the checked answer', () => {
+    expect(chipsFor({ kind: 'exercise', exercise_type: 'translate', answer: { verdict: 'wrong' } }, { language: 'en' }).map((c) => c.id)).toEqual(['why_wrong', 'explain', 'example', 'one_more']);
+    expect(chipsFor({ kind: 'exercise', exercise_type: 'translate', answer: { verdict: 'correct' } }, { language: 'en' })[0].label).toBe('Is my answer OK?');
+    expect(chipsFor({ kind: 'exercise', exercise_type: 'choice' }, { language: 'en' })[0].label).toBe('Explain the right answer');
+    expect(chipsFor({ kind: 'exercise', exercise_type: 'scramble' }, { language: 'zh' })[0].label).toBe('语序 Explain the word order');
+    expect(chipsFor({ kind: 'exercise', exercise_type: 'note' }, { language: 'en' })[0].label).toBe('Explain this note');
+    expect(chipsFor({ kind: 'exercise' }, { language: 'en' }).map((c) => c.label)).toEqual(['Explain this exercise', 'Give me another example', 'One more like this']);
+  });
+
+  it('Ask only; the header chip links to the reader page / the lesson', () => {
+    expect(composerFor('reader', '这是什么意思？', { started: false }).intents).toEqual(['ask']);
+    expect(composerFor('exercise', '', { started: false })).toMatchObject({ intents: ['ask'], enabled: false });
+    expect(headerChipFor({ kind: 'reader', reader_id: 'r1', page_id: 'p3', page: 3, label: '成都' })).toEqual({ icon: '📖', text: 'Reader · 成都 p.3', link: { kind: 'reader', reader_id: 'r1', page: 3 } });
+    expect(headerChipFor({ kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2', label: 'Translate' })).toEqual({
+      icon: '🧩',
+      text: 'Exercise · Translate',
+      link: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' },
+    });
+  });
+
+  it('resumes the same page / exercise within 30 minutes only', () => {
+    const now = Date.parse('2026-11-03T10:00:00Z');
+    const at = (m: number) => new Date(now - m * 60_000).toISOString();
+    const threads: ResumeCandidate[] = [
+      { id: 'p3', context_kind: 'reader', context: { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, last_message_at: at(10), created_at: at(20) },
+      { id: 'p4', context_kind: 'reader', context: { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, last_message_at: at(40), created_at: at(50) },
+      { id: 'e1', context_kind: 'exercise', context: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, last_message_at: at(5), created_at: at(6) },
+    ];
+    expect(resumeThreadFor(threads, { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, now)).toBe('p3');
+    expect(resumeThreadFor(threads, { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, now)).toBeNull();
+    expect(resumeThreadFor(threads, { kind: 'reader', reader_id: 'r1' }, now)).toBeNull();
+    expect(resumeThreadFor(threads, { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, now)).toBe('e1');
+    expect(resumeThreadFor(threads, { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }, now)).toBeNull();
+  });
+});
+
+describe('readerPageWords', () => {
+  it("one page's tapped / misread words, story order, de-duplicated; none → nothing", () => {
+    const words = [
+      { hanzi: '熊猫', page: 1, pos: 6, reasons: ['tapped'] },
+      { hanzi: '成都', page: 1, pos: 0, reasons: ['tapped', 'said_wrong'] },
+      { hanzi: '火锅', page: 2, pos: 3, reasons: ['tapped'] },
+      { hanzi: '可爱', page: 1, pos: 9, reasons: ['said_wrong'] },
+    ];
+    expect(readerPageWords(words, 1)).toEqual({ looked_up: ['成都', '熊猫'], said_wrong: ['成都', '可爱'] });
+    expect(readerPageWords(words, 2)).toEqual({ looked_up: ['火锅'] });
+    expect(readerPageWords(words, 0)).toEqual({});
   });
 });

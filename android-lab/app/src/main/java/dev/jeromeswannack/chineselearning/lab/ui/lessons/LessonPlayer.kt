@@ -189,8 +189,11 @@ fun LessonPlayer(
      * handwritten dictation is typed, and the attempt says "skipped (handwriting off)" for the tutor.
      */
     skipHandwriting: Boolean = false,
+    /** A real run of one of his STORED lessons: 💬 Ask Claude about the exercise on screen (ExerciseClaude.kt). */
+    lessonId: String? = null,
 ) {
     val preview = context is PlayerContext.Preview
+    val claudeState = remember { ExerciseClaudeState() }
     val shape = remember(spec) { LessonRun.shape(spec) }
     var run by remember { mutableIntStateOf(0) }
     // A run saved earlier continues where it stopped (the exercise on screen starts again) — any day.
@@ -220,6 +223,8 @@ fun LessonPlayer(
     var completed by remember(run) { mutableStateOf(false) }
     val current = LessonRun.current(state, steps)
     val done = current == null
+    // 💬 Ask Claude about the exercise on screen: a real run of one of his stored lessons only.
+    val claudeTarget = if (!preview && !done && !lessonId.isNullOrBlank()) current?.step?.let { st -> ExerciseClaudeTarget(lessonId, title, st.key, st.type) } else null
     val bar = LessonRun.retryBar(state, steps)
 
     LaunchedEffect(done) { if (done) onCelebrate() }
@@ -323,6 +328,7 @@ fun LessonPlayer(
                 if (preview && previewSave != null && !previewSave.saved && !done) {
                     SecondaryPill(if (previewSave.busy) "Saving…" else "＋ Save", Modifier.heightIn(min = 44.dp).testTag(PREVIEW_SAVE_NOW_TAG), enabled = !previewSave.busy, onClick = previewSave.onSaveNow)
                 }
+                claudeTarget?.let { t -> LessonAskClaudeButton { claudeState.open = Triple(t, "toolbar", null) } }
                 IconButton(onClick = onEnd) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "Close lesson", tint = Lab.colors.muted) }
             }
 
@@ -372,7 +378,9 @@ fun LessonPlayer(
                                 val mediaKey = if (preview) null else LessonRun.retryMediaKey(step.section, step.index, if (target.second == "retry") LessonRun.retryNumber(attempts, key) else 0)
                                 if (Lessons.renderable(exercise)) {
                                     androidx.compose.runtime.CompositionLocalProvider(LocalLessonFocus provides title) {
-                                        ExerciseView(exercise, env, mediaKey) { c, a, r -> if (stillHere()) advance(c, a, r) }
+                                        ExerciseClaudeHost(claudeTarget, claudeState) {
+                                            ExerciseView(exercise, env, mediaKey) { c, a, r -> if (stillHere()) advance(c, a, r) }
+                                        }
                                     }
                                 } else {
                                     // A half-typed exercise in the editor (the validator is the authority; this keeps it from crashing).
@@ -420,6 +428,7 @@ fun LessonPlayer(
                 }
             }
         }
+        ExerciseClaudeSheet(claudeState)
     }
 }
 

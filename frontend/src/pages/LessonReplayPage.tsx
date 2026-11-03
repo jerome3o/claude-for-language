@@ -22,7 +22,7 @@ import { lockedLessonLine, unlockButtonLabel } from '@shared/lesson';
 import { lockStatusOf, unlockLesson } from '../services/lessonUnlock';
 import './StudyPage.css';
 
-const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach', 'home']);
+const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach', 'home', 'claude']);
 
 export function LessonReplayPage() {
   const { id = '' } = useParams();

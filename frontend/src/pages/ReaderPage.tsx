@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { useQuery } from '@tanstack/react-query';
@@ -33,6 +33,9 @@ const DIFFICULTY_COLORS: Record<DifficultyLevel, { bg: string; text: string; lab
  */
 export function ReaderPage() {
   const { id } = useParams<{ id: string }>();
+  // `?page=N` (1-based): opened from a reader page's Claude thread (its header chip).
+  const [searchParams] = useSearchParams();
+  const startPage = Math.max(0, (Number(searchParams.get('page')) || 1) - 1);
   const navigate = useNavigate();
   useNativeOutputHold();
   const [finishing, setFinishing] = useState(false);
@@ -115,6 +118,7 @@ export function ReaderPage() {
     <div className="study-page-fullscreen">
     <ReaderView
       reader={reader}
+      initialPage={startPage}
       source="library"
       isFinishing={finishing}
       onFinish={handleFinish}

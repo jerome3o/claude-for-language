@@ -28,6 +28,9 @@ import { CARD_TOOLS } from '../contexts/card';
 import { COACH_TOOLS } from '../contexts/coach';
 import { CHAT_MESSAGE_TOOLS } from '../contexts/chat_message';
 import { GENERAL_TOOLS } from '../contexts/general';
+import { READER_TOOLS, readerWindow } from '../contexts/reader';
+import { EXERCISE_TOOLS, exerciseAt, exerciseJson } from '../contexts/exercise';
+import { seedReaderAndLesson } from './context-seed';
 
 type Params = Anthropic.MessageCreateParamsNonStreaming;
 type Reply = { model: string; stop_reason: string; content: unknown[]; usage: Record<string, number> };
@@ -78,6 +81,7 @@ function seed(db: SqliteD1) {
   db.raw.run("INSERT INTO tutor_relationships (id, requester_id, recipient_id, requester_role, status) VALUES ('r1', 't1', 'u1', 'tutor', 'active')");
   db.raw.run("INSERT INTO conversations (id, relationship_id) VALUES ('cv1', 'r1')");
   db.raw.run("INSERT INTO messages (id, conversation_id, sender_id, content) VALUES ('m1', 'cv1', 't1', '你去过银行吗？')");
+  seedReaderAndLesson(db);
 }
 
 const CONTEXTS: Record<ContextKind, { ctx: ClaudeContext; input: TurnInput }> = {
@@ -88,6 +92,14 @@ const CONTEXTS: Record<ContextKind, { ctx: ClaudeContext; input: TurnInput }> = 
     input: { userId: USER, turns: [{ role: 'user', content: 'The user submitted this sentence to the Sentence Coach: "我去银行。"' }, { role: 'assistant', content: 'analysis' }, { role: 'user', content: 'Why 去?' }] },
   },
   chat_message: { ctx: { kind: 'chat_message', message_id: 'm1' }, input: { userId: USER, turns: [{ role: 'user', content: 'What does it mean?' }] } },
+  reader: {
+    ctx: { kind: 'reader', reader_id: 'rd1', page_id: 'pg2', looked_up: ['熊猫'], said_wrong: ['可爱'] },
+    input: { userId: USER, language: 'zh', turns: [{ role: 'user', content: '这页讲什么？' }] },
+  },
+  exercise: {
+    ctx: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1', answer: { text: '我放书在桌子上。', verdict: 'almost', corrected: '我把书放在桌子上。', tips: ['Use 把 to move the object before the verb'] } },
+    input: { userId: USER, language: 'en', turns: [{ role: 'user', content: 'Why is my answer wrong?' }] },
+  },
   practice: {
     ctx: { kind: 'practice', scenario: '在饭店点菜', ai_role: '服务员', user_role: '客人', level: 'beginner' },
     input: { userId: USER, language: 'zh', turns: [{ role: 'user', content: '你好，我想点菜。' }] },
@@ -273,6 +285,58 @@ describe('Claude agent harness', () => {
       expect(prompts.chat_message.system).toContain('looking at a specific message');
       expect(prompts.chat_message.first).toContain('"你去过银行吗？"');
       expect(prompts.chat_message.first).toContain('Minghui: 你去过银行吗？');
+      // reader: the story, the page in full, the window around it, the looked-up words, the decks — in the context block.
+      expect(prompts.reader.system).toContain('graded reader');
+      expect(prompts.reader.system).toContain('《成都》 (Chengdu) — level: elementary, topic: travel');
+      expect(prompts.reader.system).toContain('The page they asked on (page 2 of 3):\n- Chinese: 成都的熊猫很可爱。');
+      expect(prompts.reader.system).toContain('- Page 1: 小明去成都。');
+      expect(prompts.reader.system).toContain('- Page 3: 他吃了很辣的火锅。');
+      expect(prompts.reader.system).toContain('Words they tapped to look up on this page: 熊猫');
+      expect(prompts.reader.system).toContain('Words they read aloud wrong on this page: 可爱');
+      expect(prompts.reader.system).toContain('HSK 2 (id: d1)');
+      expect(prompts.reader.system).toContain('answer ENTIRELY in simple Chinese');
+      expect(prompts.reader.first).toBe('这页讲什么？');
+      // exercise: the lesson, the exercise with its answer key, his answer and its check.
+      expect(prompts.exercise.system).toContain('mini lesson "把字句" (section: Practice)');
+      expect(prompts.exercise.system).toContain('Translate (type translate)');
+      expect(prompts.exercise.system).toContain('"reference_hanzi":"我把书放在桌子上。"');
+      expect(prompts.exercise.system).toContain('Their answer: 我放书在桌子上。');
+      expect(prompts.exercise.system).toContain("The app's check of it: almost");
+      expect(prompts.exercise.system).toContain('- Tip: Use 把 to move the object before the verb');
+      expect(prompts.exercise.system).toContain('Answer in clear, friendly English');
+    });
+
+    it('reader / exercise: the context block comes after the two cached blocks, uncached; the static block is the same for every page / exercise', async () => {
+      const a = await prepareClaudeTurn(env, CONTEXTS.reader.ctx, CONTEXTS.reader.input, { client: fakeModel([]).client });
+      const b = await prepareClaudeTurn(env, { kind: 'reader', reader_id: 'rd1', page_id: 'pg3' }, CONTEXTS.reader.input, { client: fakeModel([]).client });
+      expect(a.system).toHaveLength(3);
+      expect(a.system[2].cache_control).toBeUndefined();
+      expect(b.system[0].text).toBe(a.system[0].text);
+      expect(b.system[2].text).toContain('page 3 of 3');
+      expect(JSON.stringify(a.tools.map((t) => t.schema))).toBe(JSON.stringify(b.tools.map((t) => t.schema)));
+      // No page id: the first page.
+      const first = await prepareClaudeTurn(env, { kind: 'reader', reader_id: 'rd1' }, CONTEXTS.reader.input, { client: fakeModel([]).client });
+      expect(first.system[2].text).toContain('page 1 of 3');
+      // create_flashcards as the Coach words it: a deck from the list.
+      expect(a.tools.find((t) => t.name === 'create_flashcards')!.schema.input_schema).toMatchObject({ required: ['deck_id', 'flashcards'] });
+      const e = await prepareClaudeTurn(env, { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e0' }, CONTEXTS.exercise.input, { client: fakeModel([]).client });
+      expect(e.system.at(-1)!.text).toContain('Note (type note)');
+      expect(e.system.at(-1)!.text).toContain('They have not answered it yet');
+    });
+
+    it('the reader window: nearest pages first within the budget, in story order; the exercise JSON drops media fields', () => {
+      const pages = Array.from({ length: 9 }, (_, i) => ({ id: `p${i}`, page_number: i + 1, content_chinese: '字'.repeat(300), content_pinyin: '', content_english: 'w'.repeat(300) }));
+      const lines = readerWindow(pages, 4, { chars: 900 });
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.length).toBeLessThanOrEqual(4);
+      expect(lines.join('').length).toBeLessThanOrEqual(900);
+      expect(lines.some((l) => l.startsWith('Page 4:')) && lines.some((l) => l.startsWith('Page 6:'))).toBe(true);
+      expect(lines.map((l) => Number(/^Page (\d+)/.exec(l)![1]))).toEqual([...lines.map((l) => Number(/^Page (\d+)/.exec(l)![1]))].sort((a, b) => a - b));
+      expect(readerWindow(pages, 0).every((l) => !l.startsWith('Page 1:'))).toBe(true);
+      expect(exerciseJson({ type: 'describe_image', image_url: 'lesson-images/x.png', task: '说说' })).toBe('{"type":"describe_image","task":"说说"}');
+      expect(exerciseAt('{bad', 's0e0')).toBeNull();
+      expect(exerciseAt({ sections: [{ exercises: [{ type: 'note' }] }] }, 's0e1')).toBeNull();
+      expect(exerciseAt({ sections: [{ exercises: [{ type: 'note' }] }] }, 's0e0')).toMatchObject({ exercise: { type: 'note' } });
     });
 
     it('the typed answer of a card rides in the first message', async () => {
@@ -283,7 +347,7 @@ describe('Claude agent harness', () => {
 
   describe('the tool registry', () => {
     it('every context lists only tools the registry allows it, in a stable order', () => {
-      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: GENERAL_TOOLS, practice: [] };
+      const lists: Record<ContextKind, readonly string[]> = { card: CARD_TOOLS, coach: COACH_TOOLS, chat_message: CHAT_MESSAGE_TOOLS, general: GENERAL_TOOLS, practice: [], reader: READER_TOOLS, exercise: EXERCISE_TOOLS };
       for (const kind of CONTEXT_KINDS) {
         expect(CONTEXT_PROVIDERS[kind].tools({} as never)).toEqual(lists[kind]);
         for (const name of lists[kind]) expect(toolAllowed(kind, name)).toBe(true);
@@ -292,6 +356,10 @@ describe('Claude agent harness', () => {
       expect(toolAllowed('coach', 'edit_current_card')).toBe(false);
       expect(toolAllowed('chat_message', 'delete_current_card')).toBe(false);
       expect(toolAllowed('general', 'search_cards')).toBe(false);
+      // A reader page / an exercise: read-only look-ups + create_flashcards + bump_cards — nothing on a card, no lessons.
+      for (const kind of ['reader', 'exercise'] as const) {
+        for (const name of ['edit_current_card', 'delete_current_card', 'create_custom_lesson', 'get_overall_stats', 'list_student_decks']) expect(toolAllowed(kind, name)).toBe(false);
+      }
       // Claude memory's look-ups: every context with tools (a role-play has none — one round, in character).
       for (const kind of CONTEXT_KINDS.filter((k) => k !== 'practice')) for (const name of ['search_my_chats', 'read_chat']) expect(toolAllowed(kind, name)).toBe(true);
       expect(toolAllowed('practice', 'search_cards')).toBe(false);
@@ -332,6 +400,22 @@ describe('Claude agent harness', () => {
       await expect(run('x1', 'm1')).rejects.toMatchObject({ status: 403, message: 'Access denied' });
       db.raw.run("UPDATE tutor_relationships SET status = 'removed' WHERE id = 'r1'");
       await expect(run(USER, 'm1')).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('reader: missing 404, someone else’s 403, a page of another reader 404', async () => {
+      const client = fakeModel([text('x')]).client;
+      const run = (ctx: ClaudeContext) => runClaudeTurn(env, ctx, CONTEXTS.reader.input, { client });
+      await expect(run({ kind: 'reader', reader_id: 'nope' })).rejects.toMatchObject({ status: 404, message: 'Reader not found' });
+      await expect(run({ kind: 'reader', reader_id: 'rdx' })).rejects.toMatchObject({ status: 403 });
+      await expect(run({ kind: 'reader', reader_id: 'rd1', page_id: 'elsewhere' })).rejects.toMatchObject({ status: 404 });
+    });
+
+    it('exercise: missing lesson 404, someone else’s 403, a key past the end 404', async () => {
+      const client = fakeModel([text('x')]).client;
+      const run = (ctx: ClaudeContext) => runClaudeTurn(env, ctx, CONTEXTS.exercise.input, { client });
+      await expect(run({ kind: 'exercise', lesson_id: 'nope', exercise_key: 's0e0' })).rejects.toMatchObject({ status: 404 });
+      await expect(run({ kind: 'exercise', lesson_id: 'lsx', exercise_key: 's0e0' })).rejects.toMatchObject({ status: 403 });
+      await expect(run({ kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e9' })).rejects.toMatchObject({ status: 404, message: 'Exercise not found' });
     });
   });
 });

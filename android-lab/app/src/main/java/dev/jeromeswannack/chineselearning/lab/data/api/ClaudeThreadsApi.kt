@@ -28,11 +28,27 @@ data class ClaudeContextDto(
     val level: String? = null,
     val voice_id: String? = null,
     val message_id: String? = null,
+    /** A reader page's thread: the reader, its page (id + 1-based number), the page's looked-up / misread words. */
+    val reader_id: String? = null,
+    val page_id: String? = null,
+    val page: Int? = null,
+    val looked_up: List<String>? = null,
+    val said_wrong: List<String>? = null,
+    /** A mini lesson exercise's thread: the lesson, the exercise's key + type, his answer (+ its check). */
+    val lesson_id: String? = null,
+    val exercise_key: String? = null,
+    val exercise_type: String? = null,
+    val answer: JsonObject? = null,
     val label: String? = null,
     val sublabel: String? = null,
 ) {
     /** The core rules' view of it (chips, composer, header chip). */
-    fun core() = ClaudeChats.Context(kind, noteId = note_id, messageId = message_id, conversationId = conversation_id, scenario = scenario, label = label, typed = typed != null)
+    fun core() = ClaudeChats.Context(
+        kind, noteId = note_id, messageId = message_id, conversationId = conversation_id, scenario = scenario, label = label, typed = typed != null,
+        readerId = reader_id, pageId = page_id, page = page, lookedUp = looked_up.orEmpty(), saidWrong = said_wrong.orEmpty(),
+        lessonId = lesson_id, exerciseKey = exercise_key, exerciseType = exercise_type,
+        hasAnswer = answer != null, answerVerdict = (answer?.get("verdict") as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content,
+    )
 
     /** What the API takes (the descriptor without the snapshot). */
     fun descriptor() = copy(label = null, sublabel = null)
@@ -132,6 +148,11 @@ data class ClaudeSendBody(
     val language: String? = null,
     val quick: Boolean? = null,
     val typed: JsonElement? = null,
+    /** A reader thread: the page's looked-up / misread words now (JsonNull = none). */
+    val looked_up: JsonElement? = null,
+    val said_wrong: JsonElement? = null,
+    /** An exercise thread: his answer + its check now (JsonNull = none). */
+    val answer: JsonElement? = null,
 )
 
 /** `GET /api/claude/threads?…`: the rows; with `?since=`, the ids deleted since too (the Chats tab's list). */
@@ -170,6 +191,9 @@ suspend fun Api.sendClaudeMessage(id: String, body: ClaudeSendBody): ClaudeThrea
 suspend fun Api.cardClaudeThreads(noteId: String): ClaudeThreadListRes =
     get("$CLAUDE_THREADS_PATH?context_kind=${ClaudeChats.CARD}&note_id=${enc(noteId)}&limit=50")
 
+/** One reader page's / exercise's threads (`context_ref` = its canonical ref: `reader:page`, `lesson:s0e1`). */
+suspend fun Api.contextClaudeThreads(kind: String, ref: String): ClaudeThreadListRes =
+    get("$CLAUDE_THREADS_PATH?context_kind=${enc(kind)}&context_ref=${enc(ref)}&limit=20")
 /** The Discuss-with-Claude threads (context chat_message): the sheet resumes a message's own. */
 suspend fun Api.messageClaudeThreads(): ClaudeThreadListRes =
     get("$CLAUDE_THREADS_PATH?context_kind=${ClaudeChats.CHAT_MESSAGE}&limit=100")

@@ -559,14 +559,21 @@ change there. `leastThinking(model)` gives the right thinking setting per family
 `ui/claude/DiscussClaudeSheet.kt`; old builds: `POST /api/messages/:id/discuss` in index.ts) and Practice with Claude (role-play threads,
 `contexts/practice.ts`). Design + later PRs:
 the unified-Claude-chats plan (thread store, streaming, memory) builds on this.
-- `types.ts` — `ClaudeContext` (`general` · `card` {note_id, typed?} · `coach` · `practice` {scenario?, ai_role?, user_role?, level?, note_id?} · `chat_message` {message_id}), `TurnInput`
+- `types.ts` — `ClaudeContext` (`general` · `card` {note_id, typed?} · `coach` · `practice` {scenario?, ai_role?, user_role?, level?, note_id?} · `chat_message` {message_id} · `reader`
+  {reader_id, page_id?, looked_up?, said_wrong?} · `exercise` {lesson_id, exercise_key, answer?}), `TurnInput`
   (userId, the whole conversation `turns` — the last is the learner's —, language), `TurnResult` (answer, `toolActions`
   for the caller to apply, `readOnlyToolCalls`, rounds), `ContextProvider`, and the **seam** `AgentRuntime.runTurn(prepared)`.
 - `contexts/<kind>.ts` — one provider per context: `load` (ownership check → `ClaudeContextError` 404 / 403, data in one
   D1 batch), `persona` (static, cached), `learner` (cached), `systemBlock`, `frameFirstTurn` (the card's facts / the
   discussed message ride in the FIRST user message, so the cached prefix is the same for every card), `tools` (names, in
   order), `deferredAck`, `finish`. **A new context = one provider file + a line in `contexts/index.ts` + its tools'
-  `contexts` in the registry** (and a kind in `types.ts`).
+  `contexts` in the registry** (and a kind in `types.ts`). **`reader`** (`contexts/reader.ts`, "📖 Ask Claude about this page"):
+  the reader (owner only: 404 / 403), the page in full + a budgeted window of ±2 pages (≤ 1,600 chars), the words he
+  tapped / read aloud wrong on that page (the device's word recap run sends them, `readerPageWords`), his decks — all in
+  the uncached context block; **`exercise`** (`contexts/exercise.ts`, a mini lesson's "💬 Ask Claude"): the lesson (owner
+  only) and the exercise by key (`s<section>e<index>`, its fields as JSON, media keys dropped, ≤ 2,500 chars), his answer +
+  the answer check when sent. Both: read-only look-ups + `create_flashcards` (the Coach's wording — a deck from the listed
+  ones, applied by the thread turn with the Coach's applier) + `bump_cards` + memory; persona `buildContextChatSystemBlocks`.
 - `persona.ts` — the static rules of every context (the old Ask / coach / Ask-chat / discuss prompts, byte-identical),
   `CHAT_TOOL_RULE`, `BUMP_PROMPT_RULE`, the immersion rules. `learner.ts` — the known-words sample (deterministic per user
   and day). `prompt.ts` — assembly order: tools → persona → learner → context block → messages (≤ 4 cache breakpoints).

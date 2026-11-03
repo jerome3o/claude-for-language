@@ -114,7 +114,7 @@ fun NavGraphBuilder.lessonReplayGraph(nav: LabNav) {
         ),
     ) { backStack ->
         val id = backStack.arguments?.getString("id").orEmpty()
-        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework", "player", "coach", "home") } ?: "lessons_page"
+        val from = backStack.arguments?.getString("from")?.takeIf { it in setOf("lessons_page", "today", "homework", "player", "coach", "home", "claude") } ?: "lessons_page"
         val revision = backStack.arguments?.getString("mode") == "revision"
         val vm: LessonReplayViewModel = viewModel(key = "lesson-replay-$id-$revision", factory = LessonReplayViewModel.Factory(nav.app, id, from, revision))
         val state by vm.state.collectAsStateWithLifecycle()
@@ -142,6 +142,7 @@ private fun LessonReplayRoute(nav: LabNav, state: ReplayState, vm: LessonReplayV
                 resume = rememberLessonResume(LocalContext.current, e.id, e.lesson.spec),
                 revisionKeys = state.revisionKeys,
                 skipHandwriting = androidx.compose.runtime.remember(e.id) { dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value },
+                lessonId = e.id,
             )
         }
         is ReplayState.Locked -> LockedGate(state.entry, onUnlock = vm::unlock, onBack = nav::back)

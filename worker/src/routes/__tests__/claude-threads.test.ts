@@ -14,6 +14,7 @@ import claudeThreads from '../claude-threads';
 import { FAKE_FUN_FACT, FAKE_PRACTICE_CHUNKS, FAKE_STREAM_CHUNKS } from '../../services/claude-agent/fake';
 import { LESSON_VOICE_IDS } from '@shared/lesson/voices';
 import type { Env } from '../../types';
+import { seedReaderAndLesson } from '../../services/claude-agent/__tests__/context-seed';
 
 const U = 'u1';
 
@@ -88,7 +89,8 @@ describe('/api/claude/threads', () => {
   it("checks the context against the caller and the intents a context takes", async () => {
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'nx' }, text: '?' })).status).toBe(404);
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, intent: 'check', text: '我去银行' })).status).toBe(400);
-    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader', reader_id: 'r' }, text: '?' })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader' }, text: '?' })).status).toBe(400);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader', reader_id: 'r' }, text: '?' })).status).toBe(404);
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'practice', conversation_id: 'p' }, text: '?' })).status).toBe(400);
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'general' }, intent: 'check', text: 'no Chinese here' })).status).toBe(400);
     const card = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, text: 'Why háng?', language: 'en' });
@@ -122,6 +124,46 @@ describe('/api/claude/threads', () => {
     expect(results.map((r) => [r.tool, r.success])).toEqual([['edit_current_card', true]]);
     expect(results[0].data.note).toMatchObject({ id: 'n1', fun_facts: FAKE_FUN_FACT });
     expect(db.rows("SELECT fun_facts FROM notes WHERE id = 'n1'")).toEqual([{ fun_facts: FAKE_FUN_FACT }]);
+  });
+
+  it('a reader page / an exercise: checked against the caller, badged, the context kept up to date by follow-ups, listed by context_ref', async () => {
+    seedReaderAndLesson(db, U, 'x1');
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader', reader_id: 'rdx' }, text: '?' })).status).toBe(403);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'reader', reader_id: 'rd1', page_id: 'nope' }, text: '?' })).status).toBe(404);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'exercise', lesson_id: 'lsx', exercise_key: 's0e0' }, text: '?' })).status).toBe(403);
+    expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's3e0' }, text: '?' })).status).toBe(404);
+
+    const reader = await w.call<ThreadBody>('POST', '/api/claude/threads', {
+      client_id: 'rd-1',
+      context: { kind: 'reader', reader_id: 'rd1', page_id: 'pg2', page: 2, looked_up: ['熊猫'] },
+      text: '这一页讲的是什么？请一句一句地说一说。',
+      language: 'zh',
+      quick: true,
+    });
+    expect(reader.status).toBe(202);
+    expect(reader.body.thread).toMatchObject({ context_kind: 'reader', context: { reader_id: 'rd1', page_id: 'pg2', page: 2, label: '成都', looked_up: ['熊猫'] }, badge: { icon: '📖', text: 'Reader · 成都 p.2' } });
+    const opened = await w.call<ThreadBody>('GET', `/api/claude/threads/${reader.body.thread.id}`);
+    expect(opened.body.messages[1]).toMatchObject({ status: null, content: FAKE_STREAM_CHUNKS.zh.join('') });
+    // A follow-up brings the page's words up to date.
+    await w.call('POST', `/api/claude/threads/${reader.body.thread.id}/messages`, { text: '可爱是什么意思？', looked_up: ['熊猫', '可爱'], said_wrong: ['火锅'] });
+    const ctx = JSON.parse(db.rows<{ context_json: string }>('SELECT context_json FROM coach_conversations WHERE id = ?', [reader.body.thread.id])[0].context_json);
+    expect(ctx).toMatchObject({ looked_up: ['熊猫', '可爱'], said_wrong: ['火锅'], label: '成都' });
+
+    const ex = await w.call<ThreadBody>('POST', '/api/claude/threads', {
+      context: { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1', exercise_type: 'choice', answer: { text: '我放书在桌子上。', verdict: 'almost' } },
+      text: 'Why is my answer wrong?',
+      language: 'en',
+    });
+    expect(ex.status).toBe(202);
+    // The stored spec's type wins over what the app sent.
+    expect(ex.body.thread).toMatchObject({ context_kind: 'exercise', context: { exercise_type: 'translate', label: 'Translate', sublabel: '把字句' }, badge: { icon: '🧩', text: 'Exercise · Translate' } });
+    await w.call('POST', `/api/claude/threads/${ex.body.thread.id}/messages`, { text: 'And now?', answer: null });
+    expect(JSON.parse(db.rows<{ context_json: string }>('SELECT context_json FROM coach_conversations WHERE id = ?', [ex.body.thread.id])[0].context_json).answer).toBeUndefined();
+
+    const listed = await w.call<{ threads: ClaudeThreadSummary[] }>('GET', '/api/claude/threads?context_kind=reader&context_ref=rd1:pg2');
+    expect(listed.body.threads.map((t) => t.id)).toEqual([reader.body.thread.id]);
+    expect((await w.call<{ threads: ClaudeThreadSummary[] }>('GET', '/api/claude/threads?context_kind=reader&context_ref=rd1:pg3')).body.threads).toEqual([]);
+    expect((await w.call<{ threads: ClaudeThreadSummary[] }>('GET', '/api/claude/threads?context_kind=exercise')).body.threads.map((t) => t.id)).toEqual([ex.body.thread.id]);
   });
 
   it("✏️ Check starts a Coach chat: its structured reply goes on the Coach's queue, not the stream", async () => {
