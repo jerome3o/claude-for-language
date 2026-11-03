@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -134,6 +135,14 @@ class DropTutorTabScreenshots : LabScreenshotTest() {
         compose.onNodeWithText(ChatPersonLinks.CONNECTIONS_TITLE).assertExists()
         compose.onAllNodesWithText("Practice Chinese conversations").assertCountEquals(0)
         compose.onAllNodesWithTag("connection-tutor").assertCountEquals(1)
+    }
+
+    @Test fun inviteIsARoundButtonThatOpensTheForm() {
+        compose.setContent { LabTheme { ConnectionsScreen(ConnectionsUi(Loadable(MyRelationshipsDto()), ConnectionsScreenshots.ME), ConnectionsActions(onBack = {})) } }
+        compose.onNodeWithContentDescription("Invite").performClick()
+        compose.onNodeWithTag("invite-form").assertExists()
+        compose.onNodeWithContentDescription("Cancel").performClick()
+        compose.onAllNodesWithTag("invite-form").assertCountEquals(0)
     }
 
     @Test fun moreHasTutorsAndConnectionsForALearnerOnly() {

@@ -36,4 +36,4 @@ Chat ⋯ with the tutor page's parts at the end.
 More → From your tutor → Tutors & connections.
 
 ![Lab connections, light](lab-04-connections-light.png) ![Lab connections, dark](lab-04-connections-dark.png)
-Tutors & connections (← back, the Claude partner hidden).
+Tutors & connections (← back, a round ＋ Invite so the title fits, the Claude partner hidden).

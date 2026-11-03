@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -83,7 +89,24 @@ fun ConnectionsScreen(ui: ConnectionsUi, actions: ConnectionsActions) {
     LabScreen(
         dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.CONNECTIONS_TITLE,
         onBack = actions.onBack,
-        actions = { SecondaryPill(if (showForm) "Cancel" else "+ Invite", Modifier.padding(end = 8.dp)) { showForm = !showForm } },
+        // A round ＋ / ✕ (content description "Invite" / "Cancel") so the title keeps its room — web: "+ Invite" beside it.
+        actions = {
+            androidx.compose.material3.IconButton(
+                onClick = { showForm = !showForm },
+                modifier = Modifier.padding(end = 4.dp).size(48.dp).testTag("connections-invite"),
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Lab.colors.accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.material3.Icon(
+                        if (showForm) Icons.Filled.Close else Icons.Filled.Add,
+                        contentDescription = if (showForm) "Cancel" else "Invite",
+                        tint = androidx.compose.ui.graphics.Color.White,
+                    )
+                }
+            }
+        },
     ) {
         ui.notice?.let { n ->
             item { InlineNotice(n, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Success, actionLabel = "OK", onAction = actions.onDismissNotice) }
