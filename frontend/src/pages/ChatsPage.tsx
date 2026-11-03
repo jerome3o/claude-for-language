@@ -1,24 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getMyRelationships } from '../api/client';
+import { apiErrorStatus, getMyRelationships } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useChatList } from '../hooks/useChatList';
-import { track } from '../services/analytics';
+import { useClaudeInbox } from '../hooks/useClaudeInbox';
+import { useNavRole } from '../components/nav/useNavRole';
+import { track, trackError } from '../services/analytics';
 import { CLAUDE_AI_USER_ID, getOtherUserInRelationship } from '../types';
+import { chatInitial, chatPersonName, chatRelativeTime, chatRowPreview, type ChatListRow } from '@shared/chats/inbox';
 import {
-  chatInitial,
-  chatPersonName,
-  chatRelativeTime,
-  chatRowPreview,
-  chatRowTitle,
-  filterChatList,
-  groupChatList,
-  type ChatListRow,
-} from '@shared/chats/inbox';
+  claudeRowPreview,
+  composeRecipients,
+  filterInbox,
+  inboxFilters,
+  inboxRowLabel,
+  inboxRowName,
+  mergeInbox,
+  teacherSections,
+  type ComposeRecipient,
+  type InboxFilter,
+  type InboxItem,
+} from '@shared/claude/inbox';
+import { headerChipFor } from '@shared/claude/contexts';
+import type { ClaudeIntent } from '@shared/claude/context';
 import { effectiveListening, listeningPreview } from '@shared/chats/listening';
 import { loadRevealed, refreshChatListening, useAllChatListening } from '../services/chatListening';
+import { startClaudeThread, wireClaudeOutbox, type LocalClaudeThread } from '../services/claudeThreads';
+import { saveDraft } from '../services/chatDrafts';
+import { useAskLanguage } from '../services/askClaudeLanguage';
+import { ChatsComposer } from '../components/chats/ChatsComposer';
 import './ChatsPage.css';
 
 /** Avatar colours for people without a picture, picked by a hash of their id. */
@@ -33,9 +45,7 @@ function avatarColor(id: string): string {
 export function ChatAvatar({ person, size = 48 }: { person: { id: string; name: string | null; picture_url: string | null }; size?: number }) {
   const [broken, setBroken] = useState(false);
   const style = { width: size, height: size, fontSize: size * 0.42 };
-  if (person.id === CLAUDE_AI_USER_ID) {
-    return <span className="chats-avatar chats-avatar-claude" style={style} aria-hidden="true">✦</span>;
-  }
+  if (person.id === CLAUDE_AI_USER_ID) return <ClaudeAvatar size={size} />;
   if (person.picture_url && !broken) {
     return <img className="chats-avatar" style={style} src={person.picture_url} alt="" onError={() => setBroken(true)} />;
   }
@@ -46,12 +56,49 @@ export function ChatAvatar({ person, size = 48 }: { person: { id: string; name: 
   );
 }
 
+function ClaudeAvatar({ size = 48 }: { size?: number }) {
+  return (
+    <span className="chats-avatar chats-avatar-claude" style={{ width: size, height: size, fontSize: size * 0.42 }} aria-hidden="true">
+      ✦
+    </span>
+  );
+}
+
 function localOffsetMinutes(): number {
   return -new Date().getTimezoneOffset();
 }
 
-function ChatRow({ row, rows, myId, now, onOpen }: { row: ChatListRow; rows: ChatListRow[]; myId: string; now: number; onOpen: (id: string) => void }) {
-  const { name, subtitle } = chatRowTitle(row, rows);
+type Item = InboxItem<ChatListRow, LocalClaudeThread>;
+
+/** The word + icon on the row's outline ("🧑‍🏫 Tutor", "✦ Claude"): never colour alone. */
+function KindLabel({ item }: { item: Item }) {
+  const label = inboxRowLabel(item.kind);
+  return (
+    <span className={`chats-row-kind chats-row-kind-${item.kind}`} data-testid="chats-row-kind">
+      <span aria-hidden="true">{label.icon}</span> {label.text}
+    </span>
+  );
+}
+
+function UnreadBadge({ n }: { n: number }) {
+  if (n <= 0) return null;
+  return (
+    <span className="chats-unread" aria-label={`${n} unread`}>
+      {n > 99 ? '99+' : n}
+    </span>
+  );
+}
+
+interface RowProps {
+  item: Item;
+  myId: string;
+  now: number;
+  onOpen: (item: Item) => void;
+}
+
+/** A chat with a person (a tutor / a student): opens THE chat with them. */
+function PersonRow({ item, myId, now, onOpen }: RowProps) {
+  const row = item.human!;
   const unread = row.unread > 0;
   // Listening mode: never spoil a hidden message here ("🎧 New message").
   const listening = useAllChatListening();
@@ -60,49 +107,173 @@ function ChatRow({ row, rows, myId, now, onOpen }: { row: ChatListRow; rows: Cha
     ? listeningPreview(row.last_message, { viewerId: myId, setting, readMarker: row.my_read_at ?? null, revealed: loadRevealed(row.conversation_id) })
     : null;
   return (
-    <Link
-      to={`/connections/${row.relationship_id}/chat/${row.conversation_id}`}
-      state={{ from: '/chats' }}
-      className={`chats-row${unread ? ' chats-row-unread' : ''}`}
-      data-testid="chats-row"
-      onClick={() => onOpen(row.conversation_id)}
-    >
-      <ChatAvatar person={row.other_user} />
-      <span className="chats-row-body">
-        <span className="chats-row-top">
-          <span className="chats-row-name">
-            {name}
-            {subtitle && <span className="chats-row-subtitle"> · {subtitle}</span>}
+    <div className={`chats-row-wrap chats-row-wrap-${item.kind}${item.pinned ? ' chats-row-pinned' : ''}`} role="listitem" data-testid="chats-item" data-kind={item.kind}>
+      <KindLabel item={item} />
+      <Link
+        to={`/connections/${row.relationship_id}/chat/${row.conversation_id}`}
+        state={{ from: '/chats' }}
+        className={`chats-row${unread ? ' chats-row-unread' : ''}`}
+        data-testid="chats-row"
+        onClick={() => onOpen(item)}
+      >
+        <ChatAvatar person={row.other_user} />
+        <span className="chats-row-body">
+          <span className="chats-row-top">
+            <span className="chats-row-name">{inboxRowName(item)}</span>
+            <span className="chats-row-time">{chatRelativeTime(row.last_activity_at, now, localOffsetMinutes())}</span>
           </span>
-          <span className="chats-row-time">{chatRelativeTime(row.last_activity_at, now, localOffsetMinutes())}</span>
+          <span className="chats-row-bottom">
+            <span className="chats-row-preview">{hiddenPreview ?? chatRowPreview(row, myId)}</span>
+            <UnreadBadge n={row.unread} />
+          </span>
         </span>
-        <span className="chats-row-bottom">
-          <span className="chats-row-preview">{hiddenPreview ?? chatRowPreview(row, myId)}</span>
-          {unread && (
-            <span className="chats-unread" aria-label={`${row.unread} unread`}>
-              {row.unread > 99 ? '99+' : row.unread}
-            </span>
-          )}
-        </span>
-      </span>
-    </Link>
+      </Link>
+    </div>
   );
 }
 
+/** A chat with Claude: its title, the last message and where it happened (the context chip). */
+function ClaudeRow({ item, now, onOpen }: RowProps) {
+  const navigate = useNavigate();
+  const thread = item.thread;
+  // An old practice chat with no thread on this device yet: it opens the old chat screen.
+  const to = thread
+    ? `/chats/claude/${encodeURIComponent(thread.id)}`
+    : `/connections/${item.human!.relationship_id}/chat/${item.human!.conversation_id}`;
+  const chip = thread ? headerChipFor(thread.context) : null;
+  const cardLink = chip?.link?.kind === 'card' ? `/cards/${encodeURIComponent(chip.link.note_id)}` : null;
+  const preview = thread ? claudeRowPreview(thread) : item.human?.last_message?.preview ?? 'No messages yet';
+  const open = () => {
+    onOpen(item);
+    navigate(to, { state: { from: '/chats' } });
+  };
+  const onKey = (e: ReactKeyboardEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+    }
+  };
+  return (
+    <div className="chats-row-wrap chats-row-wrap-claude" role="listitem" data-testid="chats-item" data-kind="claude">
+      <KindLabel item={item} />
+      <div
+        className={`chats-row chats-row-claude${item.unread > 0 ? ' chats-row-unread' : ''}`}
+        role="link"
+        tabIndex={0}
+        aria-label={`Claude: ${inboxRowName(item)}`}
+        data-testid="chats-claude-row"
+        onClick={open}
+        onKeyDown={onKey}
+      >
+        <ClaudeAvatar />
+        <span className="chats-row-body">
+          <span className="chats-row-top">
+            <span className="chats-row-name">{inboxRowName(item)}</span>
+            <span className="chats-row-time">{chatRelativeTime(item.activity_at, now, localOffsetMinutes())}</span>
+          </span>
+          <span className="chats-row-bottom">
+            <span className={`chats-row-preview${thread?.failed ? ' chats-row-preview-failed' : ''}`}>{preview}</span>
+            <UnreadBadge n={item.unread} />
+          </span>
+          {item.badge &&
+            (cardLink ? (
+              <button
+                type="button"
+                className="chats-context-chip chats-context-chip-link"
+                data-testid="chats-context-chip"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(cardLink, { state: { from: '/chats' } });
+                }}
+                aria-label={`${item.badge.text} — open the card`}
+              >
+                <span aria-hidden="true">{item.badge.icon}</span> {item.badge.text} ›
+              </button>
+            ) : (
+              <span className="chats-context-chip" data-testid="chats-context-chip">
+                <span aria-hidden="true">{item.badge.icon}</span> {item.badge.text}
+              </span>
+            ))}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function InboxRow(props: RowProps) {
+  return props.item.kind === 'claude' ? <ClaudeRow {...props} /> : <PersonRow {...props} />;
+}
+
+const CLAUDE_SECTION_KEY = 'chats-claude-section-open-v1';
+
+function readSectionOpen(): boolean {
+  try {
+    return localStorage.getItem(CLAUDE_SECTION_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function sendErrorText(err: unknown): string {
+  const status = apiErrorStatus(err);
+  const message = err instanceof Error && err.message && !/^HTTP \d+$/.test(err.message) ? err.message : '';
+  if (status === 429) return message || 'Too many requests just now — try again in a minute.';
+  return message || "Couldn't send that — try again.";
+}
+
 /**
- * The Chats tab (`/chats`): every conversation across every tutor / student,
- * Signal-style — avatar, name, last message, time, unread badge — newest
- * first, Claude role-play chats in their own section. Cached, so it renders
- * offline; live while open. Rules in `shared/chats/inbox.ts`.
+ * The Chats tab (`/chats`; docs/CHAT.md "Chats tab — one list for people and Claude"): ONE list of
+ * the chats with people and the chats with Claude (`mergeInbox`, shared/claude/inbox.ts). Every row
+ * carries its kind as an icon + a word on its outline (🧑‍🏫 Tutor in blue, ✦ Claude in orange — never
+ * colour alone), a Claude row its context chip (📇 Asked on card · 银行 → the card). A learner's unread
+ * tutor chats are pinned on top; filter chips All · Tutor · Claude. At the bottom, the box: anything
+ * typed or said goes to Claude by default — Ask (Enter), ✏️ Check or 🔍 Explain for Chinese, Translate
+ * for English — and "To: ✦ Claude ▾" switches to a tutor (her chat opens with the text as a draft).
+ *
+ * A tutor account / an account with students gets the student-centric view: the people first, then
+ * "Your Claude chats" folded away, and a smaller box (Ask · Translate).
+ *
+ * Offline: both lists come from the device (localStorage / Dexie), a message to Claude is queued.
  */
 export function ChatsPage() {
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const role = useNavRole();
+  const teacher = role.isTutorAccount || role.hasStudents;
   const { rows, isLoading, error, markOpened } = useChatList({ live: true });
+  const { threads } = useClaudeInbox(user?.id);
+  const [language] = useAskLanguage();
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<InboxFilter>('all');
   const [picking, setPicking] = useState(false);
+  const [claudeOpen, setClaudeOpen] = useState(readSectionOpen);
+  const [draft, setDraft] = useState('');
+  const [composeRequest, setComposeRequest] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<unknown>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const now = Date.now();
+
+  useEffect(() => {
+    wireClaudeOutbox();
+    void refreshChatListening();
+  }, []);
+
+  // ?compose=1 (More → Ask Claude, /coach) and ?text= (a sentence handed over): the box comes into
+  // view, typing, with the text; the URL is cleaned.
+  useEffect(() => {
+    const text = params.get('text');
+    if (params.get('compose') !== '1' && !text) return;
+    if (text) setDraft(text);
+    setComposeRequest((n) => n + 1);
+    setParams({}, { replace: true });
+  }, [params, setParams]);
+  useEffect(() => {
+    if (composeRequest) composerRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [composeRequest]);
 
   const relationshipsQuery = useQuery({
     queryKey: ['nav-relationships'],
@@ -119,12 +290,16 @@ export function ChatsPage() {
       .filter((p) => p.other.id !== CLAUDE_AI_USER_ID);
   }, [relationshipsQuery.data, user]);
 
-  useEffect(() => {
-    void refreshChatListening();
-  }, []);
-
-  const filtered = useMemo(() => (rows ? filterChatList(rows, query) : []), [rows, query]);
-  const groups = useMemo(() => groupChatList(filtered), [filtered]);
+  const humans = useMemo(() => rows ?? [], [rows]);
+  const allItems = useMemo(() => mergeInbox(humans, threads ?? [], { pinUnreadTutors: !teacher }), [humans, threads, teacher]);
+  const chips = useMemo(() => (teacher ? [] : inboxFilters(allItems)), [allItems, teacher]);
+  const activeFilter: InboxFilter = chips.some((c) => c.id === filter) ? filter : 'all';
+  const shown = useMemo(() => {
+    const byFilter = activeFilter === 'all' ? allItems : allItems.filter((i) => (activeFilter === 'claude' ? i.kind === 'claude' : i.kind !== 'claude'));
+    return filterInbox(byFilter, query);
+  }, [allItems, activeFilter, query]);
+  const sections = useMemo(() => teacherSections(shown), [shown]);
+  const recipients = useMemo(() => composeRecipients(humans), [humans]);
 
   useEffect(() => {
     if (!picking) return;
@@ -138,33 +313,79 @@ export function ChatsPage() {
   // Analytics: chat.inbox_open once, when the list first has rows (cached or fetched).
   const inboxTracked = useRef(false);
   useEffect(() => {
-    if (rows === null || inboxTracked.current) return;
+    if (rows === null || threads === null || inboxTracked.current) return;
     inboxTracked.current = true;
-    track('chat.inbox_open', { conversations: rows.length, unread: rows.filter((r) => r.unread > 0).length });
-  }, [rows]);
+    track('chat.inbox_open', { conversations: allItems.length, unread: allItems.filter((r) => r.unread > 0).length });
+  }, [rows, threads, allItems]);
 
-  const startNewChat = () => {
-    if (people.length === 1) navigate(`/connections/${people[0].relId}/chat`, { state: { from: '/chats' } });
-    else setPicking(true);
+  const onOpen = (item: Item) => {
+    track('chats.open', { kind: item.kind });
+    if (item.human) markOpened(item.human.conversation_id);
+  };
+
+  const pickFilter = (f: InboxFilter) => {
+    setFilter(f);
+    track('chats.filter', { filter: f });
+  };
+
+  const toggleClaudeSection = () => {
+    setClaudeOpen((open) => {
+      try {
+        localStorage.setItem(CLAUDE_SECTION_KEY, open ? '0' : '1');
+      } catch {
+        /* ignore */
+      }
+      return !open;
+    });
+  };
+
+  const sendToClaude = async (text: string, intent: ClaudeIntent, spoken: boolean) => {
+    const msg = text.trim();
+    if (!msg || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      const res = await startClaudeThread({ context: { kind: 'general' }, text: msg, intent, language });
+      track('chats.compose_send', { intent, offline: res.queued, spoken });
+      track('claude.message_send', { context_kind: 'general', intent, offline: res.queued, chip: false, spoken });
+      setDraft('');
+      navigate(`/chats/claude/${encodeURIComponent(res.threadId)}?source=chats`, { state: { from: '/chats' } });
+    } catch (err) {
+      setSendError(err);
+      trackError('chats_compose_send', err);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendToPerson = (to: ComposeRecipient, text: string) => {
+    if (text.trim()) saveDraft(to.conversation_id, text);
+    track('chats.compose_to_person', { had_text: !!text.trim() });
+    navigate(`/connections/${to.relationship_id}/chat/${to.conversation_id}`, { state: { from: '/chats' } });
+  };
+
+  const newClaudeChat = () => {
+    setPicking(false);
+    setComposeRequest((n) => n + 1);
   };
 
   const myId = user?.id ?? '';
-  const noChats = rows !== null && rows.length === 0;
+  const nothing = rows !== null && threads !== null && allItems.length === 0;
   const noPeople = relationshipsQuery.isSuccess && people.length === 0;
+  const peopleTitle = sections.people.every((i) => i.kind === 'student') ? 'Students' : 'People';
+  const claudeShown = claudeOpen || !!query.trim();
 
   return (
     <div className="page">
-      <div className="container chats-page">
+      <div className={`container chats-page${teacher ? ' chats-page-teacher' : ''}`}>
         <div className="chats-header">
           <h1>Chats</h1>
-          {people.length > 0 && (
-            <button type="button" className="chats-new" onClick={startNewChat} aria-label="New chat" title="New chat">
-              ✏️
-            </button>
-          )}
+          <button type="button" className="chats-new" onClick={() => setPicking(true)} aria-label="New chat" title="New chat">
+            ✏️
+          </button>
         </div>
 
-        {rows && rows.length > 0 && (
+        {allItems.length > 0 && (
           <input
             type="search"
             className="chats-search"
@@ -175,54 +396,111 @@ export function ChatsPage() {
           />
         )}
 
-        {isLoading && <p className="chats-muted">Loading chats…</p>}
+        {chips.length > 0 && (
+          <div className="chats-filters" role="group" aria-label="Show">
+            {chips.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                aria-pressed={activeFilter === c.id}
+                className={`chats-filter chats-filter-${c.id}${activeFilter === c.id ? ' chats-filter-on' : ''}`}
+                onClick={() => pickFilter(c.id)}
+                data-testid={`chats-filter-${c.id}`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isLoading && allItems.length === 0 && <p className="chats-muted">Loading chats…</p>}
         {!rows && error && (
           <p className="chats-muted">
-            {isOnline ? `Couldn't load your chats: ${error.message}` : "You're offline — your chats will show once you're back online."}
+            {isOnline ? `Couldn't load your chats with people: ${error.message}` : "You're offline — your chats with people will show once you're back online."}
           </p>
         )}
 
-        {noChats && (
+        {nothing && (
           <div className="chats-empty" data-testid="chats-empty">
-            <div className="chats-empty-icon" aria-hidden="true">💬</div>
-            {noPeople ? (
-              <>
-                <p>No chats yet — connect with a tutor or student to start chatting.</p>
-                <Link to="/connections" className="btn btn-primary">Connect with someone</Link>
-              </>
-            ) : (
-              <>
-                <p>No messages yet.</p>
-                {people.length > 0 && <button type="button" className="btn btn-primary" onClick={startNewChat}>Start a chat</button>}
-              </>
+            <div className="chats-empty-icon" aria-hidden="true">✦</div>
+            <p>Ask Claude anything in the box below — in Chinese or English.</p>
+            {noPeople && (
+              <p className="chats-muted">
+                No chats with people yet — <Link to="/connections">connect with a tutor or student</Link>.
+              </p>
             )}
           </div>
         )}
 
-        {rows && rows.length > 0 && filtered.length === 0 && (
-          <p className="chats-muted">No chats match “{query.trim()}”.</p>
+        {allItems.length > 0 && shown.length === 0 && (
+          <p className="chats-muted">{query.trim() ? `No chats match “${query.trim()}”.` : 'Nothing here yet.'}</p>
         )}
 
-        {groups.people.length > 0 && (
+        {!teacher && shown.length > 0 && (
           <div className="chats-list" role="list" aria-label="Chats">
-            {groups.people.map((r) => <ChatRow key={r.conversation_id} row={r} rows={rows!} myId={myId} now={now} onOpen={markOpened} />)}
+            {shown.map((item) => <InboxRow key={item.key} item={item} myId={myId} now={now} onOpen={onOpen} />)}
           </div>
         )}
 
-        {groups.practice.length > 0 && (
+        {teacher && sections.people.length > 0 && (
           <>
-            <h2 className="chats-section-title">Practice with Claude</h2>
-            <div className="chats-list" role="list" aria-label="Practice with Claude">
-              {groups.practice.map((r) => <ChatRow key={r.conversation_id} row={r} rows={rows!} myId={myId} now={now} onOpen={markOpened} />)}
+            <h2 className="chats-section-title">{peopleTitle}</h2>
+            <div className="chats-list" role="list" aria-label={peopleTitle}>
+              {sections.people.map((item) => <InboxRow key={item.key} item={item} myId={myId} now={now} onOpen={onOpen} />)}
             </div>
           </>
         )}
+
+        {teacher && sections.claude.length > 0 && (
+          <>
+            <button
+              type="button"
+              className="chats-section-toggle"
+              aria-expanded={claudeShown}
+              onClick={toggleClaudeSection}
+              data-testid="chats-claude-section"
+            >
+              <span aria-hidden="true">{claudeShown ? '▾' : '▸'}</span>
+              <span>✦ Your Claude chats</span>
+              <span className="chats-section-count">{sections.claude.length}</span>
+              {!claudeShown && sections.claude.some((i) => i.unread > 0) && <span className="chats-dot" aria-label="unread replies" />}
+            </button>
+            {claudeShown && (
+              <div className="chats-list" role="list" aria-label="Your Claude chats">
+                {sections.claude.map((item) => <InboxRow key={item.key} item={item} myId={myId} now={now} onOpen={onOpen} />)}
+              </div>
+            )}
+          </>
+        )}
+
+        <div ref={composerRef} className={`page-footer chats-compose${teacher ? ' chats-compose-teacher' : ''}`} data-testid="chats-compose">
+          <ChatsComposer
+            value={draft}
+            onChange={setDraft}
+            onSendToClaude={sendToClaude}
+            onSendToPerson={sendToPerson}
+            recipients={recipients}
+            busy={sending}
+            error={sendError ? sendErrorText(sendError) : null}
+            language={language}
+            online={isOnline}
+            compact={teacher}
+            openRequest={composeRequest}
+          />
+        </div>
       </div>
 
       {picking && (
         <div className="chats-sheet-backdrop" onClick={() => setPicking(false)}>
           <div className="chats-sheet" role="dialog" aria-label="New chat with" onClick={(e) => e.stopPropagation()}>
             <h2>New chat with…</h2>
+            <button type="button" className="chats-sheet-person" onClick={newClaudeChat} data-testid="chats-new-claude">
+              <ClaudeAvatar size={40} />
+              <span>
+                <strong>✦ Claude</strong>
+                <span className="chats-muted"> · ask anything</span>
+              </span>
+            </button>
             {people.map((p) => (
               <button
                 key={p.relId}
@@ -233,10 +511,13 @@ export function ChatsPage() {
                 <ChatAvatar person={p.other} size={40} />
                 <span>
                   <strong>{chatPersonName(p.other)}</strong>
-                  <span className="chats-muted"> · {p.isTutor ? 'your tutor' : 'your student'}</span>
+                  <span className="chats-muted"> · {p.isTutor ? '🧑‍🏫 your tutor' : '🎓 your student'}</span>
                 </span>
               </button>
             ))}
+            {noPeople && (
+              <Link to="/connections" className="chats-sheet-link">Connect with a tutor or student →</Link>
+            )}
             <button type="button" className="btn btn-secondary chats-sheet-cancel" onClick={() => setPicking(false)}>Cancel</button>
           </div>
         </div>

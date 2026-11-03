@@ -366,6 +366,10 @@ export const ANALYTICS_EVENTS = {
   'claude.thread_open': e('chat', 'Opened a Claude thread (the unified thread view; context_kind = general | card | practice | chat_message; source = coach | coach_link | chats | card | link; resumed = continued an existing thread rather than a new one).', ['context_kind', 'source', 'resumed']),
   'claude.message_send': e('chat', 'Sent a message in a Claude thread (context_kind; intent = ask | check | explain | translate; offline = queued until a connection; chip = sent from a suggestion chip; spoken = said with 🎤).', ['context_kind', 'intent', 'offline', 'chip', 'spoken']),
   'claude.reply_shown': e('chat', 'A Claude reply on screen in the thread view: first_text_ms = from sending (or the screen first seeing it pending) to its first words, done_ms = to the whole reply, via = socket (live claude_turn events) | poll (GET ?since=); intent of the message it answers.', ['first_text_ms', 'done_ms', 'via', 'intent', 'context_kind']),
+  'chats.open': e('chat', 'Opened a row of the unified Chats tab (kind = tutor | student | claude).', ['kind']),
+  'chats.filter': e('chat', 'Picked a filter chip on the Chats tab (filter = all | people | claude).', ['filter']),
+  'chats.compose_send': e('chat', 'Sent from the Chats tab\'s bottom box to Claude — a new thread (intent = ask | check | explain | translate; offline = queued until a connection; spoken = said with 🎤).', ['intent', 'offline', 'spoken']),
+  'chats.compose_to_person': e('chat', 'The Chats tab\'s bottom box switched "To:" from Claude to a tutor: that chat opened with the text as its draft.', ['had_text']),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 
   // ── decks ──────────────────────────────────────────────────────────────

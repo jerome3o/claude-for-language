@@ -151,7 +151,7 @@ object ChatInbox {
         return if (m.senderId == myUserId) "You: $text" else text
     }
 
-    private fun collapseWhitespace(s: String): String {
+    internal fun collapseWhitespace(s: String): String {
         val sb = StringBuilder(s.length)
         var inRun = false
         for (c in s) {
@@ -187,10 +187,10 @@ object ChatInbox {
     }
 
     /** `fold`: NFKD, drop U+0300–036F, lower-case. */
-    private fun fold(s: String): String = NoteSearch.jsLower(COMBINING.replace(Normalizer.normalize(s, Normalizer.Form.NFKD), ""))
+    internal fun fold(s: String): String = NoteSearch.jsLower(COMBINING.replace(Normalizer.normalize(s, Normalizer.Form.NFKD), ""))
 
     /** `/\s+/` split with empty pieces dropped (JS whitespace). */
-    private fun words(s: String): List<String> {
+    internal fun words(s: String): List<String> {
         val out = ArrayList<String>()
         val sb = StringBuilder()
         for (c in s) {

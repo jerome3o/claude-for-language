@@ -14,7 +14,7 @@ import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { VoiceTextInputView } from '../voice/VoiceTextInput';
 import { enterToSubmit } from '../voice/enterToSubmit';
 
-export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder }: {
+export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or' }: {
   value: string;
   onChange: (value: string) => void;
   /** `spoken` = sent from the review of a take; `intent` = one of the other buttons (default Ask). */
@@ -22,6 +22,12 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
   /** Which intents the box offers for a text (a new general chat: Ask + Check / Explain / Translate). */
   composer?: (text: string) => ClaudeComposer;
   placeholder?: string;
+  /** The main button's word (the Chats tab's box says "Ask"). */
+  submitLabel?: string;
+  /** Each new value > 0 opens the typing box, focused (a text handed over, ✏️ New chat, More → Ask Claude). */
+  typeRequest?: number;
+  /** The aria label of the row of other intents. */
+  intentsLabel?: string;
   /** Sending, or Claude is still answering. */
   busy: boolean;
   /** The last send failed: back to typing with the text kept. */
@@ -50,6 +56,10 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
     if (failed && value.trim() && voiceIdle) voice.type();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [failed]);
+  useEffect(() => {
+    if (typeRequest > 0 && voice.state.mode === 'voice' && voice.state.phase === 'idle') voice.type();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeRequest]);
   return (
     <div className="claude-chat-composer" data-testid="claude-chat-composer" onKeyDown={enterToSubmit(voice.submit)}>
       <VoiceTextInputView
@@ -57,7 +67,7 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
         onChange={onChange}
         placeholder={placeholder ?? (language === 'zh' ? COACH_ASK_PLACEHOLDER_ZH : COACH_ASK_PLACEHOLDER_EN)}
         listeningPlaceholder={language === 'zh' ? '在听… 用中文问吧 (or English)' : 'Listening… ask anything'}
-        submitLabel={busy ? '…' : 'Send'}
+        submitLabel={busy ? '…' : submitLabel}
         multiline
         lang={language === 'en' ? 'en' : 'zh'}
         disabled={busy}
@@ -70,7 +80,7 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
         actions={voice}
       />
       {others.length > 0 && (
-        <div className="claude-composer-intents" role="group" aria-label="Or" data-testid="claude-composer-intents">
+        <div className="claude-composer-intents" role="group" aria-label={intentsLabel} data-testid="claude-composer-intents">
           {others.map((intent) => (
             <button
               key={intent}

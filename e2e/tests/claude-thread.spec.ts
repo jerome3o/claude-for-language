@@ -1,8 +1,8 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 /**
- * The Claude thread view (docs/CHAT.md "Claude thread view"), web: the Coach's "💬 Ask Claude" opens
- * `/chats/claude/new`; the question creates a thread and the reply STREAMS in (the worker's E2E
+ * The Claude thread view (docs/CHAT.md "Claude thread view"), web: `/chats/claude/new` (✏️ New chat →
+ * Claude); the question creates a thread and the reply STREAMS in (the worker's E2E
  * stand-in writes it in three chunks a moment apart, pushed over the ChatHub socket / the poll);
  * Claude's Chinese is word chips → the language explorer; a card thread shows "📇 Asked on card ·
  * 银行" (→ the card hub) and the card's suggestion chips; offline, a message waits in the outbox
@@ -29,13 +29,12 @@ async function apiPost<T>(request: APIRequestContext, token: string, path: strin
   return (await res.json()) as T;
 }
 
-test('Coach → 💬 Ask Claude: the reply streams into the thread view; words open the explorer', async ({ page, request }) => {
+test('a new chat: the reply streams into the thread view; words open the explorer', async ({ page, request }) => {
   test.setTimeout(120_000);
   const { session_token } = await seedUser(request);
-  await page.goto(`/coach?session_token=${session_token}`);
-  await expect(page.getByTestId('coach-ask-entry')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('coach-ask-entry').click();
-  await expect(page).toHaveURL(/\/chats\/claude\/new/);
+  await page.goto(`/chats?session_token=${session_token}`);
+  await expect(page.getByTestId('chats-compose')).toBeVisible({ timeout: 30_000 });
+  await page.goto('/chats/claude/new');
   await expect(page.getByTestId('claude-thread-empty')).toBeVisible();
   await expect(page.getByTestId('claude-thread-chips')).toBeVisible();
 
@@ -60,11 +59,11 @@ test('Coach → 💬 Ask Claude: the reply streams into the thread view; words o
   await expect(page.getByTestId('explorer')).toBeVisible();
   await page.getByTestId('explorer-close').click();
 
-  // Leaving and coming back keeps the thread (the Coach lists it with 💬); /coach/chat/:id redirects here.
+  // Leaving and coming back keeps the thread (the Chats tab lists it as a Claude row); /coach/chat/:id redirects here.
   const url = page.url().replace(/^https?:\/\/[^/]+/, '');
   const id = url.split('/').pop()!;
-  await page.goto('/coach');
-  await expect(page.getByTestId('coach-conv-ask').first()).toContainText('成都有什么好吃的');
+  await page.goto('/chats');
+  await expect(page.getByTestId('chats-claude-row').first()).toContainText('成都有什么好吃的', { timeout: 20_000 });
   await page.goto(`/coach/chat/${id}`);
   await expect(page).toHaveURL(new RegExp(`/chats/claude/${id}$`));
   await expect(page.getByTestId('claude-chat-reply').last()).toContainText(FINAL);
@@ -77,8 +76,8 @@ test('a card thread: the header chip, the card’s chips, a streamed answer, the
   const { session_token } = await seedUser(request);
   const deck = await apiPost<{ id: string }>(request, session_token, '/api/decks', { name: 'HSK 2' });
   const note = await apiPost<{ id: string }>(request, session_token, `/api/decks/${deck.id}/notes`, { hanzi: '银行', pinyin: 'yínháng', english: 'bank' });
-  await page.goto(`/coach?session_token=${session_token}`);
-  await expect(page.getByTestId('coach-ask-entry')).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/chats?session_token=${session_token}`);
+  await expect(page.getByTestId('chats-compose')).toBeVisible({ timeout: 30_000 });
   await page.goto(`/chats/claude/new?context=card&note_id=${note.id}&label=${encodeURIComponent('银行')}`);
   await expect(page.getByTestId('claude-thread-context-chip')).toContainText('Asked on card · 银行', { timeout: 30_000 });
   await expect(page.getByTestId('claude-composer-intents')).toHaveCount(0);
@@ -97,9 +96,9 @@ test('a card thread: the header chip, the card’s chips, a streamed answer, the
 test('offline: the message waits in the outbox and is sent when the connection is back', async ({ page, request, context }) => {
   test.setTimeout(120_000);
   const { session_token } = await seedUser(request);
-  await page.goto(`/coach?session_token=${session_token}`);
-  await expect(page.getByTestId('coach-ask-entry')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('coach-ask-entry').click();
+  await page.goto(`/chats?session_token=${session_token}`);
+  await expect(page.getByTestId('chats-compose')).toBeVisible({ timeout: 30_000 });
+  await page.goto('/chats/claude/new');
   await expect(page.getByTestId('claude-thread-empty')).toBeVisible();
   await context.setOffline(true);
   // Offline the box comes first (no ✏️ Type to tap).

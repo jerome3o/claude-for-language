@@ -548,6 +548,66 @@ there's more than one) → `/connections/:relId/chat` → THE chat with them. A 
 - The tab badge = conversations with people (not Claude) that have unread messages
   (`unreadConversationCount`).
 
+## Chats tab — one list for people and Claude (web; Lab next)
+
+Jerome: "Unify the coach page and the chats page. Really easy to get to the coach, but also easy to
+message your tutor(s)." The Chats tab (`/chats`, web `pages/ChatsPage.tsx`) is ONE list of the chats
+with people (`GET /api/me/chats`, above) and the chats with Claude (`GET /api/claude/threads`, "Claude
+threads" below), merged by ONE pure rule — `mergeInbox` in `shared/claude/inbox.ts` (Lab core
+`claude/ClaudeInbox.kt`, parity-tested by `parity/fixtures/claude-chats.ts`):
+
+- **Rows**: kind `tutor` (they teach me), `student` (I teach them) or `claude`. Every row is its own
+  outlined card with its kind written ON the outline — "🧑‍🏫 TUTOR" (blue), "✦ CLAUDE" (orange),
+  "🎓 STUDENT" (grey) — and a different avatar (photo / initial vs ✦). Jerome is red / green
+  colour-blind: the icon + the word are the signal, the colour only a second one (`inboxRowLabel`).
+- **A Claude row**: the thread's title, the last message (`claudeRowPreview`: "✦ Writing a reply…"
+  while Claude writes, "⚠ The reply failed — open to retry", "🕓 Waiting for a connection" for one
+  started offline; nothing when it only repeats the title, as a ✏️ Check chat's does), the time, an
+  unread count (replies finished since it was last opened) and the **context chip** (`contextBadge`):
+  "📇 Asked on card · 银行" (a button → the card hub), "🎭 Practice · 点菜", "💬 About a message",
+  "✏️ Check" / "🔍 Explain" / "🔤 Translate" for a chat started with a Coach button. The row opens
+  `/chats/claude/:id` with `{ from: '/chats' }`.
+- **Order**: a learner's UNREAD tutor chats pinned on top, then everything by newest activity (a
+  thread's last message, else its creation; ties by key). Archived threads are left out.
+- **Practice chats appear once**: an `is_ai` conversation (an old Claude role-play chat) is dropped
+  when the device has its `practice` thread (`pc-<conversation id>`, the server's backfill) and is
+  otherwise a Claude row of its own that opens the old chat.
+- **Filters** (`inboxFilters`, only when there are both people and Claude): All · 🧑‍🏫 Tutor (Tutors /
+  🎓 Students / People by who they are) · ✦ Claude. Search (`filterInbox`) looks at names, titles,
+  previews and context chips.
+- **The box at the bottom** (`components/chats/ChatsComposer.tsx`; `.page-footer`, so it sits above
+  the tab bar once the list is long), Claude.ai style and voice-first (🎤 Say it / ✏️ Type, the
+  `ClaudeChatComposer`): placeholder "Ask Claude anything…"; the main button is **Ask** (Enter); for
+  Chinese ✏️ Check + 🔍 Explain beside it, for English 🔤 Translate (`composerFor('general', …)` +
+  `coachButtons`). Sending = `startClaudeThread({ context: general, intent })` → the new thread opens
+  (`/chats/claude/:id?source=chats`) with the reply streaming; offline it is queued in the Claude
+  outbox and the thread opens under its client id. **"To: ✦ Claude ▾"** lists the tutors
+  (`composeRecipients`): picking one saves the text as that chat's draft (`services/chatDrafts.ts`) and
+  opens it. ✏️ (top right) = "New chat with…": ✦ Claude (focuses the box) or a person.
+- **The tutor's view** (a tutor account or an account with students — `useNavRole`): student-centric —
+  the people first under "Students" (or "People" when she also has a tutor), newest first, no pinning,
+  no filter chips; then "✦ Your Claude chats (N)" folded by default (remembered per device,
+  `chats-claude-section-open-v1`; a dot when one has an unread reply; search opens it); the box starts
+  as one "✦ Ask Claude…" button and offers Ask · Translate only (the Coach's Check / Explain are a
+  learner's tools).
+- **Offline / live**: the people list from its localStorage cache (above); the threads from Dexie
+  `claudeThreads` (the thread view's cache), refreshed by `services/claudeInbox.ts`
+  `syncClaudeThreadList` — the whole list the first time (or when the table is empty), then
+  `?since=<server_time>` (cursor per account in localStorage) with `deleted_ids` — on open, focus,
+  `online`, every minute, a socket (re)connect and every `claude_turn` that finishes; a turn starting
+  marks its row "Writing a reply…" at once (`useClaudeInbox`).
+- **Coach entry points** (`pages/CoachEntry.tsx` `coachEntryTarget`): `/coach` (and the widget's
+  `?focus=1`) → `/chats?compose=1` (the box, typing); `?c=<id>` → `/chats/claude/<id>`;
+  `?text=&action=` (or English text, which can only be translated) → a new thread with that intent;
+  Chinese `?text=` without an action / `?draft=` → the box with the text. Two exceptions keep the
+  Coach page (`SentenceCoachPage`), as #690 left them: "Open in Coach" from a chat message
+  (`from_message`, reuses the stored auto-check) and anything opened from a study card (its return
+  path is set → "Back to your card"); once shown, the Coach page keeps its own `?c=` for that visit.
+  More → "✦ Ask Claude / Coach" → `/chats?compose=1`. A mistake lesson's ← goes back to its thread.
+- **Analytics**: `chats.open { kind }`, `chats.filter { filter }`, `chats.compose_send { intent,
+  offline, spoken }` (+ `claude.message_send`), `chats.compose_to_person { had_text }`;
+  `chat.inbox_open` counts both kinds.
+
 ## One chat per pair (migration 0102_one_chat_per_pair.sql)
 
 Jerome: "Make it so there's only one chat between each pair of people — each student–tutor combination."

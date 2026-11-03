@@ -48,13 +48,291 @@
   outline-offset: 0;
 }
 
+/* One list: every row its own outlined card with its kind written on the outline (fieldset-style
+   legend: "🧑‍🏫 TUTOR", "✦ CLAUDE") — the colour is a second signal, never the only one. */
 .chats-list {
   display: flex;
   flex-direction: column;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  gap: 0.9rem;
+  padding-top: 0.5rem;
+}
+
+.chats-row-wrap {
+  --chats-outline: var(--color-border);
+  --chats-kind-fg: var(--color-text-light);
+  position: relative;
+  border: 1.5px solid var(--chats-outline);
   border-radius: var(--radius-lg, 16px);
+  background: var(--color-surface);
+}
+
+.chats-row-wrap-tutor {
+  --chats-outline: #2c6bed;
+  --chats-kind-fg: #1f56c8;
+  border-width: 2px;
+}
+
+.chats-row-wrap-claude {
+  --chats-outline: #d97757;
+  --chats-kind-fg: #a8482a;
+  border-width: 2px;
+}
+
+.chats-row-pinned {
+  box-shadow: 0 0 0 3px rgba(44, 107, 237, 0.15);
+}
+
+.chats-row-kind {
+  position: absolute;
+  top: -0.7rem;
+  left: 0.85rem;
+  z-index: 1;
+  padding: 0 0.4rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.3rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--chats-kind-fg);
+  background: var(--color-background, var(--color-surface));
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+.chats-row-claude {
+  cursor: pointer;
+}
+
+.chats-row-claude:focus-visible,
+.chats-row:focus-visible {
+  outline: 2px solid var(--chats-outline, #2c6bed);
+  outline-offset: 2px;
+}
+
+.chats-context-chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  margin-top: 4px;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(217, 119, 87, 0.45);
+  background: rgba(217, 119, 87, 0.08);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+button.chats-context-chip-link {
+  min-height: 32px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+button.chats-context-chip-link:hover {
+  background: rgba(217, 119, 87, 0.16);
+}
+
+.chats-row-preview-failed {
+  color: #b3261e;
+}
+
+/* Filter chips: All · 🧑‍🏫 Tutor · ✦ Claude */
+.chats-filters {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chats-filter {
+  flex: none;
+  min-height: 36px;
+  padding: 0 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.chats-filter-on {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+  font-weight: 600;
+}
+
+/* The tutor's "Your Claude chats" (folded by default). */
+.chats-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 1rem;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chats-section-count {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  background: var(--color-border);
+  color: var(--color-text);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.chats-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d97757;
+}
+
+/* The bottom box (sticky above the tab bar: .page-footer). */
+.chats-compose {
+  margin-top: 1.25rem;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.chats-compose .claude-chat-composer {
+  position: static;
+  padding: 0;
+  border-top: none;
+  background: transparent;
+}
+
+.chats-composer {
+  border: 2px solid #d97757;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--color-surface);
+  padding: 0.5rem 0.75rem 0.6rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+
+.chats-compose-to {
+  position: relative;
+  margin-bottom: 0.35rem;
+}
+
+.chats-compose-to-btn {
+  min-height: 32px;
+  padding: 0 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-light);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.chats-compose-to-claude {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.chats-compose-to-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  min-width: 220px;
   padding: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.chats-compose-to-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.9375rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chats-compose-to-menu button:hover {
+  background: rgba(44, 107, 237, 0.06);
+}
+
+.chats-compose-to-check {
+  margin-left: auto;
+}
+
+.chats-compose-error {
+  margin: 0.4rem 0 0;
+  color: #b3261e;
+  font-size: 0.875rem;
+}
+
+.chats-compose-note {
+  margin: 0.4rem 0 0;
+  color: var(--color-text-light);
+  font-size: 0.8125rem;
+}
+
+.chats-compose-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 1rem;
+  border: 1.5px solid #d97757;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-light);
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chats-compose-spark {
+  color: #d97757;
+  font-size: 1.1rem;
+}
+
+.chats-sheet-link {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+:root[data-theme='dark'] .chats-row-wrap-tutor {
+  --chats-outline: #6e9bff;
+  --chats-kind-fg: #9dbbff;
+}
+
+:root[data-theme='dark'] .chats-row-wrap-claude {
+  --chats-outline: #e8956f;
+  --chats-kind-fg: #f0b08f;
 }
 
 .chats-row {
