@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import { CONNECTIONS_TITLE } from '@shared/chats/personLinks';
 import {
   getMyRelationships,
   createRelationship,
@@ -40,9 +41,10 @@ export function ConnectionsPage() {
   const queryClient = useQueryClient();
   const canInvite = !!user?.can_invite || !!user?.is_admin;
   const [showInviteSheet, setShowInviteSheet] = useState(false);
-  const [showInviteForm, setShowInviteForm] = useState(false);
+  // `?invite=1` (e.g. from the Chats tab's new-chat picker) opens the connect-by-email form.
+  const [searchParams] = useSearchParams();
+  const [showInviteForm, setShowInviteForm] = useState(() => searchParams.get('invite') === '1');
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<RelationshipRole>('tutor');
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
@@ -52,6 +54,8 @@ export function ConnectionsPage() {
   });
 
   const hasStudents = (relationshipsQuery.data?.students.length ?? 0) > 0;
+  // A learner (no students) mostly invites a tutor: "They'll teach me" first.
+  const [inviteRole, setInviteRole] = useState<RelationshipRole>(() => (searchParams.get('invite') === '1' ? 'student' : 'tutor'));
 
   // The full invite list (used / expired too) is only interesting when there
   // is no dashboard to show the pending ones.
@@ -126,7 +130,10 @@ export function ConnectionsPage() {
   }
 
   const relationships = relationshipsQuery.data!;
-  const { tutors, pending_incoming, pending_outgoing, pending_invitations } = relationships;
+  const { pending_incoming, pending_outgoing, pending_invitations } = relationships;
+  // The legacy "Claude AI · Practice Chinese conversations" pseudo-connection is hidden: role-plays
+  // are Claude threads now (Chats → ✏️ → 🎭 Practice a situation). Its data is kept.
+  const tutors = relationships.tutors.filter((rel) => !isClaudeUser(getOtherUserInRelationship(rel, user!.id).id));
 
   const renderInvitationInfo = (inv: PendingInvitationWithInviter) => (
     <div className="connection-user">
@@ -185,7 +192,7 @@ export function ConnectionsPage() {
     <div className="page">
       <div className="container">
         <div className="connections-header">
-          <h1>{hasStudents ? 'My students' : 'Connections'}</h1>
+          <h1>{hasStudents ? 'My students' : CONNECTIONS_TITLE}</h1>
           <div className="connections-header-actions">
           {hasStudents && <ProfileChip />}
           {canInvite ? (

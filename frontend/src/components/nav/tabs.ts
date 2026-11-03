@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'chats' | 'decks' | 'tutor' | 'students' | 'library' | 'progress' | 'more';
+export type TabId = 'study' | 'chats' | 'decks' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -14,7 +14,6 @@ const STUDY: TabSpec = { id: 'study', label: 'Study', to: '/', match: ['/', '/st
 const CHATS: TabSpec = { id: 'chats', label: 'Chats', to: '/chats', match: ['/chats'] };
 /** Tutor accounts only (Minghui asked for Decks one tap away); everyone else finds Decks first in More. */
 const DECKS: TabSpec = { id: 'decks', label: 'Decks', to: '/decks', match: ['/decks', '/generate', '/search'] };
-const TUTOR: TabSpec = { id: 'tutor', label: 'Tutor', to: '/connections', match: ['/connections'] };
 const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections', '/homework-library'] };
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
 const PROGRESS: TabSpec = { id: 'progress', label: 'Progress', to: '/progress', match: ['/progress'] };
@@ -25,20 +24,30 @@ const MORE: TabSpec = {
   match: [
     // Decks moved from the tab bar into More (its first row), so a deck page lights More up —
     // except for a tutor account, whose Decks tab comes first in tabsFor and wins the tie.
-    '/more', '/decks', '/up-next', '/cards/held', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
+    // The learner's Tutor tab is gone (Nov 2026): their tutor page is reached from the chat, and
+    // connections from More → "Tutors & connections", so /connections lights More — except where
+    // a Students tab comes first in tabsFor and wins the tie.
+    '/more', '/connections', '/decks', '/up-next', '/cards/held', '/generate', '/search', '/settings', '/profile', '/coach', '/analyze', '/readers', '/lessons', '/lesson-notes',
     '/quests', '/picture-hunt', '/idioms', '/meme-review', '/clips', '/audio-lessons', '/library', '/duplicate-finder', '/admin',
   ],
 };
 
 /**
+ * A learner's tabs. Four since the Tutor tab went (Jerome, Nov 2026: "it seems like a dud page" —
+ * the tutor page is the chat header's name, connections are More → "Tutors & connections"). The
+ * free slot is kept for something better: add its TabSpec here, before MORE.
+ */
+export const LEARNER_TABS: readonly TabSpec[] = [STUDY, CHATS, PROGRESS, MORE];
+
+/**
  * Tutor account (role):   Students · Chats · Decks · Library · More — no Study tab, whatever its decks
- * Student account:        Study · Chats · Tutor · Progress · More
+ * Student account:        Study · Chats · Progress · More (LEARNER_TABS)
  * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
  * Decks are also the first row of More (and Home's "See all").
  */
 export function tabsFor(role: Pick<NavRole, 'hasStudents' | 'isTutorOnly'> & { isTutorAccount?: boolean }): TabSpec[] {
   if (role.isTutorAccount) return [STUDENTS, CHATS, DECKS, LIBRARY, MORE];
-  if (!role.hasStudents) return [STUDY, CHATS, TUTOR, PROGRESS, MORE];
+  if (!role.hasStudents) return [...LEARNER_TABS];
   return role.isTutorOnly
     ? [STUDENTS, CHATS, STUDY, MORE]
     : [STUDENTS, CHATS, STUDY, PROGRESS, MORE];

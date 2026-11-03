@@ -16,7 +16,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 import dev.jeromeswannack.chineselearning.lab.ui.placeholder.PlaceholderScreen
 
 /**
- * `/connections` — the Tutor tab for a student, the Students tab for a tutor (web:
+ * `/connections` — More → "Tutors & connections" for a student (the Tutor tab went, Nov 2026), the
+ * Students tab for a tutor (web:
  * ConnectionsPage renders StudentsDashboard once the account has an active student).
  * Package E owns this file and the student-side routes; package F adds the dashboard as
  * `ui/teaching/StudentsDashboardScreen.kt` and switches to it here on `role.hasStudents`,
@@ -33,6 +34,7 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
             ConnectionsScreen(
                 ui,
                 ConnectionsActions(
+                    onBack = nav::back,
                     onOpen = { nav.open(Routes.connection(it)) },
                     onAccept = vm::accept,
                     onRemove = vm::remove,
@@ -74,7 +76,7 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
  * other person is my student and this otherwise.
  */
 @Composable
-fun TutorPageRoute(nav: LabNav, relId: String) {
+fun TutorPageRoute(nav: LabNav, relId: String, section: String? = null) {
     val vm: TutorPageViewModel = viewModel(factory = factory { TutorPageViewModel(nav.app, relId) })
     val ui by vm.ui.collectAsStateWithLifecycle()
     val rel = ui.relationship.data
@@ -104,6 +106,7 @@ fun TutorPageRoute(nav: LabNav, relId: String) {
                 onRemoveConnection = { vm.removeConnection { nav.openTabPath(Routes.CONNECTIONS) } },
                 onRetry = vm::retry,
             ),
+            section = section,
         )
     }
 }

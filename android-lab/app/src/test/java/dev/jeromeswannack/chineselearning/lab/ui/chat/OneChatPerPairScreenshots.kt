@@ -48,7 +48,7 @@ class OneChatPerPairScreenshots : LabScreenshotTest() {
         LabScreen("Claude · ⋯") { item { ChatMenuContent(claude, ChatSheetActions()) } }
     }
 
-    @Test fun tutorPage() = shootInShell("one-chat-04-tutor-page", active = TabId.TUTOR) {
+    @Test fun tutorPage() = shootInShell("one-chat-04-tutor-page", active = TabId.MORE) {
         TutorPageScreen(ConnectionsScreenshots.pageUi, TutorPageActions())
     }
 

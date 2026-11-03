@@ -37,7 +37,7 @@ class ShellScreenshots : LabScreenshotTest() {
         DecksTabScreen(dev.jeromeswannack.chineselearning.lab.ui.decks.DecksSamples.list, dev.jeromeswannack.chineselearning.lab.ui.decks.DecksActions())
     }
 
-    @Test fun tutorTabPlaceholder() = shootInShell("shell-03-tutor-placeholder", TabId.TUTOR) {
+    @Test fun tutorTabPlaceholder() = shootInShell("shell-03-tutor-placeholder", TabId.MORE) {
         PlaceholderScreen("/connections", onBack = null, onOpenInMainApp = {})
     }
 

@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import dev.jeromeswannack.chineselearning.lab.ui.teaching.scrollToKey
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -110,16 +111,23 @@ class TutorPageActions(
  * shared; ⋯ → Remove connection. The Claude practice partner gets "New practice conversation".
  */
 @Composable
-fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
+fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions, section: String? = null) {
     var menu by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
     var newConv by rememberSaveable { mutableStateOf(false) }
     val rel = ui.relationship.data
     val other = rel?.other(ui.myId)
     val isClaude = other?.id == CLAUDE_USER_ID
+    // The chat ⋯ menu lands on a section (`?section=homework|flags`, web #homework / #flags).
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val focus = remember(section) { section?.let { dev.jeromeswannack.chineselearning.lab.ui.teaching.SectionFocus(it) } }
+    androidx.compose.runtime.LaunchedEffect(focus, rel != null) {
+        if (focus != null && rel != null) listState.scrollToKey(focus.section)
+    }
     LabScreen(
         "",
         onBack = actions.onBack,
+        listState = listState,
         actions = { IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More", tint = Lab.colors.muted) } },
     ) {
         if (rel == null) {
@@ -171,8 +179,12 @@ fun TutorPageScreen(ui: TutorPageUi, actions: TutorPageActions) {
         }
 
         if (!isClaude) {
-            item { FlagsSection(ui.flags, actions) }
-            item { SectionHeader("Homework from your tutor") }
+            item(key = "flags") {
+                dev.jeromeswannack.chineselearning.lab.ui.teaching.FlashSection(focus?.takeIf { it.section == "flags" }) { FlagsSection(ui.flags, actions) }
+            }
+            item(key = "homework") {
+                dev.jeromeswannack.chineselearning.lab.ui.teaching.FlashSection(focus?.takeIf { it.section == "homework" }) { SectionHeader("Homework from your tutor") }
+            }
             item {
                 LoadableContent(ui.sharedDecks, onRetry = actions.onRetry, isEmpty = { it.isEmpty() }, empty = {
                     EmptyState("📚", "No shared decks", body = "Your tutor hasn't shared any decks yet")
