@@ -170,24 +170,24 @@ function exerciseChips(zh: boolean, ctx: { exercise_type?: string; answer?: { ve
   return list;
 }
 
-/** After Claude's first reply, at most this many chips stay above the composer. */
-export const CHIPS_AFTER_REPLY_MAX = 3;
-
 export interface ChipOptions {
   language: AskLanguage;
   /** A card thread: he asked right after typing an answer (also read from the context's `typed`). */
   typedAnswer?: boolean;
   /** A card thread: the card has an example sentence. */
   hasSentence?: boolean;
-  /** Claude's finished replies so far — after one, only the first CHIPS_AFTER_REPLY_MAX chips. */
-  replies?: number;
+  /**
+   * The thread has a message (mine, Claude's, queued or being sent): no suggestion chips any more
+   * (Jerome, Nov 2026: "once we have sent a message, we don't need the suggestion pills").
+   */
+  started?: boolean;
   /** Chips already used in this thread (by id): never offered again. */
   used?: readonly string[];
 }
 
 /**
- * The suggestion chips above a thread's composer: shown while the thread is empty and after each
- * reply (at most three then). A practice chat's help chips are offered again and again (never "used").
+ * The suggestion chips above a thread's composer: shown only while the thread is empty (before the
+ * first message). A practice chat's help chips are tools, offered again and again (never "used").
  */
 export function chipsFor(
   ctx: Pick<ClaudeThreadContext, 'kind'> & { typed?: unknown; looked_up?: readonly string[]; said_wrong?: readonly string[]; exercise_type?: string; answer?: { verdict?: string } },
@@ -216,9 +216,9 @@ export function chipsFor(
     default:
       return [];
   }
+  if (opts.started) return [];
   const used = new Set(opts.used ?? []);
-  list = list.filter((c) => !used.has(c.id));
-  return (opts.replies ?? 0) > 0 ? list.slice(0, CHIPS_AFTER_REPLY_MAX) : list;
+  return list.filter((c) => !used.has(c.id));
 }
 
 // ---------- The composer ----------

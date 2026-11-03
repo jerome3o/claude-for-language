@@ -159,6 +159,7 @@ fun ClaudeThreadContent(
     sheet: Boolean = false,
     onClose: () -> Unit = {},
     headerExtra: (@Composable () -> Unit)? = null,
+    menuItems: List<ThreadMenuItem> = emptyList(),
     toolResults: (@Composable (dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto) -> Unit)? = null,
     closedNote: String? = null,
     explorerSource: String = "claude_chat",
@@ -221,6 +222,7 @@ fun ClaudeThreadContent(
         ),
         sheet = sheet,
         headerExtra = headerExtra,
+        menuItems = menuItems,
         toolResults = toolResults,
         closedNote = closedNote,
     )

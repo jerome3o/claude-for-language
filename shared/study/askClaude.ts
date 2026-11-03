@@ -47,6 +47,22 @@ export function asksForEnglish(question: string): boolean {
   return ENGLISH_REQUEST.some((re) => re.test(q));
 }
 
+/**
+ * The language Claude's reply is SHOWN in (word chips + ▶ / 拼 / EN / 🎤 for Chinese, Markdown for
+ * English). The stored `answer_lang` is the language the turn was ASKED for, so a question that asks
+ * for English ("把说明改成英文") is stored 'en' even when Claude answered in Chinese — that reply had no
+ * word chips (Jerome, Nov 2026); a chat-message thread stores none. A reply asked in Chinese stays
+ * Chinese; otherwise mostly-Chinese text (at least twice as many Han characters as Latin words) is
+ * Chinese; else the stored language.
+ */
+export function replyLanguage(answerLang: string | null | undefined, text: string): AskLanguage | null {
+  if (answerLang === 'zh') return 'zh';
+  const han = (text.match(/[一-鿿㐀-䶿]/g) ?? []).length;
+  const words = (text.match(/[A-Za-z]+/g) ?? []).length;
+  if (han > 0 && han >= 2 * words) return 'zh';
+  return answerLang === 'en' ? 'en' : null;
+}
+
 /** The language one turn is answered in: an explicit request for English wins, else the setting. */
 export function turnLanguage(setting: unknown, question: string): AskLanguage {
   if (asksForEnglish(question)) return 'en';

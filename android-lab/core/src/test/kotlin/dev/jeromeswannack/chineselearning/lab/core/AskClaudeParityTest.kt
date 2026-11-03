@@ -111,6 +111,16 @@ class AskClaudeParityTest {
     }
 
     @Test
+    fun replyLanguagesMatchTypeScript() {
+        val cases = f["replyLanguages"]!!.jsonArray
+        assertEquals(40, cases.size)
+        for (c in cases) {
+            val o = c.jsonObject
+            assertEquals(o.str("out"), AskClaude.replyLanguage(o.str("lang"), o.str("text")!!), "replyLanguage ${o.str("lang")} ${o.str("text")}")
+        }
+    }
+
+    @Test
     fun languagesMatchTypeScript() {
         for (c in f["languages"]!!.jsonArray) {
             val o = c.jsonObject

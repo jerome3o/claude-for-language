@@ -69,7 +69,11 @@ vi.mock('../../services/askClaudeListening', async (importOriginal) => ({
   useAskListening: () => [false, vi.fn()],
 }));
 vi.mock('../../services/wordRecap', () => ({ useChatRecapCount: () => 0 }));
-vi.mock('../../services/chineseSegmenter', () => ({ useSegmentedWords: () => null, preloadSegmenter: () => {} }));
+const SEGMENTS: Record<string, string[]> = { '好的，我加了一个小知识。': ['好的', '，', '我', '加', '了', '一个', '小知识', '。'] };
+vi.mock('../../services/chineseSegmenter', () => ({
+  useSegmentedWords: (text: string, enabled = true) => (enabled && SEGMENTS[text] ? SEGMENTS[text].map((t) => ({ text: t, pinyin: '', gloss: '' })) : null),
+  preloadSegmenter: () => {},
+}));
 vi.mock('../../services/ttsCache', () => ({ getTTSWithCache: vi.fn(async () => null) }));
 vi.mock('../../services/audioCache', () => ({ speakWithBrowserTTS: vi.fn(async () => undefined) }));
 vi.mock('../explorer/ExplorerContext', () => ({
@@ -144,24 +148,67 @@ afterEach(() => {
 });
 
 describe('CardClaudeSheet', () => {
-  it("resumes the card's thread from the last 30 minutes and lists the earlier ones", async () => {
+  it("resumes the card's thread from the last 30 minutes; ⋯ lists the earlier ones and starts a new chat", async () => {
     await db.claudeThreads.bulkPut([cardThread('recent', 10 * 60_000), cardThread('old', 3 * 3600_000), cardThread('other-card', 60_000, { context: { kind: 'card', note_id: 'n2' } })] as never);
     api.getClaudeThread.mockImplementation(async (id: string) => ({ thread: cardThread(id, 10 * 60_000), messages: [msg('u-' + id, id, 'user', '行怎么读？'), msg('a-' + id, id, 'assistant', '这里读 háng。')], server_time: iso(0) }));
     await render(props());
     await waitFor(() => !!q('claude-chat-reply'), 'the resumed thread');
     expect(api.getClaudeThread).toHaveBeenCalledWith('recent', null);
     expect(api.listClaudeThreads).toHaveBeenCalledWith({ contextKind: 'card', noteId: 'n1', limit: 50 });
-    expect(q('card-claude-earlier')!.textContent).toContain('Earlier about 银行 · 1 chat');
     expect(track).toHaveBeenCalledWith('claude.thread_open', { context_kind: 'card', source: 'study_card', resumed: true });
+    // Compact (Jerome, Nov 2026): no ✕ (the grab handle closes), no "Asked on card" chip, no tutor
+    // line, no Earlier / New chat row, no chips once the thread has a message.
+    expect(host.querySelector('[aria-label="Close"]')!.className).toBe('claude-sheet-handle');
+    expect(q('claude-thread-context-chip')).toBeNull();
+    expect(q('claude-thread-shared')).toBeNull();
+    expect(q('card-claude-earlier')).toBeNull();
+    expect(q('card-claude-new')).toBeNull();
+    expect(q('claude-thread-chips')).toBeNull();
 
-    // Earlier → the old one; ＋ New chat → a fresh, empty thread.
+    // ⋯ → Earlier → the old one; ⋯ → ＋ New chat → a fresh, empty thread with the card's chips.
+    await act(async () => q('claude-thread-more')!.click());
+    expect(q('card-claude-earlier')!.textContent).toBe('🕘 Earlier about 银行 · 1 chat');
+    expect(q('card-claude-new')!.textContent).toBe('＋ New chat');
     await act(async () => q('card-claude-earlier')!.click());
     expect(host.querySelectorAll('[data-testid="card-claude-earlier-row"]')).toHaveLength(1);
     await act(async () => (host.querySelector('[data-testid="card-claude-earlier-row"]') as HTMLElement).click());
     await waitFor(() => api.getClaudeThread.mock.calls.some((c) => c[0] === 'old'), 'the earlier thread');
+    expect(q('card-claude-earlier-list')).toBeNull();
+    await act(async () => q('claude-thread-more')!.click());
     await act(async () => q('card-claude-new')!.click());
     await waitFor(() => !!q('claude-thread-empty'), 'a new chat');
+    expect(q('claude-thread-chip-sentences')).toBeTruthy();
+    await act(async () => q('claude-thread-more')!.click());
     expect(q('card-claude-earlier')!.textContent).toContain('2 chats');
+    expect(q('card-claude-new')).toBeNull();
+  });
+
+  it('the grab handle closes the sheet (tap, drag down, Escape)', async () => {
+    const onClose = vi.fn();
+    await render(props({ onClose }));
+    const handle = q('claude-thread-close')!;
+    await act(async () => handle.click());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(onClose).toHaveBeenCalledTimes(2);
+    // Drag down past 80px: closes; a short drag doesn't (and the click after it doesn't either).
+    const drag = async (dy: number) => {
+      await act(async () => {
+        handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: 100 }));
+        handle.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientY: 100 + dy }));
+        handle.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientY: 100 + dy }));
+        handle.click();
+      });
+      await flush();
+    };
+    await drag(30);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    await drag(120);
+    expect(onClose).toHaveBeenCalledTimes(3);
+    // Closed (the sheet stays mounted, hidden): Escape does nothing.
+    await render(props({ onClose, open: false }));
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("an older thread isn't resumed: a new chat with the card's chips, Ask only; the question carries the typed answer", async () => {
@@ -198,13 +245,17 @@ describe('CardClaudeSheet', () => {
     await render(props({ onToolResults, onUndoEdit, canUndo: (id) => id === 'a1' }));
     await waitFor(() => !!q('claude-chat-pending'), 'the pending reply');
 
-    const done = msg('a1', 't1', 'assistant', '好的，我加了一个小知识。', { tool_results: EDIT_RESULTS });
+    // Stored 'en' (the turn asked for English) but written in Chinese — it must still be word chips.
+    const done = msg('a1', 't1', 'assistant', '好的，我加了一个小知识。', { tool_results: EDIT_RESULTS, answer_lang: 'en' });
     api.getClaudeThread.mockResolvedValue({ thread: cardThread('t1', 0), messages: [done], server_time: iso(0) });
     await act(async () => live.emit({ type: 'claude_turn', thread_id: 't1', message_id: 'a1', seq: 2, status: 'done', text: done.content }));
     await waitFor(() => !!q('card-claude-tool-edited'), 'the edit line');
     expect(onToolResults).toHaveBeenCalledTimes(1);
     expect(onToolResults.mock.calls[0][0]).toEqual([expect.objectContaining({ tool: 'edit_current_card', success: true })]);
     expect(q('card-claude-tool-edited')!.textContent).toContain('✓ Claude edited this card · notes');
+    // The streamed reply that finished with a card edit: tappable word chips (Jerome, Nov 2026: "the text isn't clickable").
+    const reply = host.querySelector('[data-testid="claude-chat-reply"]')!;
+    expect([...reply.querySelectorAll('.chat-word')].map((c) => c.textContent)).toEqual(['好的', '我', '加', '了', '一个', '小知识']);
 
     await act(async () => q('card-claude-undo')!.click());
     await waitFor(() => q('card-claude-tool-edited')!.textContent!.includes('Undone'), 'undone');

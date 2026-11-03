@@ -6,11 +6,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +46,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.ui.claude.ClaudeThreadContent
 import dev.jeromeswannack.chineselearning.lab.ui.claude.ClaudeThreadViewModel
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabModalSheet
+import dev.jeromeswannack.chineselearning.lab.ui.claude.ThreadMenuItem
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabTallSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
@@ -67,9 +65,12 @@ import kotlinx.serialization.json.buildJsonObject
  * Chinese.
  *
  * - Which thread: the card's recent one (core [ClaudeChats.resumeThreadFor] — its last message within
- *   30 minutes of opening), else a new one made by the first question. "Earlier about 银行 · 2 chats"
- *   lists the card's other threads ([CardTools.earlierCardThreads]); ＋ New chat starts afresh. The
- *   thread shows in the Chats tab with "📇 Asked on card · 银行".
+ *   30 minutes of opening), else a new one made by the first question. ⋯ → "🕘 Earlier about 银行 ·
+ *   2 chats" lists the card's other threads ([CardTools.earlierCardThreads]); ⋯ → ＋ New chat starts
+ *   afresh. The thread shows in the Chats tab with "📇 Asked on card · 银行" (the sheet shows no chip).
+ * - Compact (Jerome, Nov 2026; [LabTallSheet]): the whole height under the status bar, a slim grab
+ *   handle instead of ✕, one header row, chips only before the first message, Claude's bubbles the
+ *   full width.
  * - Claude's card tools (edit / delete this card, make cards, a mini lesson, ⚡ bump) are applied by
  *   the server; when a reply the card saw being written finishes, [CardClaudeActions.onToolResults]
  *   brings the phone's study state in line (once per reply, [ClaudeThreads.markCardEffectsApplied])
@@ -119,6 +120,8 @@ object CardClaudeTags {
     const val SHEET = "ask-claude-sheet"
     const val EARLIER = "card-claude-earlier"
     const val EARLIER_ROW = "card-claude-earlier-row"
+    const val EARLIER_LIST = "card-claude-earlier-list"
+    const val EARLIER_HIDE = "card-claude-earlier-hide"
     const val NEW_CHAT = "card-claude-new"
     const val TOOLS = "card-claude-tools"
     const val UNDO = "card-claude-undo"
@@ -216,82 +219,89 @@ fun CardClaudeSheet(
     }
     val earlier = remember(threads, id) { CardTools.earlierCardThreads(threads.map { it.ref() }, state.noteId, id.takeIf { it != CardClaudeState.NEW }) }
     val byId = remember(threads) { threads.associateBy { it.id } }
-    LabModalSheet(onDismiss = onDismiss) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().testTag(CardClaudeTags.SHEET)) {
-            ClaudeThreadContent(
-                app, vm,
-                open = { path -> onDismiss(); actions.openPath(path) },
-                back = onDismiss,
-                started = started,
-                sheet = true,
-                onClose = onDismiss,
-                explorerSource = "ask_claude",
-                headerExtra = {
-                    EarlierRow(
-                        hanzi = view.note.hanzi,
-                        earlier = earlier.mapNotNull { byId[it.id] },
-                        canStartNew = id != CardClaudeState.NEW,
-                        onPick = { t ->
-                            state.chosen = t.id
-                            app.analytics.track("claude.thread_action", mapOf("action" to "switch", "context_kind" to ClaudeChats.CARD))
-                        },
-                        onNew = {
-                            state.fresh += 1
-                            state.chosen = CardClaudeState.NEW
-                            app.analytics.track("claude.thread_action", mapOf("action" to "new", "context_kind" to ClaudeChats.CARD))
-                        },
-                    )
-                },
-                toolResults = { reply ->
-                    val online by app.online.collectAsState()
-                    CardToolLines(reply, actions, online) {
-                        app.analytics.track("claude.undo_card_edit", mapOf("context_kind" to ClaudeChats.CARD))
-                        app.haptics.tick()
-                    }
-                },
-                closedNote = if (cardDeleted) "This card was deleted — moving on to the next one." else null,
-            )
-        }
+    var earlierOpen by remember(id) { mutableStateOf(false) }
+    val earlierThreads = earlier.mapNotNull { byId[it.id] }
+    val menuItems = cardMenuItems(
+        hanzi = view.note.hanzi,
+        earlierCount = earlierThreads.size,
+        canStartNew = id != CardClaudeState.NEW,
+        onEarlier = { earlierOpen = true },
+        onNew = {
+            state.fresh += 1
+            state.chosen = CardClaudeState.NEW
+            app.analytics.track("claude.thread_action", mapOf("action" to "new", "context_kind" to ClaudeChats.CARD))
+        },
+    )
+    LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(CardClaudeTags.SHEET)) {
+        ClaudeThreadContent(
+            app, vm,
+            open = { path -> onDismiss(); actions.openPath(path) },
+            back = onDismiss,
+            started = started,
+            sheet = true,
+            onClose = onDismiss,
+            explorerSource = "ask_claude",
+            menuItems = menuItems,
+            headerExtra = if (earlierOpen && earlierThreads.isNotEmpty()) ({
+                EarlierList(
+                    hanzi = view.note.hanzi,
+                    earlier = earlierThreads,
+                    onPick = { t ->
+                        earlierOpen = false
+                        state.chosen = t.id
+                        app.analytics.track("claude.thread_action", mapOf("action" to "switch", "context_kind" to ClaudeChats.CARD))
+                    },
+                    onHide = { earlierOpen = false },
+                )
+            }) else null,
+            toolResults = { reply ->
+                val online by app.online.collectAsState()
+                CardToolLines(reply, actions, online) {
+                    app.analytics.track("claude.undo_card_edit", mapOf("context_kind" to ClaudeChats.CARD))
+                    app.haptics.tick()
+                }
+            },
+            closedNote = if (cardDeleted) "This card was deleted — moving on to the next one." else null,
+        )
     }
 }
 
-/** "🕘 Earlier about 银行 · 2 chats ▾" + ＋ New chat, and the list when open. */
+/**
+ * The card sheet's ⋯ items (Jerome, Nov 2026: folded into the menu so the thread keeps the room):
+ * "🕘 Earlier about 银行 · 2 chats" (opens the list under the header) and "＋ New chat".
+ */
+internal fun cardMenuItems(hanzi: String, earlierCount: Int, canStartNew: Boolean, onEarlier: () -> Unit, onNew: () -> Unit): List<ThreadMenuItem> = buildList {
+    CardTools.earlierLabel(hanzi, earlierCount)?.let { add(ThreadMenuItem("🕘 $it", CardClaudeTags.EARLIER, onClick = onEarlier)) }
+    if (canStartNew) add(ThreadMenuItem("＋ New chat", CardClaudeTags.NEW_CHAT, onClick = onNew))
+}
+
+/** The card's earlier chats (⋯ → Earlier about 银行): a row each → that chat; ▴ hides the list. */
 @Composable
-internal fun EarlierRow(hanzi: String, earlier: List<ClaudeThreadDto>, canStartNew: Boolean, onPick: (ClaudeThreadDto) -> Unit, onNew: () -> Unit) {
-    val label = CardTools.earlierLabel(hanzi, earlier.size)
-    if (label == null && !canStartNew) return
-    var open by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (label != null) Pill("🕘 $label ${if (open) "▴" else "▾"}", CardClaudeTags.EARLIER) { open = !open }
-            Spacer(Modifier.weight(1f))
-            if (canStartNew) Pill("＋ New chat", CardClaudeTags.NEW_CHAT) { open = false; onNew() }
+internal fun EarlierList(hanzi: String, earlier: List<ClaudeThreadDto>, onPick: (ClaudeThreadDto) -> Unit, onHide: () -> Unit) {
+    val label = CardTools.earlierLabel(hanzi, earlier.size) ?: return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 6.dp).testTag(CardClaudeTags.EARLIER_LIST)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🕘 $label", color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
+            Box(
+                Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(10.dp)).bouncyClickable(pressedScale = 0.94f, role = Role.Button, onClick = onHide)
+                    .padding(horizontal = 12.dp).testTag(CardClaudeTags.EARLIER_HIDE),
+                contentAlignment = Alignment.Center,
+            ) { Text("▴", color = Lab.colors.muted, fontSize = 15.sp) }
         }
-        if (open) {
-            val now = System.currentTimeMillis()
-            val offset = java.util.TimeZone.getDefault().getOffset(now) / 60_000
-            for (t in earlier) {
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp))
-                        .bouncyClickable(pressedScale = 0.98f, role = Role.Button) { open = false; onPick(t) }
-                        .padding(horizontal = 8.dp).testTag(CardClaudeTags.EARLIER_ROW),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(t.preview?.takeIf { it.isNotBlank() } ?: t.title, color = Lab.colors.ink, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                    Text(ChatInbox.relativeTime(t.last_message_at ?: t.created_at, now, offset), color = Lab.colors.muted, fontSize = 12.sp)
-                }
+        val now = System.currentTimeMillis()
+        val offset = java.util.TimeZone.getDefault().getOffset(now) / 60_000
+        for (t in earlier) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp))
+                    .bouncyClickable(pressedScale = 0.98f, role = Role.Button) { onPick(t) }
+                    .padding(horizontal = 8.dp).testTag(CardClaudeTags.EARLIER_ROW),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(t.preview?.takeIf { it.isNotBlank() } ?: t.title, color = Lab.colors.ink, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Text(ChatInbox.relativeTime(t.last_message_at ?: t.created_at, now, offset), color = Lab.colors.muted, fontSize = 12.sp)
             }
         }
     }
-}
-
-@Composable
-private fun Pill(label: String, tag: String, onClick: () -> Unit) {
-    Box(
-        Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(50)).background(Lab.colors.faint).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(50))
-            .bouncyClickable(pressedScale = 0.95f, role = Role.Button, onClick = onClick).padding(horizontal = 12.dp).testTag(tag),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, color = Lab.colors.ink, fontSize = 13.sp, maxLines = 1) }
 }
 
 /** The lines under a reply: "✓ Claude edited this card · Undo", "✓ Added 2 cards: 存钱、取钱"… */

@@ -89,8 +89,6 @@ object ClaudeChats {
     /** [fill] = the question goes into the box to be finished (🆘 How do I say…) instead of being sent. */
     data class Chip(val id: String, val label: String, val question: String, val fill: Boolean = false)
 
-    const val CHIPS_AFTER_REPLY_MAX = 3
-
     private fun chip(id: String, zh: Boolean, zhLabel: String, enLabel: String, zhQ: String, enQ: String) =
         Chip(id, if (zh) zhLabel else enLabel, if (zh) zhQ else enQ)
 
@@ -149,13 +147,16 @@ object ClaudeChats {
         return list
     }
 
-    /** Port of chipsFor: the suggestion chips above a thread's composer. */
+    /**
+     * Port of chipsFor: the suggestion chips above a thread's composer — only before the thread's
+     * first message ([started] = it has one); a role-play's help chips every time.
+     */
     fun chipsFor(
         ctx: Context,
         language: String,
         typedAnswer: Boolean = false,
         hasSentence: Boolean = false,
-        replies: Int = 0,
+        started: Boolean = false,
         used: Collection<String> = emptyList(),
     ): List<Chip> {
         val zh = language == AskClaude.ZH
@@ -168,8 +169,9 @@ object ClaudeChats {
             // Offered every time (never "used", never trimmed).
             PRACTICE -> return practiceChips(zh)
             else -> return emptyList()
-        }.filter { it.id !in used }
-        return if (replies > 0) list.take(CHIPS_AFTER_REPLY_MAX) else list
+        }
+        if (started) return emptyList()
+        return list.filter { it.id !in used }
     }
 
     // ---------- composerFor ----------

@@ -6,21 +6,24 @@
  * `variant="sheet"` is the same screen without page chrome: the study card's Ask Claude
  * (components/claude/CardClaudeSheet.tsx).
  *
- * - Header: ← / ✕, the title, 🎧 Listen first, 中文 | EN, ⋯ (Make flashcards from this chat,
- *   📝 words to recap); under it the context chip ("📇 Asked on card · 银行" → the card hub,
- *   "💬 From a chat message" → that chat, "🎭 Practice · 点菜" + a read-only banner).
+ * - Header: ← (page), the title, 🎧 Listen first, 中文 | EN, ⋯ (the caller's `menuItems` first, then
+ *   Make flashcards from this chat, 📝 words to recap); on the page, under it the context chip
+ *   ("📇 Asked on card · 银行" → the card hub, "💬 From a chat message" → that chat, "🎭 Practice · 点菜"
+ *   + a read-only banner). The sheet is compact (Jerome, Nov 2026): a grab handle on top instead of ✕
+ *   (tap / drag down / Escape closes), no context chip, no "can read this chat" line.
  * - The thread: components/claudeChat (word chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back); a
  *   reply STREAMS in (ChatHub `claude_turn`, else the poll rule — hooks/useClaudeThread.ts); Coach
  *   results (✏️ Check / 🔍 Explain / Translate, 🎯 mini lesson) are the Coach's own cards
  *   (components/coach/CoachResults.tsx); tool results as chips.
- * - Suggestion chips (`chipsFor`) above the composer while empty and after each reply (≤ 3).
+ * - Suggestion chips (`chipsFor`) above the composer only before the first message (a role-play's help
+ *   chips every time).
  * - The composer (`composerFor`): a new general chat offers Ask + Check / Explain / Translate;
  *   anything else Ask only. Offline, a message is queued (services/claudeThreads.ts) and shown at once.
  * - The card sheet's hooks: `typed` rides with each card question, `onReplyFinished` hears a reply this
  *   screen saw being written finish (Claude's card tools reach the device there), `renderToolResults`
  *   draws its tool results, `autoSend` with a `key` asks into the thread on screen (the leech sheet).
- * - ⋯ → 👁 Share with my tutor / 🙈 Hide from my tutor (shared/claude/visibility.ts), and the quiet
- *   "👁 Minghui can read this chat" under the header while she can.
+ * - ⋯ → 👁 Share with my tutor / 🙈 Hide from my tutor (shared/claude/visibility.ts), and (on the page)
+ *   the quiet "👁 Minghui can read this chat" under the header while she can.
  * - `tutorView`: the tutor's READ-ONLY view of one of her student's chats (the student page's "Asked
  *   Claude", `/connections/:relId/claude/:id` — pages/tutor/StudentClaudeThreadPage.tsx): the thread
  *   she was given, no composer, chips, 🎧 / 中文 | EN or ⋯; the card chip opens her card hub view.
@@ -70,6 +73,13 @@ import {
 import { track, trackError } from '../../services/analytics';
 import '../claudeChat/claude-chat.css';
 
+export interface ClaudeThreadMenuItem {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+}
+
 export interface ClaudeThreadViewProps {
   /** A thread id (or the client id of one started offline); 'new' = a fresh thread in `newContext`. */
   threadId: string;
@@ -87,8 +97,10 @@ export interface ClaudeThreadViewProps {
    * `looked_up` / `said_wrong`, an exercise's `answer`), sent with each question; the chips read them.
    */
   contextFields?: Record<string, unknown>;
-  /** Under the header chip (the card sheet's "Earlier about 银行"). */
+  /** Under the header (the card sheet's list of earlier chats, Discuss's quoted message). */
   headerExtra?: ReactNode;
+  /** Extra ⋯ menu items, first (the card sheet's "🕘 Earlier about 银行 · 2 chats" and "＋ New chat"). */
+  menuItems?: ClaudeThreadMenuItem[];
   /** A reply this screen saw being written has finished (the card sheet applies Claude's card tools). */
   onReplyFinished?: (reply: LocalClaudeMessage) => void;
   /** A finished reply's tool results, drawn by the caller (default: the Coach's chips). */
@@ -102,7 +114,7 @@ export interface ClaudeThreadViewProps {
   variant?: 'page' | 'sheet';
   /** ← (page) */
   onBack?: () => void;
-  /** ✕ (sheet) */
+  /** The sheet's grab handle (tap / drag down) and Escape. */
   onClose?: () => void;
   /** A fresh thread exists now (the page moves to its URL). */
   onThreadCreated?: (id: string) => void;
@@ -231,7 +243,6 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   }, [threadId, isNew, thread, ctx.kind, source, tutor]);
 
   const messages = useMemo(() => rows.map(toChatMessage), [rows]);
-  const replies = rows.filter((m) => m.role === 'assistant' && !m.status).length;
   const started = rows.length > 0 || !!sending;
   const replyPending = rows.some((m) => m.role === 'assistant' && m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE);
   const busy = !!sending || replyPending;
@@ -422,7 +433,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const allChips = chipsFor(chipCtx, { language, hasSentence: props.hasSentence });
   const asked = new Set(rows.filter((m) => m.role === 'user').map((m) => m.content.trim()));
   const used = [...usedChips, ...allChips.filter((c) => asked.has(c.question)).map((c) => c.id)];
-  const chips: ClaudeChip[] = readOnly || busy ? [] : chipsFor(chipCtx, { language, hasSentence: props.hasSentence, replies, used });
+  const chips: ClaudeChip[] = readOnly || busy ? [] : chipsFor(chipCtx, { language, hasSentence: props.hasSentence, started, used });
   const useChip = (c: ClaudeChip) => {
     // 🆘 How do I say…: into the box, to be finished.
     if (c.fill) {
@@ -504,6 +515,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
 
   return (
     <div className={sheet ? 'claude-thread-sheet' : 'claude-chat-page'} data-testid="claude-thread" data-context={ctx.kind}>
+      {sheet && <SheetHandle onClose={props.onClose} />}
       <header className="claude-chat-header">
         {!sheet && (
           <button type="button" className="claude-chat-back" onClick={props.onBack} aria-label="Back" data-testid="claude-thread-back">
@@ -534,17 +546,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             EN
           </button>
         </div>
-        <button type="button" className="claude-chat-more" onClick={() => setMenuOpen(true)} aria-label="More" data-testid="claude-thread-more" disabled={!threadId}>
+        <button type="button" className="claude-chat-more" onClick={() => setMenuOpen(true)} aria-label="More" data-testid="claude-thread-more" disabled={!threadId && !props.menuItems?.length}>
           ⋯
         </button>
         </>)}
-        {sheet && (
-          <button type="button" className="claude-chat-more" onClick={props.onClose} aria-label="Close" data-testid="claude-thread-close">
-            ✕
-          </button>
-        )}
       </header>
-      {chip && (
+      {/* The sheet opens from the card / page it is about: no chip saying so (Jerome, Nov 2026). */}
+      {chip && !sheet && (
         <div className="claude-thread-context">
           {chip.link && (!tutor || chip.link.kind === 'card') ? (
             <button type="button" className="claude-thread-chip" onClick={() => void openContext()} data-testid="claude-thread-context-chip">
@@ -565,7 +573,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           {ctx.user_role && <span>You: {ctx.user_role}</span>}
         </p>
       )}
-      {canShare && tutorCanSee(shareState, visibility) && (
+      {canShare && !sheet && tutorCanSee(shareState, visibility) && (
         <p className="claude-thread-shared" data-testid="claude-thread-shared">
           {sharedLine(shareState, visibility)}
         </p>
@@ -702,6 +710,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             surface={ctx.kind === 'card' ? 'ask_claude' : 'claude_thread'}
             composer={(text) => composerFor(ctx.kind, text, { started })}
             typeRequest={typeRequest}
+            compact
           />
         </div>
       )}
@@ -709,6 +718,21 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       {menuOpen && (
         <div className="claude-chat-menu-backdrop" onClick={() => setMenuOpen(false)}>
           <div className="claude-chat-menu" role="menu" onClick={(e) => e.stopPropagation()} data-testid="claude-thread-menu">
+            {props.menuItems?.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                disabled={item.disabled}
+                onClick={() => {
+                  setMenuOpen(false);
+                  item.onSelect();
+                }}
+                data-testid={item.id}
+              >
+                {item.label}
+              </button>
+            ))}
             <button
               type="button"
               role="menuitem"
@@ -760,6 +784,72 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The sheet's grab handle: a tap closes, a drag down past ~80px closes (the sheet follows the finger),
+ * Escape closes. Replaces the ✕ (Jerome, Nov 2026: the sheet needs the room).
+ */
+function SheetHandle({ onClose }: { onClose?: () => void }) {
+  const drag = useRef<{ y: number; dy: number; sheet: HTMLElement | null; moved: boolean } | null>(null);
+  useEffect(() => {
+    if (!onClose) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      // Only the sheet on screen (the card sheet stays mounted, hidden, while closed).
+      const el = handleRef.current;
+      if (el && !el.closest('[hidden]')) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const handleRef = useRef<HTMLButtonElement>(null);
+  const reset = (sheet: HTMLElement | null) => {
+    if (!sheet) return;
+    sheet.style.transform = '';
+    sheet.style.transition = '';
+  };
+  return (
+    <button
+      ref={handleRef}
+      type="button"
+      className="claude-sheet-handle"
+      aria-label="Close"
+      title="Close"
+      data-testid="claude-thread-close"
+      onClick={() => {
+        if (drag.current?.moved) return;
+        onClose?.();
+      }}
+      onPointerDown={(e) => {
+        const sheet = (e.currentTarget.closest('[role="dialog"]') as HTMLElement | null) ?? null;
+        drag.current = { y: e.clientY, dy: 0, sheet, moved: false };
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* jsdom */ }
+        if (sheet) sheet.style.transition = 'none';
+      }}
+      onPointerMove={(e) => {
+        const d = drag.current;
+        if (!d) return;
+        d.dy = Math.max(0, e.clientY - d.y);
+        if (d.dy > 6) d.moved = true;
+        if (d.sheet) d.sheet.style.transform = `translateY(${d.dy}px)`;
+      }}
+      onPointerUp={() => {
+        const d = drag.current;
+        if (!d) return;
+        reset(d.sheet);
+        if (d.dy > 80) onClose?.();
+        // The click that follows a drag must not close it again (or close a short drag).
+        window.setTimeout(() => { drag.current = null; }, 0);
+      }}
+      onPointerCancel={() => {
+        reset(drag.current?.sheet ?? null);
+        drag.current = null;
+      }}
+    >
+      <span aria-hidden="true" />
+    </button>
   );
 }
 

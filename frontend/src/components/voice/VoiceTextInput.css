@@ -162,3 +162,49 @@
   .voice-input-wide.is-listening,
   .voice-input-review { animation: none; }
 }
+
+/* The compact chat composer (`compact`, the Claude threads): typing is one row — the box (1 → 4 lines),
+   🎤 and a round ➤ — and the voice row is a little lower. */
+.voice-input--compact {
+  gap: 0.4rem;
+}
+.voice-input--compact .voice-input-typing-row {
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+.voice-input-box--grow {
+  resize: none;
+  min-height: 44px;
+  max-height: calc(4 * 1.4em + 1rem);
+  padding-top: 0.55rem;
+  padding-bottom: 0.55rem;
+  line-height: 1.4;
+  overflow-y: auto;
+}
+.voice-input--compact .voice-input-mic,
+.voice-input-send {
+  flex-shrink: 0;
+  align-self: flex-end;
+  width: 44px;
+  height: 44px;
+}
+.voice-input-send {
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-primary, #2c6bed);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.voice-input-send:active { transform: scale(0.92); }
+.voice-input-send[aria-disabled='true'] {
+  opacity: 0.4;
+  cursor: default;
+}
+.voice-input--compact .voice-input-row .btn {
+  min-height: 44px;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}

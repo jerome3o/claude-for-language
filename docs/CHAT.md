@@ -1048,7 +1048,8 @@ rule in SQL, `tutorVisibleSql`), routes `routes/claude-tutor-view.ts`.
 - **One chat's own choice** `coach_conversations.tutor_visible` (migration 0144): the thread ⋯ → **👁 Share with my
   tutor** / **🙈 Hide from my tutor** (`PATCH /api/claude/threads/:id { tutor_visible }`; online only). 1 / 0 wins over
   the account; flipping back to what the account says stores NULL (`nextTutorVisible`), so a later account change
-  applies to it again. While she can read it the thread shows "👁 Your tutor can read this chat" under the header.
+  applies to it again. While she can read it the full-screen thread shows "👁 Your tutor can read this chat" under the
+  header (not the compact sheets — ⋯ says Share / Hide there).
 - `tutorCanSee(thread, setting)`: `tutor_visible` true / false wins; else `all` → yes, `none` → no, `card_only` → only
   `card` threads. Practice and plain chats are private unless shared.
 - **The tutor's API** (the tutor of an ACTIVE relationship only: 403 for the student / anyone else, 404 for a missing or
@@ -1124,8 +1125,11 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   `/chats/claude/new`; a `/coach?text=&action=` deep link (no `from_message`, not from a study card) starts a
   general thread with that intent and opens it. "Open in Coach" from a chat message (`from_message`, reuses the
   stored auto-check) and the study card's ✎ Check in Coach ("Back to your card") stay on the Coach page for now.
-- **Header**: ← · title · 🎧 Listen first · 中文 | EN · ⋯ (🃏 Make flashcards from this chat, 📝 N words to
-  recap → `/chats/claude/:id/recap`); under it the **context chip** (`headerChipFor`, `shared/claude/contexts.ts`):
+- **Header**: ← · title · 🎧 Listen first · 中文 | EN · ⋯ (the sheet's own items first — the card's 🕘 Earlier /
+  ＋ New chat, a reader page's ＋ New chat —, then 🃏 Make flashcards from this chat, 📝 N words to
+  recap → `/chats/claude/:id/recap`). The **sheet variant** (a card / reader page / exercise / chat message's Claude
+  sheet) is compact: near full height, a slim grab handle instead of ✕ (tap / drag down / back / Escape close it), one
+  header row, no context chip, no "can read this chat" line. On the page, under the header, the **context chip** (`headerChipFor`, `shared/claude/contexts.ts`):
   "📇 Asked on card · 银行" → the card hub `/cards/:noteId`, "💬 From a chat message" → that chat
   (`/connections/:relId/chat/:convId`, looked up from the conversation), "🎭 Practice · 点菜" (no link; a role-play
   adds "✦ Claude plays 服务员 · You: 客人" under it). An old practice chat copied in (`pc-<id>`, `read_only`) has a
@@ -1143,8 +1147,21 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
 - **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
   still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
   it mean · Is it natural · How to reply · Make flashcards, practice = 💡 hint · 🆘 How do I say… (`fill`: into the
-  box, to be finished) · ✏️ Correct my last message (offered every time); all while the thread is empty, at most three
-  after a reply, never one already used in the thread.
+  box, to be finished) · ✏️ Correct my last message (offered every time); the others ONLY before the thread's first
+  message (`chipsFor(…, { started })` — Jerome, Nov 2026: "once we have sent a message, we don't need the suggestion
+  pills"), never one already used in the thread. Claude's bubbles take the whole width of the thread (fewer line breaks
+  in long Chinese); my own stay narrower, on the right.
+- **A reply is drawn in the language it is WRITTEN in** (`replyLanguage` in `shared/study/askClaude.ts`, Lab
+  `AskClaude.replyLanguage`, parity-tested; applied to every Claude bubble by `ClaudeChatThread` on both apps): the
+  stored `answer_lang` is what the turn was ASKED for, so a question asking for English ("把说明改成英文") stored 'en'
+  while Claude answered in Chinese — that bubble was Markdown with no word chips or ▶ / 拼 / EN / 🎤 (Jerome, Nov 2026,
+  the second reply after a card edit). Asked in Chinese stays Chinese; otherwise text with at least twice as many Han
+  characters as Latin words is Chinese.
+- **The composer is compact** (`ClaudeChatComposer compact` → `VoiceTextInput compact`; Lab
+  `VoiceTextFieldContent(compact = true)`): voice first (✏️ Type · 🎤 Say it on one 44–48px row); typing is ONE row —
+  a box that starts at one line and grows to four, 🎤, and a round ➤ (aria "Send") — no separate full-width Send row.
+  The Chats tab's composer keeps the full box for now. The 💬 feedback button is hidden on `/chats/claude/:id` and
+  while a Claude sheet is open (it sat on the ➤).
 - **Composer** (`composerFor`): Check / Explain / Translate only START a general chat (the server answers them
   with the Coach's structured reply), so a NEW general chat shows Send (= Ask) + the Coach's buttons for what is in
   the box (`coachButtons`: Chinese → ✏️ Check · 🔍 Explain, English → 🔤 Translate, with the hint line); every
@@ -1167,7 +1184,7 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   Chinese" when it ran (a card question: `auto_check` on `ClaudeThreadMessage`) → the ✎ mark, "✨ How to say it
   better" first in the menu (its "Ask why" fills the composer), the 🎓 Open in Coach chip.
 - **Ask Claude on a study card** = the card's thread in this screen's sheet variant (docs/STUDY_SESSION.md "Ask
-  Claude"): resumes the card's thread from the last 30 min, "🕘 Earlier about 银行 · N chats" / ＋ New chat, the typed
+  Claude"): resumes the card's thread from the last 30 min, ⋯ → "🕘 Earlier about 银行 · N chats" / ＋ New chat, the typed
   answer sent with each question (`typed`), Claude's card tools applied on the device once per reply with "✓ Claude
   edited this card · Undo" (`shared/claude/cardTools.ts`), a chip sends `quick: true` (not checked).
 - **Analytics**: `claude.thread_open { context_kind, source, resumed }`, `claude.message_send { context_kind,

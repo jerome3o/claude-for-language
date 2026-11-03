@@ -91,7 +91,9 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
         val asked = ClaudeChats.chipsFor(S.cardContext.core(), S.cardThread.language, hasSentence = true)[0]
         val ui = S.cardThread.copy(messages = S.cardThread.messages + S.cardThread.messages[0].copy(id = "u9", content = asked.question))
         assertEquals(false, ui.chips.any { it.id == asked.id })
-        assertEquals(ClaudeChats.CHIPS_AFTER_REPLY_MAX, ui.chips.size)
+        // Once the thread has a message: no chips at all (Jerome, Nov 2026); an empty card thread has them.
+        assertEquals(emptyList(), ui.chips)
+        assertEquals(true, S.cardEmpty.chips.isNotEmpty())
     }
 
     // ---------------- header ----------------
@@ -169,13 +171,51 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
         assertEquals(1, recap)
     }
 
-    @Test fun theSheetHasCloseNotBack() {
+    @Test fun theSheetIsCompact() {
+        compose.setContent { LabTheme { ClaudeThreadScreen(S.cardThread, ClaudeThreadActions(), sheet = true, voicePreview = typing) } }
+        // No ← and no ✕ (the sheet's grab handle closes it), no context chip, no tutor line.
+        assertNull(compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Back")).fetchSemanticsNodes().firstOrNull())
+        compose.onNodeWithTag(ClaudeThreadTags.CLOSE).assertDoesNotExist()
+        compose.onNodeWithText("✕").assertDoesNotExist()
+        compose.onNodeWithTag(ClaudeThreadTags.CONTEXT_CHIP).assertDoesNotExist()
+        compose.onNodeWithTag(ClaudeThreadTags.SHARED).assertDoesNotExist()
+        compose.onNodeWithTag(ClaudeThreadTags.TITLE).assertIsDisplayed()
+        compose.onNodeWithTag(ClaudeThreadTags.MORE).assertIsDisplayed()
+    }
+
+    @Test fun theTypedComposerIsOneRow() {
+        var sent = 0
+        compose.setContent { LabTheme { ClaudeThreadScreen(S.cardThread.copy(draft = "为什么？"), ClaudeThreadActions(onSend = { _, _, _, _ -> sent++ }), sheet = true, voicePreview = typing) } }
+        // No full-width "✓ Send" pill: a round ➤ beside the box and the 🎤.
+        compose.onNodeWithText("✓  Send").assertDoesNotExist()
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.SUBMIT).assertIsDisplayed()
+        compose.onNodeWithText("➤").assertIsDisplayed()
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.MIC).assertIsDisplayed()
+        val box = compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.TEXT).fetchSemanticsNode().boundsInRoot
+        val send = compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceTextFieldTags.SUBMIT).fetchSemanticsNode().boundsInRoot
+        // Same row: the send button sits beside the box, not under it; the box is one line high.
+        assertEquals(true, send.top < box.bottom && send.left >= box.right)
+        assertEquals(true, box.height < 90f * compose.density.density, "box height ${box.height}")
+    }
+
+    @Test fun theTallSheetsHandleCloses() {
         var closed = 0
-        compose.setContent { LabTheme { ClaudeThreadScreen(S.cardThread, ClaudeThreadActions(onClose = { closed++ }), sheet = true, voicePreview = typing) } }
-        compose.onNodeWithTag(ClaudeThreadTags.CLOSE).performClick()
+        compose.setContent { LabTheme { dev.jeromeswannack.chineselearning.lab.ui.kit.LabTallSheet(onDismiss = { closed++ }) { androidx.compose.material3.Text("thread") } } }
+        compose.waitForIdle()
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Close")).performClick()
         compose.waitForIdle()
         assertEquals(1, closed)
-        assertNull(compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Back")).fetchSemanticsNodes().firstOrNull())
+    }
+
+    @Test fun aSheetsMenuItemsComeFirst() {
+        var picked = 0
+        val items = listOf(ThreadMenuItem("＋ New chat", "x-new") { picked++ })
+        compose.setContent { LabTheme { ClaudeThreadScreen(S.cardThread, ClaudeThreadActions(), sheet = true, voicePreview = typing, menuItems = items) } }
+        compose.onNodeWithTag(ClaudeThreadTags.MORE).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("x-new").assertTextEquals("＋ New chat").performClick()
+        compose.waitForIdle()
+        assertEquals(1, picked)
     }
 
     // ---------------- screenshots ----------------

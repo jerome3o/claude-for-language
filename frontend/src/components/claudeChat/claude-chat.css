@@ -4,8 +4,10 @@
 .claude-chat-thread {
   gap: 0.15rem;
 }
+/* Claude's answers use the whole width — fewer line breaks in long Chinese (Jerome, Nov 2026);
+   my own messages stay narrower, on the right (ask-claude.css). */
 .claude-chat-thread .chat-message.received {
-  max-width: 94%;
+  max-width: 100%;
 }
 
 .claude-chat-thinking {
@@ -127,6 +129,17 @@
 .claude-chat-composer > * {
   max-width: 760px;
   margin: 0 auto;
+}
+/* The thread view's composer row holds ClaudeChatComposer, which carries the same class: pad it once. */
+.claude-chat-composer .claude-chat-composer {
+  position: static;
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+}
+.claude-thread-sheet > .claude-chat-composer {
+  padding: 0.4rem 0.5rem;
+  padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
 }
 .claude-chat-error {
   margin: 0.5rem 0;
@@ -403,6 +416,57 @@ button.claude-thread-chip::after {
 .card-claude-sheet .claude-chat-header {
   border-radius: 0.75rem 0.75rem 0 0;
 }
+
+/* The compact sheet (Jerome, Nov 2026): near full height from the bottom, a grab handle instead of ✕,
+   one tight header row, the thread gets the rest. */
+@media (max-width: 639px) {
+  .card-claude-overlay,
+  .discuss-claude-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal.card-claude-sheet {
+    height: calc(100dvh - max(0.5rem, env(safe-area-inset-top)));
+    max-height: calc(100dvh - max(0.5rem, env(safe-area-inset-top))) !important;
+    border-radius: 0.9rem 0.9rem 0 0;
+  }
+}
+.claude-sheet-handle {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+  width: 100%;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  background: var(--color-bg, #fff);
+  border-radius: 0.9rem 0.9rem 0 0;
+  cursor: grab;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.claude-sheet-handle span {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-border, #cbd5e1);
+}
+.claude-sheet-handle:focus-visible span {
+  background: var(--color-primary, #2c6bed);
+}
+.claude-thread-sheet .claude-chat-header {
+  padding: 0 0.5rem 0.35rem 0.75rem;
+  border-radius: 0;
+  gap: 0.3rem;
+}
+.claude-thread-sheet .claude-chat-title {
+  font-size: 1.05rem;
+}
+.claude-thread-sheet .claude-chat-body {
+  padding: 0.5rem 0.5rem 0.75rem;
+}
 .claude-thread-sheet .claude-chat-composer {
   position: static;
 }
@@ -415,19 +479,21 @@ button.claude-thread-chip::after {
   border-bottom: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-bg, #fff);
 }
-.card-claude-earlier-toggle,
-.card-claude-new {
-  min-height: 36px;
-  padding: 0 0.75rem;
-  border-radius: 999px;
-  border: 1px solid var(--color-border, #e2e8f0);
-  background: var(--color-surface, #f8fafc);
-  color: var(--color-text, #1f2937);
+.card-claude-earlier-head {
+  display: flex;
+  flex-basis: 100%;
+  align-items: center;
+  justify-content: space-between;
   font-size: 0.8125rem;
-  cursor: pointer;
+  color: var(--color-text-light, #666);
 }
-.card-claude-new {
-  margin-left: auto;
+.card-claude-earlier-hide {
+  min-width: 44px;
+  min-height: 36px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 .card-claude-earlier-list {
   flex-basis: 100%;
@@ -588,4 +654,10 @@ button.claude-thread-chip::after {
   color: var(--color-text-light, #555);
   border-bottom: 1px solid var(--color-border, #e5e7eb);
   background: var(--color-bg, #fff);
+}
+
+/* A Claude sheet open over the page: the 💬 feedback button would sit on its ➤ send. */
+body:has(.card-claude-overlay:not([hidden])) .feedback-fab,
+body:has(.discuss-claude-overlay) .feedback-fab {
+  display: none;
 }

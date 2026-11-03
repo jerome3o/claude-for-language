@@ -12,7 +12,7 @@
  * (source spoken | edited | typed) so an exercise can check a spoken answer leniently and record it.
  */
 import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useVoiceDictation, type DictatedAnswer } from '../../hooks/useVoiceDictation';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { DICTATION_COPY, dictationControls, voiceBlockReason, type DictationMode, type DictationState } from '@shared/voice/dictation';
@@ -44,6 +44,12 @@ export interface VoiceTextInputProps {
   className?: string;
   /** The wide 🎤's word (default "Say it"; the coach's follow-up says "Respond"). */
   sayLabel?: string;
+  /**
+   * A chat composer (the Claude threads): typing is ONE row — a box that starts at one line and grows to
+   * four, 🎤, and a round ➤ send — with no separate full-width Send row; the voice row is a little
+   * smaller (Jerome, Nov 2026: "far too tall").
+   */
+  compact?: boolean;
 }
 
 export function VoiceTextInput(props: VoiceTextInputProps) {
@@ -93,7 +99,7 @@ export interface VoiceTextInputViewProps extends Omit<VoiceTextInputProps, 'onSu
 export function VoiceTextInputView(props: VoiceTextInputViewProps) {
   const {
     value, onChange, submitLabel = DICTATION_COPY.submit, placeholder, multiline = false,
-    lang = 'zh', disabled = false, testId = 'voice-input', className = '', state, actions, sayLabel = DICTATION_COPY.say,
+    lang = 'zh', disabled = false, testId = 'voice-input', className = '', state, actions, sayLabel = DICTATION_COPY.say, compact = false,
   } = props;
   const d = { ...actions, finalText: props.finalText, partialText: props.partialText, canSubmit: props.canSubmit, busy: state.phase === 'listening' || state.phase === 'finishing' };
   const controls = dictationControls(state);
@@ -113,6 +119,18 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
     }
     wasTyping.current = typing;
   }, [typing, state.blocked]);
+
+  // The compact box grows with its text, one line → four (then it scrolls).
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!compact || !typing || !el || el.tagName !== 'TEXTAREA') return;
+    el.style.height = 'auto';
+    const cs = getComputedStyle(el);
+    const line = parseFloat(cs.lineHeight) || 24;
+    const padding = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const borders = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+    el.style.height = `${Math.min(el.scrollHeight, line * 4 + padding) + borders}px`;
+  }, [compact, typing, value]);
 
   const reviewPinyin = useMemo(
     () => (state.phase === 'review' && lang === 'zh' ? devicePinyinLine(d.finalText) : ''),
@@ -157,17 +175,17 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
       ref: inputRef,
       value,
       lang: lang === 'zh' ? 'zh-CN' : 'en',
-      className: `form-input voice-input-box${multiline ? ' voice-input-box--multi' : ''}`,
+      className: `form-input voice-input-box${multiline ? (compact ? ' voice-input-box--grow' : ' voice-input-box--multi') : ''}`,
       placeholder,
       disabled,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(e.target.value),
       'data-testid': tid('text'),
     };
     return (
-      <div className={`voice-input ${className}`} data-testid={testId} data-mode="type">
+      <div className={`voice-input${compact ? ' voice-input--compact' : ''} ${className}`} data-testid={testId} data-mode="type">
         <div className="voice-input-typing-row">
           {multiline ? (
-            <textarea {...inputProps} rows={3} />
+            <textarea {...inputProps} rows={compact ? 1 : 3} />
           ) : (
             <input
               {...inputProps}
@@ -187,18 +205,33 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
               🎤
             </button>
           )}
+          {compact && (
+            <button
+              type="button"
+              className="voice-input-send"
+              onClick={(e) => { stop(e); if (d.canSubmit) d.submit(); }}
+              aria-label={submitLabel}
+              aria-disabled={!d.canSubmit || disabled || undefined}
+              disabled={disabled}
+              data-testid={tid('submit')}
+            >
+              <span aria-hidden="true">➤</span>
+            </button>
+          )}
         </div>
         {state.blocked && <p className="voice-input-hint" data-testid={tid('blocked')} data-blocked={state.blocked}>{voiceBlockReason(state.blocked)}</p>}
-        <div className="voice-input-row">
-          {button('submit', submitLabel, '✓', d.submit, { wide: true, enabled: d.canSubmit })}
-        </div>
+        {!compact && (
+          <div className="voice-input-row">
+            {button('submit', submitLabel, '✓', d.submit, { wide: true, enabled: d.canSubmit })}
+          </div>
+        )}
       </div>
     );
   }
 
   // ── voice ──
   return (
-    <div className={`voice-input ${className}`} data-testid={testId} data-mode="voice" data-phase={state.phase}>
+    <div className={`voice-input${compact ? ' voice-input--compact' : ''} ${className}`} data-testid={testId} data-mode="voice" data-phase={state.phase}>
       {d.busy && (
         <div className="form-input voice-input-live" data-testid={tid('live')} aria-live="polite" lang={lang === 'zh' ? 'zh-CN' : 'en'}>
           {d.finalText || d.partialText ? (

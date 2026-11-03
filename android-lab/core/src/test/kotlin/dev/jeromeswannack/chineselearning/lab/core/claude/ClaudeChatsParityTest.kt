@@ -60,7 +60,7 @@ class ClaudeChatsParityTest {
                 language = o["language"].str!!,
                 typedAnswer = o["typedAnswer"]!!.jsonPrimitive.boolean,
                 hasSentence = o["hasSentence"]!!.jsonPrimitive.boolean,
-                replies = o["replies"]!!.jsonPrimitive.int,
+                started = o["started"]!!.jsonPrimitive.boolean,
                 used = strings(o["used"]),
             )
             val want = o["out"]!!.jsonArray.map { x -> x.jsonObject.let { ClaudeChats.Chip(it["id"].str!!, it["label"].str!!, it["question"].str!!, it["fill"]?.jsonPrimitive?.booleanOrNull ?: false) } }
@@ -151,7 +151,6 @@ class ClaudeChatsParityTest {
     @Test
     fun copy() {
         val c = f["copy"]!!.jsonObject
-        assertEquals(c["chipsAfterReplyMax"]!!.jsonPrimitive.int, ClaudeChats.CHIPS_AFTER_REPLY_MAX)
         assertEquals(c["practiceReadOnly"].str, ClaudeChats.PRACTICE_READ_ONLY_NOTE)
         assertEquals(c["resumeWindowMs"]!!.jsonPrimitive.long, ClaudeChats.RESUME_WINDOW_MS)
         assertEquals(c["pollFastMs"]!!.jsonPrimitive.long, ClaudeChats.POLL_FAST_MS)

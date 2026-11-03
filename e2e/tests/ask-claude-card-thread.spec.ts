@@ -11,8 +11,9 @@ test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
  * question makes it call edit_current_card) and the stand-in "check my Chinese"
  * (claude-agent/check-fake.ts: 什么意 without 思 is improvable):
  *
- * study a card → Ask Claude → the sheet ("📇 Asked on card · 银行", the card's chips, Ask only — no
- * Check / Explain) → my question streams a reply, my Chinese gets the ✎ check → the fun-fact chip:
+ * study a card → Ask Claude → the compact sheet (near full height, a grab handle instead of ✕, no
+ * context chip; the card's chips, Ask only — no Check / Explain) → my question streams a reply (the
+ * chips go; Claude's bubble is the full width), my Chinese gets the ✎ check → ⋯ has "＋ New chat" → a fun-fact question:
  * Claude edits the card, "✓ Claude edited this card · Undo" and the card back shows the new notes →
  * Undo puts them back → the thread is in the Chats tab with its 📇 chip → the chip opens the card
  * hub, which links back to the conversation. Offline, a question waits ("Will send when you're
@@ -75,7 +76,11 @@ test('Ask Claude on a card: the card’s thread — streamed answer, ✎ check, 
   await page.getByRole('button', { name: 'Ask Claude' }).click();
   const sheet = page.getByTestId('ask-claude-sheet');
   await expect(sheet).toBeVisible();
-  await expect(sheet.getByTestId('claude-thread-context-chip')).toContainText('Asked on card · 银行');
+  // Compact (Jerome, Nov 2026): near full height, no ✕ (the handle closes it), no context chip.
+  await expect(sheet.getByTestId('claude-thread-context-chip')).toHaveCount(0);
+  await expect(sheet.getByRole('button', { name: 'Close' })).toHaveClass(/claude-sheet-handle/);
+  const sheetBox = (await sheet.boundingBox())!;
+  expect(sheetBox.height).toBeGreaterThanOrEqual(915 * 0.95);
   await expect(sheet.getByTestId('claude-thread-lang-zh')).toHaveAttribute('aria-pressed', 'true');
   await expect(sheet.getByTestId('claude-thread-card-hint')).toBeVisible();
   // The card's suggestions; the composer asks only (no ✏️ Check / 🔍 Explain on a card).
@@ -91,13 +96,18 @@ test('Ask Claude on a card: the card’s thread — streamed answer, ✎ check, 
   const reply = sheet.getByTestId('claude-chat-reply').last();
   await expect(reply).toContainText(FINAL, { timeout: 25_000 });
   await expect(reply.locator('.chat-word').first()).toBeVisible();
+  // Once something was sent: no suggestion chips.
+  await expect(sheet.getByTestId('claude-thread-chips')).toHaveCount(0);
+  // ⋯ → ＋ New chat (the row under the header is gone).
+  await sheet.getByTestId('claude-thread-more').click();
+  await expect(page.getByTestId('card-claude-new')).toBeVisible();
+  await page.locator('.claude-chat-menu-backdrop').click({ position: { x: 5, y: 5 } });
   const mine = sheet.getByTestId('claude-chat-mine').first();
   await expect(mine.getByTestId('chat-saybetter-mark')).toBeVisible({ timeout: 15_000 });
   await expect(mine.getByTestId('chat-open-in-coach')).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-reply-check.png` });
 
   // Asking for a fun fact: Claude edits the card (the stand-in calls edit_current_card); the device follows.
-  // (After a reply only the first three chips stay, so it is asked in the box.)
   await typeQuestion(sheet, '请给这张卡片加一个有意思的小知识。');
   const edited = sheet.getByTestId('card-claude-tool-edited');
   await expect(edited).toContainText('✓ Claude edited this card · notes', { timeout: 30_000 });

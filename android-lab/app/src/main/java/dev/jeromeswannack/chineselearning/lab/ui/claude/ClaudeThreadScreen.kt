@@ -89,6 +89,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 /** What Claude is doing right now (a live frame with status tool / thinking). */
 data class LiveTool(val messageId: String, val status: String, val tool: String?)
 
+/** An extra ⋯ item of a thread in a sheet (the card's "🕘 Earlier about 银行 · 2 chats", "＋ New chat"), first in the menu. */
+data class ThreadMenuItem(val label: String, val tag: String, val enabled: Boolean = true, val onClick: () -> Unit)
+
 /** What a Claude thread shows (stateless, so every state renders in screenshot tests). */
 data class ClaudeThreadUi(
     /** A fresh thread (`/chats/claude/new`): nothing on the server yet. */
@@ -149,15 +152,13 @@ data class ClaudeThreadUi(
     val replyPending: Boolean get() = messages.any { it.role == "assistant" && it.status == "pending" && it.content_type != CoachMistakeLesson.CONTENT_TYPE }
     val busy: Boolean get() = sending != null || replyPending
     val started: Boolean get() = messages.isNotEmpty() || sending != null
-    val replies: Int get() = messages.count { it.role == "assistant" && it.status == null }
-
-    /** The suggestion chips (none while Claude answers / in a read-only chat); a chip already asked is used. */
+    /** The suggestion chips: only before the thread's first message (a role-play's help chips every time); none while Claude answers / in a read-only chat. */
     val chips: List<ClaudeChats.Chip> get() {
         if (readOnly || busy) return emptyList()
         val all = ClaudeChats.chipsFor(core, language, hasSentence = hasSentence)
         val asked = messages.filter { it.role == "user" }.mapTo(HashSet()) { NoteSearch.jsTrim(it.content) }
         val used = usedChips + all.filter { it.question in asked }.map { it.id }
-        return ClaudeChats.chipsFor(core, language, hasSentence = hasSentence, replies = replies, used = used)
+        return ClaudeChats.chipsFor(core, language, hasSentence = hasSentence, started = started, used = used)
     }
 
     /** The thread as the Coach's screens see it (its result cards). */
@@ -180,7 +181,7 @@ data class TutorThreadView(val relId: String, val studentName: String?)
 
 class ClaudeThreadActions(
     val onBack: () -> Unit = {},
-    /** The sheet variant's ✕. */
+    /** The sheet variant's close (its grab handle lives in [dev.jeromeswannack.chineselearning.lab.ui.kit.LabTallSheet]). */
     val onClose: () -> Unit = {},
     val onDraft: (String) -> Unit = {},
     /** text, spoken, intent (ask | check | explain | translate), the chip it came from. */
@@ -236,12 +237,15 @@ object ClaudeThreadTags {
  * Discuss with Claude about a chat message, or a role-play (practice — Claude plays someone; the old
  * copied practice chats are read-only).
  *
- * - Header: ← (or ✕ in the [sheet] variant), the title, 🎧, 中文 | EN, ⋯ (Make flashcards from this
- *   chat, 📝 words to recap); under it the context chip ("📇 Asked on card · 银行" → the card hub,
- *   "💬 From a chat message" → that chat, "🎭 Practice · 点菜" + a read-only banner).
+ * - Header: ← (the page), the title, 🎧, 中文 | EN, ⋯ ([menuItems] first, then Make flashcards from
+ *   this chat, 📝 words to recap); on the page, under it the context chip ("📇 Asked on card · 银行" →
+ *   the card hub, "💬 From a chat message" → that chat, "🎭 Practice · 点菜" + a read-only banner) and
+ *   "👁 Your tutor can read this chat". The [sheet] variant is compact (Jerome, Nov 2026): one tight
+ *   header row, no ✕ (the sheet's grab handle / back / the scrim close it), no context chip, no
+ *   tutor line, the thread nearly edge to edge.
  * - The thread ([ClaudeChatThread]): word chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back; a reply
  *   STREAMS in; the Coach's result cards ([CoachMessageItem]); tool results as chips.
- * - Suggestion chips ([ClaudeChats.chipsFor]) above the composer while empty and after each reply (≤ 3).
+ * - Suggestion chips ([ClaudeChats.chipsFor]) above the composer only before the first message.
  * - The composer ([ClaudeChats.composerFor]): a new general chat offers Ask + ✏️ Check / 🔍 Explain or
  *   🔤 Translate; everything else Ask only. Offline, a message waits in the outbox and shows at once.
  */
@@ -253,8 +257,10 @@ fun ClaudeThreadScreen(
     voicePreview: VoiceDictationUi? = null,
     readBackPreview: Map<String, ReadAloudHandle> = emptyMap(),
     menuPreview: Boolean = false,
-    /** Under the header chip (the card sheet's "Earlier about 银行"). */
+    /** Under the header (the card sheet's list of earlier chats, Discuss's quoted message). */
     headerExtra: (@Composable () -> Unit)? = null,
+    /** Extra ⋯ items, first (the card sheet's Earlier / ＋ New chat). */
+    menuItems: List<ThreadMenuItem> = emptyList(),
     /** A finished reply's tool results, drawn by the caller (default: the Coach's chips). */
     toolResults: (@Composable (ClaudeMessageDto) -> Unit)? = null,
     /** No composer, this line instead (the card was deleted). */
@@ -313,20 +319,23 @@ fun ClaudeThreadScreen(
     val offlineNoCache = !ui.isNew && !ui.hasThread && !ui.loading && ui.loadError != null
     val empty = ui.messages.isEmpty() && ui.sending == null
 
-    LabScreenFrame(Modifier.testTag(ClaudeThreadTags.SCREEN)) {
+    val headerTitle = "${if (general) CoachAsk.ICON + " " else ""}$title"
+    val headerActions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+        if (ui.tutorView == null) {
+            ListenToggle(ui.listening, actions.onListening)
+            Spacer(Modifier.width(4.dp))
+            LanguageToggle(ui.language, actions.onLanguage)
+            HeaderButton("⋯", enabled = ui.threadId != null || menuItems.isNotEmpty(), tag = ClaudeThreadTags.MORE) { menu = true }
+        }
+    }
+    ThreadFrame(sheet) {
         Column(Modifier.fillMaxSize()) {
-            ScreenTitle("${if (general) CoachAsk.ICON + " " else ""}$title", onBack = if (sheet) null else actions.onBack) {
-                if (ui.tutorView == null) {
-                    ListenToggle(ui.listening, actions.onListening)
-                    Spacer(Modifier.width(4.dp))
-                    LanguageToggle(ui.language, actions.onLanguage)
-                    HeaderButton("⋯", enabled = ui.threadId != null, tag = ClaudeThreadTags.MORE) { menu = true }
-                }
-                if (sheet) HeaderButton("✕", enabled = true, tag = ClaudeThreadTags.CLOSE, onClick = actions.onClose)
-            }
-            // The tutor: only the card chip leads somewhere (her view of the student's card).
-            chip?.let { c -> if (ui.tutorView != null && c.link?.kind != ClaudeChats.CARD) ContextChip(c.copy(link = null), actions.onContext) else ContextChip(c, actions.onContext) }
-            if (ui.canShare && ui.sharedWithTutor) {
+            if (sheet) SheetHeader(headerTitle, headerActions)
+            else ScreenTitle(headerTitle, onBack = actions.onBack, actions = headerActions)
+            // The tutor: only the card chip leads somewhere (her view of the student's card). The sheet
+            // is open over what it is about: no chip saying so.
+            if (!sheet) chip?.let { c -> if (ui.tutorView != null && c.link?.kind != ClaudeChats.CARD) ContextChip(c.copy(link = null), actions.onContext) else ContextChip(c, actions.onContext) }
+            if (!sheet && ui.canShare && ui.sharedWithTutor) {
                 Text(
                     TutorVisibility.sharedLine(ui.context.kind, ui.tutorVisible, ui.shareSetting),
                     color = Lab.colors.muted, fontSize = 13.sp,
@@ -335,7 +344,11 @@ fun ClaudeThreadScreen(
             }
             if (ui.context.kind == ClaudeChats.PRACTICE) PracticeRoles(ui.context.ai_role, ui.context.user_role)
             headerExtra?.invoke()
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                Modifier.weight(1f).fillMaxWidth(), state = listState,
+                contentPadding = if (sheet) PaddingValues(horizontal = 10.dp, vertical = 8.dp) else PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 if (!ui.online && ui.hasThread) item("offline") {
                     Text(
                         "You're offline — this is the copy on this phone. New messages send when you're back.",
@@ -427,7 +440,8 @@ fun ClaudeThreadScreen(
             if (!ui.readOnly && closedNote == null) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(Lab.colors.card)
-                        .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).padding(12.dp)
+                        .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                        .padding(horizontal = if (sheet) 10.dp else 12.dp, vertical = if (sheet) 8.dp else 12.dp)
                         .testTag(ClaudeThreadTags.COMPOSER),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -453,6 +467,7 @@ fun ClaudeThreadScreen(
                         multiline = true,
                         lang = voiceLang,
                         enabled = !ui.busy,
+                        compact = true,
                     )
                     // What a Check / Explain / Translate button would send: the take under review, else the box.
                     val current = NoteSearch.jsTrim(if (voiceUi.state.mode == VoiceDictation.VOICE) voiceUi.finalText.ifEmpty { ui.draft } else ui.draft)
@@ -477,6 +492,12 @@ fun ClaudeThreadScreen(
     if (menu) {
         LabBottomSheet(onDismiss = { menu = false }) {
             Column(Modifier.fillMaxWidth().testTag(ClaudeThreadTags.MENU)) {
+                for (item in menuItems) {
+                    MenuRow(item.label, enabled = item.enabled, tag = item.tag) {
+                        menu = false
+                        item.onClick()
+                    }
+                }
                 val hasClaude = ui.messages.any { it.role == "assistant" && it.status == null && it.content_type == "text" }
                 MenuRow("🃏 Make flashcards from this chat", enabled = hasClaude && ui.online, tag = ClaudeThreadTags.MAKE_CARDS) {
                     menu = false
@@ -505,6 +526,25 @@ fun ClaudeThreadScreen(
             c, preferredDeck = "", actions.cards, onDismiss = { adding = null },
             bumpSource = "coach", bump = actions.coach.bump ?: dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("coach"),
         )
+    }
+}
+
+/** The page: the usual screen frame (system bar insets); the sheet: just the sheet's own colour. */
+@Composable
+private fun ThreadFrame(sheet: Boolean, content: @Composable () -> Unit) {
+    if (!sheet) return LabScreenFrame(Modifier.testTag(ClaudeThreadTags.SCREEN), content)
+    Box(Modifier.fillMaxSize().background(Lab.colors.card).testTag(ClaudeThreadTags.SCREEN)) { content() }
+}
+
+/** The sheet's one compact header row: title (ellipsis) · 🎧 · 中文 | EN · ⋯ — no ✕, no big top padding. */
+@Composable
+private fun SheetHeader(title: String, actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).testTag(ClaudeThreadTags.TITLE),
+        )
+        actions()
     }
 }
 

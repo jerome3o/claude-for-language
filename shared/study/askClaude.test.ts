@@ -14,6 +14,7 @@ import {
   plainAnswerText,
   revealedWhenListeningOn,
   turnLanguage,
+  replyLanguage,
 } from './askClaude';
 import { askClaudeMenu, ASK_SENTENCE_TOOLS_MAX } from '../chats/messageMenu';
 import { CHAT_READ_ALOUD_SPEED, chatReadAloudVoice } from '../chats/voice';
@@ -84,6 +85,18 @@ describe('Ask Claude language', () => {
     }
     expect(turnLanguage(null, 'What does it mean?')).toBe('zh');
     expect(turnLanguage('en', '这个词怎么用？')).toBe('en');
+  });
+});
+
+describe('replyLanguage (the language a reply is shown in)', () => {
+  it('a Chinese reply to a turn asked for English is Chinese (it gets word chips)', () => {
+    expect(replyLanguage('en', '我已经把说明改成英文了，内容一样，但更清楚地用英语解释每个字和用法。')).toBe('zh');
+    expect(replyLanguage(null, '这句话的意思是：明天下午三点见。')).toBe('zh');
+  });
+  it('an English reply quoting a few characters stays English; asked in Chinese stays Chinese', () => {
+    expect(replyLanguage('en', '银行 means bank. 行 here is háng.')).toBe('en');
+    expect(replyLanguage(null, 'Hello there')).toBeNull();
+    expect(replyLanguage('zh', 'OK, here it is in English.')).toBe('zh');
   });
 });
 
