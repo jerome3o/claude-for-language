@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
 import coachRoutes from '../coach';
 import { runCoachReply } from '../../services/coach-replies';
-import { buildClaudeChatSystemPrompt, coachAskTurns, proposeCoachAskFlashcards, type CoachAskReplyFn } from '../../services/claude-chat';
+import { buildClaudeChatSystemBlocks, buildClaudeChatSystemPrompt, coachAskTurns, defaultCoachAskReply, proposeCoachAskFlashcards, type CoachAskReplyFn } from '../../services/claude-chat';
 import type { CoachMessage, Env } from '../../types';
 
 const USER = 'user-1';
@@ -142,6 +142,25 @@ describe('Claude chat prompt + turns', () => {
     const en = buildClaudeChatSystemPrompt({ kind: 'ask', language: 'en' });
     expect(en).toContain('friendly English');
     expect(en).not.toContain('ENTIRELY in simple Chinese');
+  });
+
+  it('a fast chat reply: SONNET_MODEL, thinking off, no tools, both system blocks and the tail cached', async () => {
+    const { SONNET_MODEL } = await import('../../services/models');
+    const create = vi.fn(async () => ({ model: SONNET_MODEL, stop_reason: 'end_turn', content: [{ type: 'text', text: '**火锅**很好吃。' }], usage: { input_tokens: 10, output_tokens: 5 } }));
+    const reply = defaultCoachAskReply({ DB: {} as D1Database, ANTHROPIC_API_KEY: 'k' }, { client: { messages: { create } } as never })!;
+    const text = await reply([{ role: 'user', content: '成都有什么好吃的？' }], { kind: 'ask', language: 'zh', userId: USER, knownWords: ['火锅'] });
+    expect(text).toBe('**火锅**很好吃。');
+    const p = (create.mock.calls[0] as unknown as [Record<string, any>])[0];
+    expect(p.model).toBe(SONNET_MODEL);
+    expect(p.thinking).toEqual({ type: 'disabled' });
+    expect(p.output_config).toBeUndefined();
+    expect(p.tools).toBeUndefined();
+    expect(p.system).toHaveLength(2);
+    expect(p.system.every((b: { cache_control?: unknown }) => !!b.cache_control)).toBe(true);
+    expect(p.system[1].text).toContain('火锅');
+    expect(p.messages.at(-1).content.at(-1).cache_control).toEqual({ type: 'ephemeral' });
+    // The static block is the same whoever asks (only the learner block differs).
+    expect(buildClaudeChatSystemBlocks({ kind: 'ask', language: 'zh', knownWords: ['银行'] })[0]).toBe(p.system[0].text);
   });
 
   it('turns: finished text only, alternating, starting with the learner', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildAskSystemPrompt, knownWordsBlock, ASK_KNOWN_WORDS_MAX } from '../ask-prompt';
+import { buildAskSystemBlocks, buildAskSystemPrompt, knownWordsBlock, ASK_KNOWN_WORDS_MAX } from '../ask-prompt';
+import { CHAT_TOOL_RULE } from '../chat-turn';
 import { CARD_STANDARD } from '@shared/cards/standard';
 
 describe('Ask Claude system prompt', () => {
@@ -36,5 +37,16 @@ describe('Ask Claude system prompt', () => {
     const many = Array.from({ length: 400 }, (_, i) => `词${i}`);
     const block = knownWordsBlock(many);
     expect(block.split('\n')[1].split('、')).toHaveLength(ASK_KNOWN_WORDS_MAX);
+  });
+
+  it('two blocks for the prompt cache: the static rules (same for everyone), then the learner block', () => {
+    const [a1, l1] = buildAskSystemBlocks({ language: 'zh', knownWords: ['银行'] });
+    const [a2, l2] = buildAskSystemBlocks({ language: 'zh', knownWords: ['学生'] });
+    expect(a1).toBe(a2);
+    expect(a1).toContain(CHAT_TOOL_RULE);
+    expect(a1).toContain(CARD_STANDARD);
+    expect(l1).toContain('银行');
+    expect(l2).toContain('学生');
+    expect(buildAskSystemBlocks({ language: 'en', knownWords: ['银行'] })[1]).toBe('');
   });
 });

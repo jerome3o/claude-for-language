@@ -741,7 +741,8 @@ voice transcripts get the mark and the sheet ("You wrote" = the caption / transc
   a readable `error`. `POST …/messages/:id/retry` re-queues it (checkpoint kept). A reply pending > 10 minutes (a lost
   delivery) is swept to failed when the conversation / list is read. Without the queue binding it runs in `waitUntil`.
 - Clients: a pending first answer shows the loading card ("You can leave — the answer will be here when you come back"), a
-  pending follow-up "Thinking…"; the conversation polls every 2.5 s while anything is pending; failed → the reason +
+  pending follow-up "Thinking…"; the conversation polls every second while anything is pending, every 2.5 s once it
+  has been pending 15 s (`coachReplyPollMs`, `shared/coach/poll.ts`; Lab `CoachActions.replyPollMs`); failed → the reason +
   Retry; the list shows "Thinking…" (`pending_reply`) / "⚠ Reply failed — open to retry" (`failed_reply`) and polls while
   any is thinking. Sending is disabled while a reply is pending (409 server-side). Offline: the send fails with "You're
   offline — the coach needs a connection" and the typed text is kept (not queued). Analytics `coach.reply_resumed` (opened
@@ -845,10 +846,12 @@ a flashcard."
   please" for one turn (`turnLanguage`). `coach_messages.translation` = the English of a Chinese
   message, made on request.
 - **Replies** go through the Coach's background path (`coach-reply-queue`, `runCoachReply`, claim,
-  ≤ 3 deliveries, stale sweep, Retry; the page polls every 2.5 s while one is pending). The prompt and
+  ≤ 3 deliveries, stale sweep, Retry; the page polls every second while one is pending, every 2.5 s
+  after 15 s — `coachReplyPollMs`). The prompt and
   the model call are ONE module, `worker/src/services/claude-chat.ts`, from a context object
-  (`ClaudeChatContext { kind: 'ask', language, userId, knownWords? }`): Opus (`OPUS_MODEL`, effort
-  low, no tools), the Ask Claude immersion rules without the card line (`GENERAL_IMMERSION_RULES` in
+  (`ClaudeChatContext { kind: 'ask', language, userId, knownWords? }`): a chat turn
+  (`services/chat-turn.ts`: `SONNET_MODEL`, thinking off, no tools, prompt caching on the static rules +
+  the learner block + the conversation's tail; `server.claude_turn` surface `coach_ask`), the Ask Claude immersion rules without the card line (`GENERAL_IMMERSION_RULES` in
   `ask-prompt.ts`) + a sample of his started words in Chinese mode; a Chinese answer is stored as
   plain text (`plainAnswerText`). With 🎧 Listen first on, the reply's Read-aloud clip is made right
   after it is written (`pregenerateAskClip`). Each reply logs `[coach] ask reply {model_ms, since_sent_ms}`;

@@ -2,3 +2,4 @@ export * from './actions';
 export * from './newWords';
 export * from './mistakeLesson';
 export * from './practise';
+export * from './poll';

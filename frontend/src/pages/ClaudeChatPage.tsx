@@ -23,6 +23,7 @@ import {
   COACH_ASK_THINKING_ZH,
   RECAP_COMING_SOON,
 } from '@shared/coach/askChat';
+import { coachReplyPollMs } from '@shared/coach/poll';
 import { revealedWhenListeningOn } from '@shared/study/askClaude';
 import {
   apiErrorStatus,
@@ -78,12 +79,22 @@ export function ClaudeChatPage() {
   const isNew = routeId === 'new';
   const recap = useRecapWords(routeId);
 
+  /** When this screen first saw the current reply pending (the poll speeds up for its first seconds). */
+  const pendingSinceRef = useRef<{ id: string; at: number } | null>(null);
   const query = useQuery({
     queryKey: ['coach-conversation', routeId],
     queryFn: () => getCoachConversation(routeId),
     enabled: !isNew,
-    // A reply still being written in the background: look again every few seconds until it lands.
-    refetchInterval: (q) => (q.state.data?.messages.some((m) => m.status === 'pending') ? 2500 : false),
+    // A reply still being written in the background: look again every second at first, then every
+    // 2.5 s (coachReplyPollMs, shared/coach/poll.ts) until it lands.
+    refetchInterval: (q) => {
+      if (!q.state.data?.messages.some((m) => m.status === 'pending')) {
+        pendingSinceRef.current = null;
+        return false;
+      }
+      if (pendingSinceRef.current?.id !== routeId) pendingSinceRef.current = { id: routeId, at: Date.now() };
+      return coachReplyPollMs(Date.now() - pendingSinceRef.current.at);
+    },
   });
   const data = query.data;
   const messages = useMemo(() => toClaudeChatMessages(data?.messages ?? []), [data]);

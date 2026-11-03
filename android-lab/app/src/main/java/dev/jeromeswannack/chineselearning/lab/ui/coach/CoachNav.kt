@@ -77,7 +77,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
         if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
-            // A reply written in the background: look again every ~2.5 s while one is pending, only while this screen is shown.
+            // A reply written in the background: look again every second (then every 2.5 s after 15 s) while one is pending, only while this screen is shown.
             LaunchedEffect(vm) { vm.pollWhilePending() }
             CoachChatScreen(
                 ui,
@@ -274,7 +274,8 @@ class CoachHomeViewModel(private val app: LabApp) : ViewModel() {
 }
 
 private const val LIST_POLL_MS = 4000L
-private const val THREAD_POLL_MS = 2500L
+/** While nothing is pending: how often the thread poll checks the (cached) state again. */
+private const val THREAD_IDLE_TICK_MS = 1000L
 
 class CoachChatViewModel(private val app: LabApp, private val id: String) : ViewModel() {
     private val thread = app.cachedResource<CoachThreadDto>(viewModelScope, threadKey(id), "coach-thread") { coachConversation(id) }
@@ -322,10 +323,17 @@ class CoachChatViewModel(private val app: LabApp, private val id: String) : View
 
     // ---------------- replies written in the background (docs/CHAT.md "Chat ↔ Coach") ----------------
 
-    /** Look again every [THREAD_POLL_MS] while a reply is pending; cancelled when the screen goes. */
+    /**
+     * Look again while a reply is pending — every second for its first 15 s, then every 2.5 s
+     * ([CoachActions.replyPollMs], shared/coach/poll.ts); cancelled when the screen goes.
+     */
     suspend fun pollWhilePending() {
+        var pendingSince: Long? = null
         while (true) {
-            kotlinx.coroutines.delay(THREAD_POLL_MS)
+            val pending = thread.state.value.data?.hasPending == true
+            if (!pending) pendingSince = null
+            val since = if (pending) (pendingSince ?: System.currentTimeMillis().also { pendingSince = it }) else null
+            kotlinx.coroutines.delay(if (since != null) CoachActions.replyPollMs(System.currentTimeMillis() - since) else THREAD_IDLE_TICK_MS)
             if (thread.state.value.data?.hasPending == true && app.online.value) thread.refresh().join()
         }
     }

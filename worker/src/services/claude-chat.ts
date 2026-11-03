@@ -23,7 +23,7 @@ import { CARD_STANDARD } from '@shared/cards/standard';
 import { normalizeHanziAnswer } from '@shared/lesson/answer-check';
 import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
 import { GENERAL_IMMERSION_RULES, knownWordsBlock } from './ask-prompt';
-import { OPUS_MODEL, withEffort } from './models';
+import { cachedSystem, chatTurnParams, ChatTurnMeter } from './chat-turn';
 import { sampleKnownWords } from './ai';
 import { StructuredCallError, structuredCall } from './structured-call';
 import { normalizeProposedCards, proposeFlashcardsTool, knownHanziOf, PROPOSE_MODEL, type ProposedCard } from './chat/flashcards';
@@ -54,19 +54,23 @@ const ENGLISH = `Answer in clear, friendly English (Markdown is fine). Use Chine
 
 const CARDS = `If the learner asks for flashcards, tell them to use ⋯ → "Make flashcards from this chat" — it makes cards from the words they tapped. Whenever you write a word card in your answer, follow the card standard:\n${CARD_STANDARD}`;
 
-/** The system prompt of one reply, from its context. */
-export function buildClaudeChatSystemPrompt(opts: Pick<ClaudeChatContext, 'kind' | 'language' | 'knownWords'>): string {
-  const parts = [ROLE];
-  if (opts.language === 'zh') {
-    parts.push(GENERAL_IMMERSION_RULES);
-    const known = knownWordsBlock(opts.knownWords);
-    if (known) parts.push(known);
-  } else {
-    parts.push(ENGLISH);
-  }
-  parts.push(CARDS);
-  return parts.join('\n\n');
+/**
+ * The system prompt of one reply as two blocks for prompt caching (services/chat-turn.ts): the
+ * STATIC rules (role, language rules, cards) — the same for everyone in that language — then the
+ * learner's known-words block ('' in English or without words; deterministic per user and day).
+ */
+export function buildClaudeChatSystemBlocks(opts: Pick<ClaudeChatContext, 'kind' | 'language' | 'knownWords'>): [staticRules: string, learner: string] {
+  const parts = [ROLE, opts.language === 'zh' ? GENERAL_IMMERSION_RULES : ENGLISH, CARDS];
+  return [parts.join('\n\n'), opts.language === 'zh' ? knownWordsBlock(opts.knownWords) : ''];
 }
+
+/** The system prompt of one reply, from its context (the two blocks joined). */
+export function buildClaudeChatSystemPrompt(opts: Pick<ClaudeChatContext, 'kind' | 'language' | 'knownWords'>): string {
+  return buildClaudeChatSystemBlocks(opts).filter(Boolean).join('\n\n');
+}
+
+/** A chat reply's output budget (thinking is off, so it is all answer). */
+export const CLAUDE_CHAT_MAX_TOKENS = 4000;
 
 /**
  * The model conversation from the stored messages: the learner's and Claude's finished messages in
@@ -94,32 +98,34 @@ export function storedAskAnswer(answer: string, language: AskLanguage): string {
 }
 
 /** The real model call (or the E2E stand-in, checked first); null when the coach can't answer here. */
-export function defaultCoachAskReply(env: Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>): CoachAskReplyFn | null {
+export function defaultCoachAskReply(
+  env: Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>,
+  opts: { client?: Pick<Anthropic, 'messages'> } = {},
+): CoachAskReplyFn | null {
   if (env.E2E_TEST_MODE === 'true') return fakeCoachAskReply;
   if (!env.ANTHROPIC_API_KEY) return null;
   const apiKey = env.ANTHROPIC_API_KEY;
   return async (turns, context) => {
     const { language, userId } = context;
     const knownWords = context.knownWords ?? (language === 'zh' ? await sampleKnownWords(env.DB, userId) : []);
-    const client = new Anthropic({ apiKey });
-    // Opus thinks (always on, counted in max_tokens): room for it plus a short answer. No tools.
-    const res = await client.messages.create(
-      withEffort(
-        {
-          model: OPUS_MODEL,
-          max_tokens: 6000,
-          system: buildClaudeChatSystemPrompt({ kind: context.kind, language, knownWords }),
-          messages: turns.map((t) => ({ role: t.role, content: t.content })),
-        },
-        'low',
-      ),
-    );
+    const client = opts.client ?? new Anthropic({ apiKey });
+    // A chat turn (services/chat-turn.ts): thinking off, the static rules + the learner block cached,
+    // the conversation's tail cached for the next turn. No tools.
+    const meter = new ChatTurnMeter('coach_ask', userId);
+    const res = await client.messages.create(chatTurnParams({
+      system: cachedSystem(...buildClaudeChatSystemBlocks({ kind: context.kind, language, knownWords })),
+      tools: [],
+      messages: turns.map((t) => ({ role: t.role, content: t.content })),
+      maxTokens: CLAUDE_CHAT_MAX_TOKENS,
+    }));
+    meter.add(res);
+    meter.finish();
     const text = res.content
       .filter((b): b is Anthropic.TextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('\n')
       .trim();
-    // Cut off before any answer (thinking used the budget): worth another delivery.
+    // An empty answer (cut off / declined): worth another delivery.
     if (!text) throw new StructuredCallError('Claude gave an empty answer', true);
     return text;
   };
