@@ -20,6 +20,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -63,6 +65,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudMic
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudPanel
 import dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReadAloud
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.launch
 
 /**
@@ -76,6 +79,13 @@ import kotlinx.coroutines.launch
  * aloud, the take is judged with the readers' comparison (core ReadAloud, [rememberReadAloud]) and the
  * message shows marked; words with a real mistake join the recap. 🎧 Listen first hides Claude's
  * Chinese until heard (the chat's listening bubble). English answers are Markdown.
+ *
+ * Claude threads (ui/claude, docs/CHAT.md "Claude thread view"): a pending reply shows "Thinking…" or
+ * what Claude is doing ([ClaudeChatThreadActions.statusLine], e.g. "Looking through your cards…"); a
+ * reply being STREAMED shows its text so far with a caret; anything that isn't a plain text message
+ * (a Coach check / explain / translate result, a mistake lesson) is drawn by the caller (`special`),
+ * tool results under a reply by `after`; my message written offline says "🕓 Waiting for a
+ * connection" until it is sent, or why it was refused (✕ forgets it).
  */
 data class ClaudeChatMsg(
     val id: String,
@@ -85,8 +95,17 @@ data class ClaudeChatMsg(
     val status: String? = null,
     val error: String? = null,
     val translation: String? = null,
+    /** 'text' (default) | 'analysis' | 'mistake_lesson' — anything but text goes to the caller's `special`. */
+    val contentType: String = "text",
+    /** Pending with some text: the reply is being streamed (its text so far). */
+    val streaming: Boolean = false,
+    /** Mine, written offline: waiting in the outbox. */
+    val queued: Boolean = false,
+    /** Mine, refused when the outbox sent it ([error] says why). */
+    val queueFailed: Boolean = false,
 ) {
     val mine: Boolean get() = role == "user"
+    val isText: Boolean get() = contentType == "text"
 }
 
 class ClaudeChatThreadActions(
@@ -108,6 +127,10 @@ class ClaudeChatThreadActions(
     val stopAudio: () -> Unit = {},
     /** Analytics `coach.ask_tool`. */
     val track: (String, Boolean) -> Unit = { _, _ -> },
+    /** What a pending reply says instead of "Thinking…" (Claude using a tool), null = the usual. */
+    val statusLine: (ClaudeChatMsg) -> String? = { null },
+    /** ✕ on my message the outbox couldn't send. */
+    val onDiscardQueued: (ClaudeChatMsg) -> Unit = {},
 )
 
 object ClaudeChatTags {
@@ -122,6 +145,12 @@ object ClaudeChatTags {
     const val TRANSLATE = "claude-chat-translate"
     const val READ_BACK = "claude-chat-read-back"
     const val HIDDEN = "claude-chat-listening-bubble"
+    const val STREAMING = "claude-chat-streaming"
+    const val STATUS_LINE = "claude-chat-status-line"
+    const val QUEUED = "claude-chat-queued"
+    const val QUEUE_FAILED = "claude-chat-queue-failed"
+    const val DISCARD = "claude-chat-queue-discard"
+    const val SPECIAL = "claude-chat-special"
 }
 
 @Composable
@@ -139,6 +168,10 @@ fun ClaudeChatThread(
     /** Screenshots: messages shown with pinyin / their translation. */
     pinyinPreview: Set<String> = emptySet(),
     translatePreview: Set<String> = emptySet(),
+    /** A non-text message (Coach result card, mistake lesson): the caller draws it. */
+    special: (@Composable (ClaudeChatMsg) -> Unit)? = null,
+    /** Under one of Claude's finished text replies (tool results). */
+    after: (@Composable (ClaudeChatMsg) -> Unit)? = null,
 ) {
     var pinyinOn by remember { mutableStateOf(pinyinPreview) }
     var translateOn by remember { mutableStateOf(translatePreview) }
@@ -146,7 +179,7 @@ fun ClaudeChatThread(
     val scope = rememberCoroutineScope()
     // 🎧 a new answer that arrives hidden plays once by itself (Ask Claude's rule).
     val seen = remember { messages.mapTo(HashSet()) { it.id } }
-    val entries = messages.filter { !it.mine && it.status == null }.map { AskClaude.ListeningEntry(it.id, it.text, it.answerLang) }
+    val entries = messages.filter { !it.mine && it.status == null && it.isText }.map { AskClaude.ListeningEntry(it.id, it.text, it.answerLang) }
     LaunchedEffect(entries.size) {
         val id = AskClaude.autoPlayId(listening, entries, seen, listen.revealed, actions.audioBusy())
         entries.lastOrNull()?.let { seen += it.id }
@@ -156,35 +189,40 @@ fun ClaudeChatThread(
         for (m in messages) key(m.id) {
             when {
                 m.mine -> Mine(m, known, m.id in pinyinOn, actions)
-                m.status == "pending" -> Thinking(thinking)
+                !m.isText && special != null -> Box(Modifier.fillMaxWidth().testTag(ClaudeChatTags.SPECIAL)) { special(m) }
+                m.status == "pending" && m.text.isNotEmpty() -> Streaming(m, actions.statusLine(m))
+                m.status == "pending" -> Thinking(actions.statusLine(m) ?: thinking)
                 m.status == "failed" -> Column(Modifier.testTag(ClaudeChatTags.FAILED), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     InlineNotice(m.error ?: "Claude couldn’t answer — try again.", kind = NoticeKind.Error)
                     SecondaryPill("Retry", Modifier.testTag(ClaudeChatTags.RETRY)) { actions.retry(m.id) }
                 }
                 AskClaude.answerHidden(AskClaude.ListeningEntry(m.id, m.text, m.answerLang), listening, listen.revealed) ->
                     Hidden(m, listen, listenNotice?.takeIf { it.first == m.id }?.second, actions)
-                else -> RevealIn(m.id, animate = m.id in listen.justRevealed) {
-                    Claude(
-                        m, known,
-                        pinyin = m.id in pinyinOn,
-                        translateOn = m.id in translateOn,
-                        translation = m.translation ?: translations[m.id],
-                        playing = playingText != null && playingText == m.text,
-                        actions = actions,
-                        preview = readBackPreview[m.id],
-                        onPinyin = { actions.track("pinyin", false); pinyinOn = if (m.id in pinyinOn) pinyinOn - m.id else pinyinOn + m.id },
-                        onTranslate = {
-                            if (m.id in translateOn) translateOn = translateOn - m.id
-                            else {
-                                actions.track("translate", false)
-                                translateOn = translateOn + m.id
-                                if (m.translation == null && translations[m.id] == null) scope.launch {
-                                    val t = actions.translate(m.id)
-                                    if (t == null) translateOn = translateOn - m.id else translations = translations + (m.id to t)
+                else -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    RevealIn(m.id, animate = m.id in listen.justRevealed) {
+                        Claude(
+                            m, known,
+                            pinyin = m.id in pinyinOn,
+                            translateOn = m.id in translateOn,
+                            translation = m.translation ?: translations[m.id],
+                            playing = playingText != null && playingText == m.text,
+                            actions = actions,
+                            preview = readBackPreview[m.id],
+                            onPinyin = { actions.track("pinyin", false); pinyinOn = if (m.id in pinyinOn) pinyinOn - m.id else pinyinOn + m.id },
+                            onTranslate = {
+                                if (m.id in translateOn) translateOn = translateOn - m.id
+                                else {
+                                    actions.track("translate", false)
+                                    translateOn = translateOn + m.id
+                                    if (m.translation == null && translations[m.id] == null) scope.launch {
+                                        val t = actions.translate(m.id)
+                                        if (t == null) translateOn = translateOn - m.id else translations = translations + (m.id to t)
+                                    }
                                 }
-                            }
-                        },
-                    )
+                            },
+                        )
+                    }
+                    after?.invoke(m)
                 }
             }
         }
@@ -205,10 +243,50 @@ private fun onChipOf(text: String, words: List<ReaderWordDto>?, mine: Boolean, a
 private fun Mine(m: ClaudeChatMsg, known: Set<String>, pinyin: Boolean, actions: ClaudeChatThreadActions) {
     val c = chatColors()
     val words = wordsOf(m.text)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Column(Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(18.dp)).background(c.mine).testTag(ClaudeChatTags.MINE).padding(horizontal = 14.dp, vertical = 9.dp)) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(
+            Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(18.dp)).background(if (m.queued || m.queueFailed) c.mine.copy(alpha = 0.6f) else c.mine)
+                .testTag(ClaudeChatTags.MINE).padding(horizontal = 14.dp, vertical = 9.dp),
+        ) {
             ChineseWords(text = m.text, words = words, isMe = true, color = c.onMine, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, true, actions), fontSize = 17.sp)
         }
+        if (m.queueFailed) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag(ClaudeChatTags.QUEUE_FAILED)) {
+                Text("Couldn’t send: ${m.error?.takeIf { it.isNotBlank() } ?: "refused"}", color = Palette.Again, fontSize = 13.sp, modifier = Modifier.widthIn(max = 280.dp))
+                Box(
+                    Modifier.size(40.dp).clip(CircleShape).bouncyClickable(pressedScale = 0.9f, role = Role.Button) { actions.onDiscardQueued(m) }
+                        .semantics { contentDescription = "Remove this message" }.testTag(ClaudeChatTags.DISCARD),
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = Palette.Again, fontSize = 15.sp) }
+            }
+        } else if (m.queued) {
+            Text("🕓 Waiting for a connection — it sends by itself", color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.testTag(ClaudeChatTags.QUEUED))
+        }
+    }
+}
+
+/** A reply being written: its text so far (plain Chinese, or Markdown), a blinking caret, what Claude is doing. */
+@Composable
+private fun Streaming(m: ClaudeChatMsg, statusLine: String?) {
+    val c = chatColors()
+    val blink = androidx.compose.animation.core.rememberInfiniteTransition(label = "caret")
+    val caret by blink.animateFloat(
+        initialValue = 0.6f, targetValue = 0f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(500, easing = androidx.compose.animation.core.LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "caret-alpha",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.testTag(ClaudeChatTags.STREAMING)) {
+        Row(
+            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(18.dp)).background(c.theirs).padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Box(Modifier.weight(1f, fill = false)) {
+                if (m.answerLang == "zh") Text(m.text, color = c.onTheirs, fontSize = 18.sp, lineHeight = 28.sp)
+                else MarkdownText(m.text, style = MaterialTheme.typography.bodyMedium.copy(color = c.onTheirs))
+            }
+            Box(Modifier.padding(start = 3.dp, bottom = 4.dp).size(width = 8.dp, height = 16.dp).alpha(caret).background(c.onTheirs))
+        }
+        statusLine?.let { Text(it, color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.padding(start = 4.dp).testTag(ClaudeChatTags.STATUS_LINE)) }
     }
 }
 

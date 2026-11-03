@@ -27,6 +27,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.teaching.homeworkLibraryGraph
 import dev.jeromeswannack.chineselearning.lab.ui.strokes.strokesGraph
 import dev.jeromeswannack.chineselearning.lab.ui.quests.questsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.coach.coachGraph
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThreadGraph
 import dev.jeromeswannack.chineselearning.lab.ui.analyze.analyzeGraph
 import dev.jeromeswannack.chineselearning.lab.ui.calls.callsGraph
 import dev.jeromeswannack.chineselearning.lab.ui.materials.materialsGraph
@@ -84,6 +85,7 @@ fun NavGraphBuilder.featureGraphs(nav: LabNav) {
     clipsGraph(nav)         // "/clips", "/clips/:id" — 🎬 Clips (experimental)
     podcastsGraph(nav)      // "/podcasts", "/podcasts/feed", "/podcasts/episodes/:id" — 🎙 Podcasts (Lab only for now)
     phoneGraph(nav)         // "/phone", "/phone/:id" — 📱 Phone practice (simulated Chinese phone)
+    claudeThreadGraph(nav)  // "/chats/claude/:id" (+ /recap) — one screen for every Claude chat (docs/CHAT.md "Claude thread view")
     // Add yours above this line, one line each.
     placeholderGraph(nav)   // everything else → main app (keep last)
 }

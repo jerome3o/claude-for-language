@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeTurnEvent
 import dev.jeromeswannack.chineselearning.lab.data.api.liveTicket
 import dev.jeromeswannack.chineselearning.lab.ui.connections.Connections
 import kotlinx.coroutines.CompletableDeferred
@@ -53,6 +54,11 @@ sealed interface LiveEvent {
 class ChatLive(private val app: LabApp) {
     private val _events = MutableSharedFlow<LiveEvent>(extraBufferCapacity = 64)
     val events: SharedFlow<LiveEvent> = _events.asSharedFlow()
+
+    private val _claudeTurns = MutableSharedFlow<ClaudeTurnEvent>(extraBufferCapacity = 64)
+
+    /** A reply of Claude's being written (`claude_turn`, docs/CHAT.md "Claude thread view"): the open thread streams it. */
+    val claudeTurns: SharedFlow<ClaudeTurnEvent> = _claudeTurns.asSharedFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
@@ -204,6 +210,10 @@ class ChatLive(private val app: LabApp) {
             "typing" -> {
                 val conv = obj.str("conversation_id") ?: return
                 _events.emit(LiveEvent.Typing(conv, obj.str("user_id").orEmpty()))
+            }
+            "claude_turn" -> {
+                val e = runCatching { app.repo.api.json.decodeFromJsonElement(ClaudeTurnEvent.serializer(), obj) }.getOrNull() ?: return
+                _claudeTurns.emit(e)
             }
         }
     }

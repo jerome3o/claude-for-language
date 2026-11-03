@@ -35,7 +35,8 @@ import java.util.UUID
  *  - Strict order: a network or server error (5xx / 408 / 429) stops the drain and the
  *    item is retried next time; after [MAX_ATTEMPTS] it is marked failed. A 4xx
  *    rejection (other than 401/408/409/429) marks the item failed at once and the
- *    drain moves on. 409 counts as done (the server already has it).
+ *    drain moves on. 409 counts as done (the server already has it) — except for the kinds in
+ *    [WAIT_ON_CONFLICT], whose 409 keeps the item pending for the next drain.
  *  - A failed item stays in the table for the UI / debug report; [retryFailed] re-queues.
  *  - Upload files: write them into [stageFile]; staged files are deleted after the
  *    upload succeeds. Multipart ([enqueueUpload]) or the raw body ([enqueueRaw]).
@@ -141,6 +142,11 @@ class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) 
                         continue
                     }
                     when {
+                        // "Claude is still answering your last message": it waits for the next drain;
+                        // the rest of the outbox goes on (data/claude/ClaudeThreads.kt).
+                        res.code == 409 && item.kind in WAIT_ON_CONFLICT -> {
+                            dao.updateOutbox(item.id, item.attempts, "HTTP ${res.code}: ${res.body.take(200)}", PENDING)
+                        }
                         res.ok || res.code == 409 -> {
                             dao.deleteOutbox(item.id)
                             item.filePath?.let { p -> File(p).takeIf { it.parentFile?.canonicalPath == dir.canonicalPath }?.delete() }
@@ -183,5 +189,8 @@ class Outbox(private val dao: PlatformDao, private val api: Api, val dir: File) 
         const val PENDING = "pending"
         const val FAILED = "failed"
         const val MAX_ATTEMPTS = 10
+
+        /** Kinds whose 409 means "not yet" rather than "already there": kept pending, never counted as an attempt. */
+        val WAIT_ON_CONFLICT = setOf("claude-message")
     }
 }

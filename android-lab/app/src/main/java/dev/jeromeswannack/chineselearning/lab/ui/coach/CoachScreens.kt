@@ -453,31 +453,7 @@ fun CoachChatScreen(
                 }
             }
             items(messages, key = { it.id }) { m ->
-                when {
-                    m.content_type == CoachMistakeLesson.CONTENT_TYPE -> when {
-                        m.isPending -> ThinkingCard(CoachMistakeLesson.BUSY, note = "You can leave — it will be here when you come back.", modifier = Modifier.testTag(CoachLessonTags.PENDING))
-                        m.isFailed -> InlineNotice(
-                            m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t write a lesson for this one — try again.",
-                            modifier = Modifier.testTag(CoachLessonTags.FAILED),
-                            kind = NoticeKind.Error,
-                            actionLabel = when { ui.lessonRequesting -> "Retrying…"; ui.online -> "Retry"; else -> null },
-                            onAction = { if (!ui.lessonRequesting) actions.onMistakeLesson() },
-                        )
-                        else -> CoachMistakeLesson.parse(m.content)?.let { content ->
-                            MistakeLessonCard(content, saving = ui.lessonSaving == m.id, error = null, onPlay = { actions.onPlayLesson(m.id, content) }, onSave = { actions.onSaveLesson(m.id) })
-                        }
-                    }
-                    m.isPending && m.content_type == "analysis" -> ThinkingCard(ACTION_LOADING.getValue(convAction), note = "You can leave — the answer will be here when you come back.", modifier = Modifier.testTag(COACH_REPLY_PENDING_TAG))
-                    m.isPending -> ThinkingBubble(Modifier.testTag(COACH_REPLY_PENDING_TAG))
-                    m.isFailed -> InlineNotice(
-                        m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t answer — try again.",
-                        modifier = Modifier.testTag(COACH_REPLY_FAILED_TAG),
-                        kind = NoticeKind.Error,
-                        actionLabel = when { ui.retrying -> "Retrying…"; ui.online -> "Retry"; else -> null },
-                        onAction = { if (!ui.retrying) actions.onRetryReply(m.id) },
-                    )
-                    else -> MessageView(m, ui.online, lesson = if (m.id == firstAnalysisId) ({ MistakeLessonButton(ui, actions) }) else null) { adding = it }
-                }
+                CoachMessageItem(m, ui, actions, convAction, isFirstAnalysis = m.id == firstAnalysisId) { adding = it }
             }
             ui.pendingMessage?.let { p ->
                 item(key = "pending-user") { UserBubble(p) }
@@ -513,6 +489,40 @@ fun CoachChatScreen(
             chunk, preferredDeck = "", actions.cards, onDismiss = { adding = null },
             bumpSource = "coach", bump = actions.bump ?: dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("coach"),
         )
+    }
+}
+
+/**
+ * One message of a Coach conversation — the check / explain / translate result cards, the mistake
+ * lesson, a pending / failed reply, a follow-up answer with its tool results. The Coach's own screen
+ * and the Claude thread view (ui/claude, the web's CoachMessageView) draw them with this.
+ */
+@Composable
+internal fun CoachMessageItem(m: CoachMessageDto, ui: CoachChatUi, actions: CoachChatActions, convAction: CoachAction, isFirstAnalysis: Boolean, onAdd: (Chunk) -> Unit) {
+    when {
+        m.content_type == CoachMistakeLesson.CONTENT_TYPE -> when {
+            m.isPending -> ThinkingCard(CoachMistakeLesson.BUSY, note = "You can leave — it will be here when you come back.", modifier = Modifier.testTag(CoachLessonTags.PENDING))
+            m.isFailed -> InlineNotice(
+                m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t write a lesson for this one — try again.",
+                modifier = Modifier.testTag(CoachLessonTags.FAILED),
+                kind = NoticeKind.Error,
+                actionLabel = when { ui.lessonRequesting -> "Retrying…"; ui.online -> "Retry"; else -> null },
+                onAction = { if (!ui.lessonRequesting) actions.onMistakeLesson() },
+            )
+            else -> CoachMistakeLesson.parse(m.content)?.let { content ->
+                MistakeLessonCard(content, saving = ui.lessonSaving == m.id, error = null, onPlay = { actions.onPlayLesson(m.id, content) }, onSave = { actions.onSaveLesson(m.id) })
+            }
+        }
+        m.isPending && m.content_type == "analysis" -> ThinkingCard(ACTION_LOADING.getValue(convAction), note = "You can leave — the answer will be here when you come back.", modifier = Modifier.testTag(COACH_REPLY_PENDING_TAG))
+        m.isPending -> ThinkingBubble(Modifier.testTag(COACH_REPLY_PENDING_TAG))
+        m.isFailed -> InlineNotice(
+            m.error?.takeIf { it.isNotBlank() } ?: "Claude couldn’t answer — try again.",
+            modifier = Modifier.testTag(COACH_REPLY_FAILED_TAG),
+            kind = NoticeKind.Error,
+            actionLabel = when { ui.retrying -> "Retrying…"; ui.online -> "Retry"; else -> null },
+            onAction = { if (!ui.retrying) actions.onRetryReply(m.id) },
+        )
+        else -> MessageView(m, ui.online, lesson = if (isFirstAnalysis) ({ MistakeLessonButton(ui, actions) }) else null, onAdd = onAdd)
     }
 }
 
@@ -566,7 +576,13 @@ private fun UserBubble(text: String) {
     }
 }
 
-/** Port of ToolResultChips. */
+/** Port of ToolResultChips: one chip per tool result (stored JSON, [CoachAnalysisDto.toolResults]). */
+@Composable
+internal fun CoachToolResults(raw: String?) {
+    CoachAnalysisDto.toolResults(raw).forEach { ToolChip(it) }
+}
+
+/** One tool result's chip. */
 @Composable
 private fun ToolChip(r: CoachToolResultDto) {
     val text = when {

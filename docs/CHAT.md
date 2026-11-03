@@ -837,9 +837,9 @@ Claude's words — for me to be able to read them and have them checked … a ni
 a flashcard."
 
 - **Entry**: the Coach page's 💬 Ask Claude card (web `pages/SentenceCoachPage.tsx`, Lab
-  `ui/coach/CoachScreens.kt`) → web `/chats/claude/new` (the Claude thread view, below; the Lab app still
-  `/coach/chat/new`). Past chats are in the Coach's Recent conversations with 💬 and open
-  `/chats/claude/:id` on the web (`/coach/chat/:id` and a `?c=` link to one redirect there).
+  `ui/coach/CoachScreens.kt`) → `/chats/claude/new` (the Claude thread view, below). Past chats are in the
+  Coach's Recent conversations with 💬 and open `/chats/claude/:id` (`/coach/chat/:id` and a `?c=` link to one
+  redirect there, in both apps).
 - **Data**: a coach conversation with `kind = 'ask'` (+ `action = 'ask'` for older apps; `kind` is the
   generic column other Claude chats can join). `coach_messages.answer_lang` = the language of a reply
   ('zh' plain Chinese / 'en' Markdown), written on the pending row from the turn's language — the
@@ -963,13 +963,14 @@ thread). This part is worker + shared types only; the screens come later.
     both (checked first). Privacy: only the learner's own Claude chats — never `student_profiles` (tested); the
     memory row goes with the account (`DELETE_STEPS`).
 
-## Claude thread view (web; Lab next)
+## Claude thread view (web + Lab)
 
 ONE screen for every chat with Claude, whatever its context (the unified-Claude-chats plan §6.3–6.4):
 web `components/claude/ClaudeThreadView.tsx` at **`/chats/claude/:id`** (immersive, `pages/ClaudeThreadPage.tsx`;
-`variant="sheet"` = the same screen without page chrome, for Ask Claude on the study card later). The Lab
-thread screen (`ui/claude/ClaudeThreadScreen.kt`) is the next PR; its rules are already in core
-(`core/…/claude/ClaudeChats.kt`, parity-tested).
+`variant="sheet"` = the same screen without page chrome, for Ask Claude on the study card later). Lab:
+`ui/claude/ClaudeThreadScreen.kt` (+ `sheet = true`) / `ClaudeThreadViewModel.kt` / `ClaudeThreadNav.kt` (the same
+routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind `claude-message`, below), the
+`claude_turn` frames from `ChatLive.claudeTurns`; its rules are core `core/…/claude/ClaudeChats.kt` (parity-tested).
 
 - **Routes**: `/chats/claude/new` starts a thread — a plain chat by default, `?context=card&note_id=&label=`
   for a card, `?context=chat_message&message_id=&conversation_id=`; `?text=&intent=ask|check|explain|translate`
@@ -1009,7 +1010,10 @@ thread screen (`ui/claude/ClaudeThreadScreen.kt`) is the next PR; its rules are 
   the server has it, then its rows move to the server id and the screen follows (`resolveThreadId`).
   `flushClaudeOutbox` sends in order on `online`, when a thread opens and in every sync; the server is idempotent
   by client id; a refusal (4xx) marks the message "Couldn't send" with ✕; a 409 (a reply still being written)
-  waits for the next run.
+  waits for the next run. Lab: the generic Outbox carries them (drained on reconnect and in every sync); a
+  `claude-message` 409 stays pending (`Outbox.WAIT_ON_CONFLICT`) instead of counting as done; a message written in a
+  thread that isn't on the server yet is held on the phone and queued once the `claude-threads` sync step (or the
+  open screen) has the thread's server id (`resolveLocal`: the create re-sent, idempotent by its client id).
 - **Analytics**: `claude.thread_open { context_kind, source, resumed }`, `claude.message_send { context_kind,
   intent, offline, chip, spoken }`, `claude.reply_shown { first_text_ms, done_ms, via: socket | poll, intent,
   context_kind }` (+ the Kotlin mirror).
@@ -1019,4 +1023,5 @@ thread screen (`ui/claude/ClaudeThreadScreen.kt`) is the next PR; its rules are 
 - Tests: `shared/claude/contexts.test.ts`, `ClaudeChatsParityTest` (`parity/fixtures/claude-chats.ts`),
   `components/claude/ClaudeThreadView.test.tsx` (streaming via a fake socket, the offline outbox, composer
   intents, the card chip), `services/claudeThreads.test.ts`, E2E `e2e/tests/claude-thread.spec.ts` (Coach → Ask →
-  a streamed reply; a card thread's chip → the card hub; offline → queued → sent).
+  a streamed reply; a card thread's chip → the card hub; offline → queued → sent). Lab: `ClaudeThreadAppTest`
+  (fake server + fake socket frames), `ClaudeThreadScreenTest` (+ Roborazzi `claude-thread-01…10`).

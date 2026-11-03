@@ -104,8 +104,9 @@ object Routes {
     /** [focus] (`?focus=1`): open with the sentence box focused and the keyboard up (the widget's ✏️). */
     /** [draft] (`?draft=`): fill the sentence box without sending it (study card ⋯ → Sentence coach). */
     /** [action] (check | explain | translate) runs at once on [text] (CoachActions.deepLinkAction). */
-    fun coach(text: String? = null, focus: Boolean = false, draft: String? = null, action: String? = null) =
-        "/coach" + query("text" to text, "action" to action, "draft" to draft, "focus" to (if (focus) "1" else null))
+    /** [from] = "card": the study card's ✎ Check — stays on the Coach (with its way back) instead of a Claude thread. */
+    fun coach(text: String? = null, focus: Boolean = false, draft: String? = null, action: String? = null, from: String? = null) =
+        "/coach" + query("text" to text, "action" to action, "draft" to draft, "focus" to (if (focus) "1" else null), "from" to from)
     fun analyze() = "/analyze"
     fun quests() = "/quests"
     fun quest(id: String) = "/quests/${seg(id)}"

@@ -34,7 +34,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
-import dev.jeromeswannack.chineselearning.lab.ui.claudechat.claudeChat
+import dev.jeromeswannack.chineselearning.lab.core.CoachAsk
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThreadNew
 import dev.jeromeswannack.chineselearning.lab.ui.claudechat.claudeChatGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,10 +60,11 @@ import kotlinx.coroutines.withContext
  */
 fun NavGraphBuilder.coachGraph(nav: LabNav) {
     composable(
-        Routes.route("/coach?text={text}&c={c}&focus={focus}&draft={draft}&action={action}&from_message={from_message}"),
+        Routes.route("/coach?text={text}&c={c}&focus={focus}&draft={draft}&action={action}&from_message={from_message}&from={from}"),
         arguments = listOf(
             navArgument("action") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("from_message") { type = NavType.StringType; nullable = true; defaultValue = null },
+            navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("text") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("c") { type = NavType.StringType; nullable = true; defaultValue = null },
             navArgument("focus") { type = NavType.StringType; nullable = true; defaultValue = null },
@@ -74,9 +77,18 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
         val draft = entry.arguments?.getString("draft")
         val action = entry.arguments?.getString("action")
         val fromMessage = entry.arguments?.getString("from_message")
+        val from = entry.arguments?.getString("from")
         if (conversationId != null) {
             val vm: CoachChatViewModel = viewModel(key = "coach-$conversationId", factory = CoachChatViewModel.Factory(nav.app, conversationId))
             val ui by vm.ui.collectAsStateWithLifecycle()
+            // A "💬 Ask Claude" chat opened by its ?c= link: its own screen, the Claude thread (same id).
+            val conv = ui.thread.data?.conversation
+            LaunchedEffect(conv?.id) {
+                if (conv != null && CoachAsk.conversationKind(conv.kind, conv.action, conv.input_language) == CoachAsk.ACTION) {
+                    nav.back()
+                    nav.open(Routes.claudeThread(conv.id))
+                }
+            }
             // A reply written in the background: look again every second (then every 2.5 s after 15 s) while one is pending, only while this screen is shown.
             LaunchedEffect(vm) { vm.pollWhilePending() }
             CoachChatScreen(
@@ -102,12 +114,22 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
             // While a conversation is still thinking, the list looks again every few seconds.
             LaunchedEffect(vm) { vm.pollListWhilePending() }
             // ?text=[&action=&from_message=] (core CoachActions.deepLinkAction): an explicit action runs at
-            // once ("Open in Coach" from a chat message — its auto-check is reused); without one English is
-            // translated at once and Chinese waits in the box on Check / Explain.
+            // once; without one English is translated at once and Chinese waits in the box on Check / Explain.
+            // The run is a Claude thread started with that intent (docs/CHAT.md "Claude thread view": the
+            // result shows in the thread screen, offline the message waits there for a connection) — except
+            // "Open in Coach" from a chat message (its stored auto-check is reused here, no Claude call) and the
+            // study card's ✎ Check (`from=card`), which stay on the Coach.
             LaunchedEffect(text, action) {
                 if (!text.isNullOrBlank() && vm.claimDeepLink(text + "\u0000" + action.orEmpty())) {
                     val run = CoachActions.deepLinkAction(text, action)
-                    if (run != null) vm.start(text.trim(), run, chatMessageId = fromMessage) { id -> nav.open(Routes.coachConversation(id)) } else vm.setDraft(text)
+                    when {
+                        run != null && fromMessage.isNullOrEmpty() && from != "card" -> {
+                            nav.back()
+                            nav.open(Routes.claudeThreadNew(text = text.trim(), intent = run.id, source = "coach_link"))
+                        }
+                        run != null -> vm.start(text.trim(), run, chatMessageId = fromMessage) { id -> nav.open(Routes.coachConversation(id)) }
+                        else -> vm.setDraft(text)
+                    }
                 }
             }
             CoachHomeScreen(
@@ -120,7 +142,8 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onOpen = { nav.open(Routes.coachConversation(it)) },
                     onDelete = vm::delete,
                     cards = coachCardActions(nav.app),
-                    onAsk = { id -> nav.open(Routes.claudeChat(id ?: dev.jeromeswannack.chineselearning.lab.ui.claudechat.CoachAskViewModel.NEW)) },
+                    // "💬 Ask Claude": a new general thread; a past one opens as its thread (ui/claude).
+                    onAsk = { id -> nav.open(if (id != null) Routes.claudeThread(id) else Routes.claudeThreadNew(source = "coach")) },
                 ),
             )
         }
@@ -135,7 +158,7 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
  * Adding a word / the whole sentence from an Explain result: the same AddChunkSheet (deck chips,
  * duplicate warning) as the study card's "What's going on here?" breakdown, through the same calls.
  */
-private fun coachCardActions(app: LabApp): SentenceActions {
+internal fun coachCardActions(app: LabApp): SentenceActions {
     val tools = CardTools(app)
     return SentenceActions(
         decks = {
