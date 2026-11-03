@@ -1,4 +1,5 @@
 import { tutorPausedLabel } from '@shared/decks';
+import { askedClaudeTodayLabel } from '@shared/claude/visibility';
 import type { LibraryItem } from '@shared/homework';
 import { RecentHomeworkLine } from './library/RecentHomeworkCard';
 import { useState } from 'react';
@@ -94,6 +95,12 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
         </span>
         <span className="td-chevron">›</span>
       </Link>
+      {askedClaudeTodayLabel(overview.claude_today ?? 0) && (
+        // The student's chats with Claude she may read, in which he wrote today (his day).
+        <Link to={`/connections/${relId}/claude-chats`} className="td-card-claude" data-testid="td-claude-today">
+          {askedClaudeTodayLabel(overview.claude_today ?? 0)}
+        </Link>
+      )}
       <div className="td-pills">
         {pills.struggling_words > 0 ? (
           <Link to={`/connections/${relId}/insights`} className="td-pill td-pill-struggling">

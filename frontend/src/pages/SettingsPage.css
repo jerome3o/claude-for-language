@@ -222,6 +222,36 @@
   accent-color: var(--color-primary, #2563eb);
 }
 
+/* A radio list (Chat → "Your tutor can see your chats with Claude"). */
+.settings-radio-group {
+  border: 0;
+  padding: 0;
+  margin: 1rem 0 0;
+  min-width: 0;
+}
+
+.settings-radio-group legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.settings-radio-group .settings-toggle-row {
+  align-items: flex-start;
+  padding: 0.35rem 0;
+}
+
+.settings-radio-group .settings-toggle-row input {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.settings-radio-hint {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
 /* "Set by Minghui · 3 Oct" under New cards a day while the tutor's numbers apply. */
 .settings-budget-set-by {
   display: inline-block;

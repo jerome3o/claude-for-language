@@ -15,6 +15,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadRes
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeTurnEvent
 import dev.jeromeswannack.chineselearning.lab.data.api.cardClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.contextClaudeThreads
+import dev.jeromeswannack.chineselearning.lab.data.api.setClaudeThreadTutorVisible
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeThread
 import dev.jeromeswannack.chineselearning.lab.data.api.createClaudeThread
@@ -250,6 +251,17 @@ class ClaudeThreads(
         if (e.status == "failed") next = next.copy(status = "failed", streaming = false, error = e.error ?: row.error)
         save(c.copy(messages = c.messages.toMutableList().also { it[i] = next }))
         true
+    }
+
+    /**
+     * The thread ⋯ → Share with my tutor / Hide from my tutor (core claude.TutorVisibility): the chat's
+     * own choice (null = follow the account's). Online only — the server decides what she reads.
+     */
+    suspend fun setTutorVisible(threadId: String, value: Boolean?): ClaudeThreadDto {
+        val res = api.setClaudeThreadTutorVisible(threadId, value)
+        lock.withLock { get(threadId)?.let { c -> save(c.copy(thread = c.thread.copy(tutor_visible = res.thread.tutor_visible))) } }
+        runCatching { ClaudeThreadList.upsert(cache, res.thread) }
+        return res.thread
     }
 
     /** The English of a message, kept on its cached row. */

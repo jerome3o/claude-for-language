@@ -85,3 +85,53 @@ export interface ClaudeTurnEvent {
   /** A failed reply's readable reason. */
   error?: string;
 }
+
+/**
+ * The tutor's read-only view of a student's Claude chats (`GET /api/relationships/:relId/claude-threads`,
+ * shared/claude/visibility.ts): only the chats the student lets her read, trimmed — no client ids,
+ * leases, unread counts, the check of his own Chinese or anything else of the learner's own.
+ */
+export interface TutorClaudeThread {
+  id: string;
+  title: string;
+  context_kind: ClaudeContextKind;
+  /** The descriptor for the chip (card: note_id → her card hub view of the note). No chat / message ids. */
+  context: StoredClaudeContext;
+  badge: ContextBadge | null;
+  preview: string | null;
+  /** ISO. */
+  last_message_at: string | null;
+  created_at: string;
+  /** Finished messages (his + Claude's). */
+  message_count: number;
+  /** He shared this one chat himself (thread ⋯ → Share with my tutor). */
+  shared: boolean;
+}
+
+export interface TutorClaudeMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  /** text | analysis (a Coach check / explain / translate result, JSON) */
+  content_type: 'text' | 'analysis';
+  content: string;
+  answer_lang: 'zh' | 'en' | null;
+  translation: string | null;
+  /** JSON of the tool results (cards made, a bump…), as stored. */
+  tool_results: string | null;
+  created_at: string;
+}
+
+export interface TutorClaudeThreadsResponse {
+  threads: TutorClaudeThread[];
+  /** What the student lets his tutor read ('card_only' | 'all' | 'none'). */
+  visibility: 'card_only' | 'all' | 'none';
+  /** Visible chats in all. */
+  total: number;
+  /** Pass back as `before` for older chats; null = no more. */
+  next_cursor: string | null;
+}
+
+export interface TutorClaudeThreadResponse {
+  thread: TutorClaudeThread;
+  messages: TutorClaudeMessage[];
+}

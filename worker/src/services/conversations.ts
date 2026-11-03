@@ -1151,3 +1151,19 @@ Respond with ONLY a JSON array in this exact format:
   }
 ]`;
 }
+
+/**
+ * Claude practice chats already copied into the Claude threads (`pc-<conversation id>`,
+ * claude-agent/backfill.ts) among `conversationIds` — `?exclude_ai=1` on the conversation list /
+ * messages (the MCP tools): the threads carry them now (docs/CHAT.md "Practice with Claude").
+ * Human chats never have a copy.
+ */
+export async function migratedPracticeChatIds(db: D1Database, userId: string, conversationIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(conversationIds)].filter(Boolean).slice(0, 200);
+  if (ids.length === 0) return new Set();
+  const res = await db
+    .prepare(`SELECT id FROM coach_conversations WHERE user_id = ? AND context_kind = 'practice' AND id IN (${ids.map(() => '?').join(', ')})`)
+    .bind(userId, ...ids.map((id) => `pc-${id}`))
+    .all<{ id: string }>();
+  return new Set((res.results ?? []).map((r) => r.id.slice(3)));
+}

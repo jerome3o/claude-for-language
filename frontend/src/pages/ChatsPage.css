@@ -529,3 +529,18 @@ button.chats-context-chip-link:hover {
     margin-bottom: 15vh;
   }
 }
+
+/* A student's row (the tutor's view): "✦ Asked Claude 3× today" → his shared Claude chats. */
+.chats-row-claude-today {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  margin: -0.35rem 0 0.25rem 3.75rem;
+  font-size: 0.8125rem;
+  color: #a8482a;
+  text-decoration: none;
+}
+
+:root[data-theme='dark'] .chats-row-claude-today {
+  color: #f0b08f;
+}

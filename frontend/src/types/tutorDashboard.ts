@@ -157,6 +157,8 @@ export interface StudentOverview {
    * against their limit; `paused` = no new cards for them today. null = their limit is off.
    */
   review_load?: ReviewLoadState | null;
+  /** The student's Claude chats the tutor may read in which he wrote today (his time zone) — "✦ Asked Claude 3× today". */
+  claude_today?: number;
 }
 
 export interface PendingInvite {

@@ -233,6 +233,7 @@ export const ANALYTICS_EVENTS = {
   'tutor.invite_create': e('tutor', 'Created an invite link.', ['decks']),
   'tutor.insights_summary': e('tutor', 'Asked for the Claude-written insights summary.', []),
   'tutor.try_as_student': e('tutor', 'Tried a deck / lesson as the student (preview).', ['kind']),
+  'tutor.claude_thread_open': e('tutor', "Opened one of the student's Claude chats read-only (context_kind; source = student_page | all_chats | card_hub).", ['context_kind', 'source']),
 
   // ── readers ────────────────────────────────────────────────────────────
   'reader.open': e('readers', 'Opened a graded reader.', ['source', 'pages']),
@@ -372,6 +373,7 @@ export const ANALYTICS_EVENTS = {
   'claude.reply_shown': e('chat', 'A Claude reply on screen in the thread view: first_text_ms = from sending (or the screen first seeing it pending) to its first words, done_ms = to the whole reply, via = socket (live claude_turn events) | poll (GET ?since=); intent of the message it answers.', ['first_text_ms', 'done_ms', 'via', 'intent', 'context_kind']),
   'claude.practice_start': e('chat', 'Started a role-play with Claude — a practice thread, Claude speaks first (source = chats: ✏️ → Practice a situation | card: 🎭 Roleplay this word | claude_page: the Claude page\'s New practice chat | chat_link: an old "new chat with Claude" link; preset = the situation picked (restaurant, taxi…) | custom | card; level = beginner | intermediate | advanced).', ['source', 'preset', 'level']),
   'claude.discuss_open': e('chat', 'Discuss with Claude on a chat message: the message\'s Claude thread opened as a sheet over the chat (resumed = its earlier thread continued rather than a new one).', ['resumed']),
+  'claude.share_with_tutor': e('chat', 'Shared a Claude chat with the tutor or hid it (on = she can read it now; scope = thread: the thread ⋯ → Share with my tutor / Hide from my tutor | account: Settings → Chat → "Your tutor can see", visibility = card_only | all | none).', ['on', 'scope', 'visibility', 'context_kind']),
   'chats.open': e('chat', 'Opened a row of the unified Chats tab (kind = tutor | student | claude).', ['kind']),
   'chats.filter': e('chat', 'Picked a filter chip on the Chats tab (filter = all | people | claude).', ['filter']),
   'chats.compose_send': e('chat', 'Sent from the Chats tab\'s bottom box to Claude — a new thread (intent = ask | check | explain | translate; offline = queued until a connection; spoken = said with 🎤).', ['intent', 'offline', 'spoken']),

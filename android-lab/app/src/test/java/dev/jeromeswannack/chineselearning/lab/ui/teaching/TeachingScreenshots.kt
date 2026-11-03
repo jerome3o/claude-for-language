@@ -58,7 +58,7 @@ class TeachingScreenshots : LabScreenshotTest() {
             S.studentPage(S.lilyOverview).copy(
                 homework = S.loaded(S.homework.copy(assignments = emptyList(), load = S.load.copy(one_off = S.load.one_off.copy(by_day = S.load.one_off.by_day.map { it.copy(items = 0, words = 0) }, items = 0, words = 0, other = 0, overdue_items = 0, overdue_words = 0), level = "light", summary = "No one-off homework pending · 15 words to go in long-term review (~5 days at 3/day)"))),
                 flags = S.loaded(S.flags.copy(flags = emptyList(), open = 0)),
-                claude = S.loaded(S.claude.copy(questions = emptyList(), total = 0)),
+                claude = S.loaded(S.claude.copy(threads = emptyList(), total = 0)),
                 conversations = S.loaded(emptyList()),
                 lessons = S.loaded(emptyList()),
                 lastLessonAt = null,
@@ -228,7 +228,7 @@ class TeachingScreenshots : LabScreenshotTest() {
     }
 
     @Test fun studentChats() = shoot("teaching-33-claude-chats") {
-        StudentClaudeChatsScreen(StudentChatsUi("rel-jerome", "Jerome", S.claude.questions, S.claude.total, hasMore = true), {}, {}, {}, S.now)
+        StudentClaudeChatsScreen(StudentChatsUi("rel-jerome", "Jerome", S.claude.threads, S.claude.visibility, S.claude.total, hasMore = true), {}, {}, {}, S.now)
     }
 
     @Test fun progress() = shoot("teaching-34-progress") {

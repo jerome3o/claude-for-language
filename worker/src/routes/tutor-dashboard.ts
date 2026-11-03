@@ -27,7 +27,8 @@ import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
 import * as q from '../db/tutor-dashboard-queries';
 import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../services/tutor-dashboard';
-import { studentReviewLoad } from '../services/review-load';
+import { studentReviewLoad, studyDayBounds, tzOffsetMinutesIn } from '../services/review-load';
+import { tutorThreadsActiveSince } from '../services/claude-agent/tutor-view';
 import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
 import { countOpenCardFlags } from '../services/card-flags';
@@ -103,7 +104,14 @@ async function loadOverview(
     return null;
   });
 
-  return buildStudentOverview({
+  // "✦ Asked Claude 3× today": the chats he lets her read, his own today (his zone, else hers).
+  const studentTz = tzOffsetMinutesIn(student.time_zone, now) ?? tzOffset;
+  const claudeToday = await tutorThreadsActiveSince(db, studentId, new Date(studyDayBounds(now.getTime(), studentTz).dayStartMs).toISOString()).catch((err) => {
+    console.error('[tutor-dashboard] Claude chats today failed:', err instanceof Error ? err.message : err);
+    return 0;
+  });
+
+  const overview = buildStudentOverview({
     relationship_id: rel.id,
     student,
     joined_at: rel.accepted_at || rel.created_at,
@@ -127,6 +135,7 @@ async function loadOverview(
     review_load: reviewLoad,
     now,
   });
+  return { ...overview, claude_today: claudeToday };
 }
 
 // ============ Dashboard ============

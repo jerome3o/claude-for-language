@@ -271,6 +271,29 @@
   align-items: center;
 }
 
+/* The context chip under a student's Claude chat (the tutor's "Asked Claude"). */
+.ct-badge-row {
+  padding: 0 0.875rem 0.625rem;
+}
+
+.ct-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 32px;
+  padding: 0.25rem 0.625rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-background);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  text-decoration: none;
+}
+
+a.ct-badge {
+  color: var(--color-primary);
+}
+
 /* ---------- Card hub page ---------- */
 
 .hub-card {

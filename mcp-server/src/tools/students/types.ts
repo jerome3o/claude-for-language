@@ -453,18 +453,6 @@ export interface CardFlagRow {
   tutor_name: string | null;
 }
 
-export interface ClaudeChatQuestionRow {
-  id: string;
-  note_id: string;
-  question: string;
-  answer: string;
-  asked_at: string;
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  deck_id: string;
-  deck_name: string;
-}
 
 // ---------- Session notes → agent jobs (worker/src/routes/tutor-notes.ts) ----------
 

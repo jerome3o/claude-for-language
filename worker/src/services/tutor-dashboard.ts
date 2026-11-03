@@ -241,6 +241,11 @@ export interface StudentOverview {
    * student's limit — `paused` = no new cards for them today. null when their limit is off.
    */
   review_load: ReviewLoadState | null;
+  /**
+   * The student's chats with Claude the tutor may read (shared/claude/visibility.ts) in which he wrote
+   * today in HIS time zone — "✦ Asked Claude 3× today". Absent from older servers.
+   */
+  claude_today?: number;
 }
 
 // ---------- Days & streaks ----------

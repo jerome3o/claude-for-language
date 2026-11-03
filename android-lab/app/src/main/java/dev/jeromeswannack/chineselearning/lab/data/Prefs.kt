@@ -88,6 +88,7 @@ class Prefs(context: Context) {
             .putString("voice_gender", me.voice_gender)
             .putString("ask_claude_language", me.ask_claude_language)
             .putBoolean("ask_claude_listening", me.ask_claude_listening)
+            .putString("claude_tutor_visibility", me.claude_tutor_visibility)
             .apply()
         me.card_check?.let { cardCheck = it }
     }
@@ -104,6 +105,14 @@ class Prefs(context: Context) {
     var chatsClaudeSectionOpen: Boolean
         get() = sp.getBoolean("chats_claude_section_open", false)
         set(v) = sp.edit().putBoolean("chats_claude_section_open", v).apply()
+
+    /**
+     * Settings → Chat → "Your tutor can see" (users.claude_tutor_visibility, core claude.TutorVisibility):
+     * card_only (default) | all | none — the account's, or what was picked on this phone since.
+     */
+    var claudeTutorVisibility: String
+        get() = dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.parse(sp.getString("claude_tutor_visibility", null))
+        set(v) = sp.edit().putString("claude_tutor_visibility", v).apply()
 
     /** Ask Claude 🎧 Listen first (the account's, from /api/auth/me; or what was switched on this phone since). Off by default. */
     var askClaudeListening: Boolean

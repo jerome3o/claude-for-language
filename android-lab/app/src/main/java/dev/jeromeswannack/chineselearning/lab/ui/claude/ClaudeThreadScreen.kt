@@ -48,6 +48,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson
 import dev.jeromeswannack.chineselearning.lab.core.NoteSearch
 import dev.jeromeswannack.chineselearning.lab.core.VoiceDictation
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
+import dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.CoachConversationDto
@@ -131,10 +132,20 @@ data class ClaudeThreadUi(
     val notice: String? = null,
     /** A reader / exercise thread: its context's fields on this showing (the chips read them; sent with each question). */
     val fields: dev.jeromeswannack.chineselearning.lab.data.claude.ContextFields? = null,
+    /** The chat's own "Share with my tutor" choice (null = the account's) and the account's "Your tutor can see". */
+    val tutorVisible: Boolean? = null,
+    val shareSetting: String = TutorVisibility.DEFAULT,
+    /** ⋯ → Share with my tutor / Hide from my tutor is offered (a learner's own chat, on the server). */
+    val canShare: Boolean = false,
+    val sharing: Boolean = false,
+    /** The tutor's read-only view of her student's chat: his name (null = a learner's own chat). */
+    val tutorView: TutorThreadView? = null,
 ) {
+    /** The tutor can read this chat (the learner's view: the quiet "👁 … can read this chat" line). */
+    val sharedWithTutor: Boolean get() = TutorVisibility.tutorCanSee(context.kind, tutorVisible, shareSetting)
     val core: ClaudeChats.Context get() = context.core().let { c -> fields?.let { withFields(c, it) } ?: c }
     /** An old practice chat copied in from the tutor-chat tables is read-only; a new role-play is not. */
-    val readOnly: Boolean get() = threadReadOnly || (context.kind == ClaudeChats.PRACTICE && context.conversation_id != null)
+    val readOnly: Boolean get() = tutorView != null || threadReadOnly || (context.kind == ClaudeChats.PRACTICE && context.conversation_id != null)
     val replyPending: Boolean get() = messages.any { it.role == "assistant" && it.status == "pending" && it.content_type != CoachMistakeLesson.CONTENT_TYPE }
     val busy: Boolean get() = sending != null || replyPending
     val started: Boolean get() = messages.isNotEmpty() || sending != null
@@ -164,6 +175,9 @@ data class ClaudeThreadUi(
         CoachAction.of(messages.firstOrNull { it.role == "user" }?.intent?.takeIf { it != "ask" }) ?: CoachActions.conversationAction(null, null)
 }
 
+/** The tutor reading one of her student's chats with Claude (`/connections/{relId}/claude/{id}`). */
+data class TutorThreadView(val relId: String, val studentName: String?)
+
 class ClaudeThreadActions(
     val onBack: () -> Unit = {},
     /** The sheet variant's ✕. */
@@ -185,6 +199,8 @@ class ClaudeThreadActions(
     val cards: SentenceActions = SentenceActions(),
     /** "Open in Coach" from a bubble (menu | chip | sheet): my Chinese checked there, Claude's explained. */
     val onOpenCoach: ((ClaudeChatMsg, String) -> Unit)? = null,
+    /** ⋯ → Share with my tutor / Hide from my tutor. */
+    val onShare: () -> Unit = {},
 )
 
 object ClaudeThreadTags {
@@ -207,6 +223,8 @@ object ClaudeThreadTags {
     const val RECAP = "claude-thread-recap"
     const val CLOSED = "claude-thread-closed"
     const val ROLES = "claude-thread-roles"
+    const val SHARE = "claude-thread-share"
+    const val SHARED = "claude-thread-shared"
     fun chip(id: String) = "claude-thread-chip-$id"
     fun intent(id: String) = "claude-composer-$id"
 }
@@ -298,13 +316,23 @@ fun ClaudeThreadScreen(
     LabScreenFrame(Modifier.testTag(ClaudeThreadTags.SCREEN)) {
         Column(Modifier.fillMaxSize()) {
             ScreenTitle("${if (general) CoachAsk.ICON + " " else ""}$title", onBack = if (sheet) null else actions.onBack) {
-                ListenToggle(ui.listening, actions.onListening)
-                Spacer(Modifier.width(4.dp))
-                LanguageToggle(ui.language, actions.onLanguage)
-                HeaderButton("⋯", enabled = ui.threadId != null, tag = ClaudeThreadTags.MORE) { menu = true }
+                if (ui.tutorView == null) {
+                    ListenToggle(ui.listening, actions.onListening)
+                    Spacer(Modifier.width(4.dp))
+                    LanguageToggle(ui.language, actions.onLanguage)
+                    HeaderButton("⋯", enabled = ui.threadId != null, tag = ClaudeThreadTags.MORE) { menu = true }
+                }
                 if (sheet) HeaderButton("✕", enabled = true, tag = ClaudeThreadTags.CLOSE, onClick = actions.onClose)
             }
-            chip?.let { c -> ContextChip(c, actions.onContext) }
+            // The tutor: only the card chip leads somewhere (her view of the student's card).
+            chip?.let { c -> if (ui.tutorView != null && c.link?.kind != ClaudeChats.CARD) ContextChip(c.copy(link = null), actions.onContext) else ContextChip(c, actions.onContext) }
+            if (ui.canShare && ui.sharedWithTutor) {
+                Text(
+                    TutorVisibility.sharedLine(ui.context.kind, ui.tutorVisible, ui.shareSetting),
+                    color = Lab.colors.muted, fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag(ClaudeThreadTags.SHARED),
+                )
+            }
             if (ui.context.kind == ClaudeChats.PRACTICE) PracticeRoles(ui.context.ai_role, ui.context.user_role)
             headerExtra?.invoke()
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -316,7 +344,7 @@ fun ClaudeThreadScreen(
                 }
                 if (ui.readOnly && ui.hasThread) item("read-only") {
                     Text(
-                        ClaudeChats.PRACTICE_READ_ONLY_NOTE,
+                        ui.tutorView?.let { TutorVisibility.tutorReadOnlyLine(it.studentName) } ?: ClaudeChats.PRACTICE_READ_ONLY_NOTE,
                         color = Lab.colors.muted, fontSize = 14.sp,
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint)
                             .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(12.dp)).padding(12.dp).testTag(ClaudeThreadTags.READ_ONLY),
@@ -453,6 +481,12 @@ fun ClaudeThreadScreen(
                 MenuRow("🃏 Make flashcards from this chat", enabled = hasClaude && ui.online, tag = ClaudeThreadTags.MAKE_CARDS) {
                     menu = false
                     actions.onMakeCards()
+                }
+                if (ui.canShare) {
+                    MenuRow(TutorVisibility.shareMenuLabel(ui.context.kind, ui.tutorVisible, ui.shareSetting), enabled = ui.online && !ui.sharing, tag = ClaudeThreadTags.SHARE) {
+                        menu = false
+                        actions.onShare()
+                    }
                 }
                 if (ui.recapCount > 0 && ui.threadId != null) {
                     MenuRow(CoachAsk.recapCountLabel(ui.recapCount), enabled = true, tag = ClaudeThreadTags.RECAP) {

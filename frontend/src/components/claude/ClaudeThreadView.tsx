@@ -19,6 +19,11 @@
  * - The card sheet's hooks: `typed` rides with each card question, `onReplyFinished` hears a reply this
  *   screen saw being written finish (Claude's card tools reach the device there), `renderToolResults`
  *   draws its tool results, `autoSend` with a `key` asks into the thread on screen (the leech sheet).
+ * - ⋯ → 👁 Share with my tutor / 🙈 Hide from my tutor (shared/claude/visibility.ts), and the quiet
+ *   "👁 Minghui can read this chat" under the header while she can.
+ * - `tutorView`: the tutor's READ-ONLY view of one of her student's chats (the student page's "Asked
+ *   Claude", `/connections/:relId/claude/:id` — pages/tutor/StudentClaudeThreadPage.tsx): the thread
+ *   she was given, no composer, chips, 🎧 / 中文 | EN or ⋯; the card chip opens her card hub view.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -27,6 +32,9 @@ import { revealedWhenListeningOn } from '@shared/study/askClaude';
 import { coachDeepLink, openInCoachRequest } from '@shared/chats/autoCheck';
 import { chipsFor, composerFor, headerChipFor, turnStatusLine, type ClaudeChip } from '@shared/claude/contexts';
 import type { ClaudeContextSnapshot, ClaudeIntent, ClaudeThreadContext, StoredClaudeContext } from '@shared/claude/context';
+import type { TutorClaudeMessage, TutorClaudeThread } from '@shared/claude/api';
+import { nextTutorVisible, parseTutorVisibility, sharedLine, shareMenuLabel, tutorCanSee, tutorReadOnlyLine } from '@shared/claude/visibility';
+import { useOptionalAuth } from '../../contexts/AuthContext';
 import { PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
 import {
   coachMistakeLessonOffered,
@@ -53,9 +61,11 @@ import {
   retryClaudeReply,
   sendClaudeMessage,
   setLocalTranslation,
+  setThreadTutorVisible,
   startClaudeThread,
   wireClaudeOutbox,
   type LocalClaudeMessage,
+  type LocalClaudeThread,
 } from '../../services/claudeThreads';
 import { track, trackError } from '../../services/analytics';
 import '../claudeChat/claude-chat.css';
@@ -100,6 +110,52 @@ export interface ClaudeThreadViewProps {
   source?: string;
   /** A card thread: the card has an example sentence (the "Explain sentence" chip). */
   hasSentence?: boolean;
+  /** The tutor's read-only view of her student's chat (the server's trimmed copy). */
+  tutorView?: { relId: string; studentName: string | null; thread: TutorClaudeThread; messages: TutorClaudeMessage[] } | null;
+}
+
+/** The tutor's copy of a student's chat as the screen's thread + messages (read-only). */
+function tutorRows(t: NonNullable<ClaudeThreadViewProps['tutorView']>): { thread: LocalClaudeThread; messages: LocalClaudeMessage[] } {
+  return {
+    thread: {
+      id: t.thread.id,
+      client_id: null,
+      title: t.thread.title,
+      context_kind: t.thread.context_kind,
+      context: t.thread.context,
+      badge: t.thread.badge,
+      first_intent: null,
+      preview: t.thread.preview,
+      last_message_at: t.thread.last_message_at,
+      created_at: t.thread.created_at,
+      unread: 0,
+      pending: false,
+      failed: false,
+      read_only: true,
+      archived: false,
+      tutor_visible: t.thread.shared ? true : null,
+      language: null,
+      source: null,
+    },
+    messages: t.messages.map((m) => ({
+      id: m.id,
+      thread_id: t.thread.id,
+      client_id: null,
+      role: m.role,
+      content_type: m.content_type,
+      content: m.content,
+      intent: null,
+      status: null,
+      streaming: false,
+      error: null,
+      answer_lang: m.answer_lang,
+      translation: m.translation,
+      tool_results: m.tool_results,
+      auto_check: null,
+      created_at: m.created_at,
+      updated_at: null,
+    })),
+  };
 }
 
 /** A cached message → the thread component's message. */
@@ -133,10 +189,14 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const { isOnline } = useNetwork();
   const [language, setLanguage] = useAskLanguage();
   const [listening, setListening] = useAskListening();
-  const isNew = routeId === 'new';
-  const state = useClaudeThread(isNew ? null : routeId);
-  const { thread, messages: rows } = state;
-  const threadId = isNew ? null : state.threadId ?? routeId;
+  const tutor = props.tutorView ?? null;
+  const auth = useOptionalAuth();
+  const isNew = routeId === 'new' && !tutor;
+  const state = useClaudeThread(isNew || tutor ? null : routeId);
+  const tutorData = useMemo(() => (tutor ? tutorRows(tutor) : null), [tutor]);
+  const thread = tutorData ? tutorData.thread : state.thread;
+  const rows = tutorData ? tutorData.messages : state.messages;
+  const threadId = tutor ? tutor.thread.id : isNew ? null : state.threadId ?? routeId;
   const ctx: StoredClaudeContext = thread?.context ?? newContext ?? { kind: 'general' };
   const [draft, setDraft] = useState(props.initialDraft ?? '');
   const [sending, setSending] = useState<{ text: string } | null>(null);
@@ -166,8 +226,9 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     const key = threadId ?? (isNew ? 'new' : null);
     if (!key || opened.current === key || (!isNew && !thread)) return;
     opened.current = key;
-    track('claude.thread_open', { context_kind: ctx.kind, source, resumed: !isNew });
-  }, [threadId, isNew, thread, ctx.kind, source]);
+    if (tutor) track('tutor.claude_thread_open', { context_kind: ctx.kind, source });
+    else track('claude.thread_open', { context_kind: ctx.kind, source, resumed: !isNew });
+  }, [threadId, isNew, thread, ctx.kind, source, tutor]);
 
   const messages = useMemo(() => rows.map(toChatMessage), [rows]);
   const replies = rows.filter((m) => m.role === 'assistant' && !m.status).length;
@@ -175,7 +236,29 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const replyPending = rows.some((m) => m.role === 'assistant' && m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE);
   const busy = !!sending || replyPending;
   // An old practice chat copied in from the tutor-chat tables is read-only; a new role-play is not.
-  const readOnly = !!thread?.read_only || (ctx.kind === 'practice' && !!ctx.conversation_id);
+  const readOnly = !!tutor || !!thread?.read_only || (ctx.kind === 'practice' && !!ctx.conversation_id);
+  // ⋯ → Share with my tutor / Hide from my tutor: a learner's own chat once it is on the server.
+  const visibility = parseTutorVisibility(auth?.user?.claude_tutor_visibility);
+  const canShare = !tutor && !!thread && !thread.local && auth?.user?.role !== 'tutor' && !!auth?.user;
+  const shareState = { context_kind: ctx.kind, tutor_visible: thread?.tutor_visible ?? null };
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const toggleShare = async () => {
+    if (!threadId || !canShare || shareBusy) return;
+    setMenuOpen(false);
+    setShareBusy(true);
+    setShareError(null);
+    const next = nextTutorVisible(shareState, visibility);
+    try {
+      await setThreadTutorVisible(threadId, next);
+      track('claude.share_with_tutor', { on: tutorCanSee({ ...shareState, tutor_visible: next }, visibility), scope: 'thread', context_kind: ctx.kind });
+    } catch (err) {
+      setShareError(isOnline ? "Couldn't change that — try again." : 'Sharing needs a connection.');
+      trackError('claude_thread_share', err);
+    } finally {
+      setShareBusy(false);
+    }
+  };
   // A role-play's lines are read in the persona's voice (the server keeps it on the thread).
   const voice = useMemo(() => (ctx.kind === 'practice' ? { voice: practiceVoiceFor(ctx), speed: PRACTICE_VOICE_SPEED } : undefined), [ctx]);
   const chip = headerChipFor(ctx);
@@ -355,6 +438,11 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const openContext = async () => {
     const link = chip?.link;
     if (!link) return;
+    if (tutor) {
+      // The tutor: her view of the student's card; the rest are the student's own places.
+      if (link.kind === 'card') navigate(`/connections/${encodeURIComponent(tutor.relId)}/cards/${encodeURIComponent(link.note_id)}`);
+      return;
+    }
     if (link.kind === 'card') {
       navigate(`/cards/${encodeURIComponent(link.note_id)}`);
       return;
@@ -426,6 +514,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           {ctx.kind === 'general' ? `${COACH_ASK_ICON} ` : ''}
           {title}
         </div>
+        {!tutor && (<>
         <button
           type="button"
           className={`ask-listen-toggle${listening ? ' on' : ''}`}
@@ -448,6 +537,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         <button type="button" className="claude-chat-more" onClick={() => setMenuOpen(true)} aria-label="More" data-testid="claude-thread-more" disabled={!threadId}>
           ⋯
         </button>
+        </>)}
         {sheet && (
           <button type="button" className="claude-chat-more" onClick={props.onClose} aria-label="Close" data-testid="claude-thread-close">
             ✕
@@ -456,7 +546,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       </header>
       {chip && (
         <div className="claude-thread-context">
-          {chip.link ? (
+          {chip.link && (!tutor || chip.link.kind === 'card') ? (
             <button type="button" className="claude-thread-chip" onClick={() => void openContext()} data-testid="claude-thread-context-chip">
               <span aria-hidden="true">{chip.icon}</span> {chip.text}
             </button>
@@ -473,6 +563,16 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           {ctx.ai_role && <span>✦ Claude plays {ctx.ai_role}</span>}
           {ctx.ai_role && ctx.user_role && ' · '}
           {ctx.user_role && <span>You: {ctx.user_role}</span>}
+        </p>
+      )}
+      {canShare && tutorCanSee(shareState, visibility) && (
+        <p className="claude-thread-shared" data-testid="claude-thread-shared">
+          {sharedLine(shareState, visibility)}
+        </p>
+      )}
+      {shareError && (
+        <p className="claude-thread-shared" role="alert">
+          {shareError}
         </p>
       )}
       {props.headerExtra}
@@ -516,7 +616,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         {!isOnline && thread && <p className="claude-thread-offline" data-testid="claude-thread-offline">You're offline — this is the copy on this device. New messages send when you're back.</p>}
         {readOnly && thread && (
           <div className="claude-thread-readonly" data-testid="claude-thread-readonly">
-            {composerFor(ctx.kind, '', { started: true, readOnly: true }).hint}
+            {tutor ? tutorReadOnlyLine(tutor.studentName) : composerFor(ctx.kind, '', { started: true, readOnly: true }).hint}
           </div>
         )}
         <ClaudeChatThread
@@ -524,7 +624,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           messages={messages}
           listening={listening}
           thinkingLabel={language === 'zh' ? COACH_ASK_THINKING_ZH : COACH_ASK_THINKING_EN}
-          onTranslate={translate}
+          onTranslate={tutor ? async (m) => m.translation ?? null : translate}
           onRetry={(m) => void retry(m)}
           retryingId={retryingId}
           pendingText={sending && !rows.some((r) => r.role === 'user' && r.content === sending.text && r.queued) ? sending.text : null}
@@ -532,11 +632,15 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           renderAfter={renderAfter}
           statusLineFor={statusLineFor}
           onDiscardQueued={(m) => void discardQueuedMessage(m.id)}
-          onOpenInCoach={openInCoach}
-          onDraft={(text) => {
-            setDraft(text);
-            setTypeRequest((n) => n + 1);
-          }}
+          onOpenInCoach={tutor ? undefined : openInCoach}
+          onDraft={
+            tutor
+              ? undefined
+              : (text) => {
+                  setDraft(text);
+                  setTypeRequest((n) => n + 1);
+                }
+          }
           language={language}
           online={isOnline}
           explorerSource={ctx.kind === 'card' ? 'ask_claude' : ctx.kind === 'reader' ? 'reader' : ctx.kind === 'exercise' ? 'lesson' : undefined}
@@ -618,6 +722,11 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             >
               🃏 Make flashcards from this chat
             </button>
+            {canShare && (
+              <button type="button" role="menuitem" disabled={shareBusy || !isOnline} onClick={() => void toggleShare()} data-testid="claude-thread-share">
+                {shareMenuLabel(shareState, visibility)}
+              </button>
+            )}
             {recapCount > 0 && threadId && (
               <button
                 type="button"

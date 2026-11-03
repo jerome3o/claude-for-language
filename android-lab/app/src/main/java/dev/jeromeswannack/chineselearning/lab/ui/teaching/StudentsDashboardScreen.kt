@@ -155,6 +155,7 @@ fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant =
             }
             Text("›", color = Lab.colors.muted, fontSize = 22.sp)
         }
+        if (!o.is_new) AskedClaudeTodayLine(relId, o.claude_today, actions.open, Modifier.padding(start = 52.dp))
         // Straight to the student's Homework section (web StudentCard → /connections/:relId#homework).
         recent?.let { item -> RecentHomeworkLine(item, today) { actions.open(Routes.connection(relId, Routes.SECTION_HOMEWORK)) } }
         if (o.is_new) {

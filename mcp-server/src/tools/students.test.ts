@@ -451,6 +451,7 @@ const EXPECTED_TOOLS = [
   'list_card_flags',
   'reply_to_card_flag',
   'list_student_claude_chats',
+  'get_student_claude_thread',
   'submit_session_notes',
   'get_session_notes_job',
   'list_session_notes_jobs',
@@ -847,6 +848,22 @@ describe('registerStudentTools', () => {
     expect(out).toEqual({ conversation_id: 'conv-1', total: 0, messages: [] });
   });
 
+  it('the chat tools leave out practice chats with Claude that moved into the Claude threads', async () => {
+    const { tools, calls } = fakeContext({
+      'GET /api/relationships/rel-ai/conversations': [],
+      'GET /api/conversations/conv-ai/messages': () => {
+        throw new ApiError(404, 'This practice chat with Claude is now a Claude chat (thread)', null);
+      },
+    });
+    await tools.get('list_conversations')!.handler({ relationship_id: 'rel-ai' });
+    const r = await tools.get('get_conversation_messages')!.handler({ conversation_id: 'conv-ai' });
+    expect(calls.map((c) => [c.path, c.query])).toEqual([
+      ['/api/relationships/rel-ai/conversations', { exclude_ai: '1' }],
+      ['/api/conversations/conv-ai/messages', { exclude_ai: '1' }],
+    ]);
+    expect(r.isError).toBe(true);
+  });
+
   it('mark_recording PUTs the status and comment; clear_recording_mark DELETEs', async () => {
     const { tools, calls } = fakeContext({
       'PUT /api/relationships/rel-1/recordings/ev-1/mark': { mark: { review_event_id: 'ev-1', status: 'needs_work', comment: 'tone', updated_at: 'now' } },
@@ -1001,25 +1018,66 @@ describe('card flags & Ask-Claude history tools', () => {
     expect(out).toMatchObject({ flag_id: 'flag-1', status: 'resolved', reply: '银 is metal' });
   });
 
-  it('list_student_claude_chats groups questions into per-card conversations and trims answers', async () => {
-    const q = (id: string, note_id: string, asked_at: string, question: string) => ({
-      id, note_id, question, answer: 'A'.repeat(600), asked_at, hanzi: '银行', pinyin: 'yínháng', english: 'bank', deck_id: 'd1', deck_name: 'HSK 1',
+  it('list_student_claude_chats lists the chats the student lets the tutor read, with badges, Q&A and trimmed answers', async () => {
+    const thread = (id: string, context: Record<string, unknown>, badge: { icon: string; text: string }, shared = false) => ({
+      id, title: '?', context_kind: context.kind, context, badge, preview: null, last_message_at: '2026-11-02T10:05:00.000Z', created_at: '2026-11-02T10:00:00Z', message_count: 2, shared,
     });
+    const msg = (id: string, role: 'user' | 'assistant', content: string) => ({ id, role, content_type: 'text', content, answer_lang: 'zh', translation: null, tool_results: null, created_at: '2026-11-02T10:00:00Z' });
     const { tools, calls } = fakeContext({
-      'GET /api/relationships/rel-1/claude-chats': {
-        questions: [q('b', 'n1', '2026-09-25T10:05:00Z', 'second'), q('a', 'n1', '2026-09-25T10:00:00Z', 'first'), q('c', 'n2', '2026-09-24T10:00:00Z', 'other')],
+      'GET /api/relationships/rel-1/claude-threads': {
+        threads: [
+          thread('nq-q1', { kind: 'card', note_id: 'n1', label: '银行', sublabel: 'HSK 2' }, { icon: '📇', text: 'Asked on card · 银行' }),
+          thread('th-p', { kind: 'practice', scenario: '在饭店点菜' }, { icon: '🎭', text: 'Practice · 在饭店点菜' }, true),
+        ],
+        visibility: 'card_only',
+        total: 2,
         next_cursor: null,
-        total: 3,
       },
+      'GET /api/relationships/rel-1/claude-threads/nq-q1': { thread: {}, messages: [msg('a', 'user', '行怎么读？'), msg('b', 'assistant', 'A'.repeat(600)), msg('c', 'user', '为什么？'), msg('d', 'assistant', '因为…')] },
+      'GET /api/relationships/rel-1/claude-threads/th-p': { thread: {}, messages: [msg('e', 'assistant', '欢迎光临！'), msg('f', 'user', '我要一碗米饭。'), msg('g', 'assistant', '好的。')] },
     });
     const out = parse(await tools.get('list_student_claude_chats')!.handler({ relationship_id: 'rel-1', answer_chars: 100 }));
-    expect(calls[0].query).toEqual({ limit: '60' });
-    expect(out.total_questions).toBe(3);
-    const convs = out.conversations as Array<{ word: { note_id: string }; questions: Array<{ question: string; answer: string }>; card_path: string }>;
-    expect(convs.map((c) => c.word.note_id)).toEqual(['n1', 'n2']);
-    expect(convs[0].questions.map((x) => x.question)).toEqual(['first', 'second']);
-    expect(convs[0].questions[0].answer.length).toBeLessThanOrEqual(101);
+    expect(calls[0].query).toEqual({ limit: '20' });
+    expect(out).toMatchObject({ visibility: 'card_only', total_conversations: 2, total_questions: 3 });
+    expect(typeof out.visibility_note).toBe('string');
+    const convs = out.conversations as Array<Record<string, unknown> & { questions: Array<{ question: string | null; answer: string }> }>;
+    expect(convs.map((c) => [c.thread_id, c.context_kind, c.badge, c.shared_by_student])).toEqual([
+      ['nq-q1', 'card', '📇 Asked on card · 银行', false],
+      ['th-p', 'practice', '🎭 Practice · 在饭店点菜', true],
+    ]);
+    // Backwards-compatible card fields.
+    expect(convs[0].word).toEqual({ note_id: 'n1', hanzi: '银行', deck: 'HSK 2' });
     expect(convs[0].card_path).toBe('/connections/rel-1/cards/n1');
+    expect(convs[0].questions.map((q) => q.question)).toEqual(['行怎么读？', '为什么？']);
+    expect(convs[0].questions[0].answer.length).toBeLessThanOrEqual(101);
+    // A role-play: Claude's opener has no question.
+    expect(convs[1].questions).toEqual([
+      { asked_at: '2026-11-02T10:00:00Z', question: null, answer: '欢迎光临！' },
+      { asked_at: '2026-11-02T10:00:00Z', question: '我要一碗米饭。', answer: '好的。' },
+    ]);
+    expect(convs[1].word).toBeUndefined();
+  });
+
+  it('get_student_claude_thread returns one chat read-only; a private one is not found', async () => {
+    const { tools } = fakeContext({
+      'GET /api/relationships/rel-1/claude-threads/th-p': {
+        thread: { id: 'th-p', title: '点菜', context_kind: 'practice', context: { kind: 'practice' }, badge: { icon: '🎭', text: 'Practice' }, preview: null, last_message_at: null, created_at: 'x', message_count: 2, shared: true },
+        messages: [
+          { id: 'e', role: 'assistant', content_type: 'text', content: '欢迎光临！', answer_lang: 'zh', translation: 'Welcome!', tool_results: null, created_at: 't1' },
+          { id: 'f', role: 'user', content_type: 'text', content: '我要一碗米饭。', answer_lang: null, translation: null, tool_results: null, created_at: 't2' },
+        ],
+      },
+      'GET /api/relationships/rel-1/claude-threads/private': () => {
+        throw new ApiError(404, 'Chat not found', null);
+      },
+    });
+    const out = parse(await tools.get('get_student_claude_thread')!.handler({ relationship_id: 'rel-1', thread_id: 'th-p' }));
+    expect(out).toMatchObject({ thread_id: 'th-p', badge: '🎭 Practice', shared_by_student: true });
+    expect(out.messages).toEqual([
+      { from: 'claude', at: 't1', text: '欢迎光临！', translation: 'Welcome!' },
+      { from: 'student', at: 't2', text: '我要一碗米饭。' },
+    ]);
+    expect((await tools.get('get_student_claude_thread')!.handler({ relationship_id: 'rel-1', thread_id: 'private' })).isError).toBe(true);
   });
 
   it('submit_session_notes posts the notes verbatim and returns the job compactly', async () => {

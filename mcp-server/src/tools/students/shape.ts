@@ -5,13 +5,12 @@ import type { RecordingQueueItem } from '../../../../shared/recordings/queue';
  * everything here is unit-tested in ../students.test.ts.
  */
 import { unsentJobItems } from '../../../../shared/homework/send';
-import { groupQuestionThreads } from '../../../../shared/chats/threads';
+import type { TutorClaudeMessage, TutorClaudeThread, TutorClaudeThreadResponse } from '../../../../shared/claude/api';
 import type { StudentProfileFields } from '../../../../shared/students/profile';
 import type { StudyBudgetInfo } from '../../../../shared/decks/tutor-budget';
 import type {
   CardFlagRow,
   SessionNotesJobRow,
-  ClaudeChatQuestionRow,
   CardType,
   ConversationRow,
   DashboardInvite,
@@ -411,18 +410,72 @@ function trimText(text: string, chars: number): string {
   return text.length > chars ? `${text.slice(0, chars).trimEnd()}…` : text;
 }
 
-/** Group Q&A rows into per-card conversations, newest first, answers trimmed. */
-export function compactClaudeThreads(rows: ClaudeChatQuestionRow[], answerChars: number, relationshipId: string) {
-  return groupQuestionThreads(rows).map((t) => {
-    const first = t.questions[0];
-    return {
-      word: { note_id: t.note_id, hanzi: first.hanzi, pinyin: first.pinyin, english: first.english, deck: first.deck_name },
-      started_at: t.started_at,
-      last_at: t.last_at,
-      questions: t.questions.map((q) => ({ asked_at: q.asked_at, question: q.question, answer: trimText(q.answer, answerChars) })),
-      card_path: cardPagePath(relationshipId, t.note_id),
-    };
-  });
+/** What the student lets the tutor read, in one line (list_student_claude_chats). */
+export function tutorVisibilityNote(visibility: 'card_only' | 'all' | 'none'): string {
+  switch (visibility) {
+    case 'all':
+      return 'The student shares all their chats with Claude (except any they hid one by one).';
+    case 'none':
+      return 'The student keeps their chats with Claude private; only chats they shared one by one are listed.';
+    default:
+      return 'The student shares the questions they ask Claude on a study card (the default); other chats only when they shared them one by one.';
+  }
+}
+
+/** A conversation's Q&A: each student message with Claude's next reply; Claude's opener has question null. */
+function claudeQuestions(messages: TutorClaudeMessage[], chars: number) {
+  const out: Array<{ asked_at: string; question: string | null; answer: string }> = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'user') {
+      const next = messages[i + 1];
+      const answer = next && next.role === 'assistant' ? next.content : '';
+      if (next && next.role === 'assistant') i++;
+      out.push({ asked_at: m.created_at, question: m.content, answer: trimText(answer, chars) });
+    } else {
+      out.push({ asked_at: m.created_at, question: null, answer: trimText(m.content, chars) });
+    }
+  }
+  return out;
+}
+
+/** One visible Claude chat for list_student_claude_chats (the old per-card fields kept for card chats). */
+export function compactTutorClaudeThread(t: TutorClaudeThread, messages: TutorClaudeMessage[], answerChars: number, relationshipId: string) {
+  const ctx = t.context as { kind: string; note_id?: string; label?: string; sublabel?: string };
+  return {
+    thread_id: t.id,
+    context_kind: t.context_kind,
+    badge: t.badge ? `${t.badge.icon} ${t.badge.text}` : null,
+    title: t.title,
+    ...(ctx.kind === 'card' && ctx.note_id ? { word: { note_id: ctx.note_id, hanzi: ctx.label ?? null, deck: ctx.sublabel ?? null } } : {}),
+    shared_by_student: t.shared,
+    started_at: t.created_at,
+    last_at: t.last_message_at,
+    questions: claudeQuestions(messages, answerChars),
+    ...(ctx.kind === 'card' && ctx.note_id ? { card_path: cardPagePath(relationshipId, ctx.note_id) } : {}),
+  };
+}
+
+/** get_student_claude_thread: the whole chat, read-only. */
+export function compactTutorClaudeThreadFull(r: TutorClaudeThreadResponse, chars: number, relationshipId: string) {
+  const ctx = r.thread.context as { kind: string; note_id?: string };
+  return {
+    thread_id: r.thread.id,
+    context_kind: r.thread.context_kind,
+    badge: r.thread.badge ? `${r.thread.badge.icon} ${r.thread.badge.text}` : null,
+    title: r.thread.title,
+    shared_by_student: r.thread.shared,
+    started_at: r.thread.created_at,
+    last_at: r.thread.last_message_at,
+    ...(ctx.kind === 'card' && ctx.note_id ? { card_path: cardPagePath(relationshipId, ctx.note_id) } : {}),
+    messages: r.messages.map((m) => ({
+      from: m.role === 'user' ? 'student' : 'claude',
+      at: m.created_at,
+      ...(m.content_type === 'analysis' ? { kind: 'analysis' } : {}),
+      text: trimText(m.content, chars),
+      ...(m.translation ? { translation: trimText(m.translation, chars) } : {}),
+    })),
+  };
 }
 
 // ---------- Session notes jobs ----------

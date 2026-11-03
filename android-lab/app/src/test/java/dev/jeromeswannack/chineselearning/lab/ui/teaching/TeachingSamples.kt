@@ -4,8 +4,12 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ActivityDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeBadgeDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeMessageDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadDetailDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckSummaryDto
@@ -165,13 +169,41 @@ object TeachingSamples {
         open = 1,
     )
 
-    val claude = ClaudeChatsDto(
+    /** Jerome's chats with Claude Minghui may read: a card question (the default) and a role-play he shared. */
+    val claude = TutorClaudeThreadsDto(
         listOf(
-            ClaudeQuestionDto("q1", "n3", "What's the difference between 换乘 and 转车?", "Both mean changing trains. 换乘 is the word on signs in the metro (换乘站 = interchange station); 转车 is more everyday speech.", "2026-09-26T20:41:00Z", "换乘", "huànchéng", "to change (trains)", "第四周作业：交通"),
-            ClaudeQuestionDto("q2", "n3", "Can I say 我要换乘二号线?", "Yes — 我要换乘二号线 is natural: “I need to change to Line 2.”", "2026-09-26T20:44:00Z", "换乘", "huànchéng", "to change (trains)", "第四周作业：交通"),
-            ClaudeQuestionDto("q3", "n1", "Is 打算 more formal than 想?", "打算 is a plan you've thought through; 想 is just wanting. Neither is formal.", "2026-09-24T08:00:00Z", "打算", "dǎsuàn", "to plan; to intend", "HSK 3 · Plans & time"),
+            TutorClaudeThreadDto(
+                "nq-q1", "换乘和转车有什么不一样？", "card",
+                ClaudeContextDto("card", note_id = "n3", label = "换乘", sublabel = "第四周作业：交通"),
+                TutorClaudeBadgeDto("📇", "Asked on card · 换乘"),
+                "两个都是换车。换乘站是地铁里的说法，转车更口语。", "2026-09-26T20:44:00Z", "2026-09-26T20:41:00Z", 4,
+            ),
+            TutorClaudeThreadDto(
+                "th-p", "两位，谢谢。", "practice",
+                ClaudeContextDto("practice", scenario = "在饭店点菜", ai_role = "服务员"),
+                TutorClaudeBadgeDto("🎭", "Practice · 在饭店点菜"),
+                "好的，这边请。这是菜单。", "2026-09-26T19:10:00Z", "2026-09-26T19:00:00Z", 6, shared = true,
+            ),
+            TutorClaudeThreadDto(
+                "nq-q3", "打算比想正式吗？", "card",
+                ClaudeContextDto("card", note_id = "n1", label = "打算", sublabel = "HSK 3 · Plans & time"),
+                TutorClaudeBadgeDto("📇", "Asked on card · 打算"),
+                "打算是想好了的计划；想只是想要。都不正式。", "2026-09-24T08:01:00Z", "2026-09-24T08:00:00Z", 2,
+            ),
         ),
+        visibility = "card_only",
         total = 3,
+    )
+
+    /** One of them, read-only (the tutor opened it). */
+    val claudeThread = TutorClaudeThreadDetailDto(
+        claude.threads[0],
+        listOf(
+            TutorClaudeMessageDto("m1", "user", content = "换乘和转车有什么不一样？", created_at = "2026-09-26T20:41:00Z"),
+            TutorClaudeMessageDto("m2", "assistant", content = "两个都是换车。\n「换乘」是地铁里的说法：换乘站。\n「转车」更口语，坐公共汽车也常说。", answer_lang = "zh", created_at = "2026-09-26T20:41:05Z"),
+            TutorClaudeMessageDto("m3", "user", content = "我可以说我要换乘二号线吗？", created_at = "2026-09-26T20:44:00Z"),
+            TutorClaudeMessageDto("m4", "assistant", content = "可以！「我要换乘二号线」很自然。", answer_lang = "zh", created_at = "2026-09-26T20:44:04Z"),
+        ),
     )
 
     val conversations = listOf(

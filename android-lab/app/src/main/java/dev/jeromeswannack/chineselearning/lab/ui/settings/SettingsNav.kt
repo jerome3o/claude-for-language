@@ -65,6 +65,7 @@ fun NavGraphBuilder.settingsGraph(nav: LabNav) {
                     dev.jeromeswannack.chineselearning.lab.ui.homework.HomeworkEmailsSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatListeningSettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.chat.ChatAutoCheckSettings(app)
+                    if (app.prefs.accountRole != "tutor") dev.jeromeswannack.chineselearning.lab.ui.chat.ClaudeTutorVisibilitySettings(app)
                     dev.jeromeswannack.chineselearning.lab.ui.checks.CardCheckSettings(app)
                 }
             },

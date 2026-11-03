@@ -34,7 +34,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.revokeInvite
 import dev.jeromeswannack.chineselearning.lab.data.api.sendInstallHowTo
 import dev.jeromeswannack.chineselearning.lab.data.api.sharedReaders
 import dev.jeromeswannack.chineselearning.lab.data.api.startCall
-import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeChats
+import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.studentLessons
 import dev.jeromeswannack.chineselearning.lab.data.api.createHomeworkLink
 import dev.jeromeswannack.chineselearning.lab.data.api.sendLinkHomework
@@ -71,7 +71,7 @@ object TeachingKeys {
     fun overview(relId: String) = "teaching/overview/$relId"
     fun homework(relId: String) = "teaching/homework/$relId"
     fun flags(relId: String) = "teaching/flags/$relId"
-    fun claude(relId: String) = "teaching/claude/$relId"
+    fun claude(relId: String) = "teaching/claude-threads/$relId"
     /** v2: one chat per pair (migration 0102) — lists cached before it held merged-away chats. */
     fun conversations(relId: String) = "teaching/conversations-v2/$relId"
     fun lessons(relId: String) = "teaching/lessons/$relId"
@@ -267,7 +267,7 @@ class StudentPageViewModel(private val app: LabApp, val relId: String) : ViewMod
     val overview = app.cachedResource(viewModelScope, TeachingKeys.overview(relId), TeachingKeys.KIND) { studentOverview(relId) }
     val homework = app.cachedResource(viewModelScope, TeachingKeys.homework(relId), TeachingKeys.KIND) { relationshipHomework(relId) }
     val flags = app.cachedResource(viewModelScope, TeachingKeys.flags(relId), TeachingKeys.KIND) { cardFlags(relId, "all") }
-    val claude = app.cachedResource(viewModelScope, TeachingKeys.claude(relId), TeachingKeys.KIND, maxAgeMs = 60_000L) { studentClaudeChats(relId, 40) }
+    val claude = app.cachedResource(viewModelScope, TeachingKeys.claude(relId), TeachingKeys.KIND, maxAgeMs = 60_000L) { studentClaudeThreads(relId, 4) }
     val conversations = app.cachedResource(viewModelScope, TeachingKeys.conversations(relId), TeachingKeys.KIND) { conversations(relId) }
     val lessons = app.cachedResource(viewModelScope, TeachingKeys.lessons(relId), TeachingKeys.KIND) { studentLessons(relId) }
     val lessonLog = app.cachedResource(viewModelScope, TeachingKeys.lessonLog(relId), TeachingKeys.KIND) { lessonLog(relId) }

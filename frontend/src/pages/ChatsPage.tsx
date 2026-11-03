@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { askedClaudeTodayLabel } from '@shared/claude/visibility';
+import { getTutorDashboard, DASHBOARD_STALE_MS } from '../api/tutorDashboard';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { apiErrorStatus, getMyRelationships } from '../api/client';
@@ -95,10 +97,12 @@ interface RowProps {
   myId: string;
   now: number;
   onOpen: (item: Item) => void;
+  /** A student's row (the tutor's view): his chats with Claude she may read, written in today. */
+  claudeToday?: number;
 }
 
 /** A chat with a person (a tutor / a student): opens THE chat with them. */
-function PersonRow({ item, myId, now, onOpen }: RowProps) {
+function PersonRow({ item, myId, now, onOpen, claudeToday }: RowProps) {
   const row = item.human!;
   const unread = row.unread > 0;
   // Listening mode: never spoil a hidden message here ("🎧 New message").
@@ -129,6 +133,12 @@ function PersonRow({ item, myId, now, onOpen }: RowProps) {
           </span>
         </span>
       </Link>
+      {item.kind === 'student' && askedClaudeTodayLabel(claudeToday ?? 0) && (
+        // "✦ Asked Claude 3× today" → his chats with Claude she may read (shared/claude/visibility.ts).
+        <Link to={`/connections/${row.relationship_id}/claude-chats`} className="chats-row-claude-today" data-testid="chats-claude-today">
+          {askedClaudeTodayLabel(claudeToday ?? 0)}
+        </Link>
+      )}
     </div>
   );
 }
@@ -307,6 +317,12 @@ export function ChatsPage() {
       .filter((p) => p.other.id !== CLAUDE_AI_USER_ID);
   }, [relationshipsQuery.data, user]);
 
+  // The tutor's Students rows: "✦ Asked Claude 3× today" (the dashboard's numbers, cached 60 s).
+  const dashboardQuery = useQuery({ queryKey: ['tutor-dashboard'], queryFn: getTutorDashboard, staleTime: DASHBOARD_STALE_MS, enabled: teacher && role.hasStudents, retry: false });
+  const claudeTodayByRel = useMemo(
+    () => new Map((dashboardQuery.data?.students ?? []).map((st) => [st.relationship_id, st.claude_today ?? 0] as const)),
+    [dashboardQuery.data],
+  );
   const humans = useMemo(() => rows ?? [], [rows]);
   const allItems = useMemo(() => mergeInbox(humans, threads ?? [], { pinUnreadTutors: !teacher }), [humans, threads, teacher]);
   const chips = useMemo(() => (teacher ? [] : inboxFilters(allItems)), [allItems, teacher]);
@@ -463,7 +479,9 @@ export function ChatsPage() {
           <>
             <h2 className="chats-section-title">{peopleTitle}</h2>
             <div className="chats-list" role="list" aria-label={peopleTitle}>
-              {sections.people.map((item) => <InboxRow key={item.key} item={item} myId={myId} now={now} onOpen={onOpen} />)}
+              {sections.people.map((item) => (
+                <InboxRow key={item.key} item={item} myId={myId} now={now} onOpen={onOpen} claudeToday={item.human ? claudeTodayByRel.get(item.human.relationship_id) : undefined} />
+              ))}
             </div>
           </>
         )}

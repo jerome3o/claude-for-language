@@ -182,6 +182,8 @@ data class StudentOverviewDto(
     val study_budget: StudyBudgetInfoDto? = null,
     /** "Pause new cards on heavy days" today (null = the student's limit is off / an older server). */
     val review_load: ReviewLoadDto? = null,
+    /** His chats with Claude she may read, written in today (his day): "✦ Asked Claude 3× today" (core claude.TutorVisibility). */
+    val claude_today: Int = 0,
 )
 
 /** Today's review load against the student's limit (shared/decks/review-load.ts `ReviewLoadState`). */
@@ -501,6 +503,61 @@ suspend fun Api.studentClaudeChats(relId: String, limit: Int = 40, before: Strin
     }.joinToString("&")
     return get("${rel(relId)}/claude-chats?$q")
 }
+
+/**
+ * The student's chats with Claude his tutor may read (`GET /api/relationships/:relId/claude-threads`,
+ * shared/claude/api.ts `TutorClaudeThread*`; core claude.TutorVisibility): trimmed, read-only.
+ */
+@Serializable
+data class TutorClaudeBadgeDto(val icon: String = "", val text: String = "")
+
+@Serializable
+data class TutorClaudeThreadDto(
+    val id: String,
+    val title: String = "",
+    val context_kind: String = "general",
+    val context: ClaudeContextDto = ClaudeContextDto(),
+    val badge: TutorClaudeBadgeDto? = null,
+    val preview: String? = null,
+    val last_message_at: String? = null,
+    val created_at: String = "",
+    val message_count: Int = 0,
+    /** He shared this one chat himself. */
+    val shared: Boolean = false,
+)
+
+@Serializable
+data class TutorClaudeMessageDto(
+    val id: String,
+    val role: String = "assistant",
+    val content_type: String = "text",
+    val content: String = "",
+    val answer_lang: String? = null,
+    val translation: String? = null,
+    val tool_results: String? = null,
+    val created_at: String = "",
+)
+
+@Serializable
+data class TutorClaudeThreadsDto(
+    val threads: List<TutorClaudeThreadDto> = emptyList(),
+    val visibility: String = "card_only",
+    val total: Int = 0,
+    val next_cursor: String? = null,
+)
+
+@Serializable
+data class TutorClaudeThreadDetailDto(val thread: TutorClaudeThreadDto, val messages: List<TutorClaudeMessageDto> = emptyList())
+
+suspend fun Api.studentClaudeThreads(relId: String, limit: Int = 4, before: String? = null): TutorClaudeThreadsDto {
+    val q = buildList {
+        add("limit=$limit")
+        if (before != null) add("before=${enc(before)}")
+    }.joinToString("&")
+    return get("${rel(relId)}/claude-threads?$q")
+}
+
+suspend fun Api.studentClaudeThread(relId: String, id: String): TutorClaudeThreadDetailDto = get("${rel(relId)}/claude-threads/${enc(id)}")
 
 // ---------------- account, decks, calls (what the tutor screens need of them) ----------------
 

@@ -977,8 +977,9 @@ thread). This part is worker + shared types only; the screens come later.
   `POST /api/admin/claude-threads/backfill`) never duplicates, never brings back a deleted thread. The old tables
   stay as they are. Dual-writes keep both sides complete while old apps exist: `POST /api/notes/:id/ask` appends
   its Q&A to the card's thread (same 30-minute rule), `PUT /api/messages/:id/discussion` adds the new messages to
-  its thread, and a card turn through the new API also writes `note_questions` (so the note history, the card hub,
-  `/api/me/claude-chats`, the tutor's "Asked Claude" and the MCP tools — which read `note_questions` — see it).
+  its thread, and a card turn through the new API also writes `note_questions` (so the note history, the learner's
+  card hub and `/api/me/claude-chats` — which read `note_questions` — see it). The TUTOR's views read the threads
+  (see "What your tutor sees" below).
 - **A reply is never lost** (`claude-agent/thread-turn.ts`): the POST stores my message + a pending reply in one
   batch and answers 202; in the same request a watchdog `{ kind: 'claude_turn', messageId }` goes on
   `coach-reply-queue` (45 s) and the reply starts inline (waitUntil — no queue hop). The runner claims the row with a
@@ -1031,6 +1032,53 @@ thread). This part is worker + shared types only; the screens come later.
     + the ai-usage capture; per learner totals on the memory row. E2E_TEST_MODE: a deterministic stand-in writes
     both (checked first). Privacy: only the learner's own Claude chats — never `student_profiles` (tested); the
     memory row goes with the account (`DELETE_STEPS`).
+
+## What your tutor sees (migration 0146_claude_tutor_visibility.sql)
+
+Privacy first: the tutor reads only the chats with Claude the learner lets her read — never writes in them, never sees
+the rest (not even that they exist). Rules `shared/claude/visibility.ts` (Lab core `claude/TutorVisibility.kt`,
+parity-tested by `parity/fixtures/claude-tutor-visibility.ts`); server `services/claude-agent/tutor-view.ts` (the same
+rule in SQL, `tutorVisibleSql`), routes `routes/claude-tutor-view.ts`.
+
+- **The account's choice** `users.claude_tutor_visibility`: `card_only` (NULL — the default: the questions asked on a
+  study card, what tutors always saw), `all` (every chat — card questions, role-plays, readers, exercises, plain chats),
+  `none`. Learner Settings → Chat → "✦ Your tutor can see your chats with Claude" (web `ChatSettingsSection.tsx`, Lab
+  `ui/chat/ClaudeTutorVisibilitySettings.kt`; not for a tutor account); `PUT /api/profile/claude-tutor-visibility
+  { claude_tutor_visibility: 'card_only' | 'all' | 'none' | null }`, on `/api/auth/me`.
+- **One chat's own choice** `coach_conversations.tutor_visible` (migration 0144): the thread ⋯ → **👁 Share with my
+  tutor** / **🙈 Hide from my tutor** (`PATCH /api/claude/threads/:id { tutor_visible }`; online only). 1 / 0 wins over
+  the account; flipping back to what the account says stores NULL (`nextTutorVisible`), so a later account change
+  applies to it again. While she can read it the thread shows "👁 Your tutor can read this chat" under the header.
+- `tutorCanSee(thread, setting)`: `tutor_visible` true / false wins; else `all` → yes, `none` → no, `card_only` → only
+  `card` threads. Practice and plain chats are private unless shared.
+- **The tutor's API** (the tutor of an ACTIVE relationship only: 403 for the student / anyone else, 404 for a missing or
+  pending relationship): `GET /api/relationships/:relId/claude-threads?limit=&before=&note_id=` →
+  `{ threads: TutorClaudeThread[], visibility, total, next_cursor }` (chats with something said in them, newest
+  activity first; the student's older chats are copied in first, once, so a student on an older app shows his card
+  questions); `GET /api/relationships/:relId/claude-threads/:id` → `{ thread, messages }` — read-only, trimmed
+  (finished text / analysis messages only: no client ids, leases, meta, the check of his own Chinese, unread counts;
+  the context without chat / message ids or the persona's voice). A private, deleted or missing chat is the same 404.
+- **Older apps**: the tutor's `GET /api/relationships/:relId/claude-chats` and her card hub's `questions` are served
+  from the VISIBLE card threads in the old row shape (`tutorCardQuestions`: each question + the reply after it, the old
+  `note_questions` id where it came from there) — a hidden chat never reaches an old build either.
+- **Tutor UI** (web + Lab): the student page's **✦ Asked Claude** (web `components/tutor/ClaudeChatsSection.tsx` +
+  `StudentClaudeThreads.tsx`, Lab `ui/teaching/StudentClaudeThreads.kt`): the four newest visible chats — title, last
+  line, when · N messages, "👁 shared with you" — with the context chip (📇 card → her card hub view of the note; 🎭 practice,
+  📖 reader, 🧩 exercise as labels); All chats → `/connections/:relId/claude-chats`. A row opens the READ-ONLY thread
+  `/connections/:relId/claude/:id` (immersive): the learner's own thread view (web `ClaudeThreadView` `tutorView`, Lab
+  `ClaudeThreadScreen` with `tutorView`) without composer, chips, 🎧 / 中文 | EN or ⋯ and with "Read only · Jerome's chat
+  with Claude — only Jerome can write in it." Empty list: what he shares, never what he keeps (`tutorEmptyText`).
+- **"✦ Asked Claude 3× today"** under the student on the Students dashboard card and the tutor's Chats-tab Students row
+  (→ his shared chats): `claude_today` on the student overview = the visible chats he wrote in since the start of HIS
+  day (`users.time_zone`, else the tutor's offset).
+- **MCP**: `list_student_claude_chats` lists the visible threads (name and `answer_chars` kept; per conversation
+  `thread_id`, `context_kind`, `badge`, `word` + `card_path` for a card, `questions` = his message + Claude's reply —
+  Claude's role-play opener has question null), with `visibility` + a one-line `visibility_note`;
+  `get_student_claude_thread { relationship_id, thread_id, max_chars? }` = one whole chat. `list_conversations` /
+  `get_conversation_messages` pass `?exclude_ai=1`: practice chats already copied into the threads are left out / 404.
+- Never in any of it: the tutor's private student profile (`student_profiles`; tested on every tutor and learner
+  response). Analytics `claude.share_with_tutor { on, scope: thread | account, visibility?, context_kind? }`,
+  `tutor.claude_thread_open { context_kind, source }`.
 
 ## Reader and exercise threads (web + Lab)
 

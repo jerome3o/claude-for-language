@@ -106,6 +106,7 @@ object NavRules {
         Regex("^/phone/[^/]+/?$"),
         Regex("^/coach/chat/[^/]+(/recap)?/?$"),
         Regex("^/chats/claude/[^/]+(/recap)?/?$"),
+        Regex("^/connections/[^/]+/claude/[^/]+/?$"),
         Regex("^/audio-lessons/[^/]+/?$"),
         Regex("^/podcasts/episodes/[^/]+/?$"),
         Regex("^/readers/(?!generate$)[^/]+(/(edit|print|recap))?/?$"),
