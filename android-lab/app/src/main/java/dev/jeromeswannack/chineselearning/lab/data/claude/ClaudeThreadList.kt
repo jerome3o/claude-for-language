@@ -39,8 +39,10 @@ object ClaudeThreadList {
     const val KIND = "claude-thread-list"
     const val LIMIT = 200
 
-    private val edits = Mutex()
-    private val running = Mutex()
+    /** The locks of one cache (one per signed-in app; per instance, so a test's app never waits on another's). */
+    private class Locks(val edits: Mutex = Mutex(), val running: Mutex = Mutex())
+    private val locks = java.util.WeakHashMap<JsonCache, Locks>()
+    private fun locksOf(cache: JsonCache): Locks = synchronized(locks) { locks.getOrPut(cache) { Locks() } }
 
     fun observe(cache: JsonCache): Flow<CachedThreadList?> = cache.observe(KEY, CachedThreadList.serializer())
 
@@ -90,7 +92,7 @@ object ClaudeThreadList {
         local = local,
     )
 
-    private suspend fun edit(cache: JsonCache, transform: (CachedThreadList) -> CachedThreadList?) = edits.withLock {
+    private suspend fun edit(cache: JsonCache, transform: (CachedThreadList) -> CachedThreadList?) = locksOf(cache).edits.withLock {
         val cur = get(cache) ?: CachedThreadList()
         val next = transform(cur) ?: return@withLock
         if (next != cur) cache.put(KEY, KIND, next, CachedThreadList.serializer())
@@ -101,6 +103,7 @@ object ClaudeThreadList {
      * Concurrent calls share one request. Throws on a network / server error (the cached list stays).
      */
     suspend fun sync(api: Api, cache: JsonCache, full: Boolean = false) {
+        val running = locksOf(cache).running
         if (!running.tryLock()) {
             running.withLock { } // one already in flight: its answer is ours
             return
