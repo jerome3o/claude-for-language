@@ -54,6 +54,8 @@ export async function prepareClaudeTurn(env: AgentEnv, ctx: ClaudeContext, input
     deferredAck: (tool) => provider.deferredAck(tool),
     client,
     onRound: opts.onRound,
+    ...(opts.stream ? { stream: opts.stream } : {}),
+    ...(opts.inline !== undefined ? { inline: opts.inline } : {}),
   };
 }
 

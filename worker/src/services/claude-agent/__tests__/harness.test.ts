@@ -126,6 +126,55 @@ describe('Claude agent harness', () => {
       expect(byTool('list_student_decks')).toMatchObject({ is_error: true });
     });
 
+    it('streams when asked (TurnOptions.stream): the whole answer so far across rounds, the read tool named; the same answer as unstreamed', async () => {
+      const script = [toolUse(['search_cards', { query: '银' }]), text('好的。')];
+      let i = 0;
+      const streamed: Params[] = [];
+      // A fake streaming API: each text block arrives as two deltas, the snapshot growing.
+      const stream = vi.fn((p: Params) => {
+        streamed.push(JSON.parse(JSON.stringify(p)));
+        const reply = script[Math.min(i++, script.length - 1)];
+        const listeners: Array<(e: unknown, s: unknown) => void> = [];
+        return {
+          on(ev: string, fn: (e: unknown, s: unknown) => void) {
+            if (ev === 'streamEvent') listeners.push(fn);
+            return this;
+          },
+          async finalMessage() {
+            const snapshot = { ...reply, content: [] as Array<Record<string, unknown>> };
+            for (const block of reply.content as Array<Record<string, unknown>>) {
+              if (block.type !== 'text') {
+                snapshot.content.push(block);
+                continue;
+              }
+              const t = String(block.text);
+              const live = { type: 'text', text: '' };
+              snapshot.content.push(live);
+              for (const part of [t.slice(0, 1), t.slice(1)]) {
+                live.text += part;
+                for (const l of listeners) l({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: part } }, snapshot);
+              }
+            }
+            return reply;
+          },
+        };
+      });
+      const client = { messages: { create: vi.fn(), stream } } as unknown as Pick<Anthropic, 'messages'>;
+      const texts: string[] = [];
+      const tools: string[] = [];
+      const r = await runClaudeTurn(env, CONTEXTS.card.ctx, CONTEXTS.card.input, { client, stream: { onText: (t) => texts.push(t), onTool: (t) => tools.push(t) } });
+      expect(r.answer).toBe('Let me look.\n好的。');
+      expect(texts.at(-1)).toBe(r.answer);
+      expect(texts).toContain('L');
+      expect(texts).toContain('Let me look.\n好');
+      expect(tools).toEqual(['search_cards']);
+      expect(stream).toHaveBeenCalledTimes(2);
+      expect((client.messages.create as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+      // The request is the same as an unstreamed one (cache breakpoints included).
+      expect(breakpoints(streamed[1])).toBeLessThanOrEqual(4);
+      expect(streamed[0].thinking).toEqual({ type: 'disabled' });
+    });
+
     it('get_deck_info reads the current deck with its note and card counts (cards counted through their notes)', async () => {
       const { client } = fakeModel([toolUse(['get_deck_info', {}]), text('好的。')]);
       const r = await runClaudeTurn(env, CONTEXTS.card.ctx, CONTEXTS.card.input, { client });

@@ -109,8 +109,18 @@ export class ChatTurnMeter {
   private cacheRead = 0;
   private cacheWrite = 0;
   private model = SONNET_MODEL;
+  private firstTokenAt: number | null = null;
 
-  constructor(private readonly surface: ChatTurnSurface, private readonly userId?: string | null) {}
+  constructor(
+    private readonly surface: ChatTurnSurface,
+    private readonly userId?: string | null,
+    private readonly opts: { inline?: boolean } = {},
+  ) {}
+
+  /** The first streamed text of the reply (once; a non-streamed reply never calls it). */
+  firstToken(now = Date.now()): void {
+    if (this.firstTokenAt === null) this.firstTokenAt = now;
+  }
 
   /** After each model round. */
   add(response: { model?: string; usage?: Partial<Anthropic.Usage> | null }): void {
@@ -126,10 +136,12 @@ export class ChatTurnMeter {
   }
 
   /** The props `finish` records (exported for tests). */
-  props(now = Date.now()): Record<string, number | string> {
+  props(now = Date.now()): Record<string, number | string | boolean> {
     return {
       surface: this.surface,
       model_tier: modelTier(this.model),
+      ...(this.firstTokenAt !== null ? { first_token_ms: this.firstTokenAt - this.started } : {}),
+      ...(this.opts.inline !== undefined ? { inline: this.opts.inline } : {}),
       total_ms: now - this.started,
       input_tokens: this.input,
       output_tokens: this.output,

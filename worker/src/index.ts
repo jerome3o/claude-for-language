@@ -59,6 +59,8 @@ import type { QuestDifficulty } from './services/quest';
 import type { QuestWorld } from '@shared/quest';
 import { explainSentenceBriefly } from './services/sentence-explain-brief';
 import { runCoachReply, type CoachReplyMessage } from './services/coach-replies';
+import { runThreadTurn, type ClaudeTurnQueueMessage } from './services/claude-agent/thread-turn';
+import { syncDiscussionThread } from './services/claude-agent/backfill';
 import { normalizeHanzi } from '@shared/import/parse';
 import { generatePracticeSession } from './services/practice';
 import type { PracticeSessionContent, GrammarPoint } from './services/practice';
@@ -66,6 +68,7 @@ import { generateStory, generatePageImage, getDailyStoryLens } from './services/
 import { fixSpecPinyin, logPinyinFixes, pinyinSources, type PinyinFix } from './services/pinyin-check';
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import askClaudeRoutes from './routes/ask-claude';
+import claudeThreadsRoutes from './routes/claude-threads';
 import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
 import { parseAskLanguage, parseAskListening } from '@shared/study/askClaude';
 import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
@@ -617,6 +620,7 @@ app.use('/api/*', costGuard);
 mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
+app.route('/api', claudeThreadsRoutes); // Claude threads (docs/CHAT.md "Claude threads"): /api/claude/threads*
 // GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
 app.route('/api', mediaRoutes);
 // POST /api/feedback — in-app feedback / bug reports with a screenshot (routes/feedback.ts, docs/FEEDBACK.md).
@@ -4159,6 +4163,10 @@ app.put('/api/messages/:id/discussion', async (c) => {
 
   try {
     await saveMessageDiscussion(c.env.DB, msgId, userId, messages);
+    // The same discussion in its Claude thread (docs/CHAT.md "Claude threads"; claude-agent/backfill.ts).
+    c.executionCtx.waitUntil(
+      syncDiscussionThread(c.env.DB, userId, msgId).catch((err) => console.error('[discuss] thread sync failed', msgId, err instanceof Error ? err.message : err)),
+    );
     return c.json({ success: true });
   } catch (error) {
     console.error('Save discussion error:', error);
@@ -6867,6 +6875,22 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
       // Sentence Coach replies (services/coach-replies.ts): checkpointed in D1; 'retry' = a
       // busy model, another delivery in a moment (the row stays pending).
       for (const message of batch.messages) {
+        // Claude thread replies (services/claude-agent/thread-turn.ts): the watchdog of a reply started
+        // inline, or a second go after a busy model. 'busy' = the runner still holds the lease.
+        const turn = message.body as Partial<ClaudeTurnQueueMessage>;
+        if (turn.kind === 'claude_turn' && turn.messageId) {
+          try {
+            const outcome = await runThreadTurn(env, turn.messageId, { inline: false });
+            console.log('[Queue] claude turn', turn.messageId, outcome);
+            if (outcome === 'busy') message.retry({ delaySeconds: 45 });
+            else if (outcome === 'retry') message.retry({ delaySeconds: 10 });
+            else message.ack();
+          } catch (err) {
+            console.error('[Queue] claude turn crashed:', turn.messageId, err);
+            message.retry({ delaySeconds: 10 });
+          }
+          continue;
+        }
         const { messageId } = message.body as CoachReplyMessage;
         try {
           const outcome = await runCoachReply(env, messageId);

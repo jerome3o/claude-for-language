@@ -881,3 +881,50 @@ a flashcard."
   (`chat_recap`), words he has → ⚡ (`coach_chat`); after Done only words met since count. ⋯ → **🃏 Make flashcards from this chat**: the chat's review sheet
   with the recap words sent first and ticked (`askCardChecked`), one batch add.
 - Rules parity-tested (Lab core `CoachAsk.kt`, `parity/fixtures/coach-ask.ts`).
+
+## Claude threads (migration 0144_claude_threads.sql)
+
+Every conversation with Claude in ONE store and ONE API — the base of the unified Claude chats (the Chats
+tab with Claude threads beside the tutor chats, one thread view for every context, Ask on a card as a
+thread). This part is worker + shared types only; the screens come later.
+
+- **Store**: the Coach's tables, evolved — `coach_conversations` = a thread, `coach_messages` = its messages
+  (storage names only; ALL SQL in `worker/src/services/claude-agent/store.ts`). A thread has a **context**
+  (`shared/claude/context.ts`): `general` (the Coach, its 💬 Ask chat, later the Chats composer), `card`
+  (Ask Claude on a study card, `note_id`), `practice` (a Claude role-play chat, read-only until its reply
+  path lands) or `chat_message` (Discuss with Claude about one chat message). `context_json` keeps the
+  descriptor + a snapshot (`label` 银行, `sublabel` the deck) so the inbox draws "📇 Asked on card · 银行"
+  without a fetch (`contextBadge`). A learner's message has an **intent**: `ask`, or — only as the first
+  message of a general chat — the Coach's ✏️ `check` / 🔍 `explain` / `translate` (still `coach_conversations.action`
+  for older apps). Inbox fields: `last_message_at`, `preview`, `unread` (replies finished since the thread was
+  last opened), `changed_at` (the `?since=` cursor); `archived_at`; `deleted_at` = a tombstone (messages gone,
+  text cleared — the next `?since=` list reports it in `deleted_ids`). The Coach page lists only general threads.
+- **The older chats, copied in lazily** (`claude-agent/backfill.ts`): on a user's first `GET /api/claude/threads`
+  (stamped in `users.claude_threads_backfilled_at`), note_questions → `card` threads grouped like the apps
+  always showed them (`groupQuestionThreads`: one card's questions ≤ 30 min apart; `nq-<first id>`), the
+  practice chats → `practice` threads (`pc-<conversation id>`, read-only), message_discussions → `chat_message`
+  threads (`md-<id>`). Fixed ids + `INSERT OR IGNORE` + `legacy_id`: a re-run (admin
+  `POST /api/admin/claude-threads/backfill`) never duplicates, never brings back a deleted thread. The old tables
+  stay as they are. Dual-writes keep both sides complete while old apps exist: `POST /api/notes/:id/ask` appends
+  its Q&A to the card's thread (same 30-minute rule), `PUT /api/messages/:id/discussion` adds the new messages to
+  its thread, and a card turn through the new API also writes `note_questions` (so the note history, the card hub,
+  `/api/me/claude-chats`, the tutor's "Asked Claude" and the MCP tools — which read `note_questions` — see it).
+- **A reply is never lost** (`claude-agent/thread-turn.ts`): the POST stores my message + a pending reply in one
+  batch and answers 202; in the same request a watchdog `{ kind: 'claude_turn', messageId }` goes on
+  `coach-reply-queue` (45 s) and the reply starts inline (waitUntil — no queue hop). The runner claims the row with a
+  **lease** (`lease_until`, 40 s; renewed by every partial write and by stream activity). The answer + its tool
+  actions are checkpointed before any action runs (a resume never asks Claude again nor makes a card twice). The
+  watchdog finds the reply done (ack), still leased (again in 45 s) or abandoned — the isolate killed mid-stream —
+  and resumes it. A busy model → another go in 5–10 s; a refusal or the third attempt → failed with a readable
+  reason, and Retry. While written, a reply stays `status = 'pending'` (older apps show "Thinking…") with the text
+  so far in `content`. The Coach's structured first replies (check / explain / translate) and mistake lessons stay
+  on `runCoachReply` (not streamed).
+- **Live**: the model is streamed (the harness's `TurnOptions.stream`); `claude-agent/live.ts` pushes the WHOLE
+  text so far to the thread owner's sockets on the ChatHub (`broadcastToUser`, never anyone else) at most every
+  120 ms, and writes it into the row at most every 400 ms for the apps that poll:
+  `{ type: 'claude_turn', thread_id, message_id, seq, status: 'thinking' | 'tool' | 'streaming' | 'done' | 'failed', text?, tool?, error? }`
+  (`shared/claude/api.ts`; keep the highest `seq`; a dropped frame never matters). Poll fallback:
+  `GET /api/claude/threads/:id?since=<server_time>` → the messages written since + every pending one
+  (`streaming: true` = text so far). `server.claude_turn` gains `first_token_ms` and `inline`.
+- **API**: see CLAUDE.md "Claude threads". E2E_TEST_MODE streams a stand-in answer in three chunks
+  (`claude-agent/fake.ts`), checked before any key.

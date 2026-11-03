@@ -20,6 +20,13 @@ describe('chat live', () => {
     expect(parseLiveFrame('not json')).toBeNull();
     expect(parseLiveFrame(42)).toBeNull();
   });
+
+  it('parses a Claude reply being written (claude_turn) and drops malformed ones', () => {
+    const frame = { type: 'claude_turn', thread_id: 't1', message_id: 'm1', seq: 3, status: 'streaming', text: '这是一个' };
+    expect(parseLiveFrame(JSON.stringify(frame))).toEqual(frame);
+    expect(parseLiveFrame(JSON.stringify({ ...frame, seq: '3' }))).toBeNull();
+    expect(parseLiveFrame(JSON.stringify({ type: 'claude_turn', thread_id: 't1', seq: 1, status: 'done' }))).toBeNull();
+  });
 });
 
 describe('chat media helpers', () => {

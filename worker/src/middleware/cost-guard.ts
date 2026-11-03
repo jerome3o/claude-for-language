@@ -41,6 +41,8 @@ const AI_PATHS: RegExp[] = [
   /^\/api\/sentences\/explain-text$/,
   /^\/api\/sentences\/[^/]+\/explain$/,
   /^\/api\/coach\//,
+  // Claude threads (docs/CHAT.md "Claude threads"): new chats, messages, retries.
+  /^\/api\/claude\/threads(\/|$)/,
   /^\/api\/transcribe(\/|$)/,
   /^\/api\/notes\/[^/]+\/ask$/,
   /^\/api\/lessons\/answer-check(\/|$)/,
