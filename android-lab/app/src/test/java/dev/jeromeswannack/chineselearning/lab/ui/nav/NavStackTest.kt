@@ -9,6 +9,8 @@ import androidx.navigation.createGraph
 import androidx.navigation.navArgument
 import androidx.test.core.app.ApplicationProvider
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.ui.chats.CHATS_ROUTE_PATTERN
+import dev.jeromeswannack.chineselearning.lab.ui.chats.chatsCompose
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -39,7 +41,12 @@ class NavStackTest {
         controller.navigatorProvider.addNavigator(ComposeNavigator())
         controller.graph = controller.createGraph(startDestination = start) {
             composable(Routes.route("/")) {}
-            composable(Routes.route("/chats")) {}
+            // The real Chats route takes ?compose=1&text= (More → "✦ Ask Claude / Coach", /coach).
+            composable(
+                Routes.route(CHATS_ROUTE_PATTERN),
+                arguments = listOf("compose", "text").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
+            ) {}
+            composable(Routes.route("/chats/claude/{id}")) {}
             composable(Routes.route("/connections")) {}
             composable(Routes.route("/progress")) {}
             composable(Routes.route("/more")) {}
@@ -258,5 +265,26 @@ class NavStackTest {
             .forEach { assertTrue(it, NavResume.isResumable(it)) }
         listOf("/", "/homework", "/readers", "/readers/generate", "/study", "/decks/abc", "/connections/r/chat/c")
             .forEach { assertFalse(it, NavResume.isResumable(it)) }
+    }
+
+    // ---------------- the Chats tab's box (docs/CHAT.md "Chats tab — one list for people and Claude") ----------------
+
+    @Test fun theChatsTabStillOpensWithItsQueryRoute() {
+        val tabs = NavRules.tabsFor(NavRole(hasTutor = true, loaded = true))
+        val chats = tabs.first { it.id == TabId.CHATS }
+        nav.openTab(chats)
+        assertEquals("/chats", nav.currentFullPath())
+        assertTrue(nav.isNative("/chats?compose=1"))
+        nav.open("/chats/claude/t1")
+        nav.openTab(chats) // re-selecting pops back to its root
+        assertEquals("/chats", nav.currentFullPath())
+        nav.openTab(tabs.first { it.id == TabId.MORE })
+        assertEquals("/more", nav.currentFullPath())
+        // More → "✦ Ask Claude / Coach": the box, with its text, on the Chats tab.
+        val path = Routes.chatsCompose("我想学中文")
+        nav.open(path)
+        assertEquals(path, nav.currentFullPath())
+        assertEquals("我想学中文", controller.currentBackStackEntry!!.arguments!!.getString("text"))
+        assertEquals(TabId.CHATS, NavRules.activeTab(tabs, nav.currentPath()))
     }
 }
