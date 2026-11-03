@@ -64,17 +64,17 @@ class ConnectionsScreenshots : LabScreenshotTest() {
         )
     }
 
-    @Test fun list() = shootInShell("connections-01-list", active = TabId.TUTOR) {
+    @Test fun list() = shootInShell("connections-01-list", active = TabId.MORE) {
         ConnectionsScreen(ConnectionsUi(Loadable(rels), ME), ConnectionsActions())
     }
 
-    @Test fun empty() = shootInShell("connections-02-empty", active = TabId.TUTOR) {
+    @Test fun empty() = shootInShell("connections-02-empty", active = TabId.MORE) {
         ConnectionsScreen(ConnectionsUi(Loadable(MyRelationshipsDto()), ME, notice = "Invitation sent to friend@example.com"), ConnectionsActions())
     }
 
-    @Test fun tutorPage() = shootInShell("connections-03-tutor-page", active = TabId.TUTOR) { TutorPageScreen(pageUi, TutorPageActions()) }
+    @Test fun tutorPage() = shootInShell("connections-03-tutor-page", active = TabId.MORE) { TutorPageScreen(pageUi, TutorPageActions()) }
 
-    @Test fun claudePage() = shootInShell("connections-04-claude-page", active = TabId.TUTOR) {
+    @Test fun claudePage() = shootInShell("connections-04-claude-page", active = TabId.MORE) {
         TutorPageScreen(pageUi.copy(relationship = Loadable(claudeRel), conversations = Loadable(emptyList())), TutorPageActions())
     }
 
@@ -94,9 +94,9 @@ class ConnectionsScreenshots : LabScreenshotTest() {
     }
 
     @Test fun tabBadge() = shoot("connections-08-tab-badge") {
-        LabTabBar(NavRules.tabsFor(NavRole()), TabId.STUDY, {}, badges = mapOf(TabId.TUTOR to 3))
+        LabTabBar(NavRules.tabsFor(NavRole()), TabId.STUDY, {}, badges = mapOf(TabId.CHATS to 3))
     }
 
     @Config(qualifiers = UNFOLDED)
-    @Test fun tutorPageUnfolded() = shootInShell("connections-09-tutor-page-unfolded", active = TabId.TUTOR) { TutorPageScreen(pageUi, TutorPageActions()) }
+    @Test fun tutorPageUnfolded() = shootInShell("connections-09-tutor-page-unfolded", active = TabId.MORE) { TutorPageScreen(pageUi, TutorPageActions()) }
 }

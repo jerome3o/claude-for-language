@@ -73,9 +73,20 @@ describe('deriveNavRole', () => {
 });
 
 describe('tabsFor', () => {
-  it('student: Study · Chats · Tutor · Progress · More', () => {
+  it('student: Study · Chats · Progress · More (no Tutor tab — the tutor is in Chats)', () => {
     expect(tabsFor({ hasStudents: false, isTutorOnly: false }).map((t) => t.label))
-      .toEqual(['Study', 'Chats', 'Tutor', 'Progress', 'More']);
+      .toEqual(['Study', 'Chats', 'Progress', 'More']);
+  });
+
+  it('the learner tab list is a copy (a free slot to fill later, not shared state)', () => {
+    const tabs = tabsFor({ hasStudents: false, isTutorOnly: false });
+    tabs.push(tabs[0]);
+    expect(tabsFor({ hasStudents: false, isTutorOnly: false })).toHaveLength(4);
+  });
+
+  it('a /connections page still lights Students for accounts with students', () => {
+    expect(activeTab(tabsFor({ hasStudents: true, isTutorOnly: false }), '/connections/1')).toBe('students');
+    expect(activeTab(tabsFor({ hasStudents: true, isTutorOnly: true, isTutorAccount: true }), '/connections')).toBe('students');
   });
 
   it('tutor-only: Students · Chats · Study · More', () => {
@@ -99,7 +110,9 @@ describe('activeTab', () => {
     ['/decks/123', 'more'],
     ['/generate', 'more'],
     ['/search', 'more'],
-    ['/connections/1/insights', 'tutor'],
+    ['/connections', 'more'],
+    ['/connections/1', 'more'],
+    ['/connections/1/insights', 'more'],
     ['/progress/day/2026-01-01', 'progress'],
     ['/more', 'more'],
     ['/settings/sentences', 'more'],
@@ -149,7 +162,7 @@ describe('tutor account (users.role = tutor)', () => {
 
   it('a student account is unchanged', () => {
     const role = deriveNavRole({ relationships: relationships(), deckCount: 2, dueCount: 5, accountRole: 'student' });
-    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'chats', 'tutor', 'progress', 'more']);
+    expect(tabsFor(role).map((t) => t.id)).toEqual(['study', 'chats', 'progress', 'more']);
   });
 
   it('try pages are immersive', () => {

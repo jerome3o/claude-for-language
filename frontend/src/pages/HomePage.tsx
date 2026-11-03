@@ -8,6 +8,7 @@ import { Loading } from '../components/Loading';
 import { StudyStreak } from '../components/StudyStreak';
 import { StudyTodayCard } from '../components/home/StudyTodayCard';
 import { HomeworkHomeCard, TutorNotesHomeRow } from '../components/home/HomeworkHomeCard';
+import { ConnectionRequestsBanner } from '../components/home/ConnectionRequestsBanner';
 import { DeckList, HOME_DECK_LIMIT } from '../components/home/DeckList';
 import { NextUpLine } from '../components/home/NextUpLine';
 import { UpNextHomeLine } from '../components/home/UpNextHomeLine';
@@ -171,6 +172,9 @@ function StudyHome() {
           onMoreNew={bumpBonus}
           reviewLoad={countsLoading ? null : reviewLoad}
         />
+
+        {/* Connection requests used to wait on the Tutor tab (gone, Nov 2026). */}
+        <ConnectionRequestsBanner />
 
         <TutorNotesHomeRow />
 

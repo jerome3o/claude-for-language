@@ -65,6 +65,8 @@ import { useChatScroll } from '../hooks/useChatScroll';
 import { firstUnreadId, shouldSendTyping } from '../services/chatThread';
 import { chatMediaUrl, compressPhoto, fileProblem, videoInfo, VIDEO_MAX_BYTES } from '../services/chatMedia';
 import { searchMessages } from '@shared/chats/search';
+import { chatPersonLinks, chatPersonPath } from '@shared/chats/personLinks';
+import { ChatHeaderPerson, ChatPersonMenuLinks } from '../components/chat/ChatPersonLinks';
 import { HIDE_ALL_SINCE, shouldHideMessage, sinceWhenTurnedOn } from '@shared/chats/listening';
 import {
   prefetchMessageClips,
@@ -142,8 +144,8 @@ export function ChatPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
-  // Opened from the Chats tab → back returns to the inbox, else to the person's page.
-  const backTo = chatBackTarget(location.state, relId);
+  // Opened from the Chats tab → back returns to the inbox, else to the person's page (a learner:
+  // the inbox — the tutor page is opened from the chat). Set once the relationship is known.
   const { user } = useAuth();
   const { isOnline } = useNetwork();
   const queryClient = useQueryClient();
@@ -394,6 +396,8 @@ export function ChatPage() {
     queryFn: () => getRelationship(relId!),
     enabled: !!relId,
   });
+  const viewerIsStudent = !!relationshipQuery.data && !!user && getMyRoleInRelationship(relationshipQuery.data, user.id) === 'student';
+  const backTo = chatBackTarget(location.state, relId, viewerIsStudent);
 
   // Get conversation details
   const conversationsQuery = useQuery({
@@ -1518,6 +1522,10 @@ export function ChatPage() {
   const relationship = relationshipQuery.data!;
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const viewerRole = getMyRoleInRelationship(relationship, user!.id);
+  // The person's page and its parts, from the chat (the learner's Tutor tab went, Nov 2026).
+  const personIsAi = isAIConversation || isClaudeUser(otherUser.id);
+  const personPath = chatPersonPath(relId, personIsAi);
+  const personLinks = chatPersonLinks({ relationshipId: relId, otherName: otherUser.name, viewerRole, isAi: personIsAi });
   const otherFirstName = (otherUserForTyping?.name || 'They').split(' ')[0];
 
   const formatTime = (dateStr: string) => {
@@ -2101,12 +2109,32 @@ export function ChatPage() {
     );
   };
 
+  const headerText = (
+    <div className="chat-header-text">
+      <span className="chat-header-name">
+        {otherUser.name || 'Unknown'}
+        {isAIConversation && <span className="ai-badge">AI</span>}
+      </span>
+      {showTyping ? (
+        <span className="chat-header-title chat-header-typing">typing…</span>
+      ) : queueText ? (
+        <span className="chat-header-title chat-header-queue" data-testid="chat-queue-status">{queueText}</span>
+      ) : listening.setting.on ? (
+        <span className="chat-header-title chat-header-listening" data-testid="chat-listening-status">
+          🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
+        </span>
+      ) : (
+        isAIConversation && conversation?.title && <span className="chat-header-title">{conversation.title}</span>
+      )}
+    </div>
+  );
+
   return (
     <div className="chat-page">
       {/* Header */}
       <div className="chat-header">
         <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
-        <div className="chat-header-user">
+        <ChatHeaderPerson path={personPath} name={otherUser.name}>
           {otherUser.picture_url ? (
             <img src={otherUser.picture_url} alt="" className="chat-avatar" />
           ) : (
@@ -2114,24 +2142,8 @@ export function ChatPage() {
               {isAIConversation ? '🤖' : (otherUser.name || otherUser.email || '?')[0].toUpperCase()}
             </div>
           )}
-          <div className="chat-header-text">
-            <span className="chat-header-name">
-              {otherUser.name || 'Unknown'}
-              {isAIConversation && <span className="ai-badge">AI</span>}
-            </span>
-            {showTyping ? (
-              <span className="chat-header-title chat-header-typing">typing…</span>
-            ) : queueText ? (
-              <span className="chat-header-title chat-header-queue" data-testid="chat-queue-status">{queueText}</span>
-            ) : listening.setting.on ? (
-              <span className="chat-header-title chat-header-listening" data-testid="chat-listening-status">
-                🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
-              </span>
-            ) : (
-              isAIConversation && conversation?.title && <span className="chat-header-title">{conversation.title}</span>
-            )}
-          </div>
-        </div>
+          {headerText}
+        </ChatHeaderPerson>
         <div className="chat-header-actions">
           <button
             type="button"
@@ -2295,6 +2307,9 @@ export function ChatPage() {
                 <span aria-hidden="true">☰</span> All practice chats
               </Link>
             )}
+            {/* The person's page and its parts (shared/chats/personLinks.ts) — what the learner's
+                Tutor tab offered, from the chat with them. */}
+            <ChatPersonMenuLinks links={personLinks} onPick={() => setShowHeaderMenu(false)} />
           </div>
         </div>
       )}

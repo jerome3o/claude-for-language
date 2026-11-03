@@ -1,3 +1,4 @@
+import { CONNECTIONS_TITLE } from '@shared/chats/personLinks';
 import { ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -170,6 +171,10 @@ export function MorePage() {
 
         {!role.isTutorOnly && (
           <NavSection title="From your tutor">
+            {/* The learner's Tutor tab went (Nov 2026): requests, invites, remove a connection. */}
+            {!role.hasStudents && (
+              <NavRow icon="🤝" label={CONNECTIONS_TITLE} desc="Your tutors, requests · invite a tutor" to="/connections" />
+            )}
             <NavRow icon="✅" label="Homework" desc="One-off practice with a due date" to="/homework" />
             <NavRow icon="🗒" label="Tutor notes" desc="Comments on your recordings and flagged cards" to="/tutor-notes" />
             <NavRow

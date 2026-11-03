@@ -43,7 +43,7 @@ class NavRulesTest {
     }
 
     @Test fun tabSets() {
-        assertEquals(listOf("Study", "Chats", "Tutor", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
+        assertEquals(listOf("Study", "Chats", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Study", "More"), labels(NavRole(hasStudents = true, isTutorOnly = true)))
         assertEquals(listOf("Students", "Chats", "Study", "Progress", "More"), labels(NavRole(hasStudents = true, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Decks", "Library", "More"), labels(NavRole(hasStudents = true, isTutorAccount = true)))
@@ -55,7 +55,7 @@ class NavRulesTest {
         val tabs = NavRules.tabsFor(NavRole())
         mapOf(
             "/" to TabId.STUDY, "/study/review/abc" to TabId.STUDY, "/decks" to TabId.MORE, "/decks/123" to TabId.MORE,
-            "/generate" to TabId.MORE, "/search" to TabId.MORE, "/connections/1/insights" to TabId.TUTOR, "/progress/day/2026-01-01" to TabId.PROGRESS,
+            "/generate" to TabId.MORE, "/search" to TabId.MORE, "/connections" to TabId.MORE, "/connections/1" to TabId.MORE, "/connections/1/insights" to TabId.MORE, "/progress/day/2026-01-01" to TabId.PROGRESS,
             "/more" to TabId.MORE, "/settings/sentences" to TabId.MORE, "/coach" to TabId.MORE, "/lesson-notes" to TabId.MORE,
             "/decks?q=打算" to TabId.MORE, "/audio-lessons" to TabId.MORE, "/podcasts" to TabId.MORE, "/podcasts/feed?url=x" to TabId.MORE, "/chats" to TabId.CHATS, "/chats?q=x" to TabId.CHATS,
         ).forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
@@ -73,6 +73,15 @@ class NavRulesTest {
         ).forEach { assertFalse(it, NavRules.isImmersiveRoute(it)) }
     }
 
+    @Test fun learnerTabsHaveNoTutorTab() {
+        // Jerome, Nov 2026: the Tutor tab was a dud — the tutor is in Chats, connections in More.
+        assertEquals(listOf("Study", "Chats", "Progress", "More"), NavRules.tabsFor(NavRole()).map { it.label })
+        assertEquals(NavRules.LEARNER_TABS, NavRules.tabsFor(NavRole()))
+        // Accounts with students keep the Students tab on /connections.
+        val withStudents = NavRules.deriveNavRole(rels(students = listOf(rel("active"))), 2, 5)
+        assertEquals(TabId.STUDENTS, NavRules.activeTab(NavRules.tabsFor(withStudents), "/connections/1"))
+    }
+
     @Test fun tutorAccount() {
         assertTrue(NavRules.deriveNavRole(null, 4, 12, accountRole = "tutor").isTutorAccount)
         val none = NavRules.deriveNavRole(rels(), 4, 12, accountRole = "tutor")
@@ -85,7 +94,7 @@ class NavRulesTest {
         mapOf("/decks" to TabId.DECKS, "/decks/d1" to TabId.DECKS, "/decks?q=打算" to TabId.DECKS, "/generate" to TabId.DECKS, "/more" to TabId.MORE, "/settings" to TabId.MORE)
             .forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
         val student = NavRules.deriveNavRole(rels(), 2, 5, accountRole = "student")
-        assertEquals(listOf(TabId.STUDY, TabId.CHATS, TabId.TUTOR, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
+        assertEquals(listOf(TabId.STUDY, TabId.CHATS, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
         assertTrue(NavRules.isImmersiveRoute("/decks/d1/try"))
         assertTrue(NavRules.isImmersiveRoute("/library/l1/try"))
         assertFalse(NavRules.isImmersiveRoute("/decks/d1"))
@@ -118,7 +127,7 @@ class NavRulesTest {
         assertEquals("Chat", WebDestinations.find("/connections/r1/chat/c1")?.title)
         assertEquals("New story", WebDestinations.find("/readers/generate")?.title)
         assertEquals("Sentence Coach", WebDestinations.find("/coach?text=你好")?.title)
-        for (tab in listOf(NavRules.STUDY, NavRules.CHATS, NavRules.TUTOR, NavRules.LIBRARY, NavRules.PROGRESS, NavRules.MORE)) {
+        for (tab in listOf(NavRules.STUDY, NavRules.CHATS, NavRules.STUDENTS, NavRules.LIBRARY, NavRules.PROGRESS, NavRules.MORE)) {
             assertTrue(tab.to, WebDestinations.find(tab.to) != null)
         }
         assertNull(WebDestinations.find("/nope/nothing/here"))

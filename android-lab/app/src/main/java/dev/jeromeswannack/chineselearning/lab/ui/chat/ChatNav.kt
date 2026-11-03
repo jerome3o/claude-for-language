@@ -208,6 +208,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onRecordSendNow = vm::sendRecordingNow,
             onToggleTime = vm::toggleTime,
             onVideoCall = { vm.videoCall { id -> nav.open(Routes.call(id)) } },
+            onOpenPerson = { path -> nav.app.analytics.track("chat.person_link", mapOf("link" to "header")); nav.open(path) },
             onOpenPath = { path, kind ->
                 nav.app.analytics.track("chat.system_action", mapOf("kind" to kind))
                 nav.open(path)
@@ -258,6 +259,11 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onOpenRename = { vm.openSheet(ChatSheet.Rename) },
                 onOpenVoice = { vm.openSheet(ChatSheet.Voice) },
                 onAllConversations = { vm.openSheet(null); nav.back() },
+                onPersonLink = { link ->
+                    vm.openSheet(null)
+                    nav.app.analytics.track("chat.person_link", mapOf("link" to link.id))
+                    nav.open(link.labPath)
+                },
                 onSaveDiscussCards = vm::saveDiscussCards,
                 onOpenAppPath = { path -> vm.openSheet(null); nav.open(path) },
                 define = vm::define,

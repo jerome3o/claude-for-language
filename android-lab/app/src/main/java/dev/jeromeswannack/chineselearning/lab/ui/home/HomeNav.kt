@@ -1,6 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.home
 
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,7 +50,13 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
                 ui = ui,
                 sync = sync,
                 online = online,
-                homework = { HomeHomeworkSlot(nav) },
+                homework = {
+                    // Connection requests used to wait on the Tutor tab (gone, Nov 2026).
+                    androidx.compose.foundation.layout.Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                        dev.jeromeswannack.chineselearning.lab.ui.connections.ConnectionRequestsHomeRow(nav)
+                        HomeHomeworkSlot(nav)
+                    }
+                },
                 callBanner = { LiveCallBanner(nav, CallBannerVariant.CARD, Routes.HOME) },
                 actions = HomeActions(
                     onStudyAll = { nav.open(Routes.study()) },
