@@ -924,7 +924,37 @@ Readers list, Today's story):
   a new take replaces the result; a page turn starts afresh. Pinyin / translation reveals are untouched.
 - **Practice only**: no review event, nothing stored, the take is not queued — offline 🎤 says "Needs a
   connection to check your reading". Analytics `reader.read_aloud { result_bucket: all | 90 | 75 | 50 |
-  under_50 | failed | empty, chars, via: live | upload | none }`.
+  under_50 | failed | empty, chars, via: live | upload | none, all_right }`.
+- **The page is locked while a take is under way** (Jerome tapped Next mid-take and lost the page;
+  `readAloudLocksPage(phase)` = `listening` or `finishing`, Lab `ReadAloud.locksPage`): the footer's Previous /
+  Next / ‹ Back / Finish ✓ give way to ONE big red **■ Stop recording** in the same slot (it stops the take
+  exactly like the in-row ⏹, which stays), then a quiet disabled **Checking your reading…** until the result
+  shows. Disabled and dimmed meanwhile: the page audio's ↻ / waveform / 🔊 play / speed chip / ⏮ ⏭ (a playing
+  clip stops — it would be heard in the take) and ▶ Play whole story. **Back and ✕ stop the take first**
+  instead of leaving: the Android back gesture / browser ← (web `useBackLevels`, Lab `BackHandler`) and any tap
+  on the top bar (✕, ←, Edit, Anki — web: captured on `.study-topbar`; Lab: `ReaderTakeLock.guard` on each
+  caller's ✕ — session, Today's story, homework pass, `/readers/:id`); the result shows and a second tap does
+  what it says. While it is being checked, back / ✕ do nothing. Reveal rows and word chips stay usable. Web
+  `ReaderView` + `ReadAloudStopFooter`; Lab `StudyReaderView` + `ReaderTakeLock` + `ReadAloudStopFooter`.
+- **Confetti for a page read all right** (`readAloudAllRight`: something to read, every character ok or a
+  homophone, nothing tone-off / wrong / missed, no extra words — a 100 % take with extras doesn't count): one
+  burst per such take over the reading view (web `Confetti` + a short buzz; Lab `ConfettiRain` +
+  `haptics.celebrate()` + the MILESTONE sparkle), not again on a re-render; a new perfect take bursts again.
+- **What it heard vs the page** (Jerome: "I'd love to see what the app thought I was saying versus what it should
+  have been"; `readAloudDifferences(result, words)` + `readAloudDifferenceAt`, Lab `ReadAloud.differences` /
+  `differenceAt`, parity-tested incl. his 成都 → 程度 take): under the line, one row per page WORD the take heard
+  differently (the page's word chips; without them each run of differing characters) — the page's word + its
+  pinyin in context vs what was heard + its pinyin (the judge's syllables: automatic pinyin + 一 / 不), the kind in
+  words (Tone · Another word · Missed · Extra words · Sounded right), ▶ the page's word (practice TTS at the reader's
+  speed), and one reason per character: "都 dū → you said dù (4th tone instead of 1st)", "成 chéng — sounded right
+  (written 程)", "missed 的 de", "extra 了 le" — tones named in words, never colour alone. A homophone-only word
+  is a quieter "Sounded right" row and is NOT to check (the score already counts it right). First 6 rows, then
+  "Show N more". A tap on a word the take heard differently lights (and scrolls to) its row instead of opening the
+  explorer; other words still open it. **You said ▾** shows the transcript (as checked: numbers as hanzi) with
+  the same marks (tone off wavy, another / extra word solid; a homophone unmarked) — `result.heard`. ▶ of his own
+  take at that span is not built: the transcript has no timings. Analytics `reader.read_aloud_diff { action:
+  play | tap_page, kind }`. Web `ReadAloudDifferences` in `ReadAloud.tsx`; Lab `ReadAloudDifferences` in
+  `ReadAloudViews.kt`.
 - Not built (yet): a whole-story "🎤 Read the story" mode (page by page, then a summary of the characters
   missed most).
 

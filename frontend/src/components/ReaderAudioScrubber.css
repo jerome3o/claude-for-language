@@ -63,3 +63,15 @@ div.reader-audio-scrubber-wrap > div.reader-audio-scrubber {
   transform: scale(0.94);
   background: #dbeafe;
 }
+
+/* A 🎤 Read it aloud take is recording / being checked: everything that would disturb it is
+   disabled and dimmed (the take's own ⏹ beside the speed chip stays live). */
+.reader-audio-scrubber-wrap.is-locked .reader-audio-track,
+.reader-audio-scrubber-wrap.is-locked .reader-audio-btn,
+.reader-audio-scrubber-wrap.is-locked .reader-audio-regen-btn,
+.reader-audio-scrubber-wrap.is-locked .reader-speed-chip,
+.reader-audio-scrubber-wrap.is-locked .reader-audio-steps {
+  opacity: 0.38;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}

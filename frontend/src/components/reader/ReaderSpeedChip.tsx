@@ -8,7 +8,7 @@ import './ReaderSpeedChip.css';
  * narration and the word ▶ in every reader view, and is remembered on the
  * device. Lit while slowed, so a slowed reader is obvious at a glance.
  */
-export function ReaderSpeedChip({ className = '' }: { className?: string }) {
+export function ReaderSpeedChip({ className = '', disabled = false }: { className?: string; disabled?: boolean }) {
   const speed = useReaderSpeed();
   const slowed = speed !== 1;
   return (
@@ -20,6 +20,7 @@ export function ReaderSpeedChip({ className = '' }: { className?: string }) {
         e.stopPropagation();
         cycleReaderSpeed();
       }}
+      disabled={disabled}
       aria-label={`Playback speed ${readerSpeedLabel(speed)} — tap for ${readerSpeedLabel(nextReaderSpeed(speed))}`}
       title="Playback speed"
       data-testid="reader-speed-chip"

@@ -40,7 +40,9 @@ async function api<T = unknown>(request: APIRequestContext, path: string, opts: 
   return (await res.json()) as T;
 }
 
-async function seed(request: APIRequestContext) {
+type SeedPage = { content_chinese: string; content_pinyin: string; content_english: string };
+
+async function seed(request: APIRequestContext, pages?: SeedPage[]) {
   const email = `read-aloud-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
   const r = await api<{ reader?: { id: string }; id?: string }>(request, '/api/readers/import', {
@@ -51,7 +53,7 @@ async function seed(request: APIRequestContext) {
         title_chinese: '小明在巴黎',
         title_english: 'Xiaoming in Paris',
         difficulty_level: 'beginner',
-        pages: [
+        pages: pages ?? [
           {
             content_chinese: '小明今天第一次去巴黎。他很兴奋。',
             content_pinyin: 'Xiǎomíng jīntiān dì yī cì qù Bālí. Tā hěn xīngfèn.',
@@ -144,4 +146,70 @@ test('🎤 offline says it needs a connection and records nothing', async ({ pag
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/05-offline.png` });
   await page.context().setOffline(false);
   expect(transcribed).toBe(0);
+});
+
+test('🎤 while a take records the page is locked: ■ Stop recording replaces Next; a perfect take throws confetti', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const { token, readerId } = await seed(request);
+  await page.route('**/api/practice/tts', (route) => route.fulfill({ json: { audio_base64: CLIP.toString('base64'), content_type: 'audio/wav' } }));
+  await page.route('**/api/transcribe/live', (route) => route.fulfill({ json: { provider: 'upload' } }));
+  // The whole page read right; held a moment so "Checking your reading…" shows.
+  await page.route('**/api/transcribe', async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    return route.fulfill({ json: { text: '小明今天第一次去巴黎。他很兴奋。', language: 'zh', provider: 'test' } });
+  });
+  await openReader(page, token, readerId);
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toBeVisible();
+
+  await page.getByTestId('reader-read-aloud').click();
+  const stop = page.getByTestId('reader-read-aloud-stop-footer');
+  await expect(stop).toHaveText('Stop recording');
+  // Nothing turns the page while it records; the audio row and the story are disabled.
+  await expect(page.getByRole('button', { name: 'Next', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('reader-play-story')).toBeDisabled();
+  await expect(page.getByTestId('reader-speed-chip')).toBeDisabled();
+  await page.waitForTimeout(900);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/06-recording-locked.png` });
+
+  await stop.click();
+  await expect(stop).toHaveText('Checking your reading…');
+  await expect(stop).toBeDisabled();
+  if (SHOTS) {
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${SHOTS}/07-checking.png` });
+  }
+
+  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('✓ 100% — all read right', { timeout: 20_000 });
+  await expect(page.locator('.confetti-container')).toBeVisible();
+  if (SHOTS) {
+    await page.waitForTimeout(700);
+    await page.screenshot({ path: `${SHOTS}/08-all-right-confetti.png` });
+  }
+  await expect(page.getByTestId('reader-read-aloud-footer')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 2 of 2');
+});
+
+test("🎤 what it heard vs the page: Jerome's 成都 → 程度, one row with both in pinyin and the reasons in words", async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const { token, readerId } = await seed(request, [{
+    content_chinese: '胆子大的话，可以试试麻辣兔头，这是很多成都人最爱的小吃。',
+    content_pinyin: 'Dǎnzi dà dehuà, kěyǐ shìshi málà tùtóu, zhè shì hěn duō Chéngdū rén zuì ài de xiǎochī.',
+    content_english: "If you're brave, try the spicy rabbit head — many Chengdu people's favourite snack.",
+  }]);
+  await page.route('**/api/practice/tts', (route) => route.fulfill({ json: { audio_base64: CLIP.toString('base64'), content_type: 'audio/wav' } }));
+  await page.route('**/api/transcribe/live', (route) => route.fulfill({ json: { provider: 'upload' } }));
+  await page.route('**/api/transcribe', (route) => route.fulfill({ json: { text: '胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。', language: 'zh', provider: 'test' } }));
+  await openReader(page, token, readerId);
+  await page.getByTestId('reader-read-aloud').click();
+  await page.waitForTimeout(1200);
+  await page.getByTestId('reader-read-aloud-stop-footer').click();
+  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('✓ 96% — 1 to check', { timeout: 20_000 });
+  const row = page.getByTestId('reader-read-aloud-diff');
+  await expect(row).toHaveCount(1);
+  await expect(row.locator('.ra-diff-zh')).toHaveText(['成都', '程度']);
+  await expect(row.locator('.ra-diff-reasons li')).toHaveText(['成 chéng — sounded right (written 程)', '都 dū → you said dù (4th tone instead of 1st)']);
+  await page.getByTestId('reader-read-aloud-said-toggle').click();
+  await expect(page.getByTestId('reader-read-aloud-said').locator('[data-mark="close"]')).toHaveText('度');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/09-differences.png` });
 });

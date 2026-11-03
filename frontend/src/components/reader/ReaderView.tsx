@@ -9,7 +9,9 @@ import { generateReaderPageImage } from '../../api/client';
 import { useCachedImageUrl } from '../../hooks/useCachedImageUrl';
 import { ReaderAudioScrubber } from '../ReaderAudioScrubber';
 import { ReaderWordsText } from './ReaderWords';
-import { ReadAloudMic, ReadAloudPanel, useReadAloud } from './ReadAloud';
+import { ReadAloudMic, ReadAloudPanel, ReadAloudStopFooter, useReadAloud } from './ReadAloud';
+import { Confetti } from '../Confetti';
+import { useBackLevels } from '../../hooks/useBackLevels';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
 import '../../pages/ReaderPage.css';
 import '../../pages/StudyPage.css';
@@ -59,9 +61,27 @@ interface StoryPlaybackHooks {
   onUnavailable: (why: 'missing' | 'failed') => void;
 }
 
+/** A 🎤 Read it aloud take under way on the page (`readAloudLocksPage`): the reading view locks around it. */
+export interface ReaderTakeLock {
+  /** Recording (Stop is live); false while the stopped take is being checked. */
+  recording: boolean;
+  stop: () => void;
+}
+
 // Rendered with key={page.id} so all reveal/audio state resets atomically on
 // every page turn — no effect-based resets, no stale-state flash.
-function ReaderPageBody({ readerId, page, story }: { readerId: string; page: LocalReaderPage; story: StoryPlaybackHooks }) {
+function ReaderPageBody({
+  readerId,
+  page,
+  story,
+  onTakeLock,
+}: {
+  readerId: string;
+  page: LocalReaderPage;
+  story: StoryPlaybackHooks;
+  /** The page's take started / stopped / was checked: null = unlocked. */
+  onTakeLock: (lock: ReaderTakeLock | null) => void;
+}) {
   // Listen-first: Chinese starts hidden so you can try the audio before
   // reading, and can be hidden again to re-test yourself without turning the page.
   const [showChinese, setShowChinese] = useState(false);
@@ -77,9 +97,21 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
     onResult: () => setShowChinese(true),
   });
   const speak = useLessonSpeak();
+  // Tell the reading view while a take is under way (it swaps the footer for ■ Stop recording).
+  const stopRef = useRef(readAloud.stop);
+  stopRef.current = readAloud.stop;
+  const lockRef = useRef(onTakeLock);
+  lockRef.current = onTakeLock;
+  const { locked, recording } = readAloud;
+  useEffect(() => {
+    lockRef.current(locked ? { recording, stop: () => stopRef.current() } : null);
+  }, [locked, recording]);
+  useEffect(() => () => lockRef.current(null), []);
 
   return (
     <div className="reader-page-view">
+      {/* The whole page read right: one burst per perfect take (a new one remounts it). */}
+      {readAloud.perfectTakes > 0 && <Confetti key={readAloud.perfectTakes} />}
       {imageUrl ? (
         <div className="reader-image-container">
           <img src={imageUrl} alt="Story illustration" className="reader-image" />
@@ -123,7 +155,7 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
               }}
             >
               {/* Word chips: tap a word → its sheet (the tap never hides the Chinese). Plain text until they arrive. */}
-              <ReaderWordsText readerId={readerId} page={page} marks={readAloud.result} onSpeak={speak} />
+              <ReaderWordsText readerId={readerId} page={page} marks={readAloud.result} onSpeak={speak} onWords={readAloud.setWords} onMarkTap={readAloud.focusAt} />
             </div>
           ) : (
             <div className="reader-chinese-reveal-box" onClick={() => setShowChinese(true)}>
@@ -142,8 +174,9 @@ function ReaderPageBody({ readerId, page, story }: { readerId: string; page: Loc
           onStopped={story.onStopped}
           onUnavailable={story.onUnavailable}
           controlsExtra={<ReadAloudMic ra={readAloud} />}
+          disabled={locked}
         />
-        <ReadAloudPanel ra={readAloud} />
+        <ReadAloudPanel ra={readAloud} onSpeak={speak} />
 
         <div
           onClick={() => setShowPinyin(!showPinyin)}
@@ -205,6 +238,12 @@ export function ReaderView({
   const speed = useReaderSpeed();
   const gapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
+  // 🎤 Read it aloud: a take under way locks the page (footer → ■ Stop recording, story / audio
+  // disabled, back / ✕ / the top bar stop the take instead of leaving).
+  const [take, setTake] = useState<ReaderTakeLock | null>(null);
+  const takeRef = useRef(take);
+  takeRef.current = take;
+  useBackLevels(take ? 1 : 0, () => takeRef.current?.stop(), 'read-aloud');
 
   const page = reader.pages[Math.min(currentPage, reader.pages.length - 1)];
   const isLastPage = currentPage >= reader.pages.length - 1;
@@ -271,6 +310,7 @@ export function ReaderView({
   };
 
   const turnTo = (index: number) => {
+    if (takeRef.current) return;
     // A manual turn while the story plays: it carries on from the new page.
     if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
     gapTimerRef.current = null;
@@ -278,6 +318,7 @@ export function ReaderView({
   };
 
   const toggleStory = () => {
+    if (takeRef.current) return;
     if (!storyPlaying) {
       startStory();
       return;
@@ -290,7 +331,17 @@ export function ReaderView({
 
   return (
     <div className="study-fullscreen" data-testid="reader-view">
-      <div className="study-topbar">
+      {/* While a take is under way a tap on the top bar (✕ / ← / Edit…) stops the take first —
+          the result shows and nothing is lost; a second tap does what it says. */}
+      <div
+        className="study-topbar"
+        onClickCapture={take ? (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          take.stop();
+        } : undefined}
+        data-take-locked={take ? true : undefined}
+      >
         {topbarStart}
         <div className="study-topbar-controls">{topbarEnd}</div>
       </div>
@@ -320,6 +371,7 @@ export function ReaderView({
               type="button"
               className={`study-reader-story-btn${storyPlaying ? ' playing' : ''}`}
               onClick={toggleStory}
+              disabled={!!take}
               data-testid="reader-play-story"
               aria-pressed={storyPlaying}
               aria-label={storyLabel}
@@ -336,11 +388,14 @@ export function ReaderView({
           {storyNote && <div className="study-reader-story-note" role="status">{storyNote}</div>}
         </div>
 
-        <ReaderPageBody key={page.id} readerId={reader.id} page={page} story={story} />
+        <ReaderPageBody key={page.id} readerId={reader.id} page={page} story={story} onTakeLock={setTake} />
       </div>
 
-      {/* Fixed footer: page navigation, or Finish once the last page is reached */}
-      {isLastPage ? (
+      {/* Fixed footer: page navigation, or Finish once the last page is reached — or, while a
+          🎤 take is under way, ONE big red ■ Stop recording in its place. */}
+      {take ? (
+        <ReadAloudStopFooter recording={take.recording} onStop={take.stop} />
+      ) : isLastPage ? (
         <div className="study-reader-nav study-reader-finish-row">
           {reader.pages.length > 1 && (
             <button className="btn btn-secondary" onClick={() => turnTo(currentPage - 1)}>

@@ -178,12 +178,14 @@ private fun TodayReaderRoute(nav: LabNav, state: TodayItemState, vm: TodayReader
             val e = state.entry
             val session = remember(e) { SessionReader(e.reader, 1) }
             val env = rememberReaderEnv(nav.app, e.id)
+            // ✕ while a 🎤 take is under way stops the take first instead of leaving.
+            val takeLock = dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderTakeLock()
             Column(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Today's story", fontWeight = FontWeight.SemiBold, color = Lab.colors.muted, modifier = Modifier.weight(1f).padding(start = 12.dp))
-                    IconButton(onClick = nav::back) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
+                    IconButton(onClick = takeLock.guard(nav::back)) { Icon(Icons.Filled.Close, "Close", tint = Lab.colors.muted) }
                 }
-                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env) { ms, how -> vm.finish(ms, how) { nav.back() } } }
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(session, env, onFinish = { ms, how -> vm.finish(ms, how) { nav.back() } }, takeLock = takeLock) }
             }
         }
         TodayItemState.Missing -> MissingItem("Today's story", "No story to read today. Your readers are all in More → Graded readers.", nav, Routes.readers())

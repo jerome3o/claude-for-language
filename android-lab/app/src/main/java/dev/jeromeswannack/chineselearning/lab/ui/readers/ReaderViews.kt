@@ -30,6 +30,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -122,7 +125,14 @@ private fun decode(file: File): ImageBitmap? = runCatching { BitmapFactory.decod
  * every reveal resets on a page turn. The same page wherever a story is read.
  */
 @Composable
-fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = null, readAloudPreview: ReadAloudHandle? = null) {
+fun ReaderPageView(
+    page: ReaderPageDto,
+    env: ReaderEnv,
+    story: StoryPlayback? = null,
+    readAloudPreview: ReadAloudHandle? = null,
+    /** The reading view's lock: this page reports its 🎤 take there (only the page on screen gets one). */
+    takeLock: ReaderTakeLock? = null,
+) {
     var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
     var showTranslation by rememberSaveable(page.id) { mutableStateOf(false) }
@@ -133,6 +143,36 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
         else -> null
     }
     // The Chinese shows while he reads, and the result marks it in place.
+    // Tell the reading view while a take is under way (it swaps the footer for ■ Stop recording).
+    if (takeLock != null && readAloud != null) {
+        val stop by rememberUpdatedState(readAloud.actions.onStop)
+        val phase = readAloud.ui.phase
+        val perfect = readAloud.perfectTakes
+        SideEffect {
+            takeLock.phase = phase
+            takeLock.perfectTakes = perfect
+            takeLock.stopTake = { stop() }
+        }
+        DisposableEffect(takeLock) { onDispose { takeLock.phase = "idle"; takeLock.perfectTakes = 0; takeLock.stopTake = {} } }
+    }
+    val locked = readAloud != null && ReadAloud.locksPage(readAloud.ui.phase)
+    // What it heard vs the page: the differences group by the page's words; a tap on a marked word lights its row.
+    var pageWords by remember(page.id) { mutableStateOf<List<String>?>(null) }
+    var diffFocus by remember(page.id) { mutableStateOf<Pair<Int, Int>?>(null) }
+    val resultNow = readAloud?.ui?.result
+    LaunchedEffect(resultNow) { diffFocus = null }
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? dev.jeromeswannack.chineselearning.lab.LabApp
+    val onMarkTap: (Int) -> Unit = { cp ->
+        val r = resultNow
+        if (r != null) {
+            val diffs = ReadAloud.differences(r, pageWords)
+            val i = ReadAloud.differenceAt(diffs, cp)
+            if (i >= 0) {
+                app?.analytics?.track("reader.read_aloud_diff", mapOf("action" to "tap_page", "kind" to diffs[i].kind))
+                diffFocus = i to ((diffFocus?.second ?: 0) + 1)
+            }
+        }
+    }
     val reading = readAloud?.ui?.phase == "listening"
     val marks = readAloud?.ui?.result
     LaunchedEffect(reading, marks) { if (reading || marks != null) showChinese = true }
@@ -162,14 +202,14 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
             Column(m, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
                     if (shown) {
-                        RevealedChinese(page, env, readAloud?.ui?.result) { showChinese = false; env.onTap() }
+                        RevealedChinese(page, env, readAloud?.ui?.result, onWords = { pageWords = it }, onMarkTap = onMarkTap) { showChinese = false; env.onTap() }
                     } else {
                         RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
                     }
                 }
                 // The scrubbable waveform (phrase blocks, speed chip) under the Chinese.
-                ReaderScrubber(page, env, story = story, extra = readAloud?.let { ra -> { ReadAloudMic(ra.ui, ra.actions.onMic) } })
-                readAloud?.let { ReadAloudPanel(it.ui, it.actions) }
+                ReaderScrubber(page, env, story = story, extra = readAloud?.let { ra -> { ReadAloudMic(ra.ui, ra.actions.onMic) } }, locked = locked)
+                readAloud?.let { ReadAloudPanel(it.ui, it.actions, ReadAloudDiffEnv(pageWords, diffFocus, env.speak)) }
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }
@@ -197,7 +237,14 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAloud.Result?, onHide: () -> Unit) {
+private fun RevealedChinese(
+    page: ReaderPageDto,
+    env: ReaderEnv,
+    marks: ReadAloud.Result?,
+    onWords: (List<String>?) -> Unit = {},
+    onMarkTap: ((Int) -> Unit)? = null,
+    onHide: () -> Unit,
+) {
     val load = env.words
     val words by produceState(page.currentWords(), page.id, page.contentChinese, load) {
         if (value == null) value = load?.invoke(page)?.takeIf { w -> ReaderWords.matches(w.map { it.text }, page.contentChinese) }
@@ -209,6 +256,8 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
     val extraAtEnd = if (marked != null) marks.extraAtEnd else ""
     // Without Claude's words (yet, or they failed): the words made on the phone.
     val w = words ?: DeviceWords.of(page.contentChinese)
+    val report by androidx.compose.runtime.rememberUpdatedState(onWords)
+    LaunchedEffect(w) { report(w?.map { it.text }) }
     if (w == null) {
         if (marked != null) MarkedChars(marked, extraAtEnd, lineHeight = 38.sp, modifier = box.testTag("reader-read-aloud-marked"))
         else Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
@@ -221,6 +270,7 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
         for ((i, word) in w.withIndex()) {
             val len = word.text.codePointCount(0, word.text.length)
             val wordMarks = marked?.subList(cp, minOf(marked.size, cp + len))
+            val start = cp
             cp += len
             when {
                 word.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
@@ -232,7 +282,9 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
                     marks = wordMarks,
                     onLongPress = if (wordMarks != null && ReadAloud.needsLook(wordMarks)) ({ env.speak(word.text) }) else null,
                 ) {
-                    env.onWord(word, ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length))
+                    // A word the take heard differently: its row in "what it heard vs the page", not the explorer.
+                    if (wordMarks != null && onMarkTap != null && (ReadAloud.needsLook(wordMarks) || wordMarks.any { it.mark == ReadAloud.Mark.SOUND })) onMarkTap(start)
+                    else env.onWord(word, ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length))
                 }
             }
         }
