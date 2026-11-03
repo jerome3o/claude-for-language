@@ -4,9 +4,10 @@
  * chip (`ReadAloudMic`); a tap records through the voice boxes' pipeline (`useVoiceDictation`: the
  * live transcript while he reads, upload fallback, "Couldn't transcribe — tap to retry", the
  * signed-out state); tap again to stop, and the take is judged against the page's own Chinese. The
- * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with one line
- * under the audio ("✓ 92% — 2 to check") and the transcript small behind "You said ▸"
- * (`ReadAloudPanel`). 🎤 again replaces the result. Practice only: nothing is stored or queued
+ * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with one small,
+ * muted line under the audio ("✓ 92% — 2 to check"), a tiny legend of the marks it shows (wavy = tone
+ * off, solid = wrong, dashed = missed, ‸ = extra words; ReadAloud.css) and the transcript behind
+ * "You said ▸" (`ReadAloudPanel`). 🎤 again replaces the result. Practice only: nothing is stored or queued
  * (offline → "Needs a connection to check your reading"). Lab: ui/readers/ReadAloud.kt.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -14,8 +15,10 @@ import {
   judgeReadAloud,
   readAloudBucket,
   readAloudHeardAnything,
+  readAloudLegend,
   readAloudLine,
   readAloudTone,
+  READ_ALOUD_LEGEND,
   READ_ALOUD_AGAIN,
   READ_ALOUD_CHECKING,
   READ_ALOUD_EMPTY,
@@ -24,6 +27,7 @@ import {
   READ_ALOUD_OFFLINE,
   READ_ALOUD_STOP,
   READ_ALOUD_YOU_SAID,
+  type ReadAloudLegendKey,
   type ReadAloudResult,
 } from '@shared/reader/readAloud';
 import { practiseBlockNote } from '@shared/coach';
@@ -185,9 +189,29 @@ export function ReadAloudPanel({ ra }: { ra: ReadAloud }) {
           {READ_ALOUD_YOU_SAID} {showSaid ? '▾' : '▸'}
         </button>
       </div>
+      <ReadAloudLegend keys={readAloudLegend(result)} />
       {showSaid && (
         <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">{said}</div>
       )}
+    </div>
+  );
+}
+
+/** A sample of each mark the page shows, with its word ("‿ tone off · ▁ wrong · ╌ missed · ‸ extra words"). */
+export function ReadAloudLegend({ keys }: { keys: readonly ReadAloudLegendKey[] }) {
+  if (keys.length === 0) return null;
+  return (
+    <div className="reader-read-aloud-legend" data-testid="reader-read-aloud-legend">
+      {keys.map((k) => (
+        <span key={k} className="reader-read-aloud-legend-item" data-legend={k}>
+          {k === 'extra' ? (
+            <span className="ra-swatch ra-extra" aria-hidden="true">‸</span>
+          ) : (
+            <span className={`ra-swatch ra-char ra-${k}`} aria-hidden="true">{'\u00a0'.repeat(6)}</span>
+          )}
+          {READ_ALOUD_LEGEND[k]}
+        </span>
+      ))}
     </div>
   );
 }

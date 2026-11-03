@@ -99,6 +99,11 @@ class ReadAloudTest : LabScreenshotTest() {
         compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").assertIsDisplayed()
         compose.onNodeWithContentDescription("早 — missed, 上 — missed").assertIsDisplayed()
         compose.onNodeWithTag(ReadAloudTags.LINE).assertTextEquals("✕ 42% — 4 to check")
+        // A tiny legend of the marks this page shows: tone off (徐) and missed (早上好).
+        compose.onNodeWithTag(ReadAloudTags.LEGEND).assertIsDisplayed()
+        compose.onNodeWithText("tone off").assertIsDisplayed()
+        compose.onNodeWithText("missed").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasText("wrong")).fetchSemanticsNodes().size)
         // A long press on a word that needs a look says it.
         compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").performTouchInput { longClick() }
         compose.mainClock.advanceTimeBy(1_000)
@@ -133,6 +138,37 @@ class ReadAloudTest : LabScreenshotTest() {
     private val storyResult = ReadAloud.judge(story.contentChinese, "小明今天第一次去巴黎了她行奋")
 
     @Test fun marked() = shoot("readers-40-read-aloud-marked", settleMs = 2_500) { Page(story, handle(ReadAloudUi(result = storyResult, said = "小明今天第一次去巴黎了她行奋"))) }
+
+    @Test fun markedDark() = shoot("readers-40-read-aloud-marked-dark", dark = true, settleMs = 2_500) { Page(story, handle(ReadAloudUi(result = storyResult, said = "小明今天第一次去巴黎了她行奋"))) }
+
+    /** Jerome's case: a longer page with a wrong word, a tone slip, two missed characters and an extra word — on known-word chips. */
+    private val chengdu = ReaderPageDto(
+        "p3", 3, "成都是四川的省会，人们都说这里是天府之国。", "Chéngdū shì Sìchuān de shěnghuì, rénmen dōu shuō zhèlǐ shì tiānfǔ zhī guó.",
+        "Chengdu is the capital of Sichuan; people all say it is the land of abundance.",
+        words = listOf(
+            ReaderWordDto("成都", "Chéngdū", "Chengdu"), ReaderWordDto("是", "shì", "is"), ReaderWordDto("四川", "Sìchuān", "Sichuan"),
+            ReaderWordDto("的", "de", "of"), ReaderWordDto("省会", "shěnghuì", "provincial capital"), ReaderWordDto("，", "", ""),
+            ReaderWordDto("人们", "rénmen", "people"), ReaderWordDto("都", "dōu", "all"), ReaderWordDto("说", "shuō", "say"),
+            ReaderWordDto("这里", "zhèlǐ", "here"), ReaderWordDto("是", "shì", "is"), ReaderWordDto("天府之国", "tiānfǔ zhī guó", "land of abundance"),
+            ReaderWordDto("。", "", ""),
+        ),
+    )
+    private val chengduSaid = "成都是十船的省会了人们豆说这里是天国"
+    private val chengduEnv by lazy {
+        ReaderEnv(
+            known = setOf("成都", "是", "四川", "人们", "都", "说", "这里", "的"),
+            pageAudio = { _, _ -> clip },
+            analyze = env.analyze,
+        )
+    }
+
+    @Test fun chengdu() = shoot("readers-44-read-aloud-chengdu", settleMs = 2_500) {
+        Page(chengdu, handle(ReadAloudUi(result = ReadAloud.judge(chengdu.contentChinese, chengduSaid), said = chengduSaid)), chengduEnv)
+    }
+
+    @Test fun chengduDark() = shoot("readers-44-read-aloud-chengdu-dark", dark = true, settleMs = 2_500) {
+        Page(chengdu, handle(ReadAloudUi(result = ReadAloud.judge(chengdu.contentChinese, chengduSaid), said = chengduSaid)), chengduEnv)
+    }
 
     @Test fun listening() = shoot("readers-41-read-aloud-listening", settleMs = 2_500) {
         Page(story, handle(ReadAloudUi(phase = "listening", finalText = "小明今天第一次", partialText = "去巴黎")))

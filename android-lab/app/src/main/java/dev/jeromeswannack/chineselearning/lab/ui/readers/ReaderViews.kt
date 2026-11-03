@@ -53,7 +53,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
 import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.draw.drawBehind
@@ -192,7 +191,8 @@ fun ReaderPageView(page: ReaderPageDto, env: ReaderEnv, story: StoryPlayback? = 
 /**
  * The revealed Chinese as word chips (`ReaderWordsText`): each word is tappable (→ the word
  * sheet), punctuation stays plain, a line break starts a new row, a word already in a deck is
- * marked with a quieter chip and a green underline. Plain text until the words are there;
+ * marked with a quieter chip and a green underline (not while 🎤 Read it aloud marks are shown:
+ * the chips step back and [MarkedChars] draws the marks). Plain text until the words are there;
  * tapping anywhere that isn't a word hides the Chinese again.
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -210,7 +210,7 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
     // Without Claude's words (yet, or they failed): the words made on the phone.
     val w = words ?: DeviceWords.of(page.contentChinese)
     if (w == null) {
-        if (marked != null) Text(markedText(marked, extraAtEnd), fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box.testTag("reader-read-aloud-marked"))
+        if (marked != null) MarkedChars(marked, extraAtEnd, lineHeight = 38.sp, modifier = box.testTag("reader-read-aloud-marked"))
         else Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
         return
     }
@@ -225,7 +225,7 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
             when {
                 word.text.contains('\n') -> Spacer(Modifier.fillMaxWidth())
                 !ReaderWords.isTappable(word.text) ->
-                    if (wordMarks != null) Text(markedText(wordMarks), fontSize = 26.sp, color = Lab.colors.ink) else Text(word.text, fontSize = 26.sp, color = Lab.colors.ink)
+                    if (wordMarks != null) MarkedChars(wordMarks) else Text(word.text, fontSize = 26.sp, color = Lab.colors.ink)
                 else -> WordChip(
                     word,
                     known = word.text in env.known,
@@ -236,7 +236,7 @@ private fun RevealedChinese(page: ReaderPageDto, env: ReaderEnv, marks: ReadAlou
                 }
             }
         }
-        if (extraAtEnd.isNotEmpty()) Text(markedText(emptyList(), extraAtEnd), fontSize = 26.sp, modifier = Modifier.semantics { contentDescription = "You also said $extraAtEnd" })
+        if (extraAtEnd.isNotEmpty()) MarkedChars(emptyList(), extraAtEnd, modifier = Modifier.semantics { contentDescription = "You also said $extraAtEnd" })
     }
 }
 
@@ -252,20 +252,18 @@ private fun WordChip(word: ReaderWordDto, known: Boolean, marks: List<ReadAloud.
         known -> "${word.text}, in your decks"
         else -> word.text
     }
-    Text(
-        if (marks != null) markedText(marks) else AnnotatedString(word.text),
-        fontSize = 26.sp,
-        color = Lab.colors.ink,
-        modifier = Modifier.clip(shape).then(tap)
-            .background(if (known) Lab.colors.faint else Lab.colors.accentSoft.copy(alpha = 0.55f))
-            .then(if (known && marks == null) Modifier.drawBehind {
-                val h = 2.dp.toPx()
-                drawRect(Palette.Good.copy(alpha = 0.7f), topLeft = androidx.compose.ui.geometry.Offset(3.dp.toPx(), size.height - h - 1.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width - 6.dp.toPx(), h))
-            } else Modifier)
-            .semantics { contentDescription = label }
-            .testTag("word-chip")
-            .padding(horizontal = 3.dp),
-    )
+    // While a read-aloud result is shown the chip steps back (no fill, no clip, no known-word
+    // underline) so the marks sit cleanly on the page; a tap still opens the word.
+    val chip = Modifier.then(if (marks == null) Modifier.clip(shape) else Modifier).then(tap)
+        .then(if (marks == null) Modifier.background(if (known) Lab.colors.faint else Lab.colors.accentSoft.copy(alpha = 0.55f)) else Modifier)
+        .then(if (known && marks == null) Modifier.drawBehind {
+            val h = 2.dp.toPx()
+            drawRect(Palette.Good.copy(alpha = 0.7f), topLeft = androidx.compose.ui.geometry.Offset(3.dp.toPx(), size.height - h - 1.dp.toPx()), size = androidx.compose.ui.geometry.Size(size.width - 6.dp.toPx(), h))
+        } else Modifier)
+        .semantics { contentDescription = label }
+        .testTag("word-chip")
+        .padding(horizontal = 3.dp)
+    if (marks != null) MarkedChars(marks, modifier = chip) else Text(word.text, fontSize = 26.sp, color = Lab.colors.ink, modifier = chip)
 }
 
 @Composable

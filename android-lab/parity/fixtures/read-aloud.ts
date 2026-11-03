@@ -6,7 +6,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  judgeReadAloud, readAloudHeardAnything, readAloudLine, readAloudTone, readAloudBucket, readAloudCharLabel, readAloudNeedsLook,
+  judgeReadAloud, readAloudHeardAnything, readAloudLegend, READ_ALOUD_LEGEND, readAloudLine, readAloudTone, readAloudBucket, readAloudCharLabel, readAloudNeedsLook,
   READ_ALOUD_LABEL, READ_ALOUD_AGAIN, READ_ALOUD_STOP, READ_ALOUD_LISTENING, READ_ALOUD_CHECKING, READ_ALOUD_OFFLINE,
   READ_ALOUD_EMPTY, READ_ALOUD_YOU_SAID,
 } from '../../../shared/reader/readAloud';
@@ -59,6 +59,7 @@ const FIXED: [string, string][] = [
   ['OK，我们走吧！', 'ok 我们走吧'],
   ['', '你好'],
   ['我想买书。', '。。 '],
+  ['成都是四川的省会，人们都说这里是天府之国。', '成都是十船的省会了人们豆说这里是天国'],
 ];
 
 // Seeded mutations (insert / delete / substitute from a pool of look-alike and sound-alike characters).
@@ -93,6 +94,7 @@ const cases = [...FIXED, ...mutated].map(([page, transcript]) => {
     bucket: readAloudBucket(r.pct),
     labels: r.chars.map(readAloudCharLabel),
     needsLook: readAloudNeedsLook(r.chars),
+    legend: readAloudLegend(r),
   };
 });
 
@@ -102,5 +104,6 @@ writeFileSync(join(OUT, 'read-aloud.json'), JSON.stringify({
   copy: {
     label: READ_ALOUD_LABEL, again: READ_ALOUD_AGAIN, stop: READ_ALOUD_STOP, listening: READ_ALOUD_LISTENING,
     checking: READ_ALOUD_CHECKING, offline: READ_ALOUD_OFFLINE, empty: READ_ALOUD_EMPTY, youSaid: READ_ALOUD_YOU_SAID,
+    legend: READ_ALOUD_LEGEND,
   },
 }, null, 1));

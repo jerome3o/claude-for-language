@@ -55,6 +55,7 @@ class ReadAloudParityTest {
             assertEquals(str(o, "bucket"), ReadAloud.bucket(r.pct), where)
             assertEquals(o["labels"]!!.jsonArray.map { it.jsonPrimitive.content }, r.chars.map(ReadAloud::charLabel), where)
             assertEquals(o["needsLook"]!!.jsonPrimitive.boolean, ReadAloud.needsLook(r.chars), where)
+            assertEquals(o["legend"]!!.jsonArray.map { it.jsonPrimitive.content }, ReadAloud.legend(r), where)
         }
         assertTrue(marked > 50)
     }
@@ -75,5 +76,7 @@ class ReadAloudParityTest {
         assertEquals(str(copy, "offline"), ReadAloud.OFFLINE)
         assertEquals(str(copy, "empty"), ReadAloud.EMPTY)
         assertEquals(str(copy, "youSaid"), ReadAloud.YOU_SAID)
+        val legend = copy["legend"]!!.jsonObject
+        for (k in listOf("close", "wrong", "missed", "extra")) assertEquals(str(legend, k), ReadAloud.legendLabel(k), k)
     }
 }
