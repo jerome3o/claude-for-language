@@ -1,12 +1,11 @@
 /**
- * Claude chats — the ONE place a chat reply's prompt is built and the model is called, from a
- * context object (`ClaudeChatContext`), so other Claude chats (a card's Ask Claude, role-play, a
- * reader) can move onto it by adding a `kind`. Today: "💬 Ask Claude" on the Sentence Coach
+ * The Coach's "💬 Ask Claude" chat around the Claude agent harness (services/claude-agent: its prompt
+ * is the `general` context, persona.ts; the model call is `runClaudeTurn`). Here: "💬 Ask Claude" on the Sentence Coach
  * (docs/CHAT.md "Ask Claude chat", shared/coach/askChat.ts): a plain chat with Claude, stored as a
  * coach conversation with `kind = 'ask'` (migration 0143). Replies are
  * written in the background exactly like the Coach's follow-ups (services/coach-replies.ts:
- * coach-reply-queue, claim, retries, the stale sweep, Retry) — this file is only the part that
- * differs: the prompt and the model call.
+ * coach-reply-queue, claim, retries, the stale sweep, Retry) — this file holds what is specific to
+ * it: the turns from the stored messages, the E2E stand-ins and "Make flashcards from this chat".
  *
  * Language: like Ask Claude on the study card — simple, graded Chinese by default (the same
  * immersion rules, `GENERAL_IMMERSION_RULES`, and a sample of the learner's started words), or
@@ -17,14 +16,12 @@
  * No tools: cards are made from the chat afterwards ("Make flashcards from this chat",
  * `proposeCoachAskFlashcards`), the default selection being the words he tapped.
  */
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import type { CoachMessage, Env } from '../types';
 import { CARD_STANDARD } from '@shared/cards/standard';
 import { normalizeHanziAnswer } from '@shared/lesson/answer-check';
 import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
-import { GENERAL_IMMERSION_RULES, knownWordsBlock } from './ask-prompt';
-import { cachedSystem, chatTurnParams, ChatTurnMeter } from './chat-turn';
-import { sampleKnownWords } from './ai';
+import { runClaudeTurn } from './claude-agent';
 import { StructuredCallError, structuredCall } from './structured-call';
 import { normalizeProposedCards, proposeFlashcardsTool, knownHanziOf, PROPOSE_MODEL, type ProposedCard } from './chat/flashcards';
 
@@ -48,29 +45,9 @@ export interface CoachAskTurn {
 /** Writes one reply from the conversation so far (the last turn is the learner's). */
 export type CoachAskReplyFn = (turns: CoachAskTurn[], context: ClaudeChatContext) => Promise<string>;
 
-const ROLE = `You are a friendly Chinese tutor chatting with a learner of Chinese in the app's "Ask Claude" chat. They can ask you anything — about Chinese, about China, about everyday life, or just chat to practise. The app shows pinyin over every Chinese word on request, a tap on a word opens a dictionary, and the learner may read your messages aloud for practice, so write Chinese that is worth reading aloud.`;
-
-const ENGLISH = `Answer in clear, friendly English (Markdown is fine). Use Chinese examples with pinyin and an English gloss where they help. Keep it focused: a few short paragraphs or a short list.`;
-
-const CARDS = `If the learner asks for flashcards, tell them to use ⋯ → "Make flashcards from this chat" — it makes cards from the words they tapped. Whenever you write a word card in your answer, follow the card standard:\n${CARD_STANDARD}`;
-
-/**
- * The system prompt of one reply as two blocks for prompt caching (services/chat-turn.ts): the
- * STATIC rules (role, language rules, cards) — the same for everyone in that language — then the
- * learner's known-words block ('' in English or without words; deterministic per user and day).
- */
-export function buildClaudeChatSystemBlocks(opts: Pick<ClaudeChatContext, 'kind' | 'language' | 'knownWords'>): [staticRules: string, learner: string] {
-  const parts = [ROLE, opts.language === 'zh' ? GENERAL_IMMERSION_RULES : ENGLISH, CARDS];
-  return [parts.join('\n\n'), opts.language === 'zh' ? knownWordsBlock(opts.knownWords) : ''];
-}
-
-/** The system prompt of one reply, from its context (the two blocks joined). */
-export function buildClaudeChatSystemPrompt(opts: Pick<ClaudeChatContext, 'kind' | 'language' | 'knownWords'>): string {
-  return buildClaudeChatSystemBlocks(opts).filter(Boolean).join('\n\n');
-}
-
-/** A chat reply's output budget (thinking is off, so it is all answer). */
-export const CLAUDE_CHAT_MAX_TOKENS = 4000;
+// The prompt (persona.ts) and the model call (the `general` context) live in the Claude agent harness.
+export { buildClaudeChatSystemBlocks, buildClaudeChatSystemPrompt } from './claude-agent/persona';
+export { CLAUDE_CHAT_MAX_TOKENS } from './claude-agent/contexts/general';
 
 /**
  * The model conversation from the stored messages: the learner's and Claude's finished messages in
@@ -97,37 +74,25 @@ export function storedAskAnswer(answer: string, language: AskLanguage): string {
   return language === 'zh' ? plainAnswerText(answer) : answer.trim();
 }
 
-/** The real model call (or the E2E stand-in, checked first); null when the coach can't answer here. */
+/**
+ * The real model call (or the E2E stand-in, checked first); null when the coach can't answer here.
+ * The call is a `general` turn of the Claude agent harness (`runClaudeTurn`): no tools, thinking off,
+ * the static rules + the learner block cached.
+ */
 export function defaultCoachAskReply(
   env: Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'>,
   opts: { client?: Pick<Anthropic, 'messages'> } = {},
 ): CoachAskReplyFn | null {
   if (env.E2E_TEST_MODE === 'true') return fakeCoachAskReply;
   if (!env.ANTHROPIC_API_KEY) return null;
-  const apiKey = env.ANTHROPIC_API_KEY;
   return async (turns, context) => {
-    const { language, userId } = context;
-    const knownWords = context.knownWords ?? (language === 'zh' ? await sampleKnownWords(env.DB, userId) : []);
-    const client = opts.client ?? new Anthropic({ apiKey });
-    // A chat turn (services/chat-turn.ts): thinking off, the static rules + the learner block cached,
-    // the conversation's tail cached for the next turn. No tools.
-    const meter = new ChatTurnMeter('coach_ask', userId);
-    const res = await client.messages.create(chatTurnParams({
-      system: cachedSystem(...buildClaudeChatSystemBlocks({ kind: context.kind, language, knownWords })),
-      tools: [],
-      messages: turns.map((t) => ({ role: t.role, content: t.content })),
-      maxTokens: CLAUDE_CHAT_MAX_TOKENS,
-    }));
-    meter.add(res);
-    meter.finish();
-    const text = res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
-    // An empty answer (cut off / declined): worth another delivery.
-    if (!text) throw new StructuredCallError('Claude gave an empty answer', true);
-    return text;
+    const r = await runClaudeTurn(
+      env,
+      { kind: 'general' },
+      { userId: context.userId, language: context.language, turns, knownWords: context.knownWords },
+      { client: opts.client },
+    );
+    return r.answer;
   };
 }
 

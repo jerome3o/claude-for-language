@@ -22,8 +22,7 @@
  */
 
 import type { CoachAnalysis, CoachConversation, CoachMessage, Env } from '../types';
-import type { CoachChatTurn, ReadOnlyToolCall, ToolAction } from './ai';
-import { coachChatWithTools } from './ai';
+import { applyCheckpointed, runClaudeTurn, type ActionCheckpoint, type ChatTurn as CoachChatTurn, type ReadOnlyToolCall, type ToolAction } from './claude-agent';
 import { coachSentence } from './sentence-coach';
 import { translateSentence } from './sentence-translate';
 import { explainSentenceBriefly, toCoachBreakdown } from './sentence-explain-brief';
@@ -54,13 +53,8 @@ export interface CoachToolResult {
   error?: string;
 }
 
-interface Checkpoint {
-  answer: string;
-  actions: ToolAction[];
-  /** How many of `actions` already ran (their results are in `results`). */
-  applied: number;
-  results: CoachToolResult[];
-}
+/** The answer + its tool actions, saved before any action runs (claude-agent/run.ts `applyCheckpointed`). */
+type Checkpoint = ActionCheckpoint<ToolAction, CoachToolResult>;
 
 export type CoachChatFn = (history: CoachChatTurn[], ctx: { db: D1Database; userId: string }) => Promise<{
   answer: string;
@@ -110,7 +104,8 @@ export function defaultChat(env: Pick<Env, 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'
   if (env.E2E_TEST_MODE === 'true') return fakeChat;
   if (!env.ANTHROPIC_API_KEY) return null;
   const key = env.ANTHROPIC_API_KEY;
-  return (history, ctx) => coachChatWithTools(key, history, ctx);
+  // A `coach` turn of the Claude agent harness (claude-agent/contexts/coach.ts).
+  return (history, ctx) => runClaudeTurn({ DB: ctx.db, ANTHROPIC_API_KEY: key }, { kind: 'coach' }, { userId: ctx.userId, turns: history });
 }
 
 // E2E_TEST_MODE stand-ins: slow enough (2.5 s) that a test can leave the page first.
@@ -434,11 +429,7 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       await saveCheckpoint(env.DB, messageId, cp);
     }
     const apply = deps.apply ?? defaultApply(env as Env);
-    while (cp.applied < cp.actions.length) {
-      cp.results.push(await apply(userId, cp.actions[cp.applied]));
-      cp.applied += 1;
-      await saveCheckpoint(env.DB, messageId, cp);
-    }
+    await applyCheckpointed(cp, (action) => apply(userId, action), (next) => saveCheckpoint(env.DB, messageId, next));
     await finish(env.DB, messageId, cp.answer, cp.results.length ? JSON.stringify(cp.results) : null);
     return 'done';
   } catch (err) {

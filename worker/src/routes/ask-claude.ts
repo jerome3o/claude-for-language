@@ -28,7 +28,7 @@ import type { Env, Note } from '../types';
 import * as db from '../db/queries';
 import * as content from '../services/content';
 import { createCustomLessonFromSpec } from '../services/custom-lesson';
-import { askAboutNoteWithTools, type ToolAction } from '../services/ai';
+import { askTurns, runClaudeTurn, type ToolAction } from '../services/claude-agent';
 import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from '../services/tts-cache';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
@@ -173,10 +173,12 @@ askClaude.post('/notes/:id/ask', async (c) => {
     : checkAskQuestion(c.env, settings.autoCheck, question, askCheckContext(note, history));
 
   try {
-    const { answer, toolActions, readOnlyToolCalls } = await askAboutNoteWithTools(
-      c.env.ANTHROPIC_API_KEY, note, question, body.context, history,
-      { db: c.env.DB, userId, deckId: note.deck_id },
-      { language },
+    // A `card` turn of the Claude agent harness (services/claude-agent/contexts/card.ts).
+    const typed = body.context?.userAnswer ? { answer: body.context.userAnswer, correct: body.context.correctAnswer } : undefined;
+    const { answer, toolActions, readOnlyToolCalls } = await runClaudeTurn(
+      c.env,
+      { kind: 'card', note_id: note.id, note, ...(typed ? { typed } : {}) },
+      { userId, language, turns: askTurns(question, history) },
     );
 
     const toolResults = await applyToolActions(c, userId, note, toolActions);

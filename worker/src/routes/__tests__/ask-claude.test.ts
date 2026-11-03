@@ -4,7 +4,7 @@
  * "in English"), the Chinese prompt with the learner's known words, Markdown taken out of a
  * Chinese answer, tools still applied, the question's auto-check (stored, the switch, quick
  * chips, English questions), word chips + translation made on request and cached, ownership.
- * Claude is faked: the ask agent loop through its client seam, everything else below
+ * Claude is faked: the ask agent loop through the harness's client seam (`createAnthropicClient`), everything else below
  * `structuredCall` (the real retry / validate logic runs).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -22,15 +22,10 @@ vi.mock('../../services/structured-call', async (importOriginal) => {
       mod.structuredCall({ ...opts, client: { messages: { create: ai.create } } as never, sleep: async () => {} }),
   };
 });
-vi.mock('../../services/ai', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('../../services/ai')>();
-  return {
-    ...mod,
-    askAboutNoteWithTools: (...args: Parameters<typeof mod.askAboutNoteWithTools>) => {
-      const [k, n, q, ctx, h, d, o] = args;
-      return mod.askAboutNoteWithTools(k, n, q, ctx, h, d, { ...o, client: { messages: { create: ai.create } } as never });
-    },
-  };
+// The ask turn runs through the Claude agent harness; its client factory is the seam.
+vi.mock('../../services/claude-agent/model', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../services/claude-agent/model')>();
+  return { ...mod, createAnthropicClient: () => ({ messages: { create: ai.create } }) as never };
 });
 
 // 🎧 Listen first: the answer's clip goes through the one chat TTS path (faked here).
