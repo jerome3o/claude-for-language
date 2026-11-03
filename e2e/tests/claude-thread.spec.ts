@@ -84,9 +84,8 @@ test('a card thread: the header chip, the card’s chips, a streamed answer, the
   await page.getByTestId('claude-thread-chip-sentences').click();
   await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+$/, { timeout: 15_000 });
   await expect(page.getByTestId('claude-chat-reply').last()).toContainText(FINAL, { timeout: 25_000 });
-  // After the reply: at most three chips, the one used gone.
-  await expect(page.getByTestId('claude-thread-chips').locator('button')).toHaveCount(3);
-  await expect(page.getByTestId('claude-thread-chip-sentences')).toHaveCount(0);
+  // After the first message: no suggestion chips.
+  await expect(page.getByTestId('claude-thread-chips')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/02-card-thread.png` });
   await page.getByTestId('claude-thread-context-chip').click();
   await expect(page).toHaveURL(new RegExp(`/cards/${note.id}$`));

@@ -154,7 +154,9 @@ describe('ContextClaudeSheet (a reader page / an exercise)', () => {
     expect(onResolved).toHaveBeenCalledWith(false);
     expect(q('claude-thread-reader-hint')).toBeTruthy();
     expect(q('claude-thread-title')!.textContent).toContain('Ask about this page');
-    expect(q('claude-thread-context-chip')!.textContent).toContain('Reader · 成都 p.2');
+    // The sheet is open over the page: no "Reader · 成都 p.2" chip, no ✕ (a grab handle closes it).
+    expect(q('claude-thread-context-chip')).toBeNull();
+    expect(q('claude-thread-close')!.getAttribute('aria-label')).toBe('Close');
     const chipIds = [...host.querySelectorAll('[data-testid^="claude-thread-chip-"]')].map((b) => b.getAttribute('data-testid'));
     expect(chipIds).toEqual(['claude-thread-chip-my_words', 'claude-thread-chip-page_meaning', 'claude-thread-chip-grammar', 'claude-thread-chip-quiz']);
     expect(q('claude-composer-intents')).toBeNull();
@@ -179,12 +181,17 @@ describe('ContextClaudeSheet (a reader page / an exercise)', () => {
     await render(props());
     await waitFor(() => !!q('claude-chat-reply'), 'the resumed thread');
     expect(api.getClaudeThread).toHaveBeenCalledWith('recent', null);
-    expect(q('context-claude-new')).toBeTruthy();
-    await act(async () => q('claude-thread-chip-grammar')!.click());
+    // A started thread: no suggestion chips; the follow-up is typed / said.
+    expect(q('claude-thread-chips')).toBeNull();
+    await act(async () => fake.current!.land('这里为什么用“都”？'));
     await flush();
-    expect(api.sendClaudeThreadMessage).toHaveBeenCalledWith('recent', expect.objectContaining({ looked_up: ['熊猫'], said_wrong: null, quick: true }));
+    expect(api.sendClaudeThreadMessage).toHaveBeenCalledWith('recent', expect.objectContaining({ looked_up: ['熊猫'], said_wrong: null, text: '这里为什么用“都”？' }));
+    // ⋯ → ＋ New chat.
+    expect(q('context-claude-new')).toBeNull();
+    await act(async () => q('claude-thread-more')!.click());
     await act(async () => q('context-claude-new')!.click());
     await waitFor(() => !!q('claude-thread-empty'), 'a new chat');
+    expect(q('claude-thread-chip-grammar')).toBeTruthy();
   });
 
   it('an exercise: its chips follow the checked answer; offline the question waits in the outbox', async () => {
@@ -196,7 +203,7 @@ describe('ContextClaudeSheet (a reader page / an exercise)', () => {
       source: 'lesson',
     }));
     await waitFor(() => !!q('claude-thread-exercise-hint'), 'the empty exercise thread');
-    expect(q('claude-thread-context-chip')!.textContent).toContain('Exercise · Translate');
+    expect(q('claude-thread-context-chip')).toBeNull();
     expect(q('claude-thread-chip-why_wrong')!.textContent).toBe('为什么错了 Why is my answer wrong?');
     await act(async () => q('claude-thread-chip-why_wrong')!.click());
     await flush();

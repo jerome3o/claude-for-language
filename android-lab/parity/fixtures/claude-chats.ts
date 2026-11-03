@@ -8,7 +8,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   chipsFor, claudeReplyPollMs, composerFor, headerChipFor, readerPageWords, resumeThreadFor, turnStatusLine,
-  CHIPS_AFTER_REPLY_MAX, CLAUDE_INTENT_LABELS, CLAUDE_LIVE_FRESH_MS, CLAUDE_POLL_FAST_FOR_MS, CLAUDE_POLL_FAST_MS, CLAUDE_POLL_SLOW_MS,
+  CLAUDE_INTENT_LABELS, CLAUDE_LIVE_FRESH_MS, CLAUDE_POLL_FAST_FOR_MS, CLAUDE_POLL_FAST_MS, CLAUDE_POLL_SLOW_MS,
   PRACTICE_READ_ONLY_NOTE, RESUME_WINDOW_MS, type ResumeCandidate,
 } from '../../../shared/claude/contexts';
 import { contextBadge, type ClaudeIntent, type StoredClaudeContext } from '../../../shared/claude/context';
@@ -81,9 +81,9 @@ for (const ctx of CTXS) {
   for (const language of ['zh', 'en'] as const) {
     for (const typedAnswer of [false, true]) {
       for (const hasSentence of [false, true]) {
-        for (const replies of [0, 1, 4]) {
+        for (const started of [false, true]) {
           for (const used of [[], ['sentences', 'quiz', 'natural'], ['phrase', 'quiz', 'story']]) {
-            chips.push({ ctx, language, typedAnswer, hasSentence, replies, used, out: chipsFor(stored(ctx), { language, typedAnswer, hasSentence, replies, used }) });
+            chips.push({ ctx, language, typedAnswer, hasSentence, started, used, out: chipsFor(stored(ctx), { language, typedAnswer, hasSentence, started, used }) });
           }
         }
       }
@@ -208,7 +208,7 @@ writeFileSync(
     inboxHumans: HUMANS, inboxThreads: INBOX_THREADS, inbox, contextOpenLabels,
     chips, composers, badges, headerChips, now: NOW, threads: THREADS, resume, polls, statuses, recapWords: RECAP_WORDS, pageWords,
     copy: {
-      chipsAfterReplyMax: CHIPS_AFTER_REPLY_MAX, intentLabels: CLAUDE_INTENT_LABELS, practiceReadOnly: PRACTICE_READ_ONLY_NOTE, resumeWindowMs: RESUME_WINDOW_MS,
+      intentLabels: CLAUDE_INTENT_LABELS, practiceReadOnly: PRACTICE_READ_ONLY_NOTE, resumeWindowMs: RESUME_WINDOW_MS,
       pollFastMs: CLAUDE_POLL_FAST_MS, pollFastForMs: CLAUDE_POLL_FAST_FOR_MS, pollSlowMs: CLAUDE_POLL_SLOW_MS, liveFreshMs: CLAUDE_LIVE_FRESH_MS,
     },
   }, null, 1),

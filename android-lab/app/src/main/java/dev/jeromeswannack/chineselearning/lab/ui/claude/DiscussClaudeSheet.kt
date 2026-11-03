@@ -1,11 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.ui.claude
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,7 +29,7 @@ import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SuggestedCard
 import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreads
-import dev.jeromeswannack.chineselearning.lab.ui.kit.LabModalSheet
+import dev.jeromeswannack.chineselearning.lab.ui.kit.LabTallSheet
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
@@ -110,8 +107,8 @@ fun DiscussClaudeSheet(
         key = "discuss-claude-$messageId-$id",
         factory = ClaudeThreadViewModel.Factory(app, id, if (id == ClaudeThreadViewModel.NEW) newContext else null, "chat_message", false),
     )
-    LabModalSheet(onDismiss = onDismiss) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.94f).imePadding().testTag(DiscussClaudeTags.SHEET)) {
+    LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(DiscussClaudeTags.SHEET)) {
+        run {
             ClaudeThreadContent(
                 app, vm,
                 open = { path -> onDismiss(); openPath(path) },

@@ -33,7 +33,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { parseStoredContext } from '@shared/claude/context';
 import { PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
-import type { AskLanguage } from '@shared/study/askClaude';
+import { replyLanguage, type AskLanguage } from '@shared/study/askClaude';
 import type { CoachMessage, Env } from '../../types';
 import * as db from '../../db/queries';
 import { cachedConversationTTS } from '../tts-cache';
@@ -272,12 +272,16 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
       ...(firstTextAt !== null ? { first_token_ms: firstTextAt - started } : {}),
       ...(rounds ? { rounds } : {}),
     };
-    const finished = await store.finishTurn(env.DB, messageId, threadId, cp.answer, cp.results.length ? JSON.stringify(cp.results) : null, meta);
+    // The language the reply is WRITTEN in (the apps' rule, shared/study/askClaude.ts): a turn asked for
+    // English that Claude answered in Chinese is stored 'zh', so the apps draw word chips and the 🎧
+    // clip below is made for it (Jerome, Nov 2026).
+    const answerLang = replyLanguage(row.answer_lang, cp.answer);
+    const finished = await store.finishTurn(env.DB, messageId, threadId, cp.answer, cp.results.length ? JSON.stringify(cp.results) : null, meta, answerLang);
     if (!finished) return 'skipped';
     await live.done(cp.answer);
 
-    if (prepared.mode === 'card' && prepared.question) await dualWriteNoteQuestion(env.DB, row, prepared, cp.answer, messageId);
-    if (prepared.mode === 'practice' && prepared.language === 'zh') {
+    if (prepared.mode === 'card' && prepared.question) await dualWriteNoteQuestion(env.DB, row, { ...prepared, language: answerLang ?? prepared.language }, cp.answer, messageId);
+    if (prepared.mode === 'practice' && answerLang === 'zh') {
       // A role-play line is meant to be heard: its clip in the persona's voice, made now in the
       // background (never awaited) so ▶ / 🎧 play at once — the same R2 `tts-cache/` key
       // `POST /api/practice/tts` serves both apps.
@@ -292,7 +296,7 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
         else await work;
       }
     }
-    if ((prepared.mode === 'general' || prepared.mode === 'card' || prepared.mode === 'reader' || prepared.mode === 'exercise') && prepared.language === 'zh') {
+    if ((prepared.mode === 'general' || prepared.mode === 'card' || prepared.mode === 'reader' || prepared.mode === 'exercise') && answerLang === 'zh') {
       const clip = clipMaker(env, opts);
       if (clip) {
         const work = (async () => {

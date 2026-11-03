@@ -165,8 +165,8 @@ describe('ClaudeThreadView', () => {
     expect(q('claude-chat-reply')!.textContent).toContain('回答你');
     expect(api.getClaudeThread).toHaveBeenLastCalledWith('t1', T0);
     expect(track).toHaveBeenCalledWith('claude.reply_shown', expect.objectContaining({ via: 'socket', intent: 'ask', context_kind: 'general' }));
-    // After a reply: at most three suggestion chips.
-    expect(q('claude-thread-chips')!.querySelectorAll('button').length).toBeLessThanOrEqual(3);
+    // Once the thread has a message: no suggestion chips.
+    expect(q('claude-thread-chips')).toBeNull();
   });
 
   it('offline: the first message is queued, shown at once, and sent when the connection is back', async () => {
@@ -224,7 +224,7 @@ describe('ClaudeThreadView', () => {
     expect(track).toHaveBeenCalledWith('claude.message_send', expect.objectContaining({ intent: 'check', offline: false }));
   });
 
-  it('a card thread: the header chip opens the card hub; the card’s chips; Ask only', async () => {
+  it('a card thread: the header chip opens the card hub; no chips once started; Ask only', async () => {
     api.getClaudeThread.mockResolvedValue({
       thread: threadRow('c1', { context_kind: 'card', context: { kind: 'card', note_id: 'n1', label: '银行' }, title: '银行和很行有什么不同？' }),
       messages: [msg('u1', 'c1', 'user', '银行和很行有什么不同？'), msg('a1', 'c1', 'assistant', '银行是 bank。')],
@@ -233,7 +233,8 @@ describe('ClaudeThreadView', () => {
     await render({ threadId: 'c1' });
     await waitFor(() => !!q('claude-thread-context-chip'), 'the context chip');
     expect(q('claude-thread-context-chip')!.textContent).toContain('Asked on card · 银行');
-    expect(q('claude-thread-chip-sentences')).toBeTruthy();
+    // A started thread: no suggestion chips.
+    expect(q('claude-thread-chips')).toBeNull();
     expect(q('claude-composer-intents')).toBeNull();
     await act(async () => q('claude-thread-context-chip')!.click());
     await flush();

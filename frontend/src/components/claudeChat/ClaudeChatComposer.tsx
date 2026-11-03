@@ -1,6 +1,6 @@
 /**
  * A Claude chat's composer — the voice-first box (🎤 Say it → review → Send, ✏️ Type a tap away;
- * components/voice/VoiceTextInput); no deck picker. Context-agnostic. Send = Ask. With `composer`
+ * components/voice/VoiceTextInput, `compact`: typing is one row — box (1 → 4 lines) · 🎤 · ➤); no deck picker. Context-agnostic. Send = Ask. With `composer`
  * (shared/claude/contexts.ts `composerFor`, a new general chat) the other intents for what is in the
  * box sit under it — ✏️ Check · 🔍 Explain for Chinese, 🔤 Translate for English — with the hint.
  * A spoken message that failed to send goes into the box (typing) so it can be fixed or sent again.
@@ -16,7 +16,7 @@ import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { VoiceTextInputView } from '../voice/VoiceTextInput';
 import { enterToSubmit } from '../voice/enterToSubmit';
 
-export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or', intentsOnlyWithText = false }: {
+export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or', intentsOnlyWithText = false, compact = false }: {
   value: string;
   onChange: (value: string) => void;
   /** `spoken` = sent from the review of a take; `intent` = one of the other buttons (default Ask). */
@@ -32,6 +32,8 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
   intentsLabel?: string;
   /** Hide the other intents until there is text; while typing they share the main button's row. */
   intentsOnlyWithText?: boolean;
+  /** One-row typing (box 1 → 4 lines · 🎤 · ➤), a lower voice row — the Claude thread view / sheets. */
+  compact?: boolean;
   /** Sending, or Claude is still answering. */
   busy: boolean;
   /** The last send failed: back to typing with the text kept. */
@@ -94,6 +96,7 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
         listeningPlaceholder={language === 'zh' ? '在听… 用中文问吧 (or English)' : 'Listening… ask anything'}
         submitLabel={busy ? '…' : submitLabel}
         multiline
+        compact={compact}
         lang={language === 'en' ? 'en' : 'zh'}
         disabled={busy}
         testId="claude-chat-voice"

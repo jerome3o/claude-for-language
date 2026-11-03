@@ -24,6 +24,19 @@ object AskClaude {
     /** Port of effectiveAskLanguage. */
     fun effectiveLanguage(setting: String?): String = parseLanguage(setting) ?: DEFAULT_LANGUAGE
 
+    /**
+     * Port of replyLanguage: the language Claude's reply is SHOWN in — 'zh' when asked in Chinese,
+     * else mostly-Chinese text (Han characters ≥ 2 × Latin words) is 'zh', else the stored one. A turn
+     * asked for English but answered in Chinese had no word chips (Jerome, Nov 2026).
+     */
+    fun replyLanguage(answerLang: String?, text: String): String? {
+        if (answerLang == ZH) return ZH
+        val han = text.count { it in '一'..'鿿' || it in '㐀'..'䶿' }
+        val words = Regex("[A-Za-z]+").findAll(text).count()
+        if (han > 0 && han >= 2 * words) return ZH
+        return if (answerLang == EN) EN else null
+    }
+
     /** One quick-question chip (port of AskQuickAction). */
     data class QuickAction(val id: String, val label: String, val question: String)
 

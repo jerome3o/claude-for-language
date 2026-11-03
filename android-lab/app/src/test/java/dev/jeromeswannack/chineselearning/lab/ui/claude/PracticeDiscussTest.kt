@@ -133,9 +133,8 @@ class PracticeDiscussTest : LabScreenshotTest() {
         compose.onNodeWithTag(DiscussClaudeTags.QUOTE).assertTextEquals(MESSAGE.content)
         compose.onNodeWithTag("discuss-cards").assertIsDisplayed()
         compose.onNodeWithText("✨ Claude suggests 2 cards — tick the ones you want").assertIsDisplayed()
-        // The chat-message chips; "What does it mean" was asked already (used).
-        for (id in listOf("natural", "reply", "cards")) compose.onNodeWithTag(ClaudeThreadTags.chip(id)).assertExists()
-        compose.onNodeWithTag(ClaudeThreadTags.chip("meaning")).assertDoesNotExist()
+        // A started thread: no suggestion chips (only before the first message).
+        compose.onNodeWithTag(ClaudeThreadTags.CHIPS).assertDoesNotExist()
     }
 
     // ---------------- shots ----------------
@@ -147,7 +146,7 @@ class PracticeDiscussTest : LabScreenshotTest() {
         Box(Modifier.fillMaxSize()) {
             ChatScreen(C.ui, dev.jeromeswannack.chineselearning.lab.ui.chat.ChatActions())
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (dark) 0.6f else 0.4f)))
-            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.92f).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Lab.colors.card)) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(0.96f).clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(Lab.colors.card)) {
                 ClaudeThreadScreen(
                     S.discussThread,
                     ClaudeThreadActions(),

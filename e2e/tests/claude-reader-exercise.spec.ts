@@ -102,7 +102,8 @@ test('📖 Ask Claude about this page: the page thread streams a reply and shows
   await page.getByTestId('reader-ask-claude').click();
   const sheet = page.getByTestId('context-claude-sheet');
   await expect(sheet).toBeVisible({ timeout: 15_000 });
-  await expect(sheet.getByTestId('claude-thread-context-chip')).toContainText('Reader · 小明在巴黎 p.2');
+  // The sheet is open over the page: no context chip (the page's own chip is in the Chats tab).
+  await expect(sheet.getByTestId('claude-thread-context-chip')).toHaveCount(0);
   await expect(sheet.getByTestId('claude-thread-reader-hint')).toBeVisible();
   await expect(sheet.getByTestId('claude-thread-chip-page_meaning')).toBeVisible();
   await expect(sheet.getByTestId('claude-thread-chip-grammar')).toBeVisible();
@@ -119,7 +120,11 @@ test('📖 Ask Claude about this page: the page thread streams a reply and shows
   await expect(sheet).toHaveCount(0);
   await page.getByTestId('reader-ask-claude').click();
   await expect(page.getByTestId('context-claude-sheet').getByTestId('claude-chat-reply').last()).toContainText(FINAL_ZH, { timeout: 15_000 });
+  // ⋯ → ＋ New chat; no suggestion chips once the thread has a message.
+  await expect(page.getByTestId('claude-thread-chips')).toHaveCount(0);
+  await page.getByTestId('claude-thread-more').click();
   await expect(page.getByTestId('context-claude-new')).toBeVisible();
+  await page.locator('.claude-chat-menu-backdrop').click({ position: { x: 5, y: 5 } });
   await page.getByTestId('claude-thread-close').click();
 
   // The Chats tab: the thread with its context emoji, which leads back to the page.
@@ -173,7 +178,7 @@ test('🧩 Ask Claude on a mini lesson exercise: the exercise thread from the le
   await page.getByTestId('lesson-ask-claude').click();
   const sheet = page.getByTestId('context-claude-sheet');
   await expect(sheet).toBeVisible({ timeout: 15_000 });
-  await expect(sheet.getByTestId('claude-thread-context-chip')).toContainText('Exercise · Translate');
+  await expect(sheet.getByTestId('claude-thread-context-chip')).toHaveCount(0);
   await expect(sheet.getByTestId('claude-thread-exercise-hint')).toBeVisible();
   await expect(sheet.getByTestId('claude-thread-chip-explain')).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-exercise-sheet.png` });

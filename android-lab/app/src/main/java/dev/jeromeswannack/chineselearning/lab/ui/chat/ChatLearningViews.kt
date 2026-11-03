@@ -281,7 +281,8 @@ private fun Segment(w: ReaderWordDto, chip: Boolean, known: Boolean, showPinyin:
                 } else Modifier.background(tint))
                 .semantics { contentDescription = if (known) "${w.text}, in your decks" else w.text }
                 .testTag("chat-word-chip")
-                .padding(horizontal = 2.dp),
+                // Tighter than before (2dp a side): Chinese reads as a line, not as separate tiles.
+                .padding(horizontal = 1.dp),
         )
     }
 }

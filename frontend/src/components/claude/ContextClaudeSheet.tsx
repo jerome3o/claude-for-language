@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { resumeThreadFor } from '@shared/claude/contexts';
 import type { ClaudeContextSnapshot, ClaudeThreadContext } from '@shared/claude/context';
-import { ClaudeThreadView } from './ClaudeThreadView';
+import { ClaudeThreadView, type ClaudeThreadMenuItem } from './ClaudeThreadView';
 import { refreshContextThreads, useContextThreads } from '../../services/contextClaudeThreads';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { track } from '../../services/analytics';
@@ -58,22 +58,18 @@ export function ContextClaudeSheet(props: ContextClaudeSheetProps) {
     onResolved?.(!!resumed);
   }, [threads, resumed, onResolved]);
 
-  const headerExtra =
-    threadId !== 'new' ? (
-      <div className="card-claude-earlier">
-        <button
-          type="button"
-          className="card-claude-new"
-          onClick={() => {
+  // ⋯ → ＋ New chat (the sheet keeps its room for the thread).
+  const menuItems: ClaudeThreadMenuItem[] =
+    threadId !== 'new'
+      ? [{
+          id: 'context-claude-new',
+          label: '＋ New chat',
+          onSelect: () => {
             setChosen('new');
             track('claude.thread_action', { action: 'new', context_kind: context.kind });
-          }}
-          data-testid="context-claude-new"
-        >
-          ＋ New chat
-        </button>
-      </div>
-    ) : null;
+          },
+        }]
+      : [];
 
   return (
     <div className="modal-overlay claude-modal-overlay card-claude-overlay" onClick={props.onClose}>
@@ -89,7 +85,7 @@ export function ContextClaudeSheet(props: ContextClaudeSheetProps) {
             source={props.source}
             onClose={props.onClose}
             onThreadCreated={(id) => setChosen(id)}
-            headerExtra={headerExtra}
+            menuItems={menuItems}
           />
         )}
       </div>

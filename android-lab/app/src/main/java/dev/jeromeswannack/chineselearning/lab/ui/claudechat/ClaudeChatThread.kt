@@ -195,7 +195,7 @@ object ClaudeChatTags {
 
 @Composable
 fun ClaudeChatThread(
-    messages: List<ClaudeChatMsg>,
+    rawMessages: List<ClaudeChatMsg>,
     listening: Boolean,
     listen: ListeningUi,
     listenNotice: Pair<String, String>?,
@@ -213,6 +213,9 @@ fun ClaudeChatThread(
     /** Under one of Claude's finished text replies (tool results). */
     after: (@Composable (ClaudeChatMsg) -> Unit)? = null,
 ) {
+    // Claude's replies in the language they are WRITTEN in (a Chinese answer to a turn asked for English
+    // was drawn as Markdown, without word chips — Jerome, Nov 2026). Port of the web's normalisation.
+    val messages = remember(rawMessages) { rawMessages.map { m -> if (m.role == "assistant") m.copy(answerLang = AskClaude.replyLanguage(m.answerLang, m.text)) else m } }
     var pinyinOn by remember { mutableStateOf(pinyinPreview) }
     var translateOn by remember { mutableStateOf(translatePreview) }
     var translations by remember { mutableStateOf(emptyMap<String, String?>()) }
@@ -410,7 +413,7 @@ private fun Streaming(m: ClaudeChatMsg, statusLine: String?) {
     )
     Column(verticalArrangement = Arrangement.spacedBy(3.dp), modifier = Modifier.testTag(ClaudeChatTags.STREAMING)) {
         Row(
-            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(18.dp)).background(c.theirs).padding(horizontal = 14.dp, vertical = 9.dp),
+            Modifier.clip(RoundedCornerShape(18.dp)).background(c.theirs).padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             Box(Modifier.weight(1f, fill = false)) {
@@ -495,7 +498,8 @@ private fun Claude(
     val result = readBack?.ui?.result?.takeIf { readBack.ui.phase != "listening" }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Column(
-            Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(18.dp)).background(c.theirs).combinedClickable(onClick = {}, onLongClick = long)
+            // The whole width (Jerome, Nov 2026: fewer line breaks); my own bubbles stay narrower, on the right.
+            Modifier.clip(RoundedCornerShape(18.dp)).background(c.theirs).combinedClickable(onClick = {}, onLongClick = long)
                 .testTag(ClaudeChatTags.REPLY).padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             when {

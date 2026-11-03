@@ -53,10 +53,10 @@ let root: Root;
 let host: HTMLDivElement;
 const answers: DictatedAnswer[] = [];
 
-function Harness({ online = true, defaultMode }: { online?: boolean; defaultMode?: 'voice' | 'type' }) {
+function Harness({ online = true, defaultMode, compact }: { online?: boolean; defaultMode?: 'voice' | 'type'; compact?: boolean }) {
   const [value, setValue] = useState('');
   return (
-    <VoiceTextInput surface="test" value={value} onChange={setValue} onSubmit={(a) => answers.push(a)} online={online} defaultMode={defaultMode} placeholder="Type in Chinese…" />
+    <VoiceTextInput surface="test" value={value} onChange={setValue} onSubmit={(a) => answers.push(a)} online={online} defaultMode={defaultMode} placeholder="Type in Chinese…" multiline={compact} compact={compact} />
   );
 }
 
@@ -128,6 +128,28 @@ describe('VoiceTextInput', () => {
     expect(host.querySelector('[data-testid="voice-input"]')?.getAttribute('data-mode')).toBe('type');
     expect(q('mic')).not.toBeNull();
     expect(q('submit')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('compact (a chat composer): typing is ONE row — a one-line box, 🎤 and a round ➤ — no full-width Send', async () => {
+    await render(<Harness compact defaultMode="type" />);
+    const box = q('text') as HTMLTextAreaElement;
+    expect(box.tagName).toBe('TEXTAREA');
+    expect(box.getAttribute('rows')).toBe('1');
+    const row = host.querySelector('.voice-input-typing-row')!;
+    expect(row.contains(q('mic'))).toBe(true);
+    const send = q('submit')!;
+    expect(row.contains(send)).toBe(true);
+    expect(send.className).toBe('voice-input-send');
+    expect(send.getAttribute('aria-label')).toBe('Submit');
+    expect(send.getAttribute('aria-disabled')).toBe('true');
+    expect(host.querySelector('.voice-input-row')).toBeNull();
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+      set.call(box, '我想去成都');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('submit');
+    expect(answers.at(-1)).toEqual(expect.objectContaining({ text: '我想去成都', source: 'typed' }));
   });
 
   it('never silent: a failed transcription offers the same take again', async () => {

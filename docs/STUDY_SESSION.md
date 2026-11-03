@@ -1795,12 +1795,19 @@ the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMen
 
 - **The sheet = the thread.** Opening it resumes the card's thread when its last message is within 30 minutes
   (`resumeThreadFor`, the same rule the server groups older card questions by), else the first question starts a new
-  one. **"🕘 Earlier about 银行 · 2 chats"** under the header lists the card's other threads (`earlierCardThreads`; tap
-  one to continue it), **＋ New chat** starts afresh (`claude.thread_action { action: switch | new }`). The header:
-  "Ask about 银行" / the thread's title, 🎧, 中文 | EN, ⋯ (Make flashcards from this chat, 📝 words to recap), ✕; the
-  chip "📇 Asked on card · 银行" → the card hub. The card's suggestion chips (`chipsFor` → `cardChips`: 造句 Use in
-  sentence · 每个字 Explain characters · 相关的词 Related words · 我的答案 Check my answer (typing card with an answer) ·
-  语法 · 小知识 Add a fun fact · 例句 Explain sentence (with an example sentence)) while empty and ≤ 3 after a reply;
+  one. **⋯ → "🕘 Earlier about 银行 · 2 chats"** lists the card's other threads under the header (`earlierCardThreads`;
+  tap one to continue it, ▴ hides the list), **⋯ → ＋ New chat** starts afresh (`claude.thread_action { action: switch |
+  new }`). **Compact** (Jerome, Nov 2026: "way less visible space … hard to read"): the sheet takes the whole height
+  under the status bar (web: `100dvh` minus the top inset on a phone; Lab `ui/kit/LabTallSheet`), a slim grab handle on
+  top instead of ✕ (tap / drag down / back / Escape / the scrim close it; the handle's accessible name is "Close"), ONE
+  header row — "Ask about 银行" / the thread's title (ellipsis), 🎧, 中文 | EN, ⋯ (Earlier · ＋ New chat · Make flashcards
+  from this chat · 👁 Share with / 🙈 Hide from my tutor · 📝 words to recap) — and no context chip or "👁 Your tutor can
+  read this chat" line in the sheet (the full-screen thread `/chats/claude/:id` keeps both). Claude's bubbles use the
+  whole width (my own stay narrower, on the right); word chips sit a little closer together; a Chinese reply is word
+  chips even when the turn asked for English (`replyLanguage`); the typed composer is one row (box 1 → 4 lines · 🎤 · ➤). The card's suggestion
+  chips (`chipsFor` → `cardChips`: 造句 Use in sentence · 每个字 Explain characters · 相关的词 Related words · 我的答案
+  Check my answer (typing card with an answer) · 语法 · 小知识 Add a fun fact · 例句 Explain sentence (with an example
+  sentence)) only before the thread's first message (`started`) — none once anything was sent;
   the composer is **Ask only** (`composerFor('card')` — no ✏️ Check / 🔍 Explain: those start a Coach chat). Replies
   STREAM in (`claude_turn` over the ChatHub socket, else the poll). The thread is in the Chats tab with "📇 Asked on
   card · 银行" (docs/CHAT.md), and the card hub / the deck page's History modal list the card's threads ("Open

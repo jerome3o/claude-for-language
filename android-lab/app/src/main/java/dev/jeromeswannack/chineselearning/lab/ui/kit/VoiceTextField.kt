@@ -211,30 +211,36 @@ fun VoiceTextFieldContent(
     filledFromVoice: String? = null,
     /** The wide 🎤's word (default "Say it"; the coach's follow-up says "Respond"). */
     sayLabel: String = VoiceDictation.Copy.SAY,
-    /** Smaller (the Chats tab's box): 44 dp buttons, a one-line box that grows. */
+    /** Smaller (the Chats tab's box and the Claude threads): 44–48 dp buttons, a one-line box that grows to four. */
     compact: Boolean = false,
+    /**
+     * Typing is ONE row — the box, 🎤 and a round ➤ — with no full-width Send pill (the Claude threads; the
+     * web's `VoiceTextInput compact`; Jerome, Nov 2026: "far too tall"). [submitRowExtra] then gets a row of its own.
+     */
+    sendInRow: Boolean = false,
     /** While typing: more buttons in the submit row, after it (the Chats tab's ✏️ Check / 🔍 Explain). */
     submitRowExtra: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
 ) {
     val state = ui.state
     val controls = VoiceDictation.controls(state)
-    val buttonHeight = if (compact) 44.dp else 60.dp
-    Column(modifier.fillMaxWidth().testTag(VoiceTextFieldTags.ROOT), verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 10.dp)) {
+    val buttonHeight = if (sendInRow) 48.dp else if (compact) 44.dp else 60.dp
+    Column(modifier.fillMaxWidth().testTag(VoiceTextFieldTags.ROOT), verticalArrangement = Arrangement.spacedBy(if (compact || sendInRow) 6.dp else 10.dp)) {
         if (state.mode == VoiceDictation.TYPE) {
             val focus = remember { FocusRequester() }
             LaunchedEffect(Unit) { if (state.blocked == null) runCatching { focus.requestFocus() } }
             // A TextFieldValue so text put in from outside (✏️ Edit) has its caret at the end.
             var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
             if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val canSend = enabled && VoiceDictation.answer(state, "", value, filledFromVoice) != null
+            Row(verticalAlignment = if (sendInRow) Alignment.Bottom else Alignment.Top, horizontalArrangement = Arrangement.spacedBy(if (sendInRow) 6.dp else 8.dp)) {
                 OutlinedTextField(
                     value = field,
                     onValueChange = { field = it; if (it.text != value) onValueChange(it.text) },
                     enabled = enabled,
-                    placeholder = { if (placeholder.isNotEmpty()) Text(placeholder, color = Lab.colors.muted) },
+                    placeholder = { if (placeholder.isNotEmpty()) Text(placeholder, color = Lab.colors.muted, maxLines = 1) },
                     singleLine = !multiline,
-                    minLines = if (multiline && !compact) 3 else 1,
-                    maxLines = if (compact) 4 else Int.MAX_VALUE,
+                    minLines = if (multiline && !compact && !sendInRow) 3 else 1,
+                    maxLines = if (compact || sendInRow) 4 else if (multiline) Int.MAX_VALUE else 1,
                     textStyle = (if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium).copy(color = Lab.colors.ink),
                     keyboardOptions = KeyboardOptions(imeAction = if (multiline) ImeAction.Default else ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { actions.submit() }),
@@ -244,8 +250,8 @@ fun VoiceTextFieldContent(
                 if ("mic" in controls) {
                     Box(
                         Modifier
-                            .padding(top = 4.dp)
-                            .size(if (compact) 48.dp else 52.dp)
+                            .padding(top = if (sendInRow) 0.dp else 4.dp, bottom = if (sendInRow) 6.dp else 0.dp)
+                            .size(if (sendInRow) 44.dp else if (compact) 48.dp else 52.dp)
                             .clip(CircleShape)
                             .border(1.dp, Lab.colors.outline, CircleShape)
                             .background(Lab.colors.card)
@@ -253,7 +259,20 @@ fun VoiceTextFieldContent(
                             .semantics { contentDescription = VoiceDictation.Copy.MIC_LABEL }
                             .testTag(VoiceTextFieldTags.MIC),
                         contentAlignment = Alignment.Center,
-                    ) { Text("🎤", fontSize = 22.sp) }
+                    ) { Text("🎤", fontSize = if (sendInRow) 19.sp else 22.sp) }
+                }
+                if (sendInRow) {
+                    Box(
+                        Modifier
+                            .padding(bottom = 6.dp)
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Lab.colors.accent.copy(alpha = if (canSend) 1f else 0.35f))
+                            .bouncyClickable(canSend, 0.9f, onClick = actions.submit)
+                            .semantics { contentDescription = submitLabel }
+                            .testTag(VoiceTextFieldTags.SUBMIT),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("➤", fontSize = 18.sp, color = androidx.compose.ui.graphics.Color.White) }
                 }
             }
             state.blocked?.let { b ->
@@ -265,12 +284,13 @@ fun VoiceTextFieldContent(
                     modifier = Modifier.fillMaxWidth().testTag(VoiceTextFieldTags.BLOCKED),
                 )
             }
-            val canSubmit = enabled && VoiceDictation.answer(state, "", value, filledFromVoice) != null
-            if (submitRowExtra == null) {
-                PrimaryPill("✓  $submitLabel", Modifier.fillMaxWidth().height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSubmit, onClick = actions.submit)
+            if (sendInRow) {
+                submitRowExtra?.let { extra -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { extra() } }
+            } else if (submitRowExtra == null) {
+                PrimaryPill("✓  $submitLabel", Modifier.fillMaxWidth().height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSend, onClick = actions.submit)
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PrimaryPill("✓  $submitLabel", Modifier.weight(1f).height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSubmit, onClick = actions.submit)
+                    PrimaryPill("✓  $submitLabel", Modifier.weight(1f).height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSend, onClick = actions.submit)
                     submitRowExtra()
                 }
             }

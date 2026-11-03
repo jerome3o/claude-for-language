@@ -31,7 +31,7 @@
 }
 
 .chat-word + .chat-word {
-  margin-left: 0.12em;
+  margin-left: 0.06em;
 }
 
 .chat-word:hover {

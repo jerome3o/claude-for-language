@@ -34,6 +34,7 @@ vi.mock('../../api/client', () => ({ API_BASE: '', backfillReaderWords: vi.fn(),
 const SEGMENTS: Record<string, string[]> = {
   '成都的火锅很辣。': ['成都', '的', '火锅', '很', '辣', '。'],
   '成都有什么好吃的？': ['成都', '有', '什么', '好吃', '的', '？'],
+  '我已经把说明改成英文了。': ['我', '已经', '把', '说明', '改成', '英文', '了', '。'],
 };
 vi.mock('../../services/chineseSegmenter', () => ({
   useSegmentedWords: (text: string, enabled = true) => (enabled && SEGMENTS[text] ? SEGMENTS[text].map((t) => ({ text: t, pinyin: '', gloss: '' })) : null),
@@ -151,6 +152,17 @@ describe('ClaudeChatThread', () => {
     await act(async () => reply.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })));
     await flush();
     expect([...document.querySelectorAll('[data-testid="message-menu"] [data-tool]')].map((b) => b.getAttribute('data-tool'))).toEqual(expect.arrayContaining(['copy', 'translate', 'pinyin', 'play']));
+  });
+
+  it('a Chinese reply to a turn asked for English (stored "en") or with no language still gets word chips + tools', async () => {
+    // Jerome, Nov 2026: the reply after "change the notes to English" (Claude edited the card, then
+    // answered in Chinese) was drawn as Markdown — not tappable.
+    for (const lang of ['en', null] as const) {
+      await render([MESSAGES[0], { id: 'a9', role: 'assistant', text: '我已经把说明改成英文了。', answer_lang: lang }]);
+      const reply = q('claude-chat-reply')!;
+      expect([...reply.querySelectorAll('.chat-word')].map((c) => c.textContent)).toEqual(['我', '已经', '把', '说明', '改成', '英文', '了']);
+      expect(reply.querySelector('[data-testid="claude-chat-play"]')).toBeTruthy();
+    }
   });
 
   it('a pending reply thinks; a failed one offers Retry', async () => {

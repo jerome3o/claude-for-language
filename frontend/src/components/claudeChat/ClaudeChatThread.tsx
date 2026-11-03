@@ -29,7 +29,7 @@ import remarkGfm from 'remark-gfm';
 import { readBackMistakeWords, readBackOffered, READ_BACK_LABEL, READ_BACK_LISTENING } from '@shared/coach/askChat';
 import { askClaudeMenu, type MenuActionId, type MenuItem } from '@shared/chats/messageMenu';
 import { sayBetterLabel, sayBetterState, showCoachChip, type AutoCheckResult } from '@shared/chats/autoCheck';
-import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId } from '@shared/study/askClaude';
+import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId, replyLanguage } from '@shared/study/askClaude';
 import { itemForText } from '@shared/explorer';
 import type { ReadAloudResult } from '@shared/reader/readAloud';
 import { readAloudBucket } from '@shared/reader/readAloud';
@@ -123,7 +123,13 @@ export interface ClaudeChatThreadProps {
 
 type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word' | MenuActionId;
 
-export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued, onOpenInCoach, onDraft, language = 'zh', online = true, voice = CLAUDE_VOICE }: ClaudeChatThreadProps) {
+export function ClaudeChatThread({ threadId, messages: rawMessages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued, onOpenInCoach, onDraft, language = 'zh', online = true, voice = CLAUDE_VOICE }: ClaudeChatThreadProps) {
+  // Claude's replies in the language they are WRITTEN in (a Chinese answer to a turn asked for English
+  // was drawn as Markdown, without word chips — Jerome, Nov 2026).
+  const messages = useMemo(
+    () => rawMessages.map((m) => (m.role === 'assistant' ? { ...m, answer_lang: replyLanguage(m.answer_lang, m.text) } : m)),
+    [rawMessages],
+  );
   const explorer = useExplorer();
   const press = useLongPress();
   const [menu, setMenu] = useState<{ m: ClaudeChatMessage; anchor: MenuAnchor } | null>(null);

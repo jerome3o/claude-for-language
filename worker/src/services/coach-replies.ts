@@ -36,6 +36,7 @@ import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import { COACH_ASK_ACTION } from '@shared/coach/askChat';
 import { coachAskTurns, defaultCoachAskReply, storedAskAnswer, type CoachAskReplyFn } from './claude-chat';
 import { askSettings, pregenerateAskClip, type AskClipMaker } from './ask-claude';
+import { replyLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from './tts-cache';
 import { NOW_ISO, touchThreadStatement } from './claude-agent/store';
 
@@ -402,16 +403,20 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       if (turns.length === 0 || turns[turns.length - 1].role !== 'user') throw new StructuredCallError('Nothing to answer', false);
       const language = row.answer_lang === 'en' ? 'en' : 'zh';
       const t0 = Date.now();
-      const answer = storedAskAnswer(await ask(turns, { kind: 'ask', language, userId, threadId: row.conversation_id }), language);
-      await finish(env.DB, messageId, answer, null);
+      const raw = await ask(turns, { kind: 'ask', language, userId, threadId: row.conversation_id });
+      // Stored in the language it is WRITTEN in (shared/study/askClaude.ts `replyLanguage`): a Chinese reply
+      // to a turn asked for English is 'zh' — word chips in the apps, and its 🎧 clip below.
+      const written = replyLanguage(row.answer_lang, raw) === 'zh' ? 'zh' : language;
+      const answer = storedAskAnswer(raw, written);
+      await finish(env.DB, messageId, answer, null, written !== language ? written : undefined);
       // How long a reply takes (Jerome: "the first message is slow"): the model call, and since it was sent.
       const sent = Date.parse(`${(row.created_at || '').replace(' ', 'T')}${/Z$/.test(row.created_at || '') ? '' : 'Z'}`);
       console.log('[coach] ask reply', messageId, JSON.stringify({ model_ms: Date.now() - t0, since_sent_ms: Number.isFinite(sent) ? Date.now() - sent : null, turns: turns.length, language }));
       // 🎧 Listen first: the clip made now, so the hidden bubble plays the moment it lands.
       const clip = deps.askClip === undefined ? (env.E2E_TEST_MODE === 'true' ? null : (e: Env, text: string, v: { voiceId: string; speed: number }) => cachedConversationTTS(e, text, v)) : deps.askClip;
-      if (clip && language === 'zh') {
+      if (clip && written === 'zh') {
         try {
-          if ((await askSettings(env.DB, userId)).listening) await pregenerateAskClip(env as Env, { id: messageId, answer, answer_lang: language }, clip);
+          if ((await askSettings(env.DB, userId)).listening) await pregenerateAskClip(env as Env, { id: messageId, answer, answer_lang: written }, clip);
         } catch (err) {
           console.error('[coach] ask clip failed', messageId, err instanceof Error ? err.message : err);
         }
@@ -449,14 +454,14 @@ async function saveCheckpoint(database: D1Database, messageId: string, cp: Check
   await database.prepare(`UPDATE coach_messages SET checkpoint = ? WHERE id = ? AND status = 'pending'`).bind(JSON.stringify(cp), messageId).run();
 }
 
-async function finish(database: D1Database, messageId: string, body: string, toolResults: string | null): Promise<void> {
+async function finish(database: D1Database, messageId: string, body: string, toolResults: string | null, answerLang?: 'zh' | 'en'): Promise<void> {
   await database
     .prepare(
       `UPDATE coach_messages SET content = ?, tool_results = ?, status = NULL, error = NULL, checkpoint = NULL,
-              updated_at = ${NOW_ISO}
+              updated_at = ${NOW_ISO}${answerLang ? ', answer_lang = ?' : ''}
         WHERE id = ? AND status = 'pending'`,
     )
-    .bind(body, toolResults, messageId)
+    .bind(body, toolResults, ...(answerLang ? [answerLang] : []), messageId)
     .run();
   // The thread's inbox fields + one unread reply (claude-agent/store.ts; touch also bumps updated_at).
   const conv = await database.prepare('SELECT conversation_id FROM coach_messages WHERE id = ?').bind(messageId).first<{ conversation_id: string }>();

@@ -17,6 +17,7 @@ import {
   askQuickActions,
   effectiveAskLanguage,
   parseAskLanguage,
+  replyLanguage,
   revealedWhenListeningOn,
   type AskListeningEntry,
 } from '../../../shared/study/askClaude';
@@ -59,6 +60,19 @@ for (const language of ['zh', 'en'] as const)
     for (const hasSentence of [false, true]) quick.push({ language, typedAnswer, hasSentence, result: askQuickActions({ language, typedAnswer, hasSentence }) });
 
 const languages = [null, '', 'zh', 'en', 'ZH', 'fr', 'english'].map((v) => ({ value: v, parsed: parseAskLanguage(v), effective: effectiveAskLanguage(v) }));
+const replyTexts = [
+  '我已经把说明改成英文了，内容一样，但更清楚地用英语解释每个字和用法。看看这样是不是更好？',
+  '银行 means bank. 行 here is háng.',
+  '「稍等」更客气 means more polite',
+  'Sure — **银行** is a bank.',
+  'OK 好的好的',
+  'ok 好的',
+  '',
+  'Hello there',
+  '𠀀㐀一鿿',
+  '中文 English 中文',
+];
+const replyLanguages = [null, 'zh', 'en', 'fr'].flatMap((lang) => replyTexts.map((text) => ({ lang, text, out: replyLanguage(lang, text) })));
 
 // 🎧 Listen first: which answers hide, history kept on switching on, the auto-play pick.
 const answers: AskListeningEntry[] = [];
@@ -92,6 +106,6 @@ for (const entries of [[], [zhA], [zhA, zhB], [zhA, enB]])
 
 writeFileSync(
   join(OUT, 'ask-claude.json'),
-  JSON.stringify({ max: ASK_SENTENCE_TOOLS_MAX, menus, quick, languages, voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED, clipMax: ASK_CLIP_MAX_CHARS, listening, revealedOn, autoplay }),
+  JSON.stringify({ max: ASK_SENTENCE_TOOLS_MAX, menus, quick, languages, replyLanguages, voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED, clipMax: ASK_CLIP_MAX_CHARS, listening, revealedOn, autoplay }),
 );
 console.log(`ask-claude: ${menus.length} menus, ${quick.length} chip sets`);

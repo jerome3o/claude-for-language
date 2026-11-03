@@ -9,7 +9,6 @@ import {
   readerPageWords,
   resumeThreadFor,
   turnStatusLine,
-  CHIPS_AFTER_REPLY_MAX,
   CLAUDE_POLL_FAST_MS,
   CLAUDE_POLL_SLOW_MS,
   RESUME_WINDOW_MS,
@@ -30,16 +29,18 @@ describe('chipsFor', () => {
     expect(chipsFor({ kind: 'general' }, { language: 'zh' }).map((c) => c.id)).toEqual(['phrase', 'quiz', 'story']);
     expect(chipsFor({ kind: 'general' }, { language: 'en' })[0].label).toBe('A useful phrase');
     expect(chipsFor({ kind: 'chat_message' }, { language: 'en' }).map((c) => c.id)).toEqual(['meaning', 'natural', 'reply', 'cards']);
-    const help = chipsFor({ kind: 'practice' }, { language: 'zh', replies: 5, used: ['hint', 'say', 'correct'] });
+    const help = chipsFor({ kind: 'practice' }, { language: 'zh', started: true, used: ['hint', 'say', 'correct'] });
     expect(help.map((c) => [c.id, !!c.fill])).toEqual([['hint', false], ['say', true], ['correct', false]]);
     expect(help[0].question.startsWith('💡')).toBe(true);
     expect(chipsFor({ kind: 'practice' }, { language: 'en' })[1]).toEqual({ id: 'say', label: '🆘 How do I say…', question: '🆘 How do I say: ', fill: true });
   });
 
-  it('after a reply: at most three, never one already used', () => {
-    const after = chipsFor({ kind: 'card' }, { language: 'zh', hasSentence: true, replies: 1, used: ['sentences'] });
-    expect(after).toHaveLength(CHIPS_AFTER_REPLY_MAX);
-    expect(after.map((c) => c.id)).toEqual(['characters', 'related', 'grammar']);
+  it('once the thread has a message: no chips (a role-play keeps its help chips); never one already used', () => {
+    expect(chipsFor({ kind: 'card' }, { language: 'zh', hasSentence: true, started: true })).toEqual([]);
+    expect(chipsFor({ kind: 'reader' }, { language: 'en', started: true })).toEqual([]);
+    expect(chipsFor({ kind: 'practice' }, { language: 'en', started: true })).toHaveLength(3);
+    const unused = chipsFor({ kind: 'card' }, { language: 'zh', hasSentence: true, used: ['sentences'] });
+    expect(unused.map((c) => c.id)).toEqual(['characters', 'related', 'grammar', 'fun_fact', 'sentence']);
   });
 });
 

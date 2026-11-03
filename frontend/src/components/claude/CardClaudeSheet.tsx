@@ -5,9 +5,11 @@
  * 🎧 / 中文 | EN / word chips / Read it back, the long-press menu and the ✎ check on my Chinese.
  *
  * - Which thread: the card's recent one (`resumeThreadFor` — its last message within 30 minutes of
- *   opening), else a new one made by the first question. "Earlier about 银行 · 2 chats" lists the
- *   card's other threads (switch to one, or ＋ New chat). The thread shows in the Chats tab with
- *   "📇 Asked on card · 银行".
+ *   opening), else a new one made by the first question. ⋯ → "🕘 Earlier about 银行 · 2 chats" lists the
+ *   card's other threads (switch to one) and ⋯ → ＋ New chat starts one. The thread shows in the Chats
+ *   tab with "📇 Asked on card · 银行" (the sheet itself shows no chip: it is open over the card).
+ * - Compact (Jerome, Nov 2026): near full height, a grab handle instead of ✕, chips only before the
+ *   first message, Claude's bubbles the full width.
  * - Claude's card tools (edit / delete this card, make cards, a mini lesson, ⚡ bump) are applied by the
  *   server; when a reply this sheet saw being written finishes, `onToolResults` brings the device's
  *   study state in line (once per reply) and the reply shows a line per result — "✓ Claude edited
@@ -20,7 +22,7 @@ import { resumeThreadFor } from '@shared/claude/contexts';
 import { cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, type CardToolResult } from '@shared/claude/cardTools';
 import { chatRelativeTime } from '@shared/chats/inbox';
 import type { ClaudeThreadContext, ClaudeContextSnapshot } from '@shared/claude/context';
-import { ClaudeThreadView } from './ClaudeThreadView';
+import { ClaudeThreadView, type ClaudeThreadMenuItem } from './ClaudeThreadView';
 import { markCardEffectsApplied, refreshCardThreads, useCardThreads } from '../../services/cardClaudeThreads';
 import type { LocalClaudeMessage } from '../../services/claudeThreads';
 import { useNetwork } from '../../contexts/NetworkContext';
@@ -124,48 +126,49 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
     );
   };
 
+  // ⋯ → "🕘 Earlier about 银行 · 2 chats" (opens the list under the header) and "＋ New chat".
+  const menuItems: ClaudeThreadMenuItem[] = [
+    ...(earlierLabel ? [{ id: 'card-claude-earlier', label: `🕘 ${earlierLabel}`, onSelect: () => setEarlierOpen(true) }] : []),
+    ...(threadId !== 'new'
+      ? [{
+          id: 'card-claude-new',
+          label: '＋ New chat',
+          onSelect: () => {
+            setChosen('new');
+            setEarlierOpen(false);
+            track('claude.thread_action', { action: 'new', context_kind: 'card' });
+          },
+        }]
+      : []),
+  ];
+
   const headerExtra =
-    earlierLabel || threadId !== 'new' ? (
-      <div className="card-claude-earlier">
-        {earlierLabel && (
-          <button type="button" className="card-claude-earlier-toggle" aria-expanded={earlierOpen} onClick={() => setEarlierOpen((o) => !o)} data-testid="card-claude-earlier">
-            🕘 {earlierLabel} {earlierOpen ? '▴' : '▾'}
+    earlierOpen && earlier.length > 0 ? (
+      <div className="card-claude-earlier" data-testid="card-claude-earlier-panel">
+        <div className="card-claude-earlier-head">
+          <span>🕘 {earlierLabel}</span>
+          <button type="button" className="card-claude-earlier-hide" onClick={() => setEarlierOpen(false)} aria-label="Hide earlier chats" data-testid="card-claude-earlier-hide">
+            ▴
           </button>
-        )}
-        {threadId !== 'new' && (
-          <button
-            type="button"
-            className="card-claude-new"
-            onClick={() => {
-              setChosen('new');
-              setEarlierOpen(false);
-              track('claude.thread_action', { action: 'new', context_kind: 'card' });
-            }}
-            data-testid="card-claude-new"
-          >
-            ＋ New chat
-          </button>
-        )}
-        {earlierOpen && earlier.length > 0 && (
-          <ul className="card-claude-earlier-list" data-testid="card-claude-earlier-list">
-            {earlier.map((t) => (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setChosen(t.id);
-                    setEarlierOpen(false);
-                    track('claude.thread_action', { action: 'switch', context_kind: 'card' });
-                  }}
-                  data-testid="card-claude-earlier-row"
-                >
-                  <span className="card-claude-earlier-preview">{t.preview || t.title}</span>
-                  <span className="card-claude-earlier-time">{chatRelativeTime(t.last_message_at ?? t.created_at, Date.now(), -new Date().getTimezoneOffset())}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        </div>
+        <ul className="card-claude-earlier-list" data-testid="card-claude-earlier-list">
+          {earlier.map((t) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  setChosen(t.id);
+                  setEarlierOpen(false);
+                  track('claude.thread_action', { action: 'switch', context_kind: 'card' });
+                }}
+                data-testid="card-claude-earlier-row"
+              >
+                <span className="card-claude-earlier-preview">{t.preview || t.title}</span>
+                <span className="card-claude-earlier-time">{chatRelativeTime(t.last_message_at ?? t.created_at, Date.now(), -new Date().getTimezoneOffset())}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
     ) : null;
 
@@ -186,6 +189,7 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
           onReplyFinished={onReplyFinished}
           renderToolResults={renderToolResults}
           headerExtra={headerExtra}
+          menuItems={menuItems}
           closedNote={props.cardDeleted ? 'This card was deleted — moving on to the next one.' : null}
         />
       </div>
