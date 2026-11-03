@@ -87,6 +87,8 @@ function asChatMessage(m: ClaudeChatMessage): SayBetterMessage & { id: string } 
   return { id: m.id, sender_id: m.role === 'user' ? ME : 'claude', content: m.text, auto_check: m.auto_check ?? null, correction: null, attachment: null, translation: m.translation ?? null, deleted_at: null };
 }
 
+const CLAUDE_VOICE = { voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED };
+
 export interface ClaudeChatThreadProps {
   threadId: string;
   messages: ClaudeChatMessage[];
@@ -115,11 +117,13 @@ export interface ClaudeChatThreadProps {
   /** Answers come in Chinese (the "Ask why" wording). */
   language?: 'zh' | 'en';
   online?: boolean;
+  /** The voice Claude's lines are read in (a role-play: the persona's; default Claude's own). */
+  voice?: { voice: string; speed: number };
 }
 
 type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word' | MenuActionId;
 
-export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued, onOpenInCoach, onDraft, language = 'zh', online = true }: ClaudeChatThreadProps) {
+export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText, renderSpecial, renderAfter, statusLineFor, onDiscardQueued, onOpenInCoach, onDraft, language = 'zh', online = true, voice = CLAUDE_VOICE }: ClaudeChatThreadProps) {
   const explorer = useExplorer();
   const press = useLongPress();
   const [menu, setMenu] = useState<{ m: ClaudeChatMessage; anchor: MenuAnchor } | null>(null);
@@ -169,7 +173,7 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
     setNotice(null);
     listenIdRef.current = id;
     autoRef.current = auto;
-    listenPlayer.play({ id, content: text }, { voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED });
+    listenPlayer.play({ id, content: text }, { voice: voice.voice, speed: voice.speed });
   };
 
   const reveal = (m: ClaudeChatMessage) => {
@@ -191,7 +195,7 @@ export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel,
     setPlaying(m.id);
     tool('play', m.role === 'user' ? 'mine' : 'claude');
     try {
-      const blob = await getTTSWithCache(m.text, ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE);
+      const blob = await getTTSWithCache(m.text, voice.speed, voice.voice);
       if (blob) {
         playerRef.current.play(blob, { onEnded: () => setPlaying(null), onError: () => setPlaying(null) });
         return;

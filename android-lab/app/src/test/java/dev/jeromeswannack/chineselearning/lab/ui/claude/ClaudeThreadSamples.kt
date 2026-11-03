@@ -96,4 +96,33 @@ object ClaudeThreadSamples {
         threadReadOnly = true,
         messages = listOf(claude("a1", "欢迎光临！请问几位？"), mine("u2", "两位。")),
     )
+
+    /** A role-play (a new practice thread): Claude opened the scene, he answered, the next line. */
+    val practiceRole = ClaudeThreadUi(
+        threadId = "t6",
+        title = "Practice: 在饭店点菜",
+        context = ClaudeContextDto(ClaudeChats.PRACTICE, scenario = "在饭店点菜", ai_role = "服务员 (a waiter)", user_role = "客人 (a customer)", level = "beginner", voice_id = "presenter_male", label = "在饭店点菜"),
+        hasThread = true,
+        messages = listOf(
+            claude("a1", "你好！欢迎光临。请问几位？"),
+            mine("u2", "两位，谢谢。"),
+            claude("a3", "好的，这边请。这是菜单，您想喝点什么？"),
+        ),
+    )
+
+    /** Discuss with Claude about a tutor's message: the message's thread, an answer with proposed cards. */
+    val discussThread = ClaudeThreadUi(
+        threadId = "t7",
+        title = "这是什么意思？",
+        context = ClaudeContextDto(ClaudeChats.CHAT_MESSAGE, message_id = "m1", conversation_id = "c1", label = "明天下午三点见，别迟到！"),
+        hasThread = true,
+        messages = listOf(
+            mine("u1", "这条消息是什么意思？请一个词一个词地解释。"),
+            claude(
+                "a2",
+                "「明天下午三点见」：我们明天下午三点见面。\n「别迟到」：不要晚到。",
+                tools = """[{"tool":"propose_flashcards","success":true,"data":{"flashcards":[{"hanzi":"迟到","pinyin":"chídào","english":"to be late"},{"hanzi":"下午","pinyin":"xiàwǔ","english":"afternoon"}]}}]""",
+            ),
+        ),
+    )
 }

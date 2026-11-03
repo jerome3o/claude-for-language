@@ -168,8 +168,10 @@ chat.get('/me/chat-inbox', async (c) => {
   return c.json(await getChatInbox(c.env.DB, c.get('user').id, since));
 });
 
+// `?exclude_ai=1`: without the practice chats copied into the Claude threads (getChatList).
 chat.get('/me/chats', async (c) => {
-  return c.json(await getChatList(c.env.DB, c.get('user').id));
+  const excludeAi = c.req.query('exclude_ai') === '1' || c.req.query('exclude_ai') === 'true';
+  return c.json(await getChatList(c.env.DB, c.get('user').id, new Date(), { excludeAi }));
 });
 
 // ---------- Native push tokens ----------

@@ -48,6 +48,8 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
     private data class Local(
         val query: String = "",
         val picker: Boolean = false,
+        /** "🎭 Practice a situation" (ui/claude/PracticeSheet.kt) is open. */
+        val practice: Boolean = false,
         val error: String? = null,
         val myId: String? = null,
         val now: Long = System.currentTimeMillis(),
@@ -95,6 +97,7 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                     offline = !online,
                     people = peopleFor(rows, rels, l.myId),
                     pickerOpen = l.picker,
+                    practiceOpen = l.practice,
                     teacher = l.teacher,
                     filter = l.filter,
                     claudeOpen = l.claudeOpen,
@@ -238,6 +241,11 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
     fun openPicker() = local.update { it.copy(picker = true) }
 
     fun closePicker() = local.update { it.copy(picker = false) }
+
+    /** The picker's "🎭 Practice a situation…" (or an old "new chat with Claude" link): the situation sheet. */
+    fun openPractice() = local.update { it.copy(picker = false, practice = true) }
+
+    fun closePractice() = local.update { it.copy(practice = false) }
 
     companion object {
         const val REFRESH_MS = 60_000L

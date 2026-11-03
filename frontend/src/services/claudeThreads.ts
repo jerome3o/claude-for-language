@@ -293,6 +293,24 @@ export async function startClaudeThread(input: {
   return { threadId: threadClientId, queued: true };
 }
 
+/**
+ * Start a role-play (Practice with Claude, shared/claude/practice.ts): a practice thread with no
+ * message — Claude speaks first. Needs a connection (the scene is written by the server); throws when
+ * there is none or the server says no. The thread (with Claude's pending opener) is cached at once so
+ * the thread screen draws it before the first poll.
+ */
+export async function startPracticeThread(context: ClaudeThreadContext & { kind: 'practice' }, opts: { language?: 'zh' | 'en' } = {}): Promise<string> {
+  if (isOffline()) throw new Error('Practising with Claude needs a connection.');
+  const res = await createClaudeThread({ client_id: newClientId(), context: stripPracticeSnapshot(context), text: '', ...(opts.language ? { language: opts.language } : {}) });
+  await cacheThreadResponse(res, { full: true });
+  return res.thread.id;
+}
+
+function stripPracticeSnapshot<T extends Record<string, unknown>>(ctx: T): T {
+  const { label: _l, sublabel: _s, ...rest } = ctx as T & { label?: unknown; sublabel?: unknown };
+  return rest as unknown as T;
+}
+
 /** A message in an existing thread (Ask). Offline → queued like `startClaudeThread`. */
 export async function sendClaudeMessage(
   threadId: string,

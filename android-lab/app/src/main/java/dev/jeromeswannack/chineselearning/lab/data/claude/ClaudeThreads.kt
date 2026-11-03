@@ -17,6 +17,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.cardClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeThread
 import dev.jeromeswannack.chineselearning.lab.data.api.createClaudeThread
+import dev.jeromeswannack.chineselearning.lab.data.api.messageClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.retryClaudeMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.sendClaudeMessage
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
@@ -127,6 +128,40 @@ class ClaudeThreads(
     suspend fun refreshCardThreads(noteId: String) {
         val res = api.cardClaudeThreads(noteId)
         cache.put(cardKey(noteId), CARD_LIST_KIND, res.threads, ListSerializer(ClaudeThreadDto.serializer()))
+    }
+
+    // ---------------- one chat message's threads (Discuss with Claude) ----------------
+
+    /** The Discuss threads about one chat message on this phone (the server's list as last fetched + any opened here). */
+    fun observeMessageThreads(messageId: String): Flow<List<ClaudeThreadDto>> = combine(
+        cache.observe(MESSAGE_LIST, ListSerializer(ClaudeThreadDto.serializer())),
+        cache.observeAll(KIND, CachedClaudeThread.serializer()),
+        cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
+    ) { listed, opened, local ->
+        val byId = LinkedHashMap<String, ClaudeThreadDto>()
+        for (t in listed.orEmpty()) byId[t.id] = t
+        for (c in opened + local) byId[c.thread.id] = c.thread
+        byId.values.filter { it.context_kind == ClaudeChats.CHAT_MESSAGE && it.context.message_id == messageId }
+    }.distinctUntilChanged()
+
+    /** `GET /api/claude/threads?context_kind=chat_message` into the cache. Throws on a network / server error. */
+    suspend fun refreshMessageThreads() {
+        val res = api.messageClaudeThreads()
+        cache.put(MESSAGE_LIST, CARD_LIST_KIND, res.threads, ListSerializer(ClaudeThreadDto.serializer()))
+    }
+
+    // ---------------- a role-play (Practice with Claude) ----------------
+
+    /**
+     * Start a role-play: a practice thread with no message — Claude speaks first (the web's
+     * `startPracticeThread`). Online only (the scene is written by the server); the thread with Claude's
+     * pending opener is cached at once. Throws when the server says no / there is no connection.
+     */
+    suspend fun startPractice(context: ClaudeContextDto, language: String?): String {
+        val body = ClaudeCreateBody(newId(), newId(), context.descriptor(), "ask", "", language, null)
+        val res = api.createClaudeThread(body)
+        cacheResponse(res, full = true)
+        return res.thread.id
     }
 
     // ---------------- writing the cache ----------------
@@ -362,6 +397,9 @@ class ClaudeThreads(
         const val EFFECTS_KIND = "claude-card-effects"
         const val EFFECTS_MAX = 200
         fun cardKey(noteId: String) = "claude/card/$noteId"
+
+        /** The Discuss-with-Claude threads as last fetched. */
+        const val MESSAGE_LIST = "claude/messages"
 
         private val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
 

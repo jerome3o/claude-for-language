@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
+import dev.jeromeswannack.chineselearning.lab.data.api.CLAUDE_USER_ID
+import dev.jeromeswannack.chineselearning.lab.data.api.relationship
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -23,9 +25,9 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 
 /**
- * `/connections/:relId/chat/:convId` (immersive) — `?new=1` or `chat/new` opens a fresh untitled
- * Claude practice conversation first (web: ChatPage `wantsNew`; with a person the server answers
- * with THE chat of the pair). `/connections/:relId/chat` (no id) opens the one chat with that
+ * `/connections/:relId/chat/:convId` (immersive) — `?new=1` or `chat/new`: with a person, THE chat of
+ * the pair; with Claude, the Chats tab's "🎭 Practice a situation" sheet (role-plays are Claude threads
+ * now — web: ChatPage `wantsNew`). `/connections/:relId/chat` (no id) opens the one chat with that
  * person (one chat per pair, docs/CHAT.md). An id merged away on the server is swapped for the
  * chat it went into ([ChatPair]). Package E.
  */
@@ -77,8 +79,13 @@ private fun ResolvedChatRoute(nav: LabNav, relId: String, convId: String) {
 private fun NewConversation(nav: LabNav, relId: String) {
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(relId) {
-        runCatching { ChatViewModel.newConversation(nav.app, relId) }
-            .onSuccess { id -> nav.back(); nav.open(Routes.chat(relId, id)) }
+        // With Claude: no new practice chat here — role-plays are Claude threads (the Chats tab's
+        // "🎭 Practice a situation" sheet, docs/CHAT.md "Practice with Claude"). With a person: THE chat.
+        runCatching {
+            val rel = nav.app.repo.api.relationship(relId)
+            if (rel.requester_id == CLAUDE_USER_ID || rel.recipient_id == CLAUDE_USER_ID) null else ChatViewModel.newConversation(nav.app, relId)
+        }
+            .onSuccess { id -> nav.back(); nav.open(if (id == null) "/chats?practice=1" else Routes.chat(relId, id)) }
             .onFailure { error = "Couldn't start a new conversation. ${it.userMessage()}" }
     }
     LabScreen("New conversation", onBack = nav::back) {
@@ -251,9 +258,8 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                 onOpenRename = { vm.openSheet(ChatSheet.Rename) },
                 onOpenVoice = { vm.openSheet(ChatSheet.Voice) },
                 onAllConversations = { vm.openSheet(null); nav.back() },
-                onAsk = vm::ask,
-                onToggleDiscussCard = vm::toggleDiscussCard,
                 onSaveDiscussCards = vm::saveDiscussCards,
+                onOpenAppPath = { path -> vm.openSheet(null); nav.open(path) },
                 define = vm::define,
                 deckHolding = vm::deckHolding,
                 onEdit = vm::startEdit,

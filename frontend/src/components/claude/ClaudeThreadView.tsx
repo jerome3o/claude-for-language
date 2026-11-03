@@ -27,6 +27,7 @@ import { revealedWhenListeningOn } from '@shared/study/askClaude';
 import { coachDeepLink, openInCoachRequest } from '@shared/chats/autoCheck';
 import { chipsFor, composerFor, headerChipFor, turnStatusLine, type ClaudeChip } from '@shared/claude/contexts';
 import type { ClaudeContextSnapshot, ClaudeIntent, ClaudeThreadContext, StoredClaudeContext } from '@shared/claude/context';
+import { PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
 import {
   coachMistakeLessonOffered,
   conversationAction,
@@ -168,7 +169,10 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const started = rows.length > 0 || !!sending;
   const replyPending = rows.some((m) => m.role === 'assistant' && m.status === 'pending' && m.content_type !== MISTAKE_LESSON_CONTENT_TYPE);
   const busy = !!sending || replyPending;
-  const readOnly = ctx.kind === 'practice' || !!thread?.read_only;
+  // An old practice chat copied in from the tutor-chat tables is read-only; a new role-play is not.
+  const readOnly = !!thread?.read_only || (ctx.kind === 'practice' && !!ctx.conversation_id);
+  // A role-play's lines are read in the persona's voice (the server keeps it on the thread).
+  const voice = useMemo(() => (ctx.kind === 'practice' ? { voice: practiceVoiceFor(ctx), speed: PRACTICE_VOICE_SPEED } : undefined), [ctx]);
   const chip = headerChipFor(ctx);
 
   useEffect(() => {
@@ -324,6 +328,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const used = [...usedChips, ...allChips.filter((c) => asked.has(c.question)).map((c) => c.id)];
   const chips: ClaudeChip[] = readOnly || busy ? [] : chipsFor(ctx, { language, hasSentence: props.hasSentence, replies, used });
   const useChip = (c: ClaudeChip) => {
+    // 🆘 How do I say…: into the box, to be finished.
+    if (c.fill) {
+      setDraft(c.question);
+      setTypeRequest((n) => n + 1);
+      track('claude.message_send', { context_kind: ctx.kind, intent: 'ask', offline: false, chip: true, spoken: false });
+      return;
+    }
     setUsedChips((u) => [...u, c.id]);
     void send(c.question, false, 'ask', c.id);
   };
@@ -426,6 +437,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         </div>
       )}
 
+      {ctx.kind === 'practice' && (ctx.ai_role || ctx.user_role) && (
+        <p className="claude-thread-roles" data-testid="claude-thread-roles">
+          {ctx.ai_role && <span>✦ Claude plays {ctx.ai_role}</span>}
+          {ctx.ai_role && ctx.user_role && ' · '}
+          {ctx.user_role && <span>You: {ctx.user_role}</span>}
+        </p>
+      )}
       {props.headerExtra}
 
       <main className="claude-chat-body">
@@ -447,6 +465,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
                     ? 'Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below.'
                     : 'Ask Claude anything about this card — or tap a suggestion below.'}
               </p>
+            ) : ctx.kind === 'practice' ? (
+              <p data-testid="claude-thread-practice-hint">Claude is setting the scene… Answer in Chinese. Stuck? 💡 a hint, 🆘 how to say something, ✏️ a correction.</p>
             ) : (
               <p>Ask Claude anything about it — tap a suggestion below to start.</p>
             )}
@@ -461,7 +481,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         {!isOnline && thread && <p className="claude-thread-offline" data-testid="claude-thread-offline">You're offline — this is the copy on this device. New messages send when you're back.</p>}
         {readOnly && thread && (
           <div className="claude-thread-readonly" data-testid="claude-thread-readonly">
-            {composerFor('practice', '', { started: true }).hint}
+            {composerFor(ctx.kind, '', { started: true, readOnly: true }).hint}
           </div>
         )}
         <ClaudeChatThread
@@ -485,6 +505,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
           language={language}
           online={isOnline}
           explorerSource={ctx.kind === 'card' ? 'ask_claude' : undefined}
+          voice={voice}
         />
         {sending && (
           <div className="ask-thread">

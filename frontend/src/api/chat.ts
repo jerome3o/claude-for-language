@@ -209,7 +209,11 @@ export async function fetchLinkPreview(url: string): Promise<LinkPreviewData | n
   }
 }
 
-/** The Chats tab: every conversation with its last message and my unread count (`GET /api/me/chats`). */
+/**
+ * The Chats tab: every conversation with its last message and my unread count (`GET /api/me/chats`).
+ * `exclude_ai=1`: without the old Claude practice chats already in the Claude threads (they show as
+ * practice threads; new role-plays are threads — docs/CHAT.md "Practice with Claude").
+ */
 export function getChatList(): Promise<import('@shared/chats/inbox').ChatListResponse> {
-  return request('/me/chats');
+  return request('/me/chats?exclude_ai=1');
 }

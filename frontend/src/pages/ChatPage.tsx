@@ -12,7 +12,6 @@ import {
   getRelationship,
   generateResponseOptions,
   createNote,
-  createConversation,
   getAIResponse,
   checkMessage,
   updateConversationVoiceSettings,
@@ -32,10 +31,11 @@ import {
   GeneratedNoteWithContext,
   CheckMessageResponse,
   CLAUDE_AI_USER_ID,
+  isClaudeUser,
 } from '../types';
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
-import { MessageDiscussionModal } from '../components/MessageDiscussionModal';
+import { DiscussClaudeSheet } from '../components/claude/DiscussClaudeSheet';
 import { MessageMenu, type MenuAnchor } from '../components/chat/MessageMenu';
 import { looksLikeChinese } from '../components/chat/messageTools';
 import { albumMenu, messageMenu, menuText, type MenuActionId } from '@shared/chats/messageMenu';
@@ -150,8 +150,9 @@ export function ChatPage() {
 
   // One chat per pair (docs/CHAT.md "One chat per pair"): `/connections/:relId/chat`
   // (no id) opens THE chat with that person; old links `/chat/new` and `?new=1`
-  // do the same (with Claude they start a new practice chat). The URL is then
-  // replaced with the conversation's id.
+  // do the same. With Claude they no longer make a practice chat here: role-plays
+  // are Claude threads — the Chats tab's "Practice a situation" sheet opens instead
+  // (docs/CHAT.md "Practice with Claude"). The URL is then replaced.
   const wantsNew = !convId || searchParams.get('new') === '1' || convId === 'new';
   const startPractice = convId === 'new' || searchParams.get('new') === '1';
   const creatingRef = useRef(false);
@@ -356,9 +357,17 @@ export function ChatPage() {
     if (!wantsNew || !relId || creatingRef.current) return;
     creatingRef.current = true;
     setCreateError(null);
-    // With a person both calls return the one chat; with Claude `new` makes a new practice chat.
-    (startPractice ? createConversation(relId).then((conv) => conv.id) : openConversation(relId).then((r) => r.conversation_id))
-      .then((id) => {
+    // With a person: the one chat. With Claude (`new`): the practice sheet on the Chats tab.
+    const isClaude = startPractice
+      ? getRelationship(relId).then((rel) => isClaudeUser(rel.requester.id) || isClaudeUser(rel.recipient.id))
+      : Promise.resolve(false);
+    isClaude
+      .then(async (claude) => {
+        if (claude) {
+          navigate('/chats?practice=1', { replace: true });
+          return;
+        }
+        const id = (await openConversation(relId)).conversation_id;
         queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
         navigate(`/connections/${relId}/chat/${id}`, { replace: true, state: location.state });
       })
@@ -1359,7 +1368,6 @@ export function ChatPage() {
         });
         break;
       case 'discuss':
-        track('chat.discuss');
         setDiscussingMessage(msg);
         break;
       case 'pin':
@@ -2933,9 +2941,10 @@ export function ChatPage() {
         />
       )}
 
-      {discussingMessage && (
-        <MessageDiscussionModal
+      {discussingMessage && convId && (
+        <DiscussClaudeSheet
           message={discussingMessage}
+          conversationId={convId}
           onClose={() => setDiscussingMessage(null)}
         />
       )}

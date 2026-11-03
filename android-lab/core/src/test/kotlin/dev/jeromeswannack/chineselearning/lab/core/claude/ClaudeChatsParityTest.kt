@@ -52,7 +52,7 @@ class ClaudeChatsParityTest {
                 replies = o["replies"]!!.jsonPrimitive.int,
                 used = strings(o["used"]),
             )
-            val want = o["out"]!!.jsonArray.map { x -> x.jsonObject.let { ClaudeChats.Chip(it["id"].str!!, it["label"].str!!, it["question"].str!!) } }
+            val want = o["out"]!!.jsonArray.map { x -> x.jsonObject.let { ClaudeChats.Chip(it["id"].str!!, it["label"].str!!, it["question"].str!!, it["fill"]?.jsonPrimitive?.booleanOrNull ?: false) } }
             assertEquals(want, got, o.toString().take(200))
         }
     }
@@ -61,7 +61,7 @@ class ClaudeChatsParityTest {
     fun composers() {
         for (c in f["composers"]!!.jsonArray) {
             val o = c.jsonObject
-            val got = ClaudeChats.composerFor(o["kind"].str!!, o["text"].str!!, o["started"]!!.jsonPrimitive.boolean)
+            val got = ClaudeChats.composerFor(o["kind"].str!!, o["text"].str!!, o["started"]!!.jsonPrimitive.boolean, o["readOnly"]!!.jsonPrimitive.boolean)
             val w = o["out"]!!.jsonObject
             val want = ClaudeChats.Composer(strings(w["intents"]), w["primary"].str, w["enabled"]!!.jsonPrimitive.boolean, w["hint"].str, w["readOnly"]!!.jsonPrimitive.boolean)
             assertEquals(want, got, o.toString())

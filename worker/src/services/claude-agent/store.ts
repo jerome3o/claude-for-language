@@ -472,6 +472,21 @@ export async function appendTurn(
 }
 
 /**
+ * Claude speaks first (a new role-play): a pending reply with no learner message before it, the
+ * thread touched. The reply's runner opens the scene (contexts/practice.ts `PRACTICE_OPENER`).
+ */
+export async function appendOpener(db: D1Database, threadId: string, answerLang: 'zh' | 'en' | null): Promise<MessageRow> {
+  const id = crypto.randomUUID();
+  await db.batch([
+    insertMessageStatement(db, { id, threadId, role: 'assistant', contentType: 'text', content: '', status: 'pending', answerLang }),
+    touchThreadStatement(db, threadId),
+  ]);
+  const [row] = await getMessagesByIds(db, [id]);
+  if (!row) throw new Error('Message could not be stored');
+  return row;
+}
+
+/**
  * The background "check my Chinese" of my message (a card thread's question): stored only while the
  * message still says the checked text; `updated_at` moves so a `?since=` fetch brings it.
  */

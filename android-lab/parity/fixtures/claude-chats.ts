@@ -28,7 +28,7 @@ function stored(c: FlatCtx): StoredClaudeContext {
     case 'card':
       return { kind: 'card', note_id: c.note_id!, ...(c.typed ? { typed: { answer: '银航' } } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'practice':
-      return { kind: 'practice', conversation_id: c.conversation_id!, ...(c.scenario ? { scenario: c.scenario } : {}), ...(c.label ? { label: c.label } : {}) };
+      return { kind: 'practice', ...(c.conversation_id ? { conversation_id: c.conversation_id } : {}), ...(c.scenario ? { scenario: c.scenario } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'chat_message':
       return { kind: 'chat_message', message_id: c.message_id!, ...(c.conversation_id ? { conversation_id: c.conversation_id } : {}), ...(c.label ? { label: c.label } : {}) };
     default:
@@ -46,6 +46,8 @@ const CTXS: FlatCtx[] = [
   { kind: 'practice', conversation_id: 'c9', scenario: '点菜' },
   { kind: 'practice', conversation_id: 'c9', scenario: '在餐厅里点菜，服务员问你要喝什么，你还想再要一碗米饭和一个汤，然后买单', label: 'x' },
   { kind: 'practice', conversation_id: 'c8', label: '服务员' },
+  // A new role-play (no conversation): the help chips, Ask, never resumed.
+  { kind: 'practice', scenario: '在饭店点菜', label: '在饭店点菜' },
 ];
 
 const chips: unknown[] = [];
@@ -65,7 +67,7 @@ for (const ctx of CTXS) {
 
 const TEXTS = ['', '   ', '我昨天去了商店', '我想买iPhone', 'How do I say hello?', '　你好　', '123'];
 const composers = ['general', 'card', 'chat_message', 'practice'].flatMap((kind) =>
-  TEXTS.flatMap((text) => [false, true].map((started) => ({ kind, text, started, out: composerFor(kind as 'general', text, { started }) }))));
+  TEXTS.flatMap((text) => [false, true].flatMap((started) => [false, true].map((readOnly) => ({ kind, text, started, readOnly, out: composerFor(kind as 'general', text, { started, readOnly }) })))));
 
 const badges = CTXS.flatMap((ctx) =>
   ([null, 'ask', 'check', 'explain', 'translate'] as (ClaudeIntent | null)[]).map((firstIntent) => ({ ctx, firstIntent, out: contextBadge(stored(ctx), firstIntent) })));
@@ -90,8 +92,9 @@ const THREADS: FlatThread[] = [
   { id: 'g', ctx: { kind: 'chat_message', message_id: 'm1', conversation_id: 'c1' }, last_message_at: iso(60 * 24 * 40), created_at: iso(60 * 24 * 41) },
   { id: 'h', ctx: { kind: 'practice', conversation_id: 'c9' }, last_message_at: 'not a date', created_at: iso(3) },
   { id: 'i', ctx: { kind: 'card', note_id: 'n5' }, last_message_at: iso(30), created_at: iso(31) },
+  { id: 'j', ctx: { kind: 'practice', scenario: '点菜' }, last_message_at: iso(1), created_at: iso(2) },
 ];
-const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' }];
+const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' }, { kind: 'practice', scenario: '点菜' }];
 const resume = resumeQueries.map((ctx) => ({ ctx, out: resumeThreadFor(THREADS.map(toCandidate), stored(ctx), NOW) }));
 
 const polls = [0, 399, 9_999, 10_000, 60_000].flatMap((pendingForMs) =>
