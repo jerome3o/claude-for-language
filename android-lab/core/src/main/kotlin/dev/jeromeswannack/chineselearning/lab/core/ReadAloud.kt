@@ -257,5 +257,25 @@ object ReadAloud {
     fun needsLook(chars: List<Char>): Boolean =
         chars.any { it.mark == Mark.CLOSE || it.mark == Mark.WRONG || it.mark == Mark.MISSED || it.extraBefore.isNotEmpty() }
 
+    /**
+     * `readAloudLegend`: the marks this result shows, in a fixed order — close (tone off) · wrong ·
+     * missed · extra; empty when everything was read right.
+     */
+    fun legend(r: Result): List<String> = buildList {
+        if (r.chars.any { it.mark == Mark.CLOSE }) add("close")
+        if (r.chars.any { it.mark == Mark.WRONG }) add("wrong")
+        if (r.chars.any { it.mark == Mark.MISSED }) add("missed")
+        if (r.extraAtEnd.isNotEmpty() || r.chars.any { it.extraBefore.isNotEmpty() }) add("extra")
+    }
+
+    /** `READ_ALOUD_LEGEND`: the legend's words. */
+    fun legendLabel(key: String): String = when (key) {
+        "close" -> "tone off"
+        "wrong" -> "wrong"
+        "missed" -> "missed"
+        "extra" -> "extra words"
+        else -> key
+    }
+
     fun markName(m: Mark): String = m.name.lowercase(java.util.Locale.ROOT)
 }

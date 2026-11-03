@@ -304,3 +304,28 @@ export function readAloudCharLabel(c: ReadAloudChar): string {
 export function readAloudNeedsLook(chars: readonly ReadAloudChar[]): boolean {
   return chars.some((c) => c.mark === 'close' || c.mark === 'wrong' || c.mark === 'missed' || !!c.extraBefore);
 }
+
+/** A mark the legend explains (`ok` / `sound` carry no mark: read right). */
+export type ReadAloudLegendKey = 'close' | 'wrong' | 'missed' | 'extra';
+
+/** The legend's words, beside a sample of each mark (wavy = tone off, solid = wrong, dashed = missed, ‸ = extra). */
+export const READ_ALOUD_LEGEND: Record<ReadAloudLegendKey, string> = {
+  close: 'tone off',
+  wrong: 'wrong',
+  missed: 'missed',
+  extra: 'extra words',
+};
+
+/**
+ * The tiny legend under the line: only the marks this result shows, in a fixed order (tone off ·
+ * wrong · missed · extra words); empty when everything was read right.
+ */
+export function readAloudLegend(r: Pick<ReadAloudResult, 'chars' | 'extraAtEnd'>): ReadAloudLegendKey[] {
+  const has = (m: ReadAloudMark) => r.chars.some((c) => c.mark === m);
+  const keys: ReadAloudLegendKey[] = [];
+  if (has('close')) keys.push('close');
+  if (has('wrong')) keys.push('wrong');
+  if (has('missed')) keys.push('missed');
+  if (r.extraAtEnd || r.chars.some((c) => !!c.extraBefore)) keys.push('extra');
+  return keys;
+}

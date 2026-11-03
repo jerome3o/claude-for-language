@@ -907,12 +907,19 @@ Readers list, Today's story):
   page matches any tone), **close** (the tone differs), **wrong** or **missed**; words said that aren't on
   the page are **extras**. Score = right (ok + sound) / characters, floored (never "100%" with a mistake);
   "to check" = characters not right + extra stretches.
-- **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place —
-  green read right (a homophone with a dotted underline), amber on amber tone off, red on red + underline
-  wrong, red dashed underline missed, a small red ‸ where extra words were said — never colour alone
-  (each has a shape; every marked word's accessible name says it: "徐 — tone off (heard 许)"). Under the
-  audio row ONE line: "✓ 92% — 2 to check" (≈ under 90 %, ✕ under 60 %; "✓ 100% — all read right"), and
-  **You said ▸** opens the transcript small. Tapping a word still opens the explorer; a **long press** on
+- **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place, the
+  characters always in the body ink (Jerome, Nov 2026, dark mode: "the highlighting is pretty scuffed and
+  hard to read" — and he is red / green colour-blind). Read right (ok, a homophone) = NO mark, so a page
+  read well reads clean; tone off = a wavy lemon underline (never orange) on a faint lemon tint; wrong =
+  a solid thick rose underline on a soft rose tint; missed = a dashed rose underline on the same tint; a
+  small rose ‸ where extra words were said. The shape tells them apart, not the colour; the word chips drop
+  their fill (and the known-word underline) while a result is shown. Tokens: web `--ra-*` in
+  `components/reader/ReadAloud.css` (light + `data-theme="dark"`), Lab `LabColors.mark*`; each mark ≥ 3:1
+  on the page card, the ink on a tint ≥ 4.5:1 (web `theme/readAloudMarks.test.ts`, Lab `ThemeContrastTest`).
+  Every marked word's accessible name says it: "徐 — tone off (heard 许)". Under the audio row ONE small,
+  muted line: "✓ 92% — 2 to check" (≈ under 90 %, ✕ under 60 %; "✓ 100% — all read right"), a tiny
+  legend of the marks this page shows (`readAloudLegend`: sample + "tone off · wrong · missed · extra
+  words"), and **You said ▸** opens the transcript small. Tapping a word still opens the explorer; a **long press** on
   a word that needs a look says it (practice TTS at the reader's speed). 🎤 then reads **Say it again** and
   a new take replaces the result; a page turn starts afresh. Pinyin / translation reveals are untouched.
 - **Practice only**: no review event, nothing stored, the take is not queued — offline 🎤 says "Needs a

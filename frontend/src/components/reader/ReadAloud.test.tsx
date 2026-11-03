@@ -85,6 +85,7 @@ const click = async (el: Element | null) => {
   await act(async () => (el as HTMLElement).click());
   await flush();
 };
+const NBSP6 = '\u00a0'.repeat(6);
 const markOf = (ch: string) => [...host.querySelectorAll<HTMLElement>('.ra-char')].find((e) => e.textContent === ch)?.dataset.mark;
 
 beforeEach(async () => {
@@ -122,6 +123,10 @@ describe('🎤 Read it aloud', () => {
     // The page's own text, once — no copy of it.
     expect(host.querySelector('[data-testid="reader-words"]')?.textContent).toBe(TEXT);
     expect(q('reader-read-aloud-line')?.textContent).toBe('✕ 42% — 4 to check');
+    // A tiny legend of the marks the page shows (徐 tone off, 早上好 missed), chips stepped back.
+    expect([...host.querySelectorAll<HTMLElement>('[data-legend]')].map((e) => e.dataset.legend)).toEqual(['close', 'missed']);
+    expect(q('reader-read-aloud-legend')?.textContent).toBe(`${NBSP6}tone off${NBSP6}missed`);
+    expect(q('reader-words')?.dataset.readAloud).toBe('marked');
     expect(q('reader-read-aloud-said')).toBeNull();
     await click(q('reader-read-aloud-said-toggle'));
     expect(q('reader-read-aloud-said')?.textContent).toBe('我叫小许。');
@@ -141,6 +146,7 @@ describe('🎤 Read it aloud', () => {
     await flush();
     expect(q('reader-read-aloud-line')?.textContent).toBe('✓ 100% — all read right');
     expect(markOf('徐')).toBe('ok');
+    expect(q('reader-read-aloud-legend')).toBeNull();
   });
 
   it('a failed take offers tap to retry; nothing heard says so', async () => {

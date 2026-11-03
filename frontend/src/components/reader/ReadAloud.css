@@ -84,14 +84,12 @@
   gap: 0.25rem 0.75rem;
 }
 
+/* Small and muted: the icon (✓ ≈ ✕) and the words carry it, never a red / green colour. */
 .reader-read-aloud-line {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  color: var(--color-text-light);
 }
-
-.reader-read-aloud-line.tone-good { color: #15803d; }
-.reader-read-aloud-line.tone-some { color: #b45309; }
-.reader-read-aloud-line.tone-low { color: #b91c1c; }
 
 .reader-read-aloud-said-toggle {
   min-height: 36px;
@@ -109,43 +107,104 @@
   padding: 0.25rem 0 0;
 }
 
-/* The page's own Chinese, marked in place (ReaderWordsText `marks`): never colour alone. */
-.ra-char.ra-ok { color: #166534; }
-.ra-char.ra-sound {
-  color: #166534;
-  text-decoration: underline dotted #16a34a;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.28em;
+/* The page's own Chinese, marked in place (ReaderWordsText `marks`).
+   Jerome reads the marks in dark mode and is red / green colour-blind, so:
+   - the characters keep the body ink whatever their mark (never recoloured text);
+   - a read-right character (ok / a homophone) has NO mark — a page read well reads clean;
+   - the mark is a SHAPE under the character: wavy = tone off, solid thick = wrong, dashed = missed,
+     plus a soft tint behind the character; ‸ = extra words;
+   - tone off is lemon (never orange — it reads as red to him), wrong / missed rose.
+   Underlines ≥ 3:1 against the page card, ink on a tint ≥ 4.5:1 (ReadAloud.test.tsx). Lab twin:
+   LabColors.mark* (ui/theme/Theme.kt) + ui/readers/ReadAloudViews.kt `MarkedChars`. */
+:root {
+  --ra-tone: #a16207;
+  --ra-tone-tint: rgba(250, 204, 21, 0.18);
+  --ra-wrong: #be123c;
+  --ra-wrong-tint: rgba(244, 63, 94, 0.14);
+}
+:root[data-theme='dark'] {
+  --ra-tone: #fde047;
+  --ra-tone-tint: rgba(253, 224, 71, 0.12);
+  --ra-wrong: #fb7185;
+  --ra-wrong-tint: rgba(251, 113, 133, 0.2);
+}
+
+.ra-char.ra-close,
+.ra-char.ra-wrong,
+.ra-char.ra-missed {
+  color: inherit;
+  border-radius: 3px;
+  text-underline-offset: 0.3em;
+  text-decoration-skip-ink: none;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 .ra-char.ra-close {
-  color: #92400e;
-  background: #fef3c7;
-  border-radius: 3px;
-  text-decoration: underline wavy #d97706;
+  background: var(--ra-tone-tint);
+  text-decoration: underline wavy var(--ra-tone);
   text-decoration-thickness: 1.5px;
-  text-underline-offset: 0.3em;
 }
 .ra-char.ra-wrong {
-  color: #b91c1c;
-  background: #fee2e2;
-  border-radius: 3px;
-  text-decoration: underline solid #dc2626;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.28em;
+  background: var(--ra-wrong-tint);
+  text-decoration: underline solid var(--ra-wrong);
+  text-decoration-thickness: 3px;
 }
 .ra-char.ra-missed {
-  color: #b91c1c;
-  opacity: 0.8;
-  text-decoration: underline dashed #dc2626;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.28em;
+  background: var(--ra-wrong-tint);
+  text-decoration: underline dashed var(--ra-wrong);
+  text-decoration-thickness: 3px;
 }
 .ra-extra {
   display: inline-block;
-  color: #dc2626;
-  font-size: 0.6em;
+  color: var(--ra-wrong);
+  font-size: 0.55em;
   font-weight: 700;
   vertical-align: top;
-  margin: 0 -0.15em;
+  margin: 0 -0.1em;
   line-height: 1;
+}
+
+/* While a result is shown the word chips step back (no fill, no known-word underline) so the marks
+   sit cleanly on the page; a tap still opens the word. */
+.reader-words[data-read-aloud='marked'] .reader-word-chip,
+.reader-words[data-read-aloud='marked'] .reader-word-chip.known {
+  background: transparent;
+  text-decoration: none;
+}
+.reader-words[data-read-aloud='marked'] .reader-word-chip:active {
+  background: var(--ra-tone-tint);
+}
+
+/* The tiny legend under the line: a sample of each mark the page shows. */
+.reader-read-aloud-legend {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.875rem;
+  margin: 0.125rem 0 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--color-text-light);
+}
+.reader-read-aloud-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+/* A sample of the mark: three non-breaking spaces carrying the same tint + underline. */
+.ra-swatch {
+  display: inline-block;
+  font-size: 0.875rem;
+  line-height: 1;
+  padding-bottom: 0.2em;
+}
+.ra-swatch.ra-char {
+  text-underline-offset: 0.12em;
+}
+.ra-swatch.ra-extra {
+  font-size: 1rem;
+  font-weight: 700;
+  vertical-align: baseline;
+  margin: 0;
+  padding: 0 0.2em;
 }

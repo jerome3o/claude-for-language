@@ -41,6 +41,29 @@ class ThemeContrastTest {
         assertTrue("$name disabled label on faint = ${"%.2f".format(muted)}:1 (needs ≥ 3)", muted >= 3.0)
     }
 
+    /** A translucent [top] over an opaque [under]. */
+    private fun over(top: Color, under: Color) = Color(
+        top.red * top.alpha + under.red * (1 - top.alpha),
+        top.green * top.alpha + under.green * (1 - top.alpha),
+        top.blue * top.alpha + under.blue * (1 - top.alpha),
+    )
+
+    /** 🎤 Read it aloud's marks (Jerome, dark mode: "pretty scuffed and hard to read"): visible marks, readable ink. */
+    private fun checkMarks(name: String, c: LabColors) {
+        for ((mark, tint) in listOf("tone" to (c.markTone to c.markToneTint), "wrong" to (c.markWrong to c.markWrongTint))) {
+            val bg = over(tint.second, c.card)
+            assertTrue("$name $mark mark on the card", ratio(tint.first, c.card) >= 3.0)
+            assertTrue("$name $mark mark on its tint", ratio(tint.first, bg) >= 3.0)
+            val ink = ratio(c.ink, bg)
+            assertTrue("$name ink on the $mark tint = ${"%.2f".format(ink)}:1 (needs ≥ 4.5)", ink >= 4.5)
+        }
+    }
+
+    @Test fun readAloudMarksReadInBothThemes() {
+        checkMarks("dark", LabDarkColors)
+        checkMarks("light", LabLightColors)
+    }
+
     @Test fun darkButtonsHaveVisibleOutlines() = check("dark", LabDarkColors)
 
     @Test fun lightButtonsHaveVisibleOutlines() = check("light", LabLightColors)

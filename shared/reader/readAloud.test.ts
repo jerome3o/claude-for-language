@@ -6,6 +6,8 @@ import {
   readAloudHeardAnything,
   readAloudLine,
   readAloudNeedsLook,
+  readAloudLegend,
+  READ_ALOUD_LEGEND,
   readAloudTone,
   type ReadAloudResult,
 } from './readAloud';
@@ -117,5 +119,17 @@ describe('the line, tone and bucket', () => {
     expect(readAloudTone({ pct: 70, toCheck: 2 })).toBe('some');
     expect(readAloudTone({ pct: 30, toCheck: 2 })).toBe('low');
     expect([100, 95, 80, 55, 10].map(readAloudBucket)).toEqual(['all', '90', '75', '50', 'under_50']);
+  });
+});
+
+describe('the legend', () => {
+  it('lists only the marks shown, in a fixed order', () => {
+    expect(readAloudLegend(judgeReadAloud('早上好。我叫小徐。', '早上好。我叫小徐。'))).toEqual([]);
+    // 她 = sound (no mark), 行 = tone off, 很 missed, 了 extra.
+    expect(readAloudLegend(judgeReadAloud('小明今天第一次去巴黎。他很兴奋。', '小明今天第一次去巴黎了她行奋'))).toEqual(['close', 'missed', 'extra']);
+    expect(readAloudLegend(judgeReadAloud('成都是四川的省会，人们都说这里是天府之国。', '成都是十船的省会了人们豆说这里是天国')))
+      .toEqual(['close', 'wrong', 'missed', 'extra']);
+    expect(readAloudLegend(judgeReadAloud('我想买书。', '我想买书呀'))).toEqual(['extra']);
+    expect(READ_ALOUD_LEGEND.close).toBe('tone off');
   });
 });
