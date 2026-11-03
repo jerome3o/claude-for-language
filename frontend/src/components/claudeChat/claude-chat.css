@@ -1,0 +1,199 @@
+/* A Claude chat (components/claudeChat): the tutor chat's bubbles (chat-signal.css + the
+   .ask-thread layout in ask-claude.css) plus the small tool row under Claude's Chinese messages. */
+
+.claude-chat-thread {
+  gap: 0.15rem;
+}
+.claude-chat-thread .chat-message.received {
+  max-width: 94%;
+}
+
+.claude-chat-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-light, #666);
+}
+
+.claude-chat-failed {
+  align-self: stretch;
+  margin: 0.25rem 0;
+}
+
+/* ▶ · 拼 · EN · 🎤 Read it back — under the bubble, 44px targets. */
+.claude-chat-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+.claude-chat-tool {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #f8fafc);
+  color: var(--color-text, #1f2937);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.claude-chat-tool.on {
+  border-color: var(--color-primary, #2c6bed);
+  color: var(--color-primary, #2c6bed);
+  background: rgba(44, 107, 237, 0.1);
+}
+.claude-chat-tool:active {
+  transform: scale(0.94);
+}
+.claude-chat-tool-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-light, #666);
+}
+.claude-chat-read-back {
+  max-width: 100%;
+}
+.claude-chat-read-back:empty {
+  display: none;
+}
+
+/* The page: header, thread, composer pinned to the bottom (pages/ClaudeChatPage.tsx). */
+.claude-chat-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--color-bg, #fff);
+}
+.claude-chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.75rem;
+  padding-top: max(0.5rem, env(safe-area-inset-top));
+  background: var(--color-bg, #fff);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+}
+.claude-chat-back,
+.claude-chat-more {
+  min-width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: inherit;
+}
+.claude-chat-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.claude-chat-body {
+  flex: 1;
+  padding: 0.75rem 0.75rem 1rem;
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.claude-chat-empty {
+  margin: 1.5rem 0.25rem;
+  color: var(--color-text-light, #666);
+  font-size: 0.9375rem;
+}
+.claude-chat-empty h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.35rem;
+  color: var(--color-text, #111);
+}
+.claude-chat-composer {
+  position: sticky;
+  bottom: 0;
+  padding: 0.5rem 0.75rem;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  background: var(--color-bg, #fff);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+}
+.claude-chat-composer > * {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.claude-chat-error {
+  margin: 0.5rem 0;
+}
+
+/* ⋯ menu */
+.claude-chat-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.claude-chat-menu {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-bg, #fff);
+  border-radius: 16px 16px 0 0;
+  padding: 0.5rem 0 max(0.75rem, env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+}
+@media (min-width: 640px) {
+  .claude-chat-menu-backdrop {
+    align-items: flex-start;
+    justify-content: flex-end;
+    background: transparent;
+  }
+  .claude-chat-menu {
+    margin: 3.5rem 1rem 0 0;
+    width: 320px;
+    border-radius: 12px;
+  }
+}
+.claude-chat-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 1rem;
+  border: 0;
+  background: transparent;
+  font-size: 1rem;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.claude-chat-menu button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.claude-chat-menu .claude-chat-soon {
+  margin-left: auto;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* 🎤 Read it back's line + legend sit under the bubble, left-aligned with it (a reader page centres them). */
+.claude-chat-read-back .reader-read-aloud-line-row,
+.claude-chat-read-back .reader-read-aloud-legend {
+  justify-content: flex-start;
+}
+.claude-chat-read-back .reader-read-aloud-result,
+.claude-chat-read-back .reader-read-aloud-hint {
+  margin: 0.25rem 0 0.5rem;
+}

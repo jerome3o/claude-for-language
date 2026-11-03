@@ -351,6 +351,12 @@ export const ANALYTICS_EVENTS = {
   'coach.mistake_lesson_generate': e('coach', '"🎯 Mini lesson on this mistake": asked for a lesson on the mistake a check found (existing = the conversation already had one).', ['existing']),
   'coach.mistake_lesson_play': e('coach', 'Played a coach mistake lesson in the player (preview: nothing recorded while playing).', ['exercises', 'saved']),
   'coach.mistake_lesson_save': e('coach', '"Save to my mini lessons" on a coach mistake lesson (done = saved right after doing it, its completion recorded; missed = exercises missed first time; rating from apps before Oct 2026).', ['done', 'rating', 'missed']),
+  'coach.ask_start': e('coach', '"💬 Ask Claude" on the Coach: started a chat with Claude (language = zh | en, the turn\'s answer language).', ['language']),
+  'coach.ask_message': e('coach', 'Sent a message in an Ask Claude chat (language = zh | en; spoken = said with 🎤).', ['language', 'spoken']),
+  'coach.ask_reply': e('coach', 'An Ask Claude reply landed while the chat was open: ms from sending to the reply on screen (first = the chat\'s first reply).', ['ms', 'first', 'language']),
+  'coach.ask_tool': e('coach', 'Used a tool on an Ask Claude message (action = play | pinyin | translate | listen | listen_auto | reveal | word | listening_on | listening_off | language; role = mine | claude).', ['action', 'role']),
+  'coach.ask_read_back': e('coach', '"🎤 Read it back" on one of Claude\'s messages: a take judged against it (practice only; result_bucket = all | 90 | 75 | 50 | under_50 or failed | empty; chars; wrong_words = words with a real mistake; via).', ['result_bucket', 'chars', 'wrong_words', 'via']),
+  'coach.ask_flashcards': e('coach', '"Make flashcards from this chat": cards added (count; focus = recap words sent as the default selection).', ['count', 'focus']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 

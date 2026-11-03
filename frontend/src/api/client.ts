@@ -46,6 +46,7 @@ import {
   CoachConversationListItem,
   CoachMessage,
   CoachToolResult,
+  ProposedChatCard,
   CreateRelationshipResult,
   GradedReader,
   GradedReaderWithPages,
@@ -1667,15 +1668,30 @@ export async function getCoachConversation(id: string): Promise<{
   return fetchJSON(`/coach/conversations/${id}`);
 }
 
-/** A follow-up: 202 with my message and the pending reply (written in the background). */
-export async function sendCoachMessage(id: string, message: string): Promise<{
+/** A follow-up: 202 with my message and the pending reply (written in the background). `language` = an Ask Claude chat's 中文 | EN. */
+export async function sendCoachMessage(id: string, message: string, opts: { language?: 'zh' | 'en' } = {}): Promise<{
   messages: CoachMessage[];
   toolResults: CoachToolResult[];
 }> {
   return fetchJSON(`/coach/conversations/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ message, background: true }),
+    body: JSON.stringify({ message, background: true, ...(opts.language ? { language: opts.language } : {}) }),
   });
+}
+
+/** "💬 Ask Claude": a new chat — 202 with my message and Claude's pending reply. */
+export async function startCoachAsk(message: string, language?: 'zh' | 'en'): Promise<{ conversation: CoachConversation; messages: CoachMessage[] }> {
+  return fetchJSON('/coach/ask', { method: 'POST', body: JSON.stringify({ message, ...(language ? { language } : {}) }) });
+}
+
+/** The English of one Chinese message of a coach conversation (kept on the server). */
+export async function translateCoachMessage(id: string, messageId: string): Promise<{ translation: string; cached: boolean }> {
+  return fetchJSON(`/coach/conversations/${id}/messages/${messageId}/translate`, { method: 'POST', body: '{}' });
+}
+
+/** "Make flashcards from this chat": proposals, the tapped / said-wrong `words` first. */
+export async function proposeCoachFlashcards(id: string, words: string[]): Promise<{ cards: ProposedChatCard[] }> {
+  return fetchJSON(`/coach/conversations/${id}/flashcards/propose`, { method: 'POST', body: JSON.stringify({ words }) });
 }
 
 /** Retry a reply that failed: back on the server's queue. */

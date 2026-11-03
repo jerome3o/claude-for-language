@@ -63,7 +63,8 @@ export function useKnownHanzi(version = 0): Set<string> {
 }
 
 /** Characters marked by a read-aloud take, with a caret where extra words were said. */
-function MarkedChars({ chars }: { chars: readonly ReadAloudChar[] }) {
+/** A run of characters with their 🎤 Read it aloud marks (ReadAloud.css) — reader pages and chat bubbles. */
+export function MarkedChars({ chars }: { chars: readonly ReadAloudChar[] }) {
   return (
     <>
       {chars.map((c, i) => (

@@ -167,7 +167,9 @@
 /* While a result is shown the word chips step back (no fill, no known-word underline) so the marks
    sit cleanly on the page; a tap still opens the word. */
 .reader-words[data-read-aloud='marked'] .reader-word-chip,
-.reader-words[data-read-aloud='marked'] .reader-word-chip.known {
+.reader-words[data-read-aloud='marked'] .reader-word-chip.known,
+.chat-words[data-read-aloud='marked'] .chat-word,
+.chat-words[data-read-aloud='marked'] .chat-word.known {
   background: transparent;
   text-decoration: none;
 }
