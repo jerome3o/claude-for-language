@@ -34,10 +34,15 @@ If you have read this guide before, these are the sections that changed:
 
 **New look**
 
-- A **bottom tab bar** replaces the old avatar menu — Study · Chats · Tutor · Progress ·
-  More for students, Students · Chats · Study · More for tutors (Decks is the first row of
+- A **bottom tab bar** replaces the old avatar menu — Study · Chats · Progress · More for
+  students, Students · Chats · Study · More for tutors (Decks is the first row of
   **More**). Everything that used to
   hide in the dropdown is on the **More** page — [section 3](#3-the-home-screen).
+- Students no longer have a **Tutor** tab: your chat with your tutor is the way in. Tap
+  their **name at the top of the chat** for their page, or **⋯** in the chat for *About
+  <tutor>*, the *Lesson board*, *Homework from <tutor>*, *Cards you flagged* and *Notes from
+  <tutor>*. Requests and invites are under **More → Tutors & connections**, and a request
+  waiting for you shows on the home screen.
 - A **new home screen**: one *Study today's cards* button, a *From your tutor* homework
   card, and a short deck list — [section 3](#3-the-home-screen).
 - A **Students dashboard** for tutors — one card per student with what needs attention,
@@ -189,8 +194,9 @@ notifications. See [native/README.md](../native/README.md) for how to get it.
 1. Open the tutor's invite link on the phone (in Chrome or Safari, not inside WeChat),
    tap **Continue with Google**, then install the app (above). The connection to the
    tutor is already active.
-2. If you signed in without a link, open the **Tutor** tab and accept the tutor's
-   request (or connect with the tutor by email).
+2. If you signed in without a link, tap "🤝 <tutor> wants to be your tutor" on the home
+   screen (or **More → Tutors & connections**) and accept the tutor's request — or connect
+   with the tutor by email there.
 3. Stay on Wi-Fi for a minute the first time — the audio downloads by itself; the
    **Settings** page (More → Settings) shows how many clips are on the phone.
 4. Tap **Study today's cards** on the home screen every day.
@@ -230,7 +236,6 @@ of the last month.
 |-----|---------------|
 | **Study** | the home screen above |
 | **Chats** | one chat per person — your tutor(s) and students in one list, newest first, with unread counts — tap one to open it, ✏️ to message someone, search at the top |
-| **Tutor** | your tutor(s), homework and conversations (section 8) |
 | **Progress** | 30-day statistics and daily history (section 11) |
 | **More** | everything else — below |
 
@@ -387,7 +392,8 @@ is confusing ("is 行 here háng or xíng?"), pick the tutor if you have more th
 It works on the train: without a connection the flag is saved and goes out with the next sync.
 Your tutor gets it in the chat with the word, and under **Flagged cards** on your page in
 their app, linked to the card. Their reply comes back the same three ways: in the chat, on
-**Cards you flagged** on your tutor's page (Tutor tab → your tutor), and once on the back of
+**Cards you flagged** on your tutor's page (in the chat with them: **⋯ → Cards you flagged**,
+or tap their name at the top), and once on the back of
 the card the next time it comes up.
 
 Every card also has a **card page** (History on the deck page → *Card page*, or from a flag):
@@ -615,8 +621,9 @@ Lessons and readers can be exported to Anki too — see section 10.
 
 ## 7. For tutors: inviting students and the Students dashboard
 
-Everything tutor-related lives on the **Students** tab (called **Tutor** on a student's
-phone).
+Everything tutor-related lives on the **Students** tab. A student has no Tutor tab: they
+reach you from their chat with you, and requests and invites from **More → Tutors &
+connections**.
 
 ### Your profile
 
@@ -671,8 +678,9 @@ link works once unless you changed that under **Options**.
 
 If the person already has an account, the link still works (it connects you and shares
 the decks), or use **Connect by email** instead: enter their email and choose **Tutor**
-("I'll teach them") or **Student** ("They'll teach me"). They then see a **Pending
-Request** on their Tutor tab and tap **Accept**. Tutors without inviting switched on can
+("I'll teach them") or **Student** ("They'll teach me"). They then see "🤝 <you> wants to be
+your tutor" on their home screen (and under **More → Tutors & connections**) and tap
+**Accept**. Tutors without inviting switched on can
 only connect by email with people who already use the app.
 
 The same person can be a tutor to some people and a student of others.
@@ -1048,9 +1056,10 @@ percentage after a week are the ones to revisit in class.
 
 <img src="guide-images/connection-detail-student.png" width="300">
 
-On the student's side, the **Tutor** tab opens the tutor's page with **Message** (1), the
-**Messages** row — the one chat with you (2) — and **Homework from your tutor** (3) — the
-decks you sent.
+On the student's side, your page opens from the chat with you — tap your **name at the top**,
+or **⋯ → About <you>** — with **Message** (1), the **Messages** row — the one chat with you
+(2) — and **Homework from your tutor** (3) — the decks you sent. The chat's **⋯** also goes
+straight to the *Lesson board*, *Homework from <you>*, *Cards you flagged* and *Notes from <you>*.
 Students can also share one of *their own* decks with you from the deck page (⋯ →
 **Share with tutor**) so that you can see progress on words they collected themselves.
 
@@ -1103,8 +1112,8 @@ added as a card.
 
 ### Practice conversations with Claude
 
-On the **Tutor** tab the student also has **Claude**, an AI conversation partner that is
-added automatically. There they can start a **Practice Conversation** with a scenario
+Role-plays with Claude live in **Chats** (✏️ → **🎭 Practice a situation**); the old "Claude AI"
+connection no longer shows in the student's connections. They can start a **Practice Conversation** with a scenario
 ("You are ordering food; the waiter only speaks Mandarin"), their role and Claude's
 role. Claude replies in Chinese; the chat tools (Check my Chinese, Translate, Help me
 say it) help the student keep going. **Roleplay** in a study card's ⋯ menu starts a

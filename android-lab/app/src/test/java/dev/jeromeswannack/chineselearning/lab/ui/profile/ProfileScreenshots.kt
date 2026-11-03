@@ -98,7 +98,7 @@ class ProfileScreenshots : LabScreenshotTest() {
         PhotoCropSheet(portrait(), busy = false, error = null, onCancel = {}, onConfirm = {}, initialZoom = 1.3f)
     }
 
-    @Test fun studentSeesTutor() = shootInShell("profile-07-student-sees-tutor", active = TabId.TUTOR) {
+    @Test fun studentSeesTutor() = shootInShell("profile-07-student-sees-tutor", active = TabId.MORE) {
         val tutor = UserSummaryDto("t1", "minghui@example.com", edited.name, edited.picture_url, edited.about, edited.time_zone)
         val me = UserSummaryDto("me", "jerome@example.com", "Jerome")
         TutorPageScreen(

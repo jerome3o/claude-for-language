@@ -80,13 +80,6 @@ function TabIcon({ id }: { id: TabId }) {
           <path d="M17 21H5a2 2 0 0 1-2-2V7" />
         </svg>
       );
-    case 'tutor':
-      return (
-        <svg {...common}>
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-      );
     case 'students':
       return (
         <svg {...common}>

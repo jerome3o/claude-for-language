@@ -112,7 +112,7 @@ class BoardPagesScreenshots : LabScreenshotTest() {
     private val boardPages = texts.mapIndexed { i, t -> BoardPageDto("p$i", i + 1, titles[i], t, t.length, t0 - (5 - i) * 7 * day, t0 - (5 - i) * 7 * day + 3_600_000, "call$i", "r1") }
     private val utc = ZoneId.of("Europe/London")
 
-    @Test fun lessonBoard() = shootInShell("calls-87-lesson-board", active = dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.TUTOR) {
+    @Test fun lessonBoard() = shootInShell("calls-87-lesson-board", active = dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.MORE) {
         LessonBoardScreen(Loadable(boardPages, updatedAt = t0), "王老师", LessonBoardActions(), zone = utc)
     }
 

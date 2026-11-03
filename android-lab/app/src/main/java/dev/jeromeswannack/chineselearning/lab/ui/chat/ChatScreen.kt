@@ -191,6 +191,8 @@ class ChatActions(
     val onToggleTime: (String) -> Unit = {},
     /** 📹 in the header. */
     val onVideoCall: () -> Unit = {},
+    /** The header's avatar + name: the person's page (core ChatPersonLinks.personPath). */
+    val onOpenPerson: (path: String) -> Unit = {},
     val onOpenLink: (String) -> Unit = {},
     /** A system message's button (Join, Open card…): an app path (docs/CHAT.md "System messages"). */
     val onOpenPath: (path: String, kind: String) -> Unit = { _, _ -> },
@@ -297,24 +299,33 @@ data class ViewerTarget(
 private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp).testTag("chat-header"), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = actions.onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
-        Avatar(ui.otherName, null, size = 36.dp, isClaude = ui.isAi || ui.otherIsClaude)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(ui.otherName.ifEmpty { "Chat" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (ui.isAi) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("AI", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Lab.colors.accentSoft).padding(horizontal = 6.dp, vertical = 1.dp))
+        // The avatar + name open the person's page (the learner's Tutor tab went, Nov 2026).
+        val personPath = ui.personPath
+        Row(
+            Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                .then(if (personPath != null) Modifier.clickable(onClickLabel = "Open ${ui.otherName.ifEmpty { "their" }} page") { actions.onOpenPerson(personPath) }.testTag("chat-header-person") else Modifier)
+                .heightIn(min = 48.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Avatar(ui.otherName, null, size = 36.dp, isClaude = ui.isAi || ui.otherIsClaude)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(ui.otherName.ifEmpty { "Chat" }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (ui.isAi) {
+                        Spacer(Modifier.width(6.dp))
+                        Text("AI", style = MaterialTheme.typography.labelSmall, color = Lab.colors.accent, modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Lab.colors.accentSoft).padding(horizontal = 6.dp, vertical = 1.dp))
+                    }
                 }
+                // "typing…" takes the subtitle's place, like a messenger; then my sends waiting in the outbox.
+                val queue = ui.queueLabel
+                if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
+                else if (ui.listeningAvailable && ui.listening.setting.on) Text("🎧 Listening mode", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1, modifier = Modifier.testTag("chat-listening-subtitle"))
+                else if (queue != null) Text(queue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("chat-queue-status"))
+                // A chat with a person has no title (one chat per pair); a Claude practice chat shows its own.
+                else if (ui.isAi) ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                if (ui.proposingCards) Text("Claude is picking cards…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
             }
-            // "typing…" takes the subtitle's place, like a messenger; then my sends waiting in the outbox.
-            val queue = ui.queueLabel
-            if (ui.typing) Text("typing…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
-            else if (ui.listeningAvailable && ui.listening.setting.on) Text("🎧 Listening mode", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1, modifier = Modifier.testTag("chat-listening-subtitle"))
-            else if (queue != null) Text(queue, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("chat-queue-status"))
-            // A chat with a person has no title (one chat per pair); a Claude practice chat shows its own.
-            else if (ui.isAi) ui.conversation?.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-            if (ui.proposingCards) Text("Claude is picking cards…", style = MaterialTheme.typography.bodySmall, color = Lab.colors.accent, maxLines = 1)
         }
         if (!ui.isAi && !ui.otherIsClaude) {
             Box(

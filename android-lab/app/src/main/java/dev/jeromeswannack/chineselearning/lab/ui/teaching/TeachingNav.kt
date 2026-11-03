@@ -55,7 +55,8 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
         when {
             asStudent != null -> StudentPageRoute(nav, relId, asStudent, section)
             relationships == null -> Unit // cache still loading (a frame)
-            else -> dev.jeromeswannack.chineselearning.lab.ui.connections.TutorPageRoute(nav, relId) // E: the student's tutor page
+            // E: the student's tutor page; `?section=homework|flags` from the chat ⋯ menu (core ChatPersonLinks).
+            else -> dev.jeromeswannack.chineselearning.lab.ui.connections.TutorPageRoute(nav, relId, section)
         }
     }
     tutorPage(nav, "/connections/{relId}/insights") { relId, name, _ -> InsightsRoute(nav, relId, name) }
