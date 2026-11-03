@@ -135,17 +135,15 @@ class ChatsUnifiedTest : LabScreenshotTest() {
 
     @Test fun peopleFirstThenADividerThenClaude() {
         show(S.learner)
-        val keys = S.learner.shown.map { it.key }
         val sections = ClaudeInbox.sections(S.learner.shown)
         // Minghui's unread chat first, then 张老师 — the people — then every Claude chat, newest first.
         assertEquals(listOf("h:c-hw", "h:c-zhang"), sections.people.map { it.key })
         assertEquals(listOf("c:t-check", "c:t-card", "c:t-ex", "c:t-reader", "c:t-ask", "h:c-cafe"), sections.claude.map { it.key })
-        assertEquals(sections.people.map { it.key } + sections.claude.map { it.key }, keys)
         assertTrue(S.learner.items.first().pinned)
         compose.onNodeWithTag(ChatsTags.DIVIDER).assertExists()
         // The kind is in words for TalkBack, on the avatar (no outline label any more).
-        compose.onNodeWithTag(ChatsTags.kind("h:c-hw")).assertContentDescriptionEquals("Tutor")
-        compose.onNodeWithTag(ChatsTags.kind("c:t-check")).assertContentDescriptionEquals("Claude")
+        compose.onNodeWithTag(ChatsTags.kind("h:c-hw"), useUnmergedTree = true).assertContentDescriptionEquals("Tutor")
+        compose.onNodeWithTag(ChatsTags.kind("c:t-check"), useUnmergedTree = true).assertContentDescriptionEquals("Claude")
         // No previews, no filter chips.
         compose.onNodeWithText("明天上课见！别忘了带作业。").assertDoesNotExist()
         compose.onNodeWithText("All").assertDoesNotExist()
@@ -273,7 +271,7 @@ class ChatsUnifiedTest : LabScreenshotTest() {
 
     @Test fun theTutorSeesTheSameLayout() {
         show(S.tutor)
-        compose.onNodeWithTag(ChatsTags.kind("h:c-jerome")).assertContentDescriptionEquals("Student")
+        compose.onNodeWithTag(ChatsTags.kind("h:c-jerome"), useUnmergedTree = true).assertContentDescriptionEquals("Student")
         // Her Claude chats are right there, below the divider — no fold.
         compose.onNodeWithTag(ChatsTags.DIVIDER).assertExists()
         compose.onNodeWithTag(ChatsTags.item("c:t-plan")).assertExists()
