@@ -199,15 +199,8 @@ class ClaudeChatsParityTest {
         for (c in f["inbox"]!!.jsonArray) {
             val o = c.jsonObject
             val humans = ints(o["humans"]).map { inboxHumans[it] }
-            if (o["recipients"] != null) {
-                val want = o["recipients"]!!.jsonArray.map { r ->
-                    r.jsonObject.let { ClaudeInbox.Recipient(it["relationship_id"].str!!, it["conversation_id"].str!!, it["name"].str!!) }
-                }
-                assertEquals(want, ClaudeInbox.composeRecipients(humans), o.toString().take(200))
-                continue
-            }
             val threads = ints(o["threads"]).map { inboxThreads[it] }
-            val items = ClaudeInbox.merge(humans, threads, o["pin"]!!.jsonPrimitive.boolean, o["filter"].str!!)
+            val items = ClaudeInbox.merge(humans, threads, o["pin"]!!.jsonPrimitive.boolean)
             val label = o.toString().take(120)
             val want = o["items"]!!.jsonArray.map { it.jsonObject }
             assertEquals(want.map { it["key"].str }, items.map { it.key }, label)
@@ -220,20 +213,29 @@ class ClaudeChatsParityTest {
                 assertEquals(w["name"].str, ClaudeInbox.rowName(got), label)
                 val l = w["label"]!!.jsonObject
                 assertEquals(ClaudeInbox.RowLabel(l["icon"].str!!, l["text"].str!!), ClaudeInbox.rowLabel(got.kind), label)
-                assertEquals(w["preview"].str, got.thread?.let { ClaudeInbox.claudeRowPreview(it.preview, it.pending, it.failed, it.local, it.title) }, label)
+                val st = w["status"]?.takeIf { it !is JsonNull }?.jsonObject?.let { ClaudeInbox.RowStatus(it["icon"].str!!, it["short"].str!!, it["text"].str!!) }
+                assertEquals(st, got.thread?.let { ClaudeInbox.claudeRowStatus(it.pending, it.failed, it.local) }, label)
             }
-            val filters = o["filters"]!!.jsonArray.map { it.jsonObject.let { x -> ClaudeInbox.FilterChip(x["id"].str!!, x["label"].str!!) } }
-            assertEquals(filters, ClaudeInbox.filters(items), label)
             for (s in o["search"]!!.jsonArray) {
                 val q = s.jsonObject
                 assertEquals(strings(q["keys"]), ClaudeInbox.search(items, q["q"].str!!).map { it.key }, "$label q=${q["q"].str}")
             }
-            val t = o["teacher"]!!.jsonObject
-            val sections = ClaudeInbox.teacherSections(items)
+            val t = o["sections"]!!.jsonObject
+            val sections = ClaudeInbox.sections(items)
             assertEquals(strings(t["people"]), sections.people.map { it.key }, label)
             assertEquals(strings(t["claude"]), sections.claude.map { it.key }, label)
             cases++
         }
-        assertEquals(true, cases > 100, "inbox cases: $cases")
+        assertEquals(true, cases > 30, "inbox cases: $cases")
+    }
+
+    @Test
+    fun contextOpenLabels() {
+        val all = f["contextOpenLabels"]!!.jsonArray
+        assertEquals(true, all.size > 5)
+        for (c in all) {
+            val o = c.jsonObject
+            assertEquals(o["label"].str, ClaudeInbox.contextOpenLabel(o["kind"].str), o.toString())
+        }
     }
 }

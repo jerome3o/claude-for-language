@@ -4,8 +4,10 @@
  * (shared/claude/contexts.ts `composerFor`, a new general chat) the other intents for what is in the
  * box sit under it — ✏️ Check · 🔍 Explain for Chinese, 🔤 Translate for English — with the hint.
  * A spoken message that failed to send goes into the box (typing) so it can be fixed or sent again.
+ * `intentsOnlyWithText` (the Chats tab's box): the other intents appear only once there is text —
+ * typed (then beside the main button, one row) or a finished take (under the review).
  */
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { AskLanguage } from '@shared/study/askClaude';
 import type { ClaudeIntent } from '@shared/claude/context';
 import { CLAUDE_INTENT_LABELS, type ClaudeComposer } from '@shared/claude/contexts';
@@ -14,7 +16,7 @@ import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { VoiceTextInputView } from '../voice/VoiceTextInput';
 import { enterToSubmit } from '../voice/enterToSubmit';
 
-export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or', compact = false }: {
+export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or', intentsOnlyWithText = false, compact = false }: {
   value: string;
   onChange: (value: string) => void;
   /** `spoken` = sent from the review of a take; `intent` = one of the other buttons (default Ask). */
@@ -28,6 +30,8 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
   typeRequest?: number;
   /** The aria label of the row of other intents. */
   intentsLabel?: string;
+  /** Hide the other intents until there is text; while typing they share the main button's row. */
+  intentsOnlyWithText?: boolean;
   /** One-row typing (box 1 → 4 lines · 🎤 · ➤), a lower voice row — the Claude thread view / sheets. */
   compact?: boolean;
   /** Sending, or Claude is still answering. */
@@ -53,7 +57,10 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
   // What a Check / Explain / Translate button would send: the take under review, else the box.
   const current = (voice.state.mode === 'voice' ? voice.finalText || value : value).trim();
   const c = composer?.(current);
-  const others = c ? c.intents.filter((i) => i !== 'ask') : [];
+  // intentsOnlyWithText: typed text, or a finished take under review — never mid-speech.
+  const ready = !!current && (voice.state.mode === 'type' || voice.state.phase === 'review');
+  const others = c && (!intentsOnlyWithText || ready) ? c.intents.filter((i) => i !== 'ask') : [];
+  const inline = intentsOnlyWithText && voice.state.mode === 'type';
   useEffect(() => {
     if (failed && value.trim() && voiceIdle) voice.type();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -62,6 +69,24 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
     if (typeRequest > 0 && voice.state.mode === 'voice' && voice.state.phase === 'idle') voice.type();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeRequest]);
+  const intentButtons: ReactNode = others.length > 0 && (
+    <div className={`claude-composer-intents${inline ? ' claude-composer-intents-inline' : ''}`} role="group" aria-label={intentsLabel} data-testid="claude-composer-intents">
+      {others.map((intent) => (
+        <button
+          key={intent}
+          type="button"
+          disabled={!c!.enabled || busy || !current}
+          onClick={() => {
+            onChange(current);
+            onSend(current, voice.state.mode === 'voice' && !!voice.finalText, intent);
+          }}
+          data-testid={`claude-composer-${intent}`}
+        >
+          {CLAUDE_INTENT_LABELS[intent]}
+        </button>
+      ))}
+    </div>
+  );
   return (
     <div className="claude-chat-composer" data-testid="claude-chat-composer" onKeyDown={enterToSubmit(voice.submit)}>
       <VoiceTextInputView
@@ -81,25 +106,9 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
         partialText={voice.partialText}
         canSubmit={voice.canSubmit}
         actions={voice}
+        submitRowExtra={inline && others.length > 0 ? intentButtons : undefined}
       />
-      {others.length > 0 && (
-        <div className="claude-composer-intents" role="group" aria-label={intentsLabel} data-testid="claude-composer-intents">
-          {others.map((intent) => (
-            <button
-              key={intent}
-              type="button"
-              disabled={!c!.enabled || busy || !current}
-              onClick={() => {
-                onChange(current);
-                onSend(current, voice.state.mode === 'voice' && !!voice.finalText, intent);
-              }}
-              data-testid={`claude-composer-${intent}`}
-            >
-              {CLAUDE_INTENT_LABELS[intent]}
-            </button>
-          ))}
-        </div>
-      )}
+      {others.length > 0 && !inline && intentButtons}
       {c?.hint && current && <p className="claude-composer-hint">{c.hint}</p>}
     </div>
   );

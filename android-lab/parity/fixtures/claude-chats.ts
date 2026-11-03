@@ -13,8 +13,8 @@ import {
 } from '../../../shared/claude/contexts';
 import { contextBadge, type ClaudeIntent, type StoredClaudeContext } from '../../../shared/claude/context';
 import {
-  claudeRowPreview, composeRecipients, filterInbox, inboxFilters, inboxRowLabel, inboxRowName, mergeInbox, teacherSections,
-  type InboxFilter, type InboxHuman, type InboxItem, type InboxThread,
+  claudeRowStatus, contextOpenLabel, filterInbox, inboxRowLabel, inboxRowName, inboxSections, mergeInbox,
+  type InboxHuman, type InboxItem, type InboxThread,
 } from '../../../shared/claude/inbox';
 
 const OUT = process.argv[2];
@@ -168,7 +168,7 @@ const inboxThread = (t: FlatInboxThread): InboxThread => {
 const flatItem = (i: InboxItem) => ({
   key: i.key, kind: i.kind, activity_at: i.activity_at, unread: i.unread, pinned: i.pinned, badge: i.badge,
   name: inboxRowName(i), label: inboxRowLabel(i.kind),
-  preview: i.thread ? claudeRowPreview(i.thread) : null,
+  status: i.thread ? claudeRowStatus(i.thread) : null,
 });
 const HUMAN_SETS: number[][] = [[0, 1, 2, 3, 4, 5], [0, 2, 5], [1], [3, 4], []];
 const THREAD_SETS: number[][] = [[0, 1, 2, 3, 4, 5, 6], [0], [2], []];
@@ -178,20 +178,17 @@ for (const hs of HUMAN_SETS) {
     const humans = hs.map((i) => HUMANS[i]);
     const threads = ts.map((i) => inboxThread(INBOX_THREADS[i]));
     for (const pin of [false, true]) {
-      for (const filter of ['all', 'people', 'claude'] as InboxFilter[]) {
-        const items = mergeInbox(humans, threads, { pinUnreadTutors: pin, filter });
-        inbox.push({
-          humans: hs, threads: ts, pin, filter,
-          items: items.map(flatItem),
-          filters: inboxFilters(items),
-          search: ['', 'minghui', 'asked card', 'hang', '作业', 'practice 买单', 'zzz'].map((q) => ({ q, keys: filterInbox(items, q).map((i) => i.key) })),
-          teacher: (() => { const s = teacherSections(items); return { people: s.people.map((i) => i.key), claude: s.claude.map((i) => i.key) }; })(),
-        });
-      }
+      const items = mergeInbox(humans, threads, { pinUnreadTutors: pin });
+      inbox.push({
+        humans: hs, threads: ts, pin,
+        items: items.map(flatItem),
+        search: ['', 'minghui', 'asked card', 'hang', '作业', 'practice 买单', 'zzz'].map((q) => ({ q, keys: filterInbox(items, q).map((i) => i.key) })),
+        sections: (() => { const s = inboxSections(items); return { people: s.people.map((i) => i.key), claude: s.claude.map((i) => i.key) }; })(),
+      });
     }
   }
-  inbox.push({ humans: hs, recipients: composeRecipients(hs.map((i) => HUMANS[i])) });
 }
+const contextOpenLabels = ['card', 'reader', 'exercise', 'practice', 'chat_message', '', null].map((kind) => ({ kind, label: contextOpenLabel(kind) }));
 
 // ---------- A reader page's words (readerPageWords) ----------
 const RECAP_WORDS = [
@@ -208,7 +205,7 @@ const pageWords = [0, 1, 2, 3, 4].map((page) => ({ page, out: readerPageWords(RE
 writeFileSync(
   join(OUT, 'claude-chats.json'),
   JSON.stringify({
-    inboxHumans: HUMANS, inboxThreads: INBOX_THREADS, inbox,
+    inboxHumans: HUMANS, inboxThreads: INBOX_THREADS, inbox, contextOpenLabels,
     chips, composers, badges, headerChips, now: NOW, threads: THREADS, resume, polls, statuses, recapWords: RECAP_WORDS, pageWords,
     copy: {
       intentLabels: CLAUDE_INTENT_LABELS, practiceReadOnly: PRACTICE_READ_ONLY_NOTE, resumeWindowMs: RESUME_WINDOW_MS,

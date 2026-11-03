@@ -211,17 +211,20 @@ fun VoiceTextFieldContent(
     filledFromVoice: String? = null,
     /** The wide 🎤's word (default "Say it"; the coach's follow-up says "Respond"). */
     sayLabel: String = VoiceDictation.Copy.SAY,
-    /**
-     * A chat composer (the Claude threads; the web's `VoiceTextInput compact`): typing is ONE row — a
-     * box that starts at one line and grows to four, 🎤 and a round ➤ send — with no full-width Send
-     * pill; the voice row is lower (Jerome, Nov 2026: "far too tall").
-     */
+    /** Smaller (the Chats tab's box and the Claude threads): 44–48 dp buttons, a one-line box that grows to four. */
     compact: Boolean = false,
+    /**
+     * Typing is ONE row — the box, 🎤 and a round ➤ — with no full-width Send pill (the Claude threads; the
+     * web's `VoiceTextInput compact`; Jerome, Nov 2026: "far too tall"). [submitRowExtra] then gets a row of its own.
+     */
+    sendInRow: Boolean = false,
+    /** While typing: more buttons in the submit row, after it (the Chats tab's ✏️ Check / 🔍 Explain). */
+    submitRowExtra: (@Composable androidx.compose.foundation.layout.RowScope.() -> Unit)? = null,
 ) {
     val state = ui.state
     val controls = VoiceDictation.controls(state)
-    val rowHeight = if (compact) 48.dp else 60.dp
-    Column(modifier.fillMaxWidth().testTag(VoiceTextFieldTags.ROOT), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val buttonHeight = if (sendInRow) 48.dp else if (compact) 44.dp else 60.dp
+    Column(modifier.fillMaxWidth().testTag(VoiceTextFieldTags.ROOT), verticalArrangement = Arrangement.spacedBy(if (compact || sendInRow) 6.dp else 10.dp)) {
         if (state.mode == VoiceDictation.TYPE) {
             val focus = remember { FocusRequester() }
             LaunchedEffect(Unit) { if (state.blocked == null) runCatching { focus.requestFocus() } }
@@ -229,16 +232,16 @@ fun VoiceTextFieldContent(
             var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
             if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
             val canSend = enabled && VoiceDictation.answer(state, "", value, filledFromVoice) != null
-            Row(verticalAlignment = if (compact) Alignment.Bottom else Alignment.Top, horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
+            Row(verticalAlignment = if (sendInRow) Alignment.Bottom else Alignment.Top, horizontalArrangement = Arrangement.spacedBy(if (sendInRow) 6.dp else 8.dp)) {
                 OutlinedTextField(
                     value = field,
                     onValueChange = { field = it; if (it.text != value) onValueChange(it.text) },
                     enabled = enabled,
                     placeholder = { if (placeholder.isNotEmpty()) Text(placeholder, color = Lab.colors.muted, maxLines = 1) },
                     singleLine = !multiline,
-                    minLines = if (multiline && !compact) 3 else 1,
-                    maxLines = if (compact && multiline) 4 else if (multiline) Int.MAX_VALUE else 1,
-                    textStyle = MaterialTheme.typography.titleMedium.copy(color = Lab.colors.ink),
+                    minLines = if (multiline && !compact && !sendInRow) 3 else 1,
+                    maxLines = if (compact || sendInRow) 4 else if (multiline) Int.MAX_VALUE else 1,
+                    textStyle = (if (compact) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.titleMedium).copy(color = Lab.colors.ink),
                     keyboardOptions = KeyboardOptions(imeAction = if (multiline) ImeAction.Default else ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { actions.submit() }),
                     shape = RoundedCornerShape(16.dp),
@@ -247,8 +250,8 @@ fun VoiceTextFieldContent(
                 if ("mic" in controls) {
                     Box(
                         Modifier
-                            .padding(top = if (compact) 0.dp else 4.dp, bottom = if (compact) 6.dp else 0.dp)
-                            .size(if (compact) 44.dp else 52.dp)
+                            .padding(top = if (sendInRow) 0.dp else 4.dp, bottom = if (sendInRow) 6.dp else 0.dp)
+                            .size(if (sendInRow) 44.dp else if (compact) 48.dp else 52.dp)
                             .clip(CircleShape)
                             .border(1.dp, Lab.colors.outline, CircleShape)
                             .background(Lab.colors.card)
@@ -256,9 +259,9 @@ fun VoiceTextFieldContent(
                             .semantics { contentDescription = VoiceDictation.Copy.MIC_LABEL }
                             .testTag(VoiceTextFieldTags.MIC),
                         contentAlignment = Alignment.Center,
-                    ) { Text("🎤", fontSize = if (compact) 19.sp else 22.sp) }
+                    ) { Text("🎤", fontSize = if (sendInRow) 19.sp else 22.sp) }
                 }
-                if (compact) {
+                if (sendInRow) {
                     Box(
                         Modifier
                             .padding(bottom = 6.dp)
@@ -281,13 +284,15 @@ fun VoiceTextFieldContent(
                     modifier = Modifier.fillMaxWidth().testTag(VoiceTextFieldTags.BLOCKED),
                 )
             }
-            if (!compact) {
-                PrimaryPill(
-                    "✓  $submitLabel",
-                    Modifier.fillMaxWidth().height(56.dp).testTag(VoiceTextFieldTags.SUBMIT),
-                    enabled = canSend,
-                    onClick = actions.submit,
-                )
+            if (sendInRow) {
+                submitRowExtra?.let { extra -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { extra() } }
+            } else if (submitRowExtra == null) {
+                PrimaryPill("✓  $submitLabel", Modifier.fillMaxWidth().height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSend, onClick = actions.submit)
+            } else {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PrimaryPill("✓  $submitLabel", Modifier.weight(1f).height(if (compact) 44.dp else 56.dp).testTag(VoiceTextFieldTags.SUBMIT), enabled = canSend, onClick = actions.submit)
+                    submitRowExtra()
+                }
             }
             return@Column
         }
@@ -317,15 +322,15 @@ fun VoiceTextFieldContent(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (c in controls) {
                 when (c) {
-                    "type" -> Side("✏️ ${VoiceDictation.Copy.TYPE}", VoiceTextFieldTags.TYPE, "Type instead", enabled, actions.type, rowHeight)
-                    "say" -> Wide("🎤  $sayLabel", VoiceTextFieldTags.SAY, enabled, Lab.colors.accent, actions.say, height = rowHeight)
-                    "cancel" -> Side("✕ ${VoiceDictation.Copy.CANCEL}", VoiceTextFieldTags.CANCEL, VoiceDictation.Copy.CANCEL, enabled, actions.cancel, rowHeight)
-                    "stop" -> Wide("⏹  ${VoiceDictation.Copy.STOP}", VoiceTextFieldTags.STOP, enabled, Palette.Again, actions.stop, "Stop and use what I said", rowHeight)
-                    "finishing" -> Wide(VoiceDictation.Copy.FINISHING, VoiceTextFieldTags.STOP, false, Lab.colors.accent, {}, height = rowHeight)
-                    "retake" -> if (ui.phase == "failed") Wide("🔁  ${VoiceDictation.Copy.RETAKE}", VoiceTextFieldTags.RETAKE, enabled, Lab.colors.accent, actions.retake, height = rowHeight)
-                        else Side("🔁 ${VoiceDictation.Copy.RETAKE}", VoiceTextFieldTags.RETAKE, VoiceDictation.Copy.RETAKE, enabled, actions.retake, rowHeight)
-                    "edit" -> Side("✏️ ${VoiceDictation.Copy.EDIT}", VoiceTextFieldTags.EDIT, "Edit what I said", enabled, actions.edit, rowHeight)
-                    "submit" -> Wide("✓  $submitLabel", VoiceTextFieldTags.SUBMIT, enabled, Lab.colors.accent, actions.submit, height = rowHeight)
+                    "type" -> Side("✏️ ${VoiceDictation.Copy.TYPE}", VoiceTextFieldTags.TYPE, "Type instead", enabled, actions.type, buttonHeight)
+                    "say" -> Wide("🎤  $sayLabel", VoiceTextFieldTags.SAY, enabled, Lab.colors.accent, actions.say, height = buttonHeight)
+                    "cancel" -> Side("✕ ${VoiceDictation.Copy.CANCEL}", VoiceTextFieldTags.CANCEL, VoiceDictation.Copy.CANCEL, enabled, actions.cancel, buttonHeight)
+                    "stop" -> Wide("⏹  ${VoiceDictation.Copy.STOP}", VoiceTextFieldTags.STOP, enabled, Palette.Again, actions.stop, "Stop and use what I said", buttonHeight)
+                    "finishing" -> Wide(VoiceDictation.Copy.FINISHING, VoiceTextFieldTags.STOP, false, Lab.colors.accent, {}, height = buttonHeight)
+                    "retake" -> if (ui.phase == "failed") Wide("🔁  ${VoiceDictation.Copy.RETAKE}", VoiceTextFieldTags.RETAKE, enabled, Lab.colors.accent, actions.retake, height = buttonHeight)
+                        else Side("🔁 ${VoiceDictation.Copy.RETAKE}", VoiceTextFieldTags.RETAKE, VoiceDictation.Copy.RETAKE, enabled, actions.retake, buttonHeight)
+                    "edit" -> Side("✏️ ${VoiceDictation.Copy.EDIT}", VoiceTextFieldTags.EDIT, "Edit what I said", enabled, actions.edit, buttonHeight)
+                    "submit" -> Wide("✓  $submitLabel", VoiceTextFieldTags.SUBMIT, enabled, Lab.colors.accent, actions.submit, height = buttonHeight)
                 }
             }
         }

@@ -25,16 +25,7 @@ import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListLastMessage
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatAttachmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatMessageDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatSenderDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ListeningRowDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ListeningStateDto
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
-import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsActions
-import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsSamples
-import dev.jeromeswannack.chineselearning.lab.ui.chats.ChatsScreen
-import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRole
-import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRules
-import dev.jeromeswannack.chineselearning.lab.ui.nav.ShellFrame
-import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -100,7 +91,7 @@ object ListeningSamples {
 /**
  * Listening mode (docs/CHAT.md "Listening mode"): hidden bubbles (🎧 + bars + duration + hint, 👁
  * beside), one playing at 0.75×, one revealed, the ⋯ menu with the toggle, dark, unfolded, the
- * inbox's "🎧 New message" and Settings → Chat.
+ * Settings → Chat (the Chats tab has no preview line since Nov 2026).
  */
 class ChatListeningScreenshots : LabScreenshotTest() {
     private val s = ListeningSamples
@@ -156,22 +147,6 @@ class ChatListeningScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("chat-listening-08-unfolded") { ChatScreen(s.ui, actions) }
-
-    @Test fun inbox() = shoot("chat-listening-09-inbox") {
-        val rows = ChatsSamples.rows.map {
-            when (it.conversationId) {
-                "c-hw" -> it.copy(myReadAt = "2026-10-03T09:00:00Z")
-                // A photo stays as it is in listening mode.
-                "c-wei" -> it.copy(lastMessage = it.lastMessage!!.copy(attachmentKind = "image"))
-                else -> it
-            }
-        }
-        val state = ListeningStateDto(default_on = false, conversations = listOf(ListeningRowDto("c-hw", true, "2026-10-02T00:00:00.000Z"), ListeningRowDto("c-wei", true, "2026-10-01T00:00:00.000Z")))
-        val tabs = NavRules.tabsFor(NavRole(hasTutor = true, loaded = true))
-        ShellFrame(tabs, TabId.CHATS, showBar = true, onSelect = {}, badges = mapOf(TabId.CHATS to 2)) {
-            ChatsScreen(ChatsSamples.loaded.copy(rows = rows, listening = state), ChatsActions())
-        }
-    }
 
     @Test fun settings() = shoot("chat-listening-10-settings") {
         Column(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) {

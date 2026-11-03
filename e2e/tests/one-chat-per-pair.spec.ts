@@ -113,7 +113,6 @@ test.describe('One chat per pair', () => {
     const rows = page.getByTestId('chats-row');
     await expect(rows).toHaveCount(1, { timeout: 20000 });
     await expect(rows.first()).toContainText('王明慧');
-    await expect(rows.first()).toContainText('很好！明天见');
     await expect(rows.first()).not.toContainText('Homework');
     await expect(rows.first()).not.toContainText('Welcome');
 

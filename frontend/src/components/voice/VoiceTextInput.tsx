@@ -12,7 +12,7 @@
  * (source spoken | edited | typed) so an exercise can check a spoken answer leniently and record it.
  */
 import { SIGNED_OUT_TRANSCRIPTION } from '@shared/auth/session';
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useVoiceDictation, type DictatedAnswer } from '../../hooks/useVoiceDictation';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { DICTATION_COPY, dictationControls, voiceBlockReason, type DictationMode, type DictationState } from '@shared/voice/dictation';
@@ -93,6 +93,8 @@ export interface VoiceTextInputViewProps extends Omit<VoiceTextInputProps, 'onSu
   partialText: string;
   canSubmit: boolean;
   actions: VoiceTextInputActions;
+  /** While typing: more buttons in the submit row, after it (the Chats tab's ✏️ Check / 🔍 Explain). */
+  submitRowExtra?: ReactNode;
 }
 
 /** The box rendered from its state (stateless: the screenshot harness renders every state with it). */
@@ -220,9 +222,13 @@ export function VoiceTextInputView(props: VoiceTextInputViewProps) {
           )}
         </div>
         {state.blocked && <p className="voice-input-hint" data-testid={tid('blocked')} data-blocked={state.blocked}>{voiceBlockReason(state.blocked)}</p>}
-        {!compact && (
+        {compact ? (
+          // The ➤ is in the box's row; extra buttons (a new chat's ✏️ Check · 🔍 Explain) get a row of their own.
+          props.submitRowExtra && <div className="voice-input-row">{props.submitRowExtra}</div>
+        ) : (
           <div className="voice-input-row">
             {button('submit', submitLabel, '✓', d.submit, { wide: true, enabled: d.canSubmit })}
+            {props.submitRowExtra}
           </div>
         )}
       </div>

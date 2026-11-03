@@ -150,9 +150,9 @@ test('a Coach reply keeps going when you leave: start from the Chats box, leave,
   await page.goto('/chats');
   const row = page.getByTestId('chats-claude-row').filter({ hasText: '我们明天一起去公园吧' });
   await expect(row).toBeVisible({ timeout: 20000 });
-  // "Writing a reply…" in the list while it is still being written (the fake takes 2.5 s).
-  if (await row.getByText('Writing a reply').isVisible()) await shoot(page, 'web-04-list-thinking');
-  await expect(row).not.toContainText('Writing a reply', { timeout: 20000 });
+  // "✦ Writing…" in the list (where the time goes) while it is still being written (the fake takes 2.5 s).
+  if (await row.getByText('Writing…').isVisible()) await shoot(page, 'web-04-list-thinking');
+  await expect(row).not.toContainText('Writing…', { timeout: 20000 });
   await row.click();
   await expect(page.getByText('(E2E) Looks fine.')).toBeVisible({ timeout: 15000 });
 

@@ -468,6 +468,7 @@ fun ClaudeThreadScreen(
                         lang = voiceLang,
                         enabled = !ui.busy,
                         compact = true,
+                        sendInRow = true,
                     )
                     // What a Check / Explain / Translate button would send: the take under review, else the box.
                     val current = NoteSearch.jsTrim(if (voiceUi.state.mode == VoiceDictation.VOICE) voiceUi.finalText.ifEmpty { ui.draft } else ui.draft)

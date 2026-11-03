@@ -7,19 +7,17 @@ import dev.jeromeswannack.chineselearning.lab.core.chat.ChatListRow
 /**
  * The unified Chats tab (docs/CHAT.md "Chats tab — one list for people and Claude"): port of
  * shared/claude/inbox.ts — `mergeInbox` (people + Claude threads in one list, a learner's unread tutor
- * chats pinned, an old practice chat shown once, archived threads out), the row labels (icon + word,
- * never colour alone), Claude previews, the filter chips, search, the tutor's sections and the
- * composer's "To:" recipients. Parity-tested (parity/fixtures/claude-chats.ts → ClaudeChatsParityTest).
+ * chats pinned, an old practice chat shown once, archived threads out), the kind in words (screen
+ * readers), a Claude row's status (waiting / writing / failed — the rows have no preview line), the
+ * context emoji's "Open …" action, search and the sections (people, a thin divider, Claude).
+ * Parity-tested (parity/fixtures/claude-chats.ts → ClaudeChatsParityTest).
  *
- * Kinds are the TypeScript strings: tutor · student · claude; filters all · people · claude.
+ * Kinds are the TypeScript strings: tutor · student · claude.
  */
 object ClaudeInbox {
     const val TUTOR = "tutor"
     const val STUDENT = "student"
     const val CLAUDE = "claude"
-
-    const val ALL = "all"
-    const val PEOPLE = "people"
 
     /** `InboxThread`: a Claude thread as the inbox needs it. */
     data class Thread(
@@ -55,12 +53,6 @@ object ClaudeInbox {
     /** Port of threadActivityAt: the last message, else when the thread was made. */
     fun threadActivityAt(t: Thread): String = t.lastMessageAt?.takeIf { it.isNotEmpty() } ?: t.createdAt
 
-    private fun matches(kind: String, filter: String): Boolean = when (filter) {
-        PEOPLE -> kind != CLAUDE
-        CLAUDE -> kind == CLAUDE
-        else -> true
-    }
-
     private val ORDER = Comparator<Item> { a, b ->
         if (a.pinned != b.pinned) return@Comparator if (a.pinned) -1 else 1
         val ta = timeOf(a.activityAt)
@@ -70,7 +62,7 @@ object ClaudeInbox {
     }
 
     /** Port of mergeInbox. */
-    fun merge(humans: List<ChatListRow>, threads: List<Thread>, pinUnreadTutors: Boolean = false, filter: String = ALL): List<Item> {
+    fun merge(humans: List<ChatListRow>, threads: List<Thread>, pinUnreadTutors: Boolean = false): List<Item> {
         val practice = threads.filter { it.context.kind == ClaudeChats.PRACTICE }.mapNotNull { it.context.conversationId }.toSet()
         val items = ArrayList<Item>()
         for (h in humans) {
@@ -89,14 +81,14 @@ object ClaudeInbox {
             if (t.archived) continue
             items += Item("c:${t.id}", CLAUDE, threadActivityAt(t), maxOf(0, t.unread), false, ClaudeChats.contextBadge(t.context, t.firstIntent), null, t)
         }
-        return items.filter { matches(it.kind, filter) }.sortedWith(ORDER)
+        return items.sortedWith(ORDER)
     }
 
     // ---------- Labels ----------
 
     data class RowLabel(val icon: String, val text: String)
 
-    /** Port of inboxRowLabel: 🧑‍🏫 Tutor · 🎓 Student · ✦ Claude. */
+    /** Port of inboxRowLabel: the kind in words for screen readers — 🧑‍🏫 Tutor · 🎓 Student · ✦ Claude. */
     fun rowLabel(kind: String): RowLabel = when (kind) {
         TUTOR -> RowLabel("🧑‍🏫", "Tutor")
         STUDENT -> RowLabel("🎓", "Student")
@@ -111,35 +103,27 @@ object ClaudeInbox {
         return ChatInbox.personName(h.otherUser.name)
     }
 
-    const val ROW_WRITING = "✦ Writing a reply…"
-    const val ROW_FAILED = "⚠ The reply failed — open to retry"
-    const val ROW_QUEUED = "🕓 Waiting for a connection"
+    /** Port of ClaudeRowStatus: [short] goes where the time goes, [text] for screen readers. */
+    data class RowStatus(val icon: String, val short: String, val text: String)
 
-    /** Port of claudeRowPreview: nothing when the line only repeats the [title] (a Check chat). */
-    fun claudeRowPreview(preview: String?, pending: Boolean, failed: Boolean, local: Boolean = false, title: String? = null): String {
-        if (local) return ROW_QUEUED
-        if (pending) return ROW_WRITING
-        if (failed) return ROW_FAILED
-        val line = NoteSearch.jsTrim(ChatInbox.collapseWhitespace(preview.orEmpty()))
-        return if (title != null && line == NoteSearch.jsTrim(ChatInbox.collapseWhitespace(title))) "" else line
+    val ROW_QUEUED = RowStatus("🕓", "Waiting", "Waiting for a connection")
+    val ROW_WRITING = RowStatus("✦", "Writing…", "Claude is writing a reply")
+    val ROW_FAILED = RowStatus("⚠", "Failed", "The reply failed — open to retry")
+
+    /** Port of claudeRowStatus: waiting (started offline), writing, failed — else null (the time shows). */
+    fun claudeRowStatus(pending: Boolean, failed: Boolean, local: Boolean = false): RowStatus? = when {
+        local -> ROW_QUEUED
+        pending -> ROW_WRITING
+        failed -> ROW_FAILED
+        else -> null
     }
 
-    // ---------- Filters ----------
-
-    data class FilterChip(val id: String, val label: String)
-
-    /** Port of inboxFilters: All · <people> · ✦ Claude, only when there are both. */
-    fun filters(items: List<Item>): List<FilterChip> {
-        val tutors = items.count { it.kind == TUTOR }
-        val students = items.count { it.kind == STUDENT }
-        val claude = items.any { it.kind == CLAUDE }
-        if (!claude || tutors + students == 0) return emptyList()
-        val people = when {
-            students == 0 -> if (tutors == 1) "🧑‍🏫 Tutor" else "🧑‍🏫 Tutors"
-            tutors == 0 -> "🎓 Students"
-            else -> "People"
-        }
-        return listOf(FilterChip(ALL, "All"), FilterChip(PEOPLE, people), FilterChip(CLAUDE, "✦ Claude"))
+    /** Port of contextOpenLabel: the context emoji's action, by headerChipFor's link kind. */
+    fun contextOpenLabel(linkKind: String?): String? = when (linkKind) {
+        "card" -> "Open card"
+        "reader" -> "Open story"
+        "exercise" -> "Open lesson"
+        else -> null
     }
 
     /** Port of filterInbox: every word in the name, the preview or the context chip. */
@@ -155,30 +139,11 @@ object ClaudeInbox {
         }
     }
 
-    // ---------- The tutor's view ----------
+    // ---------- Sections ----------
 
-    data class TeacherSections(val people: List<Item>, val claude: List<Item>)
+    data class Sections(val people: List<Item>, val claude: List<Item>)
 
-    /** Port of teacherSections: the people (newest first, as merged), then her Claude chats. */
-    fun teacherSections(items: List<Item>): TeacherSections =
-        TeacherSections(items.filter { it.kind != CLAUDE }, items.filter { it.kind == CLAUDE })
-
-    // ---------- The composer's "To:" ----------
-
-    data class Recipient(val relationshipId: String, val conversationId: String, val name: String)
-
-    /** Port of composeRecipients: each tutor once, newest chat first. */
-    fun composeRecipients(humans: List<ChatListRow>): List<Recipient> {
-        val sorted = humans.sortedWith { a, b ->
-            val d = timeOf(b.lastActivityAt).compareTo(timeOf(a.lastActivityAt))
-            if (d != 0) d else if (a.conversationId < b.conversationId) -1 else 1
-        }
-        val seen = HashSet<String>()
-        val out = ArrayList<Recipient>()
-        for (h in sorted) {
-            if (h.isAi || h.otherRole != TUTOR || !seen.add(h.relationshipId)) continue
-            out += Recipient(h.relationshipId, h.conversationId, ChatInbox.personName(h.otherUser.name))
-        }
-        return out
-    }
+    /** Port of inboxSections: the people (as merged — a learner's unread tutors first), then the Claude chats. */
+    fun sections(items: List<Item>): Sections =
+        Sections(items.filter { it.kind != CLAUDE }, items.filter { it.kind == CLAUDE })
 }
