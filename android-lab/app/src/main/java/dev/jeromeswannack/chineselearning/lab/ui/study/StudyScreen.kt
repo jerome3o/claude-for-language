@@ -311,7 +311,7 @@ fun StudyRoute(
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
                 vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source) + where) }
-                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check"))
+                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check", from = "card"))
             },
             onYouSaidPlay = {
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()

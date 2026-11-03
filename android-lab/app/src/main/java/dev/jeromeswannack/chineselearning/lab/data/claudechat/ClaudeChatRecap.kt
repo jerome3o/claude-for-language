@@ -48,6 +48,17 @@ class ClaudeChatRecap(private val app: LabApp) {
         }
     }
 
+    /** A thread started on the "new" screen: its words move to the thread's id (the web's moveRecapWords). */
+    suspend fun move(from: String, to: String) {
+        if (from == to) return
+        lock.withLock {
+            val moving = words(from)
+            if (moving.isEmpty()) return
+            app.cache.put(key(to), KIND, CoachAsk.addRecapWords(words(to), moving).map(Word::of))
+            app.cache.delete(key(from))
+        }
+    }
+
     companion object {
         const val KIND = "claude-chat-recap"
         fun key(thread: String) = "claude-chat/recap/$thread"
