@@ -375,3 +375,195 @@ button.claude-thread-chip::after {
   flex: 1;
   overflow-y: auto;
 }
+
+/* Ask Claude on a study card (components/claude/CardClaudeSheet.tsx): the thread view in the sheet. */
+.card-claude-overlay[hidden] {
+  display: none !important;
+}
+.card-claude-sheet {
+  padding: 0;
+  overflow: hidden;
+}
+.card-claude-sheet > .claude-thread-sheet {
+  flex: 1;
+  height: 100%;
+}
+.card-claude-sheet .claude-chat-header {
+  border-radius: 0.75rem 0.75rem 0 0;
+}
+.claude-thread-sheet .claude-chat-composer {
+  position: static;
+}
+.card-claude-earlier {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-bg, #fff);
+}
+.card-claude-earlier-toggle,
+.card-claude-new {
+  min-height: 36px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #f8fafc);
+  color: var(--color-text, #1f2937);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.card-claude-new {
+  margin-left: auto;
+}
+.card-claude-earlier-list {
+  flex-basis: 100%;
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.card-claude-earlier-list button {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.card-claude-earlier-list button:hover {
+  background: var(--color-surface, #f8fafc);
+}
+.card-claude-earlier-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+.card-claude-earlier-time {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-light, #666);
+}
+/* Claude's card tools under a reply: "✓ Claude edited this card · Undo". */
+.card-claude-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.5rem;
+}
+.card-claude-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.3rem 0.4rem 0.3rem 0.7rem;
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+  font-size: 0.8125rem;
+}
+.card-claude-tool.deleted,
+.card-claude-tool.failed {
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+}
+.card-claude-tool.bumped {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+.card-claude-undo {
+  min-height: 32px;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+.card-claude-undo:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.card-claude-undo-error {
+  flex-basis: 100%;
+  color: #b91c1c;
+}
+.claude-thread-closed {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  color: var(--color-text-light, #666);
+  font-size: 0.9rem;
+  text-align: center;
+}
+:root[data-theme='dark'] .card-claude-tool {
+  color: #86efac;
+}
+:root[data-theme='dark'] .card-claude-tool.deleted,
+:root[data-theme='dark'] .card-claude-tool.failed,
+:root[data-theme='dark'] .card-claude-undo-error {
+  color: #fca5a5;
+}
+:root[data-theme='dark'] .card-claude-tool.bumped {
+  color: #fcd34d;
+}
+
+/* A card's Claude conversations (card hub, History modal): components/claude/CardClaudeThreads.tsx. */
+.card-claude-threads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.card-claude-thread-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 52px;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-surface, #f8fafc);
+  color: inherit;
+  text-decoration: none;
+}
+.card-claude-thread-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.card-claude-thread-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.9375rem;
+}
+.card-claude-thread-meta {
+  font-size: 0.75rem;
+  color: var(--color-text-light, #666);
+}
+.card-claude-thread-open {
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-primary, #2c6bed);
+}

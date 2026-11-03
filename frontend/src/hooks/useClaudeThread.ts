@@ -61,10 +61,11 @@ export function useClaudeThread(routeId: string | null, opts: { contextKind?: st
   }, [routeId]);
 
   // A thread started offline: follow it to its server id once it has one.
-  const resolved = useLiveQuery(async () => (routeId ? resolveThreadId(routeId) : null), [routeId]);
+  // (Keyed by the route id: a stale answer for the previous id must never pull the screen back to it.)
+  const resolved = useLiveQuery(async () => ({ routeId, id: routeId ? await resolveThreadId(routeId) : null }), [routeId]);
   useEffect(() => {
-    if (resolved && resolved !== threadId) setThreadId(resolved);
-  }, [resolved, threadId]);
+    if (resolved && resolved.routeId === routeId && resolved.id && resolved.id !== threadId) setThreadId(resolved.id);
+  }, [resolved, routeId, threadId]);
 
   const thread = useLiveQuery(async () => (threadId ? (await db.claudeThreads.get(threadId)) ?? null : null), [threadId]) ?? null;
   const rows = useLiveQuery(async () => (threadId ? sortMessages(await db.claudeMessages.where('thread_id').equals(threadId).toArray()) : []), [threadId]);

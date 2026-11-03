@@ -16,6 +16,7 @@ import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { CardFlagsList } from '../components/cardFlags/CardFlagsList';
 import { ClaudeThreadList, toThreads } from '../components/cardFlags/ClaudeThreads';
+import { CardClaudeThreads } from '../components/claude/CardClaudeThreads';
 import { claudeChatsPath } from '../components/cardFlags/paths';
 import { humanTutors, queueCardFlag, type RememberedTutor } from '../services/cardFlags';
 import { RatingDot, CardTypeChip, AnswerDiff, RecordingButton, CARD_TYPE_SHORT } from './tutor/tutor-shared';
@@ -121,13 +122,18 @@ export function CardHubPage() {
 
         <section className="detail-section">
           <h2>💬 Asked Claude{hub.questions.length > 0 ? ` (${plural(hub.questions.length, 'question')})` : ''}</h2>
-          <ClaudeThreadList
-            threads={toThreads(hub.questions)}
-            relId={relId}
-            showCard={false}
-            emptyText={tutorView ? `${studentName || 'The student'} has not asked Claude about this card.` : 'You have not asked Claude about this card yet. Use Ask Claude on the card during study.'}
-            initiallyOpen
-          />
+          {tutorView ? (
+            <ClaudeThreadList
+              threads={toThreads(hub.questions)}
+              relId={relId}
+              showCard={false}
+              emptyText={`${studentName || 'The student'} has not asked Claude about this card.`}
+              initiallyOpen
+            />
+          ) : (
+            // My own card: its Claude threads, each opening the conversation (and continuing it).
+            <CardClaudeThreads noteId={hub.note.id} hanzi={hub.note.hanzi} emptyText="You have not asked Claude about this card yet. Use Ask Claude on the card during study." />
+          )}
           <p className="hub-more"><Link to={claudeChatsPath(relId)}>All conversations with Claude ›</Link></p>
         </section>
 

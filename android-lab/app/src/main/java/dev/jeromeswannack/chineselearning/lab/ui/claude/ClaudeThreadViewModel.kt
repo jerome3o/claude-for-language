@@ -16,6 +16,8 @@ import dev.jeromeswannack.chineselearning.lab.data.HttpException
 import dev.jeromeswannack.chineselearning.lab.data.UnauthorizedException
 import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeSendBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeTurnEvent
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordDto
 import dev.jeromeswannack.chineselearning.lab.data.api.addNotesBatch
@@ -46,7 +48,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -58,6 +62,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 
 /**
  * One Claude thread (port of the web's components/claude/ClaudeThreadView.tsx state +
@@ -79,7 +85,18 @@ class ClaudeThreadViewModel(
     private val source: String,
     private val hasSentence: Boolean,
     private val now: () -> Long = System::currentTimeMillis,
+    /** A card thread (the study card's sheet): the card's type (analytics `study.ask_claude`). */
+    private val cardType: String? = null,
 ) : ViewModel() {
+    /**
+     * A card thread: the answer typed on this showing of the card, sent with each question
+     * ([ClaudeSendBody.typed]: an object, or JsonNull = none). Set by the sheet as the card changes.
+     */
+    var typed: JsonElement? = null
+
+    /** A reply this screen saw being written has finished (the study card applies Claude's card tools). */
+    private val finished = MutableSharedFlow<ClaudeMessageDto>(extraBufferCapacity = 16)
+    val finishedReplies: SharedFlow<ClaudeMessageDto> = finished
     private val isNew = routeId == NEW
     private val store = ClaudeThreads.of(app)
     private val recap = ClaudeChatRecap(app)
@@ -192,6 +209,14 @@ class ClaudeThreadViewModel(
                         continue
                     }
                     if (t != null && m.status == null) {
+                        finished.tryEmit(m)
+                        // A card question's "check my Chinese" may land a moment after the reply: look again.
+                        if (c?.thread?.context?.kind == ClaudeChats.CARD) viewModelScope.launch {
+                            for (wait in longArrayOf(2500, 5500)) {
+                                delay(wait)
+                                if (app.online.value) refreshNow()
+                            }
+                        }
                         val at = now()
                         val mine = rows.lastOrNull { it.role == "user" && it.created_at <= m.created_at }
                         app.analytics.track(
@@ -279,8 +304,11 @@ class ClaudeThreadViewModel(
             try {
                 val id = threadId.value
                 val kind = u.context.kind
+                if (kind == ClaudeChats.CARD) {
+                    app.analytics.track("study.ask_claude", mapOf("card_type" to (cardType ?: u.context.card_type), "language" to language, "quick" to (chip != null), "via" to "thread"))
+                }
                 if (id == null) {
-                    val res = store.start(newContext ?: ClaudeContextDto(), msg, intent, language, online)
+                    val res = store.start(newContext ?: ClaudeContextDto(), msg, intent, language, online, quick = chip != null)
                     app.analytics.track("claude.message_send", mapOf("context_kind" to kind, "intent" to intent, "offline" to res.queued, "chip" to (chip != null), "spoken" to spoken))
                     recap.move(NEW, res.threadId)
                     if (res.queued) app.scheduleBackgroundUpload()
@@ -288,7 +316,7 @@ class ClaudeThreadViewModel(
                     local.update { it.copy(sending = null, draft = "") }
                     onStarted(res.threadId)
                 } else {
-                    val res = store.send(id, msg, language, online)
+                    val res = store.send(id, msg, language, online, quick = chip != null, typed = if (kind == ClaudeChats.CARD) (typed ?: JsonNull) else null)
                     app.analytics.track("claude.message_send", mapOf("context_kind" to kind, "intent" to "ask", "offline" to res.queued, "chip" to (chip != null), "spoken" to spoken))
                     if (res.queued) app.scheduleBackgroundUpload()
                     app.haptics.tick()
@@ -310,6 +338,21 @@ class ClaudeThreadViewModel(
         if (autoSent || !isNew) return
         autoSent = true
         send(text, spoken = false, intent = intent, onStarted = onStarted)
+    }
+
+    private val autoAsked = HashSet<String>()
+
+    /**
+     * Ask this into the thread on screen once it is loaded and Claude isn't answering — once per
+     * [key] (the leech sheet's memory hook); in a fresh thread at once.
+     */
+    fun autoAsk(text: String, key: String, onStarted: (String) -> Unit) {
+        if (key in autoAsked) return
+        autoAsked += key
+        viewModelScope.launch {
+            if (!isNew) ui.filter { it.hasThread && !it.busy }.first()
+            send(text, spoken = false, onStarted = onStarted)
+        }
     }
 
     private var draftClaimed = false
@@ -578,9 +621,10 @@ class ClaudeThreadViewModel(
         private val newContext: ClaudeContextDto?,
         private val source: String,
         private val hasSentence: Boolean,
+        private val cardType: String? = null,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = ClaudeThreadViewModel(app, id, newContext, source, hasSentence) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = ClaudeThreadViewModel(app, id, newContext, source, hasSentence, cardType = cardType) as T
     }
 
     companion object {

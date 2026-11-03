@@ -180,6 +180,8 @@ class ClaudeThreadActions(
     /** The Coach's result cards: 🎯 mini lesson, Retry, add a word as a card. */
     val coach: CoachChatActions = CoachChatActions(),
     val cards: SentenceActions = SentenceActions(),
+    /** "Open in Coach" from a bubble (menu | chip | sheet): my Chinese checked there, Claude's explained. */
+    val onOpenCoach: ((ClaudeChatMsg, String) -> Unit)? = null,
 )
 
 object ClaudeThreadTags {
@@ -200,6 +202,7 @@ object ClaudeThreadTags {
     const val MENU = "claude-thread-menu"
     const val MAKE_CARDS = "claude-thread-make-cards"
     const val RECAP = "claude-thread-recap"
+    const val CLOSED = "claude-thread-closed"
     fun chip(id: String) = "claude-thread-chip-$id"
     fun intent(id: String) = "claude-composer-$id"
 }
@@ -227,6 +230,12 @@ fun ClaudeThreadScreen(
     voicePreview: VoiceDictationUi? = null,
     readBackPreview: Map<String, ReadAloudHandle> = emptyMap(),
     menuPreview: Boolean = false,
+    /** Under the header chip (the card sheet's "Earlier about 银行"). */
+    headerExtra: (@Composable () -> Unit)? = null,
+    /** A finished reply's tool results, drawn by the caller (default: the Coach's chips). */
+    toolResults: (@Composable (ClaudeMessageDto) -> Unit)? = null,
+    /** No composer, this line instead (the card was deleted). */
+    closedNote: String? = null,
 ) {
     val listState = rememberLazyListState()
     var menu by remember { mutableStateOf(menuPreview) }
@@ -249,13 +258,19 @@ fun ClaudeThreadScreen(
     val thinking = if (ui.language == AskClaude.ZH) CoachAsk.THINKING_ZH else CoachAsk.THINKING_EN
     val chip = ClaudeChats.headerChipFor(ui.core)
     val general = ui.context.kind == ClaudeChats.GENERAL
-    val title = ui.title.ifBlank { if (general) CoachAsk.LABEL else chip?.text ?: CoachAsk.LABEL }
+    val title = ui.title.ifBlank {
+        when {
+            general -> CoachAsk.LABEL
+            ui.context.kind == ClaudeChats.CARD && !ui.context.label.isNullOrBlank() -> "Ask about ${ui.context.label}"
+            else -> chip?.text ?: CoachAsk.LABEL
+        }
+    }
     val coachUi = ui.coachView()
     val firstAnalysisId = ui.messages.firstOrNull { it.content_type == "analysis" && it.status == null }?.id
     val chatMessages = ui.messages.map { m ->
         ClaudeChatMsg(
             m.id, m.role, m.content, m.answer_lang, m.status, m.error ?: ui.queueFailed[m.id], m.translation,
-            contentType = m.content_type, streaming = m.streaming, queued = m.queued, queueFailed = m.id in ui.queueFailed,
+            contentType = m.content_type, streaming = m.streaming, queued = m.queued, queueFailed = m.id in ui.queueFailed, autoCheck = m.auto_check,
         )
     }
     val threadActions = ClaudeChatThreadActions(
@@ -264,6 +279,11 @@ fun ClaudeThreadScreen(
         onReadBackWords = actions.thread.onReadBackWords, stopAudio = actions.thread.stopAudio, track = actions.thread.track,
         statusLine = { m -> ui.liveTool?.takeIf { it.messageId == m.id }?.let { ClaudeChats.turnStatusLine(it.status, it.tool, ui.language) } },
         onDiscardQueued = actions.thread.onDiscardQueued,
+        cards = actions.cards,
+        openCoach = actions.onOpenCoach,
+        onAskWhy = { q -> actions.onDraft(q); voice.type() },
+        language = ui.language,
+        online = ui.online,
     )
     val offlineNoCache = !ui.isNew && !ui.hasThread && !ui.loading && ui.loadError != null
     val empty = ui.messages.isEmpty() && ui.sending == null
@@ -278,6 +298,7 @@ fun ClaudeThreadScreen(
                 if (sheet) HeaderButton("✕", enabled = true, tag = ClaudeThreadTags.CLOSE, onClick = actions.onClose)
             }
             chip?.let { c -> ContextChip(c, actions.onContext) }
+            headerExtra?.invoke()
             LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (!ui.online && ui.hasThread) item("offline") {
                     Text(
@@ -308,6 +329,14 @@ fun ClaudeThreadScreen(
                                 Text(if (ui.language == AskClaude.ZH) CoachAsk.HINT else CoachAsk.EMPTY_EN, color = Lab.colors.muted)
                                 Text("Write a sentence and ✏️ Check it, 🔍 Explain one, or just ask. Under each answer: ▶ listen · 拼 pinyin · EN · 🎤 read it back.", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
                             }
+                            ui.context.kind == ClaudeChats.CARD -> Text(
+                                when {
+                                    ui.listening -> "🎧 Listen first: Claude’s Chinese answers arrive hidden and play by themselves. Tap to hear again · hold to reveal."
+                                    ui.language == AskClaude.ZH -> "Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below."
+                                    else -> "Ask Claude anything about this card — or tap a suggestion below."
+                                },
+                                color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
+                            )
                             else -> Text("Ask Claude anything about it — tap a suggestion below to start.", color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY))
                         }
                     }
@@ -322,8 +351,10 @@ fun ClaudeThreadScreen(
                             }
                         },
                         after = { m ->
-                            val raw = ui.messages.firstOrNull { it.id == m.id }?.tool_results
-                            if (!raw.isNullOrBlank()) Column { CoachToolResults(raw) }
+                            val row = ui.messages.firstOrNull { it.id == m.id }
+                            val raw = row?.tool_results
+                            if (row != null && toolResults != null) toolResults(row)
+                            else if (!raw.isNullOrBlank()) Column { CoachToolResults(raw) }
                         },
                     )
                 }
@@ -342,7 +373,10 @@ fun ClaudeThreadScreen(
                 ui.notice?.let { item("notice") { InlineNotice(it, kind = NoticeKind.Success) } }
                 if (ui.proposing) item("proposing") { Text("Claude is reading this chat…", color = Lab.colors.muted) }
             }
-            if (!ui.readOnly) {
+            closedNote?.let {
+                Text(it, color = Lab.colors.muted, fontSize = 14.sp, modifier = Modifier.fillMaxWidth().padding(16.dp).testTag(ClaudeThreadTags.CLOSED))
+            }
+            if (!ui.readOnly && closedNote == null) {
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(Lab.colors.card)
                         .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).padding(12.dp)

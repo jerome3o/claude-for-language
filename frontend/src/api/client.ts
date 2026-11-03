@@ -703,47 +703,6 @@ export interface NoteQuestion {
   question_check?: AutoCheckResult | null;
 }
 
-export interface AskToolResult {
-  tool: 'edit_current_card' | 'create_flashcards' | 'delete_current_card' | 'create_custom_lesson';
-  success: boolean;
-  data?: Record<string, unknown>;
-  error?: string;
-}
-
-export interface ReadOnlyToolCall {
-  tool: string;
-  input: Record<string, unknown>;
-  result: Record<string, unknown>;
-}
-
-export interface NoteQuestionWithTools extends NoteQuestion {
-  toolResults?: AskToolResult[];
-  readOnlyToolCalls?: ReadOnlyToolCall[];
-  /** The question's check is still running: read the row again in a moment (GET /note-questions/:id). */
-  question_check_pending?: boolean;
-  /** 🎧 Listen first: the answer's read-aloud clip was made before the answer came back (a tap plays at once). */
-  answer_clip_ready?: boolean;
-}
-
-export async function askAboutNote(
-  noteId: string,
-  question: string,
-  context?: { userAnswer?: string; correctAnswer?: string; cardType?: string },
-  conversationHistory?: { question: string; answer: string }[],
-  /** language = the sheet's 中 / EN; quick = a quick-question chip (not checked); listening = the sheet's 🎧 (the clip is made first). */
-  opts: { language?: AskLanguage; quick?: boolean; listening?: boolean } = {}
-): Promise<NoteQuestionWithTools> {
-  const res = await fetchJSON<NoteQuestionWithTools>(`/notes/${noteId}/ask`, {
-    method: 'POST',
-    body: JSON.stringify({ question, context, conversationHistory, language: opts.language, quick: opts.quick || undefined, listening: opts.listening }),
-  });
-  // Claude bumped words I already have ("⚡ Study it today"): pull the pocket now.
-  if (res.readOnlyToolCalls?.some((c) => c.tool === 'bump_cards')) {
-    void import('../services/studyBumps').then((m) => m.syncBumps()).catch(() => undefined);
-  }
-  return res;
-}
-
 /** Server-side search of my notes (the fallback when this device has no matching notes). */
 export async function searchNotesOnServer(q: string, limit = 50): Promise<{ notes: Array<Note & { deck_name: string }>; total_notes: number }> {
   return fetchJSON(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
@@ -751,21 +710,6 @@ export async function searchNotesOnServer(q: string, limit = 50): Promise<{ note
 
 export async function getNoteQuestions(noteId: string): Promise<NoteQuestion[]> {
   return fetchJSON<NoteQuestion[]>(`/notes/${noteId}/questions`);
-}
-
-/** One Ask Claude Q&A (its word chips, translations and the question's check as stored). */
-export async function getNoteQuestion(id: string): Promise<NoteQuestion> {
-  return fetchJSON<NoteQuestion>(`/note-questions/${id}`);
-}
-
-/** Word chips of an Ask Claude answer / question, made on request and cached on the row. */
-export async function getNoteQuestionWords(id: string, part: 'answer' | 'question'): Promise<{ words: ChatWord[] | null; cached: boolean }> {
-  return fetchJSON(`/note-questions/${id}/words`, { method: 'POST', body: JSON.stringify({ part }) });
-}
-
-/** An Ask Claude answer / question in English (the long-press menu's Translate), cached on the row. */
-export async function translateNoteQuestion(id: string, part: 'answer' | 'question'): Promise<{ translation: string; cached: boolean }> {
-  return fetchJSON(`/note-questions/${id}/translate`, { method: 'POST', body: JSON.stringify({ part }) });
 }
 
 /** "Ask Claude answers in": 'zh' | 'en', null = back to the default (Chinese). */

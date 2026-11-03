@@ -13,6 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeSendBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadRes
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeTurnEvent
+import dev.jeromeswannack.chineselearning.lab.data.api.cardClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeMessagesPath
 import dev.jeromeswannack.chineselearning.lab.data.api.claudeThread
 import dev.jeromeswannack.chineselearning.lab.data.api.createClaudeThread
@@ -23,12 +24,15 @@ import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
 import dev.jeromeswannack.chineselearning.lab.data.platform.OutboxEntity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -52,14 +56,14 @@ data class CachedClaudeThread(
 )
 
 @Serializable
-data class PendingCreate(val message_client_id: String, val context: ClaudeContextDto, val intent: String, val text: String, val language: String? = null)
+data class PendingCreate(val message_client_id: String, val context: ClaudeContextDto, val intent: String, val text: String, val language: String? = null, val quick: Boolean? = null)
 
 /**
  * Claude threads on the phone (docs/CHAT.md "Claude thread view"; port of the web's
  * services/claudeThreads.ts): every thread opened here is kept in the [JsonCache]
  * (`claude/t/<id>`) so it reads offline, and a message written without a connection goes to the
  * [Outbox] (kind [OUTBOX_KIND], id = the message's client id) — shown at once as my bubble
- * ("🕓 Waiting for a connection") and sent in order with the rest of the outbox on reconnect / in
+ * ("🕓 Will send when you're online") and sent in order with the rest of the outbox on reconnect / in
  * every sync. The server is idempotent by client id, so a resend never makes a second thread or
  * message.
  *
@@ -93,6 +97,37 @@ class ClaudeThreads(
     suspend fun resolve(routeId: String): String = aliases()[routeId] ?: routeId
 
     private suspend fun aliases(): Map<String, String> = runCatching { cache.get<Map<String, String>>(ALIASES) }.getOrNull().orEmpty()
+
+    // ---------------- one card's threads (Ask Claude on a study card) ----------------
+
+    /**
+     * The threads about one note on this phone: the server's list as last fetched ([refreshCardThreads])
+     * merged with every thread opened / started here (a cached thread's row wins — it is the fresher).
+     */
+    fun observeCardThreads(noteId: String): Flow<List<ClaudeThreadDto>> = combine(
+        cache.observe(cardKey(noteId), ListSerializer(ClaudeThreadDto.serializer())),
+        cache.observeAll(KIND, CachedClaudeThread.serializer()),
+        cache.observeAll(LOCAL_KIND, CachedClaudeThread.serializer()),
+    ) { listed, opened, local ->
+        val byId = LinkedHashMap<String, ClaudeThreadDto>()
+        for (t in listed.orEmpty()) byId[t.id] = t
+        for (c in opened + local) byId[c.thread.id] = c.thread
+        byId.values.filter { it.context_kind == ClaudeChats.CARD && it.context.note_id == noteId }
+    }.distinctUntilChanged()
+
+    /** True the first time for a reply id (remembered): its card tools are applied on this phone once. */
+    suspend fun markCardEffectsApplied(replyId: String): Boolean = lock.withLock {
+        val list = runCatching { cache.get<List<String>>(EFFECTS) }.getOrNull().orEmpty()
+        if (replyId in list) return@withLock false
+        cache.put(EFFECTS, EFFECTS_KIND, (list + replyId).takeLast(EFFECTS_MAX))
+        true
+    }
+
+    /** `GET /api/claude/threads?context_kind=card&note_id=` into the cache. Throws on a network / server error. */
+    suspend fun refreshCardThreads(noteId: String) {
+        val res = api.cardClaudeThreads(noteId)
+        cache.put(cardKey(noteId), CARD_LIST_KIND, res.threads, ListSerializer(ClaudeThreadDto.serializer()))
+    }
 
     // ---------------- writing the cache ----------------
 
@@ -173,10 +208,10 @@ class ClaudeThreads(
      * offline (or the request didn't get through): the thread and my bubble are kept here under client
      * ids and the create waits in the outbox. A refusal (4xx) is thrown — the caller says why.
      */
-    suspend fun start(context: ClaudeContextDto, text: String, intent: String, language: String?, online: Boolean): SendResult {
+    suspend fun start(context: ClaudeContextDto, text: String, intent: String, language: String?, online: Boolean, quick: Boolean = false): SendResult {
         val threadClientId = newId()
         val messageClientId = newId()
-        val body = ClaudeCreateBody(threadClientId, messageClientId, context.descriptor(), intent, text, language)
+        val body = ClaudeCreateBody(threadClientId, messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it })
         if (online) {
             try {
                 val res = api.createClaudeThread(body)
@@ -196,7 +231,7 @@ class ClaudeThreads(
                     localThread(threadClientId, context, text, intent, language),
                     listOf(localUserMessage(threadClientId, messageClientId, text, intent, held = false, language = language)),
                     local = true,
-                    create = PendingCreate(messageClientId, context.descriptor(), intent, text, language),
+                    create = PendingCreate(messageClientId, context.descriptor(), intent, text, language, quick.takeIf { it }),
                 ),
             )
         }
@@ -204,11 +239,14 @@ class ClaudeThreads(
         return SendResult(threadClientId, queued = true)
     }
 
-    /** A message in an existing thread (Ask). Offline → queued like [start]. */
-    suspend fun send(threadId: String, text: String, language: String?, online: Boolean): SendResult {
+    /**
+     * A message in an existing thread (Ask). Offline → queued like [start]. [quick] = a suggestion chip
+     * (not checked); [typed] = a card thread's typed answer (see [ClaudeSendBody.typed]).
+     */
+    suspend fun send(threadId: String, text: String, language: String?, online: Boolean, quick: Boolean = false, typed: JsonElement? = null): SendResult {
         val clientId = newId()
         val cached = get(threadId)
-        val body = ClaudeSendBody(clientId, text, "ask", language)
+        val body = ClaudeSendBody(clientId, text, "ask", language, quick.takeIf { it }, typed)
         if (online && cached?.local != true) {
             try {
                 cacheResponse(api.sendClaudeMessage(threadId, body))
@@ -259,7 +297,7 @@ class ClaudeThreads(
             val create = l.create ?: continue
             if (create.message_client_id in inOutbox) continue
             val res = try {
-                api.createClaudeThread(ClaudeCreateBody(l.thread.id, create.message_client_id, create.context, create.intent, create.text, create.language))
+                api.createClaudeThread(ClaudeCreateBody(l.thread.id, create.message_client_id, create.context, create.intent, create.text, create.language, create.quick))
             } catch (e: UnauthorizedException) {
                 throw e
             } catch (_: Exception) {
@@ -319,6 +357,11 @@ class ClaudeThreads(
         const val TITLE_MAX = 120
 
         fun key(id: String) = "claude/t/$id"
+        const val CARD_LIST_KIND = "claude-card-threads"
+        const val EFFECTS = "claude/card-effects"
+        const val EFFECTS_KIND = "claude-card-effects"
+        const val EFFECTS_MAX = 200
+        fun cardKey(noteId: String) = "claude/card/$noteId"
 
         private val ISO: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
 

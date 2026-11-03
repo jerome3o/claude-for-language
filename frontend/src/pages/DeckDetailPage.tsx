@@ -1,4 +1,5 @@
 import { FORGET_HISTORY_LABEL } from '@shared/cards/leech';
+import { CardClaudeThreads } from '../components/claude/CardClaudeThreads';
 import '../components/cardControls/cardControls.css';
 import { BumpButton } from '../components/bumps/BumpButton';
 import { UpNextButton } from '../components/upNext/UpNextButton';
@@ -290,6 +291,12 @@ function NoteHistoryModal({
             ))}
           </div>
         )}
+
+        {/* Claude conversations about this card (its threads), each opening the conversation. */}
+        <div style={{ marginTop: '1.5rem' }} data-testid="history-claude-threads">
+          <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>💬 Claude conversations</h3>
+          <CardClaudeThreads noteId={note.id} hanzi={note.hanzi} emptyText="No conversations with Claude about this card yet." />
+        </div>
 
         {/* Questions & Answers */}
         {questionsQuery.data && questionsQuery.data.length > 0 && (
