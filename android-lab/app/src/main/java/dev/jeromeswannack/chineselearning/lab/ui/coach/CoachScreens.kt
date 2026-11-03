@@ -119,6 +119,8 @@ data class CoachHomeActions(
     val onAction: (CoachAction) -> Unit = {},
     val onOpen: (String) -> Unit = {},
     val onDelete: (String) -> Unit = {},
+    /** "💬 Ask Claude": a plain chat (ui/claudechat); with an id = open that chat. */
+    val onAsk: (String?) -> Unit = {},
     /** Add a word / the sentence from a saved Explain result (the study card's AddChunkSheet). */
     val cards: SentenceActions = SentenceActions(),
 )
@@ -130,6 +132,8 @@ private val ACTION_LOADING = mapOf(
 )
 
 /** "✏️ Check my sentence", "🔍 Explain", "Translate" — the web's button labels. */
+const val COACH_ASK_ENTRY_TAG = "coach-ask-entry"
+
 internal fun CoachAction.buttonLabel() = if (this == CoachAction.TRANSLATE) label else "$icon $label"
 
 /** Test tags on the home buttons. */
@@ -213,6 +217,24 @@ fun CoachHomeScreen(
                 color = Lab.colors.muted,
             )
         }
+        // "💬 Ask Claude": a plain chat in simple Chinese (shared/coach/askChat.ts).
+        item(key = "ask") {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.accent.copy(alpha = 0.07f))
+                    .border(1.dp, Lab.colors.accent, RoundedCornerShape(16.dp))
+                    .bouncyClickable { actions.onAsk(null) }.heightIn(min = 64.dp).padding(horizontal = 14.dp, vertical = 10.dp)
+                    .testTag(COACH_ASK_ENTRY_TAG),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(dev.jeromeswannack.chineselearning.lab.core.CoachAsk.ICON, fontSize = 26.sp)
+                Column(Modifier.weight(1f)) {
+                    Text(dev.jeromeswannack.chineselearning.lab.core.CoachAsk.LABEL, color = Lab.colors.accent, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(dev.jeromeswannack.chineselearning.lab.core.CoachAsk.HINT, color = Lab.colors.muted, fontSize = 14.sp)
+                }
+                Text("›", color = Lab.colors.muted, fontSize = 24.sp)
+            }
+        }
         item {
             Card {
                 if (typing) {
@@ -285,13 +307,14 @@ fun CoachHomeScreen(
             item { Text("Recent conversations", fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, fontSize = 17.sp) }
             items(list.size, key = { list[it].id }) { i ->
                 val conv = list[i]
+                val isAsk = dev.jeromeswannack.chineselearning.lab.core.CoachAsk.conversationKind(conv.kind, conv.action, conv.input_language) == dev.jeromeswannack.chineselearning.lab.core.CoachAsk.ACTION
                 Row(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp))
-                        .bouncyClickable { actions.onOpen(conv.id) }.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
+                        .bouncyClickable { if (isAsk) actions.onAsk(conv.id) else actions.onOpen(conv.id) }.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("${CoachActions.conversationAction(conv.action, conv.input_language).icon} ${conv.title}", color = Lab.colors.ink, fontSize = 16.sp, maxLines = 2)
+                        Text("${if (isAsk) dev.jeromeswannack.chineselearning.lab.core.CoachAsk.ICON else CoachActions.conversationAction(conv.action, conv.input_language).icon} ${conv.title}", color = Lab.colors.ink, fontSize = 16.sp, maxLines = 2)
                         // A reply still being written in the background / one that failed (docs/CHAT.md "Chat ↔ Coach").
                         if (conv.pending_reply) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp).testTag(COACH_CONV_PENDING_TAG)) {

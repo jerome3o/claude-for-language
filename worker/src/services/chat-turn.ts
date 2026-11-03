@@ -1,6 +1,7 @@
 /**
  * The request shape and the timing of a Claude CHAT reply — Ask Claude on a card
- * (`askAboutNoteWithTools`), Sentence Coach follow-ups (`coachChatWithTools`) and Discuss
+ * (`askAboutNoteWithTools`), Sentence Coach follow-ups (`coachChatWithTools`), the Coach's "💬 Ask Claude" chat
+ * (`defaultCoachAskReply`, services/claude-chat.ts) and Discuss
  * with Claude (`discussMessage`):
  * - `SONNET_MODEL` with thinking OFF ("Calling Claude reliably" in CLAUDE.md): the first words
  *   come fast and `max_tokens` is all answer (a custom-lesson spec still fits);
@@ -25,7 +26,7 @@ export const CHAT_TURN_MAX_TOKENS = 12000;
 
 const EPHEMERAL = { type: 'ephemeral' } as const;
 
-export type ChatTurnSurface = 'ask' | 'coach' | 'discuss';
+export type ChatTurnSurface = 'ask' | 'coach' | 'coach_ask' | 'discuss';
 
 /** The tool list with a cache breakpoint on its last tool (caches every definition). */
 export function cachedTools(tools: Anthropic.Tool[]): Anthropic.Tool[] {
@@ -79,7 +80,7 @@ export function chatTurnParams(opts: {
     max_tokens: opts.maxTokens ?? CHAT_TURN_MAX_TOKENS,
     thinking: { type: 'disabled' },
     system: opts.system,
-    tools: opts.tools,
+    ...(opts.tools.length ? { tools: opts.tools } : {}),
     messages: withCachedTail(opts.messages),
   };
 }

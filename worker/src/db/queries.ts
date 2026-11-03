@@ -3468,14 +3468,15 @@ export async function createCoachConversation(
   userId: string,
   title: string,
   inputLanguage: 'zh' | 'en',
-  action: 'check' | 'explain' | 'translate' | null = null,
+  action: 'check' | 'explain' | 'translate' | 'ask' | null = null,
   sourceMessageId: string | null = null,
+  kind: 'ask' | null = null,
 ): Promise<CoachConversation> {
   const id = crypto.randomUUID();
   await db.prepare(`
-    INSERT INTO coach_conversations (id, user_id, title, input_language, action, source_message_id)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(id, userId, title, inputLanguage, action, sourceMessageId).run();
+    INSERT INTO coach_conversations (id, user_id, title, input_language, action, source_message_id, kind)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(id, userId, title, inputLanguage, action, sourceMessageId, kind).run();
   const conv = await db.prepare(`SELECT * FROM coach_conversations WHERE id = ?`)
     .bind(id).first<CoachConversation>();
   return conv!;

@@ -214,9 +214,20 @@ fun ReadAloudStopFooter(recording: Boolean, onStop: () -> Unit) {
  * stops a playing story; [onResult] shows it marked. Practice only — nothing stored or queued.
  */
 @Composable
-fun rememberReadAloud(pageText: String, onStart: () -> Unit, onResult: () -> Unit): ReadAloudHandle {
+fun rememberReadAloud(
+    pageText: String,
+    onStart: () -> Unit,
+    onResult: () -> Unit,
+    /** The Claude chat's "🎤 Read it back": its own voice surface + analytics event (+ props from the result). */
+    surface: String = "reader_read_aloud",
+    event: String = "reader.read_aloud",
+    props: (ReadAloud.Result?) -> Map<String, Any?> = { emptyMap() },
+    onJudged: (ReadAloud.Result, String) -> Unit = { _, _ -> },
+): ReadAloudHandle {
     val app = LocalContext.current.applicationContext as? LabApp
-    val controller = rememberVoiceDictation("reader_read_aloud", autoSubmit = true)
+    val controller = rememberVoiceDictation(surface, autoSubmit = true)
+    val extra by rememberUpdatedState(props)
+    val judged by rememberUpdatedState(onJudged)
     val dictation by controller.ui.collectAsState()
     var result by remember(pageText) { mutableStateOf<ReadAloud.Result?>(null) }
     var said by remember(pageText) { mutableStateOf("") }
@@ -228,25 +239,26 @@ fun rememberReadAloud(pageText: String, onStart: () -> Unit, onResult: () -> Uni
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
         val via = answer.via ?: "none"
         if (!ReadAloud.heardAnything(answer.text)) {
-            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to "empty", "chars" to 0, "via" to via, "all_right" to false))
+            app?.analytics?.track(event, mapOf("result_bucket" to "empty", "chars" to 0, "via" to via, "all_right" to false) + extra(null))
             return@rememberVoiceFirstActions
         }
         val r = ReadAloud.judge(text, answer.text)
         result = r
         said = answer.text.trim()
         val allRight = ReadAloud.allRight(r)
-        app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to ReadAloud.bucket(r.pct), "chars" to r.total, "via" to via, "all_right" to allRight))
+        app?.analytics?.track(event, mapOf("result_bucket" to ReadAloud.bucket(r.pct), "chars" to r.total, "via" to via, "all_right" to allRight) + extra(r))
         if (allRight) {
             // The whole page read right: confetti (once for this take), a sparkle and a happy buzz.
             perfectTakes++
             app?.haptics?.celebrate()
             app?.sounds?.play(Sounds.Sfx.MILESTONE, 0.6f)
         } else app?.haptics?.tick()
+        judged(r, answer.text.trim())
         landed()
     }
     LaunchedEffect(dictation.phase, dictation.failure) {
         if (dictation.phase == "failed") {
-            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to if (dictation.failure == "empty") "empty" else "failed", "chars" to 0, "via" to "none", "all_right" to false))
+            app?.analytics?.track(event, mapOf("result_bucket" to if (dictation.failure == "empty") "empty" else "failed", "chars" to 0, "via" to "none", "all_right" to false) + extra(null))
         }
     }
     LaunchedEffect(dictation.blocked) { if (dictation.blocked != "offline") offlineNote = false }
@@ -276,14 +288,14 @@ fun rememberReadAloud(pageText: String, onStart: () -> Unit, onResult: () -> Uni
 
 /** 🎤 in the page's audio row (beside the speed chip): Read it aloud · ⏹ Stop · Say it again. */
 @Composable
-fun ReadAloudMic(ui: ReadAloudUi, onClick: () -> Unit) {
+fun ReadAloudMic(ui: ReadAloudUi, onClick: () -> Unit, idleLabel: String = ReadAloud.LABEL, tag: String = ReadAloudTags.MIC) {
     val listening = ui.phase == "listening"
     val finishing = ui.phase == "finishing"
     val label = when {
         listening -> ReadAloud.STOP
         finishing -> ReadAloud.CHECKING
         ui.result != null -> ReadAloud.AGAIN
-        else -> ReadAloud.LABEL
+        else -> idleLabel
     }
     val pulse = rememberInfiniteTransition(label = "readAloud")
     val s by pulse.animateFloat(1f, if (listening) 1.08f else 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse")
@@ -301,7 +313,7 @@ fun ReadAloudMic(ui: ReadAloudUi, onClick: () -> Unit) {
         Modifier.size(44.dp).scale(s).clip(CircleShape).background(bg).border(1.dp, border, CircleShape)
             .bouncyClickable(!finishing, 0.9f, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = label; selected = listening }
-            .testTag(ReadAloudTags.MIC),
+            .testTag(tag),
         contentAlignment = Alignment.Center,
     ) {
         if (finishing) CircularProgressIndicator(Modifier.size(18.dp), color = Violet, strokeWidth = 2.dp)
@@ -312,7 +324,7 @@ fun ReadAloudMic(ui: ReadAloudUi, onClick: () -> Unit) {
 
 /** Under the audio row: the live transcript, then ONE result line (+ "You said ▸"), or why there is none. */
 @Composable
-fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions, diffEnv: ReadAloudDiffEnv = ReadAloudDiffEnv()) {
+fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions, diffEnv: ReadAloudDiffEnv = ReadAloudDiffEnv(), listeningText: String = ReadAloud.LISTENING) {
     val listening = ui.phase == "listening"
     val failed = ui.phase == "failed"
     AnimatedVisibility(listening, enter = fadeIn() + expandVertically()) {
@@ -321,7 +333,7 @@ fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions, diffEnv: ReadAlou
                 .padding(horizontal = 12.dp, vertical = 10.dp).testTag(ReadAloudTags.LIVE),
             contentAlignment = Alignment.CenterStart,
         ) {
-            if (ui.finalText.isEmpty() && ui.partialText.isEmpty()) Text(ReadAloud.LISTENING, color = Lab.colors.muted, fontSize = 14.sp)
+            if (ui.finalText.isEmpty() && ui.partialText.isEmpty()) Text(listeningText, color = Lab.colors.muted, fontSize = 14.sp)
             else Text(
                 buildAnnotatedString {
                     append(ui.finalText)

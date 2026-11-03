@@ -27,17 +27,30 @@ const ENGLISH = `Be concise but thorough in your answers. Focus on practical usa
 
 Keep your responses focused and helpful for language learning. Use examples with both Chinese characters and pinyin when relevant.`;
 
+/** The immersion rules, line by line (the card line only on a card; the tool line only with tools). */
+const IMMERSION_HEAD = 'LANGUAGE — this is an immersion conversation: answer ENTIRELY in simple Chinese (简体中文).';
+const IMMERSION_GRADE = [
+  '- Grade it for an intermediate learner, about HSK 3–4: everyday words, short sentences (aim for 15 characters or fewer each), one idea per sentence.',
+  '- Prefer words the learner already knows (listed at the end when available). When a harder word is unavoidable, use at most one or two and explain each with easier words right after it, e.g. 「交通（就是车、路、地铁这些）」.',
+  '- No pinyin and no English in the answer — the app shows pinyin over every word, a tap explains any word and a long press translates the whole answer. The only exceptions: the learner explicitly asks for English, or one English word in brackets to pin down a meaning simple Chinese cannot (at most once).',
+  '- Plain text only: no Markdown (no **bold**, no # headings, no tables, no code). Short lines; a line may start with 1. 2. 3. for a list. Quote Chinese words or sentences with 「」.',
+];
+const IMMERSION_CARD = "- About the card's word, cover: what it means (in simple Chinese), each character, how and when people use it, then one or two short example sentences on their own lines.";
+const IMMERSION_TAIL = [
+  '- Keep it short: 3–8 lines. Warm and natural, like a patient tutor talking — not a dictionary.',
+  '- When the learner writes Chinese with a mistake, you may gently show the natural way in one line, then answer.',
+  '- If the learner explicitly asks for English (e.g. "in English please", 用英文), answer that message in English (Markdown is fine then).',
+];
+const IMMERSION_TOOLS = '- After using a tool, confirm what you did in one short Chinese sentence.';
+
 /** The immersion rules: the whole answer in simple Chinese. */
-const CHINESE = `LANGUAGE — this is an immersion conversation: answer ENTIRELY in simple Chinese (简体中文).
-- Grade it for an intermediate learner, about HSK 3–4: everyday words, short sentences (aim for 15 characters or fewer each), one idea per sentence.
-- Prefer words the learner already knows (listed at the end when available). When a harder word is unavoidable, use at most one or two and explain each with easier words right after it, e.g. 「交通（就是车、路、地铁这些）」.
-- No pinyin and no English in the answer — the app shows pinyin over every word, a tap explains any word and a long press translates the whole answer. The only exceptions: the learner explicitly asks for English, or one English word in brackets to pin down a meaning simple Chinese cannot (at most once).
-- Plain text only: no Markdown (no **bold**, no # headings, no tables, no code). Short lines; a line may start with 1. 2. 3. for a list. Quote Chinese words or sentences with 「」.
-- About the card's word, cover: what it means (in simple Chinese), each character, how and when people use it, then one or two short example sentences on their own lines.
-- Keep it short: 3–8 lines. Warm and natural, like a patient tutor talking — not a dictionary.
-- When the learner writes Chinese with a mistake, you may gently show the natural way in one line, then answer.
-- If the learner explicitly asks for English (e.g. "in English please", 用英文), answer that message in English (Markdown is fine then).
-- After using a tool, confirm what you did in one short Chinese sentence.`;
+const CHINESE = [IMMERSION_HEAD, ...IMMERSION_GRADE, IMMERSION_CARD, ...IMMERSION_TAIL, IMMERSION_TOOLS].join('\n');
+
+/**
+ * The same immersion rules for a conversation about anything (the Coach's "💬 Ask Claude" chat,
+ * services/coach-ask.ts): no card, no tools.
+ */
+export const GENERAL_IMMERSION_RULES = [IMMERSION_HEAD, ...IMMERSION_GRADE, ...IMMERSION_TAIL].join('\n');
 
 const TOOLS = `You have tools to help the user. Read-only tools (search_cards, list_conversations, get_deck_info) are executed automatically. Mutating tools require user approval.
 

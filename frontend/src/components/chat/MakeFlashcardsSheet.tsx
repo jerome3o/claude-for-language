@@ -15,6 +15,7 @@ import {
   type FlashcardScope,
 } from '../../services/chatLearning';
 import { describeError } from './InlineNotice';
+import type { ProposedChatCard } from '../../types';
 import { SpinnerButton } from './SpinnerButton';
 
 const NEW_DECK = '__new__';
@@ -42,9 +43,24 @@ export function MakeFlashcardsSheet({
   sourceText,
   onClose,
   onAdded,
+  propose: proposeOverride,
+  fromLabel,
+  initiallyChecked,
+  onAddedCount,
 }: {
   conversationId: string;
   scope: FlashcardScope;
+  /**
+   * Another conversation's proposals (a Claude chat: `POST /api/coach/conversations/:id/flashcards/propose`);
+   * default = the tutor chat's propose for `scope`.
+   */
+  propose?: () => Promise<{ cards: ProposedChatCard[] }>;
+  /** "From …" under the title (default: the scope's label). */
+  fromLabel?: string;
+  /** Which proposals start ticked (default: every card not already in my decks). */
+  initiallyChecked?: (card: ProposedChatCard) => boolean;
+  /** Replaces the chat's `chat.make_flashcards` event. */
+  onAddedCount?: (count: number) => void;
   /** The text of a source message (for the "from …" line under a card). */
   sourceText: (messageId: string) => string | null;
   onClose: () => void;
@@ -70,8 +86,9 @@ export function MakeFlashcardsSheet({
   const propose = useCallback(async () => {
     setPhase({ kind: 'loading' });
     try {
-      const res = await proposeChatFlashcards(conversationId, proposeBodyFor(scope));
-      setDrafts(draftsFromProposal(res.cards || []));
+      const res = proposeOverride ? await proposeOverride() : await proposeChatFlashcards(conversationId, proposeBodyFor(scope));
+      const drafts = draftsFromProposal(res.cards || []);
+      setDrafts(initiallyChecked ? drafts.map((d) => ({ ...d, checked: initiallyChecked(d) })) : drafts);
       setPhase({ kind: 'ready' });
     } catch (error) {
       const status = (error as { status?: number }).status;
@@ -82,6 +99,7 @@ export function MakeFlashcardsSheet({
         retryable: offline || status === undefined || status === 503 || status >= 500,
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId, scope]);
 
   useEffect(() => {
@@ -122,7 +140,8 @@ export function MakeFlashcardsSheet({
       invalidateKnownHanzi();
       void queryClient.invalidateQueries({ queryKey: ['decks'] });
       const created = res.created?.length ?? 0;
-      track('chat.make_flashcards', { count: created, focus: scope.kind });
+      if (onAddedCount) onAddedCount(created);
+      else track('chat.make_flashcards', { count: created, focus: scope.kind });
       if (!res.failed || res.failed.length === 0) {
         onAdded(`Added ${created} card${created === 1 ? '' : 's'} to ${deckName || 'your deck'}.`);
         return;
@@ -149,7 +168,7 @@ export function MakeFlashcardsSheet({
         <div className="chat-cards-head">
           <div>
             <h3>Make flashcards</h3>
-            <div className="chat-cards-sub">From {scopeLabel(scope)}</div>
+            <div className="chat-cards-sub">From {fromLabel ?? scopeLabel(scope)}</div>
           </div>
           <button type="button" className="chat-cards-close" onClick={onClose} aria-label="Close">
             ×
@@ -159,7 +178,7 @@ export function MakeFlashcardsSheet({
         <div className="chat-cards-body">
           {phase.kind === 'loading' && (
             <div className="chat-cards-status" role="status">
-              <span className="chat-spinner" aria-hidden="true" /> Claude is reading {scopeLabel(scope)}…
+              <span className="chat-spinner" aria-hidden="true" /> Claude is reading {fromLabel ?? scopeLabel(scope)}…
             </div>
           )}
           {phase.kind === 'error' && (
@@ -175,7 +194,7 @@ export function MakeFlashcardsSheet({
             </div>
           )}
           {phase.kind === 'ready' && drafts.length === 0 && (
-            <div className="chat-cards-status">No new words to make cards from in {scopeLabel(scope)}.</div>
+            <div className="chat-cards-status">No new words to make cards from in {fromLabel ?? scopeLabel(scope)}.</div>
           )}
           {phase.kind === 'ready' &&
             drafts.map((d) => {

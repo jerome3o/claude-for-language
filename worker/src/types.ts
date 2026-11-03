@@ -988,7 +988,9 @@ export interface CoachConversation {
   title: string;
   input_language: CoachInputLanguage;
   /** Which button started it: check | explain | translate (NULL on rows from before 0084) */
-  action?: 'check' | 'explain' | 'translate' | null;
+  action?: 'check' | 'explain' | 'translate' | 'ask' | null;
+  /** 'ask' = a "💬 Ask Claude" chat (migration 0143); NULL = a Sentence Coach conversation. */
+  kind?: 'ask' | null;
   /** "Open in Coach" from this chat message (migration 0114). */
   source_message_id?: string | null;
   created_at: string;
@@ -1006,6 +1008,10 @@ export interface CoachMessage {
   /** NULL = done; 'pending' = Claude is still answering (in the background); 'failed' (see error, Retry). */
   status?: 'pending' | 'failed' | null;
   error?: string | null;
+  /** Ask Claude chats: the language of Claude's reply ('zh' plain text | 'en' Markdown; migration 0143). */
+  answer_lang?: 'zh' | 'en' | null;
+  /** The English of a Chinese message, made on request (migration 0143). */
+  translation?: string | null;
 }
 
 // ============ Graded Readers ============

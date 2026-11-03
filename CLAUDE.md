@@ -523,7 +523,8 @@ change there. `leastThinking(model)` gives the right thinking setting per family
   (`{ type: 'disabled' }` is a 400) and counts against `max_tokens`, forced `tool_choice` and `temperature`
   are 400s; wrap the params in `withEffort(params, 'low' | 'medium' | …)` (default effort is medium) and use
   `tool_choice: auto` + an instruction naming the tool.
-- **Chat replies** (Ask Claude, Coach follow-ups, Discuss with Claude) go through `services/chat-turn.ts`:
+- **Chat replies** (Ask Claude, Coach follow-ups, the Coach's "💬 Ask Claude" chat `services/claude-chat.ts`,
+  Discuss with Claude) go through `services/chat-turn.ts`:
   `SONNET_MODEL` with thinking disabled (`CHAT_TURN_MAX_TOKENS` 12000 is all answer), `cachedTools` /
   `cachedSystem` / `withCachedTail` (≤ 4 cache breakpoints: last tool, static rules, per-user block, the tail —
   so nothing per-card or per-request may go in the tools or the static system block), `CHAT_TOOL_RULE` in the
@@ -1317,6 +1318,8 @@ How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools); `background: true` → 202 `[user, pending]` (409 while one is pending)
 - `POST /api/coach/conversations/:id/messages/:messageId/retry` - Re-queue a failed reply → 202
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
+- `POST /api/coach/ask` - "💬 Ask Claude" (docs/CHAT.md "Ask Claude chat"): `{ message, language?: zh|en }` → 202 `{ conversation (kind 'ask'), messages: [user, pending] }` — a plain chat with Claude in simple Chinese (the Ask Claude immersion rules, `services/claude-chat.ts` = the ONE prompt + model module, from a context object), replies written by coach-reply-queue with `answer_lang`; follow-ups through `…/messages` with `language`; web `pages/ClaudeChatPage.tsx` + context-agnostic `components/claudeChat/` (thread: chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back via `useReadAloud`; composer), Lab `ui/claudechat/`; words to recap kept on the device (`services/claudeChatRecap.ts`, `shared/coach/askChat.ts`)
+- `POST /api/coach/conversations/:id/messages/:messageId/translate` → `{ translation, cached }` (kept in `coach_messages.translation`, migration 0143) · `POST /api/coach/conversations/:id/flashcards/propose { words? }` → `{ cards }` ("Make flashcards from this chat": the tapped / said-wrong words first)
 - `POST /api/coach/conversations/:id/mistake-lesson` - "🎯 Mini lesson on this mistake" (only after a check that found a mistake, `coachMistakeLessonOffered` in `shared/coach/mistakeLesson.ts`): 202 a pending `content_type: 'mistake_lesson'` message written by coach-reply-queue (`services/mistake-lesson.ts`: forced tool, thinking off, validateLessonSpec + shape checks, 2 repair rounds, pinyin checker), 200 `existing` — one per conversation, never regenerated. Played at `/coach/:c/lesson/:m` in the lesson player as a preview (nothing recorded); docs/CHAT.md
 - `POST /api/coach/conversations/:id/messages/:messageId/save-lesson` - `{ completion? }` → `{ lesson_id, title, completed, message }`: the lesson into Mini Lessons once (source `coach`); `completion` (a rating at the end of the preview) is recorded like an offline completion so it is scheduled from that rating
 
@@ -2921,6 +2924,7 @@ The app supports many-to-many tutor-student relationships where users can be tut
 - `/phone`, `/phone/:id` - 📱 Phone practice (More → Practice, tutors More → Tools): the task list (✓ Done · best time, local only) and one task on the simulated phone (immersive; full screen on a phone, a phone frame + task card on a desktop)
 - `/meme-review`, `/meme-review/:month` - 梗 Meme review (prototype; More → Practice, tutors More → Tools): the monthly issues (admin: Generate now) and one issue (offline once opened; links need a connection)
 - `/picture-hunt`, `/picture-hunt/:id` - Picture hunt: list + make / upload, and the game (immersive; More → Practice)
+- `/coach/chat/:id` - "💬 Ask Claude" from the Coach (`new` = a fresh chat; immersive; docs/CHAT.md "Ask Claude chat")
 - `/practice/strokes?text=` - Handwriting with stroke-order feedback (preview; More → Practice, and study card ⋯ → Write it). Stroke data = hanzi-writer-data (Arphic PL) copied to `/strokes/<hex>.json` at build by `strokeDataPlugin` (vite.config.ts), cached per character in its own IndexedDB (`services/strokeData.ts`); `components/strokes/WritingExercise.tsx` is the drop-in exercise. See docs/STROKE_ORDER.md
 - `/materials`, `/materials/:id` - Lesson materials (not in any menu since Oct 2026; the call's Present material sheet uploads too): upload / share / rename / delete, and the page viewer (cache-first, offline)
 - `/calls`, `/calls/:id`, `/calls/:id/review` - Video calls (beta): list + start (More → Video calls, or 📹 on a student / tutor page), the live call (immersive), transcript + lesson report + flashcards

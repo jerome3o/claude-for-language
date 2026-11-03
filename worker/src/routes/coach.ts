@@ -22,6 +22,17 @@
  *          did it in the preview: { id, correct, total, rating, completed_at?, attempt? } recorded like an
  *          offline completion (idempotent by id), so its rating schedules it ("revisit later")
  *
+ *
+ * "💬 Ask Claude" chats (docs/CHAT.md "Ask Claude chat"; kind 'ask', services/claude-chat.ts):
+ *   POST   /coach/ask { message, language?: 'zh'|'en' } → 202 { conversation, messages: [user, pending] }
+ *          (the reply's `answer_lang` = the turn's language: the choice, else the account's Ask Claude
+ *          language, and "in English please" for one turn); follow-ups through …/messages above (always
+ *          in the background, with `language`)
+ *   POST   /coach/conversations/:id/messages/:messageId/translate → { translation, cached } (kept on the row)
+ *   POST   /coach/conversations/:id/flashcards/propose { words?: string[] } → { cards } — "Make flashcards
+ *          from this chat": the tapped / said-wrong words first; nothing saved (the app adds the kept
+ *          ones with POST /decks/:id/notes/batch)
+ *
  * docs/CHAT.md "Chat ↔ Coach".
  */
 import { outcomeForUpload } from '../services/lesson-revision';
@@ -37,6 +48,10 @@ import { parseStoredAttachment } from '../services/chat/media';
 import { parseClientBriefExplanation, toCoachBreakdown } from '../services/sentence-explain-brief';
 import { StructuredCallError } from '../services/structured-call';
 import { trackServer } from '../services/analytics/server-events';
+import { askConversationTitle, conversationKind, COACH_ASK_ACTION, COACH_ASK_MAX_CHARS } from '@shared/coach/askChat';
+import { parseAskLanguage, turnLanguage } from '@shared/study/askClaude';
+import { askSettings } from '../services/ask-claude';
+import { fakeCoachTranslate, proposeCoachAskFlashcards } from '../services/claude-chat';
 import {
   buildCoachHistory,
   coachAnalysisFromAutoCheck,
@@ -209,7 +224,7 @@ coach.delete('/coach/conversations/:id', async (c) => {
 coach.post('/coach/conversations/:id/messages', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const { message, background: bgFlag } = await c.req.json<{ message: string; background?: unknown }>();
+  const { message, background: bgFlag, language } = await c.req.json<{ message: string; background?: unknown; language?: unknown }>();
 
   if (!message || typeof message !== 'string' || !message.trim()) {
     return c.json({ error: 'message is required' }, 400);
@@ -223,7 +238,10 @@ coach.post('/coach/conversations/:id/messages', async (c) => {
     return c.json({ error: 'Conversation not found' }, 404);
   }
 
-  if (bgFlag === true) {
+  const isAsk = conversationKind(conversation) === 'ask';
+  if (isAsk && message.trim().length > COACH_ASK_MAX_CHARS) return c.json({ error: `Keep a message under ${COACH_ASK_MAX_CHARS} characters` }, 400);
+  // An Ask Claude chat is always answered in the background.
+  if (bgFlag === true || isAsk) {
     await sweepStaleCoachReplies(c.env.DB, userId, id);
     const stored = await db.getCoachMessages(c.env.DB, id);
     // A mini lesson being written doesn't hold up the chat.
@@ -232,6 +250,7 @@ coach.post('/coach/conversations/:id/messages', async (c) => {
     }
     const userMsg = await db.addCoachMessage(c.env.DB, id, 'user', 'text', message.trim());
     const pending = await db.addCoachMessage(c.env.DB, id, 'assistant', 'text', '', null, 'pending');
+    if (isAsk) pending.answer_lang = await setTurnLanguage(c.env.DB, userId, pending.id, language, message);
     await enqueueCoachReply(c.env, pending.id, waitUntilOf(c));
     return c.json({ messages: [userMsg, pending].map(publicCoachMessage), toolResults: [] }, 202);
   }
@@ -260,6 +279,82 @@ coach.post('/coach/conversations/:id/messages', async (c) => {
   } catch (error) {
     console.error('Coach conversation message error:', error);
     return c.json({ error: 'Failed to get a response' }, 500);
+  }
+});
+
+/** The language of one Ask Claude turn, written on its pending reply: the choice, else the account's, and "in English please". */
+async function setTurnLanguage(database: D1Database, userId: string, replyId: string, requested: unknown, message: string): Promise<'zh' | 'en'> {
+  const setting = parseAskLanguage(requested) ?? (await askSettings(database, userId)).language;
+  const language = turnLanguage(setting, message);
+  await database.prepare('UPDATE coach_messages SET answer_lang = ? WHERE id = ?').bind(language, replyId).run();
+  return language;
+}
+
+// "💬 Ask Claude": a new chat with Claude — my question and a pending reply written by the coach-reply-queue.
+coach.post('/coach/ask', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ message?: unknown; language?: unknown }>().catch(() => ({} as { message?: unknown; language?: unknown }));
+  const message = typeof body.message === 'string' ? body.message.trim() : '';
+  if (!message) return c.json({ error: 'message is required' }, 400);
+  if (message.length > COACH_ASK_MAX_CHARS) return c.json({ error: `Keep a message under ${COACH_ASK_MAX_CHARS} characters` }, 400);
+  if (!coachAvailable(c.env)) return c.json({ error: 'AI coaching is not configured', retryable: false }, 503);
+  const conversation = await db.createCoachConversation(c.env.DB, userId, askConversationTitle(message), containsChinese(message) ? 'zh' : 'en', COACH_ASK_ACTION, null, 'ask');
+  const userMsg = await db.addCoachMessage(c.env.DB, conversation.id, 'user', 'text', message);
+  const pending = await db.addCoachMessage(c.env.DB, conversation.id, 'assistant', 'text', '', null, 'pending');
+  pending.answer_lang = await setTurnLanguage(c.env.DB, userId, pending.id, body.language, message);
+  await enqueueCoachReply(c.env, pending.id, waitUntilOf(c));
+  return c.json({ conversation, messages: [userMsg, pending].map(publicCoachMessage) }, 202);
+});
+
+// The English of one Chinese message (Claude's reply or mine), kept on the row.
+coach.post('/coach/conversations/:id/messages/:messageId/translate', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+  const row = await c.env.DB
+    .prepare('SELECT id, content, content_type, status, translation FROM coach_messages WHERE id = ? AND conversation_id = ?')
+    .bind(c.req.param('messageId'), id)
+    .first<{ id: string; content: string; content_type: string; status: string | null; translation: string | null }>();
+  if (!row) return c.json({ error: 'Message not found' }, 404);
+  if (row.translation) return c.json({ translation: row.translation, cached: true });
+  if (row.status || row.content_type !== 'text' || !containsChinese(row.content)) return c.json({ error: 'There is no Chinese to translate' }, 400);
+  let translation: string;
+  try {
+    if (c.env.E2E_TEST_MODE === 'true') translation = await fakeCoachTranslate(row.content);
+    else {
+      if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI is not configured', retryable: false }, 503);
+      const { translateChineseText } = await import('../services/translation');
+      translation = await translateChineseText(c.env.ANTHROPIC_API_KEY, row.content);
+    }
+  } catch (err) {
+    console.error('[coach] translate failed', row.id, err instanceof Error ? err.message : err);
+    const retryable = !(err instanceof StructuredCallError) || err.retryable;
+    return c.json({ error: "Couldn't translate that just now — try again", retryable }, retryable ? 503 : 502);
+  }
+  await c.env.DB.prepare('UPDATE coach_messages SET translation = ? WHERE id = ?').bind(translation, row.id).run();
+  return c.json({ translation, cached: false });
+});
+
+// "Make flashcards from this chat": proposals only (the tapped / said-wrong words first).
+coach.post('/coach/conversations/:id/flashcards/propose', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const conversation = await db.getCoachConversation(c.env.DB, id, userId);
+  if (!conversation) return c.json({ error: 'Conversation not found' }, 404);
+  const body = await c.req.json<{ words?: unknown }>().catch(() => ({} as { words?: unknown }));
+  if (body.words !== undefined && body.words !== null && (!Array.isArray(body.words) || body.words.some((w) => typeof w !== 'string' || w.length > 40))) {
+    return c.json({ error: 'words must be a list of short strings' }, 400);
+  }
+  const words = Array.isArray(body.words) ? (body.words as string[]) : [];
+  try {
+    const stored = await db.getCoachMessages(c.env.DB, id);
+    return c.json(await proposeCoachAskFlashcards(c.env, userId, stored, words));
+  } catch (err) {
+    console.error('[coach] propose flashcards failed', id, err instanceof Error ? err.message : err);
+    const retryable = !(err instanceof StructuredCallError) || err.retryable;
+    const message = err instanceof StructuredCallError && !retryable ? err.message : "Claude couldn't make cards from this chat — try again.";
+    return c.json({ error: message, retryable }, retryable ? 503 : 400);
   }
 });
 

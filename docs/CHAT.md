@@ -828,3 +828,53 @@ queue"; `shared/coach/mistakeLesson.ts`, `worker/src/services/mistake-lesson.ts`
   `coach.mistake_lesson_save { done, rating }`, server `coach.mistake_lesson_written { exercises, types, rounds }`.
 - Lab: core `CoachMistakeLesson.kt` (parity-tested in `parity/fixtures/coach.ts`), `ui/coach/CoachMistakeLessonUi.kt`,
   `LessonPlayer(previewSave = …)`.
+
+## Ask Claude chat (the Coach's "💬 Ask Claude", migration 0143_coach_ask.sql)
+
+Jerome: "the coach could actually be a really nice chat interface … a button that is just 'ask a
+question' … tapping on the words to open up the map … a recap of all the words that I had to tap …
+Claude's words — for me to be able to read them and have them checked … a nice little path to adding
+a flashcard."
+
+- **Entry**: the Coach page's 💬 Ask Claude card (web `pages/SentenceCoachPage.tsx`, Lab
+  `ui/coach/CoachScreens.kt`) → `/coach/chat/new` (immersive). Past chats are in the Coach's Recent
+  conversations with 💬 and open `/coach/chat/:id` (a `?c=` link to one redirects there).
+- **Data**: a coach conversation with `kind = 'ask'` (+ `action = 'ask'` for older apps; `kind` is the
+  generic column other Claude chats can join). `coach_messages.answer_lang` = the language of a reply
+  ('zh' plain Chinese / 'en' Markdown), written on the pending row from the turn's language — the
+  中文 | EN choice sent with the message, else the account's `ask_claude_language`, and "in English
+  please" for one turn (`turnLanguage`). `coach_messages.translation` = the English of a Chinese
+  message, made on request.
+- **Replies** go through the Coach's background path (`coach-reply-queue`, `runCoachReply`, claim,
+  ≤ 3 deliveries, stale sweep, Retry; the page polls every second while one is pending, every 2.5 s
+  after 15 s — `coachReplyPollMs`). The prompt and
+  the model call are ONE module, `worker/src/services/claude-chat.ts`, from a context object
+  (`ClaudeChatContext { kind: 'ask', language, userId, knownWords? }`): a chat turn
+  (`services/chat-turn.ts`: `SONNET_MODEL`, thinking off, no tools, prompt caching on the static rules +
+  the learner block + the conversation's tail; `server.claude_turn` surface `coach_ask`), the Ask Claude immersion rules without the card line (`GENERAL_IMMERSION_RULES` in
+  `ask-prompt.ts`) + a sample of his started words in Chinese mode; a Chinese answer is stored as
+  plain text (`plainAnswerText`). With 🎧 Listen first on, the reply's Read-aloud clip is made right
+  after it is written (`pregenerateAskClip`). Each reply logs `[coach] ask reply {model_ms, since_sent_ms}`;
+  the apps track `coach.ask_reply { ms, first }` (send → reply on screen).
+- **Endpoints**: `POST /api/coach/ask { message, language? }` → 202 `{ conversation, messages: [user, pending] }`;
+  follow-ups `POST /api/coach/conversations/:id/messages { message, language? }` (always background for an
+  Ask chat); `POST …/messages/:messageId/translate` → `{ translation, cached }`;
+  `POST …/flashcards/propose { words? }` → `{ cards }` (the chat's `propose_flashcards` tool + card
+  standard, the focus words first, `already_have`; nothing saved). All under `/api/coach/` = the cost
+  guard's `ai` group. E2E_TEST_MODE: `fakeCoachAskReply` (a Chinese answer about 成都 food),
+  `fakeCoachTranslate`, `fakeCoachPropose`.
+- **The screen** is context-agnostic pieces (web `components/claudeChat/`, Lab `ui/claudechat/`): the
+  thread — Signal bubbles, word chips by the device segmenter → the language explorer, under each of
+  Claude's Chinese messages ▶ (the Read-aloud clip in Claude's voice, `ASK_CLAUDE_VOICE`) · 拼 · EN ·
+  **🎤 Read it back** (the graded readers' read-aloud: `useReadAloud` / Lab `rememberReadAloud` with
+  their own voice surface and the `coach.ask_read_back` event; the message marked in place, one line,
+  "You said ▸"), 🎧 Listen first hidden bubbles (Ask Claude's revealed store), English answers in
+  Markdown — and the minimal voice-first composer. Header: ← · title · 🎧 · 中文 | EN · ⋯.
+- **Words to recap** (`shared/coach/askChat.ts` `AskRecapWord { hanzi, pinyin?, gloss?, sentence,
+  reasons: ('tapped' | 'said_wrong')[], reason_line? }`): every word tapped into the explorer and every
+  word a Read it back found a real mistake in (tone off / wrong / missed), merged by hanzi, newest 200,
+  kept ON THE DEVICE per thread (web localStorage `claude-chat-recap-v1:<thread>`, Lab JsonCache
+  `claude-chat/recap/<thread>`). ⋯ shows "📝 N words to recap" (disabled, "Coming soon" — the recap pass
+  will be the reader word recap's). ⋯ → **🃏 Make flashcards from this chat**: the chat's review sheet
+  with the recap words sent first and ticked (`askCardChecked`), one batch add.
+- Rules parity-tested (Lab core `CoachAsk.kt`, `parity/fixtures/coach-ask.ts`).

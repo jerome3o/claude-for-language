@@ -223,7 +223,7 @@ For each card give source: the #number of the chat line it comes from.
 
 ${CARD_STANDARD}`;
 
-function proposeTool(): { name: string; description: string; input_schema: Anthropic.Tool.InputSchema } {
+export function proposeFlashcardsTool(): { name: string; description: string; input_schema: Anthropic.Tool.InputSchema } {
   return {
     name: 'propose_flashcards',
     description: 'The flashcards proposed from this chat, most important first.',
@@ -300,7 +300,7 @@ export function normalizeProposedCards(raw: unknown, ids: string[]): Array<Omit<
 }
 
 /** The normalised hanzi of every note in the user's decks. */
-async function knownHanzi(db: D1Database, userId: string): Promise<Set<string>> {
+export async function knownHanziOf(db: D1Database, userId: string): Promise<Set<string>> {
   const rows = await db
     .prepare('SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?')
     .bind(userId)
@@ -356,7 +356,7 @@ export async function proposeChatFlashcards(
     model: PROPOSE_MODEL,
     system: req.focus === 'correction' ? CORRECTION_SYSTEM : SYSTEM,
     user: `The learner is ${context.learnerName}.\n\nChat (oldest first):\n${context.text}`,
-    tool: proposeTool(),
+    tool: proposeFlashcardsTool(),
     maxTokens: 6000,
     attempts: 2,
     timeoutMs: 60_000,
@@ -365,7 +365,7 @@ export async function proposeChatFlashcards(
     validate: (input) => normalizeProposedCards(input, context.ids),
   });
 
-  const known = await knownHanzi(env.DB, userId);
+  const known = await knownHanziOf(env.DB, userId);
   // Cards from corrected messages first (stable otherwise: Claude's order).
   const fromCorrection = (c: { source_message_id: string | null }) => (c.source_message_id && context.correctedIds.has(c.source_message_id) ? 0 : 1);
   const ordered = cards.map((c, i) => ({ c, i })).sort((a, b) => fromCorrection(a.c) - fromCorrection(b.c) || a.i - b.i).map(({ c }) => c);

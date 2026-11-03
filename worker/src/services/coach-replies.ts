@@ -34,6 +34,10 @@ import * as db from '../db/queries';
 import { conversationAction, mistakeLessonExerciseCount, parseMistakeLessonContent, MISTAKE_LESSON_CONTENT_TYPE, type CoachAction, type MistakeLessonContent } from '@shared/coach';
 import { writeMistakeLesson, type MistakeLessonInput } from './mistake-lesson';
 import type { AutoCheckResult } from '@shared/chats/autoCheck';
+import { COACH_ASK_ACTION } from '@shared/coach/askChat';
+import { coachAskTurns, defaultCoachAskReply, storedAskAnswer, type CoachAskReplyFn } from './claude-chat';
+import { askSettings, pregenerateAskClip, type AskClipMaker } from './ask-claude';
+import { cachedConversationTTS } from './tts-cache';
 
 export interface CoachReplyMessage {
   messageId: string;
@@ -70,6 +74,10 @@ export type CoachMistakeLessonFn = (input: MistakeLessonInput, userId: string) =
 
 export interface CoachReplyDeps {
   chat?: CoachChatFn | null;
+  /** "💬 Ask Claude" chats (action 'ask', services/coach-ask.ts). */
+  ask?: CoachAskReplyFn | null;
+  /** 🎧 Listen first: makes the answer's read-aloud clip ahead (null = don't). */
+  askClip?: AskClipMaker | null;
   analyse?: CoachAnalyseFn | null;
   apply?: CoachApplyFn;
   mistakeLesson?: CoachMistakeLessonFn;
@@ -350,12 +358,12 @@ function parseCheckpoint(raw: string | null | undefined): Checkpoint | null {
 export async function runCoachReply(env: CoachEnv, messageId: string, deps: CoachReplyDeps = {}): Promise<CoachReplyOutcome> {
   const row = await env.DB
     .prepare(
-      `SELECT m.*, c.user_id AS c_user_id, c.action AS c_action, c.input_language AS c_input_language
+      `SELECT m.*, c.user_id AS c_user_id, c.action AS c_action, c.kind AS c_kind, c.input_language AS c_input_language
          FROM coach_messages m JOIN coach_conversations c ON c.id = m.conversation_id
         WHERE m.id = ?`,
     )
     .bind(messageId)
-    .first<CoachMessage & { c_user_id: string; c_action: CoachConversation['action']; c_input_language: string; attempts: number; checkpoint: string | null }>();
+    .first<CoachMessage & { c_user_id: string; c_action: CoachConversation['action']; c_kind?: string | null; c_input_language: string; attempts: number; checkpoint: string | null; answer_lang?: string | null }>();
   if (!row || row.status !== 'pending' || row.role !== 'assistant') return 'skipped';
   const claimed = await env.DB
     .prepare(`UPDATE coach_messages SET attempts = attempts + 1, started_at = datetime('now') WHERE id = ? AND status = 'pending'`)
@@ -387,6 +395,31 @@ export async function runCoachReply(env: CoachEnv, messageId: string, deps: Coac
       if (!write) throw new StructuredCallError('The coach is not configured', false);
       const lesson = await write(input, userId);
       await finish(env.DB, messageId, JSON.stringify(lesson), null);
+      return 'done';
+    }
+
+    if ((row.c_kind === COACH_ASK_ACTION || row.c_action === COACH_ASK_ACTION) && row.content_type === 'text') {
+      // "💬 Ask Claude": one plain reply in the turn's language (set on this row by the route).
+      const ask = deps.ask === undefined ? defaultCoachAskReply(env) : deps.ask;
+      if (!ask) throw new StructuredCallError('The coach is not configured', false);
+      const turns = coachAskTurns(before);
+      if (turns.length === 0 || turns[turns.length - 1].role !== 'user') throw new StructuredCallError('Nothing to answer', false);
+      const language = row.answer_lang === 'en' ? 'en' : 'zh';
+      const t0 = Date.now();
+      const answer = storedAskAnswer(await ask(turns, { kind: 'ask', language, userId }), language);
+      await finish(env.DB, messageId, answer, null);
+      // How long a reply takes (Jerome: "the first message is slow"): the model call, and since it was sent.
+      const sent = Date.parse(`${(row.created_at || '').replace(' ', 'T')}${/Z$/.test(row.created_at || '') ? '' : 'Z'}`);
+      console.log('[coach] ask reply', messageId, JSON.stringify({ model_ms: Date.now() - t0, since_sent_ms: Number.isFinite(sent) ? Date.now() - sent : null, turns: turns.length, language }));
+      // 🎧 Listen first: the clip made now, so the hidden bubble plays the moment it lands.
+      const clip = deps.askClip === undefined ? (env.E2E_TEST_MODE === 'true' ? null : (e: Env, text: string, v: { voiceId: string; speed: number }) => cachedConversationTTS(e, text, v)) : deps.askClip;
+      if (clip && language === 'zh') {
+        try {
+          if ((await askSettings(env.DB, userId)).listening) await pregenerateAskClip(env as Env, { id: messageId, answer, answer_lang: language }, clip);
+        } catch (err) {
+          console.error('[coach] ask clip failed', messageId, err instanceof Error ? err.message : err);
+        }
+      }
       return 'done';
     }
 
