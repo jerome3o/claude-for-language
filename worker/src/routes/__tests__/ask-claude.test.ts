@@ -43,7 +43,7 @@ const { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE } = await import('@shared/study/askCl
 const ME = 'user-1';
 const OTHER = 'user-2';
 
-type Params = { system?: string; tool_choice?: { name: string }; tools?: Array<{ name: string }>; messages: Array<{ role: string; content: unknown }> };
+type Params = { system?: unknown; model?: string; thinking?: unknown; max_tokens?: number; output_config?: unknown; tool_choice?: { name: string }; tools?: Array<{ name: string }>; messages: Array<{ role: string; content: unknown }> };
 const toolReply = (input: unknown) => ({ stop_reason: 'tool_use', content: [{ type: 'tool_use', id: 't', name: 'x', input }], usage: { output_tokens: 10 } });
 const textReply = (text: string) => ({ stop_reason: 'end_turn', content: [{ type: 'text', text }], usage: { output_tokens: 10 } });
 
@@ -70,6 +70,10 @@ function installClaude() {
   });
 }
 const calls = () => ai.create.mock.calls.map(([p]) => p as Params);
+/** A message's text (string, or text blocks — the tail is sent as a cached block). */
+const msgText = (c: unknown) => (typeof c === 'string' ? c : (c as Array<{ text?: string }>).map((b) => b.text ?? '').join(''));
+/** The system prompt as text (Ask Claude sends cached blocks). */
+const sysText = (p: Params) => (Array.isArray(p.system) ? (p.system as Array<{ text: string }>).map((b) => b.text).join('\n\n') : String(p.system ?? ''));
 const askCalls = () => calls().filter((p) => !p.tool_choice);
 const checkCalls = () => calls().filter((p) => p.tool_choice?.name === 'check_message');
 
@@ -109,11 +113,11 @@ describe('Ask Claude (immersion)', () => {
   it('answers in Chinese by default: the immersion prompt with known words, Markdown taken out, stored as zh', async () => {
     const r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '这个词怎么用？', quick: true });
     expect(r.status).toBe(201);
-    const system = askCalls()[0].system ?? '';
+    const system = sysText(askCalls()[0]);
     expect(system).toContain('answer ENTIRELY in simple Chinese');
     expect(system).toMatch(/银行|学生/);
     // The card's state reaches Claude (the context query used a cards.deck_id that doesn't exist).
-    expect(String(askCalls()[0].messages[0].content)).toContain('- Card status: hanzi_to_meaning: review');
+    expect(msgText(askCalls()[0].messages[0].content)).toContain('- Card status: hanzi_to_meaning: review');
     expect(r.body.answer_lang).toBe('zh');
     expect(r.body.answer).toBe('银行就是放钱的地方。\n\n・银：钱\n・行：店\n\n例句：我去银行。');
     expect(r.body.answer_words).toBeNull();
@@ -128,7 +132,7 @@ describe('Ask Claude (immersion)', () => {
     let r = await as(ME)('POST', '/api/notes/n-1/ask', { question: 'What does it mean?', quick: true });
     expect(r.body.answer_lang).toBe('en');
     expect(r.body.answer).toBe('**Bank**: a place for money.');
-    expect(askCalls()[0].system).not.toContain('ENTIRELY in simple Chinese');
+    expect(sysText(askCalls()[0])).not.toContain('ENTIRELY in simple Chinese');
 
     // The sheet's own choice wins over the account's.
     r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', language: 'zh', quick: true });
@@ -159,6 +163,40 @@ describe('Ask Claude (immersion)', () => {
     const r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '银行是什么意？' });
     expect(checkCalls()).toHaveLength(0);
     expect(r.body.question_check).toBeNull();
+  });
+
+  it('a fast chat reply: SONNET_MODEL, thinking off, no effort, cache breakpoints on the tools, the system blocks and the tail', async () => {
+    const { SONNET_MODEL } = await import('../../services/models');
+    await as(ME)('POST', '/api/notes/n-1/ask', { question: '这个词怎么用？', quick: true });
+    const p = askCalls()[0] as unknown as Omit<Params, 'tools' | 'system'> & { tools: Array<{ name: string; cache_control?: unknown }>; system: Array<{ text: string; cache_control?: unknown }> };
+    expect(p.model).toBe(SONNET_MODEL);
+    expect(p.thinking).toEqual({ type: 'disabled' });
+    expect(p.output_config).toBeUndefined();
+    expect(p.max_tokens).toBeGreaterThanOrEqual(8000);
+    // Tools: only the last carries the breakpoint (it caches every definition).
+    expect(p.tools.at(-1)!.cache_control).toEqual({ type: 'ephemeral' });
+    expect(p.tools.slice(0, -1).every((t) => !t.cache_control)).toBe(true);
+    // System: the static rules first, then the learner's known words — both cached.
+    expect(p.system).toHaveLength(2);
+    expect(p.system[0].text).toContain('answer ENTIRELY in simple Chinese');
+    expect(p.system[0].text).not.toContain('Words the learner already knows');
+    expect(p.system[1].text).toContain('Words the learner already knows');
+    expect(p.system.every((b) => (b.cache_control as { type: string }).type === 'ephemeral')).toBe(true);
+    // The tail of the conversation (the question) carries the fourth breakpoint.
+    const last = p.messages.at(-1)!.content as Array<{ type: string; text: string; cache_control?: unknown }>;
+    expect(last.at(-1)!.cache_control).toEqual({ type: 'ephemeral' });
+    expect(last.at(-1)!.text).toContain('这个词怎么用？');
+  });
+
+  it('the cached prefix is the same for every card and every ask of the day (tools + system identical)', async () => {
+    await as(ME)('POST', '/api/notes/n-1/ask', { question: '这个词怎么用？', quick: true });
+    await as(ME)('POST', '/api/notes/n-2/ask', { question: '这个呢？', quick: true });
+    const [a, b] = askCalls();
+    expect(JSON.stringify(b.tools)).toBe(JSON.stringify(a.tools));
+    expect(JSON.stringify(b.system)).toBe(JSON.stringify(a.system));
+    // The card's own facts are in the first user message, never in the tools.
+    expect(JSON.stringify(a.tools)).not.toContain('银行');
+    expect(msgText(b.messages[0].content)).toContain('- Chinese: 学生');
   });
 
   it('tools still work in Chinese mode: an edit of the card is applied', async () => {
@@ -219,9 +257,12 @@ describe('Ask Claude (immersion)', () => {
       expect(tts.make).not.toHaveBeenCalled();
     });
 
-    it("pre-generates a Chinese answer's clip in Claude's voice before answering (the request's choice or the account's)", async () => {
+    it("makes a Chinese answer's clip in Claude's voice in the background, never waiting for it (the request's choice or the account's)", async () => {
+      // A clip that never finishes doesn't hold the answer back.
+      tts.make.mockReturnValueOnce(new Promise(() => {}));
       let r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true, listening: true });
-      expect(r.body.answer_clip_ready).toBe(true);
+      expect(r.status).toBe(201);
+      expect(r.body.answer_clip_ready).toBe(false);
       expect(tts.make).toHaveBeenCalledTimes(1);
       const [, text, opts] = tts.make.mock.calls[0];
       // Exactly the text the bubble plays (POST /api/practice/tts with the same voice + speed finds it in R2).
@@ -230,7 +271,7 @@ describe('Ask Claude (immersion)', () => {
 
       await as(ME)('PUT', '/api/profile/ask-claude-listening', { ask_claude_listening: true });
       r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true });
-      expect(r.body.answer_clip_ready).toBe(true);
+      expect(r.body.answer_clip_ready).toBe(false);
       expect(tts.make).toHaveBeenCalledTimes(2);
       // The sheet switched it off for this ask: no clip.
       r = await as(ME)('POST', '/api/notes/n-1/ask', { question: '什么意思？', quick: true, listening: false });

@@ -24,6 +24,17 @@ class CoachParityTest {
     private val JsonElement.str: String? get() = if (this is JsonNull) null else jsonPrimitive.content
 
     @Test
+    fun replyPollMatchesTypeScript() {
+        val cases = fixture()["replyPoll"]!!.jsonArray
+        assertTrue(cases.size >= 5)
+        for (c in cases) {
+            val o = c.jsonObject
+            val pendingFor = o["pendingForMs"]!!.jsonPrimitive.content.toDouble().toLong()
+            assertEquals(o["ms"]!!.jsonPrimitive.content.toDouble().toLong(), CoachActions.replyPollMs(pendingFor), "poll after $pendingFor ms")
+        }
+    }
+
+    @Test
     fun buttonsMatchTypeScript() {
         val cases = fixture()["buttons"]!!.jsonArray
         assertTrue(cases.size >= 20)

@@ -741,7 +741,8 @@ voice transcripts get the mark and the sheet ("You wrote" = the caption / transc
   a readable `error`. `POST …/messages/:id/retry` re-queues it (checkpoint kept). A reply pending > 10 minutes (a lost
   delivery) is swept to failed when the conversation / list is read. Without the queue binding it runs in `waitUntil`.
 - Clients: a pending first answer shows the loading card ("You can leave — the answer will be here when you come back"), a
-  pending follow-up "Thinking…"; the conversation polls every 2.5 s while anything is pending; failed → the reason +
+  pending follow-up "Thinking…"; the conversation polls every second while anything is pending, every 2.5 s once it
+  has been pending 15 s (`coachReplyPollMs`, `shared/coach/poll.ts`; Lab `CoachActions.replyPollMs`); failed → the reason +
   Retry; the list shows "Thinking…" (`pending_reply`) / "⚠ Reply failed — open to retry" (`failed_reply`) and polls while
   any is thinking. Sending is disabled while a reply is pending (409 server-side). Offline: the send fails with "You're
   offline — the coach needs a connection" and the typed text is kept (not queued). Analytics `coach.reply_resumed` (opened

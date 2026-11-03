@@ -5,9 +5,10 @@ import { validateLessonSpec } from '@shared/lesson';
 import { CARD_STANDARD, CARD_STANDARD_SHORT } from '@shared/cards';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { addBumps, MAX_BUMPS_PER_REQUEST } from './study-bumps';
-import { buildAskSystemPrompt, ASK_KNOWN_WORDS_MAX } from './ask-prompt';
+import { buildAskSystemBlocks, ASK_KNOWN_WORDS_MAX } from './ask-prompt';
 import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
 import { OPUS_MODEL, withEffort } from './models';
+import { cachedSystem, cachedTools, chatTurnParams, ChatTurnMeter, CHAT_TOOL_RULE } from './chat-turn';
 
 const SYSTEM_PROMPT = `You are a Chinese language learning expert. Generate vocabulary cards for Mandarin Chinese learners.
 
@@ -260,11 +261,16 @@ const READ_ONLY_TOOLS = new Set([
   'bump_cards',
 ]);
 
-function getAskNoteTools(note: Note) {
+/**
+ * Ask Claude's tools. The SAME definitions for every card — they are the start of the cached
+ * prompt prefix (services/chat-turn.ts), so nothing card-specific goes in them: the current
+ * card's fields are in the first user message ("The user is studying this vocabulary").
+ */
+function getAskNoteTools() {
   return [
     {
       name: 'edit_current_card',
-      description: `Edit the current flashcard's note. The current card has: hanzi="${note.hanzi}", pinyin="${note.pinyin}", english="${note.english}", fun_facts="${note.fun_facts || ''}", sentence_clue="${note.sentence_clue || ''}", sentence_clue_pinyin="${note.sentence_clue_pinyin || ''}", sentence_clue_translation="${note.sentence_clue_translation || ''}". Only provide the fields you want to change.`,
+      description: `Edit the current flashcard's note — the card described at the start of the conversation ("The user is studying this vocabulary": Chinese = hanzi, Pinyin, English, Notes = fun_facts, Sentence clue = sentence_clue with its pinyin and translation). Only provide the fields you want to change.`,
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -299,7 +305,7 @@ function getAskNoteTools(note: Note) {
     },
     {
       name: 'delete_current_card',
-      description: `Delete the current flashcard's note (hanzi="${note.hanzi}"). Use this only when the user explicitly says the card is a duplicate or should be removed.`,
+      description: `Delete the current flashcard's note (the card described at the start of the conversation). Use this only when the user explicitly says the card is a duplicate or should be removed.`,
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -468,21 +474,39 @@ export interface AskOptions {
   client?: Pick<Anthropic, 'messages'>;
 }
 
+/** A day's seed for one learner (FNV-1a of user id + UTC date, below KNOWN_WORDS_MOD). */
+export function knownWordsSeed(userId: string, day: string): number {
+  let h = 0x811c9dc5;
+  for (const ch of `${userId}|${day}`) {
+    h ^= ch.codePointAt(0)!;
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % KNOWN_WORDS_MOD;
+}
+
+const KNOWN_WORDS_MOD = 1_000_003;
+
 /**
  * A sample of the words the learner has started (hanzi of notes with a reviewed card, 1–4
- * characters) — the Chinese answer leans on them. Empty on any failure.
+ * characters) — the Chinese answer leans on them. DETERMINISTIC per user and UTC day (the
+ * notes ordered by a seeded mix of their rowid), so the system block holding it is the same
+ * for every ask of the day and stays in the prompt cache; a new day brings a new sample.
  */
+export function knownWordsStatement(db: D1Database, userId: string, day = new Date().toISOString().slice(0, 10), limit = ASK_KNOWN_WORDS_MAX): D1PreparedStatement {
+  return db
+    .prepare(
+      `SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id
+        WHERE d.user_id = ? AND length(n.hanzi) BETWEEN 1 AND 4
+          AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND c.queue != 0)
+        ORDER BY (n.rowid * 2654435761 + ?) % ${KNOWN_WORDS_MOD}, n.id LIMIT ?`,
+    )
+    .bind(userId, knownWordsSeed(userId, day), limit);
+}
+
+/** The known-words sample on its own (see `knownWordsStatement`). Empty on any failure. */
 export async function sampleKnownWords(db: D1Database, userId: string, limit = ASK_KNOWN_WORDS_MAX): Promise<string[]> {
   try {
-    const rows = await db
-      .prepare(
-        `SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id
-          WHERE d.user_id = ? AND length(n.hanzi) BETWEEN 1 AND 4
-            AND EXISTS (SELECT 1 FROM cards c WHERE c.note_id = n.id AND c.queue != 0)
-          ORDER BY random() LIMIT ?`,
-      )
-      .bind(userId, limit)
-      .all<{ hanzi: string }>();
+    const rows = await knownWordsStatement(db, userId, undefined, limit).all<{ hanzi: string }>();
     return (rows.results ?? []).map((r) => r.hanzi).filter(Boolean);
   } catch (err) {
     console.error('[ask] known words sample failed:', err instanceof Error ? err.message : err);
@@ -490,8 +514,81 @@ export async function sampleKnownWords(db: D1Database, userId: string, limit = A
   }
 }
 
+/** What Ask Claude reads from D1 before the call — ONE `db.batch` (one round trip). */
+export interface AskNoteContext {
+  /** Lines for the card's context ("- Deck: …"). */
+  lines: string[];
+  knownWords: string[];
+}
+
+export async function loadAskNoteContext(dbContext: AskDbContext, note: Note, language: AskLanguage): Promise<AskNoteContext> {
+  const { db, userId, deckId } = dbContext;
+  const lines: string[] = [];
+  const statements: D1PreparedStatement[] = [
+    db.prepare(`SELECT id, name, description FROM decks WHERE user_id = ? ORDER BY name`).bind(userId),
+    db.prepare('SELECT bio FROM users WHERE id = ?').bind(userId),
+    db.prepare(`SELECT card_type, queue, ease_factor, interval, repetitions, stability FROM cards WHERE note_id = ?`).bind(note.id),
+    db.prepare(`
+      SELECT re.rating, re.reviewed_at, c.card_type
+      FROM review_events re
+      JOIN cards c ON re.card_id = c.id
+      WHERE c.note_id = ?
+      ORDER BY re.reviewed_at DESC
+      LIMIT 5
+    `).bind(note.id),
+  ];
+  if (language === 'zh') statements.push(knownWordsStatement(db, userId));
+  let results: D1Result<Record<string, unknown>>[];
+  try {
+    results = await db.batch<Record<string, unknown>>(statements);
+  } catch (err) {
+    console.error('[askAboutNoteWithTools] Failed to fetch enhanced context:', err);
+    return { lines, knownWords: [] };
+  }
+  const rowsOf = <T>(i: number) => ((results[i]?.results ?? []) as unknown) as T[];
+
+  const decks = rowsOf<{ id: string; name: string; description: string | null }>(0);
+  const deck = decks.find((d) => d.id === deckId);
+  if (deck) lines.push(`- Deck: ${deck.name}${deck.description ? ` — ${deck.description}` : ''}`);
+  // Every deck, so Claude knows where cross-deck cards can go.
+  if (decks.length > 1) {
+    lines.push(`- User's decks: ${decks.map((d) => (d.id === deckId ? `${d.name} (id: ${d.id}) [current]` : `${d.name} (id: ${d.id})`)).join(', ')}`);
+  }
+
+  const bio = rowsOf<{ bio: string | null }>(1)[0]?.bio;
+  if (bio) lines.push(`- Learner bio: ${bio}`);
+
+  // Card mastery (every card type of this note).
+  const cards = rowsOf<{ card_type: string; queue: number; ease_factor: number; interval: number; repetitions: number; stability: number | null }>(2);
+  if (cards.length > 0) {
+    const queueNames: Record<number, string> = { 0: 'new', 1: 'learning', 2: 'review', 3: 'relearning' };
+    const cardSummaries = cards.map((c) => {
+      const parts = [`${c.card_type}: ${queueNames[c.queue] || 'unknown'}`];
+      if (c.queue === 2) { // REVIEW
+        parts.push(`interval ${c.interval}d`);
+        if (c.stability) parts.push(`stability ${Math.round(c.stability)}d`);
+      }
+      if (c.repetitions > 0) parts.push(`${c.repetitions} reps`);
+      return parts.join(', ');
+    });
+    lines.push(`- Card status: ${cardSummaries.join(' | ')}`);
+  }
+
+  // The last 5 reviews.
+  const reviews = rowsOf<{ rating: number; reviewed_at: string; card_type: string }>(3);
+  if (reviews.length > 0) {
+    const ratingNames: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
+    lines.push(`- Recent reviews: ${reviews.map((r) => `${ratingNames[r.rating] || r.rating} on ${r.card_type} (${getTimeAgo(r.reviewed_at)})`).join(', ')}`);
+  }
+
+  const knownWords = language === 'zh' ? rowsOf<{ hanzi: string }>(4).map((r) => r.hanzi).filter(Boolean) : [];
+  return { lines, knownWords };
+}
+
 /**
- * Answer a question about a vocabulary note with tool use (agent loop)
+ * Answer a question about a vocabulary note with tool use (agent loop). A chat reply
+ * (services/chat-turn.ts): `SONNET_MODEL` with thinking off, prompt caching on tools + the
+ * static rules + the learner's block; the card's facts ride in the first user message.
  */
 export async function askAboutNoteWithTools(
   apiKey: string,
@@ -503,7 +600,7 @@ export async function askAboutNoteWithTools(
   opts: AskOptions = {}
 ): Promise<AskWithToolsResponse> {
   const client = opts.client ?? new Anthropic({ apiKey });
-  const tools = getAskNoteTools(note);
+  const tools = cachedTools(getAskNoteTools() as Anthropic.Tool[]);
   const language: AskLanguage = opts.language ?? 'en';
   let knownWords: string[] = [];
 
@@ -527,88 +624,13 @@ export async function askAboutNoteWithTools(
     vocabContextParts.push(clueStr);
   }
 
-  // Add enhanced context from DB if available
+  // Enhanced context from D1, in one round trip.
   if (dbContext) {
-    try {
-      // Fetch deck info
-      const deck = await dbContext.db.prepare(
-        `SELECT name, description FROM decks WHERE id = ? AND user_id = ?`
-      ).bind(dbContext.deckId, dbContext.userId).first<{ name: string; description: string | null }>();
-
-      if (deck) {
-        vocabContextParts.push(`- Deck: ${deck.name}${deck.description ? ` — ${deck.description}` : ''}`);
-      }
-
-      // Fetch all user decks so Claude knows what's available for cross-deck card creation
-      const allDecks = await dbContext.db.prepare(
-        `SELECT id, name FROM decks WHERE user_id = ? ORDER BY name`
-      ).bind(dbContext.userId).all<{ id: string; name: string }>();
-
-      if (allDecks.results && allDecks.results.length > 1) {
-        const deckList = allDecks.results.map(d =>
-          d.id === dbContext.deckId ? `${d.name} (id: ${d.id}) [current]` : `${d.name} (id: ${d.id})`
-        ).join(', ');
-        vocabContextParts.push(`- User's decks: ${deckList}`);
-      }
-
-      // Fetch user bio for personalized responses
-      const userRow = await dbContext.db.prepare(
-        'SELECT bio FROM users WHERE id = ?'
-      ).bind(dbContext.userId).first<{ bio: string | null }>();
-      if (userRow?.bio) {
-        vocabContextParts.push(`- Learner bio: ${userRow.bio}`);
-      }
-
-      // Fetch card mastery info (aggregate across all card types for this note)
-      const cards = await dbContext.db.prepare(`
-        SELECT card_type, queue, ease_factor, interval, repetitions, stability
-        FROM cards WHERE note_id = ?
-      `).bind(note.id).all<{
-        card_type: string; queue: number; ease_factor: number;
-        interval: number; repetitions: number; stability: number | null;
-      }>();
-
-      if (cards.results && cards.results.length > 0) {
-        const queueNames: Record<number, string> = { 0: 'new', 1: 'learning', 2: 'review', 3: 'relearning' };
-        const cardSummaries = cards.results.map(c => {
-          const q = queueNames[c.queue] || 'unknown';
-          const parts = [`${c.card_type}: ${q}`];
-          if (c.queue === 2) { // REVIEW
-            parts.push(`interval ${c.interval}d`);
-            if (c.stability) parts.push(`stability ${Math.round(c.stability)}d`);
-          }
-          if (c.repetitions > 0) parts.push(`${c.repetitions} reps`);
-          return parts.join(', ');
-        });
-        vocabContextParts.push(`- Card status: ${cardSummaries.join(' | ')}`);
-      }
-
-      // Fetch recent review events (last 5)
-      const reviews = await dbContext.db.prepare(`
-        SELECT re.rating, re.reviewed_at, c.card_type
-        FROM review_events re
-        JOIN cards c ON re.card_id = c.id
-        WHERE c.note_id = ?
-        ORDER BY re.reviewed_at DESC
-        LIMIT 5
-      `).bind(note.id).all<{
-        rating: number; reviewed_at: string; card_type: string;
-      }>();
-
-      if (reviews.results && reviews.results.length > 0) {
-        const ratingNames: Record<number, string> = { 0: 'Again', 1: 'Hard', 2: 'Good', 3: 'Easy' };
-        const reviewSummary = reviews.results.map(r => {
-          const ago = getTimeAgo(r.reviewed_at);
-          return `${ratingNames[r.rating] || r.rating} on ${r.card_type} (${ago})`;
-        }).join(', ');
-        vocabContextParts.push(`- Recent reviews: ${reviewSummary}`);
-      }
-    } catch (err) {
-      console.error('[askAboutNoteWithTools] Failed to fetch enhanced context:', err);
-    }
-    if (language === 'zh') knownWords = await sampleKnownWords(dbContext.db, dbContext.userId);
+    const loaded = await loadAskNoteContext(dbContext, note, language);
+    vocabContextParts.push(...loaded.lines);
+    knownWords = loaded.knownWords;
   }
-  const system = buildAskSystemPrompt({ language, knownWords });
+  const system = cachedSystem(...buildAskSystemBlocks({ language, knownWords }));
 
   if (askContext?.userAnswer) {
     vocabContextParts.push('');
@@ -660,17 +682,12 @@ export async function askAboutNoteWithTools(
   const textParts: string[] = [];
   const MAX_ITERATIONS = 5;
 
+  const meter = new ChatTurnMeter('ask', dbContext?.userId);
+
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create(withEffort({
-      model: OPUS_MODEL,
-      // A full custom-lesson spec (sections of exercises with tiles, options
-      // and pinyin) is far bigger than a chat answer — the cap must fit it,
-      // plus the model's thinking (always on, counted in max_tokens).
-      max_tokens: 12000,
-      messages,
-      system,
-      tools: tools as Anthropic.Tool[],
-    }, 'low'));
+    // max_tokens (CHAT_TURN_MAX_TOKENS) fits a full custom-lesson spec — thinking is off.
+    const response = await client.messages.create(chatTurnParams({ system, tools, messages }));
+    meter.add(response);
 
     // Process response content
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -729,6 +746,7 @@ export async function askAboutNoteWithTools(
     messages.push({ role: 'user', content: toolResults });
   }
 
+  meter.finish();
   const text = textParts.join('\n');
   return {
     answer: language === 'zh' ? plainAnswerText(text) : text,
@@ -1061,10 +1079,12 @@ export interface CoachChatTurn {
 export async function coachChatWithTools(
   apiKey: string,
   history: CoachChatTurn[],
-  dbContext: { db: D1Database; userId: string }
+  dbContext: { db: D1Database; userId: string },
+  opts: { client?: Pick<Anthropic, 'messages'> } = {}
 ): Promise<AskWithToolsResponse> {
-  const client = new Anthropic({ apiKey });
-  const tools = getCoachChatTools();
+  const client = opts.client ?? new Anthropic({ apiKey });
+  const tools = cachedTools(getCoachChatTools() as Anthropic.Tool[]);
+  const system = cachedSystem(`${COACH_CHAT_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}`);
   const ctx: AskDbContext = { db: dbContext.db, userId: dbContext.userId, deckId: '', bumpSource: 'coach_chat' };
 
   const messages: Anthropic.MessageParam[] = history.map(t => ({
@@ -1077,16 +1097,12 @@ export async function coachChatWithTools(
   const textParts: string[] = [];
   const MAX_ITERATIONS = 5;
 
+  const meter = new ChatTurnMeter('coach', dbContext.userId);
+
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create(withEffort({
-      model: OPUS_MODEL,
-      // Big enough for a full custom-lesson spec, not just chat answers, plus the
-      // model's thinking (always on, counted in max_tokens). Written in the background.
-      max_tokens: 16000,
-      messages,
-      system: COACH_CHAT_SYSTEM_PROMPT,
-      tools: tools as Anthropic.Tool[],
-    }, 'medium'));
+    // A chat reply (services/chat-turn.ts); max_tokens fits a full custom-lesson spec.
+    const response = await client.messages.create(chatTurnParams({ system, tools, messages }));
+    meter.add(response);
 
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
 
@@ -1140,6 +1156,7 @@ export async function coachChatWithTools(
     messages.push({ role: 'user', content: toolResults });
   }
 
+  meter.finish();
   return {
     answer: textParts.join('\n'),
     toolActions: collectedToolActions,
@@ -1496,11 +1513,13 @@ export async function discussMessage(
   question: string,
   chatContext: string,
   conversationHistory?: DiscussMessageHistory[],
-  dbContext?: DiscussDbContext
+  dbContext?: DiscussDbContext,
+  opts: { client?: Pick<Anthropic, 'messages'> } = {}
 ): Promise<DiscussMessageResponse> {
-  const client = new Anthropic({ apiKey });
+  const client = opts.client ?? new Anthropic({ apiKey });
 
-  const tools = [CREATE_FLASHCARDS_TOOL, DISCUSS_SEARCH_CARDS_TOOL, DISCUSS_LIST_DECKS_TOOL, BUMP_CARDS_TOOL];
+  const tools = cachedTools([CREATE_FLASHCARDS_TOOL, DISCUSS_SEARCH_CARDS_TOOL, DISCUSS_LIST_DECKS_TOOL, BUMP_CARDS_TOOL] as Anthropic.Tool[]);
+  const system = cachedSystem(`${DISCUSS_MESSAGE_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}`);
 
   const contextPreamble = `The user is looking at this message from a conversation:\n\n"${messageContent}"\n\nConversation context:\n${chatContext}\n\n`;
 
@@ -1539,15 +1558,12 @@ export async function discussMessage(
   const textParts: string[] = [];
   const MAX_ITERATIONS = 5;
 
+  const meter = new ChatTurnMeter('discuss', dbContext?.userId);
+
   for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await client.messages.create(withEffort({
-      model: OPUS_MODEL,
-      // A chat answer (or a few flashcards) + the thinking (always on, counted in max_tokens).
-      max_tokens: 8000,
-      messages,
-      system: DISCUSS_MESSAGE_SYSTEM_PROMPT,
-      tools: tools as Anthropic.Tool[],
-    }, 'low'));
+    // A chat reply (services/chat-turn.ts): an answer or a few flashcards.
+    const response = await client.messages.create(chatTurnParams({ system, tools, messages, maxTokens: 8000 }));
+    meter.add(response);
 
     // Process response content
     const toolUseBlocks: Anthropic.ToolUseBlock[] = [];
@@ -1597,6 +1613,7 @@ export async function discussMessage(
     messages.push({ role: 'user', content: toolResults });
   }
 
+  meter.finish();
   return {
     response: textParts.join('\n'),
     flashcards,

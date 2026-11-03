@@ -1593,6 +1593,17 @@ worker `routes/ask-claude.ts`, `services/ask-claude.ts`, `services/ask-prompt.ts
 `shared/study/askClaude.ts` + `askClaudeMenu` in `shared/chats/messageMenu.ts` (Lab core `AskClaude.kt`,
 parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
 
+- **Speed.** The reply is a chat turn (`worker/src/services/chat-turn.ts`, shared with the Coach's follow-ups
+  and Discuss with Claude): the Sonnet (`SONNET_MODEL` in `services/models.ts`) with thinking **off**, so the
+  first words come fast and `max_tokens` is all answer; **prompt caching** in a fixed order — the tool
+  definitions (the same for every card: the card's own fields ride in the first user message), then the static
+  rules (role, language rules, tool rules, `CARD_STANDARD`), then the learner's known-words block (the sample is
+  deterministic per user and UTC day, `knownWordsStatement`), then the conversation's tail. Everything the
+  prompt needs from D1 (decks, bio, the card's states, the last 5 reviews, the known words) is read in ONE
+  `db.batch` (`loadAskNoteContext`). The answer never waits for the 🎧 clip and waits at most `CHECK_GRACE_MS`
+  (0.8 s) for the question's check. Every reply records `server.claude_turn { surface: ask, model_tier,
+  total_ms, input_tokens, cache_read_tokens, cache_write_tokens, rounds }`.
+
 - **Language.** "Ask Claude answers in: 中文 (default) / English" — Settings, and the 中文 | EN switch in the
   sheet header (`users.ask_claude_language`, NULL = Chinese; `PUT /api/profile/ask-claude-language`; on
   `/api/auth/me`, cached with the user / Lab prefs; every ask also sends the language on screen). In 中文 the
@@ -1616,7 +1627,7 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
   text). An English Markdown answer has Copy only. No reactions, reply, pin, edit or delete.
 - **My own Chinese is checked** like a chat message: the question goes through the chat's auto-check
   (`checkAskQuestion` = `defaultAutoChecker` + `normalizeAutoCheck`, the `chat_auto_check` switch, the same skip
-  rules) in parallel with the answer; done within 2.5 s of the answer it comes back with it, else it is stored
+  rules) in parallel with the answer; done within 0.8 s of the answer it comes back with it, else it is stored
   in the background (`question_check_pending` → the app reads `GET /api/note-questions/:id` again). An
   improvable question gets the ✎ mark, "✨ How to say it better" first in its menu (the chat's sheet; "Ask
   Claude about this" fills the box with 为什么「…」更好？) and the **🎓 Open in Coach** chip under it.
@@ -1643,10 +1654,11 @@ parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
     `tts-cache/` by text + voice + speed), device cache by the same triple. Claude's voice is fixed: `ASK_CLAUDE_VOICE`
     = the app voice (Radio Host, the one every card speaks in) at `ASK_CLAUDE_SPEED` = 0.6 (`CHAT_READ_ALOUD_SPEED`);
     Read aloud on Claude's answer uses it too. One clip per answer: the path has no length limit below MiniMax's
-    10,000 characters and answers are a few hundred, so nothing is split. **Pre-generated**: with listening on, the
-    ask route makes the clip (`pregenerateAskClip`, interactive priority) alongside the question's check, waiting at
-    most `ASK_CLIP_GRACE_MS` (8 s — the bubble is hidden anyway) before answering (`answer_clip_ready`), else it
-    finishes in waitUntil — so the auto-play and a tap are instant.
+    10,000 characters and answers are a few hundred, so nothing is split. **Pre-generated in the background**: with
+    listening on, the ask route starts the clip (`pregenerateAskClip`, interactive priority) in waitUntil and answers
+    at once (`answer_clip_ready: false` — the answer never waits for it; until Nov 2026 it waited up to 8 s). The
+    hidden bubble's auto-play / a tap asks `/api/practice/tts` for the same text + voice + speed, which finds the clip
+    in R2 once it exists or makes it.
   - **Offline**: a cached clip plays; otherwise the line under the bubble says listening needs a connection the first
     time, and a long press still reveals the text.
   - Analytics: `study.ask_claude_listening { on, source: sheet | settings }`, `study.ask_claude_listen_play { auto, slow }`,

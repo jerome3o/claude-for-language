@@ -25,6 +25,14 @@ data class CoachSentenceCard(val hanzi: String, val pinyin: String, val english:
 data class CoachBreakdownWord(val hanzi: String, val pinyin: String, val gloss: String)
 
 object CoachActions {
+    /** Port of shared/coach/poll.ts: look again every second while a reply is pending, then every 2.5 s after 15 s. */
+    const val POLL_FAST_MS = 1000L
+    const val POLL_SLOW_MS = 2500L
+    const val POLL_FAST_FOR_MS = 15_000L
+
+    /** Port of coachReplyPollMs: [pendingForMs] = how long this screen has seen the reply pending. */
+    fun replyPollMs(pendingForMs: Long): Long = if (pendingForMs < POLL_FAST_FOR_MS) POLL_FAST_MS else POLL_SLOW_MS
+
     /** Port of hasHan: CJK Unified Ideographs, Extension A, compatibility ideographs (UTF-16 units, like the JS regex). */
     fun hasHan(text: String): Boolean = text.any { c -> c in '㐀'..'䶿' || c in '一'..'鿿' || c in '豈'..'﫿' }
 

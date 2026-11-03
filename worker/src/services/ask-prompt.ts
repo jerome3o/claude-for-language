@@ -11,6 +11,7 @@
 
 import { CARD_STANDARD } from '@shared/cards/standard';
 import type { AskLanguage } from '@shared/study/askClaude';
+import { CHAT_TOOL_RULE } from './chat-turn';
 
 const ROLE = `You are a helpful Chinese language tutor. The user is studying a Chinese vocabulary word and has a question about it.
 
@@ -29,7 +30,7 @@ Keep your responses focused and helpful for language learning. Use examples with
 /** The immersion rules: the whole answer in simple Chinese. */
 const CHINESE = `LANGUAGE — this is an immersion conversation: answer ENTIRELY in simple Chinese (简体中文).
 - Grade it for an intermediate learner, about HSK 3–4: everyday words, short sentences (aim for 15 characters or fewer each), one idea per sentence.
-- Prefer words the learner already knows (listed below when available). When a harder word is unavoidable, use at most one or two and explain each with easier words right after it, e.g. 「交通（就是车、路、地铁这些）」.
+- Prefer words the learner already knows (listed at the end when available). When a harder word is unavoidable, use at most one or two and explain each with easier words right after it, e.g. 「交通（就是车、路、地铁这些）」.
 - No pinyin and no English in the answer — the app shows pinyin over every word, a tap explains any word and a long press translates the whole answer. The only exceptions: the learner explicitly asks for English, or one English word in brackets to pin down a meaning simple Chinese cannot (at most once).
 - Plain text only: no Markdown (no **bold**, no # headings, no tables, no code). Short lines; a line may start with 1. 2. 3. for a list. Quote Chinese words or sentences with 「」.
 - About the card's word, cover: what it means (in simple Chinese), each character, how and when people use it, then one or two short example sentences on their own lines.
@@ -50,7 +51,8 @@ Tool usage guidelines:
 - Use list_conversations to find past discussions about cards
 - Use get_deck_info to understand the deck context
 
-When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.`;
+When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
+${CHAT_TOOL_RULE}`;
 
 const EN_CONFIRM = 'After using a tool, briefly confirm what you did in your text response.';
 
@@ -75,17 +77,26 @@ export function knownWordsBlock(words: string[] | undefined): string {
   return `Words the learner already knows (a sample — build your Chinese from these and other everyday words):\n${[...seen].join('、')}`;
 }
 
-/** The whole system prompt for one Ask Claude turn. */
-export function buildAskSystemPrompt(opts: AskPromptOptions): string {
+/**
+ * The system prompt as two blocks, for prompt caching (services/chat-turn.ts): first the
+ * STATIC rules — role, language rules, tool rules, the card standard — identical for everyone
+ * in that language; then the per-learner block (the known-words sample, '' in English or when
+ * there are none), which changes at most once a day (`sampleKnownWords` is deterministic per
+ * user and day). Per-card facts never go here: they ride in the first user message.
+ */
+export function buildAskSystemBlocks(opts: AskPromptOptions): [staticRules: string, learner: string] {
   const parts = [ROLE];
   if (opts.language === 'zh') {
-    parts.push(CHINESE);
-    const known = knownWordsBlock(opts.knownWords);
-    if (known) parts.push(known);
-    parts.push(TOOLS);
+    parts.push(CHINESE, TOOLS);
   } else {
     parts.push(ENGLISH, TOOLS, EN_CONFIRM);
   }
   parts.push(`Whenever you write or edit a flashcard (any tool or JSON with hanzi / pinyin / english / fun_facts), follow this:\n${CARD_STANDARD}`);
-  return parts.join('\n\n');
+  const learner = opts.language === 'zh' ? knownWordsBlock(opts.knownWords) : '';
+  return [parts.join('\n\n'), learner];
+}
+
+/** The whole system prompt for one Ask Claude turn (the two blocks joined). */
+export function buildAskSystemPrompt(opts: AskPromptOptions): string {
+  return buildAskSystemBlocks(opts).filter(Boolean).join('\n\n');
 }
