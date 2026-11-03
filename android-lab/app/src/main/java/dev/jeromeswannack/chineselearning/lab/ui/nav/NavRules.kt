@@ -58,14 +58,16 @@ object NavRules {
     val CHATS = TabSpec(TabId.CHATS, "Chats", "/chats", listOf("/chats"))
     /** Tutor accounts only (Minghui asked for Decks one tap away); everyone else finds Decks first in More. */
     val DECKS = TabSpec(TabId.DECKS, "Decks", "/decks", listOf("/decks", "/generate", "/search"))
-    val TUTOR = TabSpec(TabId.TUTOR, "Tutor", "/connections", listOf("/connections"))
     val STUDENTS = TabSpec(TabId.STUDENTS, "Students", "/connections", listOf("/connections"))
     val LIBRARY = TabSpec(TabId.LIBRARY, "Library", "/library", listOf("/library"))
     val PROGRESS = TabSpec(TabId.PROGRESS, "Progress", "/progress", listOf("/progress"))
     val MORE = TabSpec(
         TabId.MORE, "More", "/more",
         listOf(
-            "/more", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
+            // The learner's Tutor tab went (Nov 2026): the tutor page is the chat header's name and
+            // connections are More → "Tutors & connections", so /connections lights More — except
+            // where a Students tab comes first in tabsFor and wins the tie.
+            "/more", "/connections", "/settings", "/profile", "/coach", "/analyze", "/readers", "/lessons", "/lesson-notes",
             "/quests", "/picture-hunt", "/idioms", "/meme-review", "/clips", "/audio-lessons", "/podcasts", "/library", "/duplicate-finder", "/admin",
             // Decks live under More since the Chats tab took their tab — except for a tutor
             // account, whose Decks tab comes first in tabsFor and wins the tie.
@@ -74,14 +76,20 @@ object NavRules {
     )
 
     /**
+     * A learner's tabs (web LEARNER_TABS). Four since the Tutor tab went (Jerome, Nov 2026: "it seems
+     * like a dud page"); the free slot is kept for something better — add its TabSpec before MORE.
+     */
+    val LEARNER_TABS: List<TabSpec> get() = listOf(STUDY, CHATS, PROGRESS, MORE)
+
+    /**
      * Tutor account (role):   Students · Chats · Decks · Library · More
-     * Student account:        Study · Chats · Tutor · Progress · More
+     * Student account:        Study · Chats · Progress · More (LEARNER_TABS)
      * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
      * Decks are also one tap away for everyone: More → Decks, and Home's deck list.
      */
     fun tabsFor(role: NavRole): List<TabSpec> = when {
         role.isTutorAccount -> listOf(STUDENTS, CHATS, DECKS, LIBRARY, MORE)
-        !role.hasStudents -> listOf(STUDY, CHATS, TUTOR, PROGRESS, MORE)
+        !role.hasStudents -> LEARNER_TABS
         role.isTutorOnly -> listOf(STUDENTS, CHATS, STUDY, MORE)
         else -> listOf(STUDENTS, CHATS, STUDY, PROGRESS, MORE)
     }
@@ -147,7 +155,7 @@ object NavRules {
     }
 }
 
-enum class TabId { STUDY, CHATS, DECKS, TUTOR, STUDENTS, LIBRARY, PROGRESS, MORE }
+enum class TabId { STUDY, CHATS, DECKS, STUDENTS, LIBRARY, PROGRESS, MORE }
 
 data class TabSpec(val id: TabId, val label: String, val to: String, val match: List<String>)
 

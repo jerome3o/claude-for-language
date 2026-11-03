@@ -173,7 +173,9 @@ fun MoreScreen(ui: MoreUi, actions: MoreActions, extraRows: List<@Composable () 
             if (!role.isTutorOnly) item {
                 NavSection(
                     "From your tutor",
-                    rows = listOf(
+                    rows = listOfNotNull(
+                        // The learner's Tutor tab went (Nov 2026): requests, invites, remove a connection.
+                        if (!role.hasStudents) row("🤝", dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.CONNECTIONS_TITLE, "Your tutors, requests · invite a tutor", Routes.CONNECTIONS) else null,
                         row("✅", "Homework", "One-off practice with a due date", Routes.homework()),
                         row("🗒", "Tutor notes", "Comments on your recordings and flagged cards", Routes.tutorNotes()),
                         row("📝", "Lesson Notes", if (role.hasTutor) "Paste what your tutor sent you" else "Notes from lessons, for readers and sentences", Routes.lessonNotes()),

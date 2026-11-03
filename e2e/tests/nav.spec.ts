@@ -60,6 +60,7 @@ async function pair(request: APIRequestContext, tutor: SeededUser, student: Seed
     method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' },
   });
   await api(request, `/api/relationships/${r.data.id}/accept`, { method: 'POST', token: student.token });
+  return r.data.id;
 }
 
 async function login(page: Page, u: SeededUser, path = '/') {
@@ -189,7 +190,7 @@ test.describe('bottom tab bar', () => {
       expect(sb!.y + sb!.height).toBeLessThanOrEqual(bb!.y);
 
       // Navigating between tabs
-      for (const tab of ['progress', 'chats', 'more', 'tutor', 'study']) {
+      for (const tab of ['progress', 'chats', 'more', 'study']) {
         await bar(page).locator(`[data-tab="${tab}"]`).click();
         await page.waitForLoadState('networkidle');
         await expect(bar(page).locator(`[data-tab="${tab}"]`)).toHaveAttribute('aria-current', 'page');
@@ -241,7 +242,45 @@ test.describe('bottom tab bar', () => {
 });
 
 test.describe('role-aware tabs and More page', () => {
-  test('student account: Study · Chats · Tutor · Progress · More', async ({ page, request }) => {
+  test('no Tutor tab: the tutor page is the chat header, its parts are in the chat ⋯ menu', async ({ page, request }) => {
+    const student = await seedUser(request, 'student-chat');
+    const tutor = await seedUser(request, 'tutor-chat');
+    const relId = await pair(request, tutor, student);
+    await page.setViewportSize({ width: 412, height: 915 });
+    await login(page, student, '/');
+    await page.goto(`/connections/${relId}/chat`);
+    await expect(page).toHaveURL(new RegExp(`/connections/${relId}/chat/`), { timeout: 30000 });
+
+    await page.getByRole('button', { name: 'Conversation menu' }).click();
+    for (const id of ['person', 'lesson_board', 'homework', 'flags', 'tutor_notes']) {
+      await expect(page.getByTestId(`chat-person-link-${id}`)).toBeVisible();
+    }
+    await expect(page.getByTestId('chat-person-link-homework')).toContainText('Homework from Nav');
+    await page.getByTestId('chat-person-link-homework').click();
+    await expect(page).toHaveURL(new RegExp(`/connections/${relId}#homework$`));
+    await expect(page.getByRole('heading', { name: 'Homework from your tutor' })).toBeVisible();
+    await page.goBack();
+
+    await page.getByTestId('chat-header-person').click();
+    await expect(page).toHaveURL(new RegExp(`/connections/${relId}$`));
+    await expect(page.getByText('Your tutor', { exact: true })).toBeVisible();
+    await expect(bar(page).locator('[data-tab="more"]')).toHaveAttribute('aria-current', 'page');
+  });
+
+  test('a connection request waiting on me shows on Home and opens Tutors & connections', async ({ page, request }) => {
+    const student = await seedUser(request, 'student-req');
+    const tutor = await seedUser(request, 'tutor-req');
+    await api(request, '/api/relationships', { method: 'POST', token: tutor.token, data: { recipient_email: student.email, role: 'tutor' } });
+    await page.setViewportSize({ width: 412, height: 915 });
+    await login(page, student, '/');
+    const banner = page.getByTestId('home-connection-requests');
+    await expect(banner).toHaveText(/Nav tutor-req wants to be your tutor/, { timeout: 30000 });
+    await banner.click();
+    await expect(page).toHaveURL(/\/connections$/);
+    await expect(page.getByRole('button', { name: 'Accept' })).toBeVisible();
+  });
+
+  test('student account: Study · Chats · Progress · More', async ({ page, request }) => {
     const student = await seedUser(request, 'student2');
     const tutor = await seedUser(request, 'tutor2');
     await pair(request, tutor, student);
@@ -249,10 +288,16 @@ test.describe('role-aware tabs and More page', () => {
 
     await page.setViewportSize({ width: 412, height: 915 });
     await login(page, student, '/');
-    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Chats', 'Tutor', 'Progress', 'More']);
+    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Chats', 'Progress', 'More']);
 
     await page.goto(`/more?session_token=${student.token}`);
     await expect(page.getByRole('heading', { name: 'More' })).toBeVisible();
+    // The Tutor tab went (Nov 2026): connections are More → Tutors & connections, and /connections lights More.
+    await page.getByRole('link', { name: /Tutors & connections/ }).click();
+    await expect(page).toHaveURL(/\/connections$/);
+    await expect(page.getByRole('heading', { name: 'Tutors & connections' })).toBeVisible();
+    await expect(bar(page).locator('[data-tab="more"]')).toHaveAttribute('aria-current', 'page');
+    await page.goto(`/more?session_token=${student.token}`);
     await expect(page.getByRole('link', { name: /Lesson Notes/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /Readers/ })).toBeVisible();
     await expect(page.getByRole('link', { name: /Lesson Library/ })).toHaveCount(0);

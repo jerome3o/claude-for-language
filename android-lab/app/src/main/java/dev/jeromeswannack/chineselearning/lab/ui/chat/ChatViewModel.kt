@@ -229,6 +229,8 @@ data class ChatUi(
     val mergedInto: String? = null,
     val otherName: String = "",
     val otherIsClaude: Boolean = false,
+    /** The chat's relationship (null until it loaded): the header's name → their page, the ⋯ menu's links. */
+    val relationshipId: String? = null,
     val conversation: ChatConversationDto? = null,
     val myId: String? = null,
     /** 'tutor' | 'student' — my role in the relationship (toolsForMessage). */
@@ -330,6 +332,13 @@ data class ChatUi(
     fun rows(): List<ChatRow> = ChatRows.build(messages, pending, unreadId, myId, otherReadAt)
 
     val isAi: Boolean get() = conversation?.is_ai_conversation ?: false
+
+    /** The person's page from the header (null for Claude / before the relationship loaded) — core ChatPersonLinks. */
+    val personPath: String? get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.personPath(relationshipId, isAi || otherIsClaude)
+
+    /** The ⋯ menu's links to the person's page and its parts (web chatPersonLinks). */
+    val personLinks: List<dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.Link>
+        get() = dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.links(relationshipId, otherName, viewerRole, isAi || otherIsClaude)
 
     /** A message's check status: what we learnt here, else what the server stored. */
     fun checkStatus(m: ChatMessageDto): String? = checkStatuses[m.id] ?: m.check_status
@@ -595,6 +604,7 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                 myId = me,
                 otherName = other.displayName(),
                 otherIsClaude = other?.id == CLAUDE_USER_ID,
+                relationshipId = rel.id,
                 viewerRole = if (me != null && tutorId == me) "tutor" else "student",
                 conversation = convs?.firstOrNull { c -> c.id == convId } ?: it.conversation,
             )
