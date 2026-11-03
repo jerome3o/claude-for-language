@@ -10,4 +10,8 @@ describe('chatBackTarget', () => {
     expect(chatBackTarget({ from: '/elsewhere' }, 'r1')).toBe('/connections/r1');
     expect(chatBackTarget(undefined, undefined)).toBe('/chats');
   });
+  it('a learner goes back to the inbox (the tutor page is opened from the chat)', () => {
+    expect(chatBackTarget(null, 'r1', true)).toBe('/chats');
+    expect(chatBackTarget({ from: '/chats' }, 'r1', true)).toBe('/chats');
+  });
 });

@@ -115,6 +115,8 @@ object AnalyticsEvents {
         ev("chat.check_draft", "chat", emptyList()),
         ev("chat.forward", "chat", listOf("kind")),
         ev("chat.search", "chat", listOf("results")),
+        ev("chat.person_link", "chat", listOf("link")),
+        ev("chat.connection_requests_open", "chat", listOf("count")),
         ev("chat.pinyin_toggle", "chat", listOf("aid", "on")),
         ev("chat.discuss", "chat", emptyList(), replacedBy = "claude.discuss_open"),
         ev("chat.listening_mode", "chat", listOf("scope", "on")),

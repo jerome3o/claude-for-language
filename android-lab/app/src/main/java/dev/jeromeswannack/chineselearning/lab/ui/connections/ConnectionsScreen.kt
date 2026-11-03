@@ -9,6 +9,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -59,6 +65,8 @@ data class ConnectionsUi(
 )
 
 class ConnectionsActions(
+    /** Not a tab any more (the learner's Tutor tab went, Nov 2026): More → Tutors & connections. */
+    val onBack: (() -> Unit)? = null,
     val onOpen: (relId: String) -> Unit = {},
     val onAccept: (relId: String) -> Unit = {},
     /** Decline an incoming request / cancel an outgoing one (DELETE /api/relationships/:id). */
@@ -70,16 +78,35 @@ class ConnectionsActions(
 )
 
 /**
- * `/connections` for a student (web: ConnectionsPage without a dashboard): pending requests,
- * sent requests, email invitations, My Tutors, and "+ Invite" by email.
+ * `/connections` for a student — More → "Tutors & connections" (web: ConnectionsPage without a
+ * dashboard): pending requests, sent requests, email invitations, My Tutors, and "+ Invite" by
+ * email. The legacy Claude practice partner is not listed (role-plays are Claude threads now).
  */
 @Composable
 fun ConnectionsScreen(ui: ConnectionsUi, actions: ConnectionsActions) {
     var showForm by rememberSaveable { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     LabScreen(
-        "Connections",
-        actions = { SecondaryPill(if (showForm) "Cancel" else "+ Invite", Modifier.padding(end = 8.dp)) { showForm = !showForm } },
+        dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.CONNECTIONS_TITLE,
+        onBack = actions.onBack,
+        // A round ＋ / ✕ (content description "Invite" / "Cancel") so the title keeps its room — web: "+ Invite" beside it.
+        actions = {
+            androidx.compose.material3.IconButton(
+                onClick = { showForm = !showForm },
+                modifier = Modifier.padding(end = 4.dp).size(48.dp).testTag("connections-invite"),
+            ) {
+                androidx.compose.foundation.layout.Box(
+                    Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Lab.colors.accent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.material3.Icon(
+                        if (showForm) Icons.Filled.Close else Icons.Filled.Add,
+                        contentDescription = if (showForm) "Cancel" else "Invite",
+                        tint = androidx.compose.ui.graphics.Color.White,
+                    )
+                }
+            }
+        },
     ) {
         ui.notice?.let { n ->
             item { InlineNotice(n, kind = if (ui.noticeIsError) NoticeKind.Error else NoticeKind.Success, actionLabel = "OK", onAction = actions.onDismissNotice) }
@@ -120,10 +147,13 @@ private fun ConnectionsBody(rel: MyRelationshipsDto, myId: String?, busy: Boolea
             Text("Waiting for these people to sign up", style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
             for (inv in rel.pending_invitations) InvitationCard(inv, busy) { confirm("Cancel this invitation?") { actions.onCancelInvitation(inv.id) } }
         }
-        if (rel.tutors.isNotEmpty()) {
+        // The "Claude AI · Practice Chinese conversations" pseudo-connection is hidden (data kept):
+        // practice lives in Claude threads (Chats → ✏️ → 🎭 Practice a situation).
+        val tutors = rel.tutors.filter { r -> r.other(myId)?.id != CLAUDE_USER_ID }
+        if (tutors.isNotEmpty()) {
             SectionHeader("My Tutors")
             LabCard {
-                rel.tutors.forEachIndexed { i, r ->
+                tutors.forEachIndexed { i, r ->
                     if (i > 0) RowDivider()
                     val other = r.other(myId) ?: if (r.requester_role == "tutor") r.requester else r.recipient
                     val isClaude = other?.id == CLAUDE_USER_ID
@@ -138,7 +168,7 @@ private fun ConnectionsBody(rel: MyRelationshipsDto, myId: String?, busy: Boolea
                 }
             }
         }
-        val empty = rel.tutors.isEmpty() && rel.pending_incoming.isEmpty() && rel.pending_outgoing.isEmpty() && rel.pending_invitations.isEmpty()
+        val empty = tutors.isEmpty() && rel.pending_incoming.isEmpty() && rel.pending_outgoing.isEmpty() && rel.pending_invitations.isEmpty()
         if (empty) {
             Text(
                 "No one is connected yet. Invite someone who already has an account by email.",

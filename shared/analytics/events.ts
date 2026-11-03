@@ -159,6 +159,8 @@ export const ANALYTICS_EVENTS = {
   'chat.check_draft': e('chat', 'Check my Chinese on the compose box.', []),
   'chat.forward': e('chat', 'Forwarded a message.', ['kind']),
   'chat.search': e('chat', 'Searched inside a conversation.', ['results']),
+  'chat.person_link': e('chat', 'Opened the other person\'s page (or a part of it: lesson board, homework, flagged cards, tutor notes) from a chat: the header name or the ⋯ menu. Replaces the learner\'s Tutor tab.', ['link']),
+  'chat.connection_requests_open': e('chat', 'Tapped Home\'s "🤝 … wants to be your tutor" line (connection requests waiting) → Tutors & connections.', ['count']),
   'chat.pinyin_toggle': e('chat', 'Switched the 拼 / EN reading aids of a conversation.', ['aid', 'on']),
   'chat.discuss': e('chat', 'Discuss with Claude on a message (the old discussion sheet — apps before Nov 2026).', [], { replacedBy: 'claude.discuss_open' }),
   'chat.listening_mode': e('chat', 'Listening mode switched for a conversation, or the default for new chats.', ['scope', 'on']),

@@ -1,6 +1,6 @@
 import { PersonAbout } from '../components/profile/PersonAbout';
 import { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getRelationship,
@@ -210,10 +210,6 @@ export function ConnectionDetailPage() {
     enabled: !!relId && tutorView,
     staleTime: 30_000,
   });
-  // The dashboard's homework pill / recent line land here as #homework: scroll to it and flash it
-  // (her "homework progress" — the student's Homework section, not the homework library).
-  const focusSection = useScrollToHash(tutorView && !overviewQuery.isLoading);
-
   const conversationsQuery = useQuery({
     queryKey: ['conversations', relId],
     queryFn: () => getConversations(relId!),
@@ -225,6 +221,12 @@ export function ConnectionDetailPage() {
     queryFn: () => getSharedDecks(relId!),
     enabled: !!relId && !tutorView,
   });
+
+  // The dashboard's homework pill / recent line land here as #homework: scroll to it and flash it
+  // (her "homework progress" — the student's Homework section, not the homework library). On the
+  // learner's side the chat ⋯ menu lands on #homework / #flags (shared/chats/personLinks.ts).
+  const focusSection = useScrollToHash(!!relationship && (tutorView ? !overviewQuery.isLoading : !sharedDecksQuery.isLoading));
+  const location = useLocation();
 
   const studentSharedDecksQuery = useQuery({
     queryKey: ['studentSharedDecks', relId],
@@ -693,7 +695,13 @@ export function ConnectionDetailPage() {
     <div className="page">
       <div className="container">
         <div className="td-topbar">
-          <Link to="/connections" className="back-link">‹ Connections</Link>
+          {/* No Tutor tab any more (Nov 2026): this page is opened from the chat header or More →
+              Tutors & connections, so ‹ goes back where it came from. */}
+          {location.key !== 'default' ? (
+            <button type="button" className="back-link back-link-button" onClick={() => navigate(-1)}>‹ Back</button>
+          ) : (
+            <Link to={isClaudeRelationship ? '/connections' : '/chats'} className="back-link">{isClaudeRelationship ? '‹ Connections' : '‹ Chats'}</Link>
+          )}
           <OverflowMenu items={menuItems} />
         </div>
 
@@ -736,7 +744,7 @@ export function ConnectionDetailPage() {
         {!isClaudeRelationship && <FlaggedCardsSection relId={relId!} role="student" />}
 
         {!isClaudeRelationship && (
-          <section className="detail-section">
+          <section className="detail-section" id="homework">
             <h2>Homework from your tutor</h2>
             {/* The same items and statuses as My homework (/homework), from this tutor */}
             <TutorHomeworkRows relId={relId!} />

@@ -78,6 +78,8 @@ class ChatSheetActions(
     val onOpenRename: () -> Unit = {},
     val onOpenVoice: () -> Unit = {},
     val onAllConversations: () -> Unit = {},
+    /** A row of the ⋯ menu's person links (core ChatPersonLinks): open its Lab path. */
+    val onPersonLink: (dev.jeromeswannack.chineselearning.lab.core.ChatPersonLinks.Link) -> Unit = {},
     /** Discuss with Claude: save the cards Claude proposed in reply [replyId] (the chosen ones). */
     val onSaveDiscussCards: (ChatMessageDto, cards: List<SuggestedCard>, replyId: String, deckId: String?, newDeck: String?) -> Unit = { _, _, _, _, _ -> },
     /** Open an app path (the Discuss sheet's Open in Coach / context chip). */
@@ -326,6 +328,11 @@ fun ChatMenuContent(ui: ChatUi, actions: ChatSheetActions) {
             NavRow("🔊", "Voice settings", onClick = actions.onOpenVoice)
             RowDivider()
             NavRow("☰", "All conversations", onClick = actions.onAllConversations)
+        }
+        // The person's page and its parts — what the learner's Tutor tab offered (core ChatPersonLinks).
+        for (link in ui.personLinks) {
+            RowDivider()
+            NavRow(link.icon, link.label, desc = link.desc, modifier = Modifier.testTag("chat-person-link-${link.id}"), onClick = { actions.onPersonLink(link) })
         }
         Spacer(Modifier.height(16.dp))
     }
