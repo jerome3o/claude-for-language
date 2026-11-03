@@ -57,6 +57,8 @@ export interface AuthUser {
   email_homework?: boolean;
   /** "Check my Chinese automatically" in the chat: true / false, null = the default (on unless a tutor account). */
   chat_auto_check?: boolean | null;
+  /** What my tutor can read of my chats with Claude (shared/claude/visibility.ts; absent = the default, card questions). */
+  claude_tutor_visibility?: 'card_only' | 'all' | 'none';
   /** "Ask Claude answers in" on the study card: 'zh' | 'en', null = the default (Chinese; shared/study/askClaude.ts). */
   ask_claude_language?: 'zh' | 'en' | null;
   /** Ask Claude 🎧 Listen first: Claude's Chinese answers arrive hidden (tap plays, hold reveals). */

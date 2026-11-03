@@ -153,26 +153,28 @@ fun StudentCardHubScreen(ui: StudentHubUi, actions: StudentHubActions, now: Inst
 data class StudentChatsUi(
     val relId: String,
     val studentName: String,
-    val questions: List<ClaudeQuestionDto>? = null,
+    /** The student's chats with Claude she may read (core claude.TutorVisibility), newest first. */
+    val threads: List<dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadDto>? = null,
+    val visibility: String = dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.DEFAULT,
     val total: Int = 0,
     val hasMore: Boolean = false,
     val loadingMore: Boolean = false,
     val error: String? = null,
 )
 
-/** Every Ask-Claude conversation of the student, grouped per card (web: ClaudeChatsPage, tutor view). */
+/** Every chat with Claude the student lets the tutor read, read-only (web: ClaudeChatsPage, tutor view). */
 @Composable
 fun StudentClaudeChatsScreen(ui: StudentChatsUi, back: () -> Unit, open: (String) -> Unit, loadMore: () -> Unit, now: Instant = Instant.now()) {
-    val threads = groupQuestionThreads(ui.questions.orEmpty())
     LabScreen(
         "${ui.studentName} asked Claude", onBack = back,
-        subtitle = if (ui.questions == null) null else "${TeachingFormat.plural(ui.total, "question")} · ${TeachingFormat.plural(threads.size, "conversation")}${if (ui.hasMore) " so far" else ""}",
+        subtitle = if (ui.threads == null) null else "${TeachingFormat.plural(ui.total, "chat")} shared with you",
     ) {
+        val threads = ui.threads
         when {
-            ui.questions == null && ui.error != null -> item { InlineNotice(ui.error, kind = NoticeKind.Error) }
-            ui.questions == null -> item { LoadingState() }
-            threads.isEmpty() -> item { TeachCard { MutedLine("${ui.studentName} has not asked Claude about any card yet.") } }
-            else -> threads.forEach { t -> item(key = t.id) { ClaudeThreadRow(t, { noteId -> open(Routes.studentCardHub(ui.relId, noteId)) }, now) } }
+            threads == null && ui.error != null -> item { InlineNotice(ui.error, kind = NoticeKind.Error) }
+            threads == null -> item { LoadingState() }
+            threads.isEmpty() -> item { TeachCard { MutedLine(dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.tutorEmptyText(ui.studentName, ui.visibility)) } }
+            else -> threads.forEach { t -> item(key = t.id) { StudentClaudeThreadRow(ui.relId, t, open, "all_chats", now) } }
         }
         if (ui.hasMore) item { SecondaryPill(if (ui.loadingMore) "Loading…" else "Load older", Modifier.fillMaxWidth(), enabled = !ui.loadingMore, onClick = loadMore) }
     }

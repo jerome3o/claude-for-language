@@ -79,7 +79,9 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
         val listening = combine(ChatListeningStore.observe(app.cache), ChatListeningStore.observeRevealed(app.cache)) { state, _ -> state }
         val humans = combine(Chats.observe(app.cache), app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS), listening) { list, rels, state -> Triple(list, rels, state) }
         viewModelScope.launch {
-            combine(humans, ClaudeThreadList.observeInbox(app.cache), local, app.online) { (list, rels, state), threads, l, online ->
+            // The tutor's Students rows: "✦ Asked Claude 3× today" from the cached dashboard (core claude.TutorVisibility).
+            val claudeToday = app.cache.observe<dev.jeromeswannack.chineselearning.lab.data.api.TutorDashboardDto>(dev.jeromeswannack.chineselearning.lab.ui.teaching.TeachingKeys.DASHBOARD)
+            combine(humans, ClaudeThreadList.observeInbox(app.cache), local, app.online, claudeToday) { (list, rels, state), threads, l, online, dash ->
                 val rows = list?.conversations.orEmpty()
                 val revealed = rows.filter { !it.isAi }.associate { it.conversationId to ChatListeningStore.revealed(app.cache, it.conversationId) }
                 ChatsUi(
@@ -106,6 +108,7 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
                     sendError = l.sendError,
                     composeRequest = l.composeRequest,
                     language = l.language,
+                    claudeToday = dash?.students.orEmpty().associate { it.relationship_id to it.claude_today },
                 )
             }.collect { _ui.value = it }
         }

@@ -71,6 +71,8 @@ data class ClaudeThreadDto(
     val failed: Boolean = false,
     val read_only: Boolean = false,
     val archived: Boolean = false,
+    /** The chat's own "Share with my tutor" choice; null = the account's (core claude.TutorVisibility). */
+    val tutor_visible: Boolean? = null,
     val language: String? = null,
     val source: String? = null,
 )
@@ -204,3 +206,20 @@ suspend fun Api.retryClaudeMessage(id: String, messageId: String): ClaudeThreadR
 /** `GET /api/claude/threads?since=&limit=` — the Chats tab's thread list: changed threads + the ids deleted since. */
 suspend fun Api.claudeThreadList(since: String? = null, limit: Int = 200): ClaudeThreadListRes =
     get("$CLAUDE_THREADS_PATH?limit=$limit" + (since?.let { "&since=${enc(it)}" } ?: ""))
+
+/**
+ * The thread ⋯ → Share with my tutor / Hide from my tutor (null = follow "Your tutor can see").
+ * A JsonObject body: the client's Json leaves null properties out, and null is a value here.
+ */
+@Serializable
+data class ClaudeThreadPatchRes(val thread: ClaudeThreadDto)
+
+suspend fun Api.setClaudeThreadTutorVisible(id: String, value: Boolean?): ClaudeThreadPatchRes =
+    patch(claudeThreadPath(id), kotlinx.serialization.json.buildJsonObject { put("tutor_visible", kotlinx.serialization.json.JsonPrimitive(value)) })
+
+@Serializable
+data class ClaudeTutorVisibilityRes(val claude_tutor_visibility: String = "card_only")
+
+/** Settings → Chat → "Your tutor can see" (null = back to the default, card questions). */
+suspend fun Api.setClaudeTutorVisibility(value: String?): ClaudeTutorVisibilityRes =
+    put("/api/profile/claude-tutor-visibility", kotlinx.serialization.json.buildJsonObject { put("claude_tutor_visibility", kotlinx.serialization.json.JsonPrimitive(value)) })

@@ -115,6 +115,8 @@ data class ChatsUi(
     val composeRequest: Int = 0,
     /** Ask Claude's answer language (the box's 🎤 listens in it). */
     val language: String = "zh",
+    /** The tutor's view: per student relationship, his chats with Claude she may read written in today. */
+    val claudeToday: Map<String, Int> = emptyMap(),
 ) {
     /** The row's last line: "🎧 New message" while listening mode hides it, else the usual preview. */
     fun previewOf(row: ChatListRow): String =
@@ -438,6 +440,10 @@ private fun RowBody(item: ClaudeInbox.Item, name: String, ui: ChatsUi, actions: 
             else -> null
         }
         ContextChip(badge, onClick = onClick)
+    }
+    // A student's row (the tutor's view): "✦ Asked Claude 3× today" → his shared Claude chats.
+    if (item.kind == ClaudeInbox.STUDENT) item.human?.let { h ->
+        dev.jeromeswannack.chineselearning.lab.ui.teaching.AskedClaudeTodayLine(h.relationshipId, ui.claudeToday[h.relationshipId] ?: 0, actions.onPath)
     }
 }
 

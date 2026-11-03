@@ -217,6 +217,7 @@ fun ClaudeThreadContent(
                     open(dev.jeromeswannack.chineselearning.lab.ui.coach.coachOpenPath(req.text, req.action, null))
                 }
             },
+            onShare = vm::toggleShare,
         ),
         sheet = sheet,
         headerExtra = headerExtra,

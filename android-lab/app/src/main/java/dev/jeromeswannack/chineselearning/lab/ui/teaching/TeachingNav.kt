@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentPatchBody
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeThread
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudentOverviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.localToday
@@ -94,6 +95,29 @@ fun NavGraphBuilder.teachingGraph(nav: LabNav) {
         SharedDeckProgressScreen(state, nav::back, { r.refresh() })
     }
     tutorPage(nav, "/connections/{relId}/claude-chats") { relId, name, _ -> StudentChatsRoute(nav, relId, name) }
+    // One of the student's chats with Claude, read-only (only one he lets her read; core claude.TutorVisibility).
+    composable(
+        Routes.route("/connections/{relId}/claude/{threadId}?from={from}"),
+        arguments = listOf(navArgument("from") { type = NavType.StringType; nullable = true; defaultValue = null }),
+    ) { entry ->
+        val relId = entry.arguments?.getString("relId").orEmpty()
+        val threadId = entry.arguments?.getString("threadId").orEmpty()
+        val from = entry.arguments?.getString("from") ?: "student_page"
+        val relationships by nav.app.cache.observe<MyRelationshipsDto>(NavKeys.RELATIONSHIPS).collectAsStateWithLifecycle(null)
+        val name = relationships?.students?.firstOrNull { it.id == relId }?.studentUser()?.let { it.name ?: it.email }
+        val r = cached(nav, "teaching/claude-thread/$relId/$threadId") { studentClaudeThread(relId, threadId) }
+        val state by r.state.collectAsStateWithLifecycle()
+        val online by nav.app.online.collectAsStateWithLifecycle()
+        val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("claude_chat")
+        androidx.compose.runtime.LaunchedEffect(state.data?.thread?.id) {
+            state.data?.thread?.let { t -> nav.app.analytics.track("tutor.claude_thread_open", mapOf("context_kind" to t.context_kind, "source" to from)) }
+        }
+        StudentClaudeThreadContent(
+            relId, name, state, open = nav::open, back = nav::back, play = rememberTutorPlayer(nav.app),
+            onWord = { w, sentence -> dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack.itemForText(w.text, w.pinyin.ifEmpty { null }, w.gloss.ifEmpty { null }, sentence)?.let { explore?.invoke(it) } },
+            online = online,
+        )
+    }
     composable(Routes.route("/connections/{relId}/cards/{noteId}")) { entry ->
         val relId = entry.arguments?.getString("relId").orEmpty()
         val noteId = entry.arguments?.getString("noteId").orEmpty()

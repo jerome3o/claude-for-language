@@ -4,13 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadsDto
+import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteHubDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.reopenCardFlag
 import dev.jeromeswannack.chineselearning.lab.data.api.replyToCardFlag
 import dev.jeromeswannack.chineselearning.lab.data.api.resolveCardFlag
-import dev.jeromeswannack.chineselearning.lab.data.api.studentClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.studentNoteHub
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.data.platform.CachedResource
@@ -42,12 +42,12 @@ class StudentHubViewModel(private val app: LabApp, private val relId: String, no
     }
 }
 
-/** The student's Ask-Claude history, 100 at a time, first page cached. */
+/** The student's chats with Claude she may read, 50 at a time, first page cached. */
 class StudentChatsViewModel(private val app: LabApp, private val relId: String) : ViewModel() {
-    private val first: CachedResource<ClaudeChatsDto> = app.cachedResource(viewModelScope, "teaching/claude-all/$relId", TeachingKeys.KIND) { studentClaudeChats(relId, 100) }
+    private val first: CachedResource<TutorClaudeThreadsDto> = app.cachedResource(viewModelScope, "teaching/claude-threads-all/$relId", TeachingKeys.KIND) { studentClaudeThreads(relId, PAGE) }
     private val _ui = MutableStateFlow(StudentChatsUi(relId, ""))
     val ui: StateFlow<StudentChatsUi> = _ui.asStateFlow()
-    private var extra = emptyList<dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto>()
+    private var extra = emptyList<dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadDto>()
     private var cursor: String? = null
     private var paged = false
 
@@ -56,7 +56,7 @@ class StudentChatsViewModel(private val app: LabApp, private val relId: String) 
             first.state.collect { s ->
                 val d = s.data
                 if (!paged) cursor = d?.next_cursor
-                _ui.update { it.copy(questions = d?.let { it.questions + extra }, total = d?.total ?: 0, hasMore = cursor != null, error = s.error) }
+                _ui.update { it.copy(threads = d?.let { it.threads + extra }, visibility = d?.visibility ?: it.visibility, total = d?.total ?: 0, hasMore = cursor != null, error = s.error) }
             }
         }
     }
@@ -66,16 +66,20 @@ class StudentChatsViewModel(private val app: LabApp, private val relId: String) 
         if (_ui.value.loadingMore) return
         _ui.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            attempt { app.repo.api.studentClaudeChats(relId, 100, before = c) }
+            attempt { app.repo.api.studentClaudeThreads(relId, PAGE, before = c) }
                 .onSuccess { p ->
                     paged = true
-                    extra = extra + p.questions
+                    extra = extra + p.threads
                     cursor = p.next_cursor
-                    _ui.update { it.copy(questions = it.questions.orEmpty() + p.questions, hasMore = cursor != null) }
+                    _ui.update { it.copy(threads = it.threads.orEmpty() + p.threads, hasMore = cursor != null) }
                 }
                 .onFailure { e -> _ui.update { it.copy(error = e.userMessage()) } }
             _ui.update { it.copy(loadingMore = false) }
         }
+    }
+
+    private companion object {
+        const val PAGE = 50
     }
 
     class Factory(private val app: LabApp, private val relId: String) : ViewModelProvider.Factory {

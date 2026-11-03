@@ -327,3 +327,8 @@ export function useAuth() {
   }
   return context;
 }
+
+/** The signed-in context, or null outside an AuthProvider (a component also rendered in isolation). */
+export function useOptionalAuth(): AuthContextType | null {
+  return useContext(AuthContext) ?? null;
+}

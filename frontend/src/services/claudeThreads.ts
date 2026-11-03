@@ -19,6 +19,7 @@ import { db } from '../db/database';
 import {
   createClaudeThread,
   getClaudeThread,
+  patchClaudeThread,
   retryClaudeThreadMessage,
   sendClaudeThreadMessage,
   type ThreadWithMessages,
@@ -184,6 +185,16 @@ export async function applyTurnEvent(e: ClaudeTurnEvent): Promise<boolean> {
 /** The English of a message, kept on its cached row. */
 export async function setLocalTranslation(messageId: string, translation: string): Promise<void> {
   await db.claudeMessages.update(messageId, { translation });
+}
+
+/**
+ * The thread ⋯ → Share with my tutor / Hide from my tutor (shared/claude/visibility.ts): the chat's own
+ * choice (null = follow "Your tutor can see"). Online only — the server decides what she reads.
+ */
+export async function setThreadTutorVisible(threadId: string, value: boolean | null): Promise<ClaudeThreadSummary> {
+  const res = await patchClaudeThread(threadId, { tutor_visible: value });
+  await db.claudeThreads.update(threadId, { tutor_visible: res.thread.tutor_visible });
+  return res.thread;
 }
 
 // ---------- Sending ----------

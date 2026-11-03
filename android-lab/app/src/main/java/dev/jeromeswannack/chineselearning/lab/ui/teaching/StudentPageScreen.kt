@@ -43,7 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RelationshipHomeworkDto
@@ -83,7 +82,8 @@ data class StudentPageUi(
     val overview: Loadable<StudentOverviewDto> = Loadable(loading = true),
     val homework: Loadable<RelationshipHomeworkDto> = Loadable(loading = true),
     val flags: Loadable<TeachFlagsDto> = Loadable(loading = true),
-    val claude: Loadable<ClaudeChatsDto> = Loadable(loading = true),
+    /** The student's chats with Claude she may read (core claude.TutorVisibility). */
+    val claude: Loadable<dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadsDto> = Loadable(loading = true),
     val conversations: Loadable<List<ConversationDto>> = Loadable(loading = true),
     val lessons: Loadable<List<StudentLessonDto>> = Loadable(loading = true),
     /** Graded readers I sent (GET …/shared-readers) — the "Readers" list. */
@@ -309,7 +309,7 @@ private fun LazyListScope.studentColumn(ui: StudentPageUi, actions: StudentPageA
     item(key = "flags") { FlaggedCardsSection(ui.flags.data?.flags, ui.flags.error, actions.flags, now) }
     val claude = ui.claude.data
     if (o != null && !(o.is_new && (claude?.total ?: 0) == 0)) item(key = "claude") {
-        AskedClaudeSection(ui.relId, claude?.questions, claude?.total ?: 0, o.student.name, actions.open, now)
+        AskedClaudeSection(ui.relId, claude, o.student.name, actions.open, now)
     }
     item(key = "links") { StudentNavLinks(ui.relId, o?.pills?.recordings_to_hear ?: 0, actions.open, needEar = o?.pills?.recordings_need_ear ?: 0) }
 }

@@ -748,9 +748,14 @@ Tap a student's name on the dashboard to open their page:
    Above them, two more sections: **🚩 Flagged cards** — cards the student flagged for you
    from the study screen, each with their note and a **Reply** box (the reply goes into the
    chat and is shown to the student once on the back of that card; **Resolve** closes one
-   without a reply; resolved flags fold away) — and **💬 Asked Claude** — what they have been
-   asking Claude about their cards (tap a conversation to read the answers; *All
-   conversations* for the full list). Tapping a word in either opens its **card page**: the
+   without a reply; resolved flags fold away) — and **✦ Asked Claude** — the chats with Claude
+   the student lets you read. By default that is what they ask Claude on a study card; a
+   student can also share all their Claude chats, share a single chat (practice role-plays,
+   readers, exercises) from its ⋯ menu, or keep them private (their Settings → Chat → *Your
+   tutor can see*). Each chat shows where it happened (📇 a card — tap the chip for the card
+   page; 🎭 practice; 📖 a reader; 🧩 an exercise); tap it to read it — read-only, you can't
+   write in it. *All chats* lists every one. The dashboard card and the Chats tab say
+   **✦ Asked Claude 3× today** when they have. Tapping a word in either opens its **card page**: the
    word, how each of its three cards is doing, every flag and Claude conversation about it,
    and the recent reviews with typed answers and recordings. The dashboard card shows a
    **🚩 n flagged cards** pill while any are waiting for a reply.

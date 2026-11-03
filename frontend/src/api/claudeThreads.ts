@@ -2,7 +2,8 @@
  * Claude threads API (worker/src/routes/claude-threads.ts; docs/CHAT.md "Claude threads"). Errors
  * carry `.status` (apiErrorStatus); a network error has none.
  */
-import type { ClaudeThreadMessage, ClaudeThreadSummary } from '@shared/claude/api';
+import type { ClaudeThreadMessage, ClaudeThreadSummary, TutorClaudeThreadResponse, TutorClaudeThreadsResponse } from '@shared/claude/api';
+import type { ClaudeTutorVisibility } from '@shared/claude/visibility';
 import type { ClaudeIntent, ClaudeThreadContext } from '@shared/claude/context';
 import { API_BASE, getAuthHeaders } from './client';
 
@@ -85,10 +86,29 @@ export function retryClaudeThreadMessage(id: string, messageId: string): Promise
   return call(`/claude/threads/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/retry`, { method: 'POST', body: '{}' });
 }
 
-export function patchClaudeThread(id: string, patch: { title?: string; archived?: boolean; read?: true; language?: 'zh' | 'en' | null }): Promise<{ thread: ClaudeThreadSummary }> {
+export function patchClaudeThread(id: string, patch: { title?: string; archived?: boolean; read?: true; language?: 'zh' | 'en' | null; tutor_visible?: boolean | null }): Promise<{ thread: ClaudeThreadSummary }> {
   return call(`/claude/threads/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
 export function deleteClaudeThread(id: string): Promise<{ deleted: true }> {
   return call(`/claude/threads/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** Settings → Chat → "Your tutor can see" (null = back to the default, card questions). */
+export function setClaudeTutorVisibility(value: ClaudeTutorVisibility | null): Promise<{ claude_tutor_visibility: ClaudeTutorVisibility }> {
+  return call('/profile/claude-tutor-visibility', { method: 'PUT', body: JSON.stringify({ claude_tutor_visibility: value }) });
+}
+
+/** The tutor's read-only view of a student's Claude chats (only the ones he lets her read). */
+export function listStudentClaudeThreads(relId: string, opts: { limit?: number; before?: string | null; noteId?: string | null } = {}): Promise<TutorClaudeThreadsResponse> {
+  const q = new URLSearchParams();
+  if (opts.limit) q.set('limit', String(opts.limit));
+  if (opts.before) q.set('before', opts.before);
+  if (opts.noteId) q.set('note_id', opts.noteId);
+  const qs = q.toString();
+  return call(`/relationships/${encodeURIComponent(relId)}/claude-threads${qs ? `?${qs}` : ''}`);
+}
+
+export function getStudentClaudeThread(relId: string, id: string): Promise<TutorClaudeThreadResponse> {
+  return call(`/relationships/${encodeURIComponent(relId)}/claude-threads/${encodeURIComponent(id)}`);
 }

@@ -7,9 +7,15 @@
  *   GET /notes/:noteId/hub                                       one of my cards: note, cards, recent reviews, questions, flags
  *   GET /relationships/:relId/notes/:noteId/hub                  the same for one of the student's cards (tutor only)
  *
- * Questions are one row per Q&A (`note_questions`); the client groups them
- * into threads with `groupQuestionThreads` (shared/chats). Paging is keyset
- * on asked_at: pass the response's `next_cursor` back as `before`.
+ * Questions are one row per Q&A; the client groups them into threads with
+ * `groupQuestionThreads` (shared/chats). Paging is keyset on asked_at: pass the
+ * response's `next_cursor` back as `before`. The learner's own come from
+ * `note_questions`; the TUTOR's (`/relationships/:relId/claude-chats` and her card
+ * hub's `questions`) come from the student's card threads she may read
+ * (services/claude-agent/tutor-view.ts `tutorCardQuestions`, the student's
+ * "Your tutor can see" choice — shared/claude/visibility.ts), in the same row
+ * shape, so older apps keep working and a hidden chat never reaches them. Newer
+ * apps read `/relationships/:relId/claude-threads` (routes/claude-tutor-view.ts).
  */
 
 import { Hono } from 'hono';
@@ -17,6 +23,7 @@ import { sqliteToIso } from '@shared/chats';
 import type { Env, Note } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
 import { listCardFlagsForNote, type CardFlag } from '../services/card-flags';
+import { tutorCardQuestions } from '../services/claude-agent/tutor-view';
 
 const claudeChats = new Hono<{ Bindings: Env }>();
 
@@ -217,7 +224,7 @@ claudeChats.get('/me/claude-chats', async (c) => {
 claudeChats.get('/relationships/:relId/claude-chats', async (c) => {
   try {
     const studentId = await studentOf(c.env.DB, c.req.param('relId'), c.get('user').id);
-    return c.json(await listClaudeChats(c.env.DB, studentId, pagingOpts(c)));
+    return c.json(await tutorCardQuestions(c.env.DB, studentId, pagingOpts(c)));
   } catch (error) {
     return errorResponse(c, error, "Failed to load the student's Claude conversations");
   }
@@ -239,7 +246,9 @@ claudeChats.get('/relationships/:relId/notes/:noteId/hub', async (c) => {
     const hub = await loadNoteHub(c.env.DB, studentId, c.req.param('noteId'));
     if (!hub) return c.json({ error: 'Card not found' }, 404);
     // The tutor sees the flags on this card; they are scoped to the relationship's parties already.
-    return c.json(hub);
+    // Its Claude questions: only the ones the student lets her read.
+    const visible = await tutorCardQuestions(c.env.DB, studentId, { noteId: hub.note.id, limit: 200 });
+    return c.json({ ...hub, questions: visible.questions });
   } catch (error) {
     return errorResponse(c, error, "Failed to load the student's card");
   }

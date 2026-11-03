@@ -17,7 +17,6 @@ import { CONFIRM_SEND, NEEDS_CONFIRM, SEND_DUE_DATE, SEND_MODE, SEND_RULE, SEND_
 import type { StudyBudgetInfo } from '../../../shared/decks/tutor-budget';
 import type {
   CardFlagRow,
-  ClaudeChatQuestionRow,
   ConversationRow,
   HistoryResponse,
   InsightsResponse,
@@ -45,11 +44,14 @@ import { STUDY_BUDGET_MAX, pickStudyBudgetUpdate } from '../../../shared/decks/b
 import { budgetSummary } from '../../../shared/decks/tutor-budget';
 import { REVIEW_LOAD_CAP_MAX, REVIEW_LOAD_CAP_MIN, reviewLoadCapSummary } from '../../../shared/decks/review-load';
 import type { RecordingQueueResponse } from '../../../shared/recordings/queue';
+import type { TutorClaudeThreadResponse, TutorClaudeThreadsResponse } from '../../../shared/claude/api';
 import {
   clampInt,
   mergeStudentProfile,
   compactCardFlag,
-  compactClaudeThreads,
+  compactTutorClaudeThread,
+  compactTutorClaudeThreadFull,
+  tutorVisibilityNote,
   compactConversation,
   compactDashboardInvite,
   compactGoingWell,
@@ -451,25 +453,50 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_student_claude_chats',
-    `What the student has been asking Claude about their cards (the in-app "Ask Claude" on the card back), newest first, grouped into conversations per card — a window on what they find confusing. Each conversation: the word, when, and the questions with Claude's answers (answers trimmed to \`answer_chars\`). \`note_id\` narrows to one card.`,
+    `What the student has been asking Claude in the app — the chats they let you read, newest first. By default that is the questions they ask Claude on a study card (the in-app "Ask Claude" on the card back); a student may also share all their Claude chats (practice role-plays, readers, exercises, plain chats), share single chats, or none — \`visibility\` says which (card_only | all | none), and anything they keep private is simply not listed. A window on what they find confusing. Each conversation: \`thread_id\`, \`badge\` (where it happened, e.g. "📇 Asked on card · 银行", "🎭 Practice · 在饭店点菜", "📖 Reader · 小明在巴黎 p.3"), \`context_kind\`, the \`word\` for a card chat, when, and the questions with Claude's answers (answers trimmed to \`answer_chars\`; Claude's opening line of a role-play has question null). Read one whole chat with get_student_claude_thread. \`note_id\` narrows to one card. Read-only: never quote these to the student as if they were private notes, and never tell them what they kept private.`,
     {
       relationship_id: RELATIONSHIP_ID,
-      limit: z.number().int().min(1).max(500).optional().describe('Max questions to fetch, newest first (default 60).'),
+      limit: z.number().int().min(1).max(50).optional().describe('Max conversations, newest activity first (default 20).'),
       note_id: z.string().optional().describe('Only conversations about this card.'),
       answer_chars: z.number().int().min(50).max(5000).optional().describe('Trim each answer to this many characters (default 400).'),
     },
     async ({ relationship_id, limit, note_id, answer_chars }) =>
       guard(async () => {
-        const r = await api.get<{ questions: ClaudeChatQuestionRow[]; next_cursor: string | null; total: number }>(
-          `${rel(relationship_id)}/claude-chats`,
-          { limit: String(clampInt(limit, 1, 500, 60)), ...(note_id ? { note_id } : {}) }
-        );
-        const chars = clampInt(answer_chars, 50, 5000, 400);
-        return jsonResult({
-          total_questions: r.total,
-          more_before: r.next_cursor,
-          conversations: compactClaudeThreads(r.questions, chars, relationship_id),
+        const list = await api.get<TutorClaudeThreadsResponse>(`${rel(relationship_id)}/claude-threads`, {
+          limit: String(clampInt(limit, 1, 50, 20)),
+          ...(note_id ? { note_id } : {}),
         });
+        const chars = clampInt(answer_chars, 50, 5000, 400);
+        const full = await Promise.all(
+          list.threads.map((t) =>
+            api
+              .get<TutorClaudeThreadResponse>(`${rel(relationship_id)}/claude-threads/${encodeURIComponent(t.id)}`)
+              .then((r) => r.messages, () => [] as TutorClaudeThreadResponse['messages'])
+          )
+        );
+        return jsonResult({
+          visibility: list.visibility,
+          visibility_note: tutorVisibilityNote(list.visibility),
+          total_conversations: list.total,
+          total_questions: full.reduce((n, msgs) => n + msgs.filter((m) => m.role === 'user').length, 0),
+          more_before: list.next_cursor,
+          conversations: list.threads.map((t, i) => compactTutorClaudeThread(t, full[i], chars, relationship_id)),
+        });
+      })
+  );
+
+  server.tool(
+    'get_student_claude_thread',
+    `One of the student's chats with Claude, whole and read-only (only one they let you read — a private chat answers "not found"). \`thread_id\` from list_student_claude_chats. Each message: \`from\` "student" | "claude", the text, when, and Claude's stored translation when there is one. A Coach check / explanation is \`kind: analysis\` (JSON as the app stores it).`,
+    {
+      relationship_id: RELATIONSHIP_ID,
+      thread_id: z.string().describe('The conversation\'s `thread_id` from list_student_claude_chats.'),
+      max_chars: z.number().int().min(50).max(20000).optional().describe('Trim each message to this many characters (default 4000).'),
+    },
+    async ({ relationship_id, thread_id, max_chars }) =>
+      guard(async () => {
+        const r = await api.get<TutorClaudeThreadResponse>(`${rel(relationship_id)}/claude-threads/${encodeURIComponent(thread_id)}`);
+        return jsonResult(compactTutorClaudeThreadFull(r, clampInt(max_chars, 50, 20000, 4000), relationship_id));
       })
   );
 
@@ -550,11 +577,12 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'list_conversations',
-    'The chat with the other person of a relationship — one conversation per pair — with the last message. (A relationship with Claude lists its role-play practice chats, which may be several.) Usually you want get_conversation_messages with the relationship_id directly.',
+    'The chat with the other person of a relationship — one conversation per pair — with the last message. (Practice chats with Claude are Claude chats now and are not listed here; a student\'s shared Claude chats are in list_student_claude_chats.) Usually you want get_conversation_messages with the relationship_id directly.',
     { relationship_id: RELATIONSHIP_ID },
     async ({ relationship_id }) =>
       guard(async () => {
-        const rows = await api.get<ConversationRow[]>(`${rel(relationship_id)}/conversations`);
+        // Practice chats with Claude already moved into the Claude threads are left out (exclude_ai).
+        const rows = await api.get<ConversationRow[]>(`${rel(relationship_id)}/conversations`, { exclude_ai: '1' });
         return jsonResult({ conversations: rows.map(compactConversation) });
       })
   );
@@ -574,8 +602,10 @@ export function registerStudentTools(ctx: ToolContext): void {
           if (!relationship_id) throw new Error('Pass relationship_id (or a conversation_id).');
           convId = (await openChat(relationship_id)).conversation_id;
         }
+        // A practice chat with Claude that moved into the Claude threads answers 404 (exclude_ai).
         const r = await api.get<{ messages: MessageRow[]; latest_timestamp: string | null }>(
-          `/api/conversations/${encodeURIComponent(convId)}/messages`
+          `/api/conversations/${encodeURIComponent(convId)}/messages`,
+          { exclude_ai: '1' }
         );
         const n = clampInt(limit, 1, 500, 50);
         return signedJson({

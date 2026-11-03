@@ -349,23 +349,6 @@ fun ClaudeThreadRow(thread: ClaudeThread, onOpenCard: (String) -> Unit, now: Ins
     }
 }
 
-/** "💬 Asked Claude" on the student page: the four newest threads + a link to all. */
-@Composable
-fun AskedClaudeSection(relId: String, questions: List<ClaudeQuestionDto>?, total: Int, studentName: String?, open: (String) -> Unit, now: Instant = Instant.now()) {
-    val threads = remember(questions) { groupQuestionThreads(questions.orEmpty()) }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TeachSectionTitle("💬 Asked Claude" + if (total > 0) " (${TeachingFormat.plural(total, "question")})" else "")
-        when {
-            questions == null -> MutedLine("Loading…")
-            threads.isEmpty() -> TeachCard { MutedLine("${studentName ?: "The student"} has not asked Claude about a card yet.") }
-            else -> {
-                threads.take(4).forEach { ClaudeThreadRow(it, { noteId -> open(Routes.studentCardHub(relId, noteId)) }, now) }
-                InlineButton("All conversations${if (total > 0) " ($total)" else ""} ›") { open(Routes.studentClaudeChats(relId)) }
-            }
-        }
-    }
-}
-
 // ---------------- homework ----------------
 
 private val KIND_ICON = mapOf("deck" to "🃏", "lesson" to "🎓", "reader" to "📖")

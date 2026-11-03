@@ -70,6 +70,8 @@ import { fixSpecPinyin, logPinyinFixes, pinyinSources, type PinyinFix } from './
 import { createCustomLessonFromSpec, updateCustomLessonFromSpec } from './services/custom-lesson';
 import askClaudeRoutes from './routes/ask-claude';
 import claudeThreadsRoutes from './routes/claude-threads';
+import claudeTutorViewRoutes from './routes/claude-tutor-view';
+import { parseTutorVisibility } from '@shared/claude/visibility';
 import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
 import { parseAskLanguage, parseAskListening } from '@shared/study/askClaude';
 import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
@@ -219,6 +221,7 @@ import {
 import { sendInvitationEmail, sendConnectionRequestEmail } from './services/email';
 import {
   getConversations,
+  migratedPracticeChatIds,
   createConversation,
   getConversationById,
   getMessages,
@@ -555,6 +558,8 @@ app.get('/api/auth/me', async (c) => {
     ask_claude_language: parseAskLanguage((user as { ask_claude_language?: string | null }).ask_claude_language),
     // Ask Claude 🎧 Listen first: Claude's Chinese answers arrive hidden — tap plays, hold reveals.
     ask_claude_listening: parseAskListening((user as { ask_claude_listening?: number | null }).ask_claude_listening),
+    // What my tutor can read of my chats with Claude: 'card_only' (default) | 'all' | 'none' (shared/claude/visibility.ts).
+    claude_tutor_visibility: parseTutorVisibility((user as { claude_tutor_visibility?: string | null }).claude_tutor_visibility),
     // "Check new words for mistakes" (services/card-check.ts): the stored choice (null = default)
     // and what applies now (the default is on for tutors).
     card_check_setting: (() => {
@@ -622,6 +627,7 @@ mountMergedConversations(app);
 app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
 app.route('/api', claudeThreadsRoutes); // Claude threads (docs/CHAT.md "Claude threads"): /api/claude/threads*
+app.route('/api', claudeTutorViewRoutes); // What the tutor can read of them: /api/relationships/:relId/claude-threads*, PUT /api/profile/claude-tutor-visibility
 // GET /api/media/token, POST /api/media/sign — credentials for private media (routes/media.ts).
 app.route('/api', mediaRoutes);
 // POST /api/feedback — in-app feedback / bug reports with a screenshot (routes/feedback.ts, docs/FEEDBACK.md).
@@ -3745,6 +3751,11 @@ app.get('/api/relationships/:relId/conversations', async (c) => {
 
   try {
     const conversations = await getConversations(c.env.DB, relId, userId);
+    // `?exclude_ai=1` (the MCP tools): without the practice chats already copied into the Claude threads.
+    if (c.req.query('exclude_ai') === '1' || c.req.query('exclude_ai') === 'true') {
+      const moved = await migratedPracticeChatIds(c.env.DB, userId, conversations.map((conv) => conv.id));
+      return c.json(conversations.filter((conv) => !moved.has(conv.id)));
+    }
     return c.json(conversations);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get conversations';

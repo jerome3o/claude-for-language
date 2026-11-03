@@ -17,7 +17,7 @@
 import { Hono } from 'hono';
 import type { Env, MessageWithSender, SendMessageRequest } from '../types';
 import * as db from '../db/queries';
-import { getConversationById, getMessages, normalizeClientId, sendMessage } from '../services/conversations';
+import { getConversationById, getMessages, migratedPracticeChatIds, normalizeClientId, sendMessage } from '../services/conversations';
 import {
   countUnread,
   getChatInbox,
@@ -57,6 +57,11 @@ chat.get('/conversations/:id/messages', async (c) => {
   const convId = c.req.param('id');
   const since = c.req.query('since');
   try {
+    // `?exclude_ai=1` (the MCP tools): a practice chat with Claude already copied into the Claude
+    // threads is read there now — 404 with the thread's id.
+    if ((c.req.query('exclude_ai') === '1' || c.req.query('exclude_ai') === 'true') && (await migratedPracticeChatIds(c.env.DB, userId, [convId])).has(convId)) {
+      return c.json({ error: 'This practice chat with Claude is now a Claude chat (thread)', moved_to_thread: `pc-${convId}` }, 404);
+    }
     const result = await getMessages(c.env.DB, convId, userId, since);
     const participants = await getConversationParticipants(c.env.DB, convId);
     const other = participants ? otherParticipant(participants, userId) : null;

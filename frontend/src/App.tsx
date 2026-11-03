@@ -69,6 +69,7 @@ const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage').then(m => (
 const StrokePracticePage = lazy(() => import('./pages/StrokePracticePage').then(m => ({ default: m.StrokePracticePage })));
 const MiniLessonsPage = lazy(() => import('./pages/MiniLessonsPage').then(m => ({ default: m.MiniLessonsPage })));
 const LessonReplayPage = lazy(() => import('./pages/LessonReplayPage').then(m => ({ default: m.LessonReplayPage })));
+const StudentClaudeThreadPage = lazy(() => import('./pages/tutor/StudentClaudeThreadPage').then(m => ({ default: m.StudentClaudeThreadPage })));
 const ClaudeThreadPage = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.ClaudeThreadPage })));
 const CoachChatRedirect = lazy(() => import('./pages/ClaudeThreadPage').then(m => ({ default: m.CoachChatRedirect })));
 const ClaudeChatRecapPage = lazy(() => import('./pages/ClaudeChatRecapPage').then(m => ({ default: m.ClaudeChatRecapPage })));
@@ -396,6 +397,7 @@ function AppRoutes() {
       />
       <Route path="/connections/:relId/cards/:noteId" element={<ProtectedRoute><Header /><CardHubPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/claude-chats" element={<ProtectedRoute><Header /><ClaudeChatsPage /></ProtectedRoute>} />
+      <Route path="/connections/:relId/claude/:threadId" element={<ProtectedRoute><StudentClaudeThreadPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/board" element={<ProtectedRoute><Header /><LessonBoardPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/lesson-attempts" element={<ProtectedRoute><Header /><StudentLessonAttemptsPage /></ProtectedRoute>} />
       <Route path="/connections/:relId/lesson-attempts/:attemptId" element={<ProtectedRoute><Header /><StudentLessonAttemptsPage /></ProtectedRoute>} />

@@ -75,6 +75,7 @@ const IMMERSIVE = [
   /^\/lessons\/[^/]+\/(edit|print|play)\/?$/,
   /^\/coach\/[^/]+\/lesson\/[^/]+\/?$/,
   /^\/connections\/[^/]+\/chat(\/|$)/,
+  /^\/connections\/[^/]+\/claude\/[^/]+\/?$/,
   /^\/join\//,
   /^\/calls\/[^/]+\/?$/,
   /^\/group-class\/[^/]+\/?$/,

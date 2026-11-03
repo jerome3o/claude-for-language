@@ -1070,3 +1070,18 @@
 @media (prefers-reduced-motion: reduce) {
   .section-flash { animation: none; box-shadow: 0 0 0 10px #eff6ff, 0 0 0 13px #93c5fd; background-color: #eff6ff; }
 }
+
+/* "✦ Asked Claude 3× today" under the status line (the chats the student lets her read). */
+.td-card-claude {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  margin: -0.25rem 0 0.25rem;
+  font-size: 0.8125rem;
+  color: #a8482a;
+  text-decoration: none;
+}
+
+:root[data-theme='dark'] .td-card-claude {
+  color: #f0b08f;
+}

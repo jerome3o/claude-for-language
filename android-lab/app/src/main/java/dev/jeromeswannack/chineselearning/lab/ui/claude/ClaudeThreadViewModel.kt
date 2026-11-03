@@ -162,8 +162,34 @@ class ClaudeThreadViewModel(
             online = online,
             recapCount = recapN,
             playingText = playing,
+            tutorVisible = c?.thread?.tutor_visible,
+            shareSetting = app.prefs.claudeTutorVisibility,
+            canShare = c != null && !c.local && app.prefs.accountRole != "tutor",
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, local.value)
+
+    /**
+     * ⋯ → Share with my tutor / Hide from my tutor (core claude.TutorVisibility.nextTutorVisible): back
+     * to what the account says stores null. Online only.
+     */
+    fun toggleShare() {
+        val u = ui.value
+        val id = u.threadId ?: return
+        if (!u.canShare || u.sharing) return
+        val setting = app.prefs.claudeTutorVisibility
+        val next = dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.nextTutorVisible(u.context.kind, u.tutorVisible, setting)
+        local.update { it.copy(sharing = true, notice = null, sendError = null) }
+        viewModelScope.launch {
+            runCatching { store.setTutorVisible(id, next) }
+                .onSuccess {
+                    app.haptics.tick()
+                    val on = dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.tutorCanSee(u.context.kind, next, setting)
+                    app.analytics.track("claude.share_with_tutor", mapOf("on" to on, "scope" to "thread", "context_kind" to u.context.kind))
+                }
+                .onFailure { local.update { it.copy(sendError = if (app.online.value) "Couldn't change that — try again." else "Sharing needs a connection.") } }
+            local.update { it.copy(sharing = false) }
+        }
+    }
 
     private var lastEventAt: Long? = null
     /** Reply ids whose first words came over the socket. */
