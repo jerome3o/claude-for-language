@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -33,12 +36,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -66,6 +75,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
@@ -88,7 +98,24 @@ object ReadAloudTags {
     const val EMPTY = "reader-read-aloud-empty"
     const val OFFLINE = "reader-read-aloud-offline"
     const val LEGEND = "reader-read-aloud-legend"
+    const val FOOTER = "reader-read-aloud-footer"
+    const val STOP_FOOTER = "reader-read-aloud-stop-footer"
+    const val CONFETTI = "reader-read-aloud-confetti"
+    const val DIFFS = "reader-read-aloud-diffs"
+    const val DIFF = "reader-read-aloud-diff"
+    const val DIFF_PLAY = "reader-read-aloud-diff-play"
 }
+
+/**
+ * The differences' wiring from the page (web: `useReadAloud` diffs / focusAt): [words] = the page's
+ * word chips (the differences group by them), [focus] = (row, tick) lit by a tap on a marked word,
+ * [onSpeak] = ▶ a page word (practice TTS at the reader's speed).
+ */
+class ReadAloudDiffEnv(
+    val words: List<String>? = null,
+    val focus: Pair<Int, Int>? = null,
+    val onSpeak: ((String) -> Unit)? = null,
+)
 
 /** What a page's 🎤 Read it aloud shows (stateless, so every state renders in screenshot tests). */
 data class ReadAloudUi(
@@ -105,9 +132,79 @@ data class ReadAloudUi(
     val offlineNote: Boolean = false,
 )
 
-class ReadAloudActions(val onMic: () -> Unit = {}, val onRetry: () -> Unit = {})
+class ReadAloudActions(
+    val onMic: () -> Unit = {},
+    val onRetry: () -> Unit = {},
+    /** Stop the take (= the ⏹ while recording; a no-op otherwise) — the footer's ■ Stop recording, back, ✕. */
+    val onStop: () -> Unit = {},
+)
 
-class ReadAloudHandle(val ui: ReadAloudUi, val actions: ReadAloudActions)
+/** [perfectTakes] counts the takes read ALL right on this page (core `ReadAloud.allRight`): a new value = one burst of confetti. */
+class ReadAloudHandle(val ui: ReadAloudUi, val actions: ReadAloudActions, val perfectTakes: Int = 0)
+
+/**
+ * A 🎤 Read it aloud take under way on the reading view's page (web: ReaderView `ReaderTakeLock`).
+ * The page reports its take here ([ReaderPageView]); [StudyReaderView] locks around it while
+ * [locked] (core `ReadAloud.locksPage`: recording, or stopped and being checked) — the footer's
+ * Previous / Next / Finish give way to ONE big red ■ Stop recording, the audio row and ▶ Play whole
+ * story are disabled, and system back stops the take. A caller with its own ✕ / ← wraps it in
+ * [guard] so it stops the take first instead of leaving (Jerome tapped Next mid-take and lost it).
+ */
+@Stable
+class ReaderTakeLock {
+    /** The page's dictation phase (idle | listening | finishing | failed). */
+    var phase by mutableStateOf("idle")
+    /** The page's perfect takes so far (confetti over the whole reading view). */
+    var perfectTakes by mutableIntStateOf(0)
+    internal var stopTake: () -> Unit = {}
+    val locked: Boolean get() = ReadAloud.locksPage(phase)
+    val recording: Boolean get() = phase == "listening"
+
+    /** Stop the take (checked and marked as usual); a no-op unless recording. */
+    fun stop() { if (recording) stopTake() }
+
+    /** [action] — unless a take is under way: then stop the take first and do nothing else. */
+    fun guard(action: () -> Unit): () -> Unit = { if (locked) stop() else action() }
+}
+
+@Composable
+fun rememberReaderTakeLock(): ReaderTakeLock = remember { ReaderTakeLock() }
+
+/**
+ * The reading view's footer while a take is under way: ONE big red "■ Stop recording" in the slot
+ * of Previous / Next / Finish (a thumb aimed at Next stops the take instead of losing the page),
+ * then a disabled "Checking your reading…" until the result shows (web `ReadAloudStopFooter`).
+ */
+@Composable
+fun ReadAloudStopFooter(recording: Boolean, onStop: () -> Unit) {
+    val pulse = rememberInfiniteTransition(label = "stopFooter")
+    val glow by pulse.animateFloat(0f, if (recording) 1f else 0f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "glow")
+    val red = Palette.Again
+    Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp).testTag(ReadAloudTags.FOOTER)) {
+        Row(
+            Modifier.fillMaxWidth().height(54.dp)
+                .border(if (recording) (glow * 4f).dp else 0.dp, red.copy(alpha = 0.35f * (1f - glow * 0.5f)), RoundedCornerShape(27.dp))
+                .clip(RoundedCornerShape(27.dp))
+                .background(if (recording) red else red.copy(alpha = 0.16f))
+                .bouncyClickable(recording, 0.97f, role = Role.Button, onClick = onStop)
+                .semantics { contentDescription = if (recording) ReadAloud.STOP_RECORDING else ReadAloud.CHECKING }
+                .testTag(ReadAloudTags.STOP_FOOTER),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (recording) {
+                Box(Modifier.size(14.dp).clip(RoundedCornerShape(3.dp)).background(Color.White))
+                Spacer(Modifier.width(10.dp))
+                Text(ReadAloud.STOP_RECORDING, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            } else {
+                // Stopped, the transcript on its way: quiet and not tappable (red ink on a soft red tint).
+                CircularProgressIndicator(Modifier.size(18.dp), color = red, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(ReadAloud.CHECKING, color = red, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+            }
+        }
+    }
+}
 
 /**
  * One page's 🎤 Read it aloud (the web's components/reader/ReadAloud.tsx `useReadAloud`; rules in
@@ -124,25 +221,32 @@ fun rememberReadAloud(pageText: String, onStart: () -> Unit, onResult: () -> Uni
     var result by remember(pageText) { mutableStateOf<ReadAloud.Result?>(null) }
     var said by remember(pageText) { mutableStateOf("") }
     var offlineNote by remember { mutableStateOf(false) }
+    var perfectTakes by remember(pageText) { mutableIntStateOf(0) }
     val text by rememberUpdatedState(pageText)
     val start by rememberUpdatedState(onStart)
     val landed by rememberUpdatedState(onResult)
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
         val via = answer.via ?: "none"
         if (!ReadAloud.heardAnything(answer.text)) {
-            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to "empty", "chars" to 0, "via" to via))
+            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to "empty", "chars" to 0, "via" to via, "all_right" to false))
             return@rememberVoiceFirstActions
         }
         val r = ReadAloud.judge(text, answer.text)
         result = r
         said = answer.text.trim()
-        app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to ReadAloud.bucket(r.pct), "chars" to r.total, "via" to via))
-        if (r.toCheck == 0) app?.haptics?.correct() else app?.haptics?.tick()
+        val allRight = ReadAloud.allRight(r)
+        app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to ReadAloud.bucket(r.pct), "chars" to r.total, "via" to via, "all_right" to allRight))
+        if (allRight) {
+            // The whole page read right: confetti (once for this take), a sparkle and a happy buzz.
+            perfectTakes++
+            app?.haptics?.celebrate()
+            app?.sounds?.play(Sounds.Sfx.MILESTONE, 0.6f)
+        } else app?.haptics?.tick()
         landed()
     }
     LaunchedEffect(dictation.phase, dictation.failure) {
         if (dictation.phase == "failed") {
-            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to if (dictation.failure == "empty") "empty" else "failed", "chars" to 0, "via" to "none"))
+            app?.analytics?.track("reader.read_aloud", mapOf("result_bucket" to if (dictation.failure == "empty") "empty" else "failed", "chars" to 0, "via" to "none", "all_right" to false))
         }
     }
     LaunchedEffect(dictation.blocked) { if (dictation.blocked != "offline") offlineNote = false }
@@ -164,7 +268,9 @@ fun rememberReadAloud(pageText: String, onStart: () -> Unit, onResult: () -> Uni
                 }
             },
             onRetry = controller::retryUpload,
+            onStop = { if (dictation.phase == "listening") controller.stop() },
         ),
+        perfectTakes,
     )
 }
 
@@ -206,7 +312,7 @@ fun ReadAloudMic(ui: ReadAloudUi, onClick: () -> Unit) {
 
 /** Under the audio row: the live transcript, then ONE result line (+ "You said ▸"), or why there is none. */
 @Composable
-fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions) {
+fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions, diffEnv: ReadAloudDiffEnv = ReadAloudDiffEnv()) {
     val listening = ui.phase == "listening"
     val failed = ui.phase == "failed"
     AnimatedVisibility(listening, enter = fadeIn() + expandVertically()) {
@@ -235,12 +341,12 @@ fun ReadAloudPanel(ui: ReadAloudUi, actions: ReadAloudActions) {
         failed -> Text(ReadAloud.EMPTY, color = Lab.colors.muted, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.EMPTY))
         ui.offlineNote && ui.blocked == "offline" -> Text(ReadAloud.OFFLINE, color = Lab.colors.muted, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.OFFLINE))
         blockNote != null -> Text(blockNote, color = Lab.colors.muted, fontSize = 14.sp)
-        ui.result != null -> ReadAloudResultLine(ui.result, ui.said)
+        ui.result != null -> ReadAloudResultLine(ui.result, ui.said, diffEnv)
     }
 }
 
 @Composable
-private fun ReadAloudResultLine(result: ReadAloud.Result, said: String) {
+private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv: ReadAloudDiffEnv) {
     var open by remember(result) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(ReadAloudTags.RESULT)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -257,7 +363,108 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String) {
             )
         }
         ReadAloudLegend(ReadAloud.legend(result))
-        if (open) Text(said, color = Lab.colors.muted, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp).testTag(ReadAloudTags.SAID))
+        val diffs = remember(result, diffEnv.words) { ReadAloud.differences(result, diffEnv.words) }
+        ReadAloudDifferences(diffs, diffEnv.focus, diffEnv.onSpeak)
+        if (open) {
+            // The transcript with what differs marked like the page (a homophone unmarked; extra words solid).
+            val heard = result.heard
+            if (heard.isNotEmpty()) MarkedChars(
+                heard.map { h ->
+                    ReadAloud.Char(h.char, when (h.mark) { "close" -> ReadAloud.Mark.CLOSE; "wrong", "extra" -> ReadAloud.Mark.WRONG; "plain" -> ReadAloud.Mark.PLAIN; else -> ReadAloud.Mark.OK }, "", "")
+                },
+                fontSize = 16.sp,
+                modifier = Modifier.padding(top = 10.dp).testTag(ReadAloudTags.SAID),
+            )
+            else Text(said, color = Lab.colors.muted, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp).testTag(ReadAloudTags.SAID))
+        }
+    }
+}
+
+private const val DIFFS_SHOWN = 6
+
+/**
+ * What it heard vs the page, one row per word (web `ReadAloudDifferences`; Jerome: "what the app thought
+ * I was saying versus what it should have been"): the page's word + pinyin, what was heard + pinyin, the
+ * kind in words, ▶ the page's word, and a reason line per character ("都 dū → you said dù (4th tone
+ * instead of 1st)"). A homophone-only word is a quieter "Sounded right" row (not to check). [focus] (a
+ * tap on a marked word in the page) brings its row into view and lights it.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, focus: Pair<Int, Int>?, onSpeak: ((String) -> Unit)?) {
+    if (diffs.isEmpty()) return
+    val app = LocalContext.current.applicationContext as? LabApp
+    var showAll by remember(diffs) { mutableStateOf(false) }
+    var lit by remember(diffs) { mutableStateOf<Int?>(null) }
+    val requesters = remember(diffs) { List(diffs.size) { BringIntoViewRequester() } }
+    LaunchedEffect(focus) {
+        val i = focus?.first ?: return@LaunchedEffect
+        if (i !in diffs.indices) return@LaunchedEffect
+        if (i >= DIFFS_SHOWN) showAll = true
+        lit = i
+        kotlinx.coroutines.delay(60)
+        runCatching { requesters[i].bringIntoView() }
+        kotlinx.coroutines.delay(1_600)
+        lit = null
+    }
+    val colors = Lab.colors
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag(ReadAloudTags.DIFFS), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((i, d) in diffs.withIndex()) {
+            if (!showAll && i >= DIFFS_SHOWN) break
+            val accent = when {
+                !d.toCheck -> colors.cardBorder
+                d.kind == "tone" -> colors.markTone
+                else -> colors.markWrong
+            }
+            val litBg by androidx.compose.animation.animateColorAsState(if (lit == i) Violet.copy(alpha = 0.12f) else colors.card, label = "diffLit")
+            Column(
+                Modifier.fillMaxWidth().bringIntoViewRequester(requesters[i])
+                    .clip(RoundedCornerShape(12.dp)).background(litBg)
+                    .border(if (lit == i) 2.dp else 1.dp, if (lit == i) Violet else colors.cardBorder, RoundedCornerShape(12.dp))
+                    .drawBehind { drawRect(accent, size = Size(4.dp.toPx(), size.height)) }
+                    .alpha(if (d.toCheck) 1f else 0.85f)
+                    .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
+                    .semantics(mergeDescendants = false) { contentDescription = "${d.page.ifEmpty { "—" }} vs ${d.heard.ifEmpty { "—" }}, ${ReadAloud.diffKindLabel(d.kind)}" }
+                    .testTag(ReadAloudTags.DIFF),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DiffSide("PAGE", d.page, d.pagePinyin)
+                    Text("vs", color = colors.muted, fontSize = 13.sp)
+                    DiffSide("YOU SAID", d.heard, d.heardPinyin)
+                    Spacer(Modifier.weight(1f))
+                    Text(ReadAloud.diffKindLabel(d.kind), color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    if (onSpeak != null && d.page.isNotEmpty()) {
+                        Box(
+                            Modifier.size(44.dp).clip(CircleShape).background(colors.faint).border(1.dp, colors.cardBorder, CircleShape)
+                                .bouncyClickable(pressedScale = 0.9f) {
+                                    app?.analytics?.track("reader.read_aloud_diff", mapOf("action" to "play", "kind" to d.kind))
+                                    onSpeak(d.page)
+                                }
+                                .semantics { contentDescription = "Play ${d.page}" }
+                                .testTag(ReadAloudTags.DIFF_PLAY),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("▶", color = colors.ink, fontSize = 14.sp) }
+                    }
+                }
+                for (r in d.reasons) Text(r, color = colors.ink, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 3.dp))
+            }
+        }
+        if (!showAll && diffs.size > DIFFS_SHOWN) {
+            Text(
+                "Show ${diffs.size - DIFFS_SHOWN} more",
+                color = colors.accent, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.heightIn(min = 44.dp).bouncyClickable { showAll = true }.padding(vertical = 12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiffSide(label: String, zh: String, py: String) {
+    Column {
+        Text(label, color = Lab.colors.muted, fontSize = 10.sp, letterSpacing = 0.5.sp)
+        Text(zh.ifEmpty { "—" }, color = Lab.colors.ink, fontSize = 22.sp, lineHeight = 28.sp)
+        if (py.isNotEmpty()) Text(py, color = Lab.colors.muted, fontSize = 14.sp)
     }
 }
 
