@@ -246,7 +246,8 @@ export const ANALYTICS_EVENTS = {
   'reader.editor_save': e('readers', 'Saved a reader in the editor.', ['pages']),
   'reader.audio_block': e('readers', 'Used the phrase-block scrubber (jump / step).', ['action']),
   'reader.speed_changed': e('readers', 'Changed the reader playback speed (1 / 0.75 / 0.5).', ['speed']),
-  'reader.read_aloud': e('readers', '🎤 Read it aloud on a reader page: a take judged against the page (practice only; result_bucket = all | 90 | 75 | 50 | under_50 — the % read right — or failed | empty; chars = characters on the page; via = live | upload | none).', ['result_bucket', 'chars', 'via']),
+  'reader.read_aloud': e('readers', '🎤 Read it aloud on a reader page: a take judged against the page (practice only; result_bucket = all | 90 | 75 | 50 | under_50 — the % read right — or failed | empty; chars = characters on the page; via = live | upload | none; all_right = the whole page read right, no extra words — the take that throws confetti).', ['result_bucket', 'chars', 'via', 'all_right']),
+  'reader.read_aloud_diff': e('readers', '🎤 Read it aloud: used a difference row (what it heard vs the page) — action = play (▶ the page word) | tap_page (tapped a marked word on the page → its row); kind = wrong | missed | tone | extra | sound.', ['action', 'kind']),
   'reader.queue_move': e('readers', 'Moved a story in the reader queue ("Up next" on the Readers list, or an agent): how = top / up / down / bottom / position / drag / reorder; via = app / mcp.', ['how', 'position', 'total', 'via']),
 
   // ── quests & picture hunts ─────────────────────────────────────────────
@@ -355,7 +356,7 @@ export const ANALYTICS_EVENTS = {
   'coach.ask_message': e('coach', 'Sent a message in an Ask Claude chat (language = zh | en; spoken = said with 🎤).', ['language', 'spoken']),
   'coach.ask_reply': e('coach', 'An Ask Claude reply landed while the chat was open: ms from sending to the reply on screen (first = the chat\'s first reply).', ['ms', 'first', 'language']),
   'coach.ask_tool': e('coach', 'Used a tool on an Ask Claude message (action = play | pinyin | translate | listen | listen_auto | reveal | word | listening_on | listening_off | language; role = mine | claude).', ['action', 'role']),
-  'coach.ask_read_back': e('coach', '"🎤 Read it back" on one of Claude\'s messages: a take judged against it (practice only; result_bucket = all | 90 | 75 | 50 | under_50 or failed | empty; chars; wrong_words = words with a real mistake; via).', ['result_bucket', 'chars', 'wrong_words', 'via']),
+  'coach.ask_read_back': e('coach', '"🎤 Read it back" on one of Claude\'s messages: a take judged against it (practice only; result_bucket = all | 90 | 75 | 50 | under_50 or failed | empty; chars; wrong_words = words with a real mistake; all_right = every character right; via).', ['result_bucket', 'chars', 'wrong_words', 'all_right', 'via']),
   'coach.ask_flashcards': e('coach', '"Make flashcards from this chat": cards added (count; focus = recap words sent as the default selection).', ['count', 'focus']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),

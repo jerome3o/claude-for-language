@@ -1,5 +1,8 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { readAloudCharLabel, readAloudNeedsLook, type ReadAloudChar, type ReadAloudResult } from '@shared/reader/readAloud';
+
+/** A word of the page that a read-aloud take heard differently (a homophone included) — it has a row in the differences. */
+const hasDifference = (marked: readonly ReadAloudChar[]) => readAloudNeedsLook(marked) || marked.some((c) => c.mark === 'sound');
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
@@ -161,16 +164,26 @@ function WordChip({ text, known, marked, onOpen, onLong }: {
  * tint), a caret where extra words were said; the chips drop their fill meanwhile
  * (ReadAloud.css). A long press on a word that needs a look plays it (`onSpeak`).
  */
-export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak }: {
+export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak, onWords, onMarkTap }: {
   readerId: string;
   page: PageLike;
   className?: string;
   marks?: ReadAloudResult | null;
   onSpeak?: (text: string) => void;
+  /** The words shown (their texts), so a read-aloud result can group its differences by word. */
+  onWords?: (texts: string[] | null) => void;
+  /** A tap on a word a read-aloud take heard differently: its difference row instead of the explorer (`cp` = the word's first code point). */
+  onMarkTap?: (cp: number) => void;
 }) {
   const own = useReaderPageWords(readerId, page);
   const local = useSegmentedWords(page.content_chinese, !own);
   const words = own ?? local;
+  const wordsKey = words ? words.map((w) => w.text).join('\u0000') : '';
+  const reportWords = useRef(onWords);
+  reportWords.current = onWords;
+  useEffect(() => {
+    reportWords.current?.(wordsKey ? wordsKey.split('\u0000') : null);
+  }, [wordsKey]);
   const known = useKnownHanzi();
   const explorer = useExplorer();
   const markedChars = marks && marks.chars.length === [...page.content_chinese].length ? marks.chars : null;
@@ -211,6 +224,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
         {words.map((w, i) => {
           const len = [...w.text].length;
           const marked = markedChars ? markedChars.slice(cp, cp + len) : null;
+          const start = cp;
           cp += len;
           if (isTappableWord(w.text)) {
             return (
@@ -219,7 +233,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
                 text={w.text}
                 known={known.has(w.text)}
                 marked={marked}
-                onOpen={() => openWord(i)}
+                onOpen={() => (marked && onMarkTap && hasDifference(marked) ? onMarkTap(start) : openWord(i))}
                 onLong={marked && onSpeak && readAloudNeedsLook(marked) ? () => onSpeak(w.text) : null}
               />
             );

@@ -210,3 +210,163 @@
   margin: 0;
   padding: 0 0.2em;
 }
+
+/* The footer while a take is under way: one big red "■ Stop recording" where Previous / Next /
+   Finish were (Jerome tapped Next mid-take and lost the page), then "Checking your reading…". */
+.reader-read-aloud-footer .reader-read-aloud-stop-btn {
+  flex: 1;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  background: #dc2626;
+  border: none;
+  color: #fff;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  animation: reader-read-aloud-pulse 1.4s ease-in-out infinite;
+}
+
+.reader-read-aloud-footer .reader-read-aloud-stop-btn:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.reader-read-aloud-footer .reader-read-aloud-stop-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.reader-read-aloud-footer .reader-read-aloud-stop-btn.checking,
+.reader-read-aloud-footer .reader-read-aloud-stop-btn:disabled {
+  background: #fee2e2;
+  color: #b91c1c;
+  opacity: 1;
+  animation: none;
+  cursor: default;
+}
+
+.reader-read-aloud-stop-square {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+/* ▶ Play whole story while a take is under way. */
+.study-reader-story-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+:root[data-theme='dark'] .reader-read-aloud-footer .reader-read-aloud-stop-btn.checking {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fca5a5;
+}
+
+/* What it heard vs the page: one row per word (ReadAloudDifferences). The kind is a WORD on the
+   row ("Tone", "Missed"…) and every tone is named ("4th tone instead of 1st") — never colour alone. */
+.ra-diffs {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: left;
+}
+
+.ra-diff {
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-left: 4px solid var(--ra-wrong);
+  border-radius: 12px;
+  padding: 0.5rem 0.625rem;
+  background: var(--color-surface, #fff);
+  transition: box-shadow 0.25s ease, background-color 0.25s ease;
+}
+
+.ra-diff.kind-tone { border-left-color: var(--ra-tone); }
+.ra-diff.is-right { border-left-color: var(--color-border, #e5e7eb); opacity: 0.8; }
+.ra-diff.is-lit {
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.08);
+}
+
+.ra-diff-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ra-diff-side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ra-diff-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-light, #6b7280);
+}
+
+.ra-diff-zh {
+  font-size: 1.375rem;
+  line-height: 1.3;
+  color: var(--color-text, #111827);
+}
+
+.ra-diff-py {
+  font-size: 0.875rem;
+  color: var(--color-text-light, #6b7280);
+}
+
+.ra-diff-vs {
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+  padding: 0 0.125rem;
+}
+
+.ra-diff-kind {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-light, #6b7280);
+}
+
+.ra-diff-play {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border, #e5e7eb);
+  background: var(--color-background, #f9fafb);
+  color: var(--color-text, #111827);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ra-diff-reasons {
+  list-style: none;
+  margin: 0.375rem 0 0;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text, #111827);
+}
+
+.ra-diffs-more {
+  margin-top: 0.375rem;
+  min-height: 44px;
+  background: none;
+  border: none;
+  color: var(--color-primary, #6d28d9);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ra-diffs + .reader-read-aloud-said,
+.ra-diffs-more + .reader-read-aloud-said {
+  margin-top: 0.625rem;
+}

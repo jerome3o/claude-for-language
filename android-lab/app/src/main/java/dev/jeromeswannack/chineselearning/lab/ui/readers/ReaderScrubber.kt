@@ -87,7 +87,19 @@ fun sampleClipAnalysis(durationMs: Int, blocks: List<AudioBlocks.Block>, peaks: 
  * the 1 s grace scales (`ReaderSpeed.blockGraceMsAt`, a wall-clock reaction = 500 ms at 0.5×).
  */
 @Composable
-fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.State? = null, story: StoryPlayback? = null, extra: (@Composable () -> Unit)? = null) {
+fun ReaderScrubber(
+    page: ReaderPageDto,
+    env: ReaderEnv,
+    initial: BlockPlayback.State? = null,
+    story: StoryPlayback? = null,
+    extra: (@Composable () -> Unit)? = null,
+    /**
+     * A 🎤 Read it aloud take is recording / being checked (core `ReadAloud.locksPage`): ↻, the
+     * waveform, play, the speed chip and ⏮ ⏭ are disabled and dimmed, and a playing clip stops
+     * (it would be heard in the take). [extra] — the take's own ⏹ — stays live.
+     */
+    locked: Boolean = false,
+) {
     val load = env.pageAudio
     var file by remember(page.id) { mutableStateOf<File?>(null) }
     var status by remember(page.id) { mutableStateOf("loading") }
@@ -183,9 +195,13 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
             if (!start()) story.onUnavailable(false)
         }
     }
+    // A take starts: the narration stops (play is disabled now).
+    LaunchedEffect(locked) { if (locked && play.playing) stop() }
     fun msAt(x: Float, width: Int): Double = if (width <= 0) 0.0 else (x / width).coerceIn(0f, 1f) * duration.toDouble()
 
     val ready = status == "ready"
+    val usable = ready && !locked
+    val dim = if (locked) LOCKED_ALPHA else 1f
     val active = BlockPlayback.activeIndex(play, blocks, head).coerceAtLeast(0)
     val barColor = if (analysis?.peaks != null) Color(0xFF94A3B8) else Lab.colors.cardBorder
     val accent = Lab.colors.accent
@@ -193,7 +209,7 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
-                Modifier.size(44.dp).bouncyClickable(!regenerating) {
+                Modifier.size(44.dp).alpha(dim).bouncyClickable(!regenerating && !locked) {
                     if (!regenerating && load != null) {
                         regenerating = true
                         stop()
@@ -207,15 +223,15 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 contentAlignment = Alignment.Center,
             ) { Text("↻", fontSize = 20.sp, color = Lab.colors.muted) }
             Box(
-                Modifier.weight(1f).height(56.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
-                    .pointerInput(ready, multi, duration) {
-                        if (ready) detectTapGestures { o ->
+                Modifier.weight(1f).height(56.dp).alpha(dim).clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
+                    .pointerInput(usable, multi, duration) {
+                        if (usable) detectTapGestures { o ->
                             val ms = msAt(o.x, size.width)
                             if (multi) { dispatch(BlockPlayback.Event.Jump(AudioBlocks.indexAt(blocks, ms))); env.onTap() }
                             else dispatch(BlockPlayback.Event.Place(ms))
                         }
                     }
-                    .pointerInput(ready, duration) { if (ready) detectHorizontalDragGestures { change, _ -> dispatch(BlockPlayback.Event.Place(msAt(change.position.x, size.width))) } },
+                    .pointerInput(usable, duration) { if (usable) detectHorizontalDragGestures { change, _ -> dispatch(BlockPlayback.Event.Place(msAt(change.position.x, size.width))) } },
                 contentAlignment = Alignment.Center,
             ) {
                 Canvas(Modifier.fillMaxSize()) {
@@ -255,7 +271,7 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 if (status == "unavailable") Text("audio unavailable offline", fontSize = 12.sp, color = Lab.colors.muted)
             }
             Box(
-                Modifier.size(56.dp).bouncyClickable(ready, 0.9f) { if (play.playing) { stop(); storyNow?.onStopped?.invoke() } else start() }.clip(CircleShape)
+                Modifier.size(56.dp).alpha(dim).bouncyClickable(usable, 0.9f) { if (play.playing) { stop(); storyNow?.onStopped?.invoke() } else start() }.clip(CircleShape)
                     .background(if (play.playing) Lab.colors.accent else Lab.colors.accentSoft).alpha(if (ready) 1f else 0.5f),
                 contentAlignment = Alignment.Center,
             ) {
@@ -269,16 +285,16 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (ready) ReaderSpeedChip(env.speed, env.onSpeed)
+                if (ready) Box(Modifier.alpha(dim)) { ReaderSpeedChip(env.speed, env.onSpeed, enabled = !locked) }
                 extra?.invoke()
                 Spacer(Modifier.weight(1f))
                 if (ready && multi) {
-                    StepButton(Icons.Filled.SkipPrevious, "Previous phrase") { dispatch(BlockPlayback.Event.Step(-1, positionMs())); env.onTap() }
+                    StepButton(Icons.Filled.SkipPrevious, "Previous phrase", enabled = !locked) { dispatch(BlockPlayback.Event.Step(-1, positionMs())); env.onTap() }
                     Text(
                         "Phrase ${Math.min(active, blocks.size - 1) + 1} of ${blocks.size}",
-                        fontSize = 13.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 104.dp),
+                        fontSize = 13.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 104.dp).alpha(dim),
                     )
-                    StepButton(Icons.Filled.SkipNext, "Next phrase") { dispatch(BlockPlayback.Event.Step(1, positionMs())); env.onTap() }
+                    StepButton(Icons.Filled.SkipNext, "Next phrase", enabled = !locked) { dispatch(BlockPlayback.Event.Step(1, positionMs())); env.onTap() }
                 }
             }
         }
@@ -286,9 +302,12 @@ fun ReaderScrubber(page: ReaderPageDto, env: ReaderEnv, initial: BlockPlayback.S
 }
 
 @Composable
-private fun StepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+private fun StepButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
-        Modifier.width(60.dp).height(44.dp).bouncyClickable(pressedScale = 0.9f, onClick = onClick).clip(CircleShape).background(Lab.colors.accentSoft),
+        Modifier.width(60.dp).height(44.dp).alpha(if (enabled) 1f else LOCKED_ALPHA).bouncyClickable(enabled, pressedScale = 0.9f, onClick = onClick).clip(CircleShape).background(Lab.colors.accentSoft),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, label, Modifier.size(24.dp), tint = Lab.colors.accent) }
 }
+
+/** How a control disabled while a 🎤 take is under way is dimmed (the web's `.is-locked` opacity). */
+internal const val LOCKED_ALPHA = 0.38f

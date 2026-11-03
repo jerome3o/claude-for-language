@@ -59,9 +59,15 @@ export interface ReaderAudioScrubberProps {
   onUnavailable?: (why: 'missing' | 'failed') => void;
   /** More controls beside the speed chip (the page's 🎤 Read it aloud) — shown even without audio. */
   controlsExtra?: ReactNode;
+  /**
+   * A 🎤 Read it aloud take is recording / being checked (shared/reader/readAloud.ts
+   * `readAloudLocksPage`): play, the waveform, ↻, the speed chip and ⏮ ⏭ are disabled and dimmed
+   * so nothing disturbs the take — `controlsExtra` (the take's own ⏹) stays live.
+   */
+  disabled?: boolean;
 }
 
-export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, onStopped, onUnavailable, controlsExtra }: ReaderAudioScrubberProps) {
+export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, onStopped, onUnavailable, controlsExtra, disabled = false }: ReaderAudioScrubberProps) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [analysis, setAnalysis] = useState<ClipAnalysis | null>(null);
@@ -269,10 +275,10 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
   }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (status !== 'ready') return;
+    if (status !== 'ready' || disabled) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = { x: e.clientX, dragging: false };
-  }, [status]);
+  }, [status, disabled]);
 
   const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
@@ -319,6 +325,11 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
     if (playRef.current.playing) dispatch({ type: 'pause', posMs: pos });
   }, [dispatch, stopRaf, positionMs]);
 
+  // A read-aloud take starts: the narration stops (it would be heard in the take, and play is disabled now)
+  useEffect(() => {
+    if (disabled) stop();
+  }, [disabled, stop]);
+
   // The play button's stop: also tells "Play whole story" to stop turning pages
   const userStop = useCallback(() => {
     stop();
@@ -341,10 +352,10 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
   }, [autoPlay, status, start]);
 
   const step = useCallback((dir: -1 | 1) => {
-    if (status !== 'ready') return;
+    if (status !== 'ready' || disabled) return;
     track('reader.audio_block', { action: dir < 0 ? 'step_back' : 'step_forward' });
     dispatch({ type: 'step', dir, posMs: positionMs() });
-  }, [status, dispatch, positionMs]);
+  }, [status, disabled, dispatch, positionMs]);
 
   // Escape hatch for a bad cached clip (glitchy audio, or the Google fallback
   // voice from a MiniMax outage): regenerate, overwrite the cache, re-analyse.
@@ -367,21 +378,22 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
   const current = Math.min(activeIdx, blocks.length - 1);
 
   return (
-    <div className="reader-audio-scrubber-wrap">
+    <div className={`reader-audio-scrubber-wrap${disabled ? ' is-locked' : ''}`} data-locked={disabled || undefined}>
       {/* Play sits on the RIGHT — that's the thumb side (Jerome's preference,
           same as the pre-scrubber layout); the rarely-used regen goes left. */}
       <div className="reader-audio-scrubber">
         <button
           className={`reader-audio-regen-btn ${isRegenerating ? 'busy' : ''}`}
           onClick={regenerate}
-          disabled={isRegenerating}
+          disabled={isRegenerating || disabled}
           aria-label="Regenerate audio"
           title="Regenerate audio"
         >
           ↻
         </button>
         <div
-          className={`reader-audio-track ${ready ? '' : 'disabled'}`}
+          className={`reader-audio-track ${ready && !disabled ? '' : 'disabled'}`}
+          aria-disabled={disabled || undefined}
           ref={trackRef}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
@@ -403,7 +415,7 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
         <button
           className="reader-audio-btn"
           onClick={play.playing ? userStop : start}
-          disabled={!ready}
+          disabled={!ready || disabled}
           aria-label={play.playing ? 'Stop audio' : 'Play audio from the selected point'}
         >
           {play.playing ? '⏹' : '🔊'}
@@ -412,17 +424,17 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
       {(ready || controlsExtra) && (
         <div className="reader-audio-blocks-row">
           {/* Speed (and 🎤) on the left; ⏮ Phrase n of N ⏭ stays under play (the thumb side) */}
-          {ready && <ReaderSpeedChip />}
+          {ready && <ReaderSpeedChip disabled={disabled} />}
           {controlsExtra}
           {ready && multi && (
             <div className="reader-audio-steps">
-              <button className="reader-audio-step-btn" onClick={() => step(-1)} aria-label="Previous phrase">
+              <button className="reader-audio-step-btn" onClick={() => step(-1)} disabled={disabled} aria-label="Previous phrase">
                 ⏮
               </button>
               <span className="reader-audio-block-label" aria-live="polite">
                 Phrase {current + 1} of {blocks.length}
               </span>
-              <button className="reader-audio-step-btn" onClick={() => step(1)} aria-label="Next phrase">
+              <button className="reader-audio-step-btn" onClick={() => step(1)} disabled={disabled} aria-label="Next phrase">
                 ⏭
               </button>
             </div>

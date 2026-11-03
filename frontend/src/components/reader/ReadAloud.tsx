@@ -10,10 +10,15 @@
  * "You said ▸" (`ReadAloudPanel`). 🎤 again replaces the result. Practice only: nothing is stored or queued
  * (offline → "Needs a connection to check your reading"). Lab: ui/readers/ReadAloud.kt.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   judgeReadAloud,
+  readAloudAllRight,
   readAloudBucket,
+  readAloudDifferenceAt,
+  readAloudDifferences,
+  readAloudLocksPage,
+  READ_ALOUD_DIFF_KIND,
   readAloudHeardAnything,
   readAloudLegend,
   readAloudLine,
@@ -26,7 +31,10 @@ import {
   READ_ALOUD_LISTENING,
   READ_ALOUD_OFFLINE,
   READ_ALOUD_STOP,
+  READ_ALOUD_STOP_RECORDING,
   READ_ALOUD_YOU_SAID,
+  type ReadAloudDifference,
+  type ReadAloudHeardChar,
   type ReadAloudLegendKey,
   type ReadAloudResult,
 } from '@shared/reader/readAloud';
@@ -43,6 +51,25 @@ export interface ReadAloud {
   said: string;
   /** 🎤 tapped while offline: say why. */
   offlineNote: boolean;
+  /**
+   * A take is under way (recording, or stopped and being checked): the page is locked
+   * (`readAloudLocksPage`) — the reading view swaps its footer for "■ Stop recording" and disables
+   * what would disturb the take.
+   */
+  locked: boolean;
+  /** Recording right now (the footer's Stop is live; while finishing it says "Checking…"). */
+  recording: boolean;
+  /** Stop the take (= the ⏹): it is checked and marked as usual. No-op unless recording. */
+  stop: () => void;
+  /** Counts the takes read ALL right (`readAloudAllRight`): a new value = one burst of confetti. */
+  perfectTakes: number;
+  /** The result's differences, one per page word (`readAloudDifferences` over the words shown). */
+  diffs: ReadAloudDifference[];
+  /** The page's words (their texts) from the reading view's chips — the differences group by them. */
+  setWords: (texts: string[] | null) => void;
+  /** A tap on a marked word: its difference row is scrolled to and lit (`tick` makes a second tap on the same row count). */
+  focused: { index: number; tick: number } | null;
+  focusAt: (cp: number) => void;
   toggle: () => void;
 }
 
@@ -68,6 +95,9 @@ export function useReadAloud(
   const [result, setResult] = useState<ReadAloudResult | null>(null);
   const [said, setSaid] = useState('');
   const [offlineNote, setOfflineNote] = useState(false);
+  const [perfectTakes, setPerfectTakes] = useState(0);
+  const [words, setWords] = useState<string[] | null>(null);
+  const [focused, setFocused] = useState<{ index: number; tick: number } | null>(null);
   const latest = useRef({ pageText, hooks, place });
   latest.current = { pageText, hooks, place };
   const dictation = useVoiceDictation({
@@ -78,13 +108,23 @@ export function useReadAloud(
     onSubmit: (answer) => {
       const { pageText: text, hooks: h, place: p } = latest.current;
       if (!readAloudHeardAnything(answer.text)) {
-        track(p.event, { result_bucket: 'empty', chars: 0, via: answer.via ?? 'none', ...p.props?.(null) });
+        track(p.event, { result_bucket: 'empty', chars: 0, via: answer.via ?? 'none', all_right: false, ...p.props?.(null) });
         return;
       }
       const r = judgeReadAloud(text, answer.text);
+      const allRight = readAloudAllRight(r);
       setResult(r);
       setSaid(answer.text.trim());
-      track(p.event, { result_bucket: readAloudBucket(r.pct), chars: r.total, via: answer.via ?? 'none', ...p.props?.(r) });
+      track(p.event, { result_bucket: readAloudBucket(r.pct), chars: r.total, via: answer.via ?? 'none', all_right: allRight, ...p.props?.(r) });
+      if (allRight) {
+        // The whole page read right: confetti (once for this take) and a happy buzz.
+        setPerfectTakes((n) => n + 1);
+        try {
+          navigator.vibrate?.([14, 60, 22]);
+        } catch {
+          // no haptics
+        }
+      }
       h.onResult?.(r, answer.text.trim());
     },
   });
@@ -95,7 +135,7 @@ export function useReadAloud(
     if (failed && !reported.current) {
       reported.current = true;
       const p = latest.current.place;
-      track(p.event, { result_bucket: state.failure === 'empty' ? 'empty' : 'failed', chars: 0, via: 'none', ...p.props?.(null) });
+      track(p.event, { result_bucket: state.failure === 'empty' ? 'empty' : 'failed', chars: 0, via: 'none', all_right: false, ...p.props?.(null) });
     }
     if (!failed) reported.current = false;
   }, [failed, state.failure]);
@@ -116,7 +156,54 @@ export function useReadAloud(
     dictation.say();
   };
 
-  return { dictation, result, said, offlineNote, toggle };
+  const diffs = useMemo(() => (result ? readAloudDifferences(result, words) : []), [result, words]);
+  useEffect(() => {
+    setFocused(null);
+  }, [result]);
+  const focusAt = (cp: number) => {
+    const index = readAloudDifferenceAt(diffs, cp);
+    if (index < 0) return;
+    track('reader.read_aloud_diff', { action: 'tap_page', kind: diffs[index].kind });
+    setFocused((f) => ({ index, tick: (f?.tick ?? 0) + 1 }));
+  };
+
+  const recording = state.phase === 'listening';
+  const stop = () => {
+    if (state.phase === 'listening') dictation.stop();
+  };
+
+  return { dictation, result, said, offlineNote, locked: readAloudLocksPage(state.phase), recording, stop, perfectTakes, diffs, setWords, focused, focusAt, toggle };
+}
+
+/**
+ * The reading view's footer while a take is under way: ONE big red "■ Stop recording" in the slot
+ * of Previous / Next / Finish (so a thumb aimed at Next stops the take instead of losing the page),
+ * then a disabled "Checking your reading…" until the result shows.
+ */
+export function ReadAloudStopFooter({ recording, onStop }: { recording: boolean; onStop: () => void }) {
+  return (
+    <div className="study-reader-nav reader-read-aloud-footer" data-testid="reader-read-aloud-footer">
+      <button
+        type="button"
+        className={`btn reader-read-aloud-stop-btn${recording ? '' : ' checking'}`}
+        onClick={onStop}
+        disabled={!recording}
+        data-testid="reader-read-aloud-stop-footer"
+      >
+        {recording ? (
+          <>
+            <span className="reader-read-aloud-stop-square" aria-hidden="true" />
+            {READ_ALOUD_STOP_RECORDING}
+          </>
+        ) : (
+          <>
+            <span className="spinner reader-read-aloud-spinner" aria-hidden="true" />
+            {READ_ALOUD_CHECKING}
+          </>
+        )}
+      </button>
+    </div>
+  );
 }
 
 /** 🎤 in the page's audio row: Read it aloud · ⏹ Stop · Say it again (icon button, 44px). */
@@ -146,7 +233,7 @@ export function ReadAloudMic({ ra, idleLabel = READ_ALOUD_LABEL, testId = 'reade
 }
 
 /** Under the audio row: the live transcript, then the one result line (+ "You said" collapsed), or why there is none. */
-export function ReadAloudPanel({ ra, listeningText = READ_ALOUD_LISTENING }: { ra: ReadAloud; listeningText?: string }) {
+export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENING }: { ra: ReadAloud; onSpeak?: (text: string) => void; listeningText?: string }) {
   const { dictation, result, said } = ra;
   const { state } = dictation;
   const [showSaid, setShowSaid] = useState(false);
@@ -208,10 +295,112 @@ export function ReadAloudPanel({ ra, listeningText = READ_ALOUD_LISTENING }: { r
         </button>
       </div>
       <ReadAloudLegend keys={readAloudLegend(result)} />
+      <ReadAloudDifferences diffs={ra.diffs} focused={ra.focused} onSpeak={onSpeak} />
       {showSaid && (
-        <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">{said}</div>
+        <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">
+          {result.heard && result.heard.length > 0 ? <HeardChars chars={result.heard} /> : said}
+        </div>
       )}
     </div>
+  );
+}
+
+/** The transcript with what differs marked like the page (a homophone unmarked — it was right; extra words solid). */
+function HeardChars({ chars }: { chars: readonly ReadAloudHeardChar[] }) {
+  return (
+    <>
+      {chars.map((c, i) => {
+        if (c.mark === 'plain' || c.mark === 'ok' || c.mark === 'sound') return <span key={i}>{c.char}</span>;
+        const cls = c.mark === 'close' ? 'ra-close' : 'ra-wrong';
+        const title = c.mark === 'extra' ? 'extra — not on the page' : c.mark === 'close' ? 'tone off' : 'not what the page says';
+        return <span key={i} className={`ra-char ${cls}`} data-mark={c.mark} title={title}>{c.char}</span>;
+      })}
+    </>
+  );
+}
+
+const DIFFS_SHOWN = 6;
+
+/**
+ * What it heard vs what the page says, one row per word (Jerome: "I'd love to see what the app thought I
+ * was saying versus what it should have been"): the page's word + pinyin, what was heard + pinyin, ▶ the
+ * page's word, and a reason line per character ("都 dū → you said dù (4th tone instead of 1st)"). A
+ * homophone-only word is a muted "Sounded right" row (not to check). A tap on a marked word in the page
+ * lights its row. Lab: ReadAloudViews.kt `ReadAloudDifferences`.
+ */
+export function ReadAloudDifferences({ diffs, focused, onSpeak }: {
+  diffs: readonly ReadAloudDifference[];
+  focused: { index: number; tick: number } | null;
+  onSpeak?: (text: string) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const rows = useRef<(HTMLLIElement | null)[]>([]);
+  const [lit, setLit] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focused) return;
+    if (focused.index >= DIFFS_SHOWN) setShowAll(true);
+    setLit(focused.index);
+    const t = setTimeout(() => setLit(null), 1600);
+    requestAnimationFrame(() => rows.current[focused.index]?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }));
+    return () => clearTimeout(t);
+  }, [focused]);
+  if (diffs.length === 0) return null;
+  const shown = showAll ? diffs : diffs.slice(0, DIFFS_SHOWN);
+  return (
+    <>
+      <ol className="ra-diffs" data-testid="reader-read-aloud-diffs" aria-label="What it heard vs the page">
+        {shown.map((d, i) => (
+          <li
+            key={`${d.start}-${d.end}`}
+            ref={(el) => {
+              rows.current[i] = el;
+            }}
+            className={`ra-diff kind-${d.kind}${d.toCheck ? '' : ' is-right'}${lit === i ? ' is-lit' : ''}`}
+            data-testid="reader-read-aloud-diff"
+            data-kind={d.kind}
+          >
+            <div className="ra-diff-pair">
+              <div className="ra-diff-side">
+                <span className="ra-diff-label">Page</span>
+                <span className="ra-diff-zh" lang="zh-CN">{d.page || '—'}</span>
+                {d.pagePinyin && <span className="ra-diff-py">{d.pagePinyin}</span>}
+              </div>
+              <span className="ra-diff-vs" aria-hidden="true">vs</span>
+              <div className="ra-diff-side">
+                <span className="ra-diff-label">You said</span>
+                <span className="ra-diff-zh" lang="zh-CN">{d.heard || '—'}</span>
+                {d.heardPinyin && <span className="ra-diff-py">{d.heardPinyin}</span>}
+              </div>
+              <span className="ra-diff-kind">{READ_ALOUD_DIFF_KIND[d.kind]}</span>
+              {onSpeak && d.page && (
+                <button
+                  type="button"
+                  className="ra-diff-play"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    track('reader.read_aloud_diff', { action: 'play', kind: d.kind });
+                    onSpeak(d.page);
+                  }}
+                  aria-label={`Play ${d.page}`}
+                  title={`Play ${d.page}`}
+                  data-testid="reader-read-aloud-diff-play"
+                >
+                  ▶
+                </button>
+              )}
+            </div>
+            <ul className="ra-diff-reasons">
+              {d.reasons.map((r, k) => <li key={k} lang="zh-CN">{r}</li>)}
+            </ul>
+          </li>
+        ))}
+      </ol>
+      {!showAll && diffs.length > DIFFS_SHOWN && (
+        <button type="button" className="ra-diffs-more" onClick={(e) => { e.stopPropagation(); setShowAll(true); }}>
+          Show {diffs.length - DIFFS_SHOWN} more
+        </button>
+      )}
+    </>
   );
 }
 

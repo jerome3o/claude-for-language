@@ -425,8 +425,10 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
         !ui.loaded -> Box(Modifier.fillMaxSize())
         ui.kind == "reader" && reader != null && reader.reader.pages.isNotEmpty() ->
             Column(Modifier.fillMaxSize()) {
-                PassTopBar(reader.reader.titleChinese.ifBlank { ui.title }, actions.onClose)
-                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(reader, readerEnv, actions.onReaderFinished) }
+                // ✕ while a 🎤 take is under way stops the take first instead of leaving.
+                val takeLock = dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderTakeLock()
+                PassTopBar(reader.reader.titleChinese.ifBlank { ui.title }, takeLock.guard(actions.onClose))
+                Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(reader, readerEnv, actions.onReaderFinished, takeLock) }
             }
         ui.kind == "lesson" && lesson != null ->
             LessonPlayer(

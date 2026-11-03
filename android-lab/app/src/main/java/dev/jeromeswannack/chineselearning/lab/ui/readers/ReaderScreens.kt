@@ -44,6 +44,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.activity.compose.BackHandler
+import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
@@ -100,7 +103,19 @@ const val READER_FINISH_TAG = "reader-finish"
  * story opens, so it keeps playing when the train goes offline.
  */
 @Composable
-fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpentMs: Long, how: String) -> Unit) {
+fun StudyReaderView(
+    session: SessionReader,
+    env: ReaderEnv,
+    onFinish: (timeSpentMs: Long, how: String) -> Unit,
+    /**
+     * 🎤 Read it aloud: a take under way locks the view (the footer becomes ■ Stop recording, the
+     * audio row and ▶ Play whole story are disabled, back stops the take). Pass the caller's own
+     * ([rememberReaderTakeLock]) to guard its ✕ / ← with [ReaderTakeLock.guard].
+     */
+    takeLock: ReaderTakeLock = rememberReaderTakeLock(),
+    /** The page on screen's 🎤 state drawn as given (screenshots, tests). */
+    readAloudPreview: ReadAloudHandle? = null,
+) {
     val reader = session.reader
     var page by rememberSaveable(session.key) { mutableIntStateOf(0) }
     val started = remember(session.key) { System.currentTimeMillis() }
@@ -128,6 +143,7 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
         storyPlaying = false
     }
     fun turnTo(i: Int) {
+        if (takeLock.locked) return
         // A manual turn while the story plays: it carries on from the new page.
         gapJob?.cancel()
         gapJob = null
@@ -159,43 +175,60 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
             }
         },
     )
-    Column(Modifier.fillMaxSize()) {
-        // The blue progress bar stays pinned under the study top bar; the page scrolls beneath it.
-        PinnedReaderProgress((page + 1f) / pages.size, scrolled = scroll.value > 0)
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-            Column(
-                Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}", leading = {
-                    StoryButton(
-                        playing = storyPlaying,
-                        label = when { storyPlaying -> "Stop the story"; page == 0 -> "Play whole story"; else -> "Play the rest" },
-                    ) {
-                        if (storyPlaying) stopStory(track = true)
-                        else {
-                            storyNote = null
-                            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.story_play", mapOf("from_page" to page + 1, "pages" to pages.size, "speed" to env.speed, "offline" to false))
-                            storyPlaying = true
-                            env.onTap()
+    val locked = takeLock.locked
+    // System back while a take records stops it (the result shows) instead of leaving the story.
+    BackHandler(enabled = locked) { takeLock.stop() }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            // The blue progress bar stays pinned under the study top bar; the page scrolls beneath it.
+            PinnedReaderProgress((page + 1f) / pages.size, scrolled = scroll.value > 0)
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                Column(
+                    Modifier.fillMaxSize().widthIn(max = 720.dp).testTag(READER_SCROLL_TAG).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    PageTitle(reader.titleChinese, "${reader.titleEnglish} · Page ${page + 1} of ${pages.size}", leading = {
+                        StoryButton(
+                            playing = storyPlaying,
+                            enabled = !locked,
+                            label = when { storyPlaying -> "Stop the story"; page == 0 -> "Play whole story"; else -> "Play the rest" },
+                        ) {
+                            if (storyPlaying) stopStory(track = true)
+                            else {
+                                storyNote = null
+                                dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("reader.story_play", mapOf("from_page" to page + 1, "pages" to pages.size, "speed" to env.speed, "offline" to false))
+                                storyPlaying = true
+                                env.onTap()
+                            }
                         }
-                    }
-                })
-                storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
-                PagesContent(reader, page, env, story = story)
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-        if (last) {
-            Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (pages.size > 1) SecondaryPill("‹ Back", Modifier.weight(1f).height(54.dp)) { turnTo(page - 1) }
-                PrimaryPill("Finish ✓", Modifier.weight(2f).height(54.dp).testTag(READER_FINISH_TAG), enabled = !finished) {
-                    stopStory(track = false)
-                    finish("finish")
+                    })
+                    storyNote?.let { Text(it, fontSize = 12.sp, color = Color(0xFF92400E), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) }
+                    PagesContent(reader, page, env, story = story, takeLock = takeLock, readAloudPreview = readAloudPreview)
+                    Spacer(Modifier.height(16.dp))
                 }
             }
-        } else {
-            NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) })
+            if (locked) {
+                // A take under way: ONE big red ■ Stop recording where Previous / Next / Finish were.
+                ReadAloudStopFooter(recording = takeLock.recording, onStop = takeLock::stop)
+            } else if (last) {
+                Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (pages.size > 1) SecondaryPill("‹ Back", Modifier.weight(1f).height(54.dp)) { turnTo(page - 1) }
+                    PrimaryPill("Finish ✓", Modifier.weight(2f).height(54.dp).testTag(READER_FINISH_TAG), enabled = !finished) {
+                        stopStory(track = false)
+                        finish("finish")
+                    }
+                }
+            } else {
+                NavFooter(page, pages.size, onPrev = { turnTo(page - 1) }, onNext = { turnTo(page + 1) })
+            }
+        }
+        // The whole page read right: one burst over the reading view per perfect take.
+        if (takeLock.perfectTakes > 0) {
+            ConfettiRain(
+                key = "read-aloud-${session.key}-$page-${takeLock.perfectTakes}",
+                colors = Palette.Confetti,
+                modifier = Modifier.matchParentSize().testTag(ReadAloudTags.CONFETTI),
+            )
         }
     }
 }
@@ -206,11 +239,11 @@ fun StudyReaderView(session: SessionReader, env: ReaderEnv, onFinish: (timeSpent
  * content description ("Play whole story" / "Play the rest" / "Stop the story").
  */
 @Composable
-internal fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
+internal fun StoryButton(playing: Boolean, label: String, enabled: Boolean = true, onClick: () -> Unit) {
     val bg by animateColorAsState(if (playing) Color(0xFF6D28D9) else Violet.copy(alpha = 0.14f), label = "storyBg")
     val fg = if (playing) Color.White else Violet
     Box(
-        Modifier.size(48.dp).clip(CircleShape).bouncyClickable(pressedScale = 0.9f, onClick = onClick)
+        Modifier.size(48.dp).alpha(if (enabled) 1f else LOCKED_ALPHA).clip(CircleShape).bouncyClickable(enabled, pressedScale = 0.9f, onClick = onClick)
             .semantics { contentDescription = label; selected = playing }
             .testTag(READER_PLAY_STORY_TAG),
         contentAlignment = Alignment.Center,
@@ -226,7 +259,14 @@ internal fun StoryButton(playing: Boolean, label: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, story: StoryPlayback? = null) {
+private fun PagesContent(
+    reader: GradedReaderDto,
+    page: Int,
+    env: ReaderEnv,
+    story: StoryPlayback? = null,
+    takeLock: ReaderTakeLock? = null,
+    readAloudPreview: ReadAloudHandle? = null,
+) {
     AnimatedContent(
         page,
         transitionSpec = {
@@ -235,7 +275,12 @@ private fun PagesContent(reader: GradedReaderDto, page: Int, env: ReaderEnv, sto
                 (slideOutHorizontally(tween(200)) { -dir * it / 4 } + fadeOut(tween(150)))
         },
         label = "page",
-    ) { p -> reader.pages.getOrNull(p)?.let { ReaderPageView(it, env, story?.takeIf { p == page }) } }
+    ) { p ->
+        reader.pages.getOrNull(p)?.let {
+            // Only the page on screen plays the story and reports its 🎤 take.
+            ReaderPageView(it, env, story?.takeIf { p == page }, readAloudPreview?.takeIf { p == page }, takeLock?.takeIf { p == page })
+        }
+    }
 }
 
 @Composable
@@ -265,17 +310,19 @@ fun ReaderScreen(
     onAnki: (() -> Unit)? = null,
 ) {
     val ready = reader != null && reader.status != "generating" && reader.pages.isNotEmpty()
+    // ← / Edit / Anki while a 🎤 take is under way stop the take first instead of leaving.
+    val takeLock = rememberReaderTakeLock()
     Box(Modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
+                IconButton(onClick = takeLock.guard(onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
                 // Ready: the title sits in the reading view's own title block, like the session.
                 Box(Modifier.weight(1f)) {
                     if (!ready) Text(reader?.titleChinese ?: "Reader", fontWeight = FontWeight.SemiBold, fontSize = 19.sp, color = Lab.colors.ink, maxLines = 1)
                 }
                 if (reader != null) {
-                    Text("Edit", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = onEdit).padding(horizontal = 10.dp, vertical = 12.dp))
-                    if (onAnki != null) Text("⬇ Anki", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = onAnki).padding(horizontal = 8.dp, vertical = 12.dp))
+                    Text("Edit", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = takeLock.guard(onEdit)).padding(horizontal = 10.dp, vertical = 12.dp))
+                    if (onAnki != null) Text("⬇ Anki", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable(onClick = takeLock.guard(onAnki)).padding(horizontal = 8.dp, vertical = 12.dp))
                     DifficultyBadge(reader.difficulty)
                     Spacer(Modifier.padding(end = 12.dp))
                 }
@@ -285,7 +332,7 @@ fun ReaderScreen(
                 !ready -> CenterMessage("Generating your reader…\n${reader.titleEnglish}", spinner = reader.status == "generating")
                 else -> {
                     // Its state is keyed on the session key, so the server's copy replacing the cached one keeps the page.
-                    Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(SessionReader(reader, 1), env, onFinish) }
+                    Box(Modifier.weight(1f).fillMaxWidth()) { StudyReaderView(SessionReader(reader, 1), env, onFinish, takeLock) }
                 }
             }
         }

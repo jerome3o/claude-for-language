@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  readAloudDifferences,
+  readAloudDifferenceAt,
+  pinyinTone,
+  toneName,
+  readAloudAllRight,
+  readAloudLocksPage,
   judgeReadAloud,
   readAloudBucket,
   readAloudCharLabel,
@@ -131,5 +137,90 @@ describe('the legend', () => {
       .toEqual(['close', 'wrong', 'missed', 'extra']);
     expect(readAloudLegend(judgeReadAloud('我想买书。', '我想买书呀'))).toEqual(['extra']);
     expect(READ_ALOUD_LEGEND.close).toBe('tone off');
+  });
+});
+
+describe('all right (confetti) and the page lock', () => {
+  it('all right = every character ok or a homophone, no extras, something to read', () => {
+    expect(readAloudAllRight(judgeReadAloud('小明在巴黎。', '小明在巴黎'))).toBe(true);
+    // A homophone the recogniser picked still counts as right.
+    expect(readAloudAllRight(judgeReadAloud('他在游泳。', '她在游泳'))).toBe(true);
+    expect(readAloudAllRight(judgeReadAloud('现在12点。', '现在十二点'))).toBe(true);
+    // Tone off, wrong, missed: not all right.
+    expect(readAloudAllRight(judgeReadAloud('我想买书。', '我想卖书'))).toBe(false);
+    expect(readAloudAllRight(judgeReadAloud('现在12点。', '现在十点'))).toBe(false);
+    expect(readAloudAllRight(judgeReadAloud('小明今天早上七点起床。他吃了早饭，然后去学校。', '小明今天早上起床'))).toBe(false);
+    // 100% but with extra words said: not all right.
+    const extra = judgeReadAloud('我想买书。', '我想买书呀');
+    expect(extra.pct).toBe(100);
+    expect(readAloudAllRight(extra)).toBe(false);
+    // Nothing to read.
+    expect(readAloudAllRight(judgeReadAloud('', '你好'))).toBe(false);
+  });
+
+  it('a take locks the page while recording and while it is checked', () => {
+    expect(['idle', 'listening', 'finishing', 'failed', 'review'].map(readAloudLocksPage)).toEqual([false, true, true, false, false]);
+  });
+});
+
+describe('the differences (what it heard vs what the page says)', () => {
+  const CHENGDU = '胆子大的话，可以试试麻辣兔头，这是很多成都人最爱的小吃。';
+  const CHENGDU_WORDS = ['胆子', '大', '的话', '，', '可以', '试试', '麻辣', '兔头', '，', '这', '是', '很多', '成都', '人', '最', '爱', '的', '小吃', '。'];
+
+  it("Jerome's take: 成都 heard as 程度 — 成 a homophone (right), 都 the 4th tone instead of the 1st", () => {
+    const r = judgeReadAloud(CHENGDU, '胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。');
+    expect(r.pct).toBe(96);
+    expect(r.toCheck).toBe(1);
+    const diffs = readAloudDifferences(r, CHENGDU_WORDS);
+    expect(diffs).toEqual([{
+      start: 19, end: 21, page: '成都', pagePinyin: 'chéngdū', heard: '程度', heardPinyin: 'chéngdù', kind: 'tone', toCheck: true,
+      reasons: ['成 chéng — sounded right (written 程)', '都 dū → you said dù (4th tone instead of 1st)'],
+    }]);
+    // A tap on 成 or 都 finds that row; elsewhere nothing.
+    expect(readAloudDifferenceAt(diffs, 19)).toBe(0);
+    expect(readAloudDifferenceAt(diffs, 20)).toBe(0);
+    expect(readAloudDifferenceAt(diffs, 3)).toBe(-1);
+    // "You said" marks the transcript's own characters the same way.
+    expect(r.heard!.filter((c) => c.mark !== 'ok' && c.mark !== 'plain')).toEqual([{ char: '程', mark: 'sound' }, { char: '度', mark: 'close' }]);
+    // Without word chips the run of differing characters is the span.
+    expect(readAloudDifferences(r).map((d) => d.page)).toEqual(['成都']);
+  });
+
+  it('a missed character, an extra word and another character', () => {
+    const missed = readAloudDifferences(judgeReadAloud('我喜欢你的书。', '我喜欢你书'), ['我', '喜欢', '你', '的', '书', '。']);
+    expect(missed).toEqual([{ start: 4, end: 5, page: '的', pagePinyin: 'de', heard: '', heardPinyin: '', kind: 'missed', toCheck: true, reasons: ['missed 的 de'] }]);
+
+    const extra = judgeReadAloud('我想买书。', '我想买书了');
+    expect(readAloudDifferences(extra)).toEqual([{ start: 5, end: 5, page: '', pagePinyin: '', heard: '了', heardPinyin: 'le', kind: 'extra', toCheck: true, reasons: ['extra 了 le'] }]);
+    const extraBefore = readAloudDifferences(judgeReadAloud('我想买书。', '我真想买书'), ['我', '想', '买', '书', '。']);
+    expect(extraBefore[0]).toMatchObject({ page: '想', heard: '真想', kind: 'extra', toCheck: true, reasons: ['extra 真 zhēn'] });
+
+    const wrong = readAloudDifferences(judgeReadAloud('他喝了一杯咖啡。', '他喝了一杯可乐'), ['他', '喝', '了', '一', '杯', '咖啡', '。']);
+    expect(wrong).toEqual([{
+      start: 5, end: 7, page: '咖啡', pagePinyin: 'kāfēi', heard: '可乐', heardPinyin: 'kělè', kind: 'wrong', toCheck: true,
+      reasons: ['咖 kā → you said 可 kě', '啡 fēi → you said 乐 lè'],
+    }]);
+  });
+
+  it('a homophone-only word is listed but not to check; tones are named in words', () => {
+    const r = judgeReadAloud('他在游泳。', '她在游泳');
+    expect(r.toCheck).toBe(0);
+    expect(readAloudDifferences(r, ['他', '在', '游泳', '。'])).toEqual([{
+      start: 0, end: 1, page: '他', pagePinyin: 'tā', heard: '她', heardPinyin: 'tā', kind: 'sound', toCheck: false, reasons: ['他 tā — sounded right (written 她)'],
+    }]);
+    expect(readAloudDifferences(judgeReadAloud('早上好。', '早上好'))).toEqual([]);
+    expect(['mā', 'má', 'mǎ', 'mà', 'ma', 'lǜ'].map(pinyinTone)).toEqual([1, 2, 3, 4, 0, 4]);
+    expect([0, 1, 2, 3, 4].map(toneName)).toEqual(['neutral', '1st', '2nd', '3rd', '4th']);
+    // Words that don't line up with the page are ignored (runs instead).
+    expect(readAloudDifferences(judgeReadAloud('他在游泳。', '她在游泳'), ['别的']).map((d) => d.page)).toEqual(['他']);
+  });
+
+  it('a digit run is one unit in the reasons', () => {
+    const d = readAloudDifferences(judgeReadAloud('现在12点。', '现在十点'));
+    expect(d).toHaveLength(1);
+    expect(d[0].page).toBe('12');
+    expect(d[0].kind).toBe('wrong');
+    expect(d[0].reasons).toHaveLength(1);
+    expect(d[0].reasons[0].startsWith('12 ')).toBe(true);
   });
 });
