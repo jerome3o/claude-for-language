@@ -1673,18 +1673,19 @@ person-made; both in `STORAGE_PREFIXES`). Events: `card.picture_generate | uploa
 
 **Ask Claude** (the action row on the card back) is an immersion chat about the card. Web
 `components/askClaude/` (`AskClaudeSheet`, `useAskClaude`); Lab `ui/study/AskClaudeSheet.kt`;
-worker `routes/ask-claude.ts`, `services/ask-claude.ts`, `services/ask-prompt.ts`; pure rules
+worker `routes/ask-claude.ts`, `services/ask-claude.ts`, the `card` context of the Claude agent harness
+(`services/claude-agent/contexts/card.ts`, prompt in `claude-agent/persona.ts`; CLAUDE.md "Claude agent harness"); pure rules
 `shared/study/askClaude.ts` + `askClaudeMenu` in `shared/chats/messageMenu.ts` (Lab core `AskClaude.kt`,
 parity-tested by `android-lab/parity/fixtures/ask-claude.ts`).
 
-- **Speed.** The reply is a chat turn (`worker/src/services/chat-turn.ts`, shared with the Coach's follow-ups
-  and Discuss with Claude): the Sonnet (`SONNET_MODEL` in `services/models.ts`) with thinking **off**, so the
+- **Speed.** The reply is a `card` turn of the Claude agent harness (`worker/src/services/claude-agent/`, shared with
+  the Coach's follow-ups, the Coach's Ask chat and Discuss with Claude; model policy in `claude-agent/model.ts`): the Sonnet (`SONNET_MODEL` in `services/models.ts`) with thinking **off**, so the
   first words come fast and `max_tokens` is all answer; **prompt caching** in a fixed order — the tool
   definitions (the same for every card: the card's own fields ride in the first user message), then the static
   rules (role, language rules, tool rules, `CARD_STANDARD`), then the learner's known-words block (the sample is
   deterministic per user and UTC day, `knownWordsStatement`), then the conversation's tail. Everything the
   prompt needs from D1 (decks, bio, the card's states, the last 5 reviews, the known words) is read in ONE
-  `db.batch` (`loadAskNoteContext`). The answer never waits for the 🎧 clip and waits at most `CHECK_GRACE_MS`
+  `db.batch` (`loadAskNoteContext` in `claude-agent/contexts/card.ts`). The answer never waits for the 🎧 clip and waits at most `CHECK_GRACE_MS`
   (0.8 s) for the question's check. Every reply records `server.claude_turn { surface: ask, model_tier,
   total_ms, input_tokens, cache_read_tokens, cache_write_tokens, rounds }`.
 

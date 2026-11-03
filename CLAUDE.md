@@ -91,7 +91,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── index.ts       # Main entry point, routes
 │   │   ├── routes/        # Hono sub-routers mounted from index.ts (insights, lesson-editor, tutor-notes, test-auth, calls)
 │   │   ├── durable/       # Durable Objects (call-room.ts — video-call signalling / whiteboard / chat)
-│   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS); services/content = the ONE write path for decks / notes / cards
+│   │   ├── services/      # Business logic (FSRS scheduler, AI, TTS); services/content = the ONE write path for decks / notes / cards; services/claude-agent = the ONE harness every Claude chat turn goes through
 │   │   ├── db/            # Database queries and migrations (lesson-library-queries.ts for the library/editor)
 │   │   └── types.ts       # TypeScript types
 │   ├── wrangler.toml      # Cloudflare Worker config
@@ -478,17 +478,17 @@ Uses Anthropic Claude API for several features:
 3. **Ask Claude**: During study, ask questions about a card (grammar, usage, cultural context)
    - **Immersion** (docs/STUDY_SESSION.md "Ask Claude"): answers in simple graded Chinese by default
      (`users.ask_claude_language` 'zh' | 'en', NULL = Chinese; Settings + the sheet's 中文 | EN;
-     `PUT /api/profile/ask-claude-language`; prompt `worker/src/services/ask-prompt.ts` with a sample of the
+     `PUT /api/profile/ask-claude-language`; prompt = the `card` context of the Claude agent harness (`claude-agent/persona.ts`, `contexts/card.ts`) with a sample of the
      learner's started words; "in English please" answers one turn in English — `shared/study/askClaude.ts`).
      The sheet (`components/askClaude/`, Lab `ui/study/AskClaudeSheet.kt`) uses the tutor chat's bubbles,
      word chips → the language explorer, the chat's long-press menu subset (`askClaudeMenu`), and the chat's
      auto-check on the learner's own Chinese (✎, How to say it better, Open in Coach). Route
      `worker/src/routes/ask-claude.ts`, service `services/ask-claude.ts`.
-   - **Speed** (docs/STUDY_SESSION.md "Ask Claude"): a chat turn (`services/chat-turn.ts`, also used by the Coach's
-     follow-ups and Discuss with Claude) = `SONNET_MODEL` (`services/models.ts`) with thinking OFF + prompt caching
+   - **Speed** (docs/STUDY_SESSION.md "Ask Claude"): a chat turn of the Claude agent harness (`services/claude-agent/`, also used by the Coach's
+     follow-ups, the Coach's Ask chat and Discuss with Claude) = `SONNET_MODEL` (`services/models.ts`) with thinking OFF + prompt caching
      (the tool definitions — card-independent, the card's fields ride in the first user message —, the static rules,
      the learner's known-words block — deterministic per user and UTC day —, the conversation's tail); the context is
-     ONE `db.batch` (`loadAskNoteContext`); the answer never waits for the 🎧 clip and waits ≤ `CHECK_GRACE_MS`
+     ONE `db.batch` (`loadAskNoteContext`, `claude-agent/contexts/card.ts`); the answer never waits for the 🎧 clip and waits ≤ `CHECK_GRACE_MS`
      (0.8 s) for the question's check. Each reply records `server.claude_turn` (surface, model tier, ms, tokens,
      cache reads / writes, rounds).
    - **🎧 Listen first** (Jerome: "toggled to audio first, in the same way the messages are"): the chat's
@@ -524,8 +524,8 @@ change there. `leastThinking(model)` gives the right thinking setting per family
   are 400s; wrap the params in `withEffort(params, 'low' | 'medium' | …)` (default effort is medium) and use
   `tool_choice: auto` + an instruction naming the tool.
 - **Chat replies** (Ask Claude, Coach follow-ups, the Coach's "💬 Ask Claude" chat `services/claude-chat.ts`,
-  Discuss with Claude) go through `services/chat-turn.ts`:
-  `SONNET_MODEL` with thinking disabled (`CHAT_TURN_MAX_TOKENS` 12000 is all answer), `cachedTools` /
+  Discuss with Claude) go through the Claude agent harness (below); its `model.ts` (was `services/chat-turn.ts`, now a
+  re-export) = `MODEL_POLICY.chat`: `SONNET_MODEL` with thinking disabled (`CHAT_TURN_MAX_TOKENS` 12000 is all answer), `cachedTools` /
   `cachedSystem` / `withCachedTail` (≤ 4 cache breakpoints: last tool, static rules, per-user block, the tail —
   so nothing per-card or per-request may go in the tools or the static system block), `CHAT_TOOL_RULE` in the
   prompt, and `ChatTurnMeter` → `server.claude_turn`. The usage capture (`services/analytics/ai-usage.ts`)
@@ -536,6 +536,35 @@ change there. `leastThinking(model)` gives the right thinking setting per family
   it throws `StructuredCallError` with `retryable`. Routes return 503 (retryable, the client retries
   once) or 502 (declined) with a human reason. The coach's first reply (`sentence-coach.ts`,
   `sentence-translate.ts`) uses it; unit tests in `services/__tests__/structured-call.test.ts`.
+
+### Claude agent harness (read before adding or changing a Claude chat)
+`worker/src/services/claude-agent/` is THE one place every Claude chat turn goes through — `runClaudeTurn(env, ctx, input)`
+(`index.ts`). Today: Ask Claude on a card (`routes/ask-claude.ts`), Sentence Coach follow-ups (`services/coach-replies.ts`
+`defaultChat`, its checkpoint via `applyCheckpointed`), the Coach's "💬 Ask Claude" chat (`claude-chat.ts`
+`defaultCoachAskReply`) and Discuss with Claude (`POST /api/messages/:id/discuss` in index.ts). Design + later PRs:
+the unified-Claude-chats plan (thread store, streaming, memory) builds on this.
+- `types.ts` — `ClaudeContext` (`general` · `card` {note_id, typed?} · `coach` · `chat_message` {message_id}), `TurnInput`
+  (userId, the whole conversation `turns` — the last is the learner's —, language), `TurnResult` (answer, `toolActions`
+  for the caller to apply, `readOnlyToolCalls`, rounds), `ContextProvider`, and the **seam** `AgentRuntime.runTurn(prepared)`.
+- `contexts/<kind>.ts` — one provider per context: `load` (ownership check → `ClaudeContextError` 404 / 403, data in one
+  D1 batch), `persona` (static, cached), `learner` (cached), `systemBlock`, `frameFirstTurn` (the card's facts / the
+  discussed message ride in the FIRST user message, so the cached prefix is the same for every card), `tools` (names, in
+  order), `deferredAck`, `finish`. **A new context = one provider file + a line in `contexts/index.ts` + its tools'
+  `contexts` in the registry** (and a kind in `types.ts`).
+- `persona.ts` — the static rules of every context (the old Ask / coach / Ask-chat / discuss prompts, byte-identical),
+  `CHAT_TOOL_RULE`, `BUMP_PROMPT_RULE`, the immersion rules. `learner.ts` — the known-words sample (deterministic per user
+  and day). `prompt.ts` — assembly order: tools → persona → learner → context block → messages (≤ 4 cache breakpoints).
+- `tools/registry.ts` — every tool declared ONCE: schema, `kind` (`read` run inline · `write` collected for the caller ·
+  `lesson` validated inline) and the contexts allowed to use it (`bindTools` throws on any other; `wording` keeps a
+  context's old description where it differed). Executors in `tools/read.ts`. A tool a context doesn't offer is never run.
+- `model.ts` — `MODEL_POLICY` (the only place a chat's model / thinking is chosen), `chatTurnParams`, cache helpers,
+  `ChatTurnMeter` → `server.claude_turn`, `createAnthropicClient` (the client seam tests mock). `run.ts` — `WorkerRuntime`
+  (the tool loop, round cap per context, `onRound` hook) and `applyCheckpointed`.
+- **Swapping the harness** (Agent SDK, streaming, a per-thread Durable Object): implement `AgentRuntime` and make it the
+  default in `index.ts` (or pass `runtime`); contexts, prompts and tools stay.
+- **Privacy (tested, `__tests__/privacy.test.ts`)**: no context or tool reads `student_profiles` (the tutor's private
+  note) — the learner's agent sees the learner's own rows only. Tests: `__tests__/harness.test.ts` (fake model: tool loop,
+  round cap, cache breakpoints per context, allow-lists, access checks).
 
 ### Card standard (the house style for every card)
 `shared/cards/standard.ts` holds `CARD_STANDARD`, the one text every Claude that makes cards reads:
@@ -1297,9 +1326,9 @@ alternative **▶ + 🎤 Practise saying it** (`shared/coach/practise.ts` `pract
 (surface `coach_practise`, autoSubmit), Lab `ui/coach/CoachPractise.kt` + core `CoachPractise.kt`, parity-tested; tap 🎤
 again / Enter / a tap on the card stops; nothing stored; `coach.practise_say { result }`); "🎯 Mini lesson on this
 mistake" is a button on the check's card; the follow-up composer's 🎤 says **"🎤 Respond"** (`COACH_RESPOND_LABEL`,
-`sayLabel`). Everything deeper is a question in the follow-up chat, where `coachChatWithTools` (a chat turn:
-`SONNET_MODEL`, thinking off, prompt caching — `services/chat-turn.ts`) has `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
-coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_SCHEMA` in `services/ai.ts`:
+`sayLabel`). Everything deeper is a question in the follow-up chat, a `coach` turn of the Claude agent harness
+(`services/claude-agent/contexts/coach.ts`: `SONNET_MODEL`, thinking off, prompt caching) with `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
+coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_SCHEMA` in `services/claude-agent/tools/registry.ts` (re-exported by `services/ai.ts`):
 hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, translation) for word cards — the same
 fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
 Conversations persist (`coach_conversations` / `coach_messages` tables); the chat's tools are create_flashcards,
@@ -1318,7 +1347,7 @@ How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=
 - `POST /api/coach/conversations/:id/messages` - Follow-up message (agent loop with tools); `background: true` → 202 `[user, pending]` (409 while one is pending)
 - `POST /api/coach/conversations/:id/messages/:messageId/retry` - Re-queue a failed reply → 202
 - `DELETE /api/coach/conversations/:id` - Delete a conversation
-- `POST /api/coach/ask` - "💬 Ask Claude" (docs/CHAT.md "Ask Claude chat"): `{ message, language?: zh|en }` → 202 `{ conversation (kind 'ask'), messages: [user, pending] }` — a plain chat with Claude in simple Chinese (the Ask Claude immersion rules, `services/claude-chat.ts` = the ONE prompt + model module, from a context object), replies written by coach-reply-queue with `answer_lang`; follow-ups through `…/messages` with `language`; web `pages/ClaudeChatPage.tsx` + context-agnostic `components/claudeChat/` (thread: chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back via `useReadAloud`; composer), Lab `ui/claudechat/`; words to recap kept on the device (`services/claudeChatRecap.ts`, `shared/coach/askChat.ts`)
+- `POST /api/coach/ask` - "💬 Ask Claude" (docs/CHAT.md "Ask Claude chat"): `{ message, language?: zh|en }` → 202 `{ conversation (kind 'ask'), messages: [user, pending] }` — a plain chat with Claude in simple Chinese (the Ask Claude immersion rules, a `general` turn of the Claude agent harness, `services/claude-agent/` via `services/claude-chat.ts`), replies written by coach-reply-queue with `answer_lang`; follow-ups through `…/messages` with `language`; web `pages/ClaudeChatPage.tsx` + context-agnostic `components/claudeChat/` (thread: chips → explorer, ▶, 拼 / EN, 🎧, 🎤 Read it back via `useReadAloud`; composer), Lab `ui/claudechat/`; words to recap kept on the device (`services/claudeChatRecap.ts`, `shared/coach/askChat.ts`)
 - `POST /api/coach/conversations/:id/messages/:messageId/translate` → `{ translation, cached }` (kept in `coach_messages.translation`, migration 0143) · `POST /api/coach/conversations/:id/flashcards/propose { words? }` → `{ cards }` ("Make flashcards from this chat": the tapped / said-wrong words first)
 - `POST /api/coach/conversations/:id/mistake-lesson` - "🎯 Mini lesson on this mistake" (only after a check that found a mistake, `coachMistakeLessonOffered` in `shared/coach/mistakeLesson.ts`): 202 a pending `content_type: 'mistake_lesson'` message written by coach-reply-queue (`services/mistake-lesson.ts`: forced tool, thinking off, validateLessonSpec + shape checks, 2 repair rounds, pinyin checker), 200 `existing` — one per conversation, never regenerated. Played at `/coach/:c/lesson/:m` in the lesson player as a preview (nothing recorded); docs/CHAT.md
 - `POST /api/coach/conversations/:id/messages/:messageId/save-lesson` - `{ completion? }` → `{ lesson_id, title, completed, message }`: the lesson into Mini Lessons once (source `coach`); `completion` (a rating at the end of the preview) is recorded like an offline completion so it is scheduled from that rating

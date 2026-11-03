@@ -734,8 +734,8 @@ voice transcripts get the mark and the sheet ("You wrote" = the caption / transc
 - With `background: true` (both apps send it; older clients still get the inline answer) the start and every follow-up
   store the learner's message plus a PENDING assistant message (`coach_messages.status = 'pending'`) and return at once
   (202). `coach-reply-queue` (`max_batch_size = 1`, `max_batch_timeout = 0`) runs `runCoachReply`: claim (`attempts`,
-  `started_at`), the first analysis (check / explain / translate) or the follow-up agent (`coachChatWithTools`), then the
-  tool actions through the content service. Checkpoint: the model's answer + actions are saved BEFORE any action runs and
+  `started_at`), the first analysis (check / explain / translate) or the follow-up agent (a `coach` turn of the Claude agent harness,
+  `services/claude-agent/`), then the tool actions through the content service (`applyCheckpointed`). Checkpoint: the model's answer + actions are saved BEFORE any action runs and
   `applied` after each, so a redelivery never asks Claude again nor makes a card twice. Busy / dropped model (429 / 5xx /
   network) → `retry` (another delivery 10 s later), ≤ 3 attempts; a refusal or the last attempt → `status = 'failed'` with
   a readable `error`. `POST …/messages/:id/retry` re-queues it (checkpoint kept). A reply pending > 10 minutes (a lost
@@ -847,12 +847,12 @@ a flashcard."
   message, made on request.
 - **Replies** go through the Coach's background path (`coach-reply-queue`, `runCoachReply`, claim,
   ≤ 3 deliveries, stale sweep, Retry; the page polls every second while one is pending, every 2.5 s
-  after 15 s — `coachReplyPollMs`). The prompt and
-  the model call are ONE module, `worker/src/services/claude-chat.ts`, from a context object
-  (`ClaudeChatContext { kind: 'ask', language, userId, knownWords? }`): a chat turn
-  (`services/chat-turn.ts`: `SONNET_MODEL`, thinking off, no tools, prompt caching on the static rules +
-  the learner block + the conversation's tail; `server.claude_turn` surface `coach_ask`), the Ask Claude immersion rules without the card line (`GENERAL_IMMERSION_RULES` in
-  `ask-prompt.ts`) + a sample of his started words in Chinese mode; a Chinese answer is stored as
+  after 15 s — `coachReplyPollMs`). The reply is a `general` turn of the Claude agent harness
+  (`worker/src/services/claude-agent/`, called by `defaultCoachAskReply` in `services/claude-chat.ts` with
+  `ClaudeChatContext { kind: 'ask', language, userId, knownWords? }`; CLAUDE.md "Claude agent harness"):
+  `SONNET_MODEL`, thinking off, no tools, prompt caching on the static rules +
+  the learner block + the conversation's tail; `server.claude_turn` surface `coach_ask`; the Ask Claude immersion rules without the card line (`GENERAL_IMMERSION_RULES` in
+  `claude-agent/persona.ts`) + a sample of his started words in Chinese mode; a Chinese answer is stored as
   plain text (`plainAnswerText`). With 🎧 Listen first on, the reply's Read-aloud clip is made right
   after it is written (`pregenerateAskClip`). Each reply logs `[coach] ask reply {model_ms, since_sent_ms}`;
   the apps track `coach.ask_reply { ms, first }` (send → reply on screen).

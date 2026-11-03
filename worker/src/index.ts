@@ -38,7 +38,8 @@ import {
   parseLearningSteps,
 } from './services/anki-scheduler';
 import { fakeGeneratedDeck } from './services/generate-deck-fake';
-import { generateDeck, suggestCards, askAboutNoteWithTools, coachChatWithTools, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions, discussMessage } from './services/ai';
+import { generateDeck, suggestCards, generateAIConversationResponse, generateAIConversationOpener, checkUserMessage, generateIDontKnowOptions } from './services/ai';
+import { ClaudeContextError, discussTurns, proposedFlashcards, runClaudeTurn } from './services/claude-agent';
 import { analyzeSentence } from './services/sentence';
 import { coachSentence } from './services/sentence-coach';
 import { StructuredCallError } from './services/structured-call';
@@ -4116,51 +4117,17 @@ app.post('/api/messages/:id/discuss', async (c) => {
   }
 
   try {
-    // Get the message
-    const message = await c.env.DB
-      .prepare('SELECT * FROM messages WHERE id = ?')
-      .bind(msgId)
-      .first<{ id: string; conversation_id: string; sender_id: string; content: string }>();
-
-    if (!message) {
-      return c.json({ error: 'Message not found' }, 404);
-    }
-
-    // Verify user has access to this conversation
-    const conv = await c.env.DB
-      .prepare('SELECT * FROM conversations WHERE id = ?')
-      .bind(message.conversation_id)
-      .first<{ id: string; relationship_id: string }>();
-
-    if (!conv) {
-      return c.json({ error: 'Conversation not found' }, 404);
-    }
-
-    // Verify relationship access
-    const rel = await c.env.DB
-      .prepare('SELECT * FROM tutor_relationships WHERE id = ? AND status = ? AND (requester_id = ? OR recipient_id = ?)')
-      .bind(conv.relationship_id, 'active', userId, userId)
-      .first();
-
-    if (!rel) {
-      return c.json({ error: 'Access denied' }, 403);
-    }
-
-    // Get chat context (surrounding messages)
-    const chatContext = await getChatContext(c.env.DB, message.conversation_id, userId);
-
-    // Call AI discussion with DB context for read-only tools
-    const result = await discussMessage(
-      c.env.ANTHROPIC_API_KEY,
-      message.content,
-      question.trim(),
-      chatContext,
-      conversationHistory,
-      { db: c.env.DB, userId }
+    // A `chat_message` turn of the Claude agent harness: the context checks the caller may see the
+    // message (404 / 403) and loads the chat around it (services/claude-agent/contexts/chat_message.ts).
+    const result = await runClaudeTurn(
+      c.env,
+      { kind: 'chat_message', message_id: msgId },
+      { userId, turns: discussTurns(question.trim(), conversationHistory) },
     );
 
-    return c.json(result);
+    return c.json({ response: result.answer, flashcards: proposedFlashcards(result.toolActions) });
   } catch (error) {
+    if (error instanceof ClaudeContextError) return c.json({ error: error.message }, error.status);
     console.error('Discuss message error:', error);
     const errMsg = error instanceof Error ? error.message : 'Failed to discuss message';
     return c.json({ error: errMsg }, 500);
