@@ -23,12 +23,14 @@ import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import type { AnswerCheckState } from '../../hooks/useAnswerCheck';
 import './AnswerCheckCard.css';
 
-export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk }: {
+export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk, askLabel }: {
   state: AnswerCheckState;
   answer: string;
   speak: (text: string) => void;
   onRetry?: () => void;
   onAsk?: () => void;
+  /** The 💬 button's words (default "💬 Ask about this"). */
+  askLabel?: string;
 }) {
   if (state.status === 'checking') {
     return (
@@ -38,15 +40,16 @@ export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk }: {
     );
   }
   if (state.status !== 'done') return null;
-  return <AnswerCheckBody check={state.check} answer={answer} speak={speak} onRetry={onRetry} onAsk={onAsk} />;
+  return <AnswerCheckBody check={state.check} answer={answer} speak={speak} onRetry={onRetry} onAsk={onAsk} askLabel={askLabel} />;
 }
 
-export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact, afterHead }: {
+export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel, compact, afterHead }: {
   check: AnswerCheck;
   answer: string;
   speak?: (text: string) => void;
   onRetry?: () => void;
   onAsk?: () => void;
+  askLabel?: string;
   /** The attempt review: no actions, no audio. */
   compact?: boolean;
   /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
@@ -132,7 +135,7 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, compact,
       {(onRetry || onAsk) && (
         <div className="answer-check-actions">
           {onRetry && <button type="button" className="answer-check-action" onClick={onRetry} data-testid="answer-check-retry">🔁 Try again</button>}
-          {onAsk && <button type="button" className="answer-check-action" onClick={onAsk} data-testid="answer-check-ask">💬 Ask about this</button>}
+          {onAsk && <button type="button" className="answer-check-action" onClick={onAsk} data-testid="answer-check-ask">{askLabel ?? '💬 Ask about this'}</button>}
         </div>
       )}
     </div>

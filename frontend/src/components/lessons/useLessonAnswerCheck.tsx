@@ -3,7 +3,9 @@
  * views change by a few lines (TranslateExercise, ListenTranslateExercise):
  *   - `onFinal(text, source)` when the answer is final (typed submit / transcript final) → the check
  *     starts at once, when `answerCheckApplies` (an answer in Chinese);
- *   - `view(answer, speak)` → the card under "You said" + the 💬 sheet;
+ *   - `view(answer, speak)` → the card under "You said" + 💬: in a real run of one of his lessons the
+ *     exercise's Claude thread (ExerciseClaude.tsx — his answer and the check ride with it), else the
+ *     old inline "Ask about this" chat (a preview / the catalogue have no stored lesson);
  *   - `suggested` → the button to ring; `report(answer)` adds the check + every earlier try;
  *   - `retry()` keeps this try and clears the check; the exercise then shows its input again.
  */
@@ -15,6 +17,7 @@ import type { ExerciseAnswer } from '@shared/lesson';
 import { useAnswerCheck } from '../../hooks/useAnswerCheck';
 import { AnswerCheckCard } from './AnswerCheckCard';
 import { AskAboutAnswerSheet } from './AskAboutAnswerSheet';
+import { exerciseAnswerOf, useExerciseClaude } from './ExerciseClaude';
 import { track } from '../../services/analytics';
 
 type Source = 'spoken' | 'edited' | 'typed';
@@ -35,6 +38,7 @@ export function useLessonAnswerCheck(ctx: {
   const [input, setInput] = useState<AnswerCheckInput | null>(null);
   const [tries, setTries] = useState<AnswerTry[]>([]);
   const [asking, setAsking] = useState(false);
+  const exerciseClaude = useExerciseClaude();
 
   function onFinal(text: string, source: Source | null | undefined) {
     if (!ctx.promptEn || !answerCheckApplies(ctx.exerciseType, text)) {
@@ -85,7 +89,8 @@ export function useLessonAnswerCheck(ctx: {
           answer={answer}
           speak={speak}
           onRetry={retry}
-          onAsk={() => setAsking(true)}
+          onAsk={() => (exerciseClaude ? exerciseClaude.ask('answer_check', exerciseAnswerOf(input.answer, check)) : setAsking(true))}
+          askLabel={exerciseClaude ? '💬 Ask Claude' : undefined}
         />
         {asking && <AskAboutAnswerSheet input={input} check={check} onClose={() => setAsking(false)} />}
       </>

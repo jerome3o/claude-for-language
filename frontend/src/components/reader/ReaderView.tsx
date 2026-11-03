@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { track } from '../../services/analytics';
 import type { LocalReader, LocalReaderPage } from '../../db/database';
 import { cacheReaderNarration, updateLocalReaderPageImage } from '../../services/readerSync';
@@ -15,10 +15,15 @@ import { useBackLevels } from '../../hooks/useBackLevels';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
 import type { ReaderWord } from '@shared/reader/words';
 import { recapPromptLine } from '@shared/study/wordRecap';
-import { offerRecap, useRecapCollector, type RecapCollector } from '../../services/wordRecap';
+import { getRecapRun, offerRecap, useRecapCollector, type RecapCollector } from '../../services/wordRecap';
+import { readerPageWords } from '@shared/claude/contexts';
+import type { ClaudeContextSnapshot, ClaudeThreadContext } from '@shared/claude/context';
 import '../../pages/ReaderPage.css';
 import '../../pages/StudyPage.css';
 import '../StudyReader.css';
+
+// Loaded on first use: the thread view is a big chunk the reading / lesson screens rarely need.
+const ContextClaudeSheet = lazy(() => import('../claude/ContextClaudeSheet'));
 
 /**
  * Illustrations are generated lazily: a page with image_url null but an
@@ -243,6 +248,7 @@ export type ReaderViewSource = 'session' | 'homework' | 'library';
 export function ReaderView({
   reader,
   source,
+  initialPage = 0,
   topbarStart,
   topbarEnd,
   isFinishing,
@@ -250,6 +256,8 @@ export function ReaderView({
 }: {
   reader: ReaderViewData;
   source: ReaderViewSource;
+  /** The page to open on (0-based; `/readers/:id?page=` from a Claude thread's chip). */
+  initialPage?: number;
   /** The top bar's left side: the session's queue counts, a "Homework" label, ← back… */
   topbarStart: ReactNode;
   /** The top bar's right side: ✕, or the reader page's Edit / Anki / difficulty. */
@@ -258,8 +266,11 @@ export function ReaderView({
   /** Read: Finish was pressed, or the whole story was listened to the end. */
   onFinish: (timeSpentMs: number, how: ReaderFinishHow) => void;
 }) {
-  const [currentPage, setCurrentPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(() => Math.min(Math.max(0, initialPage), Math.max(0, reader.pages.length - 1)));
   const [startTime] = useState(Date.now());
+  // 📖 Ask Claude about this page: the page's Claude thread in a sheet (its context + the words he
+  // looked up / misread on it in this reading, from the word recap's run).
+  const [asking, setAsking] = useState<{ context: ClaudeThreadContext & ClaudeContextSnapshot; fields: Record<string, unknown>; words: number } | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [storyPlaying, setStoryPlaying] = useState(false);
   const [storyNote, setStoryNote] = useState<string | null>(null);
@@ -365,6 +376,20 @@ export function ReaderView({
 
   const storyLabel = storyPlaying ? 'Stop the story' : currentPage === 0 ? 'Play whole story' : 'Play the rest';
 
+  const askClaude = async () => {
+    if (takeRef.current) return;
+    const index = Math.min(currentPage, reader.pages.length - 1);
+    const p = reader.pages[index];
+    const run = await getRecapRun(reader.id).catch(() => null);
+    const words = readerPageWords(run?.words ?? [], index);
+    const fields = { looked_up: words.looked_up ?? null, said_wrong: words.said_wrong ?? null };
+    setAsking({
+      context: { kind: 'reader', reader_id: reader.id, page_id: p.id, page: index + 1, ...words, label: reader.title_chinese },
+      fields,
+      words: (words.looked_up?.length ?? 0) + (words.said_wrong?.length ?? 0),
+    });
+  };
+
   return (
     <div className="study-fullscreen" data-testid="reader-view">
       {/* While a take is under way a tap on the top bar (✕ / ← / Edit…) stops the take first —
@@ -416,6 +441,17 @@ export function ReaderView({
               <span className="study-reader-story-icon" aria-hidden="true">{storyPlaying ? '■' : '▶'}</span>
             </button>
             <div className="study-reader-label">📖 Graded Reader</div>
+            <button
+              type="button"
+              className="study-reader-ask-btn"
+              onClick={() => void askClaude()}
+              disabled={!!take}
+              data-testid="reader-ask-claude"
+              aria-label="Ask Claude about this page"
+              title="Ask Claude about this page"
+            >
+              <span className="study-reader-story-icon" aria-hidden="true">💬</span>
+            </button>
           </div>
           <div className="hanzi" style={{ fontSize: '1.25rem', fontWeight: 600 }}>{reader.title_chinese}</div>
           <div className="text-light" style={{ fontSize: '0.8125rem' }} data-testid="study-reader-page-label">
@@ -426,6 +462,19 @@ export function ReaderView({
 
         <ReaderPageBody key={page.id} readerId={reader.id} page={page} pageIndex={Math.min(currentPage, reader.pages.length - 1)} story={story} recap={recap} onTakeLock={setTake} />
       </div>
+
+      {asking && (
+        <Suspense fallback={null}>
+        <ContextClaudeSheet
+          context={asking.context}
+          fields={asking.fields}
+          label="Ask Claude about this page"
+          source="reader"
+          onResolved={(resumed) => track('reader.ask_claude', { from: 'toolbar', resumed, words: asking.words })}
+          onClose={() => setAsking(null)}
+        />
+        </Suspense>
+      )}
 
       {/* Fixed footer: page navigation, or Finish once the last page is reached — or, while a
           🎤 take is under way, ONE big red ■ Stop recording in its place. */}

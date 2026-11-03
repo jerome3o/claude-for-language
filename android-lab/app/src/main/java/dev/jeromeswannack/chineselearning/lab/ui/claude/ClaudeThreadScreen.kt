@@ -129,8 +129,10 @@ data class ClaudeThreadUi(
     val review: ReviewUi? = null,
     val decks: List<DeckChoice> = emptyList(),
     val notice: String? = null,
+    /** A reader / exercise thread: its context's fields on this showing (the chips read them; sent with each question). */
+    val fields: dev.jeromeswannack.chineselearning.lab.data.claude.ContextFields? = null,
 ) {
-    val core: ClaudeChats.Context get() = context.core()
+    val core: ClaudeChats.Context get() = context.core().let { c -> fields?.let { withFields(c, it) } ?: c }
     val readOnly: Boolean get() = context.kind == ClaudeChats.PRACTICE || threadReadOnly
     val replyPending: Boolean get() = messages.any { it.role == "assistant" && it.status == "pending" && it.content_type != CoachMistakeLesson.CONTENT_TYPE }
     val busy: Boolean get() = sending != null || replyPending
@@ -262,6 +264,8 @@ fun ClaudeThreadScreen(
         when {
             general -> CoachAsk.LABEL
             ui.context.kind == ClaudeChats.CARD && !ui.context.label.isNullOrBlank() -> "Ask about ${ui.context.label}"
+            ui.context.kind == ClaudeChats.READER -> "Ask about this page"
+            ui.context.kind == ClaudeChats.EXERCISE -> "Ask about this exercise"
             else -> chip?.text ?: CoachAsk.LABEL
         }
     }
@@ -335,6 +339,14 @@ fun ClaudeThreadScreen(
                                     ui.language == AskClaude.ZH -> "Claude answers in simple Chinese. Tap any word to look it up · hold a message to translate it. Ask anything about this card — or tap a suggestion below."
                                     else -> "Ask Claude anything about this card — or tap a suggestion below."
                                 },
+                                color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
+                            )
+                            ui.context.kind == ClaudeChats.READER -> Text(
+                                "Ask Claude about this page — what a sentence means, a word, the grammar — or tap a suggestion below. Claude can see the page and the words you looked up.",
+                                color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
+                            )
+                            ui.context.kind == ClaudeChats.EXERCISE -> Text(
+                                "Ask Claude about this exercise — why the answer is what it is, another example, one more to try — or tap a suggestion below.",
                                 color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY),
                             )
                             else -> Text("Ask Claude anything about it — tap a suggestion below to start.", color = Lab.colors.muted, modifier = Modifier.testTag(ClaudeThreadTags.EMPTY))
@@ -501,4 +513,25 @@ private fun MenuRow(label: String, enabled: Boolean, tag: String, onClick: () ->
             .padding(horizontal = 20.dp).testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) { Text(label, color = Lab.colors.ink, fontSize = 16.sp, modifier = Modifier.weight(1f)) }
+}
+
+/**
+ * A reader / exercise thread's context with the fields of this showing (the web's chips read
+ * `{ ...ctx, ...contextFields }`): a page's looked-up / misread words, an exercise's answer + verdict.
+ */
+internal fun withFields(c: ClaudeChats.Context, f: dev.jeromeswannack.chineselearning.lab.data.claude.ContextFields): ClaudeChats.Context {
+    fun words(e: kotlinx.serialization.json.JsonElement?, keep: List<String>): List<String> = when (e) {
+        null -> keep
+        is kotlinx.serialization.json.JsonArray -> e.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+        else -> emptyList()
+    }
+    return when (c.kind) {
+        ClaudeChats.READER -> c.copy(lookedUp = words(f.lookedUp, c.lookedUp), saidWrong = words(f.saidWrong, c.saidWrong))
+        ClaudeChats.EXERCISE -> {
+            val a = f.answer ?: return c
+            val obj = a as? kotlinx.serialization.json.JsonObject
+            c.copy(hasAnswer = obj != null, answerVerdict = (obj?.get("verdict") as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content)
+        }
+        else -> c
+    }
 }

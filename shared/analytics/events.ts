@@ -236,6 +236,7 @@ export const ANALYTICS_EVENTS = {
 
   // ── readers ────────────────────────────────────────────────────────────
   'reader.open': e('readers', 'Opened a graded reader.', ['source', 'pages']),
+  'reader.ask_claude': e('readers', '📖 Ask Claude about this page: the reader page\'s Claude thread opened (from = toolbar | menu; resumed = continued the page\'s recent thread; words = looked-up / misread words on the page sent with it).', ['from', 'resumed', 'words']),
   'reader.finish': e('readers', 'Finished a reader (Finish button, or listened to the end with Play whole story). Old events carry a rating.', ['how', 'rating', 'pages']),
   'reader.story_play': e('readers', 'Started "▶ Play whole story" (pages play one after another, turning the pages).', ['from_page', 'pages', 'speed', 'offline']),
   'reader.story_stop': e('readers', 'Stopped "Play whole story" before the end.', ['page', 'pages']),
@@ -334,7 +335,8 @@ export const ANALYTICS_EVENTS = {
   'lesson.catalogue_try': e('lessons', 'Tried a catalogue sample lesson.', ['exercise_type']),
   'lesson.answer_check': e('lessons', 'Claude checked a self-assessed lesson answer (docs/STUDY_SESSION.md "Claude checks your answer"; verdict correct / acceptable / almost / wrong / error / offline, ms = wait, cached = server or device cache, try = 1 for the first answer; local = the answer was exactly the model answer, checked on the device with no model call).', ['verdict', 'ms', 'cached', 'local', 'exercise_type', 'input', 'try']),
   'lesson.answer_retry': e('lessons', '🔁 Try again on a checked lesson answer (verdict = the check of the answer being retried).', ['verdict', 'exercise_type', 'try']),
-  'lesson.answer_ask': e('lessons', '💬 Ask about this on a checked lesson answer: a question sent (turn = its number in the chat).', ['verdict', 'exercise_type', 'turn']),
+  'lesson.answer_ask': e('lessons', '💬 Ask about this on a checked lesson answer: a question sent (turn = its number in the chat). Old app builds; replaced by lesson.exercise_ask (the exercise\'s Claude thread).', ['verdict', 'exercise_type', 'turn'], { replacedBy: 'lesson.exercise_ask' }),
+  'lesson.exercise_ask': e('lessons', '💬 Ask Claude on a mini lesson exercise: the exercise\'s Claude thread opened (from = answer_check | toolbar; exercise_type; verdict of his checked answer, none without one; resumed = continued the exercise\'s recent thread).', ['from', 'exercise_type', 'verdict', 'resumed']),
   'lesson.speaking_transcribed': e('lessons', 'A free-speaking take in a mini lesson (oral_expression / speak) was transcribed for Claude\'s check (docs/STUDY_SESSION.md "Claude checks your speaking"; via = live / upload / offline / failed, live_error = why the live stream gave nothing, ms = wait after Stop, seconds = length of the take).', ['via', 'live_error', 'ms', 'seconds', 'exercise_type']),
   'lesson.conversation_audio_open': e('lessons', 'Opened the ⚙︎ Audio menu on a conversation exercise.', ['provider']),
   'lesson.conversation_audio_speed': e('lessons', 'Changed the conversation speed (Audio menu or Settings).', ['speed', 'provider', 'source']),
@@ -363,7 +365,7 @@ export const ANALYTICS_EVENTS = {
   'coach.ask_recap_start': e('coach', '📝 "N words to recap" in an Ask Claude chat\'s ⋯ menu: started the word recap pass (the readers\' one) over the words tapped / read back wrong in the chat — from = menu; words = how many.', ['from', 'words']),
   'coach.ask_recap_finish': e('coach', '📝 Ask Claude chat word recap: Done — words = in the recap, got_it_first_time, added = switched to "Add to my long-term review" (new cards in "From my chats"), bumped = "⚡ Study it today".', ['words', 'got_it_first_time', 'added', 'bumped']),
   'coach.mistake_lesson_written': e('coach', 'A coach mistake lesson was written (exercises, distinct types, model rounds incl. repairs).', ['exercises', 'types', 'rounds'], { server: true }),
-  'claude.thread_open': e('chat', 'Opened a Claude thread (the unified thread view; context_kind = general | card | practice | chat_message; source = coach | coach_link | chats | card | link; resumed = continued an existing thread rather than a new one).', ['context_kind', 'source', 'resumed']),
+  'claude.thread_open': e('chat', 'Opened a Claude thread (the unified thread view; context_kind = general | card | practice | chat_message | reader | exercise; source = coach | coach_link | chats | card | link; resumed = continued an existing thread rather than a new one).', ['context_kind', 'source', 'resumed']),
   'claude.message_send': e('chat', 'Sent a message in a Claude thread (context_kind; intent = ask | check | explain | translate; offline = queued until a connection; chip = sent from a suggestion chip; spoken = said with 🎤).', ['context_kind', 'intent', 'offline', 'chip', 'spoken']),
   'claude.thread_action': e('chat', 'Did something to a Claude thread from its screen (action = new: started a fresh chat about the card | switch: opened an earlier one from "Earlier about 银行"; context_kind).', ['action', 'context_kind']),
   'claude.undo_card_edit': e('study', 'Undid an edit Claude made to the card in Ask Claude ("✓ Claude edited this card · Undo").', ['context_kind']),

@@ -37,6 +37,17 @@ class ClaudeChatsParityTest {
             scenario = o["scenario"].str,
             label = o["label"].str,
             typed = o["typed"]?.jsonPrimitive?.booleanOrNull ?: false,
+            readerId = o["reader_id"].str,
+            pageId = o["page_id"].str,
+            page = o["page"]?.jsonPrimitive?.int,
+            lookedUp = o["looked_up"]?.let { strings(it) } ?: emptyList(),
+            saidWrong = o["said_wrong"]?.let { strings(it) } ?: emptyList(),
+            lessonId = o["lesson_id"].str,
+            exerciseKey = o["exercise_key"].str,
+            exerciseType = o["exercise_type"].str,
+            // answer_verdict absent = no answer; null = an answer without a check.
+            hasAnswer = o.containsKey("answer_verdict"),
+            answerVerdict = o["answer_verdict"].str,
         )
     }
 
@@ -82,7 +93,11 @@ class ClaudeChatsParityTest {
             val want = if (w == null || w is JsonNull) null else w.jsonObject.let { h ->
                 val l = h["link"]
                 val link = if (l == null || l is JsonNull) null else l.jsonObject.let {
-                    ClaudeChats.Link(it["kind"].str!!, noteId = it["note_id"].str, messageId = it["message_id"].str, conversationId = it["conversation_id"].str)
+                    ClaudeChats.Link(
+                        it["kind"].str!!, noteId = it["note_id"].str, messageId = it["message_id"].str, conversationId = it["conversation_id"].str,
+                        readerId = it["reader_id"].str, page = it["page"]?.let { p -> if (p is JsonNull) null else p.jsonPrimitive.int },
+                        lessonId = it["lesson_id"].str, exerciseKey = it["exercise_key"].str,
+                    )
                 }
                 ClaudeChats.HeaderChip(h["icon"].str!!, h["text"].str!!, link)
             }
@@ -100,6 +115,20 @@ class ClaudeChatsParityTest {
         for (c in f["resume"]!!.jsonArray) {
             val o = c.jsonObject
             assertEquals(o["out"].str, ClaudeChats.resumeThreadFor(threads, ctx(o["ctx"]), now), o.toString())
+        }
+    }
+
+    @Test
+    fun readerPageWords() {
+        val words = f["recapWords"]!!.jsonArray.map { w ->
+            val o = w.jsonObject
+            ClaudeChats.RecapWordLike(o["hanzi"].str!!, o["page"]!!.jsonPrimitive.int, o["pos"]!!.jsonPrimitive.int, strings(o["reasons"]))
+        }
+        for (c in f["pageWords"]!!.jsonArray) {
+            val o = c.jsonObject
+            val out = o["out"]!!.jsonObject
+            val want = ClaudeChats.PageWords(out["looked_up"]?.let { strings(it) } ?: emptyList(), out["said_wrong"]?.let { strings(it) } ?: emptyList())
+            assertEquals(want, ClaudeChats.readerPageWords(words, o["page"]!!.jsonPrimitive.int), o.toString())
         }
     }
 

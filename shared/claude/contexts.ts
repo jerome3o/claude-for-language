@@ -11,7 +11,7 @@
 import { coachButtons } from '../coach/actions';
 import { THREAD_GAP_MS } from '../chats/threads';
 import type { AskLanguage } from '../study/askClaude';
-import { contextBadge, contextRef, type ClaudeContextKind, type ClaudeIntent, type ClaudeThreadContext, type StoredClaudeContext } from './context';
+import { contextBadge, contextRef, READER_CONTEXT_WORDS_MAX, type ClaudeContextKind, type ClaudeIntent, type ClaudeThreadContext, type StoredClaudeContext } from './context';
 
 // ---------- Suggestion chips ----------
 
@@ -99,6 +99,61 @@ function chatMessageChips(zh: boolean): ClaudeChip[] {
   ];
 }
 
+/**
+ * A page of a graded reader ("📖 Ask Claude about this page"): what the page means, its grammar, a quiz
+ * on it — and, when he tapped / misread words on this page, those words first.
+ */
+function readerChips(zh: boolean, ctx: { looked_up?: readonly string[]; said_wrong?: readonly string[] }): ClaudeChip[] {
+  const list: ClaudeChip[] = [];
+  if ((ctx.looked_up?.length ?? 0) + (ctx.said_wrong?.length ?? 0) > 0) {
+    list.push(chip('my_words', zh, '我查的词 The words I looked up', 'The words I looked up', '请解释一下我在这一页查过的词和读错的词。', 'Explain the words I looked up or read wrong on this page, each in its sentence.'));
+  }
+  list.push(
+    chip('page_meaning', zh, '这页讲什么 What does this page mean?', 'What does this page mean?', '这一页讲的是什么？请一句一句地说一说。', 'What does this page mean? Go through it sentence by sentence.'),
+    chip('grammar', zh, '语法 Explain the grammar in this sentence', 'Explain the grammar in this sentence', '请讲一下这一页句子里的语法。', 'Explain the grammar in the sentences on this page.'),
+    chip('quiz', zh, '考考我 Quiz me on this page', 'Quiz me on this page', '用这一页的内容考考我，一次问一个问题。', 'Quiz me on this page, one question at a time.'),
+  );
+  return list;
+}
+
+/** Exercise types answered by choosing (the "why is this the answer" chip). */
+const CHOICE_EXERCISES = ['choice', 'listen_choice', 'judge', 'gap_choice', 'match'];
+/** Exercise types where he writes or says his own Chinese (a model answer to compare with). */
+const OWN_ANSWER_EXERCISES = ['translate', 'listen_translate', 'speak', 'oral_expression', 'describe_image', 'sentence_making', 'write_typed', 'write_handwriting', 'dictation'];
+
+/**
+ * One exercise of a mini lesson ("💬 Ask Claude" on it): "Why is my answer wrong?" when his checked
+ * answer was wrong / almost, else "Is my answer OK?" when he has one; the explanation that fits the
+ * type (the right answer / the model answer / the word order / the note); another example; one more
+ * like it.
+ */
+function exerciseChips(zh: boolean, ctx: { exercise_type?: string; answer?: { verdict?: string } }): ClaudeChip[] {
+  const list: ClaudeChip[] = [];
+  const type = ctx.exercise_type ?? '';
+  const verdict = ctx.answer?.verdict;
+  if (ctx.answer && (verdict === 'wrong' || verdict === 'almost')) {
+    list.push(chip('why_wrong', zh, '为什么错了 Why is my answer wrong?', 'Why is my answer wrong?', '我的答案为什么不对？应该怎么说？', 'Why is my answer wrong? What should I have said, and why?'));
+  } else if (ctx.answer) {
+    list.push(chip('my_answer', zh, '我的答案 Is my answer OK?', 'Is my answer OK?', '我的答案自然吗？还可以怎么说？', 'Is my answer natural? How else could I say it?'));
+  }
+  if (type === 'note') {
+    list.push(chip('explain', zh, '讲一讲 Explain this note', 'Explain this note', '请用更简单的话讲一讲这个语法点。', 'Explain this point again in simpler words, with one more example.'));
+  } else if (type === 'scramble') {
+    list.push(chip('explain', zh, '语序 Explain the word order', 'Explain the word order', '这个句子为什么是这个语序？', 'Why are the words in this order? Explain the structure.'));
+  } else if (CHOICE_EXERCISES.includes(type)) {
+    list.push(chip('explain', zh, '为什么 Explain the right answer', 'Explain the right answer', '为什么这个是对的答案？别的为什么不对？', 'Why is the right answer right, and why are the others wrong?'));
+  } else if (OWN_ANSWER_EXERCISES.includes(type)) {
+    list.push(chip('explain', zh, '参考答案 Explain the model answer', 'Explain the model answer', '请解释一下参考答案，一个词一个词地说。', 'Explain the model answer word by word.'));
+  } else {
+    list.push(chip('explain', zh, '讲一讲 Explain this exercise', 'Explain this exercise', '请讲一讲这个练习考的是什么。', 'What is this exercise practising? Explain it.'));
+  }
+  list.push(
+    chip('example', zh, '再来一个例子 Give me another example', 'Give me another example', '请再给我一个例子。', 'Give me another example of this, with pinyin and English.'),
+    chip('one_more', zh, '再练一个 One more like this', 'One more like this', '给我出一个类似的小练习，先别告诉我答案。', 'Give me one more exercise like this to try — don’t tell me the answer yet.'),
+  );
+  return list;
+}
+
 /** After Claude's first reply, at most this many chips stay above the composer. */
 export const CHIPS_AFTER_REPLY_MAX = 3;
 
@@ -118,7 +173,10 @@ export interface ChipOptions {
  * The suggestion chips above a thread's composer: shown while the thread is empty and after each
  * reply (at most three then). A practice chat (read-only) has none.
  */
-export function chipsFor(ctx: Pick<ClaudeThreadContext, 'kind'> & { typed?: unknown }, opts: ChipOptions): ClaudeChip[] {
+export function chipsFor(
+  ctx: Pick<ClaudeThreadContext, 'kind'> & { typed?: unknown; looked_up?: readonly string[]; said_wrong?: readonly string[]; exercise_type?: string; answer?: { verdict?: string } },
+  opts: ChipOptions,
+): ClaudeChip[] {
   const zh = opts.language === 'zh';
   let list: ClaudeChip[];
   switch (ctx.kind) {
@@ -130,6 +188,12 @@ export function chipsFor(ctx: Pick<ClaudeThreadContext, 'kind'> & { typed?: unkn
       break;
     case 'chat_message':
       list = chatMessageChips(zh);
+      break;
+    case 'reader':
+      list = readerChips(zh, ctx);
+      break;
+    case 'exercise':
+      list = exerciseChips(zh, ctx);
       break;
     default:
       return [];
@@ -165,7 +229,8 @@ export interface ClaudeComposer {
 /**
  * Which buttons a thread's composer offers for what is in the box. Check / Explain / Translate
  * only START a general chat (the server answers them with the Coach's structured reply), so a
- * general thread that already has messages — and every card / chat-message thread — has Ask only.
+ * general thread that already has messages — and every card / chat-message / reader / exercise
+ * thread — has Ask only.
  * A new general chat: Ask first, then the Coach's buttons for the text (`coachButtons`): Chinese →
  * ✏️ Check + 🔍 Explain, English → Translate; empty → Ask / Check / Explain, disabled.
  */
@@ -179,8 +244,13 @@ export function composerFor(kind: ClaudeContextKind, text: string, opts: { start
 
 // ---------- The header chip ----------
 
-/** Where the header chip leads: the card's hub, the chat the message is in, or nowhere. */
-export type ClaudeContextLink = { kind: 'card'; note_id: string } | { kind: 'chat_message'; message_id: string; conversation_id: string | null } | null;
+/** Where the header chip leads: the card's hub, the chat the message is in, the reader at that page, the lesson, or nowhere. */
+export type ClaudeContextLink =
+  | { kind: 'card'; note_id: string }
+  | { kind: 'chat_message'; message_id: string; conversation_id: string | null }
+  | { kind: 'reader'; reader_id: string; page: number | null }
+  | { kind: 'exercise'; lesson_id: string; exercise_key: string }
+  | null;
 
 export interface ClaudeHeaderChip {
   icon: string;
@@ -190,7 +260,8 @@ export interface ClaudeHeaderChip {
 
 /**
  * The context chip in a thread's header: "📇 Asked on card · 银行" (→ the card hub), "💬 From a chat
- * message" (→ that chat), "🎭 Practice · 点菜" (no link). A plain chat has none.
+ * message" (→ that chat), "📖 Reader · 成都 p.3" (→ the reader at that page), "🧩 Exercise · Translate"
+ * (→ the lesson), "🎭 Practice · 点菜" (no link). A plain chat has none.
  */
 export function headerChipFor(ctx: StoredClaudeContext): ClaudeHeaderChip | null {
   switch (ctx.kind) {
@@ -203,6 +274,14 @@ export function headerChipFor(ctx: StoredClaudeContext): ClaudeHeaderChip | null
     case 'practice': {
       const badge = contextBadge(ctx)!;
       return { icon: badge.icon, text: badge.text, link: null };
+    }
+    case 'reader': {
+      const badge = contextBadge(ctx)!;
+      return { icon: badge.icon, text: badge.text, link: { kind: 'reader', reader_id: ctx.reader_id, page: ctx.page ?? null } };
+    }
+    case 'exercise': {
+      const badge = contextBadge(ctx)!;
+      return { icon: badge.icon, text: badge.text, link: { kind: 'exercise', lesson_id: ctx.lesson_id, exercise_key: ctx.exercise_key } };
     }
     default:
       return null;
@@ -225,6 +304,9 @@ export interface ResumeCandidate {
 /** A card question within this long of the card's last one continues that thread (the server's rule too). */
 export const RESUME_WINDOW_MS = THREAD_GAP_MS;
 
+/** The contexts whose thread resumes only within RESUME_WINDOW_MS: a card, a reader page, an exercise. */
+const WINDOWED_KINDS: readonly ClaudeContextKind[] = ['card', 'reader', 'exercise'];
+
 function timeOf(iso: string | null | undefined): number {
   if (!iso) return Number.NaN;
   return Date.parse(iso);
@@ -232,8 +314,9 @@ function timeOf(iso: string | null | undefined): number {
 
 /**
  * Which existing thread opening Claude in a context continues, or null for a new one. A plain chat
- * never resumes (each is new). A card's newest thread resumes while its last message is within
- * RESUME_WINDOW_MS of now (the 30-minute rule the server groups card questions by); a chat
+ * never resumes (each is new). A card's, a reader page's or an exercise's newest thread resumes
+ * while its last message is within RESUME_WINDOW_MS of now (the 30-minute rule the server groups
+ * card questions by); a chat
  * message's or a practice chat's thread always resumes (one per message / chat). Archived threads
  * never do. Ties: the newest activity, then the id.
  */
@@ -246,7 +329,7 @@ export function resumeThreadFor(threads: readonly ResumeCandidate[], ctx: Claude
     const last = timeOf(t.last_message_at);
     const at = Number.isNaN(last) ? timeOf(t.created_at) : last;
     if (Number.isNaN(at)) continue;
-    if (ctx.kind === 'card' && nowMs - at > RESUME_WINDOW_MS) continue;
+    if (WINDOWED_KINDS.includes(ctx.kind) && nowMs - at > RESUME_WINDOW_MS) continue;
     if (!best || at > best.at || (at === best.at && t.id > best.id)) best = { id: t.id, at };
   }
   return best?.id ?? null;
@@ -290,4 +373,37 @@ export function turnStatusLine(status: 'thinking' | 'tool' | 'streaming' | 'done
   }
   if (status === 'thinking') return zh ? '想一想… Thinking…' : 'Thinking…';
   return null;
+}
+
+// ---------- A reader page's words for its context ----------
+
+/** A reader word recap word as `readerPageWords` reads it (shared/study/wordRecap.ts `WordRecapWord`). */
+export interface ReaderRecapWordLike {
+  hanzi: string;
+  /** 0-based page index. */
+  page: number;
+  /** Place on the page (story order). */
+  pos: number;
+  reasons: readonly string[];
+}
+
+/**
+ * The words of ONE page of this reading for the reader context ("📖 Ask Claude about this page"): the
+ * ones he tapped (`looked_up`) and the ones a 🎤 take heard wrong (`said_wrong`), in story order, each
+ * list ≤ READER_CONTEXT_WORDS_MAX. Empty lists are left out.
+ */
+export function readerPageWords(words: readonly ReaderRecapWordLike[], page: number): { looked_up?: string[]; said_wrong?: string[] } {
+  const onPage = words.filter((w) => w.page === page && w.hanzi.trim()).sort((a, b) => a.pos - b.pos);
+  const pick = (reason: string) => {
+    const out: string[] = [];
+    for (const w of onPage) {
+      const h = w.hanzi.trim();
+      if (w.reasons.includes(reason) && !out.includes(h)) out.push(h);
+      if (out.length >= READER_CONTEXT_WORDS_MAX) break;
+    }
+    return out;
+  };
+  const lookedUp = pick('tapped');
+  const saidWrong = pick('said_wrong');
+  return { ...(lookedUp.length ? { looked_up: lookedUp } : {}), ...(saidWrong.length ? { said_wrong: saidWrong } : {}) };
 }

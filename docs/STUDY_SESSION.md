@@ -705,8 +705,17 @@ thinking off; `worker/src/services/answer-check.ts`) while the reveal is read:
 - **🔁 Try again** re-opens the answer box; the new answer is checked again and the attempt keeps every
   try (`ExerciseAnswer.tries`, each with its check; the final one in `ExerciseAnswer.check`) — the tutor's
   attempt review shows them;
-- **💬 Ask about this** opens a short chat inside the lesson about this exercise, the answer and the
-  check (`POST /api/lessons/answer-check/ask`), with one-tap questions (`askQuickQuestions`).
+- **💬 Ask Claude** (a real run of one of his lessons) opens the exercise's Claude thread in a sheet — "Ask
+  Claude about an exercise" below; in a preview / the catalogue it is still **💬 Ask about this**, a short chat
+  inside the lesson (`POST /api/lessons/answer-check/ask`, one-tap `askQuickQuestions`).
+
+#### Ask Claude about an exercise
+
+The lesson player's top-bar **💬** (any exercise, before or after answering) and the answer check's **💬 Ask Claude**
+open the EXERCISE's Claude thread (context `exercise`: the lesson, the exercise with its answer key, and — from the
+answer check — his answer and the check), the same thread screen as every Claude chat, resumed within 30 minutes,
+listed in the Chats tab as "🧩 Exercise · Translate". Chips follow the type and the verdict ("Why is my answer wrong?",
+"Explain the model answer", "Give me another example", "One more like this"). docs/CHAT.md "Reader and exercise threads".
 
 **The model answer itself is never sent to Claude.** When the answer matches the model answer by the
 same rule as the "✓ Exact match" chip under "You said" (`isExactHanziMatch`, `shared/lesson/answer-check.ts`:
@@ -957,6 +966,15 @@ Readers list, Today's story):
   `ReadAloudViews.kt`.
 - Not built (yet): a whole-story "🎤 Read the story" mode (page by page, then a summary of the characters
   missed most).
+
+### 📖 Ask Claude about this page
+
+The 💬 at the end of the "📖 GRADED READER" row (every reading view) opens the PAGE's Claude thread in a sheet: Claude
+sees the story's title and level, the page (Chinese, pinyin, English), the pages around it and the words he tapped /
+read aloud wrong on that page in this reading (from the word recap run below). Chips: "The words I looked up" (when
+there are any) · "What does this page mean?" · "Explain the grammar in this sentence" · "Quiz me on this page". The
+same page within 30 minutes continues the thread; the Chats tab lists it as "📖 Reader · 成都 p.3", which opens the
+reader at that page. docs/CHAT.md "Reader and exercise threads".
 
 ### 📝 Reader word recap: the words I tapped or said wrong
 

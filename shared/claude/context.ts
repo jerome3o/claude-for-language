@@ -2,17 +2,35 @@
  * Claude threads — the context descriptor (docs/CHAT.md "Claude threads"; the unified-Claude-chats
  * plan §2.3). Every conversation with Claude is a THREAD in some context: a chat about anything
  * (`general` — the Chats composer, the Sentence Coach, its "💬 Ask Claude" chat), Ask Claude on a
- * study card (`card`), a Claude practice / role-play chat (`practice`, read-only for now) or
- * Discuss with Claude about one chat message (`chat_message`).
+ * study card (`card`), a Claude practice / role-play chat (`practice`, read-only for now),
+ * Discuss with Claude about one chat message (`chat_message`), a page of a graded reader (`reader`)
+ * or one exercise of a mini lesson (`exercise`).
  *
  * Stored on the thread as `context_kind` + `context_ref` (canonical ref) + `context_json` (the
  * descriptor + a snapshot — label / sublabel — so the inbox draws a badge offline, without a fetch).
  * Pure: used by the worker (validation, titles, badges) and, later, both apps (Lab port + parity).
  */
 
-export type ClaudeContextKind = 'general' | 'card' | 'practice' | 'chat_message';
+export type ClaudeContextKind = 'general' | 'card' | 'practice' | 'chat_message' | 'reader' | 'exercise';
 
-export const CLAUDE_CONTEXT_KINDS: readonly ClaudeContextKind[] = ['general', 'card', 'practice', 'chat_message'];
+export const CLAUDE_CONTEXT_KINDS: readonly ClaudeContextKind[] = ['general', 'card', 'practice', 'chat_message', 'reader', 'exercise'];
+
+/** At most this many looked-up / said-wrong words of a reader page ride on the context. */
+export const READER_CONTEXT_WORDS_MAX = 12;
+
+/**
+ * The learner's answer to an exercise as the exercise context carries it (what he wrote / said, and
+ * Claude's answer check of it when there was one — shared/lesson/answerCheck.ts, trimmed).
+ */
+export interface ExerciseAnswerContext {
+  text: string;
+  /** correct | acceptable | almost | wrong */
+  verdict?: string;
+  headline?: string;
+  corrected?: string;
+  /** ≤ 3 one-line tips. */
+  tips?: string[];
+}
 
 export type ClaudeThreadContext =
   | { kind: 'general' }
@@ -24,7 +42,28 @@ export type ClaudeThreadContext =
       typed?: { answer: string; correct?: string };
     }
   | { kind: 'practice'; conversation_id: string; scenario?: string; ai_role?: string; user_role?: string; voice_id?: string }
-  | { kind: 'chat_message'; message_id: string; conversation_id?: string };
+  | { kind: 'chat_message'; message_id: string; conversation_id?: string }
+  | {
+      kind: 'reader';
+      reader_id: string;
+      /** The page he asked on (a thread is about one page); none = the whole story. */
+      page_id?: string;
+      /** Its 1-based number (the badge: "p.3"). */
+      page?: number;
+      /** Words he tapped on this page in this reading (the reader word recap's run), story order. */
+      looked_up?: string[];
+      /** Words a 🎤 Read it aloud take heard wrong on this page. */
+      said_wrong?: string[];
+    }
+  | {
+      kind: 'exercise';
+      lesson_id: string;
+      /** `s<section>e<index>` (shared/study/lessonRun.ts `exerciseKey`). */
+      exercise_key: string;
+      exercise_type?: string;
+      /** His answer on this showing (+ its check), when he asks after answering. */
+      answer?: ExerciseAnswerContext;
+    };
 
 /** What a learner's message asks for: a plain question, or one of the Coach's buttons. */
 export type ClaudeIntent = 'ask' | 'check' | 'explain' | 'translate';
@@ -33,9 +72,9 @@ export const CLAUDE_INTENTS: readonly ClaudeIntent[] = ['ask', 'check', 'explain
 
 /** The snapshot kept beside the descriptor: what the badge says without a fetch. */
 export interface ClaudeContextSnapshot {
-  /** 银行 (card), 点菜 (practice), the first words of the message (chat_message). */
+  /** 银行 (card), 点菜 (practice), the first words of the message (chat_message), the story's title (reader), the exercise type's name (exercise). */
   label?: string;
-  /** The deck (card), the role (practice). */
+  /** The deck (card), the role (practice), the lesson's title (exercise). */
   sublabel?: string;
 }
 
@@ -51,6 +90,41 @@ function id(v: unknown): string | null {
 function text(v: unknown, max = TEXT_MAX): string | undefined {
   return typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined;
 }
+
+/** A list of short words: trimmed, de-duplicated, ≤ READER_CONTEXT_WORDS_MAX; none → undefined. */
+function words(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: string[] = [];
+  for (const w of v) {
+    const t = text(w, 20);
+    if (t && !out.includes(t)) out.push(t);
+    if (out.length >= READER_CONTEXT_WORDS_MAX) break;
+  }
+  return out.length ? out : undefined;
+}
+
+/** An exercise answer from a request / the stored context, checked and trimmed; none → undefined. */
+export function parseExerciseAnswer(v: unknown): ExerciseAnswerContext | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const r = v as Record<string, unknown>;
+  const answer = text(r.text, 400);
+  if (!answer) return undefined;
+  const out: ExerciseAnswerContext = { text: answer };
+  const verdict = text(r.verdict, 20);
+  if (verdict) out.verdict = verdict;
+  const headline = text(r.headline, 200);
+  if (headline) out.headline = headline;
+  const corrected = text(r.corrected, 400);
+  if (corrected) out.corrected = corrected;
+  if (Array.isArray(r.tips)) {
+    const tips = r.tips.map((t) => text(t, 200)).filter((t): t is string => !!t).slice(0, 3);
+    if (tips.length) out.tips = tips;
+  }
+  return out;
+}
+
+/** `s<section>e<index>`. */
+const EXERCISE_KEY = /^s\d{1,3}e\d{1,3}$/;
 
 /**
  * A context as an app sends it (or as stored), checked: unknown kinds, missing refs and wrong types
@@ -92,6 +166,30 @@ export function parseClaudeContext(raw: unknown): ClaudeThreadContext | null {
       const conversationId = id(r.conversation_id);
       return conversationId ? { kind: 'chat_message', message_id: messageId, conversation_id: conversationId } : { kind: 'chat_message', message_id: messageId };
     }
+    case 'reader': {
+      const readerId = id(r.reader_id);
+      if (!readerId) return null;
+      const out: Extract<ClaudeThreadContext, { kind: 'reader' }> = { kind: 'reader', reader_id: readerId };
+      const pageId = id(r.page_id);
+      if (pageId) out.page_id = pageId;
+      if (typeof r.page === 'number' && Number.isInteger(r.page) && r.page >= 1 && r.page <= 999) out.page = r.page;
+      const lookedUp = words(r.looked_up);
+      if (lookedUp) out.looked_up = lookedUp;
+      const saidWrong = words(r.said_wrong);
+      if (saidWrong) out.said_wrong = saidWrong;
+      return out;
+    }
+    case 'exercise': {
+      const lessonId = id(r.lesson_id);
+      const key = typeof r.exercise_key === 'string' ? r.exercise_key.trim() : '';
+      if (!lessonId || !EXERCISE_KEY.test(key)) return null;
+      const out: Extract<ClaudeThreadContext, { kind: 'exercise' }> = { kind: 'exercise', lesson_id: lessonId, exercise_key: key };
+      const type = text(r.exercise_type, 40);
+      if (type) out.exercise_type = type;
+      const answer = parseExerciseAnswer(r.answer);
+      if (answer) out.answer = answer;
+      return out;
+    }
     default:
       return null;
   }
@@ -123,6 +221,10 @@ export function contextRef(ctx: ClaudeThreadContext): string | null {
       return ctx.conversation_id;
     case 'chat_message':
       return ctx.message_id;
+    case 'reader':
+      return ctx.page_id ? `${ctx.reader_id}:${ctx.page_id}` : ctx.reader_id;
+    case 'exercise':
+      return `${ctx.lesson_id}:${ctx.exercise_key}`;
     default:
       return null;
   }
@@ -164,6 +266,10 @@ export function contextBadge(ctx: StoredClaudeContext, firstIntent?: ClaudeInten
       return { icon: '🎭', text: `Practice${ctx.scenario ? ` · ${ctx.scenario.slice(0, 40)}` : label}` };
     case 'chat_message':
       return { icon: '💬', text: `About a message${label}` };
+    case 'reader':
+      return { icon: '📖', text: `Reader${label}${ctx.page ? ` p.${ctx.page}` : ''}` };
+    case 'exercise':
+      return { icon: '🧩', text: `Exercise${label}` };
     default:
       return firstIntent && firstIntent !== 'ask' ? INTENT_BADGES[firstIntent] : null;
   }
@@ -182,6 +288,10 @@ export function titleFor(ctx: StoredClaudeContext, firstText: string): string {
       return ctx.scenario ? `Practice: ${ctx.scenario}` : 'Practice with Claude';
     case 'chat_message':
       return 'About a message';
+    case 'reader':
+      return ctx.label ? `About ${ctx.label}` : 'About a story';
+    case 'exercise':
+      return 'About an exercise';
     default:
       return 'Chat with Claude';
   }

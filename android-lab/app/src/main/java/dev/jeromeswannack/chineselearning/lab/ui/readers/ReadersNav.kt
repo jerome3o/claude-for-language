@@ -95,8 +95,13 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
         )
     }
     recapRoute(nav)
-    composable(Routes.route("/readers/{id}")) { entry ->
+    composable(
+        Routes.route("/readers/{id}?page={page}"),
+        arguments = listOf(androidx.navigation.navArgument("page") { type = androidx.navigation.NavType.StringType; nullable = true; defaultValue = null }),
+    ) { entry ->
         val id = entry.arguments?.getString("id").orEmpty()
+        // `?page=N` (1-based): opened from a reader page's Claude thread (its header chip).
+        val startPage = ((entry.arguments?.getString("page")?.toIntOrNull() ?: 1) - 1).coerceAtLeast(0)
         val vm: ReaderViewModel = viewModel(key = "reader-$id", factory = factory { ReaderViewModel(nav.app, id) })
         val state by vm.state.collectAsStateWithLifecycle()
         val env = rememberReaderEnv(nav.app, id)
@@ -108,6 +113,7 @@ fun NavGraphBuilder.readersGraph(nav: LabNav) {
             onEdit = { nav.open(Routes.readerEdit(id)) },
             onFinish = { ms, how -> vm.finish(ms, how) { nav.back() } },
             onAnki = { state.first?.let { r -> anki = AnkiExportTarget.Reader(r.id, r.titleChinese) } },
+            startPage = startPage,
         )
     }
 }
@@ -197,6 +203,7 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
         },
         onTap = { app.haptics.tick() },
         readAloud = true,
+        askClaude = readerId.isNotBlank(),
         speak = { text -> runtime.audio.speak(text, speed = speedPref.speed.value) },
         recap = recap,
     )

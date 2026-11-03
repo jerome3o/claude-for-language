@@ -16,6 +16,7 @@ import { FAKE_STREAM_CHUNKS, fakeStreamingClient } from '../fake';
 import { runThreadTurn, startThreadTurn, WATCHDOG_DELAY_SECONDS } from '../thread-turn';
 import * as store from '../store';
 import { backfillClaudeThreads } from '../backfill';
+import { seedReaderAndLesson } from './context-seed';
 
 const U = 'u1';
 
@@ -40,6 +41,19 @@ function envOf(db: SqliteD1, extra: Partial<Env> = {}): Env {
 function recorder() {
   const events: ClaudeTurnEvent[] = [];
   return { events, live: { push: async (e: ClaudeTurnEvent) => void events.push(e), pushIntervalMs: 0, writeIntervalMs: 0 } };
+}
+
+/** A streaming client answering each round from `create` (no deltas: the final message only). */
+function scripted(create: (p: never) => Promise<unknown>): Pick<Anthropic, 'messages'> {
+  return {
+    messages: {
+      create,
+      stream: (p: never) => {
+        const s = { on: () => s, finalMessage: () => create(p) };
+        return s;
+      },
+    },
+  } as unknown as Pick<Anthropic, 'messages'>;
 }
 
 const reply = (db: SqliteD1, id: string) => db.rows<store.MessageRow>('SELECT * FROM coach_messages WHERE id = ?', [id])[0];
@@ -142,6 +156,50 @@ describe('a Claude thread reply', () => {
     const before = db.rows('SELECT COUNT(*) AS n FROM coach_messages')[0];
     await backfillClaudeThreads(db, U);
     expect(db.rows('SELECT COUNT(*) AS n FROM coach_messages')[0]).toEqual(before);
+  });
+
+  it('a reader page turn: its create_flashcards saved into the deck Claude picked (like the Coach), the page in the prompt, the bump source "reader"', async () => {
+    seedReaderAndLesson(db, U, null);
+    const { replyId } = await newTurn(db, { kind: 'reader', reader_id: 'rd1', page_id: 'pg2', looked_up: ['熊猫'] }, 'Make a card for 熊猫', 'en');
+    const seen: Array<{ system: Array<{ text: string }>; tools: Array<{ name: string }> }> = [];
+    let round = 0;
+    const create = vi.fn(async (p: (typeof seen)[number]) => {
+      seen.push(JSON.parse(JSON.stringify(p)));
+      round++;
+      return round === 1
+        ? {
+            model: 'm',
+            stop_reason: 'tool_use',
+            content: [{ type: 'tool_use', id: 't1', name: 'create_flashcards', input: { deck_id: 'd1', flashcards: [{ hanzi: '熊猫', pinyin: 'xióngmāo', english: 'panda', fun_facts: '熊 (xióng) bear + 猫 (māo) cat.' }] } }],
+            usage: {},
+          }
+        : { model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Added 熊猫 to HSK 2.' }], usage: {} };
+    });
+    const out = await runThreadTurn(envOf(db), replyId, { client: scripted(create as never), live: recorder().live, clip: null, memory: null });
+    expect(out).toBe('done');
+    expect(seen[0].system.map((b) => b.text).join('\n')).toContain('The page they asked on (page 2 of 3)');
+    expect(seen[0].tools.map((t) => t.name)).toEqual(['create_flashcards', 'search_cards', 'bump_cards', 'get_note_cards', 'search_my_chats', 'read_chat']);
+    const row = reply(db, replyId);
+    expect(row).toMatchObject({ status: null, content: 'Added 熊猫 to HSK 2.' });
+    expect(JSON.parse(row.tool_results!)).toEqual([{ tool: 'create_flashcards', success: true, data: { deck_name: 'HSK 2', notes: [{ hanzi: '熊猫', pinyin: 'xióngmāo', english: 'panda' }] } }]);
+    expect(db.rows("SELECT hanzi FROM notes WHERE deck_id = 'd1' ORDER BY hanzi")).toEqual([{ hanzi: '熊猫' }, { hanzi: '银行' }]);
+  });
+
+  it("an exercise turn: the learner's answer and its check in the prompt; someone else's lesson fails readably", async () => {
+    seedReaderAndLesson(db, U, null);
+    const { replyId } = await newTurn(db, { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1', answer: { text: '我放书在桌子上。', verdict: 'wrong' } }, 'Why is my answer wrong?', 'en');
+    const seen: Array<{ system: Array<{ text: string }> }> = [];
+    const create = vi.fn(async (p: (typeof seen)[number]) => (seen.push(JSON.parse(JSON.stringify(p))), { model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Use 把.' }], usage: {} }));
+    expect(await runThreadTurn(envOf(db), replyId, { client: scripted(create as never), live: recorder().live, clip: null, memory: null })).toBe('done');
+    const sys = seen[0].system.map((b) => b.text).join('\n');
+    expect(sys).toContain('Their answer: 我放书在桌子上。');
+    expect(sys).toContain('"reference_hanzi":"我把书放在桌子上。"');
+
+    db.raw.run("INSERT INTO users (id, email, name, role) VALUES ('x2', 'x2@x.test', 'Someone', 'student')");
+    db.raw.run("UPDATE custom_lessons SET user_id = 'x2' WHERE id = 'ls1'");
+    const again = await newTurn(db, { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e1' }, 'And now?', 'en');
+    expect(await runThreadTurn(envOf(db), again.replyId, { client: scripted(create as never), live: recorder().live, clip: null, memory: null })).toBe('failed');
+    expect(reply(db, again.replyId)).toMatchObject({ status: 'failed', error: 'You can’t continue this chat any more.' });
   });
 
   it('practice threads are read-only: the reply fails with why', async () => {

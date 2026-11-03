@@ -141,7 +141,16 @@ function ClaudeRow({ item, now, onOpen }: RowProps) {
     ? `/chats/claude/${encodeURIComponent(thread.id)}`
     : `/connections/${item.human!.relationship_id}/chat/${item.human!.conversation_id}`;
   const chip = thread ? headerChipFor(thread.context) : null;
-  const cardLink = chip?.link?.kind === 'card' ? `/cards/${encodeURIComponent(chip.link.note_id)}` : null;
+  // The chip leads where the chat happened: the card, the reader at that page, the lesson.
+  const link = chip?.link ?? null;
+  const cardLink =
+    link?.kind === 'card'
+      ? `/cards/${encodeURIComponent(link.note_id)}`
+      : link?.kind === 'reader'
+        ? `/readers/${encodeURIComponent(link.reader_id)}${link.page ? `?page=${link.page}` : ''}`
+        : link?.kind === 'exercise'
+          ? `/lessons/${encodeURIComponent(link.lesson_id)}/play?from=claude`
+          : null;
   const preview = thread ? claudeRowPreview(thread) : item.human?.last_message?.preview ?? 'No messages yet';
   const open = () => {
     onOpen(item);
@@ -186,7 +195,7 @@ function ClaudeRow({ item, now, onOpen }: RowProps) {
                   e.stopPropagation();
                   navigate(cardLink, { state: { from: '/chats' } });
                 }}
-                aria-label={`${item.badge.text} — open the card`}
+                aria-label={`${item.badge.text} — open ${link?.kind === 'reader' ? 'the story' : link?.kind === 'exercise' ? 'the lesson' : 'the card'}`}
               >
                 <span aria-hidden="true">{item.badge.icon}</span> {item.badge.text} ›
               </button>

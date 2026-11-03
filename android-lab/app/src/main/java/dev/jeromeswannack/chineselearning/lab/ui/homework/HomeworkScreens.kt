@@ -442,6 +442,7 @@ private fun PlayerPass(ui: PassUi.Player, actions: PassActions, lessonEnv: Exerc
                 onEnd = actions.onLessonEnd,
                 resume = if (lesson.id.isNotEmpty()) dev.jeromeswannack.chineselearning.lab.ui.lessons.rememberLessonResume(androidx.compose.ui.platform.LocalContext.current, lesson.id, lesson.spec) else null,
                 skipHandwriting = androidx.compose.runtime.remember(lesson.id) { dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value },
+                lessonId = lesson.id.ifEmpty { null },
             )
         else -> MissingTarget(ui.title, actions.onClose)
     }

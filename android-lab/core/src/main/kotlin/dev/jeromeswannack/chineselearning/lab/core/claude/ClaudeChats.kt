@@ -11,14 +11,19 @@ import java.time.Instant
  * `claudeReplyPollMs`, `turnStatusLine`) and of `contextBadge` in shared/claude/context.ts.
  * Parity-tested (parity/fixtures/claude-chats.ts → ClaudeChatsParityTest).
  *
- * Context kinds and intents are the TypeScript strings: general · card · practice · chat_message;
- * ask · check · explain · translate.
+ * Context kinds and intents are the TypeScript strings: general · card · practice · chat_message ·
+ * reader · exercise; ask · check · explain · translate.
  */
 object ClaudeChats {
     const val GENERAL = "general"
     const val CARD = "card"
     const val PRACTICE = "practice"
     const val CHAT_MESSAGE = "chat_message"
+    const val READER = "reader"
+    const val EXERCISE = "exercise"
+
+    /** Port of READER_CONTEXT_WORDS_MAX: a reader page's looked-up / misread words on the context. */
+    const val READER_CONTEXT_WORDS_MAX = 12
 
     /** A thread's context as the screen needs it: the kind, its ref fields and the badge snapshot. */
     data class Context(
@@ -30,6 +35,19 @@ object ClaudeChats {
         val label: String? = null,
         /** A card thread asked right after a typed answer. */
         val typed: Boolean = false,
+        /** A reader thread: the reader, its page (id + 1-based number), the page's looked-up / misread words. */
+        val readerId: String? = null,
+        val pageId: String? = null,
+        val page: Int? = null,
+        val lookedUp: List<String> = emptyList(),
+        val saidWrong: List<String> = emptyList(),
+        /** An exercise thread: the lesson, the exercise's key and type, his checked answer's verdict. */
+        val lessonId: String? = null,
+        val exerciseKey: String? = null,
+        val exerciseType: String? = null,
+        /** He asked with an answer on this showing (its verdict when it was checked). */
+        val hasAnswer: Boolean = false,
+        val answerVerdict: String? = null,
     ) {
         /** Port of contextRef. */
         val ref: String?
@@ -37,6 +55,8 @@ object ClaudeChats {
                 CARD -> noteId
                 PRACTICE -> conversationId
                 CHAT_MESSAGE -> messageId
+                READER -> if (pageId != null) "$readerId:$pageId" else readerId
+                EXERCISE -> "$lessonId:$exerciseKey"
                 else -> null
             }
     }
@@ -58,6 +78,8 @@ object ClaudeChats {
             CARD -> Badge("📇", "Asked on card$label")
             PRACTICE -> Badge("🎭", "Practice${ctx.scenario?.takeIf { it.isNotEmpty() }?.let { " · ${it.take(40)}" } ?: label}")
             CHAT_MESSAGE -> Badge("💬", "About a message$label")
+            READER -> Badge("📖", "Reader$label${ctx.page?.let { " p.$it" } ?: ""}")
+            EXERCISE -> Badge("🧩", "Exercise$label")
             else -> if (firstIntent != null && firstIntent != "ask") INTENT_BADGES[firstIntent] else null
         }
     }
@@ -83,6 +105,41 @@ object ClaudeChats {
         chip("reply", zh, "怎么回复 How to reply", "How to reply", "我可以怎么回复？给我两三个简单的回答。", "How could I reply? Give me two or three simple replies with pinyin."),
     )
 
+    private fun readerChips(zh: Boolean, ctx: Context): List<Chip> {
+        val list = mutableListOf<Chip>()
+        if (ctx.lookedUp.size + ctx.saidWrong.size > 0) {
+            list += chip("my_words", zh, "我查的词 The words I looked up", "The words I looked up", "请解释一下我在这一页查过的词和读错的词。", "Explain the words I looked up or read wrong on this page, each in its sentence.")
+        }
+        list += chip("page_meaning", zh, "这页讲什么 What does this page mean?", "What does this page mean?", "这一页讲的是什么？请一句一句地说一说。", "What does this page mean? Go through it sentence by sentence.")
+        list += chip("grammar", zh, "语法 Explain the grammar in this sentence", "Explain the grammar in this sentence", "请讲一下这一页句子里的语法。", "Explain the grammar in the sentences on this page.")
+        list += chip("quiz", zh, "考考我 Quiz me on this page", "Quiz me on this page", "用这一页的内容考考我，一次问一个问题。", "Quiz me on this page, one question at a time.")
+        return list
+    }
+
+    private val CHOICE_EXERCISES = setOf("choice", "listen_choice", "judge", "gap_choice", "match")
+    private val OWN_ANSWER_EXERCISES = setOf("translate", "listen_translate", "speak", "oral_expression", "describe_image", "sentence_making", "write_typed", "write_handwriting", "dictation")
+
+    private fun exerciseChips(zh: Boolean, ctx: Context): List<Chip> {
+        val list = mutableListOf<Chip>()
+        val type = ctx.exerciseType ?: ""
+        val verdict = ctx.answerVerdict
+        if (ctx.hasAnswer && (verdict == "wrong" || verdict == "almost")) {
+            list += chip("why_wrong", zh, "为什么错了 Why is my answer wrong?", "Why is my answer wrong?", "我的答案为什么不对？应该怎么说？", "Why is my answer wrong? What should I have said, and why?")
+        } else if (ctx.hasAnswer) {
+            list += chip("my_answer", zh, "我的答案 Is my answer OK?", "Is my answer OK?", "我的答案自然吗？还可以怎么说？", "Is my answer natural? How else could I say it?")
+        }
+        list += when {
+            type == "note" -> chip("explain", zh, "讲一讲 Explain this note", "Explain this note", "请用更简单的话讲一讲这个语法点。", "Explain this point again in simpler words, with one more example.")
+            type == "scramble" -> chip("explain", zh, "语序 Explain the word order", "Explain the word order", "这个句子为什么是这个语序？", "Why are the words in this order? Explain the structure.")
+            type in CHOICE_EXERCISES -> chip("explain", zh, "为什么 Explain the right answer", "Explain the right answer", "为什么这个是对的答案？别的为什么不对？", "Why is the right answer right, and why are the others wrong?")
+            type in OWN_ANSWER_EXERCISES -> chip("explain", zh, "参考答案 Explain the model answer", "Explain the model answer", "请解释一下参考答案，一个词一个词地说。", "Explain the model answer word by word.")
+            else -> chip("explain", zh, "讲一讲 Explain this exercise", "Explain this exercise", "请讲一讲这个练习考的是什么。", "What is this exercise practising? Explain it.")
+        }
+        list += chip("example", zh, "再来一个例子 Give me another example", "Give me another example", "请再给我一个例子。", "Give me another example of this, with pinyin and English.")
+        list += chip("one_more", zh, "再练一个 One more like this", "One more like this", "给我出一个类似的小练习，先别告诉我答案。", "Give me one more exercise like this to try — don’t tell me the answer yet.")
+        return list
+    }
+
     /** Port of chipsFor: the suggestion chips above a thread's composer. */
     fun chipsFor(
         ctx: Context,
@@ -97,6 +154,8 @@ object ClaudeChats {
             CARD -> AskClaude.quickActions(language, typedAnswer || ctx.typed, hasSentence).map { Chip(it.id, it.label, it.question) }
             GENERAL -> generalChips(zh)
             CHAT_MESSAGE -> chatMessageChips(zh)
+            READER -> readerChips(zh, ctx)
+            EXERCISE -> exerciseChips(zh, ctx)
             else -> return emptyList()
         }.filter { it.id !in used }
         return if (replies > 0) list.take(CHIPS_AFTER_REPLY_MAX) else list
@@ -121,8 +180,20 @@ object ClaudeChats {
 
     // ---------- headerChipFor ----------
 
-    /** Where the header chip leads: kind "card" (noteId) or "chat_message" (messageId, conversationId); null = nowhere. */
-    data class Link(val kind: String, val noteId: String? = null, val messageId: String? = null, val conversationId: String? = null)
+    /**
+     * Where the header chip leads: kind "card" (noteId), "chat_message" (messageId, conversationId),
+     * "reader" (readerId, page) or "exercise" (lessonId, exerciseKey); null = nowhere.
+     */
+    data class Link(
+        val kind: String,
+        val noteId: String? = null,
+        val messageId: String? = null,
+        val conversationId: String? = null,
+        val readerId: String? = null,
+        val page: Int? = null,
+        val lessonId: String? = null,
+        val exerciseKey: String? = null,
+    )
 
     data class HeaderChip(val icon: String, val text: String, val link: Link?)
 
@@ -131,6 +202,8 @@ object ClaudeChats {
         CARD -> contextBadge(ctx)!!.let { HeaderChip(it.icon, it.text, Link(CARD, noteId = ctx.noteId)) }
         CHAT_MESSAGE -> HeaderChip("💬", "From a chat message", Link(CHAT_MESSAGE, messageId = ctx.messageId, conversationId = ctx.conversationId))
         PRACTICE -> contextBadge(ctx)!!.let { HeaderChip(it.icon, it.text, null) }
+        READER -> contextBadge(ctx)!!.let { HeaderChip(it.icon, it.text, Link(READER, readerId = ctx.readerId, page = ctx.page)) }
+        EXERCISE -> contextBadge(ctx)!!.let { HeaderChip(it.icon, it.text, Link(EXERCISE, lessonId = ctx.lessonId, exerciseKey = ctx.exerciseKey)) }
         else -> null
     }
 
@@ -138,6 +211,9 @@ object ClaudeChats {
 
     /** Port of RESUME_WINDOW_MS (= THREAD_GAP_MS, 30 minutes). */
     const val RESUME_WINDOW_MS = 30L * 60 * 1000
+
+    /** The contexts whose thread resumes only within [RESUME_WINDOW_MS]: a card, a reader page, an exercise. */
+    private val WINDOWED_KINDS = setOf(CARD, READER, EXERCISE)
 
     data class ResumeCandidate(
         val id: String,
@@ -162,7 +238,7 @@ object ClaudeChats {
         for (t in threads) {
             if (t.archived || t.context.kind != ctx.kind || t.context.ref != ref) continue
             val at = parseMs(t.lastMessageAt) ?: parseMs(t.createdAt) ?: continue
-            if (ctx.kind == CARD && nowMs - at > RESUME_WINDOW_MS) continue
+            if (ctx.kind in WINDOWED_KINDS && nowMs - at > RESUME_WINDOW_MS) continue
             if (bestId == null || at > bestAt || (at == bestAt && t.id > bestId)) {
                 bestId = t.id
                 bestAt = at
@@ -199,5 +275,30 @@ object ClaudeChats {
         }
         if (status == "thinking") return if (zh) "想一想… Thinking…" else "Thinking…"
         return null
+    }
+
+    // ---------- readerPageWords ----------
+
+    /** A reader word recap word as [readerPageWords] reads it (core WordRecap's word). */
+    data class RecapWordLike(val hanzi: String, val page: Int, val pos: Int, val reasons: List<String>)
+
+    data class PageWords(val lookedUp: List<String>, val saidWrong: List<String>)
+
+    /**
+     * Port of readerPageWords: ONE page's tapped (`lookedUp`) and misread (`saidWrong`) words of this
+     * reading, story order, each ≤ [READER_CONTEXT_WORDS_MAX].
+     */
+    fun readerPageWords(words: List<RecapWordLike>, page: Int): PageWords {
+        val onPage = words.filter { it.page == page && NoteSearch.jsTrim(it.hanzi).isNotEmpty() }.sortedBy { it.pos }
+        fun pick(reason: String): List<String> {
+            val out = mutableListOf<String>()
+            for (w in onPage) {
+                val h = NoteSearch.jsTrim(w.hanzi)
+                if (reason in w.reasons && h !in out) out += h
+                if (out.size >= READER_CONTEXT_WORDS_MAX) break
+            }
+            return out
+        }
+        return PageWords(pick("tapped"), pick("said_wrong"))
     }
 }

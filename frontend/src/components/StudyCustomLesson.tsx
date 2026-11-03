@@ -62,6 +62,7 @@ import { clearLessonRun, loadLessonRun, saveLessonRun } from '../services/lesson
 import { readSkipHandwriting } from '../services/skipHandwriting';
 import { Confetti } from './Confetti';
 import { RetryProgressBar } from './homework/RetryProgressBar';
+import { ExerciseClaudeProvider, useExerciseClaude, type ExerciseClaudeTarget } from './lessons/ExerciseClaude';
 import '../pages/PracticePage.css';
 import './StudyReader.css';
 
@@ -322,9 +323,13 @@ export function StudyCustomLesson({
   const pct = score.total > 0 ? Math.round((score.correct / score.total) * 100) : 100;
   const item = current ? exercises.get(current.step.key) : null;
   const sectionStart = current?.phase === 'main' && item?.sectionTitle && (flatIndex === 0 || steps[flatIndex - 1]?.section !== current.step.section);
+  // 💬 Ask Claude about the exercise on screen (ExerciseClaude.tsx): a real run of one of his stored lessons only.
+  const claudeTarget: ExerciseClaudeTarget | null =
+    real && lessonId && current && item ? { lessonId, lessonTitle: lesson.title, exerciseKey: current.step.key, exerciseType: item.exercise.type } : null;
   const mediaKey = current && !preview ? retryMediaKey(current.step.section, current.step.index, current.phase === 'retry' ? retryNumber(attempts.current, current.step.key) : 0) : undefined;
 
   return (
+    <ExerciseClaudeProvider target={done ? null : claudeTarget}>
     <div className="study-fullscreen">
       <div className="study-topbar">
         {preview && previewSave ? (
@@ -336,6 +341,7 @@ export function StudyCustomLesson({
               {previewSave.busy ? 'Saving…' : '＋ Save'}
             </button>
           )}
+          {claudeTarget && !done && <LessonAskClaudeButton />}
           <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'Close lesson'}>✕</button>
         </div>
       </div>
@@ -438,5 +444,24 @@ export function StudyCustomLesson({
         </div>
       )}
     </div>
+    </ExerciseClaudeProvider>
+  );
+}
+
+/** The player's top-bar 💬: the exercise on screen's Claude thread (before or after answering). */
+function LessonAskClaudeButton() {
+  const claude = useExerciseClaude();
+  if (!claude) return null;
+  return (
+    <button
+      type="button"
+      className="lesson-ask-claude"
+      onClick={() => claude.ask('toolbar')}
+      aria-label="Ask Claude about this exercise"
+      title="Ask Claude about this exercise"
+      data-testid="lesson-ask-claude"
+    >
+      💬
+    </button>
   );
 }

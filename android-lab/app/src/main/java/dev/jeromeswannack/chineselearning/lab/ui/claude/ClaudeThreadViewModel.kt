@@ -94,6 +94,11 @@ class ClaudeThreadViewModel(
      */
     var typed: JsonElement? = null
 
+    /** A reader / exercise thread: its context's fields on this showing (the sheet sets them as it opens). */
+    fun setFields(fields: dev.jeromeswannack.chineselearning.lab.data.claude.ContextFields?) {
+        if (local.value.fields != fields) local.update { it.copy(fields = fields) }
+    }
+
     /** A reply this screen saw being written has finished (the study card applies Claude's card tools). */
     private val finished = MutableSharedFlow<ClaudeMessageDto>(extraBufferCapacity = 16)
     val finishedReplies: SharedFlow<ClaudeMessageDto> = finished
@@ -316,7 +321,11 @@ class ClaudeThreadViewModel(
                     local.update { it.copy(sending = null, draft = "") }
                     onStarted(res.threadId)
                 } else {
-                    val res = store.send(id, msg, language, online, quick = chip != null, typed = if (kind == ClaudeChats.CARD) (typed ?: JsonNull) else null)
+                    val res = store.send(
+                        id, msg, language, online, quick = chip != null,
+                        typed = if (kind == ClaudeChats.CARD) (typed ?: JsonNull) else null,
+                        fields = if (kind == ClaudeChats.READER || kind == ClaudeChats.EXERCISE) u.fields else null,
+                    )
                     app.analytics.track("claude.message_send", mapOf("context_kind" to kind, "intent" to "ask", "offline" to res.queued, "chip" to (chip != null), "spoken" to spoken))
                     if (res.queued) app.scheduleBackgroundUpload()
                     app.haptics.tick()
@@ -466,6 +475,8 @@ class ClaudeThreadViewModel(
     fun contextPath(link: ClaudeChats.Link, open: (String) -> Unit) {
         when (link.kind) {
             ClaudeChats.CARD -> link.noteId?.let { open(Routes.cardHub(it)) }
+            ClaudeChats.READER -> link.readerId?.let { open(Routes.reader(it, link.page)) }
+            ClaudeChats.EXERCISE -> link.lessonId?.let { open(Routes.lessonPlay(it, from = "claude")) }
             ClaudeChats.CHAT_MESSAGE -> {
                 val conv = link.conversationId ?: return
                 viewModelScope.launch {

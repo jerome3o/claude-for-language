@@ -7,7 +7,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  chipsFor, claudeReplyPollMs, composerFor, headerChipFor, resumeThreadFor, turnStatusLine,
+  chipsFor, claudeReplyPollMs, composerFor, headerChipFor, readerPageWords, resumeThreadFor, turnStatusLine,
   CHIPS_AFTER_REPLY_MAX, CLAUDE_INTENT_LABELS, CLAUDE_LIVE_FRESH_MS, CLAUDE_POLL_FAST_FOR_MS, CLAUDE_POLL_FAST_MS, CLAUDE_POLL_SLOW_MS,
   PRACTICE_READ_ONLY_NOTE, RESUME_WINDOW_MS, type ResumeCandidate,
 } from '../../../shared/claude/contexts';
@@ -22,7 +22,11 @@ if (!OUT) throw new Error('usage: claude-chats <out-dir>');
 mkdirSync(OUT, { recursive: true });
 
 /** A context as the Kotlin side takes it (flat). */
-type FlatCtx = { kind: string; note_id?: string; message_id?: string; conversation_id?: string; scenario?: string; label?: string; typed?: boolean };
+type FlatCtx = {
+  kind: string; note_id?: string; message_id?: string; conversation_id?: string; scenario?: string; label?: string; typed?: boolean;
+  reader_id?: string; page_id?: string; page?: number; looked_up?: string[]; said_wrong?: string[];
+  lesson_id?: string; exercise_key?: string; exercise_type?: string; answer_verdict?: string | null;
+};
 function stored(c: FlatCtx): StoredClaudeContext {
   switch (c.kind) {
     case 'card':
@@ -31,6 +35,18 @@ function stored(c: FlatCtx): StoredClaudeContext {
       return { kind: 'practice', conversation_id: c.conversation_id!, ...(c.scenario ? { scenario: c.scenario } : {}), ...(c.label ? { label: c.label } : {}) };
     case 'chat_message':
       return { kind: 'chat_message', message_id: c.message_id!, ...(c.conversation_id ? { conversation_id: c.conversation_id } : {}), ...(c.label ? { label: c.label } : {}) };
+    case 'reader':
+      return {
+        kind: 'reader', reader_id: c.reader_id!, ...(c.page_id ? { page_id: c.page_id } : {}), ...(c.page ? { page: c.page } : {}),
+        ...(c.looked_up ? { looked_up: c.looked_up } : {}), ...(c.said_wrong ? { said_wrong: c.said_wrong } : {}), ...(c.label ? { label: c.label } : {}),
+      };
+    case 'exercise':
+      return {
+        kind: 'exercise', lesson_id: c.lesson_id!, exercise_key: c.exercise_key!, ...(c.exercise_type ? { exercise_type: c.exercise_type } : {}),
+        // answer_verdict: undefined = no answer, null = an answer without a check.
+        ...(c.answer_verdict !== undefined ? { answer: { text: '我放书在桌子上。', ...(c.answer_verdict ? { verdict: c.answer_verdict } : {}) } } : {}),
+        ...(c.label ? { label: c.label } : {}),
+      };
     default:
       return { kind: 'general', ...(c.label ? { label: c.label } : {}) };
   }
@@ -46,6 +62,16 @@ const CTXS: FlatCtx[] = [
   { kind: 'practice', conversation_id: 'c9', scenario: '点菜' },
   { kind: 'practice', conversation_id: 'c9', scenario: '在餐厅里点菜，服务员问你要喝什么，你还想再要一碗米饭和一个汤，然后买单', label: 'x' },
   { kind: 'practice', conversation_id: 'c8', label: '服务员' },
+  { kind: 'reader', reader_id: 'r1', page_id: 'p3', page: 3, label: '成都' },
+  { kind: 'reader', reader_id: 'r1', page_id: 'p3', page: 3, looked_up: ['熊猫'], label: '成都' },
+  { kind: 'reader', reader_id: 'r1', said_wrong: ['都'] },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1', exercise_type: 'translate', label: 'Translate' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1', exercise_type: 'translate', answer_verdict: 'wrong', label: 'Translate' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2', exercise_type: 'choice', answer_verdict: 'correct' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e0', exercise_type: 'scramble', answer_verdict: null },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e1', exercise_type: 'note' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e2', exercise_type: 'conversation', answer_verdict: 'almost' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's1e3' },
 ];
 
 const chips: unknown[] = [];
@@ -64,7 +90,7 @@ for (const ctx of CTXS) {
 }
 
 const TEXTS = ['', '   ', '我昨天去了商店', '我想买iPhone', 'How do I say hello?', '　你好　', '123'];
-const composers = ['general', 'card', 'chat_message', 'practice'].flatMap((kind) =>
+const composers = ['general', 'card', 'chat_message', 'practice', 'reader', 'exercise'].flatMap((kind) =>
   TEXTS.flatMap((text) => [false, true].map((started) => ({ kind, text, started, out: composerFor(kind as 'general', text, { started }) }))));
 
 const badges = CTXS.flatMap((ctx) =>
@@ -90,8 +116,15 @@ const THREADS: FlatThread[] = [
   { id: 'g', ctx: { kind: 'chat_message', message_id: 'm1', conversation_id: 'c1' }, last_message_at: iso(60 * 24 * 40), created_at: iso(60 * 24 * 41) },
   { id: 'h', ctx: { kind: 'practice', conversation_id: 'c9' }, last_message_at: 'not a date', created_at: iso(3) },
   { id: 'i', ctx: { kind: 'card', note_id: 'n5' }, last_message_at: iso(30), created_at: iso(31) },
+  { id: 'j', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, last_message_at: iso(12), created_at: iso(13) },
+  { id: 'k', ctx: { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, last_message_at: iso(45), created_at: iso(46) },
+  { id: 'l', ctx: { kind: 'reader', reader_id: 'r1' }, last_message_at: iso(2), created_at: iso(3) },
+  { id: 'm', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, last_message_at: iso(29), created_at: iso(30) },
+  { id: 'o', ctx: { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }, last_message_at: iso(60), created_at: iso(61) },
 ];
-const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' }];
+const resumeQueries: FlatCtx[] = [card1, { kind: 'card', note_id: 'n2' }, { kind: 'card', note_id: 'n3' }, { kind: 'card', note_id: 'n4' }, { kind: 'card', note_id: 'n5' }, { kind: 'card', note_id: 'n9' }, { kind: 'general' }, { kind: 'chat_message', message_id: 'm1' }, { kind: 'practice', conversation_id: 'c9' },
+  { kind: 'reader', reader_id: 'r1', page_id: 'p3' }, { kind: 'reader', reader_id: 'r1', page_id: 'p4' }, { kind: 'reader', reader_id: 'r1' }, { kind: 'reader', reader_id: 'r2' },
+  { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e1' }, { kind: 'exercise', lesson_id: 'l1', exercise_key: 's0e2' }];
 const resume = resumeQueries.map((ctx) => ({ ctx, out: resumeThreadFor(THREADS.map(toCandidate), stored(ctx), NOW) }));
 
 const polls = [0, 399, 9_999, 10_000, 60_000].flatMap((pendingForMs) =>
@@ -157,11 +190,23 @@ for (const hs of HUMAN_SETS) {
   inbox.push({ humans: hs, recipients: composeRecipients(hs.map((i) => HUMANS[i])) });
 }
 
+// ---------- A reader page's words (readerPageWords) ----------
+const RECAP_WORDS = [
+  { hanzi: '熊猫', page: 1, pos: 6, reasons: ['tapped'] },
+  { hanzi: '成都', page: 1, pos: 0, reasons: ['tapped', 'said_wrong'] },
+  { hanzi: ' 成都 ', page: 1, pos: 8, reasons: ['tapped'] },
+  { hanzi: '火锅', page: 2, pos: 3, reasons: ['tapped'] },
+  { hanzi: '可爱', page: 1, pos: 9, reasons: ['said_wrong'] },
+  { hanzi: '  ', page: 1, pos: 1, reasons: ['tapped'] },
+  ...Array.from({ length: 14 }, (_, i) => ({ hanzi: `词${i}`, page: 4, pos: 20 - i, reasons: ['tapped'] })),
+];
+const pageWords = [0, 1, 2, 3, 4].map((page) => ({ page, out: readerPageWords(RECAP_WORDS, page) }));
+
 writeFileSync(
   join(OUT, 'claude-chats.json'),
   JSON.stringify({
     inboxHumans: HUMANS, inboxThreads: INBOX_THREADS, inbox,
-    chips, composers, badges, headerChips, now: NOW, threads: THREADS, resume, polls, statuses,
+    chips, composers, badges, headerChips, now: NOW, threads: THREADS, resume, polls, statuses, recapWords: RECAP_WORDS, pageWords,
     copy: {
       chipsAfterReplyMax: CHIPS_AFTER_REPLY_MAX, intentLabels: CLAUDE_INTENT_LABELS, practiceReadOnly: PRACTICE_READ_ONLY_NOTE, resumeWindowMs: RESUME_WINDOW_MS,
       pollFastMs: CLAUDE_POLL_FAST_MS, pollFastForMs: CLAUDE_POLL_FAST_FOR_MS, pollSlowMs: CLAUDE_POLL_SLOW_MS, liveFreshMs: CLAUDE_LIVE_FRESH_MS,
