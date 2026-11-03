@@ -283,6 +283,7 @@ export async function aiUsage(db: D1Database, opts: { since: string; groupBy: Ai
                      SUM(COALESCE(json_extract(e.props, '$.input_tokens'), 0)) AS input_tokens,
                      SUM(COALESCE(json_extract(e.props, '$.output_tokens'), 0)) AS output_tokens,
                      SUM(COALESCE(json_extract(e.props, '$.cache_read_tokens'), 0)) AS cache_read_tokens,
+                     SUM(COALESCE(json_extract(e.props, '$.cache_write_tokens'), 0)) AS cache_write_tokens,
                      ROUND(SUM(COALESCE(json_extract(e.props, '$.cost_usd'), 0)), 4) AS cost_usd
                      ${opts.groupBy === 'user' ? ', MAX(u.email) AS email' : ''}
               FROM usage_events e ${opts.groupBy === 'user' ? 'LEFT JOIN users u ON u.id = e.user_id' : ''}

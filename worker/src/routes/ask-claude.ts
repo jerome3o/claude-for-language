@@ -13,12 +13,13 @@
  * The answer is in simple Chinese unless the account chose English (`users.ask_claude_language`)
  * or the learner explicitly asked for English (`turnLanguage`). A question with Chinese goes
  * through the chat's auto-check in parallel with the answer (`checkAskQuestion`): when it is
- * done within a moment of the answer it comes back with it, else it is stored in the background
- * (`question_check_pending: true` → the client reads the row again).
+ * done within a moment of the answer (CHECK_GRACE_MS) it comes back with it, else it is stored in
+ * the background (`question_check_pending: true` → the client reads the row again).
  *
  * 🎧 Listen first (`users.ask_claude_listening`, or the request's `listening`): a Chinese answer's
- * read-aloud clip is made before the answer goes back (at most ASK_CLIP_GRACE_MS, then in the
- * background), so the hidden bubble plays the moment it appears (`answer_clip_ready`).
+ * read-aloud clip is made in the background (`waitUntil`) — the answer never waits for it
+ * (`answer_clip_ready: false`). A tap before it is done plays through `/api/practice/tts` with the
+ * same text, voice and speed, which makes (or finds) the same clip.
  */
 
 import { Hono } from 'hono';
@@ -51,10 +52,11 @@ import {
 
 const askClaude = new Hono<{ Bindings: Env }>();
 
-/** How long the answer waits for the question's check once the answer itself is ready. */
-export const CHECK_GRACE_MS = 2500;
-/** 🎧 Listen first: how long the answer waits for its clip (the bubble is hidden anyway; then it plays at once). */
-export const ASK_CLIP_GRACE_MS = 8000;
+/**
+ * How long the answer waits for the question's check once the answer itself is ready (the check
+ * started with the answer, so it is usually done; otherwise both apps poll the row for it).
+ */
+export const CHECK_GRACE_MS = 800;
 
 type ToolResult = { tool: string; success: boolean; data?: Record<string, unknown>; error?: string };
 
@@ -158,10 +160,9 @@ askClaude.post('/notes/:id/ask', async (c) => {
   if (!question.trim()) return c.json({ error: 'question is required' }, 400);
   if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI is not configured' }, 500);
 
-  const note = await db.getNoteById(c.env.DB, id, userId);
+  const [note, settings] = await Promise.all([db.getNoteById(c.env.DB, id, userId), askSettings(c.env.DB, userId)]);
   if (!note) return c.json({ error: 'Note not found' }, 404);
 
-  const settings = await askSettings(c.env.DB, userId);
   // The app's current choice (the sheet's 中 / EN), else the account's; an explicit "in English" wins.
   const language = turnLanguage(parseAskLanguage(body.language) ?? settings.language, question);
   const history = Array.isArray(body.conversationHistory) ? body.conversationHistory : undefined;
@@ -182,12 +183,13 @@ askClaude.post('/notes/:id/ask', async (c) => {
     const created = await db.createNoteQuestion(c.env.DB, id, question, answer, language);
     const row = created as unknown as NoteQuestionRow;
 
-    // 🎧 Listen first: the answer's clip, alongside the question's check.
+    // 🎧 Listen first: the answer's clip, made in the background — never waited for.
     const listening = typeof body.listening === 'boolean' ? body.listening : settings.listening;
-    const clip = listening
-      ? pregenerateAskClip(c.env, row, (env, text, v) => cachedConversationTTS(env, text, { voiceId: v.voiceId, speed: v.speed, priority: 'interactive' }))
-      : null;
-    const clipWait = clip ? within(clip, ASK_CLIP_GRACE_MS) : Promise.resolve(null);
+    if (listening) {
+      c.executionCtx.waitUntil(
+        pregenerateAskClip(c.env, row, (env, text, v) => cachedConversationTTS(env, text, { voiceId: v.voiceId, speed: v.speed, priority: 'interactive' })).catch(() => undefined),
+      );
+    }
 
     let pending = false;
     if (checking) {
@@ -203,13 +205,10 @@ askClaude.post('/notes/:id/ask', async (c) => {
       }
     }
 
-    const clipDone = await clipWait;
-    if (clip && clipDone && !clipDone.done) c.executionCtx.waitUntil(clip.catch(() => undefined));
-
     return c.json({
       ...shapeNoteQuestion(row),
       question_check_pending: pending,
-      answer_clip_ready: !!(clipDone && clipDone.done && clipDone.value),
+      answer_clip_ready: false,
       toolResults: toolResults.length > 0 ? toolResults : undefined,
       readOnlyToolCalls: readOnlyToolCalls.length > 0 ? readOnlyToolCalls : undefined,
     }, 201);

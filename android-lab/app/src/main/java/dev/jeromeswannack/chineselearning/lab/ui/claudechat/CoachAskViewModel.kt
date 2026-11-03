@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.AskClaude
 import dev.jeromeswannack.chineselearning.lab.core.CoachAsk
+import dev.jeromeswannack.chineselearning.lab.core.CoachActions
 import dev.jeromeswannack.chineselearning.lab.core.FlashcardReview
 import dev.jeromeswannack.chineselearning.lab.core.PickerDecks
 import dev.jeromeswannack.chineselearning.lab.core.ProposedCard
@@ -117,10 +118,15 @@ class CoachAskViewModel(private val app: LabApp, private val id: String) : ViewM
 
     fun reload() { thread?.refresh() }
 
-    /** Every ~2.5 s while a reply is pending, only while the screen is shown. */
+    /** Look again while a reply is pending, only while the screen is shown. */
     suspend fun pollWhilePending() {
+        // Every second while a reply is pending, every 2.5 s after 15 s (CoachActions.replyPollMs, shared/coach/poll.ts).
+        var pendingSince: Long? = null
         while (true) {
-            kotlinx.coroutines.delay(2500)
+            val pending = thread?.state?.value?.data?.hasPending == true
+            if (!pending) pendingSince = null
+            val since = if (pending) (pendingSince ?: System.currentTimeMillis().also { pendingSince = it }) else null
+            kotlinx.coroutines.delay(if (since != null) CoachActions.replyPollMs(System.currentTimeMillis() - since) else 1000L)
             val t = thread ?: continue
             if (t.state.value.data?.hasPending == true && app.online.value) t.refresh().join()
         }

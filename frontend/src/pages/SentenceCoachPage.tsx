@@ -37,6 +37,7 @@ import {
   COACH_MISTAKE_LESSON_LABEL,
   COACH_MISTAKE_LESSON_BUSY,
   MISTAKE_LESSON_CONTENT_TYPE,
+  coachReplyPollMs,
   type CoachAction,
   type MistakeLessonContent,
 } from '@shared/coach';
@@ -570,12 +571,22 @@ export function SentenceCoachPage() {
     refetchInterval: (q) => (q.state.data?.some((c) => c.pending_reply) ? 4000 : false),
   });
 
+  /** When this screen first saw the current reply pending (the poll speeds up for its first seconds). */
+  const pendingSinceRef = useRef<{ id: string; at: number } | null>(null);
   const conversationQuery = useQuery({
     queryKey: ['coach-conversation', conversationId],
     queryFn: () => getCoachConversation(conversationId!),
     enabled: !!conversationId,
-    // A reply still being written in the background: look again every few seconds until it lands.
-    refetchInterval: (q) => (q.state.data?.messages.some((m) => m.status === 'pending') ? 2500 : false),
+    // A reply still being written in the background: look again every second at first, then
+    // every 2.5 s (coachReplyPollMs) until it lands.
+    refetchInterval: (q) => {
+      if (!q.state.data?.messages.some((m) => m.status === 'pending')) {
+        pendingSinceRef.current = null;
+        return false;
+      }
+      if (pendingSinceRef.current?.id !== conversationId) pendingSinceRef.current = { id: conversationId!, at: Date.now() };
+      return coachReplyPollMs(Date.now() - pendingSinceRef.current.at);
+    },
   });
 
   // Explain's result the device already had, shown when the coach can't be reached.

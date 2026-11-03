@@ -12,7 +12,8 @@ import { currentScope, keepAlive } from './scope';
 import { trackServer } from './server-events';
 
 /**
- * USD per million tokens: [input, output]. Cache reads are ~0.1× input. Estimates
+ * USD per million tokens: [input, output]. Cache reads are 0.1× input, cache writes
+ * (5-minute ephemeral) 1.25× input. Estimates
  * from the providers' list prices (paid tier). The first matching prefix wins, so
  * the specific names come before the family ones.
  */
@@ -58,6 +59,8 @@ export interface AiUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
+  /** Of `input_tokens`, how many were written to the prompt cache (Anthropic; priced at 1.25×). */
+  cache_write_tokens: number;
   cost_usd: number;
   status: number;
 }
@@ -69,16 +72,20 @@ export function priceFor(model: string): [number, number] | null {
 }
 
 /**
- * Estimated USD. `imageOutput` = how many of the `output` tokens are image tokens
- * (Gemini's image models), priced at the image rate; the rest at the text rate.
+ * Estimated USD. `input` = every input token not read from the cache (cache writes
+ * included); `cacheWrite` = how many of those were written to the prompt cache (priced
+ * at 1.25× input); `cacheRead` = tokens read from it (0.1× input). `imageOutput` = how
+ * many of the `output` tokens are image tokens (Gemini's image models), priced at the
+ * image rate; the rest at the text rate.
  */
-export function estimateCost(model: string, input: number, output: number, cacheRead = 0, imageOutput = 0): number {
+export function estimateCost(model: string, input: number, output: number, cacheRead = 0, imageOutput = 0, cacheWrite = 0): number {
   const p = priceFor(model);
   if (!p) return 0;
   const imagePrice = imageOutputPriceFor(model);
   const image = imagePrice === null ? 0 : Math.max(0, Math.min(output, imageOutput));
   const text = output - image;
-  const usd = (input * p[0] + cacheRead * p[0] * 0.1 + text * p[1] + image * (imagePrice ?? 0)) / 1_000_000;
+  const written = Math.max(0, Math.min(input, cacheWrite));
+  const usd = (input * p[0] + written * p[0] * 0.25 + cacheRead * p[0] * 0.1 + text * p[1] + image * (imagePrice ?? 0)) / 1_000_000;
   return Math.round(usd * 1e6) / 1e6;
 }
 
@@ -110,10 +117,11 @@ export function parseAiUsage(provider: 'anthropic' | 'gemini', url: string, body
     const u = b.usage;
     if (!u || typeof u !== 'object') return null;
     const model = typeof b.model === 'string' ? b.model : 'unknown';
-    const input = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0);
+    const cacheWrite = Number(u.cache_creation_input_tokens) || 0;
+    const input = (Number(u.input_tokens) || 0) + cacheWrite;
     const output = Number(u.output_tokens) || 0;
     const cacheRead = Number(u.cache_read_input_tokens) || 0;
-    return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cost_usd: estimateCost(model, input, output, cacheRead), status };
+    return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cache_write_tokens: cacheWrite, cost_usd: estimateCost(model, input, output, cacheRead, 0, cacheWrite), status };
   }
   const u = b.usageMetadata;
   if (!u || typeof u !== 'object') return null;
@@ -123,7 +131,7 @@ export function parseAiUsage(provider: 'anthropic' | 'gemini', url: string, body
   const output = (Number(u.candidatesTokenCount) || 0) + (Number(u.thoughtsTokenCount) || 0);
   const cacheRead = Number(u.cachedContentTokenCount) || 0;
   const image = geminiImageOutputTokens(model, u);
-  return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cost_usd: estimateCost(model, input, output, cacheRead, image), status };
+  return { provider, model, input_tokens: input, output_tokens: output, cache_read_tokens: cacheRead, cache_write_tokens: 0, cost_usd: estimateCost(model, input, output, cacheRead, image), status };
 }
 
 export function recordAiUsage(usage: AiUsage, env?: Env): Promise<void> {

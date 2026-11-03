@@ -484,6 +484,13 @@ Uses Anthropic Claude API for several features:
      word chips → the language explorer, the chat's long-press menu subset (`askClaudeMenu`), and the chat's
      auto-check on the learner's own Chinese (✎, How to say it better, Open in Coach). Route
      `worker/src/routes/ask-claude.ts`, service `services/ask-claude.ts`.
+   - **Speed** (docs/STUDY_SESSION.md "Ask Claude"): a chat turn (`services/chat-turn.ts`, also used by the Coach's
+     follow-ups and Discuss with Claude) = `SONNET_MODEL` (`services/models.ts`) with thinking OFF + prompt caching
+     (the tool definitions — card-independent, the card's fields ride in the first user message —, the static rules,
+     the learner's known-words block — deterministic per user and UTC day —, the conversation's tail); the context is
+     ONE `db.batch` (`loadAskNoteContext`); the answer never waits for the 🎧 clip and waits ≤ `CHECK_GRACE_MS`
+     (0.8 s) for the question's check. Each reply records `server.claude_turn` (surface, model tier, ms, tokens,
+     cache reads / writes, rounds).
    - **🎧 Listen first** (Jerome: "toggled to audio first, in the same way the messages are"): the chat's
      Listening mode REUSED in the sheet — 🎧 beside 中文 | EN + Settings (`users.ask_claude_listening`,
      migration 0117, `PUT /api/profile/ask-claude-listening`, on `/api/auth/me`; every ask sends `listening`).
@@ -491,8 +498,8 @@ Uses Anthropic Claude API for several features:
      0.75× chip, long press / 👁 reveals, then chips + menu); my questions and English answers never hide; a new
      answer plays once by itself unless audio is playing (`askAutoPlayId`); revealed ids per device. Audio = the
      Read-aloud clip in Claude's voice (`ASK_CLAUDE_VOICE` = the app voice Radio Host at 0.6, one clip per answer
-     — no length split needed), pre-generated before the answer returns (`pregenerateAskClip`, ≤ 8 s, then
-     waitUntil). Rules `shared/study/askClaude.ts` (Lab core `AskClaude.kt`, parity-tested); Lab
+     — no length split needed), pre-generated in waitUntil (`pregenerateAskClip`; the answer returns at once with
+     `answer_clip_ready: false`, a tap before it is done makes / finds it through `/api/practice/tts`). Rules `shared/study/askClaude.ts` (Lab core `AskClaude.kt`, parity-tested); Lab
      `ui/study/AskListening.kt`.
    - Questions and answers are stored in `note_questions` table (+ `answer_lang`, `answer_words`,
      `answer_translation`, `question_words`, `question_translation`, `question_check` — migration 0116)
@@ -516,6 +523,13 @@ change there. `leastThinking(model)` gives the right thinking setting per family
   (`{ type: 'disabled' }` is a 400) and counts against `max_tokens`, forced `tool_choice` and `temperature`
   are 400s; wrap the params in `withEffort(params, 'low' | 'medium' | …)` (default effort is medium) and use
   `tool_choice: auto` + an instruction naming the tool.
+- **Chat replies** (Ask Claude, Coach follow-ups, the Coach's "💬 Ask Claude" chat `services/claude-chat.ts`,
+  Discuss with Claude) go through `services/chat-turn.ts`:
+  `SONNET_MODEL` with thinking disabled (`CHAT_TURN_MAX_TOKENS` 12000 is all answer), `cachedTools` /
+  `cachedSystem` / `withCachedTail` (≤ 4 cache breakpoints: last tool, static rules, per-user block, the tail —
+  so nothing per-card or per-request may go in the tools or the static system block), `CHAT_TOOL_RULE` in the
+  prompt, and `ChatTurnMeter` → `server.claude_turn`. The usage capture (`services/analytics/ai-usage.ts`)
+  prices cache writes at 1.25× and reads at 0.1× input (`server.ai_call` carries `cache_write_tokens`).
 - For a short user-facing structured reply, use `structuredCall` (`worker/src/services/structured-call.ts`):
   forced tool + thinking off, `stop_reason` checked (`max_tokens` → retried with double the budget),
   `validate()` on the shape, every non-4xx failure retried with the last attempt on Haiku, 45 s timeout;
@@ -1283,8 +1297,8 @@ alternative **▶ + 🎤 Practise saying it** (`shared/coach/practise.ts` `pract
 (surface `coach_practise`, autoSubmit), Lab `ui/coach/CoachPractise.kt` + core `CoachPractise.kt`, parity-tested; tap 🎤
 again / Enter / a tap on the card stops; nothing stored; `coach.practise_say { result }`); "🎯 Mini lesson on this
 mistake" is a button on the check's card; the follow-up composer's 🎤 says **"🎤 Respond"** (`COACH_RESPOND_LABEL`,
-`sayLabel`). Everything deeper is a question in the follow-up chat, where `coachChatWithTools` has `CARD_STANDARD` in its
-prompt and the tools. Every `create_flashcards` tool (Ask Claude,
+`sayLabel`). Everything deeper is a question in the follow-up chat, where `coachChatWithTools` (a chat turn:
+`SONNET_MODEL`, thinking off, prompt caching — `services/chat-turn.ts`) has `CARD_STANDARD` in its prompt and the tools. Every `create_flashcards` tool (Ask Claude,
 coach chat, chat "Discuss with Claude") shares ONE item schema, `FLASHCARD_ITEM_SCHEMA` in `services/ai.ts`:
 hanzi / pinyin / english / fun_facts (required) + sentence_clue (+ pinyin, translation) for word cards — the same
 fields the content service validates, so a coach-made card is a full standard card, never the critique as fun_facts.
@@ -1292,7 +1306,8 @@ Conversations persist (`coach_conversations` / `coach_messages` tables); the cha
 create_custom_lesson, search_cards, get_note_cards, get_note_history, get_overall_stats. **Replies are written in the
 background** (`routes/coach.ts`, `services/coach-replies.ts`, `coach-reply-queue`; docs/CHAT.md "Chat ↔ Coach"): with
 `background: true` the POST returns 202 with a pending assistant message, the queue writes it (checkpointed: answer +
-tool actions applied, retried on a busy model, failed → Retry), the page polls while pending — leaving never cancels it;
+tool actions applied, retried on a busy model, failed → Retry), the page polls while pending (every second for 15 s,
+then every 2.5 s — `coachReplyPollMs`, `shared/coach/poll.ts`, Lab `CoachActions.replyPollMs`) — leaving never cancels it;
 the list shows "Thinking…". **Open in Coach** from a chat message (menu item, the chip under an improvable bubble, the
 How-to-say-it-better sheet) → `/coach?text=&action=check|explain&from_message=` (an explicit action runs at once,
 `coachDeepLinkAction`); my message's stored auto-check becomes the analysis without a Claude call.

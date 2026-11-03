@@ -14,6 +14,7 @@ import {
   practiseSentence, practiseOutcome, practiseBlockNote, practiseMicEnabled,
   COACH_RESPOND_LABEL, COACH_PRACTISE_LABEL, COACH_PRACTISE_STOP, COACH_PRACTISE_AGAIN, COACH_PRACTISE_LISTEN,
   COACH_PRACTISE_LISTENING, COACH_PRACTISE_CHECKING, COACH_PRACTISE_OFFLINE, COACH_PRACTISE_EMPTY,
+  coachReplyPollMs,
 } from '../../../shared/coach';
 
 const OUT = process.argv[2];
@@ -165,7 +166,11 @@ const practiseCopy = {
   offline: COACH_PRACTISE_OFFLINE, empty: COACH_PRACTISE_EMPTY,
 };
 
+// How often the Coach looks again while a reply is pending (shared/coach/poll.ts).
+const replyPoll = [0, 1, 999, 1000, 14_999, 15_000, 15_001, 60_000, -5].map((pendingForMs) => ({ pendingForMs, ms: coachReplyPollMs(pendingForMs) }));
+
 writeFileSync(join(OUT, 'coach.json'), JSON.stringify({
+  replyPoll,
   practise, practiseBlocks, practiseOutcomes, practiseCopy,
   mistakeChecks, mistakeCardLines, mistakeContents,
   mistakeLabel: COACH_MISTAKE_LESSON_LABEL, mistakeBusy: COACH_MISTAKE_LESSON_BUSY, mistakeContentType: MISTAKE_LESSON_CONTENT_TYPE,
