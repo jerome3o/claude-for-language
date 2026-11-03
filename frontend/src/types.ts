@@ -887,7 +887,9 @@ export interface CoachConversation {
   title: string;
   input_language: CoachInputLanguage;
   /** Which button started it (null on conversations from before it was recorded) */
-  action?: CoachAction | null;
+  action?: CoachAction | 'ask' | null;
+  /** 'ask' = a "💬 Ask Claude" chat (shared/coach/askChat.ts); null = a Sentence Coach conversation. */
+  kind?: 'ask' | null;
   /** "Open in Coach" from this chat message. */
   source_message_id?: string | null;
   created_at: string;
@@ -913,6 +915,10 @@ export interface CoachMessage {
   /** null = done; pending = being written in the background; failed = see error (Retry). */
   status?: 'pending' | 'failed' | null;
   error?: string | null;
+  /** Ask Claude chats: the language of Claude's reply ('zh' = plain Chinese text, 'en' = Markdown). */
+  answer_lang?: 'zh' | 'en' | null;
+  /** The English of a Chinese message, once asked for. */
+  translation?: string | null;
 }
 
 export interface CoachToolResult {

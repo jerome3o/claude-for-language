@@ -12,8 +12,10 @@ data class CoachConversationDto(
     val id: String,
     val title: String = "",
     val input_language: String = "zh",
-    /** Which button started it: check | explain | translate (null on older conversations). */
+    /** Which button started it: check | explain | translate | ask (null on older conversations). */
     val action: String? = null,
+    /** 'ask' = a "💬 Ask Claude" chat (migration 0143; shared/coach/askChat.ts). */
+    val kind: String? = null,
     val created_at: String = "",
     val updated_at: String = "",
     val message_count: Int = 0,
@@ -36,6 +38,10 @@ data class CoachMessageDto(
     /** null = written; 'pending' = being written in the background; 'failed' = [error], Retry. */
     val status: String? = null,
     val error: String? = null,
+    /** Ask Claude chats: the language of Claude's reply ('zh' plain Chinese | 'en' Markdown). */
+    val answer_lang: String? = null,
+    /** The English of a Chinese message, once asked for. */
+    val translation: String? = null,
 ) {
     val isPending: Boolean get() = status == "pending"
     val isFailed: Boolean get() = status == "failed"
@@ -58,7 +64,10 @@ data class CoachStartBody(
     /** "Open in Coach" from a chat message: its auto-check seeds the analysis; the same message reuses its conversation. */
     val chat_message_id: String? = null,
 )
-@Serializable data class CoachMessageBody(val message: String, val background: Boolean? = null)
+@Serializable data class CoachMessageBody(val message: String, val background: Boolean? = null, val language: String? = null)
+@Serializable data class CoachAskBody(val message: String, val language: String? = null)
+@Serializable data class CoachTranslationRes(val translation: String = "", val cached: Boolean = false)
+@Serializable data class CoachProposeBody(val words: List<String> = emptyList())
 
 // ---- the structured first reply (content_type = "analysis") ----
 
@@ -152,8 +161,16 @@ suspend fun Api.coachConversation(id: String): CoachThreadDto = get("/api/coach/
 suspend fun Api.startCoachConversation(text: String, action: String? = null, explanation: SentenceExplanation? = null, chatMessageId: String? = null): CoachThreadDto =
     post("/api/coach/conversations", CoachStartBody(text, action, explanation, background = true, chat_message_id = chatMessageId))
 /** A follow-up: 202 with my message and the pending reply (written in the background); 409 while one is pending. */
-suspend fun Api.sendCoachMessage(id: String, message: String): CoachReplyDto =
-    post("/api/coach/conversations/${enc(id)}/messages", CoachMessageBody(message, background = true))
+suspend fun Api.sendCoachMessage(id: String, message: String, language: String? = null): CoachReplyDto =
+    post("/api/coach/conversations/${enc(id)}/messages", CoachMessageBody(message, background = true, language = language))
+/** "💬 Ask Claude": a new chat → 202 my message + Claude's pending reply (polled). */
+suspend fun Api.startCoachAsk(message: String, language: String?): CoachThreadDto = post("/api/coach/ask", CoachAskBody(message, language))
+/** The English of one Chinese message (kept on the server). */
+suspend fun Api.translateCoachMessage(id: String, messageId: String): CoachTranslationRes =
+    post("/api/coach/conversations/${enc(id)}/messages/${enc(messageId)}/translate")
+/** "Make flashcards from this chat": proposals, the tapped / said-wrong [words] first. */
+suspend fun Api.proposeCoachFlashcards(id: String, words: List<String>): ProposedCardsDto =
+    post("/api/coach/conversations/${enc(id)}/flashcards/propose", CoachProposeBody(words))
 /** Retry a reply that failed: back on the server's queue → 202 the whole thread. */
 suspend fun Api.retryCoachReply(id: String, messageId: String): CoachThreadDto =
     post("/api/coach/conversations/${enc(id)}/messages/${enc(messageId)}/retry")

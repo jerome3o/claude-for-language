@@ -73,32 +73,49 @@ export interface ReadAloud {
   toggle: () => void;
 }
 
-/** One page's read-aloud state (the caller keys the page, so a page turn starts afresh). */
-export function useReadAloud(pageText: string, hooks: { onStart?: () => void; onResult?: () => void } = {}): ReadAloud {
+/** Where a read-aloud runs: the voice surface and the analytics event (+ props from the result). */
+export interface ReadAloudPlace {
+  surface: string;
+  event: 'reader.read_aloud' | 'coach.ask_read_back';
+  /** Extra event props from the result (null = no result: failed / empty). */
+  props?: (r: ReadAloudResult | null) => Record<string, string | number | boolean>;
+}
+
+const READER_PLACE: ReadAloudPlace = { surface: 'reader_read_aloud', event: 'reader.read_aloud' };
+
+/**
+ * One text's read-aloud state (the caller keys the text, so a page turn starts afresh). Reader pages
+ * by default; the Claude chat's "🎤 Read it back" passes its own `place`.
+ */
+export function useReadAloud(
+  pageText: string,
+  hooks: { onStart?: () => void; onResult?: (r: ReadAloudResult, said: string) => void } = {},
+  place: ReadAloudPlace = READER_PLACE,
+): ReadAloud {
   const [result, setResult] = useState<ReadAloudResult | null>(null);
   const [said, setSaid] = useState('');
   const [offlineNote, setOfflineNote] = useState(false);
   const [perfectTakes, setPerfectTakes] = useState(0);
   const [words, setWords] = useState<string[] | null>(null);
   const [focused, setFocused] = useState<{ index: number; tick: number } | null>(null);
-  const latest = useRef({ pageText, hooks });
-  latest.current = { pageText, hooks };
+  const latest = useRef({ pageText, hooks, place });
+  latest.current = { pageText, hooks, place };
   const dictation = useVoiceDictation({
-    surface: 'reader_read_aloud',
+    surface: place.surface,
     value: '',
     onChange: () => {},
     autoSubmit: true,
     onSubmit: (answer) => {
-      const { pageText: text, hooks: h } = latest.current;
+      const { pageText: text, hooks: h, place: p } = latest.current;
       if (!readAloudHeardAnything(answer.text)) {
-        track('reader.read_aloud', { result_bucket: 'empty', chars: 0, via: answer.via ?? 'none', all_right: false });
+        track(p.event, { result_bucket: 'empty', chars: 0, via: answer.via ?? 'none', all_right: false, ...p.props?.(null) });
         return;
       }
       const r = judgeReadAloud(text, answer.text);
       const allRight = readAloudAllRight(r);
       setResult(r);
       setSaid(answer.text.trim());
-      track('reader.read_aloud', { result_bucket: readAloudBucket(r.pct), chars: r.total, via: answer.via ?? 'none', all_right: allRight });
+      track(p.event, { result_bucket: readAloudBucket(r.pct), chars: r.total, via: answer.via ?? 'none', all_right: allRight, ...p.props?.(r) });
       if (allRight) {
         // The whole page read right: confetti (once for this take) and a happy buzz.
         setPerfectTakes((n) => n + 1);
@@ -108,7 +125,7 @@ export function useReadAloud(pageText: string, hooks: { onStart?: () => void; on
           // no haptics
         }
       }
-      h.onResult?.();
+      h.onResult?.(r, answer.text.trim());
     },
   });
   const { state } = dictation;
@@ -117,7 +134,8 @@ export function useReadAloud(pageText: string, hooks: { onStart?: () => void; on
   useEffect(() => {
     if (failed && !reported.current) {
       reported.current = true;
-      track('reader.read_aloud', { result_bucket: state.failure === 'empty' ? 'empty' : 'failed', chars: 0, via: 'none', all_right: false });
+      const p = latest.current.place;
+      track(p.event, { result_bucket: state.failure === 'empty' ? 'empty' : 'failed', chars: 0, via: 'none', all_right: false, ...p.props?.(null) });
     }
     if (!failed) reported.current = false;
   }, [failed, state.failure]);
@@ -189,12 +207,12 @@ export function ReadAloudStopFooter({ recording, onStop }: { recording: boolean;
 }
 
 /** 🎤 in the page's audio row: Read it aloud · ⏹ Stop · Say it again (icon button, 44px). */
-export function ReadAloudMic({ ra }: { ra: ReadAloud }) {
+export function ReadAloudMic({ ra, idleLabel = READ_ALOUD_LABEL, testId = 'reader-read-aloud' }: { ra: ReadAloud; idleLabel?: string; testId?: string }) {
   const { state } = ra.dictation;
   if (state.blocked === 'unsupported') return null;
   const listening = state.phase === 'listening';
   const finishing = state.phase === 'finishing';
-  const label = listening ? READ_ALOUD_STOP : finishing ? READ_ALOUD_CHECKING : ra.result ? READ_ALOUD_AGAIN : READ_ALOUD_LABEL;
+  const label = listening ? READ_ALOUD_STOP : finishing ? READ_ALOUD_CHECKING : ra.result ? READ_ALOUD_AGAIN : idleLabel;
   return (
     <button
       type="button"
@@ -207,7 +225,7 @@ export function ReadAloudMic({ ra }: { ra: ReadAloud }) {
       aria-pressed={listening}
       aria-label={label}
       title={label}
-      data-testid="reader-read-aloud"
+      data-testid={testId}
     >
       {finishing ? <span className="spinner reader-read-aloud-spinner" aria-hidden="true" /> : <span aria-hidden="true">{listening ? '⏹' : '🎤'}</span>}
     </button>
@@ -215,7 +233,7 @@ export function ReadAloudMic({ ra }: { ra: ReadAloud }) {
 }
 
 /** Under the audio row: the live transcript, then the one result line (+ "You said" collapsed), or why there is none. */
-export function ReadAloudPanel({ ra, onSpeak }: { ra: ReadAloud; onSpeak?: (text: string) => void }) {
+export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENING }: { ra: ReadAloud; onSpeak?: (text: string) => void; listeningText?: string }) {
   const { dictation, result, said } = ra;
   const { state } = dictation;
   const [showSaid, setShowSaid] = useState(false);
@@ -235,7 +253,7 @@ export function ReadAloudPanel({ ra, onSpeak }: { ra: ReadAloud; onSpeak?: (text
             <span className="reader-read-aloud-partial">{dictation.partialText}</span>
           </span>
         ) : (
-          <span className="reader-read-aloud-hint">{READ_ALOUD_LISTENING}</span>
+          <span className="reader-read-aloud-hint">{listeningText}</span>
         )}
       </div>
     );

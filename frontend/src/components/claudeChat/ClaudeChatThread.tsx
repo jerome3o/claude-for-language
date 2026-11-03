@@ -1,0 +1,430 @@
+/**
+ * A Claude chat's message list — context-agnostic (docs/CHAT.md "Ask Claude chat"): it takes a
+ * thread id and plain messages, so the Coach's "💬 Ask Claude" and later Claude chats share it.
+ *
+ * - The tutor chat's Signal bubbles (chat-signal.css), mine right / Claude's left.
+ * - Every Chinese word is a chip (the device segmenter) → the language explorer; each tap is kept
+ *   as a word to recap for this thread (services/claudeChatRecap.ts).
+ * - Under each of Claude's Chinese messages (`readBackOffered`): ▶ Listen (the Read-aloud clip in
+ *   Claude's voice, cached on the device), 拼 / EN toggles, and 🎤 Read it back — he reads the
+ *   message aloud, the take is judged with the graded readers' comparison
+ *   (shared/reader/readAloud.ts, `useReadAloud`) and the message is marked in place; words with a
+ *   real mistake join the recap words. Practice only: nothing is stored on the server.
+ * - 🎧 Listen first: Claude's Chinese arrives as the chat's hidden bubble (tap plays, hold / 👁
+ *   reveals) and a new one plays once by itself (`askAutoPlayId`), like Ask Claude on a card.
+ * - English answers are Markdown; a pending reply shows "Thinking…", a failed one Retry.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { readBackMistakeWords, readBackOffered, READ_BACK_LABEL, READ_BACK_LISTENING } from '@shared/coach/askChat';
+import { ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE, askAnswerHidden, askAutoPlayId } from '@shared/study/askClaude';
+import { itemForText } from '@shared/explorer';
+import type { ReadAloudResult } from '@shared/reader/readAloud';
+import { readAloudBucket } from '@shared/reader/readAloud';
+import { ChatWordsText, type TappedWord } from '../chat/ChatWords';
+import { ChatTranslation } from '../chat/ChatBubbleParts';
+import { ListeningBubble, useListeningPlayer } from '../chat/ListeningBubble';
+import { looksLikeChinese } from '../chat/messageTools';
+import { useLongPress } from '../chat/useLongPress';
+import { ReadAloudMic, ReadAloudPanel, useReadAloud } from '../reader/ReadAloud';
+import { useExplorer, type ExplorerSource } from '../explorer/ExplorerContext';
+import { useKnownHanzi } from '../reader/ReaderWords';
+import { useSegmentedWords } from '../../services/chineseSegmenter';
+import { revealAskAnswer, useAskRevealed } from '../../services/askClaudeListening';
+import { recordRecapWord, recordRecapWords } from '../../services/claudeChatRecap';
+import { getTTSWithCache } from '../../services/ttsCache';
+import { speakWithBrowserTTS } from '../../services/audioCache';
+import { createAudioPlayer } from '../../utils/audioPlayback';
+import { track } from '../../services/analytics';
+import '../chat/chat-learning.css';
+import '../chat/chat-signal.css';
+import '../chat/chat-listening.css';
+import '../askClaude/ask-claude.css';
+import './claude-chat.css';
+
+export interface ClaudeChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  /** Claude's reply: 'zh' = plain Chinese (chips, ▶, 🎧, 🎤), 'en' = Markdown. */
+  answer_lang?: 'zh' | 'en' | null;
+  /** null = done; pending = being written; failed = see error (Retry). */
+  status?: 'pending' | 'failed' | null;
+  error?: string | null;
+  translation?: string | null;
+}
+
+export interface ClaudeChatThreadProps {
+  threadId: string;
+  messages: ClaudeChatMessage[];
+  /** 🎧 Listen first. */
+  listening: boolean;
+  thinkingLabel: string;
+  /** The English of a message (kept by the caller / server); null = couldn't. */
+  onTranslate: (m: ClaudeChatMessage) => Promise<string | null>;
+  onRetry: (m: ClaudeChatMessage) => void;
+  retryingId?: string | null;
+  explorerSource?: ExplorerSource;
+  /** A message the learner is sending (shown until the server has it). */
+  pendingText?: string | null;
+}
+
+type Tool = 'play' | 'pinyin' | 'translate' | 'listen' | 'reveal' | 'word';
+
+export function ClaudeChatThread({ threadId, messages, listening, thinkingLabel, onTranslate, onRetry, retryingId, explorerSource = 'claude_chat', pendingText }: ClaudeChatThreadProps) {
+  const explorer = useExplorer();
+  const known = useKnownHanzi();
+  const revealed = useAskRevealed();
+  const playerRef = useRef(createAudioPlayer());
+  const [playing, setPlaying] = useState<string | null>(null);
+  const [pinyinOn, setPinyinOn] = useState<Set<string>>(new Set());
+  const [translateOn, setTranslateOn] = useState<Set<string>>(new Set());
+  const [translations, setTranslations] = useState<Record<string, string | null>>({});
+  const [notice, setNotice] = useState<{ id: string; text: string } | null>(null);
+  const listenIdRef = useRef<string | null>(null);
+  const autoRef = useRef(false);
+  const listenPlayer = useListeningPlayer(
+    (message) => {
+      const id = listenIdRef.current;
+      if (!id) return;
+      const offline = /not downloaded/i.test(message) || (typeof navigator !== 'undefined' && !navigator.onLine);
+      setNotice({ id, text: offline ? '🎧 Listening needs a connection the first time — hold to read it instead.' : "Couldn't play it — tap to try again, or hold to read it." });
+    },
+    { onPlay: () => { track('coach.ask_tool', { action: autoRef.current ? 'listen_auto' : 'listen', role: 'claude' }); autoRef.current = false; } },
+  );
+  useEffect(() => () => playerRef.current.stop(), []);
+
+  const tool = (action: Tool, role: 'mine' | 'claude') => track('coach.ask_tool', { action, role });
+
+  const entries = useMemo(() => messages.filter((m) => m.role === 'assistant' && !m.status).map((m) => ({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null })), [messages]);
+  const hidden = (m: ClaudeChatMessage) => askAnswerHidden({ id: m.id, answer: m.text, answer_lang: m.answer_lang ?? null }, { listening, revealed });
+
+  // A new answer that arrives hidden plays once by itself — unless audio is already going.
+  const seenRef = useRef<Set<string>>(new Set(entries.map((e) => e.id)));
+  const audioBusy = playing !== null || listenPlayer.playingId !== null || listenPlayer.loadingId !== null;
+  useEffect(() => {
+    const last = entries[entries.length - 1];
+    const id = askAutoPlayId({ listening, entries, seen: seenRef.current, revealed, audioBusy });
+    if (last) seenRef.current.add(last.id);
+    if (id && last) listen(last.id, last.answer, true);
+    // Only a new answer starts this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries.length]);
+
+  const listen = (id: string, text: string, auto = false) => {
+    playerRef.current.stop();
+    setPlaying(null);
+    setNotice(null);
+    listenIdRef.current = id;
+    autoRef.current = auto;
+    listenPlayer.play({ id, content: text }, { voice: ASK_CLAUDE_VOICE, speed: ASK_CLAUDE_SPEED });
+  };
+
+  const reveal = (m: ClaudeChatMessage) => {
+    if (!hidden(m)) return;
+    navigator.vibrate?.(18);
+    if (listenPlayer.playingId === m.id || listenPlayer.loadingId === m.id) listenPlayer.stop();
+    tool('reveal', 'claude');
+    revealAskAnswer(m.id);
+  };
+
+  /** ▶: the message in Claude's voice (the Read-aloud clip, cached by text + voice + speed). */
+  const play = async (m: ClaudeChatMessage) => {
+    if (playing === m.id) {
+      playerRef.current.stop();
+      setPlaying(null);
+      return;
+    }
+    listenPlayer.stop();
+    setPlaying(m.id);
+    tool('play', m.role === 'user' ? 'mine' : 'claude');
+    try {
+      const blob = await getTTSWithCache(m.text, ASK_CLAUDE_SPEED, ASK_CLAUDE_VOICE);
+      if (blob) {
+        playerRef.current.play(blob, { onEnded: () => setPlaying(null), onError: () => setPlaying(null) });
+        return;
+      }
+      await speakWithBrowserTTS(m.text, null);
+    } catch (err) {
+      console.warn('[claude-chat] play failed:', err);
+    }
+    setPlaying(null);
+  };
+
+  const flip = (set: Set<string>, id: string) => {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  };
+
+  const translate = async (m: ClaudeChatMessage) => {
+    const on = translateOn.has(m.id);
+    setTranslateOn((s) => flip(s, m.id));
+    if (on) return;
+    tool('translate', m.role === 'user' ? 'mine' : 'claude');
+    if (m.translation || translations[m.id]) return;
+    const t = await onTranslate(m);
+    setTranslations((prev) => ({ ...prev, [m.id]: t }));
+    if (!t) setTranslateOn((s) => flip(s, m.id));
+  };
+
+  const tapWord = (tapped: TappedWord, role: 'mine' | 'claude') => {
+    const item = itemForText(tapped.word.text, { pinyin: tapped.word.pinyin || undefined, gloss: tapped.word.gloss || undefined, sentence: tapped.sentence });
+    if (!item) return;
+    tool('word', role);
+    recordRecapWord(threadId, { hanzi: tapped.word.text, pinyin: tapped.word.pinyin || undefined, gloss: tapped.word.gloss || undefined, sentence: tapped.sentence, reasons: ['tapped'] });
+    explorer.open(item, { source: explorerSource });
+  };
+
+  return (
+    <div className="ask-thread claude-chat-thread" data-testid="claude-chat-thread">
+      {messages.map((m) => {
+        if (m.role === 'user') {
+          return (
+            <MineBubble key={m.id} m={m} known={known} pinyin={pinyinOn.has(m.id)} onTapWord={(w) => tapWord(w, 'mine')} />
+          );
+        }
+        if (m.status === 'pending') {
+          return (
+            <div key={m.id} className="chat-message received group-first group-last" data-testid="claude-chat-pending">
+              <div className="chat-message-content">
+                <div className="chat-bubble claude-chat-thinking">
+                  <span className="chat-spinner" aria-hidden="true" /> {thinkingLabel}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        if (m.status === 'failed') {
+          return (
+            <div key={m.id} className="coach-error claude-chat-failed" role="alert" data-testid="claude-chat-failed">
+              {m.error || 'Claude couldn’t answer — try again.'}
+              <button type="button" className="coach-error-retry" onClick={() => onRetry(m)} disabled={retryingId === m.id} data-testid="claude-chat-retry">
+                {retryingId === m.id ? 'Retrying…' : 'Retry'}
+              </button>
+            </div>
+          );
+        }
+        if (hidden(m)) {
+          const playingThis = listenPlayer.playingId === m.id;
+          return (
+            <HiddenBubble
+              key={m.id}
+              m={m}
+              playing={playingThis}
+              loading={listenPlayer.loadingId === m.id}
+              progress={playingThis ? listenPlayer.progress : 0}
+              durationSec={listenPlayer.durations[m.id] ?? null}
+              slow={listenPlayer.slow}
+              onToggleSlow={listenPlayer.toggleSlow}
+              notice={notice?.id === m.id ? notice.text : null}
+              onListen={() => listen(m.id, m.text)}
+              onReveal={() => reveal(m)}
+            />
+          );
+        }
+        return (
+          <ClaudeBubble
+            key={m.id}
+            threadId={threadId}
+            m={m}
+            known={known}
+            pinyin={pinyinOn.has(m.id)}
+            translateOn={translateOn.has(m.id)}
+            translation={m.translation ?? translations[m.id] ?? null}
+            translateFailed={translations[m.id] === null && !m.translation}
+            playing={playing === m.id}
+            onPlay={() => void play(m)}
+            onPinyin={() => {
+              tool('pinyin', 'claude');
+              setPinyinOn((s) => flip(s, m.id));
+            }}
+            onTranslate={() => void translate(m)}
+            onTapWord={(w) => tapWord(w, 'claude')}
+            onStopAudio={() => {
+              playerRef.current.stop();
+              setPlaying(null);
+              listenPlayer.stop();
+            }}
+          />
+        );
+      })}
+      {pendingText && (
+        <div className="chat-message sent group-first group-last">
+          <div className="chat-message-content">
+            <div className="chat-bubble pending">{pendingText}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MineBubble({ m, known, pinyin, onTapWord }: { m: ClaudeChatMessage; known: Set<string>; pinyin: boolean; onTapWord: (w: TappedWord) => void }) {
+  return (
+    <div className="chat-message sent group-first group-last" data-testid="claude-chat-mine">
+      <div className="chat-message-content">
+        <div className="chat-bubble">
+          {looksLikeChinese(m.text) ? <ChatWordsText text={m.text} words={null} showPinyin={pinyin} known={known} onTapWord={onTapWord} /> : <span className="chat-text">{m.text}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HiddenBubble(props: {
+  m: ClaudeChatMessage;
+  playing: boolean;
+  loading: boolean;
+  progress: number;
+  durationSec: number | null;
+  slow: boolean;
+  onToggleSlow: () => void;
+  notice: string | null;
+  onListen: () => void;
+  onReveal: () => void;
+}) {
+  const press = useLongPress();
+  const { m } = props;
+  return (
+    <div className="chat-message received group-first group-last" data-testid="claude-chat-reply" data-hidden="true">
+      <div className="chat-message-content">
+        <div className="chat-bubble-row">
+          <div
+            className="chat-bubble listening"
+            data-testid="claude-chat-listening-bubble"
+            role="button"
+            tabIndex={0}
+            aria-label="Claude's answer, hidden. Tap to listen, hold to reveal"
+            {...press.bind(props.onReveal)}
+            onClick={() => {
+              if (press.suppressTap()) return;
+              props.onListen();
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (press.suppressTap()) return;
+              props.onReveal();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                props.onListen();
+              }
+            }}
+          >
+            <ListeningBubble
+              messageId={m.id}
+              text={m.text}
+              playing={props.playing}
+              loading={props.loading}
+              progress={props.progress}
+              durationSec={props.durationSec}
+              slow={props.slow}
+              onToggleSlow={props.onToggleSlow}
+            />
+          </div>
+          <button type="button" className="chat-listening-reveal" onClick={props.onReveal} aria-label="Reveal the answer" title="Reveal" data-testid="claude-chat-reveal">
+            👁
+          </button>
+        </div>
+        {props.notice && (
+          <p className="ask-listen-notice" role="status">
+            {props.notice}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ClaudeBubble(props: {
+  threadId: string;
+  m: ClaudeChatMessage;
+  known: Set<string>;
+  pinyin: boolean;
+  translateOn: boolean;
+  translation: string | null;
+  translateFailed: boolean;
+  playing: boolean;
+  onPlay: () => void;
+  onPinyin: () => void;
+  onTranslate: () => void;
+  onTapWord: (w: TappedWord) => void;
+  onStopAudio: () => void;
+}) {
+  const { m } = props;
+  const offered = readBackOffered({ role: m.role, content: m.text, answer_lang: m.answer_lang, status: m.status });
+  const segments = useSegmentedWords(m.text, offered);
+  const segRef = useRef<string[]>([]);
+  segRef.current = segments ? segments.map((w) => w.text) : [];
+  const readBack = useReadAloud(
+    m.text,
+    {
+      // He reads: anything playing stops so it doesn't talk over him.
+      onStart: props.onStopAudio,
+      onResult: (r: ReadAloudResult) => {
+        recordRecapWords(props.threadId, readBackMistakeWords(m.text, segRef.current, r));
+      },
+    },
+    {
+      surface: 'claude_chat_read_back',
+      event: 'coach.ask_read_back',
+      props: (r) => ({ wrong_words: r ? readBackMistakeWords(m.text, segRef.current, r).length : 0 }),
+    },
+  );
+  const listeningNow = readBack.dictation.state.phase === 'listening';
+  const result = listeningNow ? null : readBack.result;
+
+  if (m.answer_lang !== 'zh' && !looksLikeChinese(m.text)) {
+    return (
+      <div className="chat-message received group-first group-last" data-testid="claude-chat-reply">
+        <div className="chat-message-content">
+          <div className="chat-bubble">
+            <div className="claude-response">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="chat-message received group-first group-last" data-testid="claude-chat-reply" data-bucket={readBack.result ? readAloudBucket(readBack.result.pct) : undefined}>
+      <div className="chat-message-content">
+        <div className="chat-bubble">
+          {m.answer_lang === 'zh' ? (
+            <ChatWordsText text={m.text} words={segments} showPinyin={props.pinyin} known={props.known} onTapWord={props.onTapWord} marks={result} />
+          ) : (
+            <div className="claude-response">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+            </div>
+          )}
+          {props.translateOn && <ChatTranslation text={props.translation ?? (props.translateFailed ? "Couldn't translate — tap EN to try again" : null)} />}
+        </div>
+        {offered && (
+          <>
+            <div className="claude-chat-tools" role="group" aria-label="Message tools">
+              <button type="button" className={`claude-chat-tool${props.playing ? ' on' : ''}`} onClick={props.onPlay} aria-label={props.playing ? 'Stop' : 'Listen'} data-testid="claude-chat-play">
+                {props.playing ? '■' : '▶'}
+              </button>
+              <button type="button" className={`claude-chat-tool${props.pinyin ? ' on' : ''}`} onClick={props.onPinyin} aria-pressed={props.pinyin} aria-label="Pinyin" data-testid="claude-chat-pinyin">
+                拼
+              </button>
+              <button type="button" className={`claude-chat-tool${props.translateOn ? ' on' : ''}`} onClick={props.onTranslate} aria-pressed={props.translateOn} aria-label="English" data-testid="claude-chat-translate">
+                EN
+              </button>
+              <ReadAloudMic ra={readBack} idleLabel={READ_BACK_LABEL} testId="claude-chat-read-back" />
+              {!readBack.result && readBack.dictation.state.phase === 'idle' && <span className="claude-chat-tool-hint">{READ_BACK_LABEL}</span>}
+            </div>
+            <div className="claude-chat-read-back">
+              <ReadAloudPanel ra={readBack} listeningText={READ_BACK_LISTENING} />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

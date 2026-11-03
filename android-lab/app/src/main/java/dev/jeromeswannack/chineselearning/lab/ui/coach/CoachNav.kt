@@ -34,6 +34,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.claudechat.claudeChat
+import dev.jeromeswannack.chineselearning.lab.ui.claudechat.claudeChatGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -118,10 +120,13 @@ fun NavGraphBuilder.coachGraph(nav: LabNav) {
                     onOpen = { nav.open(Routes.coachConversation(it)) },
                     onDelete = vm::delete,
                     cards = coachCardActions(nav.app),
+                    onAsk = { id -> nav.open(Routes.claudeChat(id ?: dev.jeromeswannack.chineselearning.lab.ui.claudechat.CoachAskViewModel.NEW)) },
                 ),
             )
         }
     }
+    // "💬 Ask Claude": a plain chat with Claude (`/coach/chat/{id}`, `new` for a fresh one; ui/claudechat).
+    claudeChatGraph(nav)
     // "🎯 Mini lesson on this mistake": the lesson in the player (preview), `/coach/:c/lesson/:m`.
     coachLessonGraph(nav)
 }

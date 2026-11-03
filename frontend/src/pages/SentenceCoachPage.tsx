@@ -40,6 +40,7 @@ import {
   type CoachAction,
   type MistakeLessonContent,
 } from '@shared/coach';
+import { conversationKind, COACH_ASK_HINT, COACH_ASK_ICON, COACH_ASK_LABEL } from '@shared/coach/askChat';
 import { cachedCoachLesson, rememberCoachLesson } from '../services/coachLessons';
 import { db } from '../db/database';
 import { SentenceWordBreakdown } from '../components/SentenceWordBreakdown';
@@ -672,6 +673,10 @@ export function SentenceCoachPage() {
   const startedHere = useRef<Set<string>>(new Set());
   const resumeTracked = useRef<Set<string>>(new Set());
   const loaded = conversationQuery.data;
+  // An Ask Claude chat opened by its ?c= link: its own chat screen.
+  useEffect(() => {
+    if (loaded && conversationKind(loaded.conversation) === 'ask') navigate(`/coach/chat/${encodeURIComponent(loaded.conversation.id)}`, { replace: true });
+  }, [loaded, navigate]);
   useEffect(() => {
     if (!loaded || !conversationId) return;
     if (loaded.messages.some((m) => m.status === 'pending') && !startedHere.current.has(conversationId) && !resumeTracked.current.has(conversationId)) {
@@ -833,8 +838,10 @@ export function SentenceCoachPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyMutation.isError]);
 
-  const openConversation = (id: string) => {
-    setSearchParams({ c: id });
+  const openConversation = (conv: { id: string; kind?: string | null; action?: string | null }) => {
+    // A "💬 Ask Claude" chat opens in its own chat screen.
+    if (conversationKind(conv) === 'ask') navigate(`/coach/chat/${encodeURIComponent(conv.id)}`);
+    else setSearchParams({ c: conv.id });
   };
 
   const backToList = () => {
@@ -965,6 +972,20 @@ export function SentenceCoachPage() {
           Wrote something in Chinese? Check it. Reading something? Explain it word by word. Or say
           English to hear how to say it in Chinese. Speak or type — then keep chatting about it.
         </p>
+
+        <button
+          type="button"
+          className="card coach-ask-entry"
+          onClick={() => navigate('/coach/chat/new')}
+          data-testid="coach-ask-entry"
+        >
+          <span className="coach-ask-entry-icon" aria-hidden="true">{COACH_ASK_ICON}</span>
+          <span className="coach-ask-entry-text">
+            <span className="coach-ask-entry-title">{COACH_ASK_LABEL}</span>
+            <span className="coach-ask-entry-hint">{COACH_ASK_HINT}</span>
+          </span>
+          <span className="coach-ask-entry-go" aria-hidden="true">›</span>
+        </button>
 
         <div className="card">
           <form onSubmit={handleSubmit} className="sentence-input-form" data-testid="coach-sentence-box">
@@ -1107,10 +1128,11 @@ export function SentenceCoachPage() {
                 <button
                   type="button"
                   className="coach-conv-open"
-                  onClick={() => openConversation(conv.id)}
+                  onClick={() => openConversation(conv)}
+                  data-testid={conversationKind(conv) === 'ask' ? 'coach-conv-ask' : undefined}
                 >
                   <div className="coach-conv-title">
-                    {COACH_ACTION_ICONS[conversationAction(conv)]} {conv.title}
+                    {conversationKind(conv) === 'ask' ? COACH_ASK_ICON : COACH_ACTION_ICONS[conversationAction(conv)]} {conv.title}
                   </div>
                   <div className="coach-conv-meta">
                     {conv.pending_reply && (
@@ -1147,6 +1169,7 @@ export function SentenceCoachPage() {
             <li>Tap any Chinese word to explore it — add it as a card or study it today from there</li>
             <li>🎤 Practise saying it → say the sentence and see if it sounded right</li>
             <li>Then 🎤 Respond (or type) to ask anything — the coach can also add cards and build a mini lesson</li>
+            <li>💬 Ask Claude → a plain chat in simple Chinese: tap any word, ▶ listen, 🎤 read Claude's answer back</li>
             <li>Conversations are saved, so you can come back and continue</li>
             <li>Tip: select text anywhere on your phone and choose "Sentence Coach" (Android app)</li>
           </ul>
