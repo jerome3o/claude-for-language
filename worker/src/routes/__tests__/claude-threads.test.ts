@@ -90,6 +90,12 @@ describe('/api/claude/threads', () => {
     expect(changed.body.threads.map((t) => t.id)).toEqual(expected);
   });
 
+  it("reads a context with no kind as the general one (Lab v0.867–0.868 sent `context: {}`)", async () => {
+    const res = await w.call<ThreadBody>('POST', '/api/claude/threads', { client_id: 'c-nokind', message_client_id: 'm-nokind', context: {}, intent: 'ask', text: '说不定是什么意思？' });
+    expect(res.status).toBeLessThan(300);
+    expect(res.body.thread).toMatchObject({ client_id: 'c-nokind', context_kind: 'general' });
+  });
+
   it("checks the context against the caller and the intents a context takes", async () => {
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'nx' }, text: '?' })).status).toBe(404);
     expect((await w.call('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, intent: 'check', text: '我去银行' })).status).toBe(400);

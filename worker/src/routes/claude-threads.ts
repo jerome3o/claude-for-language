@@ -241,7 +241,12 @@ threads.get('/claude/threads', async (c) => {
 threads.post('/claude/threads', async (c) => {
   const userId = userIdOf(c);
   const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
-  let context = parseClaudeContext(body.context ?? { kind: 'general' });
+  // A context without a kind is the general one: Lab v0.867–0.868 sent `context: {}` for a new
+  // Chats-tab chat (its Json leaves `kind` out while it holds the default, "general").
+  const rawContext = body.context && typeof body.context === 'object' && !('kind' in (body.context as object))
+    ? { ...(body.context as Record<string, unknown>), kind: 'general' }
+    : body.context;
+  let context = parseClaudeContext(rawContext ?? { kind: 'general' });
   if (!context) return badRequest(c, 'context must be { kind: general } | { kind: card, note_id } | { kind: practice, scenario | note_id } | { kind: chat_message, message_id } | { kind: reader, reader_id, page_id? } | { kind: exercise, lesson_id, exercise_key }');
   const intent: ClaudeIntent | null = body.intent === undefined || body.intent === null ? 'ask' : parseIntent(body.intent);
   if (!intent) return badRequest(c, 'intent must be ask, check, explain or translate');
