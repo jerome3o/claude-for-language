@@ -1043,7 +1043,7 @@ class StudyViewModel(
     // Live transcription (Soniox, streamed while speaking): the key is fetched when a read
     // card shows, so Record never waits for it; without one the take is uploaded as before.
     private val liveKeys = LiveSessionCache { repo.api.liveTranscriptionSession() }
-    private var liveStream: SonioxStream? = null
+    private var liveStream: LiveStream? = null
     private var liveResult: kotlinx.coroutines.Deferred<String>? = null
     /** Bumped by every new take so a slower, older transcription never lands on it. */
     private var takeGeneration = 0
@@ -1071,7 +1071,7 @@ class StudyViewModel(
         app.audio.stop()
         recorder.stopPlayback()
         replayJob?.cancel()
-        val live = liveKeys.usable()?.takeIf { aiAvailable }?.let { runCatching { SonioxStream(repo.api.http, it) }.getOrNull() }
+        val live = if (aiAvailable) liveKeys.stream(viewModelScope) { SonioxStream(repo.api.http, it) } else null
         val started = when {
             live != null && recorder.startLive { buf, n -> live.send(buf, n) } -> { liveStream = live; true }
             else -> { live?.abort(); recorder.start() }
@@ -1251,7 +1251,7 @@ class StudyViewModel(
      */
     private val spokenTranscription: SpokenTranscription = newSpokenTranscription ?: object : SpokenTranscription {
         override fun open(onUpdate: (SonioxProtocol.Transcript) -> Unit): LiveStream? =
-            liveKeys.usable()?.let { runCatching { SonioxStream(repo.api.http, it, onUpdate) }.getOrNull() }
+            if (aiAvailable) liveKeys.stream(viewModelScope) { SonioxStream(repo.api.http, it, onUpdate) } else null
         override suspend fun upload(take: java.io.File, mime: String, liveError: String?): String = repo.api.transcribe(take, mime, liveError).text
     }
     private var spokenStream: LiveStream? = null
