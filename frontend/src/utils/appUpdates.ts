@@ -10,6 +10,8 @@
  * change so the new assets actually load.
  */
 
+import { isImmersiveRoute } from '../components/nav/tabs';
+
 export const BUILD_TIME = import.meta.env.VITE_BUILD_TIME || 'unknown';
 
 const HOURLY = 60 * 60 * 1000;
@@ -33,8 +35,27 @@ const UNSAFE_ROUTES: RegExp[] = [
   /\/chat\//,         // tutor-student chat (draft message)
 ];
 
-function reloadIsDisruptive(): boolean {
-  return UNSAFE_ROUTES.some(r => r.test(window.location.pathname));
+/**
+ * Something on screen that a reload would break whatever the route (a live video call: a reload
+ * drops the person out of it — Nov 2026, Jerome was kicked out of every lesson a minute or two in,
+ * when the new build the app found at start-up activated). `holdReloads` returns its release.
+ */
+const holds = new Set<symbol>();
+
+export function holdReloads(reason: string): () => void {
+  const token = Symbol(reason);
+  holds.add(token);
+  return () => { holds.delete(token); };
+}
+
+/**
+ * Whether an update reload now would destroy in-flight state: a hold is taken, or the route is a
+ * listed one or any full-screen route (`isImmersiveRoute`: a call, a homework pass, a lesson, a
+ * reader, an editor, a Claude thread …). Exported for tests.
+ */
+export function reloadIsDisruptive(pathname: string = window.location.pathname): boolean {
+  if (holds.size > 0) return true;
+  return UNSAFE_ROUTES.some(r => r.test(pathname)) || isImmersiveRoute(pathname);
 }
 
 export function initAutoUpdate(): void {
