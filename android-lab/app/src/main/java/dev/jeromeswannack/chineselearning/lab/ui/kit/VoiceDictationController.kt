@@ -62,7 +62,7 @@ class AppDictationEngine(private val app: LabApp, private val scope: CoroutineSc
     private val keys = LiveSessionCache { app.repo.api.liveTranscriptionSession() }
 
     override fun open(languageHints: List<String>, onUpdate: (SonioxProtocol.Transcript) -> Unit): LiveStream? =
-        keys.usable()?.let { s -> runCatching { SonioxStream(app.repo.api.http, s.copy(language_hints = languageHints), onUpdate) }.getOrNull() }
+        keys.stream(scope) { s -> SonioxStream(app.repo.api.http, s.copy(language_hints = languageHints), onUpdate) }
 
     override fun start(live: LiveStream?): Boolean {
         if (live != null && recorder.startLive { buf, n -> live.send(buf, n) }) return true

@@ -91,7 +91,7 @@ class AppSpeakingTranscriber(private val app: LabApp, private val scope: Corouti
     private val keys = LiveSessionCache { app.repo.api.liveTranscriptionSession() }
     override val online: Boolean get() = app.online.value
     override fun open(onUpdate: (SonioxProtocol.Transcript) -> Unit): LiveStream? =
-        if (!online) null else keys.usable(SpeakingTake.LIVE_KEY_MARGIN_MS)?.let { s -> runCatching { SonioxStream(app.repo.api.http, s, onUpdate) }.getOrNull() }
+        if (!online) null else keys.stream(scope, SpeakingTake.LIVE_KEY_MARGIN_MS) { s -> SonioxStream(app.repo.api.http, s, onUpdate) }
     override suspend fun upload(take: File, mime: String, liveError: String?): String = app.repo.api.transcribe(take, mime, liveError).text
     override fun prefetch() { if (online) keys.prefetch(scope, SpeakingTake.LIVE_KEY_MARGIN_MS) }
     override fun invalidateKey() = keys.invalidate()

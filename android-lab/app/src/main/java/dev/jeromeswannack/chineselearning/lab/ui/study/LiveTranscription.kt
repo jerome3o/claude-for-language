@@ -4,6 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.LiveTranscriptionSessionD
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -146,6 +147,103 @@ class LiveSessionCache(private val now: () -> Long = System::currentTimeMillis, 
                 .onSuccess { session = it }
                 .onFailure { retryAfter = now() + 60_000 }
         }
+    }
+
+    /**
+     * A usable key now, else one fetched (sharing a prefetch in flight); null when the server has
+     * no live provider, a mint failed in the last minute, or this mint fails.
+     */
+    suspend fun get(marginMs: Long = 60_000): LiveTranscriptionSessionDto? {
+        usable(marginMs)?.let { return it }
+        if (session?.provider == "upload" || now() < retryAfter) return null
+        job?.takeIf { it.isActive }?.join()
+        usable(marginMs)?.let { return it }
+        if (session?.provider == "upload" || now() < retryAfter) return null
+        return runCatching { fetch() }
+            .onSuccess { session = it }
+            .onFailure { retryAfter = now() + 60_000 }
+            .getOrNull()
+            ?.takeIf { SonioxProtocol.usable(it, now(), marginMs) }
+    }
+
+    /**
+     * The live stream for one take (the web's `new LiveTranscriber(getLiveSession())`): at once with a
+     * usable key, else a [DeferredLiveStream] that fetches a fresh key while the take records — so a key
+     * that expired while a card sat on screen (Nov 2026: a card left open for an hour sent every take the
+     * 4 s upload way) or was never fetched (the first card came up before the phone was online) still
+     * streams. Null only when live can't happen (the server has no live provider, a mint just failed).
+     */
+    fun stream(scope: CoroutineScope, marginMs: Long = 60_000, open: (LiveTranscriptionSessionDto) -> LiveStream): LiveStream? {
+        usable(marginMs)?.let { s -> return runCatching { open(s) }.getOrNull() }
+        if (session?.provider == "upload" || now() < retryAfter) return null
+        return DeferredLiveStream(scope.async { get(marginMs) }, open)
+    }
+}
+
+/**
+ * A take's live stream whose key is still being fetched: the microphone's audio is kept until the key
+ * arrives, then the real stream opens and gets it all (it queues audio until its socket is open, like
+ * [SonioxStream]). No key → [finish] throws "no_session" (the analytics' live_error) and the take is
+ * uploaded as before.
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+class DeferredLiveStream(
+    private val key: kotlinx.coroutines.Deferred<LiveTranscriptionSessionDto?>,
+    private val open: (LiveTranscriptionSessionDto) -> LiveStream,
+) : LiveStream {
+    private val lock = Any()
+    private val pending = ArrayList<ByteArray>()
+    private var inner: LiveStream? = null
+    private var aborted = false
+    private var failed: String? = null
+
+    init {
+        key.invokeOnCompletion { error ->
+            val session = if (error == null) runCatching { key.getCompleted() }.getOrNull() else null
+            synchronized(lock) {
+                if (aborted) return@invokeOnCompletion
+                val stream = session?.let { runCatching { open(it) }.getOrNull() }
+                if (stream == null) {
+                    failed = "no_session"
+                    pending.clear()
+                    return@invokeOnCompletion
+                }
+                pending.forEach { stream.send(it, it.size) }
+                pending.clear()
+                inner = stream
+            }
+        }
+    }
+
+    override fun send(pcm: ByteArray, length: Int) {
+        if (length <= 0) return
+        synchronized(lock) {
+            if (aborted || failed != null) return
+            inner?.let { return it.send(pcm, length) }
+            // ~20 s of 16 kHz mono PCM at most while the key comes (it takes well under a second).
+            if (pending.sumOf { it.size } + length <= MAX_PENDING_BYTES) pending.add(pcm.copyOf(length))
+        }
+    }
+
+    override suspend fun finish(timeoutMs: Long): String {
+        val start = System.currentTimeMillis()
+        withTimeout(timeoutMs) { key.join() }
+        val stream = synchronized(lock) { inner } ?: throw IllegalStateException(synchronized(lock) { failed } ?: "no_session")
+        return stream.finish((timeoutMs - (System.currentTimeMillis() - start)).coerceAtLeast(1_000))
+    }
+
+    override fun abort() {
+        val stream = synchronized(lock) {
+            aborted = true
+            pending.clear()
+            inner
+        }
+        key.cancel()
+        stream?.abort()
+    }
+
+    private companion object {
+        const val MAX_PENDING_BYTES = 16_000 * 2 * 20
     }
 }
 
