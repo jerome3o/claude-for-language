@@ -43,6 +43,7 @@ import { TextBoardSession } from '../services/calls/textBoard';
 import { refreshBoardPages } from '../services/boardPages';
 import { AnnotationStore } from '../services/calls/annotations';
 import { track as trackUsage } from '../services/analytics';
+import { holdReloads } from '../utils/appUpdates';
 import { displayCaptureOptions, shareAudioOf, shareSurfaceOf, type ShareAudio, type ShareSurface } from '@shared/calls';
 import { chimeNeedsTick, chimeStep, EMPTY_CHIME_STATE, sanitizeTimer, type CallTimer, type CallTimerAction, type ChimeAlert, type ChimeEvent, type ChimeState } from '@shared/calls';
 import { DEFAULT_ANNOT_PERSIST, announceDevice, deviceOnWhenOpened, CAMERA_ON_AT_START, type AnnotStroke, type AnnotText, type SharedView, type StageView, type ViewMode } from '@shared/calls';
@@ -101,6 +102,12 @@ export function canShareScreen(): boolean {
 
 export function useCall(callId: string, myUserId: string) {
   const [phase, setPhase] = useState<CallPhase>('prejoin');
+  // An app update must never reload the page while I'm in the call (it drops me out of it):
+  // the reload waits until the call is left / ended (utils/appUpdates.ts).
+  useEffect(() => {
+    if (phase !== 'joining' && phase !== 'live') return;
+    return holdReloads('call');
+  }, [phase]);
   const [error, setError] = useState<string | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [mediaProblems, setMediaProblems] = useState<MediaProblems>({ audio: null, video: null });
