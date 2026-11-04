@@ -53,6 +53,7 @@ import { ClaudeChatComposer } from '../claudeChat/ClaudeChatComposer';
 import { MakeFlashcardsSheet } from '../chat/MakeFlashcardsSheet';
 import { CoachMessageView, parseAnalysis, parseToolResults, ToolResultChips, type MistakeLessonChip } from '../coach/CoachResults';
 import { useClaudeThread } from '../../hooks/useClaudeThread';
+import { useFollowEnd } from '../../hooks/useFollowEnd';
 import { useAskLanguage } from '../../services/askClaudeLanguage';
 import { getAskRevealed, setAskRevealed, useAskListening } from '../../services/askClaudeListening';
 import { useRecapWords } from '../../services/claudeChatRecap';
@@ -120,6 +121,15 @@ export interface ClaudeThreadViewProps {
   onThreadCreated?: (id: string) => void;
   /** Where it was opened from (analytics). */
   source?: string;
+  /**
+   * The ✦ Claude tab (`/claude`): 🎤 starts at once, ready for any question (the browser asks for
+   * the microphone the first time; offline / refused → typing with the box's reason).
+   * [onAutoListen] says which it was (true = listening).
+   */
+  autoListen?: boolean;
+  onAutoListen?: (listening: boolean) => void;
+  /** No ← (a tab's root has nowhere to go back to). */
+  hideBack?: boolean;
   /** A card thread: the card has an example sentence (the "Explain sentence" chip). */
   hasSentence?: boolean;
   /** The tutor's read-only view of her student's chat (the server's trimmed copy). */
@@ -224,6 +234,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const recap = useRecapWords(threadId ?? 'new');
   const recapCount = useChatRecapCount(threadId ?? 'new');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     wireClaudeOutbox();
@@ -274,9 +285,11 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const voice = useMemo(() => (ctx.kind === 'practice' ? { voice: practiceVoiceFor(ctx), speed: PRACTICE_VOICE_SPEED } : undefined), [ctx]);
   const chip = headerChipFor(ctx);
 
-  useEffect(() => {
-    if (rows.length > 1) bottomRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
-  }, [rows.length, rows[rows.length - 1]?.content.length, rows[rows.length - 1]?.tool_results]);
+  // Follow the end while the reader is there — a reply streaming in, a check card arriving — and
+  // never pull them down once they scrolled up themselves; my own new message follows again.
+  const lastRow = rows[rows.length - 1];
+  const mineCount = rows.filter((r) => r.role === 'user').length + (sending ? 1 : 0);
+  useFollowEnd(bodyRef, bottomRef, `${rows.length}:${lastRow?.content.length ?? 0}:${lastRow?.tool_results ?? ''}`, mineCount, rows.length > 1);
 
   const send = async (text: string, spoken: boolean, intent: ClaudeIntent = 'ask', fromChip?: string) => {
     const msg = text.trim();
@@ -517,7 +530,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     <div className={sheet ? 'claude-thread-sheet' : 'claude-chat-page'} data-testid="claude-thread" data-context={ctx.kind}>
       {sheet && <SheetHandle onClose={props.onClose} />}
       <header className="claude-chat-header">
-        {!sheet && (
+        {!sheet && !props.hideBack && (
           <button type="button" className="claude-chat-back" onClick={props.onBack} aria-label="Back" data-testid="claude-thread-back">
             ←
           </button>
@@ -585,7 +598,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       )}
       {props.headerExtra}
 
-      <main className="claude-chat-body">
+      <main className="claude-chat-body" ref={bodyRef}>
         {empty && !state.loading && !offlineNoCache && (
           <div className="claude-chat-empty" data-testid="claude-thread-empty">
             {ctx.kind === 'general' ? (
@@ -710,6 +723,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             surface={ctx.kind === 'card' ? 'ask_claude' : 'claude_thread'}
             composer={(text) => composerFor(ctx.kind, text, { started })}
             typeRequest={typeRequest}
+            listenRequest={props.autoListen ? 1 : 0}
+            onListenRequest={props.onAutoListen}
             compact
           />
         </div>

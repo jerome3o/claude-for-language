@@ -61,6 +61,11 @@ object NavRules {
     val STUDENTS = TabSpec(TabId.STUDENTS, "Students", "/connections", listOf("/connections"))
     val LIBRARY = TabSpec(TabId.LIBRARY, "Library", "/library", listOf("/library"))
     val PROGRESS = TabSpec(TabId.PROGRESS, "Progress", "/progress", listOf("/progress"))
+    /**
+     * A learner's ✦ Claude tab (Jerome, Nov 2026: "it's not obvious enough that you can just ask any
+     * question"): a new chat with Claude, 🎤 listening at once. The thread it starts lives in Chats.
+     */
+    val CLAUDE = TabSpec(TabId.CLAUDE, "Claude", "/claude", listOf("/claude"))
     val MORE = TabSpec(
         TabId.MORE, "More", "/more",
         listOf(
@@ -76,14 +81,14 @@ object NavRules {
     )
 
     /**
-     * A learner's tabs (web LEARNER_TABS). Four since the Tutor tab went (Jerome, Nov 2026: "it seems
-     * like a dud page"); the free slot is kept for something better — add its TabSpec before MORE.
+     * A learner's tabs (web LEARNER_TABS). The Tutor tab went (Jerome, Nov 2026: "it seems like a dud
+     * page"); its slot is now ✦ Claude — ask anything, by voice, one tap away.
      */
-    val LEARNER_TABS: List<TabSpec> get() = listOf(STUDY, CHATS, PROGRESS, MORE)
+    val LEARNER_TABS: List<TabSpec> get() = listOf(STUDY, CHATS, CLAUDE, PROGRESS, MORE)
 
     /**
      * Tutor account (role):   Students · Chats · Decks · Library · More
-     * Student account:        Study · Chats · Progress · More (LEARNER_TABS)
+     * Student account:        Study · Chats · ✦ Claude · Progress · More (LEARNER_TABS)
      * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
      * Decks are also one tap away for everyone: More → Decks, and Home's deck list.
      */
@@ -155,7 +160,7 @@ object NavRules {
     }
 }
 
-enum class TabId { STUDY, CHATS, DECKS, STUDENTS, LIBRARY, PROGRESS, MORE }
+enum class TabId { STUDY, CHATS, CLAUDE, DECKS, STUDENTS, LIBRARY, PROGRESS, MORE }
 
 data class TabSpec(val id: TabId, val label: String, val to: String, val match: List<String>)
 

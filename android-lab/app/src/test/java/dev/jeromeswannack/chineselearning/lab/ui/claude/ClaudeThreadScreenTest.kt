@@ -7,6 +7,10 @@ import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertIsNotDisplayed
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
 import dev.jeromeswannack.chineselearning.lab.core.chinese.Segmenter
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords
@@ -218,6 +222,92 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
         assertEquals(1, picked)
     }
 
+    // ---------------- following the end (Jerome, Nov 2026: "it scrolls me back up to the top") ----------------
+
+    private fun mineMsg(id: String, text: String, intent: String = "ask") =
+        dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto(id, "t3", id, "user", "text", text, intent = intent, created_at = "2026-11-03T10:00:00.000Z")
+
+    private fun reply(id: String, text: String, pending: Boolean = false) =
+        dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto(
+            id, "t3", null, "assistant", "text", text, status = if (pending) "pending" else null, streaming = pending, answer_lang = "en", created_at = "2026-11-03T10:00:01.000Z",
+        )
+
+    /** Earlier turns, so the conversation is several screens tall. */
+    private val history = (1..3).flatMap { i ->
+        listOf(
+            mineMsg("h${i}q", "还有一个问题 $i"),
+            reply("h${i}a", (1..8).joinToString("\n\n") { "Earlier answer $i.$it: 过 says you have done something at some time; 了 says this action is complete now." }),
+        )
+    }
+
+    /** A ✏️ Check chat (the long check card) then a follow-up whose reply is still coming, [n] = how far it has got. */
+    private fun polled(n: Int, extra: List<dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto> = emptyList()) = S.checkResult.copy(
+        messages = S.checkResult.messages + history + mineMsg("u3", "为什么用「了」？") +
+            reply("a4", (1..n).joinToString("\n\n") { "Part $it: 了 marks that the action is finished — 我买了苹果 means the buying happened." } + "\n\nEND-$n", pending = n < 6) + extra,
+    )
+
+    private fun showLive(start: ClaudeThreadUi): androidx.compose.runtime.MutableState<ClaudeThreadUi> {
+        val state = androidx.compose.runtime.mutableStateOf(start)
+        compose.setContent { LabTheme { ClaudeThreadScreen(state.value, ClaudeThreadActions(), voicePreview = typing) } }
+        compose.waitForIdle()
+        return state
+    }
+
+    private fun firstMessage() = compose.onAllNodesWithTag(ClaudeChatTags.MINE)[0]
+
+    @Test fun aRepliesPollsKeepTheEndOnScreenNeverTheTop() {
+        val ui = showLive(polled(1))
+        compose.onNodeWithText("END-1", substring = true).assertIsDisplayed()
+        firstMessage().assertIsNotDisplayed()
+        // Each poll grows the reply: the view follows the end — it used to jump to the TOP of the
+        // conversation (the whole thread is one lazy item; scrolling "to the last item" showed its top).
+        for (n in 2..6) {
+            ui.value = polled(n)
+            compose.waitForIdle()
+            compose.onNodeWithText("END-$n", substring = true).assertIsDisplayed()
+            firstMessage().assertIsNotDisplayed()
+        }
+    }
+
+    @Test fun scrolledUpStaysPutWhileTheReplyGrowsAndMyNextMessageFollowsAgain() {
+        val ui = showLive(polled(2))
+        compose.onNodeWithTag(ClaudeThreadTags.LIST).performTouchInput { swipeDown(startY = centerY - 300f, endY = centerY + 300f) }
+        compose.waitForIdle()
+        compose.onNodeWithText("END-2", substring = true).assertIsNotDisplayed()
+        firstMessage().assertIsNotDisplayed()
+        for (n in 3..5) {
+            ui.value = polled(n)
+            compose.waitForIdle()
+            compose.onNodeWithText("END-$n", substring = true).assertIsNotDisplayed()
+            firstMessage().assertIsNotDisplayed() // never thrown back to the top either
+        }
+        // My own new message: back to the end.
+        ui.value = polled(6, listOf(mineMsg("u5", "谢谢！"), reply("a6", "You're welcome — FOLLOWED", pending = true)))
+        compose.waitForIdle()
+        compose.onNodeWithText("FOLLOWED", substring = true).assertIsDisplayed()
+    }
+
+    // ---------------- the ✦ Claude tab ----------------
+
+    @Test fun theClaudeTabStartsDictatingAtOnceAndHidesBack() {
+        val app = androidx.test.core.app.ApplicationProvider.getApplicationContext<android.app.Application>()
+        org.robolectric.Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
+        val heard = mutableListOf<Boolean>()
+        compose.setContent { LabTheme { ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), autoListen = true, showBack = false, onAutoListen = { heard += it }) } }
+        compose.waitForIdle()
+        assertEquals(listOf(true), heard) // 🎤 Say it was pressed for him (no microphone in a test: the box then says why)
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Back")).assertDoesNotExist()
+        compose.onNodeWithTag(ClaudeThreadTags.EMPTY).assertIsDisplayed()
+    }
+
+    @Test fun aThreadOpenedAnyOtherWayNeverStartsTheMicrophone() {
+        val heard = mutableListOf<Boolean>()
+        compose.setContent { LabTheme { ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), onAutoListen = { heard += it }) } }
+        compose.waitForIdle()
+        assertEquals(emptyList(), heard)
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Back")).assertIsDisplayed()
+    }
+
     // ---------------- screenshots ----------------
 
     @Test fun shotGeneralStreaming() = shoot("claude-thread-01-general-streaming", settleMs = 600) { ClaudeThreadScreen(S.generalStreaming, ClaudeThreadActions()) }
@@ -230,4 +320,13 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
     @Test fun shotQueuedDark() = shoot("claude-thread-08-queued-offline-dark", dark = true) { ClaudeThreadScreen(S.queuedOffline, ClaudeThreadActions()) }
     @Test fun shotNewChat() = shoot("claude-thread-09-new-chat-composer") { ClaudeThreadScreen(S.newChinese, ClaudeThreadActions(), voicePreview = typing) }
     @Test fun shotTool() = shoot("claude-thread-10-tool-status", settleMs = 600) { ClaudeThreadScreen(S.generalTool, ClaudeThreadActions()) }
+
+    /** The ✦ Claude tab: a new chat, the tab bar under it, 🎤 listening at once. */
+    private val listeningNow = VoiceDictationUi(phase = "listening", finalText = "“了”和“过”", partialText = "有什么不一样")
+    @Test fun shotClaudeTab() = shootInShell("claude-thread-11-claude-tab-listening", dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.CLAUDE) {
+        ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), voicePreview = listeningNow, showBack = false)
+    }
+    @Test fun shotClaudeTabDark() = shootInShell("claude-thread-12-claude-tab-listening-dark", dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.CLAUDE, dark = true) {
+        ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), voicePreview = listeningNow, showBack = false)
+    }
 }

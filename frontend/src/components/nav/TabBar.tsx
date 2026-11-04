@@ -105,6 +105,14 @@ function TabIcon({ id }: { id: TabId }) {
           <path d="M22 20H2" />
         </svg>
       );
+    case 'claude':
+      // The ✦ the app marks Claude with (Chats rows, More → "✦ Ask Claude / Coach"): a four-point
+      // sparkle, the same path as the Lab app's tab (ui/nav/TabBar.kt ClaudeSparkle).
+      return (
+        <svg {...common}>
+          <path d="M12 3C12.6 8.2 15.8 11.4 21 12C15.8 12.6 12.6 15.8 12 21C11.4 15.8 8.2 12.6 3 12C8.2 11.4 11.4 8.2 12 3Z" />
+        </svg>
+      );
     case 'more':
       return (
         <svg {...common}>

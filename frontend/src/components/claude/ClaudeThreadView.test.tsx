@@ -11,7 +11,7 @@ import { createRoot, type Root } from 'react-dom/client';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const fake = vi.hoisted(() => ({ current: null as null | { land: (t: string) => void } }));
+const fake = vi.hoisted(() => ({ current: null as null | { land: (t: string) => void }, mode: 'typing', blocked: null as string | null, say: null as null | (() => void) }));
 vi.mock('../../hooks/useVoiceDictation', async () => {
   const React = await import('react');
   return {
@@ -20,9 +20,9 @@ vi.mock('../../hooks/useVoiceDictation', async () => {
       latest.current = opts;
       fake.current = { land: (t) => latest.current.onSubmit({ text: t, source: 'typed', transcript: null }) };
       return {
-        state: { mode: 'typing', phase: 'idle', failure: null, blocked: null },
+        state: { mode: fake.blocked ? 'type' : fake.mode, phase: 'idle', failure: null, blocked: fake.blocked },
         finalText: '', partialText: '', listening: false, busy: false, level: 0,
-        say: vi.fn(), stop: vi.fn(), cancel: vi.fn(), retake: vi.fn(), retryUpload: vi.fn(), edit: vi.fn(), type: vi.fn(), submit: vi.fn(), canSubmit: true, reset: vi.fn(),
+        say: () => fake.say?.(), stop: vi.fn(), cancel: vi.fn(), retake: vi.fn(), retryUpload: vi.fn(), edit: vi.fn(), type: vi.fn(), submit: vi.fn(), canSubmit: true, reset: vi.fn(),
       };
     },
   };
@@ -109,7 +109,7 @@ const setOnline = (on: boolean) => {
   Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => on });
 };
 
-async function render(props: { threadId: string; newContext?: ClaudeThreadContext & ClaudeContextSnapshot; initialDraft?: string; onThreadCreated?: (id: string) => void }) {
+async function render(props: { threadId: string; newContext?: ClaudeThreadContext & ClaudeContextSnapshot; initialDraft?: string; onThreadCreated?: (id: string) => void; autoListen?: boolean; onAutoListen?: (l: boolean) => void; hideBack?: boolean }) {
   await act(async () =>
     root.render(
       <MemoryRouter initialEntries={['/chats/claude/x']}>
@@ -129,6 +129,9 @@ beforeEach(async () => {
   await db.claudeOutbox.clear();
   Object.values(api).forEach((f) => f.mockReset());
   track.mockClear();
+  fake.mode = 'typing';
+  fake.blocked = null;
+  fake.say = null;
   live.events.clear();
   setOnline(true);
   host = document.createElement('div');
@@ -142,6 +145,39 @@ afterEach(() => {
 });
 
 describe('ClaudeThreadView', () => {
+  it('the ✦ Claude tab: 🎤 starts at once, once, and no ← on the tab root', async () => {
+    fake.mode = 'voice';
+    const say = vi.fn();
+    fake.say = say;
+    const heard: boolean[] = [];
+    await render({ threadId: 'new', newContext: { kind: 'general' }, autoListen: true, hideBack: true, onAutoListen: (l) => heard.push(l) });
+    await flush();
+    expect(say).toHaveBeenCalledTimes(1);
+    expect(heard).toEqual([true]);
+    expect(q('claude-thread-back')).toBeNull();
+    expect(q('claude-thread-empty')).toBeTruthy();
+  });
+
+  it('the ✦ Claude tab offline: stays on typing (the box says why), no 🎤', async () => {
+    fake.mode = 'voice';
+    fake.blocked = 'offline';
+    const say = vi.fn();
+    fake.say = say;
+    const heard: boolean[] = [];
+    await render({ threadId: 'new', newContext: { kind: 'general' }, autoListen: true, onAutoListen: (l) => heard.push(l) });
+    expect(say).not.toHaveBeenCalled();
+    expect(heard).toEqual([false]);
+  });
+
+  it('a thread opened any other way never starts the 🎤 by itself', async () => {
+    fake.mode = 'voice';
+    const say = vi.fn();
+    fake.say = say;
+    await render({ threadId: 'new', newContext: { kind: 'general' } });
+    expect(say).not.toHaveBeenCalled();
+    expect(q('claude-thread-back')).toBeTruthy();
+  });
+
   it('streams a reply from the live socket, then shows it whole', async () => {
     const pending = msg('a1', 't1', 'assistant', '', { status: 'pending' });
     api.getClaudeThread.mockResolvedValue({ thread: threadRow('t1', { pending: true }), messages: [msg('u1', 't1', 'user', '你好吗？'), pending], server_time: T0 });

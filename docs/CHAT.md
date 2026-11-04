@@ -1210,7 +1210,29 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   `components/claude/ClaudeThreadView.test.tsx` (streaming via a fake socket, the offline outbox, composer
   intents, the card chip), `services/claudeThreads.test.ts`, E2E `e2e/tests/claude-thread.spec.ts` (Coach → Ask →
   a streamed reply; a card thread's chip → the card hub; offline → queued → sent). Lab: `ClaudeThreadAppTest`
-  (fake server + fake socket frames), `ClaudeThreadScreenTest` (+ Roborazzi `claude-thread-01…10`).
+  (fake server + fake socket frames), `ClaudeThreadScreenTest` (+ Roborazzi `claude-thread-01…12`).
+- **Scrolling follows the end only while you are there** (Jerome, Nov 2026: "when I scroll down to the latest
+  message, it scrolls me back up to the top"): a reply streaming in (socket or poll), a check card laying out, the
+  keyboard — the end stays on screen while the reader is at it; once they scroll up themselves nothing moves the
+  view; their own next message follows again. Lab `FollowThreadEnd` (ui/claude/ClaudeThreadScreen.kt; the whole
+  conversation is ONE lazy item, so the old "scroll to the last item" put the top of the conversation on screen
+  after every poll that grew the reply), web `hooks/useFollowEnd.ts` + `followEnd.ts` (it used to pull the reader
+  down on every streamed chunk).
+
+## The Claude tab (web + Lab)
+
+The learner's tab bar is **Study · Chats · ✦ Claude · Progress · More** (Jerome, Nov 2026: "it's not obvious
+enough that you can just ask any question"; web `components/nav/tabs.ts` `LEARNER_TABS`, Lab `NavRules`). Only
+the learner tab set; tutor accounts and accounts with students keep theirs. The icon is the ✦ sparkle the app
+already marks Claude with (one SVG path, web `TabBar.tsx` / Lab `ClaudeSparkle`).
+- `/claude` (web `pages/ClaudeTabPage.tsx`, Lab `ClaudeTabRoute` in ui/claude/ClaudeThreadNav.kt): a NEW plain
+  (`general`) chat in the Claude thread view, the tab bar under it (not immersive, the tab lit), no ←. The
+  voice-first composer **starts dictating at once** (🎤 Say it, the live transcript; Ask) — the browser / Android
+  asks for the microphone the first time; refused, offline or no microphone → typing with the box's usual reason;
+  ✏️ Type is one tap away (web `ClaudeChatComposer` `listenRequest`, Lab `ClaudeThreadScreen(autoListen = true)`).
+- The first message starts a normal Claude thread (`source: 'claude_tab'`), which takes the tab screen's place
+  (`/chats/claude/:id`, listed in Chats); the tab is a new chat again next time.
+- Analytics `claude.tab_open { listening }` (true = the 🎤 started; false = it stayed on typing).
 
 ## Practice with Claude (role-play threads)
 

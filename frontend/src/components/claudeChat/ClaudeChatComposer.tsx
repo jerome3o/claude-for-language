@@ -7,7 +7,7 @@
  * `intentsOnlyWithText` (the Chats tab's box): the other intents appear only once there is text —
  * typed (then beside the main button, one row) or a finished take (under the review).
  */
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { AskLanguage } from '@shared/study/askClaude';
 import type { ClaudeIntent } from '@shared/claude/context';
 import { CLAUDE_INTENT_LABELS, type ClaudeComposer } from '@shared/claude/contexts';
@@ -16,7 +16,7 @@ import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { VoiceTextInputView } from '../voice/VoiceTextInput';
 import { enterToSubmit } from '../voice/enterToSubmit';
 
-export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, intentsLabel = 'Or', intentsOnlyWithText = false, compact = false }: {
+export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, language, online, surface = 'claude_chat', composer, placeholder, submitLabel = 'Send', typeRequest = 0, listenRequest = 0, onListenRequest, intentsLabel = 'Or', intentsOnlyWithText = false, compact = false }: {
   value: string;
   onChange: (value: string) => void;
   /** `spoken` = sent from the review of a take; `intent` = one of the other buttons (default Ask). */
@@ -28,6 +28,13 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
   submitLabel?: string;
   /** Each new value > 0 opens the typing box, focused (a text handed over, ✏️ New chat, More → Ask Claude). */
   typeRequest?: number;
+  /**
+   * Each new value > 0 starts 🎤 at once (the ✦ Claude tab), unless speaking is off here (offline, no
+   * microphone): then the box stays on typing with its reason. The browser asks for the microphone
+   * the first time; refused → typing with why. [onListenRequest] says which it was (true = listening).
+   */
+  listenRequest?: number;
+  onListenRequest?: (listening: boolean) => void;
   /** The aria label of the row of other intents. */
   intentsLabel?: string;
   /** Hide the other intents until there is text; while typing they share the main button's row. */
@@ -69,6 +76,15 @@ export function ClaudeChatComposer({ value, onChange, onSend, busy, failed, lang
     if (typeRequest > 0 && voice.state.mode === 'voice' && voice.state.phase === 'idle') voice.type();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeRequest]);
+  const listenHandled = useRef(0);
+  useEffect(() => {
+    if (listenRequest <= listenHandled.current) return; // once per request (StrictMode runs effects twice)
+    listenHandled.current = listenRequest;
+    const listening = voice.state.mode === 'voice' && voice.state.phase === 'idle' && !voice.state.blocked;
+    if (listening) voice.say();
+    onListenRequest?.(listening);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listenRequest]);
   const intentButtons: ReactNode = others.length > 0 && (
     <div className={`claude-composer-intents${inline ? ' claude-composer-intents-inline' : ''}`} role="group" aria-label={intentsLabel} data-testid="claude-composer-intents">
       {others.map((intent) => (

@@ -318,6 +318,7 @@ object AnalyticsEvents {
         ev("claude.practice_start", "chat", listOf("source", "preset", "level")),
         ev("claude.discuss_open", "chat", listOf("resumed")),
         ev("claude.share_with_tutor", "chat", listOf("on", "scope", "visibility", "context_kind")),
+        ev("claude.tab_open", "chat", listOf("listening")),
         ev("chats.open", "chat", listOf("kind")),
         ev("chats.filter", "chat", listOf("filter"), replacedBy = "chats.open"),
         ev("chats.context_info", "chat", listOf("context_kind", "action")),
