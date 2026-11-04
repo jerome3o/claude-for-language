@@ -2,6 +2,8 @@ package dev.jeromeswannack.chineselearning.lab.data.api
 
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.Api
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -13,9 +15,11 @@ import kotlinx.serialization.json.JsonObject
  */
 
 /** The thread's context descriptor + its badge snapshot (`StoredClaudeContext`). */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class ClaudeContextDto(
-    val kind: String = ClaudeChats.GENERAL,
+    /** Always sent: the API's Json drops defaults, and a context with no kind used to be refused. */
+    @EncodeDefault val kind: String = ClaudeChats.GENERAL,
     val note_id: String? = null,
     val card_type: String? = null,
     /** A card thread asked right after a typed answer: `{ answer, correct? }`. */
