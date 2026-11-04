@@ -1,6 +1,6 @@
 import type { NavRole } from './navRole';
 
-export type TabId = 'study' | 'chats' | 'decks' | 'students' | 'library' | 'progress' | 'more';
+export type TabId = 'study' | 'chats' | 'claude' | 'decks' | 'students' | 'library' | 'progress' | 'more';
 
 export interface TabSpec {
   id: TabId;
@@ -17,6 +17,13 @@ const DECKS: TabSpec = { id: 'decks', label: 'Decks', to: '/decks', match: ['/de
 const STUDENTS: TabSpec = { id: 'students', label: 'Students', to: '/connections', match: ['/connections', '/homework-library'] };
 const LIBRARY: TabSpec = { id: 'library', label: 'Library', to: '/library', match: ['/library'] };
 const PROGRESS: TabSpec = { id: 'progress', label: 'Progress', to: '/progress', match: ['/progress'] };
+/**
+ * A learner's ✦ Claude tab (Jerome, Nov 2026: "it's not obvious enough that you can just ask any
+ * question"): a new chat with Claude, 🎤 listening at once (pages/ClaudeTabPage.tsx). The thread it
+ * starts is a normal Claude thread, listed in Chats.
+ */
+export const CLAUDE_TAB_PATH = '/claude';
+const CLAUDE: TabSpec = { id: 'claude', label: 'Claude', to: CLAUDE_TAB_PATH, match: [CLAUDE_TAB_PATH] };
 const MORE: TabSpec = {
   id: 'more',
   label: 'More',
@@ -33,15 +40,15 @@ const MORE: TabSpec = {
 };
 
 /**
- * A learner's tabs. Four since the Tutor tab went (Jerome, Nov 2026: "it seems like a dud page" —
- * the tutor page is the chat header's name, connections are More → "Tutors & connections"). The
- * free slot is kept for something better: add its TabSpec here, before MORE.
+ * A learner's tabs. The Tutor tab went (Jerome, Nov 2026: "it seems like a dud page" — the tutor
+ * page is the chat header's name, connections are More → "Tutors & connections"); its slot is now
+ * ✦ Claude — ask anything, by voice, one tap away.
  */
-export const LEARNER_TABS: readonly TabSpec[] = [STUDY, CHATS, PROGRESS, MORE];
+export const LEARNER_TABS: readonly TabSpec[] = [STUDY, CHATS, CLAUDE, PROGRESS, MORE];
 
 /**
  * Tutor account (role):   Students · Chats · Decks · Library · More — no Study tab, whatever its decks
- * Student account:        Study · Chats · Progress · More (LEARNER_TABS)
+ * Student account:        Study · Chats · ✦ Claude · Progress · More (LEARNER_TABS)
  * Account with students:  Students · Chats · Study · More (+ Progress if they also study)
  * Decks are also the first row of More (and Home's "See all").
  */

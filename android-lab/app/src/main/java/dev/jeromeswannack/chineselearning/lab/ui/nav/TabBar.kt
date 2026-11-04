@@ -137,4 +137,27 @@ private fun iconFor(id: TabId, selected: Boolean): ImageVector = when (id) {
     TabId.LIBRARY -> if (selected) Icons.AutoMirrored.Filled.MenuBook else Icons.AutoMirrored.Outlined.MenuBook
     TabId.PROGRESS -> if (selected) Icons.Filled.BarChart else Icons.Outlined.BarChart
     TabId.MORE -> Icons.Filled.Menu
+    TabId.CLAUDE -> if (selected) ClaudeSparkle.filled else ClaudeSparkle.outlined
+}
+
+/**
+ * The ✦ the app already marks Claude with (the Chats rows, More → "✦ Ask Claude / Coach") as a tab
+ * icon: a four-point sparkle, filled when selected (the web's TabBar draws the same path).
+ */
+internal object ClaudeSparkle {
+    private fun sparkle(name: String, filled: Boolean): ImageVector = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
+        val ink = androidx.compose.ui.graphics.SolidColor(androidx.compose.ui.graphics.Color.Black)
+        addPath(
+            androidx.compose.ui.graphics.vector.PathParser().parsePathString(SPARKLE_PATH).toNodes(),
+            fill = if (filled) ink else null,
+            stroke = if (filled) null else ink,
+            strokeLineWidth = 2f,
+            strokeLineJoin = androidx.compose.ui.graphics.StrokeJoin.Round,
+        )
+    }.build()
+
+    /** viewBox 0 0 24 24 — the same as frontend/src/components/nav/TabBar.tsx's Claude icon. */
+    const val SPARKLE_PATH = "M12 3C12.6 8.2 15.8 11.4 21 12C15.8 12.6 12.6 15.8 12 21C11.4 15.8 8.2 12.6 3 12C8.2 11.4 11.4 8.2 12 3Z"
+    val filled: ImageVector by lazy { sparkle("ClaudeSparkleFilled", true) }
+    val outlined: ImageVector by lazy { sparkle("ClaudeSparkle", false) }
 }

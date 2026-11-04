@@ -76,6 +76,8 @@ private val QUERY = listOf("context", "note_id", "message_id", "conversation_id"
  * here too (ui/claudechat/ClaudeChatNav.kt).
  */
 fun NavGraphBuilder.claudeThreadGraph(nav: LabNav) {
+    // The learner's ✦ Claude tab: a new plain chat, 🎤 listening at once (web pages/ClaudeTabPage.tsx).
+    composable(Routes.route(Routes.CLAUDE_TAB)) { ClaudeTabRoute(nav) }
     composable(Routes.route("/chats/claude/{id}/recap")) { entry ->
         ClaudeRecapRoute(nav, entry.arguments?.getString("id").orEmpty())
     }
@@ -98,6 +100,28 @@ fun NavGraphBuilder.claudeThreadGraph(nav: LabNav) {
             hasSentence = a?.getString("has_sentence") == "1",
         )
     }
+}
+
+/** The ✦ Claude tab's path (web `/claude`). */
+val Routes.CLAUDE_TAB: String get() = "/claude"
+
+/**
+ * The ✦ Claude tab (`/claude`; docs/CHAT.md "The Claude tab"): a fresh plain chat with the tab bar
+ * under it, ← hidden, 🎤 dictating at once (Ask; ✏️ Type one tap away). The first message moves to
+ * the thread's own route — a normal Claude thread, listed in Chats — in the tab's place, so the tab
+ * is a new chat again next time.
+ */
+@Composable
+fun ClaudeTabRoute(nav: LabNav) {
+    ClaudeThreadRoute(
+        nav,
+        id = ClaudeThreadViewModel.NEW,
+        newContext = ClaudeContextDto(ClaudeChats.GENERAL),
+        source = "claude_tab",
+        autoListen = true,
+        showBack = false,
+        onAutoListen = { listening -> nav.app.analytics.track("claude.tab_open", mapOf("listening" to listening)) },
+    )
 }
 
 /** The words-to-recap pass of a thread: the readers' word recap on the chat's run ([WordRecapStore.openChat]). */
@@ -130,6 +154,9 @@ fun ClaudeThreadRoute(
     draft: String? = null,
     source: String = "link",
     hasSentence: Boolean = false,
+    autoListen: Boolean = false,
+    showBack: Boolean = true,
+    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val app = nav.app
     val vm: ClaudeThreadViewModel = viewModel(key = "claude-thread-$id-${newContext?.kind}-${newContext?.note_id}-${newContext?.message_id}", factory = ClaudeThreadViewModel.Factory(app, id, newContext, source, hasSentence))
@@ -141,7 +168,7 @@ fun ClaudeThreadRoute(
     }
     LaunchedEffect(autoSend) { autoSend?.let { (text, intent) -> vm.autoSend(text, intent, started) } }
     LaunchedEffect(draft) { if (!draft.isNullOrBlank()) vm.claimDraft(draft) }
-    ClaudeThreadContent(app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started)
+    ClaudeThreadContent(app, vm, open = { path -> nav.open(path) }, back = nav::back, started = started, autoListen = autoListen, showBack = showBack, onAutoListen = onAutoListen)
 }
 
 /**
@@ -163,6 +190,9 @@ fun ClaudeThreadContent(
     toolResults: (@Composable (dev.jeromeswannack.chineselearning.lab.data.api.ClaudeMessageDto) -> Unit)? = null,
     closedNote: String? = null,
     explorerSource: String = "claude_chat",
+    autoListen: Boolean = false,
+    showBack: Boolean = true,
+    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val explore = rememberExplorerTap(explorerSource)
@@ -225,5 +255,8 @@ fun ClaudeThreadContent(
         menuItems = menuItems,
         toolResults = toolResults,
         closedNote = closedNote,
+        autoListen = autoListen,
+        showBack = showBack,
+        onAutoListen = onAutoListen,
     )
 }

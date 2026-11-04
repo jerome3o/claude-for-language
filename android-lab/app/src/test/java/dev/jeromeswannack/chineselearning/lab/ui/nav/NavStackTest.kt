@@ -47,6 +47,7 @@ class NavStackTest {
                 arguments = listOf("compose", "text", "practice").map { a -> navArgument(a) { type = NavType.StringType; nullable = true; defaultValue = null } },
             ) {}
             composable(Routes.route("/chats/claude/{id}")) {}
+            composable(Routes.route("/claude")) {}
             composable(Routes.route("/connections")) {}
             composable(Routes.route("/progress")) {}
             composable(Routes.route("/more")) {}
@@ -265,6 +266,23 @@ class NavStackTest {
             .forEach { assertTrue(it, NavResume.isResumable(it)) }
         listOf("/", "/homework", "/readers", "/readers/generate", "/study", "/decks/abc", "/connections/r/chat/c")
             .forEach { assertFalse(it, NavResume.isResumable(it)) }
+    }
+
+    // ---------------- the ✦ Claude tab (docs/CHAT.md "The Claude tab") ----------------
+
+    @Test fun theClaudeTabOpensANewChatAndItsThreadTakesItsPlace() {
+        val claude = tab(studentTabs, TabId.CLAUDE)
+        nav.openTab(claude)
+        assertEquals("/claude", nav.currentFullPath())
+        assertEquals(TabId.CLAUDE, NavRules.activeTab(studentTabs, nav.currentPath()))
+        assertFalse(NavRules.isImmersiveRoute(nav.currentPath())) // the tab bar stays
+        // The first message: the thread replaces the tab's new chat (ClaudeThreadRoute's started).
+        nav.back()
+        nav.open("/chats/claude/t1")
+        assertEquals(listOf("/", "/chats/claude/t1"), stack())
+        // Back on the tab later: a new chat again, not the old thread.
+        nav.openTab(claude)
+        assertEquals("/claude", nav.currentFullPath())
     }
 
     // ---------------- the Chats tab's box (docs/CHAT.md "Chats tab — one list for people and Claude") ----------------

@@ -661,3 +661,12 @@ body:has(.card-claude-overlay:not([hidden])) .feedback-fab,
 body:has(.discuss-claude-overlay) .feedback-fab {
   display: none;
 }
+
+/* The ✦ Claude tab (pages/ClaudeTabPage.tsx): the thread view with the tab bar under it — the page
+   one screen tall above the bar, the composer pinned just above it. */
+.claude-tab-page .claude-chat-page {
+  min-height: calc(100dvh - var(--tab-bar-total, 0px));
+}
+html.has-tab-bar .claude-tab-page > .claude-chat-page > .claude-chat-composer {
+  bottom: var(--tab-bar-total);
+}

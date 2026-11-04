@@ -216,6 +216,7 @@ object ClaudeThreadTags {
     const val SENDING = "claude-thread-sending"
     const val ERROR = "claude-thread-error"
     const val COMPOSER = "claude-thread-composer"
+    const val LIST = "claude-thread-list"
     const val INTENTS = "claude-composer-intents"
     const val MORE = "claude-thread-more"
     const val CLOSE = "claude-thread-close"
@@ -265,6 +266,16 @@ fun ClaudeThreadScreen(
     toolResults: (@Composable (ClaudeMessageDto) -> Unit)? = null,
     /** No composer, this line instead (the card was deleted). */
     closedNote: String? = null,
+    /**
+     * The Claude tab (`/claude`): 🎤 starts at once, ready for any question — once per screen; the
+     * microphone permission is asked the first time, and offline / no microphone / refused fall back
+     * to typing with the box's reason. ✏️ Type stays one tap away.
+     */
+    autoListen: Boolean = false,
+    /** ← is hidden (a tab's root has nowhere to go back to). */
+    showBack: Boolean = true,
+    /** [autoListen] ran: true = 🎤 started, false = it stayed on typing (offline, no microphone). */
+    onAutoListen: (Boolean) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     var menu by remember { mutableStateOf(menuPreview) }
@@ -277,13 +288,25 @@ fun ClaudeThreadScreen(
         actions.onDraft(a.text)
         actions.onSend(a.text, a.source == "spoken", "ask", null)
     }
+    var autoListened by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(autoListen, voice) {
+        if (!autoListen || autoListened || voicePreview != null) return@LaunchedEffect
+        autoListened = true
+        val v = voice.ui.value
+        val listening = v.state.mode == VoiceDictation.VOICE && v.phase == "idle" && v.blocked == null
+        if (listening) voiceActions.say()
+        onAutoListen(listening)
+    }
     // A spoken message that failed to send: into the box (typing) so it can be fixed or sent again.
     LaunchedEffect(ui.sendError) {
         if (ui.sendError != null && ui.draft.isNotBlank() && liveVoice.state.mode == VoiceDictation.VOICE && liveVoice.phase == "idle") voice.type()
     }
-    val lastLen = ui.messages.lastOrNull()?.content?.length ?: 0
-    val count = ui.messages.size + (if (ui.sending != null) 2 else 0)
-    LaunchedEffect(count, lastLen) { if (count > 1) listState.animateScrollToItem(maxOf(0, listState.layoutInfo.totalItemsCount - 1)) }
+    // Follow the end of the thread only while the reader is at it, and after my own new message
+    // (ThreadScroll). The whole conversation is ONE lazy item ("thread"), so the old
+    // animateScrollToItem(last item) put the TOP of the conversation on screen on every poll that
+    // grew the reply (Jerome, Nov 2026: "it scrolls me back up to the top immediately").
+    val mine = ui.messages.count { it.role == "user" } + (if (ui.sending != null) 1 else 0)
+    FollowThreadEnd(listState, mine)
     val thinking = if (ui.language == AskClaude.ZH) CoachAsk.THINKING_ZH else CoachAsk.THINKING_EN
     val chip = ClaudeChats.headerChipFor(ui.core)
     val general = ui.context.kind == ClaudeChats.GENERAL
@@ -331,7 +354,7 @@ fun ClaudeThreadScreen(
     ThreadFrame(sheet) {
         Column(Modifier.fillMaxSize()) {
             if (sheet) SheetHeader(headerTitle, headerActions)
-            else ScreenTitle(headerTitle, onBack = actions.onBack, actions = headerActions)
+            else ScreenTitle(headerTitle, onBack = if (showBack) actions.onBack else null, actions = headerActions)
             // The tutor: only the card chip leads somewhere (her view of the student's card). The sheet
             // is open over what it is about: no chip saying so.
             if (!sheet) chip?.let { c -> if (ui.tutorView != null && c.link?.kind != ClaudeChats.CARD) ContextChip(c.copy(link = null), actions.onContext) else ContextChip(c, actions.onContext) }
@@ -345,7 +368,7 @@ fun ClaudeThreadScreen(
             if (ui.context.kind == ClaudeChats.PRACTICE) PracticeRoles(ui.context.ai_role, ui.context.user_role)
             headerExtra?.invoke()
             LazyColumn(
-                Modifier.weight(1f).fillMaxWidth(), state = listState,
+                Modifier.weight(1f).fillMaxWidth().testTag(ClaudeThreadTags.LIST), state = listState,
                 contentPadding = if (sheet) PaddingValues(horizontal = 10.dp, vertical = 8.dp) else PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -635,4 +658,56 @@ internal fun withFields(c: ClaudeChats.Context, f: dev.jeromeswannack.chineselea
         }
         else -> c
     }
+}
+
+/**
+ * Keeps a thread's end on screen while the reader is there — a reply streaming in (live frames or
+ * the poll), a check card growing as it lays out, the keyboard opening — and never moves it once they
+ * have scrolled away themselves; [mine] going up (my own new message) brings it back to the end.
+ * Only a finger moves [stick]: our own scrolls are ignored while they run (a programmatic scroll
+ * reports "in progress" before the list has measured the new position).
+ */
+@Composable
+internal fun FollowThreadEnd(listState: androidx.compose.foundation.lazy.LazyListState, mine: Int) {
+    val follow = remember(listState) { ThreadScroll() }
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress to !listState.canScrollForward }
+            .collect { (scrolling, atEnd) -> if (scrolling && !follow.auto) follow.stick = atEnd }
+    }
+    var lastMine by remember(listState) { mutableStateOf(mine) }
+    LaunchedEffect(mine) {
+        if (mine > lastMine) follow.stick = true
+        lastMine = mine
+    }
+    LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow {
+            val info = listState.layoutInfo
+            Triple(info.totalItemsCount, info.visibleItemsInfo.lastOrNull()?.let { it.index to it.offset + it.size }, info.viewportEndOffset to follow.stickVersion)
+        }.collect {
+            if (follow.stick && !listState.isScrollInProgress && listState.canScrollForward) {
+                follow.auto = true
+                try {
+                    // Past the last item's end: the list stops at its very bottom.
+                    listState.scrollToItem((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0), Int.MAX_VALUE / 2)
+                    androidx.compose.runtime.withFrameNanos { }
+                } finally {
+                    follow.auto = false
+                }
+            }
+        }
+    }
+}
+
+/** [FollowThreadEnd]'s state: [stick] = follow the end; [auto] = our own scroll is running. */
+internal class ThreadScroll {
+    private val _stick = mutableStateOf(true)
+    var stickVersion by mutableStateOf(0)
+        private set
+    var stick: Boolean
+        get() = _stick.value
+        set(v) {
+            if (v && !_stick.value) stickVersion++
+            _stick.value = v
+        }
+    var auto = false
 }

@@ -280,7 +280,7 @@ test.describe('role-aware tabs and More page', () => {
     await expect(page.getByRole('button', { name: 'Accept' })).toBeVisible();
   });
 
-  test('student account: Study · Chats · Progress · More', async ({ page, request }) => {
+  test('student account: Study · Chats · Claude · Progress · More', async ({ page, request }) => {
     const student = await seedUser(request, 'student2');
     const tutor = await seedUser(request, 'tutor2');
     await pair(request, tutor, student);
@@ -288,7 +288,15 @@ test.describe('role-aware tabs and More page', () => {
 
     await page.setViewportSize({ width: 412, height: 915 });
     await login(page, student, '/');
-    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Chats', 'Progress', 'More']);
+    await expect(bar(page).locator('.tab-bar-label')).toHaveText(['Study', 'Chats', 'Claude', 'Progress', 'More']);
+
+    // ✦ Claude: a new chat with Claude, the tab lit, no ← (the 🎤 starts by itself where there's a microphone).
+    await bar(page).locator('[data-tab="claude"]').click();
+    await expect(page).toHaveURL(/\/claude$/);
+    await expect(page.getByTestId('claude-tab-page')).toBeVisible();
+    await expect(page.getByTestId('claude-thread-empty')).toBeVisible();
+    await expect(page.getByTestId('claude-thread-back')).toHaveCount(0);
+    await expect(bar(page).locator('[data-tab="claude"]')).toHaveAttribute('aria-current', 'page');
 
     await page.goto(`/more?session_token=${student.token}`);
     await expect(page.getByRole('heading', { name: 'More' })).toBeVisible();
