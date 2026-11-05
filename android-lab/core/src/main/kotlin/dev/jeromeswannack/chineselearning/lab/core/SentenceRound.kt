@@ -147,6 +147,10 @@ object SentenceRound {
 
     const val TITLE = "Sentence round"
     const val SKIP = "Skip to the answer"
+    /** `SENTENCE_ROUND_SKIP_CONFIRM…`: Skip is quiet (muted text) and asks first — Skip / Keep going. */
+    const val SKIP_CONFIRM = "Skip this exercise?"
+    const val SKIP_CONFIRM_YES = "Skip"
+    const val SKIP_CONFIRM_NO = "Keep going"
     const val TRY_AGAIN = "Try again"
     const val SEE_ANSWER = "See the answer"
     const val SHOW_ENGLISH = "Show English"
@@ -182,13 +186,6 @@ object SentenceRound {
     /** `sentenceRoundCheer` */
     fun cheer(p: Progress): String =
         if (p.done) "🎉 ${p.got} / ${p.needed} — Good and Easy unlocked" else "🎉 Nice — ${p.got} / ${p.needed}"
-
-    /** `sentenceRoundSkipNote` */
-    fun skipNote(p: Progress): String {
-        val left = maxOf(0, p.needed - p.got)
-        if (left == 0) return "Good and Easy are unlocked."
-        return "Good and Easy stay greyed (Again or Hard suggested) until ${if (left == 1) "1 more sentence is" else "$left more sentences are"} right — the sentences on the answer side still count."
-    }
 
     // --- the round on the answer side (`roundRowMarks` …) -------------------------------------------
 

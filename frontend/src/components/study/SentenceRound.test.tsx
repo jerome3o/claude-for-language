@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
+import { passRoundDoneCheer } from '@shared/homework/pass-angles';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -101,7 +101,7 @@ const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0))
 const dictation = () => fakes.list.find((f) => f.surface === 'sentence_practise')!;
 const NOTE = { id: 'n1', sentence_clue: '我去银行取钱。', sentence_clue_pinyin: 'Wǒ qù yínháng qǔ qián.', sentence_clue_translation: 'I go to the bank to get money.', sentence_clue_audio_url: null };
 
-async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; skipNote?: string; doneCheer?: (got: number, needed: number) => string; kind?: 'card' | 'listen'; word?: string } = {}) {
+async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: () => void; initialIds?: string[]; onPicked?: (ids: string[]) => void; onResult?: (id: string, r: string) => void; doneCheer?: (got: number, needed: number) => string; kind?: 'card' | 'listen'; word?: string } = {}) {
   const { SentenceRound, useRoundSentences } = await import('./SentenceRound');
   function Harness() {
     const sentences = useRoundSentences(opts.note ?? NOTE, true);
@@ -112,7 +112,7 @@ async function render(opts: { note?: typeof NOTE; onDone?: () => void; onSkip?: 
         onRight={(id) => setRight((p) => (p.includes(id) ? p : [...p, id]))}
         onDone={opts.onDone ?? vi.fn()} onSkip={opts.onSkip ?? vi.fn()}
         initialIds={opts.initialIds} onPicked={opts.onPicked} onResult={opts.onResult}
-        skipNote={opts.skipNote} doneCheer={opts.doneCheer} kind={opts.kind} word={opts.word}
+        doneCheer={opts.doneCheer} kind={opts.kind} word={opts.word}
       />
     );
   }
@@ -187,9 +187,8 @@ describe('SentenceRound', () => {
     expect(onDone).toHaveBeenCalled();
   });
 
-  it('in the homework pass: its own Skip line and "Got it unlocked" (never Good / Easy)', async () => {
-    await render({ skipNote: PASS_ROUND_SKIP_NOTE, doneCheer: passRoundDoneCheer });
-    expect(host.textContent).toContain(PASS_ROUND_SKIP_NOTE);
+  it('in the homework pass: "Got it unlocked" (never Good / Easy)', async () => {
+    await render({ doneCheer: passRoundDoneCheer });
     expect(host.textContent).not.toContain('Good and Easy');
     act(() => inEx(0, 'sentence-practise-mic')!.click());
     act(() => dictation().land('我去银行取钱'));
@@ -320,12 +319,44 @@ describe('SentenceRound', () => {
     expect(host.textContent).toContain('Sentence hidden');
   });
 
-  it('Skip is always there and says the gate stays', async () => {
+  it('Skip is always there, quiet, with no line explaining the gate', async () => {
+    await render();
+    const skip = all('sentence-round-skip')[0];
+    expect(skip.textContent).toBe('Skip to the answer');
+    // A muted text button, not an outlined / filled one.
+    expect(skip.className).toBe('sentence-round-skip');
+    expect(host.textContent).not.toContain('Good and Easy stay greyed');
+    expect(host.textContent).not.toContain('still count');
+    expect(host.querySelector('.sentence-round-skip-note')).toBeNull();
+  });
+
+  it('Skip asks first: Keep going leaves the round as it was', async () => {
     const onSkip = vi.fn();
     await render({ onSkip });
-    expect(host.textContent).toContain('Good and Easy stay greyed (Again or Hard suggested) until 2 more sentences are right');
     act(() => all('sentence-round-skip')[0].click());
-    expect(onSkip).toHaveBeenCalled();
+    const confirm = all('sentence-round-skip-confirm')[0];
+    expect(confirm.getAttribute('role')).toBe('alertdialog');
+    expect(confirm.textContent).toContain('Skip this exercise?');
+    expect(onSkip).not.toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'skip' }));
+    act(() => all('sentence-round-skip-no')[0].click());
+    expect(all('sentence-round-skip-confirm')).toHaveLength(0);
+    expect(onSkip).not.toHaveBeenCalled();
+    expect(all('sentence-round-exercise')).toHaveLength(3);
+    expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'skip_cancel', got: 0, needed: 2 }));
+    // Escape is Keep going too.
+    act(() => all('sentence-round-skip')[0].click());
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(all('sentence-round-skip-confirm')).toHaveLength(0);
+    expect(onSkip).not.toHaveBeenCalled();
+  });
+
+  it('Skip, confirmed, goes to the answer', async () => {
+    const onSkip = vi.fn();
+    await render({ onSkip });
+    act(() => all('sentence-round-skip')[0].click());
+    act(() => all('sentence-round-skip-yes')[0].click());
+    expect(onSkip).toHaveBeenCalledTimes(1);
     expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'skip', got: 0, needed: 2 }));
   });
 

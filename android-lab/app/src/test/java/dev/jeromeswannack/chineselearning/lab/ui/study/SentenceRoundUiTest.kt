@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.github.takahirom.roborazzi.captureScreenRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
@@ -105,7 +106,11 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithText("我去银行取钱。", useUnmergedTree = true).assertExists()
         assertEquals(0, count(SentenceRoundTags.PLAY))
         compose.onNodeWithText("Get any 2 of these 4 right", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(SentenceRound.skipNote(SentenceRound.Progress(2, 0, false)), useUnmergedTree = true).assertExists()
+        // Skip is there, quiet, and nothing under it explains the gate.
+        compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(SentenceRound.SKIP, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Good and Easy stay greyed", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("still count", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun twoRightOpenTheAnswerUnlocked() {
@@ -123,7 +128,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         assertEquals(listOf(2), rated)
     }
 
-    /** The homework pass (docs/HOMEWORK.md §3e): its own Skip line and "Got it unlocked" — never Good / Easy. */
+    /** The homework pass (docs/HOMEWORK.md §3e): "Got it unlocked" — never Good / Easy. */
     @Test fun inThePassTheRoundSpeaksOfGotIt() {
         val practise = previewSentencePractise(rightKeys = listOf("read:$clueKey"))
         compose.setContent {
@@ -131,24 +136,37 @@ class SentenceRoundUiTest : LabScreenshotTest() {
                 SentenceRoundPage(
                     question = "银行", questionIsChinese = true, rows = sentenceRows(view()), practise = practise,
                     playingKey = null, onPlay = { _, _ -> }, onDone = {}, onSkip = {},
-                    skipNote = dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE,
                     doneCheer = dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer,
                 )
             }
         }
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.PassAngles.ROUND_SKIP_NOTE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Good and Easy", substring = true, useUnmergedTree = true).assertDoesNotExist()
         compose.runOnIdle { practise.rightKeys.add("translate:s1") }
         compose.mainClock.advanceTimeBy(300)
         compose.onNodeWithText("🎉 2 / 2 — Got it unlocked", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Good and Easy unlocked", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 
+    @Test fun skipAsksFirstAndKeepGoingStays() {
+        card(previewSentencePractise(rightKeys = listOf("read:$clueKey")))
+        compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText(SentenceRound.SKIP_CONFIRM).assertExists()
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithText(SentenceRound.SKIP_CONFIRM_NO).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithText(SentenceRound.SKIP_CONFIRM).assertDoesNotExist()
+        // Nothing changed: the round, its count and its exercises are as they were.
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        compose.onNodeWithText("1 / 2", useUnmergedTree = true).assertExists()
+        assertEquals(4, exerciseTags().size)
+    }
+
     @Test fun skipOpensTheAnswerWithTheGate() {
         val rated = mutableListOf<Int>()
         card(previewSentencePractise(rightKeys = listOf("read:$clueKey")), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
-        compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
-        compose.mainClock.advanceTimeBy(1_000)
+        confirmSkip()
         assertEquals(0, count(SentenceRoundTags.ROUND))
         // The round's count carries over: 1 of 2.
         compose.onNodeWithText("🎤 Try the sentences first · 1/2 right", useUnmergedTree = true).assertExists()
@@ -304,6 +322,14 @@ class SentenceRoundUiTest : LabScreenshotTest() {
 
     private fun shot(name: String) = compose.onRoot().captureRoboImage("screenshots/$name.png")
 
+    /** Skip, then "Skip" in "Skip this exercise?". */
+    private fun confirmSkip() {
+        compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithText(SentenceRound.SKIP_CONFIRM_YES).performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+    }
+
     @Test fun shotRoundRead() {
         card(previewSentencePractise())
         shot("sentence-round-01-reading-card")
@@ -349,10 +375,18 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         shot("sentence-round-06-answer-unlocked")
     }
 
-    @Test fun shotSkipped() {
+    @Test fun shotSkipConfirm() {
         card(previewSentencePractise(rightKeys = listOf("read:$clueKey")))
         compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
-        compose.mainClock.advanceTimeBy(2_000)
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
+        captureScreenRoboImage("screenshots/sentence-round-14-skip-confirm.png")
+    }
+
+    @Test fun shotSkipped() {
+        card(previewSentencePractise(rightKeys = listOf("read:$clueKey")))
+        confirmSkip()
+        compose.mainClock.advanceTimeBy(1_000)
         shot("sentence-round-07-skipped-locked")
     }
 

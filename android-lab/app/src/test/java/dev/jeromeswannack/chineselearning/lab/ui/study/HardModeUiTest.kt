@@ -157,8 +157,9 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(HardModeTags.CONTINUE, useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithTag(SentenceRoundTags.ROUND, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText(HardMode.GAVE_UP_SKIP_NOTE, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(SentenceRoundTags.SKIP, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.SentenceRound.SKIP_CONFIRM_YES).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         compose.onNodeWithText(HardMode.GAVE_UP_LINE, useUnmergedTree = true).assertExists()
         // Greyed, never locked: the first tap on Good asks again, the second rates.

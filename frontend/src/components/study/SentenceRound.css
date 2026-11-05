@@ -249,6 +249,45 @@
 .sentence-round-footer .btn {
   min-height: 48px;
 }
+/* Skip: quiet on purpose — muted text, no outline, not inviting a tap (it asks first). */
+.sentence-round-skip {
+  display: block;
+  margin: 0 auto;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 1rem;
+  border: none;
+  background: none;
+  color: var(--color-text-light);
+  font-size: 0.85rem;
+  font-weight: 400;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+.sentence-round-skip:hover {
+  color: var(--color-text);
+}
+.sentence-round-skip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+/* "Skip this exercise?" */
+.sentence-round-skip-confirm {
+  max-width: 340px;
+  text-align: center;
+}
+.sentence-round-skip-confirm-title {
+  margin: 0.25rem 0 1rem;
+  font-size: 1.1rem;
+}
+.sentence-round-skip-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.sentence-round-skip-confirm-actions .btn {
+  flex: 1;
+  min-height: 48px;
+}
 .sentence-round-skip-note {
   margin: 0.35rem 0 0;
   font-size: 0.8rem;

@@ -118,7 +118,6 @@ class HardModeParityTest {
         for (g in c["giveUpInPlace"]!!.jsonArray) assertEquals(g.jsonObject["inPlace"]!!.jsonPrimitive.boolean, HardMode.giveUpInPlace(g.jsonObject["count"]!!.intOrNull), g.toString())
         assertEquals(c["revealedTitle"]!!.str, HardMode.REVEALED_TITLE)
         assertEquals(c["revealedNote"]!!.str, HardMode.REVEALED_NOTE)
-        assertEquals(c["gaveUpSkipNote"]!!.str, HardMode.GAVE_UP_SKIP_NOTE)
         assertEquals(c["revealedNext"]!!.jsonArray.map { it.str }, listOf(true, false).map { HardMode.revealedNextLabel(it) })
         assertEquals(c["gaveUpCheer"]!!.str, HardMode.gaveUpCheer(2, 2))
         assertEquals(c["suggested"]!!.str, HardMode.SUGGESTED)

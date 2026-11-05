@@ -108,29 +108,32 @@ fun Modifier.sheetBelowStatusBar(): Modifier {
 
 /**
  * Confirm a consequential action. [danger] paints the confirm button red (delete, sign out
- * with unsynced reviews). Dismissing = cancel.
+ * with unsynced reviews). Dismissing = cancel ([onCancel] first: the dismiss button, back or a tap
+ * outside — never the confirm button). [text] null = the title alone ("Skip this exercise?").
  */
 @Composable
 fun ConfirmDialog(
     title: String,
-    text: String,
+    text: String?,
     confirmLabel: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     dismissLabel: String = "Cancel",
     danger: Boolean = false,
+    onCancel: () -> Unit = {},
 ) {
+    val cancel = { onCancel(); onDismiss() }
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = cancel,
         containerColor = Lab.colors.card,
         title = { Text(title, color = Lab.colors.ink) },
         // A long body scrolls inside the dialog; the buttons below it stay put.
-        text = { Text(text, color = Lab.colors.muted, modifier = Modifier.verticalScroll(rememberScrollState())) },
+        text = text?.let { body -> { Text(body, color = Lab.colors.muted, modifier = Modifier.verticalScroll(rememberScrollState())) } },
         confirmButton = {
             TextButton(onClick = { onDismiss(); onConfirm() }) {
                 Text(confirmLabel, color = if (danger) Palette.Again else Lab.colors.accent, fontWeight = FontWeight.SemiBold)
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(dismissLabel, color = Lab.colors.muted) } },
+        dismissButton = { TextButton(onClick = cancel) { Text(dismissLabel, color = Lab.colors.muted) } },
     )
 }

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
-  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote, roundRowMarks, orderKeysForRound, exercisesFromLog, roundEnglishShown, type RoundSentence,
+  sentenceRoundIntro, sentenceRoundCheer, roundRowMarks, orderKeysForRound, exercisesFromLog, roundEnglishShown, type RoundSentence,
   pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro,
+  SENTENCE_ROUND_SKIP, SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES, SENTENCE_ROUND_SKIP_CONFIRM_NO,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
 import { sentenceStats, wantsMoreSentences, type SentencePracticeEvent } from './sentenceHistory';
@@ -84,8 +85,10 @@ describe('progress + the gate', () => {
     expect(sentenceRoundIntro(p, 4)).toBe('Get any 2 of these 4 right');
     expect(sentenceRoundCheer(p)).toBe('🎉 Nice — 1 / 2');
     expect(sentenceRoundCheer(sentenceRoundProgress(ex, ['read:a', 'read:c']))).toBe('🎉 2 / 2 — Good and Easy unlocked');
-    expect(sentenceRoundSkipNote(p)).toBe('Good and Easy stay greyed (Again or Hard suggested) until 1 more sentence is right — the sentences on the answer side still count.');
     expect(sentenceRoundIntro({ needed: 1, got: 0, done: false }, 1)).toBe('Get this one right');
+    // Skip is quiet and asks first (no line under it explaining the gate).
+    expect(SENTENCE_ROUND_SKIP).toBe('Skip to the answer');
+    expect([SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES, SENTENCE_ROUND_SKIP_CONFIRM_NO]).toEqual(['Skip this exercise?', 'Skip', 'Keep going']);
   });
 });
 

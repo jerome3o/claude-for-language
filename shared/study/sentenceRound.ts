@@ -5,8 +5,8 @@
  * answer side — two READ (a Chinese sentence: read it aloud) and two TRANSLATE (an English
  * sentence: say it in Chinese), easiest → harder — and ANY two said right open the answer with
  * Good / Easy already unlocked (the gate's count carries over: `sentenceGate` in
- * sentencePractise.ts counts the round's exercise ids). Skip goes to the answer at once, where the
- * gate still applies. Like Worldle: one item, a ladder of harder questions about it.
+ * sentencePractise.ts counts the round's exercise ids). Skip (quiet, asks first) goes to the answer,
+ * where the gate still applies. Like Worldle: one item, a ladder of harder questions about it.
  *
  * Each take is judged exactly like the rows' 🎤 (`sentenceTake` / `sentencePractiseResult`, the
  * translate take's online answer check) — practice only, nothing recorded.
@@ -259,6 +259,14 @@ export function sentenceRoundProgress(
 
 export const SENTENCE_ROUND_TITLE = 'Sentence round';
 export const SENTENCE_ROUND_SKIP = 'Skip to the answer';
+/**
+ * Skip is quiet (muted text, no outline) and asks first (Jerome: "the button should be kind of greyed
+ * out and not look clickable, but you can click it, and there should be a little pop up"): the
+ * question, then Skip / Keep going. No line under it explains the gate — the flow says it.
+ */
+export const SENTENCE_ROUND_SKIP_CONFIRM = 'Skip this exercise?';
+export const SENTENCE_ROUND_SKIP_CONFIRM_YES = 'Skip';
+export const SENTENCE_ROUND_SKIP_CONFIRM_NO = 'Keep going';
 export const SENTENCE_ROUND_TRY_AGAIN = 'Try again';
 export const SENTENCE_ROUND_SEE_ANSWER = 'See the answer';
 export const SENTENCE_ROUND_SHOW_ENGLISH = 'Show English';
@@ -317,13 +325,6 @@ export const SENTENCE_ROUND_RESULT: Record<'right' | 'close' | 'wrong', string> 
   close: '≈ Nearly',
   wrong: '✗ Not quite',
 };
-
-/** One line under Skip: what happens on the answer side. */
-export function sentenceRoundSkipNote(p: RoundProgress): string {
-  const left = Math.max(0, p.needed - p.got);
-  if (left === 0) return 'Good and Easy are unlocked.';
-  return `Good and Easy stay greyed (Again or Hard suggested) until ${left === 1 ? '1 more sentence is' : `${left} more sentences are`} right — the sentences on the answer side still count.`;
-}
 
 // --- the round on the answer side --------------------------------------------------------------
 

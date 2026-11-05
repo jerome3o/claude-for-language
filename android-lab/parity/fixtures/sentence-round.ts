@@ -7,8 +7,9 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
-  sentenceRoundIntro, sentenceRoundCheer, sentenceRoundSkipNote,
-  SENTENCE_ROUND_SIZE, SENTENCE_ROUND_TITLE, SENTENCE_ROUND_SKIP, SENTENCE_ROUND_TRY_AGAIN, SENTENCE_ROUND_SEE_ANSWER,
+  sentenceRoundIntro, sentenceRoundCheer,
+  SENTENCE_ROUND_SIZE, SENTENCE_ROUND_TITLE, SENTENCE_ROUND_SKIP, SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES,
+  SENTENCE_ROUND_SKIP_CONFIRM_NO, SENTENCE_ROUND_TRY_AGAIN, SENTENCE_ROUND_SEE_ANSWER,
   SENTENCE_ROUND_SHOW_ENGLISH, SENTENCE_ROUND_HIDE_ENGLISH, SENTENCE_ROUND_PROMPT, SENTENCE_ROUND_RESULT,
   SENTENCE_ROUND_ENGLISH_CHIP, SENTENCE_ROUND_TRANSLATION_OFFLINE, SENTENCE_ROUND_TRANSLATING, SENTENCE_ROUND_TRANSLATION_FAILED,
   roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts, roundEnglishShown,
@@ -51,7 +52,7 @@ for (let i = 0; i < 160; i++) {
     clue, set, sentences, exercises,
     progress: rights.map((ids) => {
       const p = sentenceRoundProgress(exercises, ids);
-      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p), skip: sentenceRoundSkipNote(p) };
+      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p) };
     }),
   });
 }
@@ -71,7 +72,7 @@ for (const small of SMALL) {
     clue: null, set, sentences, exercises,
     progress: rights.map((ids) => {
       const p = sentenceRoundProgress(exercises, ids);
-      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p), skip: sentenceRoundSkipNote(p) };
+      return { ids, progress: p, counter: sentenceRoundCounter(p), intro: sentenceRoundIntro(p, exercises.length), cheer: sentenceRoundCheer(p) };
     }),
   });
 }
@@ -111,7 +112,8 @@ for (const mode of ['read', 'translate'] as const) for (const status of [null, '
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
   lists, opens, answerSide, parts, english,
   copy: {
-    size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
+    size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, skipConfirm: SENTENCE_ROUND_SKIP_CONFIRM,
+    skipConfirmYes: SENTENCE_ROUND_SKIP_CONFIRM_YES, skipConfirmNo: SENTENCE_ROUND_SKIP_CONFIRM_NO, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
     seeAnswer: SENTENCE_ROUND_SEE_ANSWER, showEnglish: SENTENCE_ROUND_SHOW_ENGLISH, hideEnglish: SENTENCE_ROUND_HIDE_ENGLISH,
     prompt: SENTENCE_ROUND_PROMPT, result: SENTENCE_ROUND_RESULT,
     englishChip: SENTENCE_ROUND_ENGLISH_CHIP, translationOffline: SENTENCE_ROUND_TRANSLATION_OFFLINE,
