@@ -22,6 +22,8 @@ data class TranscriptionComparison(
     val isMatch: Boolean,
     /** Not an exact match, but the word appears inside what was said. */
     val containsExpected: Boolean,
+    /** Neither, but the same syllables with other tones (老伴 lǎobàn for 老板 lǎobǎn): "≈ Close — tones off". */
+    val tonesOff: Boolean = false,
 )
 
 object Transcription {
@@ -49,7 +51,9 @@ object Transcription {
         // the hanzi inside, or a syllable window that sounds like it), as in shared/recordings/transcript.ts.
         val contains = !match && eKey.isNotEmpty() &&
             (tKey.contains(eKey) || tAlt.contains(eAlt) || AnswerKey.answerWithin(original, expectedHanzi) != null)
-        return TranscriptionComparison(original, pinyin(heard), match, contains)
+        val tonesOff = !match && !contains && eKey.isNotEmpty() &&
+            (AnswerKey.tonelessPinyin(tKey) == AnswerKey.tonelessPinyin(eKey) || AnswerKey.tonelessPinyin(tAlt) == AnswerKey.tonelessPinyin(eAlt))
+        return TranscriptionComparison(original, pinyin(heard), match, contains, tonesOff)
     }
 }
 

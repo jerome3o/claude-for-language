@@ -84,6 +84,7 @@ describe('YouSaid', () => {
     const cases = [
       { props: { isMatch: true, containsExpected: false }, state: 'match', icon: 'check', words: 'Match' },
       { props: { isMatch: false, containsExpected: true }, state: 'contains', icon: 'approx', words: 'Contains the answer' },
+      { props: { isMatch: false, containsExpected: false, tonesOff: true }, state: 'close', icon: 'approx', words: 'Close — tones off' },
       { props: { isMatch: false, containsExpected: false }, state: 'miss', icon: 'close', words: 'Didn’t match' },
     ] as const;
     const seen = new Set<string>();
@@ -100,7 +101,7 @@ describe('YouSaid', () => {
       act(() => root?.unmount());
       root = null;
     }
-    expect(seen.size).toBe(3);
+    expect(seen.size).toBe(4);
   });
 
   it('tidyPinyin drops the space before punctuation', () => {

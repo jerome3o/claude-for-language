@@ -74,7 +74,7 @@ export type HardModeQuestionResult = 'right' | 'close' | 'wrong' | 'checking' | 
 export type HardModeTake =
   | { status: 'checking' }
   | { status: 'unknown' }
-  | { status: 'done'; isMatch: boolean; containsExpected: boolean };
+  | { status: 'done'; isMatch: boolean; containsExpected: boolean; /** Same syllables, other tones (`compareTranscription`). */ tonesOff?: boolean };
 
 export interface HardModeEvidence {
   /** A typing card: the verdict of what was typed / said / picked (null = nothing). A grid: all rows right = 'exact', else 'wrong'. */
@@ -85,14 +85,15 @@ export interface HardModeEvidence {
 
 /**
  * The question's result. null = nothing was tried (that is giving up). A read card's take is right
- * when it was said as written or inside a sentence — the "You said ✅" — and wrong otherwise.
+ * when it was said as written or inside a sentence — the "You said ✅" —, close when only the tones
+ * were off ("≈ Close — tones off", like a typing card's `close`), and wrong otherwise.
  */
 export function hardModeQuestionResult(evidence: HardModeEvidence): HardModeQuestionResult | null {
   const v = evidence.answerVerdict;
   if (v) return v === 'wrong' ? 'wrong' : v === 'close' ? 'close' : 'right';
   const take = evidence.take;
   if (!take) return null;
-  if (take.status === 'done') return take.isMatch || take.containsExpected ? 'right' : 'wrong';
+  if (take.status === 'done') return take.isMatch || take.containsExpected ? 'right' : take.tonesOff ? 'close' : 'wrong';
   return take.status;
 }
 

@@ -1662,7 +1662,7 @@ export function StudyCard({
     if (transcriptionError) return <YouSaidFailed onRetry={retryTranscription} signedOut={transcriptionError === SIGNED_OUT_TRANSCRIPTION} />;
 
     if (transcriptionComparison) {
-      const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected } = transcriptionComparison;
+      const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected, tonesOff } = transcriptionComparison;
       // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry);
       // ▶ plays the take it was transcribed from.
       return (
@@ -1671,6 +1671,7 @@ export function StudyCard({
           pinyin={tidySpokenTranscript(transcribedPinyin, card.note.hanzi)}
           isMatch={isMatch}
           containsExpected={containsExpected}
+          tonesOff={!!tonesOff}
           onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
           onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
         />
@@ -1810,7 +1811,7 @@ export function StudyCard({
     if (isTypingCard) return questionVerdict ? hardModeQuestionResult({ answerVerdict: questionVerdict }) : null;
     if (!audioBlob) return null;
     const take: HardModeTake = transcriptionComparison && !isTranscribing
-      ? { status: 'done', isMatch: transcriptionComparison.isMatch, containsExpected: transcriptionComparison.containsExpected }
+      ? { status: 'done', isMatch: transcriptionComparison.isMatch, containsExpected: transcriptionComparison.containsExpected, tonesOff: !!transcriptionComparison.tonesOff }
       : transcriptionOffline || transcriptionError ? { status: 'unknown' } : { status: 'checking' };
     return hardModeQuestionResult({ take });
   })();

@@ -77,6 +77,17 @@ describe('transcript match', () => {
     expect(transcriptMatches('买', '卖')).toBe(false); // mǎi vs mài
     expect(transcriptMatches('', '银行')).toBe(false);
   });
+  it('the same syllables with other tones are close, not a match (他 / 她 are one sound)', () => {
+    const c = compareTranscription('她是我最喜欢的老伴。', '他是我最喜欢的老板。', '');
+    expect(c.isMatch).toBe(false);
+    expect(c.tonesOff).toBe(true); // lǎobàn vs lǎobǎn
+    expect(compareTranscription('她是我最喜欢的老板。', '他是我最喜欢的老板。', '').isMatch).toBe(true);
+    expect(compareTranscription('买', '卖', '').tonesOff).toBe(true);
+    expect(compareTranscription('音响', '银行', '').tonesOff).toBe(false); // other syllables
+    expect(compareTranscription('再见', '再见', '').tonesOff).toBe(false); // a match is not close
+    expect(compareTranscription('我说银行这个词', '银行', '').tonesOff).toBe(false); // contains wins
+    expect(compareTranscription('', '银行', '').tonesOff).toBe(false);
+  });
   it('keeps the card comparison shape', () => {
     const c = compareTranscription('两百', '200', '');
     expect(c.isMatch).toBe(true);

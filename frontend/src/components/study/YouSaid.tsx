@@ -10,7 +10,9 @@
  *
  * What he said is the hero (hanzi, the device's pinyin under it); the verdict is a small chip:
  * green "✓ Match", YELLOW "≈ Contains the answer" (the answer said inside a longer sentence —
- * `spokenAnswerWithin` in shared/cards/answer.ts), red "✗ Didn't match". Each verdict has its own
+ * `spokenAnswerWithin` in shared/cards/answer.ts), the same YELLOW "≈ Close — tones off" (the same
+ * syllables with other tones — 老伴 lǎobàn for 老板 lǎobǎn; 他 / 她 are one sound and already match),
+ * red "✗ Didn't match". Each verdict has its own
  * icon and words, so no state relies on colour alone (Jerome is red / green colour-blind: the old
  * orange "contains" read as the red "miss"); the yellow is index.css `--color-partial*`. Round 44px
  * buttons sit in equal side columns so the text stays centred: ▶ plays the take (read cards,
@@ -25,12 +27,13 @@ import type { AnswerVerdict } from '@shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 import './YouSaid.css';
 
-export type YouSaidState = 'match' | 'contains' | 'miss';
+export type YouSaidState = 'match' | 'contains' | 'close' | 'miss';
 
 /** The verdict chip's words (Lab: `youSaidVerdictLabel`). */
 export const YOU_SAID_VERDICT: Record<YouSaidState, string> = {
   match: 'Match',
   contains: 'Contains the answer',
+  close: 'Close — tones off',
   miss: 'Didn’t match',
 };
 export const YOU_SAID_COACH_LABEL = 'Check in Coach';
@@ -41,6 +44,8 @@ export interface YouSaidProps {
   pinyin: string;
   isMatch: boolean;
   containsExpected: boolean;
+  /** The same syllables with other tones (`compareTranscription` `tonesOff`): yellow "≈ Close — tones off". */
+  tonesOff?: boolean;
   /** Only on the yellow (contains) box: open `hanzi` in the Sentence Coach's Check my sentence. */
   onCoach?: () => void;
   /** ▶ on the left: play the take this was transcribed from (read cards). */
@@ -76,6 +81,7 @@ function Icon({ d }: { d: string }) {
 export const YOU_SAID_VERDICT_ICON: Record<YouSaidState, 'check' | 'approx' | 'close'> = {
   match: 'check',
   contains: 'approx',
+  close: 'approx',
   miss: 'close',
 };
 
@@ -117,8 +123,8 @@ function RoundButton({ icon, label, onClick, testId }: { icon: string; label: st
   );
 }
 
-export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, onCoach, onPlay }: YouSaidProps) {
-  const state: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : 'miss';
+export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay }: YouSaidProps) {
+  const state: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : tonesOff ? 'close' : 'miss';
   const coach = state === 'contains' && onCoach;
   return (
     <Shell

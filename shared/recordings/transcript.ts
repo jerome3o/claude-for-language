@@ -10,6 +10,8 @@
  * still matches; a different tone does not). Numbers (digits, Roman numerals, English
  * words) are normalised to hanzi on both sides, and 两 / 二 count as the same.
  *
+ * "Close — tones off" (`tonesOff`): the same syllables with other tones, as the typing cards' `close`.
+ *
  * "Contains the answer" (`containsExpected`): the answer's pinyin inside the
  * transcript's, or `spokenAnswerWithin` (shared/cards/answer.ts) — the SAME rule the typing
  * cards use for a spoken answer (`contains`): the hanzi inside, or a syllable window that sounds
@@ -17,7 +19,7 @@
  */
 import { pinyin } from 'pinyin-pro';
 import { normalizeNumbersToHanzi } from '../text/numberHanzi';
-import { spokenAnswerWithin } from '../cards/answer';
+import { spokenAnswerWithin, tonelessPinyin } from '../cards/answer';
 
 export interface TranscriptionComparison {
   transcribedHanzi: string;
@@ -28,6 +30,9 @@ export interface TranscriptionComparison {
   /** Not an exact match, but the expected answer appears inside the transcription
    *  (e.g. the user said the word within a sentence to help the transcriber). */
   containsExpected: boolean;
+  /** Neither of those, but the same syllables with other tones (老伴 lǎobàn for 老板 lǎobǎn) — the
+   *  typing cards' `close`: the box says "≈ Close — tones off", Hard mode "≈ Nearly". Still not right. */
+  tonesOff: boolean;
 }
 
 /** Normalize pinyin for comparison: lowercase, remove spaces, strip non-letter/tone chars. */
@@ -61,6 +66,11 @@ export function compareTranscription(transcribedText: string, expectedHanzi: str
     !isMatch &&
     expectedKey.length > 0 &&
     (transcribedKey.includes(expectedKey) || transcribedKeyAlt.includes(expectedKeyAlt) || spokenAnswerWithin(originalTrimmed, expectedHanzi) !== null);
+  const tonesOff =
+    !isMatch &&
+    !containsExpected &&
+    expectedKey.length > 0 &&
+    (tonelessPinyin(transcribedKey) === tonelessPinyin(expectedKey) || tonelessPinyin(transcribedKeyAlt) === tonelessPinyin(expectedKeyAlt));
 
   return {
     transcribedHanzi: originalTrimmed,
@@ -69,6 +79,7 @@ export function compareTranscription(transcribedText: string, expectedHanzi: str
     expectedPinyin,
     isMatch,
     containsExpected,
+    tonesOff,
   };
 }
 
