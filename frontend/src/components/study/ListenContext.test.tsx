@@ -19,6 +19,8 @@ const sets = vi.hoisted(() => ({
   awaitSentenceAudio: vi.fn(),
   ensureSentenceAudio: vi.fn(),
   topUpListeningSentences: vi.fn(),
+  getCachedClueTranslation: vi.fn(),
+  getClueTranslation: vi.fn(),
   SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
 }));
 vi.mock('../../services/sentence-sets', () => sets);
@@ -76,6 +78,8 @@ beforeEach(() => {
   sets.getLocalNoteSentences.mockImplementation(async () => sets.local);
   sets.topUpListeningSentences.mockResolvedValue(0);
   sets.generateAndStoreSentenceSet.mockReset();
+  sets.getCachedClueTranslation.mockReset().mockResolvedValue(null);
+  sets.getClueTranslation.mockReset();
   cache.cached = new Set();
   cache.isAudioCached.mockImplementation(async (u: string) => cache.cached.has(u));
   playAudio.mockReset();
@@ -101,6 +105,25 @@ describe('ListenContext', () => {
     await click(all('listen-row-en')[1]);
     expect(q('listen-row-translation')?.textContent).toBe('Where is the bank?');
     expect(container.textContent).not.toContain('银行');
+  });
+
+  it('the card sentence without English on the note still has EN: the line is fetched, then shown', async () => {
+    sets.getClueTranslation.mockResolvedValue('This is a bank.');
+    await render({ clue: { hanzi: '这是银行。', audio_url: 'generated/clue.mp3' } });
+    expect(all('listen-row-en')).toHaveLength(3);
+    await click(all('listen-row-en')[0]);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(sets.getClueTranslation).toHaveBeenCalledWith({ hanzi: '这是银行。', pinyin: null });
+    expect(q('listen-row-translation')?.textContent).toBe('This is a bank.');
+    expect(container.textContent).not.toContain('银行');
+  });
+
+  it('offline and never fetched, the card sentence says the translation needs a connection', async () => {
+    await render({ online: false, clue: { hanzi: '这是银行。', audio_url: 'generated/clue.mp3' } });
+    await click(all('listen-row-en')[0]);
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(sets.getClueTranslation).not.toHaveBeenCalled();
+    expect(q('listen-row-translation')?.textContent).toBe('Translation needs a connection');
   });
 
   it('auto-plays the first sentence with a clip, not the word', async () => {

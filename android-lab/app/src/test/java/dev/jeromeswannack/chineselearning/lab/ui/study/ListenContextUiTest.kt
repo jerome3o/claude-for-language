@@ -89,6 +89,40 @@ class ListenContextUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(LISTEN_PROMPT_TAG).assertDoesNotExist()
     }
 
+    /** The card's own sentence with no English on the note (~⅓ of notes): EN is still there and fetches the line. */
+    @Test fun cardSentenceWithoutEnglishFetchesIt() {
+        val asked = ArrayList<String>()
+        val base = view()
+        val v = base.copy(note = base.note.copy(sentenceClueTranslation = null))
+        val ui = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(), online = true)
+        val acts = StudyActions(
+            onPlay = { key, text -> played += key to text },
+            onPlayWord = { wordPlays++ },
+            sentences = SentenceActions(translate = { r -> asked += r.hanzi; "What are you planning to do this weekend?" }),
+        )
+        compose.setContent { LabTheme(dark = true) { StudyScreen(ui, playingKey = null, actions = acts, autoplay = false) } }
+        compose.mainClock.advanceTimeBy(600)
+        assertEquals(4, compose.onAllNodesWithTag(LISTEN_EN_TAG).fetchSemanticsNodes().size)
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
+        compose.mainClock.advanceTimeBy(600)
+        assertEquals(listOf("你周末打算做什么？"), asked)
+        compose.onNodeWithText("What are you planning to do this weekend?").assertExists()
+        compose.onNodeWithText("你周末打算做什么？", substring = true).assertDoesNotExist()
+        shot("study-listen-08-card-sentence-english-fetched")
+    }
+
+    /** Offline and never fetched: "Translation needs a connection". */
+    @Test fun cardSentenceWithoutEnglishOffline() {
+        val base = view(online = false)
+        val v = base.copy(note = base.note.copy(sentenceClueTranslation = null))
+        val ui = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(), online = false)
+        compose.setContent { LabTheme { StudyScreen(ui, playingKey = null, actions = actions(), autoplay = false) } }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText(ListenContext.Copy.TRANSLATION_OFFLINE).assertExists()
+    }
+
     @Test fun theWordFirstAsksThenPlaysAnyway() {
         screen()
         compose.onNodeWithTag(PLAY_WORD_TAG).performScrollTo().performClick()

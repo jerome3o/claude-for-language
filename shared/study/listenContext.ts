@@ -188,6 +188,8 @@ export const LISTEN_CONTEXT_COPY = {
   promptAnyway: 'Play the word anyway',
   promptSentence: 'Play a sentence',
   noSentences: 'No example sentences yet.',
+  /** EN on the card's own sentence when the note has no English and it can't be fetched now. */
+  translationOffline: 'Translation needs a connection',
 } as const;
 
 /** The row's label for screen readers / tests: "Sentence 2", "Sentence 2, played". */

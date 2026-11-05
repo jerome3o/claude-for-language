@@ -1616,6 +1616,7 @@ export function StudyCard({
               noteId={card.note.id}
               cardSentence={{
                 hanzi: card.note.sentence_clue,
+                pinyin: card.note.sentence_clue_pinyin,
                 translation: card.note.sentence_clue_translation,
                 audio_url: card.note.sentence_clue_audio_url,
               }}
