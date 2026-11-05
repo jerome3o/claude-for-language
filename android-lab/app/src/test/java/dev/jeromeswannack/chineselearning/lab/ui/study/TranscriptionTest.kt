@@ -21,6 +21,17 @@ class TranscriptionTest {
         assertTrue(Transcription.compare("他", "她").isMatch)
     }
 
+    @Test fun sameSyllablesOtherTonesAreClose() {
+        val r = Transcription.compare("她是我最喜欢的老伴。", "他是我最喜欢的老板。")
+        assertFalse(r.isMatch)
+        assertTrue(r.tonesOff) // lǎobàn vs lǎobǎn; 他 / 她 are one sound
+        assertTrue(Transcription.compare("她是我最喜欢的老板。", "他是我最喜欢的老板。").isMatch)
+        assertTrue(Transcription.compare("买", "卖").tonesOff)
+        assertFalse(Transcription.compare("音响", "银行").tonesOff)
+        assertFalse(Transcription.compare("再见", "再见").tonesOff)
+        assertFalse(Transcription.compare("我说银行这个词", "银行").tonesOff)
+    }
+
     @Test fun containsAndNumbers() {
         val r = Transcription.compare("我打算明天去", "打算")
         assertFalse(r.isMatch)

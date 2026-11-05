@@ -70,6 +70,12 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
         return StudyUi(StudyPhase.Showing(view), Samples.counts, SessionStats(reviews = 14, correct = 12), canUndo = true, online = true, forcedOffline = false, extras = CardExtras(spoken = SpokenUi(result = SpokenResult("蹭", submit = true, seq = 1))))
     }
 
+    /** Jerome's 他是我最喜欢的老板 heard as 她是我最喜欢的老伴 (bàn for bǎn): "≈ Close — tones off", not red. */
+    private val boss = Samples.note.copy(
+        hanzi = "他是我最喜欢的老板。", pinyin = "Tā shì wǒ zuì xǐhuan de lǎobǎn.", english = "He is my favorite boss.",
+        funFacts = "他 (tā) he · 是 (shì) is · 我 (wǒ) my · 最 (zuì) most · 喜欢 (xǐhuan) like · 的 (de) · 老板 (lǎobǎn) boss",
+    )
+
     private fun done(text: String, hanzi: String = note.hanzi) = TranscriptionUi.Done(Transcription.compare(text, hanzi))
     private val states = listOf(
         "match" to done("曾"),
@@ -79,8 +85,8 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
         "transcribing" to TranscriptionUi.Working,
     )
 
-    private fun card(name: String, t: TranscriptionUi, dark: Boolean) = shoot(name, dark = dark, settleMs = 2_000) {
-        StudyScreen(ui(t), playingKey = null, actions = StudyActions(onYouSaidCoach = { _, _ -> }, onYouSaidPlay = {}), autoplay = false)
+    private fun card(name: String, t: TranscriptionUi, dark: Boolean, n: dev.jeromeswannack.chineselearning.lab.data.NoteEntity = note) = shoot(name, dark = dark, settleMs = 2_000) {
+        StudyScreen(ui(t, n), playingKey = null, actions = StudyActions(onYouSaidCoach = { _, _ -> }, onYouSaidPlay = {}), autoplay = false)
     }
 
     @Test fun match() = card("study-yousaid-01-match", done("曾"), dark = false)
@@ -95,6 +101,7 @@ class YouSaidBoxScreenshots : LabScreenshotTest() {
     }
     @Test fun close() = shoot("study-yousaid-13-close") { StudyScreen(closeUi(), playingKey = null, actions = StudyActions(), autoplay = false) }
     @Test fun closeDark() = shoot("study-yousaid-14-close-dark", dark = true) { StudyScreen(closeUi(), playingKey = null, actions = StudyActions(), autoplay = false) }
+    @Test fun tonesOffDark() = card("study-yousaid-15-tones-off-dark", done("她是我最喜欢的老伴。", boss.hanzi), dark = true, n = boss)
     @Test fun miss() = card("study-yousaid-05-miss", done("已经"), dark = false)
     @Test fun missDark() = card("study-yousaid-06-miss-dark", done("已经"), dark = true)
     @Test fun failed() = card("study-yousaid-07-failed", TranscriptionUi.Failed, dark = false)

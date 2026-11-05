@@ -88,13 +88,14 @@ const val YOU_SAID_VERDICT_TAG = "you-said-verdict"
 fun youSaidVerdictLabel(state: String): String = when (state) {
     "match" -> "Match"
     "contains" -> "Contains the answer"
+    "close" -> "Close — tones off"
     else -> "Didn’t match"
 }
 
 /** The verdict chip's icon: ✓ match, ≈ contains, ✕ miss — no state relies on colour alone (web `YOU_SAID_VERDICT_ICON`). */
 fun youSaidVerdictIcon(state: String): String = when (state) {
     "match" -> "check"
-    "contains" -> "approx"
+    "contains", "close" -> "approx"
     else -> "close"
 }
 
@@ -293,14 +294,16 @@ private fun YouSaidHead(tone: YouSaidTone? = null, state: String? = null) {
  * "You said" — ONE box for what was said, on the read card's back, under a spoken answer on a
  * typing card and for 🎤 Say it practice (the web's `YouSaid`): the hanzi said is the hero with the
  * pinyin under it, the verdict a small chip — green "✓ Match", YELLOW "≈ Contains the answer" (the
- * answer said inside a longer sentence), red "✕ Didn't match"; icon + words differ per state, so none
+ * answer said inside a longer sentence) and "≈ Close — tones off" (the same syllables, other tones), red
+ * "✕ Didn't match"; icon + words differ per state, so none
  * relies on colour alone. [onPlay] = ▶ on the left (a read card's take); [onCoach] = ✎ Check in Coach
  * on the right of the yellow box only.
  */
 @Composable
 fun YouSaidBox(r: TranscriptionComparison, onCoach: (() -> Unit)? = null, onPlay: (() -> Unit)? = null) {
-    val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else "miss"
-    val tone = when (state) { "match" -> YouSaidTone.MATCH; "contains" -> YouSaidTone.CONTAINS; else -> YouSaidTone.MISS }
+    val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else if (r.tonesOff) "close" else "miss"
+    // Close — tones off is partly right: the same yellow as Contains (never orange — red / green colour-blind).
+    val tone = when (state) { "match" -> YouSaidTone.MATCH; "contains", "close" -> YouSaidTone.CONTAINS; else -> YouSaidTone.MISS }
     val coach = onCoach?.takeIf { state == "contains" }
     YouSaidShell(
         tone,

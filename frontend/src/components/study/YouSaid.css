@@ -25,10 +25,11 @@
 }
 .you-said--sides { grid-template-columns: 44px minmax(0, 1fr) 44px; }
 .you-said--match { --ys-tone: var(--color-success); --ys-ink: #15803d; }
-/* Contains the answer = YELLOW (index.css --color-partial*): a lemon box, a solid lemon chip and
+/* Contains the answer / Close — tones off = YELLOW (index.css --color-partial*): a lemon box, a solid lemon chip and
    round buttons with dark words / icons on them — never orange, which red / green colour-blind eyes
    can't tell from the red "Didn't match". */
-.you-said--contains {
+.you-said--contains,
+.you-said--close {
   --ys-tone: var(--color-partial);
   --ys-ink: var(--color-partial-ink);
   --ys-bg: var(--color-partial-soft);
@@ -42,7 +43,8 @@
 .you-said--failed { --ys-tone: var(--color-error); --ys-ink: #b91c1c; }
 .you-said--pending { --ys-tone: #3b82f6; --ys-ink: #1d4ed8; }
 :root[data-theme='dark'] .you-said--match { --ys-ink: #4ade80; }
-:root[data-theme='dark'] .you-said--contains {
+:root[data-theme='dark'] .you-said--contains,
+:root[data-theme='dark'] .you-said--close {
   --ys-round-bg: color-mix(in srgb, var(--color-partial) 20%, transparent);
   --ys-round-ink: var(--color-partial);
 }
@@ -122,8 +124,10 @@
   height: 22px;
 }
 button.you-said-round:hover { background: color-mix(in srgb, var(--ys-tone) 24%, transparent); }
-.you-said--contains button.you-said-round:hover { background: var(--color-partial); }
-:root[data-theme='dark'] .you-said--contains button.you-said-round:hover { background: color-mix(in srgb, var(--color-partial) 30%, transparent); }
+.you-said--contains button.you-said-round:hover,
+.you-said--close button.you-said-round:hover { background: var(--color-partial); }
+:root[data-theme='dark'] .you-said--contains button.you-said-round:hover,
+:root[data-theme='dark'] .you-said--close button.you-said-round:hover { background: color-mix(in srgb, var(--color-partial) 30%, transparent); }
 button.you-said-round:active { transform: scale(0.94); }
 button.you-said-round:focus-visible {
   outline: 2px solid var(--ys-round-ink, var(--ys-ink));

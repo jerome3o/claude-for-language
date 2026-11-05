@@ -2108,7 +2108,10 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   ("狼 said 朗"); Lab `SpokenAnswerParityTest`, `SpokenAnswerUiTest`, `SpokenResultRowTest`, Roborazzi
   `SpokenResultScreenshots` (`study-spoken-result-*`, light + dark).
 - **The read card's "You said" box** (web `components/study/YouSaid.tsx` `YouSaid`; Lab
-  `YouSaidBox.kt`): green "✓ Match", the yellow "≈ Contains the answer", red "✕ Didn't match".
+  `YouSaidBox.kt`): green "✓ Match", the yellow "≈ Contains the answer", the same yellow **"≈ Close —
+  tones off"** (Nov 2026, `compareTranscription` `tonesOff`: the same syllables with other tones — Jerome's
+  他是我最喜欢的老板 heard as 她是我最喜欢的老伴, lǎobàn for lǎobǎn; 他 / 她 are one sound and never the
+  miss; Hard mode reads it as "≈ Nearly", not right), red "✕ Didn't match".
   **Design** (Oct 2026, "less janky"): what he said is the hero — the
   hanzi (22 px) with the pinyin under it — and "You said" + the verdict chip (icon + short label in the
   tone's colour) sit small above it; a softly tinted 14 px rounded box in the theme's success / warning /

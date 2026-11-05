@@ -43,10 +43,16 @@ class YouSaidBoxUiTest : LabScreenshotTest() {
 
     @Test fun missIsAnX() { box("已经", "救", dark = false); assertState("miss", "close", "Didn’t match") }
 
+    /** Jerome's 他是我最喜欢的老板 heard as 她…老伴: 他 / 她 are one sound, bàn vs bǎn is a tone — partly right, not red. */
+    @Test fun tonesOffIsTheYellowCloseNotAMiss() {
+        box("她是我最喜欢的老伴。", "他是我最喜欢的老板。", dark = true)
+        assertState("close", "approx", "Close — tones off")
+    }
+
     @Test fun iconsAndWordsDifferPerState() {
-        val states = listOf("match", "contains", "miss")
-        assertEquals(3, states.map { youSaidVerdictIcon(it) }.toSet().size)
-        assertEquals(3, states.map { youSaidVerdictLabel(it) }.toSet().size)
+        val states = listOf("match", "contains", "close", "miss")
+        assertEquals(3, states.map { youSaidVerdictIcon(it) }.toSet().size) // contains and close share ≈
+        assertEquals(4, states.map { youSaidVerdictLabel(it) }.toSet().size)
     }
 
     @Test fun closeIsAYellowRowWithTheApproxIcon() {

@@ -34,6 +34,7 @@ const TAKES: (HardModeTake | null)[] = [
   null, { status: 'checking' }, { status: 'unknown' },
   { status: 'done', isMatch: true, containsExpected: false }, { status: 'done', isMatch: false, containsExpected: true },
   { status: 'done', isMatch: true, containsExpected: true }, { status: 'done', isMatch: false, containsExpected: false },
+  { status: 'done', isMatch: false, containsExpected: false, tonesOff: true },
 ];
 const results = [] as unknown[];
 for (const answerVerdict of VERDICTS) for (const take of TAKES) {

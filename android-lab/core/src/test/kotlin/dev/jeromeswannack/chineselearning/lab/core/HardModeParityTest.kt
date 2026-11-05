@@ -49,6 +49,7 @@ class HardModeParityTest {
             val result = HardMode.questionResult(
                 verdict, take?.get("status")?.str,
                 take?.get("isMatch")?.jsonPrimitive?.boolean ?: false, take?.get("containsExpected")?.jsonPrimitive?.boolean ?: false,
+                take?.get("tonesOff")?.jsonPrimitive?.boolean ?: false,
             )
             assertEquals(o["result"]!!.str, result, o.toString())
             for (fl in o["follows"]!!.jsonArray) {

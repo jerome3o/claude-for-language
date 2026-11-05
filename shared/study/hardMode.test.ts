@@ -51,6 +51,7 @@ describe('the question, checked at once', () => {
     expect(hardModeQuestionResult({ take: { status: 'done', isMatch: true, containsExpected: false } })).toBe('right');
     expect(hardModeQuestionResult({ take: { status: 'done', isMatch: false, containsExpected: true } })).toBe('right');
     expect(hardModeQuestionResult({ take: { status: 'done', isMatch: false, containsExpected: false } })).toBe('wrong');
+    expect(hardModeQuestionResult({ take: { status: 'done', isMatch: false, containsExpected: false, tonesOff: true } })).toBe('close'); // 老伴 for 老板: ≈ Nearly
     expect(hardModeQuestionResult({ take: { status: 'checking' } })).toBe('checking');
     expect(hardModeQuestionResult({ take: { status: 'unknown' } })).toBe('unknown');
   });

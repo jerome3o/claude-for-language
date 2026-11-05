@@ -38,9 +38,10 @@ object HardMode {
 
     /**
      * `hardModeQuestionResult`: "right" | "close" | "wrong" | "checking" | "unknown"; null = nothing tried.
-     * [takeStatus]: null (no take) | "checking" | "unknown" | "done" (then [takeMatch] / [takeContains]).
+     * [takeStatus]: null (no take) | "checking" | "unknown" | "done" (then [takeMatch] / [takeContains] /
+     * [takeTonesOff] — the same syllables with other tones: "close").
      */
-    fun questionResult(answerVerdict: AnswerKey.Verdict?, takeStatus: String? = null, takeMatch: Boolean = false, takeContains: Boolean = false): String? {
+    fun questionResult(answerVerdict: AnswerKey.Verdict?, takeStatus: String? = null, takeMatch: Boolean = false, takeContains: Boolean = false, takeTonesOff: Boolean = false): String? {
         if (answerVerdict != null) return when (answerVerdict) {
             AnswerKey.Verdict.WRONG -> "wrong"
             AnswerKey.Verdict.CLOSE -> "close"
@@ -48,7 +49,7 @@ object HardMode {
         }
         return when (takeStatus) {
             null -> null
-            "done" -> if (takeMatch || takeContains) "right" else "wrong"
+            "done" -> if (takeMatch || takeContains) "right" else if (takeTonesOff) "close" else "wrong"
             else -> takeStatus
         }
     }

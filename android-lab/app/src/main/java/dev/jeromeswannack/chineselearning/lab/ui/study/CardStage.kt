@@ -438,7 +438,7 @@ fun CardStage(
         typing -> questionVerdict?.let { HardMode.questionResult(it) }
         !take.hasTake -> null
         else -> when (val t = take.transcription) {
-            is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected)
+            is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected, t.result.tonesOff)
             TranscriptionUi.Offline, TranscriptionUi.Failed, TranscriptionUi.SignedOut -> HardMode.questionResult(null, "unknown")
             else -> HardMode.questionResult(null, "checking")
         }
