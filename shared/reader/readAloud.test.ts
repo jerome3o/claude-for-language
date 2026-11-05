@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   readAloudDifferences,
-  readAloudDifferenceAt,
+  READ_ALOUD_STOPPED_EARLY,
   pinyinTone,
   toneName,
   readAloudAllRight,
@@ -57,13 +57,16 @@ describe('judgeReadAloud', () => {
     expect(r.pct).toBe(75);
   });
 
-  it('a missed character is missed; reading only part of the page misses the rest', () => {
+  it('a missed character is missed; reading only part of the page leaves the rest unread', () => {
     const r = judgeReadAloud('我今天很忙。', '我今天忙');
     expect(markOf(r, '很')).toBe('missed');
     expect(r.chars.find((c) => c.char === '很')?.heard).toBe('');
+    expect(r.stoppedEarly).toBe(false);
+    expect(r.unreadFrom).toBe(6);
     const part = judgeReadAloud('小明在巴黎。他很开心。', '小明在巴黎');
-    expect(part.chars.filter((c) => c.mark === 'missed').map((c) => c.char).join('')).toBe('他很开心');
-    expect(part.pct).toBe(55);
+    expect(part.chars.filter((c) => c.mark === 'missed')).toEqual([]);
+    expect(part.chars.filter((c) => c.mark === 'unread').map((c) => c.char).join('')).toBe('他很开心');
+    expect(part).toMatchObject({ total: 5, right: 5, pct: 100, toCheck: 0, stoppedEarly: true, unreadFrom: 6 });
   });
 
   it('extra words become a caret before the character they came before, or at the end', () => {
@@ -117,9 +120,62 @@ describe('judgeReadAloud', () => {
   });
 });
 
+describe('stopping early (Jerome: "if I cut off before it finished")', () => {
+  const PAGE = '最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！';
+
+  it('the rest of the page after the last character heard is unread: no marks, no rows, not in the score', () => {
+    const r = judgeReadAloud(PAGE, '最有名的是李子坝站轻轨直接');
+    expect(r.stoppedEarly).toBe(true);
+    expect(r.unreadFrom).toBe(14);
+    expect(r.chars.slice(14).filter((c) => c.mark !== 'plain').every((c) => c.mark === 'unread' && c.heard === '')).toBe(true);
+    expect(r.chars.slice(0, 14).some((c) => c.mark === 'unread')).toBe(false);
+    expect(r).toMatchObject({ total: 13, right: 13, pct: 100, toCheck: 0 });
+    expect(readAloudDifferences(r)).toEqual([]);
+    expect(readAloudLegend(r)).toEqual([]);
+    expect(readAloudNeedsLook(r.chars)).toBe(false);
+    expect(readAloudLine(r)).toBe(`✓ 100% — right so far · ${READ_ALOUD_STOPPED_EARLY}`);
+    // Never confetti for a take that stopped early.
+    expect(readAloudAllRight(r)).toBe(false);
+    expect(readAloudCharLabel(r.chars[20])).toBe(r.chars[20].char);
+  });
+
+  it('a mistake in the part he read still counts; the % is over that part', () => {
+    const r = judgeReadAloud(PAGE, '最有名的是李子吧站轻轨直接从一栋');
+    expect(r.stoppedEarly).toBe(true);
+    expect(markOf(r, '坝')).toBe('close');
+    expect(r).toMatchObject({ total: 16, right: 15, pct: 93, toCheck: 1 });
+    expect(readAloudDifferences(r).map((d) => d.page)).toEqual(['坝']);
+    expect(readAloudLine(r)).toBe('✓ 93% — 1 to check · stopped early');
+  });
+
+  it('a word skipped in the middle is still missed, then the stop', () => {
+    const r = judgeReadAloud(PAGE, '最有名的是轻轨直接从一栋');
+    expect(r.chars.filter((c) => c.mark === 'missed').map((c) => c.char).join('')).toBe('李子坝站');
+    expect(r.stoppedEarly).toBe(true);
+    expect(r.chars.find((c) => c.char === '住')?.mark).toBe('unread');
+    expect(r).toMatchObject({ total: 16, right: 12, toCheck: 4 });
+    expect(readAloudDifferences(r).map((d) => d.kind)).toEqual(['missed']);
+    expect(readAloudLegend(r)).toEqual(['missed']);
+  });
+
+  it('read to the end: not stopped early; nothing heard at all keeps every character missed', () => {
+    const all = judgeReadAloud(PAGE, '最有名的是李子坝站轻轨直接从一栋住宅楼的中间穿过去');
+    expect(all).toMatchObject({ stoppedEarly: false, unreadFrom: [...PAGE].length, pct: 100 });
+    expect(readAloudAllRight(all)).toBe(true);
+    expect(readAloudLine(all)).toBe('✓ 100% — all read right');
+    const none = judgeReadAloud(PAGE, '');
+    expect(none.stoppedEarly).toBe(false);
+    expect(none.chars.filter((c) => c.mark !== 'plain').every((c) => c.mark === 'missed')).toBe(true);
+    // Extra words at the end stay extras.
+    const extra = judgeReadAloud('我想买书。', '我想买书呀');
+    expect(extra).toMatchObject({ stoppedEarly: false, extraAtEnd: '呀' });
+  });
+});
+
 describe('the line, tone and bucket', () => {
   it('words and tiers', () => {
     expect(readAloudLine({ pct: 92, toCheck: 2 })).toBe('✓ 92% — 2 to check');
+    expect(readAloudLine({ pct: 92, toCheck: 2, stoppedEarly: true })).toBe('✓ 92% — 2 to check · stopped early');
     expect(readAloudLine({ pct: 40, toCheck: 9 })).toBe('✕ 40% — 9 to check');
     expect(readAloudTone({ pct: 92, toCheck: 2 })).toBe('good');
     expect(readAloudTone({ pct: 70, toCheck: 2 })).toBe('some');
@@ -176,10 +232,6 @@ describe('the differences (what it heard vs what the page says)', () => {
       start: 19, end: 21, page: '成都', pagePinyin: 'chéngdū', heard: '程度', heardPinyin: 'chéngdù', kind: 'tone', toCheck: true,
       reasons: ['成 chéng — sounded right (written 程)', '都 dū → you said dù (4th tone instead of 1st)'],
     }]);
-    // A tap on 成 or 都 finds that row; elsewhere nothing.
-    expect(readAloudDifferenceAt(diffs, 19)).toBe(0);
-    expect(readAloudDifferenceAt(diffs, 20)).toBe(0);
-    expect(readAloudDifferenceAt(diffs, 3)).toBe(-1);
     // "You said" marks the transcript's own characters the same way.
     expect(r.heard!.filter((c) => c.mark !== 'ok' && c.mark !== 'plain')).toEqual([{ char: '程', mark: 'sound' }, { char: '度', mark: 'close' }]);
     // Without word chips the run of differing characters is the span.

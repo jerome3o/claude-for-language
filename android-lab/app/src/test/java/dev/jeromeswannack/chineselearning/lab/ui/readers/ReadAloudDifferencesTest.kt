@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorerController
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.LocalExplorer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
@@ -31,7 +35,8 @@ import kotlin.test.assertEquals
 /**
  * What it heard vs the page (Jerome's take: 成都 heard as 程度): one row per word with both in pinyin,
  * the reason per character in words ("都 dū → you said dù (4th tone instead of 1st)"), ▶ the page's
- * word, a tap on the marked word lights its row instead of opening the explorer; "You said" marked.
+ * word; a tap on the marked word opens the explorer like any word, and so do the row's page word and
+ * what was heard; "You said" marked. A take stopped early lists nothing for the part never reached.
  */
 class ReadAloudDifferencesTest : LabScreenshotTest() {
     private val text = "胆子大的话，可以试试麻辣兔头，这是很多成都人最爱的小吃。"
@@ -78,17 +83,77 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
         // ▶ plays the page's word.
         compose.onNodeWithTag(ReadAloudTags.DIFF_PLAY).performClick()
         assertEquals(listOf("成都"), spoken)
-        // A tap on the marked word lights its row — it doesn't open the explorer; an unmarked word still does.
+        // A tap on the marked word opens it in the explorer, like any word.
         compose.onNodeWithContentDescription("成 — sounded right (heard 程), 都 — tone off (heard 度)").performClick()
         compose.mainClock.advanceTimeBy(300)
-        assertEquals(emptyList(), opened)
+        assertEquals(listOf("成都"), opened)
         compose.onNodeWithContentDescription("小吃").performClick()
-        assertEquals(listOf("小吃"), opened)
+        assertEquals(listOf("成都", "小吃"), opened)
+    }
+
+    @Test
+    fun rowWordsOpenTheExplorer() {
+        val events = mutableListOf<Pair<String, Map<String, Any?>>>()
+        val explorer = ExplorerController(track = { e, p -> events += e to p })
+        compose.setContent {
+            LabTheme { CompositionLocalProvider(LocalExplorer provides explorer) { Page(env) } }
+        }
+        // The page's word (what he meant to say), with its sentence.
+        compose.onNodeWithTag(ReadAloudTags.DIFF_PAGE).performClick()
+        assertEquals(ExplorerItem.Word("成都", "chéngdū", null, text), explorer.current)
+        assertEquals("explorer.open" to mapOf("source" to "read_aloud", "kind" to "word"), events.last())
+        // What was heard.
+        compose.onNodeWithTag(ReadAloudTags.DIFF_HEARD).performClick()
+        assertEquals("程度", (explorer.current as ExplorerItem.Word).hanzi)
+    }
+
+    @Test
+    fun stoppedEarly() {
+        val stopText = "最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！"
+        val r = ReadAloud.judge(stopText, "最有名的是李子吧站轻轨直接从一栋")
+        compose.setContent {
+            LabTheme { ReadAloudPanel(ReadAloudUi(result = r, said = "最有名的是李子吧站轻轨直接从一栋"), ReadAloudActions()) }
+        }
+        compose.onNodeWithText("✓ 93% — 1 to check · stopped early").assertIsDisplayed()
+        // Only the slip he made is listed — nothing for the part he never reached.
+        assertEquals(1, compose.onAllNodes(hasTestTag(ReadAloudTags.DIFF)).fetchSemanticsNodes().size)
+        compose.onNodeWithText("Tone").assertIsDisplayed()
+        compose.onNodeWithText("Missed").assertDoesNotExist()
+        compose.onNodeWithText("missed", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun stoppedEarlyDark() {
+        val stopText = "最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！"
+        val heard = "最有名的是李子吧站轻轨直接从一栋"
+        val stopPage = ReaderPageDto(
+            "p2", 1, stopText,
+            "Zuì yǒumíng de shì Lǐzǐbà zhàn: qīngguǐ zhíjiē cóng yí dòng zhùzháilóu de zhōngjiān chuān guòqù!",
+            "The most famous is Liziba station: the light rail goes straight through the middle of a block of flats!",
+            words = listOf(
+                w("最", "zuì"), w("有名", "yǒumíng"), w("的", "de"), w("是", "shì"), w("李子坝站", "Lǐzǐbà zhàn"), w("："),
+                w("轻轨", "qīngguǐ"), w("直接", "zhíjiē"), w("从", "cóng"), w("一", "yí"), w("栋", "dòng"), w("住宅楼", "zhùzháilóu"),
+                w("的", "de"), w("中间", "zhōngjiān"), w("穿", "chuān"), w("过去", "guòqù"), w("！"),
+            ),
+        )
+        val r = ReadAloud.judge(stopText, heard)
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            LabTheme(dark = true) {
+                CompositionLocalProvider(LocalExplorer provides ExplorerController()) {
+                    Box(Modifier.fillMaxSize().background(Lab.colors.background).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
+                        ReaderPageView(stopPage, env, readAloudPreview = ReadAloudHandle(ReadAloudUi(result = r, said = heard), ReadAloudActions()))
+                    }
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(2_500)
+        compose.onRoot().captureRoboImage("screenshots/readers-49-read-aloud-stopped-early-dark.png")
     }
 
     private fun shootJerome(name: String, dark: Boolean, openSaid: Boolean) {
         compose.mainClock.autoAdvance = false
-        compose.setContent { LabTheme(dark = dark) { Page(env) } }
+        compose.setContent { LabTheme(dark = dark) { CompositionLocalProvider(LocalExplorer provides ExplorerController()) { Page(env) } } }
         compose.mainClock.advanceTimeBy(2_500)
         if (openSaid) {
             compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()

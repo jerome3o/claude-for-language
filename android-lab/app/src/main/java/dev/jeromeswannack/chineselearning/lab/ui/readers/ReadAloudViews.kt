@@ -45,9 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -78,6 +75,9 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
+import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
+import dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
 import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions
@@ -104,17 +104,19 @@ object ReadAloudTags {
     const val DIFFS = "reader-read-aloud-diffs"
     const val DIFF = "reader-read-aloud-diff"
     const val DIFF_PLAY = "reader-read-aloud-diff-play"
+    const val DIFF_PAGE = "reader-read-aloud-diff-page"
+    const val DIFF_HEARD = "reader-read-aloud-diff-heard"
 }
 
 /**
- * The differences' wiring from the page (web: `useReadAloud` diffs / focusAt): [words] = the page's
- * word chips (the differences group by them), [focus] = (row, tick) lit by a tap on a marked word,
- * [onSpeak] = ▶ a page word (practice TTS at the reader's speed).
+ * The differences' wiring from the page (web: `useReadAloud` diffs): [words] = the page's word chips
+ * (the differences group by them), [onSpeak] = ▶ a page word (practice TTS at the reader's speed),
+ * [pageText] = the page (a row's word opens the explorer with its sentence).
  */
 class ReadAloudDiffEnv(
     val words: List<String>? = null,
-    val focus: Pair<Int, Int>? = null,
     val onSpeak: ((String) -> Unit)? = null,
+    val pageText: String = "",
 )
 
 /** What a page's 🎤 Read it aloud shows (stateless, so every state renders in screenshot tests). */
@@ -371,7 +373,7 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
     Column(Modifier.fillMaxWidth().testTag(ReadAloudTags.RESULT)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // Small and muted: the icon (✓ ≈ ✕) and the words carry it, never a red / green colour.
-            Text(ReadAloud.line(result.pct, result.toCheck), color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.LINE))
+            Text(ReadAloud.line(result), color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.LINE))
             Text(
                 "${ReadAloud.YOU_SAID} ${if (open) "▾" else "▸"}",
                 color = Lab.colors.muted,
@@ -384,7 +386,7 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
         }
         ReadAloudLegend(ReadAloud.legend(result))
         val diffs = remember(result, diffEnv.words) { ReadAloud.differences(result, diffEnv.words) }
-        ReadAloudDifferences(diffs, diffEnv.focus, diffEnv.onSpeak)
+        ReadAloudDifferences(diffs, diffEnv.onSpeak, diffEnv.pageText.ifEmpty { result.chars.joinToString("") { it.char } })
         if (open) {
             // The transcript with what differs marked like the page (a homophone unmarked; extra words solid).
             val heard = result.heard
@@ -406,28 +408,34 @@ private const val DIFFS_SHOWN = 6
  * What it heard vs the page, one row per word (web `ReadAloudDifferences`; Jerome: "what the app thought
  * I was saying versus what it should have been"): the page's word + pinyin, what was heard + pinyin, the
  * kind in words, ▶ the page's word, and a reason line per character ("都 dū → you said dù (4th tone
- * instead of 1st)"). A homophone-only word is a quieter "Sounded right" row (not to check). [focus] (a
- * tap on a marked word in the page) brings its row into view and lights it.
+ * instead of 1st)"). A homophone-only word is a quieter "Sounded right" row (not to check). Either
+ * side's Chinese opens the language explorer (source `read_aloud`) — the page's word (what he meant to
+ * say) with its sentence from [pageText], and what was heard.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, focus: Pair<Int, Int>?, onSpeak: ((String) -> Unit)?) {
+fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, onSpeak: ((String) -> Unit)?, pageText: String = "") {
     if (diffs.isEmpty()) return
     val app = LocalContext.current.applicationContext as? LabApp
+    val explore = rememberExplorerTap("read_aloud")
     var showAll by remember(diffs) { mutableStateOf(false) }
-    var lit by remember(diffs) { mutableStateOf<Int?>(null) }
-    val requesters = remember(diffs) { List(diffs.size) { BringIntoViewRequester() } }
-    LaunchedEffect(focus) {
-        val i = focus?.first ?: return@LaunchedEffect
-        if (i !in diffs.indices) return@LaunchedEffect
-        if (i >= DIFFS_SHOWN) showAll = true
-        lit = i
-        kotlinx.coroutines.delay(60)
-        runCatching { requesters[i].bringIntoView() }
-        kotlinx.coroutines.delay(1_600)
-        lit = null
-    }
     val colors = Lab.colors
+    val cps = remember(pageText) { pageText.codePoints().toArray().map { String(Character.toChars(it)) } }
+    fun sentenceOf(d: ReadAloud.Difference): String? {
+        if (d.page.isEmpty() || cps.isEmpty() || d.end > cps.size) return null
+        val from = cps.subList(0, d.start).sumOf { it.length }
+        val to = from + cps.subList(d.start, d.end).sumOf { it.length }
+        return ReaderWords.sentenceAround(pageText, from, to).ifEmpty { null }
+    }
+    fun open(side: String, d: ReadAloud.Difference): (() -> Unit)? {
+        val tap = explore ?: return null
+        val item = if (side == "page") ExplorerStack.itemForText(d.page, d.pagePinyin.ifEmpty { null }, null, sentenceOf(d))
+        else ExplorerStack.itemForText(d.heard, d.heardPinyin.ifEmpty { null })
+        item ?: return null
+        return {
+            app?.analytics?.track("reader.read_aloud_diff", mapOf("action" to if (side == "page") "open_page_word" else "open_heard_word", "kind" to d.kind))
+            tap(item)
+        }
+    }
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag(ReadAloudTags.DIFFS), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for ((i, d) in diffs.withIndex()) {
             if (!showAll && i >= DIFFS_SHOWN) break
@@ -436,11 +444,10 @@ fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, focus: Pair<Int, Int
                 d.kind == "tone" -> colors.markTone
                 else -> colors.markWrong
             }
-            val litBg by androidx.compose.animation.animateColorAsState(if (lit == i) Violet.copy(alpha = 0.12f) else colors.card, label = "diffLit")
             Column(
-                Modifier.fillMaxWidth().bringIntoViewRequester(requesters[i])
-                    .clip(RoundedCornerShape(12.dp)).background(litBg)
-                    .border(if (lit == i) 2.dp else 1.dp, if (lit == i) Violet else colors.cardBorder, RoundedCornerShape(12.dp))
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp)).background(colors.card)
+                    .border(1.dp, colors.cardBorder, RoundedCornerShape(12.dp))
                     .drawBehind { drawRect(accent, size = Size(4.dp.toPx(), size.height)) }
                     .alpha(if (d.toCheck) 1f else 0.85f)
                     .padding(start = 14.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)
@@ -448,9 +455,9 @@ fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, focus: Pair<Int, Int
                     .testTag(ReadAloudTags.DIFF),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DiffSide("PAGE", d.page, d.pagePinyin)
+                    DiffSide("PAGE", d.page, d.pagePinyin, open("page", d), ReadAloudTags.DIFF_PAGE)
                     Text("vs", color = colors.muted, fontSize = 13.sp)
-                    DiffSide("YOU SAID", d.heard, d.heardPinyin)
+                    DiffSide("YOU SAID", d.heard, d.heardPinyin, open("heard", d), ReadAloudTags.DIFF_HEARD)
                     Spacer(Modifier.weight(1f))
                     Text(ReadAloud.diffKindLabel(d.kind), color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                     if (onSpeak != null && d.page.isNotEmpty()) {
@@ -479,12 +486,32 @@ fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, focus: Pair<Int, Int
     }
 }
 
+/** One side of a difference row; its Chinese is a tap into the explorer when [onOpen] is given (a quiet dotted underline says so). */
 @Composable
-private fun DiffSide(label: String, zh: String, py: String) {
+private fun DiffSide(label: String, zh: String, py: String, onOpen: (() -> Unit)? = null, tag: String = "") {
+    val colors = Lab.colors
     Column {
-        Text(label, color = Lab.colors.muted, fontSize = 10.sp, letterSpacing = 0.5.sp)
-        Text(zh.ifEmpty { "—" }, color = Lab.colors.ink, fontSize = 22.sp, lineHeight = 28.sp)
-        if (py.isNotEmpty()) Text(py, color = Lab.colors.muted, fontSize = 14.sp)
+        Text(label, color = colors.muted, fontSize = 10.sp, letterSpacing = 0.5.sp)
+        if (onOpen == null) Text(zh.ifEmpty { "—" }, color = colors.ink, fontSize = 22.sp, lineHeight = 28.sp)
+        else Box(
+            Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(6.dp))
+                .bouncyClickable(pressedScale = 0.94f, role = Role.Button, onClick = onOpen)
+                .semantics { contentDescription = "$zh — open in the explorer" }
+                .testTag(tag),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(
+                zh, color = colors.ink, fontSize = 22.sp, lineHeight = 28.sp,
+                modifier = Modifier.drawBehind {
+                    val y = size.height - 1.dp.toPx()
+                    drawLine(
+                        colors.muted.copy(alpha = 0.7f), Offset(0f, y), Offset(size.width, y), 1.dp.toPx(),
+                        cap = StrokeCap.Round, pathEffect = PathEffect.dashPathEffect(floatArrayOf(1.dp.toPx(), 3.dp.toPx())),
+                    )
+                },
+            )
+        }
+        if (py.isNotEmpty()) Text(py, color = colors.muted, fontSize = 14.sp)
     }
 }
 

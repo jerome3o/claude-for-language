@@ -77,7 +77,6 @@ function Harness() {
         marks={ra.result}
         onSpeak={speak}
         onWords={ra.setWords}
-        onMarkTap={ra.focusAt}
       />
       <ReadAloudMic ra={ra} />
       <ReadAloudPanel ra={ra} onSpeak={speak} />
@@ -192,7 +191,7 @@ describe('what it heard vs the page', () => {
     W('这', 'zhè'), W('是', 'shì'), W('很多', 'hěn duō'), W('成都', 'Chéngdū'), W('人', 'rén'), W('最', 'zuì'), W('爱', 'ài'), W('的', 'de'), W('小吃', 'xiǎochī'), W('。'),
   ];
 
-  it("Jerome's take: 成都 heard as 程度 — one row, both in pinyin, the reasons in words; a tap on 成都 lights it; ▶ plays the page's word", async () => {
+  it("Jerome's take: 成都 heard as 程度 — one row, both in pinyin, the reasons in words; a tap on 成都 (page or row) opens the explorer; ▶ plays the page's word", async () => {
     harness.text = CHENGDU;
     harness.words = CHENGDU_WORDS;
     await act(async () => root.render(<MemoryRouter><ExplorerProvider><Harness /></ExplorerProvider></MemoryRouter>));
@@ -213,11 +212,21 @@ describe('what it heard vs the page', () => {
       '都 dū → you said dù (4th tone instead of 1st)',
     ]);
 
-    // A tap on the marked word lights its row (not the explorer).
+    // A tap on the marked word on the page opens the language explorer, like any word chip.
     const chip = [...host.querySelectorAll('.reader-word-chip')].find((c) => c.textContent === '成都')!;
     await click(chip);
-    expect(row.classList.contains('is-lit')).toBe(true);
-    expect(track).toHaveBeenCalledWith('reader.read_aloud_diff', { action: 'tap_page', kind: 'tone' });
+    expect(track).toHaveBeenCalledWith('explorer.open', { source: 'reader', kind: 'word' });
+    expect(row.classList.contains('is-lit')).toBe(false);
+
+    // The row's words open it too: the page's word (what he meant to say) and what was heard.
+    track.mockClear();
+    await click(row.querySelector('[data-testid="reader-read-aloud-diff-page"]'));
+    expect(track).toHaveBeenCalledWith('reader.read_aloud_diff', { action: 'open_page_word', kind: 'tone' });
+    expect(track).toHaveBeenCalledWith('explorer.open', { source: 'read_aloud', kind: 'word' });
+    track.mockClear();
+    await click(row.querySelector('[data-testid="reader-read-aloud-diff-heard"]'));
+    expect(track).toHaveBeenCalledWith('reader.read_aloud_diff', { action: 'open_heard_word', kind: 'tone' });
+    expect(track).toHaveBeenCalledWith('explorer.open', { source: 'read_aloud', kind: 'word' });
 
     await click(row.querySelector('[data-testid="reader-read-aloud-diff-play"]'));
     expect(speak).toHaveBeenCalledWith('成都');
@@ -227,6 +236,20 @@ describe('what it heard vs the page', () => {
     const said = q('reader-read-aloud-said')!;
     expect(said.textContent).toBe('胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。');
     expect([...said.querySelectorAll<HTMLElement>('.ra-char')].map((e) => `${e.textContent}:${e.dataset.mark}`)).toEqual(['度:close']);
+  });
+
+  it('stopped early: the unread rest has no marks or rows, the line says so, no confetti', async () => {
+    await click(q('reader-read-aloud'));
+    await act(async () => fake.current!.land('早上好。我叫'));
+    await flush();
+    expect(markOf('叫')).toBe('ok');
+    expect(markOf('徐')).toBe('unread');
+    expect(host.querySelectorAll('.ra-char.ra-missed')).toHaveLength(0);
+    expect(q('reader-read-aloud-line')?.textContent).toBe('✓ 100% — right so far · stopped early');
+    expect(q('reader-read-aloud-legend')).toBeNull();
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+    expect(q('perfect-takes')?.textContent).toBe('0');
+    expect(track).toHaveBeenCalledWith('reader.read_aloud', { result_bucket: 'all', chars: 5, via: 'live', all_right: false });
   });
 
   it('missed, extra and homophone rows', async () => {

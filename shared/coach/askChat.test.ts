@@ -70,18 +70,20 @@ describe('Read it back → recap words', () => {
   const words = ['成都', '的', '火锅', '很', '辣', '。'];
 
   it('lists the words with a real mistake, with a reason line', () => {
-    const r = judgeReadAloud(text, '成都的活过很');
+    const r = judgeReadAloud(text, '成都的活过辣');
     const out = readBackMistakeWords(text, words, r);
-    expect(out.map((w) => w.hanzi)).toEqual(['火锅', '辣']);
+    expect(out.map((w) => w.hanzi)).toEqual(['火锅', '很']);
     expect(out[0].reasons).toEqual(['said_wrong']);
     expect(out[0].sentence).toBe('成都的火锅很辣。');
-    expect(out[1].reason_line).toBe('Missed 辣');
+    expect(out[1].reason_line).toBe('Missed 很');
+    // Stopped before 辣: never reached, so not a mistake.
+    expect(readBackMistakeWords(text, words, judgeReadAloud(text, '成都的活过很')).map((w) => w.hanzi)).toEqual(['火锅']);
   });
 
   it('nothing when read right; each character when the words don’t line up', () => {
     expect(readBackMistakeWords(text, words, judgeReadAloud(text, '成都的火锅很辣'))).toEqual([]);
-    const r = judgeReadAloud(text, '成都的火锅很');
-    expect(readBackMistakeWords(text, ['nope'], r).map((w) => w.hanzi)).toEqual(['辣']);
+    const r = judgeReadAloud(text, '成都的火锅辣');
+    expect(readBackMistakeWords(text, ['nope'], r).map((w) => w.hanzi)).toEqual(['很']);
   });
 
   it('describes tone off, wrong and missed', () => {

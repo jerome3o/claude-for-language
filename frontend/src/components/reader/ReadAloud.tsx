@@ -15,7 +15,6 @@ import {
   judgeReadAloud,
   readAloudAllRight,
   readAloudBucket,
-  readAloudDifferenceAt,
   readAloudDifferences,
   readAloudLocksPage,
   READ_ALOUD_DIFF_KIND,
@@ -39,6 +38,9 @@ import {
   type ReadAloudResult,
 } from '@shared/reader/readAloud';
 import { practiseBlockNote } from '@shared/coach';
+import { itemForText } from '@shared/explorer';
+import { sentenceAround } from '@shared/reader/words';
+import { useExplorer } from '../explorer/ExplorerContext';
 import { useVoiceDictation, type VoiceDictation } from '../../hooks/useVoiceDictation';
 import { YouSaidFailed } from '../study/YouSaid';
 import { track } from '../../services/analytics';
@@ -68,9 +70,6 @@ export interface ReadAloud {
   diffs: ReadAloudDifference[];
   /** The page's words (their texts) from the reading view's chips — the differences group by them. */
   setWords: (texts: string[] | null) => void;
-  /** A tap on a marked word: its difference row is scrolled to and lit (`tick` makes a second tap on the same row count). */
-  focused: { index: number; tick: number } | null;
-  focusAt: (cp: number) => void;
   toggle: () => void;
 }
 
@@ -98,7 +97,6 @@ export function useReadAloud(
   const [offlineNote, setOfflineNote] = useState(false);
   const [perfectTakes, setPerfectTakes] = useState(0);
   const [words, setWords] = useState<string[] | null>(null);
-  const [focused, setFocused] = useState<{ index: number; tick: number } | null>(null);
   const latest = useRef({ pageText, hooks, place });
   latest.current = { pageText, hooks, place };
   const dictation = useVoiceDictation({
@@ -158,22 +156,13 @@ export function useReadAloud(
   };
 
   const diffs = useMemo(() => (result ? readAloudDifferences(result, words) : []), [result, words]);
-  useEffect(() => {
-    setFocused(null);
-  }, [result]);
-  const focusAt = (cp: number) => {
-    const index = readAloudDifferenceAt(diffs, cp);
-    if (index < 0) return;
-    track('reader.read_aloud_diff', { action: 'tap_page', kind: diffs[index].kind });
-    setFocused((f) => ({ index, tick: (f?.tick ?? 0) + 1 }));
-  };
 
   const recording = state.phase === 'listening';
   const stop = () => {
     if (state.phase === 'listening') dictation.stop();
   };
 
-  return { dictation, result, said, offlineNote, locked: readAloudLocksPage(state.phase), recording, stop, perfectTakes, diffs, setWords, focused, focusAt, toggle };
+  return { dictation, result, said, offlineNote, locked: readAloudLocksPage(state.phase), recording, stop, perfectTakes, diffs, setWords, toggle };
 }
 
 /**
@@ -282,7 +271,7 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
         </button>
       </div>
       <ReadAloudLegend keys={readAloudLegend(result)} />
-      <ReadAloudDifferences diffs={ra.diffs} focused={ra.focused} onSpeak={onSpeak} />
+      <ReadAloudDifferences diffs={ra.diffs} pageText={result.chars.map((c) => c.char).join('')} onSpeak={onSpeak} />
       {showSaid && (
         <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">
           {result.heard && result.heard.length > 0 ? <HeardChars chars={result.heard} /> : said}
@@ -309,53 +298,75 @@ function HeardChars({ chars }: { chars: readonly ReadAloudHeardChar[] }) {
 const DIFFS_SHOWN = 6;
 
 /**
+ * One side's Chinese in a difference row: a button into the language explorer when it is Chinese
+ * (the page's word — what he was meant to say — and what was heard), plain text otherwise.
+ */
+function DiffWord({ text, pinyin, sentence, side, kind }: { text: string; pinyin: string; sentence?: string; side: 'page' | 'heard'; kind: string }) {
+  const explorer = useExplorer();
+  const item = text ? itemForText(text, { pinyin: pinyin || undefined, sentence }) : null;
+  if (!item) return <span className="ra-diff-zh" lang="zh-CN">{text || '—'}</span>;
+  return (
+    <button
+      type="button"
+      className="ra-diff-zh ra-diff-word"
+      lang="zh-CN"
+      onClick={(e) => {
+        e.stopPropagation();
+        track('reader.read_aloud_diff', { action: side === 'page' ? 'open_page_word' : 'open_heard_word', kind });
+        explorer.open(item, { source: 'read_aloud' });
+      }}
+      aria-label={`${text} — open in the explorer`}
+      data-testid={`reader-read-aloud-diff-${side}`}
+    >
+      {text}
+    </button>
+  );
+}
+
+/**
  * What it heard vs what the page says, one row per word (Jerome: "I'd love to see what the app thought I
  * was saying versus what it should have been"): the page's word + pinyin, what was heard + pinyin, ▶ the
  * page's word, and a reason line per character ("都 dū → you said dù (4th tone instead of 1st)"). A
- * homophone-only word is a muted "Sounded right" row (not to check). A tap on a marked word in the page
- * lights its row. Lab: ReadAloudViews.kt `ReadAloudDifferences`.
+ * homophone-only word is a muted "Sounded right" row (not to check). Either side's Chinese opens the
+ * language explorer (source `read_aloud`) — the page's word with its sentence. Lab: ReadAloudViews.kt
+ * `ReadAloudDifferences`.
  */
-export function ReadAloudDifferences({ diffs, focused, onSpeak }: {
+export function ReadAloudDifferences({ diffs, pageText = '', onSpeak }: {
   diffs: readonly ReadAloudDifference[];
-  focused: { index: number; tick: number } | null;
+  /** The page's text (the differences' spans are code points of it): the explorer gets the word's sentence. */
+  pageText?: string;
   onSpeak?: (text: string) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
-  const rows = useRef<(HTMLLIElement | null)[]>([]);
-  const [lit, setLit] = useState<number | null>(null);
-  useEffect(() => {
-    if (!focused) return;
-    if (focused.index >= DIFFS_SHOWN) setShowAll(true);
-    setLit(focused.index);
-    const t = setTimeout(() => setLit(null), 1600);
-    requestAnimationFrame(() => rows.current[focused.index]?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }));
-    return () => clearTimeout(t);
-  }, [focused]);
   if (diffs.length === 0) return null;
   const shown = showAll ? diffs : diffs.slice(0, DIFFS_SHOWN);
+  const cps = [...pageText];
+  const sentenceOf = (d: ReadAloudDifference) => {
+    if (!d.page || cps.length === 0) return undefined;
+    const from = cps.slice(0, d.start).join('').length;
+    const to = from + cps.slice(d.start, d.end).join('').length;
+    return sentenceAround(pageText, from, to) || undefined;
+  };
   return (
     <>
       <ol className="ra-diffs" data-testid="reader-read-aloud-diffs" aria-label="What it heard vs the page">
-        {shown.map((d, i) => (
+        {shown.map((d) => (
           <li
             key={`${d.start}-${d.end}`}
-            ref={(el) => {
-              rows.current[i] = el;
-            }}
-            className={`ra-diff kind-${d.kind}${d.toCheck ? '' : ' is-right'}${lit === i ? ' is-lit' : ''}`}
+            className={`ra-diff kind-${d.kind}${d.toCheck ? '' : ' is-right'}`}
             data-testid="reader-read-aloud-diff"
             data-kind={d.kind}
           >
             <div className="ra-diff-pair">
               <div className="ra-diff-side">
                 <span className="ra-diff-label">Page</span>
-                <span className="ra-diff-zh" lang="zh-CN">{d.page || '—'}</span>
+                <DiffWord text={d.page} pinyin={d.pagePinyin} sentence={sentenceOf(d)} side="page" kind={d.kind} />
                 {d.pagePinyin && <span className="ra-diff-py">{d.pagePinyin}</span>}
               </div>
               <span className="ra-diff-vs" aria-hidden="true">vs</span>
               <div className="ra-diff-side">
                 <span className="ra-diff-label">You said</span>
-                <span className="ra-diff-zh" lang="zh-CN">{d.heard || '—'}</span>
+                <DiffWord text={d.heard} pinyin={d.heardPinyin} side="heard" kind={d.kind} />
                 {d.heardPinyin && <span className="ra-diff-py">{d.heardPinyin}</span>}
               </div>
               <span className="ra-diff-kind">{READ_ALOUD_DIFF_KIND[d.kind]}</span>

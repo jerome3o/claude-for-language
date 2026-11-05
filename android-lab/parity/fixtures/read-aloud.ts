@@ -6,9 +6,9 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  judgeReadAloud, readAloudHeardAnything, readAloudDifferences, readAloudDifferenceAt, pinyinTone, toneName, READ_ALOUD_DIFF_KIND, readAloudAllRight, readAloudLocksPage, READ_ALOUD_STOP_RECORDING, readAloudLegend, READ_ALOUD_LEGEND, readAloudLine, readAloudTone, readAloudBucket, readAloudCharLabel, readAloudNeedsLook,
+  judgeReadAloud, readAloudHeardAnything, readAloudDifferences, pinyinTone, toneName, READ_ALOUD_DIFF_KIND, readAloudAllRight, readAloudLocksPage, READ_ALOUD_STOP_RECORDING, readAloudLegend, READ_ALOUD_LEGEND, readAloudLine, readAloudTone, readAloudBucket, readAloudCharLabel, readAloudNeedsLook,
   READ_ALOUD_LABEL, READ_ALOUD_AGAIN, READ_ALOUD_STOP, READ_ALOUD_LISTENING, READ_ALOUD_CHECKING, READ_ALOUD_OFFLINE,
-  READ_ALOUD_EMPTY, READ_ALOUD_YOU_SAID,
+  READ_ALOUD_EMPTY, READ_ALOUD_YOU_SAID, READ_ALOUD_STOPPED_EARLY,
 } from '../../../shared/reader/readAloud';
 
 const OUT = process.argv[2];
@@ -65,6 +65,17 @@ const FIXED: [string, string][] = [
   ['我喜欢你的书。', '我喜欢你书'],
   ['他喝了一杯咖啡。', '他喝了一杯可乐'],
   ['我想买书。', '我真想买书了'],
+  // Stopped early: the rest of the page after the last character heard is unread (no marks, no score).
+  ['最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！', '最有名的是李子坝站轻轨直接'],
+  ['最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！', '最有名的是李子吧站轻轨直接从一栋'],
+  // A middle word skipped, then the stop.
+  ['最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！', '最有名的是轻轨直接从一栋'],
+  ['最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！', '最有名的是李子坝站轻轨直接从一栋住宅楼的中间穿过去'],
+  ['小明在巴黎。他很开心。', '小明在巴黎'],
+  ['现在12点。', '现在十'],
+  ['现在12点半。', '现在12'],
+  ['我想买书。', '我'],
+  ['我想买书。', '你好'],
 ];
 
 // Differences grouped by the page's word chips.
@@ -78,6 +89,8 @@ const WORD_CASES: [string, string, string[]][] = [
   ['小明今天第一次去巴黎。他很兴奋。', '小明今天第一次去巴黎了她行奋', ['小明', '今天', '第一次', '去', '巴黎', '。', '他', '很', '兴奋', '。']],
   ['现在12点。', '现在十点', ['现在', '12', '点', '。']],
   ['他在游泳。', '她在游泳', ['不对']],
+  ['最有名的是李子坝站：轻轨直接从一栋住宅楼的中间穿过去！', '最有名的是轻轨直接从一栋',
+    ['最', '有名', '的', '是', '李子坝站', '：', '轻轨', '直接', '从', '一', '栋', '住宅楼', '的', '中间', '穿', '过去', '！']],
 ];
 
 // Seeded mutations (insert / delete / substitute from a pool of look-alike and sound-alike characters).
@@ -122,7 +135,7 @@ writeFileSync(join(OUT, 'read-aloud.json'), JSON.stringify({
   cases,
   wordCases: WORD_CASES.map(([page, transcript, words]) => {
     const diffs = readAloudDifferences(judgeReadAloud(page, transcript), words);
-    return { page, transcript, words, diffs, at: [...page].map((_, i) => readAloudDifferenceAt(diffs, i)) };
+    return { page, transcript, words, diffs };
   }),
   tones: ['mā', 'má', 'mǎ', 'mà', 'ma', 'lǜ', 'nǚ', 'ér', ''].map((py) => ({ py, tone: pinyinTone(py) })),
   toneNames: [0, 1, 2, 3, 4].map(toneName),
@@ -132,6 +145,6 @@ writeFileSync(join(OUT, 'read-aloud.json'), JSON.stringify({
   copy: {
     label: READ_ALOUD_LABEL, again: READ_ALOUD_AGAIN, stop: READ_ALOUD_STOP, listening: READ_ALOUD_LISTENING,
     checking: READ_ALOUD_CHECKING, offline: READ_ALOUD_OFFLINE, empty: READ_ALOUD_EMPTY, youSaid: READ_ALOUD_YOU_SAID,
-    legend: READ_ALOUD_LEGEND, stopRecording: READ_ALOUD_STOP_RECORDING,
+    legend: READ_ALOUD_LEGEND, stopRecording: READ_ALOUD_STOP_RECORDING, stoppedEarly: READ_ALOUD_STOPPED_EARLY,
   },
 }, null, 1));
