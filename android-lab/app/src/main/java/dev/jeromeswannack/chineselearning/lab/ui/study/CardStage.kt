@@ -1429,7 +1429,7 @@ fun RatingBar(
      * first and rates the second (HardMode.overrideTap).
      */
     greyed: Set<Int> = emptySet(),
-    /** The rating pointed to while Good / Easy are greyed (Hard): ringed + "suggested". */
+    /** The rating pointed to while Good / Easy are greyed (Hard): ringed, its interval kept ("suggested" for TalkBack). */
     suggested: Int? = null,
     /** A greyed rating tapped once, waiting for the second tap ("tap again"). */
     armed: Int? = null,
@@ -1456,15 +1456,14 @@ fun RatingBar(
                             when {
                                 isArmed -> stateDescription = HardMode.TAP_AGAIN
                                 isGreyed -> stateDescription = HardMode.TAP_TWICE
-                                isSuggested -> stateDescription = "Suggested"
+                                isSuggested -> stateDescription = HardMode.SUGGESTED
                             }
                         }
                         .testTag("rating-${labels[r].lowercase()}"),
                     sub = when {
                         isArmed -> HardMode.TAP_AGAIN
                         isGreyed -> listOfNotNull(sub, HardMode.TAP_TWICE).joinToString(" · ")
-                        // The ring + one word (the interval would wrap in a tile this narrow).
-                        isSuggested -> HardMode.SUGGESTED
+                        // The ring says "suggested"; the tile keeps its interval (the word is for TalkBack).
                         else -> sub
                     },
                     enabled = enabled,

@@ -186,6 +186,15 @@ class HardModeUiTest : LabScreenshotTest() {
         assertEquals(listOf(1), rated)
     }
 
+    @Test fun theSuggestedHardKeepsItsIntervalNotTheWord() {
+        // Jerome: "under the suggested, it doesn't tell me how long it'll be … not write suggested there and have the time still."
+        card(start = CardStartState(flipped = true, gaveUp = true))
+        compose.onNodeWithText(HardMode.SUGGESTED, useUnmergedTree = true).assertDoesNotExist()
+        compose.onAllNodesWithTag("rating-hard", useUnmergedTree = true).fetchSemanticsNodes().single().let { node ->
+            assertEquals(HardMode.SUGGESTED, node.config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription])
+        }
+    }
+
     @Test fun aRightAnswerIsFeltAsASuccess() {
         card(start = CardStartState(feedbackOpen = true), take = heard("院子", match = true))
         assertEquals(HardMode.FEEL_SUCCESS, felt.firstOrNull())

@@ -161,7 +161,8 @@ describe('HardModeRatings: greyed, never locked', () => {
     expect(q('rating-easy')!.dataset.greyed).toBe('true');
     expect(q('rating-good')!.hasAttribute('disabled')).toBe(false);
     expect(q('rating-hard')!.dataset.suggested).toBe('true');
-    expect(q('rating-hard')!.textContent).toContain('suggested');
+    expect(q('rating-hard')!.textContent).toContain('suggested'); // screen readers
+    expect(q('rating-hard')!.querySelector('.rating-interval')!.textContent).not.toBe(''); // the time stays
     act(() => q('rating-again')!.click());
     expect(h.onRate).toHaveBeenCalledWith(0);
   });

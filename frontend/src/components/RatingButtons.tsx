@@ -24,7 +24,7 @@ export function RatingButtons({
    * locked — every tap reaches `onRate`, which arms the first and rates the second (`overrideTap`).
    */
   greyed?: readonly Rating[];
-  /** The rating the card points to while Good / Easy are greyed (Hard): emphasised + "suggested". */
+  /** The rating the card points to while Good / Easy are greyed (Hard): ringed, its interval kept ("suggested" for screen readers only). */
   suggested?: Rating | null;
   /** A greyed rating tapped once, waiting for the second tap. */
   armed?: Rating | null;
