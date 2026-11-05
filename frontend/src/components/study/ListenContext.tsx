@@ -8,6 +8,8 @@ import {
   awaitSentenceAudio,
   ensureSentenceAudio,
   topUpListeningSentences,
+  getCachedClueTranslation,
+  getClueTranslation,
   SENTENCE_AUDIO_COMING_LABEL,
 } from '../../services/sentence-sets';
 import { isAudioCached } from '../../services/audioCache';
@@ -54,7 +56,7 @@ export interface ListenContextStats {
 export interface ListenContextProps {
   noteId: string;
   /** The card's own example sentence (on the note). */
-  cardSentence: { hanzi?: string | null; translation?: string | null; audio_url?: string | null } | null;
+  cardSentence: { hanzi?: string | null; pinyin?: string | null; translation?: string | null; audio_url?: string | null } | null;
   /** Online and not forced offline: clips stream, ensure-audio and generation are possible. */
   online: boolean;
   /** The study card's one player (a sentence and the word never overlap). */
@@ -96,6 +98,9 @@ export function ListenContext({
   // Heard on this card — by the sentence's text, so a regenerated set keeps its ✓s.
   const [played, setPlayed] = useState<Set<string>>(new Set());
   const [englishShown, setEnglishShown] = useState<Set<string>>(new Set());
+  // The card's own sentence when the note has no English for it (~⅓ of notes — MCP-added / older):
+  // fetched on EN like the sentence list's (getClueTranslation, cached by text; offline once fetched).
+  const [clueEnglish, setClueEnglish] = useState<Record<string, string | 'busy' | 'failed'>>({});
   const [playingKey, setPlayingKey] = useState<string | null>(null);
   const [audioWait, setAudioWait] = useState<Record<string, 'asking' | 'coming'>>({});
   const [prompt, setPrompt] = useState(false);
@@ -263,13 +268,27 @@ export function ListenContext({
     if (index >= 0) playRow(rows[index], states[index]);
   };
 
-  const toggleEnglish = (row: ListenRow) =>
+  const toggleEnglish = (row: ListenRow) => {
+    const opening = !englishShown.has(row.key);
+    if (opening && !row.translation && row.fromCard && (clueEnglish[row.key] === undefined || clueEnglish[row.key] === 'failed')) {
+      const key = row.key;
+      setClueEnglish((prev) => ({ ...prev, [key]: 'busy' }));
+      void (async () => {
+        const line = await getCachedClueTranslation(row.hanzi).catch(() => null)
+          ?? (online && navigator.onLine !== false
+            ? await getClueTranslation({ hanzi: row.hanzi, pinyin: cardSentence?.pinyin ?? null }).catch(() => null)
+            : null);
+        if (noteRef.current !== noteId) return;
+        setClueEnglish((prev) => ({ ...prev, [key]: line?.trim() || 'failed' }));
+      })();
+    }
     setEnglishShown((prev) => {
       const next = new Set(prev);
       if (next.has(row.key)) next.delete(row.key);
       else next.add(row.key);
       return next;
     });
+  };
 
   const more = async () => {
     setGenerating(true);
@@ -300,6 +319,9 @@ export function ListenContext({
               const wait = audioWait[row.key];
               const isRowPlaying = playingKey === row.key && isPlaying;
               const showEn = englishShown.has(row.key);
+              const fetched = clueEnglish[row.key];
+              const english = row.translation
+                ?? (fetched === 'busy' ? '…' : fetched === 'failed' ? COPY.translationOffline : fetched ?? null);
               return (
                 <li key={row.key} className={`listen-row listen-row--${state}${heard ? ' listen-row--played' : ''}`} data-testid="listen-row">
                   <div className="listen-row-line">
@@ -323,7 +345,7 @@ export function ListenContext({
                               : null}
                       </span>
                     </button>
-                    {row.translation && (
+                    {(row.translation || row.fromCard) && (
                       <button
                         type="button"
                         className={`listen-row-en${showEn ? ' listen-row-en--on' : ''}`}
@@ -336,7 +358,14 @@ export function ListenContext({
                       </button>
                     )}
                   </div>
-                  {showEn && <p className="listen-row-translation" data-testid="listen-row-translation">{row.translation}</p>}
+                  {showEn && english && (
+                    <p
+                      className={`listen-row-translation${row.translation || (fetched && fetched !== 'busy' && fetched !== 'failed') ? '' : ' listen-row-translation--muted'}`}
+                      data-testid="listen-row-translation"
+                    >
+                      {english}
+                    </p>
+                  )}
                 </li>
               );
             })}

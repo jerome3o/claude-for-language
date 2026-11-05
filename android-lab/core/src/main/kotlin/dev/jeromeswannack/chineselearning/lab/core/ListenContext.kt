@@ -112,5 +112,7 @@ object ListenContext {
         const val PROMPT_ANYWAY = "Play the word anyway"
         const val PROMPT_SENTENCE = "Play a sentence"
         const val NO_SENTENCES = "No example sentences yet."
+        /** EN on the card's own sentence when the note has no English and it can't be fetched now. */
+        const val TRANSLATION_OFFLINE = "Translation needs a connection"
     }
 }

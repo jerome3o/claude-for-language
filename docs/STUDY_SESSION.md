@@ -1134,7 +1134,10 @@ The question side of an **audio → hanzi** card is a list of the note's sentenc
 sentence first (shown once when the set repeats it), then the generated set in order — as
 **audio-only rows**: ▶, the row's number and a ✓ once heard. The Chinese, the pinyin and the English
 stay hidden (they would give the answer away); **EN** on a row shows just that row's English, a hint,
-never the characters. Under the list **+ More sentences** (online) writes more for the note
+never the characters. The card's own sentence always has EN, even when the note carries no English
+for it (~⅓ of notes — MCP-added / older; Nov 2026: row 1 had no EN): the line is fetched on the tap
+like the sentence list's clue row (`getClueTranslation` / Lab `SentenceActions.translate`, cached by
+text — offline once fetched), "…" while it comes, "Translation needs a connection" offline. Under the list **+ More sentences** (online) writes more for the note
 (`POST /api/notes/:id/sentences/generate { count, keepExisting: true }`, enough to reach about 8, at
 least 3); the new rows appear when they are made, their clips through ensure-audio ("Audio coming…"
 on ▶ while one is being made). At the bottom **▶ The word** (the note's clip / voices in turn, as

@@ -75,6 +75,14 @@ class ListenState {
     /** Heard on this card — by the sentence's text, so a regenerated set keeps its ✓s. */
     val played = mutableStateMapOf<String, Boolean>()
     val english = mutableStateMapOf<String, Boolean>()
+    /**
+     * The card's own sentence when the note has no English for it (~⅓ of notes — MCP-added / older):
+     * the line fetched on EN like the sentence list's ([SentenceActions.translate], cached by text);
+     * [englishBusy] while it comes, [englishFailed] when it couldn't ("Translation needs a connection").
+     */
+    val fetchedEnglish = mutableStateMapOf<String, String>()
+    val englishBusy = mutableStateMapOf<String, Boolean>()
+    val englishFailed = mutableStateMapOf<String, Boolean>()
     var prompt by mutableStateOf(false)
     var promptShown by mutableStateOf(false)
     var anyway by mutableStateOf(false)
@@ -182,11 +190,26 @@ fun ListenContextPanel(
                     playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}"),
                     coming = listen.coming[row.key] == true || listen.asking[row.key] == true,
                     english = listen.english[row.key] == true,
+                    translation = row.translation ?: listen.fetchedEnglish[row.key],
+                    // The card's own sentence always has EN: its English is fetched when the note has none.
+                    hasEnglish = row.translation != null || row.fromCard,
+                    englishNote = when {
+                        row.translation != null || listen.fetchedEnglish[row.key] != null -> null
+                        listen.englishBusy[row.key] == true -> "…"
+                        listen.englishFailed[row.key] == true -> ListenContext.Copy.TRANSLATION_OFFLINE
+                        else -> null
+                    },
                     onPlay = {
                         actions.onTick()
                         listenPlay(row, state, listen, actions, scope, isCurrent)
                     },
-                    onEnglish = { listen.english[row.key] = !(listen.english[row.key] ?: false) },
+                    onEnglish = {
+                        val open = !(listen.english[row.key] ?: false)
+                        listen.english[row.key] = open
+                        if (open && row.translation == null && row.fromCard && listen.fetchedEnglish[row.key] == null && listen.englishBusy[row.key] != true) {
+                            fetchClueEnglish(row, view, ui.aiAvailable, listen, actions, scope)
+                        }
+                    },
                 )
             }
         } else {
@@ -260,6 +283,27 @@ fun ListenContextPanel(
     }
 }
 
+/** EN on the card's own sentence with no English on the note: the device's copy, else (online) fetched. */
+private fun fetchClueEnglish(row: ListenContext.Row, view: CardView, online: Boolean, listen: ListenState, actions: StudyActions, scope: CoroutineScope) {
+    val sentence = SentenceRow(
+        key = row.key, sentenceId = null, hanzi = row.hanzi, pinyin = view.note.sentenceCluePinyin,
+        translation = null, audioUrl = row.audioUrl, badge = null, fromCard = true, fetchTranslation = true,
+    )
+    listen.englishBusy[row.key] = true
+    listen.englishFailed.remove(row.key)
+    scope.launch {
+        val line = try {
+            actions.sentences.cachedTranslation(sentence) ?: if (online) actions.sentences.translate(sentence) else null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (line.isNullOrBlank()) listen.englishFailed[row.key] = true else listen.fetchedEnglish[row.key] = line.trim()
+        listen.englishBusy.remove(row.key)
+    }
+}
+
 @Composable
 private fun ListenRowView(
     index: Int,
@@ -269,6 +313,9 @@ private fun ListenRowView(
     playing: Boolean,
     coming: Boolean,
     english: Boolean,
+    translation: String?,
+    hasEnglish: Boolean,
+    englishNote: String?,
     onPlay: () -> Unit,
     onEnglish: () -> Unit,
 ) {
@@ -314,7 +361,7 @@ private fun ListenRowView(
                     heard -> Text("✓", color = Palette.Good, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
             }
-            if (row.translation != null) {
+            if (hasEnglish) {
                 Box(
                     Modifier
                         .heightIn(min = 48.dp)
@@ -328,11 +375,11 @@ private fun ListenRowView(
                 }
             }
         }
-        AnimatedVisibility(english && row.translation != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        AnimatedVisibility(english && (translation != null || englishNote != null), enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
             Text(
-                row.translation.orEmpty(),
+                translation ?: englishNote.orEmpty(),
                 style = MaterialTheme.typography.bodyMedium,
-                color = Lab.colors.ink,
+                color = if (translation != null) Lab.colors.ink else Lab.colors.muted,
                 modifier = Modifier.padding(start = 56.dp, end = 12.dp, bottom = 10.dp),
             )
         }
