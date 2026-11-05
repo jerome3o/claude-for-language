@@ -916,6 +916,14 @@ Readers list, Today's story):
   page matches any tone), **close** (the tone differs), **wrong** or **missed**; words said that aren't on
   the page are **extras**. Score = right (ok + sound) / characters, floored (never "100%" with a mistake);
   "to check" = characters not right + extra stretches.
+- **Stopping early** (Jerome, Nov 2026: "When I cancel it early … it comes up with a ton of things to look at"):
+  the page characters AFTER the last one paired with something heard (right or not) were never reached — they
+  are **unread**, not missed: no mark on the page, no difference row, not in "to check" or the legend, and the
+  score is over the part he read (up to and including that last paired character; `stoppedEarly`,
+  `unreadFrom` on the result). A word skipped in the MIDDLE is still missed; extra words at the end stay
+  extras; a take that paired nothing at all keeps every character missed. The line says so: "✓ 96% — 1 to
+  check · stopped early", "✓ 100% — right so far · stopped early"; never confetti for it. The unread rest
+  never joins the reader word recap.
 - **Feedback, compact** (no second copy of the text): the page's OWN Chinese is marked in place, the
   characters always in the body ink (Jerome, Nov 2026, dark mode: "the highlighting is pretty scuffed and
   hard to read" — and he is red / green colour-blind). Read right (ok, a homophone) = NO mark, so a page
@@ -950,19 +958,21 @@ Readers list, Today's story):
   burst per such take over the reading view (web `Confetti` + a short buzz; Lab `ConfettiRain` +
   `haptics.celebrate()` + the MILESTONE sparkle), not again on a re-render; a new perfect take bursts again.
 - **What it heard vs the page** (Jerome: "I'd love to see what the app thought I was saying versus what it should
-  have been"; `readAloudDifferences(result, words)` + `readAloudDifferenceAt`, Lab `ReadAloud.differences` /
-  `differenceAt`, parity-tested incl. his 成都 → 程度 take): under the line, one row per page WORD the take heard
+  have been"; `readAloudDifferences(result, words)`, Lab `ReadAloud.differences`, parity-tested incl. his 成都 →
+  程度 take): under the line, one row per page WORD the take heard
   differently (the page's word chips; without them each run of differing characters) — the page's word + its
   pinyin in context vs what was heard + its pinyin (the judge's syllables: automatic pinyin + 一 / 不), the kind in
   words (Tone · Another word · Missed · Extra words · Sounded right), ▶ the page's word (practice TTS at the reader's
   speed), and one reason per character: "都 dū → you said dù (4th tone instead of 1st)", "成 chéng — sounded right
   (written 程)", "missed 的 de", "extra 了 le" — tones named in words, never colour alone. A homophone-only word
   is a quieter "Sounded right" row and is NOT to check (the score already counts it right). First 6 rows, then
-  "Show N more". A tap on a word the take heard differently lights (and scrolls to) its row instead of opening the
-  explorer; other words still open it. **You said ▾** shows the transcript (as checked: numbers as hanzi) with
+  "Show N more". The row's Chinese is tappable (a quiet dotted underline): the page's word — what he meant to say —
+  opens the language explorer with its sentence, and what was heard (when Chinese) opens too (`explorer.open`
+  source `read_aloud`). A tap on a marked word ON THE PAGE opens the explorer like any word chip (Nov 2026 —
+  before, it lit its row; Jerome wanted the explorer back). **You said ▾** shows the transcript (as checked: numbers as hanzi) with
   the same marks (tone off wavy, another / extra word solid; a homophone unmarked) — `result.heard`. ▶ of his own
   take at that span is not built: the transcript has no timings. Analytics `reader.read_aloud_diff { action:
-  play | tap_page, kind }`. Web `ReadAloudDifferences` in `ReadAloud.tsx`; Lab `ReadAloudDifferences` in
+  play | open_page_word | open_heard_word, kind }` (`tap_page` before Nov 2026). Web `ReadAloudDifferences` in `ReadAloud.tsx`; Lab `ReadAloudDifferences` in
   `ReadAloudViews.kt`.
 - Not built (yet): a whole-story "🎤 Read the story" mode (page by page, then a summary of the characters
   missed most).

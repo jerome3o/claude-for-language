@@ -21,8 +21,14 @@
  *   character it came before (or at the end). Punctuation / spaces are `plain`.
  * - A digit run on the page ("12") is one unit: right only when every one of its keys is.
  *
- * Score: right = ok + sound over every character to read (`pct`, floored — never "100%" with a
- * mistake); `toCheck` = the characters not right + the extra stretches. Practice only — nothing is
+ * - Stopped early (Jerome: "when I cancel it early … it comes up with a ton of things to look at"):
+ *   the page characters AFTER the last one that was paired with something heard (right or not) were
+ *   never reached — they are `unread`, not `missed`: no mark, no difference row, not in the score.
+ *   A skipped word in the middle is still missed; extra words at the end stay extras. A take that
+ *   paired nothing keeps every character missed (nothing heard to stop after).
+ *
+ * Score: right = ok + sound over every character read up to where he stopped (`pct`, floored — never
+ * "100%" with a mistake); `toCheck` = the characters not right + the extra stretches. Practice only — nothing is
  * stored, no review event. Lab port: core `ReadAloud.kt`, parity-tested
  * (android-lab/parity/fixtures/read-aloud.ts → ReadAloudParityTest).
  */
@@ -32,8 +38,11 @@ import { normalizeNumbersToHanzi } from '../text/numberHanzi';
 import { toSimplified } from '../picture-hunt/match';
 import { normalizeSpokenPinyin, tonelessPinyin } from '../cards/answer';
 
-/** How one character of the page was read. `plain` = punctuation / space (nothing to read). */
-export type ReadAloudMark = 'ok' | 'sound' | 'close' | 'wrong' | 'missed' | 'plain';
+/**
+ * How one character of the page was read. `plain` = punctuation / space (nothing to read); `unread` =
+ * after the last character he reached (he stopped early): no mark, not counted.
+ */
+export type ReadAloudMark = 'ok' | 'sound' | 'close' | 'wrong' | 'missed' | 'unread' | 'plain';
 
 export interface ReadAloudChar {
   /** The page's character (one code point). */
@@ -70,7 +79,7 @@ export interface ReadAloudResult {
   chars: ReadAloudChar[];
   /** Words said after the last character that aren't on the page. */
   extraAtEnd: string;
-  /** Characters to read (a digit run counts once). */
+  /** Characters to read up to where he stopped (a digit run counts once). */
   total: number;
   /** Read right (ok + sound). */
   right: number;
@@ -82,6 +91,10 @@ export interface ReadAloudResult {
   extraAtEndPinyin?: string;
   /** The transcript, character by character, marked like the page (`extra` = not on the page). */
   heard?: ReadAloudHeardChar[];
+  /** He stopped before the end of the page: the characters from `unreadFrom` on are `unread`. */
+  stoppedEarly?: boolean;
+  /** The code point where the unread rest starts (= the page's length when he read to the end). */
+  unreadFrom?: number;
 }
 
 /** A character that is read (a letter of any script, a digit); the rest is plain. */
@@ -270,12 +283,21 @@ export function judgeReadAloud(pageText: string, transcript: string): ReadAloudR
     }
   }
 
+  // Stopped early: the units after the last one paired with something heard were never reached.
+  let lastPaired = -1;
+  for (let k = 0; k < n; k++) if (keyHeardIdx[k] >= 0) lastPaired = k;
+  const readUnits = lastPaired < 0 ? units.length : page.unit[lastPaired] + 1;
+  const stoppedEarly = readUnits < units.length;
+  const unreadFrom = stoppedEarly ? units[readUnits].start : cps.length;
+
   const chars: ReadAloudChar[] = cps.map((char) => ({ char, mark: 'plain', heard: '', extraBefore: '', pinyin: '', heardPinyin: '', extraBeforePinyin: '', unitCont: false }));
   let right = 0;
   let toCheck = 0;
-  for (const u of units) {
+  for (let ui = 0; ui < units.length; ui++) {
+    const u = units[ui];
     const ks = keyMarks.slice(u.firstKey, u.firstKey + u.keyCount);
-    const mark = unitMark(ks);
+    const unread = ui >= readUnits;
+    const mark: ReadAloudMark = unread ? 'unread' : unitMark(ks);
     const said = keyHeard.slice(u.firstKey, u.firstKey + u.keyCount).join('');
     let extra = '';
     let extraPy = '';
@@ -292,21 +314,22 @@ export function judgeReadAloud(pageText: string, transcript: string): ReadAloudR
       chars[c] = {
         char: cps[c],
         mark,
-        heard: mark === 'missed' ? '' : said,
+        heard: mark === 'missed' || unread ? '' : said,
         extraBefore: first ? extra : '',
         pinyin: first ? py : '',
-        heardPinyin: first && mark !== 'missed' ? heardPy : '',
+        heardPinyin: first && mark !== 'missed' && !unread ? heardPy : '',
         extraBeforePinyin: first ? extraPy : '',
         unitCont: !first,
       };
     }
+    if (unread) continue;
     if (mark === 'ok' || mark === 'sound') right++;
     else toCheck++;
     if (extra) toCheck++;
   }
   const extraAtEnd = extraBeforeKey[n];
   if (extraAtEnd) toCheck++;
-  const total = units.length;
+  const total = readUnits;
   // The transcript as checked, each of its characters marked by how it lined up.
   const heardChars: ReadAloudHeardChar[] = [];
   let hk = 0;
@@ -316,7 +339,7 @@ export function judgeReadAloud(pageText: string, transcript: string): ReadAloudR
   }
   return {
     chars, extraAtEnd, total, right, pct: total > 0 ? Math.floor((right * 100) / total) : 0, toCheck,
-    extraAtEndPinyin: extraBeforePy[n], heard: heardChars,
+    extraAtEndPinyin: extraBeforePy[n], heard: heardChars, stoppedEarly, unreadFrom,
   };
 }
 
@@ -454,11 +477,6 @@ export function readAloudDifferences(r: Pick<ReadAloudResult, 'chars' | 'extraAt
   return out;
 }
 
-/** The difference a tap on the page's character `cp` belongs to (index into `diffs`), or -1. */
-export function readAloudDifferenceAt(diffs: readonly ReadAloudDifference[], cp: number): number {
-  return diffs.findIndex((d) => cp >= d.start && cp < d.end);
-}
-
 /** A difference's kind in words (its row's label — never colour alone). */
 export const READ_ALOUD_DIFF_KIND: Record<ReadAloudDiffKind, string> = {
   wrong: 'Another word',
@@ -497,17 +515,26 @@ export function readAloudLocksPage(phase: string): boolean {
  * The WHOLE page read right — every character ok or a homophone (`sound`), nothing tone-off,
  * wrong or missed, no extra words anywhere — and there was something to read. The apps throw
  * confetti once for such a take (`reader.read_aloud { all_right: true }`). A page read right but
- * with extra words said is 100% yet not all right (its `toCheck` counts the extras).
+ * with extra words said is 100% yet not all right (its `toCheck` counts the extras); nor is a take
+ * stopped before the end (`stoppedEarly`), however well the part he read went.
  */
-export function readAloudAllRight(r: Pick<ReadAloudResult, 'total' | 'right' | 'toCheck'>): boolean {
-  return r.total > 0 && r.right === r.total && r.toCheck === 0;
+export function readAloudAllRight(r: Pick<ReadAloudResult, 'total' | 'right' | 'toCheck' | 'stoppedEarly'>): boolean {
+  return r.total > 0 && r.right === r.total && r.toCheck === 0 && !r.stoppedEarly;
 }
 
-/** The one line under the page: "✓ 92% — 2 to check" (icon + words, never colour alone). */
-export function readAloudLine(r: Pick<ReadAloudResult, 'pct' | 'toCheck'>): string {
-  if (r.toCheck === 0) return `✓ ${r.pct}% — all read right`;
+/** The line's note when he stopped before the end of the page. */
+export const READ_ALOUD_STOPPED_EARLY = 'stopped early';
+
+/**
+ * The one line under the page: "✓ 92% — 2 to check" (icon + words, never colour alone); a take
+ * stopped before the end says so — "✓ 96% — 1 to check · stopped early", "✓ 100% — right so far ·
+ * stopped early" (the % is over the part he read).
+ */
+export function readAloudLine(r: Pick<ReadAloudResult, 'pct' | 'toCheck' | 'stoppedEarly'>): string {
+  const early = r.stoppedEarly ? ` · ${READ_ALOUD_STOPPED_EARLY}` : '';
+  if (r.toCheck === 0) return `✓ ${r.pct}% — ${r.stoppedEarly ? 'right so far' : 'all read right'}${early}`;
   const icon = r.pct >= 90 ? '✓' : r.pct >= 60 ? '≈' : '✕';
-  return `${icon} ${r.pct}% — ${r.toCheck} to check`;
+  return `${icon} ${r.pct}% — ${r.toCheck} to check${early}`;
 }
 
 /** The line's tone (the apps' colour for it). */

@@ -183,7 +183,6 @@ function ReaderPageBody({
                 marks={readAloud.result}
                 onSpeak={speak}
                 onWords={readAloud.setWords}
-                onMarkTap={readAloud.focusAt}
                 onWordList={(w) => { wordListRef.current = w; }}
                 onWordTap={(w, pos, sentence) => recap.tap({
                   text: w.text, pinyin: w.pinyin, gloss: w.gloss, sentence, page: pageIndex, pos, page_english: page.content_english,

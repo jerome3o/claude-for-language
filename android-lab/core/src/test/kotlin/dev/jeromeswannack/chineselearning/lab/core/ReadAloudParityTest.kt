@@ -28,6 +28,7 @@ class ReadAloudParityTest {
         assertTrue(cases.size > 100)
         var marked = 0
         var allRight = 0
+        var stopped = 0
         for (c in cases) {
             val o = c.jsonObject
             val page = str(o, "page")
@@ -62,7 +63,10 @@ class ReadAloudParityTest {
             assertEquals(want["right"]!!.jsonPrimitive.int, r.right, where)
             assertEquals(want["pct"]!!.jsonPrimitive.int, r.pct, where)
             assertEquals(want["toCheck"]!!.jsonPrimitive.int, r.toCheck, where)
-            assertEquals(str(o, "line"), ReadAloud.line(r.pct, r.toCheck), where)
+            assertEquals(str(o, "line"), ReadAloud.line(r), where)
+            assertEquals(want["stoppedEarly"]!!.jsonPrimitive.boolean, r.stoppedEarly, "$where stoppedEarly")
+            assertEquals(want["unreadFrom"]!!.jsonPrimitive.int, r.unreadFrom, "$where unreadFrom")
+            if (r.stoppedEarly) stopped++
             assertEquals(str(o, "tone"), ReadAloud.tone(r.pct, r.toCheck), where)
             assertEquals(str(o, "bucket"), ReadAloud.bucket(r.pct), where)
             assertEquals(o["labels"]!!.jsonArray.map { it.jsonPrimitive.content }, r.chars.map(ReadAloud::charLabel), where)
@@ -73,6 +77,7 @@ class ReadAloudParityTest {
         }
         assertTrue(marked > 50)
         assertTrue(allRight > 3, "some takes are all right")
+        assertTrue(stopped > 5, "some takes stopped early")
     }
 
     private fun assertDiffs(want: kotlinx.serialization.json.JsonArray, got: List<ReadAloud.Difference>, where: String) {
@@ -95,13 +100,12 @@ class ReadAloudParityTest {
     fun differencesByWordAndTones() {
         val f = fixture()
         val cases = f["wordCases"]!!.jsonArray
-        assertTrue(cases.size >= 7)
+        assertTrue(cases.size >= 9)
         for (c in cases) {
             val o = c.jsonObject
             val where = "${str(o, "page")} / ${str(o, "transcript")}"
             val diffs = ReadAloud.differences(ReadAloud.judge(str(o, "page"), str(o, "transcript")), o["words"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertDiffs(o["diffs"]!!.jsonArray, diffs, where)
-            assertEquals(o["at"]!!.jsonArray.map { it.jsonPrimitive.int }, o["at"]!!.jsonArray.indices.map { ReadAloud.differenceAt(diffs, it) }, "$where at")
         }
         // Jerome's take, spelled out: 成都 heard as 程度.
         val jerome = ReadAloud.differences(
@@ -136,6 +140,7 @@ class ReadAloudParityTest {
         assertEquals(str(copy, "empty"), ReadAloud.EMPTY)
         assertEquals(str(copy, "youSaid"), ReadAloud.YOU_SAID)
         assertEquals(str(copy, "stopRecording"), ReadAloud.STOP_RECORDING)
+        assertEquals(str(copy, "stoppedEarly"), ReadAloud.STOPPED_EARLY)
         for (l in f["locks"]!!.jsonArray) {
             val o = l.jsonObject
             assertEquals(o["locks"]!!.jsonPrimitive.boolean, ReadAloud.locksPage(str(o, "phase")), str(o, "phase"))

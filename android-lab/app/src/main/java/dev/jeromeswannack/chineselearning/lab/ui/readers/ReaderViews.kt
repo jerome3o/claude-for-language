@@ -162,12 +162,10 @@ fun ReaderPageView(
         DisposableEffect(takeLock) { onDispose { takeLock.phase = "idle"; takeLock.perfectTakes = 0; takeLock.stopTake = {} } }
     }
     val locked = readAloud != null && ReadAloud.locksPage(readAloud.ui.phase)
-    // What it heard vs the page: the differences group by the page's words; a tap on a marked word lights its row.
+    // What it heard vs the page: the differences group by the page's words (a tap on a word still opens the explorer).
     var pageWords by remember(page.id) { mutableStateOf<List<String>?>(null) }
     var pageWordList by remember(page.id) { mutableStateOf<List<ReaderWordDto>?>(null) }
-    var diffFocus by remember(page.id) { mutableStateOf<Pair<Int, Int>?>(null) }
     val resultNow = readAloud?.ui?.result
-    LaunchedEffect(resultNow) { diffFocus = null }
     // 📝 Reader word recap: the words a take read wrong join the run (glosses from the chips).
     LaunchedEffect(resultNow) {
         val r = resultNow ?: return@LaunchedEffect
@@ -176,18 +174,6 @@ fun ReaderPageView(
             dev.jeromeswannack.chineselearning.lab.core.WordRecap.Page(pageIndex, page.contentChinese, page.contentEnglish, pageWordList?.map { dev.jeromeswannack.chineselearning.lab.core.WordRecap.Word(it.text, it.pinyin, it.gloss) }),
             r,
         )
-    }
-    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? dev.jeromeswannack.chineselearning.lab.LabApp
-    val onMarkTap: (Int) -> Unit = { cp ->
-        val r = resultNow
-        if (r != null) {
-            val diffs = ReadAloud.differences(r, pageWords)
-            val i = ReadAloud.differenceAt(diffs, cp)
-            if (i >= 0) {
-                app?.analytics?.track("reader.read_aloud_diff", mapOf("action" to "tap_page", "kind" to diffs[i].kind))
-                diffFocus = i to ((diffFocus?.second ?: 0) + 1)
-            }
-        }
     }
     val reading = readAloud?.ui?.phase == "listening"
     val marks = readAloud?.ui?.result
@@ -218,14 +204,14 @@ fun ReaderPageView(
             Column(m, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 AnimatedContent(showChinese, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) }, label = "chinese") { shown ->
                     if (shown) {
-                        RevealedChinese(page, env, readAloud?.ui?.result, onWords = { pageWords = it }, onWordList = { pageWordList = it }, onMarkTap = onMarkTap, pageIndex = pageIndex) { showChinese = false; env.onTap() }
+                        RevealedChinese(page, env, readAloud?.ui?.result, onWords = { pageWords = it }, onWordList = { pageWordList = it }, pageIndex = pageIndex) { showChinese = false; env.onTap() }
                     } else {
                         RevealBox("Tap to reveal Chinese", big = true) { showChinese = true; env.onTap() }
                     }
                 }
                 // The scrubbable waveform (phrase blocks, speed chip) under the Chinese.
                 ReaderScrubber(page, env, story = story, extra = readAloud?.let { ra -> { ReadAloudMic(ra.ui, ra.actions.onMic) } }, locked = locked)
-                readAloud?.let { ReadAloudPanel(it.ui, it.actions, ReadAloudDiffEnv(pageWords, diffFocus, env.speak)) }
+                readAloud?.let { ReadAloudPanel(it.ui, it.actions, ReadAloudDiffEnv(pageWords, env.speak, page.contentChinese)) }
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }
@@ -259,7 +245,6 @@ private fun RevealedChinese(
     marks: ReadAloud.Result?,
     onWords: (List<String>?) -> Unit = {},
     onWordList: (List<ReaderWordDto>?) -> Unit = {},
-    onMarkTap: ((Int) -> Unit)? = null,
     pageIndex: Int = 0,
     onHide: () -> Unit,
 ) {
@@ -301,13 +286,10 @@ private fun RevealedChinese(
                     marks = wordMarks,
                     onLongPress = if (wordMarks != null && ReadAloud.needsLook(wordMarks)) ({ env.speak(word.text) }) else null,
                 ) {
-                    // A word the take heard differently: its row in "what it heard vs the page", not the explorer.
-                    if (wordMarks != null && onMarkTap != null && (ReadAloud.needsLook(wordMarks) || wordMarks.any { it.mark == ReadAloud.Mark.SOUND })) onMarkTap(start)
-                    else {
-                        val sentence = ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length)
-                        env.onWord(word, sentence)
-                        env.recap?.tap(dev.jeromeswannack.chineselearning.lab.core.WordRecap.Tap(word.text, word.pinyin, word.gloss, sentence, pageIndex, start, page.contentEnglish))
-                    }
+                    // Marked or not, a tap opens the word in the language explorer.
+                    val sentence = ReaderWords.sentenceAround(page.contentChinese, offsets[i], offsets[i] + word.text.length)
+                    env.onWord(word, sentence)
+                    env.recap?.tap(dev.jeromeswannack.chineselearning.lab.core.WordRecap.Tap(word.text, word.pinyin, word.gloss, sentence, pageIndex, start, page.contentEnglish))
                 }
             }
         }
@@ -321,7 +303,7 @@ private fun WordChip(word: ReaderWordDto, known: Boolean, marks: List<ReadAloud.
     val shape = RoundedCornerShape(8.dp)
     val tap = if (onLongPress != null) Modifier.combinedClickable(onClick = onClick, onLongClick = onLongPress)
     else Modifier.bouncyClickable(pressedScale = 0.9f, onClick = onClick)
-    val marked = marks != null && marks.any { it.mark != ReadAloud.Mark.OK || it.extraBefore.isNotEmpty() }
+    val marked = marks != null && marks.any { (it.mark != ReadAloud.Mark.OK && it.mark != ReadAloud.Mark.UNREAD) || it.extraBefore.isNotEmpty() }
     val label = when {
         marked -> markedLabel(marks!!)
         known -> "${word.text}, in your decks"

@@ -1,8 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { readAloudCharLabel, readAloudNeedsLook, type ReadAloudChar, type ReadAloudResult } from '@shared/reader/readAloud';
-
-/** A word of the page that a read-aloud take heard differently (a homophone included) — it has a row in the differences. */
-const hasDifference = (marked: readonly ReadAloudChar[]) => readAloudNeedsLook(marked) || marked.some((c) => c.mark === 'sound');
 import { isTappableWord, wordOffsets, sentenceAround, wordsMatchText, type ReaderWord } from '@shared/reader/words';
 import { itemForText } from '@shared/explorer';
 import { knownHanzi, localPageWords, requestReaderWords, sessionPageWords } from '../../services/readerWords';
@@ -76,7 +73,7 @@ export function MarkedChars({ chars }: { chars: readonly ReadAloudChar[] }) {
             <span className="ra-extra" title={`You also said ${c.extraBefore}`} aria-hidden="true">‸</span>
           )}
           {c.mark === 'plain' ? c.char : (
-            <span className={`ra-char ra-${c.mark}`} data-mark={c.mark} title={c.mark === 'ok' ? undefined : readAloudCharLabel(c)}>{c.char}</span>
+            <span className={`ra-char ra-${c.mark}`} data-mark={c.mark} title={c.mark === 'ok' || c.mark === 'unread' ? undefined : readAloudCharLabel(c)}>{c.char}</span>
           )}
         </Fragment>
       ))}
@@ -127,7 +124,7 @@ function WordChip({ text, known, marked, onOpen, onLong }: {
   onLong: (() => void) | null;
 }) {
   const press = useLongPress(onLong);
-  const label = marked && marked.some((c) => c.mark !== 'ok' || c.extraBefore)
+  const label = marked && marked.some((c) => (c.mark !== 'ok' && c.mark !== 'unread') || c.extraBefore)
     ? marked.map(readAloudCharLabel).join(', ')
     : known ? `${text} (in your decks)` : text;
   return (
@@ -162,9 +159,10 @@ function WordChip({ text, known, marked, onOpen, onLong }: {
  * characters marked in place, in the body ink — read right = no mark, tone off =
  * a wavy underline, wrong = a solid one, missed = a dashed one (each on a soft
  * tint), a caret where extra words were said; the chips drop their fill meanwhile
- * (ReadAloud.css). A long press on a word that needs a look plays it (`onSpeak`).
+ * (ReadAloud.css); the rest of a page he stopped before is `unread` (no mark). A tap still opens the
+ * explorer; a long press on a word that needs a look plays it (`onSpeak`).
  */
-export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak, onWords, onMarkTap, onWordList, onWordTap }: {
+export function ReaderWordsText({ readerId, page, className = 'reader-chinese-text', marks = null, onSpeak, onWords, onWordList, onWordTap }: {
   readerId: string;
   page: PageLike;
   className?: string;
@@ -172,8 +170,6 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
   onSpeak?: (text: string) => void;
   /** The words shown (their texts), so a read-aloud result can group its differences by word. */
   onWords?: (texts: string[] | null) => void;
-  /** A tap on a word a read-aloud take heard differently: its difference row instead of the explorer (`cp` = the word's first code point). */
-  onMarkTap?: (cp: number) => void;
   /** The words shown, whole (pinyin + gloss) — the reader word recap takes a take's mistakes' glosses from them. */
   onWordList?: (words: ReaderWord[] | null) => void;
   /** A word opened in the explorer (`pos` = its first code point on the page): the reader word recap collects it. */
@@ -244,7 +240,7 @@ export function ReaderWordsText({ readerId, page, className = 'reader-chinese-te
                 text={w.text}
                 known={known.has(w.text)}
                 marked={marked}
-                onOpen={() => (marked && onMarkTap && hasDifference(marked) ? onMarkTap(start) : openWord(i, start))}
+                onOpen={() => openWord(i, start)}
                 onLong={marked && onSpeak && readAloudNeedsLook(marked) ? () => onSpeak(w.text) : null}
               />
             );

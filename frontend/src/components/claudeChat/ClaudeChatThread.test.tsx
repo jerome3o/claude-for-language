@@ -112,10 +112,10 @@ describe('ClaudeChatThread', () => {
   it('🎤 Read it back: marks the message in place and keeps the words said wrong', async () => {
     await render(MESSAGES);
     await act(async () => q('claude-chat-read-back')!.click());
-    await act(async () => fake.current!.land('成都的活过很'));
+    await act(async () => fake.current!.land('成都的活过很拉'));
     await flush();
     const marked = [...host.querySelectorAll<HTMLElement>('.ra-char')].map((e) => [e.textContent, e.dataset.mark]);
-    expect(marked).toContainEqual(['辣', 'missed']);
+    expect(marked).toContainEqual(['辣', 'close']);
     expect(q('reader-read-aloud-line')?.textContent).toMatch(/to check/);
     expect(getRecapWords('t1').map((w) => [w.hanzi, w.reasons])).toEqual([['火锅', ['said_wrong']], ['辣', ['said_wrong']]]);
     expect(track).toHaveBeenCalledWith('coach.ask_read_back', expect.objectContaining({ wrong_words: 2, via: 'live' }));

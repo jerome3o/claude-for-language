@@ -7,11 +7,14 @@ package dev.jeromeswannack.chineselearning.lab.core
  * left out, numbers → hanzi, 两 = 二, traditional → simplified; each Han character's syllable in
  * context (automatic pinyin + 一 / 不 over each unbroken run); a weighted edit distance lines the two
  * up (ok 0, same sound 1, tone only 2, another character 3, missed / extra 2). A character is ok,
- * sound (a homophone — right), close (tone only), wrong or missed; extra words are a caret. Practice
+ * sound (a homophone — right), close (tone only), wrong or missed; extra words are a caret. A take
+ * stopped early leaves the characters after the last one paired with something heard UNREAD (no
+ * mark, no difference, not in the score); a skipped word in the middle is still missed. Practice
  * only — nothing is stored.
  */
 object ReadAloud {
-    enum class Mark { OK, SOUND, CLOSE, WRONG, MISSED, PLAIN }
+    /** UNREAD = after the last character he reached (he stopped early): no mark, not counted. */
+    enum class Mark { OK, SOUND, CLOSE, WRONG, MISSED, UNREAD, PLAIN }
 
     /**
      * One page character as read. [pinyin] = the page's syllable(s) in context ('' for punctuation, an
@@ -41,6 +44,10 @@ object ReadAloud {
         val toCheck: Int,
         val extraAtEndPinyin: String = "",
         val heard: List<HeardChar> = emptyList(),
+        /** He stopped before the end of the page: the characters from [unreadFrom] on are UNREAD. */
+        val stoppedEarly: Boolean = false,
+        /** The code point where the unread rest starts (= the page's length when he read to the end). */
+        val unreadFrom: Int = 0,
     )
 
     const val LABEL = "Read it aloud"
@@ -229,11 +236,19 @@ object ReadAloud {
                 j++
             }
         }
+        // Stopped early: the units after the last one paired with something heard were never reached.
+        var lastPaired = -1
+        for (k in 0 until n) if (keyHeardIdx[k] >= 0) lastPaired = k
+        val readUnits = if (lastPaired < 0) units.size else units.indexOfFirst { lastPaired < it.firstKey + it.keyCount } + 1
+        val stoppedEarly = readUnits < units.size
+        val unreadFrom = if (stoppedEarly) units[readUnits].start else cps.size
+
         val chars = cps.map { Char(it, Mark.PLAIN, "", "") }.toMutableList()
         var right = 0
         var toCheck = 0
-        for (u in units) {
-            val mark = unitMark(keyMarks.subList(u.firstKey, u.firstKey + u.keyCount))
+        for ((ui, u) in units.withIndex()) {
+            val unread = ui >= readUnits
+            val mark = if (unread) Mark.UNREAD else unitMark(keyMarks.subList(u.firstKey, u.firstKey + u.keyCount))
             val said = keyHeard.subList(u.firstKey, u.firstKey + u.keyCount).joinToString("")
             val extra = extraBeforeKey.subList(u.firstKey, u.firstKey + u.keyCount).joinToString("")
             val extraPy = StringBuilder()
@@ -247,26 +262,27 @@ object ReadAloud {
             for (c in u.start until u.end) {
                 val first = c == u.start
                 chars[c] = Char(
-                    cps[c], mark, if (mark == Mark.MISSED) "" else said, if (first) extra else "",
+                    cps[c], mark, if (mark == Mark.MISSED || unread) "" else said, if (first) extra else "",
                     pinyin = if (first) py.toString() else "",
-                    heardPinyin = if (first && mark != Mark.MISSED) heardPy.toString() else "",
+                    heardPinyin = if (first && mark != Mark.MISSED && !unread) heardPy.toString() else "",
                     extraBeforePinyin = if (first) extraPy.toString() else "",
                     unitCont = !first,
                 )
             }
+            if (unread) continue
             if (mark == Mark.OK || mark == Mark.SOUND) right++ else toCheck++
             if (extra.isNotEmpty()) toCheck++
         }
         val extraAtEnd = extraBeforeKey[n]
         if (extraAtEnd.isNotEmpty()) toCheck++
-        val total = units.size
+        val total = readUnits
         // The transcript as checked, each of its characters marked by how it lined up.
         val heardChars = ArrayList<HeardChar>()
         var hk = 0
         for (c in codePoints(transcriptText(transcript))) {
             heardChars += if (markable(c.codePointAt(0))) HeardChar(c, heardMark[hk++]) else HeardChar(c, "plain")
         }
-        return Result(chars, extraAtEnd, total, right, if (total > 0) right * 100 / total else 0, toCheck, extraBeforePy[n], heardChars)
+        return Result(chars, extraAtEnd, total, right, if (total > 0) right * 100 / total else 0, toCheck, extraBeforePy[n], heardChars, stoppedEarly, unreadFrom)
     }
 
     // --- the differences, one per word -------------------------------------------------------------
@@ -374,9 +390,6 @@ object ReadAloud {
         return out
     }
 
-    /** `readAloudDifferenceAt`: the difference a tap on page character [cp] belongs to, or -1. */
-    fun differenceAt(diffs: List<Difference>, cp: Int): Int = diffs.indexOfFirst { cp >= it.start && cp < it.end }
-
     /** `READ_ALOUD_DIFF_KIND`: a difference's kind in words. */
     fun diffKindLabel(kind: String): String = when (kind) {
         "wrong" -> "Another word"
@@ -398,16 +411,24 @@ object ReadAloud {
 
     /**
      * `readAloudAllRight`: the WHOLE page read right — every character ok or a homophone, nothing
-     * tone-off / wrong / missed, no extra words — and something to read. Confetti once per such take.
+     * tone-off / wrong / missed, no extra words, not stopped early — and something to read. Confetti
+     * once per such take.
      */
-    fun allRight(r: Result): Boolean = r.total > 0 && r.right == r.total && r.toCheck == 0
+    fun allRight(r: Result): Boolean = r.total > 0 && r.right == r.total && r.toCheck == 0 && !r.stoppedEarly
 
-    /** `readAloudLine`: "✓ 92% — 2 to check". */
-    fun line(pct: Int, toCheck: Int): String {
-        if (toCheck == 0) return "✓ $pct% — all read right"
+    /** `READ_ALOUD_STOPPED_EARLY`: the line's note when he stopped before the end of the page. */
+    const val STOPPED_EARLY = "stopped early"
+
+    /** `readAloudLine`: "✓ 92% — 2 to check"; stopped early: "… · stopped early" ("✓ 100% — right so far · stopped early"). */
+    fun line(pct: Int, toCheck: Int, stoppedEarly: Boolean = false): String {
+        val early = if (stoppedEarly) " · $STOPPED_EARLY" else ""
+        if (toCheck == 0) return "✓ $pct% — ${if (stoppedEarly) "right so far" else "all read right"}$early"
         val icon = if (pct >= 90) "✓" else if (pct >= 60) "≈" else "✕"
-        return "$icon $pct% — $toCheck to check"
+        return "$icon $pct% — $toCheck to check$early"
     }
+
+    /** The line for a result (stopped early or not). */
+    fun line(r: Result): String = line(r.pct, r.toCheck, r.stoppedEarly)
 
     /** `readAloudTone`: good | some | low. */
     fun tone(pct: Int, toCheck: Int): String = when {
