@@ -2138,7 +2138,16 @@ button.queue-counts:active {
   box-shadow: 0 0 0 3px #f97316, var(--shadow-md);
   transform: translateY(-2px);
 }
-.rating-suggested-mark,
+/* The ring says "suggested"; the button keeps its interval (Jerome: "not write suggested there and have
+   the time still"). The word stays for screen readers only. */
+.rating-suggested-mark {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .rating-greyed-mark {
   font-size: 0.625rem;
   font-weight: 600;
