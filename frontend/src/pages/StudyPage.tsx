@@ -54,7 +54,7 @@ import { useTranscription } from '../hooks/useTranscription';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
-import { PASS_GAVE_UP_LINE, PASS_GOT_IT_OVERRIDE, PASS_ROUND_SKIP_NOTE, passRoundDoneCheer } from '@shared/homework/pass-angles';
+import { PASS_GAVE_UP_LINE, PASS_GOT_IT_OVERRIDE, passRoundDoneCheer } from '@shared/homework/pass-angles';
 import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSession } from '../services/liveTranscription';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useManualOfflineMode, resolveOfflineMode } from '../services/offlineMode';
@@ -145,7 +145,7 @@ import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
 import {
   hardModeApplies, goodEasyGate, hardModeQuestionResult, hardModeRoundFollows, hardModeGiveUpInPlace,
-  hardModeGaveUpCheer, HARD_MODE_GAVE_UP_SKIP_NOTE, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
+  hardModeGaveUpCheer, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
 } from '@shared/study/hardMode';
 import { HardModeRatings } from '../components/study/HardModeRatings';
 import { questionDifference } from '@shared/study/answerDifference';
@@ -3180,7 +3180,6 @@ export function StudyCard({
               onRight={onSentenceRight}
               onDone={closeRound}
               onSkip={closeRound}
-              skipNote={pass ? PASS_ROUND_SKIP_NOTE : gaveUp ? HARD_MODE_GAVE_UP_SKIP_NOTE : undefined}
               doneCheer={pass ? passRoundDoneCheer : gaveUp ? hardModeGaveUpCheer : undefined}
               initialIds={roundLog.map((e) => e.id)}
               onPicked={onRoundPicked}

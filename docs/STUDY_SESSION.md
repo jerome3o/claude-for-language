@@ -1249,8 +1249,7 @@ once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-note
    the next stage"): 👁 Show answer, Skip recording, or Check / Show with nothing typed before a right answer → the
    answer on the question itself ("👁 The answer": hanzi + ▶, pinyin, meaning — an orange panel), then **Continue to the
    sentences ›** → the round (`hardModeGiveUpInPlace`; no sentences → "See the full answer ›" — known to have none,
-   straight to the answer side as before). The round after giving up says so ("You looked at the answer, so Again or
-   Hard is suggested whatever the sentences say", cheer "🎉 2 / 2 — nice recovery"), and on the answer side **Good /
+   straight to the answer side as before). The round after giving up says so in its cheer ("🎉 2 / 2 — nice recovery"), and on the answer side **Good /
    Easy are greyed on this showing** whatever the sentences say — "👁 You looked at the answer — Again or Hard
    suggested". Resume: `feedback_open` + `gave_up` = the answer in place.
 5. **Greyed, never locked** (Jerome: "if I skip through the extra steps I should still be able to click Good, because
@@ -1355,9 +1354,15 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   (and its pinyin when it sounded different: ≈ close / ✗ didn't match). Claude's check of a translate take keeps
   "You said" vs "Model answer" (below) unless it was correct in the very same words — then the sentence shows
   once with ▶ and the check's chip + headline. Web `YouSaidRow compact`, Lab `SpokenResultRow(compact)`.
-- **Skip to the answer →** is always there, with one line under it: "Good and Easy stay greyed (Again or Hard
-  suggested) until 2 more sentences are right — the sentences on the answer side still count." — the answer side's
-  gate (below) keeps the round's count; greyed is never locked (a second tap rates).
+- **Skip to the answer** is always there but QUIET and asks first (Jerome, Nov 2026: "the button should be kind of
+  greyed out and not look clickable, but you can click it, and there should be a little pop up … instead of making it
+  easy to skip"): muted text, no outline (≥ 44 px to tap), and no line under it explaining the gate — the flow says it.
+  A tap opens a small "Skip this exercise?" with **Skip** / **Keep going** (Keep going, Escape, back or a tap outside
+  leave the round as it was); only Skip goes to the answer, where the answer side's gate (below) keeps the round's
+  count — Good / Easy greyed, never locked (a second tap rates), Again or Hard suggested. Same in the listening card's
+  round and the homework pass. Words `SENTENCE_ROUND_SKIP_CONFIRM` / `_YES` / `_NO` (Lab `SentenceRound.SKIP_CONFIRM…`,
+  parity-tested); web `SkipConfirm` in `SentenceRound.tsx`, Lab the kit's `ConfirmDialog`; analytics
+  `study.sentence_round { action: skip | skip_cancel }`.
 - **On the answer side, the round's sentences lead the list** (in the round's order), **opened** (hanzi, pinyin and
   English up — he has seen them) and **outlined in their result's style** with a label: "In the round · ✓ Right"
   (green), "· ≈ Nearly" (yellow), "· ✗ Not quite" (red, dashed on the web), and a neutral "In the round" for ones he

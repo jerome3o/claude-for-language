@@ -158,7 +158,6 @@ object HardMode {
     const val REVEALED_NOTE = "You looked, so this one counts as a miss — the sentences are still worth doing."
     /** `hardModeRevealedNextLabel` */
     fun revealedNextLabel(roundFollows: Boolean) = if (roundFollows) "Continue to the sentences" else "See the full answer"
-    const val GAVE_UP_SKIP_NOTE = "You looked at the answer, so Again or Hard is suggested whatever the sentences say."
     /** `hardModeGaveUpCheer` */
     fun gaveUpCheer(got: Int, needed: Int) = "🎉 $got / $needed — nice recovery"
 }

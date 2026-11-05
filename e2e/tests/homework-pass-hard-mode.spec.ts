@@ -200,6 +200,7 @@ test('hard mode in the pass: check first, the round, a give-up locks Got it, a s
     if (await cont.isVisible()) {
       await cont.click();
       await page.getByTestId('sentence-round-skip').click();
+      await page.getByTestId('sentence-round-skip-yes').click();
     }
     await expect(page.getByTestId('hw-pass-locked')).toBeVisible();
     await expect(page.getByTestId('hw-gotit')).toHaveAttribute('data-locked', 'true');
@@ -228,9 +229,10 @@ test('hard mode in the pass: check first, the round, a give-up locks Got it, a s
   await shot(page, 'hwhard-01-check-right');
   const round = page.getByTestId('sentence-round');
   await expect(round).toBeVisible({ timeout: 15000 });
-  await expect(round).toContainText('Got it stays open');
+  await expect(round).not.toContainText('Good and Easy');
   await shot(page, 'hwhard-02-sentence-round');
   await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
   // Got it is open (skipping the round is fine) and suggested by the take.
   await expect(page.getByTestId('hw-gotit')).not.toHaveAttribute('data-locked', 'true');
   await expect(page.getByTestId('hw-pass-rate')).toHaveAttribute('data-suggested', 'right');
@@ -254,6 +256,7 @@ test('hard mode in the pass: check first, the round, a give-up locks Got it, a s
   await expect(page.getByTestId('hard-feedback')).toHaveAttribute('data-result', 'right', { timeout: 15000 });
   await expect(round).toBeVisible({ timeout: 15000 });
   await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
 

@@ -276,7 +276,7 @@ these, as I'm not going to come back to them for a long time, so it's good to do
   mode") → the answer side with **Got it greyed** (faded, "tap twice"; "👁 You looked at the answer — Not yet
   suggested" above; never locked — the first tap says "Tap again to say Got it anyway", a second within 3 s counts it,
   `study.hard_mode_override { rating: got_it }`) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
-  the round was passed or skipped (its Skip line says "Skipping is fine — Got it stays open …", and two right cheer
+  the round was passed or skipped (its quiet Skip asks "Skip this exercise?" first, like the session's; two right cheer
   "🎉 2 / 2 — Got it unlocked" — `passRoundDoneCheer` — never the session's "Good and Easy"; the sentences never
   grey Got it).
 - **A second angle**: a word got right in Hard mode on its first angle is owed ONE more showing later in the pass on a

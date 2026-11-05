@@ -315,8 +315,6 @@ export function passAngleLine(showing: Pick<PassShowing, 'angle' | 'cardType'>):
   return `🔄 Second angle · ${ANGLE_CARD[showing.cardType] ?? showing.cardType}`;
 }
 
-/** Under the Sentence round's Skip in the pass (Got it isn't held back by the sentences). */
-export const PASS_ROUND_SKIP_NOTE = 'Skipping is fine — Got it stays open, and the word still comes back from another angle.';
 /**
  * The Sentence round's cheer once enough are right, in the pass (the session's says "Good and Easy unlocked";
  * the pass has Not yet / Got it): "🎉 2 / 2 — Got it unlocked".

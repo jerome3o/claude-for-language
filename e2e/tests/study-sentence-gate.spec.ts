@@ -219,9 +219,17 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   await expect(exercises.nth(1)).toContainText(SET[0].translation);
   await expect(exercises.nth(1)).not.toContainText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-counter')).toContainText('0 / 2');
-  await expect(round).toContainText('Good and Easy stay greyed (Again or Hard suggested) until 2 more sentences are right');
+  await expect(round).not.toContainText('Good and Easy stay greyed');
   await shot(page, 'hard-04-round');
+  // Skip is quiet and asks first: Keep going stays, Skip goes to the answer.
   await page.getByTestId('sentence-round-skip').click();
+  await expect(page.getByTestId('sentence-round-skip-confirm')).toContainText('Skip this exercise?');
+  await shot(page, 'hard-04b-skip-confirm');
+  await page.getByTestId('sentence-round-skip-no').click();
+  await expect(page.getByTestId('sentence-round-skip-confirm')).toHaveCount(0);
+  await expect(round).toBeVisible();
+  await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
 
   const back = page.getByTestId('study-card-back');
   await expect(back).toBeVisible();
@@ -456,6 +464,7 @@ test('sentence history: hide a sentence in the round (Undo), more sentences aske
 
   // The answer side lists three; ⋯ → Show hidden (1) → Show again.
   await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible();
   await expect(page.locator('.sentence-set-row:not(.is-hidden-row)')).toHaveCount(3);
   await page.getByRole('button', { name: 'Sentence options' }).click();
@@ -482,12 +491,12 @@ test('hard mode: Show answer before a right answer — the answer in place, then
   await expect(page.getByTestId('study-card-back')).toHaveCount(0);
   await expect(page.getByTestId('hard-continue')).toContainText('Continue to the sentences');
   await shot(page, 'hard-05-revealed-in-place');
-  // Continue → the round (looked at: its cheer and skip line say so).
+  // Continue → the round (looked at: its cheer says so).
   await page.getByTestId('hard-continue').click();
   const round = page.getByTestId('sentence-round');
   await expect(round).toBeVisible({ timeout: 15000 });
-  await expect(round).toContainText('You looked at the answer, so Again or Hard is suggested');
   await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
   const gate = page.getByTestId('sentence-gate');
   await expect(gate).toHaveAttribute('data-gave-up', 'true');

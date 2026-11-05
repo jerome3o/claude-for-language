@@ -3,8 +3,9 @@
  * Lab `ui/study/SentenceRoundUi.kt`): with Settings → Study → "Sentence round before the answer" on,
  * a reading or meaning card goes from its question to FOUR sentence exercises — two "Read it aloud"
  * (the Chinese up) and two "Say it in Chinese" (the English up; its Chinese and ▶ only once answered),
- * easiest → harder — and any two said right open the answer with Good / Easy unlocked. Skip goes to
- * the answer at once, where the gate still applies. Each take is the rows' 🎤 (useSentencePractise:
+ * easiest → harder — and any two said right open the answer with Good / Easy unlocked. Skip is quiet
+ * (muted text) and asks first ("Skip this exercise?"); confirmed, it goes to the answer, where the gate
+ * still applies. Each take is the rows' 🎤 (useSentencePractise:
  * the Coach's practise rule, Claude's spoken translate check online) — practice only, nothing kept.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +16,6 @@ import {
   sentenceRoundCounter,
   sentenceRoundIntro,
   sentenceRoundProgress,
-  sentenceRoundSkipNote,
   SENTENCE_ROUND_HIDE_ENGLISH,
   SENTENCE_ROUND_ENGLISH_CHIP,
   SENTENCE_ROUND_TRANSLATING,
@@ -27,6 +27,9 @@ import {
   SENTENCE_ROUND_SEE_ANSWER,
   SENTENCE_ROUND_SHOW_ENGLISH,
   SENTENCE_ROUND_SKIP,
+  SENTENCE_ROUND_SKIP_CONFIRM,
+  SENTENCE_ROUND_SKIP_CONFIRM_NO,
+  SENTENCE_ROUND_SKIP_CONFIRM_YES,
   SENTENCE_ROUND_TITLE,
   SENTENCE_ROUND_TRY_AGAIN,
   exercisesFromLog,
@@ -180,10 +183,8 @@ interface SentenceRoundProps {
   onRight: (exerciseId: string) => void;
   /** Enough right: the answer opens unlocked. */
   onDone: () => void;
-  /** Skip to the answer (the gate still applies there). */
+  /** Skip to the answer, once confirmed (the gate still applies there). */
   onSkip: () => void;
-  /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
-  skipNote?: string;
   /** The cheer once enough are right, in place of the session's "Good and Easy unlocked" (the homework pass: "Got it unlocked"). */
   doneCheer?: (got: number, needed: number) => string;
   /** The exercises of this showing's round shown before (resume): the same ones come back. */
@@ -203,7 +204,7 @@ interface SentenceRoundProps {
   word?: string;
 }
 
-export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, skipNote, doneCheer, where = 'session', kind = 'card', word = '' }: SentenceRoundProps) {
+export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, doneCheer, where = 'session', kind = 'card', word = '' }: SentenceRoundProps) {
   const listen = kind === 'listen';
   const stats = useSentenceStats(noteId);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
@@ -363,6 +364,9 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const id = window.setTimeout(() => latest.current.onDone(), 1400);
     return () => window.clearTimeout(id);
   }, [progress.done, cheer, heldId, stayPut]);
+
+  // Skip asks first ("Skip this exercise?" · Skip / Keep going).
+  const [confirmSkip, setConfirmSkip] = useState(false);
 
   const blocked = practise.dictation.state.blocked;
   // The listening round with no microphone (offline, blocked): say it aloud, show the Chinese, check yourself.
@@ -609,22 +613,33 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           </>
         ) : (
           <>
+            {/* Quiet on purpose: it shouldn't invite a tap, and it asks first. */}
             <button
               type="button"
-              className="btn btn-secondary btn-block sentence-round-skip"
-              onClick={() => {
-                track('study.sentence_round', { action: 'skip', got: progress.got, needed: progress.needed });
-                onSkip();
-              }}
+              className="sentence-round-skip"
+              onClick={() => setConfirmSkip(true)}
+              aria-haspopup="dialog"
               data-testid="sentence-round-skip"
             >
-              {SENTENCE_ROUND_SKIP} →
+              {SENTENCE_ROUND_SKIP}
             </button>
-            {progress.needed > 0 && <p className="sentence-round-skip-note">{skipNote ?? sentenceRoundSkipNote(progress)}</p>}
           </>
         )}
       </div>
       <SentenceStopBar practise={practise} />
+      {confirmSkip && (
+        <SkipConfirm
+          onKeepGoing={() => {
+            setConfirmSkip(false);
+            track('study.sentence_round', { action: 'skip_cancel', got: progress.got, needed: progress.needed });
+          }}
+          onSkip={() => {
+            setConfirmSkip(false);
+            track('study.sentence_round', { action: 'skip', got: progress.got, needed: progress.needed });
+            onSkip();
+          }}
+        />
+      )}
       {hiding && rows.get(hiding.key) && (
         <SentenceHideSheet
           hanzi={rows.get(hiding.key)!.hanzi}
@@ -641,5 +656,42 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
         />
       )}
     </section>
+  );
+}
+
+/** "Skip this exercise?" — a small pop-up; Keep going (the default) leaves the round as it was. */
+function SkipConfirm({ onSkip, onKeepGoing }: { onSkip: () => void; onKeepGoing: () => void }) {
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const latest = useRef(onKeepGoing);
+  latest.current = onKeepGoing;
+  useEffect(() => {
+    keepRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') latest.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return (
+    <div className="modal-overlay" onClick={onKeepGoing} role="presentation">
+      <div
+        className="modal sentence-round-skip-confirm"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="sentence-round-skip-confirm-title"
+        onClick={(e) => e.stopPropagation()}
+        data-testid="sentence-round-skip-confirm"
+      >
+        <h3 id="sentence-round-skip-confirm-title" className="sentence-round-skip-confirm-title">{SENTENCE_ROUND_SKIP_CONFIRM}</h3>
+        <div className="sentence-round-skip-confirm-actions">
+          <button type="button" className="btn btn-secondary" onClick={onSkip} data-testid="sentence-round-skip-yes">
+            {SENTENCE_ROUND_SKIP_CONFIRM_YES}
+          </button>
+          <button ref={keepRef} type="button" className="btn btn-primary" onClick={onKeepGoing} data-testid="sentence-round-skip-no">
+            {SENTENCE_ROUND_SKIP_CONFIRM_NO}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

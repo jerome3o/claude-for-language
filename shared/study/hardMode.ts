@@ -291,8 +291,6 @@ export const HARD_MODE_REVEALED_NOTE = 'You looked, so this one counts as a miss
 export function hardModeRevealedNextLabel(roundFollows: boolean): string {
   return roundFollows ? 'Continue to the sentences' : 'See the full answer';
 }
-/** Under the round's Skip after giving up (the sentences can't open Good / Easy then). */
-export const HARD_MODE_GAVE_UP_SKIP_NOTE = 'You looked at the answer, so Again or Hard is suggested whatever the sentences say.';
 /** The round's cheer once enough are right after giving up ("Good and Easy unlocked" would not be true). */
 export function hardModeGaveUpCheer(got: number, needed: number): string {
   return `🎉 ${got} / ${needed} — nice recovery`;

@@ -12,7 +12,7 @@ import {
   HARD_MODE_OPTION_HINT, HARD_MODE_CHIP, HARD_MODE_RESULT, HARD_MODE_CHECKING, HARD_MODE_UNKNOWN, HARD_MODE_TRY_AGAIN,
   HARD_MODE_SHOW_ANSWER, HARD_MODE_MISS_NOTE, HARD_MODE_GAVE_UP_LINE, HARD_MODE_RIGHT_BEAT_MS, HARD_MODE_OVERRIDE_MS,
   HARD_MODE_SUGGESTED, HARD_MODE_TAP_TWICE, HARD_MODE_TAP_AGAIN, STUDY_FEEL_VIBRATION, hardModeGiveUpInPlace, hardModeRevealedNextLabel, hardModeGaveUpCheer,
-  HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE, HARD_MODE_GAVE_UP_SKIP_NOTE,
+  HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE,
   type HardModeTake, type OverrideArm,
 } from '../../../shared/study/hardMode';
 import { sentenceGate, sentenceGateLabel } from '../../../shared/study/sentencePractise';
@@ -70,7 +70,7 @@ writeFileSync(join(OUT, 'hard-mode.json'), JSON.stringify({
     overrideMs: HARD_MODE_OVERRIDE_MS, suggested: HARD_MODE_SUGGESTED, tapTwice: HARD_MODE_TAP_TWICE, tapAgain: HARD_MODE_TAP_AGAIN, prompts: [0, 1, 2, 3, 9].map(overridePrompt),
     vibration: STUDY_FEEL_VIBRATION,
     giveUpInPlace: [null, 0, 1, 4].map((count) => ({ count, inPlace: hardModeGiveUpInPlace(count) })),
-    revealedTitle: HARD_MODE_REVEALED_TITLE, revealedNote: HARD_MODE_REVEALED_NOTE, gaveUpSkipNote: HARD_MODE_GAVE_UP_SKIP_NOTE,
+    revealedTitle: HARD_MODE_REVEALED_TITLE, revealedNote: HARD_MODE_REVEALED_NOTE,
     revealedNext: [true, false].map(hardModeRevealedNextLabel), gaveUpCheer: hardModeGaveUpCheer(2, 2),
     nextRound: hardModeNextLabel(true), nextAnswer: hardModeNextLabel(false),
     saidSpoken: hardModeSaidLine('银航', true), saidTyped: hardModeSaidLine('银行。', false),

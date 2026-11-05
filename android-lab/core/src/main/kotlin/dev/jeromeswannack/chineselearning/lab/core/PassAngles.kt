@@ -230,7 +230,6 @@ object PassAngles {
     fun angleLine(angle: Int, cardType: String): String? =
         if (angle != 2) null else "🔄 Second angle · ${ANGLE_CARD[cardType] ?: cardType}"
 
-    const val ROUND_SKIP_NOTE = "Skipping is fine — Got it stays open, and the word still comes back from another angle."
     /** `passRoundDoneCheer`: the round's cheer once enough are right, in the pass. */
     fun roundDoneCheer(got: Int, needed: Int): String = "🎉 $got / $needed — Got it unlocked"
     /** `PASS_GAVE_UP_LINE`: Got it greyed, never locked. */

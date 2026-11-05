@@ -61,6 +61,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
+import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -102,7 +103,7 @@ fun sentenceRoundExercises(rows: List<SentenceRow>, stats: Map<String, SentenceH
  * docs/STUDY_SESSION.md "Sentence round"): between a reading / meaning card's question and its answer,
  * four sentence exercises — 📖 Read it aloud (the Chinese up) and 🔁 Say it in Chinese (the English up;
  * its Chinese and ▶ only once answered) — any two right open the answer with Good / Easy unlocked
- * ([onDone]); Skip ([onSkip]) opens it with the gate still on. Takes go through [practise] (the list's
+ * ([onDone]); Skip — quiet (muted text) and asking first, "Skip this exercise?" — ([onSkip]) opens it with the gate still on. Takes go through [practise] (the list's
  * one microphone) under the exercise ids, so its `rightKeys` are the gate's count. Practice only.
  */
 @Composable
@@ -116,8 +117,6 @@ fun SentenceRoundPage(
     onDone: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
-    /** The line under Skip in place of the gate's (the homework pass: Got it isn't held back by the sentences). */
-    skipNote: String? = null,
     /** The cheer once enough are right, in place of "Good and Easy unlocked" (the homework pass: "Got it unlocked"). */
     doneCheer: ((got: Int, needed: Int) -> String)? = null,
     /** His practice history of these sentences (null while it loads): the round prefers what he knows least. */
@@ -238,6 +237,8 @@ fun SentenceRoundPage(
         }
     }
     var hiding by remember { mutableStateOf<SentenceRound.Exercise?>(null) }
+    // Skip asks first ("Skip this exercise?" · Skip / Keep going).
+    var confirmSkip by remember { mutableStateOf(false) }
     var undoKey by remember { mutableStateOf<String?>(null) }
     val english = remember { mutableStateMapOf<String, Boolean>() }
     val fetched = remember { mutableStateMapOf<String, String>() }
@@ -387,15 +388,19 @@ fun SentenceRoundPage(
                         )
                     }
                 } else {
-                    SecondaryPill("${SentenceRound.SKIP} →", Modifier.fillMaxWidth().height(52.dp).testTag(SentenceRoundTags.SKIP)) {
-                        Analytics.track("study.sentence_round", mapOf("action" to "skip", "got" to progress.got, "needed" to progress.needed))
-                        onSkip()
-                    }
-                    if (progress.needed > 0) {
-                        Text(
-                            skipNote ?: SentenceRound.skipNote(progress), Modifier.fillMaxWidth().padding(top = 6.dp),
-                            color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center,
-                        )
+                    // Quiet on purpose (muted text, no outline): it shouldn't invite a tap, and it asks first.
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier
+                                .heightIn(min = 48.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .bouncyClickable { confirmSkip = true }
+                                .padding(horizontal = 16.dp)
+                                .testTag(SentenceRoundTags.SKIP),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(SentenceRound.SKIP, color = Lab.colors.muted, fontSize = 14.sp)
+                        }
                     }
                 }
             }
@@ -405,6 +410,20 @@ fun SentenceRoundPage(
         undoKey?.let { key ->
             SentenceUndoToast(SentenceHistory.HIDDEN_TOAST, onUndo = { onUnhide(key); undoKey = null }, onDone = { undoKey = null }, modifier = Modifier.align(Alignment.BottomCenter))
         }
+    }
+    if (confirmSkip) {
+        ConfirmDialog(
+            title = SentenceRound.SKIP_CONFIRM,
+            text = null,
+            confirmLabel = SentenceRound.SKIP_CONFIRM_YES,
+            dismissLabel = SentenceRound.SKIP_CONFIRM_NO,
+            onConfirm = {
+                Analytics.track("study.sentence_round", mapOf("action" to "skip", "got" to progress.got, "needed" to progress.needed))
+                onSkip()
+            },
+            onDismiss = { confirmSkip = false },
+            onCancel = { Analytics.track("study.sentence_round", mapOf("action" to "skip_cancel", "got" to progress.got, "needed" to progress.needed)) },
+        )
     }
     hiding?.let { ex ->
         val row = byKey[ex.key]

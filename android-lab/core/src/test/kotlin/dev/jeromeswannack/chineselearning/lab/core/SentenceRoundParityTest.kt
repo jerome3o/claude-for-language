@@ -59,7 +59,6 @@ class SentenceRoundParityTest {
                 assertEquals(po["counter"]!!.str, SentenceRound.counter(got), what)
                 assertEquals(po["intro"]!!.str, SentenceRound.intro(got, exercises.size), what)
                 assertEquals(po["cheer"]!!.str, SentenceRound.cheer(got), what)
-                assertEquals(po["skip"]!!.str, SentenceRound.skipNote(got), what)
             }
         }
         assertEquals(0, reused, "a sentence is in at most one exercise")
@@ -128,6 +127,9 @@ class SentenceRoundParityTest {
         assertEquals(c["size"]!!.jsonPrimitive.int, SentenceRound.SIZE)
         assertEquals(c["title"]!!.str, SentenceRound.TITLE)
         assertEquals(c["skip"]!!.str, SentenceRound.SKIP)
+        assertEquals(c["skipConfirm"]!!.str, SentenceRound.SKIP_CONFIRM)
+        assertEquals(c["skipConfirmYes"]!!.str, SentenceRound.SKIP_CONFIRM_YES)
+        assertEquals(c["skipConfirmNo"]!!.str, SentenceRound.SKIP_CONFIRM_NO)
         assertEquals(c["tryAgain"]!!.str, SentenceRound.TRY_AGAIN)
         assertEquals(c["seeAnswer"]!!.str, SentenceRound.SEE_ANSWER)
         assertEquals(c["showEnglish"]!!.str, SentenceRound.SHOW_ENGLISH)
