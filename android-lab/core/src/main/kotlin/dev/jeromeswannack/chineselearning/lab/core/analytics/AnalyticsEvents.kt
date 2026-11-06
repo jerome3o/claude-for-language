@@ -77,6 +77,7 @@ object AnalyticsEvents {
         ev("study.hard_mode_override", "study", listOf("rating", "reason", "card_type")),
         ev("study.sentence_round", "study", listOf("action", "index", "mode", "got", "needed")),
         ev("study.round_difference_shown", "study", listOf("kind", "reason", "verdict", "where", "held")),
+        ev("study.sentence_answer_check", "study", listOf("verdict", "retry", "input", "cached", "ms", "card_type", "where")),
         ev("study.sentence_hidden", "study", listOf("reason", "where", "unhidden")),
         ev("study.sentence_topup_requested", "study", listOf("why", "queued")),
         ev("study.listen_context", "study", listOf("sentences_played", "word_first_prompt_shown", "played_word_anyway")),

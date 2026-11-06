@@ -7,6 +7,10 @@ import { useEffect } from 'react';
 import { studyFeel } from '../../services/studyFeel';
 import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
 import { DifferenceCompare } from './DifferenceCompare';
+import type { AnswerCheck } from '@shared/lesson/answerCheck';
+import { SENTENCE_CHECK_TYPE_INSTEAD } from '@shared/study/sentenceAnswerCheck';
+import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
+import '../lessons/AnswerCheckCard.css';
 import './HardModeFeedback.css';
 
 export interface HardModeFeedbackProps {
@@ -28,6 +32,17 @@ export interface HardModeFeedbackProps {
   onTryAgain: () => void;
   onShowAnswer: () => void;
   onNext: () => void;
+  /**
+   * Claude's check of a sentence answer (shared/study/sentenceAnswerCheck.ts): its verdict, the corrected
+   * sentence, tips and an alternative on the question — the result above already follows it.
+   */
+  check?: AnswerCheck | null;
+  /** The checking row's words (default "Checking what you said…"). */
+  checkingLabel?: string;
+  /** A spoken sentence's second way to try again: ✏️ Type it (the box, holding what was said). */
+  onTypeInstead?: () => void;
+  /** 🔊 on Claude's corrected sentence / alternative. */
+  speak?: (text: string) => void;
 }
 
 /**
@@ -36,7 +51,7 @@ export interface HardModeFeedbackProps {
  * characters: then it holds with "You said" vs the card, `difference`); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Nothing here gives the answer away.
  */
-export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext }: HardModeFeedbackProps) {
+export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak }: HardModeFeedbackProps) {
   // The check's result you can FEEL (Jerome: "when I get it right on the very first page there's no
   // satisfying haptics … I find myself quite dependent on it"): ✓ Right = a firm double buzz + chime,
   // ✗ / ≈ a short one; checking / unknown / revealed none. Once per result (a Try again remounts it).
@@ -75,7 +90,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
   if (result === 'checking') {
     return (
       <div className="hard-feedback hard-feedback--checking" data-testid="hard-feedback" data-result="checking" aria-live="polite">
-        <p className="hard-feedback-title"><span className="spinner hard-feedback-spinner" aria-hidden="true" /> {HARD_MODE_CHECKING}</p>
+        <p className="hard-feedback-title"><span className="spinner hard-feedback-spinner" aria-hidden="true" /> {checkingLabel ?? HARD_MODE_CHECKING}</p>
         <div className="hard-feedback-row">
           <button type="button" className="btn btn-secondary" onClick={stop(onShowAnswer)} data-testid="hard-show-answer">
             <span aria-hidden="true">👁</span> {HARD_MODE_SHOW_ANSWER}
@@ -84,13 +99,24 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
       </div>
     );
   }
+  // Claude checked a sentence answer: its card IS the verdict (chip + headline), then the fix, tips and alternative.
+  const checkBody = (afterHead?: React.ReactNode) => check && said ? (
+    <div className="hard-feedback-check" data-testid="hard-sentence-check" onClick={(e) => e.stopPropagation()}>
+      <AnswerCheckBody check={check} answer={said} speak={speak} afterHead={afterHead} />
+    </div>
+  ) : null;
   if (result === 'right') {
+    const compare = difference ? (
+      <DifferenceCompare said={difference.said} model={difference.model} modelPinyin={difference.modelPinyin} accepted modelLabel={DIFFERENCE_CARD} />
+    ) : null;
     return (
       <div className="hard-feedback hard-feedback--right" data-testid="hard-feedback" data-result="right" data-held={difference ? 'true' : undefined} aria-live="polite">
-        <p className="hard-feedback-title">{difference ? DIFFERENCE_TITLE[difference.reason] : HARD_MODE_RESULT.right}</p>
-        {difference ? (
-          <DifferenceCompare said={difference.said} model={difference.model} modelPinyin={difference.modelPinyin} accepted modelLabel={DIFFERENCE_CARD} />
-        ) : saidLine}
+        {check && said ? checkBody(compare) : (
+          <>
+            <p className="hard-feedback-title">{difference ? DIFFERENCE_TITLE[difference.reason] : HARD_MODE_RESULT.right}</p>
+            {compare ?? saidLine}
+          </>
+        )}
         <div className="hard-feedback-row">
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
             {hardModeNextLabel(roundFollows)} →
@@ -116,12 +142,27 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
   }
   return (
     <div className={`hard-feedback hard-feedback--${result}`} data-testid="hard-feedback" data-result={result} aria-live="polite">
-      <p className="hard-feedback-title">{HARD_MODE_RESULT[result]}</p>
-      {saidLine}
+      {check && said ? (
+        <>
+          {/* His own words once: the red-pen fix shows them when there is one. */}
+          {!check.corrected && saidLine}
+          {checkBody()}
+        </>
+      ) : (
+        <>
+          <p className="hard-feedback-title">{HARD_MODE_RESULT[result]}</p>
+          {saidLine}
+        </>
+      )}
       <div className="hard-feedback-row">
         <button type="button" className="btn btn-secondary" onClick={stop(onShowAnswer)} data-testid="hard-show-answer">
           <span aria-hidden="true">👁</span> {HARD_MODE_SHOW_ANSWER}
         </button>
+        {onTypeInstead && (
+          <button type="button" className="btn btn-secondary" onClick={stop(onTypeInstead)} data-testid="hard-type-instead">
+            <span aria-hidden="true">✏️</span> {SENTENCE_CHECK_TYPE_INSTEAD}
+          </button>
+        )}
         <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onTryAgain)} data-testid="hard-try-again" autoFocus>
           <span aria-hidden="true">🔁</span> {HARD_MODE_TRY_AGAIN}
         </button>

@@ -47,6 +47,22 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
       tips: [{ text: '和 links nouns (药和水), not two verb phrases — use a comma, or 并且 / 然后.', quote: '和' }],
     },
   },
+  {
+    // A homework card's sentence said in Hard mode (docs/STUDY_SESSION.md "Sentence answers checked by Claude").
+    english: "I drink coffee in the morning so I'm not sleepy at work.",
+    model: '我早上喝咖啡是为了上班不困。',
+    answer: '我早上喝咖啡，因为工作不困。',
+    result: {
+      verdict: 'almost',
+      headline: 'Clear meaning — but 因为 gives a reason, not a purpose.',
+      corrected: '我早上喝咖啡，是为了上班不困。',
+      tips: [
+        { text: 'Use 是为了 for "so that / in order to" — 因为 means "because".', quote: '因为' },
+        { text: '上班 is being at work; 工作 is the job itself.', quote: '工作' },
+      ],
+      alternative: { hanzi: '我早上喝咖啡，这样上班就不困了。', english: "I drink coffee in the morning, so I'm not sleepy at work." },
+    },
+  },
 ];
 
 /** Jerome's "Annie" speaking task (docs/STUDY_SESSION.md "Claude checks your speaking"): a realistic transcript. */

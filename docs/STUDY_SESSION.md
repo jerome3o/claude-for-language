@@ -1464,6 +1464,41 @@ answer that is **accepted but not the model / expected answer** never goes on by
   Tests: `shared/study/answerDifference.test.ts`, `SentenceRound.test.tsx`, `HardMode.test.tsx`, Lab
   `SentenceRoundUiTest` / `HardModeUiTest`.
 
+### Sentence answers checked by Claude (Hard mode's question)
+
+Jerome (homework pass, Hard mode, "Second angle · English → Chinese"; the card 我早上喝咖啡是为了上班不困。, he said
+我早上喝咖啡，因为工作不困。): "I think I've said it reasonably well, but it's not great. I'd love to have the
+check-if-my-answer-is-okay logic, give me some advice, but then also allow me to retry, to be on this page."
+
+- **When**: Hard mode's check of the question (the regular session and the homework pass alike), a **meaning → hanzi**
+  card whose answer is a **sentence** (`noteKind`: more than 4 Han characters, or punctuated), answered by speaking or
+  typing (never the multiple-choice grid) in a way the device did **not** accept (`checkSpokenAnswer` /
+  `checkTypedAnswer` → wrong or close). Never the listening card (audio → hanzi is dictation: another wording isn't
+  right there), never a word card, never outside Hard mode (Off goes straight to the answer side, as its name says).
+- **How**: the lesson answer check (`POST /api/lessons/answer-check`, exercise_type `translate`, input spoken | typed,
+  prompt = the card's English, model = its hanzi + pinyin — "Claude checks your answer" above): the device cache
+  first, then the server's cache for everyone (`answerCheckCacheText`), so the same answer twice — or the same
+  sentence said by anyone — is one call; each new answer is at most one call (cost guard group `ai`). While it reads:
+  "Checking your sentence…" with 👁 Show answer only.
+- **The verdict decides** (`sentenceCheckedVerdict` / `sentenceCheckOutcome`, `shared/study/sentenceAnswerCheck.ts`):
+  **correct / acceptable** → right (the card's verdict becomes `equivalent`: Hard mode's ✓, the Sentence round, Good /
+  Easy open; the pass suggests **Got it**), held first with "You said" vs the card under Claude's chip and headline
+  ("Right, but said differently", reason acceptable / reworded) and **Next: harder questions →**; **almost** → ≈ Nearly
+  (like a device `close`); **wrong** → ✗ Not quite. A miss shows Claude's card **on the question** — the verdict chip
+  and headline, his sentence with the red-pen fix + its pinyin, ≤ 3 tips (quoted Chinese tappable), "Also natural:" with
+  🔊 — then **🔁 Try again** (a new take / answer replaces the old one and is checked afresh — as often as he likes),
+  **✏️ Type it** (a spoken answer: the box holding what was said, to fix by hand; checked as typed) and **👁 Show answer**
+  (giving up exactly as before: the answer in place, Good / Easy greyed, Got it locked).
+- **Offline / no check** (no key, declined, failed): the device's verdict, as before. The answer side keeps Claude's
+  card (compact) under the meaning, and a typed answer it accepted shows green with "Also accepted — canonical answer".
+- Rules: `shared/study/sentenceAnswerCheck.ts` (Lab `core/…/SentenceAnswerCheck.kt`, parity-tested
+  `parity/fixtures/sentence-answer-check.ts` → `SentenceAnswerCheckParityTest`). Web
+  `components/study/useSentenceAnswerCheck.ts` (`useSentenceQuestionCheck`) in `StudyPage.tsx`, the card in
+  `HardModeFeedback.tsx` (`check`, `onTypeInstead`); Lab `CardStage.kt` (`StudyActions.answerCheck`) +
+  `HardModeFeedbackPanel(check)`. Analytics `study.sentence_answer_check { verdict: correct | acceptable | almost | wrong
+  | offline | error, retry, input, cached, ms, card_type, where }`. Tests: `shared/study/sentenceAnswerCheck.test.ts`,
+  `components/study/SentenceAnswerCheck.test.tsx`, Lab `SentenceAnswerCheckUiTest`.
+
 ### Sentence practice history (which sentences he knows; hide one; more sentences)
 
 Every 🎤 take on an example sentence — in the Sentence round or on the answer side's rows — is recorded:
