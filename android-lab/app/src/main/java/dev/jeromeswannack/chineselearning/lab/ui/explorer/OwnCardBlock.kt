@@ -51,6 +51,7 @@ const val EXPLORER_CHAR_ADD_TAG = "explorer-char-add"
 const val EXPLORER_CHAR_OPEN_CARD_TAG = "explorer-char-open-card"
 const val EXPLORER_CHAR_BUMP_TAG = "explorer-char-bump"
 const val EXPLORER_CHAR_CHIP_OWN_TAG = "explorer-char-chip-own"
+const val EXPLORER_CHAR_ADDED_TAG = "explorer-char-added"
 
 @Composable
 private fun isDark() = Lab.colors.card.luminance() < 0.4f
@@ -78,6 +79,19 @@ fun OwnCardBlock(char: String, ui: OwnCardUi, onOpenCard: () -> Unit, onBump: ()
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Lab.colors.faint)
                     .padding(horizontal = 12.dp, vertical = 10.dp).testTag(EXPLORER_CHAR_OWN_CHECKING_TAG),
             )
+            // Added from this sheet a moment ago (not in Room yet): ⚡ Study it today straight away.
+            own.status == CharWordStatus.None && ui.addedTo != null -> {
+                InlineNotice(ui.bumped ?: "Added to ${ui.addedTo.deckName}", kind = NoticeKind.Success, modifier = Modifier.fillMaxWidth().testTag(EXPLORER_CHAR_ADDED_TAG))
+                if (ui.canBump && ui.bumped == null) {
+                    Spacer(Modifier.height(10.dp))
+                    PrimaryPill(
+                        if (ui.bumping) "Bumping…" else STUDY_IT_TODAY,
+                        Modifier.fillMaxWidth().height(48.dp).testTag(EXPLORER_CHAR_BUMP_TAG),
+                        enabled = !ui.bumping,
+                        onClick = onBump,
+                    )
+                }
+            }
             own.status == CharWordStatus.None -> PrimaryPill(
                 CharWords.addOwnCardLabel(char),
                 Modifier.fillMaxWidth().height(52.dp).testTag(EXPLORER_CHAR_ADD_TAG),

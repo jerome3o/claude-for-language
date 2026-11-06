@@ -70,6 +70,15 @@ class ExplorerScreenshots : LabScreenshotTest() {
         overCard { WordView(ExplorerSamples.wordUi(), listOf(ExplorerItem.Char("银"), ExplorerSamples.item()), canOpenCard = true, canBump = true) }
     }
 
+    /** Right after "+ Add as card", before the sync brings the note to the phone: "Added to HSK 2" + ⚡ Study it today. */
+    @Test fun wordJustAdded() = shoot("explorer-15-word-just-added") {
+        overCard { WordView(ExplorerSamples.wordUi(mine = MyWord()), listOf(ExplorerSamples.item()), canOpenCard = true, canBump = true, addedTo = dev.jeromeswannack.chineselearning.lab.ui.study.AddedTo("银行", "d-hsk2", "HSK 2")) }
+    }
+
+    @Test fun wordJustAddedDark() = shoot("explorer-15-word-just-added-dark", dark = true) {
+        overCard { WordView(ExplorerSamples.wordUi(mine = MyWord()), listOf(ExplorerSamples.item()), canOpenCard = true, canBump = true, addedTo = dev.jeromeswannack.chineselearning.lab.ui.study.AddedTo("银行", "d-hsk2", "HSK 2")) }
+    }
+
     /** A word from a reader page they don't have: + Add as card, "More about this word" answered. */
     @Test fun wordWithoutCard() = shoot("explorer-03-word-new") {
         overCard {

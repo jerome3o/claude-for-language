@@ -99,7 +99,7 @@ export const ANALYTICS_EVENTS = {
   'explorer.push': e('study', 'Tapped Chinese inside the explorer: another view pushed (kind = char / word, from = the view it was in).', ['kind', 'from', 'depth']),
   'explorer.more': e('study', '"More about this word" in the explorer\'s Word view.', ['kind']),
   'explorer.add_card': e('study', 'Added a word as a card from the explorer (kind = word — the Word view — or char — the Character view\'s "+ Add 字 as a card").', ['kind']),
-  'explorer.bump': e('study', '"⚡ Study it today" from the explorer (kind = word | char).', ['kind']),
+  'explorer.bump': e('study', '"⚡ Study it today" from the explorer (kind = word | char; just_added = right after "+ Add as card", before the new card synced to the device).', ['kind', 'just_added']),
   'explorer.drill_start': e('study', 'Started a quick drill from the explorer (kind = char / word; practice only, no review events).', ['kind', 'items']),
   'explorer.drill_finish': e('study', 'Finished a quick drill from the explorer.', ['kind', 'items', 'correct', 'duration_ms']),
   'explorer.write': e('study', '"✍️ Write it" from the explorer\'s Character view.', []),

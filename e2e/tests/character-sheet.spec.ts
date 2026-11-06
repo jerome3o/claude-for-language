@@ -30,6 +30,7 @@ async function api<T = unknown>(
 }
 
 test('card back → tap 行 → the sheet shows its words with Known / In your decks → add one', async ({ page, request }) => {
+  if (process.env.PR_SHOTS) await page.setViewportSize({ width: 412, height: 915 });
   test.setTimeout(90_000);
   const email = `chars-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Char sheet' } });
@@ -99,7 +100,15 @@ test('card back → tap 行 → the sheet shows its words with Known / In your d
   await expect(add).toBeVisible();
   await add.getByRole('button', { name: 'Add to deck' }).click();
   await expect(add).toBeHidden({ timeout: 10000 });
-  await expect(hangyeView.getByTestId('explorer-word-card')).toContainText('✓ Added');
+  // Straight away — before the sync brings the new note to the device — ⚡ Study it today for it
+  // (Jerome had to close and reopen the explorer, sometimes several times, to get that button).
+  await expect(hangyeView.getByTestId('xp-added')).toContainText('✓ Added to');
+  const studyToday = hangyeView.getByTestId('xp-added').getByRole('button', { name: '⚡ Study it today' });
+  await expect(studyToday).toBeVisible();
+  if (process.env.PR_SHOTS) await page.screenshot({ path: `${process.env.PR_SHOTS}/web-01-just-added.png` });
+  await studyToday.click();
+  await expect(hangyeView.getByTestId('xp-added')).toContainText('行业');
+  if (process.env.PR_SHOTS) await page.screenshot({ path: `${process.env.PR_SHOTS}/web-02-bumped.png` });
 
   // Back to 行; a word they already have offers Open card and ⚡ Study it today.
   await page.getByTestId('explorer-back').click();

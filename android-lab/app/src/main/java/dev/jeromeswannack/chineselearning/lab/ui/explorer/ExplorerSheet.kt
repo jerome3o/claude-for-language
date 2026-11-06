@@ -61,10 +61,14 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.LabModalSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SheetScaffold
+import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
+import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.study.AddChunkSheet
+import dev.jeromeswannack.chineselearning.lab.ui.study.AddedTo
 import dev.jeromeswannack.chineselearning.lab.ui.study.Chunk
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
@@ -82,6 +86,7 @@ const val EXPLORER_CLOSE_TAG = "explorer-close"
 const val EXPLORER_CRUMB_TAG = "explorer-crumb"
 const val EXPLORER_MINE_LOADING_TAG = "explorer-mine-loading"
 const val EXPLORER_MINE_LOADING_FOOTER_TAG = "explorer-mine-loading-footer"
+const val EXPLORER_ADDED_TAG = "explorer-added"
 
 /** Placed once in the app shell: the sheet while the stack isn't empty (+ the add-card / writing sheets it opens). */
 @Composable
@@ -89,6 +94,10 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
     var adding by remember { mutableStateOf<Chunk?>(null) }
     var writing by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
+    // Words added from this sheet (hanzi → deck): the new note only reaches Room with the sync the
+    // add starts, so their views offer ⚡ Study it today at once (before: "+ Add" again until the
+    // sheet was closed and reopened, sometimes several times).
+    var justAdded by remember { mutableStateOf<Map<String, AddedTo>>(emptyMap()) }
     if (controller.isOpen) {
         // Back is ours, ONE level per press (the drill first, then a view, then the sheet) — the
         // sheet's own back handling is off, or it closes everything (see LabModalSheet).
@@ -96,6 +105,7 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             BackHandler(enabled = controller.isOpen) { controller.back() }
             ExplorerStackView(
                 controller, env, refresh,
+                justAdded = justAdded,
                 onAdd = { adding = it },
                 onWrite = { ch -> controller.record("explorer.write"); writing = ch },
             )
@@ -110,6 +120,7 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             bumpSource = "explorer",
             bump = env.bump,
             onAdded = { controller.record("explorer.add_card", mapOf("kind" to if (CharWords.isSingleHan(chunk.hanzi)) "char" else "word")) },
+            onAddedTo = { added -> justAdded = justAdded + (added.hanzi to added) },
         )
     }
     writing?.let { text -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(text, onClose = { writing = null }) }
@@ -121,6 +132,7 @@ fun ExplorerStackView(
     controller: ExplorerController,
     env: ExplorerEnv,
     refresh: Int = 0,
+    justAdded: Map<String, AddedTo> = emptyMap(),
     onAdd: (Chunk) -> Unit = {},
     onWrite: (String) -> Unit = {},
 ) {
@@ -143,8 +155,8 @@ fun ExplorerStackView(
                 )
             }
         } else when (item) {
-            is ExplorerItem.Char -> CharacterViewHost(item.char, controller, env, refresh, onWrite, onAdd)
-            is ExplorerItem.Word -> WordViewHost(item, controller, env, refresh, onAdd)
+            is ExplorerItem.Char -> CharacterViewHost(item.char, controller, env, refresh, onWrite, onAdd, justAdded[item.char])
+            is ExplorerItem.Word -> WordViewHost(item, controller, env, refresh, onAdd, justAdded[item.hanzi])
         }
     }
 }
@@ -224,6 +236,7 @@ private fun CharacterViewHost(
     refresh: Int,
     onWrite: (String) -> Unit,
     onAdd: (Chunk) -> Unit,
+    addedTo: AddedTo? = null,
 ) {
     val actions = env.chars
     var lookup by remember { mutableStateOf<CharDict.Lookup?>(null) }
@@ -236,6 +249,15 @@ private fun CharacterViewHost(
     val scope = rememberCoroutineScope()
     LaunchedEffect(refresh) {
         own = runCatching { env.ownCards(listOf(char))[char] }.getOrNull() ?: OwnCardInfo(CharWordStatus.None, emptyList(), emptyList())
+    }
+    // Just added: read Room again until the synced card is there (then Open card shows too).
+    LaunchedEffect(addedTo) {
+        if (addedTo == null) return@LaunchedEffect
+        repeat(JUST_ADDED_POLLS) {
+            if (own?.status != null && own?.status != CharWordStatus.None) return@LaunchedEffect
+            delay(JUST_ADDED_POLL_MS)
+            runCatching { env.ownCards(listOf(char))[char] }.getOrNull()?.let { own = it }
+        }
     }
     LaunchedEffect(Unit) {
         val r = actions.lookup(char)
@@ -272,15 +294,16 @@ private fun CharacterViewHost(
         onRow = { row -> ExplorerStack.itemForText(row.word.hanzi, row.word.pinyin, row.word.english)?.let(controller::push) },
         onWrite = { onWrite(char) },
         onDrill = { t, pool -> controller.startDrill(t, pool) },
-        ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null),
+        ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null, addedTo = addedTo),
         onOpenCard = { own?.noteIds?.firstOrNull()?.let { id -> env.openCard?.invoke(id) } },
         onBump = {
             val bump = env.bump ?: return@CharacterView
             bumping = true
             scope.launch {
                 try {
-                    bumped = bump(listOf(char), null)
-                    controller.record("explorer.bump", mapOf("kind" to "char"))
+                    val justAddedNow = own?.status == CharWordStatus.None && addedTo != null
+                    bumped = bump(listOf(char), addedTo?.deckId)
+                    controller.record("explorer.bump", mapOf("kind" to "char", "just_added" to justAddedNow))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -302,7 +325,13 @@ data class OwnCardUi(
     val bumping: Boolean = false,
     val canOpenCard: Boolean = true,
     val canBump: Boolean = true,
+    /** Added from this sheet a moment ago, not in Room yet: "✓ Added to <deck>" + ⚡ Study it today. */
+    val addedTo: AddedTo? = null,
 )
+
+/** After "+ Add as card": Room is read again every 1.5 s, up to 20 times, until the synced card is there. */
+private const val JUST_ADDED_POLLS = 20
+private const val JUST_ADDED_POLL_MS = 1_500L
 
 /** The Character view in the explorer frame (stateless). */
 @Composable
@@ -345,7 +374,7 @@ fun CharacterView(
 // ── Word view ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController, env: ExplorerEnv, refresh: Int, onAdd: (Chunk) -> Unit) {
+private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController, env: ExplorerEnv, refresh: Int, onAdd: (Chunk) -> Unit, addedTo: AddedTo? = null) {
     val hanzi = item.hanzi
     val chars = remember(hanzi) { hanzi.codePoints().toArray().map { String(Character.toChars(it)) }.distinct() }
     var ui by remember { mutableStateOf(WordViewUi(item, rank = env.rank(hanzi), online = env.online(), rankOf = env.rank, decalOf = env.decal)) }
@@ -393,6 +422,15 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
         val mine = runCatching { env.myWord(hanzi, refresh > 0) }.getOrDefault(MyWord())
         update { it.copy(mine = mine) }
     }
+    // Just added: read Room again until the synced card is there (then Open card shows too).
+    LaunchedEffect(addedTo) {
+        if (addedTo == null) return@LaunchedEffect
+        repeat(JUST_ADDED_POLLS) {
+            if (ui.mine?.card != null) return@LaunchedEffect
+            delay(JUST_ADDED_POLL_MS)
+            runCatching { env.myWord(hanzi, true) }.getOrNull()?.let { mine -> update { it.copy(mine = mine) } }
+        }
+    }
     // A "More about" already on the device opens at once.
     LaunchedEffect(ui.mine != null) {
         if (ui.mine == null || ui.more != WordMore.Idle) return@LaunchedEffect
@@ -423,6 +461,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
         canOpenCard = env.openCard != null,
         canBump = env.bump != null,
         bumping = bumping,
+        addedTo = addedTo,
         onBack = controller::pop,
         onCrumb = controller::popTo,
         onClose = controller::close,
@@ -440,9 +479,10 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             bumping = true
             scope.launch {
                 try {
-                    val message = bump(listOf(hanzi), null)
+                    val justAddedNow = ui.mine?.card == null && addedTo != null
+                    val message = bump(listOf(hanzi), addedTo?.deckId)
                     update { it.copy(bumped = message) }
-                    controller.record("explorer.bump", mapOf("kind" to "word"))
+                    controller.record("explorer.bump", mapOf("kind" to "word", "just_added" to justAddedNow))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -467,6 +507,8 @@ fun WordView(
     canBump: Boolean,
     actions: WordViewActions = WordViewActions(),
     bumping: Boolean = false,
+    /** Added from this sheet a moment ago and not in Room yet. */
+    addedTo: AddedTo? = null,
     onBack: () -> Unit = {},
     onCrumb: (Int) -> Unit = {},
     onClose: () -> Unit = {},
@@ -496,9 +538,26 @@ fun WordView(
             }
         }
         card != null -> null
+        // Just added (the note isn't in Room yet): ⚡ Study it today straight away — the server has it.
+        addedTo != null && !canBump -> null
+        addedTo != null -> {
+            {
+                if (canBump) PrimaryPill(
+                    if (ui.bumped != null) "⚡ Bumped" else if (bumping) "Bumping…" else STUDY_IT_TODAY,
+                    Modifier.weight(1f).height(52.dp).testTag("explorer-bump"),
+                    enabled = !bumping && ui.bumped == null,
+                    onClick = onBump,
+                )
+            }
+        }
         else -> { { PrimaryPill("+ Add as card", Modifier.weight(1f).height(52.dp).testTag("explorer-add"), onClick = onAdd) } }
     }
-    ExplorerFrame(stack, onBack, onCrumb, onClose, footer = footer) {
+    val addedLine: (@Composable ColumnScope.() -> Unit)? = if (card == null && addedTo != null) {
+        {
+            InlineNotice("Added to ${addedTo.deckName}", kind = NoticeKind.Success, modifier = Modifier.fillMaxWidth().testTag(EXPLORER_ADDED_TAG))
+        }
+    } else null
+    ExplorerFrame(stack, onBack, onCrumb, onClose, footer = footer, footerAbove = addedLine) {
         WordViewContent(ui, actions)
     }
 }

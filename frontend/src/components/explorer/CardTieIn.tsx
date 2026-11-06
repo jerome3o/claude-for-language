@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import type { CharWordStatus } from '@shared/chars';
 import { track } from '../../services/analytics';
 import { invalidateKnownHanzi } from '../../services/readerWords';
-import { AddChunkModal } from '../AddChunkModal';
+import { AddChunkModal, type AddedCard } from '../AddChunkModal';
 import { BumpButton } from '../bumps/BumpButton';
 
 type Chunk = Parameters<typeof AddChunkModal>[0]['chunk'];
@@ -44,7 +44,10 @@ export function CardTieIn({
 }) {
   const navigate = useNavigate();
   const [adding, setAdding] = useState<Chunk | null>(null);
-  const [added, setAdded] = useState(false);
+  // What "+ Add" just made: the note isn't in this device's store until the sync it starts
+  // finishes, so the footer offers ⚡ Study it today / Open card for it straight away (before,
+  // "✓ Added" was all — Jerome closed and reopened the explorer until the card showed up).
+  const [added, setAdded] = useState<AddedCard | null>(null);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
 
   return (
@@ -80,7 +83,32 @@ export function CardTieIn({
           </div>
         </div>
       ) : added ? (
-        <div className="xp-have-line" role="status">✓ Added — it will be in your decks after the next sync.</div>
+        <div className="xp-have" data-testid="xp-added">
+          <div className="xp-have-line" role="status">✓ Added to {added.deckName}</div>
+          {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
+          <div className="xp-footer-row">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => {
+                onClose();
+                navigate(`/cards/${added.noteId}`);
+              }}
+            >
+              Open card →
+            </button>
+            <BumpButton
+              noteIds={[added.noteId]}
+              source="explorer"
+              label="⚡ Study it today"
+              hanziById={new Map([[added.noteId, added.hanzi]])}
+              onBumped={(m) => {
+                track('explorer.bump', { kind, just_added: true });
+                setBumpMsg(m);
+              }}
+            />
+          </div>
+        </div>
       ) : (
         <button type="button" className="btn btn-primary xp-add" onClick={() => setAdding(chunk())} data-testid={testIds.add}>
           {addLabel}
@@ -94,10 +122,10 @@ export function CardTieIn({
             <AddChunkModal
               source="explorer"
               chunk={adding}
-              onAdded={() => {
+              onAdded={(card) => {
                 track('explorer.add_card', { kind });
                 invalidateKnownHanzi();
-                setAdded(true);
+                setAdded(card);
               }}
               onClose={() => setAdding(null)}
             />

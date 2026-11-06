@@ -59,7 +59,7 @@ object AnalyticsEvents {
         ev("explorer.push", "study", listOf("kind", "from", "depth")),
         ev("explorer.more", "study", listOf("kind")),
         ev("explorer.add_card", "study", listOf("kind")),
-        ev("explorer.bump", "study", listOf("kind")),
+        ev("explorer.bump", "study", listOf("kind", "just_added")),
         ev("explorer.drill_start", "study", listOf("kind", "items")),
         ev("explorer.drill_finish", "study", listOf("kind", "items", "correct", "duration_ms")),
         ev("explorer.write", "study", emptyList()),
