@@ -9,9 +9,9 @@ import { judgeReadAloud } from '../../../shared/reader/readAloud';
 import {
   addRecapMistakes, addRecapTap, answerRecap, emptyRecapRun, finishRecapRun, isRecapWord, markRecapped, recapAvailable,
   recapBar, recapChoices, recapDoneLine, recapKeepLabel, recapKey, recapMistakes, recapProgress, recapPromptLabel,
-  recapPromptLine, recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, restartRecap, setRecapKeep,
+  recapPromptLine, recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, recapWords, restartRecap, setRecapKeep,
   chatRecapCount, chatRecapPending, chatRecapRun, chatRecapRunId, recapBumpSource, recapDeck, recapEmptyLine, recapEvent,
-  recapKeepHint, recapSource, recapSourceLabel, recapUpNextSource,
+  recapKeepHint, recapSource, recapSourceLabel, recapUpNextSource, recapSaySuggestion, RECAP_SAY_LABEL, RECAP_SAY_LISTENING,
   type WordRecapPage, type WordRecapSource, type WordRecapRun, type WordRecapTap, type WordRecapWord,
 } from '../../../shared/study/wordRecap';
 
@@ -103,6 +103,7 @@ function snapshot(run: WordRecapRun) {
     add: c.add.map((x) => x.hanzi),
     bump: c.bump.map((x) => x.hanzi),
     promptLine: recapPromptLine(run),
+    passWords: recapWords(run).map((x) => ({ hanzi: x.hanzi, reasons: x.reasons, said: x.said })),
     why: run.words.map(recapWhyLines),
     clues: run.words.map(recapSentenceClue),
   };
@@ -203,6 +204,7 @@ const chatSteps = CHAT_OPS.map((o) => {
     source: recapSource(run),
     run,
     available: recapAvailable(run),
+    passWords: recapWords(run).map((x) => ({ hanzi: x.hanzi, reasons: x.reasons, said: x.said })),
     progress: recapProgress(run),
     rightFirstTime: recapRightFirstTime(run),
     add: c.add.map((x) => x.hanzi),
@@ -250,5 +252,10 @@ writeFileSync(join(OUT, 'word-recap.json'), JSON.stringify({
   runFor,
   sentenceClues,
   labels,
+  say: {
+    label: RECAP_SAY_LABEL,
+    listening: RECAP_SAY_LISTENING,
+    suggestion: ([null, 'match', 'sound', 'contains', 'close', 'wrong'] as const).map((state) => ({ state, out: recapSaySuggestion(state) })),
+  },
 }, null, 1));
 

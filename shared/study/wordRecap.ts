@@ -9,6 +9,10 @@
  *   - every word chip he TAPS (→ the explorer) — he didn't remember it, or needed to know it;
  *   - every word a 🎤 Read it aloud take heard WRONG (another character, a tone slip, a missed
  *     character — never a homophone that "sounded right", never extra words), with the reason line.
+ *     These are kept for "📖 Ask Claude about this page" (`readerPageWords`) but are NOT recapped:
+ *     Jerome (Nov 2026) — a take stopped half-way and started again marked the whole sentence wrong,
+ *     so the recap was "basically reading the entire story again". A reader's recap is the words he
+ *     TAPPED only (`recapWords`); a chat's recap keeps both (its 🎤 Read it back is the exercise).
  * Words are deduplicated by `recapKey` (the reasons merge), kept on the device (a closed app or the
  * next day loses nothing) and listed in STORY ORDER (page, then place on the page): the recap retells
  * the story, and each card's cue is the sentence the word came from.
@@ -24,6 +28,8 @@
  */
 import { passProgress, type PassEvent, type PassProgress } from '../homework/pass';
 import { passRetryBar, type RetryBar } from '../homework/retry-bar';
+import { passSuggestion, type PassOutcome } from '../homework/pass-card';
+import type { SpokenResultState } from '../cards/spoken-result';
 import { readAloudDifferences, type ReadAloudResult } from '../reader/readAloud';
 import { sentenceAround, type ReaderWord } from '../reader/words';
 import { cardTextProblems } from '../cards/standard';
@@ -272,6 +278,17 @@ export function addRecapMistakes(run: WordRecapRun, page: WordRecapPage, result:
   return next;
 }
 
+/**
+ * The words the recap goes through. A reader's run: only the words he TAPPED (read-aloud mistakes
+ * are left out — they stay in the run for Ask Claude), each shown as tapped only. A chat's run: all.
+ */
+export function recapWords(run: WordRecapRun): WordRecapWord[] {
+  if (recapSource(run) === 'chat') return run.words;
+  return run.words
+    .filter((w) => w.reasons.includes('tapped'))
+    .map((w) => (w.reasons.length === 1 && w.said.length === 0 ? w : { ...w, reasons: ['tapped'] as WordRecapReason[], said: [] }));
+}
+
 /** The story was finished: the run can be recapped (if it has words). */
 export function finishRecapRun(run: WordRecapRun, now: string): WordRecapRun {
   return { ...run, finished_at: now };
@@ -284,17 +301,17 @@ export function markRecapped(run: WordRecapRun, now: string): WordRecapRun {
 
 /** The run can be recapped: finished, with at least one word. */
 export function recapAvailable(run: WordRecapRun | null | undefined): boolean {
-  return !!run && !!run.finished_at && run.words.length > 0;
+  return !!run && !!run.finished_at && recapWords(run).length > 0;
 }
 
 /** The recap's items (word keys) in story order. */
 export function recapItemIds(run: WordRecapRun): string[] {
-  return run.words.map((w) => recapKey(w.hanzi));
+  return recapWords(run).map((w) => recapKey(w.hanzi));
 }
 
 /** The word of an item id. */
 export function recapWordFor(run: WordRecapRun, key: string): WordRecapWord | null {
-  return run.words.find((w) => recapKey(w.hanzi) === key) ?? null;
+  return recapWords(run).find((w) => recapKey(w.hanzi) === key) ?? null;
 }
 
 /** Where the pass stands (`passProgress`: unseen in story order, then "Not yet" words oldest first). */
@@ -344,7 +361,7 @@ export function recapRightFirstTime(run: WordRecapRun): number {
 export function recapChoices(run: WordRecapRun, owned: (key: string) => boolean): { add: WordRecapWord[]; bump: WordRecapWord[] } {
   const add: WordRecapWord[] = [];
   const bump: WordRecapWord[] = [];
-  for (const w of run.words) {
+  for (const w of recapWords(run)) {
     const key = recapKey(w.hanzi);
     if (!run.keep.includes(key)) continue;
     (owned(key) ? bump : add).push(w);
@@ -379,8 +396,9 @@ export function recapPromptLabel(n: number): string {
 
 /** The prompt's line: "You tapped 2 and read 1 differently" style, from the reasons. */
 export function recapPromptLine(run: WordRecapRun): string {
-  const tapped = run.words.filter((w) => w.reasons.includes('tapped')).length;
-  const said = run.words.filter((w) => w.reasons.includes('said_wrong')).length;
+  const words = recapWords(run);
+  const tapped = words.filter((w) => w.reasons.includes('tapped')).length;
+  const said = words.filter((w) => w.reasons.includes('said_wrong')).length;
   const parts: string[] = [];
   if (tapped) parts.push(`${tapped} you tapped`);
   if (said) parts.push(`${said} you read aloud differently`);
@@ -397,6 +415,29 @@ export function recapWhyLines(word: WordRecapWord, source: WordRecapSource = 're
     for (const line of word.said) out.push(`${chat ? 'Read it back' : 'Read aloud'}: ${line}`);
   }
   return out;
+}
+
+// ---------- 🎤 Say it (practice only) ----------
+
+/**
+ * "🎤 Say it" on a recap card (Jerome, Nov 2026: "I'd love to be able to say these words to practise
+ * them in this view"): the Sentence Coach's "Practise saying it" (shared/coach/practise.ts
+ * `practiseSentence` — `tidySpokenTranscript` + `checkSpokenAnswer`, homophones by sound, the word said
+ * inside a phrase = "Contains the answer") against the card's word, on the question side and on the
+ * answer side; the compact "You said" row. Nothing stored: no review event, no recording kept.
+ */
+export const RECAP_SAY_LABEL = 'Say it';
+export const RECAP_SAY_LISTENING = 'Listening… say the word';
+
+/**
+ * What a take said BEFORE Show answer suggests on the answer side (the homework pass's
+ * `passSuggestion` for a read card's take): said right (a match, a homophone, or the word inside a
+ * phrase) → Got it is suggested; a miss suggests nothing (the recogniser can be wrong, and the recap
+ * asks whether he knows the word). A take after the reveal never suggests (pass null).
+ */
+export function recapSaySuggestion(state: SpokenResultState | null): PassOutcome | null {
+  if (!state) return null;
+  return passSuggestion({ take: { isMatch: state === 'match' || state === 'sound', containsExpected: state === 'contains' } });
 }
 
 export const RECAP_KEEP_NEW = 'Add to my long-term review';
@@ -438,7 +479,7 @@ export function recapKeepHint(source: WordRecapSource): string {
 export function recapEmptyLine(source: WordRecapSource): string {
   return source === 'chat'
     ? 'No words to recap from this chat yet. Tap words in Claude’s answers, or read one back — they gather here.'
-    : 'No words to recap from this story yet. Tap words while you read, or read a page aloud — they gather here.';
+    : 'No words to recap from this story yet. Tap words while you read — they gather here.';
 }
 
 /**

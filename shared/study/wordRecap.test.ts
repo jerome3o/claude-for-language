@@ -3,7 +3,7 @@ import { judgeReadAloud } from '../reader/readAloud';
 import {
   addRecapMistakes, addRecapTap, answerRecap, emptyRecapRun, finishRecapRun, isRecapWord, markRecapped, recapAvailable,
   recapBar, recapChoices, recapDoneLine, recapItemIds, recapKey, recapMistakes, recapProgress, recapPromptLabel, recapPromptLine,
-  recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, restartRecap, setRecapKeep, type WordRecapTap,
+  recapRightFirstTime, recapRunFor, recapSentenceClue, recapWhyLines, recapWordFor, recapWords, restartRecap, setRecapKeep, type WordRecapTap,
   chatRecapCount, chatRecapRun, chatRecapRunId, recapBumpSource, recapDeck, recapEvent, recapSource, recapSourceLabel, recapUpNextSource,
 } from './wordRecap';
 import { UP_NEXT_SOURCES } from '../decks/up-next';
@@ -47,10 +47,20 @@ describe('reader word recap', () => {
     run = addRecapMistakes(run, { index: 0, text: PAGE0, english: 'We go to Chengdu to eat spicy rabbit heads.', words: WORDS0 }, r, 't1');
     expect(run.words[0]).toMatchObject({ hanzi: '成都', gloss: 'Chengdu', sentence: PAGE0, reasons: ['said_wrong'], page: 0, pos: 3 });
     expect(recapWhyLines(run.words[0])).toEqual(['Read aloud: 都 dū → you said dù (4th tone instead of 1st)']);
-    // Tapping the same word merges the reasons.
+    // Kept in the run (Ask Claude reads them), but a reader's recap is the TAPPED words only.
+    expect(recapWords(run)).toEqual([]);
+    expect(recapItemIds(run)).toEqual([]);
+    expect(recapAvailable(finishRecapRun(run, 't9'))).toBe(false);
+    expect(recapPromptLine(run)).toBe('');
+    // Tapping the same word merges the reasons; the recap shows it as tapped only.
     run = addRecapTap(run, tap({ text: '成都', page: 0, pos: 3, sentence: PAGE0 }), 't2');
     expect(run.words[0].reasons).toEqual(['tapped', 'said_wrong']);
-    expect(recapPromptLine(run)).toBe('Words from this story: 1 you tapped · 2 you read aloud differently.');
+    expect(recapItemIds(run)).toEqual(['成都']);
+    expect(recapWordFor(run, '成都')).toMatchObject({ reasons: ['tapped'], said: [] });
+    expect(recapWhyLines(recapWordFor(run, '成都')!)).toEqual(['You tapped it while reading']);
+    expect(recapPromptLine(run)).toBe('Words from this story: 1 you tapped.');
+    // An old stored run whose kept switches include a said-wrong-only word: Done ignores it.
+    expect(recapChoices({ ...run, keep: ['成都', '麻辣'] }, () => false).add.map((w) => w.hanzi)).toEqual(['成都']);
   });
 
   it('a homophone-only take collects nothing', () => {

@@ -1,0 +1,62 @@
+/* "🎤 Practise saying it" (Sentence Coach) and the word recap's "🎤 Say it": components/coach/PractiseSentence.tsx. */
+.coach-practise {
+  margin-top: 0.625rem;
+}
+.coach-practise-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+.coach-practise-listen {
+  flex: none;
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+}
+.coach-practise-mic {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  font-weight: 600;
+}
+.coach-practise-mic.is-listening {
+  animation: coach-practise-pulse 1.4s ease-in-out infinite;
+}
+@keyframes coach-practise-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-error) 45%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--color-error) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .coach-practise-mic.is-listening { animation: none; }
+}
+.coach-practise-spinner {
+  width: 16px;
+  height: 16px;
+}
+.coach-practise-live {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  background: var(--color-background);
+  font-size: 1.125rem;
+  line-height: 1.4;
+  min-height: 2.75rem;
+}
+.coach-practise-partial {
+  color: var(--color-text-light);
+}
+.coach-practise-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+.coach-practise .spoken-result,
+.coach-practise .you-said {
+  margin: 0.5rem 0 0;
+}

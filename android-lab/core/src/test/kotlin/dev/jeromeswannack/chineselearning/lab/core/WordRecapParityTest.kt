@@ -34,6 +34,15 @@ class WordRecapParityTest {
         words = o["words"]?.takeIf { it !is JsonNull }?.jsonArray?.map { w -> w.jsonObject.let { WordRecap.Word(it.s("text"), it.s("pinyin"), it.s("gloss")) } },
     )
 
+    /** `recapWords`: what the pass goes through (a reader's run: the tapped words only). */
+    private fun assertPassWords(want: JsonObject, run: WordRecapRun, where: String) {
+        val pw = want["passWords"]!!.jsonArray.map { it.jsonObject }
+        val got = WordRecap.words(run)
+        assertEquals(pw.map { it.s("hanzi") }, got.map { it.hanzi }, "$where passWords")
+        assertEquals(pw.map { it.strings("reasons") }, got.map { it.reasons }, "$where passWords reasons")
+        assertEquals(pw.map { it.strings("said") }, got.map { it.said }, "$where passWords said")
+    }
+
     private fun assertRun(want: JsonObject, got: WordRecapRun, where: String) {
         assertEquals(want.s("reader_id"), got.reader_id, where)
         assertEquals(want.sOrNull("source"), got.source, "$where source")
@@ -58,6 +67,16 @@ class WordRecapParityTest {
             assertEquals(w.s("at"), g.at, at)
         }
         assertEquals(want["events"]!!.jsonArray.map { it.jsonObject.let { e -> e.s("item_id") to e.s("result") } }, got.events.map { it.item_id to it.result }, "$where events")
+    }
+
+    @Test
+    fun saySuggestion() {
+        val say = fixture["say"]!!.jsonObject
+        assertEquals(say.s("label"), WordRecap.SAY_LABEL)
+        assertEquals(say.s("listening"), WordRecap.SAY_LISTENING)
+        val cases = say["suggestion"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(6, cases.size)
+        for (c in cases) assertEquals(c.sOrNull("out"), WordRecap.saySuggestion(c.sOrNull("state")), "state ${c.sOrNull("state")}")
     }
 
     @Test
@@ -127,6 +146,7 @@ class WordRecapParityTest {
                 assertEquals(w.strings("add"), c.add.map { it.hanzi }, "$where add")
                 assertEquals(w.strings("bump"), c.bump.map { it.hanzi }, "$where bump")
                 assertEquals(w.s("promptLine"), WordRecap.promptLine(run), where)
+                assertPassWords(w, run, where)
                 assertEquals(w["why"]!!.jsonArray.map { a -> a.jsonArray.map { it.jsonPrimitive.content } }, run.words.map(WordRecap::whyLines), "$where why")
                 assertEquals(w.strings("clues"), run.words.map(WordRecap::sentenceClue), "$where clues")
                 steps++
@@ -209,6 +229,7 @@ class WordRecapParityTest {
             assertEquals(w.s("source"), WordRecap.source(run!!), where)
             assertRun(w["run"]!!.jsonObject, run, where)
             assertEquals(w["available"]!!.jsonPrimitive.boolean, WordRecap.available(run), where)
+            assertPassWords(w, run, where)
             assertEquals(w["progress"]!!.jsonObject.strings("remaining"), WordRecap.progress(run).remaining, "$where remaining")
             assertEquals(w["rightFirstTime"]!!.jsonPrimitive.int, WordRecap.rightFirstTime(run), where)
             val c = WordRecap.choices(run) { it in owned }

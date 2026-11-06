@@ -87,7 +87,7 @@ object WordRecapStore {
 
     /** Reader id → words of every run that can be recapped (the Readers list's "📝 Recap words from last read"). */
     fun observeAvailable(cache: JsonCache): Flow<Map<String, Int>> =
-        cache.observeAll(KIND, WordRecapRun.serializer()).map { runs -> runs.filter(WordRecap::available).associate { it.reader_id to it.words.size } }
+        cache.observeAll(KIND, WordRecapRun.serializer()).map { runs -> runs.filter(WordRecap::available).associate { it.reader_id to WordRecap.words(it).size } }
 
     /** One read-modify-write at a time. */
     suspend fun update(cache: JsonCache, readerId: String, fn: (WordRecapRun?) -> WordRecapRun?): WordRecapRun? = lock.withLock {
@@ -124,7 +124,9 @@ object WordRecapStore {
                         else { finished = true; WordRecap.finish(cur, now()) }
                     }
                 }.getOrNull()
-                if (finished && run != null && run.words.isNotEmpty()) offer(RecapOffer(readerId, run.words.size, WordRecap.promptLine(run)))
+                // Only the words he tapped are recapped (the take's mistakes stay for Ask Claude).
+                val n = run?.let { WordRecap.words(it).size } ?: 0
+                if (finished && run != null && n > 0) offer(RecapOffer(readerId, n, WordRecap.promptLine(run)))
             }
         }
     }
@@ -139,7 +141,7 @@ object WordRecapStore {
 
     /** Recap key → note id of the words he already has. */
     suspend fun owned(app: LabApp, run: WordRecapRun): Map<String, String> = withContext(Dispatchers.IO) {
-        val keys = run.words.map { WordRecap.key(it.hanzi) }.toHashSet()
+        val keys = WordRecap.words(run).map { WordRecap.key(it.hanzi) }.toHashSet()
         val out = HashMap<String, String>()
         for (n in app.repo.dao.allNotes()) {
             val k = WordRecap.key(n.hanzi)
@@ -170,7 +172,7 @@ object WordRecapStore {
         update(app.cache, readerId) { it?.let { r -> WordRecap.markRecapped(r, now()) } }
         app.analytics.track(
             WordRecap.event(source, "finish"),
-            mapOf("words" to run.words.size, "got_it_first_time" to WordRecap.rightFirstTime(run), "added" to c.add.size, "bumped" to c.bump.size),
+            mapOf("words" to WordRecap.words(run).size, "got_it_first_time" to WordRecap.rightFirstTime(run), "added" to c.add.size, "bumped" to c.bump.size),
         )
         if (c.add.isNotEmpty() && app.online.value) app.scope.launch { runCatching { flush(app.repo.api, app.cache, app.repo.dao) } }
         return Outcome(c.add.size, c.bump.size)
