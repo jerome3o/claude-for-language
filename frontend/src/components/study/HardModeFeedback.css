@@ -61,9 +61,20 @@
 
 .hard-feedback-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   justify-content: center;
   margin-top: 0.75rem;
+}
+
+/* Claude's check of a sentence answer (shared/study/sentenceAnswerCheck.ts): its card IS the verdict. */
+.hard-feedback-check {
+  text-align: left;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+.hard-feedback-check .answer-check {
+  margin-top: 0.25rem;
 }
 
 .hard-feedback-row .btn {

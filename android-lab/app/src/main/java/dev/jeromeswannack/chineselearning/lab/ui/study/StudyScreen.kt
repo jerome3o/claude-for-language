@@ -82,6 +82,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
+import dev.jeromeswannack.chineselearning.lab.data.api.checkLessonAnswer
 
 /** Everything the session screen can ask for. Defaults are no-ops so screenshots need none. */
 class StudyActions(
@@ -209,6 +210,13 @@ class StudyActions(
     val onPassBump: (on: Boolean) -> Unit = {},
     /** ↺ on a pass word: take back the last Got it / Not yet (docs/HOMEWORK.md §3b). */
     val onPassUndo: () -> Unit = {},
+    /**
+     * Claude's check of a sentence answer on Hard mode's question (core SentenceAnswerCheck; the lesson answer
+     * check, device cache first). Throws [dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable]
+     * when there is none to be had (the default: screenshots and tests without a stub).
+     */
+    val answerCheck: suspend (dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput) -> dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckResult =
+        { throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("unavailable", offline = true) },
 )
 
 @Composable
@@ -388,6 +396,7 @@ fun StudyRoute(
                 vm.passUndone()
                 passActions?.onPassUndo?.invoke()
             },
+            answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },
         ),
         pass = pass,
     )

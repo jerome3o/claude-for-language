@@ -149,6 +149,10 @@ import {
 } from '@shared/study/hardMode';
 import { HardModeRatings } from '../components/study/HardModeRatings';
 import { questionDifference } from '@shared/study/answerDifference';
+import { sentenceCheckedVerdict, SENTENCE_CHECKING } from '@shared/study/sentenceAnswerCheck';
+import type { AnswerCheckVerdict } from '@shared/lesson/answerCheck';
+import { useSentenceQuestionCheck } from '../components/study/useSentenceAnswerCheck';
+import { AnswerCheckBody } from '../components/lessons/AnswerCheckCard';
 import { sentenceGate, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
 import { listenRoundSentenceCount, roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
@@ -185,8 +189,9 @@ function formatAddedDate(createdAt: string | null | undefined): string | null {
  * A SPOKEN answer (🎤) never comes here: the back shows the card's answer once and one compact
  * "You said" row (`YouSaidRow`, shared/cards/spoken-result.ts).
  */
-function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; newChars?: ReadonlySet<string> }) {
-  const verdict = checkTypedAnswer(props.userAnswer, props.correctAnswer, props.alternatives ?? []);
+function AnswerDiff(props: { userAnswer: string; correctAnswer: string; alternatives?: string[]; onCharacterClick?: (char: string) => void; newChars?: ReadonlySet<string>; claudeVerdict?: AnswerCheckVerdict | null }) {
+  // A sentence Claude judged right (shared/study/sentenceAnswerCheck.ts) shows as accepted + the card's answer.
+  const verdict = sentenceCheckedVerdict(checkTypedAnswer(props.userAnswer, props.correctAnswer, props.alternatives ?? []), props.claudeVerdict);
   return <AnswerDiffBody {...props} verdict={verdict} />;
 }
 
@@ -1749,6 +1754,30 @@ export function StudyCard({
     return slots.every(s => s.status === 'right' || s.status === 'given') ? null : slots;
   })();
 
+  // The typed / said answer as the device judges it (null = nothing typed, or a grid).
+  const localAnswerVerdict: AnswerVerdict | null = (() => {
+    if (!isTypingCard || mcAnswered) return null;
+    const answer = userAnswer.trim();
+    if (!answer) return null;
+    const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
+    return answerWasSpoken ? checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin) : checkTypedAnswer(answer, card.note.hanzi, alts);
+  })();
+  // Sentence answers checked by Claude (shared/study/sentenceAnswerCheck.ts): a sentence the device didn't
+  // accept is asked of the lesson answer check while Hard mode's check is up; its verdict then decides.
+  const sentenceCheck = useSentenceQuestionCheck({
+    showingKey: card.id,
+    cardType: card.card_type,
+    hanzi: card.note.hanzi,
+    pinyin: card.note.pinyin,
+    english: card.note.english,
+    answer: userAnswer,
+    spoken: answerWasSpoken,
+    localVerdict: localAnswerVerdict,
+    multipleChoice: mcAnswered,
+    active: feedbackOpen && hardApplies && !gaveUp && !flipped,
+    online: aiAvailable,
+    where: pass ? 'homework' : 'session',
+  });
   // The homework pass (shared/homework/pass-card.ts): what was tried before the reveal suggests
   // Got it / Not yet — the same verdicts the back shows (AnswerDiff, the grid, "You said").
   const passAnswered: PassAnsweredBy = isSpeakingCard
@@ -1766,7 +1795,8 @@ export function StudyCard({
       const verdict = answerWasSpoken
         ? checkSpokenAnswer(userAnswer.trim(), card.note.hanzi, alts, card.note.pinyin)
         : checkTypedAnswer(userAnswer.trim(), card.note.hanzi, alts);
-      return passSuggestion({ answerVerdict: verdict });
+      // A sentence Claude checked: its verdict (correct / acceptable = Got it).
+      return passSuggestion({ answerVerdict: sentenceCheckedVerdict(verdict, sentenceCheck.check?.verdict) });
     }
     return passSuggestion({ take: isSpeakingCard && audioBlob ? transcriptionComparison : null });
   })();
@@ -1793,22 +1823,21 @@ export function StudyCard({
     if (canSayPractice && practiceSaid && practiceVerdict) return { transcript: practiceSaid, verdict: practiceVerdict, source: 'practice' };
     return null;
   })();
-  const spokenAnswerAccepted = !!spokenBack && spokenBack.source === 'spoken' && isAcceptedVerdict(spokenBack.verdict);
+  // (A sentence Claude checked counts by its verdict: the "You said" row still compares the words with the card.)
+  const spokenAnswerAccepted = !!spokenBack && spokenBack.source === 'spoken'
+    && isAcceptedVerdict(sentenceCheckedVerdict(spokenBack.verdict, sentenceCheck.check?.verdict));
 
   // Hard mode: the question's own answer, checked on the question (shared/study/hardMode.ts) — the same
   // checks the answer side uses: typed / spoken verdict, the grid all right, a read card's "You said".
   // A typing card's verdict on the question (null = not a typing card / nothing typed).
   const questionVerdict: AnswerVerdict | null = (() => {
     if (!feedbackOpen || !isTypingCard) return null;
-    const answer = userAnswer.trim();
-    if (!answer) return null;
-    const alts: string[] = card.note.alternatives ? (() => { try { return JSON.parse(card.note.alternatives!) as string[]; } catch { return []; } })() : [];
-    return mcAnswered
-      ? (mcBackSlots ? 'wrong' : 'exact')
-      : answerWasSpoken ? checkSpokenAnswer(answer, card.note.hanzi, alts, card.note.pinyin) : checkTypedAnswer(answer, card.note.hanzi, alts);
+    if (!userAnswer.trim()) return null;
+    return mcAnswered ? (mcBackSlots ? 'wrong' : 'exact') : sentenceCheck.verdict;
   })();
   const questionResult = (() => {
     if (!feedbackOpen) return null;
+    if (isTypingCard && questionVerdict && sentenceCheck.checking) return 'checking' as const;
     if (isTypingCard) return questionVerdict ? hardModeQuestionResult({ answerVerdict: questionVerdict }) : null;
     if (!audioBlob) return null;
     const take: HardModeTake = transcriptionComparison && !isTranscribing
@@ -1822,7 +1851,7 @@ export function StudyCard({
   const roundFollows = hardModeRoundFollows(questionResult, roundVisibleCount);
   // Right but not the card's hanzi (a homophone / a listed alternative): the check holds with the
   // difference until Next (shared/study/answerDifference.ts).
-  const questionHeld = questionResult === 'right' ? questionDifference(questionVerdict) : null;
+  const questionHeld = questionResult === 'right' ? (sentenceCheck.check ? sentenceCheck.difference : questionDifference(questionVerdict)) : null;
   /** Right (or not checkable): on to the Sentence round, or the answer. */
   const hardNext = () => {
     if (!feedbackOpen) return;
@@ -1842,7 +1871,7 @@ export function StudyCard({
     if (questionResult === 'right') {
       track('study.hard_mode', { action: 'right', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
       if (questionHeld) {
-        track('study.round_difference_shown', { kind: 'question', reason: questionHeld, verdict: questionVerdict ?? undefined, where: pass ? 'homework' : 'session', held: true });
+        track('study.round_difference_shown', { kind: 'question', reason: questionHeld, verdict: sentenceCheck.check?.verdict ?? questionVerdict ?? undefined, where: pass ? 'homework' : 'session', held: true });
         return;
       }
       const id = window.setTimeout(() => hardNextRef.current(), HARD_MODE_RIGHT_BEAT_MS);
@@ -1889,6 +1918,19 @@ export function StudyCard({
     setTypingMode(true);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
+  /**
+   * ✏️ Type it — a spoken sentence Claude checked: the box, holding what was said, to fix it by hand
+   * (then Check: a typed answer, checked afresh).
+   */
+  const hardTypeInstead = () => {
+    track('study.hard_mode', { action: 'retry', mode: hardModeSetting, result: questionResult ?? undefined, card_type: card.card_type, ...hardWhere });
+    trackedResult.current = null;
+    setFeedbackOpen(false);
+    stopAudio();
+    setSpokenText(null);
+    setTypingMode(true);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
 
   const renderBackMain = () => {
     return (
@@ -1907,6 +1949,7 @@ export function StudyCard({
                 alternatives={card.note.alternatives ? JSON.parse(card.note.alternatives) : undefined}
                 onCharacterClick={handleCharacterClick}
                 newChars={newChars}
+                claudeVerdict={sentenceCheck.check?.verdict}
               />
           </div>
         ) : (
@@ -1943,6 +1986,12 @@ export function StudyCard({
             onPlay={audioBlob ? () => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); } : undefined}
             onCoach={() => openYouSaidInCoach(spokenBack.transcript, spokenBack.source)}
           />
+        )}
+        {/* Claude's check of this sentence answer (Hard mode's question): its verdict stays on the answer side. */}
+        {sentenceCheck.check && userAnswer.trim() && (
+          <div className="study-back-sentence-check" data-testid="study-sentence-check" style={{ textAlign: 'left' }}>
+            <AnswerCheckBody check={sentenceCheck.check} answer={userAnswer.trim()} compact speak={(text) => playAudio(null, text, API_BASE)} />
+          </div>
         )}
         {/* Word tags: part of speech · register · measure word · HSK… (Settings → Study turns them off) */}
         {/* A card missed 8+ times after it was learned (Anki's leech): "⚠️ Missed 8×" → what helps. */}
@@ -3310,6 +3359,10 @@ export function StudyCard({
                     onTryAgain={hardTryAgain}
                     onShowAnswer={giveUp}
                     onNext={hardNext}
+                    check={sentenceCheck.check}
+                    checkingLabel={sentenceCheck.checking ? SENTENCE_CHECKING : undefined}
+                    onTypeInstead={sentenceCheck.check && answerWasSpoken && questionResult !== 'right' ? hardTypeInstead : undefined}
+                    speak={(text) => playAudio(null, text, API_BASE)}
                   />
                 ) : isTypingCard ? (
                   renderTypingActions()

@@ -103,6 +103,9 @@ import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import dev.jeromeswannack.chineselearning.lab.core.SentenceRound
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
+import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
+import dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck
+import dev.jeromeswannack.chineselearning.lab.core.SentenceAnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDifference
 import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
 import androidx.compose.runtime.SideEffect
@@ -152,6 +155,9 @@ data class CardStartState(
     /** The round's exercises as shown + each one's last result (the answer side outlines them; the round comes back the same). */
     val roundLog: List<SentenceRound.LogEntry> = emptyList(),
 )
+
+/** Claude's check of one answer (core SentenceAnswerCheck): [key] = its cache text; [check] null + !checking = none to be had. */
+private data class SentenceCheckState(val key: String, val checking: Boolean = false, val check: AnswerCheck? = null)
 
 /** The sheets a card can open over itself. */
 private sealed interface CardSheet {
@@ -328,12 +334,53 @@ fun CardStage(
     // Back on the round: the question again (what was right stays).
     BackHandler(enabled = roundOpen && !revealed) { roundOpen = false }
 
+    // Sentence answers checked by Claude (core SentenceAnswerCheck; docs/STUDY_SESSION.md): a meaning → hanzi
+    // SENTENCE the device didn't accept is asked of the lesson answer check while Hard mode's check is up — one
+    // call per distinct answer (device cache, then the server's); its verdict then decides. Offline / failed →
+    // the device's verdict, as before.
+    val localVerdict: AnswerKey.Verdict? = if (typing && mcSlots == null && answer.isNotBlank()) checkAnswer(answer) else null
+    val sentenceInput = if (SentenceAnswerCheck.applies(view.card.cardType, note.hanzi, answer, localVerdict, mcSlots != null))
+        SentenceAnswerCheck.input(note.english, note.hanzi, note.pinyin, answer, answerIsSpoken(answer)) else null
+    val sentenceKey = sentenceInput?.let { LessonAnswerCheck.cacheText(it) }
+    var sentenceState by remember(view.presentation) { mutableStateOf<SentenceCheckState?>(null) }
+    var sentenceTries by remember(view.presentation) { mutableIntStateOf(0) }
+    val sentenceActive = feedbackOpen && hardApplies && !gaveUp && !revealed && ui.aiAvailable
+    LaunchedEffect(sentenceKey, sentenceActive) {
+        val input = sentenceInput ?: return@LaunchedEffect
+        val key = sentenceKey ?: return@LaunchedEffect
+        if (!sentenceActive) return@LaunchedEffect
+        val prev = sentenceState
+        if (prev != null && prev.key == key && !prev.checking) return@LaunchedEffect // the same answer again: no second call
+        sentenceState = SentenceCheckState(key, checking = true)
+        val retry = sentenceTries++
+        val began = System.currentTimeMillis()
+        val props = mapOf("retry" to retry, "input" to input.input, "card_type" to view.card.cardType, "where" to if (pass != null) "homework" else "session")
+        try {
+            val r = actions.answerCheck(input)
+            sentenceState = SentenceCheckState(key, check = r.check)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_answer_check", mapOf("verdict" to r.check.verdict, "cached" to r.cached, "ms" to System.currentTimeMillis() - began) + props)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val offline = e is dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable && e.offline
+            sentenceState = SentenceCheckState(key)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.sentence_answer_check", mapOf("verdict" to if (offline) "offline" else "error", "cached" to false, "ms" to System.currentTimeMillis() - began) + props)
+        }
+    }
+    val sentenceNow = sentenceState?.takeIf { it.key == sentenceKey }
+    /** Claude's check of the answer as it stands (null = none). */
+    val sentenceCheck: AnswerCheck? = sentenceNow?.check
+    /** Claude is reading it: the question shows "Checking your sentence…". */
+    val sentenceChecking = sentenceInput != null && sentenceActive && (sentenceNow == null || sentenceNow.checking)
+    /** The verdict the card goes on with: the device's, or Claude's for a sentence it checked. */
+    fun cardVerdict(v: AnswerKey.Verdict): AnswerKey.Verdict = if (mcSlots == null) SentenceAnswerCheck.checkedVerdict(v, sentenceCheck?.verdict) else v
+
     /** The answer side (checked once: the ratings come up). */
     fun showAnswer() {
         if (revealed) return
         roundOpen = false
         feedbackOpen = false
-        val v = if (typing && answer.isNotBlank()) checkAnswer(answer) else null
+        val v = if (typing && answer.isNotBlank()) cardVerdict(checkAnswer(answer)) else null
         verdict = v
         revealed = true
         flipped = true
@@ -432,9 +479,10 @@ fun CardStage(
     val take = ui.extras.take
     // A typing card's verdict on the question (null = not a typing card / nothing typed).
     val questionVerdict: AnswerKey.Verdict? = if (!feedbackOpen || !typing || answer.isBlank()) null
-        else mcSlots?.let { if (MultipleChoice.allRight(it)) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.WRONG } ?: checkAnswer(answer)
+        else mcSlots?.let { if (MultipleChoice.allRight(it)) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.WRONG } ?: cardVerdict(checkAnswer(answer))
     val questionResult: String? = when {
         !feedbackOpen -> null
+        typing && questionVerdict != null && sentenceChecking -> "checking"
         typing -> questionVerdict?.let { HardMode.questionResult(it) }
         !take.hasTake -> null
         else -> when (val t = take.transcription) {
@@ -451,7 +499,9 @@ fun CardStage(
     val roundFollows = HardMode.roundFollows(questionResult, sentenceCount)
     // Right but not the card's hanzi (a homophone / a listed alternative): the check holds with the
     // difference until Next (core AnswerDifference).
-    val questionHeld: String? = if (questionResult == "right") AnswerDifference.question(questionVerdict) else null
+    val questionHeld: String? = if (questionResult != "right") null
+        else if (sentenceCheck != null) SentenceAnswerCheck.difference(answer.trim(), note.hanzi, sentenceCheck.verdict)
+        else AnswerDifference.question(questionVerdict)
     fun hardNext() {
         if (!feedbackOpen) return
         dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "next", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType) + hardWhere)
@@ -470,7 +520,7 @@ fun CardStage(
             burst++
             if (questionHeld != null) {
                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.round_difference_shown", mapOf(
-                    "kind" to "question", "reason" to questionHeld, "verdict" to questionVerdict?.name?.lowercase(java.util.Locale.ROOT),
+                    "kind" to "question", "reason" to questionHeld, "verdict" to (sentenceCheck?.verdict ?: questionVerdict?.name?.lowercase(java.util.Locale.ROOT)),
                     "where" to if (pass != null) "homework" else "session", "held" to true,
                 ))
                 return@LaunchedEffect
@@ -512,6 +562,16 @@ fun CardStage(
             actions.onStartSpoken()
             return
         }
+        typingMode = true
+        scope.launch { delay(50); runCatching { focus.requestFocus() } }
+    }
+
+    /** ✏️ Type it — a spoken sentence Claude checked: the box, holding what was said, to fix it by hand (a typed answer). */
+    fun hardTypeInstead() {
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "retry", "mode" to hardModeSetting, "result" to questionResult, "card_type" to view.card.cardType) + hardWhere)
+        trackedResult = null
+        feedbackOpen = false
+        spokenText = null
         typingMode = true
         scope.launch { delay(50); runCatching { focus.requestFocus() } }
     }
@@ -683,6 +743,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
+                            sentenceCheck = sentenceCheck, localVerdict = localVerdict,
                             canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory, roundMarks = roundMarks,
                             onLeech = {
                                 sheet = CardSheet.Leech
@@ -732,6 +793,10 @@ fun CardStage(
                     onTryAgain = { hardTryAgain() },
                     onShowAnswer = { giveUp() },
                     onNext = { hardNext() },
+                    check = sentenceCheck,
+                    checkingLabel = if (sentenceChecking) SentenceAnswerCheck.CHECKING else null,
+                    onTypeInstead = if (sentenceCheck != null && answerIsSpoken(answer) && questionResult != "right") ({ hardTypeInstead() }) else null,
+                    onPlay = { text -> actions.onPlay(null, text) },
                 )
             } else if (!revealed) {
                 if (mcGridUp) {
@@ -1153,6 +1218,10 @@ private fun CardBack(
     listHistory: SentenceListHistory? = null,
     /** The sentences of this showing's Sentence round: on top, opened, outlined (core SentenceRound.rowMarks). */
     roundMarks: List<SentenceRound.RowMark> = emptyList(),
+    /** Claude's check of this sentence answer (Hard mode's question; core SentenceAnswerCheck): kept on the answer side. */
+    sentenceCheck: AnswerCheck? = null,
+    /** The device's own verdict of the answer: the "You said" row compares the words with the card. */
+    localVerdict: AnswerKey.Verdict? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -1165,7 +1234,7 @@ private fun CardBack(
     // said or of the answer (docs/STUDY_SESSION.md "Say the answer"; web `spokenBack`).
     val spokenAnswer = typed != null && verdict != null && canSayAgain
     val spokenRow: Triple<String, AnswerKey.Verdict, String>? = when {
-        spokenAnswer -> Triple(typed!!, verdict!!, "spoken")
+        spokenAnswer -> Triple(typed!!, localVerdict ?: verdict!!, "spoken")
         canSayPractice && practiceSaid != null -> Triple(practiceSaid, AnswerKey.checkSpoken(practiceSaid, note.hanzi, view.alternatives, note.pinyin), "practice")
         else -> null
     }
@@ -1199,6 +1268,14 @@ private fun CardBack(
                     Box(if (source == "practice") Modifier.testTag(PRACTICE_YOU_SAID_TAG) else Modifier) {
                         // ▶ the take (a spoken answer's / practice take is the card's take, uploaded with the review).
                         SpokenResultRow(transcript, note.hanzi, v, onPlay = actions.onYouSaidPlay, onCoach = { actions.onYouSaidCoach(transcript, source) })
+                    }
+                }
+            }
+            // Claude's check of this sentence answer (Hard mode's question): its verdict stays on the answer side.
+            if (sentenceCheck != null && typed != null) {
+                KeepTaps {
+                    Box(Modifier.testTag(SENTENCE_CHECK_BACK_TAG)) {
+                        dev.jeromeswannack.chineselearning.lab.ui.lessons.AnswerCheckBody(sentenceCheck, typed, onPlay = { text -> actions.onPlay(null, text) }, compact = true)
                     }
                 }
             }
@@ -1857,6 +1934,9 @@ const val VOICE_REVIEW_TAG = "study-voice-review"
 const val SPOKEN_MIC_TAG = "spoken-mic"
 const val SPOKEN_LIVE_TAG = "spoken-live"
 const val SPOKEN_RETRY_TAG = "spoken-retry"
+/** Claude's check of a sentence answer on the answer side (web `study-sentence-check`). */
+const val SENTENCE_CHECK_BACK_TAG = "study-sentence-check"
+
 /** Test tag prefix of the card's answer on the back of a spoken answer: `spoken-answer-<verdict>` (e.g. `spoken-answer-close`). */
 const val SPOKEN_ANSWER_TAG = "spoken-answer"
 const val SPOKEN_REVIEW_TAG = "spoken-review"

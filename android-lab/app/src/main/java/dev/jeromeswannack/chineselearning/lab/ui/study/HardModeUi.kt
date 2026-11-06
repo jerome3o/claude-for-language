@@ -45,7 +45,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
+import dev.jeromeswannack.chineselearning.lab.core.SentenceAnswerCheck
+import dev.jeromeswannack.chineselearning.lab.ui.lessons.AnswerCheckBody
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import dev.jeromeswannack.chineselearning.lab.core.PassAngles
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -68,6 +73,8 @@ object HardModeTags {
     const val CONTINUE = "hard-continue"
     const val REVEALED_ANSWER = "hard-revealed-answer"
     const val CHIP_DOT = "hard-mode-chip-dot"
+    const val TYPE_INSTEAD = "hard-type-instead"
+    const val SENTENCE_CHECK = "hard-sentence-check"
 }
 
 private val ChipRed = Color(0xFFDC2626)
@@ -221,6 +228,17 @@ fun HardModeFeedbackPanel(
     /** The card's answer, for "revealed": hanzi, pinyin, meaning. */
     answer: Triple<String, String?, String>? = null,
     onPlayAnswer: (() -> Unit)? = null,
+    /**
+     * Claude's check of a sentence answer (core SentenceAnswerCheck): its verdict, the corrected sentence, tips and
+     * an alternative on the question — [result] already follows it.
+     */
+    check: AnswerCheck? = null,
+    /** The checking row's words (default HardMode.CHECKING). */
+    checkingLabel: String? = null,
+    /** A spoken sentence's second way to try again: ✏️ Type it (the box, holding what was said). */
+    onTypeInstead: (() -> Unit)? = null,
+    /** 🔊 on Claude's corrected sentence / alternative. */
+    onPlay: ((String) -> Unit)? = null,
 ) {
     // The check's result you can FEEL (fx/StudyFeel; core HardMode.questionFeel): ✓ Right = Haptics.success +
     // the correct chime; ✗ / ≈ a short one; checking / unknown / revealed none. Once per result.
@@ -255,16 +273,19 @@ fun HardModeFeedbackPanel(
             "checking" -> Row(verticalAlignment = Alignment.CenterVertically) {
                 CircularProgressIndicator(Modifier.size(18.dp), color = Lab.colors.accent, strokeWidth = 2.dp)
                 Spacer(Modifier.width(8.dp))
-                Text(HardMode.CHECKING, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text(checkingLabel ?: HardMode.CHECKING, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             "unknown" -> Text(HardMode.UNKNOWN, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            else -> Text(
+            // Claude checked a sentence answer: its card IS the verdict (chip + headline), then the fix, tips, alternative.
+            else -> if (check != null && said != null) SentenceCheckBlock(check, said, difference.takeIf { result == "right" }, showSaid = result != "right" && check.corrected.isEmpty(), spoken = spoken, onPlay = onPlay) else Text(
                 difference?.let { dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE[it.reason] } ?: HardMode.RESULT.getValue(result),
                 Modifier.then(if (difference != null) Modifier.testTag(DifferenceTags.HELD) else Modifier),
                 color = ink, fontSize = if (difference != null) 18.sp else 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
             )
         }
-        if (difference != null && result == "right") {
+        if (check != null && said != null && result != "checking" && result != "unknown") {
+            // (said / the comparison are inside the check block)
+        } else if (difference != null && result == "right") {
             DifferenceCompare(difference.said, difference.model, difference.modelPinyin, accepted = true, modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD)
         } else if (said != null && result != "checking" && result != "unknown") {
             Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
@@ -277,7 +298,16 @@ fun HardModeFeedbackPanel(
                     SecondaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
                     PrimaryPill("${HardMode.nextLabel(roundFollows)} →", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.NEXT), onClick = onNext)
                 }
-                else -> {
+                else -> if (onTypeInstead != null) {
+                    // A spoken sentence Claude checked: 🔁 Try again (say it again) first, then ✏️ Type it / 👁 Show answer.
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PrimaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.fillMaxWidth().height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SecondaryPill("👁 ${HardMode.SHOW_ANSWER}", Modifier.weight(1f).height(48.dp).testTag(HardModeTags.SHOW_ANSWER), onClick = onShowAnswer)
+                            SecondaryPill("✏️ ${SentenceAnswerCheck.TYPE_INSTEAD}", Modifier.weight(1f).height(48.dp).testTag(HardModeTags.TYPE_INSTEAD), onClick = onTypeInstead)
+                        }
+                    }
+                } else {
                     SecondaryPill("👁 ${HardMode.SHOW_ANSWER}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.SHOW_ANSWER), onClick = onShowAnswer)
                     PrimaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
                 }
@@ -286,6 +316,26 @@ fun HardModeFeedbackPanel(
         if (result == "wrong" || result == "close") {
             Text(HardMode.MISS_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
         }
+    }
+}
+
+/**
+ * Claude's check of a sentence answer on the question (core SentenceAnswerCheck; the web's `hard-sentence-check`):
+ * "You said" (only when there is no red-pen fix — the fix shows his words), then the lesson check's card with
+ * You said vs the card under its headline when it was right in other words. Scrolls on its own when long, so the
+ * buttons stay on screen.
+ */
+@Composable
+private fun SentenceCheckBlock(check: AnswerCheck, said: String, difference: HardModeDifference?, showSaid: Boolean, spoken: Boolean, onPlay: ((String) -> Unit)?) {
+    Column(
+        Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()).testTag(HardModeTags.SENTENCE_CHECK),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (showSaid) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
+        AnswerCheckBody(
+            check, said, onPlay = onPlay,
+            afterHead = difference?.let { d -> { DifferenceCompare(d.said, d.model, d.modelPinyin, accepted = true, modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD) } },
+        )
     }
 }
 
