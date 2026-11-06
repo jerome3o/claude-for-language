@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -17,11 +18,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
 import dev.jeromeswannack.chineselearning.lab.core.WordRecap
 import dev.jeromeswannack.chineselearning.lab.core.WordRecapRun
 import dev.jeromeswannack.chineselearning.lab.data.readers.RecapOffer
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
+import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachPractiseTags
+import dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseUi
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Test
@@ -54,6 +58,7 @@ class WordRecapTest : LabScreenshotTest() {
     private fun run(): WordRecapRun {
         var r = WordRecap.emptyRun("r-cd", "2026-11-03T10:00:00Z")
         r = WordRecap.addTap(r, WordRecap.Tap("采耳", "cǎi'ěr", "ear cleaning", p1.text, 0, 13, p1.english), "2026-11-03T10:00:01Z")
+        r = WordRecap.addTap(r, WordRecap.Tap("成都", "Chéngdū", "Chengdu", p1.text, 0, 5, p1.english), "2026-11-03T10:00:01Z")
         r = WordRecap.addMistakes(r, p1, ReadAloud.judge(p1.text, "今天我们在程度先去春熙路采耳"), "2026-11-03T10:00:02Z")
         r = WordRecap.addMistakes(r, p2, ReadAloud.judge(p2.text, "晚上我们吃兔头"), "2026-11-03T10:00:03Z")
         r = WordRecap.addTap(r, WordRecap.Tap("兔头", "tùtóu", "rabbit head", p2.text, 1, 7, p2.english), "2026-11-03T10:00:04Z")
@@ -63,8 +68,13 @@ class WordRecapTest : LabScreenshotTest() {
     @Test
     fun collectsInStoryOrder() {
         val r = run()
+        // The run keeps the take's mistakes (Ask Claude reads them) …
         assertEquals(listOf("成都", "采耳", "麻辣", "兔头"), r.words.map { it.hanzi })
-        assertEquals(listOf("Read aloud: 都 dū → you said dù (4th tone instead of 1st)"), WordRecap.whyLines(r.words[0]))
+        assertEquals(listOf(WordRecap.TAPPED, WordRecap.SAID_WRONG), r.words[0].reasons)
+        // … but the recap is the TAPPED words only (麻辣 was only read wrong), each as tapped.
+        assertEquals(listOf("成都", "采耳", "兔头"), WordRecap.words(r).map { it.hanzi })
+        assertEquals(listOf("You tapped it while reading"), WordRecap.whyLines(WordRecap.words(r)[0]))
+        assertEquals("Words from this story: 3 you tapped.", WordRecap.promptLine(r))
     }
 
     @Test fun offer() = shoot("reader-recap-01-offer") { OfferOverPage() }
@@ -74,7 +84,7 @@ class WordRecapTest : LabScreenshotTest() {
     private fun OfferOverPage() {
         val r = run()
         Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(12.dp), contentAlignment = Alignment.BottomCenter) {
-            RecapOfferCard(RecapOffer("r-cd", r.words.size, WordRecap.promptLine(r)), onStart = {}, onDone = {})
+            RecapOfferCard(RecapOffer("r-cd", WordRecap.words(r).size, WordRecap.promptLine(r)), onStart = {}, onDone = {})
         }
     }
 
@@ -87,7 +97,6 @@ class WordRecapTest : LabScreenshotTest() {
         var r = run()
         r = WordRecap.answer(r, "成都", false, "2026-11-03T10:06:01Z", "e1")
         r = WordRecap.answer(r, "采耳", true, "2026-11-03T10:06:02Z", "e2")
-        r = WordRecap.answer(r, "麻辣", true, "2026-11-03T10:06:03Z", "e3")
         r = WordRecap.answer(r, "兔头", true, "2026-11-03T10:06:04Z", "e4")
         r = WordRecap.answer(r, "成都", true, "2026-11-03T10:06:05Z", "e5")
         r = WordRecap.setKeep(r, "成都", true)
@@ -122,12 +131,65 @@ class WordRecapTest : LabScreenshotTest() {
         }
         answer("成都", false)
         answer("采耳", true)
-        answer("麻辣", true)
         answer("兔头", true)
         answer("成都", true)
         compose.onNodeWithText("Recap done 🎉").assertExists()
-        compose.onNodeWithText("3 right first time", substring = true).assertExists()
-        assertEquals(4, compose.onAllNodesWithTag(WordRecapTags.KEEP).fetchSemanticsNodes().size)
+        compose.onNodeWithText("2 right first time", substring = true).assertExists()
+        assertEquals(3, compose.onAllNodesWithTag(WordRecapTags.KEEP).fetchSemanticsNodes().size)
         compose.onNodeWithText("⚡ Study it today").assertExists()
+    }
+
+    // ---------- 🎤 Say it ----------
+
+    private val label = WordRecap.sourceLabel(WordRecap.SOURCE_READER, "成都的一天")
+    private fun said(transcript: String) = PractiseUi(result = CoachPractise.practise(transcript, "成都"))
+
+    @Test fun sayQuestion() = shoot("reader-recap-05-say-question") { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = label, sayPreview = said("成都。")), RecapActions()) }
+    @Test fun sayQuestionDark() = shoot("reader-recap-05-say-question-dark", dark = true) { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = label, sayPreview = said("成都。")), RecapActions()) }
+    @Test fun sayCloseDark() = shoot("reader-recap-06-say-close-dark", dark = true) { ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = label, sayPreview = said("城都")), RecapActions()) }
+    @Test fun sayAnswerDark() = shoot("reader-recap-07-say-answer-dark", dark = true) {
+        ReaderRecapScreen(RecapUi("Word recap", run(), sourceLabel = label, revealed = true, sayPreview = said("我们在成都"), saySuggested = WordRecap.saySuggestion("contains")), RecapActions())
+    }
+
+    @Test
+    fun sayItShowsOnBothSidesWithoutListen() {
+        compose.setContent { LabTheme { ReaderRecapScreen(RecapUi("Word recap", run()), RecapActions()) } }
+        val mic = CoachPractiseTags.mic(WordRecapTags.SAY)
+        compose.onNodeWithTag(mic).assertExists()
+        compose.onNodeWithText("🎤  Say it").assertExists()
+        // No ▶ on the question side: it would give the word away.
+        assertTrue(compose.onAllNodesWithTag(CoachPractiseTags.listen(WordRecapTags.SAY)).fetchSemanticsNodes().isEmpty())
+        compose.onNodeWithTag(WordRecapTags.SHOW).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag(mic).assertExists()
+        // Nothing said before Show answer: no suggestion.
+        compose.onNodeWithText("Got it").assertExists()
+    }
+
+    @Test
+    fun saidRightShowsYouSaidAndSuggestsGotIt() {
+        compose.setContent {
+            LabTheme { ReaderRecapScreen(RecapUi("Word recap", run(), revealed = true, sayPreview = said("成都"), saySuggested = WordRecap.saySuggestion("match")), RecapActions()) }
+        }
+        compose.onNodeWithTag(CoachPractiseTags.result(WordRecapTags.SAY)).assertExists()
+        compose.onNodeWithText("Match", substring = true).assertExists()
+        compose.onNodeWithText("✓ Got it").assertExists()
+        compose.onNodeWithTag(WordRecapTags.GOT_IT).assert(androidx.compose.ui.test.SemanticsMatcher.expectValue(androidx.compose.ui.semantics.SemanticsProperties.StateDescription, "Suggested"))
+        compose.onNodeWithText("🔁  Try again").assertExists()
+    }
+
+    @Test
+    fun sayCheckedLikeASpokenAnswer() {
+        assertEquals("match", CoachPractise.outcome(CoachPractise.practise("成都。", "成都"), null))
+        assertEquals("contains", CoachPractise.outcome(CoachPractise.practise("我们在成都", "成都"), null))
+        assertEquals("right", WordRecap.saySuggestion("contains"))
+        assertEquals(null, WordRecap.saySuggestion("close"))
+    }
+
+    @Test
+    fun sayOfflineSaysWhy() {
+        compose.setContent { LabTheme { ReaderRecapScreen(RecapUi("Word recap", run(), sayPreview = PractiseUi(blocked = "offline")), RecapActions()) } }
+        compose.onNodeWithTag(CoachPractiseTags.blocked(WordRecapTags.SAY)).assertExists()
+        compose.onNodeWithText(CoachPractise.OFFLINE).assertExists()
     }
 }

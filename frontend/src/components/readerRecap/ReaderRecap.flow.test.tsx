@@ -1,6 +1,6 @@
 /**
  * 📝 Reader word recap, end to end on the web (docs/STUDY_SESSION.md "Reader word recap"): words
- * tapped and read aloud wrong while reading → "Story finished ✓ — 📝 Recap N words" → the one-off
+ * tapped while reading (never read-aloud mistakes) → "Story finished ✓ — 📝 Recap N words" → the one-off
  * pass in story order (Not yet comes back) → every switch OFF by default → Done adds ONLY the
  * switched-on new words as cards (+ Up next) and bumps the switched-on word he already has.
  */
@@ -133,13 +133,16 @@ afterEach(() => {
 });
 
 describe('reader word recap', () => {
-  it('collects taps and read-aloud mistakes, recaps them and adds only the switched-on words', async () => {
+  it('recaps the words he TAPPED (never read-aloud mistakes) and adds only the switched-on words', async () => {
     // Page 1: tap 采耳 (→ the explorer, and into the recap).
     await click(host.querySelector('.reader-chinese-reveal-box'));
     await click(chip('采耳'));
     expect(explorerOpen).toHaveBeenCalledTimes(1);
     await click(button('Next'));
-    // Page 2: read aloud — 成都 heard as 程度 (a tone slip on 都), 麻辣 missed.
+    // Page 2: tap 成都, then read aloud — 成都 heard as 程度 (a tone slip on 都), 麻辣 missed. The take's
+    // mistakes are NOT recapped (Jerome: a take stopped half-way marked the whole sentence wrong).
+    await click(host.querySelector('.reader-chinese-reveal-box'));
+    await click(chip('成都'));
     await click(q('reader-read-aloud'));
     await click(q('reader-read-aloud-stop-footer'));
     await act(async () => fake.current!.land('我们去程度吃兔头'));
@@ -147,15 +150,16 @@ describe('reader word recap', () => {
     await click(q('reader-finish'));
     expect(finish).toHaveBeenCalledTimes(1);
 
-    // The offer, over whatever comes next.
+    // The offer, over whatever comes next: the two tapped words only.
     const start = q('recap-offer-start');
-    expect(start?.textContent).toBe('📝 Recap 3 words');
-    expect(q('recap-offer')?.textContent).toContain('1 you tapped · 2 you read aloud differently');
+    expect(start?.textContent).toBe('📝 Recap 2 words');
+    expect(q('recap-offer')?.textContent).toContain('2 you tapped');
+    expect(q('recap-offer')?.textContent).not.toContain('read aloud');
     await click(start);
-    expect(track).toHaveBeenCalledWith('reader.word_recap_start', { from: 'finish', words: 3 });
+    expect(track).toHaveBeenCalledWith('reader.word_recap_start', { from: 'finish', words: 2 });
     expect(q('recap-offer')).toBeNull();
 
-    // Story order: 采耳 (page 1), 成都, 麻辣.
+    // Story order: 采耳 (page 1), 成都.
     expect(q('recap-card')?.textContent).toContain('采耳');
     expect(q('recap-sentence')?.textContent).toBe('他在春熙路采耳。');
     await click(q('recap-show'));
@@ -169,25 +173,23 @@ describe('reader word recap', () => {
 
     expect(q('recap-card')?.textContent).toContain('成都');
     await click(q('recap-show'));
-    expect(q('recap-why')?.textContent).toContain('Read aloud: 都 dū → you said dù (4th tone instead of 1st)');
+    expect(q('recap-why')?.textContent).toBe('You tapped it while reading');
     expect(q('recap-keep')?.textContent).toContain('Add to my long-term review');
     await click(q('recap-keep-switch'));
     await click(q('recap-not-yet'));
 
-    expect(q('recap-card')?.textContent).toContain('麻辣');
-    await click(q('recap-show'));
-    await click(q('recap-got-it'));
     // 成都 comes back until Got it.
     expect(q('recap-card')?.textContent).toContain('成都');
     expect(q('recap-retry')?.textContent).toBe('Trying again · 1 left');
     await click(q('recap-show'));
     await click(q('recap-got-it'));
 
-    // The list: every word with its switch (麻辣 left off).
+    // The list: every recapped word with its switch (麻辣, only read wrong, is not there).
     expect(q('recap-summary')?.textContent).toContain('Recap done');
-    expect(q('recap-summary')?.textContent).toContain('2 right first time');
+    expect(q('recap-summary')?.textContent).toContain('1 right first time');
+    expect(q('recap-summary')?.textContent).not.toContain('麻辣');
     const switches = [...host.querySelectorAll('[data-testid="recap-row-keep-switch"]')] as HTMLInputElement[];
-    expect(switches.map((s) => s.checked)).toEqual([true, true, false]);
+    expect(switches.map((s) => s.checked)).toEqual([true, true]);
 
     await click(q('recap-done'));
     await flush();
@@ -203,10 +205,21 @@ describe('reader word recap', () => {
     expect(api.addUpNextApi).toHaveBeenCalledWith({ note_ids: ['new-0'], position: 'bottom', source: 'reader_recap' });
     expect((await db.studyBumps.toArray()).map((b) => b.note_id)).toEqual(['note-caier']);
     expect(await recapDb().adds.count()).toBe(0);
-    expect(track).toHaveBeenCalledWith('reader.word_recap_finish', { words: 3, got_it_first_time: 2, added: 1, bumped: 1 });
+    expect(track).toHaveBeenCalledWith('reader.word_recap_finish', { words: 2, got_it_first_time: 1, added: 1, bumped: 1 });
   });
 
-  it('offers nothing when nothing was tapped or read wrong', async () => {
+  it('offers nothing when words were only read aloud wrong', async () => {
+    await click(button('Next'));
+    await click(q('reader-read-aloud'));
+    await click(q('reader-read-aloud-stop-footer'));
+    await act(async () => fake.current!.land('我们去程度吃兔头'));
+    await flush();
+    await click(q('reader-finish'));
+    expect(finish).toHaveBeenCalledTimes(1);
+    expect(q('recap-offer')).toBeNull();
+  });
+
+  it('offers nothing when nothing was tapped', async () => {
     await click(button('Next'));
     await click(q('reader-finish'));
     expect(finish).toHaveBeenCalledTimes(1);

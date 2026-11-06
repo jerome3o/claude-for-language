@@ -14,7 +14,7 @@ import { Confetti } from '../Confetti';
 import { useBackLevels } from '../../hooks/useBackLevels';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
 import type { ReaderWord } from '@shared/reader/words';
-import { recapPromptLine } from '@shared/study/wordRecap';
+import { recapPromptLine, recapWords } from '@shared/study/wordRecap';
 import { getRecapRun, offerRecap, useRecapCollector, type RecapCollector } from '../../services/wordRecap';
 import { readerPageWords } from '@shared/claude/contexts';
 import type { ClaudeContextSnapshot, ClaudeThreadContext } from '@shared/claude/context';
@@ -283,7 +283,7 @@ export function ReaderView({
   takeRef.current = take;
   useBackLevels(take ? 1 : 0, () => takeRef.current?.stop(), 'read-aloud');
 
-  // 📝 Reader word recap: what this reading collects (taps, read-aloud mistakes), offered after the finish.
+  // 📝 Reader word recap: what this reading collects (taps — recapped; read-aloud mistakes — only for Ask Claude), offered after the finish.
   const recap = useRecapCollector(reader.id);
 
   const page = reader.pages[Math.min(currentPage, reader.pages.length - 1)];
@@ -309,7 +309,9 @@ export function ReaderView({
     // The read is recorded as always; then, when words were collected, "📝 Recap N words" is offered
     // over whatever comes next (never forced).
     void recap.finish().then((run) => {
-      if (run && run.words.length > 0) offerRecap({ readerId: reader.id, words: run.words.length, line: recapPromptLine(run) });
+      // Only the words he tapped are recapped (read-aloud mistakes stay for Ask Claude).
+      const n = run ? recapWords(run).length : 0;
+      if (run && n > 0) offerRecap({ readerId: reader.id, words: n, line: recapPromptLine(run) });
     });
   }, [onFinish, reader.pages.length, reader.id, startTime, recap]);
 

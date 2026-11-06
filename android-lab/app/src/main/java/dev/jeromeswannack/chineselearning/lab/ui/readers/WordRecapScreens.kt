@@ -46,6 +46,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -53,11 +55,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
 import dev.jeromeswannack.chineselearning.lab.core.WordRecap
 import dev.jeromeswannack.chineselearning.lab.core.WordRecapRun
 import dev.jeromeswannack.chineselearning.lab.core.WordRecapWord
 import dev.jeromeswannack.chineselearning.lab.data.readers.RecapOffer
 import dev.jeromeswannack.chineselearning.lab.data.readers.WordRecapStore
+import dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseLabels
+import dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseSentenceRow
+import dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseStop
+import dev.jeromeswannack.chineselearning.lab.ui.coach.practiseTapToStop
+import dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseUi
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText
 import dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiRain
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
@@ -89,7 +98,12 @@ object WordRecapTags {
     const val DONE = "recap-done"
     const val TO_LIST = "recap-to-list"
     const val SOURCE = "recap-source"
+    /** 🎤 Say it's row (its parts: `recap-say-mic`, `recap-say-result`, … — CoachPractiseTags). */
+    const val SAY = "recap-say"
 }
+
+/** 🎤 Say it on a recap card: its own words, no ▶ (the question side would give the word away). */
+private val RECAP_SAY_LABELS = PractiseLabels(label = WordRecap.SAY_LABEL, listening = WordRecap.SAY_LISTENING, showListen = false)
 
 /** The explorer source of a recap's words. */
 private fun explorerSource(source: String) = if (source == WordRecap.SOURCE_CHAT) "claude_chat" else "reader"
@@ -162,6 +176,9 @@ data class RecapUi(
     val doneLine: String? = null,
     /** Screenshots: start revealed / on the list. */
     val revealed: Boolean = false,
+    /** Screenshots: 🎤 Say it's row as given (null = live), and what a question-side take suggested. */
+    val sayPreview: PractiseUi? = null,
+    val saySuggested: String? = null,
     val listing: Boolean = false,
 )
 
@@ -183,11 +200,12 @@ fun ReaderRecapScreen(ui: RecapUi, actions: RecapActions) {
             }
             Text("✕", fontSize = 20.sp, color = Lab.colors.muted, modifier = Modifier.size(48.dp).bouncyClickable(onClick = actions.close).padding(14.dp))
         }
-        if (!ui.sourceLabel.isNullOrEmpty() && run != null && run.words.isNotEmpty()) {
+        val passWords = run?.let(WordRecap::words).orEmpty()
+        if (!ui.sourceLabel.isNullOrEmpty() && run != null && passWords.isNotEmpty()) {
             Text(ui.sourceLabel, color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag(WordRecapTags.SOURCE))
         }
         when {
-            run == null || run.words.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            run == null || passWords.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Text(WordRecap.emptyLine(source), color = Lab.colors.muted, textAlign = TextAlign.Center)
             }
             showList -> RecapSummary(source, run, ui, actions, complete = progress!!.complete, onBack = if (!progress.complete && word != null) ({ listing = false }) else null)
@@ -195,7 +213,7 @@ fun ReaderRecapScreen(ui: RecapUi, actions: RecapActions) {
                 RetryProgressBar(WordRecap.bar(run), Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp))
                 val attempt = run.events.count { it.item_id == nextKey }
                 androidx.compose.runtime.key("$nextKey:$attempt") {
-                    RecapCard(source, word!!, owned = nextKey!! in ui.owned, kept = WordRecap.isKept(run, nextKey), startRevealed = ui.revealed, actions = actions, modifier = Modifier.weight(1f))
+                    RecapCard(source, word!!, owned = nextKey!! in ui.owned, kept = WordRecap.isKept(run, nextKey), startRevealed = ui.revealed, actions = actions, modifier = Modifier.weight(1f), sayPreview = ui.sayPreview, startSuggested = ui.saySuggested)
                 }
             }
         }
@@ -236,10 +254,19 @@ fun RecapKeepSwitch(owned: Boolean, on: Boolean, onChange: (Boolean) -> Unit, mo
 }
 
 @Composable
-private fun RecapCard(source: String, word: WordRecapWord, owned: Boolean, kept: Boolean, startRevealed: Boolean, actions: RecapActions, modifier: Modifier = Modifier) {
+private fun RecapCard(
+    source: String, word: WordRecapWord, owned: Boolean, kept: Boolean, startRevealed: Boolean, actions: RecapActions, modifier: Modifier = Modifier,
+    sayPreview: PractiseUi? = null, startSuggested: String? = null,
+) {
     var revealed by rememberSaveable { mutableStateOf(startRevealed) }
     val key = WordRecap.key(word.hanzi)
-    Column(modifier.fillMaxWidth()) {
+    // 🎤 Say it: a take started before Show answer is the question side; said right, it suggests Got it.
+    var takeSide by remember { mutableStateOf("question") }
+    var suggested by rememberSaveable { mutableStateOf(startSuggested) }
+    val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as? LabApp
+    // While a take records, a tap anywhere on the card stops it (as the coach's card; word taps still work).
+    val stop = remember { PractiseStop() }
+    Column(modifier.fillMaxWidth().practiseTapToStop(stop)) {
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp).testTag(WordRecapTags.CARD),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -251,6 +278,19 @@ private fun RecapCard(source: String, word: WordRecapWord, owned: Boolean, kept:
             if (word.sentence.isNotEmpty()) {
                 if (revealed) ExplorableText(word.sentence, explorerSource(source), fontSize = 21.sp, lineHeight = 34.sp, textAlign = TextAlign.Center, highlight = word.hanzi)
                 else MarkedSentence(word.sentence, word.hanzi)
+            }
+            Box(Modifier.widthIn(max = 300.dp).fillMaxWidth()) {
+                PractiseSentenceRow(
+                    word.hanzi,
+                    tag = WordRecapTags.SAY,
+                    stop = stop,
+                    preview = sayPreview,
+                    labels = RECAP_SAY_LABELS,
+                    surface = "reader_recap",
+                    onStart = { takeSide = if (revealed) "answer" else "question" },
+                    onPractised = { p -> if (takeSide == "question") suggested = WordRecap.saySuggestion(SpokenAnswerResult.stateName(p.result.state)) },
+                    onOutcome = { result -> app?.analytics?.track("reader.recap_say", mapOf("result" to result, "side" to takeSide, "source" to source)) },
+                )
             }
             AnimatedVisibility(revealed, enter = fadeIn() + slideInVertically { it / 6 }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -275,8 +315,20 @@ private fun RecapCard(source: String, word: WordRecapWord, owned: Boolean, kept:
         }
         Row(Modifier.fillMaxWidth().background(Lab.colors.card).padding(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (revealed) {
-                SecondaryPill("Not yet", Modifier.weight(1f).height(54.dp).testTag(WordRecapTags.NOT_YET), danger = true) { actions.answer(key, false) }
-                PrimaryPill("Got it", Modifier.weight(1f).height(54.dp).testTag(WordRecapTags.GOT_IT), color = Palette.Good) { actions.answer(key, true) }
+                val ring = suggested == "right"
+                // Said right before Show answer: Got it ringed and marked (the homework pass's suggestion) — he
+                // still chooses. Both sit in the same 3dp frame, so the ringed one is the same size.
+                Box(Modifier.weight(1f).padding(3.dp)) {
+                    SecondaryPill("Not yet", Modifier.fillMaxWidth().height(50.dp).testTag(WordRecapTags.NOT_YET), danger = true) { actions.answer(key, false) }
+                }
+                Box(Modifier.weight(1f).border(2.dp, if (ring) Palette.Good else Color.Transparent, RoundedCornerShape(30.dp)).padding(3.dp)) {
+                    PrimaryPill(
+                        if (ring) "✓ Got it" else "Got it",
+                        Modifier.fillMaxWidth().height(50.dp).testTag(WordRecapTags.GOT_IT)
+                            .semantics { if (ring) stateDescription = "Suggested" },
+                        color = Palette.Good,
+                    ) { actions.answer(key, true) }
+                }
             } else {
                 PrimaryPill("Show answer", Modifier.weight(1f).height(54.dp).testTag(WordRecapTags.SHOW)) {
                     revealed = true
@@ -298,10 +350,11 @@ private fun RecapSummary(source: String, run: WordRecapRun, ui: RecapUi, actions
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(if (complete) "Recap done 🎉" else "Choose words to keep", fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Lab.colors.ink)
-                val n = run.words.size
+                val words = WordRecap.words(run)
+                val n = words.size
                 Text("$n ${if (n == 1) "word" else "words"}" + if (complete) " · ${WordRecap.rightFirstTime(run)} right first time" else "", color = Lab.colors.muted)
                 Text(WordRecap.keepHint(source), color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center)
-                for (w in run.words) {
+                for (w in words) {
                     val k = WordRecap.key(w.hanzi)
                     Column(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(16.dp)).padding(12.dp),
@@ -318,7 +371,7 @@ private fun RecapSummary(source: String, run: WordRecapRun, ui: RecapUi, actions
                         RecapKeepSwitch(k in ui.owned, WordRecap.isKept(run, k), onChange = { actions.keep(k, it) }, modifier = Modifier.fillMaxWidth())
                     }
                 }
-                val keptNew = run.words.count { WordRecap.isKept(run, WordRecap.key(it.hanzi)) && WordRecap.key(it.hanzi) !in ui.owned }
+                val keptNew = words.count { WordRecap.isKept(run, WordRecap.key(it.hanzi)) && WordRecap.key(it.hanzi) !in ui.owned }
                 if (!ui.online && keptNew > 0) Text("The new cards are made when you're back online.", color = Lab.colors.muted, fontSize = 14.sp)
                 ui.doneLine?.let { Text(it, color = Palette.Good, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center) }
             }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { recapDoneLine, recapEmptyLine, recapKey, type WordRecapSource } from '@shared/study/wordRecap';
+import { recapDoneLine, recapEmptyLine, recapKey, recapWords, type WordRecapSource } from '@shared/study/wordRecap';
 import {
   answerRecapWord, finishRecap, ownedRecapNotes, restartRecapRun, setRecapWordKeep, useRecapRun,
 } from '../../services/wordRecap';
@@ -75,16 +75,17 @@ export function WordRecapPass({
   const speak = useLessonSpeak();
   const [doneLine, setDoneLine] = useState<string | null>(null);
 
-  const wordsKey = run ? run.words.map((w) => w.hanzi).join('|') : '';
+  const words = run ? recapWords(run) : [];
+  const wordsKey = words.map((w) => w.hanzi).join('|');
   const owned = useLiveQuery(async () => (run ? new Set((await ownedRecapNotes(run)).keys()) : new Set<string>()), [wordsKey]) ?? new Set<string>();
-  const missing = useMemo(() => (run ? run.words.filter((w) => !w.gloss).map((w) => w.hanzi) : []), [wordsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const missing = useMemo(() => words.filter((w) => !w.gloss).map((w) => w.hanzi), [wordsKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const glosses = useRecapGlosses(missing, wordsKey);
 
   const [started, setStarted] = useState(false);
   useEffect(() => {
     if (!run || started) return;
     setStarted(true);
-    onRun?.(run.words.length);
+    onRun?.(recapWords(run).length);
   }, [run, started, onRun]);
 
   const leave = useMemo(() => () => {
@@ -93,7 +94,7 @@ export function WordRecapPass({
   }, [navigate, backTo.path]);
 
   if (run === undefined) return <div className="study-page-fullscreen"><div className="study-fullscreen" /></div>;
-  if (!run || !runId || run.words.length === 0) {
+  if (!run || !runId || words.length === 0) {
     return (
       <div className="study-page-fullscreen">
         <div className="study-fullscreen hw-pass">

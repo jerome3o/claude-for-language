@@ -90,6 +90,20 @@ data class PractiseUi(
     val result: CoachPractise.Practised? = null,
 )
 
+/**
+ * The row's words and options: the coach's "🎤 Practise saying it" by default; the word recap's
+ * "🎤 Say it" has its own label / listening line and no ▶ (the question side would give the word away).
+ */
+data class PractiseLabels(
+    val label: String = CoachPractise.LABEL,
+    val listening: String = CoachPractise.LISTENING,
+    val showListen: Boolean = true,
+) {
+    companion object {
+        val COACH = PractiseLabels()
+    }
+}
+
 data class PractiseActions(
     val onListen: () -> Unit = {},
     val onMic: () -> Unit = {},
@@ -129,27 +143,35 @@ fun PractiseSentenceRow(
     preview: PractiseUi? = null,
     /** Told about every checked take (a clip's speak scene settles on it). */
     onPractised: ((CoachPractise.Practised) -> Unit)? = null,
+    labels: PractiseLabels = PractiseLabels.COACH,
+    /** The voice pipeline's surface. */
+    surface: String = "coach_practise",
+    /** Every outcome ([CoachPractise.outcome]) for the caller's own event; null = `coach.practise_say`. */
+    onOutcome: ((String) -> Unit)? = null,
+    /** A take starts (🎤 tapped to record). */
+    onStart: (() -> Unit)? = null,
 ) {
-    if (preview != null) return PractiseRowContent(hanzi, preview, PractiseActions(), tag)
+    if (preview != null) return PractiseRowContent(hanzi, preview, PractiseActions(), tag, labels)
     val context = LocalContext.current
     val app = context.applicationContext as? LabApp
     val scope = rememberCoroutineScope()
     val speaker = remember(app) { app?.let { LessonSpeaker(it, scope) } }
     DisposableEffect(speaker) { onDispose { speaker?.stop() } }
-    val controller = rememberVoiceDictation("coach_practise", autoSubmit = true)
+    val controller = rememberVoiceDictation(surface, autoSubmit = true)
     val dictation by controller.ui.collectAsState()
     var result by remember(hanzi) { mutableStateOf<CoachPractise.Practised?>(null) }
     val target by rememberUpdatedState(hanzi)
+    val report by rememberUpdatedState<(String) -> Unit>(onOutcome ?: { o -> app?.analytics?.track("coach.practise_say", mapOf("result" to o)); Unit })
     val voice = rememberVoiceFirstActions(controller, value = "", onFill = {}) { answer ->
         val p = CoachPractise.practise(answer.text, target)
         result = p
         onPractised?.invoke(p)
-        app?.analytics?.track("coach.practise_say", mapOf("result" to CoachPractise.outcome(p, null)))
+        report(CoachPractise.outcome(p, null))
         if (p.result.accepted) app?.haptics?.correct() else app?.haptics?.tick()
     }
     // A take that gave nothing is reported once (a result is reported when it lands).
     LaunchedEffect(dictation.phase, dictation.failure) {
-        if (dictation.phase == "failed") app?.analytics?.track("coach.practise_say", mapOf("result" to CoachPractise.outcome(null, dictation.failure)))
+        if (dictation.phase == "failed") report(CoachPractise.outcome(null, dictation.failure))
     }
     val listening by rememberUpdatedState(dictation.phase == "listening")
     DisposableEffect(stop, controller) {
@@ -165,17 +187,18 @@ fun PractiseSentenceRow(
                 when (dictation.phase) {
                     "listening" -> controller.stop()
                     "finishing" -> Unit
-                    else -> { result = null; voice.say() }
+                    else -> { result = null; onStart?.invoke(); voice.say() }
                 }
             },
             onRetryUpload = controller::retryUpload,
         ),
         tag,
+        labels,
     )
 }
 
 @Composable
-fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, tag: String = CoachPractiseTags.ROOT) {
+fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, tag: String = CoachPractiseTags.ROOT, labels: PractiseLabels = PractiseLabels.COACH) {
     val listening = ui.phase == "listening"
     val finishing = ui.phase == "finishing"
     val failed = ui.phase == "failed"
@@ -184,7 +207,7 @@ fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, 
     Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag(tag), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // ▶ the sentence.
-            Box(
+            if (labels.showListen) Box(
                 Modifier.size(44.dp).clip(CircleShape).border(1.5.dp, Lab.colors.accent.copy(alpha = 0.5f), CircleShape)
                     .bouncyClickable(true, 0.9f, role = Role.Button, onClick = actions.onListen)
                     .semantics { contentDescription = "${CoachPractise.LISTEN}: $hanzi" }
@@ -202,7 +225,7 @@ fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, 
                     .then(if (listening) Modifier else Modifier.border(1.5.dp, Lab.colors.accent.copy(alpha = if (micEnabled) 0.5f else 0.2f), shape))
                     .bouncyClickable(micEnabled, 0.96f, role = Role.Button, onClick = actions.onMic)
                     .onPreviewKeyEvent { e -> if (listening && e.type == KeyEventType.KeyUp && (e.key == Key.Enter || e.key == Key.NumPadEnter)) { actions.onMic(); true } else false }
-                    .semantics { contentDescription = if (listening) "${CoachPractise.STOP} — check what I said" else "${CoachPractise.LABEL}: $hanzi" }
+                    .semantics { contentDescription = if (listening) "${CoachPractise.STOP} — check what I said" else "${labels.label}: $hanzi" }
                     .testTag(CoachPractiseTags.mic(tag))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -216,7 +239,7 @@ fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, 
                     finishing -> CoachPractise.CHECKING
                     listening -> "⏹  ${CoachPractise.STOP}"
                     ui.result != null || failed -> "🔁  ${CoachPractise.AGAIN}"
-                    else -> "🎤  ${CoachPractise.LABEL}"
+                    else -> "🎤  ${labels.label}"
                 }
                 Text(label, color = if (micEnabled || listening) fg else Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
@@ -227,7 +250,7 @@ fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, 
                     .padding(horizontal = 12.dp, vertical = 10.dp).testTag(CoachPractiseTags.live(tag)),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                if (ui.finalText.isEmpty() && ui.partialText.isEmpty()) Text(CoachPractise.LISTENING, color = Lab.colors.muted, fontSize = 14.sp)
+                if (ui.finalText.isEmpty() && ui.partialText.isEmpty()) Text(labels.listening, color = Lab.colors.muted, fontSize = 14.sp)
                 else Text(
                     androidx.compose.ui.text.buildAnnotatedString {
                         append(ui.finalText)
