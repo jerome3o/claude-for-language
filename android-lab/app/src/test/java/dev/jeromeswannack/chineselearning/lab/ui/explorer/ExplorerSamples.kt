@@ -72,6 +72,8 @@ object ExplorerSamples {
         play: (String) -> Unit = {},
         drillFx: DrillFx = DrillFx(),
         ownCards: Map<String, dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo> = emptyMap(),
+        addActions: dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions = dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions(),
+        bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi = { h, _ -> "⚡ ${h.first()} is in today's study" },
     ) = ExplorerEnv(
         chars = CharSheetActions(
             lookup = { c -> records[c]?.let { CharDict.Lookup.Ok(it) } ?: CharDict.Lookup.Missing },
@@ -84,7 +86,8 @@ object ExplorerSamples {
         decal = decals,
         online = { online },
         canWrite = true,
-        bump = { h, _ -> "⚡ ${h.first()} is in today's study" },
+        bump = bump,
+        addActions = addActions,
         openCard = {},
         play = play,
         drillFx = drillFx,

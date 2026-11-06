@@ -9,6 +9,14 @@ import './bumps/bumps.css';
 import '../pages/RoleplayPage.css';
 import './AddChunkModal.css';
 
+/** What "+ Add as card" made: the new note (online — the server has it) and its deck. */
+export interface AddedCard {
+  noteId: string;
+  hanzi: string;
+  deckId: string;
+  deckName: string;
+}
+
 export interface Chunk {
   hanzi: string;
   pinyin: string;
@@ -37,8 +45,11 @@ export function AddChunkModal(props: {
   source?: BumpSource;
   /** When given, a word they already have offers "Open card →" (the card hub). */
   onOpenCard?: (noteId: string) => void;
-  /** Called once the new card is saved. */
-  onAdded?: () => void;
+  /**
+   * Called once the new card is saved, with the new note and its deck — so the caller can offer
+   * "⚡ Study it today" at once (the note reaches this device's store with the next sync).
+   */
+  onAdded?: (added: AddedCard) => void;
 }) {
   const { chunk, onClose } = props;
   const source = props.source ?? 'other';
@@ -101,7 +112,7 @@ export function AddChunkModal(props: {
     setBusy(true);
     setErr(null);
     try {
-      await createNote(deckId, {
+      const note = await createNote(deckId, {
         hanzi: chunk.hanzi,
         pinyin: chunk.pinyin,
         english: chunk.english,
@@ -113,7 +124,11 @@ export function AddChunkModal(props: {
         } : {}),
       });
       setDone(true);
-      props.onAdded?.();
+      // Bring the new note (and its cards) down now, so the study queue and every "do I have
+      // this?" check on the device see it without waiting for the next scheduled sync.
+      // (Loaded on demand: the sync service pulls in half the app, every user of this sheet doesn't need it.)
+      void import('../services/sync').then((m) => m.syncService.syncInBackground()).catch(() => undefined);
+      props.onAdded?.({ noteId: note.id, hanzi: chunk.hanzi, deckId, deckName: decks.find((d) => d.id === deckId)?.name ?? 'your deck' });
       setTimeout(onClose, 800);
     } catch (e) {
       trackError('add_card', e);

@@ -779,9 +779,14 @@ fun AddChunkSheet(
     bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
     existing: AddChunkExisting? = null,
     onAdded: () -> Unit = {},
+    /** After a successful add: which deck it went to (the explorer offers ⚡ Study it today at once). */
+    onAddedTo: (AddedTo) -> Unit = {},
 ) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump, existing = existing, onAdded = onAdded) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo) }
 }
+
+/** What "+ Add as card" made: the word and the deck it went into (the note reaches Room with the next sync). */
+data class AddedTo(val hanzi: String, val deckId: String, val deckName: String)
 
 /**
  * The word is already one of his notes (in any deck, AddChunkModal's `existing`): [deckNames]
@@ -799,6 +804,7 @@ fun AddChunkBody(
     existing: AddChunkExisting? = null,
     /** After a successful add (analytics). */
     onAdded: () -> Unit = {},
+    onAddedTo: (AddedTo) -> Unit = {},
 ) {
     var bumped by remember { mutableStateOf<String?>(null) }
     var decks by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -843,7 +849,7 @@ fun AddChunkBody(
                         busy = true
                         error = null
                         scope.launch {
-                            try { actions.addCard(deckId, chunk); done = true; onAdded(); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                            try { actions.addCard(deckId, chunk); done = true; onAdded(); onAddedTo(AddedTo(chunk.hanzi, deckId, decks.firstOrNull { it.first == deckId }?.second ?: "your deck")); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
                         }
                     }
                     PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1.3f).height(50.dp).testTag("add-chunk-bump"), enabled = !busy && bumped == null) {
@@ -860,7 +866,7 @@ fun AddChunkBody(
                     busy = true
                     error = null
                     scope.launch {
-                        try { actions.addCard(deckId, chunk); done = true; onAdded(); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                        try { actions.addCard(deckId, chunk); done = true; onAdded(); onAddedTo(AddedTo(chunk.hanzi, deckId, decks.firstOrNull { it.first == deckId }?.second ?: "your deck")); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
                     }
                 }
             }

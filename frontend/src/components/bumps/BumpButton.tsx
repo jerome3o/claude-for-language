@@ -17,9 +17,11 @@ export function BumpButton(props: {
   /** A second tap takes the word out of today's pocket. */
   removable?: boolean;
   className?: string;
+  /** Spellings for the "⚡ 想到 is first in today's study" line when a note isn't on the device yet. */
+  hanziById?: Map<string, string>;
   onBumped?: (message: string) => void;
 }) {
-  const { noteIds, source, compact, removable, className, onBumped } = props;
+  const { noteIds, source, compact, removable, className, onBumped, hanziById } = props;
   const bumps = useBumps();
   const [busy, setBusy] = useState(false);
   const inPocket = noteIds.length > 0 && noteIds.every((id) => bumps.has(id));
@@ -33,7 +35,7 @@ export function BumpButton(props: {
       if (inPocket) {
         if (removable) for (const id of noteIds) await clearBump(id, source);
       } else {
-        const out = await bumpNotes(noteIds, source);
+        const out = await bumpNotes(noteIds, source, hanziById);
         onBumped?.(out.message);
       }
     } finally {

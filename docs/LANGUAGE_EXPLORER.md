@@ -71,7 +71,14 @@ words; the tint only repeats them.
   Character view's line.
 - **Your card**: "📚 You have this in <deck>" → Open card (the card hub) and ⚡ Study it today; else
   **+ Add as card** (`AddChunkModal`, the top deck of the queue preselected; the "More about"
-  explanation's fun facts / sentence go with it when it was loaded).
+  explanation's fun facts / sentence go with it when it was loaded). **Right after an add** the
+  footer says "✓ Added to <deck>" with ⚡ Study it today (web: + Open card →) at once — the new note
+  reaches the device only with the sync the add starts (web `AddChunkModal` → `onAdded(AddedCard)` +
+  `syncService.syncInBackground()`, `CardTieIn`; Lab `AddChunkSheet.onAddedTo` → `ExplorerHost`'s
+  `justAdded`, Room read again every 1.5 s until the card is there); the bump goes by the new note's
+  id (web) / the word + that deck (Lab), which the server already has. Same on the Character view's
+  "+ Add 性 as a card". Analytics `explorer.bump { just_added: true }`. (Before: "+ Add" again, or
+  "✓ Added — after the next sync", until the explorer was closed and reopened.)
 - **Meaning**: the dictionary senses.
 - **Sentence**: the sentence it was tapped in, and up to three of the learner's own cards that
   use the word — each itself explorable.

@@ -15,11 +15,24 @@ let resolveExisting: (e: Existing) => void = () => {};
 // Characters of the word that are cards of their own (shared charOwnCards), per test.
 const ownCards = vi.hoisted(() => ({}) as Record<string, { status: string; note_ids: string[]; decks: string[] }>);
 
+const added = vi.hoisted(() => ({
+  createNote: vi.fn(async () => ({ id: 'new-note', hanzi: '学习', cards: [] })),
+  bumpNotes: vi.fn(async () => ({ added: ['new-note'], already: [], message: '⚡ 学习 is first in today’s study' })),
+  sync: vi.fn(async () => undefined),
+}));
+
 vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
 vi.mock('../../services/studyBumps', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../services/studyBumps')>()),
   findExistingNotes: vi.fn(() => new Promise<Existing>((r) => { resolveExisting = r; })),
+  bumpNotes: added.bumpNotes,
 }));
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
+  getDecks: vi.fn(async () => [{ id: 'd2', name: 'HSK 2', study_priority: 1, created_at: '2026-01-01' }]),
+  createNote: added.createNote,
+}));
+vi.mock('../../services/sync', () => ({ syncService: { syncInBackground: added.sync } }));
 vi.mock('../../services/wordDict', () => ({ lookupWord: vi.fn(async () => ({ status: 'offline' })) }));
 vi.mock('../../services/charDict', () => ({
   lookupChar: vi.fn(async () => ({ status: 'missing' })),
@@ -106,5 +119,35 @@ describe('WordView card tie-in', () => {
     expect(chips).toHaveLength(2);
     expect(container!.querySelector('[data-testid="explorer-char-chip-own"]')).toBeNull();
     expect(chips[0].getAttribute('aria-label')).toBe('The character 学, xué');
+  });
+
+  it('right after + Add as card: "✓ Added to <deck>" with ⚡ Study it today for the new note, before it syncs', async () => {
+    const footer = await render();
+    await act(async () => {
+      resolveExisting([]);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      (footer.querySelector('[data-testid="explorer-add-card"]') as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const addBtn = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add to deck');
+    expect(addBtn).toBeTruthy();
+    await act(async () => {
+      addBtn!.click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(added.createNote).toHaveBeenCalledWith('d2', expect.objectContaining({ hanzi: '学习' }));
+    expect(added.sync).toHaveBeenCalled();
+    const block = footer.querySelector('[data-testid="xp-added"]');
+    expect(block?.textContent).toContain('✓ Added to HSK 2');
+    expect(footer.querySelector('[data-testid="explorer-add-card"]')).toBeNull();
+    const bump = [...block!.querySelectorAll('button')].find((b) => b.textContent === '⚡ Study it today');
+    await act(async () => {
+      bump!.click();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(added.bumpNotes).toHaveBeenCalledWith(['new-note'], 'explorer', new Map([['new-note', '学习']]));
+    expect(block!.textContent).toContain('⚡ 学习 is first in today’s study');
   });
 });
