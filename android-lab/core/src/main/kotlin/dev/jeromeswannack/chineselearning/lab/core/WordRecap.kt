@@ -7,7 +7,9 @@ import java.text.Normalizer
  * Reader word recap — a port of shared/study/wordRecap.ts, parity-tested
  * (parity/fixtures/word-recap.ts → WordRecapParityTest). While a graded reader is read, the RUN
  * collects every word chip tapped and every word a 🎤 Read it aloud take heard wrong (another
- * character, a tone slip, a missed one — never a homophone, never extra words); after the finish
+ * character, a tone slip, a missed one — never a homophone, never extra words). Only the TAPPED words
+ * are recapped ([words]; the take's mistakes stay in the run for "📖 Ask Claude about this page" —
+ * Jerome, Nov 2026: a take stopped half-way marked the whole sentence wrong). After the finish
  * "📝 Recap N words" is offered: a one-off pass in story order (homework pass rules, practice only)
  * with a switch per word, OFF by default — "Add to my long-term review" (a new card) or "⚡ Study it
  * today" (a word he already has). docs/STUDY_SESSION.md "Reader word recap".
@@ -163,12 +165,23 @@ object WordRecap {
         return next
     }
 
+    /**
+     * `recapWords`: the words the recap goes through. A reader's run: only the TAPPED words, each as
+     * tapped only (read-aloud mistakes are left out). A chat's run: all of them.
+     */
+    fun words(run: WordRecapRun): List<WordRecapWord> {
+        if (source(run) == SOURCE_CHAT) return run.words
+        return run.words
+            .filter { TAPPED in it.reasons }
+            .map { if (it.reasons.size == 1 && it.said.isEmpty()) it else it.copy(reasons = listOf(TAPPED), said = emptyList()) }
+    }
+
     fun finish(run: WordRecapRun, now: String) = run.copy(finished_at = now)
     fun markRecapped(run: WordRecapRun, now: String) = run.copy(recapped_at = now)
-    fun available(run: WordRecapRun?): Boolean = run != null && run.finished_at != null && run.words.isNotEmpty()
+    fun available(run: WordRecapRun?): Boolean = run != null && run.finished_at != null && words(run).isNotEmpty()
 
-    fun itemIds(run: WordRecapRun): List<String> = run.words.map { key(it.hanzi) }
-    fun wordFor(run: WordRecapRun, k: String): WordRecapWord? = run.words.firstOrNull { key(it.hanzi) == k }
+    fun itemIds(run: WordRecapRun): List<String> = words(run).map { key(it.hanzi) }
+    fun wordFor(run: WordRecapRun, k: String): WordRecapWord? = words(run).firstOrNull { key(it.hanzi) == k }
     fun progress(run: WordRecapRun): PassProgress = Homework.passProgress(itemIds(run), run.events)
     fun bar(run: WordRecapRun): RetryBar = RetryBars.passRetryBar(itemIds(run), run.events)
 
@@ -199,7 +212,7 @@ object WordRecap {
     fun choices(run: WordRecapRun, owned: (String) -> Boolean): Choices {
         val add = ArrayList<WordRecapWord>()
         val bump = ArrayList<WordRecapWord>()
-        for (w in run.words) {
+        for (w in words(run)) {
             val k = key(w.hanzi)
             if (k !in run.keep) continue
             if (owned(k)) bump += w else add += w
@@ -223,8 +236,9 @@ object WordRecap {
     fun promptLabel(n: Int) = "📝 Recap $n ${if (n == 1) "word" else "words"}"
 
     fun promptLine(run: WordRecapRun): String {
-        val tapped = run.words.count { TAPPED in it.reasons }
-        val said = run.words.count { SAID_WRONG in it.reasons }
+        val list = words(run)
+        val tapped = list.count { TAPPED in it.reasons }
+        val said = list.count { SAID_WRONG in it.reasons }
         val parts = ArrayList<String>()
         if (tapped > 0) parts += "$tapped you tapped"
         if (said > 0) parts += "$said you read aloud differently"
@@ -241,6 +255,21 @@ object WordRecap {
             for (line in word.said) out += "${if (chat) "Read it back" else "Read aloud"}: $line"
         }
         return out
+    }
+
+    // ---------- 🎤 Say it (practice only; the Sentence Coach's [CoachPractise] against the card's word) ----------
+
+    const val SAY_LABEL = "Say it"
+    const val SAY_LISTENING = "Listening… say the word"
+
+    /**
+     * `recapSaySuggestion`: a take said BEFORE Show answer — right (match, homophone, or the word inside
+     * a phrase) → "right" (Got it suggested); anything else → null. [state] = the "You said" row's state
+     * name (`SpokenAnswerResult.stateName`), null = no take.
+     */
+    fun saySuggestion(state: String?): String? {
+        if (state == null) return null
+        return Homework.passSuggestion(null, takeMatch = state == "match" || state == "sound", takeContains = state == "contains")
     }
 
     const val KEEP_NEW = "Add to my long-term review"
@@ -277,7 +306,7 @@ object WordRecap {
     fun emptyLine(source: String) = if (source == SOURCE_CHAT) {
         "No words to recap from this chat yet. Tap words in Claude’s answers, or read one back — they gather here."
     } else {
-        "No words to recap from this story yet. Tap words while you read, or read a page aloud — they gather here."
+        "No words to recap from this story yet. Tap words while you read — they gather here."
     }
 
     const val CHAT_DECK = "From my chats"

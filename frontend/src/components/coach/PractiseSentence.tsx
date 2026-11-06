@@ -7,6 +7,9 @@
  * compact "You said" row (`YouSaidRow`) with the characters that differ marked, then 🔁 Try again.
  * Nothing is stored (no review event, no recording kept). Lab: `PractiseSentenceRow` in
  * ui/coach/CoachPractise.kt.
+ *
+ * Also the word recap's "🎤 Say it" (components/readerRecap/ReaderRecapView): its own label, no ▶ (the
+ * question side would give the word away), its own surface + analytics (`onOutcome`) and `onPractised`.
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -21,27 +24,57 @@ import {
   practiseMicEnabled,
   practiseOutcome,
   practiseSentence,
+  type PractiseOutcome,
   type PractisedSentence,
 } from '@shared/coach';
 import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
 import { YouSaidFailed, YouSaidRow } from '../study/YouSaid';
 import { track } from '../../services/analytics';
+import './PractiseSentence.css';
 
-export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: string; testId?: string }) {
+export interface PractiseSentenceProps {
+  hanzi: string;
+  testId?: string;
+  /** The 🎤 button's words (default "Practise saying it"). */
+  label?: string;
+  /** The hint while listening (default "Listening… say the sentence"). */
+  listeningLine?: string;
+  /** The voice pipeline's surface (analytics of the take itself). */
+  surface?: string;
+  /** ▶ beside 🎤 (default on). */
+  showListen?: boolean;
+  /** Every outcome, for the caller's own event (default: `coach.practise_say`). */
+  onOutcome?: (outcome: PractiseOutcome) => void;
+  /** Every checked take. */
+  onPractised?: (p: PractisedSentence) => void;
+  /** A take starts (🎤 tapped to record). */
+  onStart?: () => void;
+  className?: string;
+}
+
+export function PractiseSentence({
+  hanzi, testId = 'coach-practise', label = COACH_PRACTISE_LABEL, listeningLine = COACH_PRACTISE_LISTENING,
+  surface = 'coach_practise', showListen = true, onOutcome, onPractised, onStart, className,
+}: PractiseSentenceProps) {
   const speak = useLessonSpeak();
   const [result, setResult] = useState<PractisedSentence | null>(null);
   const target = useRef(hanzi);
   target.current = hanzi;
+  const report = useRef<(o: PractiseOutcome) => void>(() => {});
+  report.current = onOutcome ?? ((o) => track('coach.practise_say', { result: o }));
+  const practised = useRef(onPractised);
+  practised.current = onPractised;
   const dictation = useVoiceDictation({
-    surface: 'coach_practise',
+    surface,
     value: '',
     onChange: () => {},
     autoSubmit: true,
     onSubmit: (answer) => {
       const p = practiseSentence(answer.text, target.current);
       setResult(p);
-      track('coach.practise_say', { result: practiseOutcome(p, null) });
+      practised.current?.(p);
+      report.current(practiseOutcome(p, null));
     },
   });
   const { state } = dictation;
@@ -54,7 +87,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
   useEffect(() => {
     if (failed && !reportedFailure.current) {
       reportedFailure.current = true;
-      track('coach.practise_say', { result: practiseOutcome(null, state.failure === 'signed_out' ? 'failed' : state.failure) });
+      report.current(practiseOutcome(null, state.failure === 'signed_out' ? 'failed' : state.failure));
     }
     if (!failed) reportedFailure.current = false;
   }, [failed, state.failure]);
@@ -87,6 +120,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
     if (listening) return dictation.stop();
     if (finishing) return;
     setResult(null);
+    onStart?.();
     dictation.say();
   };
 
@@ -94,18 +128,20 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
   const micEnabled = practiseMicEnabled(state.blocked);
 
   return (
-    <div className="coach-practise" data-testid={testId} data-phase={result && !listening ? 'result' : state.phase}>
+    <div className={`coach-practise${className ? ` ${className}` : ''}`} data-testid={testId} data-phase={result && !listening ? 'result' : state.phase}>
       <div className="coach-practise-row">
-        <button
-          type="button"
-          className="btn btn-secondary coach-practise-listen"
-          onClick={() => speak(hanzi)}
-          aria-label={`${COACH_PRACTISE_LISTEN}: ${hanzi}`}
-          title={COACH_PRACTISE_LISTEN}
-          data-testid={`${testId}-listen`}
-        >
-          <span aria-hidden="true">▶</span>
-        </button>
+        {showListen && (
+          <button
+            type="button"
+            className="btn btn-secondary coach-practise-listen"
+            onClick={() => speak(hanzi)}
+            aria-label={`${COACH_PRACTISE_LISTEN}: ${hanzi}`}
+            title={COACH_PRACTISE_LISTEN}
+            data-testid={`${testId}-listen`}
+          >
+            <span aria-hidden="true">▶</span>
+          </button>
+        )}
         <button
           ref={micRef}
           type="button"
@@ -113,7 +149,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
           onClick={toggle}
           disabled={!micEnabled || finishing}
           aria-pressed={listening}
-          aria-label={listening ? `${COACH_PRACTISE_STOP} — check what I said` : `${COACH_PRACTISE_LABEL}: ${hanzi}`}
+          aria-label={listening ? `${COACH_PRACTISE_STOP} — check what I said` : `${label}: ${hanzi}`}
           data-testid={`${testId}-mic`}
         >
           {finishing ? (
@@ -123,7 +159,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
           ) : result || failed ? (
             <><span aria-hidden="true">🔁</span> {COACH_PRACTISE_AGAIN}</>
           ) : (
-            <><span aria-hidden="true">🎤</span> {COACH_PRACTISE_LABEL}</>
+            <><span aria-hidden="true">🎤</span> {label}</>
           )}
         </button>
       </div>
@@ -135,7 +171,7 @@ export function PractiseSentence({ hanzi, testId = 'coach-practise' }: { hanzi: 
               <span className="coach-practise-partial">{dictation.partialText}</span>
             </span>
           ) : (
-            <span className="coach-practise-hint">{COACH_PRACTISE_LISTENING}</span>
+            <span className="coach-practise-hint">{listeningLine}</span>
           )}
         </div>
       )}

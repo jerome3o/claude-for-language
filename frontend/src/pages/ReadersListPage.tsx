@@ -15,6 +15,7 @@ import { db } from '../db/database';
 import { isReaderRead } from '../services/reader-study';
 import { ReaderUpNext, useReaderQueue } from '../components/readers/ReaderUpNext';
 import { recapAvailable, useRecapRun } from '../services/wordRecap';
+import { recapWords } from '@shared/study/wordRecap';
 import './ReadersListPage.css';
 
 /**
@@ -35,7 +36,7 @@ function ReaderReadLine({ readerId }: { readerId: string }) {
 
 /**
  * "📝 Recap words from last read (4)": the reader word recap of the story's latest finished reading
- * (docs/STUDY_SESSION.md "Reader word recap") — the words tapped / read aloud wrong, any time later.
+ * (docs/STUDY_SESSION.md "Reader word recap") — the words tapped while reading, any time later.
  */
 function ReaderRecapLine({ readerId }: { readerId: string }) {
   const run = useRecapRun(readerId);
@@ -52,7 +53,7 @@ function ReaderRecapLine({ readerId }: { readerId: string }) {
           navigate(`/readers/${encodeURIComponent(readerId)}/recap?from=readers`);
         }}
       >
-        📝 Recap words from last read ({run.words.length})
+        📝 Recap words from last read ({recapWords(run).length})
       </button>
     </div>
   );

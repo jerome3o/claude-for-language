@@ -1,11 +1,12 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
 
 /**
- * 📝 Reader word recap (docs/STUDY_SESSION.md "Reader word recap"): a word chip tapped on page 1 and a
- * word read aloud wrong on page 2 (a fake microphone; the upload path, mocked) → Finish ✓ (the read is
- * recorded as always) → "Story finished ✓ — 📝 Recap 2 words" → the one-off pass in story order → the
- * switches start OFF → one switched on → Done makes ONE card in "From my readers" (the content
- * service's batch) and puts it on Up next; the other word stays out.
+ * 📝 Reader word recap (docs/STUDY_SESSION.md "Reader word recap"): a word chip tapped on each page and
+ * page 2 read aloud with a word missed (a fake microphone; the upload path, mocked) → Finish ✓ (the read
+ * is recorded as always) → "Story finished ✓ — 📝 Recap 2 words" — the TAPPED words only, never the
+ * take's mistakes → the one-off pass in story order, with a 🎤 Say it on the card (said inside a phrase =
+ * contains → Got it suggested) → the switches start OFF → one switched on → Done makes ONE card in "From
+ * my readers" (the content service's batch) and puts it on Up next; the other word stays out.
  *
  * WORD_RECAP_SHOTS=<dir> also saves phone-size screenshots there (PR screenshots).
  */
@@ -86,7 +87,7 @@ async function openReader(page: Page, token: string, readerId: string) {
 }
 
 
-test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the switched-on word becomes a card', async ({ page, request }) => {
+test('📝 Reader word recap: taps (not read-aloud mistakes) → recap with 🎤 Say it → only the switched-on word becomes a card', async ({ page, request }) => {
   test.setTimeout(180_000);
   const { token, readerId } = await seed(request, [
     {
@@ -98,7 +99,7 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   ]);
   await page.route('**/api/practice/tts', (route) => route.fulfill({ json: { audio_base64: CLIP.toString('base64'), content_type: 'audio/wav' } }));
   await page.route('**/api/transcribe/live', (route) => route.fulfill({ json: { provider: 'upload' } }));
-  // Page 2 read aloud: 麻辣 skipped.
+  // Page 2 read aloud: 麻辣 skipped (and the recap's 🎤 Say it hears the same sentence: 晚上 inside it).
   await page.route('**/api/transcribe', (route) => route.fulfill({ json: { text: '晚上我们吃兔头。', language: 'zh', provider: 'test' } }));
   // The card writer (hermetic: no model here).
   await page.route('**/api/ai/gloss-words', async (route) => {
@@ -120,7 +121,12 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   await page.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(page.getByTestId('study-reader-page-label')).toContainText('Page 2 of 2');
 
-  // Page 2: read it aloud, 麻辣 missed.
+  // Page 2: tap 晚上, then read it aloud with 麻辣 missed (a mistake the recap leaves out).
+  await page.locator('.reader-chinese-reveal-box').click();
+  await page.locator('.reader-word-chip', { hasText: /^晚上$/ }).click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  if (await page.getByRole('button', { name: 'Close' }).first().isVisible().catch(() => false)) await page.getByRole('button', { name: 'Close' }).first().click();
   await page.getByTestId('reader-read-aloud').click();
   await page.waitForTimeout(1200);
   await page.getByTestId('reader-read-aloud-stop-footer').click();
@@ -131,14 +137,15 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   const offer = page.getByTestId('recap-offer');
   await expect(offer).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('recap-offer-start')).toHaveText('📝 Recap 2 words');
-  await expect(offer).toContainText('1 you tapped · 1 you read aloud differently');
+  await expect(offer).toContainText('2 you tapped');
+  await expect(offer).not.toContainText('read aloud');
   if (SHOTS) {
     await page.waitForTimeout(500);
     await page.screenshot({ path: `${SHOTS}/web-01-offer.png` });
   }
   await page.getByTestId('recap-offer-start').click();
 
-  // Story order: 成都 (page 1) then 麻辣.
+  // Story order: 成都 (page 1) then 晚上 — 麻辣, only read wrong, is not in the recap.
   await expect(page.getByTestId('recap-card')).toContainText('成都');
   await expect(page.getByTestId('recap-sentence')).toHaveText('今天我们在成都，先去春熙路采耳。');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-card-front.png` });
@@ -154,9 +161,23 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   }
   await page.getByTestId('recap-not-yet').click();
 
-  await expect(page.getByTestId('recap-card')).toContainText('麻辣');
+  await expect(page.getByTestId('recap-card')).toContainText('晚上');
+  // 🎤 Say it before Show answer: the word said inside a phrase → "Contains the answer" → Got it suggested.
+  await page.getByTestId('recap-say-mic').click();
+  await page.waitForTimeout(1200);
+  await page.getByTestId('recap-say-mic').click();
+  await expect(page.getByTestId('recap-say-result')).toHaveAttribute('data-state', 'contains', { timeout: 20_000 });
+  if (SHOTS) {
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${SHOTS}/web-05-say-it.png` });
+  }
   await page.getByTestId('recap-show').click();
-  await expect(page.getByTestId('recap-why')).toContainText('Read aloud: missed 麻 má');
+  await expect(page.getByTestId('recap-why')).toHaveText('You tapped it while reading');
+  await expect(page.getByTestId('recap-got-it')).toHaveAttribute('data-suggested', 'true');
+  if (SHOTS) {
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${SHOTS}/web-06-say-it-answer.png` });
+  }
   await page.getByTestId('recap-got-it').click();
   // 成都 comes back until Got it.
   await expect(page.getByTestId('recap-card')).toContainText('成都');
@@ -164,7 +185,7 @@ test('📝 Reader word recap: taps + read-aloud mistakes → recap → only the 
   await page.getByTestId('recap-show').click();
   await page.getByTestId('recap-got-it').click();
 
-  // The list: 成都 on (from its card), 麻辣 off.
+  // The list: 成都 on (from its card), 晚上 off.
   await expect(page.getByTestId('recap-summary')).toContainText('1 right first time');
   const switches = page.getByTestId('recap-row-keep-switch');
   await expect(switches).toHaveCount(2);

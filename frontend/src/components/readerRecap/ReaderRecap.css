@@ -217,6 +217,41 @@
   border: 1.5px solid #15803d;
 }
 
+/* 🎤 Say it said right before Show answer: Got it suggested (the homework pass's ring). */
+.recap-got-it.is-suggested {
+  box-shadow: 0 0 0 3px var(--color-surface, #fff), 0 0 0 5px #16a34a;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+}
+.recap-suggested-hint {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* 🎤 Say it on a recap card (components/coach/PractiseSentence): one round pill under the sentence. */
+.recap .recap-say {
+  width: 100%;
+  max-width: 22rem;
+  margin-top: 0.25rem;
+}
+.recap .recap-say .coach-practise-row {
+  justify-content: center;
+}
+.recap .recap-say .coach-practise-mic {
+  flex: 0 1 15rem;
+  min-height: 48px;
+  font-size: 1rem;
+}
+.recap .recap-say .coach-practise-hint {
+  text-align: center;
+}
+
 /* The list of every word with its switch */
 
 .recap .recap-summary {

@@ -20,7 +20,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   addRecapMistakes, addRecapTap, answerRecap, chatRecapCount, chatRecapRun, chatRecapRunId, finishRecapRun, markRecapped,
   recapAvailable, recapBumpSource, recapChoices, recapDeck, recapEvent, recapKey, recapRightFirstTime, recapRunFor,
-  recapSentenceClue, recapSource, recapUpNextSource, restartRecap, setRecapKeep,
+  recapSentenceClue, recapSource, recapUpNextSource, recapWords, restartRecap, setRecapKeep,
   type WordRecapPage, type WordRecapRun, type WordRecapSource, type WordRecapTap, type WordRecapWord,
 } from '@shared/study/wordRecap';
 import type { AskRecapWord } from '@shared/coach/askChat';
@@ -163,7 +163,7 @@ export const restartRecapRun = (readerId: string) => updateRecapRun(readerId, (c
 
 /** Notes he already has, by recap key → note id. */
 export async function ownedRecapNotes(run: WordRecapRun): Promise<Map<string, string>> {
-  const keys = new Set(run.words.map((w) => recapKey(w.hanzi)));
+  const keys = new Set(recapWords(run).map((w) => recapKey(w.hanzi)));
   const out = new Map<string, string>();
   await db.notes.each((n) => {
     const k = recapKey(n.hanzi ?? '');
@@ -197,7 +197,7 @@ export async function finishRecap(runId: string): Promise<RecapDoneOutcome> {
   }
   await updateRecapRun(runId, (cur) => (cur ? markRecapped(cur, nowIso()) : cur));
   track(recapEvent(source, 'finish'), {
-    words: run.words.length,
+    words: recapWords(run).length,
     got_it_first_time: recapRightFirstTime(run),
     added: add.length,
     bumped: bump.length,

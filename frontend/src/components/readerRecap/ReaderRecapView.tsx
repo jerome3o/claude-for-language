@@ -1,8 +1,12 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import {
-  recapBar, recapKeepHint, recapKeepLabel, recapKey, recapProgress, recapRightFirstTime, recapSource, recapWhyLines, recapWordFor,
+  recapBar, recapKeepHint, recapKeepLabel, recapKey, recapProgress, recapRightFirstTime, recapSource, recapWhyLines, recapWordFor, recapWords,
+  RECAP_SAY_LABEL, RECAP_SAY_LISTENING, recapSaySuggestion,
   type WordRecapRun, type WordRecapSource, type WordRecapWord,
 } from '@shared/study/wordRecap';
+import type { PassOutcome } from '@shared/homework/pass-card';
+import { PractiseSentence } from '../coach/PractiseSentence';
+import { track } from '../../services/analytics';
 import type { ExplorerSource } from '../explorer/ExplorerContext';
 import { retryBarNote } from '@shared/homework';
 import { RetryProgressBar } from '../homework/RetryProgressBar';
@@ -148,6 +152,9 @@ function RecapCard({ source, word, owned, kept, gloss, actions }: { source: Word
   const xs = explorerSource(source);
   const [revealed, setRevealed] = useState(false);
   const key = recapKey(word.hanzi);
+  // 🎤 Say it: a take started before Show answer is the question side; said right, it suggests Got it.
+  const takeSide = useRef<'question' | 'answer'>('question');
+  const [suggested, setSuggested] = useState<PassOutcome | null>(null);
   const reveal = () => {
     setRevealed(true);
     actions.speak(word.hanzi);
@@ -163,6 +170,20 @@ function RecapCard({ source, word, owned, kept, gloss, actions }: { source: Word
             {revealed ? <ExplorableText text={word.sentence} source={xs} highlight={word.hanzi} /> : <MarkedSentence sentence={word.sentence} hanzi={word.hanzi} />}
           </p>
         )}
+        <PractiseSentence
+          hanzi={word.hanzi}
+          testId="recap-say"
+          className="recap-say"
+          label={RECAP_SAY_LABEL}
+          listeningLine={RECAP_SAY_LISTENING}
+          surface="reader_recap"
+          showListen={false}
+          onStart={() => { takeSide.current = revealed ? 'answer' : 'question'; }}
+          onPractised={(p) => {
+            if (takeSide.current === 'question') setSuggested(recapSaySuggestion(p.result.state));
+          }}
+          onOutcome={(result) => track('reader.recap_say', { result, side: takeSide.current, source })}
+        />
         {revealed && (
           <div className="recap-back" data-testid="recap-back">
             <div className="recap-pinyin-row">
@@ -182,7 +203,16 @@ function RecapCard({ source, word, owned, kept, gloss, actions }: { source: Word
         {revealed ? (
           <>
             <button type="button" className="btn recap-not-yet" onClick={() => actions.answer(key, false)} data-testid="recap-not-yet">Not yet</button>
-            <button type="button" className="btn recap-got-it" onClick={() => actions.answer(key, true)} data-testid="recap-got-it">Got it</button>
+            <button
+              type="button"
+              className={`btn recap-got-it${suggested === 'right' ? ' is-suggested' : ''}`}
+              onClick={() => actions.answer(key, true)}
+              data-testid="recap-got-it"
+              data-suggested={suggested === 'right' ? 'true' : undefined}
+            >
+              Got it
+              {suggested === 'right' && <span className="recap-suggested-hint">✓ suggested</span>}
+            </button>
           </>
         ) : (
           <button type="button" className="btn btn-primary recap-show" onClick={reveal} data-testid="recap-show">Show answer</button>
@@ -204,7 +234,8 @@ function RecapSummary({ source, run, owned, glosses, online, complete, doneLine,
   onBack?: () => void;
 }) {
   const firstTime = recapRightFirstTime(run);
-  const keptNew = run.words.filter((w) => run.keep.includes(recapKey(w.hanzi)) && !owned.has(recapKey(w.hanzi))).length;
+  const words = recapWords(run);
+  const keptNew = words.filter((w) => run.keep.includes(recapKey(w.hanzi)) && !owned.has(recapKey(w.hanzi))).length;
   const [celebrate] = useState(complete);
   return (
     <>
@@ -212,12 +243,12 @@ function RecapSummary({ source, run, owned, glosses, online, complete, doneLine,
         {celebrate && complete && <Confetti />}
         <h2 className="recap-summary-title">{complete ? 'Recap done 🎉' : 'Choose words to keep'}</h2>
         <p className="recap-summary-line">
-          {run.words.length} {run.words.length === 1 ? 'word' : 'words'}
+          {words.length} {words.length === 1 ? 'word' : 'words'}
           {complete ? ` · ${firstTime} right first time` : ''}
         </p>
         <p className="recap-summary-hint">{recapKeepHint(source)}</p>
         <ul className="recap-list">
-          {run.words.map((w) => {
+          {words.map((w) => {
             const key = recapKey(w.hanzi);
             const has = owned.has(key);
             return (

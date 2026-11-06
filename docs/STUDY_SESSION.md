@@ -986,7 +986,7 @@ there are any) · "What does this page mean?" · "Explain the grammar in this se
 same page within 30 minutes continues the thread; the Chats tab lists it as "📖 Reader · 成都 p.3", which opens the
 reader at that page. docs/CHAT.md "Reader and exercise threads".
 
-### 📝 Reader word recap: the words I tapped or said wrong
+### 📝 Reader word recap: the words I tapped
 
 Jerome (Nov 2026): "During a graded reader … record which words I get wrong when speaking … and also look at
 which words I tap on. If I tap on a word it probably means I didn't remember or needed to know it … then
@@ -994,10 +994,19 @@ optionally have a recap at the end which is kind of like a one-off, but just for
 then maybe we have the option to add them to long term if I want but it's default toggled off, for each of those
 words."
 
+**Tapped words only (Nov 2026).** Jerome: "because I said a word and then decided to cancel and start again, it's
+treated the entire sentence like it's failed, and I'm basically just reading the entire story again … It should
+just be ones that I tapped on to read." A reader's recap is now the words he TAPPED (`recapWords`): read-aloud
+mistakes are still collected into the run (so "📖 Ask Claude about this page" keeps its `said_wrong` words,
+`readerPageWords`), but the recap, its offer ("📝 Recap N words", "N you tapped"), the Readers list's count and
+Done never see them; a word both tapped and read wrong shows as tapped only. Old stored runs work unchanged (a
+said-wrong-only word is just left out, a kept switch on one is ignored). A chat's recap (below) is unchanged — its
+🎤 Read it back IS the exercise.
+
 - **What is collected** — per READING RUN (one reading of one reader, in any reading view: the session's reader,
   a homework pass, `/readers/:id`, the Lab's Today's story — they share `ReaderView` / `StudyReaderView`):
-  every word chip opened in the explorer (its text, the chip's pinyin + gloss, the sentence, the page and place),
-  and every word a 🎤 Read it aloud take got WRONG — a word of `readAloudDifferences` with a character read as
+  every word chip opened in the explorer (its text, the chip's pinyin + gloss, the sentence, the page and place) —
+  the recap — and, for Ask Claude only, every word a 🎤 Read it aloud take got WRONG — a word of `readAloudDifferences` with a character read as
   another character, a tone slip or a missed one (never a homophone that "sounded right", never extra words),
   with its reason lines ("都 dū → you said dù (4th tone instead of 1st)"). Words without a Chinese character are
   left out. Deduplicated by `recapKey` (letters / digits only, NFC); a word both tapped and read wrong carries
@@ -1020,10 +1029,23 @@ words."
   homework pass's rules (`passProgress`: each word once, "Not yet" words come back after the others until "Got
   it"; the homework retry bar) — practice only, NO review events. Front: the word + the story sentence with the
   word marked. Show answer: ▶ (practice TTS, cached), pinyin, the meaning (the chip's gloss, else the word
-  dictionary's), "The page: <its English>", why it's here ("You tapped it while reading", "Read aloud: …"), the
+  dictionary's), "The page: <its English>", why it's here ("You tapped it while reading"), the
   switch. Words and sentences on the back open the explorer. "Choose words" jumps to the list at any time.
   (Deliberately not the study card that the homework pass uses: most recap words are not notes yet, and the study
   card's tools — Ask Claude, Edit, ⋯ — need one.)
+- **🎤 Say it** (Jerome: "I'd love to be able to say these words to practise them in this view"): a round 🎤 Say it
+  under the sentence, on the question side and still there after Show answer. It is the Sentence Coach's "Practise
+  saying it" (`shared/coach/practise.ts` `practiseSentence`; web `components/coach/PractiseSentence.tsx` with the
+  recap's label, no ▶ — it would give the word away —, surface `reader_recap`; Lab `ui/coach/CoachPractise.kt`
+  `PractiseSentenceRow` with `PractiseLabels`): live Soniox words while speaking, the upload fallback, "Couldn't
+  transcribe — tap to retry", tap 🎤 again (or the card) to stop; the take is checked against the card's word like
+  a spoken answer (`checkSpokenAnswer`: homophones by sound, the word said inside a phrase = "Contains the answer",
+  other tones = close) and shown in the compact "You said" row, then 🔁 Try again. Offline the mic is disabled and
+  says why ("Practising needs a connection."). A take started BEFORE Show answer that was right (match, homophone,
+  contains) rings Got it "✓ suggested" (`recapSaySuggestion` = the homework pass's `passSuggestion`, Lab
+  `WordRecap.saySuggestion`, parity-tested); a miss suggests nothing, and he still chooses. Practice only: no review
+  event, no recording kept. Analytics `reader.recap_say { result, side: question | answer, source: reader | chat }`.
+  The chat's recap has it too (same pass).
 - **The switch, OFF by default, per word** (on each card's back and on the list at the end): "Add to my long-term
   review" for a word he doesn't have; "⚡ Study it today" for one already in his decks (a bump, source `reader`).
   **Done** applies them: bumps at once (offline-first); new words are queued (web `adds` table, Lab
@@ -1053,9 +1075,11 @@ words."
   got_it_first_time, added, bumped }`.
   A chat's recap emits `coach.ask_recap_start { from: menu, words }` / `coach.ask_recap_finish` (same props) —
   `recapEvent(source, …)`, so adoption is told per place.
-- Tests: `shared/study/wordRecap.test.ts`, `components/readerRecap/ReaderRecap.flow.test.tsx` (taps → take → offer →
-  pass → switches → only the switched-on word added, the owned one bumped), `e2e/tests/reader-word-recap.spec.ts`,
-  Lab `WordRecapParityTest`, `WordRecapTest` (flow + Roborazzi `reader-recap-01…04`, light + dark); the chat
+- Tests: `shared/study/wordRecap.test.ts`, `components/readerRecap/ReaderRecap.flow.test.tsx` (taps → take → offer of
+  the tapped words only → pass → switches → only the switched-on word added, the owned one bumped),
+  `components/readerRecap/ReaderRecapView.say.test.tsx` (🎤 Say it: match / contains / close, the suggestion, offline),
+  `e2e/tests/reader-word-recap.spec.ts`, Lab `WordRecapParityTest`, `WordRecapTest` (flow + Say it + Roborazzi
+  `reader-recap-01…07`, light + dark); the chat
   source: `pages/ClaudeChatRecap.flow.test.tsx` (taps → ⋯ entry → pass → only the switched-on new word in "From my
   chats", the owned one bumped, the entry gone after), Lab `ChatWordRecapTest` (Roborazzi `chat-recap-01…03`) and
   `ClaudeChatScreenshots.recapEntry`.

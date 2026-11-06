@@ -26,7 +26,7 @@ import kotlinx.coroutines.launch
 fun WordRecapRoute(nav: LabNav, runId: String, source: String, sourceLabel: String, onRun: (words: Int) -> Unit = {}) {
     val app = nav.app
     val run by remember(runId) { WordRecapStore.observe(app.cache, runId) }.collectAsState(initial = null)
-    val wordsKey = run?.words?.joinToString("|") { it.hanzi }
+    val wordsKey = run?.let { WordRecap.words(it) }?.joinToString("|") { it.hanzi }
     val owned by produceState(emptySet<String>(), wordsKey) { value = run?.let { WordRecapStore.owned(app, it).keys } ?: emptySet() }
     val online by app.online.collectAsState()
     var doneLine by remember { mutableStateOf<String?>(null) }
@@ -37,7 +37,7 @@ fun WordRecapRoute(nav: LabNav, runId: String, source: String, sourceLabel: Stri
         val r = run
         if (r != null && !tracked) {
             tracked = true
-            onRun(r.words.size)
+            onRun(WordRecap.words(r).size)
         }
     }
     ReaderRecapScreen(

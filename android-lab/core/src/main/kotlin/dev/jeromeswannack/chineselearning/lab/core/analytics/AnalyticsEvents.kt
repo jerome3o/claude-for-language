@@ -206,6 +206,7 @@ object AnalyticsEvents {
         ev("reader.read_aloud_diff", "readers", listOf("action", "kind")),
         ev("reader.word_recap_start", "readers", listOf("from", "words")),
         ev("reader.word_recap_finish", "readers", listOf("words", "got_it_first_time", "added", "bumped")),
+        ev("reader.recap_say", "readers", listOf("result", "side", "source")),
         ev("reader.queue_move", "readers", listOf("how", "position", "total", "via")),
         ev("quest.generate", "quests", listOf("difficulty")),
         ev("quest.play", "quests", emptyList()),
