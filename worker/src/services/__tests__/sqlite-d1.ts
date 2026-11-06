@@ -63,8 +63,14 @@ export async function createSqliteD1(opts: { stopBefore?: string } = {}): Promis
     if (unions > D1_MAX_UNIONS) throw new Error(`D1_ERROR: too many terms in compound SELECT (${unions + 1} terms)`);
   }
 
+  // D1 refuses a statement with more than 100 bound parameters ("too many SQL
+  // variables"); plain SQLite allows 32,766. Fail here too (Nov 2026: a chat
+  // past 100 messages stopped loading because of one IN (…) list).
+  const D1_MAX_PARAMS = 100;
+
   function statement(sql: string, params: SqlValue[] = []): D1PreparedStatement & { _exec(): unknown } {
     checkD1Limits(sql);
+    if (params.length > D1_MAX_PARAMS) throw new Error(`D1_ERROR: too many SQL variables (${params.length} bound): SQLITE_ERROR`);
     const stmt = {
       bind: (...p: unknown[]) => statement(sql, p.map((v) => (v === undefined ? null : v)) as SqlValue[]),
       first: async <T,>(col?: string) => {
