@@ -633,6 +633,9 @@ export async function sendMessage(
 /**
  * Fetch reactions for a batch of messages, grouped by emoji
  */
+/** Message ids per reactions query (D1's limit is 100 bound parameters). */
+const REACTION_ID_BATCH = 90;
+
 async function getReactionsForMessages(
   db: D1Database,
   messageIds: string[]
@@ -640,20 +643,26 @@ async function getReactionsForMessages(
   const result = new Map<string, MessageReaction[]>();
   if (messageIds.length === 0) return result;
 
-  const placeholders = messageIds.map(() => '?').join(',');
-  const rows = await db
-    .prepare(`
-      SELECT mr.message_id, mr.emoji, mr.user_id, u.name
-      FROM message_reactions mr
-      JOIN users u ON mr.user_id = u.id
-      WHERE mr.message_id IN (${placeholders})
-      ORDER BY mr.created_at ASC
-    `)
-    .bind(...messageIds)
-    .all<{ message_id: string; emoji: string; user_id: string; name: string | null }>();
+  // D1 binds at most 100 parameters a statement: a chat's full load lists every message, so
+  // the ids go in batches (one IN (…) of them all broke every chat past 100 messages, Nov 2026).
+  const rowsOut: { message_id: string; emoji: string; user_id: string; name: string | null }[] = [];
+  for (let i = 0; i < messageIds.length; i += REACTION_ID_BATCH) {
+    const batch = messageIds.slice(i, i + REACTION_ID_BATCH);
+    const rows = await db
+      .prepare(`
+        SELECT mr.message_id, mr.emoji, mr.user_id, u.name
+        FROM message_reactions mr
+        JOIN users u ON mr.user_id = u.id
+        WHERE mr.message_id IN (${batch.map(() => '?').join(',')})
+        ORDER BY mr.created_at ASC
+      `)
+      .bind(...batch)
+      .all<{ message_id: string; emoji: string; user_id: string; name: string | null }>();
+    rowsOut.push(...rows.results);
+  }
 
-  // Group by message_id, then by emoji
-  for (const row of rows.results) {
+  // Group by message_id, then by emoji (each message's rows come from one batch, in time order)
+  for (const row of rowsOut) {
     if (!result.has(row.message_id)) {
       result.set(row.message_id, []);
     }
