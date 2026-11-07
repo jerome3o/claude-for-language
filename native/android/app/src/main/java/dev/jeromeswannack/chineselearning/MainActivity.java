@@ -34,6 +34,7 @@ import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -64,7 +65,19 @@ public class MainActivity extends BridgeActivity {
                 this::writePendingDownload);
         setUpStatusBarBackground();
         setUpKeyboardAwareInsets();
-        pageGuard = new AppPageGuard(bridge.getWebView(), appUrl());
+        pageGuard = new AppPageGuard(appUrl());
+        pageGuard.onPage(bridge.getWebView());
+        bridge.addWebViewListener(new WebViewListener() {
+            @Override
+            public void onPageStarted(WebView webView) {
+                pageGuard.onPage(webView);
+            }
+
+            @Override
+            public void onPageLoaded(WebView webView) {
+                pageGuard.onPage(webView);
+            }
+        });
         setUpClipboardBridge();
         setUpDownloadBridge();
         setUpAudioBridge();

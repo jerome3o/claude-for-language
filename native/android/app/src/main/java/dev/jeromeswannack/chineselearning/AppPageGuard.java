@@ -1,15 +1,10 @@
 package dev.jeromeswannack.chineselearning;
 
 import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.webkit.WebView;
 
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * The JavaScript bridges (window.AndroidClipboard / AndroidAudio / AndroidDownload)
@@ -19,55 +14,35 @@ import java.util.concurrent.atomic.AtomicReference;
  * the WebView's current page is on the app's own origin (capacitor.config.json
  * server.url).
  *
- * The page URL is read on the UI thread (WebView.getUrl() must be), so a call from
- * the JavaBridge thread waits for one main-thread hop; a hop that doesn't come back
- * within a second counts as "not allowed".
+ * The page's origin is recorded on the UI thread whenever a page starts / finishes
+ * loading (a Capacitor WebViewListener, MainActivity) and read from any thread
+ * without waiting, so a bridge call (audio plays often) never blocks on the UI
+ * thread. Until the first page starts, nothing is allowed.
  */
 final class AppPageGuard {
 
     private static final String TAG = "AppPageGuard";
 
-    private final WebView webView;
     private final String appOrigin;
-    private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile String pageOrigin;
 
-    AppPageGuard(WebView webView, String appUrl) {
-        this.webView = webView;
+    AppPageGuard(String appUrl) {
         this.appOrigin = originOf(appUrl);
+    }
+
+    /** Call on the UI thread when a page starts or finishes loading. */
+    void onPage(WebView webView) {
+        pageOrigin = originOf(webView.getUrl());
     }
 
     /** True when the WebView is showing the app's own page. */
     boolean allowed() {
-        String origin = originOf(currentUrl());
+        String origin = pageOrigin;
         boolean ok = appOrigin != null && appOrigin.equals(origin);
         if (!ok) {
             Log.w(TAG, "bridge call refused for page origin " + origin);
         }
         return ok;
-    }
-
-    private String currentUrl() {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return webView.getUrl();
-        }
-        AtomicReference<String> url = new AtomicReference<>();
-        CountDownLatch done = new CountDownLatch(1);
-        main.post(() -> {
-            try {
-                url.set(webView.getUrl());
-            } finally {
-                done.countDown();
-            }
-        });
-        try {
-            if (!done.await(1, TimeUnit.SECONDS)) {
-                return null;
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        }
-        return url.get();
     }
 
     /** "https://host:443" for an http(s) URL, else null. */
