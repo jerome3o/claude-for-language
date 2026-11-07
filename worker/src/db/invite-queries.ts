@@ -190,22 +190,48 @@ export async function findPermittedPendingInvitation(
  * same pair is a no-op and does not bump use_count.
  * Returns true if this call recorded a new redemption.
  */
-export async function recordRedemption(db: D1Database, inviteId: string, userId: string): Promise<boolean> {
+/**
+ * Take one use of an invite, atomically: the counter only moves while the invite is
+ * still live (not revoked, not expired, uses left), so two people racing for the last
+ * use of a link can't both get in. False = nothing left to take.
+ */
+export async function claimInviteUse(db: D1Database, inviteId: string): Promise<boolean> {
+  const row = await db
+    .prepare(`
+      UPDATE invites SET use_count = use_count + 1
+      WHERE id = ? AND revoked_at IS NULL AND use_count < max_uses
+        AND (expires_at IS NULL OR julianday(expires_at) > julianday('now'))
+      RETURNING id
+    `)
+    .bind(inviteId)
+    .first<{ id: string }>();
+  return !!row;
+}
+
+/**
+ * Record that `userId` redeemed `inviteId`. Returns true the first time (a use of
+ * the invite is taken then — or was already taken by the caller, `useClaimed`),
+ * false when this user had already redeemed it OR the invite has no use left
+ * (`full` says which).
+ */
+export async function recordRedemption(
+  db: D1Database,
+  inviteId: string,
+  userId: string,
+  opts: { useClaimed?: boolean } = {},
+): Promise<{ redeemed: boolean; full: boolean }> {
   const existing = await db
     .prepare('SELECT invite_id FROM invite_redemptions WHERE invite_id = ? AND user_id = ?')
     .bind(inviteId, userId)
     .first<{ invite_id: string }>();
-  if (existing) return false;
+  if (existing) return { redeemed: false, full: false };
 
+  if (!opts.useClaimed && !(await claimInviteUse(db, inviteId))) return { redeemed: false, full: true };
   await db
     .prepare('INSERT OR IGNORE INTO invite_redemptions (invite_id, user_id) VALUES (?, ?)')
     .bind(inviteId, userId)
     .run();
-  await db
-    .prepare('UPDATE invites SET use_count = use_count + 1 WHERE id = ?')
-    .bind(inviteId)
-    .run();
-  return true;
+  return { redeemed: true, full: false };
 }
 
 /**

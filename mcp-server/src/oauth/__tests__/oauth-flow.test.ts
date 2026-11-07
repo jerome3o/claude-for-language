@@ -36,7 +36,7 @@ class MemoryKV {
   }
 }
 
-interface UserRow { id: string; email: string | null; name: string | null; google_id: string | null }
+interface UserRow { id: string; email: string | null; name: string | null; google_id: string | null; mcp_revoked_at?: number | null }
 
 class FakeD1 {
   users: UserRow[] = [];
@@ -334,6 +334,44 @@ describe('callback', () => {
     clearLiveUserCache();
     const gone = await call('/mcp', { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` }, body: '{}' });
     expect(gone.status).toBe(401);
+    expect(mcpCalls).toBe(1);
+    const refresh = await call('/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: client.client_id, resource: `${ORIGIN}/mcp` }).toString(),
+    });
+    expect(refresh.status).toBe(400);
+    expect(((await refresh.json()) as { error: string }).error).toBe('invalid_grant');
+  });
+
+  it('"Sign out of all devices" in the app disconnects Claude: older grants refused, refresh refused; a grant made after it works', async () => {
+    db.users[0].mcp_revoked_at = Date.now() - 60_000; // an earlier sign-out everywhere: this new grant is newer
+    const jar = new Jar();
+    const { state, verifier, client } = await approveFlow(jar);
+    const res = await call(`/callback?state=${encodeURIComponent(state)}&code=google-code`, { jar });
+    expect(res.status).toBe(302);
+    const back = new URL(res.headers.get('Location')!);
+    expect(`${back.origin}${back.pathname}`).toBe(CLAUDE_CALLBACK);
+    expect(back.searchParams.get('state')).toBe('client-state-1');
+    const code = back.searchParams.get('code')!;
+
+    const token = await call('/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: client.client_id, redirect_uri: CLAUDE_CALLBACK, code_verifier: verifier, resource: `${ORIGIN}/mcp` }).toString(),
+    });
+    expect(token.status).toBe(200);
+    const tokens = (await token.json()) as { access_token: string; refresh_token: string };
+
+    const mcp = await call('/mcp', { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` }, body: '{}' });
+    expect(mcp.status).toBe(200);
+    expect(mcpCalls).toBe(1);
+
+    // The user presses "Sign out of all devices" in the app (POST /api/auth/logout-all).
+    db.users[0].mcp_revoked_at = Date.now() + 1;
+    clearLiveUserCache();
+    const out = await call('/mcp', { method: 'POST', headers: { Authorization: `Bearer ${tokens.access_token}` }, body: '{}' });
+    expect(out.status).toBe(401);
     expect(mcpCalls).toBe(1);
     const refresh = await call('/token', {
       method: 'POST',

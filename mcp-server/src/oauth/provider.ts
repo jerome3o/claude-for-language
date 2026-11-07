@@ -7,14 +7,15 @@
  * - S256 PKCE only and https / loopback redirect URIs (the library's 1.2 rules),
  *   plus /register accepts only Claude's and loopback redirect URIs
  *   (redirect-policy.ts).
- * - A grant whose user no longer exists in D1 (an admin deleted the account) is
- *   refused on every MCP request and revoked; a refresh for it fails with
+ * - A grant whose user no longer exists in D1 (an admin deleted the account), or
+ *   made before the account's last "Sign out of all devices" (users.mcp_revoked_at),
+ *   is refused on every MCP request and revoked; a refresh for it fails with
  *   invalid_grant, which revokes it too.
  */
 import OAuthProvider, { OAuthError, type OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import type { Env, Props } from '../types.js';
 import { checkClientRegistration } from './redirect-policy.js';
-import { userExists } from './users.js';
+import { grantStatus } from './users.js';
 
 type FetchHandler = { fetch: (request: Request, env: Env, ctx: ExecutionContext) => Response | Promise<Response> };
 
@@ -28,36 +29,52 @@ export function canonicalResource(requestUrl: string): string {
   return `${protocol}//${host}/mcp`;
 }
 
-async function revokeAllGrants(helpers: OAuthHelpers | undefined, userId: string): Promise<void> {
+/** Revoke the user's grants — all of them, or only those made before `before` (epoch ms). */
+async function revokeGrants(helpers: OAuthHelpers | undefined, userId: string, before?: number): Promise<void> {
   if (!helpers) return;
   try {
     let cursor: string | undefined;
     do {
       const page = await helpers.listUserGrants(userId, { cursor });
-      for (const grant of page.items) await helpers.revokeGrant(grant.id, userId);
+      for (const grant of page.items) {
+        if (before === undefined || grant.createdAt * 1000 < before) await helpers.revokeGrant(grant.id, userId);
+      }
       cursor = page.cursor;
     } while (cursor);
   } catch (err) {
-    console.error('[mcp oauth] Failed to revoke grants of a deleted account:', err instanceof Error ? err.message : 'unknown');
+    console.error('[mcp oauth] Failed to revoke grants:', err instanceof Error ? err.message : 'unknown');
   }
 }
 
-/** The account behind the token must still exist; otherwise 401 and its grants are revoked. */
+function invalidToken(description: string): Response {
+  return new Response(JSON.stringify({ error: 'invalid_token', error_description: description }), {
+    status: 401,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'WWW-Authenticate': `Bearer error="invalid_token", error_description="${description}"`,
+    },
+  });
+}
+
+/**
+ * The account behind the token must still exist, and the grant must be newer than its
+ * last "Sign out of all devices"; otherwise 401 and the stale grants are revoked.
+ */
 export function requireLiveUser(handler: FetchHandler): FetchHandler {
   return {
     async fetch(request, env, ctx) {
       const props = (ctx as ExecutionContext & { props?: Partial<Props> }).props;
       const userId = props?.userId;
-      if (await userExists(env.DB, userId)) return handler.fetch(request, env, ctx);
-      if (userId) ctx.waitUntil(revokeAllGrants((env as Env & { OAUTH_PROVIDER?: OAuthHelpers }).OAUTH_PROVIDER, userId));
-      return new Response(JSON.stringify({ error: 'invalid_token', error_description: 'This account no longer exists' }), {
-        status: 401,
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-store',
-          'WWW-Authenticate': 'Bearer error="invalid_token", error_description="This account no longer exists"',
-        },
-      });
+      const status = await grantStatus(env.DB, userId, props?.grantedAt);
+      if (status.kind === 'live') return handler.fetch(request, env, ctx);
+      const helpers = (env as Env & { OAUTH_PROVIDER?: OAuthHelpers }).OAUTH_PROVIDER;
+      if (status.kind === 'gone') {
+        if (userId) ctx.waitUntil(revokeGrants(helpers, userId));
+        return invalidToken('This account no longer exists');
+      }
+      if (userId) ctx.waitUntil(revokeGrants(helpers, userId, status.revokedAt));
+      return invalidToken('Signed out of all devices - connect again');
     },
   };
 }
@@ -71,10 +88,10 @@ export function createOAuthProvider(resource: string, apiHandler: FetchHandler, 
     clientRegistrationEndpoint: '/register',
     resourceMetadata: { resource },
     clientRegistrationCallback: ({ clientMetadata }) => checkClientRegistration(clientMetadata),
-    tokenExchangeCallback: async ({ userId, env }) => {
-      if (!(await userExists(env.DB, userId))) {
-        throw new OAuthError('invalid_grant', { description: 'This account no longer exists' });
-      }
+    tokenExchangeCallback: async ({ userId, props, env }) => {
+      const status = await grantStatus(env.DB, userId, (props as Partial<Props> | undefined)?.grantedAt);
+      if (status.kind === 'gone') throw new OAuthError('invalid_grant', { description: 'This account no longer exists' });
+      if (status.kind === 'revoked') throw new OAuthError('invalid_grant', { description: 'Signed out of all devices - connect again' });
     },
     onError: ({ status, code, internal }) => {
       // The stable reason only — never the token, the request body or upstream text.

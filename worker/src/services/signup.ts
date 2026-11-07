@@ -101,6 +101,8 @@ export interface RedeemResult {
   sharedDeckIds: string[];
   /** Conversation the inviter's welcome message was posted in, if any. */
   welcomeConversationId: string | null;
+  /** The invite had no use left, so nothing was redeemed or connected. */
+  full?: boolean;
 }
 
 /**
@@ -148,12 +150,23 @@ export async function deliverWelcomeMessage(
  * decks the inviter picked. Idempotent: rerunning for the same user changes
  * nothing, and each side-effect checks for itself before acting.
  */
-export async function redeemInvite(db: D1Database, user: User, invite: Invite): Promise<RedeemResult> {
+export async function redeemInvite(
+  db: D1Database,
+  user: User,
+  invite: Invite,
+  /** `useClaimed`: the caller already took this invite's use (the sign-up path, before creating the account). */
+  opts: { useClaimed?: boolean } = {},
+): Promise<RedeemResult> {
   const result: RedeemResult = { redeemed: false, relationshipId: null, sharedDeckIds: [], welcomeConversationId: null };
 
   if (invite.created_by === user.id) return result; // an inviter opening their own link
 
-  result.redeemed = await recordRedemption(db, invite.id, user.id);
+  const redemption = await recordRedemption(db, invite.id, user.id, opts);
+  if (redemption.full) {
+    result.full = true;
+    return result; // no use left (taken by someone else meanwhile): nothing is connected
+  }
+  result.redeemed = redemption.redeemed;
 
   if (!invite.inviter_role) return result;
 

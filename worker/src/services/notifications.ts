@@ -1,5 +1,11 @@
 import { User } from '../types';
 
+/*
+ * ntfy.sh topics are PUBLIC: anyone who knows (or guesses) the topic name can read every
+ * message. So these pings carry no e-mail addresses, names or message text (Nov 2026) —
+ * only that something happened; the details are in the app (admin page, chat, feedback).
+ */
+
 async function sendNtfy(topic: string, title: string, body: string, tags: string, priority: string = '3'): Promise<void> {
   if (!topic) {
     console.log('[Notifications] No topic configured, skipping notification');
@@ -23,11 +29,11 @@ async function sendNtfy(topic: string, title: string, body: string, tags: string
   }
 }
 
-export async function notifyNewUser(topic: string, user: User): Promise<void> {
+export async function notifyNewUser(topic: string, _user: User): Promise<void> {
   await sendNtfy(
     topic,
     'New User - Chinese Learning App',
-    `New user signed up!\n\nEmail: ${user.email || 'Unknown'}\nName: ${user.name || 'No name'}\nTime: ${new Date().toISOString()}`,
+    `Someone signed up with an invite. Who: the admin page → All users.`,
     'bust_in_silhouette,new',
   );
 }
@@ -35,12 +41,12 @@ export async function notifyNewUser(topic: string, user: User): Promise<void> {
 /** One line, sent the first time an uninvited Google account tries to sign in. */
 export async function notifyAccessRequest(
   topic: string,
-  person: { email: string; name?: string | null }
+  _person: { email: string; name?: string | null }
 ): Promise<void> {
   await sendNtfy(
     topic,
     'Access request - Chinese Learning App',
-    `${person.name || 'Someone'} (${person.email}) tried to sign in — approve on the admin page`,
+    'Someone without an invite tried to sign in — see the admin page',
     'raised_hand',
   );
 }
@@ -50,16 +56,16 @@ export async function notifyFeedback(topic: string, info: { name: string; kind: 
   await sendNtfy(
     topic,
     info.kind === 'bug' ? 'Feedback: something is wrong' : 'Feedback',
-    `${info.name}${info.screenshot ? ' (with a screenshot)' : ''}: ${info.preview}`,
+    `New feedback${info.screenshot ? ' with a screenshot' : ''} — read it in Settings → Feature requests`,
     info.kind === 'bug' ? 'bug' : 'bulb',
   );
 }
 
-export async function notifyNewChatMessage(topic: string, senderName: string, messagePreview: string): Promise<void> {
+export async function notifyNewChatMessage(topic: string, _senderName: string, _messagePreview: string): Promise<void> {
   await sendNtfy(
     topic,
     'New Chat Message',
-    `${senderName}: ${messagePreview}`,
+    'A new chat message — open the app to read it',
     'speech_balloon',
   );
 }
