@@ -95,7 +95,7 @@ export function registerReaderApp(ctx: ToolContext): void {
         'Replace the whole reader with the edited spec (called by the reader UI). Keeps page ids so unchanged illustrations survive; changed or new image prompts are queued for illustration.',
       inputSchema: {
         reader_id: z.string(),
-        spec: z.record(z.unknown()).describe('The full ReaderSpec'),
+        spec: z.record(z.string(), z.unknown()).describe('The full ReaderSpec'),
       },
       resourceUri,
       appOnly: true,

@@ -13,7 +13,7 @@ import { guard, type ToolContext } from '../context.js';
 import type { DashStudent, DashboardPayload, StudentPick } from './types.js';
 
 type Shape = z.ZodRawShape;
-type Args<S extends Shape> = z.objectOutputType<S, z.ZodTypeAny>;
+type Args<S extends Shape> = z.output<z.ZodObject<S>>;
 
 export interface AppToolConfig<S extends Shape> {
   title: string;

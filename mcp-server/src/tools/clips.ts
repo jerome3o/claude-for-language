@@ -54,7 +54,7 @@ export function registerClipTools(ctx: ToolContext): void {
     'create_clip',
     `Import ONE 🎬 clip (experimental: a short vertical "TikTok"-style learning clip the app plays from a JSON script) into the signed-in user's own clip feed. Write the spec exactly as documented below; it is checked first and any problems come back as a list to fix. Impossible pinyin is corrected on import (listed in pinyin_fixes). The voice lines and pictures are made in the background so it plays instantly. Sends nothing to anyone.\n\n${CLIP_SPEC_DOC}`,
     {
-      spec: z.record(z.unknown()).describe('The clip spec v1 (the JSON object documented above).'),
+      spec: z.record(z.string(), z.unknown()).describe('The clip spec v1 (the JSON object documented above).'),
     },
     async ({ spec }) =>
       guard(async () => {

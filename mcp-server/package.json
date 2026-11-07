@@ -14,23 +14,25 @@
   "dependencies": {
     "@cfworker/json-schema": "^4.1.1",
     "@cloudflare/workers-oauth-provider": "^1.2.3",
-    "@modelcontextprotocol/ext-apps": "^0.4.0",
-    "@modelcontextprotocol/sdk": "1.26.0",
-    "agents": "^0.7.9",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "agents": "^0.31.0",
     "ai": "^6.0.309",
     "cron-schedule": "^6.0.0",
     "hono": "^4.13.12",
     "mimetext": "^3.0.28",
     "partyserver": "^0.3.3",
     "partysocket": "^1.1.16",
-    "zod": "^3.23.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241205.0",
     "typescript": "^5.5.0",
-    "vite": "^7.3.1",
+    "vite": "^7.3.7",
     "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.0.18",
-    "wrangler": "^4.59.3"
+    "wrangler": "~4.86.0"
   }
 }

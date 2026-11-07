@@ -496,7 +496,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
         description: z.string().optional().describe("One sentence on what the lesson covers"),
         sections: z.array(z.object({
           title: z.string().optional().describe("Optional section heading"),
-          exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in the tool description"),
+          exercises: z.array(z.record(z.string(), z.unknown())).describe("Exercise objects as documented in the tool description"),
         })).describe("Ordered sections of exercises"),
         unlock: z.union([
           z.object({ kind: z.literal('audio_lesson'), audio_lesson_id: z.string() }),
@@ -594,7 +594,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
         description: z.string().optional().describe("One sentence on what the lesson covers"),
         sections: z.array(z.object({
           title: z.string().optional().describe("Optional section heading"),
-          exercises: z.array(z.record(z.unknown())).describe("Exercise objects as documented in create_custom_lesson"),
+          exercises: z.array(z.record(z.string(), z.unknown())).describe("Exercise objects as documented in create_custom_lesson"),
         })).describe("The complete, updated list of sections"),
       },
       async ({ lesson_id, title, icon, description, sections }) => guard(async () => {
