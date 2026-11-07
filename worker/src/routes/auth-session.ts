@@ -4,7 +4,8 @@
  *   code from the callback redirect, traded once, within 60 s, by the app holding the verifier.
  * - POST /api/auth/logout     revokes THIS session (the `Authorization: Bearer` token every app
  *   sends; the legacy cookie too). Always 200 — signing out never fails on the device.
- * - POST /api/auth/logout-all "Sign out of all devices": deletes every session of the account.
+ * - POST /api/auth/logout-all "Sign out of all devices": deletes every session of the account
+ *   and disconnects Claude (MCP grants made before now are refused, users.mcp_revoked_at).
  *
  * Mounted before the auth middleware, so each handler resolves the session itself.
  */
@@ -55,6 +56,9 @@ app.post('/auth/logout-all', async (c) => {
   const found = sessionId ? await getSessionWithUser(c.env.DB, sessionId) : null;
   if (!found) return c.json({ error: 'Unauthorized' }, 401);
   const signedOut = await deleteAllSessionsForUser(c.env.DB, found.user.id);
+  // Claude's connection (MCP OAuth grants) too: the MCP worker refuses and revokes every
+  // grant made before this moment (mcp-server/src/oauth/users.ts grantStatus).
+  await c.env.DB.prepare('UPDATE users SET mcp_revoked_at = ? WHERE id = ?').bind(Date.now(), found.user.id).run();
   console.log(JSON.stringify({ type: 'auth', event: 'logout_all', user_id: found.user.id, sessions: signedOut }));
   const isSecure = c.req.url.startsWith('https');
   return c.json({ success: true, signed_out: signedOut }, 200, { 'Set-Cookie': clearSessionCookie(isSecure) });

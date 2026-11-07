@@ -233,6 +233,7 @@ export async function replyToCardFlag(db: D1Database, flagId: string, tutorId: s
   const flag = await getCardFlag(db, flagId);
   if (!flag) throw new CardFlagError(404, 'Flag not found');
   if (flag.tutor_id !== tutorId) throw new CardFlagError(403, 'Only the tutor can reply');
+  await requireActiveRelationship(db, flag.relationship_id, tutorId);
   const now = isoNow();
   await db
     .prepare(

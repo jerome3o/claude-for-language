@@ -199,6 +199,7 @@ invites.post('/invites/:id/redeem', async (c) => {
     return c.json({ error: 'This is your own invite link' }, 400);
   }
   const result = await redeemInvite(c.env.DB, user, invite);
+  if (result.full) return c.json({ error: 'This invite is used', status: 'used' }, 410);
   return c.json(result);
 });
 

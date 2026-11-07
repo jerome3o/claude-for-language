@@ -126,24 +126,40 @@ async function readCapped(res: Response): Promise<string> {
   return new TextDecoder('utf-8', { fatal: false, ignoreBOM: false }).decode(all);
 }
 
+const MAX_REDIRECTS = 5;
+
 export async function fetchLinkPreview(raw: string, fetcher: typeof fetch = fetch): Promise<LinkPreview | null> {
-  const url = safePreviewUrl(raw);
+  let url = safePreviewUrl(raw);
   if (!url) return null;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetcher(url.toString(), {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; ChineseLearningLinkPreview/1.0)',
-        Accept: 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en,zh;q=0.8',
-      },
-      redirect: 'follow',
-      signal: ctrl.signal,
-    });
-    if (!res.ok) return null;
-    const finalUrl = res.url || url.toString();
-    if (!safePreviewUrl(finalUrl)) return null;
+    // Redirects are followed by hand so EVERY hop is checked (Nov 2026): a public page
+    // redirecting to a private / local address is never fetched.
+    let res: Response | null = null;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const r = await fetcher(url.toString(), {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; ChineseLearningLinkPreview/1.0)',
+          Accept: 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en,zh;q=0.8',
+        },
+        redirect: 'manual',
+        signal: ctrl.signal,
+      });
+      const location = r.status >= 300 && r.status < 400 ? r.headers.get('Location') : null;
+      if (!location) {
+        res = r;
+        break;
+      }
+      await r.body?.cancel().catch(() => {});
+      let next: URL | null = null;
+      try { next = safePreviewUrl(new URL(location, url).toString()); } catch { next = null; }
+      if (!next) return null;
+      url = next;
+    }
+    if (!res || !res.ok) return null;
+    const finalUrl = url.toString();
     const type = res.headers.get('Content-Type') || '';
     if (/^image\//i.test(type)) {
       return { url: finalUrl, title: null, description: null, image: finalUrl, site_name: new URL(finalUrl).hostname.replace(/^www\./, '') };

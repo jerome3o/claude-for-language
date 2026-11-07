@@ -260,6 +260,8 @@ describe('redeemInvite', () => {
 
   beforeEach(() => {
     db = createMockD1();
+    // claimInviteUse: the atomic UPDATE … RETURNING id finds a use left.
+    db.addResult('UPDATE invites SET use_count = use_count + 1', { id: TOKEN });
     shareDeckMock.mockReset();
     shareDeckMock.mockResolvedValue({});
     createConversationMock.mockReset();
@@ -284,6 +286,23 @@ describe('redeemInvite', () => {
     expect(rel?.sql).toContain("'active'");
     expect(shareDeckMock).toHaveBeenCalledTimes(2);
     expect(shareDeckMock).toHaveBeenCalledWith(db, 'uuid-1', 'tutor-1', 'deck-a');
+  });
+
+  it('connects nothing when the invite has no use left (someone took the last one)', async () => {
+    db.reset();
+    const r = await redeemInvite(db, student as any, makeInvite());
+    expect(r.full).toBe(true);
+    expect(r.redeemed).toBe(false);
+    expect(db.getQueries().some(q => q.sql.includes('INSERT OR IGNORE INTO invite_redemptions'))).toBe(false);
+    expect(db.getQueries().some(q => q.sql.includes('tutor_relationships'))).toBe(false);
+    expect(shareDeckMock).not.toHaveBeenCalled();
+  });
+
+  it('does not take a second use when the sign-up already claimed it', async () => {
+    db.reset();
+    const r = await redeemInvite(db, student as any, makeInvite(), { useClaimed: true });
+    expect(r.redeemed).toBe(true);
+    expect(db.getQueries().some(q => q.sql.includes('use_count + 1'))).toBe(false);
   });
 
   it('is idempotent: a second run does nothing new', async () => {
@@ -339,6 +358,8 @@ describe('welcome message', () => {
 
   beforeEach(() => {
     db = createMockD1();
+    // claimInviteUse: the atomic UPDATE … RETURNING id finds a use left.
+    db.addResult('UPDATE invites SET use_count = use_count + 1', { id: TOKEN });
     shareDeckMock.mockReset();
     createConversationMock.mockReset();
     createConversationMock.mockResolvedValue({ id: 'conv-new' });

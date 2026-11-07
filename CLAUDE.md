@@ -393,6 +393,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `users.study_budget_set_by` / `study_budget_set_at` - who last changed the daily new-card budget (the learner or their tutor) and when (migration 0097)
 - `users` profile columns (migration 0076): `google_name` / `google_picture_url` (Google's last values), `name_custom`, `picture_source` (google|upload|none), `picture_key` (R2 avatar), `about` (public About me), `time_zone` (IANA). See `/profile` under Frontend Routes
 - `study_time_days` - Active study time per user, local date and device (`active_ms`, only ever raised; migration 0083). Written by `PUT /api/me/study-time` (`routes/study-time.ts`); a day's total is the sum over devices. See docs/STUDY_SESSION.md "Time"
+- `users.mcp_revoked_at` - epoch ms of the last "Sign out of all devices" (migration 0147): MCP OAuth grants made before it are refused and revoked by the MCP worker
 - `rate_limit_counters` - The cost guard's hourly job counter per user (migration 0128; key `jobs:<user id>`, epoch-hour window, count; `middleware/cost-guard.ts`)
 - `feature_requests` - Feature requests AND in-app feedback (docs/FEEDBACK.md): content, page_context, console_logs, screenshot_url, status, approval_status, ccr_session_url, agent_session_url; migration 0142 adds `kind` ('request' | 'feedback' | 'bug'), `client_id` (POST /api/feedback is idempotent by user + client id), `context` (JSON per `shared/feedback`: platform, app version, route pattern, device, online, recent event names) and `screenshot_key` (R2 `feedback/<user>/<id>.<ext>`, private: author + admins). `feature_request_comments` = the thread
 - `usage_events` - Usage analytics (migration 0100, docs/ANALYTICS.md): client + server events (id, user_id, ts, received_at, platform, app_version, session_id, event, screen = route pattern, props JSON of ids / enums / counts only); pruned after 180 days; `users.analytics_opt_out`
@@ -2313,9 +2314,10 @@ page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`
   screenshots log in with it) and inside a desktop build from before the exchange (its preload lacks
   `signsInWithCode`). The new desktop app exchanges the code itself and writes the session into the
   page's `localStorage` (`desktop/src/main.ts` `handOverSession`).
-- **Transition**: a login WITHOUT `challenge` (Lab builds before the exchange, old desktop builds, a
-  stale cached web bundle) still gets the legacy `session_token` redirect. Drop it (require `challenge`
-  in `/api/auth/login`) once every installed Lab / desktop app has updated.
+- **`challenge` is required** (Nov 2026): `/api/auth/login` without one (a Lab / desktop build from before the
+  exchange, a stale web bundle) redirects back with `error=update_required` (the splash says "This version of the
+  app is out of date…"); the callback never hands out `session_token` any more. Only the Vite dev server still
+  reads `?session_token=` (E2E).
 - **Sliding 30-day sessions** (`worker/src/services/auth.ts` `renewSessionIfDue`): a session used with less than
   20 days left is renewed to 30 days from now (one guarded UPDATE, so at most once per ~10 days of use;
   `auth.session_renewed`). Only sessions made to last slide — the MCP server's 5-minute rows never do. An
@@ -2349,18 +2351,19 @@ page shows "▶ Try it as a student" instead of Study) and `/library/:id/try` (`
 - **Sign out revokes**: `POST /api/auth/logout` deletes the Bearer session (web `logout()` sends the
   header; Lab `Repository.signOut` → `Api.revokeSession`, ≤ 4 s, best effort). **Sign out of all
   devices** (Settings, web `components/settings/SignOutSection.tsx` + Lab `SettingsScreen`, in-page
-  confirm): `POST /api/auth/logout-all` → `{ signed_out }`, every `auth_sessions` row of the account.
+  confirm): `POST /api/auth/logout-all` → `{ signed_out }`, every `auth_sessions` row of the account — and Claude's MCP
+  connection: it writes `users.mcp_revoked_at` (migration 0147), and the MCP worker refuses + revokes every OAuth
+  grant made before it (`grantStatus` in `mcp-server/src/oauth/users.ts`; grants carry `props.grantedAt`).
 - E2E: `POST /api/test/auth-code { email, challenge, client? }` mints a code without Google (Lab
   `AuthContractTest`, hand-run checks).
-- **Content-Security-Policy** (`frontend/public/_headers`, Pages): enforced `frame-ancestors 'none'` +
-  `X-Frame-Options: DENY`, nosniff, Referrer-Policy, Permissions-Policy (camera / mic / display-capture
-  for the app only). The full policy (every origin the app uses is listed there) is **Report-Only** for
-  now, reporting to `POST /api/csp-report` (`routes/csp-report.ts`: one `"type":"csp"` log line per
-  violation — directive + blocked origin + page path only). A new external origin (API, socket,
-  image / media host, script) must be added to that header. Verified with zero violations under the
-  ENFORCED policy on a production build (sign-in, study, Anki export / sql.js, pdf.js materials,
-  progress worker, chat ChatHub socket, call room socket + camera, settings); flip the header name to
-  `Content-Security-Policy` once the reports stay quiet.
+- **Content-Security-Policy** (`frontend/public/_headers`, Pages): ENFORCED (Nov 2026) — the full policy (every
+  origin the app uses is listed there) + `frame-ancestors 'none'`, `X-Frame-Options: DENY`, nosniff, Referrer-Policy,
+  Permissions-Policy (camera / mic / display-capture for the app only). Violations are still reported to
+  `POST /api/csp-report` (`routes/csp-report.ts`: one `"type":"csp"` log line per violation — directive + blocked
+  origin + page path only). **A new external origin (API, socket, image / media host, script) must be added to that
+  header or the browser blocks it.** Verified with zero violations on a production build (sign-in, study, Anki export /
+  sql.js, pdf.js materials, progress worker, chat ChatHub socket, call room socket + camera, settings, the feedback
+  screenshot via html2canvas).
 
 ## Invite-only sign-up
 
@@ -2382,13 +2385,18 @@ The gate lives in the `/api/auth/callback` handler (`worker/src/index.ts`) and
 4. A match → `createUser`, then `redeemInvite` (idempotent, awaited before the redirect so the
    first screen already has the deck): records the redemption, creates the relationship in
    `active` status with the inviter in `inviter_role`, and copies `share_deck_ids` via the
-   existing `shareDeck`. An *existing* user who opens a `/join` link is also redeemed (no account
-   change) so a tutor can connect current students the same way.
+   existing `shareDeck`. An *existing* user who signs in from a `/join` link is NOT redeemed by the
+   callback: they land on `/join/<token>` and press "Accept as <name>" (a tutor connects current
+   students the same way, with that one tap).
 
 **Who may invite** is `users.can_invite` (admin page toggle; admins always may). It gates
 `POST /api/invites` and the email path of `POST /api/relationships` when the target has no
 account; connecting with an existing user stays open to everyone. Invite tokens are 32 random
-bytes base64url — treat them as bearer secrets (don't log them). `E2E_TEST_MODE`'s
+bytes base64url — treat them as bearer secrets (don't log them). **A use is taken atomically**
+(`claimInviteUse`: `UPDATE … WHERE use_count < max_uses AND revoked_at IS NULL AND not expired RETURNING`) BEFORE the
+account is created, so two people can't both get in on the last use. **An EXISTING account is never connected by the
+link alone** (Nov 2026): signing in from `/join/<token>` lands back on `/join/<token>`, where "Accept as <name>" is an
+explicit `POST /api/invites/:id/redeem`. `E2E_TEST_MODE`'s
 `/api/test/auth` still creates users directly.
 
 ## Common Tasks

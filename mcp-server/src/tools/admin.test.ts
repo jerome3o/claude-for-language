@@ -154,7 +154,7 @@ describe('admin tools', () => {
   it('list_users filters by email or name', async () => {
     const { ctx, tools } = fakeContext({
       'GET /api/admin/users': () => [
-        { id: 'a', email: 'mhmandarinchina@gmail.com', name: 'Mandarin Home' },
+        { id: 'a', email: 'tutor@example.com', name: 'Mandarin Home' },
         { id: 'b', email: 'jerome@example.com', name: 'Jerome' },
       ],
     });

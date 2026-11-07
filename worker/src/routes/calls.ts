@@ -20,6 +20,7 @@
  *   GET    /calls/:id/ws?ticket=                      WebSocket into the CallRoom
  */
 
+import { forwardableHeaders } from '../services/http/trusted-headers';
 import { mediaPathFor } from './media';
 import { Hono } from 'hono';
 import type { Env } from '../types';
@@ -434,7 +435,7 @@ export function mountCallSocket(app: Hono<{ Bindings: Env }>): void {
       .bind(claims.userId)
       .first<{ id: string; name: string | null; email: string; picture_url: string | null }>();
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
-    const headers = new Headers(c.req.raw.headers);
+    const headers = forwardableHeaders(c.req.raw.headers);
     headers.set('X-Call-Id', callId);
     headers.set('X-User-Id', user.id);
     headers.set('X-User-Name', encodeURIComponent(user.name || user.email.split('@')[0]));

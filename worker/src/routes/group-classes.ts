@@ -19,6 +19,7 @@
  *   POST   /group-sessions/:id/leave         { client_id, token } — pagehide beacon
  */
 
+import { forwardableHeaders } from '../services/http/trusted-headers';
 import { Hono, type Context } from 'hono';
 import type { Env } from '../types';
 import { sanitizeInstance } from '@shared/calls';
@@ -242,7 +243,7 @@ export function mountGroupSocket(app: Hono<{ Bindings: Env }>): void {
         .bind(claims.userId)
         .first<{ id: string; name: string | null; email: string; picture_url: string | null }>();
       if (!user) return c.json({ error: 'Unauthorized' }, 401);
-      const headers = new Headers(c.req.raw.headers);
+      const headers = forwardableHeaders(c.req.raw.headers);
       headers.set('X-Session-Id', session.id);
       headers.set('X-Tutor-Id', session.tutor_id);
       headers.set('X-Created-At', String(session.created_at));

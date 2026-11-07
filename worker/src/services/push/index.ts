@@ -48,12 +48,29 @@ export class PushError extends Error {
   }
 }
 
+/**
+ * The browsers' push services (Chrome / Edge on FCM, Firefox, Windows, Safari). A
+ * subscription anywhere else would make the worker POST to an address of the client's
+ * choosing, so it is refused (Nov 2026).
+ */
+const PUSH_SERVICE_HOSTS = ['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com'];
+const PUSH_SERVICE_SUFFIXES = ['.notify.windows.com', '.push.apple.com', '.push.services.mozilla.com'];
+
+export function isPushServiceEndpoint(endpoint: string): boolean {
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password || (u.port && u.port !== '443')) return false;
+  const host = u.hostname.toLowerCase();
+  return PUSH_SERVICE_HOSTS.includes(host) || PUSH_SERVICE_SUFFIXES.some((s) => host.endsWith(s));
+}
+
 /** Store (or move to this user) a browser's subscription. Idempotent by endpoint. */
 export async function saveSubscription(env: Env, userId: string, input: SubscriptionInput, userAgent: string | null): Promise<{ id: string }> {
   const endpoint = typeof input.endpoint === 'string' ? input.endpoint.trim() : '';
   const p256dh = typeof input.keys?.p256dh === 'string' ? input.keys.p256dh : '';
   const auth = typeof input.keys?.auth === 'string' ? input.keys.auth : '';
   if (!/^https:\/\//.test(endpoint) || endpoint.length > 2000) throw new PushError(400, 'endpoint must be an https URL');
+  if (!isPushServiceEndpoint(endpoint)) throw new PushError(400, "endpoint isn't a known browser push service");
   if (!/^[A-Za-z0-9_-]{80,100}$/.test(p256dh) || !/^[A-Za-z0-9_-]{16,32}$/.test(auth)) throw new PushError(400, 'keys.p256dh and keys.auth are required');
   const keys = await getVapidKeys(env);
   const id = generateId();
@@ -112,7 +129,7 @@ export async function pushToUsers(env: Env, userIds: string[], data: unknown, op
   const keys = await getVapidKeys(env);
   await Promise.all(
     subs.map(async (sub) => {
-      if (sub.vapid_key !== keys.publicKey) {
+      if (sub.vapid_key !== keys.publicKey || !isPushServiceEndpoint(sub.endpoint)) {
         await env.DB.prepare('DELETE FROM push_subscriptions WHERE id = ?').bind(sub.id).run();
         summary.removed++;
         return;

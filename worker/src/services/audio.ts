@@ -125,6 +125,16 @@ export function getRecordingKey(reviewId: string): string {
   return `recordings/${reviewId}.webm`;
 }
 
+/**
+ * The recording a client-sent review event may carry: only its own key (`recordings/<eventId>.webm`,
+ * written by the upload), whether sent as the key or the `/api/audio/…` path; anything else → null.
+ */
+export function ownRecordingKey(eventId: string, sent: unknown): string | null {
+  if (typeof sent !== 'string' || !sent) return null;
+  const key = sent.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/^\/?api\/audio\//, '').replace(/^\//, '');
+  return key === getRecordingKey(eventId) ? key : null;
+}
+
 // ---------- Provider calls (limiter + account pause + fallback order) ----------
 
 /**

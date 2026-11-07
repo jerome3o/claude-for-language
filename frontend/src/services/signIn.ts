@@ -7,9 +7,8 @@
  * carries someone else's code — or their session token (`?session_token=`, the old
  * hand-off) — can therefore no longer sign this browser in to their account (login CSRF).
  *
- * `?session_token=` is still accepted only (a) on the Vite dev server (E2E / screenshots
- * log in with it) and (b) inside a desktop app build from before the code exchange
- * (its preload doesn't say `signsInWithCode`); the desktop app now signs in by itself.
+ * `?session_token=` is still accepted only on the Vite dev server (E2E / screenshots log
+ * in with it); the desktop app signs in by itself.
  */
 import {
   AUTH_EXCHANGE_PATH,
@@ -39,9 +38,9 @@ function desktopShell(): DesktopShell | null {
 
 /** May a `?session_token=` in the address bar sign this page in? */
 export function acceptsLegacyToken(): boolean {
-  if (import.meta.env.DEV) return true;
-  const desktop = desktopShell();
-  return !!desktop && !desktop.signsInWithCode;
+  // Only the Vite dev server (E2E / screenshots). The worker no longer hands out
+  // `?session_token=` (Nov 2026), so an old desktop build must update to sign in.
+  return !!import.meta.env.DEV;
 }
 
 function saveVerifier(verifier: string) {
