@@ -148,7 +148,7 @@ export function registerLessonApp(ctx: ToolContext): void {
       description: "Replace a library item's lesson spec (called by the lesson UI). The version bumps when the content changed.",
       inputSchema: {
         library_item_id: z.string(),
-        spec: z.record(z.unknown()).describe('The full lesson spec'),
+        spec: z.record(z.string(), z.unknown()).describe('The full lesson spec'),
       },
       resourceUri,
       appOnly: true,
@@ -172,7 +172,7 @@ export function registerLessonApp(ctx: ToolContext): void {
       description: "Replace a student's lesson spec in place (called by the lesson UI). Same id, so completion history and schedule are kept.",
       inputSchema: {
         lesson_id: z.string(),
-        spec: z.record(z.unknown()).describe('The full lesson spec'),
+        spec: z.record(z.string(), z.unknown()).describe('The full lesson spec'),
       },
       resourceUri,
       appOnly: true,

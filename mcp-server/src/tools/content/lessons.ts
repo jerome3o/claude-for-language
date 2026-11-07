@@ -25,7 +25,7 @@ const lessonSpecShape = z.object({
   description: z.string().optional().describe('One sentence on what the lesson covers'),
   sections: z.array(z.object({
     title: z.string().optional().describe('Optional section heading'),
-    exercises: z.array(z.record(z.unknown())).describe('Exercise objects as documented in the tool description'),
+    exercises: z.array(z.record(z.string(), z.unknown())).describe('Exercise objects as documented in the tool description'),
   })).describe('Ordered sections of exercises'),
 }).passthrough();
 

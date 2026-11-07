@@ -172,8 +172,9 @@ export function registerAdminTools(ctx: ToolContext): void {
       stored_order: ORDER.optional().describe('Providers for clips that are kept, first = preferred. Disabled / unconfigured ones are skipped at run time.'),
       live_order: ORDER.optional().describe('Providers for live playback nobody keeps.'),
       upgrade_backup_clips: z.boolean().optional(),
+      // partialRecord: zod 4's record over an enum requires every key.
       providers: z
-        .record(
+        .partialRecord(
           PROVIDER,
           z.object({
             enabled: z.boolean().optional(),
