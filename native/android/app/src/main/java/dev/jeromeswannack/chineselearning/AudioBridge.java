@@ -90,6 +90,8 @@ class AudioBridge {
 
     private final Activity activity;
     private final WebView webView;
+    /** Every method below answers only the app's own page (see AppPageGuard). */
+    private final AppPageGuard pageGuard;
     private final AudioManager audioManager;
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -133,9 +135,10 @@ class AudioBridge {
     private boolean recordingActive = false;
     private AudioTrack keepAlive;
 
-    AudioBridge(Activity activity, WebView webView) {
+    AudioBridge(Activity activity, WebView webView, AppPageGuard pageGuard) {
         this.activity = activity;
         this.webView = webView;
+        this.pageGuard = pageGuard;
         this.audioManager = (AudioManager) activity.getSystemService(Activity.AUDIO_SERVICE);
         this.sessionId = audioManager.generateAudioSessionId();
         watchRecordings();
@@ -179,7 +182,7 @@ class AudioBridge {
 
     @JavascriptInterface
     public boolean hasClip(String key) {
-        if (key == null || key.isEmpty()) {
+        if (key == null || key.isEmpty() || !pageGuard.allowed()) {
             return false;
         }
         return cacheFile(key).isFile();
@@ -192,6 +195,9 @@ class AudioBridge {
     @JavascriptInterface
     public boolean playClip(int id, String key, String source) {
         final long requestedAt = SystemClock.elapsedRealtime();
+        if (!pageGuard.allowed()) {
+            return false;
+        }
         final String cacheKey = key == null ? "" : key;
         final boolean hasSource = source != null && !source.isEmpty();
 
@@ -328,6 +334,9 @@ class AudioBridge {
      */
     @JavascriptInterface
     public void setRate(int id, float speed) {
+        if (!pageGuard.allowed()) {
+            return;
+        }
         float s = Float.isNaN(speed) ? 1f : Math.max(0.25f, Math.min(2f, speed));
         rateId = id;
         rate = s;
@@ -365,7 +374,7 @@ class AudioBridge {
     /** Stop the clip with this id; a stale id (already superseded) is a no-op. */
     @JavascriptInterface
     public void stop(int id) {
-        if (currentId != id) {
+        if (currentId != id || !pageGuard.allowed()) {
             return;
         }
         currentId = 0;
@@ -578,6 +587,9 @@ class AudioBridge {
 
     @JavascriptInterface
     public void setCompression(boolean on) {
+        if (!pageGuard.allowed()) {
+            return;
+        }
         compressionWanted = on;
         activity.runOnUiThread(this::ensureEffect);
     }
@@ -665,12 +677,18 @@ class AudioBridge {
 
     @JavascriptInterface
     public void setKeepAwake(boolean on) {
+        if (!pageGuard.allowed()) {
+            return;
+        }
         keepAwakeWanted = on;
         activity.runOnUiThread(this::updateKeepAlive);
     }
 
     @JavascriptInterface
     public void holdOutput(boolean hold) {
+        if (!pageGuard.allowed()) {
+            return;
+        }
         activity.runOnUiThread(() -> {
             holds = Math.max(0, holds + (hold ? 1 : -1));
             updateKeepAlive();
@@ -748,6 +766,9 @@ class AudioBridge {
 
     @JavascriptInterface
     public String describe() {
+        if (!pageGuard.allowed()) {
+            return "{}";
+        }
         JSONObject o = new JSONObject();
         try {
             o.put("bridge", PROTOCOL_VERSION);

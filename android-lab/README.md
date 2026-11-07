@@ -56,8 +56,8 @@ the PKCE S256 hash of a verifier kept in `Prefs.pendingAuthVerifier`) and the ca
 `chineselearning-lab://auth?code=…&nonce=…` (`NATIVE_AUTH_CLIENTS` in `worker/src/services/auth.ts`);
 the app only accepts the nonce it generated and trades the one-time code (60 s, single use) with the
 verifier at `POST /api/auth/exchange` for the session token (`data/AuthExchange.kt`) — the token never
-rides the custom-scheme link. Builds before Oct 2026 sent no challenge and still get the old
-`session_token=` redirect until the worker drops it. Sign out revokes the session on the server
+rides the custom-scheme link. A `session_token=` in the link is never accepted (the old pre-Oct 2026
+redirect), and the pending nonce + verifier are used once. Sign out revokes the session on the server
 (`POST /api/auth/logout`); Settings → "Sign out of all devices" revokes every session of the account.
 
 ## Layout
@@ -105,6 +105,12 @@ and navigate with `nav.open(Routes.reader(id))`. Offline data: a `FeatureSync` r
 
 **Deep links**: `chineselearning-lab:///<web route>` (e.g. `chineselearning-lab:///decks/abc`)
 opens that screen, or its placeholder; `chineselearning-lab://auth?…` is the sign-in callback.
+Only the app's OWN links (notifications, the widget, conversation shortcuts, PROCESS_TEXT, the call /
+audio-lesson services — all sent through the non-exported `.InternalLink` activity-alias,
+`ShellLinks.intent` / `viewIntent`) may open any route. A link from outside — a web page, another
+app, the launcher's static shortcuts, the hybrid-style `route` extra — reaches only
+`ExternalLinks`' allowlist (`ui/nav/MainAppHandoff.kt`: `/`, `/study`, `/coach` with `focus=1` only,
+`/analyze`); anything else opens Home. A new way in from the app itself must go through `ShellLinks`.
 
 **Data model**: a local Room mirror of decks, notes, cards, sentence sets and review
 events. Review events are the source of truth: a card's scheduling columns are a cache
@@ -144,8 +150,9 @@ shortcut ids and labels are the Lab's own, so both apps install side by side.
   widget's options, redrawn on resize. A widget placed before this change keeps its old size —
   remove it and add it again to get the compact default.
 - **Launcher shortcuts** Study / Coach / Analyze and **select text → Coach (Lab)**
-  (`PROCESS_TEXT` → `/coach?text=…`). Everything from outside is a `chineselearning-lab:///<route>`
-  link (or the hybrid's `route` extra), so a screen that isn't native yet opens its placeholder.
+  (`PROCESS_TEXT` → `/coach?text=…`). Every way in is a `chineselearning-lab:///<route>` link (or the
+  hybrid's `route` extra), so a screen that isn't native yet opens its placeholder; links from outside
+  the app are held to the external allowlist (see "Deep links").
 - **Due-card notifications** (`DueCheckWorker`, hourly): sync if online, then — unless it is
   22:00–08:00, notifications are off / not allowed, signed out, a tutor account, or nothing is
   due — the most overdue *seen* hanzi → meaning card due now (never a new card: the new-card

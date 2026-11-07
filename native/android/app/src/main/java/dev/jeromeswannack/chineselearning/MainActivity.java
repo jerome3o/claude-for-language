@@ -34,6 +34,7 @@ import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -64,11 +65,31 @@ public class MainActivity extends BridgeActivity {
                 this::writePendingDownload);
         setUpStatusBarBackground();
         setUpKeyboardAwareInsets();
+        pageGuard = new AppPageGuard(appUrl());
+        pageGuard.onPage(bridge.getWebView());
+        bridge.addWebViewListener(new WebViewListener() {
+            @Override
+            public void onPageStarted(WebView webView) {
+                pageGuard.onPage(webView);
+            }
+
+            @Override
+            public void onPageLoaded(WebView webView) {
+                pageGuard.onPage(webView);
+            }
+        });
         setUpClipboardBridge();
         setUpDownloadBridge();
         setUpAudioBridge();
         handleRouteIntent(getIntent());
         setUpHomeworkNotifications();
+    }
+
+    /** Every bridge answers only the app's own page (see AppPageGuard). */
+    private AppPageGuard pageGuard;
+
+    private String appUrl() {
+        return bridge != null && bridge.getServerUrl() != null ? bridge.getServerUrl() : APP_URL;
     }
 
     /**
@@ -109,7 +130,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public boolean writeText(String text) {
-            if (text == null) {
+            if (text == null || !pageGuard.allowed()) {
                 return false;
             }
             return setClip(ClipData.newPlainText("Chinese Learning", text));
@@ -117,7 +138,7 @@ public class MainActivity extends BridgeActivity {
 
         @JavascriptInterface
         public boolean writeImageBase64(String base64Png) {
-            if (base64Png == null || base64Png.isEmpty()) {
+            if (base64Png == null || base64Png.isEmpty() || !pageGuard.allowed()) {
                 return false;
             }
             try {
@@ -131,7 +152,7 @@ public class MainActivity extends BridgeActivity {
                     out.write(bytes);
                 }
                 // Reuse the app's existing FileProvider (its cache-path entry
-                // in res/xml/file_paths.xml covers getCacheDir()).
+                // in res/xml/file_paths.xml covers getCacheDir()/clipboard/ only).
                 Uri uri = FileProvider.getUriForFile(
                         MainActivity.this,
                         getPackageName() + ".fileprovider",
@@ -152,7 +173,7 @@ public class MainActivity extends BridgeActivity {
     private AudioBridge audioBridge;
 
     private void setUpAudioBridge() {
-        audioBridge = new AudioBridge(this, bridge.getWebView());
+        audioBridge = new AudioBridge(this, bridge.getWebView(), pageGuard);
         bridge.getWebView().addJavascriptInterface(audioBridge, "AndroidAudio");
     }
 
@@ -223,7 +244,8 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public boolean saveFile(String filename, String mimeType, String base64Data) {
             if (filename == null || filename.isEmpty()
-                    || base64Data == null || base64Data.isEmpty()) {
+                    || base64Data == null || base64Data.isEmpty()
+                    || !pageGuard.allowed()) {
                 return false;
             }
             final byte[] bytes;
@@ -337,7 +359,7 @@ public class MainActivity extends BridgeActivity {
         if (!route.startsWith("/")) {
             route = "/" + route;
         }
-        String base = bridge != null && bridge.getServerUrl() != null ? bridge.getServerUrl() : APP_URL;
+        String base = appUrl();
         final String url = base + route;
         final String finalRoute = route;
         final WebView webView = bridge.getWebView();

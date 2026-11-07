@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider may hand out, and nothing more (was the whole of external storage
+     + the whole cache):
+     - Pictures/ under the app's own external files dir: Capacitor's camera capture for
+       <input type="file" capture> (BridgeWebChromeClient.createImageFile).
+     - clipboard/ in the cache: the image MainActivity's ClipboardBridge copies. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <external-path name="my_images" path="." />
-    <cache-path name="my_cache_images" path="." />
+    <external-files-path name="my_images" path="Pictures/" />
+    <cache-path name="clipboard" path="clipboard/" />
 </paths>

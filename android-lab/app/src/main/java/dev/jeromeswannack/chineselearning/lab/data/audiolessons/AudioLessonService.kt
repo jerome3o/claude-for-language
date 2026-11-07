@@ -27,7 +27,6 @@ import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
-import dev.jeromeswannack.chineselearning.lab.MainActivity
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonChapter
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonMusic
 import dev.jeromeswannack.chineselearning.lab.core.AudioLessonTimeline
@@ -429,7 +428,7 @@ class AudioLessonService : MediaSessionService() {
     private fun openLesson(id: String): PendingIntent = PendingIntent.getActivity(
         this,
         0,
-        Intent(Intent.ACTION_VIEW, Uri.parse("chineselearning-lab:///audio-lessons/${Uri.encode(id)}"), this, MainActivity::class.java)
+        dev.jeromeswannack.chineselearning.lab.shell.ShellLinks.viewIntent(this, "/audio-lessons/${Uri.encode(id)}")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )

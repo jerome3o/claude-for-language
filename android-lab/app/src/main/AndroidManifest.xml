@@ -70,14 +70,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Sign-in comes back here: chineselearning-lab://auth?session_token=…&nonce=… -->
+            <!-- Sign-in comes back here: chineselearning-lab://auth?code=…&nonce=… (PKCE exchange, data/AuthExchange.kt) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="chineselearning-lab" android:host="auth" />
             </intent-filter>
-            <!-- Deep links to web routes: chineselearning-lab:///decks/abc → that screen (ui/nav/LabNav.open). -->
+            <!-- Deep links from OUTSIDE the app: only ExternalLinks' allowlist (ui/nav/MainAppHandoff.kt); anything else opens Home. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -87,6 +87,15 @@
             <!-- shell/: launcher long-press shortcuts (Study / Coach / Analyze). -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shell_shortcuts" />
         </activity>
+
+        <!-- The app's OWN links into MainActivity (notifications, the widget, conversation shortcuts,
+             PROCESS_TEXT, the call / audio-lesson services): not exported, so only this app (or a
+             PendingIntent / shortcut it made) can start it, and MainActivity trusts any route that
+             arrives through it (shell/ShellLinks.isInternal). -->
+        <activity-alias
+            android:name=".InternalLink"
+            android:targetActivity=".MainActivity"
+            android:exported="false" />
 
         <!-- The previous run's crash / freeze trace, before the app's own UI (data/CrashLog.kt). Plain Views. -->
         <activity

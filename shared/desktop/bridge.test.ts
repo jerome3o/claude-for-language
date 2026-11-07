@@ -111,8 +111,9 @@ describe('desktop sign-in', () => {
 
   it('accepts only the deep link carrying our nonce', () => {
     const nonce = 'abcdefghijklmnop1234';
-    const ok = parseAuthDeepLink(`chineselearning-desktop://auth?session_token=tok&nonce=${nonce}`, nonce);
-    expect(ok?.toString()).toBe('session_token=tok');
+    // A session token in the link is never accepted (only the code exchange signs in).
+    expect(parseAuthDeepLink(`chineselearning-desktop://auth?session_token=tok&nonce=${nonce}`, nonce)).toBeNull();
+    expect(parseAuthDeepLink(`chineselearning-desktop://auth?code=c&session_token=tok&nonce=${nonce}`, nonce)?.toString()).toBe('code=c');
     expect(parseAuthDeepLink(`chineselearning-desktop://auth?signup=invite_only&nonce=${nonce}`, nonce)?.get('signup')).toBe('invite_only');
     expect(parseAuthDeepLink(`chineselearning-desktop://auth?session_token=tok&nonce=other${nonce}`, nonce)).toBeNull();
     expect(parseAuthDeepLink(`chineselearning-desktop://auth?session_token=tok&nonce=${nonce}`, null)).toBeNull();

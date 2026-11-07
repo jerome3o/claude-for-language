@@ -71,9 +71,8 @@ function handleDeepLink(url: string) {
  */
 async function finishSignIn(win: BrowserWindow, params: URLSearchParams, verifier: string | null) {
   const code = params.get('code');
-  const legacyToken = params.get('session_token');
-  if (code || legacyToken) {
-    const out = code ? await exchangeCode(API_URL, code, verifier) : { token: legacyToken! };
+  if (code) {
+    const out = await exchangeCode(API_URL, code, verifier);
     if ('token' in out) {
       await handOverSession(win, out.token);
       return;

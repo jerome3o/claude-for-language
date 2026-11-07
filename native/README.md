@@ -110,7 +110,25 @@ can't download its distribution, a system Gradle >= 8.11 works too.
 
 - `capacitor.config.json` — app id/name, remote `server.url`, allowed navigation
   hosts, and a Chrome-like `overrideUserAgent` (without it Google OAuth refuses
-  to run in a WebView with a `disallowed_useragent` error).
+  to run in a WebView with a `disallowed_useragent` error). Sign-in runs INSIDE
+  the WebView: the page's "Sign in with Google" → the API host's
+  `/api/auth/login` → `accounts.google.com` → the API's callback → back to the
+  app with a one-time `?code=` the page exchanges. So `allowNavigation` is only
+  the app's own host, the API host and `accounts.google.com` (the one Google
+  host that sign-in navigates to). Anything else (the old `*.google.com`,
+  `*.googleusercontent.com`, `*.gstatic.com` — user-content hosts among them)
+  opens in the system browser instead of the app's WebView; subresources
+  (pictures, scripts) are not affected by this list. It also limits where
+  Capacitor's own bridge is exposed (its allowed origins follow this list).
+- **JavaScript bridges answer the app's page only**: `window.AndroidClipboard`,
+  `AndroidAudio` and `AndroidDownload` are plain `addJavascriptInterface`
+  objects, which the WebView exposes to any page it shows; every method checks
+  `AppPageGuard.allowed()` (the WebView's current page is on `server.url`'s
+  origin) and otherwise does nothing.
+- `res/xml/file_paths.xml` — the FileProvider shares only `Pictures/` in the
+  app's external files dir (Capacitor's camera capture for
+  `<input type="file" capture>`) and `cache/clipboard/` (copied images), not
+  the whole of external storage.
 - `android/app/src/main/java/.../MainActivity.java` — routes intents
   (`route` extra or `chineselearning://` data URI) to the corresponding page by
   loading `server.url + route` in the WebView.
