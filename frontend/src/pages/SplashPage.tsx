@@ -42,6 +42,7 @@ export function SplashPage() {
             {error === 'auth_failed' && 'Authentication failed. Please try again.'}
             {error === 'invalid_state' && 'Security check failed. Please try again.'}
             {error === 'missing_params' && 'Something went wrong. Please try again.'}
+            {error === 'update_required' && 'This version of the app is out of date. Reload the page (or update the app) and sign in again.'}
           </div>
         )}
 

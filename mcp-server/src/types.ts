@@ -17,6 +17,8 @@ export type Props = {
   userId: string;
   userEmail: string | null;
   userName: string | null;
+  /** When this grant was made (epoch ms); "Sign out of all devices" revokes older ones. Absent on old grants. */
+  grantedAt?: number;
 };
 
 /** Base URL of the main API worker (same D1, all the business logic). */

@@ -42,4 +42,23 @@ describe('link previews', () => {
     expect(await fetchLinkPreview('http://127.0.0.1/', never as unknown as typeof fetch)).toBeNull();
     expect(never).not.toHaveBeenCalled();
   });
+
+  it('checks every redirect hop: a public page redirecting to a private address is never fetched', async () => {
+    const seen: string[] = [];
+    const f = vi.fn(async (u: string) => {
+      seen.push(u);
+      if (u === 'https://x.com/a') return new Response(null, { status: 302, headers: { Location: 'http://169.254.169.254/latest' } });
+      return new Response('<title>secret</title>', { headers: { 'Content-Type': 'text/html' } });
+    }) as unknown as typeof fetch;
+    expect(await fetchLinkPreview('https://x.com/a', f)).toBeNull();
+    expect(seen).toEqual(['https://x.com/a']);
+
+    const ok = vi.fn(async (u: string) => u === 'https://x.com/old'
+      ? new Response(null, { status: 301, headers: { Location: '/new' } })
+      : new Response('<title>New page</title>', { headers: { 'Content-Type': 'text/html' } })) as unknown as typeof fetch;
+    expect(await fetchLinkPreview('https://x.com/old', ok)).toMatchObject({ url: 'https://x.com/new', title: 'New page' });
+
+    const loop = vi.fn(async () => new Response(null, { status: 302, headers: { Location: 'https://x.com/a' } })) as unknown as typeof fetch;
+    expect(await fetchLinkPreview('https://x.com/a', loop)).toBeNull();
+  });
 });

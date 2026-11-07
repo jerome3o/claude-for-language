@@ -514,13 +514,9 @@ export interface NativeAuthClient {
 }
 
 /*
- * Transition (Oct 2026): a sign-in WITHOUT a `challenge` still ends with the old
- * redirect carrying `session_token` — Lab and desktop builds from before the
- * code exchange, and a web tab still running a cached older bundle. The web app
- * itself no longer accepts `?session_token=` (only on the Vite dev server, for
- * E2E), so the legacy web redirect gives an attacker nothing. Plan: once every
- * installed Lab / desktop app has updated (the debug reports' app_version shows
- * it), drop the legacy path — /api/auth/login then requires `challenge`.
+ * Since Nov 2026 /api/auth/login REQUIRES `challenge`: a sign-in without one (a Lab /
+ * desktop build from before the code exchange, a stale web bundle) is sent back with
+ * `error=update_required` and nothing else. The session token never travels in a URL.
  */
 
 const APP_NONCE_RE = /^[A-Za-z0-9_-]{16,64}$/;
@@ -585,13 +581,15 @@ export function authRedirectUrl(
   frontendUrl: string,
   native: NativeAuthClient | null,
   params: Record<string, string>,
+  /** Web only: the page to land on (e.g. `/join/<token>`); native apps ignore it. */
+  path = '',
 ): string {
   const query = new URLSearchParams(params);
   if (native) {
     query.set('nonce', native.appNonce);
     return `${NATIVE_AUTH_CLIENTS[native.client]}?${query.toString()}`;
   }
-  return `${frontendUrl}?${query.toString()}`;
+  return `${frontendUrl}${path}?${query.toString()}`;
 }
 
 /**

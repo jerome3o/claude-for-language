@@ -144,6 +144,10 @@ describe('logout', () => {
     expect(await res.json()).toEqual({ success: true, signed_out: 3 });
     expect(db.rows("SELECT * FROM auth_sessions WHERE user_id = 'u1'")).toHaveLength(0);
     expect(await getSessionWithUser(db, other.id)).not.toBeNull();
+    // …and Claude's MCP grants made before now are revoked (by the MCP worker, from this mark).
+    const [u1] = db.rows<{ mcp_revoked_at: number | null }>("SELECT mcp_revoked_at FROM users WHERE id = 'u1'");
+    expect(u1.mcp_revoked_at).toBeGreaterThan(Date.now() - 60_000);
+    expect(db.rows<{ mcp_revoked_at: number | null }>("SELECT mcp_revoked_at FROM users WHERE id = 'u2'")[0].mcp_revoked_at).toBeNull();
   });
 
   it('sign out of all devices needs a valid session', async () => {

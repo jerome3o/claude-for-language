@@ -94,7 +94,6 @@ import {
   parseOAuthState,
   parseNativeAuthClient,
   authRedirectUrl,
-  createSession,
   createAuthCode,
   parseAuthChallenge,
   isVerifiedGoogleEmail,
@@ -115,7 +114,7 @@ import testAuth from './routes/test-auth';
 import invitesRoutes from './routes/invites';
 import onboardingRoutes from './routes/onboarding';
 import { resolveSignup, redeemInvite } from './services/signup';
-import { getInviteById, isInviteValid, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
+import { claimInviteUse, isPlausibleInviteToken, recordAccessRequest, markAccessRequestApprovedByEmail, userMayInvite, normalizeEmail } from './db/invite-queries';
 import insightsRoutes from './routes/insights';
 import recordingNotesRoutes from './routes/recording-notes';
 import cardFlagsRoutes from './routes/card-flags';
@@ -301,8 +300,14 @@ app.get('/api/auth/login', (c) => {
   // PKCE challenge of a verifier the app kept: the sign-in then ends with a one-time
   // code for /api/auth/exchange, never the session token in a URL (services/auth.ts).
   const challenge = parseAuthChallenge(c.req.query('challenge'));
-  const state = encodeOAuthState(generateState(), inviteToken, native, challenge);
   const isSecure = c.req.url.startsWith('https');
+  // Required (Nov 2026): without it the old hand-off put the session token in a URL.
+  // An app too old to send one is told to update instead of being signed in.
+  if (!challenge) {
+    const frontendUrl = isSecure ? 'https://chinese-learning-2x9.pages.dev' : 'http://localhost:3000';
+    return Response.redirect(authRedirectUrl(frontendUrl, native, { error: 'update_required' }), 302);
+  }
+  const state = encodeOAuthState(generateState(), inviteToken, native, challenge);
 
   // Determine redirect URI based on environment
   const url = new URL(c.req.url);
@@ -374,24 +379,25 @@ app.get('/api/auth/callback', async (c) => {
     const isAdminEmail = emailVerified && !!c.env.ADMIN_EMAIL && normalizeEmail(googleUser.email) === normalizeEmail(c.env.ADMIN_EMAIL);
     console.log('[Auth Callback] Is admin?', isAdminEmail);
     const { inviteToken, challenge } = parseOAuthState(state);
+    // /api/auth/login refuses a sign-in without a challenge, so one missing here is a
+    // state from before that rule: nothing is created, the app is told to update.
+    if (!challenge) {
+      return Response.redirect(redirectTo({ error: 'update_required' }), 302);
+    }
 
     let user: User;
     let isNewUser = false;
+    let joinPath = '';
     const existingUser = await findExistingUser(c.env.DB, googleUser);
 
     if (existingUser) {
       user = await touchExistingUser(c.env.DB, existingUser, googleUser, isAdminEmail);
 
-      // An existing user who opened someone's /join link still gets connected
-      // (and the decks) — the inviter sent it to them on purpose.
-      if (inviteToken) {
-        const invite = await getInviteById(c.env.DB, inviteToken);
-        if (isInviteValid(invite) && (!invite.email || (emailVerified && invite.email === normalizeEmail(googleUser.email)))) {
-          await redeemInvite(c.env.DB, user, invite).catch(err => {
-            console.error('[Auth Callback] Failed to redeem invite for existing user:', err);
-          });
-        }
-      }
+      // An existing account that signed in from someone's /join link is NOT connected
+      // here: a link alone must never attach a stranger to an account. The web app
+      // lands back on /join/<token>, where "Accept as <name>" is an explicit choice
+      // (POST /api/invites/:id/redeem).
+      if (inviteToken) joinPath = `/join/${encodeURIComponent(inviteToken)}`;
     } else {
       const resolution = await resolveSignup(c.env.DB, googleUser, {
         inviteToken,
@@ -399,6 +405,15 @@ app.get('/api/auth/callback', async (c) => {
         emailVerified,
       });
       console.log('[Auth Callback] Sign-up resolution:', resolution.kind);
+
+      // Take the invite's use BEFORE the account exists, atomically: two people racing
+      // for the last use of a link can't both get an account from it.
+      if (resolution.kind === 'invite' && !(await claimInviteUse(c.env.DB, resolution.invite.id))) {
+        const headers = new Headers();
+        headers.set('Location', redirectTo({ signup: 'invite_only' }));
+        headers.append('Set-Cookie', clearStateCookie(isSecure));
+        return new Response(null, { status: 302, headers });
+      }
 
       if (resolution.kind === 'denied') {
         // No user is created. Remember the attempt so the admin can approve it.
@@ -430,7 +445,7 @@ app.get('/api/auth/callback', async (c) => {
 
       // Awaited (not waitUntil) so the very first screen already has the deck.
       if (resolution.kind === 'invite') {
-        await redeemInvite(c.env.DB, user, resolution.invite).catch(err => {
+        await redeemInvite(c.env.DB, user, resolution.invite, { useClaimed: true }).catch(err => {
           console.error('[Auth Callback] Failed to redeem invite:', err);
         });
       }
@@ -466,18 +481,9 @@ app.get('/api/auth/callback', async (c) => {
 
     // The app gets a one-time code bound to its PKCE challenge and trades it for the
     // session at POST /api/auth/exchange (the token itself never travels in a URL).
-    // Without a challenge — an older Lab / desktop build, a stale web bundle — the
-    // legacy redirect still carries the session token (services/auth.ts "Transition").
-    let redirectUrl: string;
-    if (challenge) {
-      const authCode = await createAuthCode(c.env.DB, user.id, challenge, native?.client ?? 'web');
-      redirectUrl = redirectTo({ code: authCode });
-      console.log('[Auth Callback] Redirecting with a one-time code');
-    } else {
-      const session = await createSession(c.env.DB, user.id);
-      redirectUrl = redirectTo({ session_token: session.id });
-      console.log('[Auth Callback] Redirecting with the session token (legacy client)');
-    }
+    const authCode = await createAuthCode(c.env.DB, user.id, challenge, native?.client ?? 'web');
+    const redirectUrl = authRedirectUrl(frontendUrl, native, { code: authCode }, joinPath);
+    console.log('[Auth Callback] Redirecting with a one-time code');
 
     const headers = new Headers();
     headers.set('Location', redirectUrl);

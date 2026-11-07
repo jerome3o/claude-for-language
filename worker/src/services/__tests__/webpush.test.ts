@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { b64urlDecode, b64urlEncode, encryptPayload, generateVapidKeys, sendWebPush, vapidAuthorization } from '../push/webpush';
-import { getVapidKeys, pushToUsers, saveSubscription } from '../push';
+import { getVapidKeys, isPushServiceEndpoint, pushToUsers, saveSubscription } from '../push';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import type { Env } from '../../types';
 
@@ -81,7 +81,7 @@ describe('sendWebPush', () => {
       seen.push({ url, headers: init.headers as Record<string, string>, body: init.body as Uint8Array });
       return new Response('', { status: seen.length === 1 ? 201 : 410 });
     }) as unknown as typeof fetch;
-    const sub = { endpoint: 'https://push.example/sub/1', p256dh: b.p256dh, auth: b.auth };
+    const sub = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub/1', p256dh: b.p256dh, auth: b.auth };
     const ok = await sendWebPush(sub, { hello: '你好' }, keys, { ttl: 60, topic: 'call-1234' }, fetcher);
     expect(ok).toMatchObject({ ok: true, status: 201, gone: false });
     expect(seen[0].headers).toMatchObject({ 'Content-Encoding': 'aes128gcm', TTL: '60', Urgency: 'high', Topic: 'call-1234' });
@@ -117,16 +117,19 @@ describe('subscriptions and keys (real SQLite)', () => {
 
   it('saves a subscription idempotently, moves it between users, and drops dead / old-key ones on send', async () => {
     const b = await fakeBrowser();
-    const input = { endpoint: 'https://push.example/sub/1', keys: { p256dh: b.p256dh, auth: b.auth } };
+    const input = { endpoint: 'https://fcm.googleapis.com/fcm/send/sub/1', keys: { p256dh: b.p256dh, auth: b.auth } };
     await saveSubscription(env, 'u1', input, 'UA');
     await saveSubscription(env, 'u1', input, 'UA');
     expect(db.rows('SELECT user_id FROM push_subscriptions')).toEqual([{ user_id: 'u1' }]);
     await saveSubscription(env, 'u2', input, 'UA');
     expect(db.rows('SELECT user_id FROM push_subscriptions')).toEqual([{ user_id: 'u2' }]);
     await expect(saveSubscription(env, 'u2', { endpoint: 'http://x', keys: input.keys }, null)).rejects.toThrow(/https/);
+    // Only the browsers' push services: never an address of the client's choosing.
+    await expect(saveSubscription(env, 'u2', { endpoint: 'https://evil.example/hook', keys: input.keys }, null)).rejects.toThrow(/push service/);
+    await expect(saveSubscription(env, 'u2', { endpoint: 'https://fcm.googleapis.com.evil.example/x', keys: input.keys }, null)).rejects.toThrow(/push service/);
 
     const b2 = await fakeBrowser();
-    await saveSubscription(env, 'u2', { endpoint: 'https://push.example/sub/2', keys: { p256dh: b2.p256dh, auth: b2.auth } }, null);
+    await saveSubscription(env, 'u2', { endpoint: 'https://fcm.googleapis.com/fcm/send/sub/2', keys: { p256dh: b2.p256dh, auth: b2.auth } }, null);
     db.raw.exec(`UPDATE push_subscriptions SET vapid_key = 'old' WHERE endpoint LIKE '%/2'`);
     const fetcher = (async () => new Response('', { status: 410 })) as unknown as typeof fetch;
     const r = await pushToUsers(env, ['u2'], { type: 'test' }, {}, fetcher);
@@ -134,9 +137,27 @@ describe('subscriptions and keys (real SQLite)', () => {
     expect(db.rows('SELECT id FROM push_subscriptions')).toEqual([]);
   });
 
+  it('knows the browsers\' push services and nothing else', () => {
+    for (const ok of [
+      'https://fcm.googleapis.com/fcm/send/abc',
+      'https://updates.push.services.mozilla.com/wpush/v2/abc',
+      'https://web.push.apple.com/abc',
+      'https://wns2-par02p.notify.windows.com/w/?token=abc',
+    ]) expect(isPushServiceEndpoint(ok)).toBe(true);
+    for (const bad of [
+      'https://evil.example/fcm.googleapis.com',
+      'https://fcm.googleapis.com.evil.example/x',
+      'http://fcm.googleapis.com/x',
+      'https://fcm.googleapis.com:8443/x',
+      'https://user:pw@fcm.googleapis.com/x',
+      'https://169.254.169.254/latest',
+      'not a url',
+    ]) expect(isPushServiceEndpoint(bad)).toBe(false);
+  });
+
   it('counts sends and keeps a subscription through a transient failure', async () => {
     const b = await fakeBrowser();
-    await saveSubscription(env, 'u1', { endpoint: 'https://push.example/sub/9', keys: { p256dh: b.p256dh, auth: b.auth } }, null);
+    await saveSubscription(env, 'u1', { endpoint: 'https://fcm.googleapis.com/fcm/send/sub/9', keys: { p256dh: b.p256dh, auth: b.auth } }, null);
     let status = 500;
     const fetcher = (async () => new Response('', { status })) as unknown as typeof fetch;
     expect(await pushToUsers(env, ['u1'], {}, {}, fetcher)).toEqual({ sent: 0, failed: 1, removed: 0 });

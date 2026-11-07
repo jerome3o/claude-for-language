@@ -106,27 +106,43 @@ export async function recordAccessRequest(
 }
 
 /**
- * Whether the account behind a grant still exists. An admin deleting an
- * account (worker services/admin/delete-user.ts) can't reach this worker's
- * OAUTH_KV, so every MCP request and token refresh checks D1 instead.
- * Positive answers are cached per isolate for a minute (a deletion takes
- * effect within that); negative answers are never cached.
+ * Whether the account behind a grant still exists, and whether the grant was made
+ * after the account last pressed "Sign out of all devices" (`users.mcp_revoked_at`,
+ * epoch ms, written by the API worker's POST /api/auth/logout-all, which can't reach
+ * this worker's OAUTH_KV). An admin deleting an account can't reach OAUTH_KV either,
+ * so every MCP request and token refresh checks D1. Answers about live accounts are
+ * cached per isolate for a minute (a deletion / sign-out-everywhere takes effect
+ * within that); a missing account is never cached.
  */
 const LIVE_CACHE_MS = 60_000;
-const liveUsers = new Map<string, number>();
+const liveUsers = new Map<string, { at: number; revokedAt: number | null }>();
 
-export async function userExists(db: D1Database, userId: string | null | undefined, now = Date.now()): Promise<boolean> {
-  if (!userId || typeof userId !== 'string') return false;
+export type GrantStatus = { kind: 'live' } | { kind: 'gone' } | { kind: 'revoked'; revokedAt: number };
+
+export async function grantStatus(
+  db: D1Database,
+  userId: string | null | undefined,
+  grantedAt: number | null | undefined,
+  now = Date.now(),
+): Promise<GrantStatus> {
+  if (!userId || typeof userId !== 'string') return { kind: 'gone' };
+  let revokedAt: number | null;
   const seen = liveUsers.get(userId);
-  if (seen !== undefined && now - seen < LIVE_CACHE_MS) return true;
-  const row = await db.prepare('SELECT id FROM users WHERE id = ?').bind(userId).first<{ id: string }>();
-  if (!row) {
-    liveUsers.delete(userId);
-    return false;
+  if (seen && now - seen.at < LIVE_CACHE_MS) {
+    revokedAt = seen.revokedAt;
+  } else {
+    const row = await db.prepare('SELECT id, mcp_revoked_at FROM users WHERE id = ?').bind(userId).first<{ id: string; mcp_revoked_at?: number | null }>();
+    if (!row) {
+      liveUsers.delete(userId);
+      return { kind: 'gone' };
+    }
+    revokedAt = typeof row.mcp_revoked_at === 'number' ? row.mcp_revoked_at : null;
+    if (liveUsers.size > 1000) liveUsers.clear();
+    liveUsers.set(userId, { at: now, revokedAt });
   }
-  if (liveUsers.size > 1000) liveUsers.clear();
-  liveUsers.set(userId, now);
-  return true;
+  // A grant from before this field existed (no grantedAt) counts as made at 0.
+  if (revokedAt !== null && (typeof grantedAt === 'number' ? grantedAt : 0) < revokedAt) return { kind: 'revoked', revokedAt };
+  return { kind: 'live' };
 }
 
 /** Tests only. */

@@ -209,7 +209,7 @@ export function createOAuthApp() {
       userId: user.id,
       metadata: { label: user.name || user.email || 'User' },
       scope: original.scope,
-      props: { userId: user.id, userEmail: user.email, userName: user.name } satisfies Props,
+      props: { userId: user.id, userEmail: user.email, userName: user.name, grantedAt: Date.now() } satisfies Props,
     });
     return redirect(redirectTo, headers);
   });
