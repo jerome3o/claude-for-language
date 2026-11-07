@@ -48,8 +48,8 @@ function cleanInput(input: NoteInput): NoteInput {
     sentence_clue_pinyin: t(input.sentence_clue_pinyin),
     sentence_clue_translation: t(input.sentence_clue_translation),
     alternatives: input.alternatives,
-    audio_url: input.audio_url,
-    audio_provider: input.audio_provider,
+    // Never from the caller: a note's clips are made by the server (ensureClip). A client-chosen
+    // key here, deleted with the note, deleted ANY object in R2 (security audit, Nov 2026).
   };
 }
 
@@ -179,7 +179,6 @@ export async function updateNote(
     sentenceClue: patch.sentence_clue ?? undefined,
     sentenceCluePinyin: patch.sentence_clue_pinyin ?? undefined,
     sentenceClueTranslation: patch.sentence_clue_translation ?? undefined,
-    sentenceClueAudioUrl: patch.sentence_clue_audio_url ?? undefined,
     pinyinOnly: patch.pinyin_only,
     alternatives: patch.alternatives,
   });
@@ -197,8 +196,8 @@ export async function updateNote(
     if (options.check ?? true) await queueWordTags(env, userId, [noteId], bg, 'edit');
   }
   const hanziChanged = patch.hanzi !== undefined && note.hanzi !== before.hanzi;
+  // (sentence_clue_audio_url is never taken from a patch: the server makes the clue's clip.)
   const clueChanged =
-    patch.sentence_clue_audio_url === undefined &&
     !!note.sentence_clue &&
     note.sentence_clue !== before.sentence_clue;
   if (hanziChanged) {

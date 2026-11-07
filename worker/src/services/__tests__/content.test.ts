@@ -185,6 +185,25 @@ describe('content service: notes', () => {
     await expect(content.updateNote(env, 'u1', 'n1', { pinyin: 'da4 feng1' })).rejects.toThrow(/tone marks/);
   });
 
+  it('security: a client-chosen audio key is never stored on create / update, so deleting the note can never delete it', async () => {
+    db.addResult('SELECT * FROM notes WHERE id = ?', NOTE_ROW);
+    await content.createNote(env, 'u1', 'd1', { hanzi: '刮风', pinyin: 'guā fēng', english: 'windy', audio_url: 'avatars/victim/a.jpg', audio_provider: 'x' } as any, { audio: 'none' });
+    const insert = db.getQueries().find(q => q.sql.includes('INSERT INTO notes'))!;
+    expect(insert.params).not.toContain('avatars/victim/a.jpg');
+
+    db.addResult('SELECT n.* FROM notes n', NOTE_ROW);
+    await content.updateNote(env, 'u1', 'n1', { english: 'windy day', sentence_clue_audio_url: 'recordings/victim-review.webm' } as any);
+    const update = db.getQueries().filter(q => q.sql.includes('UPDATE notes')).pop()!;
+    expect(update.params).not.toContain('recordings/victim-review.webm');
+  });
+
+  it('security: deleting a note never deletes a key that is not a note clip, whatever the row says', async () => {
+    db.addResult('SELECT n.* FROM notes n', { ...NOTE_ROW, audio_url: 'avatars/victim/a.jpg', sentence_clue_audio_url: 'lesson-images/abc.png' });
+    db.addAllResult('SELECT audio_url FROM note_sentences WHERE note_id = ?', [{ audio_url: 'recordings/messages/m1.webm' }, { audio_url: 'generated/s1.mp3' }]);
+    expect(await content.deleteNote(env, 'u1', 'n1')).toBe(true);
+    expect(deleteAudioMock.mock.calls.map(c => c[0])).toEqual(['generated/s1.mp3']);
+  });
+
   it('deleteNote removes only clips no other note or sentence still references', async () => {
     db.addResult('SELECT n.* FROM notes n', { ...NOTE_ROW, audio_url: 'generated/shared.mp3', sentence_clue_audio_url: 'generated/clue.mp3' });
     db.addResult('SELECT * FROM notes WHERE id = ?', { ...NOTE_ROW, audio_url: 'generated/shared.mp3', sentence_clue_audio_url: 'generated/clue.mp3' });

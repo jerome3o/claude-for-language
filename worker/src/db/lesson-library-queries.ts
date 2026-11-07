@@ -152,6 +152,7 @@ export async function listAssignmentsForItem(db: D1Database, libraryItemId: stri
     SELECT c.*, u.name AS student_name, u.email AS student_email, u.picture_url AS student_picture_url
     FROM custom_lessons c
     JOIN users u ON u.id = c.user_id
+    JOIN tutor_relationships r ON r.id = c.assigned_relationship_id AND r.status = 'active'
     WHERE c.library_item_id = ?
     ORDER BY c.created_at
   `).bind(libraryItemId).all<AssignmentRow>();
@@ -192,7 +193,15 @@ export async function createAssignedLesson(
 /** A lesson the user may open in the editor: their own, or one they assigned
  * as tutor. */
 export async function getLessonForEditor(db: D1Database, lessonId: string, userId: string): Promise<AssignedLessonRow | null> {
-  const row = await db.prepare(`SELECT * FROM custom_lessons WHERE id = ? AND (user_id = ? OR assigned_by = ?)`)
+  // The tutor only while the relationship it was assigned in is still active (a student who removed
+  // their tutor keeps their lessons to themselves — security audit, Nov 2026).
+  const row = await db.prepare(`
+    SELECT * FROM custom_lessons c WHERE c.id = ? AND (
+      c.user_id = ?
+      OR (c.assigned_by = ? AND EXISTS (
+        SELECT 1 FROM tutor_relationships r WHERE r.id = c.assigned_relationship_id AND r.status = 'active'
+      ))
+    )`)
     .bind(lessonId, userId, userId).first<AssignedLessonRow>();
   return row ?? null;
 }

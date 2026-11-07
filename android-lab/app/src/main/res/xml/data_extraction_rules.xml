@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The sign-in token lives in shared preferences: it never leaves this phone, not in a cloud backup
+  (allowBackup="false" already) and not in a phone-to-phone transfer (security audit, Nov 2026).
+  The Room database may move; the new phone signs in again and syncs.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="." />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="." />
+    </device-transfer>
+</data-extraction-rules>

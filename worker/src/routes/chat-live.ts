@@ -14,6 +14,7 @@
  *   GET    /api/live/ws?ticket=                   WebSocket into the caller's ChatHub (before auth)
  */
 
+import { forwardableHeaders } from '../services/http/trusted-headers';
 import { Hono } from 'hono';
 import type { Env, MessageWithSender, SendMessageRequest } from '../types';
 import * as db from '../db/queries';
@@ -218,7 +219,7 @@ export function mountLiveSocket(app: Hono<{ Bindings: Env }>): void {
     if (!claims) return c.json({ error: 'Unauthorized' }, 401);
     const user = await c.env.DB.prepare('SELECT id FROM users WHERE id = ?').bind(claims.userId).first<{ id: string }>();
     if (!user) return c.json({ error: 'Unauthorized' }, 401);
-    const headers = new Headers(c.req.raw.headers);
+    const headers = forwardableHeaders(c.req.raw.headers);
     headers.set('X-User-Id', user.id);
     const stub = c.env.CHAT_HUB.get(c.env.CHAT_HUB.idFromName(user.id));
     return stub.fetch(new Request(c.req.raw.url, { headers }));

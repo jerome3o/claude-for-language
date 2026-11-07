@@ -95,7 +95,8 @@ export async function updateProfile(db: D1Database, userId: string, update: Prof
 export function googleProfileRefresh(
   db: D1Database,
   userId: string,
-  google: { id: string; name: string | null; picture: string | null; email: string },
+  /** `email: null` keeps the stored address (Google didn't say it is verified). */
+  google: { id: string; name: string | null; picture: string | null; email: string | null },
   isAdmin: number
 ): D1PreparedStatement {
   return db
@@ -107,7 +108,7 @@ export function googleProfileRefresh(
         google_picture_url = ?,
         name = CASE WHEN name_custom = 1 THEN name ELSE ? END,
         picture_url = CASE WHEN picture_source = 'google' THEN ? ELSE picture_url END,
-        email = ?,
+        email = COALESCE(?, email),
         is_admin = ?
       WHERE id = ?
     `)

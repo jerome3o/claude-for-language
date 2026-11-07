@@ -138,7 +138,9 @@ export async function touchExistingUser(
   await googleProfileRefresh(
     db,
     user.id,
-    { id: googleUser.id, name: googleUser.name ?? null, picture: googleUser.picture ?? null, email: googleUser.email },
+    // The address only when Google says it is verified: an unverified one written here would then
+    // match email-bound invites / pending invitations meant for its real owner (security audit, Nov 2026).
+    { id: googleUser.id, name: googleUser.name ?? null, picture: googleUser.picture ?? null, email: googleUser.verified_email === true ? googleUser.email : null },
     isAdminEmail ? 1 : user.is_admin
   ).run();
 

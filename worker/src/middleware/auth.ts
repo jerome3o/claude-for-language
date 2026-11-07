@@ -1,6 +1,6 @@
 import { Context, Next } from 'hono';
 import { Env, User } from '../types';
-import { parseSessionCookie, getSessionWithUser } from '../services/auth';
+import { getSessionWithUser } from '../services/auth';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -58,15 +58,13 @@ export async function authMiddleware(
     return next();
   }
 
-  // Get session from Authorization header or cookie
+  // The session comes ONLY from the Authorization header. (A `session` cookie used to count too;
+  // nothing sets it any more, and an ambient cookie credential is a CSRF risk — security audit,
+  // Nov 2026.)
   let sessionId: string | null = null;
   const authHeader = c.req.header('Authorization');
-
   if (authHeader?.startsWith('Bearer ')) {
     sessionId = authHeader.slice(7);
-  } else {
-    const cookieHeader = c.req.header('Cookie') || null;
-    sessionId = parseSessionCookie(cookieHeader);
   }
 
   if (!sessionId) {
