@@ -5,21 +5,40 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import dev.jeromeswannack.chineselearning.lab.Config
-import dev.jeromeswannack.chineselearning.lab.MainActivity
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 
 /**
- * Every way into the app from outside it is a Lab deep link, `chineselearning-lab:///<web route>`
- * (MainActivity → LabNav.open): a native screen, or its placeholder that hands off to the main app.
+ * Every way into the app from a notification, the widget or a service is a Lab deep link,
+ * `chineselearning-lab:///<web route>` (MainActivity → LabNav.open), sent through the internal alias
+ * so MainActivity knows it is the app's own: a native screen, or its placeholder that hands off to
+ * the main app.
  */
 object ShellLinks {
-    /** The hybrid app's intent extra (`MainActivity.EXTRA_ROUTE`): "/coach?text=…". Honoured too. */
+    /** The hybrid app's intent extra (`MainActivity.EXTRA_ROUTE`): "/coach". Honoured too, held to the external allowlist. */
     const val EXTRA_ROUTE = "route"
 
     fun uri(path: String): Uri = Uri.parse("${Config.AUTH_REDIRECT_SCHEME}://" + (if (path.startsWith("/")) path else "/$path"))
 
+    /**
+     * The non-exported `<activity-alias>` onto MainActivity (AndroidManifest.xml). Only this app — or
+     * a PendingIntent / shortcut it made — can start it, so a link that arrives through it is ours
+     * and may open any screen; links that come to the exported MainActivity are held to
+     * ui/nav/ExternalLinks' allowlist.
+     */
+    const val INTERNAL_LINK_CLASS = "dev.jeromeswannack.chineselearning.lab.InternalLink"
+
+    /** True when [intent] came through [INTERNAL_LINK_CLASS] of this app ([packageName]). */
+    fun isInternal(intent: Intent?, packageName: String): Boolean {
+        val c = intent?.component ?: return false
+        return c.packageName == packageName && c.className == INTERNAL_LINK_CLASS
+    }
+
+    /** ACTION_VIEW of [path] into MainActivity through the internal alias (no flags). */
+    fun viewIntent(context: Context, path: String): Intent =
+        Intent(Intent.ACTION_VIEW, uri(path)).setClassName(context, INTERNAL_LINK_CLASS)
+
     fun intent(context: Context, path: String): Intent =
-        Intent(Intent.ACTION_VIEW, uri(path), context, MainActivity::class.java)
+        viewIntent(context, path)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
     /** [notification] = the kind of notification it opens from (usage analytics `notification.tapped`). */

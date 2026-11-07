@@ -25,6 +25,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.nav.LabShell
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LastRoute
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LastRouteStore
 import dev.jeromeswannack.chineselearning.lab.ui.nav.NavRequest
+import dev.jeromeswannack.chineselearning.lab.ui.nav.ExternalLinks
 import dev.jeromeswannack.chineselearning.lab.ui.nav.deepLinkPath
 import dev.jeromeswannack.chineselearning.lab.ui.nav.openInMainApp
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
@@ -147,38 +148,46 @@ class MainActivity : ComponentActivity() {
             app.analytics.track("notification.tapped", mapOf("kind" to kind))
             intent.removeExtra(ShellLinks.EXTRA_NOTIFICATION) // once, not again on a configuration change
         }
-        // The hybrid app's `route` extra ("/coach?text=…") works here too.
-        ShellLinks.routeExtra(intent)?.let { pending = NavRequest(it, soft); return }
+        // Our own notifications / widget / services come through the non-exported InternalLink alias
+        // (shell/ShellLinks) and may open any screen. A link from outside — a browser page, another
+        // app, the launcher's static shortcuts, the hybrid-style `route` extra — only reaches the
+        // short allowlist in ExternalLinks; anything else opens Home.
+        val internal = ShellLinks.isInternal(intent, packageName)
+        fun allowed(path: String) = if (internal) path else ExternalLinks.safePath(path)
+        ShellLinks.routeExtra(intent)?.let { pending = NavRequest(allowed(it), soft); return }
         val data = intent?.data ?: return
         if (data.scheme != Config.AUTH_REDIRECT_SCHEME) return
-        if (data.host == "auth") handleAuth(data) else deepLinkPath(data)?.let { pending = NavRequest(it, soft) }
+        if (data.host == "auth") handleAuth(data) else deepLinkPath(data)?.let { pending = NavRequest(allowed(it), soft) }
     }
 
     /**
      * `chineselearning-lab://auth?code=…&nonce=…` from the worker's auth callback: the one-time
-     * code is traded with this app's verifier for the session (data/AuthExchange.kt). The old
-     * `session_token=` form only comes back for a sign-in started without a challenge.
+     * code is traded with this app's verifier for the session (data/AuthExchange.kt). A session
+     * token carried in the link itself is never accepted — the worker no longer sends one, and
+     * accepting it would let any app or page hand this app a session it didn't ask for.
      */
     private fun handleAuth(data: Uri) {
         val expected = app.prefs.pendingAuthNonce
+        if (expected == null || data.getQueryParameter("nonce") != expected) {
+            // Not our sign-in: a stray or forged link must not cancel one in progress.
+            authError = "That sign-in link wasn't started from this app. Try again."
+            return
+        }
+        // The nonce and verifier are used once, whatever the link carries.
+        val verifier = app.prefs.pendingAuthVerifier
+        app.prefs.pendingAuthNonce = null
+        app.prefs.pendingAuthVerifier = null
         val code = data.getQueryParameter("code")
-        val token = data.getQueryParameter("session_token")
-        val error = data.getQueryParameter("error") ?: data.getQueryParameter("signup")
-        when {
-            expected == null || data.getQueryParameter("nonce") != expected -> authError = "That sign-in link wasn't started from this app. Try again."
-            !code.isNullOrBlank() -> {
-                val verifier = app.prefs.pendingAuthVerifier
-                app.prefs.pendingAuthNonce = null
-                app.prefs.pendingAuthVerifier = null
-                lifecycleScope.launch {
-                    when (val out = AuthExchange.exchange(app.repo.api, code, verifier)) {
-                        is AuthExchange.Outcome.Token -> completeSignIn(out.token)
-                        is AuthExchange.Outcome.Failed -> authError = out.message
-                    }
-                }
+        if (code.isNullOrBlank()) {
+            val error = data.getQueryParameter("error") ?: data.getQueryParameter("signup")
+            authError = "Sign-in failed (${error ?: "no code"})."
+            return
+        }
+        lifecycleScope.launch {
+            when (val out = AuthExchange.exchange(app.repo.api, code, verifier)) {
+                is AuthExchange.Outcome.Token -> completeSignIn(out.token)
+                is AuthExchange.Outcome.Failed -> authError = out.message
             }
-            token.isNullOrBlank() -> authError = "Sign-in failed (${error ?: "no session"})."
-            else -> completeSignIn(token)
         }
     }
 

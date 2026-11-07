@@ -7,10 +7,7 @@
     "allowNavigation": [
       "chinese-learning-2x9.pages.dev",
       "chinese-learning-api.jeromeswannack.workers.dev",
-      "accounts.google.com",
-      "*.google.com",
-      "*.googleusercontent.com",
-      "*.gstatic.com"
+      "accounts.google.com"
     ]
   },
   "android": {

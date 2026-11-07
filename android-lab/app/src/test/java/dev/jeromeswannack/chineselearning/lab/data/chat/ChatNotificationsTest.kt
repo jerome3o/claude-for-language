@@ -127,7 +127,7 @@ class ChatNotificationsTest {
         val n = assertNotNull(notification())
         val intent = shadowOf(n.contentIntent).savedIntent
         assertEquals("chineselearning-lab:///connections/r1/chat/c1", intent.data.toString())
-        assertEquals(dev.jeromeswannack.chineselearning.lab.MainActivity::class.java.name, intent.component?.className)
+        assertEquals(dev.jeromeswannack.chineselearning.lab.shell.ShellLinks.INTERNAL_LINK_CLASS, intent.component?.className)
     }
 
     @Test fun replyAndMarkAsReadActions() {

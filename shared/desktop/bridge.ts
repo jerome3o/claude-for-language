@@ -236,8 +236,9 @@ export function isLoginNavigation(url: string, apiOrigin: string): boolean {
  * The deep link the browser hands back. Only a link carrying the nonce THIS app
  * asked with is accepted (another app or page can't sign it in to someone
  * else's account). Returns the query without the nonce: `code` (the one-time
- * code the app trades at /api/auth/exchange), a legacy `session_token`, or
- * `signup=…` / `error=…` when the sign-in was refused.
+ * code the app trades at /api/auth/exchange), or `signup=…` / `error=…` when the
+ * sign-in was refused. A `session_token` in the link is never passed on: the worker
+ * no longer sends one, and a token in a URL is exactly what the exchange replaced.
  */
 export function parseAuthDeepLink(url: string, expectedNonce: string | null): URLSearchParams | null {
   let u: URL;
@@ -253,8 +254,8 @@ export function parseAuthDeepLink(url: string, expectedNonce: string | null): UR
   const nonce = u.searchParams.get('nonce');
   if (!expectedNonce || nonce !== expectedNonce) return null;
   const out = new URLSearchParams();
-  for (const [k, v] of u.searchParams) if (k !== 'nonce') out.set(k, v);
-  if (!out.has('code') && !out.has('session_token') && !out.has('signup') && !out.has('error')) return null;
+  for (const [k, v] of u.searchParams) if (k !== 'nonce' && k !== 'session_token') out.set(k, v);
+  if (!out.has('code') && !out.has('signup') && !out.has('error')) return null;
   return out;
 }
 

@@ -93,9 +93,9 @@ desktop/
   `chineselearning-desktop://auth?code=…&nonce=…` (a 60-second, single-use code — never the session
   token), the app checks the nonce, trades code + verifier at `POST /api/auth/exchange` and writes
   the session into the page's `localStorage` before loading it (`handOverSession`, main.ts). The
-  preload says `signsInWithCode`, so the page ignores a `?session_token=` in its URL; builds before
-  this (no `signsInWithCode`) still get the old `session_token` redirect and the page still accepts it
-  from them — until the worker's legacy path is removed.
+  preload says `signsInWithCode`, so the page ignores a `?session_token=` in its URL, and the app
+  itself never accepts a `session_token` in the deep link (`parseAuthDeepLink` drops it) — only the
+  code exchange signs it in.
 - **No secrets** are in the app: it holds nothing but the web app's URL; every key stays in the worker.
 - Analytics events from the app carry platform `desktop`; `call.desktop_overlay` records the overlay.
 

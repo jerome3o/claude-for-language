@@ -10,13 +10,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
-import dev.jeromeswannack.chineselearning.lab.MainActivity
 import dev.jeromeswannack.chineselearning.lab.R
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
@@ -36,7 +34,7 @@ class CallService : Service() {
         ensureChannel(this)
         val open = PendingIntent.getActivity(
             this, 0,
-            Intent(Intent.ACTION_VIEW, Uri.parse("chineselearning-lab:///calls/$callId"), this, MainActivity::class.java),
+            dev.jeromeswannack.chineselearning.lab.shell.ShellLinks.viewIntent(this, "/calls/$callId"),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL)

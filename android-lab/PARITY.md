@@ -325,7 +325,7 @@ Owns `app/src/main/res/xml/`, widget / shortcut / notification classes under `sh
 | Due-card notifications: hourly check (sync first if online), hanzi → Show answer (pinyin, meaning, example) → Again / Good / Easy with intervals, recorded as a REAL local review (`Repository.recordReview`, uploaded by sync / the upload worker — works offline), "✓ Good · back in 4d" + Next card; quiet 22:00–08:00; silent when off, not permitted, signed out, a tutor account or nothing due; a stale one is withdrawn after a sync; tap → study | ✅ unit + Robolectric (rating = in-app review, same state) | `HomeworkWorker.java`, `HomeworkNotifier.java`, `HomeworkActionReceiver.java` | `shell/Shell.kt`, `ShellRules.kt`, `NotificationReview.kt`, `ShellNotifier.kt`, `DueCheckWorker.kt` |
 | Homework due today / overdue notification (one-off, once a day per assignment; tap → `/homework[/:id]`) | ✅ (own `shell/homework` cache of `GET /api/me/homework`; E's homework sync can replace it) | docs/HOMEWORK.md, `shared/homework/due.ts` | `shell/HomeworkFeed.kt` |
 | Notification permission (Android 13+: asked once after sign-in) + More → Lab app → "Due-card notifications" toggle | ✅ | `MainActivity.setUpHomeworkNotifications` | `shell/ShellPermission.kt`, `ShellRows.kt` |
-| Hybrid `route` extra and `chineselearning-lab:///<route>` links from outside | ✅ | `MainActivity.extractRoute` | `shell/ShellLinks.kt`, `MainActivity.kt` |
+| Hybrid `route` extra and `chineselearning-lab:///<route>` links from outside (external: allowlist `/`, `/study`, `/coach?focus=1`, `/analyze`; the app's own via the `.InternalLink` alias) | ✅ | `MainActivity.extractRoute` | `shell/ShellLinks.kt`, `ui/nav/MainAppHandoff.kt` `ExternalLinks`, `MainActivity.kt` |
 
 ## J — Video calls (last)
 
