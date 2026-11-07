@@ -806,8 +806,9 @@ export async function getStudentCardReviews(
       n.audio_url
     FROM cards c
     JOIN notes n ON c.note_id = n.id
-    WHERE c.id = ?
-  `).bind(cardId).first<{
+    JOIN decks d ON d.id = n.deck_id
+    WHERE c.id = ? AND d.user_id = ?
+  `).bind(cardId, studentId).first<{
     id: string;
     card_type: string;
     note_id: string;
@@ -1018,8 +1019,9 @@ export async function getMyCardReviews(
       n.audio_url
     FROM cards c
     JOIN notes n ON c.note_id = n.id
-    WHERE c.id = ?
-  `).bind(cardId).first<{
+    JOIN decks d ON d.id = n.deck_id
+    WHERE c.id = ? AND d.user_id = ?
+  `).bind(cardId, userId).first<{
     id: string;
     card_type: string;
     note_id: string;

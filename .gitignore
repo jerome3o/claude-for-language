@@ -35,3 +35,8 @@ coverage/
 .mf/
 .dev.vars*
 scripts/.cache/
+
+# Signing keys never belong in the repo (security audit, Nov 2026)
+*.jks
+*.keystore
+*.p12

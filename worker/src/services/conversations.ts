@@ -558,6 +558,16 @@ export async function sendMessage(
     if (existing) return { ...existing, client_id: clientId, duplicate: true };
   }
 
+  // A reply quotes its message back (reply_to.content): only a message of THIS conversation —
+  // any other id read someone else's message (security audit, Nov 2026).
+  if (replyToMessageId) {
+    const inThisChat = await db
+      .prepare('SELECT 1 AS ok FROM messages WHERE id = ? AND conversation_id = ?')
+      .bind(replyToMessageId, conversationId)
+      .first<{ ok: number }>();
+    if (!inThisChat) replyToMessageId = undefined;
+  }
+
   const id = opts.id ?? generateId();
   const now = new Date().toISOString();
 

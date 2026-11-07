@@ -18,11 +18,27 @@ const testAuth = new Hono<{ Bindings: Env }>();
 
 // Middleware to check E2E test mode is enabled
 testAuth.use('*', async (c, next) => {
-  if (c.env.E2E_TEST_MODE !== 'true') {
+  if (c.env.E2E_TEST_MODE !== 'true' || !isLocalRequest(c.req.url)) {
     return c.json({ error: 'Test endpoints are disabled' }, 403);
   }
   return next();
 });
+
+/**
+ * Test endpoints mint sessions (admins too), so they answer only on a local dev server — a second
+ * lock besides E2E_TEST_MODE, should that switch ever be set on the deployed worker (security
+ * audit, Nov 2026).
+ */
+export function isLocalRequest(url: string): boolean {
+  try {
+    const host = new URL(url).hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1') return true;
+    // A private network (the Android emulator reaches the dev server as 10.0.2.2) — never a deployed worker.
+    return /^(10\.\d+|192\.168|172\.(1[6-9]|2\d|3[01]))\.\d+\.\d+$/.test(host);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * POST /api/test/auth

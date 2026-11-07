@@ -189,6 +189,8 @@ export async function writeClip(db: D1Database, target: ClipTarget, expectUrl: s
  * keys) moves to the new clip too, so the old object becomes unreferenced.
  */
 export async function moveSharedKey(db: D1Database, oldUrl: string, prov: ClipProvenance): Promise<number> {
+  // Only a note clip's own kind of key is ever re-pointed (see isDeletableNoteAudioKey).
+  if (!isDeletableNoteAudioKey(oldUrl)) return 0;
   let moved = 0;
   for (const kind of ['word', 'clue', 'sentence'] as const) {
     const c = CLIP_COLUMNS[kind];
@@ -239,8 +241,21 @@ async function findSourceNote(db: D1Database, row: ClipRow): Promise<string | nu
  * tutor's note and the student's copy share the same keys (shareDeck copies
  * the URL, not the bytes), so a delete must never take the other side's audio.
  */
+/**
+ * A key a note's clip can legitimately have, and so may be deleted with it: a generated clip
+ * (`generated/…`) or a clip recorded for the note (`recordings/<noteId>/<id>.webm`). Anything
+ * else (avatars, review / chat / lesson recordings, pictures, call audio…) is never deleted from
+ * here, whatever a row says (security audit, Nov 2026).
+ */
+export function isDeletableNoteAudioKey(key: string): boolean {
+  const k = audioKeyOf(key).split('?')[0];
+  if (k.includes('..') || k.includes('\\')) return false;
+  if (/^generated\/[^/]+$/.test(k)) return true;
+  return /^recordings\/[^/]+\/[^/]+$/.test(k) && !k.startsWith('recordings/messages/') && !k.startsWith('recordings/lessons/');
+}
+
 export async function deleteUnreferencedAudio(env: Pick<Env, 'DB' | 'AUDIO_BUCKET'>, keys: Array<string | null | undefined>): Promise<number> {
-  const wanted = Array.from(new Set(keys.filter((k): k is string => !!k)));
+  const wanted = Array.from(new Set(keys.filter((k): k is string => !!k && isDeletableNoteAudioKey(k))));
   if (wanted.length === 0) return 0;
   let deleted = 0;
   for (let i = 0; i < wanted.length; i += 40) {

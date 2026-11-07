@@ -81,7 +81,8 @@ import readerEditor from './routes/reader-editor';
 import readerQueueRoutes from './routes/reader-queue';
 import { placeNewReader, readerQueuePositions, withQueuePositions } from './services/reader-queue';
 import { isReaderQueuePlacement } from '@shared/reader/queue';
-import { storeAudio, getAudio, deleteAudio, getRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
+import { loadMessageForMember, ChatMessageError } from './services/chat/messages';
+import { storeAudio, getAudio, deleteAudio, getRecordingKey, ownRecordingKey, generateTTS, generateConversationTTS, parseByteRange, resolveServedRange, classifyMp3, DEFAULT_TTS_SPEED, DEFAULT_MINIMAX_VOICE } from './services/audio';
 import {
   getGoogleAuthUrl,
   exchangeCodeForTokens,
@@ -2626,6 +2627,7 @@ app.post('/api/notes/:id/audio', async (c) => {
     }
 
     const blob = file as Blob;
+    if (blob.size > MAX_RECORDING_BYTES) return c.json({ error: 'Recording too large' }, 413);
     const { generateId: genId } = await import('./services/cards');
     const recordingId = genId();
     const key = `recordings/${noteId}/${recordingId}.webm`;
@@ -2727,6 +2729,9 @@ app.delete('/api/notes/:id/audio/:recordingId', async (c) => {
 
 // ============ Audio ============
 
+/** A pronunciation take is a few seconds of compressed audio; 15 MB is generous. */
+const MAX_RECORDING_BYTES = 15 * 1024 * 1024;
+
 app.post('/api/audio/upload', async (c) => {
   const user = c.get('user');
   if (!user) {
@@ -2772,7 +2777,13 @@ app.post('/api/audio/upload', async (c) => {
     targetReviewId = recentReview.id;
   }
 
-  // Never overwrite another account's recording (the key is derived from the review id).
+  // The key is derived from the review id, so the id must be a PLAIN id — "messages/<id>",
+  // "lessons/…" or "<noteId>/…" overwrote other people's voice messages, lesson takes and note
+  // recordings (security audit, Nov 2026). The event may not have synced yet (offline queue), so a
+  // missing row is fine; another account's row is not.
+  if (!/^[A-Za-z0-9_-]{1,100}$/.test(targetReviewId!)) {
+    return c.json({ error: 'Invalid review id' }, 400);
+  }
   const existing = await c.env.DB.prepare('SELECT user_id FROM review_events WHERE id = ?')
     .bind(targetReviewId).first<{ user_id: string }>();
   if (existing && existing.user_id !== userId) {
@@ -2780,6 +2791,7 @@ app.post('/api/audio/upload', async (c) => {
   }
 
   const blob = file as Blob;
+  if (blob.size > MAX_RECORDING_BYTES) return c.json({ error: 'Recording too large' }, 413);
   const key = getRecordingKey(targetReviewId!);
   const arrayBuffer = await blob.arrayBuffer();
   await storeAudio(c.env.AUDIO_BUCKET, key, arrayBuffer, blob.type);
@@ -4174,6 +4186,13 @@ app.put('/api/messages/:id/discussion', async (c) => {
   const { messages } = await c.req.json<{ messages: Array<{ role: string; content: string }> }>();
 
   try {
+    // Only a message of a chat the caller is in (a discussion's thread label quotes the message).
+    try {
+      await loadMessageForMember(c.env.DB, msgId, userId);
+    } catch (err) {
+      if (err instanceof ChatMessageError) return c.json({ error: err.message }, err.status as 403 | 404);
+      throw err;
+    }
     await saveMessageDiscussion(c.env.DB, msgId, userId, messages);
     // The same discussion in its Claude thread (docs/CHAT.md "Claude threads"; claude-agent/backfill.ts).
     c.executionCtx.waitUntil(
@@ -5095,9 +5114,12 @@ app.post('/api/reviews', async (c) => {
     console.log(`[API reviews] Skipping ${skippedOrphans} events for deleted/missing cards`);
   }
 
-  // Create events with user_id added
+  // Create events with user_id added. A recording is only ever stored at the key the server
+  // derives from the event id (POST /api/audio/upload); any other key an event carries is dropped
+  // — it made the media check treat the caller as an owner of someone else's recording.
   const eventsWithUser = validEvents.map(e => ({
     ...e,
+    recording_url: ownRecordingKey(e.id, (e as { recording_url?: unknown }).recording_url) ?? undefined,
     user_id: userId,
   }));
 
