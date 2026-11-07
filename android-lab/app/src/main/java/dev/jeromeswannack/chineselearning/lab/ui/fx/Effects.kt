@@ -17,9 +17,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.coroutines.flow.first
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -35,12 +37,23 @@ private class Particle(
  * Runs once per [key]; ~4 s. Mirrors the web's Confetti but fuller.
  */
 @Composable
-fun ConfettiRain(key: Any, colors: List<Color>, modifier: Modifier = Modifier.fillMaxSize(), count: Int = 170) {
+fun ConfettiRain(
+    key: Any,
+    colors: List<Color>,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    count: Int = 170,
+    /** Each time the rain starts (tests). */
+    onRain: () -> Unit = {},
+) {
     var particles by remember(key) { mutableStateOf<List<Particle>>(emptyList()) }
     var frame by remember(key) { mutableLongStateOf(0L) }
     var size by remember { mutableStateOf(Size.Zero) }
-    LaunchedEffect(key, size) {
-        if (size == Size.Zero) return@LaunchedEffect
+    // Once per key: wait for the first real size, then rain. (Keyed on the size too, it rained
+    // again whenever the area resized — a take starting or ending in the Sentence round redrew
+    // the "done" confetti on every extra sentence, right or wrong, Nov 2026.)
+    LaunchedEffect(key) {
+        snapshotFlow { size }.first { it != Size.Zero }
+        onRain()
         val rnd = Random(key.hashCode())
         particles = List(count) {
             Particle(
