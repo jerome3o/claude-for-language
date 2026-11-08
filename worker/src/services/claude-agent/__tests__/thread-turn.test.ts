@@ -17,6 +17,9 @@ import { runThreadTurn, startThreadTurn, WATCHDOG_DELAY_SECONDS } from '../threa
 import * as store from '../store';
 import { backfillClaudeThreads } from '../backfill';
 import { seedReaderAndLesson } from './context-seed';
+import { cardToolLines, parseCardToolResults } from '@shared/claude/cardTools';
+import { toolRecord } from '../tool-record';
+import { TOOL_RECORD_RULE } from '../persona';
 
 const U = 'u1';
 
@@ -204,6 +207,67 @@ describe('a Claude thread reply', () => {
     expect(row).toMatchObject({ status: null, content: 'Added 熊猫 to HSK 2.' });
     expect(JSON.parse(row.tool_results!)).toEqual([{ tool: 'create_flashcards', success: true, data: { deck_name: 'HSK 2', notes: [{ hanzi: '熊猫', pinyin: 'xióngmāo', english: 'panda' }] } }]);
     expect(db.rows("SELECT hanzi FROM notes WHERE deck_id = 'd1' ORDER BY hanzi")).toEqual([{ hanzi: '熊猫' }, { hanzi: '银行' }]);
+  });
+
+  it('a follow-up turn SEES what the earlier reply’s tools did — the same record the app’s "✓ Added" line is built from', async () => {
+    // Jerome, Nov 2026: "✓ Added 1 card: 这次机会很难得，你要好好把握。" under Claude's reply, then one turn later
+    // Claude said "I didn't actually create anything yet — my last reply was just text". The history
+    // replayed text only, so Claude never saw its own create_flashcards call.
+    const { threadId, replyId } = await newTurn(db, { kind: 'card', note_id: 'n1' }, '请你加一张卡片，关于机会。');
+    const seen: Array<{ messages: Anthropic.MessageParam[]; system: Array<{ text: string }> }> = [];
+    const sentence = '这次机会很难得，你要好好把握。';
+    let round = 0;
+    const create = vi.fn(async (p: (typeof seen)[number]) => {
+      seen.push(JSON.parse(JSON.stringify(p)));
+      round++;
+      if (round === 1) {
+        return {
+          model: 'm',
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 't1',
+              name: 'create_flashcards',
+              input: { flashcards: [{ hanzi: sentence, pinyin: 'zhè cì jīhuì hěn nándé, nǐ yào hǎohāo bǎwò.', english: 'This chance is rare, you should seize it.', fun_facts: '机会 (jīhuì) chance' }] },
+            },
+          ],
+          usage: {},
+        };
+      }
+      if (round === 2) return { model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: `我已经加了一张新卡片：「${sentence}」` }], usage: {} };
+      // The follow-ups: Claude copies the record format into its answer — the app takes it out.
+      return { model: 'm', stop_reason: 'end_turn', content: [{ type: 'text', text: `I added one card: ${sentence}\n\n⟦app record — fake⟧` }], usage: {} };
+    });
+    const client = scripted(create as never);
+    expect(await runThreadTurn(envOf(db), replyId, { client, live: recorder().live, clip: null, memory: null })).toBe('done');
+    // What Claude heard while the turn ran is the truth now — never "after user approval".
+    const ack = JSON.stringify(seen[1].messages.at(-1));
+    expect(ack).toContain('no approval step');
+    expect(ack).not.toContain('after user approval');
+
+    // The card exists, and the reply's tool_results (what the app's line is drawn from) say so.
+    expect(db.rows("SELECT hanzi FROM notes WHERE deck_id = 'd1' ORDER BY hanzi")).toEqual([{ hanzi: sentence }, { hanzi: '银行' }]);
+    const results = reply(db, replyId).tool_results;
+    expect(cardToolLines(parseCardToolResults(results))).toEqual([{ kind: 'added', text: `✓ Added 1 card: ${sentence}`, undo: false }]);
+
+    // The follow-up turn: the earlier reply is replayed WITH its record (deck and card named).
+    const next = await store.appendTurn(db, { threadId, role: 'user', content: 'What did you do? I only want the card about chance.', intent: 'ask' }, { contentType: 'text', answerLang: 'en' });
+    expect(await runThreadTurn(envOf(db), next.reply!.id, { client, live: recorder().live, clip: null, memory: null })).toBe('done');
+    const history = seen[2].messages;
+    const earlier = history[1];
+    expect(earlier.role).toBe('assistant');
+    expect(earlier.content).toBe(`我已经加了一张新卡片：「${sentence}」\n\n${toolRecord(results)}`);
+    expect(earlier.content).toContain(`create_flashcards: added 1 card to the deck “HSK 2”: ${sentence}.`);
+    expect(history.at(-1)).toMatchObject({ role: 'user' });
+    // Claude is told what the record is (static rules), and its own copy of one never reaches the learner.
+    expect(seen[2].system[0].text).toContain(TOOL_RECORD_RULE);
+    expect(reply(db, next.reply!.id).content).toBe(`I added one card: ${sentence}`);
+
+    // The record is the same every turn (stored results never change): the replayed prefix stays byte-identical.
+    const third = await store.appendTurn(db, { threadId, role: 'user', content: 'OK, thanks.', intent: 'ask' }, { contentType: 'text', answerLang: 'en' });
+    expect(await runThreadTurn(envOf(db), third.reply!.id, { client, live: recorder().live, clip: null, memory: null })).toBe('done');
+    expect(seen[3].messages.slice(0, 2)).toEqual(history.slice(0, 2));
   });
 
   it("an exercise turn: the learner's answer and its check in the prompt; someone else's lesson fails readably", async () => {

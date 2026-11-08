@@ -39,6 +39,7 @@ import { askSettings, pregenerateAskClip, type AskClipMaker } from './ask-claude
 import { replyLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from './tts-cache';
 import { NOW_ISO, touchThreadStatement } from './claude-agent/store';
+import { withToolRecord } from './claude-agent/tool-record';
 
 export interface CoachReplyMessage {
   messageId: string;
@@ -184,7 +185,9 @@ export function buildCoachHistory(stored: CoachMessage[], deckList: string): Coa
       history.push({ role: 'assistant', content: `Here is the structured analysis I gave the user (rendered as rich UI):\n${m.content}` });
     } else {
       // A mistake lesson is a card in the conversation: the model only needs to know it exists.
-      const content = m.content_type === MISTAKE_LESSON_CONTENT_TYPE ? mistakeLessonHistoryLine(m.content) : m.content;
+      // An earlier reply carries the record of what its tools did (tool-record.ts), so a follow-up never denies a card it made.
+      const content =
+        m.content_type === MISTAKE_LESSON_CONTENT_TYPE ? mistakeLessonHistoryLine(m.content) : m.role === 'assistant' ? withToolRecord(m.content, m.tool_results) : m.content;
       // Two turns of one role in a row (a failed reply in between, a lesson after the analysis) are merged: the API wants alternation.
       const prev = history[history.length - 1];
       if (prev && prev.role === m.role) prev.content = `${prev.content}\n\n${content}`;

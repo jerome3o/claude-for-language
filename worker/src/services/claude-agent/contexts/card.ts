@@ -186,6 +186,7 @@ export const cardContext: ContextProvider<'card', CardData> = {
   frameFirstTurn: (d, content) => `${d.facts}\n\nUser's question: ${content}`,
   tools: () => CARD_TOOLS,
   toolContext: (d, input) => ({ deckId: d.note.deck_id, bumpSource: input.bumpSource ?? 'ask_claude' }),
-  deferredAck: (tool) => `Tool ${tool} will be executed after user approval`,
+  // The truth (no approval step since the card thread, Nov 2026): it is applied when the reply finishes.
+  deferredAck: (tool) => `Accepted: ${tool} is applied as soon as your reply finishes (no approval step); the learner sees what it did under your reply.`,
   finish: (text, input) => ((input.language ?? 'en') === 'zh' ? plainAnswerText(text) : text),
 };
