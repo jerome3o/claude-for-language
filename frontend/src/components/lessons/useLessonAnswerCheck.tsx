@@ -3,7 +3,10 @@
  * views change by a few lines (TranslateExercise, ListenTranslateExercise):
  *   - `onFinal(text, source)` when the answer is final (typed submit / transcript final) → the check
  *     starts at once, when `answerCheckApplies` (an answer in Chinese);
- *   - `view(answer, speak)` → the card under "You said" + 💬: in a real run of one of his lessons the
+ *   - `view(answer, speak, { offered, celebrated })` → Claude's slot, which the exercise puts LAST (below its
+ *     buttons) so nothing he is reading moves when it lands: "Claude is checking…", then the card + 💬, a
+ *     right verdict felt (unless the device already celebrated), and 🎤 Say the corrected version when
+ *     Claude's fix is new (shared/lesson/feedback.ts); the card + 💬 is in a real run of one of his lessons the
  *     exercise's Claude thread (ExerciseClaude.tsx — his answer and the check ride with it), else the
  *     old inline "Ask about this" chat (a preview / the catalogue have no stored lesson);
  *   - `suggested` → the button to ring; `report(answer)` adds the check + every earlier try;
@@ -18,6 +21,8 @@ import { useAnswerCheck } from '../../hooks/useAnswerCheck';
 import { AnswerCheckCard } from './AnswerCheckCard';
 import { AskAboutAnswerSheet } from './AskAboutAnswerSheet';
 import { exerciseAnswerOf, useExerciseClaude } from './ExerciseClaude';
+import { LessonFeel, SayItAgain } from './LessonFeedback';
+import { claudeVerdictMoment, sayAgainFix } from '@shared/lesson/feedback';
 import { track } from '../../services/analytics';
 
 type Source = 'spoken' | 'edited' | 'typed';
@@ -80,10 +85,13 @@ export function useLessonAnswerCheck(ctx: {
     return out;
   }
 
-  function view(answer: string, speak: (text: string) => void): ReactNode {
+  function view(answer: string, speak: (text: string) => void, opts: { offered?: string | null; celebrated?: boolean } = {}): ReactNode {
     if (!input) return null;
+    const moment = check ? claudeVerdictMoment(check.verdict) : null;
+    const fix = check ? sayAgainFix(check.cleaned ?? check.corrected, answer, opts.offered ?? ctx.modelAnswer) : null;
     return (
-      <>
+      <div className="lesson-claude-slot lesson-feel-host" data-testid="lesson-claude-slot">
+        {moment && <LessonFeel key={`${input.answer}:${check?.verdict}`} moment={moment} celebrated={opts.celebrated} />}
         <AnswerCheckCard
           state={state}
           answer={answer}
@@ -92,8 +100,9 @@ export function useLessonAnswerCheck(ctx: {
           onAsk={() => (exerciseClaude ? exerciseClaude.ask('answer_check', exerciseAnswerOf(input.answer, check)) : setAsking(true))}
           askLabel={exerciseClaude ? '💬 Ask Claude' : undefined}
         />
+        {fix && <SayItAgain key={fix} hanzi={fix} exerciseType={ctx.exerciseType} kind="fix" testId="lesson-say-fix" />}
         {asking && <AskAboutAnswerSheet input={input} check={check} onClose={() => setAsking(false)} />}
-      </>
+      </div>
     );
   }
 

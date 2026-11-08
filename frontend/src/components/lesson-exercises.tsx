@@ -20,6 +20,7 @@ import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import { isExactHanziMatch } from '@shared/lesson/answer-check';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
+import { LessonFeel, MarkedAnswer, MarkedModel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -123,10 +124,9 @@ export function ScrambleExercise(props: {
         </div>
       ) : (
         <>
-          <div className={`result-banner ${result ? 'correct' : 'wrong'}`}>
-            {result ? '✓ Correct' : '✗ Not quite'}
-          </div>
+          <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
           {!result && <div className="result-correction">{correctOrder.join(' ')}</div>}
+          <SayItAgain hanzi={correctOrder.join('')} exerciseType="scramble" />
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(result, { order: picked, hint_used: showEnglish })}>
               Continue
@@ -184,10 +184,9 @@ export function ChoiceExercise(props: {
       })}
       {result !== null && (
         <>
-          <div className={`result-banner ${result ? 'correct' : 'wrong'}`}>
-            {result ? '✓ Correct' : '✗ Not quite'}
-          </div>
+          <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
           {explanation && <p className="result-explanation">{explanation}</p>}
+          {/\p{Script=Han}/u.test(options[correctIndex]?.hanzi ?? '') && <SayItAgain hanzi={options[correctIndex].hanzi} exerciseType="choice" />}
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined })}>
               Continue
@@ -264,26 +263,28 @@ export function TranslateExercise(props: {
         </>
       ) : (
         <>
-          {/* An exact match gets a green nudge; there's deliberately no
-              "wrong" state — a different wording can still be right. */}
+          {/* At once, from the device: what he said (an exact match gets a green nudge and is felt; otherwise the
+              characters the model answer doesn't have are marked — no "wrong" state, other wordings can be right),
+              then the model answer big. Claude's check lands LAST, below the buttons, so nothing here moves. */}
           {answer.trim() && (
-            <div className={`speak-transcript ${matched ? 'exact' : ''}`}>
+            <div className={`speak-transcript lesson-feel-host ${matched ? 'exact' : ''}`} data-testid="lesson-your-answer">
               <div className="speak-transcript-label">
                 {source === 'spoken' || source === 'edited' ? '🎤 You said' : 'Your answer'}
                 {matched && (
                   <span className="speak-transcript-exact-badge">{isExactHanziMatch(answer, referenceHanzi) ? '✓ Exact match' : '✓ Sounds right'}</span>
                 )}
               </div>
-              <div className="speak-transcript-text">{answer.trim()}</div>
-              {ac.view(answer.trim(), speak)}
+              <div className="speak-transcript-text">{matched ? answer.trim() : <MarkedAnswer answer={answer.trim()} model={referenceHanzi} />}</div>
+              {matched && <LessonFeel moment="matched_answer" />}
             </div>
           )}
           <div className="translate-ref">
             <div className="translate-ref-hanzi" onClick={() => speak(referenceHanzi)}>
-              {referenceHanzi} 🔊
+              {answer.trim() && !matched ? <MarkedModel answer={answer.trim()} model={referenceHanzi} /> : referenceHanzi} 🔊
             </div>
             {referencePinyin && <div className="translate-ref-pinyin">{referencePinyin}</div>}
           </div>
+          <SayItAgain hanzi={referenceHanzi} exerciseType="translate" />
           <p className="result-explanation">
             {note || 'Did yours match the meaning? (Different wording is fine.)'}
           </p>
@@ -295,6 +296,7 @@ export function TranslateExercise(props: {
               ✓ Got it
             </button>
           </div>
+          {answer.trim() && ac.view(answer.trim(), speak, { offered: referenceHanzi, celebrated: matched })}
         </>
       )}
     </div>
@@ -395,9 +397,9 @@ export function MatchExercise(props: {
       </div>
       {done && (
         <>
-          <div className={`result-banner ${mistakes === 0 ? 'correct' : 'wrong'}`}>
+          <ResultBanner ok={mistakes === 0}>
             {mistakes === 0 ? '✓ All matched!' : `Matched with ${mistakes} miss${mistakes === 1 ? '' : 'es'}`}
-          </div>
+          </ResultBanner>
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(mistakes === 0, { mistakes })}>
               Continue
@@ -485,6 +487,7 @@ export function DescribeImageExercise(props: {
             {referencePinyin && <div className="translate-ref-pinyin">{referencePinyin}</div>}
             {referenceEnglish && <div className="contrast-english">{referenceEnglish}</div>}
           </div>
+          <SayItAgain hanzi={referenceHanzi} exerciseType="describe_image" kind="example" />
           <p className="result-explanation">
             Did your description capture the scene? (Any correct sentence counts.)
           </p>
@@ -596,9 +599,7 @@ export function ListenChoiceExercise(props: {
       })}
       {result !== null && (
         <>
-          <div className={`result-banner ${result ? 'correct' : 'wrong'}`}>
-            {result ? '✓ Correct' : '✗ Not quite'}
-          </div>
+          <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
           <div className="translate-ref">
             <div className="translate-ref-hanzi" onClick={() => speak(audio.hanzi)}>
               {audio.hanzi} 🔊
@@ -606,6 +607,7 @@ export function ListenChoiceExercise(props: {
             {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
             {audio.english && <div className="contrast-english">{audio.english}</div>}
           </div>
+          <SayItAgain hanzi={audio.hanzi} exerciseType="listen_choice" />
           {explanation && <p className="result-explanation">{explanation}</p>}
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined, plays: plays.current })}>
@@ -688,7 +690,7 @@ export function ListenTranslateExercise(props: {
       ) : (
         <>
           {answer.trim() && (
-            <div className={`speak-transcript ${isListenAnswerMatch(answer, audio) ? 'exact' : ''}`}>
+            <div className={`speak-transcript lesson-feel-host ${isListenAnswerMatch(answer, audio) ? 'exact' : ''}`} data-testid="lesson-your-answer">
               <div className="speak-transcript-label">
                 {source === 'spoken' || source === 'edited' ? '🎤 You said' : 'Your answer'}
                 {isListenAnswerMatch(answer, audio) && (
@@ -696,7 +698,7 @@ export function ListenTranslateExercise(props: {
                 )}
               </div>
               <div className="speak-transcript-text">{answer.trim()}</div>
-              {ac.view(answer.trim(), speak)}
+              {isListenAnswerMatch(answer, audio) && <LessonFeel moment="matched_answer" />}
             </div>
           )}
           <div className="translate-ref">
@@ -706,6 +708,7 @@ export function ListenTranslateExercise(props: {
             {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
             {audio.english && <div className="contrast-english">{audio.english}</div>}
           </div>
+          <SayItAgain hanzi={audio.hanzi} exerciseType="listen_translate" />
           <p className="result-explanation">
             {note || 'Did you catch the meaning? (Different wording is fine.)'}
           </p>
@@ -717,6 +720,7 @@ export function ListenTranslateExercise(props: {
               ✓ Got it
             </button>
           </div>
+          {answer.trim() && ac.view(answer.trim(), speak, { offered: audio.hanzi, celebrated: isListenAnswerMatch(answer, audio) })}
         </>
       )}
     </div>

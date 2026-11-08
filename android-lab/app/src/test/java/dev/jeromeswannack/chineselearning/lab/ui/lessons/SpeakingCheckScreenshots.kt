@@ -70,7 +70,7 @@ class SpeakingCheckScreenshots : LabScreenshotTest() {
                 // The lower half of the same screen: the check's tips, the model answer, the buttons.
                 AnswerCheckBody(check, said, onPlay = {}, onRetry = {}, onAsk = {})
             }
-            Reference(LessonSentence("你就是新来的Annie吧？洗手间就在那边。", "Nǐ jiù shì xīn lái de Annie ba? Xǐshǒujiān jiù zài nàbiān."), env, label = "One way to say it:")
+            Reference(LessonSentence("你就是新来的Annie吧？洗手间就在那边。", "Nǐ jiù shì xīn lái de Annie ba? Xǐshǒujiān jiù zài nàbiān."), env, label = dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.EXAMPLE_LABEL)
             SelfAssess("How did it go?", yes = "✓ I said it well", suggested = true) {}
         }
     }

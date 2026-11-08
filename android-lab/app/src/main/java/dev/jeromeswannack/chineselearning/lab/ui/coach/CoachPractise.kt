@@ -98,6 +98,8 @@ data class PractiseLabels(
     val label: String = CoachPractise.LABEL,
     val listening: String = CoachPractise.LISTENING,
     val showListen: Boolean = true,
+    /** The button once a take was judged (the lesson's practice row says "🎤  Say it again", never the official Try again). */
+    val again: String = "🔁  ${CoachPractise.AGAIN}",
 ) {
     companion object {
         val COACH = PractiseLabels()
@@ -150,6 +152,8 @@ fun PractiseSentenceRow(
     onOutcome: ((String) -> Unit)? = null,
     /** A take starts (🎤 tapped to record). */
     onStart: (() -> Unit)? = null,
+    /** Its own haptic per take (off when the caller plays a StudyFeel instead: a lesson's Say it again). */
+    haptics: Boolean = true,
 ) {
     if (preview != null) return PractiseRowContent(hanzi, preview, PractiseActions(), tag, labels)
     val context = LocalContext.current
@@ -167,7 +171,7 @@ fun PractiseSentenceRow(
         result = p
         onPractised?.invoke(p)
         report(CoachPractise.outcome(p, null))
-        if (p.result.accepted) app?.haptics?.correct() else app?.haptics?.tick()
+        if (haptics) { if (p.result.accepted) app?.haptics?.correct() else app?.haptics?.tick() }
     }
     // A take that gave nothing is reported once (a result is reported when it lands).
     LaunchedEffect(dictation.phase, dictation.failure) {
@@ -238,7 +242,7 @@ fun PractiseRowContent(hanzi: String, ui: PractiseUi, actions: PractiseActions, 
                 val label = when {
                     finishing -> CoachPractise.CHECKING
                     listening -> "⏹  ${CoachPractise.STOP}"
-                    ui.result != null || failed -> "🔁  ${CoachPractise.AGAIN}"
+                    ui.result != null || failed -> labels.again
                     else -> "🎤  ${labels.label}"
                 }
                 Text(label, color = if (micEnabled || listening) fg else Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)

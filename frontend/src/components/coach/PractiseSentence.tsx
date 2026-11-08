@@ -50,12 +50,15 @@ export interface PractiseSentenceProps {
   onPractised?: (p: PractisedSentence) => void;
   /** A take starts (🎤 tapped to record). */
   onStart?: () => void;
+  /** The button once a take was judged (default "🔁 Try again"); the lesson's practice row says "🎤 Say it again" so it never reads as the official Try again. */
+  againLabel?: string;
+  againIcon?: string;
   className?: string;
 }
 
 export function PractiseSentence({
   hanzi, testId = 'coach-practise', label = COACH_PRACTISE_LABEL, listeningLine = COACH_PRACTISE_LISTENING,
-  surface = 'coach_practise', showListen = true, onOutcome, onPractised, onStart, className,
+  surface = 'coach_practise', showListen = true, onOutcome, onPractised, onStart, againLabel = COACH_PRACTISE_AGAIN, againIcon = '🔁', className,
 }: PractiseSentenceProps) {
   const speak = useLessonSpeak();
   const [result, setResult] = useState<PractisedSentence | null>(null);
@@ -157,7 +160,7 @@ export function PractiseSentence({
           ) : listening ? (
             <><span aria-hidden="true">⏹</span> {COACH_PRACTISE_STOP}</>
           ) : result || failed ? (
-            <><span aria-hidden="true">🔁</span> {COACH_PRACTISE_AGAIN}</>
+            <><span aria-hidden="true">{againIcon}</span> {againLabel}</>
           ) : (
             <><span aria-hidden="true">🎤</span> {label}</>
           )}

@@ -84,7 +84,7 @@ test('record → "You said" → Done → Claude marks the parts, a cleaner versi
   await expect(page.getByTestId('answer-check-cleaner')).toContainText('是关于下个月的活动的');
   await expect(page.getByTestId('answer-check-cleaner')).not.toContainText('sorry');
   await expect(check.locator('.answer-check-tip-fix').first()).toContainText('是关于下个月的活动的');
-  await expect(page.getByText('One way to say it:')).toBeVisible();
+  await expect(page.getByText('Another way to say it:')).toBeVisible();
   await expect(page.getByTestId('lesson-got-it')).toHaveClass(/suggested/);
   if (process.env.PR_SHOTS) {
     await page.screenshot({ path: `${process.env.PR_SHOTS}/01-transcribed.png` });

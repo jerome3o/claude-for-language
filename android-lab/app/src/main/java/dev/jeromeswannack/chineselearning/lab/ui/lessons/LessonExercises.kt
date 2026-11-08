@@ -39,6 +39,7 @@ import dev.jeromeswannack.chineselearning.lab.core.ChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.core.LessonFeedback
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
 import dev.jeromeswannack.chineselearning.lab.core.ListenChoiceExercise
 import dev.jeromeswannack.chineselearning.lab.core.ListenTranslateExercise
@@ -142,6 +143,7 @@ fun ScrambleView(ex: ScrambleExercise, env: ExerciseEnv, onNext: (Boolean, Exerc
     } else {
         ResultBanner(r, if (r) "✓ Correct" else "✗ Not quite")
         if (!r) Text(ex.correctOrder.joinToString(" "), fontSize = 22.sp, color = Palette.Good, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
         ActionRow { Primary("Continue") { onNext(r, ExerciseAnswer(order = pickedTiles, hintUsed = showEnglish)) } }
     }
 }
@@ -187,6 +189,7 @@ fun ChoiceView(ex: ChoiceExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseA
     if (result != null) {
         ResultBanner(result, if (result) "✓ Correct" else "✗ Not quite")
         ex.explanation?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
+        LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
         ActionRow { Primary("Continue") { onNext(result, ExerciseAnswer(choice = choice)) } }
     }
 }
@@ -223,14 +226,20 @@ fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         // no "wrong" state — other wordings can be right.
         val exact = LessonAnswers.isExactHanziMatch(answer, ex.referenceHanzi)
         val matched = exact || LessonSpokenCheck.check(answer, ex.referenceHanzi, emptyList(), source).accepted
-        if (typed.isNotEmpty()) YourAnswer(typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer", badge = if (exact) "✓ Exact match" else "✓ Sounds right")
-        if (typed.isNotEmpty()) AnswerCheckView(ac, typed, env)
-        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env)
+        // At once, from the device: what he said (a match is felt; otherwise the characters the model answer
+        // doesn't have are marked), the model answer big, 🎤 Say it again — Claude's check lands LAST, below the
+        // buttons, so nothing here moves (core LessonFeedback).
+        if (typed.isNotEmpty()) FeelBox(if (matched) LessonFeedback.MATCHED_ANSWER else null, env, key = typed) {
+            YourAnswer(typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer", badge = if (exact) "✓ Exact match" else "✓ Sounds right", model = ex.referenceHanzi)
+        }
+        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env, missedBy = typed.takeIf { it.isNotEmpty() && !matched })
+        SayItAgainRow(ex.referenceHanzi, ex.type, "answer", env)
         SelfAssess(
             ex.note?.takeIf { it.isNotBlank() } ?: "Did yours match the meaning? (Different wording is fine.)",
             no = "✗ Missed it",
             suggested = ac.suggested?.let { it == "got_it" },
         ) { ok -> onNext(ok, ac.report(ExerciseAnswer(text = typed.ifEmpty { null }, selfAssessed = true, input = source?.takeIf { typed.isNotEmpty() }))) }
+        if (typed.isNotEmpty()) AnswerCheckView(ac, typed, env, offered = ex.referenceHanzi, celebrated = matched)
     }
 }
 
@@ -348,6 +357,7 @@ fun DescribeImageView(ex: DescribeImageExercise, env: ExerciseEnv, onNext: (Bool
         ActionRow { Primary("🎤 I've described it") { revealed = true; env.speak(ex.referenceHanzi) } }
     } else {
         Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin, ex.referenceEnglish), env)
+        LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
         SelfAssess("Did your description capture the scene? (Any correct sentence counts.)") { ok -> onNext(ok, ExerciseAnswer(selfAssessed = true)) }
     }
 }
@@ -398,6 +408,7 @@ fun ListenChoiceView(ex: ListenChoiceExercise, env: ExerciseEnv, onNext: (Boolea
     if (result != null) {
         ResultBanner(result, if (result) "✓ Correct" else "✗ Not quite")
         Reference(ex.audio, env)
+        LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
         ex.explanation?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
         ActionRow { Primary("Continue") { onNext(result, ExerciseAnswer(choice = choice, plays = plays)) } }
     }
@@ -427,10 +438,14 @@ fun ListenTranslateView(ex: ListenTranslateExercise, env: ExerciseEnv, onNext: (
         ActionRow { Secondary("Show answer") { ac.onFinal(answer, "typed"); revealed = true; env.onTap() } }
     } else {
         val typed = answer.trim()
-        if (typed.isNotEmpty()) YourAnswer(typed, LessonAnswers.isListenAnswerMatch(answer, ex.audio), label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer")
-        if (typed.isNotEmpty()) AnswerCheckView(ac, typed, env)
+        val matched = LessonAnswers.isListenAnswerMatch(answer, ex.audio)
+        if (typed.isNotEmpty()) FeelBox(if (matched) LessonFeedback.MATCHED_ANSWER else null, env, key = typed) {
+            YourAnswer(typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer")
+        }
         Reference(ex.audio, env)
+        SayItAgainRow(ex.audio.hanzi, ex.type, "answer", env)
         SelfAssess(ex.note?.takeIf { it.isNotBlank() } ?: "Did you catch the meaning? (Different wording is fine.)", no = "✗ Missed it", suggested = ac.suggested?.let { it == "got_it" }) { ok -> onNext(ok, report()) }
+        if (typed.isNotEmpty()) AnswerCheckView(ac, typed, env, offered = ex.audio.hanzi, celebrated = matched)
     }
 }
 

@@ -9,7 +9,7 @@
  *   Also natural: 多练习就好了。 🔊
  *   🔁 Try again   💬 Ask about this
  *
- * While checking: one slim "Checking…" row — the Got it / Missed it buttons never wait for it.
+ * While checking: one slim "Claude is checking…" row (placed below the buttons by the exercise, so it never moves what he reads) — the Got it / Missed it buttons never wait for it.
  * Offline / failed: nothing (the self-assessment as before). Lab: `AnswerCheckCard` in ui/lessons.
  *
  * A speaking check (docs/STUDY_SESSION.md "Claude checks your speaking") adds the task's parts
@@ -17,6 +17,7 @@
  * marked) and each tip's better version with its pinyin.
  */
 import type { ReactNode } from 'react';
+import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
 import { answerCheckChip, cleanerVersion, speakingPartMark, tipSegments, type AnswerCheck } from '@shared/lesson/answerCheck';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
@@ -35,7 +36,7 @@ export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk, askLabel
   if (state.status === 'checking') {
     return (
       <div className="answer-check checking" role="status" aria-live="polite" data-testid="answer-check-checking">
-        <span className="answer-check-dot" aria-hidden="true" /> Checking your answer…
+        <span className="answer-check-dot" aria-hidden="true" /> {CLAUDE_CHECKING_LINE}
       </div>
     );
   }

@@ -79,7 +79,7 @@ describe('SpeakingAnswer', () => {
     expect(host.querySelector('[data-testid="answer-check-cleaner"]')?.textContent).toContain('A cleaner version');
     expect(host.querySelector('.chat-diff-ins')?.textContent).toBe('的');
     expect(host.querySelector('.answer-check-tip-fix')?.textContent).toContain('huódòng de');
-    expect(host.textContent).toContain('One way to say it');
+    expect(host.textContent).toContain('Another way to say it');
     expect(host.querySelector('[data-testid="lesson-got-it"]')!.className).toContain('suggested');
     await act(async () => (host.querySelector('[data-testid="lesson-got-it"]') as HTMLButtonElement).click());
     const [correct, answer, recording] = onNext.mock.calls[0];

@@ -1,0 +1,50 @@
+/* LessonFeedback.tsx — the answer screen's feel, 🎤 Say it again, his answer marked. */
+.lesson-feel-host {
+  position: relative;
+}
+.lesson-say-again {
+  margin-top: 0.5rem;
+  padding: 0.25rem 0 0.125rem;
+}
+.lesson-say-again .coach-practise {
+  margin-top: 0;
+}
+.lesson-say-again-note {
+  margin-top: 0.25rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+.lesson-say-again-burst {
+  position: absolute;
+  left: 50%;
+  top: 1.375rem;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.char-diff-chars.lesson-marked-answer .hit {
+  text-decoration: none;
+  color: inherit;
+}
+.char-diff-chars.lesson-marked-answer .extra {
+  color: #b91c1c;
+  text-decoration: underline wavy #dc2626;
+  text-underline-offset: 4px;
+}
+/* Claude's check below everything he is reading: a slim row while it is on its way. */
+.lesson-claude-slot {
+  margin-top: 0.75rem;
+}
+.lesson-claude-slot .answer-check {
+  margin-top: 0;
+}
+/* The model answer: what his answer missed, highlighted (a shape too — not colour alone). */
+.lesson-marked-model .miss {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-radius: 4px;
+  padding: 0 0.05em;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
