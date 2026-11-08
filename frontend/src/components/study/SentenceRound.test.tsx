@@ -322,7 +322,7 @@ describe('SentenceRound', () => {
     const { getLocalNoteSentences } = await import('../../services/sentence-sets');
     const many = ['我在银行工作。', '银行几点开门？', '这家银行很大。', '你去哪个银行？', '银行旁边有超市。', '我把钱存在银行。', '银行今天关门。']
       .map((hanzi, i) => ({ ...SET[0], id: `m${i}`, position: i, hanzi, translation: `Sentence ${i}.` }));
-    vi.mocked(getLocalNoteSentences).mockResolvedValue(many);
+    vi.mocked(getLocalNoteSentences).mockResolvedValue(many as never);
     const used = (mode: 'read' | 'translate') => ({
       read: { attempts: mode === 'read' ? 1 : 0, rights: mode === 'read' ? 1 : 0, misses: 0, last_at: mode === 'read' ? '2026-11-01' : null },
       translate: { attempts: mode === 'translate' ? 1 : 0, rights: 0, misses: mode === 'translate' ? 1 : 0, last_at: mode === 'translate' ? '2026-11-01' : null },
@@ -341,7 +341,7 @@ describe('SentenceRound', () => {
       expect(history.more).toEqual([['n1', { reason: 'fresh', count: 3 }]]);
       expect(host.querySelector('[data-testid="sentences-coming"]')).toBeNull();
     } finally {
-      vi.mocked(getLocalNoteSentences).mockResolvedValue(SET);
+      vi.mocked(getLocalNoteSentences).mockResolvedValue(SET as never);
     }
   });
 
