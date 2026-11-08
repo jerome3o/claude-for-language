@@ -1517,14 +1517,28 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
 - **How**: the lesson answer check (`POST /api/lessons/answer-check`, exercise_type `translate`, input spoken | typed,
   prompt = the card's English, model = its hanzi + pinyin — "Claude checks your answer" above): the device cache
   first, then the server's cache for everyone (`answerCheckCacheText`), so the same answer twice — or the same
-  sentence said by anyone — is one call; each new answer is at most one call (cost guard group `ai`). While it reads:
-  "Checking your sentence…" with 👁 Show answer only.
+  sentence said by anyone — is one call; each new answer is at most one call (cost guard group `ai`).
+- **The answer first, the verdict after** (`sentenceCheckView`; Jerome, Nov 2026: "I'm not a fan of this loading
+  screen here. In other places, we see the correct answer straight away and we see the differences straight away,
+  and then it loads the delta and tells me whether or not it's okay" — and "it also corrects my sentence instead of
+  giving me the model answer, which I find kind of annoying"): the moment the answer is checked, with no network
+  wait, the question shows **the card's answer** — "The answer", the hanzi big with ▶, its pinyin and English — and
+  **"You said" against it, character by character** (`DifferenceCompare` answer-first; the "You said" marks: red
+  where his isn't in the answer, yellow once Claude accepts it). Under them one slim **"Checking your sentence…"**
+  row (no spinner, no blocking panel); Claude's verdict then lands in its place — chip, headline, tips, "Also
+  natural". Claude's **fix of his own wording is never the answer**: the red-pen line is gone from this view; a fix
+  shows only as a small labelled line "Your wording, fixed: …" for ≈ Nearly, and only when it is neither the card's
+  answer nor what he said. Since the answer is already on screen, 👁 Show answer becomes **Continue to the
+  sentences ›** (or See the full answer) — the same give-up (a miss: Good / Easy greyed, Got it locked), straight on
+  to the round with no second "👁 The answer" panel. Offline / failed: the same answer + diff with the device's
+  ✗ Not quite / ≈ Nearly. What counts as right, Try again / Type it, the gating and the pass results are unchanged
+  and settle only when the verdict arrives.
 - **The verdict decides** (`sentenceCheckedVerdict` / `sentenceCheckOutcome`, `shared/study/sentenceAnswerCheck.ts`):
   **correct / acceptable** → right (the card's verdict becomes `equivalent`: Hard mode's ✓, the Sentence round, Good /
   Easy open; the pass suggests **Got it**), held first with "You said" vs the card under Claude's chip and headline
   ("Right, but said differently", reason acceptable / reworded) and **Next: harder questions →**; **almost** → ≈ Nearly
-  (like a device `close`); **wrong** → ✗ Not quite. A miss shows Claude's card **on the question** — the verdict chip
-  and headline, his sentence with the red-pen fix + its pinyin, ≤ 3 tips (quoted Chinese tappable), "Also natural:" with
+  (like a device `close`); **wrong** → ✗ Not quite. A miss shows Claude's card **on the question**, under the card's answer
+  and the diff (below) — the verdict chip and headline, ≤ 3 tips (quoted Chinese tappable), "Also natural:" with
   🔊 — then **🔁 Try again** (a new take / answer replaces the old one and is checked afresh — as often as he likes),
   **✏️ Type it** (a spoken answer: the box holding what was said, to fix by hand; checked as typed) and **👁 Show answer**
   (giving up exactly as before: the answer in place, Good / Easy greyed, Got it locked).
@@ -1533,10 +1547,10 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
 - Rules: `shared/study/sentenceAnswerCheck.ts` (Lab `core/…/SentenceAnswerCheck.kt`, parity-tested
   `parity/fixtures/sentence-answer-check.ts` → `SentenceAnswerCheckParityTest`). Web
   `components/study/useSentenceAnswerCheck.ts` (`useSentenceQuestionCheck`) in `StudyPage.tsx`, the card in
-  `HardModeFeedback.tsx` (`check`, `onTypeInstead`); Lab `CardStage.kt` (`StudyActions.answerCheck`) +
-  `HardModeFeedbackPanel(check)`. Analytics `study.sentence_answer_check { verdict: correct | acceptable | almost | wrong
+  `HardModeFeedback.tsx` (`check`, `onTypeInstead`, `sentenceView` → `SentenceAnswerFirst`); Lab `CardStage.kt`
+  (`StudyActions.answerCheck`, `sentenceMoveOn`) + `HardModeFeedbackPanel(check, sentenceView)`. Analytics `study.sentence_answer_check { verdict: correct | acceptable | almost | wrong
   | offline | error, retry, input, cached, ms, card_type, where }`. Tests: `shared/study/sentenceAnswerCheck.test.ts`,
-  `components/study/SentenceAnswerCheck.test.tsx`, Lab `SentenceAnswerCheckUiTest`.
+  `components/study/SentenceAnswerCheck.test.tsx`, E2E `sentence-check-answer-first.spec.ts`, Lab `SentenceAnswerCheckUiTest`.
 
 ### Sentence practice history (which sentences he knows; hide one; more sentences)
 

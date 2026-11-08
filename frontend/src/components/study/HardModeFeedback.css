@@ -123,6 +123,27 @@
   cursor: pointer;
 }
 
+/*
+ * A sentence answer Claude checks (sentenceCheckView): the card's answer + "You said" vs it at once, the
+ * verdict loading in under them — never a spinner in their place.
+ */
+.hard-feedback--answer-first .hard-feedback-check { max-height: 62vh; }
+.hard-feedback-checking-row { margin-top: 0.5rem; }
+.hard-feedback-verdict-line {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 1.1rem;
+  text-align: center;
+}
+.hard-feedback-your-fix {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-light);
+  text-align: left;
+}
+.hard-feedback-your-fix [lang='zh-CN'] { font-size: 0.95rem; color: var(--color-text); }
+.hard-feedback-your-fix-label { font-weight: 600; }
+
 /* 🎤 Read it again in the answer in place (practice only): the live words, then the result + "You said". */
 .hard-read-again {
   margin-top: 0.6rem;

@@ -256,6 +256,11 @@ fun AnswerCheckBody(
     askLabel: String? = null,
     /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
     afterHead: (@Composable () -> Unit)? = null,
+    /**
+     * No red-pen fix of his sentence (Hard mode's sentence check: the card's answer is the answer, shown above; the
+     * fix is at most a small labelled line there — core SentenceAnswerCheck.view).
+     */
+    hideFix: Boolean = false,
 ) {
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
@@ -273,7 +278,7 @@ fun AnswerCheckBody(
             afterHead?.invoke()
             check.parts?.takeIf { it.isNotEmpty() }?.let { SpeakingParts(it) }
             if (!check.cleaned.isNullOrEmpty()) CleanerVersionBlock(check, onPlay, compact)
-            if (check.corrected.isNotEmpty() && check.cleaned.isNullOrEmpty()) {
+            if (check.corrected.isNotEmpty() && check.cleaned.isNullOrEmpty() && !hideFix) {
                 val diff = remember(answer, check.corrected) { ChatLearning.correctionDiff(answer, check.corrected) }
                 Column(
                     Modifier.fillMaxWidth().then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(check.corrected) } else Modifier),
