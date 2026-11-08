@@ -39,7 +39,7 @@ object SentenceRound {
         return first + (0 until n).filter { it !in first }
     }
 
-    /** `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); hidden sentences never come. */
+    /** `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); each slot takes a fresh sentence first, then the least known in its mode; hidden sentences never come. */
     fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null): List<Exercise> {
         fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
         val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null }
@@ -54,6 +54,10 @@ object SentenceRound {
                 if (avoidTranslatable && hasTranslation(visible[pos].value)) continue
                 val p = pick
                 if (p == null) { pick = pos; continue }
+                // A fresh sentence (never practised in either mode) first: one read once never comes back as a translate while fresh ones wait.
+                val freshPos = SentenceHistory.isFresh(statsOf(visible[pos].value))
+                val freshPick = SentenceHistory.isFresh(statsOf(visible[p].value))
+                if (freshPos != freshPick) { if (freshPos) pick = pos; continue }
                 val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(mode), statsOf(visible[p].value)?.mode(mode))
                 if (c < 0 || (c == 0 && rank.getValue(pos) < rank.getValue(p))) pick = pos
             }
@@ -105,11 +109,15 @@ object SentenceRound {
             .filter { isCardSentenceKey(it.value.key) || w.isEmpty() || squeeze(it.value.hanzi).contains(w) }
     }
 
-    /** `pickListenRoundExercises`: up to [LISTEN_SIZE] translate exercises, least known first, shown easiest → harder. */
+    /** `pickListenRoundExercises`: up to [LISTEN_SIZE] translate exercises, fresh first, then least known, shown easiest → harder. */
     fun pickListen(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): List<Exercise> {
-        fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))?.translate
+        fun full(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
+        fun fresh(s: Sentence) = if (SentenceHistory.isFresh(full(s))) 0 else 1
         return listenCandidates(sentences, word, stats)
-            .sortedWith { a, b -> SentenceHistory.compareLeastKnown(statsOf(a.value), statsOf(b.value)).let { if (it != 0) it else a.index - b.index } }
+            .sortedWith { a, b ->
+                val f = fresh(a.value) - fresh(b.value)
+                if (f != 0) f else SentenceHistory.compareLeastKnown(full(a.value)?.translate, full(b.value)?.translate).let { if (it != 0) it else a.index - b.index }
+            }
             .take(LISTEN_SIZE)
             .sortedBy { it.index }
             .map { Exercise(exerciseId(SentencePractise.TRANSLATE, it.value.key), it.value.key, SentencePractise.TRANSLATE, it.index) }

@@ -225,15 +225,19 @@ suspend fun Api.noteSentences(noteId: String): List<SentenceDto> = get<Sentences
 suspend fun Api.generateSentenceSet(noteId: String, body: GenerateSentencesBody): List<SentenceDto> =
     post<GenerateSentencesBody, SentencesAnswer>("/api/notes/${enc(noteId)}/sentences/generate", body).sentences
 
+/**
+ * `POST /api/sentences/top-up`: [reason] null = "Listen in context" (fewer than five); "few" | "fresh" = the
+ * Sentence round's buffer (core SentenceHistory.moreWanted), [counts] = how many to make per note.
+ */
 @Serializable
-data class SentenceTopUpBody(val note_ids: List<String>, val reason: String? = null)
+data class SentenceTopUpBody(val note_ids: List<String>, val reason: String? = null, val counts: Map<String, Int>? = null)
 
 @Serializable
 data class SentenceTopUpAnswer(val queued: Int = 0, val note_ids: List<String> = emptyList())
 
 /** "Listen in context": notes with fewer than five sentences get more ADDED in the background (POST /api/sentences/top-up). */
-suspend fun Api.topUpSentences(noteIds: List<String>, reason: String? = null): SentenceTopUpAnswer =
-    post<SentenceTopUpBody, SentenceTopUpAnswer>("/api/sentences/top-up", SentenceTopUpBody(noteIds, reason))
+suspend fun Api.topUpSentences(noteIds: List<String>, reason: String? = null, counts: Map<String, Int>? = null): SentenceTopUpAnswer =
+    post<SentenceTopUpBody, SentenceTopUpAnswer>("/api/sentences/top-up", SentenceTopUpBody(noteIds, reason, counts))
 
 suspend fun Api.deleteSentenceSet(noteId: String) {
     val res = send("DELETE", "/api/notes/${enc(noteId)}/sentences")

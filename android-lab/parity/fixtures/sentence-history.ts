@@ -1,13 +1,16 @@
 /**
  * Practice per example sentence (shared/study/sentenceHistory.ts): events folded into per-sentence stats
- * (attempts / rights / misses / last per mode, hidden), "known", the least-known order, "wants more
- * sentences", and the Sentence round's picks with that history (sentenceRound.ts pickRoundExercises).
+ * (attempts / rights / misses / last per mode, hidden), "known", the least-known order, fresh sentences and
+ * the fresh buffer ("more sentences wanted", how many, whether the note shows), and the Sentence round's
+ * picks with that history (sentenceRound.ts pickRoundExercises — fresh first — and the listening round).
  * Writes sentence-history.json; core SentenceHistoryParityTest asserts SentenceHistory.kt / SentenceRound.kt match.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   sentenceStats, knownInMode, compareLeastKnown, wantsMoreSentences, sentenceHistoryKey, showHiddenLabel,
+  moreSentencesWanted, isFreshSentence, freshSentenceCount, freshTopUpCount, sentencesComingShown,
+  SENTENCE_FRESH_BUFFER, SENTENCE_FRESH_LOW, SENTENCE_TOPUP_MIN, SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_RETRY_MS,
   SENTENCE_KNOWN_RIGHTS, SENTENCE_HIDE_REASONS, SENTENCE_HIDE_REASON_LABEL, SENTENCES_COMING_NOTE, SENTENCE_HIDE_TITLE,
   SENTENCE_HIDE_HINT, SENTENCE_HIDDEN_TOAST, SENTENCE_SHOW_AGAIN, SENTENCE_ROUND_MIN_VISIBLE, CLUE_SENTENCE_KEY,
   type SentencePracticeEvent, type SentenceStats,
@@ -31,14 +34,17 @@ const LISTEN_WORDS = ['银行', '句子', '句子2', '', ' 句\u3000子 ', '没�
 const statsJson = (m: Map<string, SentenceStats>) => Object.fromEntries([...m.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
 const cases = [] as unknown[];
-for (let i = 0; i < 200; i++) {
-  const n = Math.floor(r() * 9);
+// 200 short lists with busy histories, then 160 longer ones (up to 16 sentences) with sparse histories —
+// where fresh sentences, the fresh buffer and its top-up counts matter.
+for (let i = 0; i < 360; i++) {
+  const long = i >= 200;
+  const n = long ? Math.floor(r() * 17) : Math.floor(r() * 9);
   const sentences: RoundSentence[] = [];
   if (r() < 0.7) sentences.push({ key: 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.' });
   for (let k = 0; k < n; k++) sentences.push({ key: `s${k}`, hanzi: `句子${k}。`, translation: r() < 0.12 ? (r() < 0.5 ? '' : null) : `Sentence ${k}.` });
   const keys = [...sentences.map((s) => sentenceHistoryKey(s.key)), 'gone'];
   const events: SentencePracticeEvent[] = [];
-  const count = Math.floor(r() * 30);
+  const count = long ? Math.floor(r() * 10) : Math.floor(r() * 30);
   for (let e = 0; e < count; e++) {
     const kind = pick(['attempt', 'attempt', 'attempt', 'attempt', 'hide', 'unhide', 'junk'] as const);
     const day = String(1 + Math.floor(r() * 9)).padStart(2, '0');
@@ -67,6 +73,10 @@ for (let i = 0; i < 200; i++) {
   cases.push({
     sentences, events, stats: statsJson(stats), known, compares,
     wantsMore: wantsMoreSentences(sentences, stats),
+    moreWanted: moreSentencesWanted(sentences, stats),
+    comingShown: sentencesComingShown(moreSentencesWanted(sentences, stats)),
+    freshCount: freshSentenceCount(sentences, stats),
+    fresh: [...new Set(keys)].sort().map((k) => ({ key: k, fresh: isFreshSentence(stats.get(k)) })),
     exercises: pickRoundExercises(sentences, stats),
     // The listening card's round: "say it in Chinese" over the sentences that carry the word.
     listen: LISTEN_WORDS.map((word) => ({ word, exercises: pickListenRoundExercises(sentences, word, stats), count: listenRoundSentenceCount(sentences, word, stats) })),
@@ -76,15 +86,24 @@ for (let i = 0; i < 200; i++) {
   });
 }
 
+// The fresh buffer's numbers: how many one top-up makes, and when "✨ New sentences coming" shows.
+const topUpCounts = Array.from({ length: 23 }, (_, k) => k - 2).map((fresh) => ({ fresh, count: freshTopUpCount(fresh) }));
+const comingShownVectors = [
+  null,
+  ...(['few', 'fresh'] as const).flatMap((reason) => [0, 1, 2, 3, 4, 5, 6, 9].map((fresh) => ({ reason, fresh }))),
+].map((want) => ({ want, shown: sentencesComingShown(want) }));
+
 const spreads = Array.from({ length: 12 }, (_, n) => ({ n, order: spreadOrder(n) }));
 
 writeFileSync(join(OUT, 'sentence-history.json'), JSON.stringify({
-  cases, spreads,
+  cases, spreads, topUpCounts, comingShown: comingShownVectors,
   keys: ['clue:n1', 'clue:abc', 'abc', 'clue'].map((k) => ({ row: k, key: sentenceHistoryKey(k) })),
   copy: {
     clueKey: CLUE_SENTENCE_KEY, knownRights: SENTENCE_KNOWN_RIGHTS, minVisible: SENTENCE_ROUND_MIN_VISIBLE,
     reasons: SENTENCE_HIDE_REASONS, reasonLabels: SENTENCE_HIDE_REASON_LABEL, coming: SENTENCES_COMING_NOTE,
     hideTitle: SENTENCE_HIDE_TITLE, hideHint: SENTENCE_HIDE_HINT, hiddenToast: SENTENCE_HIDDEN_TOAST, showAgain: SENTENCE_SHOW_AGAIN,
     showHidden: [0, 1, 7].map(showHiddenLabel),
+    freshBuffer: SENTENCE_FRESH_BUFFER, freshLow: SENTENCE_FRESH_LOW, topUpMin: SENTENCE_TOPUP_MIN, topUpMax: SENTENCE_TOPUP_MAX,
+    topUpRetryMs: SENTENCE_TOPUP_RETRY_MS,
   },
 }, null, 1));
