@@ -3348,6 +3348,7 @@ export function StudyCard({
                     onTryAgain={hardTryAgain}
                     onShowAnswer={giveUp}
                     onNext={hardNext}
+                    readAgain={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, cardType: card.card_type, where: pass ? 'homework' : 'session', onStart: stopAudio }}
                   />
                 ) : feedbackOpen && questionResult ? (
                   <HardModeFeedback

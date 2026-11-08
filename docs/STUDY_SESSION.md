@@ -1289,6 +1289,21 @@ once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-note
    straight to the answer side as before). The round after giving up says so in its cheer ("🎉 2 / 2 — nice recovery"), and on the answer side **Good /
    Easy are greyed on this showing** whatever the sentences say — "👁 You looked at the answer — Again or Hard
    suggested". Resume: `feedback_open` + `gave_up` = the answer in place.
+   **🎤 Read it again in the answer in place** (Jerome, Nov 2026: "when I get it wrong and show the answer, I'd still
+   like to read it here and see if I can get it right with the transcription"): under "You said", a **🎤 Read it
+   aloud** (then "Read it again") records him reading the answer aloud through the question's take pipeline (live
+   words as he speaks, the upload fallback, "Couldn't transcribe — tap to retry" with the same take; 🎤 / ⏹ Stop or
+   Enter stops) and judges it with the READ card's rule (`compareTranscription` → `hardModeReadAgainResult`: said as
+   written or inside a sentence = right, other tones = close) — **✓ Right this time / ≈ Nearly / ✗ Not quite** + the
+   "You said" row with its characters marked (`hardModeReadAgainVerdict`), felt like the question's check
+   (`hardModeQuestionFeel`). **Practice only**: the card stays a miss (Good / Easy and the pass's Got it stay greyed),
+   no review, no take kept, nothing unlocked ("Practice only — this card still counts as a miss."); **Continue to the
+   sentences ›** stays the primary way on. The panel is ONE component in the regular session and the homework pass
+   (`StudyCard` / Lab `CardStage`), so both get it, on every Hard-mode card type; offline the 🎤 is off with the reason.
+   Rules `shared/study/hardMode.ts` (Lab `HardMode.readAgain*`, parity-tested in `parity/fixtures/hard-mode.ts`); web
+   `components/study/HardModeReadAgain.tsx` (`useVoiceDictation`, surface `hard_mode_read_again`), Lab
+   `ui/study/HardModeReadAgain.kt` (`rememberVoiceDictation`); analytics **`study.hard_mode_read_again { result: right |
+   close | wrong | failed | empty, tries, via, card_type, where: session | homework }`**.
 5. **Greyed, never locked** (Jerome: "if I skip through the extra steps I should still be able to click Good, because
    sometimes I'm just on the train … I don't like the locked answers. Maybe they should just be greyed and then need an
    extra button press — guiding me towards the lower review scores, but I can still override it"): wherever Hard mode

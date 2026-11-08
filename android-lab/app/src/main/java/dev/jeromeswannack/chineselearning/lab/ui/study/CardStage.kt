@@ -782,6 +782,7 @@ fun CardStage(
                     onTryAgain = { hardTryAgain() },
                     onShowAnswer = { giveUp() },
                     onNext = { hardNext() },
+                    readAgain = ReadAgainInfo(note.hanzi, note.pinyin, view.card.cardType, if (pass != null) "homework" else "session"),
                 )
             } else if (!revealed && feedbackOpen && questionResult != null) {
                 HardModeFeedbackPanel(
