@@ -72,6 +72,20 @@ class LessonFeedbackParityTest {
     }
 
     @Test
+    fun markedCharsMatchTypeScript() {
+        val cases = fixture()["marked"]!!.jsonArray
+        assertTrue(cases.size >= 16)
+        for (c in cases) {
+            val o = c.jsonObject
+            val answer = o["answer"]!!.str!!
+            val model = o["model"]!!.str!!
+            val side = o["side"]!!.str!!
+            val want = o["chars"]!!.jsonArray.map { val m = it.jsonObject; LessonFeedback.ShownChar(m["ch"]!!.str!!, m["hit"]!!.jsonPrimitive.boolean) }
+            assertEquals(want, LessonFeedback.markedChars(answer, model, side), "$answer / $model / $side")
+        }
+    }
+
+    @Test
     fun fixesMatchTypeScript() {
         for (c in fixture()["fixes"]!!.jsonArray) {
             val o = c.jsonObject

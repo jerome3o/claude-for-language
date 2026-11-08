@@ -157,10 +157,9 @@ fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null,
                 Text("${sentence.hanzi} 🔊", fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
             } else {
                 // The other half of the device's diff: the characters his answer [missedBy] doesn't have, highlighted.
-                val d = dev.jeromeswannack.chineselearning.lab.core.LessonAnswers.diffHanzi(missedBy, sentence.hanzi)
                 Text(
                     androidx.compose.ui.text.buildAnnotatedString {
-                        for (m in d.expected) {
+                        for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(missedBy, sentence.hanzi, "model")) {
                             if (m.hit) append(m.ch) else {
                                 pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, background = Palette.Again.copy(alpha = 0.12f), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
                                 append(m.ch)
@@ -274,10 +273,9 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
             Text(text, fontSize = 20.sp, color = Lab.colors.ink)
         } else {
             // The device's own diff, at once: the characters the model answer doesn't have, wavy-underlined.
-            val d = dev.jeromeswannack.chineselearning.lab.core.LessonAnswers.diffHanzi(text, model)
             Text(
                 androidx.compose.ui.text.buildAnnotatedString {
-                    for (m in d.typed) {
+                    for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(text, model, "answer")) {
                         if (m.hit) append(m.ch) else {
                             pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
                             append(m.ch)

@@ -18,7 +18,7 @@
  */
 import type { StudyFeel } from '../study/hardMode';
 import type { LessonExercise } from './types';
-import { isExactHanziMatch } from './answer-check';
+import { diffHanzi, isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 
 /** The slim row while Claude's check is on its way. */
 export const CLAUDE_CHECKING_LINE = 'Claude is checking…';
@@ -133,6 +133,35 @@ export const SAY_AGAIN_SKIPPED: Record<string, string> = {
   judge: 'Several sentences, one point each; every sentence has its 🔊.',
   gap_choice: 'Several sentences, one point each; every sentence has its 🔊.',
 };
+
+/** One character of a sentence as shown, marked by the device's diff; punctuation / spaces are always `hit`. */
+export interface ShownChar {
+  ch: string;
+  /** In the other sentence (answer side) / got by his answer (model side). */
+  hit: boolean;
+}
+
+/**
+ * The device's diff on the sentence AS WRITTEN (`diffHanzi` drops punctuation and spaces): `side` 'answer' =
+ * his answer, its characters the model doesn't have marked; 'model' = the model answer, the characters his
+ * answer missed marked. Punctuation, spaces and symbols are kept, never marked.
+ */
+export function markedChars(answer: string, model: string, side: 'answer' | 'model'): ShownChar[] {
+  const d = diffHanzi(answer, model);
+  const marks = side === 'answer' ? d.typed : d.expected;
+  const text = side === 'answer' ? answer : model;
+  let k = 0;
+  return Array.from(text).map((ch) => {
+    const n = Array.from(normalizeHanziAnswer(ch)).length;
+    if (n === 0) return { ch, hit: true };
+    let hit = true;
+    for (let i = 0; i < n; i++) {
+      const m = marks[k++];
+      if (m && !m.hit) hit = false;
+    }
+    return { ch, hit };
+  });
+}
 
 /**
  * Claude's corrected sentence as a second practice target: only when there is one, it is Chinese, and it

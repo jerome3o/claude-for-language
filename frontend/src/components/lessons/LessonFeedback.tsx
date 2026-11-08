@@ -11,9 +11,8 @@
  * - `MarkedAnswer` — his answer with the characters the model answer doesn't have marked (the device's diff).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { diffHanzi } from '@shared/lesson';
 import {
-  lessonFeel, SAY_AGAIN_FIX_LABEL, SAY_AGAIN_LABEL, SAY_AGAIN_NOTE, type LessonFeelMoment,
+  lessonFeel, markedChars, SAY_AGAIN_FIX_LABEL, SAY_AGAIN_LABEL, SAY_AGAIN_NOTE, type LessonFeelMoment,
 } from '@shared/lesson/feedback';
 import { ConfettiBurst } from '../ConfettiBurst';
 import { PractiseSentence } from '../coach/PractiseSentence';
@@ -78,20 +77,18 @@ export function SayItAgain({ hanzi, exerciseType, kind = 'answer', testId = 'les
 
 /** His answer, each character marked: in the model answer (plain) or not (underlined) — the device's own diff. */
 export function MarkedAnswer({ answer, model }: { answer: string; model: string }) {
-  const d = diffHanzi(answer, model);
   return (
     <span className="char-diff-chars lesson-marked-answer" lang="zh-CN" data-testid="lesson-marked-answer">
-      {d.typed.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>)}
+      {markedChars(answer, model, 'answer').map((m, i) => <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>)}
     </span>
   );
 }
 
 /** The model answer, the characters his answer missed highlighted (the other half of the device's diff). */
 export function MarkedModel({ answer, model }: { answer: string; model: string }) {
-  const d = diffHanzi(answer, model);
   return (
     <span className="lesson-marked-model" data-testid="lesson-marked-model">
-      {d.expected.map((m, i) => <span key={i} className={m.hit ? undefined : 'miss'}>{m.ch}</span>)}
+      {markedChars(answer, model, 'model').map((m, i) => <span key={i} className={m.hit ? undefined : 'miss'}>{m.ch}</span>)}
     </span>
   );
 }

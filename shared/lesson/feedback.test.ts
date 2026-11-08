@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  claudeVerdictMoment, lessonFeel, LESSON_FEEL_MOMENTS, sayAgainFix, sayAgainTarget, SAY_AGAIN_SKIPPED,
+  claudeVerdictMoment, lessonFeel, LESSON_FEEL_MOMENTS, markedChars, sayAgainFix, sayAgainTarget, SAY_AGAIN_SKIPPED,
 } from './feedback';
 import { SAMPLE_LESSONS } from './samples';
 import { EXERCISE_TYPE_LIST } from './registry';
@@ -50,6 +50,17 @@ describe('sayAgainTarget', () => {
     expect(sayAgainTarget({ type: 'speak', prompt: 'x', example: { hanzi: '我要咖啡' } })).toEqual({ hanzi: '我要咖啡', kind: 'example' });
     expect(sayAgainTarget({ type: 'speak', prompt: 'x' })).toBeNull();
     expect(sayAgainTarget({ type: 'choice', question: 'q', options: [{ hanzi: 'yes' }, { hanzi: '是' }], correct: 0 })).toBeNull();
+  });
+});
+
+describe('markedChars', () => {
+  it('marks the sentence as written, punctuation kept and never marked', () => {
+    const model = markedChars('请把书放桌子上', '请把书放在桌子上。', 'model');
+    expect(model.map(m => m.ch).join('')).toBe('请把书放在桌子上。');
+    expect(model.filter(m => !m.hit).map(m => m.ch)).toEqual(['在']);
+    const answer = markedChars('我很好，你呢？', '我也很好。', 'answer');
+    expect(answer.map(m => m.ch).join('')).toBe('我很好，你呢？');
+    expect(answer.filter(m => !m.hit).map(m => m.ch)).toEqual(['你', '呢']);
   });
 });
 

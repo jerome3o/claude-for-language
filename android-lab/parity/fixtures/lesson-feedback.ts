@@ -7,7 +7,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  claudeVerdictMoment, lessonFeel, LESSON_FEEL_MOMENTS, sayAgainFix, sayAgainTarget,
+  claudeVerdictMoment, lessonFeel, LESSON_FEEL_MOMENTS, markedChars, sayAgainFix, sayAgainTarget,
   CLAUDE_CHECKING_LINE, SAY_AGAIN_LABEL, SAY_AGAIN_NOTE, SAY_AGAIN_FIX_LABEL, EXAMPLE_LABEL,
 } from '../../../shared/lesson/feedback';
 import { SAMPLE_LESSONS } from '../../../shared/lesson/samples';
@@ -40,7 +40,13 @@ const SAID = ['你怎么变工作了？', '你怎么换工作了', '', null, '�
 const OFFERED = ['你怎么换工作了', '你怎么搬家了？', '', null, '你好。'];
 const fixes = FIX.flatMap(c => SAID.flatMap(s => OFFERED.map(o => ({ corrected: c, said: s, offered: o, fix: sayAgainFix(c, s, o) }))));
 
+const PAIRS: Array<[string, string]> = [
+  ['请把书放桌子上', '请把书放在桌子上。'], ['我很好，你呢？', '我也很好。'], ['', '你好！'], ['你好', ''],
+  ['ＡＢＣ我们', 'abc 我们。'], ['𠀀好啊', '好𠀀啊！'], ['你哥哥怎么突然回伦敦？', '你哥哥怎么突然回伦敦了？'], ['  …', '，。'],
+];
+const marked = PAIRS.flatMap(([a, m]) => (['answer', 'model'] as const).map(side => ({ answer: a, model: m, side, chars: markedChars(a, m, side) })));
+
 writeFileSync(join(OUT, 'lesson-feedback.json'), JSON.stringify({
   copy: { checking: CLAUDE_CHECKING_LINE, label: SAY_AGAIN_LABEL, note: SAY_AGAIN_NOTE, fixLabel: SAY_AGAIN_FIX_LABEL, example: EXAMPLE_LABEL },
-  feel, verdicts, targets, fixes,
+  feel, verdicts, targets, fixes, marked,
 }, null, 1));

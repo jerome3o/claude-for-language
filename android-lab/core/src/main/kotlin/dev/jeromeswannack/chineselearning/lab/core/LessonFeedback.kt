@@ -72,6 +72,24 @@ object LessonFeedback {
         else -> null
     }
 
+    /** One character as shown ([ch]: a code point), marked by the device's diff; punctuation / spaces always hit. */
+    data class ShownChar(val ch: String, val hit: Boolean)
+
+    /** Port of `markedChars`: the device's diff on the sentence AS WRITTEN (side = answer | model). */
+    fun markedChars(answer: String, model: String, side: String): List<ShownChar> {
+        val d = LessonAnswers.diffHanzi(answer, model)
+        val marks = if (side == "answer") d.typed else d.expected
+        val text = if (side == "answer") answer else model
+        var k = 0
+        return LessonAnswers.chars(text).map { ch ->
+            val n = LessonAnswers.chars(LessonAnswers.normalizeHanzi(ch)).size
+            if (n == 0) return@map ShownChar(ch, true)
+            var hit = true
+            repeat(n) { val m = marks.getOrNull(k++); if (m != null && !m.hit) hit = false }
+            ShownChar(ch, hit)
+        }
+    }
+
     /** Port of `sayAgainFix`: Claude's corrected sentence, when it is new (not what he said, not already offered). */
     fun sayAgainFix(corrected: String?, said: String?, offered: String?): String? {
         val c = JsJson.trim(corrected ?: "")
