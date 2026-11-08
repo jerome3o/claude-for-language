@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   sentenceStats, knownInMode, compareLeastKnown, wantsMoreSentences, sentenceHistoryKey, showHiddenLabel,
+  moreSentencesWanted, freshSentenceCount, freshTopUpCount, isFreshSentence,
   type SentencePracticeEvent,
 } from './sentenceHistory';
 import { pickRoundExercises, spreadOrder, type RoundSentence } from './sentenceRound';
@@ -61,23 +62,50 @@ describe('least known first', () => {
       attempt('a', 'read', 'right'), attempt('d', 'read', 'right'), attempt('c', 'translate', 'right'),
       ev({ sentence_key: 'f', kind: 'hide', reason: 'wrong' }),
     ], 'n1');
-    // Never-read b and e are read; c / f are out for translate (practised / hidden) → a and d (never translated).
-    expect(pickRoundExercises(list, history).map((e) => e.id)).toEqual(['translate:a', 'read:b', 'translate:d', 'read:e']);
+    // Fresh sentences first (never practised in EITHER mode): b and e take the first read / translate
+    // slots; then the least known in the slot's mode — c was never read, a never translated (f hidden).
+    expect(pickRoundExercises(list, history).map((e) => e.id)).toEqual(['translate:a', 'read:b', 'read:c', 'translate:e']);
+  });
+  it('a sentence read once is not asked again as a translate while fresh ones wait', () => {
+    const list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((k) => s(k));
+    const history = sentenceStats([attempt('a', 'read', 'right'), attempt('b', 'read', 'wrong'), attempt('c', 'translate', 'right')], 'n1');
+    const picked = pickRoundExercises(list, history).map((e) => e.key);
+    expect(picked).toHaveLength(4);
+    expect(picked.some((k) => ['a', 'b', 'c'].includes(k))).toBe(false);
   });
 });
 
-describe('wantsMoreSentences', () => {
-  const four = ['clue:n1', 'b', 'c', 'd'].map((k) => s(k));
-  const knowAll = (keys: string[], modes: ('read' | 'translate')[]) =>
-    keys.flatMap((k) => modes.flatMap((m) => [1, 2, 3].map(() => attempt(sentenceHistoryKey(k), m, 'right'))));
-  it('fewer than four in rotation', () => {
-    expect(wantsMoreSentences(four.slice(0, 3), new Map())).toBe(true);
-    expect(wantsMoreSentences(four, sentenceStats([ev({ sentence_key: 'b', kind: 'hide', reason: 'too_rare' })], 'n1'))).toBe(true);
-    expect(wantsMoreSentences(four, new Map())).toBe(false);
+describe('wantsMoreSentences / moreSentencesWanted (the fresh buffer)', () => {
+  const keys = (n: number) => ['clue:n1', ...Array.from({ length: n - 1 }, (_, i) => `r${i}`)];
+  const list = (n: number) => keys(n).map((k) => s(k));
+  it('fewer than four in rotation → few', () => {
+    expect(wantsMoreSentences(list(3), new Map())).toBe(true);
+    expect(moreSentencesWanted(list(3), new Map())).toEqual({ reason: 'few', fresh: 3, count: 5 });
+    const hiddenOne = sentenceStats([ev({ sentence_key: 'r0', kind: 'hide', reason: 'too_rare' })], 'n1');
+    expect(moreSentencesWanted(list(4), hiddenOne)?.reason).toBe('few');
   });
-  it('every one known in both modes (translate only where there is English)', () => {
-    const list = [...four.slice(0, 3), s('d', null)];
-    expect(wantsMoreSentences(list, sentenceStats(knowAll(['clue:n1', 'b', 'c'], ['read']), 'n1'))).toBe(false);
-    expect(wantsMoreSentences(list, sentenceStats([...knowAll(['clue:n1', 'b', 'c'], ['read', 'translate']), ...knowAll(['d'], ['read'])], 'n1'))).toBe(true);
+  it('fewer than six fresh left → fresh, enough to get back to a buffer of eight', () => {
+    expect(moreSentencesWanted(list(6), new Map())).toBeNull();
+    expect(wantsMoreSentences(list(6), new Map())).toBe(false);
+    expect(moreSentencesWanted(list(5), new Map())).toEqual({ reason: 'fresh', fresh: 5, count: 3 });
+    // Eight sentences, four practised (any mode, right or wrong) → four fresh → four more.
+    const used = sentenceStats([
+      attempt('clue', 'read', 'right'), attempt('r0', 'translate', 'wrong'), attempt('r1', 'read', 'close'), attempt('r2', 'translate', 'right'),
+    ], 'n1');
+    expect(freshSentenceCount(list(8), used)).toBe(4);
+    expect(moreSentencesWanted(list(8), used)).toEqual({ reason: 'fresh', fresh: 4, count: 4 });
+  });
+  it('all practised → a full top-up (capped)', () => {
+    const all = sentenceStats(keys(10).map((k) => attempt(sentenceHistoryKey(k), 'read', 'right')), 'n1');
+    expect(moreSentencesWanted(list(10), all)).toEqual({ reason: 'fresh', fresh: 0, count: 8 });
+  });
+  it('freshTopUpCount stays between 3 and 8', () => {
+    expect([0, 1, 5, 6, 7, 20].map(freshTopUpCount)).toEqual([8, 7, 3, 3, 3, 3]);
+  });
+  it('isFreshSentence: no take in either mode, not hidden', () => {
+    expect(isFreshSentence(undefined)).toBe(true);
+    const st = sentenceStats([attempt('a', 'translate', 'wrong'), ev({ sentence_key: 'b', kind: 'hide', reason: 'weird' })], 'n1');
+    expect(isFreshSentence(st.get('a'))).toBe(false);
+    expect(isFreshSentence(st.get('b'))).toBe(false);
   });
 });

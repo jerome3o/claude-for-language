@@ -138,24 +138,77 @@ export function compareLeastKnown(a: ModeStats | undefined, b: ModeStats | undef
 export const SENTENCE_ROUND_MIN_VISIBLE = 4;
 
 /**
- * Ask for more sentences for this word: fewer than four left in rotation, or every one left known in
- * both modes (read; translate only where the sentence has English). Hidden sentences don't count.
+ * A FRESH sentence: never practised in either mode (no take, right or wrong) and not hidden. The
+ * Sentence round asks fresh sentences first (Jerome, Nov 2026: "I'm just memorizing the sentences"),
+ * so the word is practised in a sentence he hasn't seen in a round before.
  */
+export function isFreshSentence(stats: SentenceStats | undefined): boolean {
+  if (!stats) return true;
+  return !stats.hidden && stats.read.attempts === 0 && stats.translate.attempts === 0;
+}
+
+/** How many of these sentences are fresh. */
+export function freshSentenceCount(
+  sentences: readonly { key: string }[],
+  stats: ReadonlyMap<string, SentenceStats>,
+): number {
+  return sentences.filter((s) => isFreshSentence(stats.get(sentenceHistoryKey(s.key)))).length;
+}
+
+/** The buffer of fresh sentences a word keeps waiting: about two rounds' worth. */
+export const SENTENCE_FRESH_BUFFER = 8;
+/** Fewer fresh than this → more are made in the background, before the round runs out. */
+export const SENTENCE_FRESH_LOW = 6;
+/** One top-up makes between these many sentences (the server clamps too). */
+export const SENTENCE_TOPUP_MIN = 3;
+export const SENTENCE_TOPUP_MAX = 8;
+
+/** How many sentences one top-up should make with `fresh` fresh ones left: back up to the buffer. */
+export function freshTopUpCount(fresh: number): number {
+  const f = Math.max(0, Math.floor(fresh));
+  return Math.min(SENTENCE_TOPUP_MAX, Math.max(SENTENCE_TOPUP_MIN, SENTENCE_FRESH_BUFFER - f));
+}
+
+/** Why a word asks for more sentences: too few left in rotation, or the fresh buffer is running low. */
+export type MoreSentencesReason = 'few' | 'fresh';
+
+/**
+ * Ask for more sentences for this word, and how many: fewer than four left in rotation ('few'), or fewer
+ * than `SENTENCE_FRESH_LOW` fresh ones left ('fresh' — every round uses up to four, so the buffer is
+ * refilled before it runs out). Hidden sentences don't count. null = enough.
+ */
+export function moreSentencesWanted(
+  sentences: readonly { key: string; translation: string | null | undefined }[],
+  stats: ReadonlyMap<string, SentenceStats>,
+): { reason: MoreSentencesReason; fresh: number; count: number } | null {
+  const visible = sentences.filter((s) => !stats.get(sentenceHistoryKey(s.key))?.hidden);
+  const fresh = freshSentenceCount(visible, stats);
+  if (visible.length < SENTENCE_ROUND_MIN_VISIBLE) return { reason: 'few', fresh, count: freshTopUpCount(fresh) };
+  if (fresh < SENTENCE_FRESH_LOW) return { reason: 'fresh', fresh, count: freshTopUpCount(fresh) };
+  return null;
+}
+
+/** True when the word should ask for more sentences (`moreSentencesWanted`). */
 export function wantsMoreSentences(
   sentences: readonly { key: string; translation: string | null | undefined }[],
   stats: ReadonlyMap<string, SentenceStats>,
 ): boolean {
-  const visible = sentences.filter((s) => !stats.get(sentenceHistoryKey(s.key))?.hidden);
-  if (visible.length < SENTENCE_ROUND_MIN_VISIBLE) return true;
-  return visible.every((s) => {
-    const st = stats.get(sentenceHistoryKey(s.key));
-    if (!knownInMode(st, 'read')) return false;
-    return !(s.translation ?? '').trim() || knownInMode(st, 'translate');
-  });
+  return moreSentencesWanted(sentences, stats) != null;
 }
 
-/** The note under the round / list while more sentences are on the way. */
+/**
+ * The note under the round / list while more sentences are on the way — only when the round itself is
+ * short of fresh ones (fewer fresh than a round asks); a buffer refill stays silent.
+ */
 export const SENTENCES_COMING_NOTE = '✨ New sentences coming for this word';
+
+/** Show `SENTENCES_COMING_NOTE`: the round itself is short (too few in rotation, or fewer fresh than a round asks). */
+export function sentencesComingShown(want: { reason: MoreSentencesReason; fresh: number } | null): boolean {
+  return !!want && (want.reason === 'few' || want.fresh < SENTENCE_ROUND_MIN_VISIBLE);
+}
+
+/** A word asks for more at most this often (one top-up in flight; the new rows arrive with a sync). */
+export const SENTENCE_TOPUP_RETRY_MS = 10 * 60_000;
 
 export const SENTENCE_HIDE_TITLE = 'Stop showing this sentence';
 export const SENTENCE_HIDE_HINT = 'It won’t come up in the Sentence round or the list again. Why?';

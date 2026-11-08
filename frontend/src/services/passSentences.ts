@@ -2,12 +2,12 @@
  * Hard mode in the homework pass (docs/HOMEWORK.md §3e): the Sentence round needs the words' sentences,
  * and one-off homework notes often have no generated set yet. When a pass opens in Hard mode, its words
  * with NO set are queued for one (`POST /api/sentences/prefetch`, the pass's words first) and those with
- * fewer than the round's four ask for more (`requestMoreSentences(…, 'few')` — once a day per word, kept
+ * fewer than the round's four ask for more (`requestMoreSentences(…, { reason: 'few' })` — at most every ten minutes per word, kept
  * for the next sync when offline). The rows reach the device as each card shows (`useRoundSentences`
  * fetches a missing set) or with the next sentence sync; until then the round has what there is — none
  * → no round, the answer side as usual.
  */
-import { SENTENCE_ROUND_MIN_VISIBLE } from '@shared/study/sentenceHistory';
+import { SENTENCE_ROUND_MIN_VISIBLE, freshTopUpCount } from '@shared/study/sentenceHistory';
 import { prefetchSentenceSets } from '../api/client';
 import { db } from '../db/database';
 import { getLocalSentenceCounts } from './sentence-sets';
@@ -23,14 +23,14 @@ export async function ensurePassSentences(assignmentId: string, noteIds: readonl
   const ids = Array.from(new Set(noteIds));
   const [counts, notes] = await Promise.all([getLocalSentenceCounts(ids), db.notes.bulkGet(ids)]);
   const none: string[] = [];
-  const few: string[] = [];
+  const few: { id: string; total: number }[] = [];
   ids.forEach((id, i) => {
     const set = counts.get(id) ?? 0;
     const clue = notes[i]?.sentence_clue?.trim() ? 1 : 0;
     if (set === 0) none.push(id);
-    else if (set + clue < SENTENCE_ROUND_MIN_VISIBLE) few.push(id);
+    else if (set + clue < SENTENCE_ROUND_MIN_VISIBLE) few.push({ id, total: set + clue });
   });
-  for (const id of few) requestMoreSentences(id, 'few');
+  for (const { id, total } of few) requestMoreSentences(id, { reason: 'few', count: freshTopUpCount(total) });
   let queued = 0;
   if (none.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !isEffectivelyOffline()) {
     try {

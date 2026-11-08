@@ -3721,6 +3721,42 @@ export async function getNotesForSentenceTopUp(
   return rows.results.filter((r) => r.total < min);
 }
 
+/**
+ * The Sentence round's top-up (shared/study/sentenceHistory.ts moreSentencesWanted): the caller's notes
+ * with their sentence total (card sentence + set), skipping a note whose sentence job is already queued
+ * in the last 10 minutes (one in flight is enough) or that failed three times today. No once-a-day rule:
+ * the fresh buffer is refilled as the rounds use it.
+ */
+export async function getNotesForRoundTopUp(
+  db: D1Database,
+  userId: string,
+  noteIds: string[],
+): Promise<Array<{ id: string; total: number }>> {
+  const ids = noteIds.slice(0, 50);
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = await db
+    .prepare(`
+      SELECT n.id,
+        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id)
+        + CASE WHEN TRIM(COALESCE(n.sentence_clue, '')) <> ''
+            AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.hanzi = n.sentence_clue)
+          THEN 1 ELSE 0 END AS total
+      FROM notes n
+      JOIN decks d ON n.deck_id = d.id
+      WHERE d.user_id = ? AND n.id IN (${placeholders})
+        AND NOT EXISTS (
+          SELECT 1 FROM note_sentence_jobs j
+          WHERE j.note_id = n.id
+            AND ((j.status = 'queued' AND j.updated_at > datetime('now', '-10 minutes'))
+              OR (j.status = 'error' AND j.attempts >= 3 AND j.updated_at > datetime('now', '-1 day')))
+        )
+    `)
+    .bind(userId, ...ids)
+    .all<{ id: string; total: number }>();
+  return rows.results;
+}
+
 export async function deleteNoteSentences(db: D1Database, noteId: string): Promise<void> {
   await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId).run();
 }
