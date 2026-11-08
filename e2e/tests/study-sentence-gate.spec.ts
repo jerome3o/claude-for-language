@@ -511,6 +511,83 @@ test('hard mode: Show answer before a right answer — the answer in place, then
   await expect(page.getByTestId('study-card-back')).toHaveCount(0, { timeout: 15000 });
 });
 
+test('hard mode: after Show answer, 🎤 Read it again in place — judged like the question, practice only (the card stays a miss)', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await setHardMode(page, 'all');
+  const email = `hard-read-again-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Gate learner' } });
+  const token = auth.session_token;
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: 'Homework sentences' } });
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes?check=none`, {
+    method: 'POST',
+    token,
+    data: {
+      hanzi: '他怎么把头发剪短了？', pinyin: 'Tā zěnme bǎ tóufa jiǎn duǎn le?', english: 'Why did he cut his hair short?',
+      sentence_clue: '他怎么把头发剪短了？', sentence_clue_pinyin: 'Tā zěnme bǎ tóufa jiǎn duǎn le?', sentence_clue_translation: 'Why did he cut his hair short?',
+    },
+  });
+  await stubSet(page, note.id, [
+    { hanzi: '她把头发剪短了。', pinyin: 'Tā bǎ tóufa jiǎn duǎn le.', translation: 'She cut her hair short.' },
+    { hanzi: '你怎么把门关了？', pinyin: 'Nǐ zěnme bǎ mén guān le?', translation: 'Why did you close the door?' },
+  ]);
+  await openCard(page, token, deck.id, 'Homework sentences');
+
+  // Read wrong, then 👁 Show answer: the answer in place with what he said.
+  await takeRead(page, '他这么拔，头发什么短了?');
+  const feedback = page.getByTestId('hard-feedback');
+  await expect(feedback).toHaveAttribute('data-result', 'wrong', { timeout: 15000 });
+  await page.getByTestId('hard-show-answer').click();
+  await expect(feedback).toHaveAttribute('data-result', 'revealed', { timeout: 15000 });
+  await expect(page.getByTestId('hard-said')).toContainText('他这么拔');
+  const readAgain = page.getByTestId('hard-read-again');
+  await expect(readAgain).toBeVisible();
+  const mic = page.getByTestId('hard-read-again-mic');
+  await expect(mic).toContainText('Read it aloud');
+  if (SHOTS) {
+    // "Before": the same panel without the new block, as it was.
+    const style = await page.addStyleTag({ content: '[data-testid="hard-read-again"] { display: none !important; }' });
+    await shot(page, 'read-again-01-before');
+    await style.evaluate((el) => el.remove());
+  }
+  await shot(page, 'read-again-02-after-offered');
+
+  // Read it again — still not right: ✗ Not quite with the "You said" row.
+  await hear(page, '他这么把头发剪短了');
+  await mic.click();
+  await expect(page.getByTestId('hard-read-again-live')).toBeVisible({ timeout: 10000 });
+  await page.waitForTimeout(1200);
+  await shot(page, 'read-again-03-listening');
+  await mic.click();
+  const result = page.getByTestId('hard-read-again-result');
+  await expect(result).toHaveAttribute('data-result', 'wrong', { timeout: 15000 });
+  await expect(result).toContainText('✗ Not quite');
+  await expect(page.getByTestId('hard-read-again-said')).toBeVisible();
+  await shot(page, 'read-again-04-wrong');
+
+  // And again — right this time. Practice only: still the answer in place, Continue the way on.
+  await hear(page, '他怎么把头发剪短了');
+  await expect(mic).toContainText('Read it again');
+  await mic.click();
+  await expect(page.getByTestId('hard-read-again-live')).toBeVisible({ timeout: 10000 });
+  await page.waitForTimeout(1200);
+  await mic.click();
+  await expect(result).toHaveAttribute('data-result', 'right', { timeout: 15000 });
+  await expect(result).toContainText('✓ Right this time');
+  await expect(result).toContainText('still counts as a miss');
+  await expect(feedback).toHaveAttribute('data-result', 'revealed');
+  await expect(page.getByTestId('study-card-back')).toHaveCount(0);
+  await shot(page, 'read-again-05-right');
+
+  // Continue → the round → the answer side: Good / Easy still greyed (he looked).
+  await page.getByTestId('hard-continue').click();
+  await expect(page.getByTestId('sentence-round')).toBeVisible({ timeout: 15000 });
+  await page.getByTestId('sentence-round-skip').click();
+  await page.getByTestId('sentence-round-skip-yes').click();
+  await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('sentence-gate')).toHaveAttribute('data-gave-up', 'true');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
+});
+
 test('hard mode on the listening card: checked first, then a round of "Say it in Chinese"', async ({ page, request }) => {
   test.setTimeout(120_000);
   await setHardMode(page, 'all');

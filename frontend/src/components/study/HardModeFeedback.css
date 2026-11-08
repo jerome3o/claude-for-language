@@ -122,3 +122,58 @@
   font-size: 1rem;
   cursor: pointer;
 }
+
+/* 🎤 Read it again in the answer in place (practice only): the live words, then the result + "You said". */
+.hard-read-again {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+.hard-read-again-mic {
+  min-height: 48px;
+  min-width: 12rem;
+}
+.hard-read-again-live {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-size: 1.15rem;
+  text-align: left;
+}
+.hard-read-again-partial { color: var(--color-text-light); }
+.hard-read-again-hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--color-text-light);
+}
+.hard-read-again-checking {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.hard-read-again-result { width: 100%; }
+.hard-read-again-title {
+  margin: 0 0 0.3rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.hard-read-again-result--right .hard-read-again-title { color: #15803d; }
+.hard-read-again-result--close .hard-read-again-title { color: #a16207; }
+.hard-read-again-result--wrong .hard-read-again-title { color: #b91c1c; }
+:root[data-theme='dark'] .hard-read-again-result--right .hard-read-again-title { color: #4ade80; }
+:root[data-theme='dark'] .hard-read-again-result--close .hard-read-again-title { color: #facc15; }
+:root[data-theme='dark'] .hard-read-again-result--wrong .hard-read-again-title { color: #f87171; }
+.hard-read-again-practice {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-light);
+}

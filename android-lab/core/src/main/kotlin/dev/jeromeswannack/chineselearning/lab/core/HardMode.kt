@@ -161,4 +161,46 @@ object HardMode {
     fun revealedNextLabel(roundFollows: Boolean) = if (roundFollows) "Continue to the sentences" else "See the full answer"
     /** `hardModeGaveUpCheer` */
     fun gaveUpCheer(got: Int, needed: Int) = "🎉 $got / $needed — nice recovery"
+
+    // --- 🎤 Read it again on the answer in place (practice only) ---------------------------------
+
+    /**
+     * `hardModeReadAgainOffered`: the answer in place has Chinese to read. After 👁 Show answer a 🎤 in the panel records
+     * him reading the answer aloud and judges it with the READ card's rule — practice only, the card stays a miss.
+     */
+    fun readAgainOffered(hanzi: String): Boolean {
+        var i = 0
+        while (i < hanzi.length) {
+            val cp = hanzi.codePointAt(i)
+            if (Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) return true
+            i += Character.charCount(cp)
+        }
+        return false
+    }
+
+    /** `hardModeReadAgainResult`: exactly [questionResult] on a done read-card take ("right" | "close" | "wrong"). */
+    fun readAgainResult(isMatch: Boolean, containsExpected: Boolean, tonesOff: Boolean): String =
+        when (questionResult(null, "done", isMatch, containsExpected, tonesOff)) {
+            "right" -> "right"
+            "close" -> "close"
+            else -> "wrong"
+        }
+
+    private val NOT_LETTER_OR_DIGIT = Regex("[^\\p{L}\\p{N}]")
+
+    /** `hardModeReadAgainVerdict`: the "You said" row's verdict — same characters exact, other characters same sounds sound, contains, close, wrong. */
+    fun readAgainVerdict(isMatch: Boolean, containsExpected: Boolean, tonesOff: Boolean, said: String, hanzi: String): AnswerKey.Verdict = when {
+        isMatch -> if (NOT_LETTER_OR_DIGIT.replace(said, "") == NOT_LETTER_OR_DIGIT.replace(hanzi, "")) AnswerKey.Verdict.EXACT else AnswerKey.Verdict.SOUND
+        containsExpected -> AnswerKey.Verdict.CONTAINS
+        tonesOff -> AnswerKey.Verdict.CLOSE
+        else -> AnswerKey.Verdict.WRONG
+    }
+
+    /** `hardModeReadAgainLabel` */
+    fun readAgainLabel(tries: Int) = if (tries > 0) "Read it again" else "Read it aloud"
+    const val READ_AGAIN_LISTENING = "Listening — read the answer aloud…"
+    const val READ_AGAIN_STOP = "Stop"
+    val READ_AGAIN_RESULT = mapOf("right" to "✓ Right this time", "close" to "≈ Nearly", "wrong" to "✗ Not quite")
+    const val READ_AGAIN_PRACTICE = "Practice only — this card still counts as a miss."
+    const val READ_AGAIN_EMPTY = "Didn’t catch that — try again."
 }

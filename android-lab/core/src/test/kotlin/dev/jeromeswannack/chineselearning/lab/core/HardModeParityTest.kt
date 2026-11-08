@@ -99,6 +99,31 @@ class HardModeParityTest {
     }
 
     @Test
+    fun readAgain() {
+        val f = fixture()["readAgain"]!!.jsonObject
+        for (c in f["offered"]!!.jsonArray) assertEquals(c.jsonObject["offered"]!!.jsonPrimitive.boolean, HardMode.readAgainOffered(c.jsonObject["hanzi"]!!.str!!), c.toString())
+        val takes = f["takes"]!!.jsonArray
+        assertEquals(8, takes.size)
+        for (c in takes) {
+            val o = c.jsonObject
+            val t = o["take"]!!.jsonObject
+            val m = t["isMatch"]!!.jsonPrimitive.boolean
+            val ce = t["containsExpected"]!!.jsonPrimitive.boolean
+            val to = t["tonesOff"]!!.jsonPrimitive.boolean
+            assertEquals(o["result"]!!.str, HardMode.readAgainResult(m, ce, to), o.toString())
+            for (v in o["verdicts"]!!.jsonArray) {
+                val vo = v.jsonObject
+                assertEquals(
+                    AnswerKey.Verdict.valueOf(vo["verdict"]!!.str!!.uppercase()),
+                    HardMode.readAgainVerdict(m, ce, to, vo["said"]!!.str!!, vo["hanzi"]!!.str!!),
+                    "$t $vo",
+                )
+            }
+        }
+        assertEquals(f["labels"]!!.jsonArray.map { it.str }, listOf(0, 1, 3).map { HardMode.readAgainLabel(it) })
+    }
+
+    @Test
     fun copyMatches() {
         val c = fixture()["copy"]!!.jsonObject
         assertEquals(c["modes"]!!.jsonArray.map { it.str }, HardMode.MODES)
@@ -131,5 +156,10 @@ class HardModeParityTest {
         assertEquals(c["nextAnswer"]!!.str, HardMode.nextLabel(false))
         assertEquals(c["saidSpoken"]!!.str, HardMode.saidLine("银航", true))
         assertEquals(c["saidTyped"]!!.str, HardMode.saidLine("银行。", false))
+        assertEquals(c["readAgainListening"]!!.str, HardMode.READ_AGAIN_LISTENING)
+        assertEquals(c["readAgainStop"]!!.str, HardMode.READ_AGAIN_STOP)
+        assertEquals(c["readAgainResult"]!!.jsonObject.mapValues { it.value.str }, HardMode.READ_AGAIN_RESULT)
+        assertEquals(c["readAgainPractice"]!!.str, HardMode.READ_AGAIN_PRACTICE)
+        assertEquals(c["readAgainEmpty"]!!.str, HardMode.READ_AGAIN_EMPTY)
     }
 }
