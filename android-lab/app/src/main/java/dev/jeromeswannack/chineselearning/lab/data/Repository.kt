@@ -426,6 +426,17 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         s.replace('T', ' ').substringBefore('.').removeSuffix("Z")
 
     private suspend fun syncSentences(step: Clock.Step) {
+        step.detail = "${pullSentenceChanges()} sentences"
+    }
+
+    private val sentencesMutex = Mutex()
+
+    /**
+     * The sentence rows changed since the cursor into Room (`GET /api/sentences/changes`) — the sync's step, and
+     * on its own a little after the Sentence round asked for more (the web's `syncSentenceSets` from
+     * `pullNewSentencesSoon`). Returns how many rows came.
+     */
+    suspend fun pullSentenceChanges(): Int = withContext(Dispatchers.IO) { sentencesMutex.withLock {
         val page = api.sentences(prefs.sentencesCursor)
         if (page.sentences.isNotEmpty()) {
             val byNote = page.sentences.groupBy { it.note_id }
@@ -437,9 +448,9 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
                 dao.deleteOrphanSentences()
             }
         }
-        step.detail = "${page.sentences.size} sentences"
         page.server_time?.let { prefs.sentencesCursor = it }
-    }
+        page.sentences.size
+    } }
 
     // ---------------- state ----------------
 

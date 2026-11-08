@@ -18,8 +18,8 @@ suspend fun Api.prefetchSentenceSetsFor(noteIds: List<String>, limit: Int): Queu
  * Hard mode in the homework pass (docs/HOMEWORK.md §3e; the web's services/passSentences.ts): the Sentence
  * round needs the words' sentences, and one-off homework notes often have no generated set yet. When a pass
  * opens in Hard mode its words with NO set are queued for one (the pass's words first) and those with
- * fewer than the round's four ask for more (`SentencePracticeStore.requestMore(…, "few")`, once a day per
- * word, kept for the next sync when offline). The rows arrive with a later sentence sync; until then the
+ * fewer than the round's four ask for more (`SentencePracticeStore.requestMore(…, "few", freshTopUpCount(set + clue))`,
+ * at most every ten minutes per word, kept for the next sync when offline). The rows arrive with a later sentence sync; until then the
  * round has what there is — none → no round.
  */
 object PassSentenceTopUp {
@@ -32,15 +32,15 @@ object PassSentenceTopUp {
             val dao = app.repo.dao
             val notes = dao.notes(ids).associateBy { it.id }
             val none = mutableListOf<String>()
-            val few = mutableListOf<String>()
+            val few = mutableListOf<Pair<String, Int>>()
             for (id in ids) {
                 val set = dao.sentencesFor(id).size
                 val clue = if (notes[id]?.sentenceClue.isNullOrBlank()) 0 else 1
-                if (set == 0) none += id else if (set + clue < SentenceHistory.MIN_VISIBLE) few += id
+                if (set == 0) none += id else if (set + clue < SentenceHistory.MIN_VISIBLE) few += id to set + clue
             }
             none to few
         }
-        for (id in few) SentencePracticeStore.requestMore(app, id, "few")
+        for ((id, total) in few) SentencePracticeStore.requestMore(app, id, "few", SentenceHistory.freshTopUpCount(total))
         if (none.isEmpty()) return
         if (!app.online.value) {
             synchronized(asked) { asked.remove(assignmentId) }

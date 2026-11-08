@@ -121,10 +121,12 @@ fun SentenceRoundPage(
     doneCheer: ((got: Int, needed: Int) -> String)? = null,
     /** His practice history of these sentences (null while it loads): the round prefers what he knows least. */
     stats: Map<String, SentenceHistory.Stats>? = emptyMap(),
-    /** "✨ New sentences coming for this word" (asked already). */
-    coming: Boolean = false,
-    /** Every sentence left known, or fewer than four in rotation: ask for more ("known" | "few"). */
-    onWantMore: (why: String) -> Unit = {},
+    /**
+     * More sentences for this word (core [SentenceHistory.moreWanted]: fewer than six fresh left, or fewer than
+     * four in rotation): ask for [count] more, [reason] "fresh" | "few". Called when the round opens and after
+     * every take (the asker's own ten-minute guard dedupes).
+     */
+    onWantMore: (reason: String, count: Int) -> Unit = { _, _ -> },
     /** "Stop showing this sentence" / Undo (row keys). */
     onHide: (rowKey: String, reason: String) -> Unit = { _, _ -> },
     onUnhide: (rowKey: String) -> Unit = {},
@@ -228,12 +230,19 @@ fun SentenceRoundPage(
     // retake (now identical) must not send him on by itself.
     var stayPut by remember { mutableStateOf(false) }
     LaunchedEffect(heldId) { if (heldId != null) stayPut = true }
-    var asked by remember { mutableStateOf(false) }
+    // More sentences, made in the background before the fresh ones run out (core SentenceHistory.moreWanted),
+    // checked again after each take (stats change): the buffer is refilled as soon as this round uses it up.
+    // "✨ New sentences coming" only when this round itself is short, as it stood when the round opened.
+    var coming by remember { mutableStateOf(false) }
+    var noted by remember { mutableStateOf(false) }
+    val latestWantMore by rememberUpdatedState(onWantMore)
     LaunchedEffect(rows, stats) {
         val st = stats ?: return@LaunchedEffect
-        if (SentenceHistory.wantsMore(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, st)) {
-            onWantMore(if (visibleKeys.size < SentenceHistory.MIN_VISIBLE) "few" else "known")
-            asked = true
+        val want = SentenceHistory.moreWanted(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, st)
+        if (want != null) latestWantMore(want.reason, want.count)
+        if (!noted) {
+            noted = true
+            coming = SentenceHistory.comingShown(want)
         }
     }
     var hiding by remember { mutableStateOf<SentenceRound.Exercise?>(null) }
@@ -328,7 +337,7 @@ fun SentenceRoundPage(
                 }
                 Text(if (listen) SentenceRound.listenIntro(progress, exercises.size) else SentenceRound.intro(progress, exercises.size), color = Lab.colors.muted, fontSize = 14.sp)
                 if (selfCheck) Text(SentenceRound.LISTEN_SELF_CHECK_NOTE, Modifier.testTag(SentenceRoundTags.SELF_CHECK_NOTE), color = Lab.colors.muted, fontSize = 14.sp)
-                if (coming || asked) SentencesComingNote()
+                if (coming) SentencesComingNote()
                 if (!selfCheck && !CoachPractise.micEnabled(practise.dictation.blocked)) {
                     CoachPractise.blockNote(practise.dictation.blocked)?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp) }
                 }

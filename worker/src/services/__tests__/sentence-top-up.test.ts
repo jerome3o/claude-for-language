@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
-import { appendNoteSentences, getNotesForSentenceTopUp } from '../../db/queries';
+import { appendNoteSentences, getNotesForRoundTopUp, getNotesForSentenceTopUp } from '../../db/queries';
 
 let db: SqliteD1;
 
@@ -48,6 +48,23 @@ describe('getNotesForSentenceTopUp', () => {
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('failed', 'error', 3, datetime('now', '-3 days'))");
     const got = await getNotesForSentenceTopUp(db, 'u1', ['recent', 'old', 'failed'], 5);
     expect(got.map((r) => r.id)).toEqual(['old']);
+  });
+});
+
+describe('getNotesForRoundTopUp (the Sentence round\'s fresh buffer)', () => {
+  it('any total, the caller\'s own, no daily rule — only a job already in flight or given up on today is skipped', async () => {
+    addNote('big', 'u1', '这是银行。', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']); // 9: a listening top-up would skip it
+    addNote('done-today', 'u1', null, ['a', 'b', 'c', 'd', 'e', 'f']);
+    addNote('in-flight', 'u1', null, ['a']);
+    addNote('stale-queued', 'u1', null, ['a']);
+    addNote('failed', 'u1', null, ['a']);
+    addNote('theirs', 'u2', null, []);
+    db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('done-today', 'done', 4, datetime('now', '-20 minutes'))");
+    db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('in-flight', 'queued', 1, datetime('now', '-2 minutes'))");
+    db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('stale-queued', 'queued', 1, datetime('now', '-1 hour'))");
+    db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('failed', 'error', 3, datetime('now', '-1 hour'))");
+    const got = await getNotesForRoundTopUp(db, 'u1', ['big', 'done-today', 'in-flight', 'stale-queued', 'failed', 'theirs']);
+    expect(Object.fromEntries(got.map((r) => [r.id, r.total]))).toEqual({ big: 9, 'done-today': 6, 'stale-queued': 1 });
   });
 });
 

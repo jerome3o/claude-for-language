@@ -172,9 +172,9 @@ export async function enqueueSentenceSet(env: Env, noteId: string, count?: numbe
  * (shared/study/listenContext.ts). Marked like a set job, so the one-a-day rule and the
  * prefetch sweeps see it. Best-effort.
  */
-export async function enqueueSentenceTopUp(env: Env, noteId: string, count: number): Promise<boolean> {
+export async function enqueueSentenceTopUp(env: Env, noteId: string, count: number, round = false): Promise<boolean> {
   try {
-    await env.SENTENCE_SET_QUEUE.send({ noteId, count, kind: 'top_up' });
+    await env.SENTENCE_SET_QUEUE.send({ noteId, count, kind: 'top_up', ...(round ? { round: true } : {}) });
     await db.markSentenceSetJobQueued(env.DB, noteId);
     return true;
   } catch (error) {

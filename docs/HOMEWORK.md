@@ -295,7 +295,7 @@ these, as I'm not going to come back to them for a long time, so it's good to do
   grey when its second angle will follow). With no step events and Off it is exactly `passRetryBar`.
 - **Sentences**: one-off notes often have no set yet. When a pass opens in Hard mode, its words with NO set are queued
   (`POST /api/sentences/prefetch` with the pass's note ids first) and those with fewer than the round's four ask for
-  more (`POST /api/sentences/top-up { reason: 'few' }`, once a day per word) — web `services/passSentences.ts`, Lab
+  more (`POST /api/sentences/top-up { reason: 'few', counts }`, at most every 10 minutes per word) — web `services/passSentences.ts`, Lab
   `data/homework/PassSentenceTopUp.kt`. The web fetches a word's set when its card shows; the Lab gets the rows with
   the next sync. Fewer sentences = a shorter round, none = no round (the session's rule).
 - Still NO review event and no FSRS: the round is practice (its takes go to the sentence practice history like the

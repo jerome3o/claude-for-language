@@ -48,20 +48,31 @@ describe('sentencePractice', () => {
     expect(calls.some((c) => c.path === '/me/sentence-practice')).toBe(true);
   });
 
-  it('asks for more sentences once a day; offline the ask waits for the sync', async () => {
-    const m = await import('./sentencePractice');
-    m.requestMoreSentences('n1', 'known');
-    m.requestMoreSentences('n1', 'known');
-    await new Promise((r) => setTimeout(r, 0));
-    expect(calls.filter((c) => c.path === '/sentences/top-up')).toHaveLength(1);
-    expect(m.sentencesComing('n1')).toBe(true);
-    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
-    m.requestMoreSentences('n2', 'few');
-    expect(calls.filter((c) => c.path === '/sentences/top-up')).toHaveLength(1);
-    expect(m.sentencesComing('n2')).toBe(true);
-    online.mockReturnValue(true);
-    await m.syncSentencePractice();
-    expect(calls.filter((c) => c.path === '/sentences/top-up').at(-1)!.body).toEqual({ note_ids: ['n2'], reason: 'few' });
-    online.mockRestore();
+  it('asks for more sentences at most every ten minutes per word; offline the ask waits for the sync', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-08T10:00:00Z'));
+      const m = await import('./sentencePractice');
+      m.requestMoreSentences('n1', { reason: 'fresh', count: 4 });
+      m.requestMoreSentences('n1', { reason: 'fresh', count: 4 });
+      await new Promise((r) => setTimeout(r, 0));
+      const topUps = () => calls.filter((c) => c.path === '/sentences/top-up');
+      expect(topUps()).toHaveLength(1);
+      expect(topUps()[0].body).toEqual({ note_ids: ['n1'], reason: 'fresh', counts: { n1: 4 } });
+      // The buffer is used up again later the same day: a new ask once ten minutes have passed.
+      vi.setSystemTime(new Date('2026-11-08T10:11:00Z'));
+      m.requestMoreSentences('n1', { reason: 'fresh', count: 6 });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(topUps()).toHaveLength(2);
+      const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+      m.requestMoreSentences('n2', { reason: 'few', count: 5 });
+      expect(topUps()).toHaveLength(2);
+      online.mockReturnValue(true);
+      await m.syncSentencePractice();
+      expect(topUps().at(-1)!.body).toEqual({ note_ids: ['n2'], reason: 'few', counts: { n2: 5 } });
+      online.mockRestore();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

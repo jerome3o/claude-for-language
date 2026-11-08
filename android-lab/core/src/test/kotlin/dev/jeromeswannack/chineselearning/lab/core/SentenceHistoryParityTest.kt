@@ -34,6 +34,7 @@ class SentenceHistoryParityTest {
         assertTrue(cases.size >= 100)
         var withHistory = 0
         var listenPicked = 0
+        val wanted = HashMap<String, Int>()
         for (c in cases) {
             val o = c.jsonObject
             val what = o.toString().take(2000)
@@ -60,6 +61,15 @@ class SentenceHistoryParityTest {
                 assertEquals(x["c"]!!.jsonPrimitive.int, SentenceHistory.compareLeastKnown(stats[x.s("a")]?.mode(m), stats[x.s("b")]?.mode(m)).sign, what)
             }
             assertEquals(o["wantsMore"]!!.jsonPrimitive.boolean, SentenceHistory.wantsMore(sentences, stats), what)
+            val more = SentenceHistory.moreWanted(sentences, stats)
+            assertEquals(moreWanted(o["moreWanted"]!!), more, what)
+            more?.let { wanted[it.reason] = (wanted[it.reason] ?: 0) + 1 }
+            assertEquals(o["comingShown"]!!.jsonPrimitive.boolean, SentenceHistory.comingShown(more), what)
+            assertEquals(o["freshCount"]!!.jsonPrimitive.int, SentenceHistory.freshCount(sentences, stats), what)
+            for (f in o["fresh"]!!.jsonArray) {
+                val x = f.jsonObject
+                assertEquals(x["fresh"]!!.jsonPrimitive.boolean, SentenceHistory.isFresh(stats[x.s("key")]), "$what fresh ${x.s("key")}")
+            }
             val expected = o["exercises"]!!.jsonArray.map {
                 val e = it.jsonObject
                 SentenceRound.Exercise(e.s("id")!!, e.s("key")!!, e.s("mode")!!, e["index"]!!.jsonPrimitive.int)
@@ -89,6 +99,30 @@ class SentenceHistoryParityTest {
         }
         assertTrue(withHistory > 50)
         assertTrue(listenPicked > 100, "listening rounds picked")
+        assertTrue((wanted["few"] ?: 0) > 20 && (wanted["fresh"] ?: 0) > 20, "both reasons covered: $wanted")
+    }
+
+    private fun moreWanted(e: JsonElement): SentenceHistory.MoreWanted? =
+        if (e is JsonNull) null else e.jsonObject.let { SentenceHistory.MoreWanted(it.s("reason")!!, it["fresh"]!!.jsonPrimitive.int, it["count"]!!.jsonPrimitive.int) }
+
+    @Test
+    fun freshBufferNumbersMatch() {
+        val f = fixture()
+        for (v in f["topUpCounts"]!!.jsonArray) {
+            val o = v.jsonObject
+            assertEquals(o["count"]!!.jsonPrimitive.int, SentenceHistory.freshTopUpCount(o["fresh"]!!.jsonPrimitive.int), o.toString())
+        }
+        for (v in f["comingShown"]!!.jsonArray) {
+            val o = v.jsonObject
+            val want = o["want"]!!.let { w -> if (w is JsonNull) null else SentenceHistory.MoreWanted(w.jsonObject.s("reason")!!, w.jsonObject["fresh"]!!.jsonPrimitive.int, 0) }
+            assertEquals(o["shown"]!!.jsonPrimitive.boolean, SentenceHistory.comingShown(want), o.toString())
+        }
+        val c = f["copy"]!!.jsonObject
+        assertEquals(c["freshBuffer"]!!.jsonPrimitive.int, SentenceHistory.FRESH_BUFFER)
+        assertEquals(c["freshLow"]!!.jsonPrimitive.int, SentenceHistory.FRESH_LOW)
+        assertEquals(c["topUpMin"]!!.jsonPrimitive.int, SentenceHistory.TOPUP_MIN)
+        assertEquals(c["topUpMax"]!!.jsonPrimitive.int, SentenceHistory.TOPUP_MAX)
+        assertEquals(c["topUpRetryMs"]!!.jsonPrimitive.int.toLong(), SentenceHistory.TOPUP_RETRY_MS)
     }
 
     @Test

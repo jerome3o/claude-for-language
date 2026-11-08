@@ -59,10 +59,11 @@ import {
   SENTENCE_HIDDEN_TOAST,
   SENTENCE_HIDE_TITLE,
   sentenceHistoryKey,
-  wantsMoreSentences,
+  moreSentencesWanted,
+  sentencesComingShown,
   type SentenceHideReason,
 } from '@shared/study/sentenceHistory';
-import { hideSentence, recordSentenceAttempt, requestMoreSentences, sentencesComing, unhideSentence, useSentenceStats } from '../../services/sentencePractice';
+import { hideSentence, recordSentenceAttempt, requestMoreSentences, unhideSentence, useSentenceStats } from '../../services/sentencePractice';
 import { useLongPress } from '../chat/useLongPress';
 import { UndoToast } from '../upNext/UpNextBoard';
 import { SentenceHideSheet } from './SentenceHideSheet';
@@ -223,16 +224,21 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const visibleKeys = useMemo(() => (sentences ?? []).filter((s) => !isHidden(s.key)).map((s) => s.key), [sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(() => new Map((sentences ?? []).map((s) => [s.key, s])), [sentences]);
   const progress = sentenceRoundProgress(exercises, right, visibleKeys);
-  // More sentences for this word: every one left known in both modes, or fewer than four left.
-  const [coming, setComing] = useState(() => sentencesComing(noteId));
+  // More sentences for this word, made in the background before the fresh ones run out (a buffer of
+  // sentences he has never practised; `moreSentencesWanted`). The note shows only when this round is short.
+  // Checked again after each take (stats change): the buffer is refilled as soon as this round uses it
+  // up; requestMoreSentences asks at most every ten minutes per word.
+  const [coming, setComing] = useState(false);
+  const notedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!sentences || !stats) return;
-    if (wantsMoreSentences(sentences, stats)) {
-      const visible = sentences.filter((s) => !isHidden(s.key)).length;
-      requestMoreSentences(noteId, visible < 4 ? 'few' : 'known');
-      setComing(true);
+    const want = moreSentencesWanted(sentences, stats);
+    if (want) requestMoreSentences(noteId, { reason: want.reason, count: want.count });
+    if (notedFor.current !== noteId) {
+      notedFor.current = noteId;
+      setComing(sentencesComingShown(want));
     }
-  }, [sentences, stats, noteId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sentences, stats, noteId]);
   // "Stop showing this sentence": the sheet, then Undo.
   const [hiding, setHiding] = useState<RoundExercise | null>(null);
   const [undo, setUndo] = useState<{ key: string } | null>(null);

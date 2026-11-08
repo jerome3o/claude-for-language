@@ -14,7 +14,7 @@
  * Pure; the Lab app's port (core `SentenceRound.kt`) is parity-tested (parity/fixtures/sentence-round.ts).
  */
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, type SentencePractiseMode } from './sentencePractise';
-import { compareLeastKnown, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
+import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
 
 /** How many exercises a round offers at most (2 read + 2 translate, one sentence each). */
 export const SENTENCE_ROUND_SIZE = 4;
@@ -82,8 +82,10 @@ export function spreadOrder(n: number): number[] {
 
 /**
  * The round's exercises, in the order shown. Hidden sentences are left out. Four slots — read,
- * translate, read, translate — each takes the sentence he knows LEAST in that mode (never practised
- * first, then fewest rights, most misses, longest ago: `compareLeastKnown`), ties in spread order;
+ * translate, read, translate — each takes a FRESH sentence first (never practised in EITHER mode,
+ * `isFreshSentence`: a sentence read once never comes back as a translate exercise while fresh ones
+ * wait), then the one he knows LEAST in that mode (never practised in it, then fewest rights, most
+ * misses, longest ago: `compareLeastKnown`), ties in spread order;
  * every slot a different sentence, a translate only where the sentence has English (else that slot
  * reads). Shown easiest → harder. A sentence is in AT MOST ONE exercise (its English would answer
  * the other): fewer than four sentences = fewer exercises (3 → 3, 2 → read + translate when it can,
@@ -107,6 +109,9 @@ export function pickRoundExercises(
       if (mode === 'translate' && !hasTranslation(visible[pos].s)) continue;
       if (avoidTranslatable && hasTranslation(visible[pos].s)) continue;
       if (pick == null) { pick = pos; continue; }
+      const freshPos = isFreshSentence(statsOf(visible[pos].s));
+      const freshPick = isFreshSentence(statsOf(visible[pick].s));
+      if (freshPos !== freshPick) { if (freshPos) pick = pos; continue; }
       const c = compareLeastKnown(statsOf(visible[pos].s)?.[mode], statsOf(visible[pick].s)?.[mode]);
       if (c < 0 || (c === 0 && rank.get(pos)! < rank.get(pick)!)) pick = pos;
     }
@@ -177,8 +182,8 @@ export function listenRoundCandidates(
 
 /**
  * The listening card's round: up to `LISTEN_ROUND_SIZE` "🔁 Say it in Chinese" exercises — the English up,
- * he says the sentence in Chinese (judged like the round's translate take). The ones he knows LEAST in
- * translate mode first (`compareLeastKnown`; ties: list order), shown easiest → harder. Any two right
+ * he says the sentence in Chinese (judged like the round's translate take). Fresh sentences first
+ * (`isFreshSentence`), then the ones he knows LEAST in translate mode (`compareLeastKnown`; ties: list order), shown easiest → harder. Any two right
  * (`sentenceRoundProgress`) open the answer with Good / Easy. Deterministic (parity-tested).
  */
 export function pickListenRoundExercises(
@@ -186,10 +191,11 @@ export function pickListenRoundExercises(
   word: string,
   stats?: ReadonlyMap<string, SentenceStats>,
 ): RoundExercise[] {
-  const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key))?.translate;
+  const full = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key));
+  const fresh = (s: RoundSentence) => (isFreshSentence(full(s)) ? 0 : 1);
   const ranked = listenRoundCandidates(sentences, word, stats)
     .slice()
-    .sort((a, b) => compareLeastKnown(statsOf(a.s), statsOf(b.s)) || a.index - b.index)
+    .sort((a, b) => fresh(a.s) - fresh(b.s) || compareLeastKnown(full(a.s)?.translate, full(b.s)?.translate) || a.index - b.index)
     .slice(0, LISTEN_ROUND_SIZE);
   return ranked
     .sort((a, b) => a.index - b.index)
