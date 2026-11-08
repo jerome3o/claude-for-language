@@ -4,7 +4,9 @@ import {
   ratingNeedsOverride, suggestedRating, overrideTap, overridePrompt, hardModeQuestionFeel, roundTakeFeel,
   hardModeChipLabel, hardModeNextLabel, hardModeSaidLine, HARD_MODE_GAVE_UP_LINE, HARD_MODE_CHIP, HARD_MODE_OVERRIDE_MS,
   STUDY_FEEL_VIBRATION, hardModeGiveUpInPlace, hardModeRevealedNextLabel, hardModeGaveUpCheer,
+  hardModeReadAgainOffered, hardModeReadAgainResult, hardModeReadAgainVerdict, hardModeReadAgainLabel, HARD_MODE_READ_AGAIN_RESULT,
 } from './hardMode';
+import { compareTranscription } from '../recordings/transcript';
 import { sentenceGate, sentenceGateLabel } from './sentencePractise';
 
 describe('the setting', () => {
@@ -130,5 +132,40 @@ describe('👁 Show answer on the question', () => {
     expect(hardModeRevealedNextLabel(true)).toBe('Continue to the sentences');
     expect(hardModeRevealedNextLabel(false)).toBe('See the full answer');
     expect(hardModeGaveUpCheer(2, 2)).toBe('🎉 2 / 2 — nice recovery');
+  });
+});
+
+describe('🎤 Read it again on the answer in place (practice only)', () => {
+  const judge = (said: string, hanzi: string) => {
+    const c = compareTranscription(said, hanzi, '');
+    return { result: hardModeReadAgainResult(c), verdict: hardModeReadAgainVerdict(c, said, hanzi) };
+  };
+  it('is offered when the answer has Chinese to read', () => {
+    expect(hardModeReadAgainOffered('他怎么把头发剪短了？')).toBe(true);
+    expect(hardModeReadAgainOffered('OK')).toBe(false);
+    expect(hardModeReadAgainOffered('')).toBe(false);
+  });
+  it('judges the take with the read card\'s own rule', () => {
+    // Read right (punctuation aside): exact.
+    expect(judge('他怎么把头发剪短了', '他怎么把头发剪短了？')).toEqual({ result: 'right', verdict: 'exact' });
+    // The screenshot's take: wrong.
+    expect(judge('他这么拔，头发什么短了?', '他怎么把头发剪短了？')).toEqual({ result: 'wrong', verdict: 'wrong' });
+    // The recogniser wrote a homophone: right, "sounded right".
+    expect(judge('在见', '再见')).toEqual({ result: 'right', verdict: 'sound' });
+    // Inside a longer sentence: right (contains).
+    expect(judge('我去银行', '银行')).toEqual({ result: 'right', verdict: 'contains' });
+    // Tones off: close.
+    expect(judge('老伴', '老板')).toEqual({ result: 'close', verdict: 'close' });
+  });
+  it('agrees with the question\'s rule on every take shape', () => {
+    for (const isMatch of [false, true]) for (const containsExpected of [false, true]) for (const tonesOff of [false, true]) {
+      const q = hardModeQuestionResult({ take: { status: 'done', isMatch, containsExpected, tonesOff } });
+      expect(hardModeReadAgainResult({ isMatch, containsExpected, tonesOff })).toBe(q);
+    }
+  });
+  it('words', () => {
+    expect(hardModeReadAgainLabel(0)).toBe('Read it aloud');
+    expect(hardModeReadAgainLabel(2)).toBe('Read it again');
+    expect(HARD_MODE_READ_AGAIN_RESULT.right).toBe('✓ Right this time');
   });
 });

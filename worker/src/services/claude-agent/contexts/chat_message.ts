@@ -6,7 +6,7 @@
  * to the app for review, never saved here.
  */
 import { getChatContext } from '../../conversations';
-import { CHAT_TOOL_RULE, DISCUSS_MESSAGE_SYSTEM_PROMPT } from '../persona';
+import { CHAT_TOOL_RULE, TOOL_RECORD_RULE, DISCUSS_MESSAGE_SYSTEM_PROMPT } from '../persona';
 import type { GeneratedNote } from '../../../types';
 import { ClaudeContextError, type AgentEnv, type ChatTurn, type ContextProvider, type ToolAction, type ToolName } from '../types';
 
@@ -66,7 +66,7 @@ export const chatMessageContext: ContextProvider<'chat_message', ChatMessageData
   maxRounds: 5,
   load: async (env, ctx, input) =>
     ctx.message ? { content: ctx.message.content, chatContext: ctx.message.chat_context } : loadDiscussedMessage(env, ctx.message_id, input.userId),
-  persona: () => `${DISCUSS_MESSAGE_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}`,
+  persona: () => `${DISCUSS_MESSAGE_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}\n${TOOL_RECORD_RULE}`,
   learner: () => '',
   systemBlock: () => '',
   frameFirstTurn: (d, content) =>

@@ -22,6 +22,7 @@ import { CARD_STANDARD } from '@shared/cards/standard';
 import { normalizeHanziAnswer } from '@shared/lesson/answer-check';
 import { plainAnswerText, type AskLanguage } from '@shared/study/askClaude';
 import { runClaudeTurn } from './claude-agent';
+import { withToolRecord } from './claude-agent/tool-record';
 import { StructuredCallError, structuredCall } from './structured-call';
 import { normalizeProposedCards, proposeFlashcardsTool, knownHanziOf, PROPOSE_MODEL, type ProposedCard } from './chat/flashcards';
 
@@ -61,9 +62,11 @@ export function coachAskTurns(stored: readonly CoachMessage[]): CoachAskTurn[] {
   for (const m of stored) {
     if (m.status) continue;
     if (m.content_type !== 'text') continue;
-    const content = (m.content || '').trim();
-    if (!content) continue;
+    const text = (m.content || '').trim();
+    if (!text) continue;
     if (turns.length === 0 && m.role !== 'user') continue;
+    // An earlier reply + what its tools did (tool-record.ts): Claude must never lose sight of a card it made.
+    const content = m.role === 'assistant' ? withToolRecord(text, m.tool_results) : text;
     const prev = turns[turns.length - 1];
     if (prev && prev.role === m.role) prev.content = `${prev.content}\n\n${content}`;
     else turns.push({ role: m.role, content });

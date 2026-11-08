@@ -593,6 +593,9 @@ the unified-Claude-chats plan (thread store, streaming, memory) builds on this.
   `live.ts` (`claude_turn` pushes + partial writes, throttled), `apply.ts` (a card turn's write actions, shared with the old Ask route),
   `backfill.ts` (the lazy per-user copy + the dual-writes), `fake.ts` (the E2E streaming stand-in). Streaming = `TurnOptions.stream`
   (`messages.stream` in run.ts; unset = the old non-streamed calls); `server.claude_turn` carries `first_token_ms` + `inline`.
+  `tool-record.ts`: an earlier reply is replayed to Claude as its text + `⟦app record … ⟧` built from its stored `tool_results`
+  (the same JSON the apps' "✓ Added 1 card" lines come from), so Claude never denies a card it made; every history builder
+  (`coachAskTurns` / `threadTextTurns`, `buildCoachHistory`) and the memory text use it (docs/CHAT.md "Claude remembers what its tools did").
 - **Memory** (docs/CHAT.md "Claude threads" → "Memory"; `memory.ts`, `tools/memory.ts`, SQL in `store.ts`): the same Claude
   in every chat. A thread's rolling **summary** (≤ ~80 words, `coach_conversations.summary` / `summary_upto` / `summary_at`)
   rewritten in the background after a reply when ≥ 2 messages are new (`rememberThread` / `rememberInBackground`:

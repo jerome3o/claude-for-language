@@ -709,7 +709,7 @@ export async function setMessageLegacyId(db: D1Database, ids: string[], legacyId
 /** What a thread's summary is written from: the thread and its finished messages, in order. */
 export interface SummarySource {
   thread: Pick<ThreadRow, 'id' | 'user_id' | 'title' | 'context_kind' | 'context_json' | 'action' | 'summary' | 'summary_upto'>;
-  messages: Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>;
+  messages: Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'tool_results' | 'created_at'>>;
 }
 
 export async function getSummarySource(db: D1Database, threadId: string): Promise<SummarySource | null> {
@@ -722,7 +722,7 @@ export async function getSummarySource(db: D1Database, threadId: string): Promis
       .bind(threadId),
     db
       .prepare(
-        `SELECT id, role, content_type, content, created_at FROM coach_messages
+        `SELECT id, role, content_type, content, tool_results, created_at FROM coach_messages
           WHERE conversation_id = ? AND status IS NULL AND content != ''
           ORDER BY created_at ASC, rowid ASC`,
       )
@@ -960,13 +960,13 @@ export async function findOwnThreadForMemory(db: D1Database, userId: string, ref
 }
 
 /** read_chat: a thread's finished messages in order. */
-export async function messagesForMemory(db: D1Database, threadId: string): Promise<Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>> {
+export async function messagesForMemory(db: D1Database, threadId: string): Promise<Array<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'tool_results' | 'created_at'>>> {
   const r = await db
     .prepare(
-      `SELECT id, role, content_type, content, created_at FROM coach_messages
+      `SELECT id, role, content_type, content, tool_results, created_at FROM coach_messages
         WHERE conversation_id = ? AND status IS NULL AND content != '' ORDER BY created_at ASC, rowid ASC`,
     )
     .bind(threadId)
-    .all<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'created_at'>>();
+    .all<Pick<MessageRow, 'id' | 'role' | 'content_type' | 'content' | 'tool_results' | 'created_at'>>();
   return r.results ?? [];
 }
