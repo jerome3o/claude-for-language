@@ -1,0 +1,26 @@
+/* ConfettiBurst.tsx — a small burst from the centre of its (position: relative) parent. */
+.confetti-burst {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.confetti-burst-piece {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti-burst-fly 0.85s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+@keyframes confetti-burst-fly {
+  0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.6); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy) + 24px)) rotate(var(--rot)) scale(0.9); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .confetti-burst { display: none; }
+}

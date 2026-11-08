@@ -63,6 +63,7 @@ import dev.jeromeswannack.chineselearning.lab.core.DictationExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.HandwritingAnswer
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.core.LessonFeedback
 import dev.jeromeswannack.chineselearning.lab.core.LessonSentence
 import dev.jeromeswannack.chineselearning.lab.core.Lessons
 import dev.jeromeswannack.chineselearning.lab.core.OralExpressionExercise
@@ -112,6 +113,8 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
     var phase by remember { mutableStateOf("answer") }
     var feedback by remember { mutableStateOf<SentenceFeedback?>(null) }
     var offlineNote by remember { mutableStateOf<String?>(null) }
+    // Claude's check runs behind the result (no loading state; core LessonFeedback).
+    var checking by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val canCheck = if (typed) text.isNotBlank() else hasStrokes(hw)
     val marks = if (typed && phase == "result") ex.words.map { LessonAnswers.sentenceUsesWord(text, it.hanzi) } else null
@@ -124,7 +127,9 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         input = if (typed) source else null,
     )
     fun checkTyped(sentence: String) {
-        phase = "checking"
+        phase = "result"
+        ex.example?.let { env.speak(it.hanzi) }
+        checking = true
         scope.launch {
             try {
                 feedback = env.sentenceFeedback(ex.words.map { it.hanzi }, ex.task, sentence)
@@ -132,8 +137,7 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 offlineNote = "Claude can’t check it right now — compare with the example."
             }
-            phase = "result"
-            feedback?.let { if (it.verdict != "incorrect" && it.usesAllWords) env.onCorrect() else env.onWrong() }
+            checking = false
         }
     }
 
@@ -143,10 +147,6 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
 
     if (phase != "result") {
         when {
-            typed && phase == "checking" -> {
-                YourAnswer(text.trim(), exact = false, label = if (source == "typed") "Your sentence" else "🎤 Your sentence")
-                ActionRow { Primary("Claude is checking…", enabled = false) {} }
-            }
             typed -> VoiceTextField(
                 value = text, onValueChange = { text = it },
                 onSubmit = { a -> text = a.text; source = a.source; checkTyped(a.text) },
@@ -158,18 +158,28 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
             }
         }
     } else {
+        // At once: his sentence (the target words ticked above), the example + 🎤 Say it again; Claude's check
+        // lands LAST, below the buttons, so nothing he is reading moves.
         if (typed) YourAnswer(text.trim(), exact = false, label = if (source == "spoken" || source == "edited") "🎤 Your sentence" else "Your sentence")
         else hw?.strokes?.let { StrokesView(it, "Your sentence") }
-        feedback?.let { FeedbackCard(it, env) }
-        offlineNote?.let { Explanation(it) }
-        ex.example?.let { Reference(it, env, label = "One way to say it:") }
+        ex.example?.let { Reference(it, env, label = LessonFeedback.EXAMPLE_LABEL) }
+        ex.example?.let { SayItAgainRow(it.hanzi, ex.type, "example", env) }
         val f = feedback
         if (f != null) {
+            // The same line as before the verdict: only the buttons change, in place.
+            Explanation(if (typed) "Is your sentence grammatical, and does it use every word?" else "Compare with the example — is your sentence right, and does it use every word?")
             ActionRow { Primary("Continue") { onNext(f.verdict != "incorrect" && f.usesAllWords, answer()) } }
         } else {
             SelfAssess(
                 if (typed) "Is your sentence grammatical, and does it use every word?" else "Compare with the example — is your sentence right, and does it use every word?",
             ) { ok -> onNext(ok, answer()) }
+        }
+        if (checking) ClaudeCheckingRow()
+        offlineNote?.let { Explanation(it) }
+        f?.let { fb ->
+            val right = fb.verdict != "incorrect" && fb.usesAllWords
+            FeelBox(if (right) LessonFeedback.CLAUDE_RIGHT else null, env, key = fb.verdict) { FeedbackCard(fb, env) }
+            LessonFeedback.sayAgainFix(fb.corrected?.hanzi, text, ex.example?.hanzi)?.let { SayItAgainRow(it, ex.type, "fix", env) }
         }
     }
 }
@@ -240,6 +250,7 @@ fun WriteTypedView(ex: WriteTypedExercise, env: ExerciseEnv, onNext: (Boolean, E
         s.note?.let { Explanation(it) }
         if (!(ok && !d.correct)) CharDiffView(d)
         Reference(ex.answer, env)
+        SayItAgainRow(ex.answer.hanzi, ex.type, "answer", env)
         ActionRow { Primary("Continue") { onNext(ok, ExerciseAnswer(text = text.trim(), input = source)) } }
     }
 }
@@ -330,11 +341,12 @@ fun WriteHandwritingView(ex: WriteHandwritingExercise, env: ExerciseEnv, onNext:
             english = if (WritingCue.ENGLISH in cues) ex.answer.english else null,
             initialMode = WritingMode.RECALL,
             hideCharacters = true,
-            onComplete = { r -> run = r; env.speak(ex.answer.hanzi) },
+            onComplete = { r -> run = r; env.speak(ex.answer.hanzi); if (StrokeQuiz.writtenFromMemory(r)) env.onCorrect() },
             onDone = { run?.let { r -> onNext(StrokeQuiz.writtenFromMemory(r), ExerciseAnswer(handwriting = strokeAnswer(r))) } },
             doneLabel = "Continue",
             loader = env.strokeLoader,
         )
+        if (run != null) SayItAgainRow(ex.answer.hanzi, ex.type, "answer", env)
         return
     }
     WritingCues(ex.answer, cues, ex.prompt, env)
@@ -345,6 +357,7 @@ fun WriteHandwritingView(ex: WriteHandwritingExercise, env: ExerciseEnv, onNext:
     } else {
         HandwritingCompare(hw, ex.answer, env)
         ex.answer.english?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
+        SayItAgainRow(ex.answer.hanzi, ex.type, "answer", env)
         SelfAssess("Did you write every character correctly — right components, nothing missing?") { ok ->
             onNext(ok, ExerciseAnswer(handwriting = hw, selfAssessed = true))
         }
@@ -397,7 +410,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
                 initialMode = WritingMode.RECALL,
                 allowModeSwitch = false,
                 hideCharacters = true,
-                onComplete = { strokeRun = it },
+                onComplete = { strokeRun = it; if (StrokeQuiz.writtenFromMemory(it)) env.onCorrect() },
                 onDone = { revealed = true },
                 doneLabel = "Show the sentence",
                 loader = env.strokeLoader,
@@ -422,6 +435,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         }
         if (!typed && strokeRun == null) HandwritingCompare(hw, ex.audio, env)
         Reference(ex.audio, env)
+        SayItAgainRow(ex.audio.hanzi, ex.type, "answer", env)
         ex.note?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
         if (verdict != null) {
             ActionRow { Primary("Continue") { onNext(verdict, base()) } }

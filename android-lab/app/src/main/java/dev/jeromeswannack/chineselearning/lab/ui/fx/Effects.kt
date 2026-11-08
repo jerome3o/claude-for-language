@@ -132,6 +132,44 @@ fun SparkBurst(trigger: Int, colors: List<Color>, origin: Offset = Offset(0.5f, 
     }
 }
 
+/**
+ * A SMALL confetti burst from the centre of its area (a right answer's verdict) — not [ConfettiRain]'s
+ * full-screen rain (Jerome: "a small confetti burst"). Fires once per [key]; ~0.9 s; pieces may fly a
+ * little past the area (nothing clips it). The web's components/ConfettiBurst.tsx.
+ */
+@Composable
+fun ConfettiBurst(key: Any, colors: List<Color>, modifier: Modifier = Modifier.fillMaxSize(), pieces: Int = 22) {
+    val progress = remember(key) { Animatable(0f) }
+    val seeds = remember(key) {
+        val rnd = Random(key.hashCode())
+        List(pieces) { i ->
+            val angle = (i.toFloat() / pieces) * 2 * PI.toFloat() + (rnd.nextFloat() - 0.5f) * 0.5f
+            arrayOf(angle, 0.6f + rnd.nextFloat() * 0.6f, (rnd.nextFloat() - 0.5f) * 540f, colors[i % colors.size], 12f + rnd.nextFloat() * 8f)
+        }
+    }
+    LaunchedEffect(key) { progress.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+    Canvas(modifier) {
+        val p = progress.value
+        if (p >= 1f) return@Canvas
+        val cx = size.width / 2
+        val cy = size.height / 2
+        val reach = 150f
+        for (s in seeds) {
+            val angle = s[0] as Float
+            val speed = s[1] as Float
+            val spin = s[2] as Float
+            val color = s[3] as Color
+            val w = s[4] as Float
+            val x = cx + cos(angle) * reach * speed * p * 1.5f
+            val y = cy + sin(angle) * reach * speed * p - 40f * p + 140f * p * p
+            val a = if (p < 0.7f) 1f else ((1f - p) / 0.3f).coerceIn(0f, 1f)
+            rotate(spin * p, Offset(x, y)) {
+                drawRect(color.copy(alpha = a), topLeft = Offset(x - w / 2, y - w * 0.8f), size = Size(w, w * 1.6f))
+            }
+        }
+    }
+}
+
 /** Horizontal shake offset for a wrong answer: call [ShakeState.shake], read [ShakeState.offset]. */
 class ShakeState {
     val offset = Animatable(0f)

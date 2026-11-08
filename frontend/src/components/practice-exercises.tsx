@@ -43,6 +43,9 @@ import { ConversationAudioSheet } from './lesson/ConversationAudioSheet';
 import { track } from '../services/analytics';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { lessonSpokenCheck, lessonAnswerCorrect, type LessonSpokenCheck } from '@shared/lesson/spoken-check';
+import { LessonFeel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
+import { CLAUDE_CHECKING_LINE, EXAMPLE_LABEL, lessonFeel, sayAgainFix } from '@shared/lesson/feedback';
+import { studyFeel } from '../services/studyFeel';
 import './lesson-exercises.css';
 
 type Speak = (text: string) => void;
@@ -152,31 +155,34 @@ export function SentenceMakingExercise(props: {
   const [text, setText] = useState('');
   const [source, setSource] = useState<DictatedAnswer['source'] | null>(null);
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
-  const [phase, setPhase] = useState<'answer' | 'checking' | 'result'>('answer');
+  const [phase, setPhase] = useState<'answer' | 'result'>('answer');
+  // Claude's check runs behind the result (no loading state): 'checking' → the feedback, or 'unavailable'.
+  const [claude, setClaude] = useState<'none' | 'checking' | 'done' | 'unavailable'>('none');
   const [feedback, setFeedback] = useState<SentenceFeedback | null>(null);
-  const [offlineNote, setOfflineNote] = useState<string | null>(null);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true; // (StrictMode re-runs effects: set it again after the dev-only cleanup)
+    return () => { live.current = false; };
+  }, []);
 
   const typed = input === 'type';
   const canCheck = typed ? text.trim().length > 0 : hasStrokes(hw);
   const marks = typed && phase === 'result' ? words.map(w => sentenceUsesWord(text, w.hanzi)) : undefined;
 
-  async function check(given?: DictatedAnswer) {
-    if (!typed) {
-      setPhase('result');
-      return;
-    }
+  function check(given?: DictatedAnswer) {
+    setPhase('result');
+    if (example) speak(example.hanzi);
+    if (!typed) return;
     const sentence = given?.text ?? text;
     if (given) {
       setText(given.text);
       setSource(given.source);
     }
-    setPhase('checking');
-    try {
-      setFeedback(await checkMadeSentence(words.map(w => w.hanzi), task, sentence));
-    } catch {
-      setOfflineNote('Claude can’t check it right now — compare with the example.');
-    }
-    setPhase('result');
+    setClaude('checking');
+    checkMadeSentence(words.map(w => w.hanzi), task, sentence).then(
+      (f) => { if (live.current) { setFeedback(f); setClaude('done'); } },
+      () => { if (live.current) setClaude('unavailable'); },
+    );
   }
 
   const answer = (): ExerciseAnswer => ({
@@ -193,6 +199,7 @@ export function SentenceMakingExercise(props: {
     incorrect: '✗ Not quite',
   };
   const claudeCorrect = feedback ? feedback.verdict !== 'incorrect' && feedback.uses_all_words : null;
+  const fix = feedback?.corrected ? sayAgainFix(feedback.corrected.hanzi, text, example?.hanzi) : null;
 
   return (
     <div className="exercise">
@@ -201,75 +208,79 @@ export function SentenceMakingExercise(props: {
       <WordChips words={words} speak={speak} marks={marks} />
 
       {phase !== 'result' ? (
-        <>
-          {typed ? (
-            phase === 'checking' ? (
-              <>
-                <div className="speak-transcript">
-                  <div className="speak-transcript-label">{source === 'typed' ? 'Your sentence' : '🎤 Your sentence'}</div>
-                  <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
-                </div>
-                <div className="exercise-actions">
-                  <button className="practice-btn primary" disabled>Claude is checking…</button>
-                </div>
-              </>
-            ) : (
-              <VoiceTextInput
-                surface="lesson_sentence_making"
-                value={text}
-                onChange={setText}
-                onSubmit={a => void check(a)}
-                submitLabel="Check"
-                placeholder="Type your sentence in Chinese…"
-                listeningPlaceholder="Listening… say your sentence"
-                multiline
-                testId="lesson-voice"
-              />
-            )
-          ) : (
-            <>
-              <HandwritingPad onChange={setHw} />
-              <div className="exercise-actions">
-                <button className="practice-btn primary" onClick={() => void check()} disabled={!canCheck}>Done</button>
-              </div>
-            </>
-          )}
-        </>
+        typed ? (
+          <VoiceTextInput
+            surface="lesson_sentence_making"
+            value={text}
+            onChange={setText}
+            onSubmit={a => check(a)}
+            submitLabel="Check"
+            placeholder="Type your sentence in Chinese…"
+            listeningPlaceholder="Listening… say your sentence"
+            multiline
+            testId="lesson-voice"
+          />
+        ) : (
+          <>
+            <HandwritingPad onChange={setHw} />
+            <div className="exercise-actions">
+              <button className="practice-btn primary" onClick={() => check()} disabled={!canCheck}>Done</button>
+            </div>
+          </>
+        )
       ) : (
         <>
+          {/* At once: his sentence (the target words ticked above), the example and 🎤 Say it again; Claude's check
+              lands LAST, below the buttons, so nothing he is reading moves. */}
           {typed ? (
-            <div className="speak-transcript">
+            <div className="speak-transcript" data-testid="lesson-your-answer">
               <div className="speak-transcript-label">{source === 'spoken' || source === 'edited' ? '🎤 Your sentence' : 'Your sentence'}</div>
               <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
             </div>
           ) : hw?.strokes && <StrokesView strokes={hw.strokes} label="Your sentence" />}
+          {example && <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} />}
+          {example && <SayItAgain hanzi={example.hanzi} exerciseType="sentence_making" kind="example" />}
 
-          {feedback && (
-            <div className={`feedback-card ${feedback.verdict}`}>
-              <div className="feedback-verdict">{verdictLabel[feedback.verdict]}</div>
-              {!feedback.uses_all_words && <div className="feedback-note">Use every target word.</div>}
-              {feedback.corrected && (
-                <div className="feedback-corrected" onClick={() => speak(feedback.corrected!.hanzi)}>
-                  <div className="translate-ref-hanzi" lang="zh-CN">{feedback.corrected.hanzi} 🔊</div>
-                  {feedback.corrected.pinyin && <div className="translate-ref-pinyin">{feedback.corrected.pinyin}</div>}
-                  {feedback.corrected.english && <div className="contrast-english">{feedback.corrected.english}</div>}
-                </div>
-              )}
-              <p className="feedback-comment">{feedback.comment}</p>
-            </div>
-          )}
-          {offlineNote && <p className="result-explanation">{offlineNote}</p>}
-          {example && <Reference sentence={example} speak={speak} label="One way to say it:" />}
-
+          {/* The same line before and after Claude's verdict: only the buttons below it change, in place. */}
+          <p className="result-explanation">
+            {typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
+          </p>
           {feedback ? (
             <div className="exercise-actions">
-              <button className="practice-btn primary" onClick={() => onNext(claudeCorrect === true, answer())}>Continue</button>
+              <button className="practice-btn primary" onClick={() => onNext(claudeCorrect === true, answer())} data-testid="lesson-continue">Continue</button>
             </div>
           ) : (
-            <SelfAssess
-              question={typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
-              onAnswer={correct => onNext(correct, answer())}
-            />
+            <div className="exercise-actions">
+              <button className="practice-btn" onClick={() => onNext(false, answer())} data-testid="lesson-missed-it">✗ Not quite</button>
+              <button className="practice-btn primary" onClick={() => onNext(true, answer())} data-testid="lesson-got-it">✓ Got it</button>
+            </div>
+          )}
+
+          {claude !== 'none' && (
+            <div className="lesson-claude-slot lesson-feel-host" data-testid="lesson-claude-slot">
+              {claude === 'checking' && (
+                <div className="answer-check checking" role="status" aria-live="polite" data-testid="answer-check-checking">
+                  <span className="answer-check-dot" aria-hidden="true" /> {CLAUDE_CHECKING_LINE}
+                </div>
+              )}
+              {claude === 'unavailable' && <p className="result-explanation">Claude can’t check it right now — compare with the example.</p>}
+              {feedback && (
+                <div className={`feedback-card ${feedback.verdict}`} data-testid="sentence-feedback">
+                  {claudeCorrect && <LessonFeel moment="claude_right" />}
+                  <div className="feedback-verdict">{verdictLabel[feedback.verdict]}</div>
+                  {!feedback.uses_all_words && <div className="feedback-note">Use every target word.</div>}
+                  {feedback.corrected && (
+                    <div className="feedback-corrected" onClick={() => speak(feedback.corrected!.hanzi)}>
+                      <div className="translate-ref-hanzi" lang="zh-CN">{feedback.corrected.hanzi} 🔊</div>
+                      {feedback.corrected.pinyin && <div className="translate-ref-pinyin">{feedback.corrected.pinyin}</div>}
+                      {feedback.corrected.english && <div className="contrast-english">{feedback.corrected.english}</div>}
+                    </div>
+                  )}
+                  <p className="feedback-comment">{feedback.comment}</p>
+                </div>
+              )}
+              {fix && <SayItAgain key={fix} hanzi={fix} exerciseType="sentence_making" kind="fix" testId="lesson-say-fix" />}
+            </div>
           )}
         </>
       )}
@@ -332,12 +343,13 @@ export function WriteTypedExercise(props: {
         />
       ) : (
         <>
-          <div className={`result-banner ${correct ? 'correct' : 'wrong'}`}>
+          <ResultBanner ok={correct}>
             {diff.correct ? '✓ Correct' : correct ? '✓ Correct (spoken)' : `✗ Not quite — ${Math.round(diff.accuracy * 100)}% of the characters`}
-          </div>
+          </ResultBanner>
           {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
           {!(correct && !diff.correct) && <CharDiffView diff={diff} />}
           <Reference sentence={answer} speak={speak} />
+          <SayItAgain hanzi={answer.hanzi} exerciseType="write_typed" />
           <div className="exercise-actions">
             <button className="practice-btn primary" onClick={() => onNext(correct, { text: text.trim(), input: source ?? undefined })}>Continue</button>
           </div>
@@ -418,6 +430,7 @@ export function WriteHandwritingExercise(props: {
   const [hw, setHw] = useState<HandwritingAnswer | null>(null);
   const [checked, setChecked] = useState(false);
   const result = useRef<WritingExerciseResult | null>(null);
+  const [written, setWritten] = useState(false);
 
   if (pad === 'strokes') {
     return (
@@ -431,13 +444,14 @@ export function WriteHandwritingExercise(props: {
           english={cues.includes('english') ? answer.english : null}
           initialMode="recall"
           hideCharacters
-          onComplete={r => { result.current = r; speak(answer.hanzi); }}
+          onComplete={r => { result.current = r; setWritten(true); speak(answer.hanzi); if (strokeRunCorrect(r)) studyFeel(lessonFeel('checked_right').feel); }}
           onDone={() => {
             const r = result.current;
             if (r) onNext(strokeRunCorrect(r), { handwriting: strokeAnswer(r) });
           }}
           doneLabel="Continue"
         />
+        {written && <SayItAgain hanzi={answer.hanzi} exerciseType="write_handwriting" />}
       </div>
     );
   }
@@ -459,6 +473,7 @@ export function WriteHandwritingExercise(props: {
         <>
           <HandwritingCompare hw={hw} model={answer} speak={speak} />
           {answer.english && <div className="contrast-english" style={{ textAlign: 'center' }}>{answer.english}</div>}
+          <SayItAgain hanzi={answer.hanzi} exerciseType="write_handwriting" />
           <SelfAssess
             question="Did you write every character correctly — right components, nothing missing?"
             onAnswer={correct => onNext(correct, { handwriting: hw ?? undefined, self_assessed: true })}
@@ -549,20 +564,21 @@ export function DictationExercise(props: {
         <>
           {diff && (
             <>
-              <div className={`result-banner ${typedCorrect ? 'correct' : 'wrong'}`}>
+              <ResultBanner ok={!!typedCorrect}>
                 {diff.correct ? '✓ Every character right' : typedCorrect ? '✓ Right (spoken)' : `${Math.round(diff.accuracy * 100)}% of the characters`}
-              </div>
+              </ResultBanner>
               {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
               {!(typedCorrect && !diff.correct) && <CharDiffView diff={diff} />}
             </>
           )}
           {strokeRun && (
-            <div className={`result-banner ${strokeRunCorrect(strokeRun) ? 'correct' : 'wrong'}`}>
+            <ResultBanner ok={strokeRunCorrect(strokeRun)}>
               {strokeRunCorrect(strokeRun) ? '✓ Written from memory' : '✗ Needed help with some strokes'}
-            </div>
+            </ResultBanner>
           )}
           {!typed && !strokeRun && <HandwritingCompare hw={hw} model={audio} speak={speak} />}
           <Reference sentence={audio} speak={speak} />
+          <SayItAgain hanzi={audio.hanzi} exerciseType="dictation" />
           {note && <p className="result-explanation">{note}</p>}
           {verdict !== null ? (
             <div className="exercise-actions">
@@ -892,9 +908,9 @@ export function ConversationExercise(props: {
 
       {allAnswered && (
         <>
-          <div className={`result-banner ${score === questions.length ? 'correct' : 'wrong'}`}>
+          <ResultBanner ok={score === questions.length}>
             {score}/{questions.length} questions right
-          </div>
+          </ResultBanner>
           <div className="exercise-actions">
             {!showTranscript && (
               <button className="practice-btn" onClick={() => setShowTranscript(true)}>Show transcript</button>

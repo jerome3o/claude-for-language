@@ -88,6 +88,8 @@ class ExerciseEnv(
     val speaking: SpeakingTranscriber? = null,
     val playFile: (File) -> Unit = {},
     val onCorrect: () -> Unit = {},
+    /** A StudyFeel moment (core HardMode FEEL_*: success, round_right…) — the answer screen's feel (core LessonFeedback). */
+    val feel: (String) -> Unit = {},
     val onWrong: () -> Unit = {},
     val onTap: () -> Unit = {},
     /** Shuffles (options, tiles, match columns) — seeded in screenshots. */

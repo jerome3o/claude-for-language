@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
+import dev.jeromeswannack.chineselearning.lab.core.LessonFeedback
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -110,6 +112,8 @@ class LessonAnswerCheckState(
     private var job: Job? = null
 
     val check: AnswerCheck? get() = (ui as? AnswerCheckUi.Done)?.check
+    /** The exercise type (analytics of the practice row). */
+    val exerciseTypeName: String get() = exerciseType
     /** got_it | missed_it | null while checking / without a check. */
     val suggested: String? get() = check?.suggested
 
@@ -192,18 +196,28 @@ fun rememberLessonAnswerCheck(
     return remember(exerciseType, promptEn, modelAnswer) { LessonAnswerCheckState(exerciseType, promptEn, modelAnswer, modelPinyin, focus, env, scope, onRetry, hints, question) }
 }
 
-/** The card under "You said" + the 💬 sheet. */
+/**
+ * Claude's slot (shared/lesson/feedback.ts): the exercise puts it LAST, below its buttons, so nothing he is
+ * reading moves when it lands — "Claude is checking…", then the card + 💬; a right verdict is felt (unless the
+ * device already celebrated: [celebrated]) and Claude's new corrected sentence gets 🎤 Say the corrected version.
+ */
 @Composable
-fun AnswerCheckView(state: LessonAnswerCheckState, answer: String, env: ExerciseEnv) {
+fun AnswerCheckView(state: LessonAnswerCheckState, answer: String, env: ExerciseEnv, offered: String? = null, celebrated: Boolean = false) {
     if (state.input == null) return
+    val done = state.check
+    val moment = done?.let { LessonFeedback.claudeVerdictMoment(it.verdict) }
     // A real run of one of his lessons: 💬 Ask Claude = the exercise's Claude thread (ExerciseClaude.kt),
     // his answer + the check riding with it; else the old inline "Ask about this" chat.
     val claude = LocalExerciseClaude.current
-    AnswerCheckCard(
-        state.ui, answer, onPlay = env.speak, onRetry = state::retry,
-        onAsk = if (claude != null) ({ claude.ask("answer_check", exerciseAnswerOf(state.input?.answer ?: answer, state.check)) }) else ({ state.asking = true }),
-        askLabel = if (claude != null) "💬 Ask Claude" else null,
-    )
+    FeelBox(moment, env, celebrated, key = "${state.input?.answer}:${done?.verdict}") {
+        AnswerCheckCard(
+            state.ui, answer, onPlay = env.speak, onRetry = state::retry,
+            onAsk = if (claude != null) ({ claude.ask("answer_check", exerciseAnswerOf(state.input?.answer ?: answer, state.check)) }) else ({ state.asking = true }),
+            askLabel = if (claude != null) "💬 Ask Claude" else null,
+        )
+    }
+    val fix = done?.let { LessonFeedback.sayAgainFix(it.cleaned ?: it.corrected, answer, offered ?: state.input?.modelAnswer) }
+    if (fix != null) SayItAgainRow(fix, state.exerciseTypeName, kind = "fix", env = env)
     val input = state.input
     if (state.asking && input != null) {
         AskAboutAnswerSheet(input, state.check, ask = state::ask, onClose = { state.asking = false })
@@ -222,6 +236,10 @@ fun AnswerCheckCard(ui: AnswerCheckUi, answer: String, onPlay: (String) -> Unit,
     }
 }
 
+/** "Claude is checking…" — the slim row under the buttons while a check is on its way. */
+@Composable
+fun ClaudeCheckingRow() = CheckingRow()
+
 @Composable
 private fun CheckingRow() {
     val t = rememberInfiniteTransition(label = "checking")
@@ -229,11 +247,11 @@ private fun CheckingRow() {
     Row(
         Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
             .border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics { contentDescription = "Checking your answer" },
+            .semantics { contentDescription = LessonFeedback.CLAUDE_CHECKING_LINE },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(8.dp).alpha(a).clip(CircleShape).background(Violet))
-        Text("  Checking your answer…", color = Lab.colors.muted, fontSize = 14.sp)
+        Text("  ${LessonFeedback.CLAUDE_CHECKING_LINE}", color = Lab.colors.muted, fontSize = 14.sp)
     }
 }
 

@@ -10,6 +10,7 @@
  * Checked on the device (offline). Jerome is somewhat red / green colour-blind: every state is an
  * icon + words (✓ / ✗, "Right" / "Not quite"), never colour alone.
  */
+import { ResultBanner } from './lessons/LessonFeedback';
 import { useState } from 'react';
 import {
   allAnswered,
@@ -66,7 +67,7 @@ function Footer({ results, checked, onCheck, onContinue }: {
   const all = results.every(r => r === true);
   return (
     <>
-      <div className={`result-banner ${all ? 'correct' : 'wrong'}`}>{itemsScoreLine(results)}</div>
+      <ResultBanner ok={all}>{itemsScoreLine(results)}</ResultBanner>
       <div className="exercise-actions">
         <button className="practice-btn primary" onClick={onContinue}>Continue</button>
       </div>

@@ -687,6 +687,54 @@ Every Home homework row says how big it is: a lesson "18 exercises · ~12 min" (
 type: a choice ~20 s, a translation ~50 s, a conversation ~2 min…), a revision "5 questions · ~4 min",
 a deck pass "12 words", a reader "6 pages".
 
+### Feedback: feel, no loading states, 🎤 Say it again
+
+One rule for every exercise type, both apps (`shared/lesson/feedback.ts`, Lab core `LessonFeedback.kt`,
+parity-tested by `parity/fixtures/lesson-feedback.ts`; web `components/lessons/LessonFeedback.tsx`, Lab
+`ui/lessons/LessonFeedbackViews.kt`). Jerome (Nov 2026): a right answer should be felt; nothing should wait on
+Claude; and the answer screen should let him practise the right sentence before moving on.
+
+1. **Feel** — a right answer plays Hard mode's `StudyFeel` (`success`: the firm vibration + chime; web
+   `services/studyFeel.ts`, Lab `fx/StudyFeel.kt`) and a SMALL confetti burst at the verdict (web
+   `components/ConfettiBurst.tsx`, Lab `ConfettiBurst` in `ui/fx/Effects.kt`) — never the full-screen rain.
+   Moments (`lessonFeel`): an automatic check right (`checked_right`: every "✓ Correct" banner), a self-assessed
+   answer the device matched (`matched_answer`: "✓ Exact match" / "✓ Sounds right"), Claude's verdict right
+   (`claude_right`, only when the device hadn't already celebrated — one celebration per answer), a practice take
+   right (`say_again_right`: the lighter `round_right`). Wrong moments stay silent.
+2. **No loading states** — on submit the model answer (big) and the device's own diff show at once: his answer
+   with the characters the model doesn't have wavy-underlined, the model answer with the characters he missed
+   highlighted (`diffHanzi`). Claude's check (the answer check, sentence feedback, the speaking check) runs behind a
+   slim **"Claude is checking…"** row placed LAST — below the buttons — so when the verdict lands it grows there
+   and nothing he is reading moves (a test pins the positions). Sentence making no longer shows a disabled
+   "Claude is checking…" button: its result screen opens at once with the self-assessment, which becomes one
+   Continue (Claude's verdict, as before) in the same row when the feedback lands. Offline: the device check +
+   answer + diff as above, Claude's row says it can't check right now (or nothing, for the answer check).
+3. **🎤 Say it again** — under the answer, practice only: the Coach's "Practise saying it" row (live
+   transcription, the compact "You said" row; web `PractiseSentence`, Lab `PractiseSentenceRow`) with its own words
+   ("🎤 Say it again", never "🔁 Try again" — the official Try again of Claude's check keeps its words) and "Practice —
+   doesn't change your score". Nothing is stored: no review event, completion, attempt row or retry. What it
+   practises: `sayAgainTarget` — the exercise's answer, or an open-ended exercise's example (labelled
+   **"Another way to say it:"**, `EXAMPLE_LABEL` — it is another answer, not THE answer); and when Claude's check
+   brings a corrected sentence that is new (`sayAgainFix`: not what he said, not already offered), a second row
+   "🎤 Say the corrected version" under Claude's card. Analytics `lesson.say_again { exercise_type, target, result }`.
+
+| Type | Feel | Answer + diff at once | Claude below, no jump | 🎤 Say it again |
+|------|------|------------------------|-----------------------|-----------------|
+| note | — (not scored) | — | — | — (nothing to answer) |
+| scramble | ✓ Correct | the correct order | — | the sentence |
+| choice | ✓ Correct | options marked | — | the right option (when Chinese) |
+| translate | exact / sounds right, or Claude right | his answer marked + the model's misses | ✓ | the model answer + Claude's fix |
+| match | all matched first time | pairs | — | — (several pairs; each word plays) |
+| describe_image | — (self-assessed, no device check) | the reference | — | the reference (example) |
+| speak / oral_expression | Claude right | transcript + example | ✓ (moved below the buttons) | the example + Claude's cleaner version |
+| listen_choice | ✓ Correct | transcript | — | the sentence heard |
+| listen_translate | exact match, or Claude right | transcript | ✓ | the sentence heard + Claude's fix |
+| sentence_making | Claude right | his sentence, words ticked, example | ✓ (was a loading button) | the example + Claude's corrected sentence |
+| write_typed / dictation | ✓ Correct | character diff | — | the answer |
+| write_handwriting | written from memory | strokes vs model | — | the answer |
+| conversation | all questions right | per question | — | — (comprehension, often English) |
+| judge / gap_choice | every sentence right | per sentence | — | — (several sentences, each with 🔊) |
+
 ### Claude checks your answer (self-assessed exercises)
 
 "Say it in Chinese" (`translate`) and "Listen and translate" answered in Chinese are self-assessed —

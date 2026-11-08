@@ -224,7 +224,7 @@ class SpeakingTakeState(
 
 /**
  * The recorded half of oral_expression / speak: record → "🎤 You said" → Done → Claude's check under
- * it, "One way to say it", the two self-assessment buttons with the suggested one ringed.
+ * it, "Another way to say it" (+ 🎤 Say it again), the two self-assessment buttons with the suggested one ringed.
  */
 @Composable
 fun SpeakingAnswerView(
@@ -337,14 +337,13 @@ fun SpeakingAnswerView(
         }
     } else {
         if (file != null) ActionRow { Secondary("▶ Your answer") { env.playFile(file) } }
-        if (file != null) {
-            SpeakingTranscriptBlock(take.transcript, onRetry = take::retry) {
-                if (text.isNotEmpty()) AnswerCheckView(ac, text, env)
-            }
-        }
-        example?.let { Reference(it, env, label = "One way to say it:") }
+        if (file != null) SpeakingTranscriptBlock(take.transcript, onRetry = take::retry)
+        example?.let { Reference(it, env, label = dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.EXAMPLE_LABEL) }
+        example?.let { SayItAgainRow(it.hanzi, exerciseType, "example", env) }
         if (mediaKey != null && file != null) Explanation("Your tutor can listen to this recording.")
         SelfAssess("How did it go?", yes = gotItLabel, suggested = ac.suggested?.let { it == "got_it" }) { ok -> onDone(ok, answer(), file) }
+        // Claude's check LAST, below the buttons: nothing above moves when it lands (core LessonFeedback).
+        if (file != null && text.isNotEmpty()) AnswerCheckView(ac, text, env, offered = example?.hanzi)
     }
 }
 

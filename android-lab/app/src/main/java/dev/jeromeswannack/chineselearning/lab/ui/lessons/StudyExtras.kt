@@ -129,6 +129,7 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
     val runtime = remember(app) { LessonRuntime.of(app) }
     val scope = rememberCoroutineScope()
     val playing by runtime.audio.playing.collectAsState()
+    val feelPlayer = remember(app) { dev.jeromeswannack.chineselearning.lab.fx.AppStudyFeel(app) }
     val recorder = remember(preview) { LessonRecorder(app, scope) { runtime.store.recordingFile() } }
     DisposableEffect(recorder) { onDispose { recorder.release(); runtime.audio.stop() } }
     return ExerciseEnv(
@@ -158,7 +159,9 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
         recorder = recorder,
         speaking = remember(app) { AppSpeakingTranscriber(app, scope) },
         playFile = { runtime.audio.playFile(it) },
-        onCorrect = { app.sounds.play(Sounds.Sfx.CORRECT); app.haptics.correct() },
+        // A right answer is felt like Hard mode's (StudyFeel success: the firm haptic + the chime).
+        onCorrect = { feelPlayer.play(dev.jeromeswannack.chineselearning.lab.core.HardMode.FEEL_SUCCESS) },
+        feel = { feelPlayer.play(it) },
         onWrong = { app.sounds.play(Sounds.Sfx.WRONG, 0.6f); app.haptics.wrong() },
         onTap = { app.haptics.tick() },
         strokeLoader = remember(app) { dev.jeromeswannack.chineselearning.lab.data.strokes.StrokeStore.of(app)::get },

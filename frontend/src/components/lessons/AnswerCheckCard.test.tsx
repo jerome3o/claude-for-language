@@ -63,7 +63,7 @@ describe('AnswerCheckCard', () => {
 
   it('checking: one slim status row', () => {
     act(() => root.render(<AnswerCheckCard state={{ status: 'checking' }} answer="x" speak={() => {}} />));
-    expect(host.querySelector('[data-testid="answer-check-checking"]')?.textContent).toContain('Checking');
+    expect(host.querySelector('[data-testid="answer-check-checking"]')?.textContent).toContain('Claude is checking');
   });
 
   it('almost: chip, the red-pen diff of their sentence, the quote marked', () => {

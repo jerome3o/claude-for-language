@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,14 +109,21 @@ fun Explanation(text: String, modifier: Modifier = Modifier, center: Boolean = t
 fun ResultBanner(correct: Boolean, text: String) {
     AnimatedVisibility(true, enter = scaleIn(spring(dampingRatio = Spring.DampingRatioMediumBouncy)) + fadeIn()) {
         val color = if (correct) Palette.Good else Palette.Again
-        Text(
-            text,
-            color = color,
-            fontWeight = FontWeight.Bold,
-            fontSize = 18.sp,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.12f)).padding(vertical = 12.dp, horizontal = 14.dp),
-        )
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxWidth()) {
+            Text(
+                text,
+                color = color,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.12f)).padding(vertical = 12.dp, horizontal = 14.dp),
+            )
+            // A right answer: a small burst from the banner (core LessonFeedback; the feel itself played at the check).
+            if (correct) dev.jeromeswannack.chineselearning.lab.ui.fx.ConfettiBurst(
+                key = text, colors = Palette.Confetti,
+                modifier = Modifier.matchParentSize().testTag(LessonFeedbackTags.BURST),
+            )
+        }
     }
 }
 
@@ -135,7 +143,7 @@ fun RowScope.Secondary(label: String, enabled: Boolean = true, onClick: () -> Un
 
 /** `translate-ref`: a model sentence — tap it to hear it. */
 @Composable
-fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null) {
+fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null, missedBy: String? = null) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label != null) Explanation(label)
         Column(
@@ -145,7 +153,25 @@ fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("${sentence.hanzi} 🔊", fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            if (missedBy.isNullOrBlank()) {
+                Text("${sentence.hanzi} 🔊", fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
+            } else {
+                // The other half of the device's diff: the characters his answer [missedBy] doesn't have, highlighted.
+                Text(
+                    androidx.compose.ui.text.buildAnnotatedString {
+                        for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(missedBy, sentence.hanzi, "model")) {
+                            if (m.hit) append(m.ch) else {
+                                pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, background = Palette.Again.copy(alpha = 0.12f), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
+                                append(m.ch)
+                                pop()
+                            }
+                        }
+                        append(" 🔊")
+                    },
+                    fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag("lesson-marked-model"),
+                )
+            }
             sentence.pinyin?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.accent, fontSize = 15.sp, textAlign = TextAlign.Center) }
             sentence.english?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.muted, fontSize = 15.sp, textAlign = TextAlign.Center) }
         }
@@ -234,7 +260,7 @@ fun AnswerField(
 
 /** `speak-transcript`: what the learner typed, green when it matches exactly. */
 @Composable
-fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badge: String = "✓ Exact match") {
+fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badge: String = "✓ Exact match", model: String? = null) {
     val tint = if (exact) Palette.Good else Lab.colors.muted
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (exact) Palette.Good.copy(alpha = 0.10f) else Lab.colors.faint).padding(14.dp),
@@ -243,7 +269,24 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
             Text(label, style = MaterialTheme.typography.labelMedium, color = tint)
             if (exact) Text("  $badge", style = MaterialTheme.typography.labelMedium, color = Palette.Good, fontWeight = FontWeight.Bold)
         }
-        Text(text, fontSize = 20.sp, color = Lab.colors.ink)
+        if (exact || model.isNullOrBlank()) {
+            Text(text, fontSize = 20.sp, color = Lab.colors.ink)
+        } else {
+            // The device's own diff, at once: the characters the model answer doesn't have, wavy-underlined.
+            Text(
+                androidx.compose.ui.text.buildAnnotatedString {
+                    for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(text, model, "answer")) {
+                        if (m.hit) append(m.ch) else {
+                            pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
+                            append(m.ch)
+                            pop()
+                        }
+                    }
+                },
+                fontSize = 20.sp, color = Lab.colors.ink,
+                modifier = Modifier.testTag("lesson-marked-answer"),
+            )
+        }
     }
 }
 

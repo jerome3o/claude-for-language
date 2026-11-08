@@ -124,6 +124,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── introWarnings.ts # Soft warning: a note before a conversation that quotes its dialogue (spoiler intro)
 │   │   ├── answer-check.ts # Typed-hanzi checking + character diff (diffHanzi)
 │   │   ├── attempt.ts     # Per-exercise attempt data (answers, time, recordings) + server sanitizer
+│   │   ├── feedback.ts    # The answer screen's feedback for every exercise type (docs/STUDY_SESSION.md "Feedback"): which moments are felt (StudyFeel + a small confetti burst), "Claude is checking…" placed below the buttons (no layout jump), 🎤 Say it again targets (practice only) + Claude's fix, "Another way to say it:" (Lab LessonFeedback.kt, parity-tested)
 │   │   ├── handwriting.ts # "Skip handwriting exercises": which exercises the switch leaves out, typed dictation, the attempt's "skipped (handwriting off)" rows (Lab Handwriting.kt, parity-tested)
 │   │   ├── validate.ts    # Structural validation for agent-authored specs
 │   │   ├── diff.ts        # Structural diff of two specs (editor chat proposals, "what changed")

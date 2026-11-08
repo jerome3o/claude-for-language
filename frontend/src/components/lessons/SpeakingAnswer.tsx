@@ -5,9 +5,10 @@
  *   🎙 → Recording… 0:42 / ~0:30  (the words appear as they are said) → ■
  *   🎤 You said: 你好，你就是…sorry，你就是新来的Annie吧？…      ← the transcript, tappable Chinese
  *   ▶ Listen back · 🎙 Again · Done
- *   → Claude's check: the task's parts ✓ ~ ✗, a cleaner version, ≤ 4 tips with the better words
- *   One way to say it: … 🔊
- *   ✗ Not quite   ✓ I said it well      ← the suggested one ringed; 🔁 Try again · 💬 Ask about this
+ *   Another way to say it: … 🔊   🎤 Say it again (practice only)
+ *   ✗ Not quite   ✓ I said it well      ← the suggested one ringed
+ *   → Claude's check, BELOW the buttons (nothing above moves): the task's parts ✓ ~ ✗, a cleaner version
+ *     (+ 🎤 Say the corrected version), ≤ 4 tips; 🔁 Try again · 💬 Ask about this
  *
  * Transcription: live while speaking, else the upload (useSpeakingTake); both failing → "Couldn't
  * transcribe — tap to retry"; offline → the recording is kept and the server checks it once the
@@ -18,6 +19,8 @@ import type { ExerciseAnswer, LessonSentence } from '@shared/lesson';
 import { speakingClock, speakingTakeLine } from '@shared/lesson/speakingTake';
 import { useSpeakingTake } from '../../hooks/useSpeakingTake';
 import { useLessonAnswerCheck } from './useLessonAnswerCheck';
+import { SayItAgain } from './LessonFeedback';
+import { EXAMPLE_LABEL } from '@shared/lesson/feedback';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { createAudioPlayer } from '../../utils/audioPlayback';
 
@@ -82,11 +85,7 @@ export function SpeakingAnswer(props: {
   });
   const listen = () => { if (blob) playerRef.current.play(blob, { label: 'lesson-recording' }); };
 
-  const transcriptBlock = (
-    <TranscriptBlock state={take.transcript} onRetry={take.retry}>
-      {done && text ? ac.view(text, speak) : null}
-    </TranscriptBlock>
-  );
+  const transcriptBlock = <TranscriptBlock state={take.transcript} onRetry={take.retry} />;
 
   if (!done) {
     return (
@@ -140,7 +139,7 @@ export function SpeakingAnswer(props: {
       {!skipped && take.take && transcriptBlock}
       {example && (
         <>
-          <p className="result-explanation">One way to say it:</p>
+          <p className="result-explanation">{EXAMPLE_LABEL}</p>
           <div className="translate-ref">
             <div className="translate-ref-hanzi" onClick={() => speak(example.hanzi)} lang="zh-CN">{example.hanzi} 🔊</div>
             {example.pinyin && <div className="translate-ref-pinyin">{example.pinyin}</div>}
@@ -148,11 +147,14 @@ export function SpeakingAnswer(props: {
           </div>
         </>
       )}
+      {example && <SayItAgain hanzi={example.hanzi} exerciseType={exerciseType} kind="example" />}
       {mediaKey && blob && <p className="result-explanation small">Your tutor can listen to this recording.</p>}
       <div className="exercise-actions">
         <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, answer(), blob ?? undefined)} data-testid="lesson-missed-it">✗ Not quite</button>
         <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, answer(), blob ?? undefined)} data-testid="lesson-got-it">{props.gotItLabel ?? '✓ I said it well'}</button>
       </div>
+      {/* Claude's check LAST, below the buttons: "Claude is checking…" then the verdict, nothing above moves. */}
+      {!skipped && text ? ac.view(text, speak, { offered: example?.hanzi ?? null }) : null}
     </>
   );
 }
