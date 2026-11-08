@@ -3381,6 +3381,7 @@ export function StudyCard({
                     answer={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, english: card.note.english }}
                     onPlayAnswer={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
                     onMoveOn={sentenceMoveOn}
+                    readAgain={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, cardType: card.card_type, where: pass ? 'homework' : 'session', onStart: stopAudio }}
                     moveOnLabel={hardModeRevealedNextLabel(hardModeGiveUpInPlace(gateOn ? roundVisibleCount : 0))}
                   />
                 ) : isTypingCard ? (

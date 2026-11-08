@@ -124,6 +124,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         onNext={onNext}
         onTypeInstead={onTypeInstead}
         speak={speak}
+        readAgain={readAgain}
       />
     );
   }
@@ -217,9 +218,10 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
  * "Sentence answers checked by Claude"): the card's answer first — hanzi big with ▶, pinyin, English — and
  * "You said" against it, character by character, AT ONCE; Claude's verdict loads in under them (a slim
  * "Checking your sentence…" row, then its chip, headline and tips), and its fix of his own wording is at most a
- * small labelled line. Offline / failed: the device's verdict under the same answer + diff.
+ * small labelled line. 🎤 Read it again (#722) sits under "You said" until Claude says it was right — practice only.
+ * Offline / failed: the device's verdict under the same answer + diff.
  */
-function SentenceAnswerFirst({ result, view, answer, said, difference, check, checkingLabel, roundFollows, moveOnLabel, onPlayAnswer, onTryAgain, onMoveOn, onNext, onTypeInstead, speak }: {
+function SentenceAnswerFirst({ result, view, answer, said, difference, check, checkingLabel, roundFollows, moveOnLabel, onPlayAnswer, onTryAgain, onMoveOn, onNext, onTypeInstead, speak, readAgain }: {
   result: HardModeQuestionResult;
   view: SentenceCheckView;
   answer: { hanzi: string; pinyin: string | null; english: string };
@@ -235,6 +237,8 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
   onNext: () => void;
   onTypeInstead?: () => void;
   speak?: (text: string) => void;
+  /** 🎤 Read it again under the answer (`view.readAgain`): practice only, the card stays a miss. */
+  readAgain?: HardModeReadAgainProps;
 }) {
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
   const miss = result === 'wrong' || result === 'close';
@@ -257,6 +261,8 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
           onPlayModel={onPlayAnswer}
           answerFirst={{ english: answer.english }}
         />
+        {/* Right under "You said", so the verdict landing below never moves it. */}
+        {readAgain && view.readAgain && <HardModeReadAgain {...readAgain} />}
         {view.checking ? (
           <div className="answer-check checking hard-feedback-checking-row" role="status" data-testid="hard-sentence-checking">
             <span className="answer-check-dot" aria-hidden="true" /> {checkingLabel}

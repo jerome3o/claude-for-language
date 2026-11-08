@@ -82,13 +82,13 @@ describe('sentence answers checked by Claude', () => {
 describe('the answer first, the verdict after (sentenceCheckView)', () => {
   const base = { said: SAID, model: MODEL };
   it('not a sentence Claude checks: nothing changes', () => {
-    expect(sentenceCheckView({ ...base, applies: false, checking: true, claude: null })).toEqual({ answerFirst: false, accepted: false, checking: false, corrected: null });
+    expect(sentenceCheckView({ ...base, applies: false, checking: true, claude: null })).toEqual({ answerFirst: false, accepted: false, checking: false, corrected: null, readAgain: false });
   });
   it('while checking: the answer + diff at once, red marks, the inline checking row', () => {
-    expect(sentenceCheckView({ ...base, applies: true, checking: true, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: true, corrected: null });
+    expect(sentenceCheckView({ ...base, applies: true, checking: true, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: true, corrected: null, readAgain: true });
   });
   it('offline / failed: the answer + diff stay, no checking row', () => {
-    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: false, corrected: null });
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: false, corrected: null, readAgain: true });
   });
   it('correct / acceptable: accepted marks', () => {
     expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'acceptable' }).accepted).toBe(true);
@@ -105,5 +105,20 @@ describe('the answer first, the verdict after (sentenceCheckView)', () => {
     expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'wrong', corrected: fix }).corrected).toBeNull();
     expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: '' }).corrected).toBeNull();
     expect(sentenceCheckView({ ...base, applies: true, checking: true, claude: 'almost', corrected: fix }).corrected).toBeNull();
+  });
+});
+
+describe('🎤 Read it again under the answer (sentenceCheckView.readAgain)', () => {
+  const base = { said: SAID, model: MODEL, applies: true };
+  it('offered while checking, offline and on a miss; gone once Claude says right', () => {
+    expect(sentenceCheckView({ ...base, checking: true, claude: null }).readAgain).toBe(true);
+    expect(sentenceCheckView({ ...base, checking: false, claude: null }).readAgain).toBe(true);
+    expect(sentenceCheckView({ ...base, checking: false, claude: 'almost' }).readAgain).toBe(true);
+    expect(sentenceCheckView({ ...base, checking: false, claude: 'wrong' }).readAgain).toBe(true);
+    expect(sentenceCheckView({ ...base, checking: false, claude: 'acceptable' }).readAgain).toBe(false);
+    expect(sentenceCheckView({ ...base, checking: false, claude: 'correct' }).readAgain).toBe(false);
+    // A verdict still arriving never hides it early.
+    expect(sentenceCheckView({ ...base, checking: true, claude: 'correct' }).readAgain).toBe(true);
+    expect(sentenceCheckView({ ...base, applies: false, checking: false, claude: null }).readAgain).toBe(false);
   });
 });

@@ -63,16 +63,24 @@ object SentenceAnswerCheck {
      * [checking] = the slim "Checking your sentence…" row under them; [corrected] = Claude's fix of HIS wording as a
      * small labelled line (≈ Nearly only, never the card's answer or what he said).
      */
-    data class View(val answerFirst: Boolean, val accepted: Boolean, val checking: Boolean, val corrected: String?)
+    data class View(
+        val answerFirst: Boolean,
+        val accepted: Boolean,
+        val checking: Boolean,
+        val corrected: String?,
+        /** 🎤 Read it again under the answer (#722's practice): from the start, gone only once Claude says right. */
+        val readAgain: Boolean,
+    )
 
     /** Port of sentenceCheckView(). */
     fun view(applies: Boolean, checking: Boolean, claude: String?, said: String, model: String, corrected: String? = null): View {
-        if (!applies) return View(answerFirst = false, accepted = false, checking = false, corrected = null)
+        if (!applies) return View(answerFirst = false, accepted = false, checking = false, corrected = null, readAgain = false)
         val verdict = if (checking) null else claude
         val fix = (corrected ?: "").trim()
         val shown = if (verdict == "almost" && fix.isNotEmpty() && LessonAnswerCheck.hasHan(fix) &&
             !AnswerDifference.sameWords(fix, model) && !AnswerDifference.sameWords(fix, said)) fix else null
-        return View(answerFirst = true, accepted = verdict == "correct" || verdict == "acceptable", checking = checking, corrected = shown)
+        val accepted = verdict == "correct" || verdict == "acceptable"
+        return View(answerFirst = true, accepted = accepted, checking = checking, corrected = shown, readAgain = !accepted && LessonAnswerCheck.hasHan(model))
     }
 
     const val CHECKING = "Checking your sentence…"

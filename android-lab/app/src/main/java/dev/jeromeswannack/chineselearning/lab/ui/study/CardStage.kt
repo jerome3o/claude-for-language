@@ -822,6 +822,7 @@ fun CardStage(
                     onPlayAnswer = { actions.onPlayWord(true) },
                     onMoveOn = { sentenceMoveOn() },
                     moveOnLabel = HardMode.revealedNextLabel(HardMode.giveUpInPlace(if (gateEnabled) sentenceCount else 0)),
+                    readAgain = ReadAgainInfo(note.hanzi, note.pinyin, view.card.cardType, if (pass != null) "homework" else "session"),
                 )
             } else if (!revealed) {
                 if (mcGridUp) {

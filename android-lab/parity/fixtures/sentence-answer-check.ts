@@ -50,9 +50,8 @@ for (const [said, model] of PAIRS) for (const claude of CLAUDE) differences.push
 // What the question shows (sentenceCheckView): the card's answer + "You said" vs it at once, the verdict after.
 const FIXES: (string | null)[] = [null, '', '我早上喝咖啡，所以上班不困。', ' 我早上喝咖啡是为了上班不困 ', '我早上喝咖啡，因为工作不困。', 'coffee'];
 const views = [] as unknown[];
-for (const applies of [false, true]) for (const checking of [false, true]) for (const claude of CLAUDE) for (const corrected of FIXES) {
+for (const applies of [false, true]) for (const checking of [false, true]) for (const claude of CLAUDE) for (const corrected of FIXES) for (const model of ['我早上喝咖啡是为了上班不困。', 'ABC']) {
   const said = '我早上喝咖啡，因为工作不困。';
-  const model = '我早上喝咖啡是为了上班不困。';
   views.push({ applies, checking, claude, corrected, said, model, view: sentenceCheckView({ applies, checking, claude, said, model, corrected }) });
 }
 

@@ -18,6 +18,27 @@ import { SENTENCE_CHECKING } from '@shared/study/sentenceAnswerCheck';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// 🎤 Read it again's dictation (HardModeReadAgain): `land` hands it a transcript.
+const dictations = vi.hoisted(() => ({ land: [] as ((text: string) => void)[] }));
+vi.mock('../../hooks/useVoiceDictation', async () => {
+  const React = await import('react');
+  return {
+    useVoiceDictation: (opts: { onSubmit: (a: { text: string; source: string; transcript: string | null; via?: string }) => void }) => {
+      const [phase, setPhase] = React.useState<string>('idle');
+      const latest = React.useRef(opts);
+      latest.current = opts;
+      const land = React.useRef((t: string) => { setPhase('idle'); latest.current.onSubmit({ text: t, source: 'spoken', transcript: t, via: 'live' }); });
+      React.useEffect(() => { dictations.land.push(land.current); }, []);
+      return {
+        state: { mode: 'voice', phase, failure: null, blocked: null },
+        finalText: '', partialText: '', listening: phase === 'listening', busy: false, level: 0,
+        say: () => setPhase('listening'), stop: () => setPhase('finishing'), cancel: () => setPhase('idle'),
+        retake: vi.fn(), retryUpload: vi.fn(), edit: vi.fn(), type: vi.fn(), submit: vi.fn(), canSubmit: false, reset: vi.fn(),
+      };
+    },
+  };
+});
+
 const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a), trackError: vi.fn() }));
 vi.mock('../explorer/ExplorableText', () => ({ ExplorableText: ({ text }: { text: string }) => <span>{text}</span> }));
@@ -49,6 +70,7 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   track.mockClear();
+  dictations.land.length = 0;
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -90,6 +112,7 @@ async function mount(checker: (input: AnswerCheckInput) => Promise<{ check: Answ
             answer={{ hanzi: MODEL, pinyin: 'Wǒ zǎoshang hē kāfēi shì wèile shàngbān bú kùn.', english: ENGLISH }}
             onMoveOn={() => setGaveUp(true)}
             moveOnLabel="Continue to the sentences"
+            readAgain={{ hanzi: MODEL, pinyin: 'Wǒ zǎoshang hē kāfēi shì wèile shàngbān bú kùn.', cardType: 'meaning_to_hanzi', where: 'homework' }}
           />
         )}
       </div>
@@ -115,6 +138,8 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('hard-sentence-checking')!.textContent).toContain(SENTENCE_CHECKING);
     expect(host.querySelector('.spinner')).toBeNull();
     expect(q('hard-try-again')).toBeNull();
+    // 🎤 Read it again is there from the start, right under "You said".
+    expect(q('hard-read-again-mic')).not.toBeNull();
     expect(checker).toHaveBeenCalledTimes(1);
     expect(checker.mock.calls[0][0]).toMatchObject({ exercise_type: 'translate', input: 'spoken', model_answer: MODEL, answer: SAID, prompt_en: ENGLISH });
     await act(async () => { resolve({ check: ACCEPTABLE, cached: false }); });
@@ -128,6 +153,8 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('difference-said')!.querySelector('[data-mark="wrong"]')).toBeNull();
     expect(q('hard-next')).not.toBeNull();
     expect(q('hard-try-again')).toBeNull();
+    // Right per Claude: no reading-again practice.
+    expect(q('hard-read-again')).toBeNull();
     expect(q('question')!.dataset.gaveUp).toBe('false');
     expect(q('question')!.dataset.pass).toBe('right');
     expect(track).toHaveBeenCalledWith('study.sentence_answer_check', expect.objectContaining({ verdict: 'acceptable', retry: 0, input: 'spoken', card_type: 'meaning_to_hanzi', where: 'homework' }));
@@ -188,6 +215,28 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('difference-model')!.textContent).toContain(MODEL);
     expect(q('difference-said')!.textContent).toContain(SAID);
     expect(q('hard-sentence-checking')).toBeNull();
+    expect(q('hard-read-again-mic')).not.toBeNull();
+  });
+
+  it('a miss: 🎤 Read it again under the answer — practice only, the card stays a miss', async () => {
+    const checker = vi.fn(async () => ({ check: ALMOST, cached: false }));
+    await mount(checker);
+    await flush();
+    expect(q('hard-feedback')!.dataset.result).toBe('close');
+    const readAgain = q('hard-read-again')!;
+    // Between the comparison and Claude's card: the verdict landing below never moved it.
+    const order = [q('difference-said')!, readAgain, q('hard-sentence-check')!];
+    expect(order[0].compareDocumentPosition(order[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(order[1].compareDocumentPosition(order[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    act(() => q('hard-read-again-mic')!.click());
+    await act(async () => { dictations.land[dictations.land.length - 1](MODEL); });
+    expect(q('hard-read-again-result')!.dataset.result).toBe('right');
+    expect(host.textContent).toContain('Practice only — this card still counts as a miss.');
+    // Nothing about the card changed.
+    expect(q('hard-feedback')!.dataset.result).toBe('close');
+    expect(q('question')!.dataset.pass).toBe('wrong');
+    expect(q('question')!.dataset.gaveUp).toBe('false');
+    expect(track).toHaveBeenCalledWith('study.hard_mode_read_again', expect.objectContaining({ result: 'right', where: 'homework' }));
   });
 
   it('almost with a fix of HIS wording: a small labelled line under the verdict, never in place of the card answer', async () => {
