@@ -251,7 +251,10 @@ fun HardModeFeedbackPanel(
     onMoveOn: (() -> Unit)? = null,
     /** The move-on button's words (HardMode.revealedNextLabel). */
     moveOnLabel: String? = null,
-    /** "revealed": 🎤 Read it again — read the answer aloud, practice only ([ReadAgainBlock]); null = no 🎤. */
+    /**
+     * 🎤 Read it again — read the answer aloud, practice only ([ReadAgainBlock]); null = no 🎤. On "revealed", and on
+     * the answer-first sentence check under "You said" while [SentenceAnswerCheck.View.readAgain].
+     */
     readAgain: ReadAgainInfo? = null,
     /** Screenshot tests: the read-again block drawn in this state (no microphone). */
     readAgainPreview: (@Composable () -> Unit)? = null,
@@ -268,6 +271,7 @@ fun HardModeFeedbackPanel(
         SentenceAnswerFirst(
             result, sentenceView, answer, said, difference?.reason, check, checkingLabel ?: SentenceAnswerCheck.CHECKING, roundFollows,
             moveOnLabel ?: HardMode.SHOW_ANSWER, onPlayAnswer, onTryAgain, onMoveOn ?: onShowAnswer, onNext, onTypeInstead, onPlay,
+            readAgain = if (!sentenceView.readAgain) null else readAgainPreview ?: readAgain?.let { info -> { ReadAgainBlock(info) } },
         )
         return
     }
@@ -412,7 +416,8 @@ private fun RevealedInPlace(
  * HardModeFeedback.tsx; docs/STUDY_SESSION.md "Sentence answers checked by Claude"): the card's answer first — hanzi
  * big with ▶, pinyin, English — and "You said" against it, character by character, AT ONCE; Claude's verdict loads in
  * under them (a slim "Checking your sentence…" row, then its chip, headline and tips), its fix of his own wording at
- * most a small labelled line. Offline / failed: the device's verdict under the same answer + diff.
+ * most a small labelled line. 🎤 Read it again (#722) sits under "You said" until Claude says it was right — practice
+ * only. Offline / failed: the device's verdict under the same answer + diff.
  */
 @Composable
 private fun SentenceAnswerFirst(
@@ -431,6 +436,8 @@ private fun SentenceAnswerFirst(
     onNext: () -> Unit,
     onTypeInstead: (() -> Unit)?,
     onPlay: ((String) -> Unit)?,
+    /** 🎤 Read it again under "You said" (core SentenceAnswerCheck.View.readAgain): practice only, the card stays a miss. */
+    readAgain: (@Composable () -> Unit)? = null,
 ) {
     val border = when (result) {
         "right" -> Palette.Good
@@ -458,6 +465,8 @@ private fun SentenceAnswerFirst(
                 said, answer.first, answer.second, accepted = view.accepted, modelLabel = SentenceAnswerCheck.ANSWER,
                 onPlayModel = onPlayAnswer, answerFirst = true, answerFirstEnglish = answer.third,
             )
+            // Right under "You said", so the verdict landing below never moves it.
+            readAgain?.invoke()
             when {
                 view.checking -> Row(
                     Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.card)

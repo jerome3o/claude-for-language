@@ -8,9 +8,18 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
  * differences straight away, and then it loads the delta" — and "it also corrects my sentence instead of giving
  * me the model answer". So the moment a sentence he typed is checked: the CARD'S answer (hanzi, pinyin, English)
  * and his answer against it, marked, with a slim "Checking your sentence…" row; Claude's verdict then lands
- * under them. Its fix of his wording is never the answer.
+ * under them. Its fix of his wording is never the answer. On a miss, 🎤 Read it again (#722's practice) sits right
+ * under "You said": read the card's answer aloud and see it come out right — practice only, the card stays a miss.
  */
-test.use({ viewport: { width: 412, height: 915 }, deviceScaleFactor: process.env.SHOTS_DIR ? 2 : 1 });
+test.use({
+  viewport: { width: 412, height: 915 },
+  deviceScaleFactor: process.env.SHOTS_DIR ? 2 : 1,
+  permissions: ['microphone'],
+  launchOptions: {
+    args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+    executablePath: process.env.PW_CHROMIUM_PATH || undefined,
+  },
+});
 
 const SHOTS = process.env.SHOTS_DIR;
 const shot = async (page: Page, name: string) => {
@@ -39,8 +48,63 @@ async function api<T = unknown>(
   return (await res.json()) as T;
 }
 
-test.beforeEach(async ({ context }) => {
+const FAKE_WS = 'wss://fake-soniox.test/transcribe-websocket';
+
+/** Soniox stand-in: hears `window.__heard` (interim after two chunks, final after the end-of-audio frame). */
+async function fakeSoniox(page: Page) {
+  await page.addInitScript((fakeUrl) => {
+    const Real = window.WebSocket;
+    class FakeSoniox extends EventTarget {
+      readyState = 0;
+      onopen: ((e: Event) => void) | null = null;
+      onmessage: ((e: MessageEvent) => void) | null = null;
+      onerror: ((e: Event) => void) | null = null;
+      onclose: ((e: CloseEvent) => void) | null = null;
+      private configured = false;
+      private chunks = 0;
+      constructor(public url: string) {
+        super();
+        setTimeout(() => { this.readyState = 1; this.onopen?.(new Event('open')); }, 20);
+      }
+      private heard() { return (window as unknown as { __heard?: string }).__heard ?? ''; }
+      private reply(o: object) { this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(o) })); }
+      send(data: unknown) {
+        if (!this.configured) { this.configured = true; return; }
+        if (data !== '') {
+          this.chunks++;
+          if (this.chunks === 2) this.reply({ tokens: [{ text: this.heard(), is_final: false }] });
+          return;
+        }
+        setTimeout(() => {
+          this.reply({ tokens: [{ text: this.heard(), is_final: true }, { text: '<fin>', is_final: true }] });
+          this.reply({ tokens: [], finished: true });
+        }, 30);
+      }
+      close() { this.readyState = 3; }
+    }
+    window.WebSocket = function (url: string | URL, protocols?: string | string[]) {
+      return String(url) === fakeUrl ? new FakeSoniox(String(url)) : new Real(url, protocols);
+    } as unknown as typeof WebSocket;
+  }, FAKE_WS);
+  await page.route('**/api/transcribe/live', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      provider: 'soniox', api_key: 'snx_temp_e2e', expires_at: new Date(Date.now() + 1800e3).toISOString(),
+      websocket_url: FAKE_WS, model: 'stt-rt-v5', language_hints: ['zh', 'en'],
+    }),
+  }));
+}
+
+const heard = { text: '' };
+async function hear(page: Page, text: string) {
+  heard.text = text;
+  await page.evaluate((h) => { (window as unknown as { __heard?: string }).__heard = h; }, text);
+}
+
+test.beforeEach(async ({ context, page }) => {
   await skipFirstCardExplainer(context);
+  await fakeSoniox(page);
+  await page.route(/\/api\/transcribe$/, (route) => route.fulfill({ json: { text: heard.text, language: 'zh', provider: 'e2e' } }));
 });
 
 test('a sentence answer: the card answer and the diff at once, Claude\'s verdict loading in under them', async ({ page, request }) => {
@@ -128,6 +192,21 @@ test('a sentence answer: the card answer and the diff at once, Claude\'s verdict
   await expect(page.getByTestId('hard-show-answer')).toContainText('Continue to the sentences');
   await expect(page.getByTestId('study-card-back')).toHaveCount(0);
   await shot(page, '03-web-verdict-landed');
+
+  // 🎤 Read it again, right under "You said": read the card's answer aloud — right this time, practice only.
+  const mic = page.getByTestId('hard-read-again-mic');
+  await expect(mic).toContainText('Read it aloud');
+  await hear(page, MODEL);
+  await mic.click();
+  await expect(page.getByTestId('hard-read-again-live')).toBeVisible({ timeout: 10000 });
+  await page.waitForTimeout(1200);
+  await mic.click();
+  const readResult = page.getByTestId('hard-read-again-result');
+  await expect(readResult).toHaveAttribute('data-result', 'right', { timeout: 15000 });
+  await expect(readResult).toContainText('Practice only — this card still counts as a miss.');
+  await expect(feedback).toHaveAttribute('data-result', 'close');
+  await page.getByTestId('hard-read-again').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  await shot(page, '04-web-read-again-right');
 
   // Moving on = giving up (a miss), straight on to the round — the answer was on screen already.
   await page.getByTestId('hard-show-answer').click();

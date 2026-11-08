@@ -30,6 +30,9 @@ import dev.jeromeswannack.chineselearning.lab.testing.Samples
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import kotlinx.coroutines.CompletableDeferred
 import org.junit.Test
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import kotlin.test.assertEquals
 
 /**
@@ -124,6 +127,8 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(HardModeTags.SENTENCE_CHECKING, useUnmergedTree = true).assertExists()
         compose.onNodeWithText(SentenceAnswerCheck.CHECKING, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.TRY_AGAIN))
+        // 🎤 Read it again from the start, under "You said".
+        compose.onNodeWithTag(ReadAgainTags.MIC, useUnmergedTree = true).assertExists()
         assertEquals(1, asked.size)
         assertEquals("translate", asked[0].exerciseType)
         assertEquals("spoken", asked[0].input)
@@ -142,6 +147,8 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.SENTENCE_YOUR_FIX))
         assertEquals(0, count(HardModeTags.SENTENCE_CHECKING))
+        // A miss: still there to read the answer aloud (practice only).
+        compose.onNodeWithTag(ReadAgainTags.BLOCK, useUnmergedTree = true).assertExists()
         assertEquals(0, count(CARD_BACK_TAG))
         compose.onNodeWithTag(HardModeTags.TYPE_INSTEAD, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(HardModeTags.SHOW_ANSWER, useUnmergedTree = true).assertExists()
@@ -164,6 +171,8 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
     @Test fun acceptableCountsAsRightAndGotItIsSuggested() {
         card { AnswerCheckResult(acceptable, cached = true) }
         compose.onNodeWithText("✓ Also right", useUnmergedTree = true).assertExists()
+        // Right per Claude: no reading-again practice.
+        assertEquals(0, count(ReadAgainTags.BLOCK))
         // Held (right but other words): You said vs the card, then Next — never Try again, never a give-up.
         compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.TRY_AGAIN))
@@ -222,6 +231,37 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         card { CompletableDeferred<AnswerCheckResult>().await() }
         compose.mainClock.advanceTimeBy(600)
         compose.onRoot().captureRoboImage("screenshots/sentence-check-00-checking-light.png")
+    }
+
+    /** The answer-first panel with a read-again take judged right (drawn from its state: no microphone). */
+    @Test fun shotReadAgainUnderTheAnswer() {
+        compose.setContent {
+            LabTheme {
+                androidx.compose.foundation.layout.Box(
+                    androidx.compose.ui.Modifier.fillMaxSize().padding(16.dp),
+                    contentAlignment = androidx.compose.ui.Alignment.BottomCenter,
+                ) {
+                    HardModeFeedbackPanel(
+                        result = "close", said = said, spoken = true, roundFollows = true,
+                        onTryAgain = {}, onShowAnswer = {}, onNext = {},
+                        answer = Triple(model, note.pinyin, note.english), onPlayAnswer = {},
+                        check = almost, onPlay = {},
+                        sentenceView = SentenceAnswerCheck.view(true, false, "almost", said, model, almost.corrected),
+                        onMoveOn = {}, moveOnLabel = HardMode.revealedNextLabel(true),
+                        readAgainPreview = {
+                            ReadAgainContent(
+                                dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(), ReadAgainTake(model, "right", dev.jeromeswannack.chineselearning.lab.core.AnswerKey.Verdict.EXACT),
+                                1, model, onMic = {}, onRetry = {},
+                            )
+                        },
+                    )
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithTag("${ReadAgainTags.RESULT}-right", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(HardMode.READ_AGAIN_PRACTICE, useUnmergedTree = true).assertExists()
+        compose.onRoot().captureRoboImage("screenshots/sentence-check-04-read-again-light.png")
     }
 
     @Test fun shotAlmostDark() {

@@ -152,6 +152,13 @@ export interface SentenceCheckView {
   checking: boolean;
   /** Claude's fix of his own sentence, as a small labelled line (null = none). */
   corrected: string | null;
+  /**
+   * 🎤 Read it again under the answer (#722's practice, `HardModeReadAgain`; Jerome: "when I get it wrong and show
+   * the answer, I'd still like to read it here and see if I can get it right with the transcription"): offered from
+   * the start — while Claude reads it, offline, and on a miss — and gone only once Claude says it was right. It sits
+   * right under "You said", so the verdict landing below never moves it. Practice only: the card stays a miss.
+   */
+  readAgain: boolean;
 }
 
 export function sentenceCheckView(args: {
@@ -166,12 +173,13 @@ export function sentenceCheckView(args: {
   /** Claude's corrected version of his sentence ('' = none). */
   corrected?: string | null;
 }): SentenceCheckView {
-  if (!args.applies) return { answerFirst: false, accepted: false, checking: false, corrected: null };
+  if (!args.applies) return { answerFirst: false, accepted: false, checking: false, corrected: null, readAgain: false };
   const claude = args.checking ? null : args.claude ?? null;
   const fix = (args.corrected ?? '').trim();
   const corrected = claude === 'almost' && fix !== '' && hasHan(fix)
     && !sameAnswerWords(fix, args.model) && !sameAnswerWords(fix, args.said) ? fix : null;
-  return { answerFirst: true, accepted: claude === 'correct' || claude === 'acceptable', checking: args.checking, corrected };
+  const accepted = claude === 'correct' || claude === 'acceptable';
+  return { answerFirst: true, accepted, checking: args.checking, corrected, readAgain: !accepted && hasHan(args.model) };
 }
 
 /** The label over the card's answer on the question. */

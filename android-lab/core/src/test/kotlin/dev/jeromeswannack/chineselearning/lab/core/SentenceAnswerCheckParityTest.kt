@@ -111,6 +111,7 @@ class SentenceAnswerCheckParityTest {
             assertEquals(want["accepted"]!!.jsonPrimitive.boolean, got.accepted, o.toString())
             assertEquals(want["checking"]!!.jsonPrimitive.boolean, got.checking, o.toString())
             assertEquals(want["corrected"]!!.str, got.corrected, o.toString())
+            assertEquals(want["readAgain"]!!.jsonPrimitive.boolean, got.readAgain, o.toString())
             if (got.corrected != null) fixes++
         }
         assertTrue(fixes > 0)

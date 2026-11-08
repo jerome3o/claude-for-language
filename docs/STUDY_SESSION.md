@@ -1531,7 +1531,10 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
   answer nor what he said. Since the answer is already on screen, 👁 Show answer becomes **Continue to the
   sentences ›** (or See the full answer) — the same give-up (a miss: Good / Easy greyed, Got it locked), straight on
   to the round with no second "👁 The answer" panel. Offline / failed: the same answer + diff with the device's
-  ✗ Not quite / ≈ Nearly. What counts as right, Try again / Type it, the gating and the pass results are unchanged
+  ✗ Not quite / ≈ Nearly. **🎤 Read it again** (#722's practice, `HardModeReadAgain`) sits right under "You said"
+  from the start — while Claude reads it, offline and on a miss — and goes only once Claude says it was right
+  (`sentenceCheckView().readAgain`): read the card's answer aloud and see whether it comes out right this time.
+  Practice only: the card stays a miss, nothing is recorded. What counts as right, Try again / Type it, the gating and the pass results are unchanged
   and settle only when the verdict arrives.
 - **The verdict decides** (`sentenceCheckedVerdict` / `sentenceCheckOutcome`, `shared/study/sentenceAnswerCheck.ts`):
   **correct / acceptable** → right (the card's verdict becomes `equivalent`: Hard mode's ✓, the Sentence round, Good /
