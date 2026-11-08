@@ -18,9 +18,19 @@ import type { AskLanguage } from '@shared/study/askClaude';
  */
 export const CHAT_TOOL_RULE = 'When you use a tool, you may say a brief sentence first. If no tool can express what the user asked for, say so instead of guessing. Do not include internal or system XML tags in your response.';
 
+/**
+ * What a ⟦app record⟧ after an earlier reply is (tool-record.ts): the app's record of what that reply's
+ * tools did. Without it Claude couldn't see its own earlier tool calls and denied a card it had made.
+ */
+export const TOOL_RECORD_RULE =
+  "An earlier reply of yours may be followed by ⟦app record … ⟧: the app's exact record of what your tools did in that reply (the learner saw it as a line under the reply). It is the truth — rely on it, never deny or contradict it (if the learner asks what you did, tell them from it), and never write such a record yourself.";
+
+/** Every chat prompt with tools carries both. */
+const TOOL_RULES = `${CHAT_TOOL_RULE}\n${TOOL_RECORD_RULE}`;
+
 /** The line every card-making agent prompt carries about bumping. */
 export const BUMP_PROMPT_RULE =
-  "If the learner already has a word as a card (search_cards finds it), never make a duplicate: use bump_cards to put it first in today's study (or offer to, if they only asked a question), and say so — e.g. \"You already have 银行 in HSK 2 — I've bumped it to the front of today's study ⚡\".";
+  "If the learner already has a word as a card (search_cards finds it), never make a duplicate — and never make a different card in its place (a sentence with the word, a variant) unless they ask for that: use bump_cards to put it first in today's study (or offer to, if they only asked a question), and say so — e.g. \"You already have 银行 in HSK 2 — I've bumped it to the front of today's study ⚡\".";
 
 // ---------- Ask Claude on a card (context 'card') ----------
 
@@ -63,12 +73,13 @@ const CHINESE = [IMMERSION_HEAD, ...IMMERSION_GRADE, IMMERSION_CARD, ...IMMERSIO
  */
 export const GENERAL_IMMERSION_RULES = [IMMERSION_HEAD, ...IMMERSION_GRADE, ...IMMERSION_TAIL].join('\n');
 
-const TOOLS = `You have tools to help the user. Read-only tools (search_cards, list_conversations, get_deck_info) are executed automatically. Mutating tools require user approval.
+const TOOLS = `You have tools to help the user. Read-only tools (search_cards, list_conversations, get_deck_info) are executed automatically. Changes (edit_current_card, create_flashcards, delete_current_card, create_custom_lesson) are applied as soon as your reply finishes — there is no approval step — and the app shows the learner a line under your reply saying what was done.
 
 Tool usage guidelines:
+- Do exactly what the learner asked, nothing more: make only the cards they asked for, and never add an extra or substitute card they didn't ask for.
 - The user points out an error in the card (wrong tone, incorrect translation, etc.) → use edit_current_card
-- The user asks for related vocabulary to be added → search_cards first, then create_flashcards for the words they don't have (can target any of the user's decks by specifying deck_id)
-- A word they want is already one of their cards, or they want to study a word they have today → use bump_cards (it comes first in today's study; never create a duplicate) and say so
+- The user asks for a card, or related vocabulary to be added → search_cards first, then create_flashcards for the words they don't have (can target any of the user's decks by specifying deck_id)
+- A word they want is already one of their cards, or they want to study a word they have today → do NOT make a card for it — no duplicate, and no sentence card or variant in its place unless they ask for one. Tell them where they already have it and use bump_cards (it comes first in today's study), or offer to
 - The user says the card is a duplicate or should be removed → use delete_current_card
 - The user asks for a lesson, drill, or practice around a word/pattern/topic → use create_custom_lesson (it appears in their next study session and works offline)
 - Use search_cards to find related vocabulary, check for duplicates, or answer questions about what cards exist
@@ -76,7 +87,7 @@ Tool usage guidelines:
 - Use get_deck_info to understand the deck context
 
 When editing, only change the fields that need fixing. When creating cards, use proper pinyin with tone marks (nǐ hǎo), NOT tone numbers.
-${CHAT_TOOL_RULE}`;
+${TOOL_RULES}`;
 
 const EN_CONFIRM = 'After using a tool, briefly confirm what you did in your text response.';
 
@@ -244,8 +255,8 @@ const CONTEXT_TOOLS = `You have tools. Read-only tools run automatically.
 - The learner asks to save words or sentences as flashcards → FIRST search_cards so you never duplicate a card they already have; THEN create_flashcards for the ones they don't have, with a deck_id from the learner's decks listed in the context (the one they name; otherwise the most relevant — say which). One card per word or set phrase; a whole sentence only when asked. Every card is complete: fun_facts to the standard below and, for a word card, a sentence_clue (prefer the sentence they met it in) with pinyin and translation.
 - ${BUMP_PROMPT_RULE}
 - Use get_note_cards for details on one of their cards.
-Only make cards when the learner asks for them.
-${CHAT_TOOL_RULE}`;
+Only make cards when the learner asks for them, and only the ones they asked for.
+${TOOL_RULES}`;
 
 /**
  * The reader / exercise chat's static blocks (cached): role, the language rules (the immersion

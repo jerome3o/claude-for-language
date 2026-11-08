@@ -41,14 +41,12 @@ export async function applyCardAction(env: Env, userId: string, note: Note, acti
       case 'create_flashcards': {
         const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
         // The target deck: the one asked for when it is the learner's, else the card's.
-        let targetDeckId = note.deck_id;
-        if (input.deck_id && input.deck_id !== note.deck_id) {
-          const targetDeck = await db.getDeckById(env.DB, input.deck_id, userId);
-          if (!targetDeck) return { tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' };
-          targetDeckId = input.deck_id;
-        }
+        const targetDeck = await db.getDeckById(env.DB, input.deck_id || note.deck_id, userId);
+        if (!targetDeck) return { tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' };
+        const targetDeckId = targetDeck.id;
         const made = await content.createNotes(env, userId, targetDeckId, input.flashcards, bg ? { audio: 'background', bg } : { audio: 'queue' });
-        return { tool: 'create_flashcards', success: true, data: { created: made.created, count: made.created.length, targetDeckId } };
+        // deck_name: Claude is told on its next turns where the cards went (tool-record.ts).
+        return { tool: 'create_flashcards', success: true, data: { created: made.created, count: made.created.length, targetDeckId, deck_name: targetDeck.name } };
       }
 
       case 'delete_current_card': {

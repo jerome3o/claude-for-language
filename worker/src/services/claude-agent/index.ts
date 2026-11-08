@@ -19,6 +19,7 @@ import { compactMessages, loadTurnMemory, memoryBlock } from './memory';
 import { assembleMessages, assembleSystem } from './prompt';
 import { WorkerRuntime } from './run';
 import { bindTools } from './tools/registry';
+import { stripToolRecords } from './tool-record';
 import { providerFor } from './contexts';
 import type { AgentEnv, AgentRuntime, ClaudeContext, PreparedTurn, TurnInput, TurnOptions, TurnResult } from './types';
 
@@ -30,6 +31,7 @@ export { TOOL_REGISTRY, toolAllowed, toolSchema, bindTools, FLASHCARD_ITEM_SCHEM
 export { executeBumpCardsTool } from './tools/read';
 export { WorkerRuntime, runToolLoop, applyCheckpointed, handleCustomLessonToolUse, type ActionCheckpoint } from './run';
 export { MODEL_POLICY, createAnthropicClient } from './model';
+export { toolRecord, withToolRecord, stripToolRecords } from './tool-record';
 export { rememberThread, rememberInBackground, runClaudeMemoryCron, summarizeThread, rebuildLearnerDigest, memoryBlock, compactMessages } from './memory';
 
 /** The runtime every turn uses unless the caller passes one. */
@@ -79,7 +81,8 @@ export async function runClaudeTurn(env: AgentEnv, ctx: ClaudeContext, input: Tu
   const prepared = await prepareClaudeTurn(env, ctx, input, opts);
   const out = await (opts.runtime ?? defaultRuntime).runTurn(prepared);
   return {
-    answer: provider.finish(out.text, input),
+    // A ⟦app record⟧ is the app's to write (tool-record.ts): one Claude copied from the history never reaches the learner.
+    answer: provider.finish(stripToolRecords(out.text), input),
     ...(input.language ? { language: input.language } : {}),
     toolActions: out.toolActions,
     readOnlyToolCalls: out.readOnlyToolCalls,

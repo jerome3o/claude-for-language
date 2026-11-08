@@ -1009,6 +1009,19 @@ thread). This part is worker + shared types only; the screens come later.
   (`streaming: true` = text so far). `server.claude_turn` gains `first_token_ms` and `inline`.
 - **API**: see CLAUDE.md "Claude threads". E2E_TEST_MODE streams a stand-in answer in three chunks
   (`claude-agent/fake.ts`), checked before any key.
+- **Claude remembers what its tools did** (`claude-agent/tool-record.ts`; Nov 2026 — the app showed "✓ Added 1 card:
+  这次机会很难得…" under a reply and Claude said one turn later "I didn't actually create anything yet"): a reply's
+  tool calls are not part of the stored conversation, only its text and the applied results (`tool_results`, which
+  the apps' "✓ Added / ✓ Claude edited this card" lines are drawn from). Every history builder (`coachAskTurns` →
+  `threadTextTurns`, `buildCoachHistory`) now replays an earlier reply as its text + `⟦app record — … ⟧` built from
+  that SAME `tool_results` ("create_flashcards: added 1 card to the deck “…”: …"), so the line and what Claude knows
+  can't disagree; the memory's message text (summaries, `read_chat`) carries it too. The record never changes once
+  the reply is finished, so the replayed history stays byte-stable and the prompt cache's tail keeps working. The
+  static rules say what a record is (`TOOL_RECORD_RULE`: the truth, never deny it, never write one); one Claude
+  writes anyway is stripped before the answer is stored (`stripToolRecords` in `runClaudeTurn`). The card context
+  also stopped telling Claude its changes wait for "user approval" (there has been no approval step since the card
+  thread): they apply when the reply finishes. And Claude makes only the cards asked for — a word he already has is
+  bumped ⚡ / offered, never replaced by a sentence card or variant he didn't ask for (`BUMP_PROMPT_RULE`, card tools).
 - **Memory — the same Claude in every chat** (migration 0145_claude_memory.sql; `claude-agent/memory.ts`,
   `tools/memory.ts`; Jerome: "I should be talking to the same agent each time, and it should be able to read
   other chats in a way that won't blow up its context window"). Four layers, each with a hard budget:

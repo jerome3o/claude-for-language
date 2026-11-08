@@ -5,7 +5,7 @@
  * (`buildCoachHistory`), so this context loads nothing. Answers in English with pinyin; the tools make
  * cards (collected — coach-replies applies them with its checkpoint), lessons, bumps and look-ups.
  */
-import { CHAT_TOOL_RULE, COACH_CHAT_SYSTEM_PROMPT } from '../persona';
+import { CHAT_TOOL_RULE, TOOL_RECORD_RULE, COACH_CHAT_SYSTEM_PROMPT } from '../persona';
 import type { ContextProvider, ToolName } from '../types';
 
 /** The coach chat's tools, in the order the model sees them. */
@@ -27,7 +27,7 @@ export const coachContext: ContextProvider<'coach', Record<string, never>> = {
   policy: 'chat',
   maxRounds: 5,
   load: async () => ({}),
-  persona: () => `${COACH_CHAT_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}`,
+  persona: () => `${COACH_CHAT_SYSTEM_PROMPT}\n\n${CHAT_TOOL_RULE}\n${TOOL_RECORD_RULE}`,
   learner: () => '',
   systemBlock: () => '',
   tools: () => COACH_TOOLS,
