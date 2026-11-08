@@ -166,7 +166,8 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         ex.example?.let { SayItAgainRow(it.hanzi, ex.type, "example", env) }
         val f = feedback
         if (f != null) {
-            Explanation("Claude checked it — see below.")
+            // The same line as before the verdict: only the buttons change, in place.
+            Explanation(if (typed) "Is your sentence grammatical, and does it use every word?" else "Compare with the example — is your sentence right, and does it use every word?")
             ActionRow { Primary("Continue") { onNext(f.verdict != "incorrect" && f.usesAllWords, answer()) } }
         } else {
             SelfAssess(

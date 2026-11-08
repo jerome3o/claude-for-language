@@ -160,7 +160,10 @@ export function SentenceMakingExercise(props: {
   const [claude, setClaude] = useState<'none' | 'checking' | 'done' | 'unavailable'>('none');
   const [feedback, setFeedback] = useState<SentenceFeedback | null>(null);
   const live = useRef(true);
-  useEffect(() => () => { live.current = false; }, []);
+  useEffect(() => {
+    live.current = true; // (StrictMode re-runs effects: set it again after the dev-only cleanup)
+    return () => { live.current = false; };
+  }, []);
 
   const typed = input === 'type';
   const canCheck = typed ? text.trim().length > 0 : hasStrokes(hw);
@@ -238,10 +241,9 @@ export function SentenceMakingExercise(props: {
           {example && <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} />}
           {example && <SayItAgain hanzi={example.hanzi} exerciseType="sentence_making" kind="example" />}
 
+          {/* The same line before and after Claude's verdict: only the buttons below it change, in place. */}
           <p className="result-explanation">
-            {feedback
-              ? 'Claude checked it — see below.'
-              : typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
+            {typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
           </p>
           {feedback ? (
             <div className="exercise-actions">
