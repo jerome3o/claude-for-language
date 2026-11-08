@@ -24,12 +24,14 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { contextBadge, parseIntent, parseStoredContext } from '@shared/claude/context';
+import { parseCardToolResults } from '@shared/claude/cardTools';
 import type { Env } from '../../types';
 import { currentScope } from '../analytics/scope';
 import { trackServer } from '../analytics/server-events';
 import { structuredCall } from '../structured-call';
 import { MODEL_POLICY } from './model';
 import * as store from './store';
+import { toolRecordLine } from './tool-record';
 
 // ---------- Budgets ----------
 
@@ -102,7 +104,7 @@ export function badgeText(row: { context_kind: string | null; context_json: stri
 }
 
 /** A stored message as plain text for the memory (an analysis / mini lesson described, not dumped). */
-export function memoryMessageText(m: { content_type: string; content: string }, max: number): string {
+export function memoryMessageText(m: { content_type: string; content: string; role?: string; tool_results?: string | null }, max: number): string {
   if (m.content_type === 'mistake_lesson') return '(made a mini lesson on the mistake)';
   if (m.content_type === 'analysis') {
     let body = m.content;
@@ -114,7 +116,10 @@ export function memoryMessageText(m: { content_type: string; content: string }, 
     }
     return `(Sentence Coach analysis) ${oneLine(body, Math.min(300, max))}`;
   }
-  return m.content.length > max ? `${m.content.slice(0, max - 1).trimEnd()}…` : m.content;
+  const text = m.content.length > max ? `${m.content.slice(0, max - 1).trimEnd()}…` : m.content;
+  // What Claude's tools did in that reply (tool-record.ts): a summary / read_chat never says a card wasn't made.
+  const done = m.role === 'assistant' ? parseCardToolResults(m.tool_results).map(toolRecordLine) : [];
+  return done.length ? `${text}\n(Tools: ${done.join(' ')})` : text;
 }
 
 const speaker = (role: string) => (role === 'user' ? 'Learner' : 'Claude');

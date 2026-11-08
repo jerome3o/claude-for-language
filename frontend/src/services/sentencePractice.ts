@@ -7,22 +7,26 @@
  * a cursor. `useSentenceStats(noteId)` folds a note's events (`sentenceStats`) for the round's picks and the
  * hidden rows. Its own small IndexedDB, like the chat outbox.
  *
- * "✨ New sentences coming": a word whose sentences are all known (or fewer than four left) asks the
- * sentence top-up for more — once a day per word; offline the ask waits for the next sync.
+ * Fresh sentences: the Sentence round asks sentences he has never practised first and keeps a buffer of
+ * them (`moreSentencesWanted`) — fewer than six fresh (or four left) asks the sentence top-up for more, at
+ * most every ten minutes per word; the rows + clips are pulled a little later; offline the ask waits for the
+ * next sync. "✨ New sentences coming" only when the round itself is short (`sentencesComingShown`).
  */
 import Dexie, { type Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo } from 'react';
 import {
+  SENTENCE_TOPUP_RETRY_MS,
   sentenceHistoryKey,
   sentenceStats,
+  type MoreSentencesReason,
   type SentenceHideReason,
   type SentencePracticeEvent,
   type SentencePracticeResult,
   type SentenceStats,
 } from '@shared/study/sentenceHistory';
 import type { SentencePractiseMode } from '@shared/study/sentencePractise';
-import { API_BASE, getAuthHeaders, getLocalDateString } from '../api/client';
+import { API_BASE, getAuthHeaders } from '../api/client';
 import { track } from './analytics';
 
 interface LocalEvent extends SentencePracticeEvent {
@@ -157,8 +161,10 @@ export async function syncSentencePractice(): Promise<void> {
 
 // --- "✨ New sentences coming for this word" ---------------------------------------------------
 
-const TOPUP_KEY = 'sentence-round-topups-v1';
-interface TopUpState { asked: Record<string, string>; pending: Record<string, 'known' | 'few'> }
+const TOPUP_KEY = 'sentence-round-topups-v2';
+type TopUpWant = { reason: MoreSentencesReason; count: number };
+/** asked = when each word last asked (ISO); pending = asks made offline / that failed, sent with the next sync. */
+interface TopUpState { asked: Record<string, string>; pending: Record<string, TopUpWant> }
 
 function readTopUps(): TopUpState {
   try {
@@ -171,44 +177,65 @@ function readTopUps(): TopUpState {
 }
 function writeTopUps(s: TopUpState): void {
   try {
-    // Only today's asks are worth keeping.
-    const today = getLocalDateString();
-    const asked = Object.fromEntries(Object.entries(s.asked).filter(([, d]) => d === today));
+    // Only recent asks are worth keeping.
+    const cutoff = Date.now() - SENTENCE_TOPUP_RETRY_MS;
+    const asked = Object.fromEntries(Object.entries(s.asked).filter(([, at]) => Date.parse(at) > cutoff));
     localStorage.setItem(TOPUP_KEY, JSON.stringify({ asked, pending: s.pending }));
   } catch {
     /* private mode: asked again next time */
   }
 }
 
-/** True when this word already asked for more sentences today (the note shows). */
-export function sentencesComing(noteId: string): boolean {
-  const s = readTopUps();
-  return s.asked[noteId] === getLocalDateString() || !!s.pending[noteId];
+function askedRecently(s: TopUpState, noteId: string, now = Date.now()): boolean {
+  const at = s.asked[noteId];
+  return !!at && now - Date.parse(at) < SENTENCE_TOPUP_RETRY_MS;
 }
 
-async function postTopUp(noteIds: string[], reason: 'known' | 'few'): Promise<void> {
-  await call('/sentences/top-up', { method: 'POST', body: JSON.stringify({ note_ids: noteIds, reason }) });
+async function postTopUp(noteIds: string[], reason: MoreSentencesReason, counts: Record<string, number>): Promise<void> {
+  await call('/sentences/top-up', { method: 'POST', body: JSON.stringify({ note_ids: noteIds, reason, counts }) });
 }
 
-/** Ask for more sentences for this word (once a day); offline → at the next sync. */
-export function requestMoreSentences(noteId: string, why: 'known' | 'few'): void {
+/**
+ * The new rows come down with the next sentence sync; pull them a little after the ask instead (the
+ * server writes them in well under a minute) and download their clips, so the round's buffer plays
+ * offline. Best-effort.
+ */
+function pullNewSentencesSoon(noteIds: string[]): void {
+  for (const delay of [45_000, 150_000]) {
+    setTimeout(() => {
+      void import('./sentence-sets')
+        .then(async (m) => {
+          await m.syncSentenceSets();
+          for (const id of noteIds) m.cacheSentenceAudio(await m.getLocalNoteSentences(id));
+        })
+        .catch(() => { /* the next sync */ });
+    }, delay);
+  }
+}
+
+/**
+ * Ask for more sentences for this word (`moreSentencesWanted`: its fresh buffer is low, or too few are
+ * left): at most once per SENTENCE_TOPUP_RETRY_MS; offline → at the next sync.
+ */
+export function requestMoreSentences(noteId: string, want: TopUpWant): void {
   const s = readTopUps();
-  const today = getLocalDateString();
-  if (s.asked[noteId] === today || s.pending[noteId]) return;
+  if (askedRecently(s, noteId) || s.pending[noteId]) return;
   const online = typeof navigator === 'undefined' || navigator.onLine;
   if (online) {
-    s.asked[noteId] = today;
+    s.asked[noteId] = new Date().toISOString();
     writeTopUps(s);
-    track('study.sentence_topup_requested', { why, queued: true });
-    postTopUp([noteId], why).catch(() => {
-      const again = readTopUps();
-      again.pending[noteId] = why;
-      writeTopUps(again);
-    });
+    track('study.sentence_topup_requested', { why: want.reason, count: want.count, queued: true });
+    postTopUp([noteId], want.reason, { [noteId]: want.count })
+      .then(() => pullNewSentencesSoon([noteId]))
+      .catch(() => {
+        const again = readTopUps();
+        again.pending[noteId] = want;
+        writeTopUps(again);
+      });
   } else {
-    s.pending[noteId] = why;
+    s.pending[noteId] = want;
     writeTopUps(s);
-    track('study.sentence_topup_requested', { why, queued: false });
+    track('study.sentence_topup_requested', { why: want.reason, count: want.count, queued: false });
   }
 }
 
@@ -216,20 +243,23 @@ async function flushPendingTopUps(): Promise<void> {
   const s = readTopUps();
   const entries = Object.entries(s.pending);
   if (!entries.length) return;
-  const today = getLocalDateString();
-  for (const why of ['known', 'few'] as const) {
-    const ids = entries.filter(([, w]) => w === why).map(([id]) => id);
-    if (!ids.length) continue;
+  const now = new Date().toISOString();
+  for (const reason of ['few', 'fresh'] as const) {
+    const batch = entries.filter(([, w]) => w?.reason === reason).slice(0, 50);
+    if (!batch.length) continue;
     try {
-      await postTopUp(ids.slice(0, 50), why);
-      for (const id of ids.slice(0, 50)) {
+      await postTopUp(batch.map(([id]) => id), reason, Object.fromEntries(batch.map(([id, w]) => [id, w.count])));
+      for (const [id] of batch) {
         delete s.pending[id];
-        s.asked[id] = today;
+        s.asked[id] = now;
       }
+      pullNewSentencesSoon(batch.map(([id]) => id));
     } catch {
       /* next sync */
     }
   }
+  // Anything else (an older shape) is dropped: the round asks again when it opens.
+  for (const [id, w] of entries) if (w?.reason !== 'few' && w?.reason !== 'fresh') delete s.pending[id];
   writeTopUps(s);
 }
 

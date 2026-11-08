@@ -136,7 +136,7 @@ describe('Claude agent harness', () => {
       const results = seen[1].messages.at(-1)!.content as Array<{ tool_use_id: string; is_error?: boolean; content: string }>;
       const byTool = (name: string) => results.find((x) => x.tool_use_id.endsWith(name))!;
       expect(JSON.parse(byTool('search_cards').content).count).toBe(1);
-      expect(JSON.parse(byTool('create_flashcards').content).message).toBe('Tool create_flashcards will be executed after user approval');
+      expect(JSON.parse(byTool('create_flashcards').content).message).toBe('Accepted: create_flashcards is applied as soon as your reply finishes (no approval step); the learner sees what it did under your reply.');
       expect(byTool('create_custom_lesson').is_error).toBe(true);
       expect(JSON.parse(byTool('create_custom_lesson').content).problems.length).toBeGreaterThan(0);
       // Not a card tool: never run, never collected.

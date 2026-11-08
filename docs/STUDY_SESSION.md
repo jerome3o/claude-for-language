@@ -1289,6 +1289,21 @@ once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-note
    straight to the answer side as before). The round after giving up says so in its cheer ("🎉 2 / 2 — nice recovery"), and on the answer side **Good /
    Easy are greyed on this showing** whatever the sentences say — "👁 You looked at the answer — Again or Hard
    suggested". Resume: `feedback_open` + `gave_up` = the answer in place.
+   **🎤 Read it again in the answer in place** (Jerome, Nov 2026: "when I get it wrong and show the answer, I'd still
+   like to read it here and see if I can get it right with the transcription"): under "You said", a **🎤 Read it
+   aloud** (then "Read it again") records him reading the answer aloud through the question's take pipeline (live
+   words as he speaks, the upload fallback, "Couldn't transcribe — tap to retry" with the same take; 🎤 / ⏹ Stop or
+   Enter stops) and judges it with the READ card's rule (`compareTranscription` → `hardModeReadAgainResult`: said as
+   written or inside a sentence = right, other tones = close) — **✓ Right this time / ≈ Nearly / ✗ Not quite** + the
+   "You said" row with its characters marked (`hardModeReadAgainVerdict`), felt like the question's check
+   (`hardModeQuestionFeel`). **Practice only**: the card stays a miss (Good / Easy and the pass's Got it stay greyed),
+   no review, no take kept, nothing unlocked ("Practice only — this card still counts as a miss."); **Continue to the
+   sentences ›** stays the primary way on. The panel is ONE component in the regular session and the homework pass
+   (`StudyCard` / Lab `CardStage`), so both get it, on every Hard-mode card type; offline the 🎤 is off with the reason.
+   Rules `shared/study/hardMode.ts` (Lab `HardMode.readAgain*`, parity-tested in `parity/fixtures/hard-mode.ts`); web
+   `components/study/HardModeReadAgain.tsx` (`useVoiceDictation`, surface `hard_mode_read_again`), Lab
+   `ui/study/HardModeReadAgain.kt` (`rememberVoiceDictation`); analytics **`study.hard_mode_read_again { result: right |
+   close | wrong | failed | empty, tries, via, card_type, where: session | homework }`**.
 5. **Greyed, never locked** (Jerome: "if I skip through the extra steps I should still be able to click Good, because
    sometimes I'm just on the train … I don't like the locked answers. Maybe they should just be greyed and then need an
    extra button press — guiding me towards the lower review scores, but I can still override it"): wherever Hard mode
@@ -1549,18 +1564,26 @@ the account's own notes only) and fetched back from `GET /api/me/sentence-practi
 events into per-sentence stats (`sentenceStats`: attempts / rights / misses / last time per mode, hidden).
 The sentence key is the set row's id, or `clue` for the note's own sentence.
 
-- **The round picks for him**: each of its four slots (read, translate, read, translate) takes the sentence
-  he knows LEAST in that mode — never practised first, then fewest rights, then most misses, then the longest
-  ago (`compareLeastKnown`); ties in the list's spread order (the easiest, the hardest and evenly between),
-  every slot a different sentence; shown easiest → harder. With no history this is the round as before. The
-  picks are made once per showing, so a take never reshuffles the round; what was already right on this
+- **Fresh sentences first** (Nov 2026, Jerome: "I'm just memorizing new sentences"): each of the round's four
+  slots (read, translate, read, translate) takes a FRESH sentence first — never practised in EITHER mode, not
+  hidden (`isFreshSentence`), so a sentence read once never comes back as a translate exercise while fresh ones
+  wait; then the one he knows LEAST in that mode — never practised in it, then fewest rights, then most misses,
+  then the longest ago (`compareLeastKnown`); ties in the list's spread order (the easiest, the hardest and
+  evenly between), every slot a different sentence; shown easiest → harder. The listening round does the same
+  (fresh first, then least known in translate). Old sentences only fill in while new ones are still being made.
+  The picks are made once per showing, so a take never reshuffles the round; what was already right on this
   showing still counts after a reload (`sentenceRoundProgress` with the sentences in rotation).
 - **Known** = right 3 times in a mode (`SENTENCE_KNOWN_RIGHTS`).
-- **More sentences**: when every sentence left in rotation is known in both modes (translate only where it has
-  English), or fewer than four are left, the word asks for more — `POST /api/sentences/top-up { note_ids,
-  reason: known | few }` (appends to the set; once a day per word; "few" counts what's left after his hidden
-  ones; ≤ 30 in a set) — and the round shows "✨ New sentences coming for this word". Offline the ask waits for
-  the next sync.
+- **The fresh buffer** (`moreSentencesWanted`): a word keeps about two rounds of fresh sentences waiting. Fewer
+  than `SENTENCE_FRESH_LOW` (6) fresh, or fewer than four in rotation, asks for more — checked when the round
+  opens and after every take — `POST /api/sentences/top-up { note_ids, reason: fresh | few, counts: { [noteId]: n } }`
+  with n = back up to `SENTENCE_FRESH_BUFFER` (8), 3–8 (`freshTopUpCount`). The server adds them to the set (no daily
+  limit; one job in flight per note; up to 80 sentences a word; the new sentences' clips made at interactive
+  priority) and the device asks at most every 10 minutes per word (`SENTENCE_TOPUP_RETRY_MS`), then pulls the new
+  rows + clips ~45 s and ~2.5 min later, so they play offline. The round shows "✨ New sentences coming for this
+  word" only when it is itself short (fewer fresh than a round asks, `sentencesComingShown`); a buffer refill is
+  silent. Offline the ask waits for the next sync. (Before Nov 2026 a round's top-up for a word that already had
+  five sentences was dropped by the queue — only once-a-day "all known" / "fewer than four" asks existed.)
 - **Stop showing this sentence**: long-press a sentence (or its ⋯ in the round; "🙈 Hide" in an open row's
   tools on the answer side) → the sheet with reason chips **🤔 Weird · ❌ Wrong · 🗑 Not useful · 🦄 Too rare** →
   hidden for him at once (never offered in the round, not listed on the answer side, not counted by the gate

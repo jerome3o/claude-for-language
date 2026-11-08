@@ -17,13 +17,12 @@ import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
-import { SENTENCE_ROUND_MIN_VISIBLE } from '@shared/study/sentenceHistory';
-import { hiddenSentenceKeys } from './services/sentence-practice';
+import { SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_MIN, freshTopUpCount } from '@shared/study/sentenceHistory';
 
-/** A word whose sentences are all known gets this many more (the Sentence round). */
+/** An older app's "every sentence known" ask (reason 'known') gets this many more. */
 const SENTENCE_KNOWN_TOPUP_COUNT = 4;
-/** …until its set holds this many. */
-const SENTENCE_SET_MAX_TOTAL = 30;
+/** The Sentence round's top-ups stop once a word holds this many sentences (card sentence + set). */
+const SENTENCE_SET_MAX_TOTAL = 80;
 import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
@@ -1905,11 +1904,14 @@ app.post('/api/sentences/prefetch', async (c) => {
 });
 
 /**
- * Listening cards ("Listen in context", shared/study/listenContext.ts): a note with fewer
- * than five sentences in total (its card sentence + the set) gets more ADDED in the
- * background — the card shown now, or the upcoming listening cards in the client's prefetch.
- * At most one job per note a day (any job: set, top-up), never one given up on, ≤ 50 notes
- * a call; the rows arrive with the next sentence sync.
+ * More sentences ADDED to a note's set in the background (the rows arrive with the next sentence sync):
+ * - The Sentence round (`reason` 'fresh' | 'few', shared/study/sentenceHistory.ts moreSentencesWanted):
+ *   the round asks sentences he has never practised first, and keeps a buffer of them — fewer than six
+ *   fresh (or four in rotation) → `counts[noteId]` more (3–8), at most one job in flight per note, no
+ *   daily limit, until the word holds SENTENCE_SET_MAX_TOTAL. Older apps' 'known' asks count as 4 more.
+ * - Listening cards ("Listen in context", shared/study/listenContext.ts), no reason: a note with fewer
+ *   than five sentences in total gets more, at most one job per note a day.
+ * Never one given up on; ≤ 50 notes a call.
  */
 app.post('/api/sentences/top-up', async (c) => {
   const userId = c.get('user').id;
@@ -1917,30 +1919,31 @@ app.post('/api/sentences/top-up', async (c) => {
     return c.json({ error: 'AI service is not configured' }, 503);
   }
   let noteIds: string[] = [];
-  let why: 'known' | 'few' | null = null;
+  let why: 'known' | 'few' | 'fresh' | null = null;
+  let counts: Record<string, unknown> = {};
   try {
-    const body = await c.req.json<{ note_ids?: unknown; reason?: unknown }>();
+    const body = await c.req.json<{ note_ids?: unknown; reason?: unknown; counts?: unknown }>();
     if (Array.isArray(body?.note_ids)) {
       noteIds = [...new Set(body.note_ids.filter((id): id is string => typeof id === 'string'))];
     }
-    if (body?.reason === 'known' || body?.reason === 'few') why = body.reason;
+    if (body?.reason === 'known' || body?.reason === 'few' || body?.reason === 'fresh') why = body.reason;
+    if (body?.counts && typeof body.counts === 'object' && !Array.isArray(body.counts)) counts = body.counts as Record<string, unknown>;
   } catch {
     // No body
   }
   if (noteIds.length === 0) return c.json({ error: 'note_ids is required' }, 400);
 
   if (why) {
-    // The Sentence round (shared/study/sentenceHistory.ts wantsMoreSentences): every sentence left is
-    // known in both modes, or fewer than four are left in rotation once his hidden ones are taken out.
-    const notes = await db.getNotesForSentenceTopUp(c.env.DB, userId, noteIds, Number.MAX_SAFE_INTEGER);
-    const hidden = await hiddenSentenceKeys(c.env.DB, userId, notes.map((n) => n.id));
+    const notes = await db.getNotesForRoundTopUp(c.env.DB, userId, noteIds);
     const queued: string[] = [];
     for (const note of notes) {
       if (note.total >= SENTENCE_SET_MAX_TOTAL) continue;
-      const visible = note.total - (hidden.get(note.id)?.size ?? 0);
-      if (why === 'few' && visible >= SENTENCE_ROUND_MIN_VISIBLE) continue;
-      const count = why === 'known' ? SENTENCE_KNOWN_TOPUP_COUNT : Math.max(SENTENCE_KNOWN_TOPUP_COUNT, SENTENCE_ROUND_MIN_VISIBLE + 1 - visible);
-      if (await enqueueSentenceTopUp(c.env, note.id, Math.min(10, count))) queued.push(note.id);
+      const asked = counts[note.id];
+      const wanted = typeof asked === 'number' && Number.isFinite(asked)
+        ? Math.round(asked)
+        : why === 'known' ? SENTENCE_KNOWN_TOPUP_COUNT : freshTopUpCount(0);
+      const count = Math.min(SENTENCE_SET_MAX_TOTAL - note.total, Math.max(SENTENCE_TOPUP_MIN, Math.min(SENTENCE_TOPUP_MAX, wanted)));
+      if (await enqueueSentenceTopUp(c.env, note.id, count, true)) queued.push(note.id);
     }
     if (queued.length > 0) console.log('[sentence-set] Round top-up queued for', queued.length, 'notes (', why, ')');
     return c.json({ queued: queued.length, note_ids: queued });
@@ -7014,7 +7017,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
     } else if (queueName === 'sentence-set-queue') {
       // Pre-generate a note's sentence set so study never waits on the AI
       for (const message of batch.messages) {
-        const { noteId, count, kind, sentenceId, force, attempt: priorAttempt } = message.body as SentenceSetMessage;
+        const { noteId, count, kind, sentenceId, force, round, attempt: priorAttempt } = message.body as SentenceSetMessage;
 
         // Clip-only messages from before tts-queue existed: hand them over (docs/AUDIO.md).
         if (kind === 'clue_audio' || kind === 'note_audio' || kind === 'sentence_audio') {
@@ -7040,7 +7043,8 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
             const current = await db.getNoteSentences(env.DB, noteId);
             const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
             const total = current.length + (clue && !current.some((s) => s.hanzi === clue) ? 1 : 0);
-            if (!needsSentenceTopUp(total)) {
+            // A Sentence round top-up adds to any set (up to the cap); a listening one only below five.
+            if (round ? total >= SENTENCE_SET_MAX_TOTAL : !needsSentenceTopUp(total)) {
               await db.markSentenceSetJobDone(env.DB, noteId);
               message.ack();
               continue;
@@ -7055,7 +7059,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 existing: [...(clue ? [clue] : []), ...current.map((s) => s.hanzi)],
                 bio,
               },
-              count ?? topUpCount(total)
+              round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(total)
             );
             const known = new Set([...(clue ? [clue] : []), ...current.map((s) => s.hanzi)]);
             const fresh = generated.filter((s) => !known.has(s.hanzi));
@@ -7071,9 +7075,10 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 focusNote: s.focusNote,
               }))
             );
-            await attachSentenceSetAudio(env, stored.filter((s) => !s.audio_url), 'batch');
+            // The round's buffer is played within minutes: its clips go ahead of the backfill.
+            await attachSentenceSetAudio(env, stored.filter((s) => !s.audio_url), round ? 'interactive' : 'batch');
             await db.markSentenceSetJobDone(env.DB, noteId);
-            console.log('[Queue] Sentence top-up done:', noteId, fresh.length, 'added');
+            console.log('[Queue] Sentence top-up done:', noteId, fresh.length, 'added', round ? '(round)' : '');
             message.ack();
             continue;
           }

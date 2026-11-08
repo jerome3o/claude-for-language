@@ -180,6 +180,12 @@ export interface SentenceSetMessage {
    * (card sentence + set; shared/study/listenContext.ts), keeping the rows it has.
    */
   kind?: 'set' | 'clue_audio' | 'note_audio' | 'sentence_audio' | 'top_up';
+  /**
+   * For 'top_up': asked by the Sentence round (its fresh buffer, shared/study/sentenceHistory.ts
+   * moreSentencesWanted) — added whatever the note's total (up to SENTENCE_SET_MAX_TOTAL), clips made
+   * at interactive priority. Without it, a listening top-up (only below five sentences).
+   */
+  round?: boolean;
   /** For 'sentence_audio': the note_sentences row to regenerate. */
   sentenceId?: string;
   /** For 'clue_audio': replace existing audio rather than only filling a gap. */

@@ -86,15 +86,52 @@ object SentenceHistory {
         return 0
     }
 
-    /** `wantsMoreSentences`: fewer than four in rotation, or every one left known in both modes. */
-    fun wantsMore(sentences: List<SentenceRound.Sentence>, stats: Map<String, Stats>): Boolean {
-        val visible = sentences.filter { stats[key(it.key)]?.hidden == null }
-        if (visible.size < MIN_VISIBLE) return true
-        return visible.all { s ->
-            val st = stats[key(s.key)]
-            known(st, SentencePractise.READ) && (NoteSearch.jsTrim(s.translation ?: "").isEmpty() || known(st, SentencePractise.TRANSLATE))
-        }
+    /**
+     * `isFreshSentence`: never practised in either mode (no take, right or wrong) and not hidden. The round
+     * asks fresh sentences first, so the word is practised in a sentence he hasn't seen in a round before.
+     */
+    fun isFresh(stats: Stats?): Boolean {
+        if (stats == null) return true
+        return stats.hidden == null && stats.read.attempts == 0 && stats.translate.attempts == 0
     }
+
+    /** `freshSentenceCount` */
+    fun freshCount(sentences: List<SentenceRound.Sentence>, stats: Map<String, Stats>): Int =
+        sentences.count { isFresh(stats[key(it.key)]) }
+
+    /** `SENTENCE_FRESH_BUFFER`: the fresh sentences a word keeps waiting (about two rounds' worth). */
+    const val FRESH_BUFFER = 8
+    /** `SENTENCE_FRESH_LOW`: fewer fresh than this → more are made in the background. */
+    const val FRESH_LOW = 6
+    /** `SENTENCE_TOPUP_MIN` / `SENTENCE_TOPUP_MAX`: one top-up makes between these many sentences. */
+    const val TOPUP_MIN = 3
+    const val TOPUP_MAX = 8
+    /** `SENTENCE_TOPUP_RETRY_MS`: a word asks for more at most this often. */
+    const val TOPUP_RETRY_MS = 10 * 60_000L
+
+    /** `freshTopUpCount`: how many one top-up should make with [fresh] fresh ones left (back up to the buffer). */
+    fun freshTopUpCount(fresh: Int): Int = minOf(TOPUP_MAX, maxOf(TOPUP_MIN, FRESH_BUFFER - maxOf(0, fresh)))
+
+    /** `moreSentencesWanted`'s answer: [reason] "few" | "fresh". */
+    data class MoreWanted(val reason: String, val fresh: Int, val count: Int)
+
+    /**
+     * `moreSentencesWanted`: fewer than four left in rotation ("few"), or fewer than [FRESH_LOW] fresh ones left
+     * ("fresh" — the buffer is refilled before it runs out). Hidden sentences don't count. null = enough.
+     */
+    fun moreWanted(sentences: List<SentenceRound.Sentence>, stats: Map<String, Stats>): MoreWanted? {
+        val visible = sentences.filter { stats[key(it.key)]?.hidden == null }
+        val fresh = freshCount(visible, stats)
+        if (visible.size < MIN_VISIBLE) return MoreWanted("few", fresh, freshTopUpCount(fresh))
+        if (fresh < FRESH_LOW) return MoreWanted("fresh", fresh, freshTopUpCount(fresh))
+        return null
+    }
+
+    /** `wantsMoreSentences` */
+    fun wantsMore(sentences: List<SentenceRound.Sentence>, stats: Map<String, Stats>): Boolean = moreWanted(sentences, stats) != null
+
+    /** `sentencesComingShown`: show [COMING_NOTE] only when the round itself is short; a buffer refill is silent. */
+    fun comingShown(want: MoreWanted?): Boolean = want != null && (want.reason == "few" || want.fresh < MIN_VISIBLE)
 
     /** `showHiddenLabel` */
     fun showHiddenLabel(count: Int) = "Show hidden ($count)"

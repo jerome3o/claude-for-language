@@ -296,3 +296,70 @@ export function hardModeRevealedNextLabel(roundFollows: boolean): string {
 export function hardModeGaveUpCheer(got: number, needed: number): string {
   return `🎉 ${got} / ${needed} — nice recovery`;
 }
+
+// --- 🎤 Read it again on the answer in place (practice only) ---------------------------------------
+
+/**
+ * After 👁 Show answer the answer is up in place (`hardModeGiveUpInPlace`) — Jerome: "when I get it wrong and show the
+ * answer, I'd still like to read it here and see if I can get it right with the transcription." A 🎤 in that panel
+ * records him reading the answer aloud (the same take pipeline as the question: live words, the upload fallback,
+ * "tap to retry") and judges it with the READ card's own rule (`hardModeQuestionResult` on a done take: said as
+ * written or inside a sentence = right, the same syllables with other tones = close). PRACTICE ONLY: the card stays a
+ * miss — `gave_up`, Good / Easy greyed, the pass's Got it greyed — nothing is recorded, no take kept. The same panel in
+ * the regular session and the homework pass, for every Hard-mode card type (reading the answer aloud is a read).
+ */
+export type ReadAgainResult = 'right' | 'close' | 'wrong';
+
+/** What a transcribed read-again take looked like (`compareTranscription` / Lab `Transcription.compare`). */
+export interface ReadAgainTake {
+  isMatch: boolean;
+  containsExpected: boolean;
+  tonesOff?: boolean;
+}
+
+/** The 🎤 is offered when the answer in place has Chinese to read. */
+export function hardModeReadAgainOffered(hanzi: string): boolean {
+  return /\p{Script=Han}/u.test(hanzi);
+}
+
+/** A read-again take's result: exactly the question's rule for a read card's take. */
+export function hardModeReadAgainResult(take: ReadAgainTake): ReadAgainResult {
+  const result = hardModeQuestionResult({ take: { status: 'done', isMatch: take.isMatch, containsExpected: take.containsExpected, tonesOff: !!take.tonesOff } });
+  return result === 'right' || result === 'close' ? result : 'wrong';
+}
+
+/** Letters and digits only (punctuation, spaces and symbols dropped). */
+function bareText(s: string): string {
+  return s.replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+/**
+ * The "You said" row's verdict for a read-again take (shared/cards/spoken-result.ts marks its characters): the
+ * same characters → exact; another way of writing the same sounds → sound ("Sounded right"); the answer said inside
+ * more → contains; tones off → close; else wrong.
+ */
+export function hardModeReadAgainVerdict(take: ReadAgainTake, said: string, hanzi: string): AnswerVerdict {
+  if (take.isMatch) return bareText(said) === bareText(hanzi) ? 'exact' : 'sound';
+  if (take.containsExpected) return 'contains';
+  if (take.tonesOff) return 'close';
+  return 'wrong';
+}
+
+/** The 🎤's words: "Read it aloud" before the first take, "Read it again" after. */
+export function hardModeReadAgainLabel(tries: number): string {
+  return tries > 0 ? 'Read it again' : 'Read it aloud';
+}
+/** While the take records (no words heard yet). */
+export const HARD_MODE_READ_AGAIN_LISTENING = 'Listening — read the answer aloud…';
+/** Stops the take (the button again, or Enter). */
+export const HARD_MODE_READ_AGAIN_STOP = 'Stop';
+/** The take's result line (icon + words, never colour alone). */
+export const HARD_MODE_READ_AGAIN_RESULT: Record<ReadAgainResult, string> = {
+  right: '✓ Right this time',
+  close: '≈ Nearly',
+  wrong: '✗ Not quite',
+};
+/** Under a right take: it's practice — the card is still a miss. */
+export const HARD_MODE_READ_AGAIN_PRACTICE = 'Practice only — this card still counts as a miss.';
+/** A take that heard nothing. */
+export const HARD_MODE_READ_AGAIN_EMPTY = 'Didn’t catch that — try again.';

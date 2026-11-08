@@ -1,11 +1,13 @@
 import {
   HARD_MODE_CHECKING, HARD_MODE_MISS_NOTE, HARD_MODE_RESULT, HARD_MODE_SHOW_ANSWER, HARD_MODE_TRY_AGAIN, HARD_MODE_UNKNOWN,
   HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE, hardModeNextLabel, hardModeRevealedNextLabel, hardModeSaidLine,
-  hardModeQuestionFeel, type HardModeQuestionResult,
+  hardModeQuestionFeel, hardModeReadAgainOffered, type HardModeQuestionResult,
 } from '@shared/study/hardMode';
+import { HardModeReadAgain, type HardModeReadAgainProps } from './HardModeReadAgain';
 import { useEffect } from 'react';
 import { studyFeel } from '../../services/studyFeel';
-import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';import { DifferenceCompare } from './DifferenceCompare';
+import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
+import { DifferenceCompare } from './DifferenceCompare';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
 import {
   SENTENCE_CHECK_ANSWER, SENTENCE_CHECK_MOVE_ON_NOTE, SENTENCE_CHECK_TYPE_INSTEAD, SENTENCE_CHECK_YOUR_FIX, SENTENCE_CHECKING,
@@ -54,6 +56,11 @@ export interface HardModeFeedbackProps {
   onMoveOn?: () => void;
   /** The move-on button's words (`hardModeRevealedNextLabel`). */
   moveOnLabel?: string;
+  /**
+   * 'revealed': 🎤 Read it again — read the answer aloud and see whether it comes out right this time
+   * (practice only, the card stays a miss; `HardModeReadAgain`). Omitted = no 🎤.
+   */
+  readAgain?: HardModeReadAgainProps;
 }
 
 /**
@@ -62,7 +69,7 @@ export interface HardModeFeedbackProps {
  * characters: then it holds with "You said" vs the card, `difference`); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Nothing here gives the answer away.
  */
-export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak, sentenceView, onMoveOn, moveOnLabel }: HardModeFeedbackProps) {
+export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak, sentenceView, onMoveOn, moveOnLabel, readAgain }: HardModeFeedbackProps) {
   // The check's result you can FEEL (Jerome: "when I get it right on the very first page there's no
   // satisfying haptics … I find myself quite dependent on it"): ✓ Right = a firm double buzz + chime,
   // ✗ / ≈ a short one; checking / unknown / revealed none. Once per result (a Try again remounts it).
@@ -89,6 +96,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
           </div>
         )}
         {saidLine}
+        {readAgain && hardModeReadAgainOffered(readAgain.hanzi) && <HardModeReadAgain {...readAgain} />}
         <div className="hard-feedback-row">
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-continue" autoFocus>
             {hardModeRevealedNextLabel(roundFollows)} ›

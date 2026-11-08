@@ -55,7 +55,7 @@ describe('pickRoundExercises', () => {
     expect(sentenceRoundProgress(pickRoundExercises([s('a'), s('b')]), ['read:a'])).toEqual({ needed: 2, got: 1, done: false });
     expect(sentenceRoundProgress(pickRoundExercises([s('a')]), ['read:a'])).toEqual({ needed: 1, got: 1, done: true });
     expect(wantsMoreSentences([s('a'), s('b'), s('c')], new Map())).toBe(true);
-    expect(wantsMoreSentences([s('a'), s('b'), s('c'), s('d')], new Map())).toBe(false);
+    expect(wantsMoreSentences(['a', 'b', 'c', 'd', 'e', 'f'].map((k) => s(k)), new Map())).toBe(false);
   });
 });
 

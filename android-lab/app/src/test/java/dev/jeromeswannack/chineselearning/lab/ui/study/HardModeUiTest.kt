@@ -332,6 +332,78 @@ class HardModeUiTest : LabScreenshotTest() {
         shot("hard-mode-10-revealed-in-place")
     }
 
+    /** 🎤 Read it again in the answer in place: offered under "You said", Continue still the way on, and nothing rated. */
+    @Test fun revealedInPlaceOffersReadItAgain() {
+        val rated = mutableListOf<Int>()
+        card(start = CardStartState(feedbackOpen = true, gaveUp = true), take = heard("圆子", match = false), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
+        compose.onNodeWithTag(ReadAgainTags.BLOCK, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("🎤 ${HardMode.readAgainLabel(0)}", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.CONTINUE, useUnmergedTree = true).assertExists()
+        assertEquals(emptyList(), rated)
+    }
+
+    /** The read-again block in each state, inside the answer in place (no microphone: drawn from its state). */
+    private fun readAgainPanel(ui: dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi, take: ReadAgainTake?, tries: Int, dark: Boolean = false) {
+        compose.setContent {
+            LabTheme(dark = dark) {
+                Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.BottomCenter) {
+                    HardModeFeedbackPanel(
+                        result = "revealed", said = "他这么拔，头发什么短了?", spoken = true, roundFollows = true,
+                        onTryAgain = {}, onShowAnswer = {}, onNext = {},
+                        answer = Triple("他怎么把头发剪短了？", "Tā zěnme bǎ tóufa jiǎn duǎn le?", "Why did he cut his hair short?"),
+                        onPlayAnswer = {},
+                        readAgainPreview = { ReadAgainContent(ui, take, tries, "他怎么把头发剪短了？", onMic = {}, onRetry = {}) },
+                    )
+                }
+            }
+        }
+        compose.mainClock.advanceTimeBy(600)
+    }
+
+    @Test fun shotReadAgainIdle() {
+        readAgainPanel(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(), null, 0)
+        compose.onNodeWithText("🎤 Read it aloud", useUnmergedTree = true).assertExists()
+        shot("hard-mode-15a-read-again-idle")
+    }
+
+    @Test fun shotReadAgainListening() {
+        readAgainPanel(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(phase = "listening", finalText = "他怎么把", partialText = "头发"), null, 0)
+        compose.onNodeWithText("⏹ ${HardMode.READ_AGAIN_STOP}", useUnmergedTree = true).assertExists()
+        shot("hard-mode-15b-read-again-listening")
+    }
+
+    @Test fun shotReadAgainRight() {
+        readAgainPanel(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(), ReadAgainTake("他怎么把头发剪短了", "right", dev.jeromeswannack.chineselearning.lab.core.AnswerKey.Verdict.EXACT), 1)
+        compose.onNodeWithTag("${ReadAgainTags.RESULT}-right", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(HardMode.READ_AGAIN_RESULT.getValue("right"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(HardMode.READ_AGAIN_PRACTICE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("🎤 Read it again", useUnmergedTree = true).assertExists()
+        shot("hard-mode-15c-read-again-right")
+    }
+
+    @Test fun shotReadAgainWrongDark() {
+        readAgainPanel(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(), ReadAgainTake("他这么拔头发剪短了", "wrong", dev.jeromeswannack.chineselearning.lab.core.AnswerKey.Verdict.WRONG), 1, dark = true)
+        compose.onNodeWithTag("${ReadAgainTags.RESULT}-wrong", useUnmergedTree = true).assertExists()
+        shot("hard-mode-15d-read-again-wrong-dark")
+    }
+
+    @Test fun readAgainFailedOffersTapToRetry() {
+        var retried = 0
+        compose.setContent {
+            LabTheme { ReadAgainContent(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(phase = "failed", failure = "failed"), null, 1, "银行", onMic = {}, onRetry = { retried++ }) }
+        }
+        compose.onNodeWithTag(ReadAgainTags.RETRY, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Couldn’t transcribe", substring = true, useUnmergedTree = true).performClick()
+        assertEquals(1, retried)
+    }
+
+    @Test fun readAgainOfflineSaysWhy() {
+        compose.setContent {
+            LabTheme { ReadAgainContent(dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(blocked = "offline"), null, 0, "银行", onMic = {}, onRetry = {}) }
+        }
+        compose.onNodeWithTag(ReadAgainTags.BLOCKED, useUnmergedTree = true).assertExists()
+    }
+
     @Test fun shotRevealedInPlaceDark() {
         card(start = CardStartState(feedbackOpen = true, gaveUp = true), take = heard("圆子", match = false), dark = true)
         shot("hard-mode-10b-revealed-in-place-dark")

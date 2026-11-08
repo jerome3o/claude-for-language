@@ -72,7 +72,6 @@ vi.mock('../../services/sentencePractice', () => ({
   hideSentence: async (...a: unknown[]) => { history.hidden.push(a); },
   unhideSentence: async (...a: unknown[]) => { history.unhidden.push(a); },
   requestMoreSentences: (...a: unknown[]) => { history.more.push(a); },
-  sentencesComing: () => false,
 }));
 
 const SET = [
@@ -312,11 +311,38 @@ describe('SentenceRound', () => {
     expect(host.textContent).toContain('Get any 2 of these 2 right');
     expect(host.textContent).not.toContain('银行在哪儿？');
     // Fewer than four in rotation: more sentences were asked for.
-    expect(history.more).toEqual([['n1', 'few']]);
+    expect(history.more).toEqual([['n1', { reason: 'few', count: 7 }]]);
     act(() => inEx(0, 'sentence-round-more')!.click());
     act(() => (host.querySelector('[data-testid="sentence-hide-wrong"]') as HTMLElement).click());
     expect(history.hidden[0]).toEqual(['n1', 'clue:n1', 'wrong', 'round']);
     expect(host.textContent).toContain('Sentence hidden');
+  });
+
+  it('asks only sentences he has never practised, and quietly refills the buffer before it runs out', async () => {
+    const { getLocalNoteSentences } = await import('../../services/sentence-sets');
+    const many = ['我在银行工作。', '银行几点开门？', '这家银行很大。', '你去哪个银行？', '银行旁边有超市。', '我把钱存在银行。', '银行今天关门。']
+      .map((hanzi, i) => ({ ...SET[0], id: `m${i}`, position: i, hanzi, translation: `Sentence ${i}.` }));
+    vi.mocked(getLocalNoteSentences).mockResolvedValue(many as never);
+    const used = (mode: 'read' | 'translate') => ({
+      read: { attempts: mode === 'read' ? 1 : 0, rights: mode === 'read' ? 1 : 0, misses: 0, last_at: mode === 'read' ? '2026-11-01' : null },
+      translate: { attempts: mode === 'translate' ? 1 : 0, rights: 0, misses: mode === 'translate' ? 1 : 0, last_at: mode === 'translate' ? '2026-11-01' : null },
+      hidden: null,
+    });
+    // The card's sentence was read, m0 translated (wrong), m1 read: five of the eight are fresh.
+    history.stats = new Map<string, unknown>([['clue', used('read')], ['m0', used('translate')], ['m1', used('read')]]);
+    try {
+      await render();
+      const shown = all('sentence-round-exercise').map((e) => e.textContent ?? '');
+      expect(shown).toHaveLength(4);
+      for (const old of ['我去银行取钱。', 'Sentence 0.', '我在银行工作。', 'Sentence 1.', '银行几点开门？']) {
+        expect(shown.some((t) => t.includes(old))).toBe(false);
+      }
+      // Fewer than six fresh left: three more asked for, in the background (no "coming" note — this round is fine).
+      expect(history.more).toEqual([['n1', { reason: 'fresh', count: 3 }]]);
+      expect(host.querySelector('[data-testid="sentences-coming"]')).toBeNull();
+    } finally {
+      vi.mocked(getLocalNoteSentences).mockResolvedValue(SET as never);
+    }
   });
 
   it('Skip is always there, quiet, with no line explaining the gate', async () => {

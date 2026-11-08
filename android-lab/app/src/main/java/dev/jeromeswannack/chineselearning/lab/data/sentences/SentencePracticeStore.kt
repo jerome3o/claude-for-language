@@ -17,8 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.delay
 import java.time.Instant
-import java.time.LocalDate
 import java.util.UUID
 
 /**
@@ -29,13 +29,14 @@ import java.util.UUID
  * (`POST /api/me/sentence-practice`, one client id each — idempotent), and every device's events come down
  * after a cursor in [Sync]. [events] feeds the round's picks and the hidden rows.
  *
- * "✨ New sentences coming": a word whose sentences are all known (or fewer than four left) asks the
- * sentence top-up for more, once a day per word; offline the ask waits for the next sync.
+ * Fresh sentences: the Sentence round asks sentences he has never practised first and keeps a buffer of them
+ * (core [SentenceHistory.moreWanted]) — fewer than six fresh (or four left) asks the sentence top-up for more
+ * ([requestMore], at most every ten minutes per word, [SentenceTopUps]); the new rows + clips are pulled a little
+ * later; offline the ask waits for the next sync. "✨ New sentences coming" only when the round itself is short.
  */
 object SentencePracticeStore {
     private const val KEY = "sentences/practice"
     private const val KIND = "sentence-practice"
-    private const val PREFS = "lab-sentence-topups"
 
     @Serializable
     data class Doc(val events: List<SentenceEventDto> = emptyList(), val cursor: String? = null)
@@ -105,32 +106,55 @@ object SentencePracticeStore {
     fun stats(all: List<SentenceHistory.Event>?, noteId: String): Map<String, SentenceHistory.Stats> =
         SentenceHistory.stats(all.orEmpty(), noteId)
 
-    // --- "✨ New sentences coming" ----------------------------------------------------------------
+    // --- more sentences: the fresh buffer -----------------------------------------------------------
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private fun today() = LocalDate.now().toString()
-
-    /** This word already asked for more today (or is waiting for a connection). */
-    fun coming(context: Context, noteId: String): Boolean {
-        val p = prefs(context)
-        return p.getString("asked:$noteId", null) == today() || p.contains("pending:$noteId")
+    @Volatile private var topUps: SentenceTopUps? = null
+    private fun topUps(context: Context): SentenceTopUps = topUps ?: synchronized(this) {
+        topUps ?: SentenceTopUps(context.getSharedPreferences(SentenceTopUps.PREFS, Context.MODE_PRIVATE)).also { topUps = it }
     }
 
-    /** Ask for more sentences for this word (once a day); offline → the next sync. */
-    fun requestMore(app: LabApp, noteId: String, why: String) {
+    /**
+     * Ask for more sentences for this word (`requestMoreSentences`; [reason] / [count] from core
+     * [SentenceHistory.moreWanted]): at most every ten minutes per word; offline → the next sync.
+     */
+    fun requestMore(app: LabApp, noteId: String, reason: String, count: Int) {
         appContext = app.applicationContext
-        val p = prefs(app)
-        if (p.getString("asked:$noteId", null) == today() || p.contains("pending:$noteId")) return
-        if (app.online.value) {
-            p.edit().putString("asked:$noteId", today()).apply()
-            Analytics.track("study.sentence_topup_requested", mapOf("why" to why, "queued" to true))
-            app.scope.launch {
-                runCatching { app.repo.api.topUpSentences(listOf(noteId), why) }
-                    .onFailure { p.edit().putString("pending:$noteId", why).apply() }
+        val want = SentenceTopUps.Want(reason, count)
+        val t = topUps(app)
+        when (t.claim(noteId, want, app.online.value)) {
+            SentenceTopUps.Decision.SKIP -> return
+            SentenceTopUps.Decision.QUEUE ->
+                Analytics.track("study.sentence_topup_requested", mapOf("why" to reason, "count" to count, "queued" to false))
+            SentenceTopUps.Decision.SEND -> {
+                Analytics.track("study.sentence_topup_requested", mapOf("why" to reason, "count" to count, "queued" to true))
+                app.scope.launch {
+                    runCatching { app.repo.api.topUpSentences(listOf(noteId), reason, mapOf(noteId to count)) }
+                        .onSuccess { pullNewSentencesSoon(app, listOf(noteId)) }
+                        .onFailure { t.failed(noteId, want) }
+                }
             }
-        } else {
-            p.edit().putString("pending:$noteId", why).apply()
-            Analytics.track("study.sentence_topup_requested", mapOf("why" to why, "queued" to false))
+        }
+    }
+
+    /** `pullNewSentencesSoon`: when the new rows are pulled after an ask (the server writes them in well under a minute). */
+    val PULL_DELAYS_MS = listOf(45_000L, 150_000L)
+
+    /**
+     * The new rows come down with the next sync; pull them a little after the ask instead and download their
+     * clips, so the round's buffer plays offline. Best-effort.
+     */
+    private fun pullNewSentencesSoon(app: LabApp, noteIds: List<String>) {
+        for (wait in PULL_DELAYS_MS) {
+            app.scope.launch {
+                delay(wait)
+                runCatching {
+                    app.repo.pullSentenceChanges()
+                    for (id in noteIds) for (row in app.repo.dao.sentencesFor(id)) {
+                        val url = row.audioUrl?.takeIf { it.isNotBlank() } ?: continue
+                        if (app.repo.cachedAudio(url) == null) runCatching { app.repo.cacheClip(url) }
+                    }
+                }
+            }
         }
     }
 
@@ -145,15 +169,9 @@ object SentencePracticeStore {
                 if (!res.more) break
             }
             val context = appContext ?: return
-            val p = prefs(context)
-            val pending = p.all.keys.filter { it.startsWith("pending:") }
-            for (key in pending) {
-                val noteId = key.removePrefix("pending:")
-                val why = p.getString(key, null) ?: continue
-                runCatching { ctx.api.topUpSentences(listOf(noteId), why) }.onSuccess {
-                    p.edit().remove(key).putString("asked:$noteId", today()).apply()
-                }
-            }
+            val sent = topUps(context).flush { ids, reason, counts -> ctx.api.topUpSentences(ids, reason, counts) }
+            val app = context as? LabApp
+            if (sent.isNotEmpty() && app != null) pullNewSentencesSoon(app, sent)
         }
     }
 }

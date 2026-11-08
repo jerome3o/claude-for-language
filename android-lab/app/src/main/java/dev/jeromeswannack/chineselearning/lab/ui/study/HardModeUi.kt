@@ -251,13 +251,17 @@ fun HardModeFeedbackPanel(
     onMoveOn: (() -> Unit)? = null,
     /** The move-on button's words (HardMode.revealedNextLabel). */
     moveOnLabel: String? = null,
+    /** "revealed": 🎤 Read it again — read the answer aloud, practice only ([ReadAgainBlock]); null = no 🎤. */
+    readAgain: ReadAgainInfo? = null,
+    /** Screenshot tests: the read-again block drawn in this state (no microphone). */
+    readAgainPreview: (@Composable () -> Unit)? = null,
 ) {
     // The check's result you can FEEL (fx/StudyFeel; core HardMode.questionFeel): ✓ Right = Haptics.success +
     // the correct chime; ✗ / ≈ a short one; checking / unknown / revealed none. Once per result.
     val studyFeel = dev.jeromeswannack.chineselearning.lab.fx.rememberStudyFeel()
     LaunchedEffect(result) { if (result != "revealed") studyFeel(HardMode.questionFeel(result)) }
     if (result == "revealed") {
-        RevealedInPlace(answer, said, spoken, roundFollows, onNext, onPlayAnswer)
+        RevealedInPlace(answer, said, spoken, roundFollows, onNext, onPlayAnswer, readAgain = readAgainPreview ?: readAgain?.takeIf { HardMode.readAgainOffered(it.hanzi) }?.let { info -> { ReadAgainBlock(info) } })
         return
     }
     if (sentenceView?.answerFirst == true && answer != null && said != null) {
@@ -367,6 +371,7 @@ private fun RevealedInPlace(
     roundFollows: Boolean,
     onNext: () -> Unit,
     onPlayAnswer: (() -> Unit)?,
+    readAgain: (@Composable () -> Unit)? = null,
 ) {
     val tone = Palette.Hard
     Column(
@@ -395,6 +400,8 @@ private fun RevealedInPlace(
             }
         }
         if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 15.sp, textAlign = TextAlign.Center)
+        // 🎤 Read it again: practice only — Continue stays the way on.
+        readAgain?.invoke()
         PrimaryPill("${HardMode.revealedNextLabel(roundFollows)} ›", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.CONTINUE), onClick = onNext)
         Text(HardMode.REVEALED_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
     }

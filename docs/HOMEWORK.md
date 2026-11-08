@@ -272,8 +272,9 @@ these, as I'm not going to come back to them for a long time, so it's good to do
   **🎯 chip** (`HardModeChip pass` / Lab `HardModeChip(pass = true)`) or **Settings → Study → 🎯 Hard mode in
   homework** (both settings listed there). The header says "🎯 2 angles per word" (Red: "… for words you miss").
 - **Got it needs the ladder**: giving up (👁 Show answer / Skip recording / Show with nothing typed before a right
-  answer) → the answer IN PLACE on the question, then "Continue to the sentences ›" (docs/STUDY_SESSION.md "Hard
-  mode") → the answer side with **Got it greyed** (faded, "tap twice"; "👁 You looked at the answer — Not yet
+  answer) → the answer IN PLACE on the question (with **🎤 Read it aloud / Read it again** — read the answer aloud and
+  see whether it comes out right this time; practice only, Got it stays greyed), then "Continue to the sentences ›"
+  (docs/STUDY_SESSION.md "Hard mode") → the answer side with **Got it greyed** (faded, "tap twice"; "👁 You looked at the answer — Not yet
   suggested" above; never locked — the first tap says "Tap again to say Got it anyway", a second within 3 s counts it,
   `study.hard_mode_override { rating: got_it }`) and *Not yet* suggested. Right (or a check that couldn't run offline) → Got it open whether
   the round was passed or skipped (its quiet Skip asks "Skip this exercise?" first, like the session's; two right cheer
@@ -295,7 +296,7 @@ these, as I'm not going to come back to them for a long time, so it's good to do
   grey when its second angle will follow). With no step events and Off it is exactly `passRetryBar`.
 - **Sentences**: one-off notes often have no set yet. When a pass opens in Hard mode, its words with NO set are queued
   (`POST /api/sentences/prefetch` with the pass's note ids first) and those with fewer than the round's four ask for
-  more (`POST /api/sentences/top-up { reason: 'few' }`, once a day per word) — web `services/passSentences.ts`, Lab
+  more (`POST /api/sentences/top-up { reason: 'few', counts }`, at most every 10 minutes per word) — web `services/passSentences.ts`, Lab
   `data/homework/PassSentenceTopUp.kt`. The web fetches a word's set when its card shows; the Lab gets the rows with
   the next sync. Fewer sentences = a shorter round, none = no round (the session's rule).
 - Still NO review event and no FSRS: the round is practice (its takes go to the sentence practice history like the

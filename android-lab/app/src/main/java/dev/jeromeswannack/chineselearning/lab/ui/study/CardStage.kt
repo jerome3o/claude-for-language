@@ -692,8 +692,7 @@ fun CardStage(
                         onSkip = { reveal(afterRound = true) },
                         doneCheer = if (pass != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles::roundDoneCheer else if (gaveUp) HardMode::gaveUpCheer else null,
                         stats = noteStats,
-                        coming = labApp != null && dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.coming(labApp, note.id),
-                        onWantMore = { why -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, why) },
+                        onWantMore = { reason, count -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.requestMore(labApp, note.id, reason, count) },
                         onHide = { key, reason -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.hide(labApp, note.id, key, reason, "round") },
                         onUnhide = { key -> if (labApp != null) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.unhide(labApp, note.id, key, "round") },
                         initialIds = roundLog.map { it.id },
@@ -802,6 +801,7 @@ fun CardStage(
                     onTryAgain = { hardTryAgain() },
                     onShowAnswer = { giveUp() },
                     onNext = { hardNext() },
+                    readAgain = ReadAgainInfo(note.hanzi, note.pinyin, view.card.cardType, if (pass != null) "homework" else "session"),
                 )
             } else if (!revealed && feedbackOpen && questionResult != null) {
                 HardModeFeedbackPanel(
