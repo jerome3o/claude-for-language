@@ -10,7 +10,8 @@ import { answerCheckCacheText, type AnswerCheck, type AnswerCheckInput } from '@
 import type { AnswerVerdict } from '@shared/cards/answer';
 import type { DifferenceReason } from '@shared/study/answerDifference';
 import {
-  sentenceAnswerCheckApplies, sentenceAnswerCheckInput, sentenceCheckDifference, sentenceCheckedVerdict,
+  sentenceAnswerCheckApplies, sentenceAnswerCheckInput, sentenceCheckDifference, sentenceCheckedVerdict, sentenceCheckView,
+  type SentenceCheckView,
 } from '@shared/study/sentenceAnswerCheck';
 import { AnswerCheckUnavailable, checkLessonAnswer } from '../../services/answerCheck';
 import { track } from '../../services/analytics';
@@ -88,11 +89,13 @@ export interface SentenceQuestionCheck {
   state: SentenceCheckState;
   /** The verdict the card goes on with: the device's, or Claude's for a sentence it checked (`sentenceCheckedVerdict`). */
   verdict: AnswerVerdict | null;
-  /** Claude is reading it: the question shows "Checking your sentence…" (Show answer only). */
+  /** Claude is reading it: the question shows the answer + diff and a slim "Checking your sentence…" row. */
   checking: boolean;
   check: AnswerCheck | null;
   /** Right per Claude but not the card's words: hold with "You said" vs the card. */
   difference: DifferenceReason | null;
+  /** What the question shows: the card's answer + "You said" vs it at once, the verdict loading in under them. */
+  view: SentenceCheckView;
 }
 
 export function useSentenceQuestionCheck(args: {
@@ -127,5 +130,6 @@ export function useSentenceQuestionCheck(args: {
   const check = state.status === 'done' ? state.check : null;
   const verdict = args.localVerdict ? sentenceCheckedVerdict(args.localVerdict, check?.verdict) : null;
   const checking = !!input && args.active && args.online && (state.status === 'idle' || state.status === 'checking');
-  return { state, verdict, checking, check, difference: check ? sentenceCheckDifference(answer, args.hanzi, check.verdict) : null };
+  const view = sentenceCheckView({ applies, checking, claude: check?.verdict, said: answer, model: args.hanzi, corrected: check?.corrected });
+  return { state, verdict, checking, check, difference: check ? sentenceCheckDifference(answer, args.hanzi, check.verdict) : null, view };
 }

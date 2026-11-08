@@ -75,6 +75,9 @@ object HardModeTags {
     const val CHIP_DOT = "hard-mode-chip-dot"
     const val TYPE_INSTEAD = "hard-type-instead"
     const val SENTENCE_CHECK = "hard-sentence-check"
+    const val SENTENCE_CHECKING = "hard-sentence-checking"
+    const val SENTENCE_YOUR_FIX = "hard-sentence-your-fix"
+    const val ANSWER_FIRST = "hard-answer-first"
 }
 
 private val ChipRed = Color(0xFFDC2626)
@@ -239,6 +242,15 @@ fun HardModeFeedbackPanel(
     onTypeInstead: (() -> Unit)? = null,
     /** 🔊 on Claude's corrected sentence / alternative. */
     onPlay: ((String) -> Unit)? = null,
+    /**
+     * A sentence answer that goes to Claude (core SentenceAnswerCheck.view): the card's answer ([answer]) and "You
+     * said" against it show AT ONCE, Claude's verdict loads in below them; its fix of his wording is at most a small line.
+     */
+    sentenceView: SentenceAnswerCheck.View? = null,
+    /** With [sentenceView]: on from a miss with the answer already on screen (a miss: Again or Hard). */
+    onMoveOn: (() -> Unit)? = null,
+    /** The move-on button's words (HardMode.revealedNextLabel). */
+    moveOnLabel: String? = null,
 ) {
     // The check's result you can FEEL (fx/StudyFeel; core HardMode.questionFeel): ✓ Right = Haptics.success +
     // the correct chime; ✗ / ≈ a short one; checking / unknown / revealed none. Once per result.
@@ -246,6 +258,13 @@ fun HardModeFeedbackPanel(
     LaunchedEffect(result) { if (result != "revealed") studyFeel(HardMode.questionFeel(result)) }
     if (result == "revealed") {
         RevealedInPlace(answer, said, spoken, roundFollows, onNext, onPlayAnswer)
+        return
+    }
+    if (sentenceView?.answerFirst == true && answer != null && said != null) {
+        SentenceAnswerFirst(
+            result, sentenceView, answer, said, difference?.reason, check, checkingLabel ?: SentenceAnswerCheck.CHECKING, roundFollows,
+            moveOnLabel ?: HardMode.SHOW_ANSWER, onPlayAnswer, onTryAgain, onMoveOn ?: onShowAnswer, onNext, onTypeInstead, onPlay,
+        )
         return
     }
     val (border, ink) = when (result) {
@@ -380,3 +399,113 @@ private fun RevealedInPlace(
         Text(HardMode.REVEALED_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
+
+/**
+ * A sentence answer Claude checks (core SentenceAnswerCheck.view; the web's `SentenceAnswerFirst` in
+ * HardModeFeedback.tsx; docs/STUDY_SESSION.md "Sentence answers checked by Claude"): the card's answer first — hanzi
+ * big with ▶, pinyin, English — and "You said" against it, character by character, AT ONCE; Claude's verdict loads in
+ * under them (a slim "Checking your sentence…" row, then its chip, headline and tips), its fix of his own wording at
+ * most a small labelled line. Offline / failed: the device's verdict under the same answer + diff.
+ */
+@Composable
+private fun SentenceAnswerFirst(
+    result: String,
+    view: SentenceAnswerCheck.View,
+    answer: Triple<String, String?, String>,
+    said: String,
+    difference: String?,
+    check: AnswerCheck?,
+    checkingLabel: String,
+    roundFollows: Boolean,
+    moveOnLabel: String,
+    onPlayAnswer: (() -> Unit)?,
+    onTryAgain: () -> Unit,
+    onMoveOn: () -> Unit,
+    onNext: () -> Unit,
+    onTypeInstead: (() -> Unit)?,
+    onPlay: ((String) -> Unit)?,
+) {
+    val border = when (result) {
+        "right" -> Palette.Good
+        "close" -> Palette.Gold
+        "wrong" -> Palette.Again
+        else -> Lab.colors.cardBorder
+    }
+    val miss = result == "wrong" || result == "close"
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(border.copy(alpha = 0.08f))
+            .border(2.dp, border, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .testTag(HardModeTags.FEEDBACK),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()).testTag(HardModeTags.ANSWER_FIRST),
+        ) {
+            DifferenceCompare(
+                said, answer.first, answer.second, accepted = view.accepted, modelLabel = SentenceAnswerCheck.ANSWER,
+                onPlayModel = onPlayAnswer, answerFirst = true, answerFirstEnglish = answer.third,
+            )
+            when {
+                view.checking -> Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.card)
+                        .padding(horizontal = 12.dp, vertical = 8.dp).testTag(HardModeTags.SENTENCE_CHECKING),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(12.dp), color = Violet, strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text(checkingLabel, color = Lab.colors.muted, fontSize = 14.sp)
+                }
+                check != null -> Column(Modifier.testTag(HardModeTags.SENTENCE_CHECK)) {
+                    AnswerCheckBody(check, said, onPlay = onPlay, hideFix = true)
+                    view.corrected?.let { fix ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 6.dp).testTag(HardModeTags.SENTENCE_YOUR_FIX)
+                                .then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(fix) } else Modifier),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(SentenceAnswerCheck.YOUR_FIX, color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(6.dp))
+                            Text(fix, Modifier.weight(1f, fill = false), color = Lab.colors.ink, fontSize = 15.sp)
+                            if (onPlay != null) Text(" 🔊", fontSize = 13.sp)
+                        }
+                    }
+                }
+                else -> Text(
+                    when {
+                        result == "unknown" -> HardMode.UNKNOWN
+                        result == "right" && difference != null -> dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE[difference] ?: HardMode.RESULT.getValue("right")
+                        else -> HardMode.RESULT[result] ?: ""
+                    },
+                    Modifier.fillMaxWidth().padding(top = 8.dp),
+                    color = if (result == "unknown") Lab.colors.muted else border, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
+                )
+            }
+        }
+        when (result) {
+            "right" -> PrimaryPill("${HardMode.nextLabel(roundFollows)} →", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.NEXT), onClick = onNext)
+            "unknown" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
+                PrimaryPill("${HardMode.nextLabel(roundFollows)} →", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.NEXT), onClick = onNext)
+            }
+            "checking" -> SecondaryPill("$moveOnLabel ›", Modifier.fillMaxWidth().height(50.dp).testTag(HardModeTags.SHOW_ANSWER), onClick = onMoveOn)
+            else -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.fillMaxWidth().height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SecondaryPill("$moveOnLabel ›", Modifier.weight(1f).height(48.dp).testTag(HardModeTags.SHOW_ANSWER), onClick = onMoveOn)
+                    if (onTypeInstead != null) {
+                        SecondaryPill("✏️ ${SentenceAnswerCheck.TYPE_INSTEAD}", Modifier.weight(1f).height(48.dp).testTag(HardModeTags.TYPE_INSTEAD), onClick = onTypeInstead)
+                    }
+                }
+            }
+        }
+        if (miss) Text(SentenceAnswerCheck.MOVE_ON_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
+    }
+}
+
+private val Violet = Color(0xFFA855F7)

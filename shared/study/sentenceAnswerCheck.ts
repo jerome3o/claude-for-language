@@ -27,7 +27,7 @@ import type { PassOutcome } from '../homework/pass-card';
 import { passSuggestion } from '../homework/pass-card';
 import { hasHan, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
 import { noteKind } from '../progress/known';
-import { roundTakeDifference, type DifferenceReason } from './answerDifference';
+import { roundTakeDifference, sameAnswerWords, type DifferenceReason } from './answerDifference';
 import { hardModeQuestionResult } from './hardMode';
 
 /** The cards whose sentence answers Claude checks: English → Chinese only (audio → hanzi is dictation). */
@@ -127,3 +127,56 @@ export type SentenceCheckEventVerdict = AnswerCheckVerdict | 'offline' | 'error'
 export const SENTENCE_CHECKING = 'Checking your sentence…';
 /** A spoken answer's second way to try again: the box, holding what was said, to fix it by hand. */
 export const SENTENCE_CHECK_TYPE_INSTEAD = 'Type it';
+
+// --- the answer first, the verdict after ------------------------------------------------------------
+
+/**
+ * What the question shows for a sentence answer that goes to Claude (Jerome, Nov 2026, the homework pass:
+ * "I'm not a fan of this loading screen here. In other places, we see the correct answer straight away and
+ * we see the differences straight away, and then it loads the delta and tells me whether or not it's okay"
+ * — and: "it also corrects my sentence instead of giving me the model answer, which I find kind of annoying").
+ *
+ * So the moment the answer is checked, without waiting for the network: THE CARD'S answer (hanzi big, its
+ * pinyin, its English) first, his answer under it character by character against it (`differenceLines`, the
+ * "You said" marks — red where his isn't in the answer, yellow once Claude accepts it). Claude's verdict
+ * loads in below as one slim "Checking your sentence…" row, then its chip + headline + tips. Its fix of HIS
+ * wording is never the answer: at most a small labelled secondary line, only for ≈ Nearly and only when it
+ * is neither the card's answer nor what he said. Nothing about what counts as right changes.
+ */
+export interface SentenceCheckView {
+  /** The card's answer + "You said" vs it, on the question at once. */
+  answerFirst: boolean;
+  /** The comparison's marks: accepted (yellow, worded differently) or not (red). */
+  accepted: boolean;
+  /** The slim inline "Checking your sentence…" row under it. */
+  checking: boolean;
+  /** Claude's fix of his own sentence, as a small labelled line (null = none). */
+  corrected: string | null;
+}
+
+export function sentenceCheckView(args: {
+  /** The answer went to Claude (`sentenceAnswerCheckApplies`) — online or not. */
+  applies: boolean;
+  /** Claude is reading it now. */
+  checking: boolean;
+  /** Claude's verdict (null = none yet / none to be had). */
+  claude: AnswerCheckVerdict | null | undefined;
+  said: string;
+  model: string;
+  /** Claude's corrected version of his sentence ('' = none). */
+  corrected?: string | null;
+}): SentenceCheckView {
+  if (!args.applies) return { answerFirst: false, accepted: false, checking: false, corrected: null };
+  const claude = args.checking ? null : args.claude ?? null;
+  const fix = (args.corrected ?? '').trim();
+  const corrected = claude === 'almost' && fix !== '' && hasHan(fix)
+    && !sameAnswerWords(fix, args.model) && !sameAnswerWords(fix, args.said) ? fix : null;
+  return { answerFirst: true, accepted: claude === 'correct' || claude === 'acceptable', checking: args.checking, corrected };
+}
+
+/** The label over the card's answer on the question. */
+export const SENTENCE_CHECK_ANSWER = 'The answer';
+/** The small line with Claude's fix of his own wording (≈ Nearly only). */
+export const SENTENCE_CHECK_YOUR_FIX = 'Your wording, fixed:';
+/** Under a miss once the answer is on screen: moving on (it replaces 👁 Show answer) counts as a miss. */
+export const SENTENCE_CHECK_MOVE_ON_NOTE = 'Moving on counts as a miss — Again or Hard suggested.';

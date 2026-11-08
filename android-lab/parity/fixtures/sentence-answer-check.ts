@@ -1,14 +1,15 @@
 /**
  * Sentence answers checked by Claude (shared/study/sentenceAnswerCheck.ts): which answers go to Claude,
  * the request, the verdict mapping (→ the card's verdict, Hard mode's question result, the pass's
- * suggestion), the hold and the words. Writes sentence-answer-check.json; core
+ * suggestion), the hold, what the question shows (the answer first, the verdict after) and the words. Writes sentence-answer-check.json; core
  * SentenceAnswerCheckParityTest asserts SentenceAnswerCheck.kt matches.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   isSentenceAnswer, sentenceAnswerCheckApplies, sentenceAnswerCheckInput, sentenceCheckedVerdict, sentenceCheckOutcome,
-  sentenceCheckDifference, SENTENCE_CHECK_CARD_TYPES, SENTENCE_CHECKING, SENTENCE_CHECK_TYPE_INSTEAD,
+  sentenceCheckDifference, sentenceCheckView, SENTENCE_CHECK_CARD_TYPES, SENTENCE_CHECKING, SENTENCE_CHECK_TYPE_INSTEAD,
+  SENTENCE_CHECK_ANSWER, SENTENCE_CHECK_YOUR_FIX, SENTENCE_CHECK_MOVE_ON_NOTE,
 } from '../../../shared/study/sentenceAnswerCheck';
 import { answerCheckCacheText, ANSWER_CHECK_VERDICTS, type AnswerCheckVerdict } from '../../../shared/lesson/answerCheck';
 import type { AnswerVerdict } from '../../../shared/cards/answer';
@@ -46,7 +47,19 @@ const PAIRS: [string, string][] = [
 const differences = [] as unknown[];
 for (const [said, model] of PAIRS) for (const claude of CLAUDE) differences.push({ said, model, claude, reason: sentenceCheckDifference(said, model, claude) });
 
+// What the question shows (sentenceCheckView): the card's answer + "You said" vs it at once, the verdict after.
+const FIXES: (string | null)[] = [null, '', '我早上喝咖啡，所以上班不困。', ' 我早上喝咖啡是为了上班不困 ', '我早上喝咖啡，因为工作不困。', 'coffee'];
+const views = [] as unknown[];
+for (const applies of [false, true]) for (const checking of [false, true]) for (const claude of CLAUDE) for (const corrected of FIXES) {
+  const said = '我早上喝咖啡，因为工作不困。';
+  const model = '我早上喝咖啡是为了上班不困。';
+  views.push({ applies, checking, claude, corrected, said, model, view: sentenceCheckView({ applies, checking, claude, said, model, corrected }) });
+}
+
 writeFileSync(join(OUT, 'sentence-answer-check.json'), JSON.stringify({
-  sentence, applies, inputs, checked, outcomes, differences,
-  copy: { cardTypes: SENTENCE_CHECK_CARD_TYPES, checking: SENTENCE_CHECKING, typeInstead: SENTENCE_CHECK_TYPE_INSTEAD },
+  sentence, applies, inputs, checked, outcomes, differences, views,
+  copy: {
+    cardTypes: SENTENCE_CHECK_CARD_TYPES, checking: SENTENCE_CHECKING, typeInstead: SENTENCE_CHECK_TYPE_INSTEAD,
+    answer: SENTENCE_CHECK_ANSWER, yourFix: SENTENCE_CHECK_YOUR_FIX, moveOnNote: SENTENCE_CHECK_MOVE_ON_NOTE,
+  },
 }, null, 1));

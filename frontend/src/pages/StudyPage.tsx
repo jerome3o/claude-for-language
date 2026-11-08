@@ -145,7 +145,7 @@ import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
 import {
   hardModeApplies, goodEasyGate, hardModeQuestionResult, hardModeRoundFollows, hardModeGiveUpInPlace,
-  hardModeGaveUpCheer, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
+  hardModeGaveUpCheer, hardModeRevealedNextLabel, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
 } from '@shared/study/hardMode';
 import { HardModeRatings } from '../components/study/HardModeRatings';
 import { questionDifference } from '@shared/study/answerDifference';
@@ -1919,6 +1919,19 @@ export function StudyCard({
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
   /**
+   * On from a sentence answer whose answer is already on screen (shared/study/sentenceAnswerCheck.ts
+   * `sentenceCheckView`): giving up, as 👁 Show answer — Good / Easy greyed, Got it locked — but straight on to
+   * the round (or the answer side): the answer was shown in place already.
+   */
+  const sentenceMoveOn = () => {
+    setGaveUp(true);
+    setHardAtReveal(true);
+    track('study.hard_mode', { action: 'give_up', mode: hardModeSetting, card_type: card.card_type, ...hardWhere });
+    setFeedbackOpen(false);
+    stopAudio();
+    openRoundOrAnswer();
+  };
+  /**
    * ✏️ Type it — a spoken sentence Claude checked: the box, holding what was said, to fix it by hand
    * (then Check: a typed answer, checked afresh).
    */
@@ -3363,6 +3376,11 @@ export function StudyCard({
                     checkingLabel={sentenceCheck.checking ? SENTENCE_CHECKING : undefined}
                     onTypeInstead={sentenceCheck.check && answerWasSpoken && questionResult !== 'right' ? hardTypeInstead : undefined}
                     speak={(text) => playAudio(null, text, API_BASE)}
+                    sentenceView={sentenceCheck.view}
+                    answer={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, english: card.note.english }}
+                    onPlayAnswer={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
+                    onMoveOn={sentenceMoveOn}
+                    moveOnLabel={hardModeRevealedNextLabel(hardModeGiveUpInPlace(gateOn ? roundVisibleCount : 0))}
                   />
                 ) : isTypingCard ? (
                   renderTypingActions()

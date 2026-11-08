@@ -372,6 +372,14 @@ fun CardStage(
     val sentenceCheck: AnswerCheck? = sentenceNow?.check
     /** Claude is reading it: the question shows "Checking your sentence…". */
     val sentenceChecking = sentenceInput != null && sentenceActive && (sentenceNow == null || sentenceNow.checking)
+    /**
+     * What the question shows (core SentenceAnswerCheck.view): the card's answer + "You said" vs it at once, Claude's
+     * verdict loading in under them — never a spinner in their place, never Claude's fix as the answer.
+     */
+    val sentenceView = SentenceAnswerCheck.view(
+        applies = sentenceInput != null, checking = sentenceChecking, claude = sentenceCheck?.verdict,
+        said = answer.trim(), model = note.hanzi, corrected = sentenceCheck?.corrected,
+    )
     /** The verdict the card goes on with: the device's, or Claude's for a sentence it checked. */
     fun cardVerdict(v: AnswerKey.Verdict): AnswerKey.Verdict = if (mcSlots == null) SentenceAnswerCheck.checkedVerdict(v, sentenceCheck?.verdict) else v
 
@@ -427,6 +435,18 @@ fun CardStage(
             return
         }
         showAnswer()
+    }
+
+    /**
+     * On from a sentence answer whose answer is already on screen (core SentenceAnswerCheck.view): giving up, as
+     * 👁 Show answer — Good / Easy greyed, Got it locked — but straight on to the round (or the answer side): the
+     * answer was shown in place already.
+     */
+    fun sentenceMoveOn() {
+        gaveUp = true
+        hardAtReveal = true
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.hard_mode", mapOf("action" to "give_up", "mode" to hardModeSetting, "card_type" to view.card.cardType) + hardWhere)
+        openRoundOrAnswer()
     }
 
     /**
@@ -797,6 +817,11 @@ fun CardStage(
                     checkingLabel = if (sentenceChecking) SentenceAnswerCheck.CHECKING else null,
                     onTypeInstead = if (sentenceCheck != null && answerIsSpoken(answer) && questionResult != "right") ({ hardTypeInstead() }) else null,
                     onPlay = { text -> actions.onPlay(null, text) },
+                    sentenceView = sentenceView,
+                    answer = Triple(note.hanzi, note.pinyin, note.english),
+                    onPlayAnswer = { actions.onPlayWord(true) },
+                    onMoveOn = { sentenceMoveOn() },
+                    moveOnLabel = HardMode.revealedNextLabel(HardMode.giveUpInPlace(if (gateEnabled) sentenceCount else 0)),
                 )
             } else if (!revealed) {
                 if (mcGridUp) {

@@ -5,10 +5,12 @@ import {
 } from '@shared/study/hardMode';
 import { useEffect } from 'react';
 import { studyFeel } from '../../services/studyFeel';
-import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
-import { DifferenceCompare } from './DifferenceCompare';
+import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';import { DifferenceCompare } from './DifferenceCompare';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
-import { SENTENCE_CHECK_TYPE_INSTEAD } from '@shared/study/sentenceAnswerCheck';
+import {
+  SENTENCE_CHECK_ANSWER, SENTENCE_CHECK_MOVE_ON_NOTE, SENTENCE_CHECK_TYPE_INSTEAD, SENTENCE_CHECK_YOUR_FIX, SENTENCE_CHECKING,
+  type SentenceCheckView,
+} from '@shared/study/sentenceAnswerCheck';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import '../lessons/AnswerCheckCard.css';
 import './HardModeFeedback.css';
@@ -43,6 +45,15 @@ export interface HardModeFeedbackProps {
   onTypeInstead?: () => void;
   /** 🔊 on Claude's corrected sentence / alternative. */
   speak?: (text: string) => void;
+  /**
+   * A sentence answer that goes to Claude (`sentenceCheckView`): the card's answer (`answer`) and "You said"
+   * against it show AT ONCE, Claude's verdict loads in below them; its fix of his wording is at most a small line.
+   */
+  sentenceView?: SentenceCheckView | null;
+  /** With `sentenceView`: on from a miss with the answer already on screen (a miss: Again or Hard). */
+  onMoveOn?: () => void;
+  /** The move-on button's words (`hardModeRevealedNextLabel`). */
+  moveOnLabel?: string;
 }
 
 /**
@@ -51,7 +62,7 @@ export interface HardModeFeedbackProps {
  * characters: then it holds with "You said" vs the card, `difference`); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Nothing here gives the answer away.
  */
-export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak }: HardModeFeedbackProps) {
+export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak, sentenceView, onMoveOn, moveOnLabel }: HardModeFeedbackProps) {
   // The check's result you can FEEL (Jerome: "when I get it right on the very first page there's no
   // satisfying haptics … I find myself quite dependent on it"): ✓ Right = a firm double buzz + chime,
   // ✗ / ≈ a short one; checking / unknown / revealed none. Once per result (a Try again remounts it).
@@ -85,6 +96,27 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         </div>
         <p className="hard-feedback-note">{HARD_MODE_REVEALED_NOTE}</p>
       </div>
+    );
+  }
+  if (sentenceView?.answerFirst && answer && said) {
+    return (
+      <SentenceAnswerFirst
+        result={result}
+        view={sentenceView}
+        answer={answer}
+        said={said}
+        difference={difference?.reason ?? null}
+        check={check ?? null}
+        checkingLabel={checkingLabel ?? SENTENCE_CHECKING}
+        roundFollows={roundFollows}
+        moveOnLabel={moveOnLabel ?? HARD_MODE_SHOW_ANSWER}
+        onPlayAnswer={onPlayAnswer}
+        onTryAgain={onTryAgain}
+        onMoveOn={onMoveOn ?? onShowAnswer}
+        onNext={onNext}
+        onTypeInstead={onTypeInstead}
+        speak={speak}
+      />
     );
   }
   if (result === 'checking') {
@@ -168,6 +200,111 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         </button>
       </div>
       <p className="hard-feedback-note">{HARD_MODE_MISS_NOTE}</p>
+    </div>
+  );
+}
+
+/**
+ * A sentence answer Claude checks (shared/study/sentenceAnswerCheck.ts `sentenceCheckView`; docs/STUDY_SESSION.md
+ * "Sentence answers checked by Claude"): the card's answer first — hanzi big with ▶, pinyin, English — and
+ * "You said" against it, character by character, AT ONCE; Claude's verdict loads in under them (a slim
+ * "Checking your sentence…" row, then its chip, headline and tips), and its fix of his own wording is at most a
+ * small labelled line. Offline / failed: the device's verdict under the same answer + diff.
+ */
+function SentenceAnswerFirst({ result, view, answer, said, difference, check, checkingLabel, roundFollows, moveOnLabel, onPlayAnswer, onTryAgain, onMoveOn, onNext, onTypeInstead, speak }: {
+  result: HardModeQuestionResult;
+  view: SentenceCheckView;
+  answer: { hanzi: string; pinyin: string | null; english: string };
+  said: string;
+  difference: DifferenceReason | null;
+  check: AnswerCheck | null;
+  checkingLabel: string;
+  roundFollows: boolean;
+  moveOnLabel: string;
+  onPlayAnswer?: () => void;
+  onTryAgain: () => void;
+  onMoveOn: () => void;
+  onNext: () => void;
+  onTypeInstead?: () => void;
+  speak?: (text: string) => void;
+}) {
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  const miss = result === 'wrong' || result === 'close';
+  return (
+    <div
+      className={`hard-feedback hard-feedback--${result} hard-feedback--answer-first`}
+      data-testid="hard-feedback"
+      data-result={result}
+      data-answer-first="true"
+      data-held={result === 'right' && difference ? 'true' : undefined}
+      aria-live="polite"
+    >
+      <div className="hard-feedback-check" onClick={(e) => e.stopPropagation()}>
+        <DifferenceCompare
+          said={said}
+          model={answer.hanzi}
+          modelPinyin={answer.pinyin}
+          accepted={view.accepted}
+          modelLabel={SENTENCE_CHECK_ANSWER}
+          onPlayModel={onPlayAnswer}
+          answerFirst={{ english: answer.english }}
+        />
+        {view.checking ? (
+          <div className="answer-check checking hard-feedback-checking-row" role="status" data-testid="hard-sentence-checking">
+            <span className="answer-check-dot" aria-hidden="true" /> {checkingLabel}
+          </div>
+        ) : check ? (
+          <div data-testid="hard-sentence-check">
+            <AnswerCheckBody check={check} answer={said} speak={speak} hideFix />
+            {view.corrected && (
+              <p className="hard-feedback-your-fix" data-testid="hard-sentence-your-fix">
+                <span className="hard-feedback-your-fix-label">{SENTENCE_CHECK_YOUR_FIX}</span>{' '}
+                <span lang="zh-CN">{view.corrected}</span>
+                {speak && (
+                  <button type="button" className="answer-check-icon" onClick={stop(() => speak(view.corrected!))} aria-label="Play your wording, fixed">🔊</button>
+                )}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="hard-feedback-title hard-feedback-verdict-line">
+            {result === 'unknown' ? HARD_MODE_UNKNOWN : result === 'right' && difference ? DIFFERENCE_TITLE[difference] : HARD_MODE_RESULT[result as 'right' | 'close' | 'wrong']}
+          </p>
+        )}
+      </div>
+      <div className="hard-feedback-row">
+        {result === 'right' ? (
+          <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
+            {hardModeNextLabel(roundFollows)} →
+          </button>
+        ) : result === 'unknown' ? (
+          <>
+            <button type="button" className="btn btn-secondary" onClick={stop(onTryAgain)} data-testid="hard-try-again">
+              <span aria-hidden="true">🔁</span> {HARD_MODE_TRY_AGAIN}
+            </button>
+            <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
+              {hardModeNextLabel(roundFollows)} →
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" className="btn btn-secondary" onClick={stop(onMoveOn)} data-testid="hard-show-answer">
+              {moveOnLabel} ›
+            </button>
+            {miss && onTypeInstead && (
+              <button type="button" className="btn btn-secondary" onClick={stop(onTypeInstead)} data-testid="hard-type-instead">
+                <span aria-hidden="true">✏️</span> {SENTENCE_CHECK_TYPE_INSTEAD}
+              </button>
+            )}
+            {miss && (
+              <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onTryAgain)} data-testid="hard-try-again" autoFocus>
+                <span aria-hidden="true">🔁</span> {HARD_MODE_TRY_AGAIN}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {miss && <p className="hard-feedback-note">{SENTENCE_CHECK_MOVE_ON_NOTE}</p>}
     </div>
   );
 }

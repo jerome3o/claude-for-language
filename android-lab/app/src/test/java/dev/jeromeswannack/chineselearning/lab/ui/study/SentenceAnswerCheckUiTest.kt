@@ -113,7 +113,15 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
             suspend { AnswerCheckResult(acceptable.copy(verdict = "correct", headline = "Spot on."), cached = false) },
         ))
         card { replies.removeFirst()() }
-        // Checking…: Show answer only.
+        // No waiting: the card's answer (hanzi, pinyin, English) and "You said" against it at once, a slim
+        // "Checking your sentence…" row under them — never a spinner in their place.
+        compose.onNodeWithTag(HardModeTags.ANSWER_FIRST, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(SentenceAnswerCheck.ANSWER.uppercase(), useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(note.pinyin!!, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.MODEL_ENGLISH, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.SENTENCE_CHECKING, useUnmergedTree = true).assertExists()
         compose.onNodeWithText(SentenceAnswerCheck.CHECKING, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.TRY_AGAIN))
         assertEquals(1, asked.size)
@@ -129,7 +137,11 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         compose.onNodeWithText("~ Almost", useUnmergedTree = true).assertExists()
         compose.onNodeWithText(almost.headline, useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Also natural: ", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(HardMode.MISS_NOTE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(SentenceAnswerCheck.MOVE_ON_NOTE, useUnmergedTree = true).assertExists()
+        // The card's answer stays THE answer; Claude's fix (the card's sentence again) isn't shown as a second answer.
+        compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
+        assertEquals(0, count(HardModeTags.SENTENCE_YOUR_FIX))
+        assertEquals(0, count(HardModeTags.SENTENCE_CHECKING))
         assertEquals(0, count(CARD_BACK_TAG))
         compose.onNodeWithTag(HardModeTags.TYPE_INSTEAD, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(HardModeTags.SHOW_ANSWER, useUnmergedTree = true).assertExists()
@@ -176,14 +188,40 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         val fail: suspend (AnswerCheckInput) -> AnswerCheckResult = { throw AnswerCheckUnavailable("HTTP 502") }
         card(reply = fail)
         compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
+        // The answer and the diff stay.
+        compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.SENTENCE_CHECK))
         assertEquals(0, count(HardModeTags.TYPE_INSTEAD))
+    }
+
+    @Test fun aFixOfHisOwnWordingIsASmallLabelledLine() {
+        val fix = "我早上喝咖啡，所以上班不困。"
+        card { AnswerCheckResult(almost.copy(corrected = fix), cached = false) }
+        compose.onNodeWithTag(HardModeTags.SENTENCE_YOUR_FIX, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText(SentenceAnswerCheck.YOUR_FIX, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun movingOnFromAMissGoesStraightOnAsAGiveUp() {
+        card { AnswerCheckResult(almost, cached = false) }
+        compose.onNodeWithTag(HardModeTags.SHOW_ANSWER, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        // Straight to the round (the answer was on screen already) — no second "The answer" panel.
+        assertEquals(0, count(HardModeTags.REVEALED_ANSWER))
+        compose.onNodeWithTag(SentenceRoundTags.ROUND, useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test fun offlineNeverAsks() {
         card(online = false) { AnswerCheckResult(almost, cached = false) }
         compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
         assertEquals(0, asked.size)
+    }
+
+    @Test fun shotCheckingLight() {
+        card { CompletableDeferred<AnswerCheckResult>().await() }
+        compose.mainClock.advanceTimeBy(600)
+        compose.onRoot().captureRoboImage("screenshots/sentence-check-00-checking-light.png")
     }
 
     @Test fun shotAlmostDark() {

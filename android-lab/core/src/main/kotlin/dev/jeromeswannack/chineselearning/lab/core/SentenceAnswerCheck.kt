@@ -55,6 +55,32 @@ object SentenceAnswerCheck {
     fun difference(said: String, model: String, claude: String?): String? =
         AnswerDifference.roundTake("translate", said, model, SpokenAnswerResult.State.WRONG, claude)
 
+    /**
+     * What the question shows for a sentence answer that goes to Claude (port of SentenceCheckView; Jerome: "we see
+     * the correct answer straight away and we see the differences straight away, and then it loads the delta" —
+     * and "it also corrects my sentence instead of giving me the model answer"): [answerFirst] = the CARD'S answer
+     * (hanzi, pinyin, English) + "You said" vs it at once; [accepted] = the comparison's marks yellow (else red);
+     * [checking] = the slim "Checking your sentence…" row under them; [corrected] = Claude's fix of HIS wording as a
+     * small labelled line (≈ Nearly only, never the card's answer or what he said).
+     */
+    data class View(val answerFirst: Boolean, val accepted: Boolean, val checking: Boolean, val corrected: String?)
+
+    /** Port of sentenceCheckView(). */
+    fun view(applies: Boolean, checking: Boolean, claude: String?, said: String, model: String, corrected: String? = null): View {
+        if (!applies) return View(answerFirst = false, accepted = false, checking = false, corrected = null)
+        val verdict = if (checking) null else claude
+        val fix = (corrected ?: "").trim()
+        val shown = if (verdict == "almost" && fix.isNotEmpty() && LessonAnswerCheck.hasHan(fix) &&
+            !AnswerDifference.sameWords(fix, model) && !AnswerDifference.sameWords(fix, said)) fix else null
+        return View(answerFirst = true, accepted = verdict == "correct" || verdict == "acceptable", checking = checking, corrected = shown)
+    }
+
     const val CHECKING = "Checking your sentence…"
     const val TYPE_INSTEAD = "Type it"
+    /** The label over the card's answer on the question. */
+    const val ANSWER = "The answer"
+    /** The small line with Claude's fix of his own wording (≈ Nearly only). */
+    const val YOUR_FIX = "Your wording, fixed:"
+    /** Under a miss once the answer is on screen: moving on counts as a miss. */
+    const val MOVE_ON_NOTE = "Moving on counts as a miss — Again or Hard suggested."
 }
