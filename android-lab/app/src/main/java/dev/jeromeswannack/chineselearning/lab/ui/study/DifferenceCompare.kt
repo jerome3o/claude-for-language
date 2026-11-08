@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -37,6 +38,7 @@ object DifferenceTags {
     const val PLAY_MODEL = "difference-play-model"
     const val TITLE = "round-difference-title"
     const val HELD = "difference-held"
+    const val MODEL_ENGLISH = "difference-model-english"
 }
 
 /**
@@ -54,13 +56,53 @@ fun DifferenceCompare(
     modelLabel: String = AnswerDifference.MODEL,
     onPlayModel: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    /**
+     * A sentence answer Claude checks (core SentenceAnswerCheck.view): the model answer FIRST and big — [modelLabel],
+     * the hanzi marked, ▶, its pinyin and this English — then "You said" against it.
+     */
+    answerFirstEnglish: String? = null,
+    answerFirst: Boolean = false,
 ) {
     val lines = remember(said, model, accepted) { AnswerDifference.lines(said, model, accepted) }
     val saidPinyin = remember(said) { tidyYouSaidPinyin(devicePinyinLine(said)) }
     val pinyin = remember(model, modelPinyin) { modelPinyin?.trim()?.ifEmpty { null } ?: tidyYouSaidPinyin(devicePinyinLine(model)) }
     Column(modifier.fillMaxWidth().padding(vertical = 2.dp).testTag(DifferenceTags.COMPARE), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        CompareLine(AnswerDifference.SAID, lines.said, saidPinyin, DifferenceTags.SAID, null)
-        CompareLine(modelLabel, lines.model, pinyin, DifferenceTags.MODEL, onPlayModel)
+        if (answerFirst) {
+            AnswerFirstBlock(modelLabel, lines.model, pinyin, answerFirstEnglish, onPlayModel)
+            CompareLine(AnswerDifference.SAID, lines.said, saidPinyin, DifferenceTags.SAID, null)
+        } else {
+            CompareLine(AnswerDifference.SAID, lines.said, saidPinyin, DifferenceTags.SAID, null)
+            CompareLine(modelLabel, lines.model, pinyin, DifferenceTags.MODEL, onPlayModel)
+        }
+    }
+}
+
+/** The model answer first and big (the web's `difference-compare-answer`): label, hanzi marked + ▶, pinyin, English. */
+@Composable
+private fun AnswerFirstBlock(label: String, cells: List<SpokenAnswerResult.Cell>, pinyin: String, english: String?, onPlay: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth().testTag(DifferenceTags.MODEL), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label.uppercase(), color = Lab.colors.muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) { SpokenMarkedCells(cells, 26.sp, "${DifferenceTags.MODEL}-hanzi") }
+            if (onPlay != null) PlayModelButton(cells, onPlay)
+        }
+        if (pinyin.isNotBlank()) Text(pinyin, color = Lab.colors.muted, fontSize = 16.sp)
+        if (!english.isNullOrBlank()) Text(english, Modifier.testTag(DifferenceTags.MODEL_ENGLISH), color = Lab.colors.ink, fontSize = 15.sp)
+        Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(1.dp).background(Lab.colors.cardBorder))
+    }
+}
+
+@Composable
+private fun PlayModelButton(cells: List<SpokenAnswerResult.Cell>, onPlay: () -> Unit) {
+    val text = cells.joinToString("") { it.char }
+    Box(
+        Modifier.size(44.dp).bouncyClickable(true, 0.9f, role = Role.Button, onClick = onPlay)
+            .semantics { contentDescription = "Play: $text" }.testTag(DifferenceTags.PLAY_MODEL),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(Lab.colors.faint), contentAlignment = Alignment.Center) {
+            Text("▶", color = Lab.colors.ink, fontSize = 14.sp)
+        }
     }
 }
 
@@ -72,18 +114,7 @@ private fun CompareLine(label: String, cells: List<SpokenAnswerResult.Cell>, pin
             SpokenMarkedCells(cells, 20.sp, "$tag-hanzi")
             if (pinyin.isNotBlank()) Text(pinyin, color = Lab.colors.muted, fontSize = 13.sp)
         }
-        if (onPlay != null) {
-            val text = cells.joinToString("") { it.char }
-            Box(
-                Modifier.size(44.dp).bouncyClickable(true, 0.9f, role = Role.Button, onClick = onPlay)
-                    .semantics { contentDescription = "Play: $text" }.testTag(DifferenceTags.PLAY_MODEL),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(Lab.colors.faint), contentAlignment = Alignment.Center) {
-                    Text("▶", color = Lab.colors.ink, fontSize = 14.sp)
-                }
-            }
-        }
+        if (onPlay != null) PlayModelButton(cells, onPlay)
     }
 }
 

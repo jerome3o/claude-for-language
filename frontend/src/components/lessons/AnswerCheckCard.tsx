@@ -44,7 +44,7 @@ export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk, askLabel
   return <AnswerCheckBody check={state.check} answer={answer} speak={speak} onRetry={onRetry} onAsk={onAsk} askLabel={askLabel} />;
 }
 
-export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel, compact, afterHead }: {
+export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel, compact, afterHead, hideFix }: {
   check: AnswerCheck;
   answer: string;
   speak?: (text: string) => void;
@@ -55,6 +55,11 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel
   compact?: boolean;
   /** Under the chip + headline (Hard mode's "You said" vs the model answer). */
   afterHead?: ReactNode;
+  /**
+   * No red-pen fix of his sentence (Hard mode's sentence check: the card's answer is the answer, shown above;
+   * the fix is at most a small labelled line there — shared/study/sentenceAnswerCheck.ts `sentenceCheckView`).
+   */
+  hideFix?: boolean;
 }) {
   const chip = answerCheckChip(check.verdict, !!check.cleaned);
   return (
@@ -82,7 +87,7 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel
         </ul>
       )}
       {check.cleaned && <CleanerVersion check={check} speak={speak} />}
-      {check.corrected && !check.cleaned && (
+      {check.corrected && !check.cleaned && !hideFix && (
         <div className="answer-check-fix">
           <div className="answer-check-fix-line" lang="zh-CN" onClick={speak ? () => speak(check.corrected) : undefined}>
             <CorrectionDiffLine original={answer} corrected={check.corrected} />

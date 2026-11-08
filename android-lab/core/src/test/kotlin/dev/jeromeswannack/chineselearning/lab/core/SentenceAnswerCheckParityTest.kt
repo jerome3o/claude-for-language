@@ -90,5 +90,29 @@ class SentenceAnswerCheckParityTest {
         assertEquals(copy["cardTypes"]!!.jsonArray.map { it.str }, SentenceAnswerCheck.CARD_TYPES)
         assertEquals(copy["checking"]!!.str, SentenceAnswerCheck.CHECKING)
         assertEquals(copy["typeInstead"]!!.str, SentenceAnswerCheck.TYPE_INSTEAD)
+        assertEquals(copy["answer"]!!.str, SentenceAnswerCheck.ANSWER)
+        assertEquals(copy["yourFix"]!!.str, SentenceAnswerCheck.YOUR_FIX)
+        assertEquals(copy["moveOnNote"]!!.str, SentenceAnswerCheck.MOVE_ON_NOTE)
+    }
+
+    @Test
+    fun whatTheQuestionShows() {
+        val cases = fixture()["views"]!!.jsonArray
+        assertTrue(cases.size > 100)
+        var fixes = 0
+        for (c in cases) {
+            val o = c.jsonObject
+            val want = o["view"]!!.jsonObject
+            val got = SentenceAnswerCheck.view(
+                o["applies"]!!.jsonPrimitive.boolean, o["checking"]!!.jsonPrimitive.boolean, o["claude"]!!.str,
+                o["said"]!!.str!!, o["model"]!!.str!!, o["corrected"]!!.str,
+            )
+            assertEquals(want["answerFirst"]!!.jsonPrimitive.boolean, got.answerFirst, o.toString())
+            assertEquals(want["accepted"]!!.jsonPrimitive.boolean, got.accepted, o.toString())
+            assertEquals(want["checking"]!!.jsonPrimitive.boolean, got.checking, o.toString())
+            assertEquals(want["corrected"]!!.str, got.corrected, o.toString())
+            if (got.corrected != null) fixes++
+        }
+        assertTrue(fixes > 0)
     }
 }

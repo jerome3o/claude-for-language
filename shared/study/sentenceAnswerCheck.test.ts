@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isSentenceAnswer, sentenceAnswerCheckApplies, sentenceAnswerCheckInput, sentenceCheckDifference, sentenceCheckedVerdict,
-  sentenceCheckOutcome,
+  sentenceCheckOutcome, sentenceCheckView,
 } from './sentenceAnswerCheck';
 import { checkSpokenAnswer } from '../cards/answer';
 import { answerCheckCacheText } from '../lesson/answerCheck';
@@ -76,5 +76,34 @@ describe('sentence answers checked by Claude', () => {
     expect(sentenceCheckDifference(MODEL, MODEL, 'correct')).toBeNull();
     expect(sentenceCheckDifference(SAID, MODEL, 'almost')).toBeNull();
     expect(sentenceCheckDifference(SAID, MODEL, null)).toBeNull();
+  });
+});
+
+describe('the answer first, the verdict after (sentenceCheckView)', () => {
+  const base = { said: SAID, model: MODEL };
+  it('not a sentence Claude checks: nothing changes', () => {
+    expect(sentenceCheckView({ ...base, applies: false, checking: true, claude: null })).toEqual({ answerFirst: false, accepted: false, checking: false, corrected: null });
+  });
+  it('while checking: the answer + diff at once, red marks, the inline checking row', () => {
+    expect(sentenceCheckView({ ...base, applies: true, checking: true, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: true, corrected: null });
+  });
+  it('offline / failed: the answer + diff stay, no checking row', () => {
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: null })).toEqual({ answerFirst: true, accepted: false, checking: false, corrected: null });
+  });
+  it('correct / acceptable: accepted marks', () => {
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'acceptable' }).accepted).toBe(true);
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'correct' }).accepted).toBe(true);
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'wrong' }).accepted).toBe(false);
+  });
+  it("Claude's fix of his wording: a small line for ≈ Nearly only, never the card's answer or what he said", () => {
+    const fix = '我早上喝咖啡，所以上班不困。';
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: fix }).corrected).toBe(fix);
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: ` ${fix} ` }).corrected).toBe(fix);
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: MODEL }).corrected).toBeNull();
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: '我早上喝咖啡是为了上班不困' }).corrected).toBeNull();
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: SAID }).corrected).toBeNull();
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'wrong', corrected: fix }).corrected).toBeNull();
+    expect(sentenceCheckView({ ...base, applies: true, checking: false, claude: 'almost', corrected: '' }).corrected).toBeNull();
+    expect(sentenceCheckView({ ...base, applies: true, checking: true, claude: 'almost', corrected: fix }).corrected).toBeNull();
   });
 });
