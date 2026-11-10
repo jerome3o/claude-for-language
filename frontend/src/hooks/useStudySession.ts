@@ -41,7 +41,7 @@ import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { readBurySiblings } from '../services/burySiblings';
 import { markDailyActivity, getLocalDateString } from '../api/client';
 import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
-import { isLeadCard, pickBumpedCard } from '@shared/decks';
+import { isLeadCard, pickBumpedCard, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
 import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
@@ -55,17 +55,18 @@ function pickRandom<T>(arr: T[]): T | null {
 
 // Helper: Pick a new card using priority tiers:
 //   1. Unreviewed note + its lead card: hanzi_to_meaning (user sees hanzi first for a brand-new
-//      word), or meaning_to_hanzi for a word made of characters he knows (shared/decks/lead-card.ts)
+//      word), audio_to_hanzi with "Start new words by ear", or meaning_to_hanzi for a word made
+//      of characters he knows (shared/decks/lead-card.ts)
 //   2. Unreviewed note (any type)
-//   3. Reviewed note + hanzi_to_meaning
+//   3. Reviewed note + hanzi_to_meaning (audio_to_hanzi with "Start new words by ear")
 //   4. Any new card (fallback)
-export function pickPrioritizedNewCard(newCards: LocalCard[], reviewedNoteIds: Set<string>, knownCharacterNoteIds?: ReadonlySet<string>): LocalCard | null {
+export function pickPrioritizedNewCard(newCards: LocalCard[], reviewedNoteIds: Set<string>, leadCards?: LeadCardsArg, newWordsByEar = false): LocalCard | null {
   if (newCards.length === 0) return null;
-  const tier1 = newCards.filter(c => !reviewedNoteIds.has(c.note_id) && isLeadCard(c, knownCharacterNoteIds));
+  const tier1 = newCards.filter(c => !reviewedNoteIds.has(c.note_id) && isLeadCard(c, leadCards));
   if (tier1.length > 0) return pickRandom(tier1);
   const tier2 = newCards.filter(c => !reviewedNoteIds.has(c.note_id));
   if (tier2.length > 0) return pickRandom(tier2);
-  const tier3 = newCards.filter(c => c.card_type === 'hanzi_to_meaning');
+  const tier3 = newCards.filter(c => c.card_type === (newWordsByEar ? EAR_LEAD_CARD_TYPE : 'hanzi_to_meaning'));
   if (tier3.length > 0) return pickRandom(tier3);
   return pickRandom(newCards);
 }
@@ -163,8 +164,10 @@ export function selectNextItem(
   lastRatedReaderId?: string,
   /** "⚡ Study it today" pocket cards (shared/decks/bumps.ts): they come first. */
   bumpedCardIds?: ReadonlySet<string>,
-  /** Unseen notes that start with meaning_to_hanzi (shared/decks/lead-card.ts). */
-  knownCharacterNoteIds?: ReadonlySet<string>,
+  /** Which card each unseen note starts with (shared/decks/lead-card.ts; a Set = the notes starting with meaning_to_hanzi). */
+  leadCards?: LeadCardsArg,
+  /** "Start new words by ear": a started word's listening card before its other new cards. */
+  newWordsByEar = false,
 ): NextStudyItem | null {
   const now = Date.now();
 
@@ -206,7 +209,7 @@ export function selectNextItem(
     const random = Math.random();
 
     if (random < newProbability && newCards.length > 0) {
-      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds, knownCharacterNoteIds);
+      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds, leadCards, newWordsByEar);
       if (card) return { card };
     }
     if (reviewCards.length > 0) {
@@ -214,7 +217,7 @@ export function selectNextItem(
       if (card) return { card };
     }
     if (newCards.length > 0) {
-      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds, knownCharacterNoteIds);
+      const card = pickPrioritizedNewCard(newCards, reviewedNoteIds, leadCards, newWordsByEar);
       if (card) return { card };
     }
   }
@@ -366,8 +369,10 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
   // "⚡ Study it today" pocket cards still to show this session (shown first; a card
   // leaves once rated). From the queue load (shared/decks/bumps.ts).
   const bumpedCardIdsRef = useRef<Set<string>>(new Set());
-  // Unseen notes whose first card is meaning_to_hanzi (every character known, shared/decks/lead-card.ts).
-  const knownCharacterNoteIdsRef = useRef<ReadonlySet<string>>(new Set());
+  // Which card each unseen note starts with when not hanzi_to_meaning ("by ear" / known characters,
+  // shared/decks/lead-card.ts), and whether started words' listening cards come first.
+  const leadCardsRef = useRef<LeadCardsArg>(new Map());
+  const newWordsByEarRef = useRef(false);
   const [bumpedCardIds, setBumpedCardIds] = useState<ReadonlySet<string>>(new Set());
 
   // Single-level undo (like Anki): snapshot of the state before the last rating. Kept for
@@ -406,7 +411,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       ]);
       // A failed load used to fall through to an empty queue — "All Done" while
       // Home counted cards. Try once more before giving up.
-      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, knownCharacterNoteIds, seenCharacters }, dueReaders, todaysGrammar] = await load().catch(err => {
+      const [{ dueCards, counts, reviewedNoteIds: reviewedIds, bumpedCardIds: bumpedIds, leadCards, newWordsByEar, seenCharacters }, dueReaders, todaysGrammar] = await load().catch(err => {
         console.warn('[useStudySession] Queue load failed, retrying once:', err);
         return new Promise<Awaited<ReturnType<typeof load>>>((resolve, reject) => setTimeout(() => load().then(resolve, reject), 300));
       });
@@ -417,7 +422,8 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       reviewedNoteIdsRef.current = reviewedIds;
       bumpedCardIdsRef.current = new Set(bumpedIds);
       setBumpedCardIds(new Set(bumpedIds));
-      knownCharacterNoteIdsRef.current = knownCharacterNoteIds ?? new Set();
+      leadCardsRef.current = leadCards ?? new Map();
+      newWordsByEarRef.current = !!newWordsByEar;
       // The new-character shimmer reads the same seen set (services/newCharacters.ts).
       if (seenCharacters) primeSeenCharacters(seenCharacters);
       initializedRef.current = true;
@@ -649,7 +655,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       resumeTargetRef.current = null;
       setResume(null);
     }
-    const selection = selectNextItem(queue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
 
     if (selection && await presentSelection(selection)) return;
 
@@ -871,7 +877,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
     // Select the next item synchronously from the new queues
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, cardId, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
 
     let presented = false;
     if (selection) {
@@ -970,7 +976,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       }
 
       const updates = { readerQueue: newReaderQueue };
-      const selection = selectNextItem(queue, newReaderQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+      const selection = selectNextItem(queue, newReaderQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, reader.id, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
       if (selection && await presentSelection(selection, updates)) return;
 
       const delayed = await findDelayedLearningCard();
@@ -1000,7 +1006,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       syncService.syncEvents().catch(console.error);
     }
 
-    const selection = selectNextItem(queue, readerQueue, null, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    const selection = selectNextItem(queue, readerQueue, null, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
     if (selection && await presentSelection(selection)) return;
 
     const delayed = await findDelayedLearningCard();
@@ -1146,7 +1152,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     const newRecentNoteIds = recentNoteIds.filter(id => id !== noteId);
     const updates = { queue: newQueue, recentNoteIds: newRecentNoteIds };
 
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, newRecentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
     if (selection && await presentSelection(selection, updates)) return;
 
     // Nothing in the queues — check for delayed learning cards in IndexedDB
@@ -1186,7 +1192,7 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
       applyQueueUpdates(updates);
       return;
     }
-    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, knownCharacterNoteIdsRef.current);
+    const selection = selectNextItem(newQueue, readerQueue, grammarLesson, recentNoteIds, reviewedNoteIdsRef.current, undefined, undefined, bumpedCardIdsRef.current, leadCardsRef.current, newWordsByEarRef.current);
     if (selection && await presentSelection(selection, updates)) return;
     const delayed = await findDelayedLearningCard();
     if (delayed && !ids.has(delayed.id) && await presentCard(delayed, updates)) return;

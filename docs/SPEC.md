@@ -67,6 +67,10 @@ Rating options after each card:
 - "Study All" - pulls due cards from all decks
 - "Study Deck" - pulls due cards from specific deck
 - Option to include new cards (cards never studied)
+- **Start new words by ear** (Settings → New cards, on by default): a brand-new word is introduced
+  with its listening card (hear it, write it), and a started word's listening card comes before its
+  other new cards — first for the words already read well. Only which card comes first changes,
+  never which words or how many (docs/STUDY_SESSION.md)
 
 #### During Study
 1. Card front shown (hanzi, english, or audio depending on type)
@@ -112,6 +116,9 @@ After completing a study session:
   (net — a week can dip below zero when cards lapse; the current week is drawn fainter, "so far"),
   tap a week for "Week of 6 Oct · +38 characters · +61 words", and the pace of the last 4 weeks
   ("≈ 42 words / week", ↑ / ↓ vs the 4 weeks before)
+- Words known by reading vs by ear ("1,240 by reading · 610 by ear": known words whose
+  characters → meaning card is known vs whose audio → characters card is known), with a one-line
+  hint while the ear lags far behind
 
 ### 7. AI Card Generation
 

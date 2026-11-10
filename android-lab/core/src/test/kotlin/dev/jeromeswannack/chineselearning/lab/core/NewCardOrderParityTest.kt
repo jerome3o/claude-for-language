@@ -36,6 +36,7 @@ class NewCardOrderParityTest {
         o["sentences_last"]!!.jsonPrimitive.boolean,
         o["known_characters_english_first"]?.jsonPrimitive?.boolean ?: true,
         o["everyday_first"]?.jsonPrimitive?.boolean ?: true,
+        o["new_words_by_ear"]?.jsonPrimitive?.boolean ?: true,
     )
 
     @Test
@@ -54,6 +55,9 @@ class NewCardOrderParityTest {
         val everydayOff = NewCardOrder.DEFAULT.copy(everydayFirst = false)
         assertEquals(everydayOff, NewCardOrder.parse(everydayOff.toJson()))
         assertTrue(cases.any { c -> c["raw"]!!.toString().contains("everyday_first") })
+        val earOff = NewCardOrder.DEFAULT.copy(newWordsByEar = false)
+        assertEquals(earOff, NewCardOrder.parse(earOff.toJson()))
+        assertTrue(cases.any { c -> c["raw"]!!.toString().contains("new_words_by_ear") })
     }
 
     @Test
@@ -67,6 +71,11 @@ class NewCardOrderParityTest {
         assertEquals(
             Triple(known["key"]!!.jsonPrimitive.content, known["label"]!!.jsonPrimitive.content, known["hint"]!!.jsonPrimitive.content),
             NewCardOrder.KNOWN_CHARACTERS_OPTION.let { Triple(it.key, it.label, it.hint) },
+        )
+        val ear = fixture["byEarOption"]!!.jsonObject
+        assertEquals(
+            Triple(ear["key"]!!.jsonPrimitive.content, ear["label"]!!.jsonPrimitive.content, ear["hint"]!!.jsonPrimitive.content),
+            NewCardOrder.BY_EAR_OPTION.let { Triple(it.key, it.label, it.hint) },
         )
     }
 

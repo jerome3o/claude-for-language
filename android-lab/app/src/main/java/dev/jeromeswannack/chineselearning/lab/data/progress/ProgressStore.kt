@@ -89,8 +89,9 @@ class ProgressStore(private val db: LabDatabase) {
             val notes = r.query("SELECT id, hanzi FROM notes").use { c ->
                 ArrayList<KnownNote>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownNote(c.getString(0), c.getString(1) ?: "") }
             }
-            val cards = r.query("SELECT id, noteId FROM cards").use { c ->
-                ArrayList<KnownCard>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownCard(c.getString(0), c.getString(1)) }
+            // card type: words known by reading (hanzi_to_meaning) vs by ear (audio_to_hanzi).
+            val cards = r.query("SELECT id, noteId, cardType FROM cards").use { c ->
+                ArrayList<KnownCard>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownCard(c.getString(0), c.getString(1), c.getString(2) ?: "") }
             }
             val events = r.query("SELECT id, cardId, rating, reviewedAt FROM review_events").use { c ->
                 ArrayList<KnownEvent>(c.count.coerceAtLeast(0)).also { while (c.moveToNext()) it += KnownEvent(c.getString(0), c.getString(1), c.getInt(2), c.getString(3)) }

@@ -80,7 +80,7 @@ export async function loadKnownProgress(nowMs = Date.now()): Promise<KnownProgre
   ]);
   const input: KnownInput = {
     notes: notes.map((n) => ({ id: n.id, hanzi: n.hanzi })),
-    cards: cards.map((c) => ({ id: c.id, note_id: c.note_id })),
+    cards: cards.map((c) => ({ id: c.id, note_id: c.note_id, card_type: c.card_type })),
     events: [
       ...events.map((e): KnownEventInput => ({ id: e.id, card_id: e.card_id, rating: e.rating, reviewed_at: e.reviewed_at })),
       // "Forget this card": the card is NEW again from then (not known, not seen).

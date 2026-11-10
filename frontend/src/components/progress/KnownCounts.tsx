@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  weekDayLabel, weekLabel, signedCount, paceLabel, paceTrendLabel,
+  weekDayLabel, weekLabel, signedCount, paceLabel, paceTrendLabel, wordSkillsLine, earLagHint, type WordSkills,
   type KnownProgress, type KnownPoint, type KnownCounts, type KnownRate, type KnownChartMode, type SeriesPace, type WeekGain,
 } from '@shared/progress';
 import {
@@ -81,6 +81,8 @@ export function KnownCountsView({ data, explain, onToggleExplain, initialMode, t
   return (
     <section className="known-section">
       <KnownHeadline counts={data} explain={explain} onToggleExplain={onToggleExplain} />
+      {/* A result cached before by reading / by ear existed has no words_by_skill: skip the line until it is recomputed. */}
+      {(data as Partial<KnownProgress>).words_by_skill && <WordSkillsRow skills={data.words_by_skill} />}
       {showChart && rate && <KnownModeToggle mode={mode} onChange={choose} />}
       {showChart && (mode === 'rate' && rate
         ? <KnownRateView rate={rate} tzOffsetMinutes={offset} />
@@ -135,6 +137,20 @@ export function KnownHeadline({ counts, explain, onToggleExplain, subject = 'you
         </p>
       )}
     </>
+  );
+}
+
+/** "1,240 by reading · 610 by ear" — the known words whose reading / listening card is known — and a hint when the ear lags. */
+export function WordSkillsRow({ skills }: { skills: WordSkills }) {
+  if (skills.reading + skills.ear === 0) return null;
+  const hint = earLagHint(skills);
+  return (
+    <div className="known-skills" data-testid="known-skills">
+      <p className="known-skills-line" title="Words whose reading card (characters → meaning) / listening card (audio → characters) you've remembered for 3+ weeks">
+        {wordSkillsLine(skills)}
+      </p>
+      {hint && <p className="known-skills-hint" data-testid="known-skills-hint">{hint}</p>}
+    </div>
   );
 }
 

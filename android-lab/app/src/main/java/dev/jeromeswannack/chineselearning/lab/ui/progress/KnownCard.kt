@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -61,6 +62,8 @@ import dev.jeromeswannack.chineselearning.lab.core.KnownCounts
 import dev.jeromeswannack.chineselearning.lab.core.KnownRate
 import dev.jeromeswannack.chineselearning.lab.core.KnownPoint
 import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.Known
+import dev.jeromeswannack.chineselearning.lab.core.WordSkills
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabCard
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -140,6 +143,8 @@ fun KnownCard(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
             }
+            val skills = known?.wordsBySkill
+            if (skills != null && skills.reading + skills.ear > 0) WordSkillsRow(skills)
             if (known != null && known.history.size >= 2) {
                 val hasRate = rate != null && rate.weeks.isNotEmpty()
                 if (hasRate) {
@@ -162,6 +167,25 @@ fun KnownCard(
                 Spacer(Modifier.height(8.dp))
                 RecentCharacters(known.recentCharacters.map { it.char })
             }
+        }
+    }
+}
+
+/** "1,240 by reading · 610 by ear" (core Known.wordSkillsLine) and, when the ear lags far behind, one hint line (web WordSkillsRow). */
+@Composable
+fun WordSkillsRow(skills: WordSkills) {
+    val hint = Known.earLagHint(skills)
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp).testTag("known-skills"), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            Known.wordSkillsLine(skills),
+            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink,
+            modifier = Modifier.clip(RoundedCornerShape(50)).background(Lab.colors.faint).padding(horizontal = 12.dp, vertical = 5.dp),
+        )
+        if (hint != null) {
+            Text(
+                hint, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
+                modifier = Modifier.padding(top = 6.dp).testTag("known-skills-hint"),
+            )
         }
     }
 }
