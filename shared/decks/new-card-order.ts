@@ -54,9 +54,16 @@ export interface NewCardOrder {
   known_characters_english_first: boolean;
   /** Inside each tier, everyday words before formal ones (formality.ts) — ahead of "Most common first". */
   everyday_first: boolean;
+  /**
+   * Not an order: "Start new words by ear" (lead-card.ts) — an unseen word is introduced with its
+   * audio_to_hanzi (listening) card, ahead of the known-characters rule, and in the purple pool a
+   * started word's listening card comes before its other NEW cards. Which notes come and how many
+   * never change.
+   */
+  new_words_by_ear: boolean;
 }
 
-export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first'] as const;
+export const NEW_CARD_ORDER_KEYS = ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first', 'new_words_by_ear'] as const;
 export type NewCardOrderKey = (typeof NEW_CARD_ORDER_KEYS)[number];
 
 export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
@@ -66,6 +73,7 @@ export const DEFAULT_NEW_CARD_ORDER: Readonly<NewCardOrder> = Object.freeze({
   sentences_last: true,
   known_characters_english_first: true,
   everyday_first: true,
+  new_words_by_ear: true,
 });
 
 /** The settings rows, in order (web Settings and the Lab app show the same words). */
@@ -82,6 +90,13 @@ export const KNOWN_CHARACTERS_OPTION: Readonly<{ key: 'known_characters_english_
   key: 'known_characters_english_first',
   label: 'Words made of characters I know: start with English → Chinese',
   hint: 'When you already know every character of a new word, its first card asks you to write it from the English instead of reading it.',
+});
+
+/** The switch under the order (lead-card.ts): new words start with their listening card. Shown first — it wins over the known-characters switch. */
+export const BY_EAR_OPTION: Readonly<{ key: 'new_words_by_ear'; label: string; hint: string }> = Object.freeze({
+  key: 'new_words_by_ear',
+  label: 'Start new words by ear',
+  hint: 'Introduce a new word with its listening card (hear it, write it), and give the words you can already read their listening card first.',
 });
 
 // ============ Settings ============

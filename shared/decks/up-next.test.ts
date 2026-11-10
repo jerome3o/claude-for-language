@@ -153,7 +153,7 @@ describe('selectStudyQueue with Up next', () => {
     const cards = [...word('n1', 'd'), ...word('n2', 'd')];
     const hanzi = new Map([['n1', '熊猫'], ['n2', '你好']]);
     const q = selectStudyQueue([deck('d')], cards, budget(1, 0), 0, new Map(), CUTOFF, null, { hanzi }, null, null, ['n2']);
-    expect(newIds(q.due)).toEqual(['n2-h']);
+    expect(newIds(q.due)).toEqual(['n2-a']); // its listening card: "Start new words by ear" (on by default)
   });
 });
 

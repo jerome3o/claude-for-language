@@ -7,6 +7,9 @@ import dev.jeromeswannack.chineselearning.lab.data.api.StudySessionDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import org.junit.Test
 import org.robolectric.annotation.Config
 
@@ -44,6 +47,13 @@ class ProgressScreenshots : LabScreenshotTest() {
 
     @Test fun knownTotalDark() = shoot("progress-15-known-total-dark", dark = true) {
         ProgressScreen(s.ui, ProgressActions(), zone = s.zone, knownMode = dev.jeromeswannack.chineselearning.lab.core.KnownChartMode.Total)
+    }
+
+    /** Words known by reading vs by ear, with the hint while the ear lags (the card alone, as on the tab). */
+    @Test fun knownByEar() = shoot("progress-16-known-by-ear") {
+        androidx.compose.foundation.layout.Column(
+            androidx.compose.ui.Modifier.background(dev.jeromeswannack.chineselearning.lab.ui.theme.Lab.colors.background).padding(16.dp),
+        ) { KnownCard(s.known, s.zone) }
     }
 
     @Test fun knownComputing() = shoot("progress-11-known-computing") { ProgressScreen(s.ui.copy(known = null), ProgressActions(), zone = s.zone) }

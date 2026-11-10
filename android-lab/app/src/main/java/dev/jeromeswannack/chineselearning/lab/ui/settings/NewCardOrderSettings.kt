@@ -57,7 +57,7 @@ private val NewBlueSoft = Color(0xFFDBEAFE)
 /**
  * Settings → New cards → "Order new cards by" (the web's NewCardOrderSection; core NewCardOrder):
  * which brand-new words the daily budget introduces first. The switches in order (tiers, and
- * inside them everyday words before formal ones and the most common first), then the deck order; under them the "known characters → English first" switch (LeadCard). Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
+ * inside them everyday words before formal ones and the most common first), then the deck order; under them "Start new words by ear" and the "known characters → English first" switch (LeadCard). Stateless for screenshots; [NewCardOrderSettingsCard] wires it up.
  */
 @Composable
 fun NewCardOrderSection(
@@ -94,16 +94,16 @@ fun NewCardOrderSection(
                 }
             }
         }
-        // Not an order: which card a word made only of known characters starts with (core LeadCard).
-        val known = NewCardOrder.KNOWN_CHARACTERS_OPTION
-        val knownOn = order[known.key]
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(Lab.colors.background),
-        ) {
-            OrderRow("写", known.label, known.hint, knownOn, !busy, Modifier.testTag("nco-${known.key}")) { onToggle(known.key, it) }
+        // Not orders: which card a new word starts with (core LeadCard) — "by ear" first (it wins), then a word of known characters.
+        for ((opt, icon) in listOf(NewCardOrder.BY_EAR_OPTION to "听", NewCardOrder.KNOWN_CHARACTERS_OPTION to "写")) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Lab.colors.background),
+            ) {
+                OrderRow(icon, opt.label, opt.hint, order[opt.key], !busy, Modifier.testTag("nco-${opt.key}")) { onToggle(opt.key, it) }
+            }
         }
         Text(
             "⚡ Bumped words, your decks' daily limits and homework from your tutor work as before.",
@@ -171,6 +171,7 @@ fun NewCardOrderSettingsCard(app: LabApp) {
             put("sentences_last", saved.sentencesLast)
             put("known_characters_english_first", saved.knownCharactersEnglishFirst)
             put("everyday_first", saved.everydayFirst)
+            put("new_words_by_ear", saved.newWordsByEar)
         },
     )
     fun save(next: NewCardOrder, field: String?, call: suspend () -> NewCardOrder) {

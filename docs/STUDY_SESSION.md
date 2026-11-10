@@ -139,10 +139,39 @@ badge on the student page (it moves the student's copy in the student's queue). 
 introduced, how many words are left in it and roughly how many days that takes at the current
 rate.
 
-- **New words per day** (blue, primary): cards of unseen notes, preferring the hanzi_to_meaning
-  card so a brand-new word is introduced by its characters first. WHICH unseen words come is the
+- **New words per day** (blue, primary): cards of unseen notes, ONE per note — its *lead card*: the
+  audio_to_hanzi (listening) card with "Start new words by ear" (the default, below), else
+  hanzi_to_meaning (or meaning_to_hanzi for a word of known characters). WHICH unseen words come is the
   account's **"Order new cards by"** (below); after its tiers the budget is walked deck by deck in
   queue order: the first deck takes as many as it can, the next deck gets the rest.
+
+  **Start new words by ear** (Settings → New cards, the first switch under "Order new cards by", ON by
+  default; Nov 2026, `new_words_by_ear` in the same `users.new_card_order` JSON — no migration;
+  `shared/decks/lead-card.ts` `earLeadNotes` / `leadCardsFrom` / `secondaryTypeRank`, study-queue.ts
+  `leadCardsInQueue`, Lab `core/…/LeadCard.kt` + `StudyQueue.kt`, parity-tested by the `ordered` and `leadCard`
+  study-queue vectors with the switch on and off). Jerome worried he was getting good at READING the words
+  he knows but not at hearing them, so the app leans towards listening:
+  - **Blue**: an unseen note leads with its **audio_to_hanzi** card (hear it, write it) — it wins over
+    "Words made of characters I know" below. A note with no NEW audio_to_hanzi card (none, or a held one:
+    suspended / snoozed cards never reach the queue) falls back to that rule, then to hanzi_to_meaning.
+    Up next's blue card follows the same rule (`withLeadCards`). Only the card TYPE changes: the same notes,
+    the same counts.
+  - **Purple**: among a started word's NEW cards the listening card comes first — first of all for the words
+    whose hanzi_to_meaning card is already in Review (`readingInReviewNoteIds`), then the other started
+    words' listening cards, then hanzi_to_meaning, then the rest; within that the old order (id). Up next's
+    purple cards are reordered the same way inside each note (`earFirstWithinNotes`). Pool sizes and the
+    budget never change.
+  - The session's own pick (`pickPrioritizedNewCard`, Lab `StudyQueue.selectNext`) takes the note's lead card
+    first (the queue hands it `leadCards`) and, among started words, the listening card (`newWordsByEar`).
+  - The switch only applies with the notes' text (the account's order travels with it); a queue built without
+    it (a bare `selectStudyQueue` call) keeps the old order. E2E test users get it OFF (`/api/test/auth`,
+    `new_words_by_ear: true` to opt in) so the older study specs keep their first card; `e2e/tests/by-ear.spec.ts`
+    covers the default.
+  - Progress shows how it goes: the Characters & words card adds "1,240 by reading · 610 by ear" — the known
+    words (same maturity rule and word grouping as "Words known") whose hanzi_to_meaning card is known vs whose
+    audio_to_hanzi card is known (`shared/progress/known.ts` `words_by_skill`, Lab `Known.kt` `wordsBySkill`,
+    parity-tested in the `known` vectors) — and, while the ear lags far behind (≥ 20 by reading and under 60 % of
+    them by ear, `earLagHint`), one line: "Your ear is behind your reading — listening cards close the gap."
 
   **Words made of characters I know: start with English → Chinese** (Settings → New cards, the
   switch under "Order new cards by", ON by default; Oct 2026, `shared/decks/lead-card.ts`, Lab
@@ -232,7 +261,8 @@ rate.
 - **Extra cards per day** (purple, secondary): additive to the primary budget. NEW cards whose
   note already has at least one reviewed card (e.g. meaning_to_hanzi after hanzi_to_meaning is in
   circulation), so the other card types of started words keep flowing even when brand-new words
-  would fill the primary limit. Walked in the same queue order.
+  would fill the primary limit. Walked in the same queue order; inside a deck the listening cards
+  first with "Start new words by ear" (above), else hanzi_to_meaning first.
 - **Per-deck limits are caps, not budgets**: a deck's own `new_cards_per_day` /
   `secondary_cards_per_day` (Deck → Settings) only limit how much of the global budget that deck
   may take in a day. A deck with the default 3 + 6 can never introduce more than 3 new words a
@@ -392,8 +422,9 @@ the deck queue and "Order new cards by". It is persistent (not just today) — t
 
 - **Inside the daily budget, first** — before the deck allocation, the list takes what is left of the
   ONE budget (`newBudgetLeft`, `budget.ts`) in list order: a note with no card reviewed yet takes ONE
-  blue card (its best NEW card: hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi — meaning_to_hanzi
-  first for a word made only of known characters, "Words made of characters I know" above; its other cards
+  blue card (its best NEW card: hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi — audio_to_hanzi first
+  with "Start new words by ear", meaning_to_hanzi first for a word made only of known characters, "Words made
+  of characters I know" above; its other cards
   wait and become purple once that one is reviewed); a started note offers each of its NEW cards to the
   PURPLE budget (never a spill of blue budget into them). "Study 10 more" (bonus) takes the next Up next
   words first. The budget is never raised — a list longer than today's budget waits for the next days.

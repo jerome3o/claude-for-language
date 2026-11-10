@@ -47,7 +47,10 @@ import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } fr
 import { bumpPocket, type QueueBumps } from './bumps';
 import { takeUpNext, upNextSlots } from './up-next';
 import { cardsInStudy, type QueueHolds } from './holds';
-import { isLeadCard, knownCharacterNotes, knownCharactersFrom, knownNoteIdsFrom, KNOWN_CHARACTERS_LEAD_CARD_TYPE } from './lead-card';
+import {
+  earLeadNotes, isLeadCard, knownCharacterNotes, knownCharactersFrom, knownNoteIdsFrom, leadCardsFrom, leadCardType,
+  readingInReviewNoteIds, secondaryTypeRank, DEFAULT_LEAD_CARD_TYPE, type LeadCardsArg,
+} from './lead-card';
 
 /** CardQueue values (shared/scheduler): NEW 0, LEARNING 1, REVIEW 2, RELEARNING 3. */
 export const QUEUE_NEW = 0;
@@ -150,6 +153,15 @@ export interface StudyQueueResult<C extends QueueCardInput> {
    * English → Chinese", lead-card.ts) — the session shows that card first for them.
    */
   knownCharacterNoteIds: Set<string>;
+  /**
+   * Unseen notes that lead with audio_to_hanzi ("Start new words by ear", lead-card.ts) — they win
+   * over the known-characters rule, so none of them is in `knownCharacterNoteIds`.
+   */
+  earLeadNoteIds: Set<string>;
+  /** note id → the card its unseen note leads with (only the notes not on hanzi_to_meaning): what the session's `isLeadCard` reads. */
+  leadCards: Map<string, string>;
+  /** "Start new words by ear" applies (the notes' text given and the switch on): purple cards — listening first. */
+  newWordsByEar: boolean;
 }
 
 export function isLearningQueue(q: number): boolean {
@@ -223,10 +235,36 @@ export function knownCharacterNotesInQueue(
   return knownCharacterNotes(unseen, id => noteText.hanzi.get(id) ?? '', known);
 }
 
-/** Best first: unseen notes before started ones; the lead card (lead-card.ts) / hanzi_to_meaning first. */
-const tierOf = (card: QueueCardInput, reviewed: ReadonlySet<string>, lead: ReadonlySet<string>) =>
+/** "Start new words by ear" applies: the notes' text given (it carries the account's order) and the switch on (a missing switch = on). */
+export function newWordsByEarInQueue(noteText: QueueNoteText | null | undefined): boolean {
+  return !!noteText && noteText.order?.new_words_by_ear !== false;
+}
+
+/**
+ * Which card each unseen note among `newCards` leads with (lead-card.ts): with "Start new words by
+ * ear" every note with a NEW audio_to_hanzi card leads with it; else, a word of known characters
+ * with meaning_to_hanzi; else hanzi_to_meaning (not in the map). Empty without the notes' text.
+ */
+export function leadCardsInQueue(
+  newCards: Iterable<QueueCardInput>,
+  reviewed: ReadonlySet<string>,
+  cards: Iterable<{ note_id: string; queue: number; stability?: number | null }>,
+  noteText: QueueNoteText | null | undefined
+): { leads: Map<string, string>; knownCharacterNoteIds: Set<string>; earNoteIds: Set<string> } {
+  const list = [...newCards];
+  const known = knownCharacterNotesInQueue(list, reviewed, cards, noteText);
+  const ear = newWordsByEarInQueue(noteText) ? earLeadNotes(list.filter(c => !reviewed.has(c.note_id))) : new Set<string>();
+  for (const id of ear) known.delete(id);
+  return { leads: leadCardsFrom(known, ear), knownCharacterNoteIds: known, earNoteIds: ear };
+}
+
+/**
+ * Best first: unseen notes before started ones, the lead card (lead-card.ts) first; started notes
+ * by `secondaryTypeRank` (hanzi_to_meaning first; with "by ear" the listening card first).
+ */
+const tierOf = (card: QueueCardInput, reviewed: ReadonlySet<string>, lead: LeadCardsArg, byEar: boolean, readingInReview: ReadonlySet<string>) =>
   reviewed.has(card.note_id)
-    ? 2 + (card.card_type === 'hanzi_to_meaning' ? 0 : 1)
+    ? 2 + secondaryTypeRank(card, byEar, readingInReview)
     : isLeadCard(card, lead) ? 0 : 1;
 
 /**
@@ -302,10 +340,14 @@ export function selectStudyQueue<C extends QueueCardInput>(
   // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
   // known characters, lead-card.ts) — the pools' notes and Up next's alike.
   const scopeNew = live.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !pocketIds.has(c.id));
-  const lead = knownCharacterNotesInQueue(scopeNew, reviewed, cards, noteText);
+  const leadInfo = leadCardsInQueue(scopeNew, reviewed, cards, noteText);
+  const lead = leadInfo.leads;
+  // "Start new words by ear": in the purple pool a started word's listening card comes first.
+  const byEar = newWordsByEarInQueue(noteText);
+  const readingInReview = byEar ? readingInReviewNoteIds(cards) : new Set<string>();
   const taken = takeUpNext({ primary: slots.primary.length, secondary: slots.secondary.length }, newBudgetLeft(budget, bonus, studiedAll));
   const upPrimary = withLeadCards(slots.primary.slice(0, taken.primary), scopeNew, lead);
-  const upSecondary = slots.secondary.slice(0, taken.secondary);
+  const upSecondary = (byEar ? earFirstWithinNotes(slots.secondary, readingInReview) : slots.secondary).slice(0, taken.secondary);
   // What Up next takes counts as introduced today in its deck (caps) and in the budget.
   pools = withUpNextPicks(pools, upPrimary.map(c => c.deck_id), upSecondary.map(c => c.deck_id));
   let allocation = allocateNewCards(pools, budget, bonus, spent);
@@ -340,7 +382,8 @@ export function selectStudyQueue<C extends QueueCardInput>(
   // New cards: deck queue order (the allocation's order); within a deck the
   // primary cards (best tier first; the lead cards sentences-last /
   // most-common-first when ordering), then the secondary ones (best tier first, then id).
-  const byTierThenId = (x: C, y: C) => tierOf(x, reviewed, lead) - tierOf(y, reviewed, lead) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+  const byTierThenId = (x: C, y: C) =>
+    tierOf(x, reviewed, lead, byEar, readingInReview) - tierOf(y, reviewed, lead, byEar, readingInReview) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
   for (const [id, a] of allocation) {
     const all = newByDeck.get(id) ?? [];
     const take = a.primary - (pickedIn.get(id) ?? 0);
@@ -377,22 +420,41 @@ export function selectStudyQueue<C extends QueueCardInput>(
     bumpedNoteIds: pocket.activeNoteIds,
     upNext: [...upPrimary, ...upSecondary],
     upNextNoteIds: [...slots.noteIds],
-    knownCharacterNoteIds: lead,
+    knownCharacterNoteIds: leadInfo.knownCharacterNoteIds,
+    earLeadNoteIds: leadInfo.earNoteIds,
+    leadCards: lead,
+    newWordsByEar: byEar,
   };
 }
 
 /**
  * Up next's blue card per unstarted note (its first card by type, up-next.ts) swapped for the
- * note's meaning_to_hanzi card when the note leads with it (`lead`, lead-card.ts). `candidates`:
- * the NEW cards in scope (the first meaning_to_hanzi card of a note wins).
+ * note's lead card when the note leads with another one (`lead`, lead-card.ts: audio_to_hanzi "by
+ * ear", meaning_to_hanzi for a word of known characters). `candidates`: the NEW cards in scope
+ * (the first card of the lead type of a note wins).
  */
-export function withLeadCards<C extends QueueCardInput>(primary: C[], candidates: Iterable<C>, lead: ReadonlySet<string>): C[] {
-  if (lead.size === 0 || primary.length === 0) return primary;
-  const english = new Map<string, C>();
+export function withLeadCards<C extends QueueCardInput>(primary: C[], candidates: Iterable<C>, lead: LeadCardsArg): C[] {
+  if (!lead || lead.size === 0 || primary.length === 0) return primary;
+  const swapped = new Map<string, C>();
   for (const c of candidates) {
-    if (c.card_type === KNOWN_CHARACTERS_LEAD_CARD_TYPE && lead.has(c.note_id) && !english.has(c.note_id)) english.set(c.note_id, c);
+    const type = leadCardType(c.note_id, lead);
+    if (type !== DEFAULT_LEAD_CARD_TYPE && c.card_type === type && !swapped.has(c.note_id)) swapped.set(c.note_id, c);
   }
-  return primary.map(c => english.get(c.note_id) ?? c);
+  return primary.map(c => swapped.get(c.note_id) ?? c);
+}
+
+/**
+ * "Start new words by ear" on Up next's purple cards (its started notes' NEW cards, note after
+ * note in list order, up-next.ts): inside each note the listening card first (`secondaryTypeRank`),
+ * the notes' order kept. Stable.
+ */
+export function earFirstWithinNotes<C extends QueueCardInput>(secondary: readonly C[], readingInReview: ReadonlySet<string>): C[] {
+  const noteIndex = new Map<string, number>();
+  for (const c of secondary) if (!noteIndex.has(c.note_id)) noteIndex.set(c.note_id, noteIndex.size);
+  return secondary
+    .map((c, i) => ({ c, i, n: noteIndex.get(c.note_id)!, r: secondaryTypeRank(c, true, readingInReview) }))
+    .sort((a, b) => a.n - b.n || a.r - b.r || a.i - b.i)
+    .map(x => x.c);
 }
 
 /**
@@ -428,7 +490,8 @@ export function pickNewCardsFirst<C extends QueueCardInput>(
   studied: StudiedIndex,
   order: NewCardOrder = DEFAULT_NEW_CARD_ORDER,
   frequency?: FrequencyIndex | null,
-  knownCharacterNoteIds?: ReadonlySet<string> | null,
+  /** Which card each unseen note leads with (lead-card.ts; a Set = the notes leading with meaning_to_hanzi). */
+  knownCharacterNoteIds?: LeadCardsArg,
   /** note id → formality.ts class (missing = neutral), for "Everyday words before formal ones". */
   formality?: ReadonlyMap<string, number> | null
 ): C[] {

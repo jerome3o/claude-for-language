@@ -419,7 +419,7 @@ export const ANALYTICS_EVENTS = {
   // ── settings ───────────────────────────────────────────────────────────
   'settings.change': e('settings', 'Changed a setting (`setting` names it, `value` an enum).', ['setting', 'value']),
   'settings.revisit_changed': e('settings', 'Changed the "Lessons & readers" settings — revisit gaps / new lessons a day (or reset them) — apps before Oct 2026; the settings are gone (lessons revise until right first time).', ['fields', 'reset', 'new_lessons_per_day'], { replacedBy: 'lesson.complete' }),
-  'settings.new_card_order': e('settings', 'Changed "Order new cards by" (Settings → New cards): which new words come first (incl. everyday words before formal ones), and whether a word of known characters starts with English → Chinese (or reset it). Props = the switch changed and the switches after the change.', ['field', 'reset', 'new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first']),
+  'settings.new_card_order': e('settings', 'Changed "Order new cards by" (Settings → New cards): which new words come first (incl. everyday words before formal ones), whether a word of known characters starts with English → Chinese, and whether new words start by ear (or reset it). Props = the switch changed and the switches after the change.', ['field', 'reset', 'new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first', 'new_words_by_ear']),
   'settings.analytics': e('settings', 'Turned usage data sharing on / off.', ['on']),
   'settings.full_sync': e('settings', 'Ran a full sync by hand.', []),
   'settings.debug_report': e('settings', 'Sent a debug report by hand.', []),

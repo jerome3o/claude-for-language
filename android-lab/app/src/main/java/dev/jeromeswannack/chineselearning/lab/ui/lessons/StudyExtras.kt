@@ -87,10 +87,13 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         cutoff: StudyCutoff,
         random: Random,
         bumpedCardIds: Set<String> = emptySet(),
-        knownCharacterNoteIds: Set<String> = emptySet(),
+        /** Which card each unseen note starts with when not hanzi_to_meaning (BuiltQueue.leadCards). */
+        leadCards: Map<String, String> = emptyMap(),
+        /** "Start new words by ear" (BuiltQueue.newWordsByEar). */
+        newWordsByEar: Boolean = false,
     ): SessionItem? = SessionMix.next(
         queue, emptyList(), readers.map { it.item }, false,
-        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, knownCharacterNoteIds,
+        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar,
     )
 
     /** The reader for a [SessionItem.Reader]. */

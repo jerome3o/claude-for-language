@@ -18,6 +18,9 @@
  *   sentences): known if it appears in a known note, learning if it only appears in
  *   learning notes.
  * - "learning" counts never include what is already known.
+ * - **By reading / by ear** (`words_by_skill`): the known WORDS (same grouping, once per
+ *   spelling) whose hanzi_to_meaning card is itself known (by reading) / whose audio_to_hanzi
+ *   card is itself known (by ear) — so he can see whether his ear keeps up with his eyes.
  *
  * Card state is always replayed from the events (`computeCardTimeline`), never read from
  * the cached columns, so the history is exact: a card that lapses stops being known on
@@ -93,7 +96,18 @@ export function noteKey(hanzi: string): string {
 }
 
 export interface KnownNoteInput { id: string; hanzi: string }
-export interface KnownCardInput { id: string; note_id: string }
+export interface KnownCardInput {
+  id: string;
+  note_id: string;
+  /** hanzi_to_meaning / meaning_to_hanzi / audio_to_hanzi — for `words_by_skill` (missing = counts for neither). */
+  card_type?: string;
+}
+
+/** Words known by reading (a known hanzi_to_meaning card) and by ear (a known audio_to_hanzi card). */
+export interface WordSkills { reading: number; ear: number }
+
+export const READING_CARD_TYPE = 'hanzi_to_meaning';
+export const EAR_CARD_TYPE = 'audio_to_hanzi';
 /** A review event; `kind: 'forget'` = "Forget this card" (the card is NEW again from then: not seen). */
 export interface KnownEventInput { id?: string; card_id: string; rating: number; reviewed_at: string; kind?: 'forget' }
 
@@ -115,6 +129,8 @@ export interface KnownProgress {
   characters: KnownCounts;
   words: KnownCounts;
   sentences: KnownCounts;
+  /** Known words by reading vs by ear (each word once per spelling). */
+  words_by_skill: WordSkills;
   /** Characters currently known, most recently learned first. */
   recent_characters: RecentCharacter[];
   /** Counts as of each requested point (events at or before it), oldest first. */
@@ -185,10 +201,12 @@ export function knownProgress(
   const noteById = new Map<string, KnownNoteInput>();
   for (const n of notes) noteById.set(n.id, n);
   const cardNote = new Map<string, string>();
+  const cardType = new Map<string, string>();
   const noteCards = new Map<string, string[]>();
   for (const c of cards) {
     if (!noteById.has(c.note_id) || cardNote.has(c.id)) continue;
     cardNote.set(c.id, c.note_id);
+    if (c.card_type) cardType.set(c.id, c.card_type);
     const list = noteCards.get(c.note_id);
     if (list) list.push(c.id);
     else noteCards.set(c.note_id, [c.id]);
@@ -291,10 +309,23 @@ export function knownProgress(
     .slice(0, Math.max(0, recentLimit))
     .map(([char, k]) => ({ char, known_at: k.at }));
 
+  // By reading / by ear: the known words whose own reading / listening card is known now.
+  const byReading = new Set<string>();
+  const byEar = new Set<string>();
+  for (const [cardId, tier] of cardTier) {
+    if (tier !== 2) continue;
+    const type = cardType.get(cardId);
+    const target = type === READING_CARD_TYPE ? byReading : type === EAR_CARD_TYPE ? byEar : null;
+    if (!target) continue;
+    const i = info(cardNote.get(cardId)!);
+    if (i.kind === 'word') target.add(i.key);
+  }
+
   return {
     characters: charTally.counts(),
     words: wordTally.counts(),
     sentences: sentenceTally.counts(),
+    words_by_skill: { reading: byReading.size, ear: byEar.size },
     recent_characters: recent,
     history,
   };
@@ -334,4 +365,32 @@ export function knownCountsFromTiers(notes: readonly { hanzi: string; tier: numb
     return { known, learning };
   };
   return { characters: count(chars), words: count(words), sentences: count(sentences) };
+}
+
+/** "1,240" — thousands grouped with commas (both apps, no locale). */
+export function groupThousands(n: number): string {
+  const sign = n < 0 ? '-' : '';
+  const digits = String(Math.trunc(Math.abs(n)));
+  let out = '';
+  for (let i = 0; i < digits.length; i++) {
+    if (i > 0 && (digits.length - i) % 3 === 0) out += ',';
+    out += digits[i];
+  }
+  return sign + out;
+}
+
+/** The Progress page's line: "1,240 by reading · 610 by ear". */
+export function wordSkillsLine(s: WordSkills): string {
+  return `${groupThousands(s.reading)} by reading · ${groupThousands(s.ear)} by ear`;
+}
+
+/** The ear lags "far behind": at least this many words known by reading … */
+export const EAR_LAG_MIN_READING = 20;
+/** … and fewer than this share of them by ear. */
+export const EAR_LAG_RATIO = 0.6;
+
+/** One line when the ear lags far behind the eyes, else null. */
+export function earLagHint(s: WordSkills): string | null {
+  if (s.reading < EAR_LAG_MIN_READING || s.ear >= s.reading * EAR_LAG_RATIO) return null;
+  return 'Your ear is behind your reading — listening cards close the gap.';
 }
