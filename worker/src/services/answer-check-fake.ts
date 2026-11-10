@@ -138,7 +138,7 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
               ? { verdict: 'correct', headline: 'You understood it.', corrected: '', tips: [] }
               : share >= 0.3
                 ? { verdict: 'acceptable', headline: 'You got the gist.', corrected: '', tips: [] }
-                : { verdict: 'wrong', headline: 'Not quite — listen again with the text.', corrected: '', tips: [] };
+                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] };
           return {
             stop_reason: 'tool_use',
             usage: { input_tokens: 400 + text.length, output_tokens: 60 },

@@ -1509,6 +1509,52 @@ steps for them. Maybe I should just get a few English sentences that I need to s
   `SentenceRoundPage(listen = true, word)`. Tests: `SentenceRound.test.tsx` ("the listening card's round"), Lab
   `SentenceRoundUiTest`.
 
+### Sentences by ear (listen exercises in the Sentence round)
+
+Jerome (Nov 2026): he is getting better at READING words than at understanding them by ear. So in Hard mode's
+Sentence round on a **reading or meaning card**, the read slots become **👂 What does it mean?** exercises whenever
+the sentence can be heard. Settings → Study → **"Sentences by ear in Hard mode"** (next to Hard mode; per device,
+**ON by default**; web `services/hardModePrefs.ts` `useSentencesByEar`, localStorage `sentences-by-ear-v1`; Lab
+`StudyPrefs.sentencesByEar`). Off = read / translate exactly as before. The listening card keeps its own round (above).
+
+- **Which exercises** (`pickRoundExercises(sentences, stats, { byEar, online })`, `canListenTo`; Lab
+  `SentenceRound.pick(byEar, online)`, parity-tested in `parity/fixtures/sentence-history.ts`): the same four slots
+  (read, translate, read, translate). A read slot is a **listen** exercise for a sentence that **can be heard** — a clip
+  (`audio_url`; offline only one already on the device) — **and** has English to check against online (offline the
+  English isn't needed: he checks himself); a read slot **prefers** such a sentence (after fresh-first, before
+  least-known — which then compares the sentence's LISTEN history). A sentence with no clip keeps its read exercise
+  (its clip is asked for in the background through the rows' ensure-audio path, so it can be heard next time).
+  Translate slots, hidden sentences, one exercise per sentence, any 2 right and the Good / Easy gate are unchanged;
+  listen ids are `listen:<key>` and count like the others (progress, resume `round_log`, the answer side's marks).
+- **The exercise**: the clip **plays by itself** once the exercise has the floor (the first unanswered listen
+  exercise, or the one he tapped ▶ on — `listenActiveId`; one answer box at a time), **no text on screen**; **▶ Play
+  again** and **🐢 0.75×** (pitch kept). He gives the meaning **in English** in the voice-first box (🎤 Say it, ✏️ Type;
+  `VoiceTextInput lang="en"` / Lab `VoiceTextField(lang = "en")`); a quiet **👁 Show the answer** gives up.
+- **Checking**: online with English → the **lesson answer check** as a MEANING check — `POST /api/lessons/answer-check`
+  with `exercise_type: 'listen_translate'`, `prompt_en` = the Chinese heard, `model_answer` = the sentence's English,
+  `answer` = his English (`listenCheckInput`; `isMeaningCheck` in shared/lesson/answerCheck.ts: listen_translate with
+  English on both sides; its own Haiku prompt `MEANING_CHECK_SYSTEM`, judged on meaning only, tips quoting the Chinese
+  he missed; cached for everyone, device cache too, key `m1|…`). His English = the sentence's English (case /
+  punctuation aside) → right on the device with no call (`exactAnswerCheck`). correct / acceptable = **✓ Right**
+  (counts), almost = **≈ Nearly**, wrong = **✗ Not quite** (`listenVerdictResult`). Offline, no English, no check to be
+  had, or 👁 Show the answer → **self-check**: "Did you understand it?" **✗ Missed it** / **✓ Got it**.
+- **The reveal shows at once** — Chinese, pinyin, English, ▶ — and "You said: …"; the verdict lands in a **slim row
+  under it whose height is kept from the start** ("Checking what you understood…" → "≈ Nearly · <headline>"), so
+  nothing in the exercise moves. No retry (the answer is revealed).
+- **No clip after all** (gone, not on the device offline, won't play): the exercise becomes the sentence's **read**
+  exercise in place (`exerciseAsRead`) — never the device voice.
+- **History**: every judged listen take is a `sentence_practice_events` attempt with `mode: 'listen'` (the server
+  accepts it; no schema change — the column has no CHECK). `sentenceStats` folds a `listen` ModeStats; a sentence heard
+  once is no longer fresh (`isFreshSentence`), so the fresh buffer refills as before; `knownInAllModes` (read slot by
+  ear or by eye, plus translate when it has English).
+- Analytics `study.sentence_listen { result, checked_by: claude | exact | self, input: spoken | edited | typed | none,
+  replays, slow, fallback, where }`; `study.sentence_round` carries `mode: listen`.
+- Web `components/study/SentenceListenExercise.tsx` in `SentenceRound.tsx`; Lab `ui/study/SentenceListenUi.kt`
+  (`ListenExerciseCard`) in `SentenceRoundUi.kt`, clips through `WordAudio.playClip` (no voice fallback, speed via
+  `PlaybackParams`). Tests: `sentenceRound.test.ts` / `sentenceHistory.test.ts` / `answerCheck.test.ts`,
+  `SentenceRound.test.tsx` ("Sentences by ear"), worker `lesson-answer-check.test.ts` (meaning check),
+  E2E `study-sentences-by-ear.spec.ts`, Lab `SentenceListenUiTest` + the parity fixtures.
+
 ### Right, but said differently (Hard mode holds it and shows the difference)
 
 Jerome: "If I submit my spoken version of a translation from English, sometimes I word it differently. It loads for a
@@ -1606,7 +1652,7 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
 ### Sentence practice history (which sentences he knows; hide one; more sentences)
 
 Every 🎤 take on an example sentence — in the Sentence round or on the answer side's rows — is recorded:
-**sentence, mode (read | translate), result (right | close | wrong), when**. "Stop showing this sentence"
+**sentence, mode (read | translate | listen — Sentences by ear, above), result (right | close | wrong), when**. "Stop showing this sentence"
 (hide + reason) and "Show again" (unhide) are recorded the same way. Like reviews these are EVENTS, the
 truth on every device: written on the device first (web: own IndexedDB `sentence-practice`; Lab: JsonCache
 `sentences/practice` + the Outbox), uploaded to `POST /api/me/sentence-practice` (idempotent by client id;

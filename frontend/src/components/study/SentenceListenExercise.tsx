@@ -91,7 +91,12 @@ export function SentenceListenExercise({
   const playerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const latest = useRef({ onJudged, onUnavailable, onRevealed, online });
   latest.current = { onJudged, onUnavailable, onRevealed, online };
-  useEffect(() => () => playerRef.current?.dispose(), []);
+  useEffect(() => () => {
+    playerRef.current?.dispose();
+    playerRef.current = null;
+    // Unmounted before the clip got going (React's dev double-mount, a quick re-render): it autoplays again.
+    if (!played.current) autoplayed.current = false;
+  }, []);
 
   const answered = said != null;
 
