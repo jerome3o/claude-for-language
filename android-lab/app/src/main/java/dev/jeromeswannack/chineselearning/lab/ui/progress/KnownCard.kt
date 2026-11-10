@@ -184,6 +184,7 @@ fun WordSkillsRow(skills: WordSkills) {
         if (hint != null) {
             Text(
                 hint, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 modifier = Modifier.padding(top = 6.dp).testTag("known-skills-hint"),
             )
         }
