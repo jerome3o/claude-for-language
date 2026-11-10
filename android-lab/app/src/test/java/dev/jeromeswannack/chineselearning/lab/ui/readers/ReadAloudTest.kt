@@ -21,7 +21,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.AudioBlocks
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderPageDto
@@ -34,7 +36,7 @@ import java.io.File
 import kotlin.test.assertEquals
 
 /**
- * 🎤 Read it aloud on a reader page: 🎤 beside the speed chip → listening (the Chinese shows, the live
+ * 🎤 Read it aloud on a reader page: 🎤 beside the speed chip → listening (the reveal untouched, the live
  * transcript under the audio) → stop → the page's OWN Chinese marked in place (no second copy), one
  * line "✕ 42% — 4 to check", the transcript behind "You said ▸", 🎤 = Say it again; a long press on a
  * marked word says it; failed / empty / offline states. Plus the screenshots.
@@ -62,10 +64,11 @@ class ReadAloudTest : LabScreenshotTest() {
         analyze = { _, _ -> sampleClipAnalysis(5200, listOf(AudioBlocks.Block(0, 2600), AudioBlocks.Block(2600, 5200)), List(96) { i -> if (i % 48 in 4..40) (0.35 + 0.6 * Math.abs(Math.sin(i * 1.3))).toFloat() else 0.03f }) },
     )
 
+    /** [shown]: the page's Chinese already revealed (the marked screenshots); the app starts hidden. */
     @Composable
-    private fun Page(p: ReaderPageDto, handle: ReadAloudHandle, e: ReaderEnv = env) {
+    private fun Page(p: ReaderPageDto, handle: ReadAloudHandle, e: ReaderEnv = env, shown: Boolean = true) {
         Box(Modifier.fillMaxSize().background(Lab.colors.background).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-            ReaderPageView(p, e, readAloudPreview = handle)
+            ReaderPageView(p, e, readAloudPreview = handle, initialShowChinese = shown)
         }
     }
 
@@ -82,20 +85,25 @@ class ReadAloudTest : LabScreenshotTest() {
                         ReadAloudUi(result = ReadAloud.judge(text, "我叫小许。"), said = "我叫小许。")
                     } else ReadAloudUi(phase = "listening", finalText = "我叫")
                 }))
-                Page(page, handle, ReaderEnv(speak = { spoken += it }))
+                Page(page, handle, ReaderEnv(speak = { spoken += it }), shown = false)
             }
         }
         compose.mainClock.advanceTimeBy(1_500)
         compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
         compose.onNodeWithTag(ReadAloudTags.MIC).assertContentDescriptionEquals(ReadAloud.LABEL).performClick()
         compose.mainClock.advanceTimeBy(1_500)
-        // Listening: the Chinese shows (he reads it) and the live words under the audio.
-        compose.onNodeWithTag("reader-words").assertIsDisplayed()
+        // Listening: the reveal is untouched (he may be saying it back from memory); the live words under the audio.
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTagCount("reader-words"))
         compose.onNodeWithTag(ReadAloudTags.LIVE).assertIsDisplayed()
         compose.onNodeWithText("我叫").assertIsDisplayed()
         compose.onNodeWithTag(ReadAloudTags.MIC).assertContentDescriptionEquals(ReadAloud.STOP).performClick()
         compose.mainClock.advanceTimeBy(1_500)
-        // The page's own chips carry the marks.
+        // The result: still hidden, the line under the audio; revealed, the page's own chips carry the marks.
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        compose.onNodeWithTag(ReadAloudTags.LINE).assertIsDisplayed()
+        compose.onNodeWithText("Tap to reveal Chinese").performClick()
+        compose.mainClock.advanceTimeBy(1_500)
         compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").assertIsDisplayed()
         compose.onNodeWithContentDescription("早 — missed, 上 — missed").assertIsDisplayed()
         compose.onNodeWithTag(ReadAloudTags.LINE).assertTextEquals("✕ 42% — 4 to check")
@@ -179,4 +187,66 @@ class ReadAloudTest : LabScreenshotTest() {
     }
 
     @Test fun failed() = shoot("readers-43-read-aloud-failed", settleMs = 2_500) { Page(page, handle(ReadAloudUi(phase = "failed", failure = "failed"))) }
+
+    /**
+     * Jerome: "When I'm in a graded reader and I record with the Chinese hidden, it shows the Chinese. I was
+     * trying to listen to the audio, remember the sentence, and then say it back without looking." A take
+     * leaves the reveal as it was: the line + "You said ▸" under the audio, the differences (they print the
+     * page) behind "You said ▸", the marks on the Chinese once he reveals it. Plus the screenshots.
+     */
+    @Test
+    fun aTakeWithTheChineseHiddenKeepsItHidden() {
+        var ui by mutableStateOf(ReadAloudUi())
+        compose.mainClock.autoAdvance = false
+        compose.setContent {
+            LabTheme {
+                val handle = ReadAloudHandle(ui, ReadAloudActions(onMic = {
+                    ui = if (ui.phase == "listening") ReadAloudUi(phase = "finishing") else ReadAloudUi(phase = "listening", finalText = "早上好")
+                }))
+                Page(page, handle, env, shown = false)
+            }
+        }
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        compose.onNodeWithTag(ReadAloudTags.MIC).performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        compose.onNodeWithTag(ReadAloudTags.LIVE).assertIsDisplayed()
+        compose.onNodeWithTag(ReadAloudTags.MIC).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        // Checking: still hidden.
+        compose.onNodeWithText(ReadAloud.CHECKING).assertIsDisplayed()
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        // The take lands (the transcription comes back): 小许 for 小徐.
+        ui = ReadAloudUi(result = ReadAloud.judge(text, "早上好，我叫小许。"), said = "早上好，我叫小许。")
+        compose.mainClock.advanceTimeBy(1_500)
+
+        // The result, the Chinese still hidden: the line and "You said ▸", nothing that prints the page.
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTagCount("reader-words"))
+        compose.onNodeWithTag(ReadAloudTags.LINE).assertIsDisplayed()
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
+        assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasText("小徐", substring = true)).fetchSemanticsNodes().size)
+        compose.onRoot().captureRoboImage("screenshots/readers-50-read-aloud-hidden-result.png")
+
+        // "You said ▸": the transcript, and the differences with it.
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithTag(ReadAloudTags.SAID).assertIsDisplayed()
+        assertEquals(1, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
+        compose.onNodeWithText("Tap to reveal Chinese").assertIsDisplayed()
+        compose.onRoot().captureRoboImage("screenshots/readers-50-read-aloud-hidden-you-said.png")
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        assertEquals(0, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
+
+        // Tap to reveal: the page's own Chinese, marked in place; the differences under the line again.
+        compose.onNodeWithText("Tap to reveal Chinese").performClick()
+        compose.mainClock.advanceTimeBy(1_500)
+        compose.onNodeWithTag("reader-words").assertIsDisplayed()
+        compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").assertIsDisplayed()
+        assertEquals(1, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
+        compose.onRoot().captureRoboImage("screenshots/readers-50-read-aloud-hidden-revealed.png")
+    }
 }
