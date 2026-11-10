@@ -11,13 +11,24 @@
  * Each take is judged exactly like the rows' 🎤 (`sentenceTake` / `sentencePractiseResult`, the
  * translate take's online answer check) — practice only, nothing recorded.
  *
+ * **Sentences by ear** (Settings → Study → "Sentences by ear in Hard mode", on by default, per device;
+ * Jerome: "I'm getting better at reading words than understanding them by ear"): a read slot becomes a
+ * LISTEN exercise whenever its sentence can be heard (a clip on the device, and English to check
+ * against — or offline, where he checks himself): the clip plays with no text, he gives the meaning in
+ * English (voice first), Claude's lesson answer check judges it online (`listenCheckInput`), then the
+ * Chinese, pinyin and English show. A sentence with no clip keeps its read exercise.
+ *
  * Pure; the Lab app's port (core `SentenceRound.kt`) is parity-tested (parity/fixtures/sentence-round.ts).
  */
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, type SentencePractiseMode } from './sentencePractise';
 import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
+import type { AnswerCheckInput, AnswerCheckVerdict } from '../lesson/answerCheck';
 
-/** How many exercises a round offers at most (2 read + 2 translate, one sentence each). */
+/** How many exercises a round offers at most (2 read / listen + 2 translate, one sentence each). */
 export const SENTENCE_ROUND_SIZE = 4;
+
+/** An exercise's mode: read / translate (the rows' 🎤 modes) or listen ("Sentences by ear"). */
+export type RoundMode = SentencePractiseMode | 'listen';
 
 /** One of the card's sentences, in the list's order (the card's own first, then the set easiest → hardest). */
 export interface RoundSentence {
@@ -26,6 +37,8 @@ export interface RoundSentence {
   hanzi: string;
   /** The English ('' / null = none: that sentence can't be a translate exercise). */
   translation: string | null | undefined;
+  /** Its clip can be played now (a clip, streamed online or on the device): it may be a listen exercise. */
+  audio?: boolean;
 }
 
 export interface RoundSentenceSource {
@@ -50,20 +63,35 @@ export function roundSentences(source: RoundSentenceSource): RoundSentence[] {
 }
 
 export interface RoundExercise {
-  /** `read:<key>` / `translate:<key>` — what the round (and the gate) counts. */
+  /** `read:<key>` / `translate:<key>` / `listen:<key>` — what the round (and the gate) counts. */
   id: string;
   /** The sentence's row key. */
   key: string;
-  mode: SentencePractiseMode;
+  mode: RoundMode;
   /** Where the sentence sits in the card's list (0 = the easiest). */
   index: number;
 }
 
-export function roundExerciseId(mode: SentencePractiseMode, key: string): string {
+export function roundExerciseId(mode: RoundMode, key: string): string {
   return `${mode}:${key}`;
 }
 
 const hasTranslation = (s: RoundSentence) => !!(s.translation ?? '').trim();
+
+/** How the round is picked: "Sentences by ear" on (`byEar`) and the connection (Claude's check needs it). */
+export interface RoundPickOptions {
+  byEar?: boolean;
+  online?: boolean;
+}
+
+/**
+ * This sentence is a listen exercise in a read slot: "Sentences by ear" on, a clip it can play, and
+ * English for Claude to check the meaning against — offline the English isn't needed (he checks himself).
+ */
+export function canListenTo(s: Pick<RoundSentence, 'translation' | 'audio'>, opts: RoundPickOptions | undefined): boolean {
+  if (!opts?.byEar || !s.audio) return false;
+  return opts.online === false || !!(s.translation ?? '').trim();
+}
 
 /**
  * The list's "spread order": the easiest, the hardest and evenly between first (four spread over the
@@ -91,10 +119,15 @@ export function spreadOrder(n: number): number[] {
  * the other): fewer than four sentences = fewer exercises (3 → 3, 2 → read + translate when it can,
  * 1 → 1), and the word asks for more (`wantsMoreSentences`, reason few). Deterministic: the same list
  * and history give the same round in both apps.
+ *
+ * Sentences by ear (`opts.byEar`): a read slot is a LISTEN exercise for a sentence that can be heard
+ * (`canListenTo`) — and prefers such a sentence (after fresh-first, before least-known, which then
+ * compares the listen history); a sentence with no clip keeps read. Translate slots are unchanged.
  */
 export function pickRoundExercises(
   sentences: readonly RoundSentence[],
   stats?: ReadonlyMap<string, SentenceStats>,
+  opts?: RoundPickOptions,
 ): RoundExercise[] {
   const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key));
   const visible = sentences.map((s, index) => ({ s, index })).filter(({ s }) => !statsOf(s)?.hidden);
@@ -102,23 +135,30 @@ export function pickRoundExercises(
   if (n === 0) return [];
   const spread = spreadOrder(n);
   const rank = new Map(spread.map((pos, r) => [pos, r]));
-  const best = (mode: SentencePractiseMode, used: Set<number>, avoidTranslatable = false): number | null => {
+  // What a slot asks of the sentence at pos: translate, or (a read slot) listen when it can be heard, else read.
+  const slotMode = (slot: SentencePractiseMode, pos: number): RoundMode =>
+    slot === 'translate' ? 'translate' : canListenTo(visible[pos].s, opts) ? 'listen' : 'read';
+  const best = (slot: SentencePractiseMode, used: Set<number>, avoidTranslatable = false): number | null => {
     let pick: number | null = null;
     for (let pos = 0; pos < n; pos++) {
       if (used.has(pos)) continue;
-      if (mode === 'translate' && !hasTranslation(visible[pos].s)) continue;
+      if (slot === 'translate' && !hasTranslation(visible[pos].s)) continue;
       if (avoidTranslatable && hasTranslation(visible[pos].s)) continue;
       if (pick == null) { pick = pos; continue; }
       const freshPos = isFreshSentence(statsOf(visible[pos].s));
       const freshPick = isFreshSentence(statsOf(visible[pick].s));
       if (freshPos !== freshPick) { if (freshPos) pick = pos; continue; }
-      const c = compareLeastKnown(statsOf(visible[pos].s)?.[mode], statsOf(visible[pick].s)?.[mode]);
+      const modePos = slotMode(slot, pos);
+      const modePick = slotMode(slot, pick);
+      // By ear: a sentence that can be heard before one that can only be read.
+      if ((modePos === 'listen') !== (modePick === 'listen')) { if (modePos === 'listen') pick = pos; continue; }
+      const c = compareLeastKnown(statsOf(visible[pos].s)?.[modePos], statsOf(visible[pick].s)?.[modePick]);
       if (c < 0 || (c === 0 && rank.get(pos)! < rank.get(pick)!)) pick = pos;
     }
     return pick;
   };
   const used = new Set<number>();
-  const picked: { pos: number; mode: SentencePractiseMode }[] = [];
+  const picked: { pos: number; mode: RoundMode }[] = [];
   const m = Math.min(SENTENCE_ROUND_SIZE, n);
   for (let k = 0; k < m; k++) {
     const want: SentencePractiseMode = k % 2 === 0 ? 'read' : 'translate';
@@ -130,16 +170,16 @@ export function pickRoundExercises(
     for (let pos = 0; pos < n; pos++) if (!used.has(pos) && hasTranslation(visible[pos].s)) translatableLeft++;
     const spare = want === 'read' && translateSlotsLeft > 0 && translatableLeft <= translateSlotsLeft;
     let pos = (spare ? best(want, used, true) : null) ?? best(want, used);
-    let mode = want;
+    let slot = want;
     if (pos == null && want === 'translate') {
       pos = best('read', used);
-      mode = 'read';
+      slot = 'read';
     }
     if (pos == null) break;
     used.add(pos);
-    picked.push({ pos, mode });
+    picked.push({ pos, mode: slotMode(slot, pos) });
   }
-  const make = (pos: number, mode: SentencePractiseMode): RoundExercise => {
+  const make = (pos: number, mode: RoundMode): RoundExercise => {
     const { s, index } = visible[pos];
     return { id: roundExerciseId(mode, s.key), key: s.key, mode, index };
   };
@@ -256,6 +296,7 @@ export function sentenceRoundProgress(
   for (const k of sentenceKeys ?? []) {
     ids.add(roundExerciseId('read', k));
     ids.add(roundExerciseId('translate', k));
+    ids.add(roundExerciseId('listen', k));
   }
   const got = Math.min(needed, new Set(rightIds.filter((id) => ids.has(id))).size);
   return { needed, got, done: needed > 0 && got >= needed };
@@ -294,19 +335,22 @@ export const SENTENCE_ROUND_TRANSLATION_FAILED = 'Couldn’t get the English';
  * question: always up.
  */
 export function roundEnglishShown(
-  mode: SentencePractiseMode,
+  mode: RoundMode,
   status: 'right' | 'close' | 'wrong' | null,
   answered: boolean,
   toggled: boolean | null | undefined,
 ): boolean {
   if (mode === 'translate') return true;
+  // A listen exercise's English is its answer: only once he has answered (or asked to see it).
+  if (mode === 'listen') return answered;
   if (toggled != null) return toggled;
   return answered && status != null;
 }
 /** Each exercise's heading. */
-export const SENTENCE_ROUND_PROMPT: Record<SentencePractiseMode, string> = {
+export const SENTENCE_ROUND_PROMPT: Record<RoundMode, string> = {
   read: '📖 Read it aloud',
   translate: '🔁 Say it in Chinese',
+  listen: '👂 What does it mean?',
 };
 
 /** The counter: "1 / 2". */
@@ -343,12 +387,12 @@ export interface RoundLogEntry {
   result?: 'right' | 'close' | 'wrong' | null;
 }
 
-/** `read:<key>` / `translate:<key>` → its parts (null = not an exercise id). */
-export function roundExerciseParts(id: string): { mode: SentencePractiseMode; key: string } | null {
+/** `read:<key>` / `translate:<key>` / `listen:<key>` → its parts (null = not an exercise id). */
+export function roundExerciseParts(id: string): { mode: RoundMode; key: string } | null {
   const at = id.indexOf(':');
   if (at <= 0) return null;
   const mode = id.slice(0, at);
-  if (mode !== 'read' && mode !== 'translate') return null;
+  if (mode !== 'read' && mode !== 'translate' && mode !== 'listen') return null;
   const key = id.slice(at + 1);
   return key ? { mode, key } : null;
 }
@@ -356,7 +400,7 @@ export function roundExerciseParts(id: string): { mode: SentencePractiseMode; ke
 /** A sentence of the answer side's list that was in the round: its outline and label. */
 export interface RoundRowMark {
   key: string;
-  mode: SentencePractiseMode;
+  mode: RoundMode;
   outcome: RoundOutcome;
   label: string;
 }
@@ -410,3 +454,96 @@ export function exercisesFromLog(sentences: readonly RoundSentence[], ids: reado
   if (!out.length) return null;
   return out.sort((a, b) => a.index - b.index);
 }
+
+// --- Sentences by ear: the listen exercise (docs/STUDY_SESSION.md "Sentences by ear") -------------
+
+/** Settings → Study, next to Hard mode (per device, ON by default). */
+export const SENTENCES_BY_EAR_TITLE = 'Sentences by ear in Hard mode';
+export const SENTENCES_BY_EAR_HINT =
+  'In the Sentence round, hear a sentence and say what it means in English instead of reading it aloud. Off: read and translate only.';
+export const SENTENCES_BY_EAR_DEFAULT = true;
+
+/** A stored per-device value ('1' / '0', missing = the default). */
+export function parseSentencesByEar(raw: string | null | undefined): boolean {
+  if (raw === '0' || raw === 'false') return false;
+  if (raw === '1' || raw === 'true') return true;
+  return SENTENCES_BY_EAR_DEFAULT;
+}
+
+/** The clip again, slower ("0.75×"). */
+export const LISTEN_SLOW_RATE = 0.75;
+
+/** How a listen exercise is checked: Claude online with English to compare against; else he checks himself. */
+export type ListenCheckBy = 'claude' | 'self';
+
+export function listenCheckBy(online: boolean, translation: string | null | undefined): ListenCheckBy {
+  return online && !!(translation ?? '').trim() ? 'claude' : 'self';
+}
+
+/**
+ * Claude's check of a listen answer: the lesson answer check (`POST /api/lessons/answer-check`) as a
+ * MEANING check — exercise_type listen_translate, the Chinese he heard as the prompt, the sentence's English
+ * as the model answer, his English as the answer (`isMeaningCheck` in shared/lesson/answerCheck.ts). Cached
+ * for everyone; an answer that IS the English is right on the device with no call (`exactAnswerCheck`).
+ */
+export function listenCheckInput(
+  row: { hanzi: string; pinyin?: string | null; translation?: string | null },
+  said: string,
+  input: 'spoken' | 'edited' | 'typed',
+): AnswerCheckInput {
+  const out: AnswerCheckInput = {
+    prompt_en: row.hanzi.trim(),
+    model_answer: (row.translation ?? '').trim(),
+    answer: said.trim(),
+    exercise_type: 'listen_translate',
+    input,
+  };
+  const pinyin = (row.pinyin ?? '').trim();
+  if (pinyin) out.model_pinyin = pinyin;
+  return out;
+}
+
+/** Claude's verdict → the round's result: correct / acceptable = right (counts), almost = ≈ Nearly, wrong. */
+export function listenVerdictResult(verdict: AnswerCheckVerdict): 'right' | 'close' | 'wrong' {
+  if (verdict === 'correct' || verdict === 'acceptable') return 'right';
+  return verdict === 'almost' ? 'close' : 'wrong';
+}
+
+/** The self-check (offline / no English / no check to be had): ✓ Got it = right, ✗ Missed it = wrong. */
+export function listenSelfResult(gotIt: boolean): 'right' | 'wrong' {
+  return gotIt ? 'right' : 'wrong';
+}
+
+/**
+ * The listen exercise that has the floor (its clip plays by itself once, its answer box is open): the one
+ * he chose (▶ on it) while unanswered, else the first unanswered listen exercise in the round's order;
+ * null = none left. One box at a time, so one microphone.
+ */
+export function listenActiveId(
+  exercises: readonly RoundExercise[],
+  answeredIds: readonly string[],
+  chosen?: string | null,
+): string | null {
+  const answered = new Set(answeredIds);
+  const open = exercises.filter((e) => e.mode === 'listen' && !answered.has(e.id));
+  if (chosen && open.some((e) => e.id === chosen)) return chosen;
+  return open[0]?.id ?? null;
+}
+
+/** A listen exercise whose clip won't play after all (gone, not on the device offline): read it instead. */
+export function exerciseAsRead(ex: RoundExercise): RoundExercise {
+  return ex.mode === 'listen' ? { ...ex, id: roundExerciseId('read', ex.key), mode: 'read' } : ex;
+}
+
+export const LISTEN_EX_PLACEHOLDER = 'What does it mean? (in English)';
+export const LISTEN_EX_LISTENING = 'Listening… say what it means in English';
+export const LISTEN_EX_CHECKING = 'Checking what you understood…';
+export const LISTEN_EX_PLAY = 'Play again';
+export const LISTEN_EX_SLOW = '0.75×';
+export const LISTEN_EX_SHOW_ANSWER = 'Show the answer';
+export const LISTEN_EX_SUBMIT = 'Check';
+export const LISTEN_EX_SELF_QUESTION = 'Did you understand it?';
+export const LISTEN_EX_GOT_IT = 'Got it';
+export const LISTEN_EX_MISSED_IT = 'Missed it';
+export const LISTEN_EX_YOU_SAID = 'You said';
+export const LISTEN_EX_NO_AUDIO = 'This clip can’t play here — read it instead.';

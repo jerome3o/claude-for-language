@@ -109,7 +109,7 @@ class SentenceRoundParityTest {
     @Test
     fun englishShownMatches() {
         val cases = fixture()["english"]!!.jsonArray
-        assertEquals(48, cases.size)
+        assertEquals(72, cases.size)
         for (c in cases) {
             val o = c.jsonObject
             val toggled = o["toggled"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.boolean }
@@ -153,5 +153,56 @@ class SentenceRoundParityTest {
             assertEquals(o["intro"]!!.str, SentenceRound.listenIntro(SentenceRound.Progress(needed, got, got >= needed), o["n"]!!.jsonPrimitive.int), o.toString())
         }
         for (k in c["cardKeys"]!!.jsonArray) assertEquals(k.jsonObject["card"]!!.jsonPrimitive.boolean, SentenceRound.isCardSentenceKey(k.jsonObject["key"]!!.str!!), k.toString())
+    }
+
+    private fun exercise(e: JsonElement): SentenceRound.Exercise {
+        val o = e.jsonObject
+        return SentenceRound.Exercise(o["id"]!!.str!!, o["key"]!!.str!!, o["mode"]!!.str!!, o["index"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun sentencesByEarMatches() {
+        val l = fixture()["listen"]!!.jsonObject
+        for (c in l["canListen"]!!.jsonArray) {
+            val o = c.jsonObject
+            val s = SentenceRound.Sentence("k", "好", o["translation"]!!.str, o["audio"]!!.jsonPrimitive.boolean)
+            assertEquals(o["can"]!!.jsonPrimitive.boolean, SentenceRound.canListen(s, o["byEar"]!!.jsonPrimitive.boolean, o["online"]!!.jsonPrimitive.boolean), o.toString())
+        }
+        val exercises = l["asRead"]!!.jsonArray.map { exercise(it.jsonObject["ex"]!!) }
+        for (c in l["asRead"]!!.jsonArray) assertEquals(exercise(c.jsonObject["read"]!!), SentenceRound.asRead(exercise(c.jsonObject["ex"]!!)), c.toString())
+        for (c in l["active"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["id"]!!.str, SentenceRound.listenActiveId(exercises, o["answered"]!!.jsonArray.map { it.str!! }, o["chosen"]!!.str), o.toString())
+        }
+        for (c in l["checkBy"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["by"]!!.str, SentenceRound.listenCheckBy(o["online"]!!.jsonPrimitive.boolean, o["translation"]!!.str), o.toString())
+        }
+        val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+        for (c in l["inputs"]!!.jsonArray) {
+            val o = c.jsonObject
+            val row = o["row"]!!.jsonObject
+            val want = json.decodeFromJsonElement(AnswerCheckInput.serializer(), o["check"]!!)
+            assertEquals(want, SentenceRound.listenCheckInput(row["hanzi"]!!.str!!, row["pinyin"]!!.str, row["translation"]!!.str, o["said"]!!.str!!, o["input"]!!.str!!), o.toString())
+        }
+        for (c in l["verdicts"]!!.jsonArray) assertEquals(c.jsonObject["result"]!!.str, SentenceRound.listenVerdictResult(c.jsonObject["verdict"]!!.str!!))
+        for (c in l["self"]!!.jsonArray) assertEquals(c.jsonObject["result"]!!.str, SentenceRound.listenSelfResult(c.jsonObject["gotIt"]!!.jsonPrimitive.boolean))
+        for (c in l["byEar"]!!.jsonArray) assertEquals(c.jsonObject["on"]!!.jsonPrimitive.boolean, SentenceRound.parseByEar(c.jsonObject["raw"]!!.str), c.toString())
+        val copy = l["copy"]!!.jsonObject
+        assertEquals(copy["title"]!!.str, SentenceRound.BY_EAR_TITLE)
+        assertEquals(copy["hint"]!!.str, SentenceRound.BY_EAR_HINT)
+        assertEquals(copy["slowRate"]!!.jsonPrimitive.content.toDouble(), SentenceRound.LISTEN_SLOW_RATE)
+        assertEquals(copy["placeholder"]!!.str, SentenceRound.LISTEN_EX_PLACEHOLDER)
+        assertEquals(copy["listening"]!!.str, SentenceRound.LISTEN_EX_LISTENING)
+        assertEquals(copy["checking"]!!.str, SentenceRound.LISTEN_EX_CHECKING)
+        assertEquals(copy["play"]!!.str, SentenceRound.LISTEN_EX_PLAY)
+        assertEquals(copy["slow"]!!.str, SentenceRound.LISTEN_EX_SLOW)
+        assertEquals(copy["showAnswer"]!!.str, SentenceRound.LISTEN_EX_SHOW_ANSWER)
+        assertEquals(copy["submit"]!!.str, SentenceRound.LISTEN_EX_SUBMIT)
+        assertEquals(copy["selfQuestion"]!!.str, SentenceRound.LISTEN_EX_SELF_QUESTION)
+        assertEquals(copy["gotIt"]!!.str, SentenceRound.LISTEN_EX_GOT_IT)
+        assertEquals(copy["missedIt"]!!.str, SentenceRound.LISTEN_EX_MISSED_IT)
+        assertEquals(copy["youSaid"]!!.str, SentenceRound.LISTEN_EX_YOU_SAID)
+        assertEquals(copy["noAudio"]!!.str, SentenceRound.LISTEN_EX_NO_AUDIO)
     }
 }

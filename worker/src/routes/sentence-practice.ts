@@ -3,7 +3,7 @@
  * docs/STUDY_SESSION.md "Sentence practice history"). Mounted under /api after the auth middleware.
  *
  *   GET  /me/sentence-practice?since=&note_id= → { events, cursor, more }  (received after `since`, oldest first, ≤ 1000)
- *   POST /me/sentence-practice { events: [{ id, note_id, sentence_key, kind: attempt|hide|unhide, mode?, result?, reason?, at }] }
+ *   POST /me/sentence-practice { events: [{ id, note_id, sentence_key, kind: attempt|hide|unhide, mode?: read|translate|listen, result?, reason?, at }] }
  *        → { accepted, stored, rejected }  (idempotent by client id; the user's own notes only; ≤ 200)
  */
 import { Hono } from 'hono';

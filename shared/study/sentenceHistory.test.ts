@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   sentenceStats, knownInMode, compareLeastKnown, wantsMoreSentences, sentenceHistoryKey, showHiddenLabel,
-  moreSentencesWanted, freshSentenceCount, freshTopUpCount, isFreshSentence,
+  moreSentencesWanted, freshSentenceCount, freshTopUpCount, isFreshSentence, knownInAllModes,
   type SentencePracticeEvent,
 } from './sentenceHistory';
 import { pickRoundExercises, spreadOrder, type RoundSentence } from './sentenceRound';
@@ -9,7 +9,7 @@ import { pickRoundExercises, spreadOrder, type RoundSentence } from './sentenceR
 let n = 0;
 const ev = (e: Partial<SentencePracticeEvent> & Pick<SentencePracticeEvent, 'sentence_key' | 'kind'>): SentencePracticeEvent =>
   ({ id: `e${n++}`, note_id: 'n1', at: `2026-10-${String(10 + (n % 10)).padStart(2, '0')}T08:00:00.000Z`, ...e });
-const attempt = (key: string, mode: 'read' | 'translate', result: 'right' | 'close' | 'wrong', at?: string) =>
+const attempt = (key: string, mode: 'read' | 'translate' | 'listen', result: 'right' | 'close' | 'wrong', at?: string) =>
   ev({ sentence_key: key, kind: 'attempt', mode, result, ...(at ? { at } : {}) });
 const s = (key: string, translation: string | null = `${key} en`): RoundSentence => ({ key, hanzi: `${key}汉字`, translation });
 
@@ -107,5 +107,35 @@ describe('wantsMoreSentences / moreSentencesWanted (the fresh buffer)', () => {
     const st = sentenceStats([attempt('a', 'translate', 'wrong'), ev({ sentence_key: 'b', kind: 'hide', reason: 'weird' })], 'n1');
     expect(isFreshSentence(st.get('a'))).toBe(false);
     expect(isFreshSentence(st.get('b'))).toBe(false);
+  });
+});
+
+describe('listen (Hard mode "Sentences by ear") is a tracked mode', () => {
+  it('folds listen attempts on their own, and a sentence heard once is no longer fresh', () => {
+    const st = sentenceStats([attempt('a', 'listen', 'right'), attempt('a', 'listen', 'close'), attempt('a', 'read', 'right')], 'n1');
+    expect(st.get('a')!.listen).toMatchObject({ attempts: 2, rights: 1, misses: 1 });
+    expect(st.get('a')!.read.attempts).toBe(1);
+    expect(isFreshSentence(sentenceStats([attempt('b', 'listen', 'wrong')], 'n1').get('b'))).toBe(false);
+    // An old app's stats object without listen still reads as fresh.
+    expect(isFreshSentence({ read: { attempts: 0, rights: 0, misses: 0, last_at: null }, translate: { attempts: 0, rights: 0, misses: 0, last_at: null }, hidden: null } as never)).toBe(true);
+  });
+
+  it('the fresh buffer refills once listening uses sentences up', () => {
+    const list = ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => s(k));
+    expect(wantsMoreSentences(list, sentenceStats([], 'n1'))).toBe(false);
+    const heard = sentenceStats([attempt('a', 'listen', 'right'), attempt('b', 'listen', 'wrong')], 'n1');
+    expect(moreSentencesWanted(list, heard)).toEqual({ reason: 'fresh', fresh: 4, count: 4 });
+  });
+
+  it('known: listen rights count for listen; known in all modes = the read slot by ear (listen) or by eye, plus translate when it has English', () => {
+    const three = (mode: 'read' | 'translate' | 'listen') => [attempt('a', mode, 'right'), attempt('a', mode, 'right'), attempt('a', mode, 'right')];
+    const st = sentenceStats([...three('listen'), ...three('translate')], 'n1').get('a');
+    expect(knownInMode(st, 'listen')).toBe(true);
+    expect(knownInMode(st, 'read')).toBe(false);
+    expect(knownInAllModes(st, { translation: true, byEar: true })).toBe(true);
+    expect(knownInAllModes(st, { translation: true, byEar: false })).toBe(false);
+    const readOnly = sentenceStats(three('read'), 'n1').get('a');
+    expect(knownInAllModes(readOnly, { translation: false, byEar: false })).toBe(true);
+    expect(knownInAllModes(readOnly, { translation: true, byEar: false })).toBe(false);
   });
 });

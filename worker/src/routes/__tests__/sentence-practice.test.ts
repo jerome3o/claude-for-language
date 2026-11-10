@@ -50,20 +50,23 @@ describe('sentence practice events', () => {
       { id: 'a1', note_id: 'n-bank', sentence_key: 'clue', kind: 'attempt', mode: 'read', result: 'right', at: '2026-10-20T08:00:00.000Z' },
       { id: 'a2', note_id: 'n-bank', sentence_key: 's1', kind: 'attempt', mode: 'translate', result: 'close', at: '2026-10-20T08:01:00.000Z' },
       { id: 'h1', note_id: 'n-bank', sentence_key: 's2', kind: 'hide', reason: 'weird', at: '2026-10-20T08:02:00.000Z' },
+      // Sentences by ear: a listen attempt (the meaning given in English).
+      { id: 'l1', note_id: 'n-bank', sentence_key: 's1', kind: 'attempt', mode: 'listen', result: 'right', at: '2026-10-20T08:03:00.000Z' },
       { id: 'x1', note_id: 'n-x', sentence_key: 'clue', kind: 'attempt', mode: 'read', result: 'right', at: '2026-10-20T08:00:00.000Z' },
       { id: 'bad', note_id: 'n-bank', sentence_key: 'clue', kind: 'attempt', mode: 'sing', result: 'right', at: '2026-10-20T08:00:00.000Z' },
     ];
     const r = await me('POST', '/me/sentence-practice', { events });
     expect(r.status).toBe(200);
-    expect(r.json.stored).toBe(3);
-    expect(r.json.accepted.sort()).toEqual(['a1', 'a2', 'h1']);
+    expect(r.json.stored).toBe(4);
+    expect(r.json.accepted.sort()).toEqual(['a1', 'a2', 'h1', 'l1']);
     expect(r.json.rejected.sort()).toEqual(['bad', 'x1']);
     const again = await me('POST', '/me/sentence-practice', { events: events.slice(0, 2) });
     expect(again.json.stored).toBe(0);
     expect(again.json.accepted).toEqual(['a1', 'a2']);
 
     const list = await me('GET', '/me/sentence-practice');
-    expect(list.json.events.map((e: { id: string }) => e.id).sort()).toEqual(['a1', 'a2', 'h1']);
+    expect(list.json.events.map((e: { id: string }) => e.id).sort()).toEqual(['a1', 'a2', 'h1', 'l1']);
+    expect(list.json.events.find((e: { id: string }) => e.id === 'l1').mode).toBe('listen');
     const later = await me('GET', `/me/sentence-practice?since=${encodeURIComponent(list.json.cursor)}`);
     expect(later.json.events).toEqual([]);
     expect((await me('POST', '/me/sentence-practice', { events: [] })).status).toBe(400);

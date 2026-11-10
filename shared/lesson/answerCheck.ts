@@ -105,6 +105,9 @@ export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_trans
 /** Free speaking: the recording's transcript is checked (model answer = only "one way to say it"). */
 export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'speak'];
 
+/** Bump when the meaning-check prompt changes (Sentences by ear; its cache texts start `m<version>`). */
+export const MEANING_CHECK_VERSION = 1;
+
 /** Bump when the speaking prompt or its shape changes (its cache texts start `s<version>`). */
 export const SPEAKING_CHECK_VERSION = 1;
 
@@ -128,6 +131,23 @@ const HAN = /\p{Script=Han}/u;
 /** Does the text contain Chinese characters? */
 export function hasHan(text: string): boolean {
   return HAN.test(text);
+}
+
+/**
+ * A MEANING check (Hard mode's "Sentences by ear", shared/study/sentenceRound.ts `listenCheckInput`): he
+ * heard a Chinese sentence (`prompt_en` holds that Chinese) and gave its meaning in English; the model
+ * answer is the sentence's English. listen_translate with no Chinese in the model answer nor in his answer,
+ * and letters to read. A lesson's listen_translate (a Chinese model answer) never is one.
+ */
+export function isMeaningCheck(input: Pick<AnswerCheckInput, 'exercise_type' | 'answer' | 'model_answer'>): boolean {
+  if (input.exercise_type !== 'listen_translate') return false;
+  const answer = input.answer ?? '';
+  return !hasHan(input.model_answer ?? '') && !hasHan(answer) && /\p{L}/u.test(answer) && /\p{L}/u.test(input.model_answer ?? '');
+}
+
+/** English compared for a meaning check: lower case, letters and digits only, single spaces. */
+export function meaningAnswerText(s: string): string {
+  return s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
 /** Does this exercise's answer get Claude's check? Only an answer in Chinese (a listening answer in English is not). */
@@ -159,6 +179,17 @@ export function answerCheckCacheText(input: AnswerCheckInput): string {
     ].join('|');
   }
   const mode = input.input === 'spoken' ? 'spoken' : 'typed';
+  if (isMeaningCheck(input)) {
+    // A meaning check: the Chinese heard, the English model and his English (case / punctuation aside).
+    return [
+      `m${MEANING_CHECK_VERSION}`,
+      input.exercise_type,
+      mode,
+      normalizeHanziAnswer(input.prompt_en),
+      meaningAnswerText(input.model_answer),
+      meaningAnswerText(input.answer),
+    ].join('|');
+  }
   return [
     `v${ANSWER_CHECK_VERSION}`,
     input.exercise_type,
@@ -197,7 +228,7 @@ export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } 
   if (!input.prompt_en) problems.push('prompt_en is required');
   if (!input.model_answer && !speaking) problems.push('model_answer is required');
   if (!input.answer) problems.push('answer is required');
-  else if (!hasHan(input.answer)) problems.push('answer has no Chinese to check');
+  else if (!hasHan(input.answer) && !isMeaningCheck(input)) problems.push('answer has no Chinese to check');
   return problems.length ? { problems } : { input };
 }
 
@@ -217,6 +248,12 @@ export const EXACT_ANSWER_HEADLINE = 'Exactly right — nice!';
  * apps show it at once (offline too); the worker answers it the same way without a call.
  */
 export function exactAnswerCheck(input: Pick<AnswerCheckInput, 'exercise_type' | 'answer' | 'model_answer'>): AnswerCheck | null {
+  // A meaning check: his English IS the sentence's English (case, punctuation and spacing aside).
+  if (isMeaningCheck(input)) {
+    const mine = meaningAnswerText(input.answer);
+    if (!mine || mine !== meaningAnswerText(input.model_answer)) return null;
+    return { verdict: 'correct', headline: EXACT_ANSWER_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it' };
+  }
   if (!answerCheckApplies(input.exercise_type, input.answer)) return null;
   // Free speaking has no single right answer: its model answer is only "one way to say it".
   if (isSpeakingCheckType(input.exercise_type)) return null;

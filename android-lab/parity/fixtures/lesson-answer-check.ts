@@ -23,6 +23,10 @@ const inputs = [
   { prompt_en: "  EVEN if it's cheap,\nI won't buy it. ", model_answer: '即使很便宜，我也不买。', answer: '即使便宜 我也不买', exercise_type: 'translate', input: 'typed' },
   { prompt_en: 'The doctor told me to take medicine and rest well.', model_answer: '医生让我吃药，好好休息。', answer: '医生让我吃药和好好休息。', exercise_type: 'translate', input: 'spoken', focus: '  Linking ACTIONS ' },
   { prompt_en: 'Ｆｕｌｌ　ｗｉｄｔｈ', model_answer: '你好！', answer: '你　好', exercise_type: 'listen_translate', input: 'edited', focus: '' },
+  // Meaning checks (Hard mode's "Sentences by ear"): the Chinese heard, the English model, his English.
+  { prompt_en: '我昨天没去银行。', model_answer: "I didn't go to the bank yesterday.", answer: '  I WENT to the bank… yesterday!', exercise_type: 'listen_translate', input: 'spoken' },
+  { prompt_en: ' 你好 ', model_answer: 'Ｈｅｌｌｏ!', answer: 'hello — there', exercise_type: 'listen_translate', input: 'typed' },
+  { prompt_en: '我去银行。', model_answer: 'I go to the bank.', answer: 'Je vais à la banque 2', exercise_type: 'listen_translate', input: 'edited' },
 ];
 const cacheTexts = inputs.map((input) => ({ input, text: answerCheckCacheText(input) }));
 
@@ -69,6 +73,13 @@ const exactCases = [
   { exercise_type: 'translate', model_answer: exactModel, answer: '' },
   { exercise_type: 'sentence_making', model_answer: exactModel, answer: exactModel },
   { exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' },
+  // Meaning checks: his English = the sentence's English, case / punctuation / spacing aside.
+  { exercise_type: 'listen_translate', model_answer: "I didn't go to the bank yesterday.", answer: "  i DIDN'T go to the bank, yesterday " },
+  { exercise_type: 'listen_translate', model_answer: "I didn't go to the bank yesterday.", answer: 'I went to the bank yesterday' },
+  { exercise_type: 'listen_translate', model_answer: 'The station', answer: '123' },
+  { exercise_type: 'listen_translate', model_answer: 'The station', answer: '车站' },
+  { exercise_type: 'translate', model_answer: 'The station', answer: 'The station' },
+  { exercise_type: 'listen_translate', model_answer: 'Ｃａｆé 2', answer: 'café   2!' },
 ].map((input) => ({ input, check: exactAnswerCheck(input) }));
 
 writeFileSync(join(OUT, 'lesson-answer-check.json'), JSON.stringify({

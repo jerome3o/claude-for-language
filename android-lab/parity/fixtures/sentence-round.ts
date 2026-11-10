@@ -15,7 +15,11 @@ import {
   roundRowMarks, orderKeysForRound, exercisesFromLog, roundExerciseParts, roundEnglishShown,
   listenRoundIntro, isCardSentenceKey, LISTEN_ROUND_SIZE, LISTEN_ROUND_LEAD, LISTEN_ROUND_SELF_CHECK_NOTE, LISTEN_ROUND_SHOW_CHINESE,
   LISTEN_ROUND_SELF_RIGHT, LISTEN_ROUND_SELF_WRONG,
-  type RoundSentence, type RoundLogEntry,
+  canListenTo, listenActiveId, exerciseAsRead, listenCheckBy, listenCheckInput, listenVerdictResult, listenSelfResult, parseSentencesByEar,
+  SENTENCES_BY_EAR_TITLE, SENTENCES_BY_EAR_HINT, LISTEN_SLOW_RATE, LISTEN_EX_PLACEHOLDER, LISTEN_EX_LISTENING, LISTEN_EX_CHECKING,
+  LISTEN_EX_PLAY, LISTEN_EX_SLOW, LISTEN_EX_SHOW_ANSWER, LISTEN_EX_SUBMIT, LISTEN_EX_SELF_QUESTION, LISTEN_EX_GOT_IT, LISTEN_EX_MISSED_IT,
+  LISTEN_EX_YOU_SAID, LISTEN_EX_NO_AUDIO,
+  type RoundSentence, type RoundLogEntry, type RoundExercise,
 } from '../../../shared/study/sentenceRound';
 
 const OUT = process.argv[2];
@@ -105,12 +109,49 @@ for (const enabled of [true, false]) for (const cardType of ['hanzi_to_meaning',
 }
 
 const english = [] as unknown[];
-for (const mode of ['read', 'translate'] as const) for (const status of [null, 'right', 'close', 'wrong'] as const) for (const answered of [false, true]) for (const toggled of [null, true, false]) {
+for (const mode of ['read', 'translate', 'listen'] as const) for (const status of [null, 'right', 'close', 'wrong'] as const) for (const answered of [false, true]) for (const toggled of [null, true, false]) {
   english.push({ mode, status, answered, toggled, shown: roundEnglishShown(mode, status, answered, toggled) });
 }
 
+// Sentences by ear: who can be heard, the exercise with the floor, the fallback, the check and the setting.
+const TRANSLATIONS = [null, '', '  ', 'I go to the bank.'];
+const canListen = [] as unknown[];
+for (const translation of TRANSLATIONS) for (const audio of [false, true]) for (const byEar of [false, true]) for (const online of [false, true]) {
+  canListen.push({ translation, audio, byEar, online, can: canListenTo({ translation, audio }, { byEar, online }) });
+}
+const listenExercises: RoundExercise[] = [
+  { id: 'translate:a', key: 'a', mode: 'translate', index: 0 },
+  { id: 'listen:b', key: 'b', mode: 'listen', index: 1 },
+  { id: 'read:c', key: 'c', mode: 'read', index: 2 },
+  { id: 'listen:d', key: 'd', mode: 'listen', index: 3 },
+];
+const active = [] as unknown[];
+for (const answered of [[], ['listen:b'], ['listen:d'], ['listen:b', 'listen:d'], ['read:c']]) for (const chosen of [null, 'listen:b', 'listen:d', 'read:c', 'zzz']) {
+  active.push({ answered, chosen, id: listenActiveId(listenExercises, answered, chosen) });
+}
+const listen = {
+  canListen,
+  active,
+  asRead: listenExercises.map((ex) => ({ ex, read: exerciseAsRead(ex) })),
+  checkBy: [false, true].flatMap((online) => TRANSLATIONS.map((t) => ({ online, translation: t, by: listenCheckBy(online, t) }))),
+  inputs: [
+    { row: { hanzi: ' 我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank. ' }, said: ' I go to the bank ', input: 'spoken' as const },
+    { row: { hanzi: '好', pinyin: '  ', translation: null }, said: 'good', input: 'typed' as const },
+    { row: { hanzi: '你好', pinyin: null, translation: 'Hello' }, said: 'hi', input: 'edited' as const },
+  ].map((c) => ({ ...c, check: listenCheckInput(c.row, c.said, c.input) })),
+  verdicts: (['correct', 'acceptable', 'almost', 'wrong'] as const).map((v) => ({ verdict: v, result: listenVerdictResult(v) })),
+  self: [true, false].map((g) => ({ gotIt: g, result: listenSelfResult(g) })),
+  byEar: [null, '', '1', 'true', '0', 'false', 'x'].map((raw) => ({ raw, on: parseSentencesByEar(raw) })),
+  copy: {
+    title: SENTENCES_BY_EAR_TITLE, hint: SENTENCES_BY_EAR_HINT, slowRate: LISTEN_SLOW_RATE,
+    placeholder: LISTEN_EX_PLACEHOLDER, listening: LISTEN_EX_LISTENING, checking: LISTEN_EX_CHECKING, play: LISTEN_EX_PLAY,
+    slow: LISTEN_EX_SLOW, showAnswer: LISTEN_EX_SHOW_ANSWER, submit: LISTEN_EX_SUBMIT, selfQuestion: LISTEN_EX_SELF_QUESTION,
+    gotIt: LISTEN_EX_GOT_IT, missedIt: LISTEN_EX_MISSED_IT, youSaid: LISTEN_EX_YOU_SAID, noAudio: LISTEN_EX_NO_AUDIO,
+  },
+};
+
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
-  lists, opens, answerSide, parts, english,
+  lists, opens, answerSide, parts, english, listen,
   copy: {
     size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, skipConfirm: SENTENCE_ROUND_SKIP_CONFIRM,
     skipConfirmYes: SENTENCE_ROUND_SKIP_CONFIRM_YES, skipConfirmNo: SENTENCE_ROUND_SKIP_CONFIRM_NO, tryAgain: SENTENCE_ROUND_TRY_AGAIN,

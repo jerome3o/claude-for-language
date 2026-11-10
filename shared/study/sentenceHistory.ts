@@ -11,6 +11,14 @@
  */
 import type { SentencePractiseMode } from './sentencePractise';
 
+/**
+ * The modes a take on a sentence is recorded in: read (the Chinese up, read aloud) and translate (the
+ * English up, said in Chinese) — the rows' 🎤 and the round — and listen (Hard mode's "Sentences by ear":
+ * the clip only, its meaning given in English; `pickRoundExercises` in sentenceRound.ts).
+ */
+export type SentencePracticeMode = SentencePractiseMode | 'listen';
+export const SENTENCE_PRACTICE_MODES: readonly SentencePracticeMode[] = ['read', 'translate', 'listen'];
+
 /** A sentence's key within its note: the set row's id, or `clue` for the note's own sentence. */
 export const CLUE_SENTENCE_KEY = 'clue';
 
@@ -37,7 +45,7 @@ export interface SentencePracticeEvent {
   sentence_key: string;
   kind: SentencePracticeKind;
   /** attempt only */
-  mode?: SentencePractiseMode | null;
+  mode?: SentencePracticeMode | null;
   /** attempt only */
   result?: SentencePracticeResult | null;
   /** hide only */
@@ -58,19 +66,21 @@ export interface ModeStats {
 export interface SentenceStats {
   read: ModeStats;
   translate: ModeStats;
+  /** Understood by ear (Hard mode's "Sentences by ear"). */
+  listen: ModeStats;
   /** Out of rotation (the last hide / unhide event decides). */
   hidden: { at: string; reason: SentenceHideReason | null } | null;
 }
 
 const emptyMode = (): ModeStats => ({ attempts: 0, rights: 0, misses: 0, last_at: null });
-export const emptySentenceStats = (): SentenceStats => ({ read: emptyMode(), translate: emptyMode(), hidden: null });
+export const emptySentenceStats = (): SentenceStats => ({ read: emptyMode(), translate: emptyMode(), listen: emptyMode(), hidden: null });
 
 /** The key a row of the card's list has in the history (`clue:<noteId>` → `clue`). */
 export function sentenceHistoryKey(rowKey: string): string {
   return rowKey.startsWith('clue:') ? CLUE_SENTENCE_KEY : rowKey;
 }
 
-const isValidMode = (m: unknown): m is SentencePractiseMode => m === 'read' || m === 'translate';
+const isValidMode = (m: unknown): m is SentencePracticeMode => m === 'read' || m === 'translate' || m === 'listen';
 const isValidResult = (r: unknown): r is SentencePracticeResult => r === 'right' || r === 'close' || r === 'wrong';
 
 /** Event order: by time, then id (so both apps fold the same events the same way). */
@@ -112,7 +122,7 @@ export function sentenceStats(events: readonly SentencePracticeEvent[], noteId: 
 }
 
 /** Known in a mode: right at least SENTENCE_KNOWN_RIGHTS times. */
-export function knownInMode(stats: SentenceStats | undefined, mode: SentencePractiseMode): boolean {
+export function knownInMode(stats: SentenceStats | undefined, mode: SentencePracticeMode): boolean {
   return (stats?.[mode].rights ?? 0) >= SENTENCE_KNOWN_RIGHTS;
 }
 
@@ -138,13 +148,25 @@ export function compareLeastKnown(a: ModeStats | undefined, b: ModeStats | undef
 export const SENTENCE_ROUND_MIN_VISIBLE = 4;
 
 /**
- * A FRESH sentence: never practised in either mode (no take, right or wrong) and not hidden. The
- * Sentence round asks fresh sentences first (Jerome, Nov 2026: "I'm just memorizing the sentences"),
- * so the word is practised in a sentence he hasn't seen in a round before.
+ * A FRESH sentence: never practised in any mode — read, translate or listen (no take, right or wrong)
+ * — and not hidden. The Sentence round asks fresh sentences first (Jerome, Nov 2026: "I'm just
+ * memorizing the sentences"), so the word is practised in a sentence he hasn't seen in a round before.
+ * A sentence heard once by ear is used up like one read once, so the fresh buffer
+ * (`moreSentencesWanted`) refills the same way.
  */
 export function isFreshSentence(stats: SentenceStats | undefined): boolean {
   if (!stats) return true;
-  return !stats.hidden && stats.read.attempts === 0 && stats.translate.attempts === 0;
+  return !stats.hidden && stats.read.attempts === 0 && stats.translate.attempts === 0 && (stats.listen?.attempts ?? 0) === 0;
+}
+
+/**
+ * Known in every mode the sentence is practised in: read and listen are the same slot of the round
+ * (`pickRoundExercises`: listen when it can be heard, else read), translate when it has English. With
+ * "Sentences by ear" on and a clip (`byEar`), the slot is listen — known = listen known — else read.
+ */
+export function knownInAllModes(stats: SentenceStats | undefined, opts: { translation: boolean; byEar: boolean }): boolean {
+  if (!knownInMode(stats, opts.byEar ? 'listen' : 'read')) return false;
+  return !opts.translation || knownInMode(stats, 'translate');
 }
 
 /** How many of these sentences are fresh. */

@@ -124,6 +124,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import androidx.compose.runtime.collectAsState
+import dev.jeromeswannack.chineselearning.lab.data.api.checkLessonAnswer
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 
@@ -312,13 +313,14 @@ fun CardStage(
         if (!ok) dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.markEmpty()
     }
     val noteStats = remember(sentenceEvents, note.id) { sentenceEvents?.let { SentenceHistory.stats(it, note.id) } }
+    val sentencesByEar by StudyPrefs.get(appCtx).sentencesByEar.collectAsState()
     // The listening card's round asks only for the English sentences that carry the word (core SentenceRound.pickListen).
     val listenRound = view.card.cardType == CardTypes.AUDIO_TO_HANZI
     val sentenceCount = if (listenRound) SentenceRound.listenSentenceCount(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, note.hanzi, noteStats)
         else roundRows.count { noteStats?.get(SentenceHistory.key(it.key))?.hidden == null }
     SideEffect {
         practise.onResult = if (!history || labApp == null) null else { key, mode, result ->
-            val rowKey = key.removePrefix("${SentencePractise.READ}:").removePrefix("${SentencePractise.TRANSLATE}:")
+            val rowKey = key.removePrefix("${SentencePractise.READ}:").removePrefix("${SentencePractise.TRANSLATE}:").removePrefix("${SentenceRound.LISTEN}:")
             dev.jeromeswannack.chineselearning.lab.data.sentences.SentencePracticeStore.recordAttempt(labApp, note.id, rowKey, mode, result)
         }
     }
@@ -710,6 +712,17 @@ fun CardStage(
                         cachedTranslation = actions.sentences.cachedTranslation,
                         translate = actions.sentences.translate,
                         online = ui.aiAvailable,
+                        // Hard mode's "Sentences by ear" (Settings → Study, on by default): listen exercises in the read slots.
+                        byEar = sentencesByEar,
+                        hasClip = { url -> labApp?.audio?.hasClip(url) == true },
+                        onPlayClip = { url, speed, onUnavailable ->
+                            val app = labApp
+                            if (app == null) onUnavailable() else app.audio.playClip(url, ui.aiAvailable, speed, onUnavailable)
+                        },
+                        checkMeaning = { input ->
+                            val app = labApp ?: return@SentenceRoundPage null
+                            app.repo.api.checkLessonAnswer(input, app.cache, app.online.value).check
+                        },
                     )
                 }
                 return@BoxWithConstraints

@@ -55,7 +55,25 @@ const checkLessonAnswer = vi.fn();
 vi.mock('../../services/answerCheck', () => ({ checkLessonAnswer: (...a: unknown[]) => checkLessonAnswer(...a) }));
 const net = vi.hoisted(() => ({ online: true }));
 vi.mock('../../contexts/NetworkContext', () => ({ useNetwork: () => ({ isOnline: net.online }) }));
-vi.mock('../../hooks/useAudio', () => ({ useNoteAudio: () => ({ isPlaying: false, play: vi.fn() }) }));
+vi.mock('../../hooks/useAudio', () => ({ useNoteAudio: () => ({ isPlaying: false, play: vi.fn() }), resolveNoteAudioSource: async (url: string) => `blob:${url}` }));
+// The listen exercise's own player (Sentences by ear): every play, with its rate and handlers.
+const player = vi.hoisted(() => ({ plays: [] as Array<{ src: unknown; rate: number; handlers: { onPlay?: () => void; onError?: () => void; onEnded?: () => void } }> }));
+vi.mock('../../utils/audioPlayback', async (orig) => ({
+  ...(await orig<typeof import('../../utils/audioPlayback')>()),
+  createAudioPlayer: () => {
+    let id = 0;
+    let rate = 1;
+    return {
+      play: (src: unknown, handlers: { onPlay?: () => void }) => { player.plays.push({ src, rate, handlers }); return ++id; },
+      stop: vi.fn(), dispose: vi.fn(), claim: () => ++id, isCurrent: () => true, setRate: (r: number) => { rate = r; },
+    };
+  },
+}));
+const clipCache = vi.hoisted(() => ({ cached: new Set<string>() }));
+vi.mock('../../services/audioCache', () => ({
+  isAudioCached: async (u: string) => clipCache.cached.has(u),
+  getCachedAudio: async (u: string) => (clipCache.cached.has(u) ? new Blob(['x']) : null),
+}));
 vi.mock('../../services/offlineMode', () => ({ isEffectivelyOffline: () => false }));
 vi.mock('../../api/client', () => ({ fetchNoteSentences: vi.fn(async () => []), deleteNoteSentenceSet: vi.fn(), API_BASE: '' }));
 vi.mock('../Confetti', () => ({ Confetti: () => null }));
@@ -74,12 +92,13 @@ vi.mock('../../services/sentencePractice', () => ({
   requestMoreSentences: (...a: unknown[]) => { history.more.push(a); },
 }));
 
+const rows = vi.hoisted(() => ({ set: null as unknown[] | null }));
 const SET = [
   { id: 's1', note_id: 'n1', position: 0, hanzi: '我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank.', audio_url: null, focus: 'core', focus_note: null, explanation: null },
   { id: 's2', note_id: 'n1', position: 1, hanzi: '银行在哪儿？', pinyin: 'Yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: null, focus: 'core', focus_note: null, explanation: null },
 ];
 vi.mock('../../services/sentence-sets', () => ({
-  getLocalNoteSentences: vi.fn(async () => SET),
+  getLocalNoteSentences: vi.fn(async () => rows.set ?? SET),
   generateAndStoreSentenceSet: vi.fn(), putLocalNoteSentences: vi.fn(), clearLocalNoteSentences: vi.fn(), cacheSentenceAudio: vi.fn(),
   resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getTextExplanation: vi.fn(),
   getCachedTextExplanation: vi.fn(async () => null), getClueTranslation: vi.fn(), getCachedClueTranslation: vi.fn(async () => null),
@@ -134,6 +153,11 @@ beforeEach(() => {
   history.hidden.length = 0;
   history.unhidden.length = 0;
   history.more.length = 0;
+  rows.set = null;
+  player.plays.length = 0;
+  clipCache.cached.clear();
+  net.online = true;
+  try { localStorage.removeItem('sentences-by-ear-v1'); } catch { /* none */ }
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -341,7 +365,7 @@ describe('SentenceRound', () => {
       expect(history.more).toEqual([['n1', { reason: 'fresh', count: 3 }]]);
       expect(host.querySelector('[data-testid="sentences-coming"]')).toBeNull();
     } finally {
-      vi.mocked(getLocalNoteSentences).mockResolvedValue(SET as never);
+      vi.mocked(getLocalNoteSentences).mockImplementation(async () => (rows.set ?? SET) as never);
     }
   });
 
@@ -580,5 +604,130 @@ describe("the listening card's round", () => {
     expect(ex(0).dataset.status).toBe('right');
     expect(history.record.at(-1)).toEqual(['n1', 'clue:n1', 'translate', 'right']);
     expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+  });
+});
+
+describe('Sentences by ear (listen exercises in Hard mode)', () => {
+  // Two set rows with clips; the card's own sentence has none (so it is the translate one / read).
+  const HEARD = SET.map((r) => ({ ...r, audio_url: `generated/${r.id}.mp3` }));
+  const listenDictation = () => fakes.list.find((f) => f.surface === 'sentence_listen')!;
+  const listenEx = () => all('sentence-round-exercise').filter((e) => e.dataset.mode === 'listen');
+  const inL = (el: HTMLElement, id: string) => el.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
+
+  it('a read slot with a clip is a listen exercise: the clip plays by itself, no text before the answer', async () => {
+    rows.set = HEARD;
+    await render();
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'listen', 'listen']);
+    const first = listenEx()[0];
+    expect(first.dataset.exercise).toBe('listen:s1');
+    // Autoplay: the first listen exercise's clip, once, at normal speed.
+    expect(player.plays.map((p) => [p.src, p.rate])).toEqual([['blob:generated/s1.mp3', 1]]);
+    // Nothing to read: no Chinese, no pinyin, no English.
+    expect(inL(first, 'sentence-round-chinese')).toBeNull();
+    expect(first.textContent).not.toContain('我去银行。');
+    expect(first.textContent).not.toContain('I go to the bank.');
+    expect(first.textContent).toContain('👂 What does it mean?');
+    // ▶ again and 0.75×.
+    await act(async () => { inL(first, 'sentence-listen-slow')!.click(); });
+    expect(player.plays.at(-1)!.rate).toBe(0.75);
+    // Only the exercise with the floor has a box.
+    expect(listenEx()[1].querySelector('[data-testid^="sentence-listen-input"]')).toBeNull();
+    expect(first.querySelector('[data-testid^="sentence-listen-input"]')).not.toBeNull();
+  });
+
+  it('his English IS the sentence: right at once with no call, the reveal shows, the attempt is recorded as listen', async () => {
+    rows.set = HEARD;
+    await render();
+    act(() => listenDictation().land('i go to the bank'));
+    await flush();
+    const first = listenEx()[0];
+    expect(first.dataset.status).toBe('right');
+    expect(checkLessonAnswer).not.toHaveBeenCalled();
+    expect(inL(first, 'sentence-round-chinese')!.textContent).toBe('我去银行。');
+    expect(inL(first, 'sentence-listen-english')!.textContent).toBe('I go to the bank.');
+    expect(history.record).toContainEqual(['n1', 's1', 'listen', 'right']);
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'right', checked_by: 'exact', input: 'spoken', slow: false }));
+    // The next listen exercise gets the floor and plays.
+    expect(player.plays.at(-1)!.src).toBe('blob:generated/s2.mp3');
+  });
+
+  it("Claude's verdict lands under the reveal without moving it (same nodes, height kept)", async () => {
+    rows.set = HEARD;
+    let resolve!: (v: unknown) => void;
+    checkLessonAnswer.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    await render();
+    act(() => listenDictation().land('I went to a bank'));
+    await flush();
+    const first = listenEx()[0];
+    expect(checkLessonAnswer).toHaveBeenCalledWith(expect.objectContaining({
+      exercise_type: 'listen_translate', prompt_en: '我去银行。', model_answer: 'I go to the bank.', answer: 'I went to a bank', input: 'spoken',
+    }));
+    // The reveal is up at once; the verdict row is there, saying it is checking.
+    const reveal = inL(first, 'sentence-listen-reveal');
+    const verdict = inL(first, 'sentence-listen-verdict');
+    expect(reveal).not.toBeNull();
+    expect(verdict!.textContent).toBe('Checking what you understood…');
+    expect(first.dataset.status).toBe('open');
+    await act(async () => { resolve({ check: { verdict: 'almost', headline: 'Close — it’s “go”, not “went”.', corrected: '', corrected_pinyin: '', tips: [], suggested: 'missed_it' }, cached: false }); });
+    expect(inL(first, 'sentence-listen-reveal')).toBe(reveal);
+    expect(inL(first, 'sentence-listen-verdict')).toBe(verdict);
+    expect(verdict!.textContent).toContain('≈ Nearly');
+    expect(verdict!.textContent).toContain('not “went”');
+    expect(first.dataset.status).toBe('close');
+    expect(history.record).toContainEqual(['n1', 's1', 'listen', 'close']);
+  });
+
+  it('offline (clips on the device): he checks himself — ✓ Got it counts', async () => {
+    rows.set = HEARD;
+    net.online = false;
+    HEARD.forEach((r) => clipCache.cached.add(r.audio_url));
+    await render();
+    await flush();
+    expect(listenEx().length).toBeGreaterThan(0);
+    act(() => listenDictation().land('I go to the bank'));
+    await flush();
+    const first = listenEx()[0];
+    expect(checkLessonAnswer).not.toHaveBeenCalled();
+    expect(inL(first, 'sentence-round-chinese')).not.toBeNull();
+    act(() => inL(first, 'sentence-listen-got')!.click());
+    expect(first.dataset.status).toBe('right');
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'right', checked_by: 'self' }));
+  });
+
+  it('a clip not on the device offline is read instead', async () => {
+    rows.set = HEARD;
+    net.online = false;
+    await render();
+    await flush();
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate', 'read']);
+  });
+
+  it('👁 Show the answer before answering goes to the self-check', async () => {
+    rows.set = HEARD;
+    await render();
+    act(() => inL(listenEx()[0], 'sentence-listen-show')!.click());
+    await flush();
+    act(() => inL(listenEx()[0], 'sentence-listen-missed')!.click());
+    expect(listenEx()[0].dataset.status).toBe('wrong');
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'wrong', checked_by: 'self', input: 'none' }));
+  });
+
+  it("a clip that won't play turns the exercise into a read one", async () => {
+    rows.set = HEARD;
+    const picked: string[][] = [];
+    await render({ onPicked: (ids) => picked.push(ids) });
+    act(() => player.plays[0].handlers.onError?.());
+    await flush();
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'read', 'listen']);
+    expect(picked.at(-1)).toEqual(['translate:clue:n1', 'read:s1', 'listen:s2']);
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ fallback: true }));
+  });
+
+  it('Settings off: read and translate as before', async () => {
+    rows.set = HEARD;
+    localStorage.setItem('sentences-by-ear-v1', '0');
+    await render();
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate', 'read']);
+    expect(player.plays).toHaveLength(0);
   });
 });

@@ -22,10 +22,11 @@ import {
   type MoreSentencesReason,
   type SentenceHideReason,
   type SentencePracticeEvent,
+  type SentencePracticeMode,
   type SentencePracticeResult,
   type SentenceStats,
 } from '@shared/study/sentenceHistory';
-import type { SentencePractiseMode } from '@shared/study/sentencePractise';
+
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { track } from './analytics';
 
@@ -79,8 +80,8 @@ async function addEvent(e: Omit<SentencePracticeEvent, 'id' | 'at'>): Promise<Se
   return plain;
 }
 
-/** A 🎤 take on a sentence was judged (round or row). `rowKey` = the list's row key (`clue:<noteId>` or the set id). */
-export function recordSentenceAttempt(noteId: string, rowKey: string, mode: SentencePractiseMode, result: SentencePracticeResult): void {
+/** A take on a sentence was judged (round or row; mode listen = Sentences by ear). `rowKey` = the list's row key (`clue:<noteId>` or the set id). */
+export function recordSentenceAttempt(noteId: string, rowKey: string, mode: SentencePracticeMode, result: SentencePracticeResult): void {
   void addEvent({ note_id: noteId, sentence_key: sentenceHistoryKey(rowKey), kind: 'attempt', mode, result, reason: null });
 }
 

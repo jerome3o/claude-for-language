@@ -18,7 +18,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, speakingTaskParts,
+  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, speakingTaskParts,
   ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
@@ -76,6 +76,33 @@ const TOOL = {
     required: ['verdict', 'headline', 'corrected', 'tips'],
   },
 };
+
+// ============ Meaning (Hard mode's "Sentences by ear") ============
+
+export const MEANING_CHECK_SYSTEM = `You check whether a learner of Chinese UNDERSTOOD a Chinese sentence they only HEARD (no text). They said or typed what it means in English. You get the Chinese sentence, its reference English translation (only ONE way to put it) and their English.
+
+Verdicts:
+- "correct": they got the meaning — every part that matters (who, what, when, negation, the key word) is there. Wording, word order, tense nuance, articles and synonyms never matter ("I'm going to the bank" = "I go to the bank").
+- "acceptable": the meaning is clearly understood with a small slip that doesn't change it (a missed 也 / 都 / 就, a vaguer word for the same thing, a slightly wrong time word that doesn't matter).
+- "almost": the gist is there but a part that matters is missing or wrong (missed the negation, the wrong person, the wrong place / time, the main verb misheard).
+- "wrong": they didn't understand it — a different meaning, or only a word or two.
+
+Rules:
+- Judge the MEANING, never their English grammar or spelling. A spoken answer is a speech-recognition transcript: ignore punctuation and obvious recognition slips.
+- headline: one short line in English (≤ 12 words) saying what they got or missed.
+- tips: 0–2 short lines in English about what they misheard or missed. Quote the exact Chinese words in "quote" (copied from the sentence) and say what they mean, e.g. "没 makes it negative — they did NOT go." No tips when the meaning is right; never pad.
+- corrected: always empty.
+- Answer with the check_answer tool.`;
+
+/** The user turn of a meaning check (`isMeaningCheck`): the Chinese heard, the reference English, his English. */
+export function meaningCheckUserTurn(input: AnswerCheckInput): string {
+  const spoken = input.input === 'spoken' || input.input === 'edited';
+  return [
+    `Chinese sentence they heard: ${input.prompt_en}${input.model_pinyin ? ` (${input.model_pinyin})` : ''}`,
+    `Reference English: ${input.model_answer}`,
+    `What they said it means${spoken ? ' (SPOKEN — speech-recognition transcript)' : ' (typed)'}: ${input.answer}`,
+  ].join('\n');
+}
 
 // ============ Free speaking ============
 
@@ -160,6 +187,7 @@ export function speakingCheckUserTurn(input: AnswerCheckInput): string {
 /** The user turn the model sees. */
 export function answerCheckUserTurn(input: AnswerCheckInput): string {
   if (isSpeakingCheckType(input.exercise_type)) return speakingCheckUserTurn(input);
+  if (isMeaningCheck(input)) return meaningCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
   return [
     input.focus ? `Lesson focus: ${input.focus}` : null,
@@ -225,7 +253,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     apiKey: deps.apiKey,
     model: ANSWER_CHECK_MODEL,
     fallbackModel: ANSWER_CHECK_FALLBACK_MODEL,
-    system: ANSWER_CHECK_SYSTEM,
+    system: isMeaningCheck(input) ? MEANING_CHECK_SYSTEM : ANSWER_CHECK_SYSTEM,
     user: answerCheckUserTurn(input),
     tool: TOOL,
     maxTokens: 700,

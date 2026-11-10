@@ -98,6 +98,19 @@ class StudyPrefs private constructor(context: Context) {
         _hardMode.value = m
     }
 
+    private val _sentencesByEar = MutableStateFlow(dev.jeromeswannack.chineselearning.lab.core.SentenceRound.parseByEar(sp.getString(SENTENCES_BY_EAR, null)))
+
+    /**
+     * Settings → Study → "Sentences by ear in Hard mode" (core SentenceRound; the web's `useSentencesByEar`): the
+     * Sentence round's read slots become listen exercises where the sentence has a clip. ON by default.
+     */
+    val sentencesByEar: StateFlow<Boolean> = _sentencesByEar
+
+    fun setSentencesByEar(on: Boolean) {
+        sp.edit().putString(SENTENCES_BY_EAR, if (on) "1" else "0").apply()
+        _sentencesByEar.value = on
+    }
+
     private val _passHardMode = MutableStateFlow(dev.jeromeswannack.chineselearning.lab.core.PassAngles.parseMode(sp.getString(PASS_HARD_MODE, null)))
 
     /**
@@ -115,6 +128,7 @@ class StudyPrefs private constructor(context: Context) {
     }
 
     companion object {
+        private const val SENTENCES_BY_EAR = "sentences_by_ear"
         private const val SENTENCE_GATE = "sentence_gate"
         private const val PASS_HARD_MODE = "pass_hard_mode"
         private const val HARD_MODE = "hard_mode"

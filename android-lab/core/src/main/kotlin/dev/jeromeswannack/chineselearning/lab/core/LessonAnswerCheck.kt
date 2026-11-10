@@ -80,6 +80,9 @@ object LessonAnswerCheck {
     val TYPES = listOf("translate", "listen_translate")
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
     const val SPEAKING_VERSION = 1
+
+    /** Port of MEANING_CHECK_VERSION (Sentences by ear; cache texts start `m<version>`). */
+    const val MEANING_VERSION = 1
     val PART_STATUSES = listOf("used", "used_with_issue", "missing")
 
     fun isSpeaking(exerciseType: String?): Boolean = exerciseType in SPEAKING_TYPES
@@ -108,6 +111,23 @@ object LessonAnswerCheck {
         }
         return false
     }
+
+    private val LETTER = Regex("\\p{L}")
+    private val NOT_LETTER_OR_DIGIT = Regex("[^\\p{L}\\p{N}]+")
+
+    /**
+     * Port of isMeaningCheck() (Hard mode's "Sentences by ear"): listen_translate with English on both sides —
+     * he heard the Chinese (in promptEn) and gave its meaning in English; the model answer is its English.
+     */
+    fun isMeaning(exerciseType: String, answer: String?, modelAnswer: String?): Boolean {
+        if (exerciseType != "listen_translate") return false
+        val a = answer ?: ""
+        val m = modelAnswer ?: ""
+        return !hasHan(m) && !hasHan(a) && LETTER.containsMatchIn(a) && LETTER.containsMatchIn(m)
+    }
+
+    /** Port of meaningAnswerText(): lower case, letters and digits only, single spaces. */
+    fun meaningText(s: String): String = jsTrim(NOT_LETTER_OR_DIGIT.replace(nfkc(s).lowercase(), " "))
 
     /** Port of answerCheckApplies(). */
     fun applies(exerciseType: String, answer: String?): Boolean {
@@ -139,6 +159,16 @@ object LessonAnswerCheck {
             ).joinToString("|")
         }
         val mode = if (input.input == "spoken") "spoken" else "typed"
+        if (isMeaning(input.exerciseType, input.answer, input.modelAnswer)) {
+            return listOf(
+                "m$MEANING_VERSION",
+                input.exerciseType,
+                mode,
+                LessonAnswers.normalizeHanzi(input.promptEn),
+                meaningText(input.modelAnswer),
+                meaningText(input.answer),
+            ).joinToString("|")
+        }
         return listOf(
             "v$VERSION",
             input.exerciseType,
@@ -158,6 +188,12 @@ object LessonAnswerCheck {
      * rule, LessonAnswers.isExactHanziMatch) is checked locally — correct, Got it, no model call.
      */
     fun exact(exerciseType: String, answer: String, modelAnswer: String): AnswerCheck? {
+        // A meaning check: his English IS the sentence's English (case, punctuation and spacing aside).
+        if (isMeaning(exerciseType, answer, modelAnswer)) {
+            val mine = meaningText(answer)
+            if (mine.isEmpty() || mine != meaningText(modelAnswer)) return null
+            return AnswerCheck(verdict = "correct", headline = EXACT_HEADLINE, corrected = "", correctedPinyin = "", tips = emptyList(), suggested = "got_it")
+        }
         if (!applies(exerciseType, answer)) return null
         // Free speaking has no single right answer: its model answer is only "one way to say it".
         if (isSpeaking(exerciseType)) return null

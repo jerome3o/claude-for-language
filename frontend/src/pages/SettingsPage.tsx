@@ -18,7 +18,8 @@ import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../servi
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
 import { readSpokenSkipReview, writeSpokenSkipReview } from '../services/spokenAnswerPrefs';
-import { useHardMode, usePassHardMode, writeHardMode, writePassHardMode } from '../services/hardModePrefs';
+import { useHardMode, usePassHardMode, useSentencesByEar, writeHardMode, writePassHardMode, writeSentencesByEar } from '../services/hardModePrefs';
+import { SENTENCES_BY_EAR_HINT, SENTENCES_BY_EAR_TITLE } from '@shared/study/sentenceRound';
 import { studyFeel, useStudyFeelOn, writeStudyFeelOn } from '../services/studyFeel';
 import { PASS_HARD_MODE_DESCRIPTION, PASS_HARD_MODE_OPTION, PASS_HARD_MODE_OPTION_HINT, PASS_HARD_MODE_TITLE } from '@shared/homework/pass-angles';
 import { HARD_MODES, HARD_MODE_DESCRIPTION, HARD_MODE_OPTION, HARD_MODE_OPTION_HINT, HARD_MODE_TITLE } from '@shared/study/hardMode';
@@ -729,6 +730,32 @@ function HardModeSetting() {
 }
 
 /**
+ * Settings → Study → "Sentences by ear in Hard mode" (ON by default, per device; services/hardModePrefs.ts):
+ * the Sentence round's read exercises become listen ones when the sentence has a clip — hear it, say what
+ * it means in English (shared/study/sentenceRound.ts; docs/STUDY_SESSION.md "Sentences by ear").
+ */
+function SentencesByEarSetting() {
+  const on = useSentencesByEar();
+  return (
+    <label className="settings-toggle-row" style={{ marginTop: '0.75rem', alignItems: 'flex-start' }}>
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          writeSentencesByEar(e.target.checked);
+          track('settings.change', { setting: 'sentences_by_ear', value: e.target.checked ? 'on' : 'off' });
+        }}
+        data-testid="sentences-by-ear-toggle"
+      />
+      <span>
+        👂 {SENTENCES_BY_EAR_TITLE}
+        <span className="settings-section-desc" style={{ display: 'block', margin: 0 }}>{SENTENCES_BY_EAR_HINT}</span>
+      </span>
+    </label>
+  );
+}
+
+/**
  * Settings → Study → "Haptics and sounds on right answers" (on by default, per device; services/studyFeel.ts):
  * a firm buzz + chime when Hard mode's check is right, a sentence is said right, the round is done.
  */
@@ -816,6 +843,7 @@ function SpokenAnswerSection() {
           : 'On the typing cards, 🎤 shows what you said first — Retry, Edit or Submit it.'}
       </p>
       <HardModeSetting />
+      <SentencesByEarSetting />
       <StudyFeelSetting />
       <PassHardModeSetting />
       <WordTagsSetting />
