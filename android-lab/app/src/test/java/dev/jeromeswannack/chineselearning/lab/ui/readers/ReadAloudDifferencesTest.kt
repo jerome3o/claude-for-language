@@ -59,7 +59,7 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
     @Composable
     private fun Page(e: ReaderEnv) {
         Box(Modifier.fillMaxSize().background(Lab.colors.background).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-            ReaderPageView(page, e, readAloudPreview = ReadAloudHandle(ReadAloudUi(result = result, said = said), ReadAloudActions()))
+            ReaderPageView(page, e, readAloudPreview = ReadAloudHandle(ReadAloudUi(result = result, said = said), ReadAloudActions()), initialShowChinese = true)
         }
     }
 
@@ -142,7 +142,7 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
             LabTheme(dark = true) {
                 CompositionLocalProvider(LocalExplorer provides ExplorerController()) {
                     Box(Modifier.fillMaxSize().background(Lab.colors.background).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
-                        ReaderPageView(stopPage, env, readAloudPreview = ReadAloudHandle(ReadAloudUi(result = r, said = heard), ReadAloudActions()))
+                        ReaderPageView(stopPage, env, readAloudPreview = ReadAloudHandle(ReadAloudUi(result = r, said = heard), ReadAloudActions()), initialShowChinese = true)
                     }
                 }
             }

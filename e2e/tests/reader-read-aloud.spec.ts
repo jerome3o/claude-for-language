@@ -84,7 +84,7 @@ async function openReader(page: Page, token: string, readerId: string) {
   await expect(page.getByTestId('reader-view')).toBeVisible({ timeout: 30_000 });
 }
 
-test('🎤 Read it aloud: record, then the page is marked in place with one line', async ({ page, request }) => {
+test('🎤 Read it aloud with the Chinese hidden: it stays hidden; revealed, the page is marked in place', async ({ page, request }) => {
   test.setTimeout(150_000);
   const { token, readerId } = await seed(request);
   await page.route('**/api/practice/tts', (route) => route.fulfill({ json: { audio_base64: CLIP.toString('base64'), content_type: 'audio/wav' } }));
@@ -104,8 +104,10 @@ test('🎤 Read it aloud: record, then the page is marked in place with one line
 
   await mic.click();
   await expect(mic).toHaveAttribute('aria-label', 'Stop — check my reading');
-  // The Chinese shows while he reads.
-  await expect(page.getByTestId('reader-words')).toBeVisible();
+  // Listen, then say it back from memory: recording never reveals the Chinese (Jerome, Nov 2026).
+  const revealBox = page.locator('.reader-chinese-reveal-box');
+  await expect(revealBox).toBeVisible();
+  await expect(page.getByTestId('reader-words')).toHaveCount(0);
   await expect(page.getByTestId('reader-read-aloud-live')).toBeVisible();
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/02-listening.png` });
   await page.waitForTimeout(1200);
@@ -113,6 +115,22 @@ test('🎤 Read it aloud: record, then the page is marked in place with one line
 
   await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('≈ 85% — 3 to check', { timeout: 20_000 });
   expect(transcribed).toBe(1);
+  // Still hidden: the line + "You said ▸" only — the differences (which print the page) wait behind it.
+  await expect(revealBox).toBeVisible();
+  await expect(page.getByTestId('reader-words')).toHaveCount(0);
+  await expect(page.getByTestId('reader-read-aloud-diffs')).toHaveCount(0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03-result-hidden.png` });
+  // "You said ▸" opens the transcript and, with it, the differences — the page itself stays hidden.
+  await page.getByTestId('reader-read-aloud-said-toggle').click();
+  await expect(page.getByTestId('reader-read-aloud-said')).toBeVisible();
+  await expect(page.getByTestId('reader-read-aloud-diffs')).toBeVisible();
+  await expect(revealBox).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03b-hidden-you-said.png` });
+  await page.getByTestId('reader-read-aloud-said-toggle').click();
+  await expect(page.getByTestId('reader-read-aloud-diffs')).toHaveCount(0);
+
+  // Tap to reveal: the page's own Chinese, marked in place.
+  await revealBox.click();
   const words = page.getByTestId('reader-words');
   // The page's own text, once — marked, not copied.
   // (the ‸ before 他 is where the extra 了 was said)
@@ -122,11 +140,12 @@ test('🎤 Read it aloud: record, then the page is marked in place with one line
   await expect(words.locator('[data-mark="missed"]')).toHaveText('很');
   await expect(words.locator('.ra-extra')).toHaveCount(1);
   await expect(page.getByTestId('reader-read-aloud-said')).toHaveCount(0);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03-marked.png` });
+  await expect(page.getByTestId('reader-read-aloud-diffs')).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-revealed-marked.png` });
 
   await page.getByTestId('reader-read-aloud-said-toggle').click();
   await expect(page.getByTestId('reader-read-aloud-said')).toHaveText('小明今天第一次去巴黎了。她行奋。');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-you-said.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/05-you-said.png` });
   await expect(mic).toHaveAttribute('aria-label', 'Say it again');
 
   // Practice only: the pinyin / translation reveals are untouched.
@@ -143,7 +162,7 @@ test('🎤 offline says it needs a connection and records nothing', async ({ pag
   await page.context().setOffline(true);
   await page.getByTestId('reader-read-aloud').click();
   await expect(page.getByTestId('reader-read-aloud-offline')).toHaveText('Needs a connection to check your reading');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/05-offline.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/10-offline.png` });
   await page.context().setOffline(false);
   expect(transcribed).toBe(0);
 });
@@ -201,10 +220,13 @@ test("🎤 what it heard vs the page: Jerome's 成都 → 程度, one row with b
   await page.route('**/api/transcribe/live', (route) => route.fulfill({ json: { provider: 'upload' } }));
   await page.route('**/api/transcribe', (route) => route.fulfill({ json: { text: '胆子大的话，可以试试麻辣兔头，这是很多程度人最爱的小吃。', language: 'zh', provider: 'test' } }));
   await openReader(page, token, readerId);
+  // The Chinese shown first: the differences sit under the line (hidden, they wait behind "You said ▸").
+  await page.locator('.reader-chinese-reveal-box').click();
   await page.getByTestId('reader-read-aloud').click();
   await page.waitForTimeout(1200);
   await page.getByTestId('reader-read-aloud-stop-footer').click();
   await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('✓ 96% — 1 to check', { timeout: 20_000 });
+  await expect(page.getByTestId('reader-words')).toBeVisible();
   const row = page.getByTestId('reader-read-aloud-diff');
   await expect(row).toHaveCount(1);
   await expect(row.locator('.ra-diff-zh')).toHaveText(['成都', '程度']);

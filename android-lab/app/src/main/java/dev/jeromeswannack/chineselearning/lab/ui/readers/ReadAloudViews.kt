@@ -111,12 +111,15 @@ object ReadAloudTags {
 /**
  * The differences' wiring from the page (web: `useReadAloud` diffs): [words] = the page's word chips
  * (the differences group by them), [onSpeak] = ▶ a page word (practice TTS at the reader's speed),
- * [pageText] = the page (a row's word opens the explorer with its sentence).
+ * [pageText] = the page (a row's word opens the explorer with its sentence), [pageHidden] = the page's
+ * Chinese is hidden (listen, then say it back from memory): the rows would print it, so they wait
+ * behind "You said ▸" until he reveals the page (web `ReadAloudPanel` `pageHidden`).
  */
 class ReadAloudDiffEnv(
     val words: List<String>? = null,
     val onSpeak: ((String) -> Unit)? = null,
     val pageText: String = "",
+    val pageHidden: Boolean = false,
 )
 
 /** What a page's 🎤 Read it aloud shows (stateless, so every state renders in screenshot tests). */
@@ -386,7 +389,10 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
         }
         ReadAloudLegend(ReadAloud.legend(result))
         val diffs = remember(result, diffEnv.words) { ReadAloud.differences(result, diffEnv.words) }
-        ReadAloudDifferences(diffs, diffEnv.onSpeak, diffEnv.pageText.ifEmpty { result.chars.joinToString("") { it.char } })
+        val differences: @Composable () -> Unit = {
+            ReadAloudDifferences(diffs, diffEnv.onSpeak, diffEnv.pageText.ifEmpty { result.chars.joinToString("") { it.char } })
+        }
+        if (!diffEnv.pageHidden) differences()
         if (open) {
             // The transcript with what differs marked like the page (a homophone unmarked; extra words solid).
             val heard = result.heard
@@ -398,6 +404,8 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
                 modifier = Modifier.padding(top = 10.dp).testTag(ReadAloudTags.SAID),
             )
             else Text(said, color = Lab.colors.muted, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp).testTag(ReadAloudTags.SAID))
+            // The page hidden: the rows (which print it) only behind "You said ▸".
+            if (diffEnv.pageHidden) differences()
         }
     }
 }

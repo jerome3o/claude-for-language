@@ -7,7 +7,8 @@
  * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with one small,
  * muted line under the audio ("✓ 92% — 2 to check"), a tiny legend of the marks it shows (wavy = tone
  * off, solid = wrong, dashed = missed, ‸ = extra words; ReadAloud.css) and the transcript behind
- * "You said ▸" (`ReadAloudPanel`). 🎤 again replaces the result. Practice only: nothing is stored or queued
+ * "You said ▸" (`ReadAloudPanel`). A take never reveals a hidden page: the marks wait for the reveal and the
+ * difference rows for "You said ▸" (`pageHidden`). 🎤 again replaces the result. Practice only: nothing is stored or queued
  * (offline → "Needs a connection to check your reading"). Lab: ui/readers/ReadAloud.kt.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -208,8 +209,17 @@ export function ReadAloudMic({ ra, idleLabel = READ_ALOUD_LABEL, testId = 'reade
   );
 }
 
-/** Under the audio row: the live transcript, then the one result line (+ "You said" collapsed), or why there is none. */
-export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENING }: { ra: ReadAloud; onSpeak?: (text: string) => void; listeningText?: string }) {
+/**
+ * Under the audio row: the live transcript, then the one result line (+ "You said" collapsed), or why there is none.
+ * `pageHidden`: the page's Chinese is hidden (listen, then say it back from memory) — the "what it heard vs
+ * the page" rows would print it, so they wait behind "You said ▸" until he reveals the page.
+ */
+export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENING, pageHidden = false }: {
+  ra: ReadAloud;
+  onSpeak?: (text: string) => void;
+  listeningText?: string;
+  pageHidden?: boolean;
+}) {
   const { dictation, result, said } = ra;
   const { state } = dictation;
   const [showSaid, setShowSaid] = useState(false);
@@ -251,8 +261,9 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
   }
   if (blockNote) return <p className="reader-read-aloud-hint" role="status">{blockNote}</p>;
   if (!result) return null;
+  const differences = <ReadAloudDifferences diffs={ra.diffs} pageText={result.chars.map((c) => c.char).join('')} onSpeak={onSpeak} />;
   return (
-    <div className="reader-read-aloud-result" data-testid="reader-read-aloud-result">
+    <div className="reader-read-aloud-result" data-testid="reader-read-aloud-result" data-page-hidden={pageHidden ? 'true' : undefined}>
       <div className="reader-read-aloud-line-row">
         <span className={`reader-read-aloud-line tone-${readAloudTone(result)}`} role="status" data-testid="reader-read-aloud-line">
           {readAloudLine(result)}
@@ -271,12 +282,13 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
         </button>
       </div>
       <ReadAloudLegend keys={readAloudLegend(result)} />
-      <ReadAloudDifferences diffs={ra.diffs} pageText={result.chars.map((c) => c.char).join('')} onSpeak={onSpeak} />
+      {!pageHidden && differences}
       {showSaid && (
         <div className="reader-read-aloud-said" lang="zh-CN" data-testid="reader-read-aloud-said">
           {result.heard && result.heard.length > 0 ? <HeardChars chars={result.heard} /> : said}
         </div>
       )}
+      {pageHidden && showSaid && differences}
     </div>
   );
 }
