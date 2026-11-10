@@ -138,8 +138,10 @@ fun ReaderPageView(
     takeLock: ReaderTakeLock? = null,
     /** 0-based: the reader word recap keeps its words in story order. */
     pageIndex: Int = 0,
+    /** The Chinese starts shown (screenshots / tests of a marked page); the app always starts hidden. */
+    initialShowChinese: Boolean = false,
 ) {
-    var showChinese by rememberSaveable(page.id) { mutableStateOf(false) }
+    var showChinese by rememberSaveable(page.id) { mutableStateOf(initialShowChinese) }
     var showPinyin by rememberSaveable(page.id) { mutableStateOf(false) }
     var showTranslation by rememberSaveable(page.id) { mutableStateOf(false) }
     // 🎤 Read it aloud ([readAloudPreview]: a state drawn as given — screenshots, tests).
@@ -148,7 +150,6 @@ fun ReaderPageView(
         env.readAloud -> rememberReadAloud(page.contentChinese, onStart = { if (story?.autoPlay == true) story.onStopped() }, onResult = {})
         else -> null
     }
-    // The Chinese shows while he reads, and the result marks it in place.
     // Tell the reading view while a take is under way (it swaps the footer for ■ Stop recording).
     if (takeLock != null && readAloud != null) {
         val stop by rememberUpdatedState(readAloud.actions.onStop)
@@ -175,9 +176,8 @@ fun ReaderPageView(
             r,
         )
     }
-    val reading = readAloud?.ui?.phase == "listening"
-    val marks = readAloud?.ui?.result
-    LaunchedEffect(reading, marks) { if (reading || marks != null) showChinese = true }
+    // A take never touches the reveal (Jerome listens, hides the Chinese and says it back from memory):
+    // the result marks the Chinese in place whenever it is shown — at once, or when he reveals it later.
     val first = remember(page.id, page.imageUrl) { env.cachedImage(page)?.let(::decode) }
     val image by produceState(first to (first == null && !page.imagePrompt.isNullOrBlank()), page.id, page.imageUrl) {
         if (value.first == null) {
@@ -211,7 +211,7 @@ fun ReaderPageView(
                 }
                 // The scrubbable waveform (phrase blocks, speed chip) under the Chinese.
                 ReaderScrubber(page, env, story = story, extra = readAloud?.let { ra -> { ReadAloudMic(ra.ui, ra.actions.onMic) } }, locked = locked)
-                readAloud?.let { ReadAloudPanel(it.ui, it.actions, ReadAloudDiffEnv(pageWords, env.speak, page.contentChinese)) }
+                readAloud?.let { ReadAloudPanel(it.ui, it.actions, ReadAloudDiffEnv(pageWords, env.speak, page.contentChinese, pageHidden = !showChinese)) }
                 ToggleBox(showPinyin, page.contentPinyin, "Tap to reveal pinyin", Lab.colors.accent) { showPinyin = !showPinyin; env.onTap() }
                 ToggleBox(showTranslation, page.contentEnglish, "Tap to reveal translation", Lab.colors.ink) { showTranslation = !showTranslation; env.onTap() }
             }

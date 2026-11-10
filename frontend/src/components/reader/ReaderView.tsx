@@ -102,13 +102,13 @@ function ReaderPageBody({
   const [showPinyin, setShowPinyin] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
   const { imageUrl, generating } = usePageImage(readerId, page);
-  // 🎤 Read it aloud: the Chinese shows while he reads, and the result marks it in place.
+  // 🎤 Read it aloud: a take never touches the reveal (Jerome listens, hides the Chinese and says it
+  // back from memory). The result marks the Chinese in place whenever it is shown — at once when it
+  // already was, or when he taps to reveal it later.
   const readAloud = useReadAloud(page.content_chinese, {
     onStart: () => {
-      setShowChinese(true);
       if (story.autoPlay) story.onStopped();
     },
-    onResult: () => setShowChinese(true),
   });
   const speak = useLessonSpeak();
   // Tell the reading view while a take is under way (it swaps the footer for ■ Stop recording).
@@ -208,7 +208,7 @@ function ReaderPageBody({
           controlsExtra={<ReadAloudMic ra={readAloud} />}
           disabled={locked}
         />
-        <ReadAloudPanel ra={readAloud} onSpeak={speak} />
+        <ReadAloudPanel ra={readAloud} onSpeak={speak} pageHidden={!showChinese} />
 
         <div
           onClick={() => setShowPinyin(!showPinyin)}

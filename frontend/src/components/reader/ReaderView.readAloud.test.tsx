@@ -186,3 +186,76 @@ describe('the reading view while a take records', () => {
     expect(host.querySelectorAll('[data-testid="confetti"]').length).toBe(1);
   });
 });
+
+/**
+ * Jerome: "When I'm in a graded reader and I record with the Chinese hidden, it shows the Chinese. I was
+ * trying to listen to the audio, remember the sentence, and then say it back without looking." A take
+ * leaves the page's reveal exactly as it was; the marks wait for the reveal.
+ */
+describe('a take with the Chinese hidden', () => {
+  const hidden = () => !!host.querySelector('.reader-chinese-reveal-box') && !host.querySelector('.reader-chinese-revealed');
+  const pageMarks = () => [...host.querySelectorAll('.reader-chinese-revealed [data-mark]')]
+    .filter((e) => (e as HTMLElement).dataset.mark !== 'ok')
+    .map((e) => e.textContent)
+    .join('');
+
+  it('records, checks and shows the result without revealing the Chinese; the marks show once he reveals it', async () => {
+    expect(hidden()).toBe(true);
+    await click(q('reader-read-aloud'));
+    expect(hidden()).toBe(true);
+    await click(q('reader-read-aloud-stop-footer'));
+    expect(q('reader-read-aloud-stop-footer')?.textContent).toBe('Checking your reading…');
+    expect(hidden()).toBe(true);
+    // 小许 for 小徐: one word to check.
+    await act(async () => fake.current!.land('早上好，我叫小许。'));
+    await flush();
+    expect(hidden()).toBe(true);
+    // The score line and "You said ▸" under the controls…
+    expect(q('reader-read-aloud-line')?.textContent).toContain('to check');
+    expect(q('reader-read-aloud-said-toggle')).not.toBeNull();
+    expect(q('reader-read-aloud-result')?.dataset.pageHidden).toBe('true');
+    // …but nothing that prints the page's Chinese: the differences wait behind "You said ▸".
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+    expect(host.querySelector('[data-mark]')).toBeNull();
+    expect(q('reader-read-aloud-result')?.textContent).not.toContain('小徐');
+
+    await click(q('reader-read-aloud-said-toggle'));
+    expect(q('reader-read-aloud-said')?.textContent).toBe('早上好，我叫小许。');
+    expect(q('reader-read-aloud-diffs')).not.toBeNull();
+    expect(hidden()).toBe(true);
+    await click(q('reader-read-aloud-said-toggle'));
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+
+    // Tap to reveal: the page's own Chinese, marked in place; the differences back under the line.
+    await click(host.querySelector('.reader-chinese-reveal-box'));
+    expect(hidden()).toBe(false);
+    expect(pageMarks()).toBe('徐');
+    expect(q('reader-read-aloud-diffs')).not.toBeNull();
+    expect(q('reader-read-aloud-result')?.dataset.pageHidden).toBeUndefined();
+  });
+
+  it('a take with the Chinese shown keeps it shown and marked (unchanged)', async () => {
+    await click(host.querySelector('.reader-chinese-reveal-box'));
+    expect(hidden()).toBe(false);
+    await click(q('reader-read-aloud'));
+    expect(hidden()).toBe(false);
+    await click(q('reader-read-aloud-stop-footer'));
+    await act(async () => fake.current!.land('早上好，我叫小许。'));
+    await flush();
+    expect(hidden()).toBe(false);
+    expect(pageMarks()).toBe('徐');
+    expect(q('reader-read-aloud-diffs')).not.toBeNull();
+  });
+
+  it('hiding the Chinese after a take folds the differences away again', async () => {
+    await click(host.querySelector('.reader-chinese-reveal-box'));
+    await click(q('reader-read-aloud'));
+    await click(q('reader-read-aloud-stop-footer'));
+    await act(async () => fake.current!.land('早上好，我叫小许。'));
+    await flush();
+    await click(host.querySelector('.reader-chinese-revealed'));
+    expect(hidden()).toBe(true);
+    expect(q('reader-read-aloud-diffs')).toBeNull();
+    expect(q('reader-read-aloud-line')).not.toBeNull();
+  });
+});

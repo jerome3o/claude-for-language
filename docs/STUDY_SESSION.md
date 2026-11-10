@@ -980,11 +980,20 @@ page has a **🎤** in its audio row, right after the speed chip (web `component
 `ui/readers/ReadAloudViews.kt`, `ReaderScrubber(extra = …)`) — in every reading view (session, homework,
 Readers list, Today's story):
 
-- **Tap 🎤** → the Chinese shows (he reads it) and recording starts through the voice boxes' pipeline
+- **Tap 🎤** → recording starts through the voice boxes' pipeline
   (web `useVoiceDictation`, Lab `rememberVoiceDictation`, surface `reader_read_aloud`): the live
   transcript under the audio row while he reads, the upload when live gives nothing, "Couldn't
   transcribe — tap to retry" (signed out: the signed-out state). A playing story stops. **Tap again (⏹)**
   to stop; the take is judged at once (no review step).
+- **The take never touches the reveal** (Jerome, Nov 2026: "I was trying to listen to the audio, remember the
+  sentence, and then say it back without looking at the Chinese"): recording, "Checking your reading…" and the
+  result leave the page's Chinese exactly as it was — hidden stays hidden, shown stays shown (before, 🎤 and the
+  result both revealed it). With the Chinese hidden the result is the score line + legend + **You said ▸** under
+  the audio; the marks go on the Chinese whenever he reveals it (tap, as always) — at once when it was already
+  shown. The "what it heard vs the page" rows print the page, so while it is hidden they wait behind **You said
+  ▸** (opened: the transcript, then the rows); revealed, they sit under the line as usual. One shared view, so
+  the session, homework passes, `/readers/:id` and Today's story all behave alike (web `ReaderView` →
+  `ReadAloudPanel pageHidden`; Lab `ReaderPageView` → `ReadAloudDiffEnv.pageHidden`).
 - **Judging** (`shared/reader/readAloud.ts` `judgeReadAloud`, Lab `core/ReadAloud.kt`, parity-tested by
   `parity/fixtures/read-aloud.ts`): the page and the transcript become keys — punctuation, spaces and
   quotes left out, numbers → hanzi (a page's "12" = 十二, a heard "3" = 三), 两 = 二, traditional →
