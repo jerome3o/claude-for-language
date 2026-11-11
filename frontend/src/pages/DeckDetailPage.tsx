@@ -32,6 +32,7 @@ import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import './SharedDeckProgressPage.css';
 import { masteryLevel, type MasteryLevel } from '@shared/progress';
 import { track } from '../services/analytics';
+import { studyDayNow, studyDayStartMs } from '../services/studyDay';
 import './DeckDetailPage.css';
 
 // ============ Deck ⋯ menu ============
@@ -447,8 +448,7 @@ function DeckDebugModal({
     try {
       const cards = await db.cards.where('deck_id').equals(deckId).toArray();
       const reviewCards = cards.filter(c => c.queue === CardQueue.REVIEW);
-      const now = new Date();
-      now.setHours(0, 0, 0, 0); // Start of today
+      const now = new Date(studyDayStartMs()); // Start of today's study day
       for (const card of reviewCards) {
         await db.cards.update(card.id, {
           next_review_at: now.toISOString(),
@@ -470,9 +470,8 @@ function DeckDebugModal({
     setLoading(true);
     try {
       const now = Date.now();
-      const today = new Date();
-      today.setHours(23, 59, 59, 999);
-      const endOfTodayIso = today.toISOString();
+      // The end of the study day (services/studyDay.ts), like the study queue's cutoff.
+      const endOfTodayIso = new Date(studyDayNow().endMs - 1).toISOString();
 
       // Load deck
       const deck = await db.decks.get(deckId);

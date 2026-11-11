@@ -24,6 +24,7 @@ import {
 } from '../db/database';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { prefetchTTS } from './ttsCache';
+import { isInStudyToday } from './studyDay';
 
 /** A lesson graduates to 'known' after this many cumulative correct answers
  * (matches the server-side grammar_progress rule). */
@@ -56,14 +57,9 @@ interface UpcomingLessonResponse {
   }>;
 }
 
+/** In today's study day (services/studyDay.ts: turns over at the account's rollover hour). */
 function isSameLocalDay(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  return isInStudyToday(iso);
 }
 
 /** Whether a grammar lesson was already completed today (learner-local time).

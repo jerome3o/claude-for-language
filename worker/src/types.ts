@@ -246,6 +246,8 @@ export interface User {
   /** Daily new-card budget across all decks (migration 0069); NULL = DEFAULT_STUDY_BUDGET. */
   new_cards_per_day?: number | null;
   secondary_cards_per_day?: number | null;
+  /** "New day starts at": the study day's rollover hour 0–6 (migration 0148); NULL = 4 am (shared/study/studyDay.ts). */
+  day_rollover_hour?: number | null;
   /** JSON array of the conversation voices this account plays (migration 0078);
    * NULL = the admin's selection, else the shipped defaults (shared/lesson/voices.ts). */
   conversation_voices?: string | null;

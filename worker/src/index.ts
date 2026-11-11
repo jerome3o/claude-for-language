@@ -172,6 +172,7 @@ import foldersRoutes from './routes/folders';
 import studyBumpsRoutes from './routes/study-bumps';
 import cardHoldsRoutes from './routes/card-holds';
 import skipHandwritingRoutes from './routes/skip-handwriting';
+import dayRolloverRoutes from './routes/day-rollover';
 import cardForgetsRoutes from './routes/card-forgets';
 import sentencePracticeRoutes from './routes/sentence-practice';
 import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
@@ -183,6 +184,7 @@ import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order'
 import { listActiveBumps } from './services/study-bumps';
 import { getBurySiblings, listActiveHolds } from './services/card-holds';
 import { getSkipHandwriting } from './services/skip-handwriting';
+import { getDayRolloverHour } from './services/study-day';
 import upNextRoutes from './routes/up-next';
 import { listUpNext } from './services/up-next';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
@@ -586,6 +588,8 @@ app.get('/api/auth/me', async (c) => {
     bury_siblings: await getBurySiblings(c.env.DB, user.id).catch(() => false),
     // "Skip handwriting exercises" (shared/lesson/handwriting.ts) — cached on the device.
     skip_handwriting: await getSkipHandwriting(c.env.DB, user.id).catch(() => false),
+    // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — cached on the device.
+    day_rollover_hour: await getDayRolloverHour(c.env.DB, user.id).catch(() => null),
     // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
     revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
     // The voices this account's conversation exercises use (its own selection,
@@ -722,6 +726,7 @@ app.route('/api', sentencePracticeRoutes); // Practice per example sentence — 
 app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
 app.route('/api', cardHoldsRoutes); // Suspend & snooze — GET/POST /api/me/card-holds, POST /api/me/card-holds/clear, PUT /api/profile/bury-siblings
 app.route('/api', skipHandwritingRoutes); // "Skip handwriting exercises" — PUT /api/profile/skip-handwriting
+app.route('/api', dayRolloverRoutes); // "New day starts at" — PUT /api/profile/day-rollover
 app.route('/api', studyBumpsRoutes); // "⚡ Study it today" — GET/POST/DELETE /api/me/bumps, POST /api/relationships/:relId/student-bumps
 app.route('/api', upNextRoutes); // "Up next" — GET/POST/DELETE /api/me/up-next, PUT /api/me/up-next/order, /api/relationships/:relId/student-up-next…
 app.route('/api', audioBackfillRoutes); // /api/admin/audio/* (docs/AUDIO.md)
@@ -5539,6 +5544,8 @@ app.get('/api/sync/changes', async (c) => {
     bury_siblings: await getBurySiblings(c.env.DB, userId).catch(() => null),
     // "Skip handwriting exercises" (off by default; shared/lesson/handwriting.ts).
     skip_handwriting: await getSkipHandwriting(c.env.DB, userId).catch(() => null),
+    // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — the device's study day follows it.
+    day_rollover_hour: await getDayRolloverHour(c.env.DB, userId).catch(() => null),
     // "Forget this card": every live forget (a short list, sent whole; the device keeps its own
     // not-yet-uploaded ones on top and replays the cards whose forgets changed). shared/scheduler.
     card_forgets: await listForgets(c.env.DB, userId).catch(() => null),

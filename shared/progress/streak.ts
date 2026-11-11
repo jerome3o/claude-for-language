@@ -2,11 +2,13 @@
  * The Home screen's streak card (frontend/src/components/StudyStreak.tsx) as a pure
  * function, so the Lab app's port is parity-tested against it.
  *
- * Dates are compared as `YYYY-MM-DD` strings: an event's is the first 10 characters of its
- * `reviewed_at` (the UTC date of the ISO string), a day's is `toISOString()` of LOCAL
- * midnight N days ago. East of UTC that makes "today" the previous UTC date — kept as the
- * web has it, so both apps show the same streak.
+ * Days are STUDY days (shared/study/studyDay.ts): an event belongs to the study day of its
+ * instant in the device's time zone (`zone`; none = the runtime's), which turns over at the
+ * account's rollover hour — so a review at 01:30 with "New day starts at 4 am" still counts
+ * for yesterday, and the streak doesn't break (or double) when he studies past midnight.
+ * (Until Nov 2026 the card compared UTC dates with local midnight's UTC date.)
  */
+import { addDayKeys, DEFAULT_DAY_ROLLOVER_HOUR, studyDayKey } from '../study/studyDay';
 
 export interface StreakEvent {
   reviewed_at: string;
@@ -24,44 +26,37 @@ export interface StudyStreakSummary {
   max_count: number;
 }
 
-function daysAgo(now: Date, n: number): Date {
-  const d = new Date(now.getTime());
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - n);
-  return d;
-}
-
-function dateString(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
-export function studyStreak(events: readonly StreakEvent[], now: Date = new Date()): StudyStreakSummary {
-  const thirtyDaysAgo = dateString(daysAgo(now, 30));
+export function studyStreak(
+  events: readonly StreakEvent[],
+  now: Date = new Date(),
+  rolloverHour: number = DEFAULT_DAY_ROLLOVER_HOUR,
+  zone?: string | null,
+): StudyStreakSummary {
+  const today = studyDayKey(now.getTime(), rolloverHour, zone);
+  const thirtyDaysAgo = addDayKeys(today, -30);
   const byDate = new Map<string, StreakEvent[]>();
   for (const e of events) {
-    if (!(e.reviewed_at >= thirtyDaysAgo)) continue;
-    const date = e.reviewed_at.slice(0, 10);
+    const ms = Date.parse(e.reviewed_at);
+    const date = Number.isFinite(ms) ? studyDayKey(ms, rolloverHour, zone) : e.reviewed_at.slice(0, 10);
+    if (!(date >= thirtyDaysAgo)) continue;
     const list = byDate.get(date);
     if (list) list.push(e);
     else byDate.set(date, [e]);
   }
 
   let streak = 0;
-  const today = daysAgo(now, 0);
   for (let i = 0; i <= 30; i++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
-    if (byDate.has(dateString(d))) streak++;
+    if (byDate.has(addDayKeys(today, -i))) streak++;
     else if (i === 0) continue; // not studied today yet — count from yesterday
     else break;
   }
 
-  const todayEvents = byDate.get(dateString(today)) ?? [];
+  const todayEvents = byDate.get(today) ?? [];
   const correct = todayEvents.filter((e) => e.rating === 2 || e.rating === 3).length;
 
   const heatmap: { date: string; count: number }[] = [];
   for (let i = 29; i >= 0; i--) {
-    const date = dateString(daysAgo(now, i));
+    const date = addDayKeys(today, -i);
     heatmap.push({ date, count: byDate.get(date)?.length ?? 0 });
   }
 

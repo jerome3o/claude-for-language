@@ -7,7 +7,10 @@
  * review events on the phone so the tab works offline. This module is the one written-down
  * definition both follow, and android-lab parity-tests its Kotlin port against it:
  *
- * - Days are **UTC dates** (SQLite `date(reviewed_at)`).
+ * - Days are **study days of a fixed offset**: the UTC date of `reviewed_at` + `shiftMinutes`
+ *   (SQLite `date(reviewed_at, '±N minutes')`), where the shift is the learner's UTC offset
+ *   minus the rollover hour (`studyDayShiftMinutes`, shared/study/studyDay.ts: "New day starts
+ *   at", 4 am by default). A shift of 0 = plain UTC dates (`date(reviewed_at)`), as before.
  * - The 30-day window is `reviewed_at >= datetime('now', '-30 days')`, a STRING comparison
  *   between an ISO timestamp ("2026-08-28T01:00:00.000Z") and "2026-08-28 13:00:00": the
  *   'T' sorts after the space, so the whole boundary day is in. [windowStart] reproduces it.
@@ -66,13 +69,21 @@ export function utcDate(reviewedAt: string): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** SQLite `date(reviewed_at, '±N minutes')`: the progress day of an event after the day shift. */
+export function progressDate(reviewedAt: string, shiftMinutes = 0): string {
+  if (!shiftMinutes) return utcDate(reviewedAt);
+  const ms = Date.parse(reviewedAt);
+  if (Number.isNaN(ms)) return reviewedAt.slice(0, 10);
+  return new Date(ms + shiftMinutes * 60_000).toISOString().slice(0, 10);
+}
+
 /** Port of the `/api/progress/daily` SQL over events already on the device. */
-export function dailyProgress(events: readonly ProgressEvent[], nowMs: number): DailyProgress {
+export function dailyProgress(events: readonly ProgressEvent[], nowMs: number, shiftMinutes = 0): DailyProgress {
   const start = windowStart(nowMs);
   const byDate = new Map<string, { count: number; cards: Set<string>; correct: number; time: number }>();
   for (const e of events) {
     if (!(e.reviewed_at >= start)) continue;
-    const date = utcDate(e.reviewed_at);
+    const date = progressDate(e.reviewed_at, shiftMinutes);
     let day = byDate.get(date);
     if (!day) {
       day = { count: 0, cards: new Set(), correct: 0, time: 0 };
@@ -140,15 +151,15 @@ export interface DayCards {
 }
 
 /**
- * Port of `/api/progress/day/:date`: the cards reviewed on one UTC date. Events of cards
+ * Port of `/api/progress/day/:date`: the cards reviewed on one progress day (UTC date after the shift). Events of cards
  * the device no longer has are left out (the SQL joins cards and notes). The SQL leaves
  * ties in the "most difficult first" order unspecified; here they go by the time of the
  * card's first review that day, then card id.
  */
-export function dayCards(events: readonly ProgressEvent[], cards: readonly ProgressCardInfo[], date: string): DayCards {
+export function dayCards(events: readonly ProgressEvent[], cards: readonly ProgressCardInfo[], date: string, shiftMinutes = 0): DayCards {
   const info = new Map(cards.map((c) => [c.card_id, c]));
   const dayEvents = events
-    .filter((e) => info.has(e.card_id) && utcDate(e.reviewed_at) === date)
+    .filter((e) => info.has(e.card_id) && progressDate(e.reviewed_at, shiftMinutes) === date)
     .slice()
     .sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : 0));
 

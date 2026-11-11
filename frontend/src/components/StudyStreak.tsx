@@ -2,18 +2,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Link } from 'react-router-dom';
 import { db } from '../db/database';
 import { studyStreak, formatStreakTime } from '@shared/progress';
+import { readDayRolloverHour, studyDayKeyDaysAgo } from '../services/studyDay';
 import './StudyStreak.css';
 
-function getDaysAgo(n: number): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - n);
-  return d;
-}
-
 export function StudyStreak() {
-  // Get all review events from last 30 days
-  const thirtyDaysAgo = getDaysAgo(30).toISOString().slice(0, 10);
+  // Get all review events from the last 30 study days (and a day more: the window's first day
+  // starts at its rollover hour in local time, which can be the previous UTC date).
+  const thirtyDaysAgo = studyDayKeyDaysAgo(31);
 
   const reviewEvents = useLiveQuery(
     () => db.reviewEvents.where('reviewed_at').aboveOrEqual(thirtyDaysAgo).toArray(),
@@ -29,7 +24,7 @@ export function StudyStreak() {
 
   // Streak, today's numbers and the 30-day heatmap: shared/progress/streak.ts (the Lab
   // app's Progress tab is parity-tested against the same function).
-  const { streak, today, heatmap: heatmapDays, max_count: maxCount } = studyStreak(reviewEvents ?? []);
+  const { streak, today, heatmap: heatmapDays, max_count: maxCount } = studyStreak(reviewEvents ?? [], new Date(), readDayRolloverHour());
   const todayReviews = today.reviews;
   const todayAccuracy = today.accuracy;
   const todayTimeMs = today.time_ms;

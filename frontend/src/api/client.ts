@@ -63,6 +63,7 @@ import type { ConversationVoice, ConversationAudioPrefs } from '@shared/lesson';
 import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
 import { isPrivateMediaKey } from '@shared/media/access';
 import { clearSignedOut, isSignedOut } from '../services/signedOut';
+import { studyToday } from '../services/studyDay';
 import { provesSignedIn } from '@shared/auth/session';
 import { mediaTokenRefreshDue, setMediaToken, withMediaCredential, type StoredMediaToken } from './mediaToken';
 
@@ -79,13 +80,13 @@ export function devWorkerOrigin(): string {
   return import.meta.env.VITE_API_PROXY || `${window.location.protocol}//${window.location.hostname}:8787`;
 }
 
-/** Get the client's local date as YYYY-MM-DD (for timezone-correct daily limits). */
+/**
+ * Today's STUDY day as YYYY-MM-DD (for timezone-correct daily limits): the local date, except
+ * that the day turns over at the account's "New day starts at" hour (4 am by default) — so
+ * 01:30 is still yesterday. services/studyDay.ts, shared/study/studyDay.ts.
+ */
 export function getLocalDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return studyToday();
 }
 
 export const API_PATH = `${API_BASE}/api`;

@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getDeck, getDecks } from '../../api/client';
 import { assignHomework } from '../../api/homework';
-import { localDate, hasFsrs, hasOneOff, type HomeworkMode } from '@shared/homework';
+import { hasFsrs, hasOneOff, type HomeworkMode } from '@shared/homework';
+import { studyToday } from '../../services/studyDay';
 import { getLessonLog } from '../../api/insights';
 import { lessonWhere, sendDefaults, sendHow } from './sendHomework';
 import { HomeworkModePicker } from './HomeworkModePicker';
@@ -57,7 +58,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
   // How they do it (docs/HOMEWORK.md "Defaults"): Both — a one-off pass by a date, then long-term review —
   // due at the student's next logged lesson, else in two days, until the tutor picks otherwise.
   const lessonLogQuery = useQuery({ queryKey: ['lessonLog', relId], queryFn: () => getLessonLog(relId), retry: 1 });
-  const defaults = useMemo(() => sendDefaults(localDate(), lessonLogQuery.data ?? []), [lessonLogQuery.data]);
+  const defaults = useMemo(() => sendDefaults(studyToday(), lessonLogQuery.data ?? []), [lessonLogQuery.data]);
   const [mode, setMode] = useState<HomeworkMode>(defaults.mode);
   const [chosenDue, setDueDate] = useState<string | null>(null);
   const dueDate = chosenDue ?? defaults.dueDate;
@@ -286,7 +287,7 @@ export function SendHomeworkSheet({ relId, studentName, sharedDecks, assignedLes
                   <input type="checkbox" checked={linkDue} onChange={(e) => setLinkDue(e.target.checked)} data-testid="link-due-toggle" />
                   <span>Due date</span>
                 </label>
-                {linkDue && <input type="date" value={dueDate} min={localDate()} onChange={(e) => e.target.value && setDueDate(e.target.value)} aria-label="Due date" />}
+                {linkDue && <input type="date" value={dueDate} min={studyToday()} onChange={(e) => e.target.value && setDueDate(e.target.value)} aria-label="Due date" />}
               </div>
             );
             if (pendingLink === 'new') {

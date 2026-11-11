@@ -3,10 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
-  dueLabel, lastPassAnswer, localDate, passItemIds, passProgress, retryBarNote, hasFsrs, PASS_CARD_TYPE,
+  dueLabel, lastPassAnswer, passItemIds, passProgress, retryBarNote, hasFsrs, PASS_CARD_TYPE,
   passAnglePlan, passAngleLine, passAnglesLabel, passAnswerItemId, passHardApplies, parsePassStepId, passWordMissed, secondAngleType,
   type PassWord,
 } from '@shared/homework';
+import { studyToday } from '../services/studyDay';
 import { DEFAULT_DECK_SETTINGS, deckInDailyReview, isLongTerm, longTermSummary, prefForToggle, toLongTermPref } from '@shared/decks';
 import { CardQueue, type CardWithNote, type IntervalPreview, type QueueCounts, type Rating } from '../types';
 import { setNoteLongTerm } from '../services/longTerm';
@@ -306,7 +307,7 @@ function DeckPass({
     );
   }
 
-  const due = dueLabel(dueDate, localDate());
+  const due = dueLabel(dueDate, studyToday());
   // The retry bar (§3c) with each owed second angle as a step, so it stays truthful in Hard mode.
   const retryBar = plan.bar;
   const retryNote = retryBarNote(retryBar);

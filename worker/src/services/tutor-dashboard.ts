@@ -11,6 +11,7 @@
 import type { User } from '../types';
 import { DEFAULT_STUDY_BUDGET, daysToIntroduce, studyBudgetInfo, type ReviewLoadState, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow } from '@shared/decks';
 import { isLongTermDeck, summarizeOneOffHomework, type HomeworkAssignment, type HomeworkMode, type OneOffSummary } from '@shared/homework';
+import { userStudyDayKey } from './study-day';
 import {
   rankStruggling,
   listRecordings,
@@ -79,6 +80,8 @@ export interface StudentUserRow extends UserSummary, StudyBudgetRow {
   created_at: string;
   /** IANA zone (Profile), for the student's own "today". */
   time_zone?: string | null;
+  /** "New day starts at" (0–6, NULL = 4 am): the student's study day turns over then (services/study-day.ts). */
+  day_rollover_hour?: number | null;
 }
 
 export interface InviteRef {
@@ -257,6 +260,17 @@ export function dayKey(iso: string | Date, tzOffsetMinutes: number): string {
   return shifted.toISOString().slice(0, 10);
 }
 
+/**
+ * How days are bucketed: a zone as Date.getTimezoneOffset() minutes (calendar days), or a
+ * function giving an instant's day key — the student's STUDY day (services/study-day.ts:
+ * their time zone and "New day starts at"), what the student card uses.
+ */
+export type DayKeyOf = number | ((at: string | Date) => string);
+
+function keyFn(day: DayKeyOf): (at: string | Date) => string {
+  return typeof day === 'number' ? (at) => dayKey(at, day) : day;
+}
+
 function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
@@ -284,12 +298,13 @@ function round(n: number, digits = 2): number {
   return Math.round(n * f) / f;
 }
 
-export function computeStudyStatus(rows: ActivityRow[], tzOffsetMinutes: number, now: Date = new Date()): StudyStatus {
-  const today = dayKey(now, tzOffsetMinutes);
+export function computeStudyStatus(rows: ActivityRow[], days: DayKeyOf, now: Date = new Date()): StudyStatus {
+  const keyOf = keyFn(days);
+  const today = keyOf(now);
   const byDay = new Map<string, ActivityRow[]>();
   let last: string | null = null;
   for (const r of rows) {
-    const k = dayKey(r.reviewed_at, tzOffsetMinutes);
+    const k = keyOf(r.reviewed_at);
     const list = byDay.get(k) ?? [];
     list.push(r);
     byDay.set(k, list);
@@ -311,10 +326,11 @@ export function computeStudyStatus(rows: ActivityRow[], tzOffsetMinutes: number,
 }
 
 /** Per-day activity, newest first, at most `limit` days. */
-export function recentActivityDays(rows: ActivityRow[], tzOffsetMinutes: number, limit = 2): ActivityDay[] {
+export function recentActivityDays(rows: ActivityRow[], days: DayKeyOf, limit = 2): ActivityDay[] {
+  const keyOf = keyFn(days);
   const byDay = new Map<string, ActivityRow[]>();
   for (const r of rows) {
-    const k = dayKey(r.reviewed_at, tzOffsetMinutes);
+    const k = keyOf(r.reviewed_at);
     const list = byDay.get(k) ?? [];
     list.push(r);
     byDay.set(k, list);
@@ -524,7 +540,9 @@ export function deriveSetup(input: {
 
 export function buildStudentOverview(input: StudentOverviewInput): StudentOverview {
   const now = input.now ?? new Date();
-  const status = computeStudyStatus(input.activity_rows, input.tz_offset_minutes, now);
+  // The student's own study day (their zone, else the tutor's; their "New day starts at").
+  const studentDay = (at: string | Date) => userStudyDayKey(input.student, at, input.tz_offset_minutes);
+  const status = computeStudyStatus(input.activity_rows, studentDay, now);
   const struggling = rankStruggling(input.week_rows);
   const recordings = listRecordings(input.week_rows, input.week_marks);
   const homework = summarizeHomework(
@@ -533,7 +551,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     { new_cards_per_day: input.student.new_cards_per_day ?? DEFAULT_STUDY_BUDGET.new_cards_per_day },
     input.deck_queue ?? [],
     input.assignments ?? [],
-    dayKey(now, input.tz_offset_minutes)
+    studentDay(now)
   );
   const setup = deriveSetup({
     student: input.student,
@@ -561,7 +579,7 @@ export function buildStudentOverview(input: StudentOverviewInput): StudentOvervi
     needs_attention: pickNeedsAttention(struggling, recordings),
     homework,
     setup,
-    activity: recentActivityDays(input.activity_rows, input.tz_offset_minutes),
+    activity: recentActivityDays(input.activity_rows, studentDay),
     last_conversation_id: input.last_conversation_id,
     has_profile: !!input.has_profile,
     study_budget: studyBudgetInfo(input.student, input.student.id),

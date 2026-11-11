@@ -12,6 +12,7 @@ import { seenCharactersOf } from '@shared/study/newCharacters';
 import { readReviewLoadCap, readStudyBudget } from '../services/studyBudget';
 import { readNewCardOrder } from '../services/newCardOrder';
 import { readBurySiblings } from '../services/burySiblings';
+import { studyCutoffNow, studyDayStartMs, studyToday } from '../services/studyDay';
 import { loadWordFrequency } from '../services/wordFrequency';
 import { loadWordTagLexicon } from '../services/wordTags';
 import { noteFormalities } from '../services/noteFormality';
@@ -1451,7 +1452,7 @@ async function computeNewCardsStudiedTodayByDeck(): Promise<Map<string, NewCards
 /** What today's review events say: new cards introduced per deck + which cards were reviewed (review-load.ts). */
 interface TodayFromEvents {
   introduced: Map<string, NewCardsStudiedToday>;
-  /** Cards with a review since local midnight. */
+  /** Cards with a review since the study day started (the rollover hour, 4 am by default). */
   reviewedToday: Set<string>;
   /** First-ever review (epoch ms) of each card in `reviewedToday` (and their siblings when some were introduced). */
   firstReviewMs: Map<string, number>;
@@ -1459,10 +1460,10 @@ interface TodayFromEvents {
 }
 
 async function computeTodayFromEvents(): Promise<TodayFromEvents> {
-  // Local midnight as an instant: reviewed_at is a UTC ISO string, so comparing
-  // it with the local DATE string ("2026-09-27") was off by the UTC offset.
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
+  // The study day's start as an instant (shared/study/studyDay.ts: the account's "New day
+  // starts at", 4 am by default): reviewed_at is a UTC ISO string, so comparing it with the
+  // local DATE string ("2026-09-27") was off by the UTC offset.
+  const dayStart = new Date(studyDayStartMs());
   const dayStartIso = dayStart.toISOString();
   const empty: TodayFromEvents = { introduced: new Map(), reviewedToday: new Set(), firstReviewMs: new Map(), dayStartMs: dayStart.getTime() };
 
@@ -1518,11 +1519,10 @@ function computeNewCardsStudiedTodayByDeckShared(): Promise<Map<string, NewCards
 /**
  * Today's card reviews on this device's copy of the history (every device's, once synced):
  * the "142 reviews" of "Today: 23 min · 142 reviews" and the celebration rule's count.
- * Local midnight onwards, like introduced-today.
+ * From the study day's start onwards (services/studyDay.ts), like introduced-today.
  */
 export async function getTodayReviewSummary(): Promise<{ reviews: number; correct: number }> {
-  const dayStart = new Date();
-  dayStart.setHours(0, 0, 0, 0);
+  const dayStart = new Date(studyDayStartMs());
   let reviews = 0;
   let correct = 0;
   await db.reviewEvents
@@ -1597,14 +1597,12 @@ export async function cleanupOldDailyStats(): Promise<void> {
 // ============ Due Cards & Queue Counts ============
 
 /**
- * "Due today" cutoff: end of today, or one hour from now if later (so studying
- * near midnight still picks up cards due just after midnight).
+ * "Due today" cutoff: the end of the STUDY day (the account's "New day starts at", 4 am by
+ * default — shared/study/studyDay.ts), or one hour from now if later (so studying just
+ * before the rollover still picks up cards due just after it).
  */
 export function getStudyCutoff(): { iso: string; ts: number } {
-  const eod = new Date();
-  eod.setHours(23, 59, 59, 999);
-  const plus1h = Date.now() + 60 * 60 * 1000;
-  const ts = Math.max(eod.getTime(), plus1h);
+  const ts = studyCutoffNow();
   return { iso: new Date(ts).toISOString(), ts };
 }
 
@@ -1712,9 +1710,12 @@ export async function loadQueueBumps(): Promise<QueueBumps | null> {
   return { bumps, lastReviewMs, firstReviewMs };
 }
 
-/** Today's LOCAL date, "YYYY-MM-DD" (a snooze ends on a local date — shared/decks/holds.ts). */
+/**
+ * Today's STUDY day, "YYYY-MM-DD" (a snooze ends on a local date — shared/decks/holds.ts — and
+ * the day turns over at the account's rollover hour, services/studyDay.ts).
+ */
 export function localDateKey(d: Date = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return studyToday(d);
 }
 
 /** Card ids held out of study today (suspended / snoozed; pending clears left out). */

@@ -81,6 +81,22 @@ describe('studyStreak', () => {
     expect(s.max_count).toBeGreaterThanOrEqual(1);
     expect(s.streak).toBeGreaterThanOrEqual(1);
   });
+
+  it('a review past midnight counts for the study day before (rollover 4)', () => {
+    const now = new Date('2026-11-11T01:30:00.000Z'); // 01:30 in London
+    const events = [
+      ev('a', 2, '2026-11-11T00:20:00.000Z'), // 00:20 — still the 10th
+      ev('a', 2, '2026-11-09T21:00:00.000Z'),
+    ];
+    const s = studyStreak(events, now, 4, 'Europe/London');
+    expect(s.heatmap[29]).toEqual({ date: '2026-11-10', count: 1 });
+    expect(s.today.reviews).toBe(1);
+    expect(s.streak).toBe(2);
+    // Midnight rollover: the 00:20 review is "today" (the 11th) and the 10th is empty.
+    const m = studyStreak(events, now, 0, 'Europe/London');
+    expect(m.heatmap[29]).toEqual({ date: '2026-11-11', count: 1 });
+    expect(m.streak).toBe(1);
+  });
 });
 
 describe('mastery', () => {
