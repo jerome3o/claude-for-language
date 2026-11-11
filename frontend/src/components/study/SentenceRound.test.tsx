@@ -166,6 +166,23 @@ afterEach(() => {
 });
 
 describe('SentenceRound', () => {
+  it("a sentence card: its own sentence (the clue, punctuation aside) is never a row of the round", async () => {
+    const onPicked = vi.fn();
+    // The card IS the clue sentence: "Read it aloud" of the question he just answered would be a free point.
+    await render({ word: '我去银行取钱', onPicked });
+    const ids = onPicked.mock.calls[0][0] as string[];
+    expect(ids.some((id) => id.endsWith(':clue:n1'))).toBe(false);
+    expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate']);
+    expect(host.textContent).not.toContain('我去银行取钱。');
+    expect(host.textContent).toContain('Get any 2 of these 2 right');
+    // A word card keeps it.
+    act(() => root.unmount());
+    root = createRoot(host);
+    onPicked.mockClear();
+    await render({ word: '银行', onPicked });
+    expect((onPicked.mock.calls[0][0] as string[])[0]).toBe('read:clue:n1');
+  });
+
   it('shows the question small, three sentences → three exercises (one each), translate Chinese hidden', async () => {
     await render();
     expect(all('sentence-round-question')[0].textContent).toBe('银行');

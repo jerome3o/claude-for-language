@@ -82,6 +82,22 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         listOf("read", "translate").flatMap { m -> listOf("open", "right", "close", "wrong").map { "${SentenceRoundTags.EXERCISE}-$i-$m-$it" } }.first { count(it) > 0 }
     }
 
+    /**
+     * A sentence card whose own sentence is its clue (punctuation aside): the round never asks him to read the question he
+     * has just answered (core SentenceRound.isCardHanziSentence) — three sentences left, three exercises, none of them it.
+     */
+    @Test fun aSentenceCardsOwnSentenceIsNotInTheRound() {
+        card(previewSentencePractise(), n = note.copy(hanzi = "我去银行取钱", english = "I go to the bank to get money"))
+        assertEquals(1, count(SentenceRoundTags.ROUND))
+        val tags = (0 until 4).map { i -> listOf("read", "translate", "listen").flatMap { m -> listOf("open", "right", "close", "wrong").map { "${SentenceRoundTags.EXERCISE}-$i-$m-$it" } }.firstOrNull { count(it) > 0 } }
+        assertEquals(3, tags.filterNotNull().size, tags.toString())
+        assertEquals(null, tags[3])
+        compose.onNodeWithText("Get any 2 of these 3 right", substring = true, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("我去银行取钱。", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithText("I go to the bank to get money.", useUnmergedTree = true).assertDoesNotExist()
+        shot("sentence-round-no-own-sentence")
+    }
+
     @Test fun showAnswerBeforeTryingGivesUp() {
         card(previewSentencePractise(), start = CardStartState())
         compose.onNodeWithText("Show answer", useUnmergedTree = true).performClick()

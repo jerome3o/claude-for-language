@@ -251,7 +251,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const hidden = (key: string) => !!stats.get(sentenceHistoryKey(key))?.hidden;
     const withAudio = sentences.map((s) => ({ ...s, audio: !!s.audio_url && (isOnline || !!cachedClips?.[s.audio_url]) }));
     const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null)
-      ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(withAudio, stats, { byEar, online: isOnline }));
+      ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(withAudio, stats, { byEar, online: isOnline, cardHanzi: word }));
     setPicked(next);
     onPicked?.(next.map((e) => e.id));
   }, [picked, sentences, stats, cachedClips]); // eslint-disable-line react-hooks/exhaustive-deps

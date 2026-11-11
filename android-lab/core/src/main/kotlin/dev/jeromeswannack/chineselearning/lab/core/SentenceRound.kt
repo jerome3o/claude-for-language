@@ -30,6 +30,24 @@ object SentenceRound {
         return out
     }
 
+    private val NOT_LETTER_OR_DIGIT = Regex("[^\\p{L}\\p{N}]")
+
+    /** `bareChinese`: letters and digits only, lower-cased (punctuation, spaces and symbols never count). */
+    private fun bareChinese(text: String): String = text.replace(NOT_LETTER_OR_DIGIT, "").lowercase()
+
+    /**
+     * `isCardHanziSentence`: this sentence IS the card's own text (a sentence card with that same sentence as its
+     * clue), punctuation, spaces and case aside. The round never offers it. '' never matches.
+     */
+    fun isCardHanziSentence(hanzi: String, cardHanzi: String?): Boolean {
+        val card = bareChinese(cardHanzi ?: "")
+        return card.isNotEmpty() && bareChinese(hanzi) == card
+    }
+
+    /** `roundSentenceCount`: the card's sentences the (reading / meaning) round can use — not hidden, not the card itself. */
+    fun roundSentenceCount(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, cardHanzi: String? = null): Int =
+        sentences.count { stats?.get(SentenceHistory.key(it.key))?.hidden == null && !isCardHanziSentence(it.hanzi, cardHanzi) }
+
     /** `roundExerciseId` */
     fun exerciseId(mode: String, key: String) = "$mode:$key"
 
@@ -56,11 +74,13 @@ object SentenceRound {
      * `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); each slot takes a fresh
      * sentence first, then the least known in its mode; hidden sentences never come. [byEar] (Sentences by ear): a
      * read slot is a listen exercise for a sentence that can be heard ([canListen]) and prefers one (after fresh-first,
-     * before least-known, which then compares the listen history).
+     * before least-known, which then compares the listen history). [cardHanzi]: a sentence saying exactly the card
+     * never comes.
      */
-    fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, byEar: Boolean = false, online: Boolean = true): List<Exercise> {
+    fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, byEar: Boolean = false, online: Boolean = true, cardHanzi: String? = null): List<Exercise> {
         fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
-        val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null }
+        // A sentence that is the card's own text is left out like a hidden one ([isCardHanziSentence]).
+        val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null && !isCardHanziSentence(it.value.hanzi, cardHanzi) }
         val n = visible.size
         if (n == 0) return emptyList()
         val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
@@ -127,11 +147,11 @@ object SentenceRound {
     /** Spaces (ASCII and the ideographic one) never count when looking for the word (`squeeze`). */
     private fun squeeze(text: String): String = text.filterNot { it == ' ' || it == '\t' || it == '\n' || it == '\r' || it == '\u3000' }
 
-    /** `listenRoundCandidates`: the card's sentence and the set's ones carrying the word, with English, not hidden; list order. */
+    /** `listenRoundCandidates`: the card's sentence and the set's ones carrying the word, with English, not hidden, not the word itself; list order. */
     fun listenCandidates(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): List<IndexedValue<Sentence>> {
         val w = squeeze(word)
         return sentences.withIndex()
-            .filter { hasTranslation(it.value) && stats?.get(SentenceHistory.key(it.value.key))?.hidden == null }
+            .filter { hasTranslation(it.value) && stats?.get(SentenceHistory.key(it.value.key))?.hidden == null && !isCardHanziSentence(it.value.hanzi, word) }
             .filter { isCardSentenceKey(it.value.key) || w.isEmpty() || squeeze(it.value.hanzi).contains(w) }
     }
 

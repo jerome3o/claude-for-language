@@ -1549,6 +1549,12 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   exercises (3 → 3, 2 → one read + one translate when it can — a read slot leaves the only sentence with English
   to the translate slot —, 1 → 1, 0 → no round), and the word asks for more sentences (top-up `reason: few`,
   below). Deterministic — the same list gives the same round in both apps.
+- **Never the card's own text** (Nov 2026: a sentence card 你和你妈妈除了聊这个，还聊什么了？ whose clue was that same
+  sentence opened the round with "📖 Read it aloud" of the question he had just answered): a sentence whose Chinese
+  equals the card's hanzi — punctuation, spaces and case aside (`isCardHanziSentence`) — is left out of the round like
+  a hidden one, in both rounds (the listening card's too), and out of the count the round / gate use
+  (`roundSentenceCount`, `listenRoundSentenceCount`): only that sentence → no round. It stays on the answer side's
+  list. Lab core `SentenceRound.isCardHanziSentence` / `roundSentenceCount`, parity-tested.
 - **Any two right** (min(2, exercises)) — in any order. The counter
   "0 / 2 → 1 / 2 → 2 / 2" with dots, a "🎉 Nice — 1 / 2" cheer, and confetti + "🎉 2 / 2 — Good and Easy
   unlocked" when done; the answer side then opens by itself (≈1.4 s, or **See the answer →**) with Good and

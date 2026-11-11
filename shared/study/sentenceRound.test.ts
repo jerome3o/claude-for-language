@@ -5,6 +5,7 @@ import {
   pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro, canListenTo, listenActiveId, exerciseAsRead, listenCheckBy,
   listenCheckInput, listenVerdictResult, listenSelfResult, parseSentencesByEar, SENTENCE_ROUND_PROMPT,
   SENTENCE_ROUND_SKIP, SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES, SENTENCE_ROUND_SKIP_CONFIRM_NO,
+  isCardHanziSentence, roundSentenceCount,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
 import { sentenceStats, wantsMoreSentences, type SentencePracticeEvent } from './sentenceHistory';
@@ -247,4 +248,58 @@ describe('Sentences by ear (listen exercises in the read slots)', () => {
   it('the setting: on unless switched off', () => {
     expect([null, undefined, '', '1', 'true', '0', 'false', 'x'].map((v) => parseSentencesByEar(v))).toEqual([true, true, true, true, true, false, false, true]);
   });
+});
+
+describe("the card's own sentence never comes in the round", () => {
+  const card = '你和你妈妈除了聊这个，还聊什么了？';
+  const list: RoundSentence[] = [
+    { key: 'clue:n1', hanzi: card, translation: 'Apart from this, what else did you and your mum talk about?' },
+    { key: 's1', hanzi: '你们还聊什么了？', translation: 'What else did you talk about?' },
+    { key: 's2', hanzi: '除了中文，他还会说日语。', translation: 'Besides Chinese, he also speaks Japanese.' },
+    { key: 's3', hanzi: '我和妈妈聊了很久。', translation: 'Mum and I chatted for a long time.' },
+    { key: 's4', hanzi: '除了这个，你还想要什么？', translation: 'What else do you want besides this?' },
+  ];
+  it('isCardHanziSentence: punctuation, spaces and case aside; empty never matches', () => {
+    expect(isCardHanziSentence(card, card)).toBe(true);
+    expect(isCardHanziSentence('你和你妈妈除了聊这个 还聊什么了', card)).toBe(true);
+    expect(isCardHanziSentence('「你和你妈妈除了聊这个,还聊什么了?」', card)).toBe(true);
+    expect(isCardHanziSentence('你和你妈妈除了聊这个，还聊什么了吗？', card)).toBe(false);
+    expect(isCardHanziSentence('Wi-Fi 密码是多少？', 'wifi密码是多少')).toBe(true);
+    expect(isCardHanziSentence('银行', '')).toBe(false);
+    expect(isCardHanziSentence('', '')).toBe(false);
+    expect(isCardHanziSentence('。', '？')).toBe(false);
+    expect(isCardHanziSentence('银行', null)).toBe(false);
+  });
+  it('pickRoundExercises leaves it out (row 1 was "Read it aloud" of the question itself)', () => {
+    expect(brief(pickRoundExercises(list))[0]).toBe('read:clue:n1');
+    const ex = pickRoundExercises(list, undefined, { cardHanzi: card });
+    expect(ex.map((e) => e.key)).not.toContain('clue:n1');
+    expect(brief(ex)).toEqual(['read:s1', 'translate:s2', 'read:s3', 'translate:s4']);
+    // the index is still the sentence's place in the card's list
+    expect(ex.map((e) => e.index)).toEqual([1, 2, 3, 4]);
+    // a word card is unaffected
+    expect(brief(pickRoundExercises(list, undefined, { cardHanzi: '妈妈' }))).toEqual(brief(pickRoundExercises(list)));
+  });
+  it('fewer sentences: fewer exercises; only the card itself → no round', () => {
+    expect(brief(pickRoundExercises(list.slice(0, 2), undefined, { cardHanzi: card }))).toEqual(['read:s1']);
+    expect(pickRoundExercises(list.slice(0, 1), undefined, { cardHanzi: card })).toEqual([]);
+    expect(roundSentenceCount(list.slice(0, 1), undefined, card)).toBe(0);
+    expect(sentenceRoundOpens({ enabled: true, cardType: 'hanzi_to_meaning', sentenceCount: roundSentenceCount(list.slice(0, 1), undefined, card) })).toBe(false);
+  });
+  it('roundSentenceCount: not hidden, not the card itself', () => {
+    expect(roundSentenceCount(list)).toBe(5);
+    expect(roundSentenceCount(list, undefined, card)).toBe(4);
+    const stats = sentenceStats([{ id: 'h', note_id: 'n1', sentence_key: 's2', kind: 'hide', reason: 'weird', at: '2026-10-02T00:00:00.000Z' }], 'n1');
+    expect(roundSentenceCount(list, stats, card)).toBe(3);
+  });
+  it('the listening card: the sentence it read out is not one to say back', () => {
+    expect(listenRoundCandidatesKeys(card)).not.toContain('clue:n1');
+    expect(listenRoundSentenceCount(list, card)).toBe(0);
+    expect(pickListenRoundExercises(list, card)).toEqual([]);
+    // a word: its card sentence still comes
+    expect(brief(pickListenRoundExercises(list, '还'))[0]).toBe('translate:clue:n1');
+  });
+  function listenRoundCandidatesKeys(word: string) {
+    return pickListenRoundExercises(list, word).map((e) => e.key);
+  }
 });

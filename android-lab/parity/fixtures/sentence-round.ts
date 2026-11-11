@@ -19,6 +19,7 @@ import {
   SENTENCES_BY_EAR_TITLE, SENTENCES_BY_EAR_HINT, LISTEN_SLOW_RATE, LISTEN_EX_PLACEHOLDER, LISTEN_EX_LISTENING, LISTEN_EX_CHECKING,
   LISTEN_EX_PLAY, LISTEN_EX_SLOW, LISTEN_EX_SHOW_ANSWER, LISTEN_EX_SUBMIT, LISTEN_EX_SELF_QUESTION, LISTEN_EX_GOT_IT, LISTEN_EX_MISSED_IT,
   LISTEN_EX_YOU_SAID, LISTEN_EX_NO_AUDIO,
+  isCardHanziSentence, roundSentenceCount, pickListenRoundExercises, listenRoundSentenceCount,
   type RoundSentence, type RoundLogEntry, type RoundExercise,
 } from '../../../shared/study/sentenceRound';
 
@@ -150,8 +151,31 @@ const listen = {
   },
 };
 
+// The card's own text is never a round exercise (a sentence card whose clue is that same sentence).
+const CARD_TEXTS = ['你和你妈妈除了聊这个，还聊什么了？', '你和你妈妈除了聊这个 还聊什么了', '「你和你妈妈除了聊这个,还聊什么了?」', '你和你妈妈除了聊这个，还聊什么了吗？',
+  '银行', '银行。', 'Wi-Fi 密码是多少？', 'wifi密码是多少', '', '  ', '。', '？', 'ＡＢ银行', 'ab银行', '我去银行。', '我去银行'];
+const sameText = CARD_TEXTS.flatMap((a) => CARD_TEXTS.map((b) => ({ hanzi: a, card: b, same: isCardHanziSentence(a, b) })));
+const cardLists = [] as unknown[];
+for (let i = 0; i < 80; i++) {
+  const n = Math.floor(r() * 7);
+  const card = CARD_TEXTS[Math.floor(r() * CARD_TEXTS.length)];
+  const sentences: RoundSentence[] = Array.from({ length: n }, (_, k) => ({
+    key: k === 0 && r() < 0.6 ? 'clue:n1' : `s${k}`,
+    hanzi: r() < 0.35 ? CARD_TEXTS[Math.floor(r() * CARD_TEXTS.length)] : HANZI[Math.floor(r() * HANZI.length)] + k,
+    translation: translation(),
+  }));
+  cardLists.push({
+    card, sentences,
+    exercises: pickRoundExercises(sentences, undefined, { cardHanzi: card }),
+    count: roundSentenceCount(sentences, undefined, card),
+    listen: pickListenRoundExercises(sentences, card),
+    listenCount: listenRoundSentenceCount(sentences, card),
+  });
+}
+const cardHanzi = { sameText, lists: cardLists };
+
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
-  lists, opens, answerSide, parts, english, listen,
+  lists, opens, answerSide, parts, english, listen, cardHanzi,
   copy: {
     size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, skipConfirm: SENTENCE_ROUND_SKIP_CONFIRM,
     skipConfirmYes: SENTENCE_ROUND_SKIP_CONFIRM_YES, skipConfirmNo: SENTENCE_ROUND_SKIP_CONFIRM_NO, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
