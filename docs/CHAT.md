@@ -604,7 +604,11 @@ threads" below), merged by ONE pure rule — `mergeInbox` in `shared/claude/inbo
   `syncClaudeThreadList` — the whole list the first time (or when the table is empty), then
   `?since=<server_time>` (cursor per account in localStorage) with `deleted_ids` — on open, focus,
   `online`, every minute, a socket (re)connect and every `claude_turn` that finishes; a turn starting
-  marks its row "✦ Writing…" at once (`useClaudeInbox`).
+  marks its row "✦ Writing…" at once (`useClaudeInbox`). A refresh asked for while one is in flight runs
+  once more after it (that one may predate the reply it was asked for). A Check / Explain / Translate (and
+  any other reply written on coach-reply-queue, `runCoachReply`) announces itself too: one `claude_turn`
+  frame `done` / `failed` (no text, `seq` 1) once the row is written — before Nov 2026 its row stayed
+  "✦ Writing…" until the next minute's refresh.
 - **Coach entry points** (`pages/CoachEntry.tsx` `coachEntryTarget`): `/coach` (and the widget's
   `?focus=1`) → `/chats?compose=1` (the box, typing); `?c=<id>` → `/chats/claude/<id>`;
   `?text=&action=` (or English text, which can only be translated) → a new thread with that intent;

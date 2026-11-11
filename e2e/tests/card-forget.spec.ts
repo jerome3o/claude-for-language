@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
 
 /**
  * Leeches + "Forget this card" (shared/cards/leech.ts, docs/STUDY_SESSION.md "Leeches" / "Forget"):
@@ -29,13 +30,12 @@ async function api<T = unknown>(
 async function revealCard(page: Page) {
   const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal|Show answer/i }).first();
   await reveal.waitFor({ timeout: 30000 });
-  const gotIt = page.getByRole('button', { name: 'Got it' });
-  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
   await reveal.click();
   await page.getByTestId('study-action-row').waitFor({ timeout: 15000 });
 }
 
 test('A leech shows "Missed 9×"; Forget this card warns first, resets it to New, and Undo brings it back', async ({ page, request }) => {
+  await skipFirstCardExplainer(page.context());
   test.setTimeout(120_000);
   const email = `forget-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Forget learner' } });

@@ -16,7 +16,11 @@ permissions:
 
 jobs:
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: Playwright installs browsers + system libraries only for the Ubuntu
+    # releases it supports, and when ubuntu-latest moved to 26.04 (Nov 2026) the install step failed
+    # before any test ran ("Playwright does not support chromium on ubuntu26.04-x64"). Move this when
+    # the Playwright in package-lock.json supports the newer image.
+    runs-on: ubuntu-24.04
     name: E2E Tests
     # ~25 min for the whole suite on a hosted runner (retries included): room to spare.
     timeout-minutes: 45
@@ -45,7 +49,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+          key: playwright-ubuntu-24.04-${{ steps.pw.outputs.version }}
 
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'

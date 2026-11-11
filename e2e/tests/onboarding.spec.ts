@@ -96,6 +96,13 @@ test.describe('AI Deck Generation', () => {
     const prompt = 'Basic greetings in Chinese';
     await page.getByPlaceholder(/vocabulary for ordering food/i).fill(prompt);
 
+    // Hold the request a moment: the E2E stand-in answers at once, which made the loading state below
+    // a race (gone before the assertion looked).
+    await page.route('**/api/ai/generate-deck', async (route) => {
+      await new Promise((r) => setTimeout(r, 1500));
+      await route.continue();
+    });
+
     // Click generate button
     await page.getByRole('button', { name: 'Generate Deck with AI' }).click();
 

@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Page } from '@playwright/test';
+import { skipFirstCardExplainer } from './fixtures/explainer';
 
 /**
  * Suspend & snooze (shared/decks/holds.ts, docs/STUDY_SESSION.md "Suspend & snooze"): with ONE new
@@ -27,13 +28,12 @@ async function api<T = unknown>(
 async function revealCard(page: Page) {
   const reveal = page.getByRole('button', { name: /Skip recording|Show Answer|Check Answer|Reveal/i }).first();
   await reveal.waitFor({ timeout: 30000 });
-  const gotIt = page.getByRole('button', { name: 'Got it' });
-  if (await gotIt.isVisible().catch(() => false)) await gotIt.click();
   await reveal.click();
   await page.getByTestId('study-action-row').waitFor({ timeout: 15000 });
 }
 
 test('Suspend a card from the study card: gone from study (its slot goes to the next word), back from Settings', async ({ page, request }) => {
+  await skipFirstCardExplainer(page.context());
   const email = `holds-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Hold learner' } });
   const token = auth.session_token;

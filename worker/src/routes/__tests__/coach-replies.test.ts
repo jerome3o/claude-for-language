@@ -89,6 +89,26 @@ describe('Sentence Coach replies in the background', () => {
     expect(analyse).toHaveBeenCalledTimes(1);
   });
 
+  it('a finished or failed reply is announced to the owner as a claude_turn frame (the Chats list refreshes on it)', async () => {
+    const res = await w.call('POST', '/api/coach/conversations', { text: SENTENCE, action: 'check', background: true });
+    const body = await json<ConvBody>(res);
+    const pushed: Array<{ userId: string; event: Record<string, unknown> }> = [];
+    const push = async (userId: string, event: unknown) => { pushed.push({ userId, event: event as Record<string, unknown> }); };
+    const messageId = w.sent.at(-1)!.messageId;
+    expect(await runCoachReply(w.env, messageId, { analyse: async () => ANALYSIS as never, push })).toBe('done');
+    expect(pushed).toEqual([{ userId: USER, event: { type: 'claude_turn', thread_id: body.conversation.id, message_id: messageId, seq: 1, status: 'done' } }]);
+    // Nothing to write (a redelivery) = no frame.
+    expect(await runCoachReply(w.env, messageId, { analyse: async () => ANALYSIS as never, push })).toBe('skipped');
+    expect(pushed).toHaveLength(1);
+
+    const id = body.conversation.id;
+    await w.call('POST', `/api/coach/conversations/${id}/messages`, { message: 'Why?', background: true });
+    const failing = w.sent.at(-1)!.messageId;
+    const chat: CoachChatFn = async () => { throw Object.assign(new Error('bad request'), { status: 400 }); };
+    expect(await runCoachReply(w.env, failing, { chat, push })).toBe('failed');
+    expect(pushed[1]).toMatchObject({ userId: USER, event: { type: 'claude_turn', thread_id: id, message_id: failing, status: 'failed', error: expect.any(String) } });
+  });
+
   it('follow-up: 202 with a pending reply; a second send while it is pending is refused', async () => {
     const id = await startConversation();
     const res = await w.call('POST', `/api/coach/conversations/${id}/messages`, { message: 'Make a card for 商店', background: true });

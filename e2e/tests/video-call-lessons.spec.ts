@@ -6,6 +6,7 @@
  * the review page lists its calls.
  */
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
 
@@ -47,10 +48,7 @@ async function openAs(browser: Browser, token: string): Promise<Page> {
 
 async function join(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
-  const button = page.getByTestId('join-call');
-  await expect(button).toBeEnabled({ timeout: 20000 });
-  await button.click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 test('Leave keeps the call; End confirms; the next call within two hours is the same lesson', async ({ browser, request }) => {

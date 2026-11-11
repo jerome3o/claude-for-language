@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 /**
  * "Same view" (docs/VIDEO_CALLS.md "Same view", shared/calls/view.ts): whatever either person
@@ -38,8 +39,7 @@ async function joinCall(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   await expect(page.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await page.getByTestId('record-toggle').uncheck();
-  await page.getByTestId('join-call').click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 async function seedPair(request: APIRequestContext) {
@@ -132,8 +132,7 @@ test('Same view both ways, My own view, Bring to my view, shares for both; the t
   await sp.reload();
   await expect(sp.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await sp.getByTestId('record-toggle').uncheck();
-  await sp.getByTestId('join-call').click();
-  await sp.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(sp);
   await expect(stage(sp)).toHaveAttribute('data-stage', 'chat', { timeout: 10000 });
 
   // The student shares: the screen goes on BOTH stages (the sharer sees their own share too).
