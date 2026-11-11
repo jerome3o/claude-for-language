@@ -452,9 +452,12 @@ test('sentence history: hide a sentence in the round (Undo), more sentences aske
   await page.getByTestId('sentence-hide-too_rare').click();
   await expect(exercises).toHaveCount(3);
   await expect(page.getByText('Sentence hidden')).toBeVisible();
-  // Fewer than four left in rotation: more sentences are on the way.
-  await expect(page.getByTestId('sentences-coming')).toBeVisible();
-  await expect.poll(() => topUps).toContainEqual({ note_ids: [note.id], reason: 'few' });
+  // More sentences were already asked for when the round opened (the fresh buffer: fewer than six never
+  // practised, with how many to add — docs/STUDY_SESSION.md "Sentence practice history"); a word asks at
+  // most every ten minutes, so the hide adds no second ask, and the buffer refill stays silent.
+  await expect
+    .poll(() => topUps)
+    .toContainEqual(expect.objectContaining({ note_ids: [note.id], counts: { [note.id]: expect.any(Number) } }));
 
   // The hide reached the server.
   await expect.poll(async () => {
@@ -670,6 +673,6 @@ test('Red cards only: a card rated Again today gets Hard mode; two sentences →
   await expect(page.locator('[data-testid="sentence-round-exercise"][data-mode="translate"]')).toHaveCount(1);
   await expect(page.getByTestId('sentence-round')).toContainText('Get any 2 of these 2 right');
   // Fewer than four: more sentences are asked for.
-  await expect.poll(() => topUps).toContainEqual({ note_ids: [note.id], reason: 'few' });
+  await expect.poll(() => topUps).toContainEqual(expect.objectContaining({ note_ids: [note.id], reason: 'few', counts: { [note.id]: expect.any(Number) } }));
   await shot(page, 'hard-07-round-of-two');
 });

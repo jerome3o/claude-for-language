@@ -47,9 +47,15 @@ type LessonList = { lessons: Array<{ id: string; title: string; source: string; 
 /** ✏️ Check from the Chats tab's box (where /coach lands): a Claude thread with the Coach's result. */
 async function check(page: Page, sentence: string) {
   await expect(page).toHaveURL(/\/chats$/);
+  // /coach lands on the box ready to type (`/chats?compose=1`); the voice-first row (✏️ Type) can show for
+  // a moment before it switches — so wait for the box, and only press ✏️ Type if it never comes.
+  const text = page.getByTestId('claude-chat-voice-text');
   const type = page.getByTestId('claude-chat-voice-type');
-  if (await type.isVisible()) await type.click(); // voice first: ✏️ Type opens the box
-  await page.getByTestId('claude-chat-voice-text').fill(sentence);
+  await expect(text.or(type).first()).toBeVisible({ timeout: 15_000 });
+  if (!(await text.isVisible())) {
+    await expect(text).toBeVisible({ timeout: 3000 }).catch(() => type.click());
+  }
+  await text.fill(sentence);
   await page.getByTestId('claude-composer-check').click();
   await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+/, { timeout: 15_000 });
 }

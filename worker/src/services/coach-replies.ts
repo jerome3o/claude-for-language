@@ -40,6 +40,8 @@ import { replyLanguage } from '@shared/study/askClaude';
 import { cachedConversationTTS } from './tts-cache';
 import { NOW_ISO, touchThreadStatement } from './claude-agent/store';
 import { withToolRecord } from './claude-agent/tool-record';
+import { broadcastToUser } from './chat/hub';
+import type { ClaudeTurnEvent } from '@shared/claude/api';
 
 export interface CoachReplyMessage {
   messageId: string;
@@ -78,6 +80,8 @@ export interface CoachReplyDeps {
   analyse?: CoachAnalyseFn | null;
   apply?: CoachApplyFn;
   mistakeLesson?: CoachMistakeLessonFn;
+  /** Tests: where the finished reply's `claude_turn` frame goes (default: the owner's ChatHub). */
+  push?: (userId: string, event: ClaudeTurnEvent) => Promise<unknown>;
 }
 
 type CoachEnv = Pick<Env, 'DB' | 'ANTHROPIC_API_KEY' | 'E2E_TEST_MODE'> & Partial<Env>;
@@ -354,8 +358,47 @@ function parseCheckpoint(raw: string | null | undefined): Checkpoint | null {
  * Write the reply into one pending assistant message. Never throws: 'retry'
  * asks the queue for another delivery (the row stays pending), 'failed' marked
  * it failed, 'skipped' = nothing pending there (done, deleted, or claimed).
+ *
+ * A finished or failed reply is announced to the owner's sockets as a `claude_turn` frame
+ * (docs/CHAT.md "Claude threads — live"), like an inline thread turn's: the Chats tab refreshes its
+ * list on it, so a Check / Explain / Translate written here never stays "✦ Writing…" until the
+ * next minute's refresh.
  */
 export async function runCoachReply(env: CoachEnv, messageId: string, deps: CoachReplyDeps = {}): Promise<CoachReplyOutcome> {
+  const outcome = await writeCoachReply(env, messageId, deps);
+  if (outcome === 'done' || outcome === 'failed') await announceCoachReply(env, messageId, outcome, deps.push);
+  return outcome;
+}
+
+/** The `claude_turn` done / failed frame of a reply written here (no text: the apps re-read the thread). */
+async function announceCoachReply(
+  env: CoachEnv,
+  messageId: string,
+  status: 'done' | 'failed',
+  push?: CoachReplyDeps['push'],
+): Promise<void> {
+  try {
+    const row = await env.DB
+      .prepare('SELECT m.conversation_id, m.error, c.user_id FROM coach_messages m JOIN coach_conversations c ON c.id = m.conversation_id WHERE m.id = ?')
+      .bind(messageId)
+      .first<{ conversation_id: string; error: string | null; user_id: string }>();
+    if (!row) return;
+    const event: ClaudeTurnEvent = {
+      type: 'claude_turn',
+      thread_id: row.conversation_id,
+      message_id: messageId,
+      seq: 1,
+      status,
+      ...(status === 'failed' && row.error ? { error: row.error } : {}),
+    };
+    if (push) await push(row.user_id, event);
+    else await broadcastToUser({ CHAT_HUB: env.CHAT_HUB } as Pick<Env, 'CHAT_HUB'>, row.user_id, event);
+  } catch (err) {
+    console.error('[coach] reply announce failed', messageId, err instanceof Error ? err.message : err);
+  }
+}
+
+async function writeCoachReply(env: CoachEnv, messageId: string, deps: CoachReplyDeps): Promise<CoachReplyOutcome> {
   const row = await env.DB
     .prepare(
       `SELECT m.*, c.user_id AS c_user_id, c.action AS c_action, c.kind AS c_kind, c.input_language AS c_input_language

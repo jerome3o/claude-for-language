@@ -60,13 +60,27 @@ export async function applyThreadList(rows: ClaudeThreadSummary[], deletedIds: s
 }
 
 let running: Promise<void> | null = null;
+let queued: Promise<void> | null = null;
 
 /**
- * Bring the device's thread list up to date (whole the first time, then `?since=`). Concurrent calls
- * share one request. Throws on a network / server error (the cached list stays).
+ * Bring the device's thread list up to date (whole the first time, then `?since=`). A call while a
+ * request is in flight runs ONE more request after it (shared by every call meanwhile): the one in
+ * flight may have been answered before what prompted this call (a reply finishing — its `claude_turn`
+ * frame), and dropping it left the row "✦ Writing…" until the next minute's refresh. Throws on a
+ * network / server error (the cached list stays).
  */
 export function syncClaudeThreadList(userId: string, opts: { full?: boolean } = {}): Promise<void> {
-  if (running) return running;
+  if (running) {
+    if (!queued) {
+      queued = running
+        .catch(() => undefined)
+        .then(() => {
+          queued = null;
+          return syncClaudeThreadList(userId, opts);
+        });
+    }
+    return queued;
+  }
   running = (async () => {
     // Nothing on the device (a cleared database, a new sign-in): the whole list, whatever the cursor says.
     const since = opts.full || (await db.claudeThreads.count()) === 0 ? null : readCursor(userId);

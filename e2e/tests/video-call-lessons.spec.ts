@@ -49,8 +49,14 @@ async function join(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   const button = page.getByTestId('join-call');
   await expect(button).toBeEnabled({ timeout: 20000 });
-  await button.click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  // A click that lands while the pre-join page is still settling (the preview starting, the other
+  // person's presence arriving) can be lost — the page then still says "Join call". Press again until
+  // the call is live; a click while joining is a no-op (the button is disabled then).
+  const live = page.getByTestId('call-live');
+  await expect(async () => {
+    if ((await button.isVisible()) && (await button.isEnabled({ timeout: 1000 }).catch(() => false))) await button.click({ timeout: 5000 });
+    await expect(live).toBeVisible({ timeout: 10_000 });
+  }).toPass({ timeout: 45_000 });
 }
 
 test('Leave keeps the call; End confirms; the next call within two hours is the same lesson', async ({ browser, request }) => {
