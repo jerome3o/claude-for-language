@@ -49,6 +49,11 @@ describe('review load on the server', () => {
     expect(b.cutoffMs).toBe(DAY_START + 24 * H - 1);
     // Near midnight the cutoff is now + 1 hour.
     expect(studyDayBounds(DAY_START + 23.5 * H, -60).cutoffMs).toBe(DAY_START + 24.5 * H);
+    // "New day starts at 4 am": the day runs 04:00 → 04:00, and 01:30 is still the day before.
+    const r = studyDayBounds(NOW.getTime(), -60, 4);
+    expect(r.dayStartMs).toBe(DAY_START + 4 * H);
+    expect(r.cutoffMs).toBe(DAY_START + 28 * H - 1);
+    expect(studyDayBounds(DAY_START + 1.5 * H, -60, 4).dayStartMs).toBe(DAY_START - 20 * H);
   });
 
   it('counts due + reviewed today, never NEW or introduced today, stable as cards are done', async () => {

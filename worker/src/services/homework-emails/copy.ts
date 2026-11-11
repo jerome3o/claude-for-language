@@ -10,6 +10,7 @@
 
 import { addDays, daysBetween, hasOneOff, isDateString, shortDay, studentFirstName, titleParts, type HomeworkMode } from '@shared/homework';
 import { isValidTimeZone } from '@shared/profile';
+import { dayRolloverHour, studyDayKey } from '../../../../shared/study/studyDay';
 import { escapeHtml } from '../email';
 
 /** Reminders go out from this local hour the evening before (hourly cron at :37 → ~18:37). */
@@ -78,6 +79,11 @@ export function localParts(now: Date, timeZone: string): { date: string; hour: n
   return { date: `${get('year')}-${get('month')}-${get('day')}`, hour: Number(get('hour')) % 24 };
 }
 
+/** The student's study day at `now` (shared/study/studyDay.ts: turns over at their rollover hour, NULL = 4 am). */
+export function studyDayIn(now: Date, timeZone: string, rolloverHour: number | null | undefined): string {
+  return studyDayKey(now.getTime(), dayRolloverHour(rolloverHour), timeZone);
+}
+
 /** D1's datetime('now') format ('YYYY-MM-DD HH:MM:SS', UTC) for a moment. */
 export function sqlTime(ms: number): string {
   return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
@@ -97,10 +103,12 @@ export function reminderRows<T extends Pick<EmailAssignment, 'status' | 'mode' |
   rows: readonly T[],
   now: Date,
   timeZone: string,
+  /** The student's "New day starts at" (shared/study/studyDay.ts): "tomorrow" is the study day after today's. */
+  rolloverHour: number | null = null,
 ): { due: string; rows: T[] } | null {
   const local = localParts(now, timeZone);
   if (local.hour < REMINDER_LOCAL_HOUR) return null;
-  const due = addDays(local.date, 1);
+  const due = addDays(studyDayKey(now.getTime(), dayRolloverHour(rolloverHour), timeZone), 1);
   const picked = rows.filter(
     (r) =>
       r.status === 'active' &&

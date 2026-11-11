@@ -1,5 +1,7 @@
 import { insertNoteCopy } from '../db/queries';
 import { getKnownCounts } from './known-counts';
+import { sqliteDayModifier } from '../../../shared/study/studyDay';
+import { getStudyDayUser, userProgressShiftMinutes } from './study-day';
 import {
   TutorRelationship,
   TutorRelationshipWithUsers,
@@ -609,7 +611,9 @@ export interface CardReviewsDetail {
 export async function getStudentDailyProgress(
   db: D1Database,
   relationshipId: string,
-  tutorId: string
+  tutorId: string,
+  /** The tutor's Date.getTimezoneOffset() — the student's day when they set no time zone. */
+  tzOffset: number | null = null
 ): Promise<DailyActivitySummary> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
@@ -619,6 +623,8 @@ export async function getStudentDailyProgress(
   }
 
   const studentId = getOtherUserId(rel, tutorId);
+  // The student's study day (their zone, else the tutor's; their "New day starts at").
+  const dayMod = sqliteDayModifier(userProgressShiftMinutes(await getStudyDayUser(db, studentId), Date.now(), tzOffset));
   const student = await getUserSummary(db, studentId);
   if (!student) {
     throw new Error('Student not found');
@@ -627,7 +633,7 @@ export async function getStudentDailyProgress(
   // Get daily activity for last 30 days from review_events
   const dailyResult = await db.prepare(`
     SELECT
-      date(re.reviewed_at) as date,
+      date(re.reviewed_at, ?) as date,
       COUNT(*) as reviews_count,
       COUNT(DISTINCT re.card_id) as unique_cards,
       AVG(CASE WHEN re.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
@@ -635,9 +641,9 @@ export async function getStudentDailyProgress(
     FROM review_events re
     WHERE re.user_id = ?
       AND re.reviewed_at >= datetime('now', '-30 days')
-    GROUP BY date(re.reviewed_at)
+    GROUP BY date(re.reviewed_at, ?)
     ORDER BY date DESC
-  `).bind(studentId).all<{
+  `).bind(dayMod, studentId, dayMod).all<{
     date: string;
     reviews_count: number;
     unique_cards: number;
@@ -691,7 +697,8 @@ export async function getStudentDayCards(
   db: D1Database,
   relationshipId: string,
   tutorId: string,
-  date: string
+  date: string,
+  tzOffset: number | null = null
 ): Promise<DayCardsDetail> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
@@ -701,6 +708,8 @@ export async function getStudentDayCards(
   }
 
   const studentId = getOtherUserId(rel, tutorId);
+  // The student's study day (their zone, else the tutor's; their "New day starts at").
+  const dayMod = sqliteDayModifier(userProgressShiftMinutes(await getStudyDayUser(db, studentId), Date.now(), tzOffset));
 
   // Get cards reviewed that day with aggregated stats from review_events
   const cardsResult = await db.prepare(`
@@ -721,10 +730,10 @@ export async function getStudentDayCards(
     JOIN cards c ON re.card_id = c.id
     JOIN notes n ON c.note_id = n.id
     WHERE re.user_id = ?
-      AND date(re.reviewed_at) = ?
+      AND date(re.reviewed_at, ?) = ?
     GROUP BY c.id
     ORDER BY review_count DESC, avg_rating ASC
-  `).bind(studentId, date).all<{
+  `).bind(studentId, dayMod, date).all<{
     card_id: string;
     card_type: string;
     note_id: string;
@@ -783,7 +792,8 @@ export async function getStudentCardReviews(
   relationshipId: string,
   tutorId: string,
   date: string,
-  cardId: string
+  cardId: string,
+  tzOffset: number | null = null
 ): Promise<CardReviewsDetail> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
@@ -793,6 +803,8 @@ export async function getStudentCardReviews(
   }
 
   const studentId = getOtherUserId(rel, tutorId);
+  // The student's study day (their zone, else the tutor's; their "New day starts at").
+  const dayMod = sqliteDayModifier(userProgressShiftMinutes(await getStudyDayUser(db, studentId), Date.now(), tzOffset));
 
   // Get card with note info
   const cardResult = await db.prepare(`
@@ -834,9 +846,9 @@ export async function getStudentCardReviews(
     FROM review_events re
     WHERE re.card_id = ?
       AND re.user_id = ?
-      AND date(re.reviewed_at) = ?
+      AND date(re.reviewed_at, ?) = ?
     ORDER BY re.reviewed_at ASC
-  `).bind(cardId, studentId, date).all<{
+  `).bind(cardId, studentId, dayMod, date).all<{
     id: string;
     reviewed_at: string;
     rating: number;
@@ -868,12 +880,14 @@ export async function getStudentCardReviews(
  */
 export async function getMyDailyProgress(
   db: D1Database,
-  userId: string
+  userId: string,
+  /** The progress days' shift (shared/progress/daily.ts; services/study-day.ts); 0 = UTC dates. */
+  shiftMinutes = 0
 ): Promise<Omit<DailyActivitySummary, 'student'> & { summary: DailyActivitySummary['summary']; days: DailyActivitySummary['days'] }> {
   // Get daily activity for last 30 days from review_events
   const dailyResult = await db.prepare(`
     SELECT
-      date(re.reviewed_at) as date,
+      date(re.reviewed_at, ?) as date,
       COUNT(*) as reviews_count,
       COUNT(DISTINCT re.card_id) as unique_cards,
       AVG(CASE WHEN re.rating >= 2 THEN 1.0 ELSE 0.0 END) * 100 as accuracy,
@@ -881,9 +895,9 @@ export async function getMyDailyProgress(
     FROM review_events re
     WHERE re.user_id = ?
       AND re.reviewed_at >= datetime('now', '-30 days')
-    GROUP BY date(re.reviewed_at)
+    GROUP BY date(re.reviewed_at, ?)
     ORDER BY date DESC
-  `).bind(userId).all<{
+  `).bind(sqliteDayModifier(shiftMinutes), userId, sqliteDayModifier(shiftMinutes)).all<{
     date: string;
     reviews_count: number;
     unique_cards: number;
@@ -923,7 +937,8 @@ export async function getMyDailyProgress(
 export async function getMyDayCards(
   db: D1Database,
   userId: string,
-  date: string
+  date: string,
+  shiftMinutes = 0
 ): Promise<DayCardsDetail> {
   // Get cards reviewed that day with aggregated stats from review_events
   const cardsResult = await db.prepare(`
@@ -944,10 +959,10 @@ export async function getMyDayCards(
     JOIN cards c ON re.card_id = c.id
     JOIN notes n ON c.note_id = n.id
     WHERE re.user_id = ?
-      AND date(re.reviewed_at) = ?
+      AND date(re.reviewed_at, ?) = ?
     GROUP BY c.id
     ORDER BY review_count DESC, avg_rating ASC
-  `).bind(userId, date).all<{
+  `).bind(userId, sqliteDayModifier(shiftMinutes), date).all<{
     card_id: string;
     card_type: string;
     note_id: string;
@@ -1005,7 +1020,8 @@ export async function getMyCardReviews(
   db: D1Database,
   userId: string,
   date: string,
-  cardId: string
+  cardId: string,
+  shiftMinutes = 0
 ): Promise<CardReviewsDetail> {
   // Get card with note info
   const cardResult = await db.prepare(`
@@ -1047,9 +1063,9 @@ export async function getMyCardReviews(
     FROM review_events re
     WHERE re.card_id = ?
       AND re.user_id = ?
-      AND date(re.reviewed_at) = ?
+      AND date(re.reviewed_at, ?) = ?
     ORDER BY re.reviewed_at ASC
-  `).bind(cardId, userId, date).all<{
+  `).bind(cardId, userId, sqliteDayModifier(shiftMinutes), date).all<{
     id: string;
     reviewed_at: string;
     rating: number;
@@ -1080,7 +1096,9 @@ export async function getMyCardReviews(
 export async function getStudentProgress(
   db: D1Database,
   relationshipId: string,
-  tutorId: string
+  tutorId: string,
+  /** The tutor's Date.getTimezoneOffset() — the student's day when they set no time zone. */
+  tzOffset: number | null = null
 ): Promise<StudentProgress> {
   const rel = await verifyRelationshipAccess(db, relationshipId, tutorId);
 
@@ -1090,6 +1108,8 @@ export async function getStudentProgress(
   }
 
   const studentId = getOtherUserId(rel, tutorId);
+  // The student's study day (their zone, else the tutor's; their "New day starts at").
+  const dayMod = sqliteDayModifier(userProgressShiftMinutes(await getStudyDayUser(db, studentId), Date.now(), tzOffset));
   const student = await getUserSummary(db, studentId);
   if (!student) {
     throw new Error('Student not found');
@@ -1113,8 +1133,8 @@ export async function getStudentProgress(
 
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events re
-      WHERE re.user_id = ? AND date(re.reviewed_at) = date('now')
-    `).bind(studentId).first<{ count: number }>(),
+      WHERE re.user_id = ? AND date(re.reviewed_at, ?2) = date('now', ?2)
+    `).bind(studentId, dayMod).first<{ count: number }>(),
 
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events re

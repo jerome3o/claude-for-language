@@ -184,7 +184,8 @@ import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order'
 import { listActiveBumps } from './services/study-bumps';
 import { getBurySiblings, listActiveHolds } from './services/card-holds';
 import { getSkipHandwriting } from './services/skip-handwriting';
-import { getDayRolloverHour } from './services/study-day';
+import { getDayRolloverHour, getStudyDayUser, userProgressShiftMinutes } from './services/study-day';
+import { parseTzOffset } from './services/tutor-dashboard';
 import upNextRoutes from './routes/up-next';
 import { listUpNext } from './services/up-next';
 import { FolderError, fileItem, listFolders, resolveFolderId } from './services/folders';
@@ -3715,7 +3716,7 @@ app.get('/api/relationships/:id/student-progress', async (c) => {
   const relId = c.req.param('id');
 
   try {
-    const progress = await getStudentProgress(c.env.DB, relId, userId);
+    const progress = await getStudentProgress(c.env.DB, relId, userId, c.req.query('tz_offset') === undefined ? null : parseTzOffset(c.req.query('tz_offset')));
     return c.json(progress);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get student progress';
@@ -3729,7 +3730,7 @@ app.get('/api/relationships/:id/student-progress/daily', async (c) => {
   const relId = c.req.param('id');
 
   try {
-    const progress = await getStudentDailyProgress(c.env.DB, relId, userId);
+    const progress = await getStudentDailyProgress(c.env.DB, relId, userId, c.req.query('tz_offset') === undefined ? null : parseTzOffset(c.req.query('tz_offset')));
     return c.json(progress);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get student progress';
@@ -3744,7 +3745,7 @@ app.get('/api/relationships/:id/student-progress/day/:date', async (c) => {
   const date = c.req.param('date');
 
   try {
-    const dayCards = await getStudentDayCards(c.env.DB, relId, userId, date);
+    const dayCards = await getStudentDayCards(c.env.DB, relId, userId, date, c.req.query('tz_offset') === undefined ? null : parseTzOffset(c.req.query('tz_offset')));
     return c.json(dayCards);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get day details';
@@ -3760,7 +3761,7 @@ app.get('/api/relationships/:id/student-progress/day/:date/card/:cardId', async 
   const cardId = c.req.param('cardId');
 
   try {
-    const cardReviews = await getStudentCardReviews(c.env.DB, relId, userId, date, cardId);
+    const cardReviews = await getStudentCardReviews(c.env.DB, relId, userId, date, cardId, c.req.query('tz_offset') === undefined ? null : parseTzOffset(c.req.query('tz_offset')));
     return c.json(cardReviews);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get card reviews';
@@ -4804,12 +4805,22 @@ app.get('/api/decks/:deckId/tutor-shares', async (c) => {
 
 // ============ My Progress (Self-view) ============
 
+/**
+ * The progress days' shift for the signed-in learner (shared/progress/daily.ts): their study
+ * day — their time zone (else the client's `tz_offset`), turning over at "New day starts at".
+ */
+async function myProgressShift(c: { env: Env; get: (k: 'user') => { id: string }; req: { query: (k: string) => string | undefined } }): Promise<number> {
+  const raw = c.req.query('tz_offset');
+  const user = await getStudyDayUser(c.env.DB, c.get('user').id);
+  return userProgressShiftMinutes(user, Date.now(), raw === undefined ? null : parseTzOffset(raw));
+}
+
 // Get my daily activity summary (last 30 days)
 app.get('/api/progress/daily', async (c) => {
   const userId = c.get('user').id;
 
   try {
-    const progress = await getMyDailyProgress(c.env.DB, userId);
+    const progress = await getMyDailyProgress(c.env.DB, userId, await myProgressShift(c));
     return c.json(progress);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get progress';
@@ -4823,7 +4834,7 @@ app.get('/api/progress/day/:date', async (c) => {
   const date = c.req.param('date');
 
   try {
-    const dayCards = await getMyDayCards(c.env.DB, userId, date);
+    const dayCards = await getMyDayCards(c.env.DB, userId, date, await myProgressShift(c));
     return c.json(dayCards);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get day details';
@@ -4838,7 +4849,7 @@ app.get('/api/progress/day/:date/card/:cardId', async (c) => {
   const cardId = c.req.param('cardId');
 
   try {
-    const cardReviews = await getMyCardReviews(c.env.DB, userId, date, cardId);
+    const cardReviews = await getMyCardReviews(c.env.DB, userId, date, cardId, await myProgressShift(c));
     return c.json(cardReviews);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to get card reviews';
