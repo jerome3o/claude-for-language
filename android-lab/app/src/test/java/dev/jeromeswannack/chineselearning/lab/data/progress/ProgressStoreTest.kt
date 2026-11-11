@@ -26,7 +26,14 @@ class ProgressStoreTest {
     private lateinit var db: LabDatabase
     private val now = Js.parseDate("2026-09-27T10:00:00.000Z")
 
+    private var hourBefore = 0
+    private val tzBefore = java.util.TimeZone.getDefault()
+
     @Before fun setUp() = runBlocking {
+        // Midnight rollover: these events sit at 01:00 / 02:00 UTC (the 4 am default is tested below).
+        hourBefore = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.hour.value
+        dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.hour.value = 0
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC")) // the day pages use the device zone
         db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), LabDatabase::class.java).allowMainThreadQueries().build()
         val dao = db.dao()
         dao.upsertDecks(listOf(DeckEntity("d1", "HSK 1", null, 3, 6, 0, "2026-01-01"), DeckEntity("d2", "Top", null, 3, 6, 5, "2026-01-02")))
@@ -43,7 +50,20 @@ class ProgressStoreTest {
         ))
     }
 
-    @After fun tearDown() = db.close()
+    @After fun tearDown() {
+        dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.hour.value = hourBefore
+        java.util.TimeZone.setDefault(tzBefore)
+        db.close()
+    }
+
+    @Test fun studyDaysWithA4amRollover() = runBlocking {
+        dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.hour.value = 4
+        val s = ProgressStore(db).snapshot(now, ZoneOffset.UTC)
+        // 01:00 / 02:00 belong to the study day before.
+        assertEquals(listOf("2026-09-26", "2026-09-25"), s.daily.days.map { it.date })
+        assertEquals(0, s.streak.today.reviews)
+        assertEquals(2, s.streak.streak)
+    }
 
     @Test fun snapshot() = runBlocking {
         val s = ProgressStore(db).snapshot(now, ZoneOffset.UTC)

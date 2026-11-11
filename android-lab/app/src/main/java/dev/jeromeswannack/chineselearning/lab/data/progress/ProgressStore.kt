@@ -110,7 +110,7 @@ class ProgressStore(private val db: LabDatabase) {
         }
     }
 
-    /** `/progress/day/:date` from the phone: events of that UTC date joined with their cards and notes. */
+    /** `/progress/day/:date` from the phone: events of that progress day (study day, `progressShift`) joined with their cards and notes. */
     suspend fun day(date: String): DayCards = withContext(Dispatchers.IO) {
         val (from, to) = around(date)
         val events = events("SELECT cardId, rating, reviewedAt, timeSpentMs, userAnswer FROM review_events WHERE reviewedAt >= ? AND reviewedAt < ?", arrayOf(from, to))
@@ -126,7 +126,7 @@ class ProgressStore(private val db: LabDatabase) {
         val card = dao.card(cardId) ?: return@withContext null
         val note = dao.note(card.noteId) ?: return@withContext null
         val reviews = dao.eventsForCard(cardId)
-            .filter { Progress.utcDate(it.reviewedAt) == date }
+            .filter { Progress.progressDate(it.reviewedAt, progressShift(System.currentTimeMillis(), java.time.ZoneId.systemDefault())) == date }
             .map { CardDayReview(it.id, it.reviewedAt, it.rating, it.timeSpentMs, it.userAnswer) }
         CardDay(info(card.id, card.cardType, note), note.audioUrl, reviews)
     }

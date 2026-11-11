@@ -3,9 +3,8 @@ import { test, expect, APIRequestContext } from '@playwright/test';
 /**
  * "New day starts at" (docs/STUDY_SESSION.md "When does a new day start"): the default is 4 am on
  * /auth/me and /sync/changes; Settings → Study shows the picker, a tap saves it (the server says 2,
- * a reload still shows 2), bad values are refused, null resets to 4. Then the study day itself: at
- * 00:30 (browser clock) with 4 am a word started at 23:30 still counts against today's budget —
- * Home offers only the budget's remaining new words — and at midnight rollover it is a new day.
+ * a reload still shows 2), bad values are refused, null resets to 4. Then the study day itself on
+ * the device: at 00:30 (browser clock) with 4 am it is still yesterday; with midnight, today.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
