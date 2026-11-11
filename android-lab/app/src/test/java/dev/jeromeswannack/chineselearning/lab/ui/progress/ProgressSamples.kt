@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.core.KnownCounts
 import dev.jeromeswannack.chineselearning.lab.core.KnownPoint
 import dev.jeromeswannack.chineselearning.lab.core.KnownPace
 import dev.jeromeswannack.chineselearning.lab.core.KnownProgress
+import dev.jeromeswannack.chineselearning.lab.core.WordSkills
 import dev.jeromeswannack.chineselearning.lab.core.KnownRate
 import dev.jeromeswannack.chineselearning.lab.core.KnownRates
 import dev.jeromeswannack.chineselearning.lab.core.SeriesPace
@@ -89,7 +90,7 @@ object ProgressSamples {
         }
         val recent = listOf("郊", "辣", "慧", "抱", "歉", "恤", "瑞", "典", "璃", "签", "订", "阅")
             .mapIndexed { i, c -> RecentCharacter(c, Js.toIsoString(NOW - i * 20 * 3_600_000L)) }
-        KnownProgress(KnownCounts(1184, 213), KnownCounts(1342, 377), KnownCounts(128, 96), recent, history)
+        KnownProgress(KnownCounts(1184, 213), KnownCounts(1342, 377), KnownCounts(128, 96), recent, history, WordSkills(1240, 610))
     }
 
     /** Per week from the same curve: one bar per week (the last 52), this week partial, the spring dip below zero. */

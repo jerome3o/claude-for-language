@@ -51,13 +51,15 @@ export function isLocalRequest(url: string): boolean {
  * - name: string (optional) - Display name for the test user
  * - role: 'student' | 'tutor' (optional) - users.role (a tutor account gets the tutor-first app)
  * - is_admin: boolean (optional) - make the user an admin
+ * - new_words_by_ear: boolean (optional) - keep "Start new words by ear" on (its real default) for a NEW
+ *   user; otherwise a new test user gets it off so a new word starts with its reading card
  *
  * Response:
  * - session_token: string - Session token to use for authenticated requests
  * - user: User - The created/existing user object
  */
 testAuth.post('/auth', async (c) => {
-  const body = await c.req.json<{ email: string; name?: string; role?: 'student' | 'tutor'; is_admin?: boolean }>();
+  const body = await c.req.json<{ email: string; name?: string; role?: 'student' | 'tutor'; is_admin?: boolean; new_words_by_ear?: boolean }>();
 
   if (!body.email) {
     return c.json({ error: 'Email is required' }, 400);
@@ -86,6 +88,13 @@ testAuth.post('/auth', async (c) => {
         body.name || 'Test User'
       )
       .run();
+
+    // "Start new words by ear" (shared/decks/lead-card.ts) is ON for real accounts, but the older
+    // study specs were written for a new word's reading card first: a NEW test user gets it off
+    // unless the spec opts in with `new_words_by_ear: true` (e2e/tests/by-ear.spec.ts does).
+    if (body.new_words_by_ear !== true) {
+      await db.prepare('UPDATE users SET new_card_order = ? WHERE id = ?').bind('{"new_words_by_ear":false}', id).run();
+    }
 
     user = await db.prepare('SELECT * FROM users WHERE id = ?').bind(id).first<User>();
   } else {

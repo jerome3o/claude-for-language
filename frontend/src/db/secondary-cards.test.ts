@@ -112,8 +112,11 @@ describe('Secondary new cards', () => {
       // consumed the entire daily limit and starved the circ-* cards forever.
       expect(primaryAdmitted.length).toBe(2);
       expect(secondaryAdmitted.length).toBe(2);
-      // Primary picks are the highest-priority tier: unseen + hanzi_to_meaning
-      expect(primaryAdmitted.every(c => c.card_type === 'hanzi_to_meaning')).toBe(true);
+      // Primary picks are the highest-priority tier: unseen + the lead card — the listening card
+      // ("Start new words by ear", on by default, shared/decks/lead-card.ts) — and the purple
+      // picks the started words' listening cards too (their reading cards are in Review).
+      expect(primaryAdmitted.every(c => c.card_type === 'audio_to_hanzi')).toBe(true);
+      expect(secondaryAdmitted.map(c => c.id).sort()).toEqual(['c1-a', 'c2-a']);
     });
 
     it('lets secondary cards spill into leftover primary budget when there are no unseen notes', async () => {

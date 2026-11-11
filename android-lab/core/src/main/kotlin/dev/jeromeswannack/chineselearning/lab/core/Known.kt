@@ -10,7 +10,11 @@ package dev.jeromeswannack.chineselearning.lab.core
 
 data class KnownNote(val id: String, val hanzi: String)
 
-data class KnownCard(val id: String, val noteId: String)
+/** [cardType] (hanzi_to_meaning / meaning_to_hanzi / audio_to_hanzi) feeds [KnownProgress.wordsBySkill]; "" counts for neither. */
+data class KnownCard(val id: String, val noteId: String, val cardType: String = "")
+
+/** Port of WordSkills: known words by reading (a known hanzi_to_meaning card) and by ear (a known audio_to_hanzi card). */
+data class WordSkills(val reading: Int = 0, val ear: Int = 0)
 
 /** A review event; [forget] = "Forget this card" (the card is NEW again from then: not seen). */
 data class KnownEvent(val id: String?, val cardId: String, val rating: Int, val reviewedAt: String, val forget: Boolean = false)
@@ -29,6 +33,8 @@ data class KnownProgress(
     val recentCharacters: List<RecentCharacter>,
     /** Counts as of each requested point (events at or before it), oldest first. */
     val history: List<KnownPoint>,
+    /** Known words by reading vs by ear (`words_by_skill`, each word once per spelling). */
+    val wordsBySkill: WordSkills = WordSkills(),
 )
 
 data class KnownHeadline(val characters: KnownCounts, val words: KnownCounts, val sentences: KnownCounts)
@@ -133,10 +139,12 @@ object Known {
         val noteById = HashMap<String, KnownNote>()
         for (n in notes) noteById[n.id] = n
         val cardNote = HashMap<String, String>()
+        val cardType = HashMap<String, String>()
         val noteCards = HashMap<String, MutableList<String>>()
         for (c in cards) {
             if (!noteById.containsKey(c.noteId) || cardNote.containsKey(c.id)) continue
             cardNote[c.id] = c.noteId
+            if (c.cardType.isNotEmpty()) cardType[c.id] = c.cardType
             noteCards.getOrPut(c.noteId) { ArrayList(3) } += c.id
         }
 
@@ -228,7 +236,46 @@ object Known {
             .take(Math.max(0, recentLimit))
             .map { RecentCharacter(it.key, it.value.second) }
 
-        return KnownProgress(charTally.counts(), wordTally.counts(), sentenceTally.counts(), recent, history)
+        // By reading / by ear: the known words whose own reading / listening card is known now.
+        val byReading = HashSet<String>()
+        val byEar = HashSet<String>()
+        for ((cardId, tier) in cardTier) {
+            if (tier != 2) continue
+            val target = when (cardType[cardId]) {
+                READING_CARD_TYPE -> byReading
+                EAR_CARD_TYPE -> byEar
+                else -> continue
+            }
+            val i = info(cardNote.getValue(cardId))
+            if (i.kind == NoteKind.Word) target += i.key
+        }
+
+        return KnownProgress(charTally.counts(), wordTally.counts(), sentenceTally.counts(), recent, history, WordSkills(byReading.size, byEar.size))
+    }
+
+    const val READING_CARD_TYPE = "hanzi_to_meaning"
+    const val EAR_CARD_TYPE = "audio_to_hanzi"
+    const val EAR_LAG_MIN_READING = 20
+    const val EAR_LAG_RATIO = 0.6
+
+    /** Port of groupThousands(): "1,240". */
+    fun groupThousands(n: Int): String {
+        val digits = Math.abs(n.toLong()).toString()
+        val out = StringBuilder()
+        for (i in digits.indices) {
+            if (i > 0 && (digits.length - i) % 3 == 0) out.append(',')
+            out.append(digits[i])
+        }
+        return (if (n < 0) "-" else "") + out
+    }
+
+    /** Port of wordSkillsLine(): "1,240 by reading · 610 by ear". */
+    fun wordSkillsLine(s: WordSkills): String = "${groupThousands(s.reading)} by reading · ${groupThousands(s.ear)} by ear"
+
+    /** Port of earLagHint(): one line when the ear lags far behind the eyes, else null. */
+    fun earLagHint(s: WordSkills): String? {
+        if (s.reading < EAR_LAG_MIN_READING || s.ear >= s.reading * EAR_LAG_RATIO) return null
+        return "Your ear is behind your reading — listening cards close the gap."
     }
 
     /** Port of knownCountsFromTiers(): the headline from each note's best card tier. */

@@ -40,6 +40,7 @@ class KnownParityTest {
             val o = it.jsonObject
             KnownPoint(o["at_ms"]!!.jsonPrimitive.long, counts(o["characters"]!!), counts(o["words"]!!))
         },
+        wordsBySkill = r["words_by_skill"]!!.jsonObject.let { WordSkills(it["reading"]!!.jsonPrimitive.int, it["ear"]!!.jsonPrimitive.int) },
     )
 
     @Test fun progress() {
@@ -47,7 +48,7 @@ class KnownParityTest {
         assertTrue(cases.size >= 50)
         cases.forEachIndexed { i, c ->
             val notes = c["notes"]!!.jsonArray.map { val o = it.jsonObject; KnownNote(o["id"]!!.str!!, o["hanzi"]!!.str!!) }
-            val cards = c["cards"]!!.jsonArray.map { val o = it.jsonObject; KnownCard(o["id"]!!.str!!, o["note_id"]!!.str!!) }
+            val cards = c["cards"]!!.jsonArray.map { val o = it.jsonObject; KnownCard(o["id"]!!.str!!, o["note_id"]!!.str!!, o["card_type"]?.str ?: "") }
             val events = c["events"]!!.jsonArray.map {
                 val o = it.jsonObject
                 KnownEvent(o["id"]?.str, o["card_id"]!!.str!!, o["rating"]!!.jsonPrimitive.int, o["reviewed_at"]!!.str!!)
@@ -57,6 +58,19 @@ class KnownParityTest {
             assertEquals(c["points"]!!.jsonArray.map { it.jsonPrimitive.long }, points, "case $i points")
             val actual = Known.progress(notes, cards, events, points, c["recent_limit"]!!.jsonPrimitive.int)
             assertEquals(expected(c["result"]!!.jsonObject), actual, "case $i")
+        }
+    }
+
+    /** By reading / by ear: some case knows words both ways, and the line / hint read the same. */
+    @Test fun wordSkills() {
+        val cases = data["cases"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.any { it["result"]!!.jsonObject["words_by_skill"]!!.jsonObject["reading"]!!.jsonPrimitive.int > 0 })
+        assertTrue(cases.any { it["result"]!!.jsonObject["words_by_skill"]!!.jsonObject["ear"]!!.jsonPrimitive.int > 0 })
+        for (s in data["skills"]!!.jsonArray.map { it.jsonObject }) {
+            val skills = WordSkills(s["reading"]!!.jsonPrimitive.int, s["ear"]!!.jsonPrimitive.int)
+            assertEquals(s["line"]!!.str, Known.wordSkillsLine(skills), "line $skills")
+            assertEquals(s["hint"]!!.str, Known.earLagHint(skills), "hint $skills")
+            assertEquals(s["grouped"]!!.str, Known.groupThousands(skills.reading), "grouped ${skills.reading}")
         }
     }
 

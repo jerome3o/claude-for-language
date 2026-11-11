@@ -17,6 +17,14 @@
  * card. Read from the cards' current state (the queue's own inputs; both apps keep it derived
  * from the review events), never replayed here.
  *
+ * "Start new words by ear" (new-card-order.ts `new_words_by_ear`, ON by default — Jerome reads
+ * the words he knows but doesn't hear them): an unseen note leads with its audio_to_hanzi
+ * (listening) card instead, ahead of the known-characters rule. A note with no NEW
+ * audio_to_hanzi card (none, or held — suspended / snoozed cards never reach the queue) falls
+ * back to the rules above. In the purple (secondary) pool the switch puts a started word's
+ * listening card first — first of all for the words whose reading card is already in Review
+ * (`secondaryTypeRank`); the pools' sizes never change.
+ *
  * Only WHICH card of a note leads changes — never which notes come, or in what order (the
  * "Order new cards by" tiers rank notes; a note of known characters is by definition not in
  * the "new characters first" tier anyway). Bumps and homework passes are unchanged.
@@ -28,6 +36,13 @@ import { isHanCodePoint } from '../progress/known';
 
 export const DEFAULT_LEAD_CARD_TYPE = 'hanzi_to_meaning';
 export const KNOWN_CHARACTERS_LEAD_CARD_TYPE = 'meaning_to_hanzi';
+/** "Start new words by ear": the listening card. */
+export const EAR_LEAD_CARD_TYPE = 'audio_to_hanzi';
+
+/** note id → the card type the (unseen) note leads with — only the notes that don't lead with hanzi_to_meaning. */
+export type LeadCards = ReadonlyMap<string, string>;
+/** The lead rule's input: the lead map, or (older callers) the set of notes that lead with meaning_to_hanzi. */
+export type LeadCardsArg = LeadCards | ReadonlySet<string> | null | undefined;
 
 /** A card is known (mature) above this stability, in days — the deck page's "mastered". */
 export const KNOWN_STABILITY_DAYS = 21;
@@ -87,12 +102,47 @@ export function knownCharacterNotes(
   return out;
 }
 
+/** The unseen notes among `newCards` (NEW cards of notes with no reviewed card) that have a NEW audio_to_hanzi card. */
+export function earLeadNotes(newCards: Iterable<{ note_id: string; card_type: string }>): Set<string> {
+  const out = new Set<string>();
+  for (const c of newCards) if (c.card_type === EAR_LEAD_CARD_TYPE) out.add(c.note_id);
+  return out;
+}
+
+/** The lead map: the ear notes lead with audio_to_hanzi (they win), the known-character notes with meaning_to_hanzi. */
+export function leadCardsFrom(knownCharacterNoteIds: Iterable<string>, earNoteIds: Iterable<string>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of knownCharacterNoteIds) out.set(id, KNOWN_CHARACTERS_LEAD_CARD_TYPE);
+  for (const id of earNoteIds) out.set(id, EAR_LEAD_CARD_TYPE);
+  return out;
+}
+
 /** The card type an unseen note leads with. */
-export function leadCardType(noteId: string, knownCharacterNoteIds: ReadonlySet<string> | null | undefined): string {
-  return knownCharacterNoteIds?.has(noteId) ? KNOWN_CHARACTERS_LEAD_CARD_TYPE : DEFAULT_LEAD_CARD_TYPE;
+export function leadCardType(noteId: string, leads: LeadCardsArg): string {
+  if (!leads) return DEFAULT_LEAD_CARD_TYPE;
+  if (leads instanceof Map) return leads.get(noteId) ?? DEFAULT_LEAD_CARD_TYPE;
+  return (leads as ReadonlySet<string>).has(noteId) ? KNOWN_CHARACTERS_LEAD_CARD_TYPE : DEFAULT_LEAD_CARD_TYPE;
 }
 
 /** This card is its (unseen) note's lead card. */
-export function isLeadCard(card: { note_id: string; card_type: string }, knownCharacterNoteIds: ReadonlySet<string> | null | undefined): boolean {
-  return card.card_type === leadCardType(card.note_id, knownCharacterNoteIds);
+export function isLeadCard(card: { note_id: string; card_type: string }, leads: LeadCardsArg): boolean {
+  return card.card_type === leadCardType(card.note_id, leads);
+}
+
+/** Notes whose hanzi_to_meaning (reading) card is in Review (queue 2) — their listening card comes first in the purple pool. */
+export function readingInReviewNoteIds(cards: Iterable<{ note_id: string; card_type: string; queue: number }>): Set<string> {
+  const out = new Set<string>();
+  for (const c of cards) if (c.card_type === DEFAULT_LEAD_CARD_TYPE && c.queue === QUEUE_REVIEW) out.add(c.note_id);
+  return out;
+}
+
+/**
+ * The purple (secondary) pool's order by card type, lower first: hanzi_to_meaning before the rest;
+ * with "Start new words by ear" the listening card first — of the notes whose reading card is in
+ * Review before the others — then hanzi_to_meaning, then the rest.
+ */
+export function secondaryTypeRank(card: { note_id: string; card_type: string }, byEar: boolean, readingInReview: ReadonlySet<string> | null | undefined): number {
+  if (!byEar) return card.card_type === DEFAULT_LEAD_CARD_TYPE ? 0 : 1;
+  if (card.card_type === EAR_LEAD_CARD_TYPE) return readingInReview?.has(card.note_id) ? 0 : 1;
+  return card.card_type === DEFAULT_LEAD_CARD_TYPE ? 2 : 3;
 }

@@ -73,7 +73,10 @@ class StudyViewModel(
     /** "⚡ Study it today": the pocket's cards still to rate this session (core Bumps.kt), and who bumped which note. */
     private var bumpedCardIds: MutableSet<String> = HashSet()
     /** Unseen notes whose first card is meaning_to_hanzi (every character known, core LeadCard). */
-    private var knownCharacterNoteIds: Set<String> = emptySet()
+    /** Which card each unseen note starts with when not hanzi_to_meaning ("by ear", known characters — LeadCard.kt). */
+    private var leadCards: Map<String, String> = emptyMap()
+    /** "Start new words by ear": a started word's listening card before its other new cards. */
+    private var newWordsByEar = false
     /**
      * Han characters of every note with a reviewed card, any deck (core NewCharacters — the queue's
      * "New characters first" rule): a card's characters not in it shimmer. Built with the queue, a
@@ -158,7 +161,7 @@ class StudyViewModel(
     }
 
     private fun nextItem(lastRatedCardId: String?) =
-        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, knownCharacterNoteIds)
+        extras.next(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, System.currentTimeMillis(), cutoff, random, bumpedCardIds, leadCards, newWordsByEar)
 
     /** "Flashcards done ✓ — Today's story left · Continue / Later" (celebrates the cards once a day). */
     private fun showExtrasBreak() {
@@ -396,7 +399,8 @@ class StudyViewModel(
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
-        knownCharacterNoteIds = built.knownCharacterNoteIds
+        leadCards = built.leadCards
+        newWordsByEar = built.newWordsByEar
         // Usage analytics: once per visit to Study with cards to do.
         if (analyticsStartedAt == null && queue.isNotEmpty()) {
             analyticsStartedAt = now
@@ -511,7 +515,8 @@ class StudyViewModel(
         queue = built.dueCards.toMutableList()
         reviewedNoteIds = built.reviewedNoteIds.toMutableSet()
         bumpedCardIds = built.bumped.mapTo(HashSet()) { it.id }
-        knownCharacterNoteIds = built.knownCharacterNoteIds
+        leadCards = built.leadCards
+        newWordsByEar = built.newWordsByEar
         // Lessons / the story may have been done from Home meanwhile (Lab today split).
         val phase = _ui.value.phase
         if (phase is StudyPhase.Showing) extras.reload()

@@ -56,6 +56,7 @@ class KnownRateParityTest {
             val o = it.jsonObject
             KnownPoint(o["at_ms"]!!.jsonPrimitive.long, counts(o["characters"]!!), counts(o["words"]!!))
         },
+        wordsBySkill = r["words_by_skill"]!!.jsonObject.let { WordSkills(it["reading"]!!.jsonPrimitive.int, it["ear"]!!.jsonPrimitive.int) },
     )
 
     @Test fun rates() {
@@ -63,7 +64,7 @@ class KnownRateParityTest {
         assertTrue(cases.count { c -> c["with_rate"]!!.jsonObject["rate"]!!.jsonObject["weeks"]!!.jsonArray.any { w -> w.jsonObject["words"]!!.jsonPrimitive.int < 0 || w.jsonObject["characters"]!!.jsonPrimitive.int < 0 } } > 0, "a negative week is covered")
         cases.forEachIndexed { i, c ->
             val notes = c["notes"]!!.jsonArray.map { val o = it.jsonObject; KnownNote(o["id"]!!.str!!, o["hanzi"]!!.str!!) }
-            val cards = c["cards"]!!.jsonArray.map { val o = it.jsonObject; KnownCard(o["id"]!!.str!!, o["note_id"]!!.str!!) }
+            val cards = c["cards"]!!.jsonArray.map { val o = it.jsonObject; KnownCard(o["id"]!!.str!!, o["note_id"]!!.str!!, o["card_type"]?.str ?: "") }
             val events = c["events"]!!.jsonArray.map {
                 val o = it.jsonObject
                 KnownEvent(o["id"]?.str, o["card_id"]!!.str!!, o["rating"]!!.jsonPrimitive.int, o["reviewed_at"]!!.str!!)

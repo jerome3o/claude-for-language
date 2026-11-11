@@ -18,7 +18,7 @@ import { frequencyRank, parseFrequencyList, NO_HAN_RANK, UNKNOWN_WORD_BASE, UNRA
 import { selectStudyQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
 import { fastestTimes, MAX_GROWTH_AT_4X, checkPerfBudgets } from '../testing/perf';
 
-const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false, everyday_first: false };
+const ALL_OFF: NewCardOrder = { new_characters_first: false, new_words_first: false, most_common_first: false, sentences_last: false, known_characters_english_first: false, everyday_first: false, new_words_by_ear: false };
 const only = (k: keyof NewCardOrder, extra: Partial<NewCardOrder> = {}): NewCardOrder => ({ ...ALL_OFF, [k]: true, ...extra });
 
 describe('settings', () => {
@@ -34,12 +34,17 @@ describe('settings', () => {
     expect(pickNewCardOrderUpdate({ new_words_first: 'yes' }).problems).toEqual(['new_words_first must be true, false or null']);
     expect(pickNewCardOrderUpdate(null).problems.length).toBe(1);
     expect(pickNewCardOrderUpdate({ reset: true }).update).toEqual({
-      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null, known_characters_english_first: null, everyday_first: null,
+      new_characters_first: null, new_words_first: null, most_common_first: null, sentences_last: null, known_characters_english_first: null, everyday_first: null, new_words_by_ear: null,
     });
     expect(pickNewCardOrderUpdate({ everyday_first: false }).update).toEqual({ everyday_first: false });
     expect(parseNewCardOrder('{"everyday_first":false}')).toEqual({ ...DEFAULT_NEW_CARD_ORDER, everyday_first: false });
     expect(DEFAULT_NEW_CARD_ORDER.everyday_first).toBe(true);
     expect(pickNewCardOrderUpdate({ known_characters_english_first: false }).update).toEqual({ known_characters_english_first: false });
+    // "Start new words by ear": on by default, a switch like the others.
+    expect(DEFAULT_NEW_CARD_ORDER.new_words_by_ear).toBe(true);
+    expect(pickNewCardOrderUpdate({ new_words_by_ear: false }).update).toEqual({ new_words_by_ear: false });
+    expect(parseNewCardOrder('{"new_words_by_ear":false}')).toEqual({ ...DEFAULT_NEW_CARD_ORDER, new_words_by_ear: false });
+    expect(parseNewCardOrder('{"new_words_by_ear":"no"}').new_words_by_ear).toBe(true);
   });
 
   it('applies and parses (garbage → defaults per field)', () => {

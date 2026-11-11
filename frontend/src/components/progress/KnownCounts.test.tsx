@@ -38,6 +38,7 @@ const data: KnownProgress & { rate: KnownRate } = {
   characters: { known: 1204, learning: 210 },
   words: { known: 1925, learning: 377 },
   sentences: { known: 0, learning: 0 },
+  words_by_skill: { reading: 1240, ear: 610 },
   recent_characters: [],
   history: [
     { at_ms: MON, characters: { known: 1000, learning: 0 }, words: { known: 1600, learning: 0 } },

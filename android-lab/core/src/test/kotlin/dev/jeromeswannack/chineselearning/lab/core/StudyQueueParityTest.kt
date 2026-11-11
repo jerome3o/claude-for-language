@@ -73,6 +73,7 @@ class StudyQueueParityTest {
         assertTrue(check(cases, "leadCard") >= 600)
         // Exercised: some queue gives a word of known characters its meaning_to_hanzi card.
         assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["knownCharacterNoteIds"]!!.jsonArray.isNotEmpty() } })
+        assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["earLeadNoteIds"]!!.jsonArray.isNotEmpty() } }, "a case starts words by ear")
         assertTrue(cases.any { c -> c["queues"]!!.jsonArray.any { q -> q.jsonObject["newOrder"]!!.jsonArray.any { it.jsonPrimitive.content.contains("-m-") } } })
     }
 
@@ -196,6 +197,8 @@ class StudyQueueParityTest {
                 q["upNext"]?.let { assertEquals(strings(it), built.upNext.map { c -> c.id }, "$where up next cards in order") }
                 q["upNextNoteIds"]?.let { assertEquals(strings(it), built.upNextNoteIds, "$where up next note ids") }
                 q["knownCharacterNoteIds"]?.let { assertEquals(strings(it), built.knownCharacterNoteIds.sorted(), "$where known-character notes") }
+                q["earLeadNoteIds"]?.let { assertEquals(strings(it), built.earLeadNoteIds.sorted(), "$where by-ear notes") }
+                q["newWordsByEar"]?.let { assertEquals(it.jsonPrimitive.boolean, built.newWordsByEar, "$where by ear applies") }
                 q["bumped"]?.let { assertEquals(strings(it), built.bumped.map { c -> c.id }, "$where bumped cards in order") }
                 q["bumpedNoteIds"]?.let { assertEquals(strings(it), built.bumpedNoteIds, "$where bumped note ids") }
                 if (q["bumped"] != null) assertEquals(built.bumped, built.dueCards.take(built.bumped.size), "$where pocket heads the queue")

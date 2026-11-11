@@ -149,7 +149,15 @@ class StudyQueueTest {
             override fun get(key: String): String = throw IllegalStateException("broken hanzi map")
         }
         val plain = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null)
-        val fallback = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null, broken)
+        // "Start new words by ear" needs no hanzi: off, the plain order exactly; on (default), the same counts
+        // (the blue cards' notes are the same; purple cards may come from other started words — listening first).
+        val fallback = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null, broken, order = NewCardOrder.DEFAULT.copy(newWordsByEar = false))
         assertEquals(plain.dueCards.map { it.id }, fallback.dueCards.map { it.id })
+        val byEar = StudyQueue.build(decks, cards, StudyBudget(5, 10), 0, emptyMap(), cutoff, null, broken)
+        assertEquals(
+            plain.dueCards.filter { it.noteId !in plain.reviewedNoteIds }.map { it.noteId }.sorted(),
+            byEar.dueCards.filter { it.noteId !in byEar.reviewedNoteIds }.map { it.noteId }.sorted(),
+        )
+        assertEquals(StudyQueue.counts(plain.dueCards, plain.reviewedNoteIds), StudyQueue.counts(byEar.dueCards, byEar.reviewedNoteIds))
     }
 }

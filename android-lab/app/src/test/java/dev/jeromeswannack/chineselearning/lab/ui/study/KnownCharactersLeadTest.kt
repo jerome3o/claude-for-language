@@ -27,6 +27,7 @@ import kotlin.test.assertEquals
  * "Words made of characters I know: start with English → Chinese" (core LeadCard): 学生 is new, but
  * 学 (大学) and 生 (生活) are known — mature cards — so the session opens it with its meaning_to_hanzi
  * card; with the switch off it opens with hanzi_to_meaning as before. Home's count is the same either way.
+ * "Start new words by ear" (on by default) wins over both: 学生 opens with its listening card.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = LabApp::class)
@@ -40,7 +41,7 @@ class KnownCharactersLeadTest {
         app = ApplicationProvider.getApplicationContext()
         app.prefs.sessionToken = null
         app.prefs.budget = StudyBudget(1, 0)
-        app.prefs.newCardOrder = NewCardOrder.DEFAULT
+        app.prefs.newCardOrder = NewCardOrder.DEFAULT.copy(newWordsByEar = false)
         StudyDayStore.forTest(app, ZoneId.systemDefault())
         val dao = app.repo.dao
         dao.upsertDecks(listOf(DeckEntity("d1", "HSK 1", null, 20, 20, 1, "2026-01-01T00:00:00.000Z")))
@@ -78,8 +79,15 @@ class KnownCharactersLeadTest {
 
     @Test
     fun theSwitchOffKeepsHanziFirst() {
-        app.prefs.newCardOrder = NewCardOrder.DEFAULT.copy(knownCharactersEnglishFirst = false)
+        app.prefs.newCardOrder = NewCardOrder.DEFAULT.copy(knownCharactersEnglishFirst = false, newWordsByEar = false)
         assertEquals("w1-${CardTypes.HANZI_TO_MEANING}", firstCard())
+        assertEquals(1, runBlocking { TodayCounts.compute(app, now, ZoneId.systemDefault()) }.new)
+    }
+
+    @Test
+    fun startNewWordsByEarWinsByDefault() {
+        app.prefs.newCardOrder = NewCardOrder.DEFAULT
+        assertEquals("w1-${CardTypes.AUDIO_TO_HANZI}", firstCard())
         assertEquals(1, runBlocking { TodayCounts.compute(app, now, ZoneId.systemDefault()) }.new)
     }
 }

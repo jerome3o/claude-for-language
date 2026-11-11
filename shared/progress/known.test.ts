@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   hanCharacters, noteKind, noteKey, isHanCodePoint, historyPoints, knownProgress, knownCountsFromTiers,
+  groupThousands, wordSkillsLine, earLagHint,
   type KnownEventInput,
 } from './known';
 import { computeCardTimeline, computeCardState } from '../scheduler/compute-state';
@@ -155,6 +156,7 @@ describe('knownProgress', () => {
       characters: { known: 0, learning: 0 },
       words: { known: 0, learning: 0 },
       sentences: { known: 0, learning: 0 },
+      words_by_skill: { reading: 0, ear: 0 },
       recent_characters: [],
       history: [{ at_ms: T0, characters: { known: 0, learning: 0 }, words: { known: 0, learning: 0 } }],
     });
@@ -204,5 +206,53 @@ describe('knownCountsFromTiers', () => {
       words: { known: 1, learning: 1 },
       sentences: { known: 0, learning: 1 },
     });
+  });
+});
+
+describe('words known by reading vs by ear', () => {
+  const notes = [
+    { id: 'a', hanzi: '你好' }, { id: 'a2', hanzi: '你好' }, // the same word in two decks: once
+    { id: 'b', hanzi: '谢谢' }, { id: 'c', hanzi: '我很好。' }, { id: 'd', hanzi: '再见' },
+  ];
+  const cards = [
+    { id: 'a-h', note_id: 'a', card_type: 'hanzi_to_meaning' }, { id: 'a-z', note_id: 'a', card_type: 'audio_to_hanzi' },
+    { id: 'a2-h', note_id: 'a2', card_type: 'hanzi_to_meaning' },
+    { id: 'b-h', note_id: 'b', card_type: 'hanzi_to_meaning' }, { id: 'b-z', note_id: 'b', card_type: 'audio_to_hanzi' },
+    { id: 'c-h', note_id: 'c', card_type: 'hanzi_to_meaning' }, { id: 'c-z', note_id: 'c', card_type: 'audio_to_hanzi' },
+    { id: 'd-m', note_id: 'd', card_type: 'meaning_to_hanzi' }, { id: 'd-z', note_id: 'd', card_type: 'audio_to_hanzi' },
+  ];
+
+  it('counts a word by its own reading / listening card being known, once per spelling; sentences never', () => {
+    seq = 0;
+    const events = [
+      ...mature('a-h', 0), ...mature('a2-h', 0), ...mature('a-z', 0), // 你好: both
+      ...mature('b-h', 0), ev('b-z', 0, 2), // 谢谢: reading only (listening still learning)
+      ...mature('c-h', 0), ...mature('c-z', 0), // a sentence: neither
+      ...mature('d-m', 0), // 再见: known by writing, not reading or ear
+    ];
+    const p = knownProgress(notes, cards, events);
+    expect(p.words.known).toBe(3);
+    expect(p.words_by_skill).toEqual({ reading: 2, ear: 1 });
+  });
+
+  it('a card without a type counts for neither; a lapse takes it out', () => {
+    seq = 0;
+    const untyped = cards.map(({ id, note_id }) => ({ id, note_id }));
+    expect(knownProgress(notes, untyped, mature('a-h', 0)).words_by_skill).toEqual({ reading: 0, ear: 0 });
+    const lapsed = [...mature('a-z', 0), ev('a-z', 20, 0)];
+    expect(knownProgress(notes, cards, lapsed).words_by_skill).toEqual({ reading: 0, ear: 0 });
+  });
+
+  it('the line and the hint', () => {
+    expect(groupThousands(0)).toBe('0');
+    expect(groupThousands(999)).toBe('999');
+    expect(groupThousands(1240)).toBe('1,240');
+    expect(groupThousands(1234567)).toBe('1,234,567');
+    expect(groupThousands(-1500)).toBe('-1,500');
+    expect(wordSkillsLine({ reading: 1240, ear: 610 })).toBe('1,240 by reading · 610 by ear');
+    expect(earLagHint({ reading: 1240, ear: 610 })).toMatch(/ear is behind/);
+    expect(earLagHint({ reading: 100, ear: 60 })).toBeNull(); // 60% keeps up
+    expect(earLagHint({ reading: 19, ear: 0 })).toBeNull(); // too early to say
+    expect(earLagHint({ reading: 20, ear: 11 })).not.toBeNull();
   });
 });
