@@ -394,6 +394,14 @@ export async function getAllDecks(db: D1Database, userId: string): Promise<Deck[
   return result.results;
 }
 
+/** The user's source deck for a key (migration 0150), or null. */
+export async function getSourceDeck(db: D1Database, userId: string, key: string): Promise<Deck | null> {
+  return db
+    .prepare('SELECT * FROM decks WHERE user_id = ? AND source_key = ?')
+    .bind(userId, key)
+    .first<Deck>();
+}
+
 export async function getDeckById(db: D1Database, id: string, userId: string): Promise<Deck | null> {
   return db
     .prepare('SELECT * FROM decks WHERE id = ? AND user_id = ?')
@@ -478,11 +486,16 @@ export async function getDeckWithNotesAndCards(db: D1Database, id: string, userI
 export async function createDeck(
   db: D1Database,
   userId: string,
-  input: { name: string; description?: string | null; settings: DeckSettingsRow; study_priority: number }
+  input: { name: string; description?: string | null; settings: DeckSettingsRow; study_priority: number; source_key?: string | null }
 ): Promise<Deck> {
   const id = generateId();
   const columns = ['id', 'user_id', 'name', 'description', 'study_priority', ...DECK_SETTING_KEYS];
   const values: (string | number | null)[] = [id, userId, input.name, input.description || null, input.study_priority, ...DECK_SETTING_KEYS.map(k => input.settings[k])];
+  if (input.source_key) {
+    // A source deck (migration 0150): UNIQUE (user_id, source_key) — a racing second insert fails.
+    columns.push('source_key');
+    values.push(input.source_key);
+  }
   await db
     .prepare(`INSERT INTO decks (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`)
     .bind(...values)

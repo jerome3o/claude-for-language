@@ -59,6 +59,14 @@ export const BUMP_CARDS_TOOL = {
 
 type ToolSchemaShape = { name: string; description: string; input_schema: Record<string, unknown> };
 
+/**
+ * Where create_flashcards puts cards (shared/decks/source-decks.ts): the learner's "From Claude"
+ * source deck, made on first use — Jerome doesn't care which deck a card lands in, so Claude never
+ * asks. An explicit deck still works when he names one.
+ */
+export const FROM_CLAUDE_RULE =
+  'They go straight into the learner\'s "From Claude" deck (made on first use) — never ask which deck. Pass deck_id only when the learner names one of their decks (listed in the context).';
+
 export interface ToolEntry {
   kind: ToolKind;
   /** The contexts allowed to use it. */
@@ -74,11 +82,11 @@ export interface ToolEntry {
  */
 const DECK_PICKED_CREATE_FLASHCARDS: ToolSchemaShape = {
   name: 'create_flashcards',
-  description: "Create new flashcards in one of the user's decks. The user's decks (with ids) are listed in the conversation context.",
+  description: `Create new flashcards. ${FROM_CLAUDE_RULE}`,
   input_schema: {
     type: 'object' as const,
     properties: {
-      deck_id: { type: 'string', description: 'Target deck ID (required — pick from the decks listed in the context).' },
+      deck_id: { type: 'string', description: 'Optional: a deck ID from the decks listed in the context — ONLY when the learner names a deck. Omit it otherwise (the cards go to "From Claude").' },
       flashcards: {
         type: 'array',
         description: 'Array of flashcards to create',
@@ -88,7 +96,7 @@ const DECK_PICKED_CREATE_FLASHCARDS: ToolSchemaShape = {
         },
       },
     },
-    required: ['deck_id', 'flashcards'],
+    required: ['flashcards'],
   },
 };
 
@@ -118,11 +126,11 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
     contexts: ['card', 'coach', 'chat_message', 'reader', 'exercise'],
     schema: {
       name: 'create_flashcards',
-      description: 'Create new flashcards. By default, cards are added to the current deck. To add cards to a different deck, specify the deck_id. The user\'s available decks are listed in the context.',
+      description: `Create new flashcards. ${FROM_CLAUDE_RULE}`,
       input_schema: {
         type: 'object' as const,
         properties: {
-          deck_id: { type: 'string', description: 'Target deck ID to add cards to. If omitted, cards are added to the current deck.' },
+          deck_id: { type: 'string', description: 'Optional: a deck ID — ONLY when the learner names a deck. Omit it otherwise (the cards go to "From Claude").' },
           flashcards: {
             type: 'array',
             description: 'Array of flashcards to create',

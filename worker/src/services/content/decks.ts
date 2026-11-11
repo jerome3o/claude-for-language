@@ -8,6 +8,8 @@ import type { Env, Deck } from '../../types';
 import * as db from '../../db/queries';
 import { trackServer } from '../analytics/server-events';
 import { newDeckSettings, pickDeckSettings, type DeckSettings, type DeckSettingsProblem, type QueueMove } from '@shared/decks';
+import { SOURCE_DECKS, legacySourceDeck, parseSourceDeckRef, type SourceDeckKey } from '@shared/decks/source-decks';
+export { parseSourceDeckRef, isSourceDeckKey } from '@shared/decks/source-decks';
 import { deleteUnreferencedAudio } from './audio';
 import { deleteUnreferencedNoteImages, noteImageKeysOfDeck } from '../note-images';
 import type { Background } from './types';
@@ -19,6 +21,8 @@ export interface CreateDeckInput {
   settings?: Partial<DeckSettings>;
   /** Where the deck joins the learner's new-card queue. Default: top (new things first). */
   placement?: 'top' | 'bottom';
+  /** A source deck's key (ensureSourceDeck only). */
+  sourceKey?: SourceDeckKey;
 }
 
 export class ContentError extends Error {
@@ -37,7 +41,91 @@ export async function createDeck(d1: D1Database, userId: string, input: CreateDe
     description: input.description?.trim() || null,
     settings: newDeckSettings(input.settings),
     study_priority: input.placement === 'bottom' ? range.min - 1 : range.max + 1,
+    source_key: input.sourceKey ?? null,
   });
+}
+
+// ============ Source decks ("From readers", "From chats", …) ============
+
+/**
+ * The learner's deck for a source (shared/decks/source-decks.ts): found by its stable
+ * `source_key` (never by name — he may rename it); else a keyless deck with the source's legacy
+ * name is adopted ("From my readers", the reader word recap's deck by name); else a new one is made
+ * with the shared defaults, at the TOP of the queue like any deck he creates himself.
+ * Idempotent under races: UNIQUE (user_id, source_key) lets one insert / adoption win, the loser
+ * reads the winner's deck.
+ */
+export async function ensureSourceDeck(d1: D1Database, userId: string, key: SourceDeckKey): Promise<{ deck: Deck; created: boolean }> {
+  const found = await db.getSourceDeck(d1, userId, key);
+  if (found) return { deck: found, created: false };
+
+  const def = SOURCE_DECKS[key];
+  if (def.legacyNames.length > 0) {
+    const candidates = await d1
+      .prepare(`SELECT * FROM decks WHERE user_id = ? AND source_key IS NULL AND name IN (${def.legacyNames.map(() => '?').join(', ')})`)
+      .bind(userId, ...def.legacyNames)
+      .all<Deck>();
+    const legacy = legacySourceDeck(candidates.results ?? [], key);
+    if (legacy) {
+      try {
+        await d1
+          .prepare("UPDATE decks SET source_key = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ? AND source_key IS NULL")
+          .bind(key, legacy.id, userId)
+          .run();
+      } catch (err) {
+        if (!isUniqueViolation(err)) throw err;
+      }
+      const adopted = await db.getSourceDeck(d1, userId, key);
+      if (adopted) return { deck: adopted, created: false };
+    }
+  }
+
+  try {
+    const deck = await createDeck(d1, userId, { name: def.name, description: def.description, sourceKey: key });
+    return { deck, created: true };
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await db.getSourceDeck(d1, userId, key);
+    if (!winner) throw err;
+    return { deck: winner, created: false };
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(err instanceof Error ? err.message : String(err));
+}
+
+/**
+ * The deck a note-create request names: a deck id, or a source deck ref (`source:readers`) which is
+ * made on first use. `sourceDeck` is set for a ref, so the reply can say where the card went.
+ */
+export async function resolveNoteDeck(d1: D1Database, userId: string, deckParam: string): Promise<{ deckId: string; sourceDeck: Deck | null }> {
+  const key = parseSourceDeckRef(deckParam);
+  if (!key) {
+    if (deckParam.startsWith('source:') || /^source%3a/i.test(deckParam)) throw new ContentError('Unknown source deck', 400);
+    return { deckId: deckParam, sourceDeck: null };
+  }
+  const { deck } = await ensureSourceDeck(d1, userId, key);
+  return { deckId: deck.id, sourceDeck: deck };
+}
+
+/**
+ * Where an agent's create_flashcards goes: the deck it named when that is the learner's own, else
+ * the source deck for `fallback` ("From Claude") — an unknown id never fails the cards.
+ */
+export async function flashcardDeckFor(d1: D1Database, userId: string, deckId: string | null | undefined, fallback: SourceDeckKey): Promise<Deck> {
+  if (typeof deckId === 'string' && deckId.trim()) {
+    const ref = parseSourceDeckRef(deckId);
+    if (ref) return (await ensureSourceDeck(d1, userId, ref)).deck;
+    const named = await db.getDeckById(d1, deckId.trim(), userId);
+    if (named) return named;
+  }
+  return (await ensureSourceDeck(d1, userId, fallback)).deck;
+}
+
+/** What a reply says about a source deck: enough for "Added to From readers · Change". */
+export function sourceDeckSummary(deck: Deck): { id: string; name: string; source_key: string | null } {
+  return { id: deck.id, name: deck.name, source_key: deck.source_key ?? null };
 }
 
 /** Move a deck to the top or bottom of the user's queue. */

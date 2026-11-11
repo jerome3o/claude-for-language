@@ -324,6 +324,8 @@ export interface Deck {
   maximum_interval: number;  // Maximum review interval in days, default 36500
   /** Place in the learner's new-card queue: higher goes first (migration 0069). */
   study_priority: number;
+  /** A source deck's stable key ('readers', 'chats', …; shared/decks/source-decks.ts, migration 0150); null = an ordinary deck. */
+  source_key?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -126,7 +126,7 @@ export function readerBlock(d: ReaderData): string {
   }
   if (d.lookedUp.length) lines.push('', `Words they tapped to look up on this page: ${d.lookedUp.join('、')}`);
   if (d.saidWrong.length) lines.push(`Words they read aloud wrong on this page: ${d.saidWrong.join('、')}`);
-  lines.push('', `The learner's decks (for create_flashcards): ${d.decks}`);
+  lines.push('', `The learner's decks (create_flashcards: only when he names one — otherwise leave deck_id out and the cards go to "From Claude"): ${d.decks}`);
   return lines.join('\n');
 }
 

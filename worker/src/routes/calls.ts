@@ -15,7 +15,7 @@
  *   PUT    /calls/:id/pieces/:pieceId/chunks/:idx     raw audio bytes
  *   POST   /calls/:id/pieces/:pieceId/close           { chunk_count, duration_ms }
  *   POST   /calls/:id/process                         "Process now": close stale pieces, retry failures, redo the report
- *   POST   /calls/:id/flashcards                      { deck_id? | deck_name?, words: [...] } → notes made from the report
+ *   POST   /calls/:id/flashcards                      { deck_id? (or a source deck ref "source:practice") | deck_name?, words: [...] } → notes made from the report
  *   POST   /calls/:id/gloss                           { text, direction?: zh|en } → zh { pinyin, english } / en { chinese, pinyin } — the text board's tab-complete (cached)
  *   GET    /calls/:id/ws?ticket=                      WebSocket into the CallRoom
  */
@@ -304,13 +304,23 @@ calls.post('/calls/:id/flashcards', async (c) => {
     const words = (body.words ?? []).filter((w) => w && w.hanzi && w.pinyin && w.english).slice(0, 100);
     if (words.length === 0) throw new CallError(400, 'Pick at least one word');
     let deckId = body.deck_id;
-    if (deckId) {
-      const deck = await c.env.DB.prepare('SELECT id FROM decks WHERE id = ? AND user_id = ?').bind(deckId, user.id).first();
+    let deckName: string | null = null;
+    let sourceKey: string | null = null;
+    if (deckId && content.parseSourceDeckRef(deckId)) {
+      // A source deck ref ("source:practice" — the apps since Nov 2026): made on first use.
+      const { deck } = await content.ensureSourceDeck(c.env.DB, user.id, content.parseSourceDeckRef(deckId)!);
+      deckId = deck.id;
+      deckName = deck.name;
+      sourceKey = deck.source_key ?? null;
+    } else if (deckId) {
+      const deck = await c.env.DB.prepare('SELECT id, name FROM decks WHERE id = ? AND user_id = ?').bind(deckId, user.id).first<{ id: string; name: string }>();
       if (!deck) throw new CallError(404, 'Deck not found');
+      deckName = deck.name;
     } else {
       const date = new Date(call.started_at ?? Date.now()).toISOString().slice(0, 10);
       const name = (body.deck_name || '').trim().slice(0, 120) || `Lesson ${date}`;
       deckId = (await content.createDeck(c.env.DB, user.id, { name, description: call.title ? `From the video lesson "${call.title}"` : 'From a video lesson' })).id;
+      deckName = name;
     }
     const made = await content.createNotes(
       c.env,
@@ -327,7 +337,7 @@ calls.post('/calls/:id/flashcards', async (c) => {
       })),
       { audio: 'background', sentences: true, bg: c.executionCtx },
     );
-    return c.json({ deck_id: deckId, created: made.created.length, failed: made.failed }, 201);
+    return c.json({ deck_id: deckId, deck_name: deckName, source_key: sourceKey, note_ids: made.created.map((n) => n.id), created: made.created.length, failed: made.failed }, 201);
   } catch (error) {
     return errorResponse(c, error, 'Failed to make the flashcards');
   }

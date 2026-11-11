@@ -250,13 +250,13 @@ export function defaultApply(env: Env, bg?: ExecutionContext): CoachApplyFn {
     if (action.tool !== 'create_flashcards') return { tool: action.tool, success: false, error: 'Unsupported tool' };
     try {
       const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
-      const targetDeck = input.deck_id ? await db.getDeckById(env.DB, input.deck_id, userId) : null;
-      if (!targetDeck) return { tool: 'create_flashcards', success: false, error: 'Target deck not found' };
+      // The deck he named when it is his, else his "From Claude" source deck (made on first use).
+      const targetDeck = await content.flashcardDeckFor(env.DB, userId, input.deck_id, 'claude');
       const made = await content.createNotes(env, userId, targetDeck.id, input.flashcards || [], bg ? { audio: 'background', bg } : { audio: 'queue' });
       return {
         tool: 'create_flashcards',
         success: true,
-        data: { deck_name: targetDeck.name, notes: made.created.map((n) => ({ hanzi: n.hanzi, pinyin: n.pinyin, english: n.english })) },
+        data: { deck_name: targetDeck.name, deck_id: targetDeck.id, deck_source_key: targetDeck.source_key ?? null, notes: made.created.map((n) => ({ id: n.id, hanzi: n.hanzi, pinyin: n.pinyin, english: n.english })) },
       };
     } catch (err) {
       console.error('Coach create_flashcards error:', err);
