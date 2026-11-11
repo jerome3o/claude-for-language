@@ -258,7 +258,8 @@ class ChatRound2ComposeTest {
         compose.waitForIdle()
         compose.onNodeWithText("Save as flashcard").assertExists()
         compose.onNodeWithText("What did you do at the weekend?").assertExists()
-        compose.onNodeWithText("Add to deck").assertExists()
+        // Source decks: no deck picker — saved straight into "From chats".
+        compose.onNodeWithText("Added to From chats", substring = true).assertExists()
     }
 }
 

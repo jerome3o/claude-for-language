@@ -125,19 +125,21 @@ test('a student message gets the ✎, the menu starts with How to say it better,
   await expect(sheet).toContainText('我昨天去商店买了点东西');
   await shoot(page, 'web-03-sheet');
 
-  // + Add as flashcard → the add-card sheet with the corrected sentence → saved to the deck.
+  // + Add as flashcard → the add-card sheet with the corrected sentence → saved at once, no deck
+  // picker (source decks): straight into "From chats".
   await sheet.getByTestId('chat-saybetter-add').click();
-  await expect(page.getByText('Save to deck:')).toBeVisible();
   await expect(page.locator('.rp-modal-hanzi')).toHaveText('我昨天去商店买东西了。');
+  await expect(page.getByTestId('added-to-deck')).toContainText('Added to From chats', { timeout: 15000 });
   await shoot(page, 'web-04-add-card');
-  // The top deck of the queue is preselected (#507).
-  await expect(page.getByRole('radio', { name: '聊天里学的' })).toBeChecked();
-  await page.getByRole('button', { name: 'Add to deck' }).click();
-  await expect(page.getByRole('button', { name: '✓ Added' })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText('Save to deck:')).toHaveCount(0);
   await expect.poll(async () => {
-    const d = await api<{ notes: Array<{ hanzi: string }> }>(request, `/api/decks/${deck.body.id}`, { token: student.token });
+    const all = await api<Array<{ id: string; source_key?: string | null }>>(request, '/api/decks', { token: student.token });
+    const src = (all.body ?? []).find((d) => d.source_key === 'chats');
+    if (!src) return [];
+    const d = await api<{ notes: Array<{ hanzi: string }> }>(request, `/api/decks/${src.id}`, { token: student.token });
     return (d.body.notes ?? []).map((n) => n.hanzi);
   }, { timeout: 15000 }).toContain('我昨天去商店买东西了。');
+  void deck;
   await page.context().close();
 
   // The tutor sees the message without any mark.

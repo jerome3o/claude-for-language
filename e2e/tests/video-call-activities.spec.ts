@@ -230,13 +230,15 @@ test('describe & guess started by the STUDENT: only the guesser picks, the pick 
   await expect(rows.first()).toHaveAttribute('data-kind', 'target');
   await expect(sp.getByTestId('needed-word').filter({ hasText: '水果' })).toContainText('shuǐguǒ');
   await sp.getByTestId('needed-word').filter({ hasText: '水果' }).getByTestId('needed-word-add').click();
-  await expect(sp.getByRole('dialog', { name: 'Add 水果 as a card' })).toBeVisible();
-  await expect(sp.getByRole('radio', { name: '课堂生词' })).toHaveAttribute('aria-checked', 'true');
-  await sp.getByRole('button', { name: 'Add to deck' }).click();
+  // Source decks: no deck picker — straight into "From lessons & practice", then Done.
+  const addSheet = sp.getByRole('dialog', { name: 'Add 水果 as a card' });
+  await expect(addSheet).toBeVisible();
+  await expect(addSheet.getByTestId('added-to-deck')).toContainText('Added to From lessons & practice', { timeout: 10000 });
+  await addSheet.getByTestId('add-chunk-done').click();
   await expect(sp.getByTestId('needed-word').filter({ hasText: '水果' }).getByTestId('needed-word-add')).toHaveText('✓ Added', { timeout: 10000 });
-  const decks = await api<{ id: string; name: string }[] | { decks: { id: string; name: string }[] }>(request, '/api/decks', { token: student.token });
+  const decks = await api<{ id: string; name: string; source_key?: string | null }[] | { decks: { id: string; name: string; source_key?: string | null }[] }>(request, '/api/decks', { token: student.token });
   const list = Array.isArray(decks) ? decks : decks.decks;
-  const deck = await api<{ notes: { hanzi: string }[] }>(request, `/api/decks/${list.find((d) => d.name === '课堂生词')!.id}`, { token: student.token });
+  const deck = await api<{ notes: { hanzi: string }[] }>(request, `/api/decks/${list.find((d) => d.source_key === 'practice')!.id}`, { token: student.token });
   expect(deck.notes.map((n) => n.hanzi)).toContain('水果');
 
   // The student ends it: the summary lists the words again, with who picked what.

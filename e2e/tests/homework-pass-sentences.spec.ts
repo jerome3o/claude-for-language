@@ -143,14 +143,14 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
   await expect(breakdown).toBeVisible();
   await expect(breakdown.locator('.sentence-set-word')).toHaveCount(3);
   await expect(sentences.getByRole('button', { name: '+ Add as card' })).toBeVisible();
-  // A word opens the language explorer's Word view; adding it goes through the add sheet.
+  // A word opens the language explorer's Word view; "+ Add as card" there adds it in ONE tap (source
+  // decks: no add sheet, no deck picker) and says where it went.
   await breakdown.getByRole('button', { name: 'Explore 喜欢' }).click();
   const wordView = page.getByRole('dialog', { name: 'The word 喜欢' });
   await expect(wordView).toBeVisible();
   await wordView.getByTestId('explorer-add-card').click();
-  await expect(page.locator('.add-chunk-backdrop')).toBeVisible();
-  await page.locator('.add-chunk-backdrop').getByRole('button', { name: 'Cancel' }).click();
   await expect(page.locator('.add-chunk-backdrop')).toHaveCount(0);
+  await expect(wordView.getByTestId('added-to-deck')).toContainText('✓ Added to From example sentences', { timeout: 15000 });
   await page.getByTestId('explorer-close').click();
   await expect(page.getByTestId('explorer')).toHaveCount(0);
 

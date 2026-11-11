@@ -164,7 +164,10 @@ test('Chinese offers Check and Explain; Explain shows the translation and word r
   await expect(page.getByTestId('coach-practise-mic')).toContainText('Practise saying it');
   await expect(page.getByTestId('coach-followup-say')).toContainText('Respond');
 
+  // A coach word → the explorer → "+ Add as card" in ONE tap, straight into "From Claude" (source decks).
   await page.getByRole('button', { name: 'Explore 商店' }).click();
-  await page.getByRole('dialog', { name: 'The word 商店' }).getByTestId('explorer-add-card').click();
-  await expect(page.getByText('Save to deck:')).toBeVisible();
+  const shop = page.getByRole('dialog', { name: 'The word 商店' });
+  await shop.getByTestId('explorer-add-card').click();
+  await expect(shop.getByTestId('added-to-deck')).toContainText('✓ Added to From Claude', { timeout: 15000 });
+  await expect(page.getByText('Save to deck:')).toHaveCount(0);
 });

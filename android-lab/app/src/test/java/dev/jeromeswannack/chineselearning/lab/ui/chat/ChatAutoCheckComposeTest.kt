@@ -83,11 +83,13 @@ class ChatAutoCheckComposeTest {
         compose.onNodeWithTag(SayBetterTags.mistakeCard(0)).performClick()
         compose.onNodeWithText("Add as flashcard").assertIsDisplayed()
         compose.onNodeWithText("去商店买东西").assertIsDisplayed()
-        compose.onNodeWithText("Cancel").performClick()
+        // Source decks: saved at once into "From chats" — no deck picker — then Done.
+        compose.onNodeWithText("Added to From chats", substring = true).assertIsDisplayed()
+        compose.onNodeWithTag("add-chunk-done").performClick()
         // The primary button → the corrected sentence's card.
         compose.onNodeWithTag(SayBetterTags.ADD).performScrollTo().performClick()
         compose.onNodeWithText("Yesterday I went to the shop to buy things.").assertIsDisplayed()
-        compose.onNodeWithText("Add to deck").assertIsDisplayed()
+        compose.onNodeWithText("Added to From chats", substring = true).assertIsDisplayed()
     }
 
     @Test fun askNeedsInternet() {

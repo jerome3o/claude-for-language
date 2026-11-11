@@ -91,18 +91,17 @@ test('card back → tap 行 → the sheet shows its words with Known / In your d
   const hangye = rows.filter({ hasText: '行业' });
   await expect(hangye).toHaveAttribute('data-status', 'none');
 
-  // A word row opens its Word view (the language explorer); add 行业 from there (top deck preselected).
+  // A word row opens its Word view (the language explorer); add 行业 from there — ONE tap, no deck
+  // picker (source decks): straight into "From the explorer".
   await hangye.click();
   const hangyeView = page.getByRole('dialog', { name: 'The word 行业' });
   await expect(hangyeView).toContainText('hángyè');
   await hangyeView.getByTestId('explorer-add-card').click();
-  const add = page.getByRole('dialog', { name: 'Add 行业 as a card' });
-  await expect(add).toBeVisible();
-  await add.getByRole('button', { name: 'Add to deck' }).click();
-  await expect(add).toBeHidden({ timeout: 10000 });
+  await expect(page.getByRole('dialog', { name: 'Add 行业 as a card' })).toHaveCount(0);
   // Straight away — before the sync brings the new note to the device — ⚡ Study it today for it
   // (Jerome had to close and reopen the explorer, sometimes several times, to get that button).
-  await expect(hangyeView.getByTestId('xp-added')).toContainText('✓ Added to');
+  await expect(hangyeView.getByTestId('xp-added')).toContainText('✓ Added to From the explorer', { timeout: 10000 });
+  await expect(hangyeView.getByTestId('added-to-deck-change')).toBeVisible();
   const studyToday = hangyeView.getByTestId('xp-added').getByRole('button', { name: '⚡ Study it today' });
   await expect(studyToday).toBeVisible();
   if (process.env.PR_SHOTS) await page.screenshot({ path: `${process.env.PR_SHOTS}/web-01-just-added.png` });

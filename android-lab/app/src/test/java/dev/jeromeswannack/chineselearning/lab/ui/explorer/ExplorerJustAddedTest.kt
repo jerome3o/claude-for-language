@@ -3,6 +3,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.explorer
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -11,6 +12,9 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerItem
 import dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo
 import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.study.SentenceActions
+import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
+import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -28,18 +32,32 @@ class ExplorerJustAddedTest : LabScreenshotTest() {
     private val events = ArrayList<Pair<String, Map<String, Any?>>>()
     private val bumps = ArrayList<Pair<List<String>, String?>>()
     private val added = ArrayList<Pair<String, String>>()
+    private val moved = ArrayList<Pair<List<String>, String>>()
+    // Source decks: the sheet adds at once into the source deck (the ref), the server names the deck.
     private val addActions = SentenceActions(
         decks = { listOf("d-hsk2" to "HSK 2", "d-travel" to "China trip") },
-        addCard = { deckId, c -> added += deckId to c.hanzi },
+        addCard = { deckId, c ->
+            added += deckId to c.hanzi
+            val key = SourceDecks.parseRef(deckId)!!
+            AddedNote(listOf("n-new"), "d-$key", SourceDecks.name(key), key)
+        },
+        move = SourceDeckActions(
+            decks = { listOf("d-readers" to "From readers", "d-hsk2" to "HSK 2") },
+            move = { a, id, name -> moved += a.noteIds to id; a.copy(deckId = id, deckName = name) },
+        ),
     )
 
     private fun host(controller: ExplorerController, env: ExplorerEnv) = compose.setContent {
         LabTheme { CompositionLocalProvider(LocalExplorer provides controller) { ExplorerHost(controller, env) } }
     }
 
-    private fun addThroughTheSheet() {
-        compose.onNodeWithTag("add-chunk-add").performClick()
-        compose.mainClock.advanceTimeBy(1_000)
+    /** ONE tap: the sheet saves by itself (no deck picker), says where it went, Done closes it. */
+    private fun addThroughTheSheet(deckName: String) {
+        compose.waitForIdle()
+        assertEquals(0, compose.onAllNodesWithTag("add-chunk-decks").fetchSemanticsNodes().size)
+        compose.onNodeWithTag("added-to-deck").assertIsDisplayed()
+        assertTrue(compose.onAllNodesWithText("Added to $deckName", substring = true).fetchSemanticsNodes().isNotEmpty())
+        compose.onNodeWithTag("add-chunk-done").performClick()
         compose.waitForIdle()
     }
 
@@ -50,15 +68,17 @@ class ExplorerJustAddedTest : LabScreenshotTest() {
         compose.waitForIdle()
         compose.onNodeWithTag("explorer-add").performClick()
         compose.waitForIdle()
-        addThroughTheSheet()
+        // Opened from a reader → "From readers" (core SourceDecks.forExplorer).
+        addThroughTheSheet("From readers")
 
-        assertEquals(listOf("d-hsk2" to "银行"), added)
-        compose.onNodeWithText("Added to HSK 2").assertIsDisplayed()
+        assertEquals(listOf("source:readers" to "银行"), added)
+        compose.onNodeWithText("Added to From readers", substring = true).assertIsDisplayed()
         compose.onNodeWithTag(EXPLORER_ADDED_TAG).assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTag("explorer-add").fetchSemanticsNodes().size)
         compose.onNodeWithTag("explorer-bump").performClick()
         compose.waitForIdle()
-        assertEquals(listOf(listOf("银行") to "d-hsk2"), bumps)
+        assertEquals(listOf(listOf("银行") to "d-readers"), bumps)
+        assertTrue(events.any { it.first == "explorer.add_card" && it.second["source_deck"] == true && it.second["deck_key"] == "readers" })
         compose.onNodeWithText("⚡ 银行 is in today's study").assertExists()
         assertTrue(events.any { it.first == "explorer.bump" && it.second["just_added"] == true })
     }
@@ -71,7 +91,7 @@ class ExplorerJustAddedTest : LabScreenshotTest() {
         compose.waitForIdle()
         compose.onNodeWithTag("explorer-add").performClick()
         compose.waitForIdle()
-        addThroughTheSheet()
+        addThroughTheSheet("From readers")
         compose.onNodeWithTag(EXPLORER_ADDED_TAG).assertIsDisplayed()
 
         synced = true
@@ -88,11 +108,28 @@ class ExplorerJustAddedTest : LabScreenshotTest() {
         compose.waitForIdle()
         compose.onNodeWithTag(EXPLORER_CHAR_ADD_TAG).performClick()
         compose.waitForIdle()
-        addThroughTheSheet()
+        // Opened from the study card → no source of its own → "From the explorer".
+        addThroughTheSheet("From the explorer")
         compose.onNodeWithTag(EXPLORER_CHAR_ADDED_TAG).assertIsDisplayed()
-        compose.onNodeWithText("Added to HSK 2").assertIsDisplayed()
+        compose.onNodeWithText("Added to From the explorer", substring = true).assertIsDisplayed()
         compose.onNodeWithTag(EXPLORER_CHAR_BUMP_TAG).performClick()
         compose.waitForIdle()
-        assertEquals(listOf(listOf("银") to "d-hsk2"), bumps)
+        assertEquals(listOf(listOf("银") to "d-explorer"), bumps)
+    }
+
+    @Test fun changeMovesTheJustAddedCard() {
+        val controller = ExplorerController()
+        host(controller, ExplorerSamples.env(addActions = addActions))
+        compose.runOnIdle { controller.open(ExplorerSamples.item(), "reader") }
+        compose.waitForIdle()
+        compose.onNodeWithTag("explorer-add").performClick()
+        compose.waitForIdle()
+        compose.onAllNodesWithText("Change")[0].performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("move-to-deck").assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("HSK 2") and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag("move-to-deck"))).performClick()
+        compose.waitForIdle()
+        assertEquals(listOf(listOf("n-new") to "d-hsk2"), moved)
+        assertTrue(compose.onAllNodesWithText("Moved to HSK 2", substring = true).fetchSemanticsNodes().isNotEmpty())
     }
 }
