@@ -14,7 +14,7 @@
  * - A rollover of 0 is midnight: exactly the old calendar-day behaviour.
  *
  * Local times that don't exist (the spring-forward gap) or exist twice (the fall-back overlap)
- * follow java.time's rules, so the Lab app's port (core/…/StudyDay.kt) agrees to the
+ * follow java.time's rules, so the Lab app's port (core/…/StudyDayRule.kt, object StudyDay) agrees to the
  * millisecond: a gap moves the time later by the gap's length, an overlap takes the earlier
  * instant. FSRS itself is untouched — intervals and due timestamps stay as they are; only
  * "which day is it" changes. Parity-tested (android-lab/parity/fixtures/study-day.ts).

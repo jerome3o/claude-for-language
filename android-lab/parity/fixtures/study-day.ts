@@ -5,7 +5,7 @@
  * the cutoff and the SQL shift; and what the day decides: introduced-today
  * (shared/decks/study-queue.ts) and the daily reader's "read today" (shared/study/daily-reader.ts)
  * with the study day's start.
- * Writes study-day.json; core StudyDayParityTest asserts StudyDay.kt (+ StudyQueue / DailyReader) match.
+ * Writes study-day.json; core StudyDayRuleParityTest asserts StudyDayRule.kt (+ StudyQueue / DailyReader) match.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';

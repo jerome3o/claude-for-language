@@ -29,6 +29,41 @@ During a study session, cards are selected in this order:
 
 3. **Learning cards on cooldown (due today)** - When no other cards are available AND learning cards exist with cooldowns that haven't expired BUT are due today, show them immediately. This allows completing all study in one sitting.
 
+## When does a new day start ("New day starts at", 4 am by default)
+
+Jerome often studies late at night. With a plain calendar day the app started a new day at
+midnight: the next graded reader, a fresh new-card budget, a new queue, another celebration. Like
+Anki's "Next day starts at", the **study day** turns over at a rollover hour instead —
+**4 am by default**, per account, 0 (midnight) to 6: Settings → Study → **New day starts at**
+(midnight · 1 · 2 · 3 · 4 · 5 · 6 am; web `components/settings/DayRolloverSetting.tsx`, Lab
+`ui/settings/DayRolloverSettings.kt`).
+
+- **The rule** (`shared/study/studyDay.ts`, Lab `core/…/StudyDayRule.kt` (object `StudyDay`), parity-tested with DST nights
+  in London and Los Angeles): an instant before the rollover hour (local time) belongs to the
+  previous calendar day — 01:30 with 4 am is still yesterday. The day runs from its date's rollover
+  hour to the next date's (23 or 25 h across a DST change; a local time in the spring-forward gap
+  moves later, one that happens twice takes the earlier — java.time's rules). Its key is the date
+  (YYYY-MM-DD). A rollover of 0 is exactly the old calendar day.
+- **Stored** as `users.day_rollover_hour` (migration 0148, NULL = 4); `PUT /api/profile/day-rollover
+  { day_rollover_hour: 0–6 | null }`; on `/api/auth/me` and `/api/sync/changes` as
+  `day_rollover_hour`, cached on the device (web `services/studyDay.ts` localStorage, Lab
+  `Prefs.dayRolloverHour` → `data/StudyDayClock.kt`) so it works offline.
+- **What follows it** — every "today" of study, on both devices: the queue's cutoff (due by the end
+  of the study day, or now + 1 h), introduced-today and so the daily new-card budget, "Study 10
+  more", the review load (Pause new cards), the daily graded reader (a story read at 23:50 still
+  owns the night at 00:30), celebrate-once-a-day, active study time per day (the `PUT
+  /api/me/study-time` date keys), the resume point, snooze dates, homework's `today` and due labels,
+  Home's counts, the streak card and the Progress days. On the server, for a user (their
+  `users.time_zone`, else the client's `tz_offset`): the tutor dashboard's "studied today" / streak
+  / activity days, `review_load`, `claude_today`, the progress pages (`/api/progress/*`,
+  `/student-progress/*`: `date(reviewed_at, '±N minutes')` with N = the offset − the rollover;
+  `shared/progress/daily.ts`), homework e-mails' "today" / "due tomorrow" (`services/study-day.ts`).
+- **What doesn't**: FSRS. Intervals and due timestamps are exactly as before; only "which day is it"
+  changes. A card due at 02:00 counts as due tonight with a 4 am rollover (it is due before the
+  study day ends), as in Anki.
+- The debug report carries `day_rollover_hour` and `day_start` is the study day's start;
+  `compareDebugReports` says when the two apps use different hours. Analytics `settings.day_rollover`.
+
 ## Today is the session
 
 There are no study "sessions" any more — **today is the session**. The queue is always today's
@@ -323,7 +358,8 @@ and cached on the device with the budget (web `services/studyBudget.ts` `readRev
 (`getStudyQueue`, Home, the deck rows) and the Lab app (`core/StudyQueue.kt`, parity-tested
 against it through `android-lab/parity/fixtures/study-queue.ts`) both use it:
 
-- learning / relearning cards due by the cutoff (the later of local 23:59:59.999 and now + 1 h),
+- learning / relearning cards due by the cutoff (the later of the study day's last millisecond —
+  see *When does a new day start* — and now + 1 h),
 - review cards due by the cutoff,
 - the new cards the budget allocates (above).
 
