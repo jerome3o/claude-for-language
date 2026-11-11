@@ -97,7 +97,7 @@ export interface DebugReport {
   introduced_basis: string;
   budget: { new_cards_per_day: number; secondary_cards_per_day: number };
   /** "Order new cards by" (shared/decks/new-card-order.ts) as this device applies it; absent in older reports. */
-  new_card_order?: { new_characters_first: boolean; new_words_first: boolean; most_common_first: boolean; sentences_last: boolean; known_characters_english_first?: boolean; everyday_first?: boolean };
+  new_card_order?: { new_characters_first: boolean; new_words_first: boolean; most_common_first: boolean; sentences_last: boolean; known_characters_english_first?: boolean; everyday_first?: boolean; new_words_by_ear?: boolean };
   /**
    * "Pause new cards on heavy days" (shared/decks/review-load.ts) as this device applies it: the
    * account's limit (null = off), today's review load and whether today's budget is 0 + 0.

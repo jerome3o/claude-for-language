@@ -50,7 +50,8 @@ describe('a word of known characters starts with English → Chinese (web device
     await Promise.all([db.decks.clear(), db.notes.clear(), db.cards.clear(), db.reviewEvents.clear(), db.studyBumps.clear()]);
     await seed();
     writeStudyBudget({ new_cards_per_day: 2, secondary_cards_per_day: 0, is_default: false, set_by: null, set_by_name: null, set_at: null } as never);
-    writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER });
+    // "Start new words by ear" (on by default) wins over this rule: tested at the end.
+    writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER, new_words_by_ear: false });
   });
 
   it('all decks: 学生 comes as meaning_to_hanzi, 学校生活 as usual, and Home counts the same', async () => {
@@ -68,9 +69,20 @@ describe('a word of known characters starts with English → Chinese (web device
   });
 
   it('the switch off: hanzi_to_meaning first, as before', async () => {
-    writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER, known_characters_english_first: false });
+    writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER, known_characters_english_first: false, new_words_by_ear: false });
     const q = await getStudyQueue();
     expect(q.dueCards.map(c => c.id).sort()).toEqual(['w-xiao-hanzi_to_meaning', 'w-xuesheng-hanzi_to_meaning']);
     expect(q.knownCharacterNoteIds.size).toBe(0);
+  });
+
+  it('"Start new words by ear" (the default) wins: both new words start with their listening card, Home counts the same', async () => {
+    writeNewCardOrder({ ...DEFAULT_NEW_CARD_ORDER });
+    const q = await getStudyQueue();
+    expect(q.dueCards.map(c => c.id).sort()).toEqual(['w-xiao-audio_to_hanzi', 'w-xuesheng-audio_to_hanzi']);
+    expect(q.knownCharacterNoteIds.size).toBe(0);
+    expect(q.newWordsByEar).toBe(true);
+    expect(q.leadCards.get('w-xuesheng')).toBe('audio_to_hanzi');
+    const perDeck = allocateQueueCounts(await getRawQueueCounts(), 0);
+    expect(sumQueueCounts(perDeck.values()).new).toBe(q.counts.new);
   });
 });

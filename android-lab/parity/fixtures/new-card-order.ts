@@ -19,6 +19,7 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import {
   KNOWN_CHARACTERS_OPTION,
+  BY_EAR_OPTION,
   NEW_CARD_ORDER_OPTIONS,
   isNewWord,
   parseNewCardOrder,
@@ -62,12 +63,13 @@ const RAW = [
   '{"most_common_first":0}', '{"new_characters_first":false,"new_words_first":false,"most_common_first":false,"sentences_last":false}',
   '{"new_characters_first":true,"extra":1}', 'null', '"x"', '{"sentences_last":null}',
   '{"known_characters_english_first":false}', '{"known_characters_english_first":"false"}', '{"known_characters_english_first":null,"sentences_last":false}',
+  '{"new_words_by_ear":false}', '{"new_words_by_ear":"false"}', '{"new_words_by_ear":null,"known_characters_english_first":false}',
   '{"everyday_first":false}', '{"everyday_first":"false"}', '{"everyday_first":0,"most_common_first":false}', '{"everyday_first":true,"new_words_first":false}',
 ];
 const settings = RAW.map(raw => ({ raw, order: parseNewCardOrder(raw) }));
 for (let i = 0; i < 20; i++) {
   const obj: Record<string, unknown> = {};
-  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first']) {
+  for (const k of ['new_characters_first', 'new_words_first', 'most_common_first', 'sentences_last', 'known_characters_english_first', 'everyday_first', 'new_words_by_ear']) {
     if (rand() < 0.7) obj[k] = pick([true, false, 'true', 1, null]);
   }
   const raw = JSON.stringify(obj);
@@ -209,7 +211,7 @@ const formalityMap = Object.fromEntries(noteFormalityMap(formalityNotes, lexicon
 const formalityNoLexicon = noteFormalityMap(formalityNotes, null).size;
 
 writeFileSync(join(OUT, 'new-card-order.json'), JSON.stringify({
-  settings, options: NEW_CARD_ORDER_OPTIONS, knownCharactersOption: KNOWN_CHARACTERS_OPTION, frequency, studied, pieces, picker,
+  settings, options: NEW_CARD_ORDER_OPTIONS, knownCharactersOption: KNOWN_CHARACTERS_OPTION, byEarOption: BY_EAR_OPTION, frequency, studied, pieces, picker,
   formality, formalityMap, formalityNoLexicon,
 }));
 console.log(`new-card-order: ${settings.length} settings + ${frequency.ranks.length} ranks + ${studied.length} studied + ${picker.length} picker cases + ${formality.length} formality`);

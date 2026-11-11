@@ -4,7 +4,7 @@ import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/pi
 import { withForgetEvents, type ReviewEvent as SchedulerReviewEvent } from '@shared/scheduler';
 import Dexie, { Table } from 'dexie';
 import { bumpPocket, cardsInStudy, heldCardIds, type QueueBump, type QueueBumps, type QueueHolds } from '@shared/decks';
-import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, knownCharacterNotesInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
+import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, leadCardsInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
 import { budgetForToday, reviewLoadState, reviewLoadToday, type ReviewLoadState } from '@shared/decks';
@@ -2036,9 +2036,9 @@ function countRawQueues(
   slots.primary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextPrimary ??= []).push(i); });
   slots.secondary.forEach((c, i) => { const raw = byDeck.get(c.deck_id); if (raw) (raw.upNextSecondary ??= []).push(i); });
 
-  // Each unseen note's lead card (hanzi_to_meaning; meaning_to_hanzi for a word of known
-  // characters, shared/decks/lead-card.ts) — the candidates of the global picks, like the session.
-  const lead = noteText ? knownCharacterNotesInQueue(unseenNew, reviewedNoteIds, allCards, noteText) : new Set<string>();
+  // Each unseen note's lead card (hanzi_to_meaning; audio_to_hanzi "by ear"; meaning_to_hanzi for a
+  // word of known characters, shared/decks/lead-card.ts) — the candidates of the global picks, like the session.
+  const lead = noteText ? leadCardsInQueue(unseenNew, reviewedNoteIds, allCards, noteText).leads : new Map<string, string>();
   for (const row of unseenNew) {
     if (!isLeadCard(row, lead)) continue;
     const list = newByDeck.get(row.deck_id);
@@ -2094,10 +2094,12 @@ export async function getRawQueueCounts(deckId?: string): Promise<RawQueueCounts
  * Get cards that are due for study, respecting per-deck new-card limits.
  *
  * New cards are sorted by priority before the daily limits are applied:
- *   1. Notes with no reviews yet + hanzi_to_meaning type (highest) — among
+ *   1. Notes with no reviews yet + their lead card (highest; shared/decks/lead-card.ts:
+ *      audio_to_hanzi with "Start new words by ear", else hanzi_to_meaning) — among
  *      them, the notes with never-seen characters first (shared/decks/novelty.ts)
  *   2. Notes with no reviews yet (any type)
- *   3. Notes already reviewed + hanzi_to_meaning type
+ *   3. Notes already reviewed + hanzi_to_meaning type ("by ear": audio_to_hanzi first,
+ *      the notes whose reading card is in Review before the others)
  *   4. Notes already reviewed (any type)
  *
  * Two daily budgets are applied per deck:
@@ -2148,7 +2150,7 @@ function selectDueCards(
   noteText: QueueNoteText | null,
   bonusNewCards: number,
   cutoff: { iso: string; ts: number }
-): { cards: LocalCard[]; bumpedCardIds: string[]; knownCharacterNoteIds: Set<string> } {
+): { cards: LocalCard[]; bumpedCardIds: string[]; knownCharacterNoteIds: Set<string>; leadCards: Map<string, string>; newWordsByEar: boolean } {
   const decks: QueueDeckInput[] = inputs.decks.map(d => ({
     id: d.id,
     priority: d.study_priority ?? 0,
@@ -2160,7 +2162,10 @@ function selectDueCards(
   // `studied` covers every deck; a one-deck session still spends the global
   // budget other decks used today (selectStudyQueue does the spent-elsewhere sum).
   const result = selectStudyQueue(decks, rows, inputs.budget, bonusNewCards, inputs.studied, cutoff.ts, inputs.deckId, noteText, inputs.longTerm, inputs.bumps, inputs.upNext, inputs.holds);
-  return { cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id), knownCharacterNoteIds: result.knownCharacterNoteIds };
+  return {
+    cards: result.due.map(r => r.card), bumpedCardIds: result.bumped.map(r => r.id), knownCharacterNoteIds: result.knownCharacterNoteIds,
+    leadCards: result.leadCards, newWordsByEar: result.newWordsByEar,
+  };
 }
 
 /** What a study session needs to start, from ONE load of decks, cards and counters. */
@@ -2172,6 +2177,10 @@ export interface StudyQueue {
   bumpedCardIds: Set<string>;
   /** Unseen notes that start with meaning_to_hanzi (every character known, shared/decks/lead-card.ts). */
   knownCharacterNoteIds: Set<string>;
+  /** note id → the card each unseen note leads with, when not hanzi_to_meaning (lead-card.ts: "by ear", known characters). */
+  leadCards: Map<string, string>;
+  /** "Start new words by ear" applies: a started word's listening card comes before its other new cards. */
+  newWordsByEar: boolean;
   /** Han characters of every note with a reviewed card, any deck (the shimmer: shared/study/newCharacters.ts). */
   seenCharacters: Set<string>;
 }
@@ -2186,14 +2195,14 @@ export async function getStudyQueue(deckId?: string, bonusNewCards = 0): Promise
   const cutoff = getStudyCutoff();
   const [inputs, noteText] = await Promise.all([loadStudyInputs(deckId), loadQueueNoteText(deckId)]);
   const reviewedNoteIds = collectReviewedNoteIds(inputs.cards);
-  const { cards: dueCards, bumpedCardIds, knownCharacterNoteIds } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
+  const { cards: dueCards, bumpedCardIds, knownCharacterNoteIds, leadCards, newWordsByEar } = selectDueCards(inputs, noteText, bonusNewCards, cutoff);
   const raw = countRawQueues(inputs, reviewedNoteIds, cutoff, noteText);
   const applied = allocateQueueCounts(raw, bonusNewCards, inputs.budget, inputs.spentElsewhere);
   const counts = deckId ? applied.get(deckId) ?? EMPTY_QUEUE_COUNTS : sumQueueCounts(applied.values());
   // Seen = the queue's own "studied" notes (every deck, also in a one-deck session).
   const seenIds = noteText.reviewedNoteIds ?? reviewedNoteIds;
   const seenCharacters = seenCharactersOf([...seenIds].map(id => noteText.hanzi.get(id) ?? ''));
-  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds), knownCharacterNoteIds, seenCharacters };
+  return { dueCards, counts, reviewedNoteIds, bumpedCardIds: new Set(bumpedCardIds), knownCharacterNoteIds, leadCards, newWordsByEar, seenCharacters };
 }
 
 /**

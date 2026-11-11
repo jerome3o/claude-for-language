@@ -102,9 +102,11 @@ describe('the study queue: a word of known characters starts with English → Ch
     card('w5', 'hanzi_to_meaning'), card('w5', 'audio_to_hanzi'), // no meaning_to_hanzi card → unchanged
   ];
   const cutoff = Date.now() + 86_400_000;
+  // "Start new words by ear" off: it wins over this rule (tested below).
+  const EYES: NewCardOrder = { ...DEFAULT_NEW_CARD_ORDER, new_words_by_ear: false };
   const run = (order: Partial<NewCardOrder> = {}, extra: Partial<QueueNoteText> = {}, perDay = 5) => selectStudyQueue(
     decks, base, { new_cards_per_day: perDay, secondary_cards_per_day: 0 }, 0, new Map(), cutoff, null,
-    { hanzi, order: { ...DEFAULT_NEW_CARD_ORDER, ...order }, ...extra },
+    { hanzi, order: { ...EYES, ...order }, ...extra },
   );
   const newIds = (q: ReturnType<typeof run>) => q.due.filter(c => c.queue === 0).map(c => c.id).sort();
 
@@ -120,7 +122,7 @@ describe('the study queue: a word of known characters starts with English → Ch
     const known = new Map(hanzi);
     known.set('w9', '很好');
     const q2 = selectStudyQueue(decks, base, { new_cards_per_day: 5, secondary_cards_per_day: 0 }, 0, new Map(), cutoff, null,
-      { hanzi: known, order: DEFAULT_NEW_CARD_ORDER, knownNoteIds: ['k1', 'k2', 'w9'] });
+      { hanzi: known, order: EYES, knownNoteIds: ['k1', 'k2', 'w9'] });
     expect([...q2.knownCharacterNoteIds].sort()).toEqual(['w1', 'w3']);
     expect(newIds(q2)).toContain('w3-m');
   });
@@ -148,10 +150,10 @@ describe('the study queue: a word of known characters starts with English → Ch
 
   it('an Up next note of known characters takes its meaning_to_hanzi card as the blue card', () => {
     const q = selectStudyQueue(decks, base, { new_cards_per_day: 2, secondary_cards_per_day: 0 }, 0, new Map(), cutoff, null,
-      { hanzi, order: DEFAULT_NEW_CARD_ORDER }, null, null, ['w1', 'w2']);
+      { hanzi, order: EYES }, null, null, ['w1', 'w2']);
     expect(q.upNext.map(c => c.id)).toEqual(['w1-m', 'w2-h']);
     const off = selectStudyQueue(decks, base, { new_cards_per_day: 2, secondary_cards_per_day: 0 }, 0, new Map(), cutoff, null,
-      { hanzi, order: { ...DEFAULT_NEW_CARD_ORDER, known_characters_english_first: false } }, null, null, ['w1', 'w2']);
+      { hanzi, order: { ...EYES, known_characters_english_first: false } }, null, null, ['w1', 'w2']);
     expect(off.upNext.map(c => c.id)).toEqual(['w1-h', 'w2-h']);
   });
 

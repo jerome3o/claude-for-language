@@ -22,6 +22,8 @@
  *                                                         choices, one-off decks and "Order new cards by" —
  *                                                         shared/decks/up-next.ts; `upNextHelpers`: the list
  *                                                         helpers the page / API use)
+ *   - "Start new words by ear" (lead-card.ts): `ordered` and `leadCard` cases with the switch on / off — the unseen
+ *     notes' listening card leads (it wins over the known-characters rule), the purple pool's listening cards first
  *   - selectStudyQueue(..., { knownNoteIds })          (`leadCard`: a word made only of known characters leads
  *                                                         with meaning_to_hanzi — in the pools and on the Up next
  *                                                         list — shared/decks/lead-card.ts)
@@ -417,8 +419,8 @@ for (let i = 0; i < 320; i++) {
     }
   }
   const order: NewCardOrder = i < 32
-    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8), known_characters_english_first: true, everyday_first: i % 3 !== 0 }
-    : { new_characters_first: rand() < 0.7, new_words_first: rand() < 0.7, most_common_first: rand() < 0.7, sentences_last: rand() < 0.7, known_characters_english_first: true, everyday_first: rand() < 0.7 };
+    ? { new_characters_first: !!(i & 1), new_words_first: !!(i & 2), most_common_first: !!(i & 4), sentences_last: !!(i & 8), known_characters_english_first: true, everyday_first: i % 3 !== 0, new_words_by_ear: i % 4 !== 1 }
+    : { new_characters_first: rand() < 0.7, new_words_first: rand() < 0.7, most_common_first: rand() < 0.7, sentences_last: rand() < 0.7, known_characters_english_first: true, everyday_first: rand() < 0.7, new_words_by_ear: i % 4 !== 1 };
   const useFrequency = i < 32 ? i < 16 : rand() < 0.8;
   // "Everyday words before formal ones": a class for some notes (0 everyday, 2 formal; missing = neutral), or none.
   const formality: Record<string, number> = {};
@@ -617,6 +619,8 @@ for (let i = 0; i < 320; i++) {
   const order: NewCardOrder = {
     new_characters_first: rand() < 0.6, new_words_first: rand() < 0.6, most_common_first: rand() < 0.6, sentences_last: rand() < 0.6,
     known_characters_english_first: i % 5 !== 4,
+    // "Start new words by ear" wins over the known-characters rule: on in a third of the cases.
+    new_words_by_ear: i % 3 === 0,
   };
   const useFrequency = rand() < 0.5;
   const budget = { new_cards_per_day: pick([1, 3, 5, 10, 40]), secondary_cards_per_day: pick([0, 6]) };
@@ -641,6 +645,8 @@ for (let i = 0; i < 320; i++) {
       hasMoreNew: q.hasMoreNew,
       allocation: [...q.allocation.entries()].map(([id, a]) => ({ deckId: id, primary: a.primary, secondary: a.secondary })),
       knownCharacterNoteIds: [...q.knownCharacterNoteIds].sort(),
+      earLeadNoteIds: [...q.earLeadNoteIds].sort(),
+      newWordsByEar: q.newWordsByEar,
     };
   });
   leadCard.push({

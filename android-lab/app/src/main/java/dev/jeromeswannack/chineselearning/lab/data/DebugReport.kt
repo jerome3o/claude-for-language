@@ -178,6 +178,7 @@ object DebugReportBuilder {
                 put("sentences_last", order.sentencesLast)
                 put("known_characters_english_first", order.knownCharactersEnglishFirst)
                 put("everyday_first", order.everydayFirst)
+                put("new_words_by_ear", order.newWordsByEar)
             }
             putJsonArray("up_next") { for (id in upNext.orEmpty()) add(id) }
             putJsonArray("holds") { for (h in heldRows) addJsonArray { add(h.cardId); add(h.kind); add(h.until) } }

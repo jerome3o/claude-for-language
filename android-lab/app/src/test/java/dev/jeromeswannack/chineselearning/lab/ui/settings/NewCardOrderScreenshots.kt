@@ -26,5 +26,7 @@ class NewCardOrderScreenshots : LabScreenshotTest() {
 
     @Test fun knownCharactersOff() = frame("new-card-order-03-known-characters-off", NewCardOrder.DEFAULT.copy(knownCharactersEnglishFirst = false), "Saved ✓")
 
+    @Test fun byEarOff() = frame("new-card-order-05-by-ear-off", NewCardOrder.DEFAULT.copy(newWordsByEar = false), "Saved ✓")
+
     @Test fun everydayOff() = frame("new-card-order-04-everyday-off", NewCardOrder.DEFAULT.copy(everydayFirst = false), "Saved ✓")
 }

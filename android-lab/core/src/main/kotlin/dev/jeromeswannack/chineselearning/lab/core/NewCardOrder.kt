@@ -26,6 +26,8 @@ data class NewCardOrder(
     val knownCharactersEnglishFirst: Boolean = true,
     /** Inside each tier, everyday words before formal ones (Formality.kt) — ahead of "Most common first". */
     val everydayFirst: Boolean = true,
+    /** Not an order: "Start new words by ear" — a new word starts with its listening card (LeadCard.kt). */
+    val newWordsByEar: Boolean = true,
 ) {
     val isDefault: Boolean get() = this == DEFAULT
 
@@ -36,6 +38,7 @@ data class NewCardOrder(
         "sentences_last" -> sentencesLast
         "known_characters_english_first" -> knownCharactersEnglishFirst
         "everyday_first" -> everydayFirst
+        "new_words_by_ear" -> newWordsByEar
         else -> false
     }
 
@@ -46,6 +49,7 @@ data class NewCardOrder(
         "sentences_last" -> copy(sentencesLast = on)
         "known_characters_english_first" -> copy(knownCharactersEnglishFirst = on)
         "everyday_first" -> copy(everydayFirst = on)
+        "new_words_by_ear" -> copy(newWordsByEar = on)
         else -> this
     }
 
@@ -56,8 +60,8 @@ data class NewCardOrder(
 
     companion object {
         val DEFAULT = NewCardOrder()
-        val ALL_OFF = NewCardOrder(false, false, false, false, false, false)
-        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first", "everyday_first")
+        val ALL_OFF = NewCardOrder(false, false, false, false, false, false, false)
+        val KEYS = listOf("new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first", "everyday_first", "new_words_by_ear")
 
         /** NEW_CARD_ORDER_OPTIONS — the settings rows, same words as the web (parity-tested). */
         val OPTIONS = listOf(
@@ -73,6 +77,13 @@ data class NewCardOrder(
             "known_characters_english_first",
             "Words made of characters I know: start with English → Chinese",
             "When you already know every character of a new word, its first card asks you to write it from the English instead of reading it.",
+        )
+
+        /** BY_EAR_OPTION — "Start new words by ear" (LeadCard.kt), shown above the known-characters switch; same words as the web (parity-tested). */
+        val BY_EAR_OPTION = Option(
+            "new_words_by_ear",
+            "Start new words by ear",
+            "Introduce a new word with its listening card (hear it, write it), and give the words you can already read their listening card first.",
         )
 
         /** Port of parseNewCardOrder(): stored JSON (maybe partial / garbage) → a full set. */

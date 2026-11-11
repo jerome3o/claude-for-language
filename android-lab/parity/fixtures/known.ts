@@ -7,6 +7,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   knownProgress, historyPoints, hanCharacters, noteKind, noteKey, knownCountsFromTiers,
+  groupThousands, wordSkillsLine, earLagHint,
   type KnownEventInput,
 } from '../../../shared/progress/known';
 import {
@@ -35,6 +36,7 @@ const HANZI = [
 ];
 
 const DAY = 86_400_000;
+const CARD_TYPES = ['hanzi_to_meaning', 'audio_to_hanzi', 'meaning_to_hanzi', ''];
 const cases = [];
 for (let c = 0; c < 50; c++) {
   const r = rng(7000 + c);
@@ -44,7 +46,8 @@ for (let c = 0; c < 50; c++) {
     hanzi: HANZI[Math.floor(r() * HANZI.length)],
   }));
   const cards = notes.flatMap((n) =>
-    Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => ({ id: `${n.id}c${k}`, note_id: n.id })));
+    // A card type per position (words_by_skill: by reading / by ear); an untyped card counts for neither.
+    Array.from({ length: 1 + Math.floor(r() * 3) }, (_, k) => ({ id: `${n.id}c${k}`, note_id: n.id, card_type: CARD_TYPES[(k + c) % CARD_TYPES.length] })));
   if (r() < 0.2) cards.push({ id: 'orphan', note_id: 'missing-note' });
   const span = 5 + Math.floor(r() * 200);
   const events: KnownEventInput[] = [];
@@ -119,6 +122,10 @@ writeFileSync(join(OUT, 'known.json'), JSON.stringify({
   cases,
   week_starts: weekStarts,
   signed: [-1234567, -5, 0, 7, 1204].map((n) => ({ n, s: signedCount(n) })),
+  // By reading / by ear: the Progress line and the ear-lag hint.
+  skills: [[0, 0], [1240, 610], [999, 1000], [20, 11], [20, 12], [19, 0], [100, 60], [100, 59], [1234567, 7], [5, 50]].map(([reading, ear]) => ({
+    reading, ear, line: wordSkillsLine({ reading, ear }), hint: earLagHint({ reading, ear }), grouped: groupThousands(reading),
+  })),
   timelines,
   texts: texts.map((t) => ({ text: t, chars: hanCharacters(t), kind: noteKind(t), key: noteKey(t) })),
   tiers: Array.from({ length: 20 }, (_, c) => {
