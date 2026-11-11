@@ -1,7 +1,8 @@
 package dev.jeromeswannack.chineselearning.lab.core.explorer
 
-import dev.jeromeswannack.chineselearning.lab.core.Known
+import dev.jeromeswannack.chineselearning.lab.core.DevicePinyin
 import dev.jeromeswannack.chineselearning.lab.core.ToneChange
+import dev.jeromeswannack.chineselearning.lab.core.WordSyllables
 
 /*
  * Port of shared/explorer/word.ts — the Word view's facts (docs/LANGUAGE_EXPLORER.md): the
@@ -60,14 +61,15 @@ object ExplorerWord {
     /** Port of NAMED_WORD_RANK. */
     const val NAMED_WORD_RANK = 30000
 
-    /** Port of `wordChars`: each Han character with its syllable (from [syllables], else split from [pinyin]). */
+    /**
+     * Port of `wordChars`: each Han character with its syllable (from [syllables], else cut from
+     * [pinyin] into exactly one syllable per character — `WordSyllables.align`, so
+     * "wúnóngkuǎnyǔ" is wú | nóng | kuǎn | yǔ, never a greedy wún | óng).
+     */
     fun wordChars(hanzi: String, pinyin: String?, syllables: List<String>? = null): List<WordChar> {
-        val chars = hanzi.codePoints().toArray().filter { Known.isHan(it) }.map { String(Character.toChars(it)) }
+        val chars = WordSyllables.hanChars(hanzi)
         var syl: List<String>? = if (syllables != null && syllables.size == chars.size) syllables else null
-        if (syl == null && !pinyin.isNullOrEmpty()) {
-            val split = ToneChange.pinyinSyllables(pinyin.trim())
-            if (split != null && split.size == chars.size) syl = split
-        }
+        if (syl == null && !pinyin.isNullOrEmpty()) syl = WordSyllables.align(chars, pinyin.trim())?.syllables
         return chars.mapIndexed { i, ch ->
             val s = syl?.get(i)
             WordChar(ch, s, if (!s.isNullOrEmpty()) ToneChange.syllableTone(s) else null)
@@ -101,7 +103,9 @@ object ExplorerWord {
     /**
      * Port of `resolveWord`: dictionary first — the word dictionary's [record], else the entry in
      * a character record's word list, else the learner's own card, else the tapped place's hint.
-     * [rank] (the shipped list) wins over the record's.
+     * [rank] (the shipped list) wins over the record's. With [device], every pinyin but the word
+     * dictionary's is checked against its characters (`WordSyllables.check`; the character lists'
+     * only cut, never corrected): dictionary → validated card / text pinyin → the device's reading.
      */
     fun resolveWord(
         hanzi: String,
@@ -111,6 +115,22 @@ object ExplorerWord {
         hintPinyin: String? = null,
         hintGloss: String? = null,
         rank: Int? = null,
+        device: DevicePinyin? = null,
+    ): ResolvedWord {
+        val found = pickWordSource(hanzi, record, charWords, notes, hintPinyin, hintGloss, rank)
+        if (device == null || found.source == WordSource.DICTIONARY) return found
+        val checked = WordSyllables.check(hanzi, found.pinyin, device, found.source == WordSource.CHAR_DICT)
+        return found.copy(pinyin = checked.pinyin, syllables = checked.syllables)
+    }
+
+    private fun pickWordSource(
+        hanzi: String,
+        record: WordRecord?,
+        charWords: List<DictWord>?,
+        notes: List<WordNoteLike>?,
+        hintPinyin: String?,
+        hintGloss: String?,
+        rank: Int?,
     ): ResolvedWord {
         val r = rank ?: record?.rank
         if (record != null && record.hanzi == hanzi) {

@@ -12,6 +12,7 @@ import type { CharRecord } from '@shared/chars/types';
 import { lookupChar, type CharLookup } from '../../services/charDict';
 import { lookupWord, type WordLookup } from '../../services/wordDict';
 import { track } from '../../services/analytics';
+import { devicePinyin } from '../../utils/autoPinyin';
 import { playText } from '../audio';
 import type { UiNode } from '../ui/layout';
 import type { PanelHostProps } from './types';
@@ -99,7 +100,7 @@ async function loadData(item: ExplorerItem): Promise<ExplorerData> {
   const [w, first]: [WordLookup, CharLookup] = await Promise.all([lookupWord(item.hanzi), lookupChar(chars[0])]);
   const record = w.status === 'ok' ? w.record : null;
   const charWords = first.status === 'ok' ? first.record.words : [];
-  const word = resolveWord(item.hanzi, { record, charWords, hint: { pinyin: item.pinyin, gloss: item.gloss } });
+  const word = resolveWord(item.hanzi, { record, charWords, hint: { pinyin: item.pinyin, gloss: item.gloss }, device: devicePinyin(first.status === 'ok' ? [first.record] : []) });
   if (word.source === 'none' && (w.status === 'offline' || offline)) return { kind: 'missing', offline: true };
   return { kind: 'word', word, chars };
 }

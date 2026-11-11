@@ -155,6 +155,91 @@ class ExplorerParityTest {
         assertEquals(entries.map { Triple(it["tier"].str(), it["colour"].str(), it["label"].str()) }, FrequencyDecals.KEY.map { Triple(it.tier.wire, it.colour, it.label) })
     }
 
+    /** The device the fixture used: the readings and auto-pinyin it asked for, nothing else. */
+    private val fixtureDevice: DevicePinyin by lazy {
+        val readings = fixture["device_readings"]!!.jsonObject
+        val auto = fixture["device_auto"]!!.jsonObject
+        DevicePinyin(
+            readings = { ch -> readings[ch].strings() ?: fail("readings of $ch were never asked for by the TypeScript") },
+            auto = { text -> auto[text].str() ?: fail("auto-pinyin of $text was never asked for by the TypeScript") },
+        )
+    }
+
+    private fun assertAligned(expected: JsonElement?, got: AlignedWordPinyin?, label: String) {
+        if (expected == null || expected is JsonNull) {
+            assertEquals(null, got, label)
+            return
+        }
+        val e = expected.jsonObject
+        assertTrue(got != null, "$label: Kotlin found no alignment")
+        assertEquals(e["syllables"].strings(), got.syllables, "$label syllables")
+        assertEquals(e["spans"]!!.jsonArray.map { s -> s.jsonArray.let { it[0].jsonPrimitive.int to it[1].jsonPrimitive.int } }, got.spans, "$label spans")
+        assertEquals(e["misfits"]!!.jsonArray.map { it.jsonPrimitive.int }, got.misfits, "$label misfits")
+    }
+
+    private fun assertChecked(expected: JsonElement?, got: CheckedWordPinyin, label: String) {
+        val e = expected!!.jsonObject
+        assertEquals(e["pinyin"].str(), got.pinyin, "$label pinyin")
+        assertEquals(e["syllables"].strings(), got.syllables, "$label syllables")
+        assertEquals(e["how"].str(), got.how.wire, "$label how")
+    }
+
+    @Test
+    fun wordPinyinPerCharacterMatchesTypeScript() {
+        val cases = fixture["word_pinyin"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 30)
+        for (c in cases) {
+            val hanzi = c["hanzi"].str()!!
+            val pinyin = c["pinyin"].str()
+            val trust = c["trust"]!!.jsonPrimitive.boolean
+            val label = "$hanzi / $pinyin / trust=$trust"
+            val chars = WordSyllables.hanChars(hanzi)
+            assertEquals(c["chars"].strings(), chars, "$label chars")
+            if (pinyin != null) {
+                assertAligned(c["aligned"], WordSyllables.align(chars, pinyin), "$label align")
+                val readings = fixtureDevice.readings!!
+                assertAligned(c["aligned_fits"], WordSyllables.align(chars, pinyin) { i, s -> WordSyllables.readingFits(chars, i, s, readings(chars[i])) }, "$label align with fits")
+            }
+            assertChecked(c["checked"], WordSyllables.check(hanzi, pinyin, fixtureDevice, trust), "$label check")
+            assertChecked(c["checked_bare"], WordSyllables.check(hanzi, pinyin, DevicePinyin(), trust), "$label check (no device)")
+        }
+    }
+
+    @Test
+    fun devicePinyinOfThePhoneMatchesTheWeb() {
+        // The pure rules above ran on the web's answers; the phone's own readings / auto-pinyin give the same.
+        for ((ch, readings) in fixture["device_readings"]!!.jsonObject) {
+            assertEquals(readings.strings(), Pinyin.readings(ch).filter { it.isNotEmpty() }, "readings of $ch")
+        }
+        for ((text, auto) in fixture["device_auto"]!!.jsonObject) {
+            assertEquals(auto.str(), ToneChange.autoPinyin(text), "auto-pinyin of $text")
+        }
+    }
+
+    @Test
+    fun resolveWordWithTheDeviceMatchesTypeScript() {
+        for (c in fixture["resolved_device"]!!.jsonArray.map { it.jsonObject }) {
+            val src = c["sources"]!!.jsonObject
+            val record = src["record"]?.jsonObject?.let { r ->
+                WordRecord(r["hanzi"].str()!!, r["pinyin"].str()!!, r["syllables"].strings()!!, r["english"].str()!!, r["senses"].strings()!!, r["rank"].intOrNull())
+            }
+            val charWords = src["charWords"]?.jsonArray?.map { w -> w.jsonObject.let { DictWord(it["hanzi"].str()!!, it["pinyin"].str()!!, it["english"].str()!!) } }
+            val notes = src["notes"]?.jsonArray?.map { n -> n.jsonObject.let { WordNoteLike(it["hanzi"].str()!!, it["pinyin"].str(), it["english"].str()) } }
+            val hint = src["hint"]?.jsonObject
+            val got = ExplorerWord.resolveWord(
+                c["hanzi"].str()!!, record, charWords, notes,
+                hintPinyin = hint?.get("pinyin").str(), hintGloss = hint?.get("gloss").str(), rank = src["rank"].intOrNull(),
+                device = fixtureDevice,
+            )
+            val out = c["out"]!!.jsonObject
+            val label = "resolveWord+device($src)"
+            assertEquals(out["pinyin"].str(), got.pinyin, label)
+            assertEquals(out["english"].str(), got.english, label)
+            assertEquals(out["syllables"].strings(), got.syllables, label)
+            assertEquals(out["source"].str(), got.source.wire, label)
+        }
+    }
+
     @Test
     fun resolveWordMatchesTypeScript() {
         for (c in fixture["resolved"]!!.jsonArray.map { it.jsonObject }) {

@@ -111,6 +111,20 @@ class ExplorerScreenshots : LabScreenshotTest() {
         overCard { WordView(ExplorerSamples.wordUi(mine = null), listOf(ExplorerSamples.item()), canOpenCard = true, canBump = true) }
     }
 
+    /**
+     * Jerome's reader chip (Nov 2026): 吴侬软语 is not in the word dictionary, so the chip's own pinyin
+     * — Haiku's "wúnóngkuǎnyǔ" — is checked per character: wú · nóng · ruǎn · yǔ (软 is never kuǎn).
+     */
+    private val wuNong = ExplorerItem.Word("吴侬软语", "wúnóngkuǎnyǔ", "soft Wu dialect", "苏州话听起来又软又好听，人们说这是\"吴侬软语\"。")
+
+    @Test fun readerChipPinyin() = shoot("explorer-30-reader-chip-pinyin") {
+        overCard { WordView(WordViewUi(item = wuNong, lookup = WordDict.Lookup.Missing, mine = MyWord()), listOf(wuNong), canOpenCard = true, canBump = true) }
+    }
+
+    @Test fun readerChipPinyinDark() = shoot("explorer-30-reader-chip-pinyin-dark", dark = true) {
+        overCard { WordView(WordViewUi(item = wuNong, lookup = WordDict.Lookup.Missing, mine = MyWord()), listOf(wuNong), canOpenCard = true, canBump = true) }
+    }
+
     @Test fun wordDark() = shoot("explorer-06-word-dark", dark = true) {
         overCard { WordView(ExplorerSamples.wordUi(), listOf(ExplorerItem.Char("银"), ExplorerSamples.item()), canOpenCard = true, canBump = true) }
     }

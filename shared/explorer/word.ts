@@ -4,8 +4,8 @@
  * Pure; ported to the Lab app (core/…/explorer/ExplorerWord.kt, parity-tested).
  */
 import type { CharWord, WordRecord } from '../chars/types';
-import { pinyinSyllables, syllableTone } from '../pinyin/toneChange';
-import { isHanCodePoint } from '../progress/known';
+import { syllableTone } from '../pinyin/toneChange';
+import { alignWordSyllables, checkWordPinyin, hanChars, type DevicePinyin } from '../pinyin/wordSyllables';
 
 export interface WordChar {
   char: string;
@@ -15,14 +15,15 @@ export interface WordChar {
   tone: number | null;
 }
 
-/** Each Han character of the word with its syllable (from `syllables`, else split from `pinyin`). */
+/**
+ * Each Han character of the word with its syllable (from `syllables`, else cut from `pinyin` into
+ * exactly one syllable per character — `alignWordSyllables`, so "wúnóngkuǎnyǔ" is wú | nóng | kuǎn
+ * | yǔ, never a greedy wún | óng; a syllable ending in r may cover a following 儿).
+ */
 export function wordChars(hanzi: string, pinyin: string | null | undefined, syllables?: readonly string[] | null): WordChar[] {
-  const chars = [...hanzi].filter((ch) => isHanCodePoint(ch.codePointAt(0)!));
+  const chars = hanChars(hanzi);
   let syl: readonly string[] | null = syllables && syllables.length === chars.length ? syllables : null;
-  if (!syl && pinyin) {
-    const split = pinyinSyllables(pinyin.trim());
-    if (split && split.length === chars.length) syl = split;
-  }
+  if (!syl && pinyin) syl = alignWordSyllables(chars, pinyin.trim())?.syllables ?? null;
   return chars.map((char, i) => {
     const s = syl ? syl[i] : null;
     return { char, syllable: s, tone: s ? syllableTone(s) : null };
@@ -71,8 +72,33 @@ export interface ResolvedWord {
  * Pinyin and meaning, dictionary first: the word dictionary's record, else the entry in a
  * character record's "Words with 字" list, else the learner's own card, else what the place it
  * was tapped in said (a reader chip's gloss). `rank` (the shipped list) wins over the record's.
+ *
+ * With `device` (the readings + auto-pinyin the device has), every pinyin but the word
+ * dictionary's is checked against its characters (`checkWordPinyin`): the character lists' is only
+ * cut into syllables; a card's or the tapped place's has a syllable its character can never have
+ * replaced by the device's reading (吴侬软语 "wúnóngkuǎnyǔ" → "wúnóngruǎnyǔ"), and pinyin that
+ * can't be lined up — or none at all — gives way to the device's reading of the word. So the order
+ * is: dictionary → validated pinyin from the card / text → the device's own reading.
  */
 export function resolveWord(
+  hanzi: string,
+  sources: {
+    record?: WordRecord | null;
+    charWords?: readonly CharWord[];
+    notes?: readonly WordNoteLike[];
+    hint?: { pinyin?: string; gloss?: string };
+    rank?: number | null;
+    device?: DevicePinyin;
+  },
+): ResolvedWord {
+  const found = pickWordSource(hanzi, sources);
+  const device = sources.device;
+  if (!device || found.source === 'dictionary') return found;
+  const checked = checkWordPinyin(hanzi, found.pinyin, device, found.source === 'char_dict');
+  return { ...found, pinyin: checked.pinyin, syllables: checked.syllables };
+}
+
+function pickWordSource(
   hanzi: string,
   sources: {
     record?: WordRecord | null;
