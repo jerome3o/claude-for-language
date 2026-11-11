@@ -44,7 +44,7 @@ Anki's "Next day starts at", the **study day** turns over at a rollover hour ins
   hour to the next date's (23 or 25 h across a DST change; a local time in the spring-forward gap
   moves later, one that happens twice takes the earlier — java.time's rules). Its key is the date
   (YYYY-MM-DD). A rollover of 0 is exactly the old calendar day.
-- **Stored** as `users.day_rollover_hour` (migration 0148, NULL = 4); `PUT /api/profile/day-rollover
+- **Stored** as `users.day_rollover_hour` (migration 0149, NULL = 4); `PUT /api/profile/day-rollover
   { day_rollover_hour: 0–6 | null }`; on `/api/auth/me` and `/api/sync/changes` as
   `day_rollover_hour`, cached on the device (web `services/studyDay.ts` localStorage, Lab
   `Prefs.dayRolloverHour` → `data/StudyDayClock.kt`) so it works offline.
