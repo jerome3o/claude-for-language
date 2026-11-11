@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 /**
  * The call's tile layout (shared/calls/layout.ts, components/calls/CallTiles.tsx):
@@ -53,8 +54,7 @@ async function joinCall(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   await expect(page.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await page.getByTestId('record-toggle').uncheck();
-  await page.getByTestId('join-call').click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 /**

@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Browser, Page, WebSocketRoute } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 /**
  * Video calls keep working when things go wrong (docs/VIDEO_CALLS.md "Staying connected"):
@@ -56,8 +57,7 @@ async function joinCall(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   await expect(page.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await page.getByTestId('record-toggle').uncheck();
-  await page.getByTestId('join-call').click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 test('blocked camera and microphone: the page explains it and the call can still be joined', async ({ playwright, browser, request }) => {

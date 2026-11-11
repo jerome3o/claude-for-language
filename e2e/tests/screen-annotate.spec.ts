@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 /**
  * Drawing on a shared screen: the tutor shares her screen (a fake screen made
@@ -69,8 +70,7 @@ async function join(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   await expect(page.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await page.getByTestId('record-toggle').uncheck();
-  await page.getByTestId('join-call').click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 test('the student draws on the tutor\'s shared screen and the tutor sees it on her preview', async ({ browser, request }) => {

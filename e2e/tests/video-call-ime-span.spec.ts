@@ -8,6 +8,7 @@
  * lights their name up under the board.
  */
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
 
@@ -51,8 +52,7 @@ async function join(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   const button = page.getByTestId('join-call');
   await expect(button).toBeEnabled({ timeout: 20000 });
-  await button.click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 test('an IME span that never closes does not hold the other person back; the caret is a dot, the name shows below on hover', async ({ browser, request }) => {

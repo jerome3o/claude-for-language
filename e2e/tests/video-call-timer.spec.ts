@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext, Browser, Page } from '@playwright/test';
+import { pressJoin } from './fixtures/calls';
 
 /**
  * The call timer and call sounds (shared/calls/timer.ts, shared/calls/chime.ts — Minghui, Oct 2026:
@@ -51,8 +52,7 @@ async function join(page: Page, callId: string) {
   await page.goto(`/calls/${callId}`);
   await expect(page.getByTestId('join-call')).toBeEnabled({ timeout: 20000 });
   await page.getByTestId('record-toggle').uncheck();
-  await page.getByTestId('join-call').click();
-  await page.getByTestId('call-live').waitFor({ timeout: 20000 });
+  await pressJoin(page);
 }
 
 const chimes = (page: Page) => page.evaluate(() => (window as unknown as { __callChimes: string[] }).__callChimes.slice());
