@@ -292,7 +292,7 @@ class HomeHomeworkSource(private val app: LabApp) {
 
     private suspend fun build(input: Inputs): HomeHomeworkUi {
         val (assignments, events) = input.homework ?: (emptyList<HomeworkAssignment>() to emptyList())
-        val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, Homework.localDate())).todo
+        val todo = Homework.sortHomeworkItems(Homework.toHomeworkItems(assignments, events, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey())).todo
         val p = pick(input.rel, input.sources, input.notifications)
         // Lessons a tutor sent for long-term review (fsrs, or before assignments existed): the only NEW
         // lessons that are rows — never his own, never one whose assignments were cancelled. Long-term DECKS are
@@ -309,7 +309,7 @@ class HomeHomeworkSource(private val app: LabApp) {
         val unread = p?.unreadMessage
         // Sizes ("18 exercises · ~12 min", "5 questions · ~4 min" for a revision due, "6 pages") and
         // the lessons as Home sees them (web HomeworkHomeCard's useHomeLessons).
-        val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault()).ts
+        val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour).ts
         val tutorOf = assignments.filter { it.kind == "lesson" && !it.tutor_name.isNullOrEmpty() }.associate { it.target_id to it.tutor_name }
         val sizes = HashMap<String, String>()
         val lessons = input.lessons.map { e ->

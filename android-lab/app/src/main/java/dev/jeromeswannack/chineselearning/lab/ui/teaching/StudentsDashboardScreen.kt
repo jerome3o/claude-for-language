@@ -101,7 +101,7 @@ fun StudentsDashboardScreen(
     now: Instant = Instant.now(),
     /** Each student's newest homework (relationship id → row), from the homework library. */
     recentHomework: Map<String, LibraryItem> = emptyMap(),
-    today: String = Homework.localDate(),
+    today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
 ) {
     LabScreen(
         title = "My students",
@@ -129,7 +129,7 @@ fun StudentsDashboardScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant = Instant.now(), recent: LibraryItem? = null, today: String = Homework.localDate()) {
+fun StudentCard(o: StudentOverviewDto, actions: DashboardActions, now: Instant = Instant.now(), recent: LibraryItem? = null, today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey()) {
     val name = studentName(o)
     val relId = o.relationship_id
     var showQr by remember { mutableStateOf(false) }

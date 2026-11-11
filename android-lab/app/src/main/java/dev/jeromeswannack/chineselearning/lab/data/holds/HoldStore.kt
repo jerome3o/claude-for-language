@@ -45,8 +45,9 @@ object HoldStore {
     const val PENDING_ADD = "add"
     const val PENDING_CLEAR = "clear"
 
+    /** Today's STUDY day (StudyDayClock): a snooze ends on it. */
     fun today(nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String =
-        Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
+        dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(nowMs, zone)
 
     private fun hold(e: CardHoldEntity) = CardHold(e.id, e.cardId, e.kind, e.until, e.createdAt)
 
@@ -80,7 +81,7 @@ object HoldStore {
     suspend fun queueHolds(dao: LabDao, bury: Boolean, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): QueueHolds? {
         val held = heldIds(dao, nowMs, zone)
         if (held.isEmpty() && !bury) return null
-        val reviewedToday = if (bury) dao.cardIdsReviewedSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone))).toSet() else null
+        val reviewedToday = if (bury) dao.cardIdsReviewedSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))).toSet() else null
         return QueueHolds(held, reviewedToday)
     }
 
@@ -205,5 +206,5 @@ object HoldStore {
     }
 
     /** Today's local date, for labels. */
-    fun localToday(zone: ZoneId = ZoneId.systemDefault()): String = LocalDate.now(zone).toString()
+    fun localToday(zone: ZoneId = ZoneId.systemDefault()): String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(zone = zone)
 }

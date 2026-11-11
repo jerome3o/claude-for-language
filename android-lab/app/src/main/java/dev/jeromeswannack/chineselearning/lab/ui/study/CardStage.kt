@@ -1000,7 +1000,7 @@ fun CardStage(
             hanzi = note.hanzi,
             cardType = view.card.cardType,
             wordCardTypes = view.wordCardTypes,
-            today = java.time.LocalDate.now().toString(),
+            today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
             onApply = { length, wholeWord -> actions.onHold(s.kind, length, wholeWord) },
             onDismiss = { if (sheet == s) sheet = null },
         )

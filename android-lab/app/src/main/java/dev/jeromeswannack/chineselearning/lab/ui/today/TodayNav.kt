@@ -83,7 +83,7 @@ private inline fun <reified V : ViewModel> factory(crossinline make: () -> V) = 
 object TodayHomeLoader {
     suspend fun load(app: LabApp, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): TodayHome = withContext(Dispatchers.IO) {
         val counts = TodayCounts.compute(app, nowMs, zone)
-        val reviewed = app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone)))
+        val reviewed = app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)))
         val snapshot = runCatching { TodayData(app).snapshot(nowMs, zone) }.getOrDefault(TodaySnapshot.EMPTY)
         // Locked lessons' podcasts: their titles, and whether they were heard to the end (here or anywhere).
         val audio = runCatching { dev.jeromeswannack.chineselearning.lab.data.audiolessons.AudioLessonStore(app.cache, app.repo.api, app.filesDir).cachedList() }.getOrDefault(emptyList()).associateBy { it.id }

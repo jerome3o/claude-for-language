@@ -27,10 +27,10 @@ object TodayCounts {
         val cards = dao.cards().map { it.toQueueCard() }
         if (cards.isEmpty()) return null
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, zone))
+        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
         return StudyQueue.build(
             dao.decks().map { it.toQueueDeck() }, cards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, prefs, cards, first, nowMs, zone).budget,
-            prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()), introduced, StudyQueue.cutoff(nowMs, zone), null, dao.noteHanzi(), longTerm = dao.noteLongTerm(),
+            prefs.bonus("all", dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(nowMs, zone)), introduced, StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour), null, dao.noteHanzi(), longTerm = dao.noteLongTerm(),
             bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao),
             upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao),
             order = prefs.newCardOrder, frequency = dev.jeromeswannack.chineselearning.lab.core.WordFrequency.shipped,

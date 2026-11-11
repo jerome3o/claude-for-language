@@ -85,7 +85,7 @@ object BumpStore {
     suspend fun openNoteIds(dao: LabDao, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Set<String> {
         val bumps = queueBumps(dao) ?: return emptySet()
         val cards = bumps.bumps.map { it.noteId }.chunked(500).flatMap { dao.cardsOfNotes(it) }.map { it.toQueueCard() }
-        return Bumps.bumpPocket(cards, bumps, StudyQueue.cutoff(nowMs, zone).ts).activeNoteIds.toSet()
+        return Bumps.bumpPocket(cards, bumps, StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour).ts).activeNoteIds.toSet()
     }
 
     /** "⚡ from Minghui" per bumped note (only notes a tutor bumped). */
@@ -173,7 +173,7 @@ object BumpStore {
                 QueueBump(noteId, Js.parseDate(row.createdAt), parseCardTypes(row.cardTypes)),
                 spans.associate { it.cardId to Js.parseDate(it.lastAt) },
                 spans.associate { it.cardId to Js.parseDate(it.firstAt) },
-                StudyQueue.cutoff(nowMs, zone).ts,
+                StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour).ts,
             )
             // A bump whose cards were all reviewed is finished: start afresh.
             if (open.isNotEmpty()) {

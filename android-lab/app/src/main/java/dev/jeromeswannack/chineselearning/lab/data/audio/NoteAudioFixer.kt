@@ -212,9 +212,9 @@ class NoteAudioFixer(
         val z = zone()
         val decks = repo.dao.decks().map { it.toQueueDeck() }
         val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, z))
-        val cutoff = StudyQueue.cutoff(nowMs, z)
-        val bonus = repo.prefs.bonus("all", java.time.Instant.ofEpochMilli(nowMs).atZone(z).toLocalDate().toString())
+        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(nowMs, z, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
+        val cutoff = StudyQueue.cutoff(nowMs, z, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
+        val bonus = repo.prefs.bonus("all", dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(nowMs, z))
         val hanzi = repo.dao.noteHanzi()
         val longTerm = repo.dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(repo.dao)

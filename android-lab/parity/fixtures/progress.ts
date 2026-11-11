@@ -5,7 +5,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  dailyProgress, dayCards, utcDate, windowStart, formatStudyTime, formatStreakTime,
+  dailyProgress, dayCards, progressDate, windowStart, formatStudyTime, formatStreakTime,
   studyStreak, masteryProgress, masteryLevel,
   type ProgressEvent, type ProgressCardInfo,
 } from '../../../shared/progress';
@@ -58,11 +58,18 @@ for (let c = 0; c < 60; c++) {
       user_answer: r() < 0.2 ? '字' : r() < 0.3 ? '' : null,
     });
   }
-  const dates = [...new Set(events.map((e) => utcDate(e.reviewed_at)))].sort().slice(-6);
+  // Progress days shifted by "offset − New day starts at" (study days; 0 = UTC dates).
+  const shift = [0, -240, 60 - 240, 480 - 240, -480, 345][c % 6];
+  const dates = [...new Set(events.map((e) => progressDate(e.reviewed_at, shift)))].sort().slice(-6);
+  // The streak in study days: every zone, the rollover hour varying with the case (0–6).
+  const rollover = c % 7;
   const streaks = ZONES.map((zone) => {
     process.env.TZ = zone;
-    const s = studyStreak(events, new Date(nowMs));
-    return { zone, ...s };
+    // Both the device path (no zone: the runtime's, TZ) and the named zone must agree.
+    const s = studyStreak(events, new Date(nowMs), rollover);
+    const named = studyStreak(events, new Date(nowMs), rollover, zone);
+    if (JSON.stringify(s) !== JSON.stringify(named)) throw new Error(`device vs named zone streak differ in ${zone}`);
+    return { zone, rollover, ...s };
   });
   process.env.TZ = 'UTC';
   const masteryCards = Array.from({ length: Math.floor(r() * 40) }, (_, i) => ({
@@ -75,8 +82,9 @@ for (let c = 0; c < 60; c++) {
     window_start: windowStart(nowMs),
     events,
     cards,
-    daily: dailyProgress(events, nowMs),
-    days: dates.map((d) => dayCards(events, cards, d)),
+    shift,
+    daily: dailyProgress(events, nowMs, shift),
+    days: dates.map((d) => dayCards(events, cards, d, shift)),
     streaks,
     mastery_cards: masteryCards,
     mastery: masteryProgress(masteryCards),

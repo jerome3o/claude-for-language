@@ -95,7 +95,7 @@ data class LibraryFilter(val status: String? = null, val kind: String? = null)
 data class HomeworkLibraryUi(
     val studentName: String? = null,
     val state: Loadable<List<LibraryItem>> = Loadable(loading = true),
-    val today: String = Homework.localDate(),
+    val today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
     val filter: LibraryFilter = LibraryFilter(),
     /** The row whose action sheet is open. */
     val selected: LibraryItem? = null,

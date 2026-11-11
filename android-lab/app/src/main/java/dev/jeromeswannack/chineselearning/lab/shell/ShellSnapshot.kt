@@ -33,7 +33,7 @@ data class ShellSnapshot(
 
         /** Call off the main thread. */
         suspend fun load(dao: LabDao, prefs: Prefs, homework: List<ShellRules.HomeworkItem>, nowMs: Long, zone: ZoneId): ShellSnapshot {
-            val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+            val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.today(nowMs, zone)
             val signedIn = prefs.sessionToken != null
             val queue = if (signedIn) TodayCounts.allDecksQueue(dao, prefs, nowMs, zone) else null
             return ShellSnapshot(

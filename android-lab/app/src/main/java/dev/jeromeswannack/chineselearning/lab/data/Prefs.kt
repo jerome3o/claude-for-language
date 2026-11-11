@@ -199,8 +199,21 @@ class Prefs(context: Context) {
             dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value = v
         }
 
+    /**
+     * "New day starts at" (core StudyDay; Settings → Study, 4 am by default). From /api/auth/me,
+     * /api/sync/changes or a save; StudyDayClock follows it (every "today" of study reads that).
+     */
+    var dayRolloverHour: Int
+        get() = dev.jeromeswannack.chineselearning.lab.core.StudyDay.rolloverHour(sp.getInt("day_rollover_hour", dev.jeromeswannack.chineselearning.lab.core.StudyDay.DEFAULT_ROLLOVER_HOUR))
+        set(v) {
+            val hour = dev.jeromeswannack.chineselearning.lab.core.StudyDay.rolloverHour(v)
+            sp.edit().putInt("day_rollover_hour", hour).apply()
+            StudyDayClock.hour.value = hour
+        }
+
     init {
         dev.jeromeswannack.chineselearning.lab.data.lessons.SkipHandwriting.state.value = sp.getBoolean("skip_handwriting", false)
+        StudyDayClock.hour.value = dayRolloverHour
     }
 
     /** Epoch ms of the last full sync (0 = never). */

@@ -226,7 +226,7 @@ class StudyViewModel(
 
     private val aiAvailable get() = _ui.value.aiAvailable
 
-    private fun today() = LocalDate.now(zone).toString()
+    private fun today() = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(zone = zone)
     private val scopeKey get() = deckId ?: "all"
 
     // ---- the tutor-notes practice (/tutor-notes/practice; web TutorNotesPracticePage) ----
@@ -235,7 +235,7 @@ class StudyViewModel(
     private var pinnedNotes: List<TutorNote> = emptyList()
 
     private suspend fun loadPractice(spec: PracticeSpec) {
-        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
+        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val (cards, pinned) = withContext(Dispatchers.IO) {
             deckNames = repo.dao.decks().associate { it.id to it.name }
             // No seen set: the practice doesn't shimmer (flashcard session only).
@@ -257,7 +257,7 @@ class StudyViewModel(
 
     /** Does rating [card] now write a review? Only when it is due today (core TutorNotesRules). */
     private fun practiceCounts(card: QueueCard): Boolean =
-        dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.practiceRatingCounts(card.queue, card.state.dueTimestamp, StudyQueue.cutoff(System.currentTimeMillis(), zone).ts)
+        dev.jeromeswannack.chineselearning.lab.core.TutorNotesRules.practiceRatingCounts(card.queue, card.state.dueTimestamp, StudyQueue.cutoff(System.currentTimeMillis(), zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour).ts)
 
     private fun ratePractice(card: QueueCard, rating: Int, timeSpentMs: Long, userAnswer: String?, stats: SessionStats) {
         val counts = practiceCounts(card)
@@ -299,7 +299,7 @@ class StudyViewModel(
     private var passShown: Triple<String, Int, String>? = null
 
     private suspend fun loadPassMode() {
-        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone)
+        cutoff = StudyQueue.cutoff(System.currentTimeMillis(), zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         withContext(Dispatchers.IO) {
             deckNames = repo.dao.decks().associate { it.id to it.name }
             // No seen set: the pass doesn't shimmer (flashcard session only).
@@ -375,14 +375,14 @@ class StudyViewModel(
         practice?.let { loadPractice(it); return }
         if (pass != null) return loadPassMode()
         val now = System.currentTimeMillis()
-        cutoff = StudyQueue.cutoff(now, zone)
+        cutoff = StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val bonus = app.prefs.bonus(scopeKey, today())
         val built = withContext(Dispatchers.IO) {
             val decks = repo.dao.decks()
             deckNames = decks.associate { it.id to it.name }
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
+            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
             bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
             val noteHanzi = repo.dao.noteHanzi()
             seenChars = seenCharactersOf(cards, noteHanzi)
@@ -491,14 +491,14 @@ class StudyViewModel(
     private suspend fun refreshKeepingCard() {
         val showing = currentView()
         val now = System.currentTimeMillis()
-        cutoff = StudyQueue.cutoff(now, zone)
+        cutoff = StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val bonus = app.prefs.bonus(scopeKey, today())
         val built = withContext(Dispatchers.IO) {
             val decks = repo.dao.decks()
             deckNames = decks.associate { it.id to it.name }
             val cards = repo.dao.cards().map { it.toQueueCard() }
             val first = repo.dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
+            val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
             bumpedBy = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpedBy(repo.dao)
             val noteHanzi = repo.dao.noteHanzi()
             seenChars = seenCharactersOf(cards, noteHanzi)
@@ -1938,7 +1938,7 @@ class StudyViewModel(
             return
         }
         viewModelScope.launch {
-            val dayStart = StudyQueue.startOfDay(System.currentTimeMillis(), zone)
+            val dayStart = StudyQueue.startOfDay(System.currentTimeMillis(), zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
             val summary = withContext(Dispatchers.IO) { repo.dao.reviewSummarySince(Js.toIsoString(dayStart)) }
             val celebrate = dayStore.claimCelebration(summary.reviews, queueEmpty = true)
             if (celebrate) {

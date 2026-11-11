@@ -92,7 +92,7 @@ data class HomeworkListUi(
     val todo: List<HomeworkItemView> = emptyList(),
     val done: List<HomeworkItemView> = emptyList(),
     /** The day the status chips are computed for (the device's calendar day). */
-    val today: String = dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
+    val today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
     /** Home's lesson rows (revisions due + new lessons a tutor sent) — so "+N more" lands on them (web HomeworkPage). */
     val lessons: List<dev.jeromeswannack.chineselearning.lab.core.HomeHomeworkRow> = emptyList(),
     /** Homework he skipped ("Skip this homework", docs/HOMEWORK.md §3d) — "Bring back" each. */

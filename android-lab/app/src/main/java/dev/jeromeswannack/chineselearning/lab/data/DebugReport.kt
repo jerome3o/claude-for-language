@@ -53,7 +53,7 @@ object DebugReportBuilder {
         "event_count", "in_due_queue", "first_review_ms",
     )
     const val INTRODUCED_BASIS =
-        "derived from review events: a card's first-ever review at/after local midnight (StudyQueue.introducedToday)"
+        "derived from review events: a card's first-ever review at/after the study day's start (the rollover hour; StudyQueue.introducedToday)"
 
     /**
      * `eventIdHash` of shared/debug/report.ts: FNV-1a (32-bit) over UTF-16 code units, 8 hex
@@ -103,11 +103,11 @@ object DebugReportBuilder {
         val cardEntities = dao.cards()
         val cards = cardEntities.map { it.toQueueCard() }
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val dayStart = StudyQueue.startOfDay(nowMs, zone)
+        val dayStart = StudyQueue.startOfDay(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val introduced = StudyQueue.introducedToday(cards, first, dayStart)
-        val cutoff = StudyQueue.cutoff(nowMs, zone)
+        val cutoff = StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val queueDecks = decks.map { it.toQueueDeck() }
-        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(nowMs, zone)
         val bonusAll = prefs.bonus("all", today)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
@@ -166,6 +166,7 @@ object DebugReportBuilder {
             put("now_ms", nowMs)
             putJsonObject("cutoff") { put("ms", cutoff.ts); put("iso", iso(cutoff.ts)) }
             putJsonObject("day_start") { put("ms", dayStart); put("iso", iso(dayStart)); put("local_date", today) }
+            put("day_rollover_hour", dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
             put("introduced_basis", INTRODUCED_BASIS)
             putJsonObject("budget") {
                 put("new_cards_per_day", budget.newCardsPerDay)

@@ -72,7 +72,7 @@ fun DueChip(due: DueLabel, done: Boolean = false) {
 fun HomeworkRow(
     item: HomeworkItemView,
     showTutor: Boolean = false,
-    today: String = Homework.localDate(),
+    today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
     onOpen: (String) -> Unit,
     /** A lesson's run in progress on this phone (its retry bar); a deck's comes from the pass. */
     runBar: RetryBar? = null,
@@ -135,7 +135,7 @@ fun ProgressBar(fraction: Float, modifier: Modifier = Modifier, color: Color = P
 fun HomeworkList(
     items: List<HomeworkItemView>,
     showTutor: Boolean,
-    today: String = Homework.localDate(),
+    today: String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
     onOpen: (String) -> Unit,
     runBars: Map<String, RetryBar?> = emptyMap(),
     onMenu: ((HomeworkItemView) -> Unit)? = null,

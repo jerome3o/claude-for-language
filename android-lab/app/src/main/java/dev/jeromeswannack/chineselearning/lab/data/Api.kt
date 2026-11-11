@@ -57,6 +57,8 @@ data class MeDto(
     val bury_siblings: Boolean? = null,
     /** "Skip handwriting exercises" (core Handwriting); null from an older server. */
     val skip_handwriting: Boolean? = null,
+    /** "New day starts at" (0–6; core StudyDay); null from an older server. */
+    val day_rollover_hour: Int? = null,
     /** Usage analytics on (Settings → Advanced → "Share usage data"; data/analytics/). */
     val share_usage: Boolean = true,
     /** Word checks: "Check new words for mistakes" — the effective switch (on by default for tutors); null from an older server. */
@@ -144,6 +146,8 @@ data class ChangesDto(
     val bury_siblings: Boolean? = null,
     /** "Skip handwriting exercises" (core Handwriting); null from an older server. */
     val skip_handwriting: Boolean? = null,
+    /** "New day starts at" (0–6; core StudyDay); null from an older server. */
+    val day_rollover_hour: Int? = null,
 )
 
 @Serializable

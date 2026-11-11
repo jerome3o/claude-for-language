@@ -125,10 +125,10 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
         val entities = dao.cards()
         val cards = entities.map { it.toQueueCard() }
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone))
-        val cutoff = StudyQueue.cutoff(now, zone)
+        val introduced = StudyQueue.introducedToday(cards, first, StudyQueue.startOfDay(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
+        val cutoff = StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val queueDecks = decks.map { it.toQueueDeck() }
-        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(now, zone)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)
@@ -179,7 +179,7 @@ class DecksViewModel(private val env: DecksEnv, initialQuery: String? = null) : 
     /** "+10 More" on a deck with nothing due but more new words (the web's bumpBonus). */
     fun addMore(deckId: String) {
         val zone = ZoneId.systemDefault()
-        val today = Instant.ofEpochMilli(env.nowMs()).atZone(zone).toLocalDate().toString()
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(env.nowMs(), zone)
         env.setBonus(deckId, today, env.bonus(deckId, today) + StudyQueue.BONUS_INCREMENT)
         env.fx.tick()
         refresh()
