@@ -94,6 +94,12 @@ object ToneChange {
         "ua", "uo", "uai", "ui", "uan", "un", "uang", "ueng", "ue", "üe", "üan", "ün",
     )
 
+    /** Port of `isPinyinSyllable`: one pinyin syllable, tone marks and capitals ignored ("nǎr", "r" count). */
+    fun isPinyinSyllable(s: String): Boolean = isSyllable(plain(s))
+
+    /** Port of `toneless`: a syllable without its tone mark, lower case ("Dǎo" → "dao", "lǜ" → "lü"). */
+    fun toneless(syllable: String): String = plain(syllable)
+
     private fun isSyllable(s: String): Boolean {
         if (s.isEmpty()) return false
         val core = if (s.endsWith("r") && s.length > 2 && s !in FINALS && !s.endsWith("er")) s.substring(0, s.length - 1) else s

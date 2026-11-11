@@ -64,7 +64,27 @@ words; the tint only repeats them.
   verb, register, measure word, HSK level, traditional form — docs/STUDY_SESSION.md "Word tags"),
   minus how common (the chip above already says it). Web `components/wordTags/WordTagPills.tsx`
   (`exclude={['frequency']}`), Lab `WordTagsFor(…, exclude = {"frequency"})`.
-- **Characters**: one chip per character with its syllable, coloured by tone (`wordChars`) → the
+- **Pinyin per character** (`shared/pinyin/wordSyllables.ts`, Lab `core/…/WordSyllables.kt`,
+  parity-tested in the `explorer` fixture). The head's pinyin comes, in order, from: the word
+  dictionary (trusted) → the character records' word lists (trusted, only cut into syllables) → the
+  learner's card or the place it was tapped in (a reader chip's pinyin — Claude's —, CHECKED) → the
+  device's own reading. The check (`checkWordPinyin`, through `resolveWord(…, { device })`): the
+  pinyin is cut into exactly one syllable per Han character (`alignWordSyllables` — every possible
+  cut, the one with the fewest syllables its character can never have, then the fewest syllables
+  starting with a vowel inside a word without an apostrophe; a syllable ending in r may also cover a
+  following 儿, nǎr); a syllable no reading of its character allows is replaced by the device's
+  reading of that character, only that syllable changing ("wúnóngkuǎnyǔ" → "wúnóngruǎnyǔ": 软 is
+  never kuǎn); pinyin that can't be lined up at all (wrong count, tone numbers, not pinyin), or more
+  than half wrong, gives way to the device's reading of the whole word, written as one word
+  ("xī'ān"). A real reading is never replaced (银行 "yínxíng" stays: 行 can be xíng). The device's
+  readings: web `devicePinyin(charRecords)` (`utils/autoPinyin.ts`: pinyin-pro's `polyphonic` + the
+  character records on the device; the auto-pinyin = pinyin-pro + the 一 / 不 rule), Lab
+  `Pinyin.readings` + the character records, `ToneChange.autoPinyin`. Jerome's bug (Nov 2026):
+  a reader chip 吴侬软语 (not in the 60k word dictionary) carried Haiku's "wúnóngkuǎnyǔ", and the
+  old greedy split gave wún | óng | kuǎn | yǔ. The server now checks the chips' pinyin too
+  (CLAUDE.md "Reader word chips").
+- **Characters**: one chip per character with its syllable, coloured by tone (`wordChars`, which
+  cuts the pinyin per character the same way even without the device's readings) → the
   Character view. A character that is a card of its own carries a small badge in the chip's corner —
   **📚** (in your decks) or **✓** (known), `OWN_CARD_BADGE` — and says it in the chip's label
   (`charChipLabel`: "The character 学, xué — you have it as a card, known"); same rule as the

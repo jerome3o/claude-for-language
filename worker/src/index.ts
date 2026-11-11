@@ -3424,7 +3424,7 @@ app.post('/api/readers/:id/pages', async (c) => {
   const pageData = await c.req.json<{ content_chinese: string; content_pinyin: string; content_english: string; image_prompt?: string | null }>();
   const pinyinFixes = await fixSpecPinyin(pageData, pinyinSources(c.env));
   const page = await db.addReaderPage(c.env.DB, readerId, userId, { ...pageData, image_prompt: pageData.image_prompt || null });
-  if (c.env.ANTHROPIC_API_KEY) c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
+  if (c.env.ANTHROPIC_API_KEY) c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId, { pinyin: pinyinSources(c.env) }).catch(() => {}));
   return c.json({ ...page, pinyin_fixes: pinyinFixes });
 });
 
@@ -3445,7 +3445,7 @@ app.put('/api/readers/:readerId/pages/:pageId', async (c) => {
   }
   await db.updateReaderPage(c.env.DB, pageId, readerId, userId, data);
   if (data.content_chinese !== undefined && c.env.ANTHROPIC_API_KEY) {
-    c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch(() => {}));
+    c.executionCtx.waitUntil(segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId, { pinyin: pinyinSources(c.env) }).catch(() => {}));
   }
   return c.json({ success: true, content_pinyin: data.content_pinyin, pinyin_fixes: pinyinFixes });
 });
@@ -6658,7 +6658,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           // Word chips for every page (Haiku, a few seconds; failures leave the
           // page for the clients' lazy backfill — services/reader-words.ts).
           try {
-            const segmented = await segmentReader(env.DB, env.ANTHROPIC_API_KEY, readerId);
+            const segmented = await segmentReader(env.DB, env.ANTHROPIC_API_KEY, readerId, { pinyin: pinyinSources(env) });
             console.log('[Queue] Word chips made for', segmented.length, 'of', pages.length, 'pages');
           } catch (err) {
             console.error('[Queue] Word chips failed for reader:', readerId, err);

@@ -4,8 +4,9 @@
  * the card standard's 一 / 不 tone changes (shared/pinyin/toneChange.ts) — no
  * other tone sandhi. Lab app: `ToneChange.autoPinyin` over its pinyin-pro port.
  */
-import { pinyin } from 'pinyin-pro';
+import { pinyin, polyphonic } from 'pinyin-pro';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
+import type { DevicePinyin } from '@shared/pinyin/wordSyllables';
 
 type Options = { nonZh?: 'spaced' | 'consecutive' | 'removed' };
 
@@ -31,4 +32,26 @@ export function devicePinyinLine(text: string): string {
   } catch {
     return '';
   }
+}
+
+/** Every reading pinyin-pro knows for one character (`polyphonic`; Lab `Pinyin.readings`, parity-tested). */
+export function deviceReadings(ch: string): string[] {
+  try {
+    return (polyphonic(ch)[0] ?? '').split(' ').filter((s) => s.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * What this device knows about how characters are read, for checking a word's pinyin
+ * (shared/pinyin/wordSyllables.ts): pinyin-pro's readings plus the character dictionary's when its
+ * records are on the device, and the app's auto-pinyin as the device's own reading.
+ */
+export function devicePinyin(charRecords: ReadonlyArray<{ char: string; readings: ReadonlyArray<{ pinyin: string }> }> = []): DevicePinyin {
+  const extra = new Map(charRecords.map((r) => [r.char, r.readings.map((x) => x.pinyin)]));
+  return {
+    readings: (ch) => [...deviceReadings(ch), ...(extra.get(ch) ?? [])],
+    auto: (text) => autoPinyin(text),
+  };
 }

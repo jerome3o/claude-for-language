@@ -1,6 +1,9 @@
 package dev.jeromeswannack.chineselearning.lab.ui.explorer
 
 import dev.jeromeswannack.chineselearning.lab.core.idioms.Idioms
+import dev.jeromeswannack.chineselearning.lab.core.DevicePinyin
+import dev.jeromeswannack.chineselearning.lab.core.Pinyin
+import dev.jeromeswannack.chineselearning.lab.core.ToneChange
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -144,6 +147,15 @@ data class WordViewUi(
             hintPinyin = item.pinyin,
             hintGloss = item.gloss,
             rank = rank,
+            // Pinyin from a card / the tapped text is checked per character (吴侬软语 "…kuǎn…" → ruǎn).
+            device = devicePinyin,
+        )
+
+    /** The phone's readings (the pinyin-pro port + the character records here) and its auto-pinyin. */
+    private val devicePinyin: DevicePinyin
+        get() = DevicePinyin(
+            readings = { ch -> runCatching { Pinyin.readings(ch) }.getOrDefault(emptyList()) + (charRecords[ch]?.readings?.map { it.pinyin } ?: emptyList()) },
+            auto = { text -> ToneChange.autoPinyin(text) },
         )
 
     val wordChars: List<WordChar> get() = resolved.let { ExplorerWord.wordChars(hanzi, it.pinyin, it.syllables) }

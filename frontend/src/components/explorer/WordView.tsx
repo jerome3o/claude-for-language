@@ -15,6 +15,7 @@ import { cachedWordExplanation, getWordExplanation } from '../../services/reader
 import { getTTSWithCache } from '../../services/ttsCache';
 import { track } from '../../services/analytics';
 import { createAudioPlayer } from '../../utils/audioPlayback';
+import { devicePinyin } from '../../utils/autoPinyin';
 import { useTTS } from '../../hooks/useAudio';
 import { db, type LocalNote } from '../../db/database';
 import { WordTagPills } from '../wordTags/WordTagPills';
@@ -154,6 +155,8 @@ export function WordView({
     notes: existing?.map((e) => e.note) ?? [],
     hint: { pinyin: item.pinyin, gloss: item.gloss },
     rank,
+    // Pinyin from a card / the tapped text is checked per character (吴侬软语 "…kuǎn…" → ruǎn).
+    device: devicePinyin(charRecords),
   });
   const chars = wordChars(hanzi, word.pinyin, word.syllables);
   const freq = wordFrequencyLabel(word.rank);

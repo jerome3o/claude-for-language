@@ -9,7 +9,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
-import { backfillReaderWords, explainReaderWord, normalizeExplanation, segmentReader, segmentReaderText } from '../reader-words';
+import { backfillReaderWords, explainReaderWord, fixReaderWordsPinyin, normalizeExplanation, segmentReader, segmentReaderText } from '../reader-words';
+import { alignReaderWords } from '@shared/reader/words';
 import { getGradedReader, getGradedReadersWithPages } from '../../db/queries';
 
 type Reply = Record<string, unknown> | Error;
@@ -195,5 +196,70 @@ describe('explainReaderWord', () => {
     expect(normalizeExplanation('火车', { ...base, sentence_clue: '他说："坐火车。"' }).sentence_clue).toBeUndefined();
     expect(normalizeExplanation('火车', { ...base, sentence_clue: '坐火车很快。' }).sentence_clue).toBe('坐火车很快。');
     expect(() => normalizeExplanation('火车', { ...base, english: '' })).toThrow();
+  });
+});
+
+describe('pinyin of the word chips (Jerome: 吴侬软语 "wúnóngkuǎnyǔ")', () => {
+  const PAGE = '苏州话听起来又软又好听，人们说这是"吴侬软语"。';
+  const chips = [
+    { text: '苏州话', pinyin: 'Sūzhōuhuà', gloss: 'Suzhou dialect' },
+    { text: '听起来', pinyin: 'tīng qǐlái', gloss: 'sounds' },
+    { text: '又', pinyin: 'yòu', gloss: 'both' },
+    { text: '软', pinyin: 'ruǎn', gloss: 'soft' },
+    { text: '又', pinyin: 'yòu', gloss: 'and' },
+    { text: '好听', pinyin: 'hǎotīng', gloss: 'pleasant' },
+    { text: '人们', pinyin: 'rénmen', gloss: 'people' },
+    { text: '说', pinyin: 'shuō', gloss: 'say' },
+    { text: '这', pinyin: 'zhè', gloss: 'this' },
+    { text: '是', pinyin: 'shì', gloss: 'is' },
+    { text: '吴侬软语', pinyin: 'wúnóngkuǎnyǔ', gloss: 'soft Wu dialect' },
+  ];
+
+  it('replaces only the syllable a character can never have', async () => {
+    const { words, fixes } = await fixReaderWordsPinyin(chips);
+    expect(fixes).toEqual([{ index: 10, text: '吴侬软语', before: 'wúnóngkuǎnyǔ', after: 'wúnóngruǎnyǔ' }]);
+    expect(words[10].pinyin).toBe('wúnóngruǎnyǔ');
+    expect(words.slice(0, 10)).toEqual(chips.slice(0, 10));
+    expect(chips[10].pinyin).toBe('wúnóngkuǎnyǔ'); // the input is not touched
+  });
+
+  it('applies the 一 / 不 rule across chips, and leaves pinyin it cannot judge alone', async () => {
+    const { words } = await fixReaderWordsPinyin([
+      { text: '我', pinyin: 'wǒ', gloss: 'I' },
+      { text: '不', pinyin: 'bù', gloss: 'not' },
+      { text: '是', pinyin: 'shì', gloss: 'am' },
+      { text: '一', pinyin: 'yī', gloss: 'one' },
+      { text: '个', pinyin: 'gè', gloss: 'MW' },
+      { text: '人', pinyin: 'rén', gloss: 'person' },
+      { text: '。', pinyin: '', gloss: '' },
+    ]);
+    expect(words.map((w) => w.pinyin)).toEqual(['wǒ', 'bú', 'shì', 'yí', 'gè', 'rén', '']);
+    const odd = await fixReaderWordsPinyin([{ text: '嗯', pinyin: 'ǹg', gloss: 'mm' }, { text: '好', pinyin: 'x', gloss: 'ok' }]);
+    expect(odd.fixes).toEqual([]);
+  });
+
+  it('segmentReaderText returns the checked pinyin', async () => {
+    const { client } = fakeClient([toolReply({ words: chips })]);
+    const words = await segmentReaderText('k', PAGE, { client, sleep });
+    expect(join(words)).toBe(PAGE);
+    expect(words.find((w) => w.text === '吴侬软语')?.pinyin).toBe('wúnóngruǎnyǔ');
+  });
+
+  it('the backfill corrects stored words once, sends them back and marks the page', async () => {
+    const db = await createSqliteD1();
+    seed(db);
+    const stored = JSON.stringify(alignReaderWords(PAGE, chips).words);
+    exec(db, "INSERT INTO reader_pages (id, reader_id, page_number, content_chinese, content_pinyin, content_english, words) VALUES ('new-3', 'new', 3, ?, '', '', ?)", PAGE, stored);
+    const { client } = fakeClient(charSplitter);
+    const res = await backfillReaderWords(db, 'k', ME, { client, sleep });
+    const fixed = res.pages.find((p) => p.id === 'new-3');
+    expect(fixed?.words.find((w) => w.text === '吴侬软语')?.pinyin).toBe('wúnóngruǎnyǔ');
+    const row = db.rows<{ words: string; words_checked: number | null }>('SELECT words, words_checked FROM reader_pages WHERE id = ?', ['new-3'])[0];
+    expect(row.words_checked).toBe(1);
+    expect(JSON.parse(row.words).find((w: { text: string }) => w.text === '吴侬软语').pinyin).toBe('wúnóngruǎnyǔ');
+    // Pages that were fine are only marked; nothing comes back a second time.
+    expect(db.rows<{ words_checked: number | null }>('SELECT words_checked FROM reader_pages WHERE id = ?', ['old-1'])[0].words_checked).toBe(1);
+    const again = await backfillReaderWords(db, 'k', ME, { client, sleep });
+    expect(again).toEqual({ pages: [], remaining: 0 });
   });
 });

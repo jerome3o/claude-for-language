@@ -7,6 +7,8 @@
  *        Segments up to `limit` (≤ 12) of the caller's pages that have no
  *        current words — `reader_id`'s first — and stores them. The clients
  *        call it when a reader opens and during sync until `remaining` is 0.
+ *        Stored words whose pinyin was never checked are checked too (≤ 200
+ *        pages a call); pages it corrected come back in `pages` as well.
  *   POST /reader-words/explain   { word, sentence, pinyin?, gloss? }
  *        → ReaderWordExplanation (+ cached): Haiku's explanation of the word
  *        in that sentence and the card fields for "+ Add as card"; cached for
@@ -16,6 +18,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { backfillReaderWords, explainReaderWord } from '../services/reader-words';
+import { pinyinSources } from '../services/pinyin-check';
 
 const readerWords = new Hono<{ Bindings: Env }>();
 
@@ -26,7 +29,7 @@ readerWords.post('/reader-words/backfill', async (c) => {
   const readerId = typeof body.reader_id === 'string' && body.reader_id ? body.reader_id : undefined;
   const limit = typeof body.limit === 'number' && Number.isFinite(body.limit) ? Math.floor(body.limit) : undefined;
   try {
-    return c.json(await backfillReaderWords(c.env.DB, c.env.ANTHROPIC_API_KEY, user.id, { readerId, limit }));
+    return c.json(await backfillReaderWords(c.env.DB, c.env.ANTHROPIC_API_KEY, user.id, { readerId, limit, pinyin: pinyinSources(c.env) }));
   } catch (error) {
     console.error('[reader-words] backfill failed:', error);
     return c.json({ error: 'Could not split the pages into words just now' }, 502);

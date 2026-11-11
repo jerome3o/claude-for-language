@@ -2,11 +2,16 @@
  * The language explorer's golden vectors (docs/LANGUAGE_EXPLORER.md), from the web app's own
  * TypeScript (shared/explorer): the stack reducer over seeded action sequences, breadcrumbs,
  * itemForText, wordChars, wordFrequencyLabel, resolveWord, relatedWords and the explorable
- * segments (by word / by character). Writes explorer.json; core ExplorerParityTest asserts
- * the Kotlin ports (core/…/explorer/) match exactly.
+ * segments (by word / by character); and a word's pinyin per character (shared/pinyin/wordSyllables:
+ * alignWordSyllables / checkWordPinyin, and resolveWord with the device's readings — 吴侬软语
+ * "wúnóngkuǎnyǔ"). Writes explorer.json; core ExplorerParityTest asserts the Kotlin ports
+ * (core/…/explorer/, core/WordSyllables.kt) match exactly.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { pinyin as proPinyin, polyphonic } from 'pinyin-pro';
+import { applyYiBuToneChanges } from '../../../shared/pinyin/toneChange';
+import { alignWordSyllables, checkWordPinyin, hanChars, readingFits, type DevicePinyin } from '../../../shared/pinyin/wordSyllables';
 import {
   breadcrumbTrail,
   charSegments,
@@ -121,6 +126,13 @@ const CHAR_CASES: Array<[string, string | null, string[] | null]> = [
   ['学生', 'xue2sheng5', null],
   ['银行', '  yínháng  ', null],
   ['一样', 'yíyàng', ['', 'yàng']],
+  // Jerome's reader chip: a greedy split gave wún | óng | kuǎn | yǔ.
+  ['吴侬软语', 'wúnóngkuǎnyǔ', null],
+  ['吴侬软语', 'wú nóng ruǎn yǔ', null],
+  ['哪儿', 'nǎr', null],
+  ['大人', 'dàrén', null],
+  ['天安门', 'tiānānmén', null],
+  ['东西', 'Dōngxi', null],
 ];
 const chars = CHAR_CASES.map(([hanzi, pinyin, syllables]) => ({ hanzi, pinyin, syllables, out: wordChars(hanzi, pinyin, syllables) }));
 
@@ -156,6 +168,75 @@ const resolveCases = [
   { hanzi: '银行', sources: {} },
 ];
 const resolved = resolveCases.map((c) => ({ ...c, out: resolveWord(c.hanzi, c.sources as never) }));
+
+// A word's pinyin per character with the device's readings (pinyin-pro's polyphonic) and its
+// auto-pinyin (pinyin-pro + the 一 / 不 rule). Every reading / auto-pinyin asked for is recorded,
+// so the Kotlin test runs the same pure rules over the same answers — and checks its own
+// Pinyin.readings / ToneChange.autoPinyin give them.
+const readingsAsked: Record<string, string[]> = {};
+const autoAsked: Record<string, string> = {};
+const device: DevicePinyin = {
+  readings: (ch) => (readingsAsked[ch] ??= (polyphonic(ch)[0] ?? '').split(' ').filter(Boolean)),
+  auto: (text) => (autoAsked[text] ??= applyYiBuToneChanges(text, proPinyin(text, { toneType: 'symbol', type: 'string' }))),
+};
+const PINYIN_CASES: Array<[string, string | null, boolean]> = [
+  ['吴侬软语', 'wúnóngkuǎnyǔ', false],
+  ['吴侬软语', 'wú nóng kuǎn yǔ', false],
+  ['吴侬软语', 'Wúnóngkuǎnyǔ', false],
+  ['吴侬软语', 'wúnóngkuǎnyǔ', true],
+  ['吴侬软语', 'wúnóng', false],
+  ['吴侬软语', 'wúnóng', true],
+  ['吴侬软语', 'wún óng', false],
+  ['吴侬软语', '', false],
+  ['吴侬软语', null, false],
+  ['银行', 'yínháng', false],
+  ['银行', 'yínxíng', false],
+  ['银行', 'péngyou', false],
+  ['银行', 'bank', false],
+  ['大人', 'dàrén', false],
+  ['西安', 'xīqī', false],
+  ['西安', "Xī'ān", false],
+  ['好好', 'hǎohāo', false],
+  ['一个', 'yīgè', false],
+  ['不对', 'bùduì', false],
+  ['学生', 'xue2sheng5', false],
+  ['一会儿', 'yíhuìr', false],
+  ['哪儿', 'nǎr', false],
+  ['哪儿', 'nǐr', false],
+  ['觉得', 'juéde', false],
+  ['觉得', 'juédé', false],
+  ['休息', 'xiūxí', false],
+  ['扶梯', 'fúqī', false],
+  ['天安门', 'tiānānmén', false],
+  ['𠀀子', 'qiūzi', false],
+  ['Tom', 'tom', false],
+  ['你好！', 'nǐ hǎo', false],
+  ['苏州话', 'Sūzhōuhuà', false],
+];
+const wordPinyin = PINYIN_CASES.map(([hanzi, pinyin, trust]) => {
+  const chars = hanChars(hanzi);
+  const fits = (i: number, syl: string) => readingFits(chars, i, syl, device.readings!(chars[i]));
+  return {
+    hanzi,
+    pinyin,
+    trust,
+    chars,
+    aligned: pinyin === null ? null : alignWordSyllables(chars, pinyin),
+    aligned_fits: pinyin === null ? null : alignWordSyllables(chars, pinyin, fits),
+    checked: checkWordPinyin(hanzi, pinyin, device, trust),
+    checked_bare: checkWordPinyin(hanzi, pinyin, {}, trust),
+  };
+});
+const resolveDeviceCases = [
+  { hanzi: '吴侬软语', sources: { hint: { pinyin: 'wúnóngkuǎnyǔ', gloss: 'soft Wu dialect' } } },
+  { hanzi: '吴侬软语', sources: { hint: { pinyin: 'wún óng', gloss: 'x' } } },
+  { hanzi: '吴侬软语', sources: {} },
+  { hanzi: '银行', sources: { record } },
+  { hanzi: '银行', sources: { charWords: [{ hanzi: '银行', pinyin: 'yínxíng', english: 'bank (cw)' }] } },
+  { hanzi: '银行', sources: { notes: [{ hanzi: '银行', pinyin: 'yínxíng', english: 'a bank' }] } },
+  { hanzi: '银行', sources: { hint: { gloss: 'the bank' } } },
+];
+const resolvedDevice = resolveDeviceCases.map((c) => ({ ...c, out: resolveWord(c.hanzi, { ...(c.sources as object), device } as never) }));
 
 // Related words: seeded character lists.
 const POOL = ['银行', '银子', '收银', '自行车', '行人', '不行', '一行', '孩子', '子女', '学生', '好学', '学子', '行为', '银行卡'];
@@ -206,6 +287,10 @@ writeFileSync(
     decals,
     decal_key: decalKey,
     resolved,
+    resolved_device: resolvedDevice,
+    word_pinyin: wordPinyin,
+    device_readings: readingsAsked,
+    device_auto: autoAsked,
     related,
     segments,
   }),
