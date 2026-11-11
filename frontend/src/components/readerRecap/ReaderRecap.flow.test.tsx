@@ -31,9 +31,7 @@ vi.mock('../../hooks/useVoiceDictation', async () => {
 const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a), trackError: vi.fn() }));
 const api = vi.hoisted(() => ({
-  createDeck: vi.fn(async (name: string) => ({ id: 'deck-recap', name })),
-  getDecks: vi.fn(async () => []),
-  moveDeck: vi.fn(async () => ({})),
+  ensureSourceDeckApi: vi.fn(async (key: string) => ({ deck: { id: 'deck-recap', name: key, source_key: key }, created: true })),
   glossWords: vi.fn(async (w: Array<{ hanzi: string; pinyin?: string; english?: string }>) => w.map((x) => ({ hanzi: x.hanzi, pinyin: x.pinyin ?? '', english: x.english ?? 'gloss' }))),
   enrichWords: vi.fn(async (w: Array<{ hanzi: string }>) => w.map((x) => ({ hanzi: x.hanzi, fun_facts: `${x.hanzi} explained`, sentence_clue: '', sentence_clue_pinyin: '', sentence_clue_translation: '' }))),
   createNotesBatch: vi.fn(async (_deck: string, notes: Array<{ hanzi: string }>) => ({ created: notes.map((n, i) => ({ id: `new-${i}`, hanzi: n.hanzi })), failed: [] })),
@@ -41,7 +39,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../../api/client', () => ({
   backfillReaderWords: vi.fn(), apiErrorStatus: () => undefined, generateReaderPageImage: vi.fn(),
-  createDeck: api.createDeck, getDecks: api.getDecks, moveDeck: api.moveDeck, glossWords: api.glossWords,
+  ensureSourceDeckApi: api.ensureSourceDeckApi, glossWords: api.glossWords,
   enrichWords: api.enrichWords, createNotesBatch: api.createNotesBatch,
   bumpNotesRemote: vi.fn(), addStudyBumps: vi.fn(async () => ({ bumps: [] })),
 }));
@@ -194,8 +192,8 @@ describe('reader word recap', () => {
     await click(q('recap-done'));
     await flush();
     expect(q('recap-done-line')?.textContent).toBe('1 word added to your long-term review · 1 for today ⚡');
-    expect(api.createDeck).toHaveBeenCalledWith('From my readers', expect.any(String));
-    expect(api.moveDeck).toHaveBeenCalledWith('deck-recap', 'bottom');
+    // The source deck (shared/decks/source-decks.ts), found by key — never by name.
+    expect(api.ensureSourceDeckApi).toHaveBeenCalledWith('readers');
     expect(api.createNotesBatch).toHaveBeenCalledTimes(1);
     const [deckId, notes, opts] = api.createNotesBatch.mock.calls[0] as unknown as [string, Array<Record<string, string>>, { skipExisting: boolean }];
     expect(deckId).toBe('deck-recap');

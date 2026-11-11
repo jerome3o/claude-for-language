@@ -16,7 +16,8 @@ let resolveExisting: (e: Existing) => void = () => {};
 const ownCards = vi.hoisted(() => ({}) as Record<string, { status: string; note_ids: string[]; decks: string[] }>);
 
 const added = vi.hoisted(() => ({
-  createNote: vi.fn(async () => ({ id: 'new-note', hanzi: '学习', cards: [] })),
+  createNote: vi.fn(async () => ({ id: 'new-note', hanzi: '学习', cards: [], deck: { id: 'src-explorer', name: 'From the explorer', source_key: 'explorer' } })),
+  moveNotesApi: vi.fn(async (ids: string[], deckId: string) => ({ moved: ids.length, note_ids: ids, deck_id: deckId })),
   bumpNotes: vi.fn(async () => ({ added: ['new-note'], already: [], message: '⚡ 学习 is first in today’s study' })),
   sync: vi.fn(async () => undefined),
 }));
@@ -31,6 +32,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../api/client')>()),
   getDecks: vi.fn(async () => [{ id: 'd2', name: 'HSK 2', study_priority: 1, created_at: '2026-01-01' }]),
   createNote: added.createNote,
+  moveNotesApi: added.moveNotesApi,
 }));
 vi.mock('../../services/sync', () => ({ syncService: { syncInBackground: added.sync } }));
 vi.mock('../../services/wordDict', () => ({ lookupWord: vi.fn(async () => ({ status: 'offline' })) }));
@@ -121,7 +123,7 @@ describe('WordView card tie-in', () => {
     expect(chips[0].getAttribute('aria-label')).toBe('The character 学, xué');
   });
 
-  it('right after + Add as card: "✓ Added to <deck>" with ⚡ Study it today for the new note, before it syncs', async () => {
+  it('+ Add as card saves in ONE tap into the source deck — no deck picker — then "✓ Added to … · Change" and ⚡ for the new note', async () => {
     const footer = await render();
     await act(async () => {
       resolveExisting([]);
@@ -131,16 +133,13 @@ describe('WordView card tie-in', () => {
       (footer.querySelector('[data-testid="explorer-add-card"]') as HTMLButtonElement).click();
       await new Promise((r) => setTimeout(r, 20));
     });
-    const addBtn = [...document.body.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add to deck');
-    expect(addBtn).toBeTruthy();
-    await act(async () => {
-      addBtn!.click();
-      await new Promise((r) => setTimeout(r, 20));
-    });
-    expect(added.createNote).toHaveBeenCalledWith('d2', expect.objectContaining({ hanzi: '学习' }));
-    expect(added.sync).toHaveBeenCalled();
+    // No deck list, no second tap: opened outside a reader / chat → "From the explorer".
+    expect(document.body.querySelector('[role="radiogroup"]')).toBeNull();
+    expect(added.createNote).toHaveBeenCalledWith('source:explorer', expect.objectContaining({ hanzi: '学习' }));
+    await vi.waitFor(() => expect(added.sync).toHaveBeenCalled());
     const block = footer.querySelector('[data-testid="xp-added"]');
-    expect(block?.textContent).toContain('✓ Added to HSK 2');
+    expect(block?.textContent).toContain('✓ Added to From the explorer');
+    expect(block?.textContent).toContain('Change');
     expect(footer.querySelector('[data-testid="explorer-add-card"]')).toBeNull();
     const bump = [...block!.querySelectorAll('button')].find((b) => b.textContent === '⚡ Study it today');
     await act(async () => {
@@ -149,5 +148,33 @@ describe('WordView card tie-in', () => {
     });
     expect(added.bumpNotes).toHaveBeenCalledWith(['new-note'], 'explorer', new Map([['new-note', '学习']]));
     expect(block!.textContent).toContain('⚡ 学习 is first in today’s study');
+  });
+
+  it('Change moves the just-added note to the deck he picks (POST /api/notes/move)', async () => {
+    const footer = await render();
+    await act(async () => {
+      resolveExisting([]);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      (footer.querySelector('[data-testid="explorer-add-card"]') as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await act(async () => {
+      (footer.querySelector('[data-testid="added-to-deck-change"]') as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    const sheet = document.body.querySelector('[data-testid="move-to-deck"]');
+    expect(sheet).toBeTruthy();
+    const hsk = [...sheet!.querySelectorAll('button')].find((b) => b.textContent === 'HSK 2');
+    // The deck it is in now is listed and marked.
+    expect([...sheet!.querySelectorAll('[aria-checked="true"]')].map((b) => b.textContent)).toEqual(['From the explorer']);
+    await act(async () => {
+      hsk!.click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(added.moveNotesApi).toHaveBeenCalledWith(['new-note'], 'd2');
+    expect(document.body.querySelector('[data-testid="move-to-deck"]')).toBeNull();
+    expect(footer.querySelector('[data-testid="added-to-deck"]')?.textContent).toContain('✓ Moved to HSK 2');
   });
 });

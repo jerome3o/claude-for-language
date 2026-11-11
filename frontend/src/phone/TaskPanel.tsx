@@ -192,7 +192,7 @@ export function PhoneSummary(props: { spec: ScenarioSpec; result: ScenarioResult
           </button>
         </div>
       </div>
-      {adding && <AddChunkModal chunk={adding} source="other" onClose={() => setAdding(null)} />}
+      {adding && <AddChunkModal chunk={adding} source="other" deckSource="practice" onClose={() => setAdding(null)} />}
     </div>
   );
 }

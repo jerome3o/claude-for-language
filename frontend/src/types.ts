@@ -111,6 +111,8 @@ export interface Deck {
   description: string | null;
   /** Folder (shared/folders, organisation only); null / missing = Unfiled. */
   folder_id?: string | null;
+  /** A source deck's key ('readers', 'chats', …; shared/decks/source-decks.ts) — how "+ Add as card" finds it; null = an ordinary deck. */
+  source_key?: string | null;
   /** Place in the learner's new-card queue: higher goes first. */
   study_priority?: number;
   new_cards_per_day: number;

@@ -7,7 +7,8 @@
  * - Which thread: the message's own (`resumeThreadFor` — one per message, whenever), else a new one made
  *   by the first question. It shows in the Chats tab with "💬 About a message · …".
  * - Cards Claude proposes (create_flashcards → `propose_flashcards` on the reply) are never saved by the
- *   server: they come back here for review — tick, pick a deck, Save.
+ *   server: they come back here for review — tick, then "Add N cards" saves them straight into "From
+ *   chats" (no deck to pick; docs/STUDY_SESSION.md "Source decks") with "✓ Added to … · Change".
  * - Replaces the old discussion sheet (MessageDiscussionModal, `PUT /api/messages/:id/discussion`, kept
  *   on the server for older apps).
  */
@@ -17,8 +18,9 @@ import type { ClaudeContextSnapshot, ClaudeThreadContext } from '@shared/claude/
 import { previewOf } from '@shared/claude/context';
 import { ClaudeThreadView } from './ClaudeThreadView';
 import { parseToolResults, ToolResultChips } from '../coach/CoachResults';
-import { DeckSelectorWithCreate } from '../chat/DeckSelectors';
-import { createNote } from '../../api/client';
+import { sourceDeckName } from '@shared/decks/source-decks';
+import { addCardsToSourceDeck, type AddedToDeck } from '../../services/sourceDecks';
+import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
 import { refreshMessageThreads, useMessageThreads } from '../../services/messageClaudeThreads';
 import type { LocalClaudeMessage } from '../../services/claudeThreads';
 import { useNetwork } from '../../contexts/NetworkContext';
@@ -43,11 +45,11 @@ export function proposedCardsOf(toolResults: string | null): GeneratedNote[] | n
   return null;
 }
 
-/** Claude's proposed cards: ticked by default; a deck and Save adds the ticked ones. */
+/** Claude's proposed cards: ticked by default; "Add N cards" saves the ticked ones into "From chats". */
 function ProposedCards({ cards, context, replyId }: { cards: GeneratedNote[]; context: string; replyId: string }) {
   const [chosen, setChosen] = useState<Set<number>>(() => new Set(cards.map((_, i) => i)));
   const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState<string | null>(null);
+  const [added, setAdded] = useState<AddedToDeck | null>(null);
   const [error, setError] = useState<string | null>(null);
   const toggle = (i: number) =>
     setChosen((prev) => {
@@ -56,15 +58,20 @@ function ProposedCards({ cards, context, replyId }: { cards: GeneratedNote[]; co
       else next.add(i);
       return next;
     });
-  const save = async (deckId: string) => {
+  const save = async () => {
     const picked = cards.filter((_, i) => chosen.has(i));
     if (picked.length === 0) return;
     setSaving(true);
     setError(null);
     try {
-      for (const c of picked) await createNote(deckId, { hanzi: c.hanzi, pinyin: c.pinyin, english: c.english, fun_facts: c.fun_facts, context });
-      setDone(`✓ ${picked.length} card${picked.length === 1 ? '' : 's'} added`);
-      track('coach.ask_flashcards', { count: picked.length, focus: false });
+      const out = await addCardsToSourceDeck(
+        'chats',
+        picked.map((c) => ({ hanzi: c.hanzi, pinyin: c.pinyin, english: c.english, context, ...(c.fun_facts ? { fun_facts: c.fun_facts } : {}) })),
+        'chat_discuss',
+      );
+      if (out.result.failed.length && !out.noteIds.length) throw new Error(out.result.failed[0].error);
+      setAdded(out);
+      track('coach.ask_flashcards', { count: out.noteIds.length, focus: false });
     } catch (err) {
       trackError('discuss_save_cards', err);
       setError("Couldn't save the cards — try again.");
@@ -72,7 +79,13 @@ function ProposedCards({ cards, context, replyId }: { cards: GeneratedNote[]; co
       setSaving(false);
     }
   };
-  if (done) return <div className="coach-tool-chip coach-tool-chip-success" data-testid="discuss-cards-done">{done}</div>;
+  if (added) {
+    return (
+      <div data-testid="discuss-cards-done">
+        <AddedToDeckLine added={added} surface="chat_discuss" onMoved={setAdded} />
+      </div>
+    );
+  }
   return (
     <div className="discuss-cards" data-testid="discuss-cards" data-reply={replyId}>
       <div className="discuss-cards-head">✨ Claude suggests {cards.length} card{cards.length === 1 ? '' : 's'} — tick the ones you want</div>
@@ -85,7 +98,11 @@ function ProposedCards({ cards, context, replyId }: { cards: GeneratedNote[]; co
           </span>
         </button>
       ))}
-      {chosen.size > 0 && <DeckSelectorWithCreate onSelect={(deckId) => void save(deckId)} isSaving={saving} selectedCount={chosen.size} />}
+      {chosen.size > 0 && (
+        <button type="button" className="btn btn-primary discuss-cards-add" onClick={() => void save()} disabled={saving} data-testid="discuss-cards-add">
+          {saving ? 'Adding…' : `Add ${chosen.size} card${chosen.size === 1 ? '' : 's'} to ${sourceDeckName('chats')}`}
+        </button>
+      )}
       {error && <p className="discuss-cards-error" role="alert">{error}</p>}
     </div>
   );

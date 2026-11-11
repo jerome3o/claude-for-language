@@ -13,6 +13,9 @@ import { autoPinyin } from '../utils/autoPinyin';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE } from '../api/client';
 import { deleteCall, getCall, listCallBoardPages, makeCallFlashcards, processCall } from '../api/calls';
+import { sourceDeckName, sourceDeckRef } from '@shared/decks/source-decks';
+import { AddedToDeckLine } from '../components/sourceDecks/AddedToDeckLine';
+import type { AddedToDeck } from '../services/sourceDecks';
 import { track } from '../services/analytics';
 import { db } from '../db/database';
 import { drainCallUploads } from '../services/calls/uploads';
@@ -65,15 +68,12 @@ function segPinyin(seg: TranscriptSegment): string | null {
   }
 }
 
-function WordPicker({ callId, words, startedAt }: { callId: string; words: CallReportWord[]; startedAt: number | null }) {
+function WordPicker({ callId, words }: { callId: string; words: CallReportWord[]; startedAt: number | null }) {
   const navigate = useNavigate();
-  const decks = useLiveQuery(() => db.decks.toArray(), []);
   const [picked, setPicked] = useState<Set<number>>(() => new Set(words.map((_, i) => i)));
-  const [deckId, setDeckId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ deck_id: string; created: number; failed: number } | null>(null);
+  const [result, setResult] = useState<{ added: AddedToDeck; failed: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const defaultName = `Lesson ${new Date(startedAt ?? Date.now()).toISOString().slice(0, 10)}`;
 
   const toggle = (i: number) => setPicked((cur) => {
     const next = new Set(cur);
@@ -82,16 +82,22 @@ function WordPicker({ callId, words, startedAt }: { callId: string; words: CallR
     return next;
   });
 
+  // No deck to choose (docs/STUDY_SESSION.md "Source decks"): the words go straight into
+  // "From lessons & practice", then "✓ 5 cards added to … · Change".
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
       const r = await makeCallFlashcards(callId, {
-        deck_id: deckId || undefined,
-        deck_name: deckId ? undefined : defaultName,
+        deck_id: sourceDeckRef('practice'),
         words: words.filter((_, i) => picked.has(i)),
       });
-      setResult({ deck_id: r.deck_id, created: r.created, failed: r.failed.length });
+      const noteIds = r.note_ids ?? [];
+      track('deck.source_add', { deck_key: 'practice', surface: 'call_flashcards', count: noteIds.length || r.created, source_deck: true });
+      setResult({
+        added: { key: 'practice', noteIds, deckId: r.deck_id, deckName: r.deck_name || sourceDeckName('practice') },
+        failed: r.failed.length,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not make the cards');
     } finally {
@@ -102,8 +108,9 @@ function WordPicker({ callId, words, startedAt }: { callId: string; words: CallR
   if (result) {
     return (
       <div className="cr-result" role="status">
-        ✅ Added {result.created} word{result.created === 1 ? '' : 's'}{result.failed ? ` (${result.failed} skipped)` : ''}.{' '}
-        <button type="button" className="cr-link" onClick={() => navigate(`/decks/${result.deck_id}`)}>Open the deck ›</button>
+        <AddedToDeckLine added={result.added} surface="call_flashcards" onMoved={(added) => setResult({ ...result, added })} />
+        {result.failed ? <div>({result.failed} skipped)</div> : null}
+        <button type="button" className="cr-link" onClick={() => navigate(`/decks/${result.added.deckId}`)}>Open the deck ›</button>
       </div>
     );
   }
@@ -122,12 +129,8 @@ function WordPicker({ callId, words, startedAt }: { callId: string; words: CallR
         </label>
       ))}
       <div className="cr-words-save">
-        <select value={deckId} onChange={(e) => setDeckId(e.target.value)} aria-label="Deck">
-          <option value="">New deck: {defaultName}</option>
-          {(decks ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
         <button type="button" className="btn btn-primary" disabled={busy || picked.size === 0} onClick={() => void save()} data-testid="make-cards">
-          {busy ? 'Adding…' : `Add ${picked.size} card${picked.size === 1 ? '' : 's'}`}
+          {busy ? 'Adding…' : `Add ${picked.size} card${picked.size === 1 ? '' : 's'} to ${sourceDeckName('practice')}`}
         </button>
       </div>
       {error && <div className="cr-error">{error}</div>}

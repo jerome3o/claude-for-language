@@ -102,6 +102,8 @@ export interface LocalDeck {
   study_priority?: number;
   /** Folder (shared/folders, organisation only); null / missing = Unfiled. */
   folder_id?: string | null;
+  /** A source deck's key ('readers', 'chats', …; shared/decks/source-decks.ts) — how "+ Add as card" finds it; null = an ordinary deck. */
+  source_key?: string | null;
   created_at: string;
   updated_at: string;
   _synced_at: number | null;

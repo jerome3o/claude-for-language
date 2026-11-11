@@ -785,6 +785,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       {cardsOpen && threadId && (
         <MakeFlashcardsSheet
           conversationId={threadId}
+          deckSource="claude"
           scope={{ kind: 'last50' }}
           fromLabel="this chat"
           propose={() => proposeCoachFlashcards(threadId, recapFocusWords(recap))}

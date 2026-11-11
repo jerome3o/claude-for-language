@@ -1349,3 +1349,14 @@ a.chat-header-person:focus-visible .chat-header-name {
   font-size: 0.875rem;
   cursor: pointer;
 }
+
+/* "✓ Added to From chats · Change" after saving cards from a chat sheet (source decks). */
+.chat-added-to-deck {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.chat-added-to-deck .added-to-deck {
+  flex: 1;
+}

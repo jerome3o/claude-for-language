@@ -1,9 +1,10 @@
 import { BumpByHanzi } from '../bumps/BumpButton';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
-import { createDeck, createNotesBatch, getDecks } from '../../api/client';
+import { useCallback, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { addedToDeckLine, sourceDeckName, type SourceDeckKey } from '@shared/decks/source-decks';
 import { proposeChatFlashcards } from '../../api/chat';
+import { addCardsToSourceDeck, type AddedToDeck } from '../../services/sourceDecks';
+import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
 import { invalidateKnownHanzi } from '../../services/readerWords';
 import { track, trackError } from '../../services/analytics';
 import {
@@ -18,8 +19,6 @@ import { describeError } from './InlineNotice';
 import type { ProposedChatCard } from '../../types';
 import { SpinnerButton } from './SpinnerButton';
 
-const NEW_DECK = '__new__';
-
 type Phase =
   | { kind: 'loading' }
   | { kind: 'error'; text: string; retryable: boolean }
@@ -33,9 +32,10 @@ function snippet(text: string, max = 70): string {
 /**
  * Make flashcards from this chat (docs/CHAT.md PR 3): Claude proposes cards
  * from the picked messages (or today's / the last 50), each one editable and
- * ticked unless it is already in my decks, then one tap adds them all to one
- * deck (`POST /api/decks/:id/notes/batch`). The deck starts on the top of the
- * study queue every time (decks listed in queue order); nothing is remembered.
+ * ticked unless it is already in my decks, then one tap adds them all — no deck
+ * to choose (docs/STUDY_SESSION.md "Source decks"): straight into "From chats"
+ * (a Claude chat's: "From Claude"; `POST /api/decks/source:chats/notes/batch`),
+ * then "✓ 3 cards added to From chats · Change" (Change moves them) and Done.
  */
 export function MakeFlashcardsSheet({
   conversationId,
@@ -47,8 +47,11 @@ export function MakeFlashcardsSheet({
   fromLabel,
   initiallyChecked,
   onAddedCount,
+  deckSource = 'chats',
 }: {
   conversationId: string;
+  /** The source deck the cards go to (shared/decks/source-decks.ts). */
+  deckSource?: SourceDeckKey;
   scope: FlashcardScope;
   /**
    * Another conversation's proposals (a Claude chat: `POST /api/coach/conversations/:id/flashcards/propose`);
@@ -70,18 +73,9 @@ export function MakeFlashcardsSheet({
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
   const [drafts, setDrafts] = useState<CardDraft[]>([]);
   const [editing, setEditing] = useState<string | null>(null);
-  const [deckId, setDeckId] = useState('');
-  const [newDeckName, setNewDeckName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  const decksQuery = useQuery({ queryKey: ['decks'], queryFn: () => getDecks() });
-  const decks = useMemo(() => decksInQueueOrder(decksQuery.data || []), [decksQuery.data]);
-
-  useEffect(() => {
-    if (!decksQuery.data || deckId) return;
-    setDeckId(defaultPickerDeckId(decksQuery.data) || NEW_DECK);
-  }, [decksQuery.data, deckId]);
+  const [added, setAdded] = useState<AddedToDeck | null>(null);
 
   const propose = useCallback(async () => {
     setPhase({ kind: 'loading' });
@@ -125,32 +119,24 @@ export function MakeFlashcardsSheet({
     setSaving(true);
     setSaveError(null);
     try {
-      let target = deckId;
-      let deckName = decks.find((d) => d.id === deckId)?.name;
-      if (target === NEW_DECK) {
-        const name = newDeckName.trim();
-        if (!name) throw new Error('Give the new deck a name.');
-        const deck = await createDeck(name);
-        target = deck.id;
-        deckName = deck.name;
-        setDeckId(deck.id);
-        setNewDeckName('');
-      }
-      const res = await createNotesBatch(target, notes);
+      const out = await addCardsToSourceDeck(deckSource, notes, 'chat_flashcards');
+      const res = out.result;
       invalidateKnownHanzi();
       void queryClient.invalidateQueries({ queryKey: ['decks'] });
       const created = res.created?.length ?? 0;
       if (onAddedCount) onAddedCount(created);
       else track('chat.make_flashcards', { count: created, focus: scope.kind });
       if (!res.failed || res.failed.length === 0) {
-        onAdded(`Added ${created} card${created === 1 ? '' : 's'} to ${deckName || 'your deck'}.`);
+        // Stay open on "✓ N cards added to From chats · Change" — Done closes.
+        setAdded(out);
         return;
       }
       // Keep only what failed, with the reason, so it can be fixed and added again.
       const failedHanzi = new Map(res.failed.map((f) => [f.hanzi, f.error]));
       setDrafts((list) => list.filter((d) => d.checked && failedHanzi.has(d.hanzi.trim())));
+      if (created) setAdded(out);
       setSaveError(
-        `${created ? `Added ${created} to ${deckName || 'your deck'}. ` : ''}${res.failed.length} couldn't be added: ${res.failed
+        `${res.failed.length} couldn't be added: ${res.failed
           .map((f) => `${f.hanzi} — ${f.error}`)
           .join('; ')}`,
       );
@@ -196,7 +182,13 @@ export function MakeFlashcardsSheet({
           {phase.kind === 'ready' && drafts.length === 0 && (
             <div className="chat-cards-status">No new words to make cards from in {fromLabel ?? scopeLabel(scope)}.</div>
           )}
+          {phase.kind === 'ready' && added && !saveError && (
+            <div className="chat-cards-status" data-testid="chat-cards-added">
+              {added.noteIds.length} new card{added.noteIds.length === 1 ? '' : 's'} — they come up in your study like any new cards.
+            </div>
+          )}
           {phase.kind === 'ready' &&
+            !(added && !saveError) &&
             drafts.map((d) => {
               const src = d.source_message_id ? sourceText(d.source_message_id) : null;
               const open = editing === d.key;
@@ -289,42 +281,32 @@ export function MakeFlashcardsSheet({
 
         {phase.kind === 'ready' && drafts.length > 0 && (
           <div className="chat-cards-foot">
-            <div className="chat-cards-deck">
-              <label htmlFor="chat-cards-deck">Deck</label>
-              <select id="chat-cards-deck" value={deckId} onChange={(e) => setDeckId(e.target.value)}>
-                {decks.map((deck) => (
-                  <option key={deck.id} value={deck.id}>
-                    {deck.name}
-                  </option>
-                ))}
-                <option value={NEW_DECK}>＋ New deck…</option>
-              </select>
-            </div>
-            {deckId === NEW_DECK && (
-              <input
-                type="text"
-                className="new-deck-input chat-cards-newdeck"
-                value={newDeckName}
-                onChange={(e) => setNewDeckName(e.target.value)}
-                placeholder="New deck name"
-                aria-label="New deck name"
-                maxLength={120}
-              />
-            )}
+            {added && <AddedToDeckLine added={added} surface="chat_flashcards" onMoved={setAdded} />}
             {saveError && (
               <div className="chat-notice chat-notice-error" role="alert">
                 <span className="chat-notice-text">{saveError}</span>
               </div>
             )}
-            <SpinnerButton
-              type="button"
-              className="btn btn-primary chat-cards-add"
-              busy={saving}
-              disabled={count === 0 || !deckId || (deckId === NEW_DECK && !newDeckName.trim())}
-              onClick={() => void add()}
-            >
-              {count === 0 ? 'Pick a card' : `Add ${count} card${count === 1 ? '' : 's'}`}
-            </SpinnerButton>
+            {added && !saveError ? (
+              <button
+                type="button"
+                className="btn btn-primary chat-cards-add"
+                onClick={() => onAdded(`${addedToDeckLine(added.deckName, added.noteIds.length)}.`)}
+                data-testid="chat-cards-done"
+              >
+                Done
+              </button>
+            ) : (
+              <SpinnerButton
+                type="button"
+                className="btn btn-primary chat-cards-add"
+                busy={saving}
+                disabled={count === 0}
+                onClick={() => void add()}
+              >
+                {count === 0 ? 'Pick a card' : `Add ${count} card${count === 1 ? '' : 's'} to ${sourceDeckName(deckSource)}`}
+              </SpinnerButton>
+            )}
           </div>
         )}
       </div>

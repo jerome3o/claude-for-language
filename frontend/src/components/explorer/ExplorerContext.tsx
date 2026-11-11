@@ -28,6 +28,8 @@ export interface ExplorerApi {
   push: (item: ExplorerItem) => void;
   /** True inside the explorer's own views: taps push instead of opening. */
   inside: boolean;
+  /** Where the showing explorer was opened from (its "+ Add as card" picks the source deck by it). */
+  source?: ExplorerSource;
 }
 
 const NOOP: ExplorerApi = { open: () => {}, push: () => {}, inside: false };
@@ -51,12 +53,14 @@ export function ExplorerInside({ api, children }: { api: ExplorerApi; children: 
 export function ExplorerProvider({ children }: { children: ReactNode }) {
   const [stack, dispatch] = useReducer(explorerReducer, []);
   const opts = useRef<ExplorerOpenOptions>({ source: 'other' });
+  const [openSource, setOpenSource] = useState<ExplorerSource>('other');
   const stackRef = useRef(stack);
   stackRef.current = stack;
 
   const open = useCallback((item: ExplorerItem, o: ExplorerOpenOptions) => {
     // A fresh stack replacing the one showing drops that one's onClosed (it never comes back).
     opts.current = o;
+    setOpenSource(o.source);
     track('explorer.open', { source: o.source, kind: item.kind });
     dispatch({ type: 'open', item });
   }, []);
@@ -68,7 +72,7 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'push', item });
   }, []);
 
-  const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false }), [open, push]);
+  const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false, source: openSource }), [open, push, openSource]);
 
   // The stack emptied (closed): tell whoever opened it, once.
   const wasOpen = useRef(false);
