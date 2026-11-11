@@ -10,7 +10,7 @@ import { WordRecapPass } from '../components/readerRecap/WordRecapPass';
  * word recap pass as the readers' (components/readerRecap/WordRecapPass) over the words tapped in
  * the chat and the words a 🎤 Read it back found mistakes in (services/claudeChatRecap.ts), each
  * card's cue the sentence of Claude's message it came from. Switches OFF by default: "Add to my
- * long-term review" → the "From my chats" deck + Up next; "⚡ Study it today" → a bump.
+ * long-term review" → the "From Claude" source deck + Up next; "⚡ Study it today" → a bump.
  * Immersive, offline-first.
  */
 export function ClaudeChatRecapPage() {

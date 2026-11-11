@@ -44,7 +44,7 @@
 
 /* Above every sheet that can show the line (the add sheet, the explorer, the chat sheets). */
 .rp-modal-backdrop.add-chunk-backdrop.move-to-deck-layer {
-  z-index: 1100;
+  z-index: 3100;
 }
 
 @media (prefers-color-scheme: dark) {

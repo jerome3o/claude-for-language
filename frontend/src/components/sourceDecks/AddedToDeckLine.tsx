@@ -6,6 +6,8 @@ import { getDecks } from '../../api/client';
 import { db } from '../../db/database';
 import { trackError } from '../../services/analytics';
 import { moveAddedCards, type AddedToDeck, type SourceDeckSurface } from '../../services/sourceDecks';
+import '../../pages/RoleplayPage.css';
+import '../AddChunkModal.css';
 import './source-decks.css';
 
 /**

@@ -378,6 +378,51 @@ The 27 Sep 2026 debug report found the web holding 49 cards with events at NEW a
 cards whose due date had drifted whole days later than the replay (the old incremental
 `scheduleCard` update) — the web showed 0 due while the Lab app showed 37.
 
+## Source decks — "+ Add as card" without choosing a deck
+
+Jerome (Nov 2026): "I don't care which deck a card lands in." A card added from around the app goes
+straight into a deck **per source**, with no deck picker. The rules are in `shared/decks/source-decks.ts`,
+ported to Lab `core/…/SourceDecks.kt` and parity-tested (`parity/fixtures/source-decks.ts` → `SourceDecksParityTest`).
+
+| Key | Deck name | Where its cards come from |
+|-----|-----------|---------------------------|
+| `readers` | From readers | reader word chips (the explorer opened from a reader), read-aloud differences, the reader word recap |
+| `chats` | From chats | chat Explain / Save as flashcard / How to say it better, Make flashcards, the old chat save sheets, Discuss with Claude's proposed cards, chat word chips |
+| `sentences` | From example sentences | the sentence rows' "+ Add as card" and their breakdown words (study card, homework pass) |
+| `claude` | From Claude | Claude's `create_flashcards` (Ask Claude, the Coach, Claude threads, reader / exercise chats), Coach words, a Claude chat's "Make flashcards" and word recap |
+| `explorer` | From the explorer | the explorer's + Add as card when it was opened from somewhere with no source of its own (study card, homework, card hub, word tags, the character sheet) |
+| `practice` | From lessons & practice | picture hunts, video-call flashcards and in-call activities, clips, idioms, meme review, phone practice, podcasts (Lab) |
+
+- **One deck per family, made on first use** by the content service (`ensureSourceDeck`,
+  `worker/src/services/content/decks.ts`) with the shared `DEFAULT_DECK_SETTINGS`, at the **top** of the
+  deck queue, the same as a deck he creates himself (`createDeck`'s default placement). It is found again
+  by its stable key `decks.source_key` (migration 0150, UNIQUE per user where set), **never by name**:
+  renaming the deck keeps it the source deck. Under a race, the UNIQUE index lets one insert win and the
+  other request reads that deck. The reader recap's old "From my readers" deck (made by name) is
+  **adopted** as `readers` (it keeps its name). The old "From my chats" deck is left as an ordinary deck.
+- **One request**: the note-create routes take the ref `source:<key>` in place of a deck id
+  (`POST /api/decks/source:readers/notes`, `…/notes/batch`; `/api/calls/:id/flashcards` `deck_id`). The
+  reply carries `deck: { id, name, source_key }`. `POST /api/decks/source { key }` → `{ deck, created }`
+  is the get-or-create on its own. `source_key` is on every deck row and in `/api/sync/changes`
+  (web Dexie `LocalDeck.source_key`; Lab Room v13 `DeckEntity.sourceKey`, `MIGRATION_12_13`).
+- **One tap**: the explorer's "+ Add as card" saves on the spot. An add sheet (`AddChunkModal` / Lab
+  `AddChunkBody`, `AddWordSheet`, `ReaderWordPanel`) saves as soon as it knows the word is new. Sheets
+  with a list of cards (Make flashcards, Discuss, video-call words, podcasts) have one "Add N cards to
+  From chats" button. A word he already has is never added by itself: "⚡ Study it today" stays first and
+  "Add anyway" goes into the source deck. Editable fields, the card standard, word checks and audio are
+  unchanged: these are the same content-service paths.
+- **"✓ Added to From readers · Change"** (web `components/sourceDecks/AddedToDeckLine.tsx`, Lab
+  `ui/kit/AddedToDeck.kt`): Change lists his decks in study-queue order with the current one marked, and
+  moves the just-added note(s) with `POST /api/notes/move` (cards and history kept; the device moves
+  them at once). The line then says "Moved to HSK 2".
+- **Claude**: `create_flashcards` puts cards in "From Claude" unless the learner names a deck. The tool
+  description and the prompts say never to ask which deck (`FROM_CLAUDE_RULE`, `flashcardDeckFor`). An
+  unknown or foreign deck id also falls back to "From Claude".
+- **Unchanged**: Paste a list, the deck page, Generate deck, tutor homework and the MCP tools. On all of
+  these, choosing the deck is deliberate.
+- Analytics: `deck.source_add { deck_key, surface, count, source_deck, existing }`,
+  `deck.source_change { deck_key, surface, count }`. `explorer.add_card` also carries `source_deck` and `deck_key`.
+
 ## "⚡ Study it today" — the bump pocket
 
 Jerome often tries to add a card he already has (Coach → Explain → add → "already in this deck").

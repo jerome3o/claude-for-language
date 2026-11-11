@@ -90,8 +90,12 @@ words; the tint only repeats them.
   (`charChipLabel`: "The character 学, xué — you have it as a card, known"); same rule as the
   Character view's line.
 - **Your card**: "📚 You have this in <deck>" → Open card (the card hub) and ⚡ Study it today; else
-  **+ Add as card** (`AddChunkModal`, the top deck of the queue preselected; the "More about"
-  explanation's fun facts / sentence go with it when it was loaded). **Right after an add** the
+  **+ Add as card**: ONE tap, no deck picker. The card goes straight into the source deck of where the
+  explorer was opened: a reader → "From readers", a chat → "From chats", the Coach / a Claude chat →
+  "From Claude", sentence breakdowns → "From example sentences", practice screens → "From lessons &
+  practice", anywhere else → "From the explorer" (`sourceDeckForExplorer`; docs/STUDY_SESSION.md
+  "Source decks"). The footer says "✓ Added to From readers · Change", and Change moves the note. The
+  "More about" explanation's fun facts and sentence go with it when they were loaded. **Right after an add** the
   footer says "✓ Added to <deck>" with ⚡ Study it today (web: + Open card →) at once — the new note
   reaches the device only with the sync the add starts (web `AddChunkModal` → `onAdded(AddedCard)` +
   `syncService.syncInBackground()`, `CardTieIn`; Lab `AddChunkSheet.onAddedTo` → `ExplorerHost`'s
