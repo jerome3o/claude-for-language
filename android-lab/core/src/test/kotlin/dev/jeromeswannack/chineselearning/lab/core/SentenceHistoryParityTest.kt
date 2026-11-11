@@ -34,11 +34,12 @@ class SentenceHistoryParityTest {
         assertTrue(cases.size >= 100)
         var withHistory = 0
         var listenPicked = 0
+        var listenExercises = 0
         val wanted = HashMap<String, Int>()
         for (c in cases) {
             val o = c.jsonObject
             val what = o.toString().take(2000)
-            val sentences = o["sentences"]!!.jsonArray.map { val x = it.jsonObject; SentenceRound.Sentence(x.s("key")!!, x.s("hanzi")!!, x.s("translation")) }
+            val sentences = o["sentences"]!!.jsonArray.map { val x = it.jsonObject; SentenceRound.Sentence(x.s("key")!!, x.s("hanzi")!!, x.s("translation"), x["audio"]?.jsonPrimitive?.boolean ?: false) }
             val events = o["events"]!!.jsonArray.map {
                 val x = it.jsonObject
                 SentenceHistory.Event(x.s("id")!!, x.s("note_id")!!, x.s("sentence_key")!!, x.s("kind")!!, x.s("mode"), x.s("result"), x.s("reason"), x.s("at")!!)
@@ -46,7 +47,11 @@ class SentenceHistoryParityTest {
             val stats = SentenceHistory.stats(events, "n1")
             val want = o["stats"]!!.jsonObject.mapValues { (_, v) ->
                 val x = v.jsonObject
-                SentenceHistory.Stats(mode(x["read"]!!.jsonObject), mode(x["translate"]!!.jsonObject), x["hidden"]!!.let { h -> if (h is JsonNull) null else SentenceHistory.Hidden(h.jsonObject.s("at")!!, h.jsonObject.s("reason")) })
+                SentenceHistory.Stats(
+                    mode(x["read"]!!.jsonObject), mode(x["translate"]!!.jsonObject),
+                    x["hidden"]!!.let { h -> if (h is JsonNull) null else SentenceHistory.Hidden(h.jsonObject.s("at")!!, h.jsonObject.s("reason")) },
+                    mode(x["listen"]!!.jsonObject),
+                )
             }
             assertEquals(want, stats.toSortedMap(), what)
             if (stats.isNotEmpty()) withHistory++
@@ -54,6 +59,15 @@ class SentenceHistoryParityTest {
                 val x = k.jsonObject
                 assertEquals(x["read"]!!.jsonPrimitive.boolean, SentenceHistory.known(stats[x.s("key")], SentencePractise.READ), what)
                 assertEquals(x["translate"]!!.jsonPrimitive.boolean, SentenceHistory.known(stats[x.s("key")], SentencePractise.TRANSLATE), what)
+                assertEquals(x["listen"]!!.jsonPrimitive.boolean, SentenceHistory.known(stats[x.s("key")], SentenceHistory.LISTEN), what)
+                for (a in x["all"]!!.jsonArray) {
+                    val ao = a.jsonObject
+                    assertEquals(
+                        ao["known"]!!.jsonPrimitive.boolean,
+                        SentenceHistory.knownInAllModes(stats[x.s("key")], ao["translation"]!!.jsonPrimitive.boolean, ao["byEar"]!!.jsonPrimitive.boolean),
+                        "$what all $ao",
+                    )
+                }
             }
             for (k in o["compares"]!!.jsonArray) {
                 val x = k.jsonObject
@@ -76,6 +90,18 @@ class SentenceHistoryParityTest {
             }
             val picked = SentenceRound.pick(sentences, stats)
             assertEquals(expected, picked, what)
+            // Sentences by ear: the same round with listen in the read slots where a sentence can be heard.
+            for (b in o["byEar"]!!.jsonArray) {
+                val bo = b.jsonObject
+                val online = bo["online"]!!.jsonPrimitive.boolean
+                val want = bo["exercises"]!!.jsonArray.map {
+                    val e = it.jsonObject
+                    SentenceRound.Exercise(e.s("id")!!, e.s("key")!!, e.s("mode")!!, e["index"]!!.jsonPrimitive.int)
+                }
+                val got = SentenceRound.pick(sentences, stats, byEar = true, online = online)
+                assertEquals(want, got, "$what byEar online=$online")
+                listenExercises += got.count { it.mode == SentenceHistory.LISTEN }
+            }
             for (l in o["listen"]!!.jsonArray) {
                 val lo = l.jsonObject
                 val word = lo.s("word")!!
@@ -99,6 +125,7 @@ class SentenceHistoryParityTest {
         }
         assertTrue(withHistory > 50)
         assertTrue(listenPicked > 100, "listening rounds picked")
+        assertTrue(listenExercises > 200, "listen exercises picked: $listenExercises")
         assertTrue((wanted["few"] ?: 0) > 20 && (wanted["fresh"] ?: 0) > 20, "both reasons covered: $wanted")
     }
 

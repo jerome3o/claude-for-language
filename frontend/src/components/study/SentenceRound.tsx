@@ -40,8 +40,13 @@ import {
   LISTEN_ROUND_SHOW_CHINESE,
   LISTEN_ROUND_SELF_RIGHT,
   LISTEN_ROUND_SELF_WRONG,
+  exerciseAsRead,
+  listenActiveId,
   type RoundExercise,
 } from '@shared/study/sentenceRound';
+import { useSentencesByEar } from '../../services/hardModePrefs';
+import { isAudioCached } from '../../services/audioCache';
+import { SentenceListenExercise } from './SentenceListenExercise';
 import { roundTakeFeel } from '@shared/study/hardMode';
 import { studyFeel } from '../../services/studyFeel';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
@@ -72,6 +77,7 @@ import type { Note } from '../../types';
 import { fetchNoteSentences, API_BASE } from '../../api/client';
 import {
   cacheSentenceAudio,
+  ensureSentenceAudio,
   getCachedClueTranslation,
   getClueTranslation,
   getLocalNoteSentences,
@@ -205,20 +211,50 @@ interface SentenceRoundProps {
   word?: string;
 }
 
+/** Set rows whose missing clip was already asked for in this session. */
+const askedClips = new Set<string>();
+
 export function SentenceRound({ showingKey, noteId, question, questionIsChinese, sentences, right, onRight, onDone, onSkip, initialIds, onPicked, onResult, doneCheer, where = 'session', kind = 'card', word = '' }: SentenceRoundProps) {
   const listen = kind === 'listen';
   const stats = useSentenceStats(noteId);
+  const { isOnline } = useNetwork();
+  // Sentences by ear (Settings → Study, on by default): the read slots become listen exercises where the
+  // sentence can be heard — a clip, streamed online or on the device offline (shared/study/sentenceRound.ts).
+  const byEar = useSentencesByEar() && !listen;
+  const [cachedClips, setCachedClips] = useState<Record<string, boolean> | null>(null);
+  const needCacheCheck = byEar && !isOnline;
+  useEffect(() => {
+    if (!needCacheCheck || !sentences || cachedClips) return;
+    let live = true;
+    const urls = sentences.map((s) => s.audio_url).filter((u): u is string => !!u);
+    void Promise.all(urls.map((u) => isAudioCached(u).then((ok) => [u, ok] as const).catch(() => [u, false] as const))).then((pairs) => {
+      if (live) setCachedClips(Object.fromEntries(pairs));
+    });
+    return () => { live = false; };
+  }, [needCacheCheck, sentences, cachedClips]);
+  // A set row with no clip yet: asked for in the background (the rows' ensure-audio path), so it can be
+  // heard next time; this round reads it.
+  useEffect(() => {
+    if (!byEar || !isOnline || !sentences) return;
+    for (const s of sentences) {
+      if (s.audio_url || s.key.startsWith('clue:') || askedClips.has(s.key)) continue;
+      askedClips.add(s.key);
+      void Promise.resolve().then(() => ensureSentenceAudio(s.key)).catch(() => {});
+    }
+  }, [byEar, isOnline, sentences]);
   // The exercises are picked ONCE per showing (from the history as it stood): a take written meanwhile
   // must not reshuffle the round under his finger. A sentence hidden now leaves it.
   const [picked, setPicked] = useState<RoundExercise[] | null>(null);
   useEffect(() => {
     if (picked || !sentences || !stats) return;
+    if (needCacheCheck && !cachedClips) return;
     const hidden = (key: string) => !!stats.get(sentenceHistoryKey(key))?.hidden;
+    const withAudio = sentences.map((s) => ({ ...s, audio: !!s.audio_url && (isOnline || !!cachedClips?.[s.audio_url]) }));
     const next = (initialIds?.length ? exercisesFromLog(sentences, initialIds, hidden) : null)
-      ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(sentences, stats));
+      ?? (listen ? pickListenRoundExercises(sentences, word, stats) : pickRoundExercises(withAudio, stats, { byEar, online: isOnline }));
     setPicked(next);
     onPicked?.(next.map((e) => e.id));
-  }, [picked, sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [picked, sentences, stats, cachedClips]); // eslint-disable-line react-hooks/exhaustive-deps
   const isHidden = (key: string) => !!stats?.get(sentenceHistoryKey(key))?.hidden;
   const exercises = useMemo(() => (picked ?? []).filter((e) => !isHidden(e.key)), [picked, stats]); // eslint-disable-line react-hooks/exhaustive-deps
   const visibleKeys = useMemo(() => (sentences ?? []).filter((s) => !isHidden(s.key)).map((s) => s.key), [sentences, stats]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -253,7 +289,6 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const [english, setEnglish] = useState<Record<string, boolean>>({});
   // A sentence with no English on the note (the card's own, MCP-added / older notes): fetched once it
   // is shown (the rows' `getClueTranslation`, cached by text — offline once fetched).
-  const { isOnline } = useNetwork();
   const [fetched, setFetched] = useState<Record<string, string>>({});
   const [fetchFailed, setFetchFailed] = useState<Record<string, boolean>>({});
   const fetching = useRef(new Set<string>());
@@ -297,7 +332,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const differenceOf = (ex: RoundExercise | undefined): DifferenceReason | null => {
     const t = ex ? practise.takes[ex.id] : undefined;
     const row = ex ? rows.get(ex.key) : undefined;
-    if (!ex || !t || !row || t.claude?.status === 'checking') return null;
+    if (!ex || ex.mode === 'listen' || !t || !row || t.claude?.status === 'checking') return null;
     return roundTakeDifference({
       mode: ex.mode,
       said: t.take.practised.said,
@@ -395,6 +430,34 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     track('study.sentence_round', { action: said ? 'right' : 'miss', index, mode: ex.mode, got: after.got, needed: after.needed });
   };
 
+  // Sentences by ear: the listen exercise with the floor (its clip plays, its box is open) — the one he
+  // chose, else the first one not yet answered (`listenActiveId`).
+  const [chosenListen, setChosenListen] = useState<string | null>(null);
+  const [listenAnswered, setListenAnswered] = useState<string[]>([]);
+  const activeListen = listenActiveId(exercises, listenAnswered, chosenListen);
+  const listenJudged = (ex: RoundExercise, index: number, result: 'right' | 'close' | 'wrong') => {
+    const before = sentenceRoundProgress(exercises, right, visibleKeys);
+    onResult?.(ex.id, result);
+    recordSentenceAttempt(noteId, ex.key, 'listen', result);
+    if (result === 'right') {
+      lastRight.current = ex.id;
+      onRight(ex.id);
+    }
+    const after = sentenceRoundProgress(exercises, result === 'right' ? [...right, ex.id] : right, visibleKeys);
+    studyFeel(roundTakeFeel(result, after.done && !before.done));
+    track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: 'listen', got: after.got, needed: after.needed });
+  };
+  /** The clip won't play here after all: the same sentence, read (the round keeps its place). */
+  const listenUnavailable = (ex: RoundExercise) => {
+    setPicked((prev) => {
+      if (!prev) return prev;
+      const next = prev.map((e) => (e.id === ex.id ? exerciseAsRead(e) : e));
+      onPicked?.(next.map((e) => e.id));
+      return next;
+    });
+    track('study.sentence_listen', { fallback: true, where });
+  };
+
   const playRow = (key: string, row: RoundSentenceRow) => {
     setPlaying(key);
     play(row.audio_url, row.hanzi, API_BASE);
@@ -409,7 +472,29 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const renderExercise = (ex: RoundExercise, index: number) => {
     const row = rows.get(ex.key);
     if (!row) return null;
+    if (ex.mode === 'listen') {
+      return (
+        <SentenceListenExercise
+          key={ex.id}
+          ex={ex}
+          index={index}
+          row={row}
+          active={activeListen === ex.id}
+          onActivate={() => setChosenListen(ex.id)}
+          onRevealed={() => setListenAnswered((p) => (p.includes(ex.id) ? p : [...p, ex.id]))}
+          isRight={right.includes(ex.id)}
+          online={isOnline}
+          micBusy={practise.listening || practise.finishing}
+          onJudged={(result) => listenJudged(ex, index, result)}
+          onUnavailable={() => listenUnavailable(ex)}
+          onMore={() => setHiding(ex)}
+          longPress={longPress.bind(() => setHiding(ex))}
+          where={where}
+        />
+      );
+    }
     const practiseRow: PractiseRow = { key: ex.id, hanzi: row.hanzi, pinyin: row.pinyin, translation: row.translation };
+    const takeMode = ex.mode;
     const take = practise.takes[ex.id];
     const mine = practise.active?.row.key === ex.id;
     const busy = mine && (practise.listening || practise.finishing);
@@ -549,7 +634,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 disabled={!practiseMicEnabled(blocked) || practise.listening || practise.finishing}
                 onClick={() => {
                   track('study.sentence_round', { action: 'retry', index, mode: ex.mode, got: progress.got, needed: progress.needed });
-                  practise.toggle(practiseRow, ex.mode);
+                  practise.toggle(practiseRow, takeMode);
                 }}
                 data-testid="sentence-round-retry"
               >
@@ -564,7 +649,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
                 onClick={() => {
                   track('study.sentence_round', { action: 'say_again', index, mode: ex.mode, got: progress.got, needed: progress.needed });
                   setStayPut(true);
-                  practise.toggle(practiseRow, ex.mode);
+                  practise.toggle(practiseRow, takeMode);
                 }}
                 data-testid="sentence-round-say-again"
               >

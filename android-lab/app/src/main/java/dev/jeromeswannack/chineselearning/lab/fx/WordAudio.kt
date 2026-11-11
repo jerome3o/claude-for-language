@@ -60,6 +60,50 @@ class WordAudio(private val context: Context, private val repo: Repository) {
     }
 
     /**
+     * The clip itself and nothing else (Hard mode's "Sentences by ear": a listening exercise in the device voice
+     * teaches nothing): the downloaded file, else streamed when online, at [speed] with the pitch kept. No source,
+     * or the player fails before it ever played → [onUnavailable] (the exercise becomes a read one).
+     */
+    fun playClip(key: String?, online: Boolean, speed: Double = 1.0, onUnavailable: () -> Unit = {}) {
+        stop()
+        val file = repo.cachedAudio(key)
+        val source = when {
+            file != null -> file.absolutePath
+            !key.isNullOrBlank() && online && !dev.jeromeswannack.chineselearning.lab.data.settings.SettingsStore.forcedOffline(context) -> Config.audioUrl(key, repo.api.baseUrl)
+            else -> null
+        }
+        if (source == null || key == null) { onUnavailable(); return }
+        val mp = MediaPlayer()
+        player = mp
+        _playingKey.value = key
+        var started = false
+        try {
+            mp.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            if (file == null) mp.setDataSource(context, android.net.Uri.parse(source), repo.api.mediaHeaders(source))
+            else mp.setDataSource(source)
+            mp.setOnPreparedListener {
+                started = true
+                if (speed != 1.0) runCatching { it.playbackParams = it.playbackParams.setSpeed(speed.toFloat()).setPitch(1f) }
+                it.start()
+            }
+            mp.setOnCompletionListener { if (player === it) { _playingKey.value = null; it.release(); player = null } }
+            mp.setOnErrorListener { p, _, _ ->
+                if (player === p) { p.release(); player = null; _playingKey.value = null; if (!started) onUnavailable() }
+                true
+            }
+            mp.prepareAsync()
+        } catch (e: Exception) {
+            mp.release()
+            player = null
+            _playingKey.value = null
+            onUnavailable()
+        }
+    }
+
+    /** The clip is on this device (offline it can play). */
+    fun hasClip(key: String?): Boolean = repo.cachedAudio(key) != null
+
+    /**
      * Plays a local file under [key] (lights the ▶ whose key matches) — a clip the app keeps
      * itself, e.g. the tutor's model recording (data/audio/ModelRecordings.kt). No voice fallback.
      */

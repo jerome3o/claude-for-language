@@ -8,7 +8,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  sentenceStats, knownInMode, compareLeastKnown, wantsMoreSentences, sentenceHistoryKey, showHiddenLabel,
+  sentenceStats, knownInMode, knownInAllModes, compareLeastKnown, wantsMoreSentences, sentenceHistoryKey, showHiddenLabel,
   moreSentencesWanted, isFreshSentence, freshSentenceCount, freshTopUpCount, sentencesComingShown,
   SENTENCE_FRESH_BUFFER, SENTENCE_FRESH_LOW, SENTENCE_TOPUP_MIN, SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_RETRY_MS,
   SENTENCE_KNOWN_RIGHTS, SENTENCE_HIDE_REASONS, SENTENCE_HIDE_REASON_LABEL, SENTENCES_COMING_NOTE, SENTENCE_HIDE_TITLE,
@@ -40,8 +40,8 @@ for (let i = 0; i < 360; i++) {
   const long = i >= 200;
   const n = long ? Math.floor(r() * 17) : Math.floor(r() * 9);
   const sentences: RoundSentence[] = [];
-  if (r() < 0.7) sentences.push({ key: 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.' });
-  for (let k = 0; k < n; k++) sentences.push({ key: `s${k}`, hanzi: `句子${k}。`, translation: r() < 0.12 ? (r() < 0.5 ? '' : null) : `Sentence ${k}.` });
+  if (r() < 0.7) sentences.push({ key: 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.', audio: r() < 0.5 });
+  for (let k = 0; k < n; k++) sentences.push({ key: `s${k}`, hanzi: `句子${k}。`, translation: r() < 0.12 ? (r() < 0.5 ? '' : null) : `Sentence ${k}.`, audio: r() < 0.75 });
   const keys = [...sentences.map((s) => sentenceHistoryKey(s.key)), 'gone'];
   const events: SentencePracticeEvent[] = [];
   const count = long ? Math.floor(r() * 10) : Math.floor(r() * 30);
@@ -57,7 +57,7 @@ for (let i = 0; i < 360; i++) {
       at,
     };
     if (kind === 'attempt') {
-      ev.mode = pick(['read', 'translate', 'read', 'translate', 'bad'] as never[]);
+      ev.mode = pick(['read', 'translate', 'listen', 'read', 'translate', 'listen', 'bad'] as never[]);
       ev.result = pick(['right', 'right', 'close', 'wrong', 'meh'] as never[]);
     }
     if (kind === 'hide') ev.reason = pick([...SENTENCE_HIDE_REASONS, 'bogus', null] as never[]);
@@ -65,10 +65,13 @@ for (let i = 0; i < 360; i++) {
   }
   const stats = sentenceStats(events, 'n1');
   const keysWithStats = [...stats.keys()].sort();
-  const known = keysWithStats.map((k) => ({ key: k, read: knownInMode(stats.get(k), 'read'), translate: knownInMode(stats.get(k), 'translate') }));
+  const known = keysWithStats.map((k) => ({
+    key: k, read: knownInMode(stats.get(k), 'read'), translate: knownInMode(stats.get(k), 'translate'), listen: knownInMode(stats.get(k), 'listen'),
+    all: [false, true].flatMap((translation) => [false, true].map((byEar) => ({ translation, byEar, known: knownInAllModes(stats.get(k), { translation, byEar }) }))),
+  }));
   const compares = [] as unknown[];
   for (const a of keysWithStats) for (const b of keysWithStats) {
-    for (const mode of ['read', 'translate'] as const) compares.push({ a, b, mode, c: Math.sign(compareLeastKnown(stats.get(a)?.[mode], stats.get(b)?.[mode])) });
+    for (const mode of ['read', 'translate', 'listen'] as const) compares.push({ a, b, mode, c: Math.sign(compareLeastKnown(stats.get(a)?.[mode], stats.get(b)?.[mode])) });
   }
   cases.push({
     sentences, events, stats: statsJson(stats), known, compares,
@@ -78,6 +81,8 @@ for (let i = 0; i < 360; i++) {
     freshCount: freshSentenceCount(sentences, stats),
     fresh: [...new Set(keys)].sort().map((k) => ({ key: k, fresh: isFreshSentence(stats.get(k)) })),
     exercises: pickRoundExercises(sentences, stats),
+    // Sentences by ear: listen in the read slots where a sentence can be heard (online: with English).
+    byEar: [true, false].map((online) => ({ online, exercises: pickRoundExercises(sentences, stats, { byEar: true, online }) })),
     // The listening card's round: "say it in Chinese" over the sentences that carry the word.
     listen: LISTEN_WORDS.map((word) => ({ word, exercises: pickListenRoundExercises(sentences, word, stats), count: listenRoundSentenceCount(sentences, word, stats) })),
     progress: [[], ['read:s0', 'translate:clue:n1'], ['read:s7', 'translate:s1', 'read:zzz']].map((ids) => ({

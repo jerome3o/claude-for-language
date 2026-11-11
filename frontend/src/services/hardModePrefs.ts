@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { parseHardMode, type HardMode } from '@shared/study/hardMode';
 import { parsePassHardMode } from '@shared/homework/pass-angles';
+import { parseSentencesByEar } from '@shared/study/sentenceRound';
 
 const KEY = 'sentence-gate-v1';
 const EVENT = 'hard-mode-change';
@@ -90,4 +91,47 @@ export function usePassHardMode(): HardMode {
     };
   }, []);
   return mode;
+}
+
+// --- Sentences by ear (shared/study/sentenceRound.ts; docs/STUDY_SESSION.md "Sentences by ear") ---------
+// Settings → Study → "Sentences by ear in Hard mode": the Sentence round's read slots become listen
+// exercises (the clip, then the meaning in English). Per device, ON by default (Lab `StudyPrefs.sentencesByEar`).
+
+const BY_EAR_KEY = 'sentences-by-ear-v1';
+const BY_EAR_EVENT = 'sentences-by-ear-change';
+
+export function readSentencesByEar(): boolean {
+  try {
+    return parseSentencesByEar(localStorage.getItem(BY_EAR_KEY));
+  } catch {
+    return parseSentencesByEar(null);
+  }
+}
+
+export function writeSentencesByEar(on: boolean): void {
+  try {
+    localStorage.setItem(BY_EAR_KEY, on ? '1' : '0');
+  } catch {
+    /* private mode: the default stays */
+  }
+  try {
+    window.dispatchEvent(new CustomEvent(BY_EAR_EVENT, { detail: on }));
+  } catch {
+    /* no window (tests) */
+  }
+}
+
+/** The switch, live (Settings changes it under an open round only for the next one: picks are made once). */
+export function useSentencesByEar(): boolean {
+  const [on, setOn] = useState(readSentencesByEar);
+  useEffect(() => {
+    const update = () => setOn(readSentencesByEar());
+    window.addEventListener(BY_EAR_EVENT, update);
+    window.addEventListener('storage', update);
+    return () => {
+      window.removeEventListener(BY_EAR_EVENT, update);
+      window.removeEventListener('storage', update);
+    };
+  }, []);
+  return on;
 }

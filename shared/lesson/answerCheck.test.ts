@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   answerCheckApplies, answerCheckCacheText, answerCheckChip, exactAnswerCheck, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
-  suggestedFor, tipSegments, EXACT_ANSWER_HEADLINE,
+  suggestedFor, tipSegments, EXACT_ANSWER_HEADLINE, isMeaningCheck, meaningAnswerText,
 } from './answerCheck';
 import { isExactHanziMatch } from './answer-check';
 import { sanitizeAttemptData } from './attempt';
@@ -129,7 +129,37 @@ describe('exactAnswerCheck', () => {
     expect(exactAnswerCheck({ ...base, answer: '车站就在我家对面吗' })).toBeNull();
     expect(exactAnswerCheck({ ...base, answer: '' })).toBeNull();
     expect(exactAnswerCheck({ ...base, exercise_type: 'sentence_making', answer: '车站就在我家对面。' })).toBeNull();
-    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'listen_translate', model_answer: 'The station', answer: 'The station is near' })).toBeNull();
+    expect(exactAnswerCheck({ exercise_type: 'translate', model_answer: 'The station', answer: 'The station' })).toBeNull();
+  });
+});
+
+describe('meaning check (Hard mode "Sentences by ear")', () => {
+  const heard = { prompt_en: '我昨天没去银行。', model_answer: "I didn't go to the bank yesterday.", exercise_type: 'listen_translate' };
+
+  it('is listen_translate with English on both sides; a lesson listen_translate (Chinese model) is not', () => {
+    expect(isMeaningCheck({ ...heard, answer: 'I did not go' })).toBe(true);
+    expect(isMeaningCheck({ ...heard, answer: '我没去' })).toBe(false);
+    expect(isMeaningCheck({ ...heard, answer: '  ' })).toBe(false);
+    expect(isMeaningCheck({ ...heard, answer: '123' })).toBe(false);
+    expect(isMeaningCheck({ ...heard, model_answer: '我昨天没去银行。', answer: 'I did not go' })).toBe(false);
+    expect(isMeaningCheck({ ...heard, exercise_type: 'translate', answer: 'I did not go' })).toBe(false);
+  });
+
+  it('the English itself is right on the device (case, punctuation and spacing aside)', () => {
+    expect(exactAnswerCheck({ ...heard, answer: "i didn't go to the bank yesterday" })?.verdict).toBe('correct');
+    expect(exactAnswerCheck({ ...heard, answer: "  I didn't  go to the bank, yesterday!" })?.suggested).toBe('got_it');
+    expect(exactAnswerCheck({ ...heard, answer: 'I went to the bank yesterday' })).toBeNull();
+    expect(meaningAnswerText("  I DIDN'T go… to the bank!! ")).toBe('i didn t go to the bank');
+  });
+
+  it('is accepted by the route with an English answer and cached by its own text', () => {
+    const picked = pickAnswerCheckInput({ ...heard, answer: 'I went to the bank', input: 'spoken' });
+    expect('input' in picked).toBe(true);
+    const text = answerCheckCacheText({ ...heard, answer: 'I went to the BANK.', input: 'spoken' });
+    expect(text).toBe('m1|listen_translate|spoken|我昨天没去银行|i didn t go to the bank yesterday|i went to the bank');
+    expect(answerCheckCacheText({ ...heard, answer: 'i went to the bank', input: 'spoken' })).toBe(text);
+    expect('problems' in pickAnswerCheckInput({ ...heard, model_answer: '我去银行。', answer: 'I go' })).toBe(true);
   });
 });
 

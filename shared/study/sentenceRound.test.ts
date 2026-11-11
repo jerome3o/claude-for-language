@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   roundSentences, pickRoundExercises, sentenceRoundOpens, sentenceRoundProgress, sentenceRoundCounter,
   sentenceRoundIntro, sentenceRoundCheer, roundRowMarks, orderKeysForRound, exercisesFromLog, roundEnglishShown, type RoundSentence,
-  pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro,
+  pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro, canListenTo, listenActiveId, exerciseAsRead, listenCheckBy,
+  listenCheckInput, listenVerdictResult, listenSelfResult, parseSentencesByEar, SENTENCE_ROUND_PROMPT,
   SENTENCE_ROUND_SKIP, SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES, SENTENCE_ROUND_SKIP_CONFIRM_NO,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
@@ -165,5 +166,85 @@ describe("the listening card's round: say it in Chinese", () => {
   });
   it('words', () => {
     expect(listenRoundIntro({ needed: 2, got: 0, done: false }, 3)).toBe('You heard it — now say these in Chinese. Get any 2 of these 3 right');
+  });
+});
+
+describe('Sentences by ear (listen exercises in the read slots)', () => {
+  const heard = (key: string, translation: string | null = `${key} en`, audio = true): RoundSentence => ({ key, hanzi: `${key}汉字`, translation, audio });
+  const ear = { byEar: true, online: true };
+
+  it('a read slot is a listen exercise when its sentence can be heard; translate slots stay', () => {
+    expect(brief(pickRoundExercises([heard('a'), heard('b'), heard('c'), heard('d')], undefined, ear))).toEqual(['listen:a', 'translate:b', 'listen:c', 'translate:d']);
+    // Off: today's read / translate.
+    expect(brief(pickRoundExercises([heard('a'), heard('b'), heard('c'), heard('d')], undefined, { byEar: false, online: true }))).toEqual(['read:a', 'translate:b', 'read:c', 'translate:d']);
+    expect(brief(pickRoundExercises([heard('a'), heard('b'), heard('c'), heard('d')]))).toEqual(['read:a', 'translate:b', 'read:c', 'translate:d']);
+  });
+
+  it('prefers a sentence with a clip for the read slot; one with no clip keeps read', () => {
+    expect(brief(pickRoundExercises([heard('a', 'a en', false), heard('b'), heard('c'), heard('d')], undefined, ear))).toEqual(['translate:a', 'listen:b', 'listen:c', 'translate:d']);
+    expect(brief(pickRoundExercises(['a', 'b', 'c', 'd'].map((k) => heard(k, `${k} en`, false)), undefined, ear))).toEqual(['read:a', 'translate:b', 'read:c', 'translate:d']);
+  });
+
+  it('online it needs English to check against; offline he checks himself, so a clip is enough', () => {
+    expect(brief(pickRoundExercises([heard('a', null)], undefined, ear))).toEqual(['read:a']);
+    expect(brief(pickRoundExercises([heard('a', null)], undefined, { byEar: true, online: false }))).toEqual(['listen:a']);
+    expect(canListenTo({ translation: '', audio: true }, { byEar: true, online: false })).toBe(true);
+    expect(canListenTo({ translation: 'x', audio: false }, ear)).toBe(false);
+    expect(canListenTo({ translation: 'x', audio: true }, undefined)).toBe(false);
+  });
+
+  it('fresh first, then the one he understands least by ear', () => {
+    const at = (m: number) => `2026-11-0${m}T08:00:00.000Z`;
+    const ev = (id: string, key: string, mode: 'read' | 'listen', result: 'right' | 'wrong', d: number): SentencePracticeEvent =>
+      ({ id, note_id: 'n', sentence_key: key, kind: 'attempt', mode, result, at: at(d) });
+    const events = [
+      ...['a', 'b', 'c', 'd'].map((k, i) => ev(`r${k}`, k, 'read', 'right', 1 + i)),
+      ev('la1', 'a', 'listen', 'right', 5), ev('la2', 'a', 'listen', 'right', 6), ev('lc1', 'c', 'listen', 'right', 7),
+    ];
+    const stats = sentenceStats(events, 'n');
+    expect(brief(pickRoundExercises(['a', 'b', 'c', 'd'].map((k) => heard(k)), stats, ear))).toEqual(['translate:a', 'listen:b', 'translate:c', 'listen:d']);
+    // A fresh sentence still comes first.
+    expect(brief(pickRoundExercises([...['a', 'b', 'c', 'd'].map((k) => heard(k)), heard('e')], stats, ear))[0]).toBe('translate:a');
+    expect(pickRoundExercises([...['a', 'b', 'c', 'd'].map((k) => heard(k)), heard('e')], stats, ear).some((e) => e.id === 'listen:e')).toBe(true);
+  });
+
+  it('counts, resumes and marks listen exercises like the others', () => {
+    const exs = pickRoundExercises([heard('a'), heard('b')], undefined, ear);
+    expect(brief(exs)).toEqual(['listen:a', 'translate:b']);
+    expect(sentenceRoundProgress(exs, ['listen:a', 'translate:b'])).toEqual({ needed: 2, got: 2, done: true });
+    expect(sentenceRoundProgress(exs, ['listen:c'], ['a', 'b', 'c']).got).toBe(1);
+    expect(exercisesFromLog([heard('a'), heard('b')], ['listen:b'])).toEqual([{ id: 'listen:b', key: 'b', mode: 'listen', index: 1 }]);
+    expect(roundRowMarks([{ id: 'listen:a', result: 'close' }], [])).toEqual([{ key: 'a', mode: 'listen', outcome: 'close', label: 'In the round · ≈ Nearly' }]);
+    expect(roundEnglishShown('listen', null, false, true)).toBe(false);
+    expect(roundEnglishShown('listen', 'wrong', true, null)).toBe(true);
+    expect(SENTENCE_ROUND_PROMPT.listen).toBe('👂 What does it mean?');
+  });
+
+  it('the exercise with the floor: chosen while unanswered, else the first unanswered listen one', () => {
+    const exs = pickRoundExercises([heard('a'), heard('b'), heard('c'), heard('d')], undefined, ear);
+    expect(listenActiveId(exs, [])).toBe('listen:a');
+    expect(listenActiveId(exs, ['listen:a'])).toBe('listen:c');
+    expect(listenActiveId(exs, [], 'listen:c')).toBe('listen:c');
+    expect(listenActiveId(exs, ['listen:c'], 'listen:c')).toBe('listen:a');
+    expect(listenActiveId(exs, [], 'translate:b')).toBe('listen:a');
+    expect(listenActiveId(exs, ['listen:a', 'listen:c'])).toBeNull();
+    expect(exerciseAsRead(exs[0])).toEqual({ id: 'read:a', key: 'a', mode: 'read', index: 0 });
+    expect(exerciseAsRead(exs[1])).toBe(exs[1]);
+  });
+
+  it('checks: Claude online with English, else himself; the meaning check input; verdict → result', () => {
+    expect(listenCheckBy(true, 'x')).toBe('claude');
+    expect(listenCheckBy(true, '  ')).toBe('self');
+    expect(listenCheckBy(false, 'x')).toBe('self');
+    expect(listenCheckInput({ hanzi: ' 我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank. ' }, ' I go to the bank ', 'spoken')).toEqual({
+      prompt_en: '我去银行。', model_answer: 'I go to the bank.', model_pinyin: 'Wǒ qù yínháng.', answer: 'I go to the bank', exercise_type: 'listen_translate', input: 'spoken',
+    });
+    expect(listenCheckInput({ hanzi: '好', translation: 'Good' }, 'good', 'typed').model_pinyin).toBeUndefined();
+    expect(['correct', 'acceptable', 'almost', 'wrong'].map((v) => listenVerdictResult(v as 'correct'))).toEqual(['right', 'right', 'close', 'wrong']);
+    expect([listenSelfResult(true), listenSelfResult(false)]).toEqual(['right', 'wrong']);
+  });
+
+  it('the setting: on unless switched off', () => {
+    expect([null, undefined, '', '1', 'true', '0', 'false', 'x'].map((v) => parseSentencesByEar(v))).toEqual([true, true, true, true, true, false, false, true]);
   });
 });

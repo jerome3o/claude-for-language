@@ -14,7 +14,11 @@ import kotlin.math.floor
 object SentenceRound {
     const val SIZE = 4
 
-    data class Sentence(val key: String, val hanzi: String, val translation: String?)
+    /** [audio] = its clip can be played now (streamed online / on the device): it may be a listen exercise. */
+    data class Sentence(val key: String, val hanzi: String, val translation: String?, val audio: Boolean = false)
+
+    /** The listen exercise's mode (Hard mode's "Sentences by ear"). */
+    const val LISTEN = SentenceHistory.LISTEN
     data class Exercise(val id: String, val key: String, val mode: String, val index: Int)
     data class Progress(val needed: Int, val got: Int, val done: Boolean)
 
@@ -39,13 +43,31 @@ object SentenceRound {
         return first + (0 until n).filter { it !in first }
     }
 
-    /** `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); each slot takes a fresh sentence first, then the least known in its mode; hidden sentences never come. */
-    fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null): List<Exercise> {
+    /**
+     * `canListenTo`: a listen exercise in a read slot — "Sentences by ear" on, a clip it can play, and English for
+     * Claude to check the meaning against (offline it isn't needed: he checks himself).
+     */
+    fun canListen(s: Sentence, byEar: Boolean, online: Boolean): Boolean {
+        if (!byEar || !s.audio) return false
+        return !online || hasTranslation(s)
+    }
+
+    /**
+     * `pickRoundExercises`: [stats] = the note's practice history (core [SentenceHistory]); each slot takes a fresh
+     * sentence first, then the least known in its mode; hidden sentences never come. [byEar] (Sentences by ear): a
+     * read slot is a listen exercise for a sentence that can be heard ([canListen]) and prefers one (after fresh-first,
+     * before least-known, which then compares the listen history).
+     */
+    fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, byEar: Boolean = false, online: Boolean = true): List<Exercise> {
         fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
         val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null }
         val n = visible.size
         if (n == 0) return emptyList()
         val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
+        // What a slot asks of the sentence at pos: translate, or (a read slot) listen when it can be heard, else read.
+        fun slotMode(slot: String, pos: Int): String =
+            if (slot == SentencePractise.TRANSLATE) SentencePractise.TRANSLATE
+            else if (canListen(visible[pos].value, byEar, online)) LISTEN else SentencePractise.READ
         fun best(mode: String, used: Set<Int>, avoidTranslatable: Boolean = false): Int? {
             var pick: Int? = null
             for (pos in 0 until n) {
@@ -58,7 +80,11 @@ object SentenceRound {
                 val freshPos = SentenceHistory.isFresh(statsOf(visible[pos].value))
                 val freshPick = SentenceHistory.isFresh(statsOf(visible[p].value))
                 if (freshPos != freshPick) { if (freshPos) pick = pos; continue }
-                val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(mode), statsOf(visible[p].value)?.mode(mode))
+                val modePos = slotMode(mode, pos)
+                val modePick = slotMode(mode, p)
+                // By ear: a sentence that can be heard before one that can only be read.
+                if ((modePos == LISTEN) != (modePick == LISTEN)) { if (modePos == LISTEN) pick = pos; continue }
+                val c = SentenceHistory.compareLeastKnown(statsOf(visible[pos].value)?.mode(modePos), statsOf(visible[p].value)?.mode(modePick))
                 if (c < 0 || (c == 0 && rank.getValue(pos) < rank.getValue(p))) pick = pos
             }
             return pick
@@ -73,14 +99,14 @@ object SentenceRound {
             val translatableLeft = (0 until n).count { it !in used && hasTranslation(visible[it].value) }
             val spare = want == SentencePractise.READ && translateSlotsLeft > 0 && translatableLeft <= translateSlotsLeft
             var pos = (if (spare) best(want, used, true) else null) ?: best(want, used)
-            var mode = want
+            var slot = want
             if (pos == null && want == SentencePractise.TRANSLATE) {
                 pos = best(SentencePractise.READ, used)
-                mode = SentencePractise.READ
+                slot = SentencePractise.READ
             }
             if (pos == null) break
             used += pos
-            picked += pos to mode
+            picked += pos to slotMode(slot, pos)
         }
         fun make(pos: Int, mode: String): Exercise {
             val (index, s) = visible[pos]
@@ -146,7 +172,7 @@ object SentenceRound {
     fun progress(exercises: List<Exercise>, rightIds: Collection<String>, sentenceKeys: Collection<String>? = null): Progress {
         val needed = minOf(SentencePractise.GATE_TARGET, exercises.map { it.key }.toSet().size)
         val ids = exercises.map { it.id }.toMutableSet()
-        sentenceKeys?.forEach { ids += exerciseId(SentencePractise.READ, it); ids += exerciseId(SentencePractise.TRANSLATE, it) }
+        sentenceKeys?.forEach { ids += exerciseId(SentencePractise.READ, it); ids += exerciseId(SentencePractise.TRANSLATE, it); ids += exerciseId(LISTEN, it) }
         val got = minOf(needed, rightIds.filter { it in ids }.toSet().size)
         return Progress(needed, got, needed > 0 && got >= needed)
     }
@@ -177,10 +203,12 @@ object SentenceRound {
      */
     fun englishShown(mode: String, status: String?, answered: Boolean, toggled: Boolean?): Boolean {
         if (mode == SentencePractise.TRANSLATE) return true
+        // A listen exercise's English is its answer: only once he has answered (or asked to see it).
+        if (mode == LISTEN) return answered
         if (toggled != null) return toggled
         return answered && status != null
     }
-    val PROMPT = mapOf(SentencePractise.READ to "📖 Read it aloud", SentencePractise.TRANSLATE to "🔁 Say it in Chinese")
+    val PROMPT = mapOf(SentencePractise.READ to "📖 Read it aloud", SentencePractise.TRANSLATE to "🔁 Say it in Chinese", LISTEN to "👂 What does it mean?")
     val RESULT = mapOf("right" to "✓ Right", "close" to "≈ Nearly", "wrong" to "✗ Not quite")
 
     /** `sentenceRoundCounter` */
@@ -208,7 +236,7 @@ object SentenceRound {
         val at = id.indexOf(':')
         if (at <= 0) return null
         val mode = id.substring(0, at)
-        if (mode != SentencePractise.READ && mode != SentencePractise.TRANSLATE) return null
+        if (mode != SentencePractise.READ && mode != SentencePractise.TRANSLATE && mode != LISTEN) return null
         val key = id.substring(at + 1)
         return if (key.isEmpty()) null else mode to key
     }
@@ -251,4 +279,72 @@ object SentenceRound {
         }
         return if (out.isEmpty()) null else out.sortedBy { it.index }
     }
+
+    // --- Sentences by ear: the listen exercise (docs/STUDY_SESSION.md "Sentences by ear") ---------------
+
+    /** `SENTENCES_BY_EAR_TITLE` / `_HINT` / `_DEFAULT`: Settings → Study, next to Hard mode (per device, ON by default). */
+    const val BY_EAR_TITLE = "Sentences by ear in Hard mode"
+    const val BY_EAR_HINT = "In the Sentence round, hear a sentence and say what it means in English instead of reading it aloud. Off: read and translate only."
+    const val BY_EAR_DEFAULT = true
+
+    /** `parseSentencesByEar`: a stored value ("1" / "0", null = the default). */
+    fun parseByEar(raw: String?): Boolean = when (raw) {
+        "0", "false" -> false
+        "1", "true" -> true
+        else -> BY_EAR_DEFAULT
+    }
+
+    /** `LISTEN_SLOW_RATE`: the clip again, slower. */
+    const val LISTEN_SLOW_RATE = 0.75
+
+    /** `listenCheckBy`: "claude" online with English to compare against, else "self". */
+    fun listenCheckBy(online: Boolean, translation: String?): String =
+        if (online && NoteSearch.jsTrim(translation ?: "").isNotEmpty()) "claude" else "self"
+
+    /** `listenCheckInput`: the lesson answer check as a MEANING check (the Chinese heard, its English, his English). */
+    fun listenCheckInput(hanzi: String, pinyin: String?, translation: String?, said: String, input: String): AnswerCheckInput {
+        val p = NoteSearch.jsTrim(pinyin ?: "")
+        return AnswerCheckInput(
+            promptEn = NoteSearch.jsTrim(hanzi),
+            modelAnswer = NoteSearch.jsTrim(translation ?: ""),
+            modelPinyin = p.ifEmpty { null },
+            answer = NoteSearch.jsTrim(said),
+            exerciseType = "listen_translate",
+            input = input,
+        )
+    }
+
+    /** `listenVerdictResult`: correct / acceptable = right, almost = close, wrong. */
+    fun listenVerdictResult(verdict: String): String = when (verdict) {
+        "correct", "acceptable" -> "right"
+        "almost" -> "close"
+        else -> "wrong"
+    }
+
+    /** `listenSelfResult`: ✓ Got it = right, ✗ Missed it = wrong. */
+    fun listenSelfResult(gotIt: Boolean): String = if (gotIt) "right" else "wrong"
+
+    /** `listenActiveId`: the listen exercise with the floor — [chosen] while unanswered, else the first unanswered one. */
+    fun listenActiveId(exercises: List<Exercise>, answeredIds: Collection<String>, chosen: String? = null): String? {
+        val answered = answeredIds.toSet()
+        val open = exercises.filter { it.mode == LISTEN && it.id !in answered }
+        if (chosen != null && open.any { it.id == chosen }) return chosen
+        return open.firstOrNull()?.id
+    }
+
+    /** `exerciseAsRead`: a listen exercise whose clip won't play — read it instead. */
+    fun asRead(ex: Exercise): Exercise = if (ex.mode == LISTEN) ex.copy(id = exerciseId(SentencePractise.READ, ex.key), mode = SentencePractise.READ) else ex
+
+    const val LISTEN_EX_PLACEHOLDER = "What does it mean? (in English)"
+    const val LISTEN_EX_LISTENING = "Listening… say what it means in English"
+    const val LISTEN_EX_CHECKING = "Checking what you understood…"
+    const val LISTEN_EX_PLAY = "Play again"
+    const val LISTEN_EX_SLOW = "0.75×"
+    const val LISTEN_EX_SHOW_ANSWER = "Show the answer"
+    const val LISTEN_EX_SUBMIT = "Check"
+    const val LISTEN_EX_SELF_QUESTION = "Did you understand it?"
+    const val LISTEN_EX_GOT_IT = "Got it"
+    const val LISTEN_EX_MISSED_IT = "Missed it"
+    const val LISTEN_EX_YOU_SAID = "You said"
+    const val LISTEN_EX_NO_AUDIO = "This clip can’t play here — read it instead."
 }
