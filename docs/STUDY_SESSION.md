@@ -1575,6 +1575,14 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   (and its pinyin when it sounded different: ≈ close / ✗ didn't match). Claude's check of a translate take keeps
   "You said" vs "Model answer" (below) unless it was correct in the very same words — then the sentence shows
   once with ▶ and the check's chip + headline. Web `YouSaidRow compact`, Lab `SpokenResultRow(compact)`.
+- **Tap a word to explore it** (Jerome, Nov 2026: tap 可靠 → "+ Add as card"): once an exercise is answered — a read
+  take judged, a translate answer shown, a 👂 listen exercise's reveal, the offline self-check's Show the Chinese — its
+  Chinese is tappable BY WORD (the device segmenter) into the language explorer, looking exactly as before (no chips).
+  Source `sentence_round` → the explorer's "+ Add as card" lands in **From example sentences**. Before that (the
+  sentence is the question) and while a take records it is plain text. A word tap never reaches the row (no hide
+  sheet); the tap that ends a long press on a word opens the row's menu, not the explorer. Web
+  `components/study/RoundChinese.tsx`, Lab `ui/study/RoundChinese.kt`; tests `SentenceRound.test.tsx` ("tapping a
+  word of an answered row"), Lab `SentenceRoundExplorerTest`, E2E `study-sentence-gate.spec.ts`.
 - **Skip to the answer** is always there but QUIET and asks first (Jerome, Nov 2026: "the button should be kind of
   greyed out and not look clickable, but you can click it, and there should be a little pop up … instead of making it
   easy to skip"): muted text, no outline (≥ 44 px to tap), and no line under it explaining the gate — the flow says it.

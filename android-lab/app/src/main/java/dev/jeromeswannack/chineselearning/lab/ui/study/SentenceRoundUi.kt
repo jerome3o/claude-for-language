@@ -662,7 +662,8 @@ private fun RoundExerciseCard(
                     Text(row.translation.orEmpty(), Modifier.testTag(SentenceRoundTags.ENGLISH), color = Lab.colors.ink, fontSize = 17.sp)
                 }
                 if (ex.mode == SentencePractise.READ || (answered && !fullCheck)) {
-                    Text(row.hanzi, Modifier.testTag(SentenceRoundTags.CHINESE), color = Lab.colors.ink, fontSize = 22.sp)
+                    // Once answered, every word opens the language explorer (+ Add as card → "From example sentences").
+                    RoundChinese(row.hanzi, explorable = answered && !busy)
                 }
                 if (answered && !fullCheck && !row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
                 if (ex.mode == SentencePractise.READ && showEnglish) {
