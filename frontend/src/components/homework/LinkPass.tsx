@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { LINK_NOTE_MAX, dueLabel, linkSiteName, linkThumbnail, localDate, shortDay, type HomeworkDetails } from '@shared/homework';
+import { LINK_NOTE_MAX, dueLabel, linkSiteName, linkThumbnail, shortDay, type HomeworkDetails } from '@shared/homework';
+import { studyToday } from '../../services/studyDay';
 import { recordPassEvent } from '../../services/homework';
 import { Confetti } from '../Confetti';
 import { DueChip } from './HomeworkRow';
@@ -60,7 +61,7 @@ export function LinkPass({
         <h1 lang="zh">{title}</h1>
         <div className="hw-link-meta">
           {url && <span>🔗 {linkSiteName(url)}</span>}
-          {dueDate ? <DueChip due={dueLabel(dueDate, localDate())} done={complete} /> : complete ? <DueChip due={dueLabel(null, localDate())} done /> : null}
+          {dueDate ? <DueChip due={dueLabel(dueDate, studyToday())} done={complete} /> : complete ? <DueChip due={dueLabel(null, studyToday())} done /> : null}
           {dueDate && !complete && <span className="hw-muted">{shortDay(dueDate)}</span>}
         </div>
         {url && (

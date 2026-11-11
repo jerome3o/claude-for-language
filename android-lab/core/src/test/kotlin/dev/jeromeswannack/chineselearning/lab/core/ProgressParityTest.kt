@@ -45,7 +45,7 @@ class ProgressParityTest {
 
     @Test fun dailyProgress() = cases.forEachIndexed { i, c ->
         val expected = c["daily"]!!.jsonObject
-        val actual = Progress.dailyProgress(events(c), c["now_ms"]!!.jsonPrimitive.long)
+        val actual = Progress.dailyProgress(events(c), c["now_ms"]!!.jsonPrimitive.long, c["shift"]!!.jsonPrimitive.int)
         val s = expected["summary"]!!.jsonObject
         assertEquals(
             ProgressSummary(s["total_reviews_30d"]!!.jsonPrimitive.int, s["total_days_active"]!!.jsonPrimitive.int, s["average_accuracy"]!!.jsonPrimitive.int, s["total_time_ms"]!!.jsonPrimitive.long),
@@ -63,7 +63,7 @@ class ProgressParityTest {
         val cards = cards(c)
         for (day in c["days"]!!.jsonArray.map { it.jsonObject }) {
             val date = day["date"]!!.str!!
-            val actual = Progress.dayCards(evs, cards, date)
+            val actual = Progress.dayCards(evs, cards, date, c["shift"]!!.jsonPrimitive.int)
             val s = day["summary"]!!.jsonObject
             assertEquals(
                 DaySummary(s["total_reviews"]!!.jsonPrimitive.int, s["unique_cards"]!!.jsonPrimitive.int, s["accuracy"]!!.jsonPrimitive.int, s["time_spent_ms"]!!.jsonPrimitive.long),
@@ -87,7 +87,7 @@ class ProgressParityTest {
         val now = c["now_ms"]!!.jsonPrimitive.long
         for (s in c["streaks"]!!.jsonArray.map { it.jsonObject }) {
             val zone = s["zone"]!!.str!!
-            val actual = Streak.studyStreak(evs, now, ZoneId.of(zone))
+            val actual = Streak.studyStreak(evs, now, ZoneId.of(zone), s["rollover"]!!.jsonPrimitive.int)
             val today = s["today"]!!.jsonObject
             val where = "case $i $zone"
             assertEquals(s["streak"]!!.jsonPrimitive.int, actual.streak, "$where streak")

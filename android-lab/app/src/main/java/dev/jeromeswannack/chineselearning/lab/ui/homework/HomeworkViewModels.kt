@@ -46,7 +46,7 @@ class HomeworkListViewModel(app: LabApp) : ViewModel() {
     val ui: StateFlow<HomeworkListUi> = combine(HomeworkStore.observe(app.cache), card) { data, c ->
         if (data == null) HomeworkListUi(loaded = true, lessons = c.lessonRows, runBars = c.runBars)
         else {
-            val today = Homework.localDate()
+            val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey()
             val sorted = Homework.sortHomeworkItems(Homework.toHomeworkItems(data.first, data.second, today))
             HomeworkListUi(true, sorted.todo, sorted.done, today, c.lessonRows, sorted.skipped, c.runBars)
         }
@@ -131,7 +131,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         PassUi.Deck(
             title = parts.base,
             part = parts.part,
-            due = Homework.dueLabel(a.due_date, Homework.localDate()),
+            due = Homework.dueLabel(a.due_date, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey()),
             progress = progress,
             bar = plan.bar,
             showing = showing,
@@ -216,7 +216,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                 url = url,
                 instructions = a.details?.instructions,
                 thumbnailUrl = a.details?.thumbnail_url ?: url?.let { dev.jeromeswannack.chineselearning.lab.core.HomeworkLinks.linkThumbnail(it) },
-                due = Homework.dueLabel(a.due_date, Homework.localDate()),
+                due = Homework.dueLabel(a.due_date, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey()),
                 tutorName = a.tutor_name,
                 done = done,
                 note = note,

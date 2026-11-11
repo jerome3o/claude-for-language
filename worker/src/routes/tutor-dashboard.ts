@@ -27,7 +27,8 @@ import { listInvitesByUser } from '../db/invite-queries';
 import { fetchReviewRows, fetchRecordingMarks } from '../db/insights-queries';
 import * as q from '../db/tutor-dashboard-queries';
 import { buildStudentOverview, parseTzOffset, type StudentOverview } from '../services/tutor-dashboard';
-import { studentReviewLoad, studyDayBounds, tzOffsetMinutesIn } from '../services/review-load';
+import { studentReviewLoad } from '../services/review-load';
+import { userStudyDay } from '../services/study-day';
 import { tutorThreadsActiveSince } from '../services/claude-agent/tutor-view';
 import { moveDeckInQueue } from '../services/content';
 import { isQueueMove } from '@shared/decks';
@@ -104,9 +105,9 @@ async function loadOverview(
     return null;
   });
 
-  // "✦ Asked Claude 3× today": the chats he lets her read, his own today (his zone, else hers).
-  const studentTz = tzOffsetMinutesIn(student.time_zone, now) ?? tzOffset;
-  const claudeToday = await tutorThreadsActiveSince(db, studentId, new Date(studyDayBounds(now.getTime(), studentTz).dayStartMs).toISOString()).catch((err) => {
+  // "✦ Asked Claude 3× today": the chats he lets her read, his own study day (his zone, else
+  // hers; his "New day starts at" — services/study-day.ts).
+  const claudeToday = await tutorThreadsActiveSince(db, studentId, new Date(userStudyDay(student, now.getTime(), tzOffset).startMs).toISOString()).catch((err) => {
     console.error('[tutor-dashboard] Claude chats today failed:', err instanceof Error ? err.message : err);
     return 0;
   });

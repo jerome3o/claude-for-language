@@ -1,4 +1,5 @@
-import { addDays, localDate, shortDay, splitIntoDays, suggestSplitDays, hasOneOff, type HomeworkMode } from '@shared/homework';
+import { addDays, shortDay, splitIntoDays, suggestSplitDays, hasOneOff, type HomeworkMode } from '@shared/homework';
+import { studyToday } from '../../services/studyDay';
 import './homework-tutor.css';
 
 const MODES: Array<{ mode: HomeworkMode; title: string; sub: string }> = [
@@ -27,7 +28,7 @@ interface Props {
  * review, or both — plus the due date and, for words, "spread over N days".
  */
 export function HomeworkModePicker({ mode, onMode, dueDate, onDueDate, wordCount, splitDays = 1, onSplitDays, name, nextLesson }: Props) {
-  const today = localDate();
+  const today = studyToday();
   const lesson = nextLesson && nextLesson > today ? [{ label: `Next lesson · ${shortDay(nextLesson)}`, date: nextLesson }] : [];
   const quick = [
     ...lesson,

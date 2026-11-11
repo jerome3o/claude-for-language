@@ -249,9 +249,9 @@ class DeckViewModel(private val env: DecksEnv, private val deckId: String) : Vie
         val now = env.nowMs()
         val queueCards = allCards.map { it.toQueueCard() }
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone))
-        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, env.budget(), env.reviewLoadCap(), queueCards, first, now, zone).budget, env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao), holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, env.burySiblings(), now, zone))
+        val introduced = StudyQueue.introducedToday(queueCards, first, StudyQueue.startOfDay(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour))
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(now, zone)
+        val q = StudyQueue.build(decks.map { it.toQueueDeck() }, queueCards, dev.jeromeswannack.chineselearning.lab.data.TodaysBudget.of(dao, env.budget(), env.reviewLoadCap(), queueCards, first, now, zone).budget, env.bonus(deckId, today), introduced, StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour), deckId, longTerm = dao.noteLongTerm(), bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao), upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao), holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.queueHolds(dao, env.burySiblings(), now, zone))
 
         val bumpedNotes = env.bumps?.let { b -> runCatching { b.openNoteIds() }.getOrDefault(emptySet()) }.orEmpty()
         val places = env.upNext?.let { u -> runCatching { u.places() }.getOrDefault(emptyMap()) }.orEmpty()

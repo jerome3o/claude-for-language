@@ -28,9 +28,9 @@ import {
   ASSIGNED_DEBOUNCE_MS,
   ASSIGNED_DELAY_SECONDS,
   ASSIGNED_MAX_AGE_MS,
-  localParts,
   parseSqlTime,
   pickTimeZone,
+  studyDayIn,
   reminderRows,
   renderAssignedEmail,
   renderReminderEmail,
@@ -60,6 +60,7 @@ interface Recipient {
   name: string | null;
   google_id: string | null;
   time_zone: string | null;
+  day_rollover_hour?: number | null;
   email_homework: number | null;
 }
 
@@ -87,7 +88,7 @@ async function getRecipients(db: D1Database, ids: string[]): Promise<Map<string,
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
     const r = await db
-      .prepare(`SELECT id, email, name, google_id, time_zone, email_homework FROM users WHERE id IN (${chunk.map(() => '?').join(',')})`)
+      .prepare(`SELECT id, email, name, google_id, time_zone, day_rollover_hour, email_homework FROM users WHERE id IN (${chunk.map(() => '?').join(',')})`)
       .bind(...chunk)
       .all<Recipient>();
     for (const row of r.results) out.set(row.id, row);
@@ -162,7 +163,7 @@ export async function runAssignedEmail(env: Env2, studentId: string, deps: Homew
   const unsubscribe = await unsubscribeLink(env, studentId);
   const email = renderAssignedEmail({
     rows: mine,
-    today: localParts(new Date(now), tz).date,
+    today: studyDayIn(new Date(now), tz, student!.day_rollover_hour),
     studentName: student!.name,
     appUrl: APP_BASE_URL,
     unsubscribeUrl: unsubscribe,
@@ -264,7 +265,7 @@ export async function runHomeworkReminders(env: Env2, deps: HomeworkEmailDeps = 
         continue;
       }
       const tz = pickTimeZone(student!.time_zone, rows[0].tutor_time_zone);
-      const pick = reminderRows(rows, now, tz);
+      const pick = reminderRows(rows, now, tz, student!.day_rollover_hour);
       if (!pick) {
         bump('not_due');
         continue;

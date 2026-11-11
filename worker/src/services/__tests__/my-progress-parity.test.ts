@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { getMyDailyProgress, getMyDayCards } from '../relationships';
-import { dailyProgress, dayCards, utcDate, type ProgressEvent, type ProgressCardInfo } from '../../../../shared/progress';
+import { dailyProgress, dayCards, progressDate, utcDate, type ProgressEvent, type ProgressCardInfo } from '../../../../shared/progress';
 
 const USER = 'learner-1';
 const OTHER = 'someone-else';
@@ -78,6 +78,22 @@ describe('Progress SQL = shared/progress definition', () => {
     const shared = dailyProgress(events, Date.now());
     expect(shared.days.length).toBeGreaterThan(20);
     expect(shared).toEqual(server);
+  });
+
+  it('study days: the same with a day shift (offset − "New day starts at")', async () => {
+    // London winter with a 4 am rollover (−240), Shanghai with 4 am (+240), LA with midnight (−480).
+    for (const shift of [-240, 240, -480, 60]) {
+      const server = await getMyDailyProgress(db, USER, shift);
+      const shared = dailyProgress(events, Date.now(), shift);
+      expect(shared).toEqual(server);
+      const dates = [...new Set(events.map((e) => progressDate(e.reviewed_at, shift)))].slice(0, 4);
+      for (const date of dates) {
+        expect(dayCards(events, cards, date, shift).summary).toEqual((await getMyDayCards(db, USER, date, shift)).summary);
+      }
+    }
+    // A shift moves an event at 01:30Z back a day with the 4 am rollover.
+    expect(progressDate('2026-11-11T01:30:00.000Z', -240)).toBe('2026-11-10');
+    expect(progressDate('2026-11-11T01:30:00.000Z', 0)).toBe('2026-11-11');
   });
 
   it('cards of a day (same rows, same order where the SQL defines one)', async () => {

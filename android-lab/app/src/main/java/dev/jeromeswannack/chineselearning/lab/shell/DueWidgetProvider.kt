@@ -148,10 +148,10 @@ class DueWidgetProvider : AppWidgetProvider() {
             }
         }
 
-        /** An inexact alarm just after the next local midnight, so "due today" rolls over. */
+        /** An inexact alarm just after the next study day starts ("New day starts at"), so "due today" rolls over. */
         fun scheduleMidnightRefresh(context: Context, zone: ZoneId = ZoneId.systemDefault()) {
             val am = context.getSystemService(AlarmManager::class.java) ?: return
-            val next = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() + 60_000
+            val next = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.day(zone = zone).endMs + 60_000
             val intent = Intent(context, DueWidgetProvider::class.java).setAction(ACTION_MIDNIGHT)
             val pi = PendingIntent.getBroadcast(context, 43, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             am.set(AlarmManager.RTC, next, pi)

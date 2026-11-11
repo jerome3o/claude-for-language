@@ -88,6 +88,8 @@ export interface DebugComparison {
     forgets: ValuePair<string>;
     /** "Don't show a word's other card types on the same day": "on" / "off" ("?" = not reported). */
     bury_siblings: ValuePair<string>;
+    /** "New day starts at": the hour 0–6 ("?" = not reported — an older app, midnight). */
+    day_rollover: ValuePair<string>;
     /** "Pause new cards on heavy days": "limit 100 · load 124 · paused" / "off · load 80" ("?" = not reported). */
     review_load: ValuePair<string>;
     bonus_all: ValuePair<number>;
@@ -219,6 +221,7 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     holds: { a: holdsLabel(a.holds), b: holdsLabel(b.holds) },
     forgets: { a: forgetsLabel(a.forgets), b: forgetsLabel(b.forgets) },
     bury_siblings: { a: a.bury_siblings === undefined ? '?' : a.bury_siblings ? 'on' : 'off', b: b.bury_siblings === undefined ? '?' : b.bury_siblings ? 'on' : 'off' },
+    day_rollover: { a: a.day_rollover_hour === undefined ? '?' : String(a.day_rollover_hour), b: b.day_rollover_hour === undefined ? '?' : String(b.day_rollover_hour) },
     review_load: { a: reviewLoadLabel(a.review_load), b: reviewLoadLabel(b.review_load) },
     bonus_all: { a: a.bonus.all, b: b.bonus.all },
     introduced_basis: { a: a.introduced_basis, b: b.introduced_basis },
@@ -227,6 +230,9 @@ export function compareDebugReports(a: DebugReport, b: DebugReport, opts: Compar
     hints.push(`The reports were taken ${Math.abs(minutesApart)} min apart — reviews made in between explain part of any difference. Take both within a few minutes for a clean comparison.`);
   }
   if (!context.same_local_date) hints.push(`The reports are on different local dates (${a.day_start.local_date} vs ${b.day_start.local_date}); "today" means different things.`);
+  if (context.day_rollover.a !== context.day_rollover.b) {
+    hints.push(`"New day starts at" differs: ${A} ${context.day_rollover.a} vs ${B} ${context.day_rollover.b} (hour; "?" = an older app that turns over at midnight) — between midnight and the later hour the two devices are on different study days: different cutoff, introduced-today, reader and celebration.`);
+  }
   if (context.budget.a !== context.budget.b) hints.push(`Daily budget differs: ${A} ${context.budget.a} vs ${B} ${context.budget.b}.`);
   if (context.new_card_order.a !== context.new_card_order.b) {
     hints.push(`"Order new cards by" differs: ${A} ${context.new_card_order.a} vs ${B} ${context.new_card_order.b} — different new words are picked.`);

@@ -109,7 +109,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     private suspend fun rotation(nowMs: Long, zone: ZoneId): Pair<List<ReaderEntry>, Boolean> {
         val oneOff = homework.oneOffOnly()
         val all = entries().filter { it.id !in oneOff }
-        val readToday = ReaderSchedule.readToday(all.flatMap { it.events }, nowMs, zone)
+        val readToday = ReaderSchedule.readToday(all.flatMap { it.events }, nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         return all to readToday.isNotEmpty()
     }
 
@@ -300,7 +300,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
     suspend fun ensureDaily(dueNoteIds: List<String>, nowMs: Long, @Suppress("UNUSED_PARAMETER") cutoff: StudyCutoff, zone: ZoneId, online: Boolean): Boolean {
         if (!online) return false
         val (all, readToday) = rotation(nowMs, zone)
-        val today = java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().toString()
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(nowMs, zone)
         val hasUnread = DailyReader.nextUnread(all, ::offer) != null
         if (!DailyReader.shouldGenerate(readToday, hasUnread, cache.get<String>(ATTEMPT), today)) return false
         cache.put(ATTEMPT, KIND, today)
@@ -375,7 +375,7 @@ class ReaderStore(private val cache: JsonCache, private val outbox: Outbox, priv
         runCatching { backfillWordsInSync() }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
         if (prefetch) {
             val now = System.currentTimeMillis()
-            prefetchMedia(now, dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(now, zone), zone)
+            prefetchMedia(now, dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour), zone)
         }
     }
 

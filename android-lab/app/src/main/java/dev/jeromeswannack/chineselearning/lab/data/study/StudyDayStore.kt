@@ -48,7 +48,8 @@ class StudyDayStore private constructor(context: Context, private val zone: Zone
         sp.edit().apply { if (text == null) remove(key) else putString(key, text) }.apply()
     }
 
-    fun today(now: Long = System.currentTimeMillis()): String = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
+    /** Today's STUDY day (StudyDayClock: turns over at "New day starts at"). */
+    fun today(now: Long = System.currentTimeMillis()): String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(now, zone)
 
     /** Random per install; the per-device rows on the server. */
     val deviceId: String by lazy {

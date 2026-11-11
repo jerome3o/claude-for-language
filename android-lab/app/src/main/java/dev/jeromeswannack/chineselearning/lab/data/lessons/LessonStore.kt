@@ -400,7 +400,7 @@ class LessonStore(
      */
     suspend fun prefetchMedia(online: Boolean) {
         if (!online) return
-        val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault())
+        val cutoff = dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), java.time.ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val due = lessonsForPrefetch(cutoff)
         // Stroke-order data for handwriting, so the writing pad checks strokes offline.
         val handwritten = due.flatMap { dev.jeromeswannack.chineselearning.lab.core.StrokeQuiz.writableCharacters(Lessons.handwritingText(it.lesson.spec)) }.distinct()

@@ -191,6 +191,32 @@
   font-weight: 600;
 }
 
+/* "New day starts at": seven hours in one row on a phone (Midnight wider). */
+.settings-subsetting {
+  margin-bottom: 1rem;
+}
+
+.settings-subsetting-title {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+
+.settings-segmented-hours {
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+}
+
+.settings-segmented-hours .settings-segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 0.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-segmented-hours .settings-segment:first-child {
+  flex: 2.4 1 0;
+}
+
 .settings-segment:disabled {
   opacity: 0.7;
   cursor: wait;

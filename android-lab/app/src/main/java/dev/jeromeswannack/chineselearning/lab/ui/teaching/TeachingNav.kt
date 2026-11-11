@@ -417,7 +417,7 @@ private fun StudentPageRoute(nav: LabNav, relId: String, rel: RelationshipDto, s
             recentHomework = library.data?.takeIf { it.isNotEmpty() }?.let { items ->
                 {
                     MostRecentHomeworkCard(
-                        items, dev.jeromeswannack.chineselearning.lab.core.Homework.localDate(),
+                        items, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
                         // The page's own Homework section, not the homework library (hidden from menus, Oct 2026).
                         onSeeAll = { focus = SectionFocus(Routes.SECTION_HOMEWORK) },
                     )

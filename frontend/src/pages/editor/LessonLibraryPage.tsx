@@ -29,7 +29,8 @@ import { Loading, ErrorMessage } from '../../components/Loading';
 import { downloadText } from '../../components/editor/download';
 import { AnkiExportModal, type AnkiExportTarget } from '../../components/export/AnkiExportModal';
 import { useToast } from './LessonEditorPage';
-import { DEFAULT_SEND_MODE, defaultHomeworkDueDate, hasOneOff, localDate, shortDay, type HomeworkMode } from '@shared/homework';
+import { DEFAULT_SEND_MODE, defaultHomeworkDueDate, hasOneOff, shortDay, type HomeworkMode } from '@shared/homework';
+import { studyToday } from '../../services/studyDay';
 import { assignHomework } from '../../api/homework';
 import { HomeworkModePicker } from '../../components/tutor/HomeworkModePicker';
 import { FolderGroups, FolderToolbar, SelectionBar, useFolderUi } from '../../components/folders/FolderGroups';
@@ -157,7 +158,7 @@ export function AssignSheet({ itemId, itemTitle, onClose, onDone }: {
   // Like the Send homework sheet: Both (a one-off pass by a date, then long-term review) by default.
   // Several students → no single "next lesson", so the fallback date (docs/HOMEWORK.md "Defaults").
   const [mode, setMode] = useState<HomeworkMode>(DEFAULT_SEND_MODE);
-  const [dueDate, setDueDate] = useState<string>(() => defaultHomeworkDueDate(localDate()));
+  const [dueDate, setDueDate] = useState<string>(() => defaultHomeworkDueDate(studyToday()));
   // Students who already have this lesson are ticked-and-disabled.
   const assignments = useQuery({
     queryKey: ['library-assignments', itemId],

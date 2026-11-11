@@ -4,7 +4,8 @@
  */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import { localDate, type LibraryItem, type LibraryKind, type LibraryStatus } from '@shared/homework';
+import { type LibraryItem, type LibraryKind, type LibraryStatus } from '@shared/homework';
+import { studyToday } from '../services/studyDay';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -37,11 +38,11 @@ export interface TutorLibrary extends RelationshipLibrary {
 }
 
 export function getRelationshipLibrary(relId: string): Promise<RelationshipLibrary> {
-  return request<RelationshipLibrary>(`/relationships/${encodeURIComponent(relId)}/homework-library?today=${localDate()}`);
+  return request<RelationshipLibrary>(`/relationships/${encodeURIComponent(relId)}/homework-library?today=${studyToday()}`);
 }
 
 export function getTutorLibrary(): Promise<TutorLibrary> {
-  return request<TutorLibrary>(`/tutor/homework-library?today=${localDate()}`);
+  return request<TutorLibrary>(`/tutor/homework-library?today=${studyToday()}`);
 }
 
 // ============ Links ============

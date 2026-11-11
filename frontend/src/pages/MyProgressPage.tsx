@@ -5,16 +5,13 @@ import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { formatTime } from '../components/DeckProgress';
 import { KnownCountsSection } from '../components/progress/KnownCounts';
 import './StudentProgressPage.css';
+import { studyDayKeyDaysAgo, studyToday } from '../services/studyDay';
 
 function formatDate(dateStr: string): { day: string; full: string } {
   const date = new Date(dateStr + 'T12:00:00');
-  const today = new Date();
-  today.setHours(12, 0, 0, 0);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  const isToday = date.toDateString() === today.toDateString();
-  const isYesterday = date.toDateString() === yesterday.toDateString();
+  // "Today" = today's study day (services/studyDay.ts: turns over at "New day starts at").
+  const isToday = dateStr === studyToday();
+  const isYesterday = dateStr === studyDayKeyDaysAgo(1);
 
   const full = date.toLocaleDateString('en-US', {
     month: 'short',

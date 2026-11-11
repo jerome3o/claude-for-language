@@ -17,6 +17,7 @@ import {
   type ActiveTimeState,
 } from '@shared/study';
 import { getLocalDateString, putStudyTime, type StudyTimeDayTotal } from '../api/client';
+import { studyDayKeyDaysAgo } from './studyDay';
 
 const STATE_KEY = 'study-active-time-v1';
 const SERVER_KEY = 'study-active-time-server-v1';
@@ -56,9 +57,7 @@ function current(): ActiveTimeState {
 }
 
 function firstKeptDay(): string {
-  const d = new Date();
-  d.setDate(d.getDate() - ACTIVE_KEEP_DAYS);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return studyDayKeyDaysAgo(ACTIVE_KEEP_DAYS);
 }
 
 function update(next: ActiveTimeState, force: boolean): void {

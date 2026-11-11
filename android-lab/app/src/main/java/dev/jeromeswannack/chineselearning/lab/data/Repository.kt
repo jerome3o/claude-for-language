@@ -214,6 +214,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         me.new_card_order?.let { prefs.newCardOrder = dev.jeromeswannack.chineselearning.lab.core.NewCardOrder.parse(it.toString()) }
         me.bury_siblings?.let { prefs.burySiblings = it }
         me.skip_handwriting?.let { prefs.skipHandwriting = it }
+        me.day_rollover_hour?.let { prefs.dayRolloverHour = it }
         me.conversation_voices?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationVoiceCache.put(platform.cache, it) }
         me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
@@ -351,6 +352,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         changes.card_forgets?.let { dirty.ids.addAll(dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.replaceFromServer(db, db.platform(), it)) }
         changes.bury_siblings?.let { prefs.burySiblings = it }
         changes.skip_handwriting?.let { prefs.skipHandwriting = it }
+        changes.day_rollover_hour?.let { prefs.dayRolloverHour = it }
         prefs.changesCursor = Js.parseDate(changes.server_time)
         // New cards may already have events (reviewed on another device).
         changes.cards.mapTo(dirty.ids) { it.id }

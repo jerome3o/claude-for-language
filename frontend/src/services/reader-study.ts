@@ -30,6 +30,7 @@ import {
 import { Rating, CardQueue } from '../types';
 import { API_BASE } from '../api/client';
 import { oneOffOnlyTargetIds, recordTargetDone } from './homework';
+import { isInStudyToday } from './studyDay';
 
 /** ONE graded reader a day (Jerome's rule) — see pickTodaysReader. */
 export const READERS_PER_DAY = SHARED_READERS_PER_DAY;
@@ -120,21 +121,14 @@ export async function recordReaderFinish(
   return { event };
 }
 
-/** Whether a stored UTC ISO timestamp falls on today's LOCAL date. A string
- * prefix comparison would use the UTC date, which in timezones ahead of UTC
- * shifts the "day" boundary to midday (same bug class as
- * grammarCompletedToday's isSameLocalDay). */
+/** Whether a stored UTC ISO timestamp falls in today's STUDY day (services/studyDay.ts: the
+ * day turns over at the account's "New day starts at", 4 am by default — a story read at
+ * 23:50 still owns the night at 00:30). A string prefix comparison would use the UTC date. */
 function isTodayLocal(iso: string): boolean {
-  const d = new Date(iso);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  return isInStudyToday(iso);
 }
 
-/** Ids of readers with at least one review on today's LOCAL date. */
+/** Ids of readers with at least one review in today's study day. */
 export async function readersReadToday(): Promise<Set<string>> {
   const events = await db.readerReviewEvents.toArray();
   const ids = new Set<string>();

@@ -72,11 +72,11 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
         val decks = dao.decks()
         val cards = dao.cards().map { it.toQueueCard() }
         val first = dao.firstReviews().associate { it.cardId to Js.parseDate(it.firstAt) }
-        val dayStart = StudyQueue.startOfDay(now, zone)
+        val dayStart = StudyQueue.startOfDay(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val introduced = StudyQueue.introducedToday(cards, first, dayStart)
-        val cutoff = StudyQueue.cutoff(now, zone)
+        val cutoff = StudyQueue.cutoff(now, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val queueDecks = decks.map { it.toQueueDeck() }
-        val today = LocalDate.now(zone).toString()
+        val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(now, zone)
         val longTerm = dao.noteLongTerm()
         val bumps = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.queueBumps(dao)
         val upNext = dev.jeromeswannack.chineselearning.lab.data.upnext.UpNextStore.queueList(dao)

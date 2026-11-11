@@ -5,7 +5,8 @@
  */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import { localDate, type DraftPlan, type HomeworkAssignment, type HomeworkLoad, type HomeworkMode } from '@shared/homework';
+import { type DraftPlan, type HomeworkAssignment, type HomeworkLoad, type HomeworkMode } from '@shared/homework';
+import { studyToday } from '../services/studyDay';
 import type { SessionNotesJob, SessionNotesJobStatus, SessionNotesResult, SessionNotesStep } from '../types/tutorNotes';
 
 const API_PATH = `${API_BASE}/api`;
@@ -37,7 +38,7 @@ export interface RelationshipHomework {
 }
 
 export function getRelationshipHomework(relId: string): Promise<RelationshipHomework> {
-  return request<RelationshipHomework>(`${rel(relId)}/homework?today=${localDate()}`);
+  return request<RelationshipHomework>(`${rel(relId)}/homework?today=${studyToday()}`);
 }
 
 export interface AssignItem {
@@ -59,7 +60,7 @@ export interface AssignResponse {
 }
 
 export function assignHomework(relId: string, items: AssignItem[]): Promise<AssignResponse> {
-  return request<AssignResponse>(`${rel(relId)}/homework`, { method: 'POST', body: JSON.stringify({ items, today: localDate() }) });
+  return request<AssignResponse>(`${rel(relId)}/homework`, { method: 'POST', body: JSON.stringify({ items, today: studyToday() }) });
 }
 
 export function updateHomeworkAssignment(relId: string, id: string, patch: { due_date?: string | null; status?: 'cancelled' | 'active' }): Promise<{ assignment: HomeworkAssignment }> {
@@ -131,11 +132,11 @@ export function draftFromLessonNotes(relId: string, logId: string): Promise<{ jo
 const draft = (relId: string, jobId: string) => `${rel(relId)}/homework-drafts/${encodeURIComponent(jobId)}`;
 
 export function getHomeworkDraft(relId: string, jobId: string): Promise<DraftView> {
-  return request<DraftView>(`${draft(relId, jobId)}?today=${localDate()}`);
+  return request<DraftView>(`${draft(relId, jobId)}?today=${studyToday()}`);
 }
 
 export function saveDraftPlan(relId: string, jobId: string, plan: DraftPlan): Promise<DraftView> {
-  return request<DraftView>(`${draft(relId, jobId)}/plan`, { method: 'PUT', body: JSON.stringify({ plan, today: localDate() }) });
+  return request<DraftView>(`${draft(relId, jobId)}/plan`, { method: 'PUT', body: JSON.stringify({ plan, today: studyToday() }) });
 }
 
 export function sendDraftMessage(relId: string, jobId: string, message: string): Promise<{ job: LessonNotesJobBrief }> {
@@ -143,5 +144,5 @@ export function sendDraftMessage(relId: string, jobId: string, message: string):
 }
 
 export function assignHomeworkDraft(relId: string, jobId: string): Promise<AssignResponse> {
-  return request<AssignResponse>(`${draft(relId, jobId)}/assign`, { method: 'POST', body: JSON.stringify({ today: localDate() }) });
+  return request<AssignResponse>(`${draft(relId, jobId)}/assign`, { method: 'POST', body: JSON.stringify({ today: studyToday() }) });
 }

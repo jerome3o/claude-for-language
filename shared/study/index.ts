@@ -13,3 +13,4 @@ export * from './sentenceHistory';
 export * from './hardMode';
 export * from './answerDifference';
 export * from './wordRecap';
+export * from './studyDay';

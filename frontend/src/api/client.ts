@@ -63,6 +63,7 @@ import type { ConversationVoice, ConversationAudioPrefs } from '@shared/lesson';
 import type { ConversationDelivery, TtsProviderId } from '@shared/tts';
 import { isPrivateMediaKey } from '@shared/media/access';
 import { clearSignedOut, isSignedOut } from '../services/signedOut';
+import { studyToday } from '../services/studyDay';
 import { provesSignedIn } from '@shared/auth/session';
 import { mediaTokenRefreshDue, setMediaToken, withMediaCredential, type StoredMediaToken } from './mediaToken';
 
@@ -79,13 +80,21 @@ export function devWorkerOrigin(): string {
   return import.meta.env.VITE_API_PROXY || `${window.location.protocol}//${window.location.hostname}:8787`;
 }
 
-/** Get the client's local date as YYYY-MM-DD (for timezone-correct daily limits). */
+/**
+ * Today's STUDY day as YYYY-MM-DD (for timezone-correct daily limits): the local date, except
+ * that the day turns over at the account's "New day starts at" hour (4 am by default) — so
+ * 01:30 is still yesterday. services/studyDay.ts, shared/study/studyDay.ts.
+ */
 export function getLocalDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return studyToday();
+}
+
+/**
+ * `tz_offset=` (Date.getTimezoneOffset()) for the progress pages: the server buckets reviews into
+ * the learner's STUDY days (their time zone, else this one; "New day starts at").
+ */
+export function tzQuery(): string {
+  return `tz_offset=${new Date().getTimezoneOffset()}`;
 }
 
 export const API_PATH = `${API_BASE}/api`;
@@ -1075,7 +1084,7 @@ export async function removeRelationship(id: string): Promise<void> {
 }
 
 export async function getStudentProgress(relationshipId: string): Promise<StudentProgress> {
-  return fetchJSON<StudentProgress>(`/relationships/${relationshipId}/student-progress`);
+  return fetchJSON<StudentProgress>(`/relationships/${relationshipId}/student-progress?${tzQuery()}`);
 }
 
 // ============ Conversations ============
@@ -1488,11 +1497,11 @@ export async function getDeckProgress(deckId: string): Promise<DeckProgress> {
 // ============ Student Progress (Enhanced) ============
 
 export async function getStudentDailyProgress(relationshipId: string): Promise<DailyActivitySummary> {
-  return fetchJSON<DailyActivitySummary>(`/relationships/${relationshipId}/student-progress/daily`);
+  return fetchJSON<DailyActivitySummary>(`/relationships/${relationshipId}/student-progress/daily?${tzQuery()}`);
 }
 
 export async function getStudentDayCards(relationshipId: string, date: string): Promise<DayCardsDetail> {
-  return fetchJSON<DayCardsDetail>(`/relationships/${relationshipId}/student-progress/day/${date}`);
+  return fetchJSON<DayCardsDetail>(`/relationships/${relationshipId}/student-progress/day/${date}?${tzQuery()}`);
 }
 
 export async function getStudentCardReviews(
@@ -1501,22 +1510,22 @@ export async function getStudentCardReviews(
   cardId: string
 ): Promise<CardReviewsDetail> {
   return fetchJSON<CardReviewsDetail>(
-    `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}`
+    `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}?${tzQuery()}`
   );
 }
 
 // ============ My Progress (Self-view) ============
 
 export async function getMyDailyProgress(): Promise<MyDailyProgress> {
-  return fetchJSON<MyDailyProgress>('/progress/daily');
+  return fetchJSON<MyDailyProgress>(`/progress/daily?${tzQuery()}`);
 }
 
 export async function getMyDayCards(date: string): Promise<DayCardsDetail> {
-  return fetchJSON<DayCardsDetail>(`/progress/day/${date}`);
+  return fetchJSON<DayCardsDetail>(`/progress/day/${date}?${tzQuery()}`);
 }
 
 export async function getMyCardReviews(date: string, cardId: string): Promise<CardReviewsDetail> {
-  return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}`);
+  return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}?${tzQuery()}`);
 }
 
 // ============ Sentence Analysis (Learning Subtitles) ============
@@ -1821,6 +1830,15 @@ export async function updateLandingPage(landing_page: LandingPage | null): Promi
     body: JSON.stringify({ landing_page }),
   });
   return data.landing_page;
+}
+
+/** "New day starts at" (0–6; null = back to the default, 4 am) → the hour now in effect. */
+export async function updateDayRollover(day_rollover_hour: number | null): Promise<number> {
+  const data = await fetchJSON<{ day_rollover_hour: number }>('/profile/day-rollover', {
+    method: 'PUT',
+    body: JSON.stringify({ day_rollover_hour }),
+  });
+  return data.day_rollover_hour;
 }
 
 export async function getFeatureRequests(options?: { status?: string; all?: boolean; kind?: 'request' | 'feedback' | 'bug' }): Promise<FeatureRequest[]> {

@@ -46,11 +46,11 @@ class TodayData(private val app: LabApp) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { snapshotNow(nowMs, zone) }
 
     private suspend fun snapshotNow(nowMs: Long, zone: ZoneId): TodaySnapshot {
-        val cutoff = StudyQueue.cutoff(nowMs, zone)
+        val cutoff = StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val entries = runtime.store.entries()
         val readers = runtime.readers.entries()
         val readerOneOff = runtime.readers.oneOffOnly()
-        val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone)
+        val readToday = ReaderSchedule.readToday(readers.filter { it.id !in readerOneOff }.flatMap { it.events }, nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)
         val picked = runtime.readers.todaysReader(nowMs, cutoff, zone)
         val readerDone = readers.filter { it.id in readToday }.maxByOrNull { r -> r.events.maxOfOrNull { it.at } ?: "" }
         return TodaySnapshot(
@@ -81,5 +81,5 @@ class TodayData(private val app: LabApp) {
 
     /** `ensureDailyReader` (once per local day): true while today's story is being written. */
     suspend fun ensureDailyReader(dueNoteIds: List<String>, nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): Boolean =
-        runCatching { runtime.readers.ensureDaily(dueNoteIds, nowMs, StudyQueue.cutoff(nowMs, zone), zone, app.online.value) }.getOrDefault(false)
+        runCatching { runtime.readers.ensureDaily(dueNoteIds, nowMs, StudyQueue.cutoff(nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour), zone, app.online.value) }.getOrDefault(false)
 }

@@ -146,9 +146,11 @@ object ReaderSchedule {
     const val READERS_PER_DAY = DailyReader.READERS_PER_DAY
 
     /** `readersReadToday`: readers with a review on today's LOCAL date. */
-    fun readToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId): Set<String> {
-        val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-        return events.filter { runCatching { Instant.ofEpochMilli(Js.parseDate(it.at)).atZone(zone).toLocalDate() }.getOrNull() == today }.mapTo(HashSet()) { it.itemId }
+    fun readToday(events: List<ItemEvent>, nowMs: Long, zone: ZoneId, rolloverHour: Int = 0): Set<String> {
+        // The study day (StudyDay: "New day starts at"; 0 = the calendar day): a story read at
+        // 23:50 still owns the night at 00:30 with a 4 am rollover.
+        val day = StudyDay.at(nowMs, rolloverHour, zone)
+        return events.filter { runCatching { Js.parseDate(it.at) }.getOrNull()?.let { ms -> ms >= day.startMs && ms < day.endMs } == true }.mapTo(HashSet()) { it.itemId }
     }
 
     /**

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { homeworkRowDetail, itemStatus, localDate, LIBRARY_STATUS_LABELS, statusTone, startedBar, WORD_UNIT, type DueLabel, type RetryBar } from '@shared/homework';
+import { homeworkRowDetail, itemStatus, LIBRARY_STATUS_LABELS, statusTone, startedBar, WORD_UNIT, type DueLabel, type RetryBar } from '@shared/homework';
+import { studyToday } from '../../services/studyDay';
 import { EXERCISE_UNIT } from '@shared/study/lessonRun';
 import { RetryProgressBar } from './RetryProgressBar';
 import { RowMenuButton, useRowPress } from './RowActions';
@@ -60,7 +61,7 @@ export function HomeworkRow({ item, showTutor = false, runBar = null, onMenu, ac
 
 /** Completed / In progress / Overdue / Not started — the same words and colours the tutor's library uses. */
 function StudentStatus({ item }: { item: HomeworkItem }) {
-  const today = localDate();
+  const today = studyToday();
   const status = itemStatus(item, today);
   // Overdue / done already have their chip on the right.
   if (status === 'overdue' || status === 'completed') return null;

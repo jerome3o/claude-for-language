@@ -14,7 +14,6 @@ import {
   liveSkip,
   passItemIds,
   passProgress,
-  localDate,
   oneOffOnlyTargets,
   homeworkPassTargets,
   sortHomeworkItems,
@@ -26,6 +25,7 @@ import {
   type HomeworkItemView,
   type HomeworkResult,
 } from '@shared/homework';
+import { studyToday } from './studyDay';
 import { db, type LocalHomeworkAssignment, type LocalHomeworkEvent } from '../db/database';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { isEffectivelyOffline } from './offlineMode';
@@ -214,7 +214,7 @@ export async function homeworkPassTargetIds(): Promise<Set<string>> {
 
 export type HomeworkItem = HomeworkItemView<LocalHomeworkAssignment>;
 
-export function toHomeworkItems(assignments: LocalHomeworkAssignment[], events: LocalHomeworkEvent[], today: string = localDate()): HomeworkItem[] {
+export function toHomeworkItems(assignments: LocalHomeworkAssignment[], events: LocalHomeworkEvent[], today: string = studyToday()): HomeworkItem[] {
   return toItems(assignments, events, today);
 }
 

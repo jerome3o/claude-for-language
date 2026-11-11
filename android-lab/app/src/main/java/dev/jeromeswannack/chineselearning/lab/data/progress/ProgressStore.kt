@@ -68,8 +68,10 @@ class ProgressStore(private val db: LabDatabase) {
         val deckById = decks.associateBy { it.id }
         val ordered = Budget.sortForQueue(rows, { r -> deckById.getValue(r.id).studyPriority }, { r -> deckById.getValue(r.id).createdAt })
         ProgressSnapshot(
-            daily = Progress.dailyProgress(events, nowMs),
-            streak = Streak.studyStreak(events, nowMs, zone),
+            // Study days ("New day starts at"): the streak in the device zone, the days with the
+            // server's shift (the device's offset − the rollover), as the web's /api/progress.
+            daily = Progress.dailyProgress(events, nowMs, progressShift(nowMs, zone)),
+            streak = Streak.studyStreak(events, nowMs, zone, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour),
             overall = Mastery.progress(cards.map { MasteryCard(it.cardType, it.queue, it.stability) }),
             decks = ordered,
             totalReviews = total,
@@ -108,7 +110,7 @@ class ProgressStore(private val db: LabDatabase) {
         }
     }
 
-    /** `/progress/day/:date` from the phone: events of that UTC date joined with their cards and notes. */
+    /** `/progress/day/:date` from the phone: events of that progress day (study day, `progressShift`) joined with their cards and notes. */
     suspend fun day(date: String): DayCards = withContext(Dispatchers.IO) {
         val (from, to) = around(date)
         val events = events("SELECT cardId, rating, reviewedAt, timeSpentMs, userAnswer FROM review_events WHERE reviewedAt >= ? AND reviewedAt < ?", arrayOf(from, to))
@@ -116,7 +118,7 @@ class ProgressStore(private val db: LabDatabase) {
         val cards = cardIds.chunked(500).flatMap { dao.cardsByIds(it) }
         val notes = cards.map { it.noteId }.distinct().chunked(500).flatMap { dao.notes(it) }.associateBy { it.id }
         val infos = cards.mapNotNull { c -> notes[c.noteId]?.let { info(c.id, c.cardType, it) } }
-        Progress.dayCards(events, infos, date)
+        Progress.dayCards(events, infos, date, progressShift(System.currentTimeMillis(), java.time.ZoneId.systemDefault()))
     }
 
     /** `/progress/day/:date/card/:cardId` from the phone. Null when the card is gone. */
@@ -124,7 +126,7 @@ class ProgressStore(private val db: LabDatabase) {
         val card = dao.card(cardId) ?: return@withContext null
         val note = dao.note(card.noteId) ?: return@withContext null
         val reviews = dao.eventsForCard(cardId)
-            .filter { Progress.utcDate(it.reviewedAt) == date }
+            .filter { Progress.progressDate(it.reviewedAt, progressShift(System.currentTimeMillis(), java.time.ZoneId.systemDefault())) == date }
             .map { CardDayReview(it.id, it.reviewedAt, it.rating, it.timeSpentMs, it.userAnswer) }
         CardDay(info(card.id, card.cardType, note), note.audioUrl, reviews)
     }
@@ -152,3 +154,7 @@ class ProgressStore(private val db: LabDatabase) {
             out
         }
 }
+
+/** The progress days' shift (core Progress / StudyDay.shiftMinutes): the device's offset now − "New day starts at". */
+internal fun progressShift(nowMs: Long, zone: java.time.ZoneId): Int =
+    dev.jeromeswannack.chineselearning.lab.core.StudyDay.shiftMinutes(dev.jeromeswannack.chineselearning.lab.core.StudyDay.utcOffsetMinutes(nowMs, zone), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)

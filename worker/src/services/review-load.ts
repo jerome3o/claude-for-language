@@ -7,13 +7,13 @@
  * is recomputed from the same review events on every sync).
  *
  * Today's review load = cards past NEW due by today's cutoff + cards reviewed today,
- * minus cards whose first-ever review is today. "Today" is the STUDENT's local day
- * (users.time_zone), else the tutor's (the dashboard's tz_offset).
+ * minus cards whose first-ever review is today. "Today" is the STUDENT's study day
+ * (users.time_zone, else the tutor's tz_offset; turning over at the student's "New day starts
+ * at", users.day_rollover_hour — services/study-day.ts).
  */
 import { reviewLoadState, type ReviewLoadState } from '@shared/decks';
-
-const DAY_MS = 86_400_000;
-const HOUR_MS = 3_600_000;
+import { studyCutoffMs, studyDayAtOffset } from '../../../shared/study/studyDay';
+import { userStudyDay } from './study-day';
 
 /**
  * A zone's offset in Date.getTimezoneOffset() minutes (UTC − local; London summer = −60)
@@ -44,14 +44,13 @@ export function tzOffsetMinutesIn(timeZone: string | null | undefined, at: Date)
 }
 
 /**
- * The day's start and the "due today" cutoff (the apps' getStudyCutoff: the later of local
- * 23:59:59.999 and now + 1 hour) in a zone given as getTimezoneOffset() minutes.
+ * The study day's start and the "due today" cutoff (the apps' getStudyCutoff: the later of the
+ * study day's last millisecond and now + 1 hour) in a zone given as getTimezoneOffset()
+ * minutes, the day turning over at `rolloverHour` (0 = local midnight).
  */
-export function studyDayBounds(nowMs: number, tzOffsetMinutes: number): { dayStartMs: number; cutoffMs: number } {
-  const shift = tzOffsetMinutes * 60_000;
-  const localMidnight = Math.floor((nowMs - shift) / DAY_MS) * DAY_MS;
-  const dayStartMs = localMidnight + shift;
-  return { dayStartMs, cutoffMs: Math.max(dayStartMs + DAY_MS - 1, nowMs + HOUR_MS) };
+export function studyDayBounds(nowMs: number, tzOffsetMinutes: number, rolloverHour = 0): { dayStartMs: number; cutoffMs: number } {
+  const day = studyDayAtOffset(nowMs, rolloverHour, -tzOffsetMinutes);
+  return { dayStartMs: day.startMs, cutoffMs: studyCutoffMs(nowMs, day) };
 }
 
 /** The review load of a user's cards today (SQL form of `reviewLoadToday`). */
@@ -87,14 +86,13 @@ export async function fetchReviewLoad(db: D1Database, userId: string, dayStartMs
  */
 export async function studentReviewLoad(
   db: D1Database,
-  student: { id: string; pause_new_when_reviews_over?: number | null; time_zone?: string | null },
+  student: { id: string; pause_new_when_reviews_over?: number | null; time_zone?: string | null; day_rollover_hour?: number | null },
   fallbackTzOffset: number,
   now: Date = new Date()
 ): Promise<ReviewLoadState | null> {
   const threshold = student.pause_new_when_reviews_over;
   if (typeof threshold !== 'number') return null;
-  const tz = tzOffsetMinutesIn(student.time_zone, now) ?? fallbackTzOffset;
-  const { dayStartMs, cutoffMs } = studyDayBounds(now.getTime(), tz);
-  const load = await fetchReviewLoad(db, student.id, dayStartMs, cutoffMs);
+  const day = userStudyDay(student, now.getTime(), fallbackTzOffset);
+  const load = await fetchReviewLoad(db, student.id, day.startMs, studyCutoffMs(now.getTime(), day));
   return reviewLoadState(load, threshold);
 }

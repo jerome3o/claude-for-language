@@ -89,10 +89,15 @@ export interface DebugReport {
   generated_at: string;
   timezone: { iana: string; offset_minutes: number };
   now_ms: number;
-  /** "Due today" cutoff: the later of local 23:59:59.999 and now + 1 h. */
+  /** "Due today" cutoff: the later of the study day's last millisecond and now + 1 h. */
   cutoff: { ms: number; iso: string };
-  /** Local midnight today (the basis for "introduced today" — see `introduced_basis`). */
+  /**
+   * When today's STUDY day started (the basis for "introduced today" — see `introduced_basis`);
+   * `local_date` = the study day's key (shared/study/studyDay.ts).
+   */
   day_start: { ms: number; iso: string; local_date: string };
+  /** "New day starts at" as this device applies it (0–6; shared/study/studyDay.ts); absent in older reports. */
+  day_rollover_hour?: number;
   /** How this client decides what was introduced today (free text, e.g. "dailyStats counter"). */
   introduced_basis: string;
   budget: { new_cards_per_day: number; secondary_cards_per_day: number };

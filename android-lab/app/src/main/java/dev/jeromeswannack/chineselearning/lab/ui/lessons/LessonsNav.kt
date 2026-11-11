@@ -125,7 +125,7 @@ private fun rememberStudentName(nav: LabNav, relId: String): String? {
 
 class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
     private val runtime = LessonRuntime.of(app)
-    private val _ui = MutableStateFlow(MiniLessonsUi(cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault())))
+    private val _ui = MutableStateFlow(MiniLessonsUi(cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour)))
     val ui: StateFlow<MiniLessonsUi> = _ui.asStateFlow()
 
     init {
@@ -198,7 +198,7 @@ class MiniLessonsViewModel(private val app: LabApp) : ViewModel() {
             u.copy(
                 inProgress = runs.mapValues { e -> e.value.mode },
                 runBars = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonProgressStore.runBars(runs, specs, app.prefs.skipHandwriting),
-                cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault()),
+                cutoff = StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour),
             )
         }
     }

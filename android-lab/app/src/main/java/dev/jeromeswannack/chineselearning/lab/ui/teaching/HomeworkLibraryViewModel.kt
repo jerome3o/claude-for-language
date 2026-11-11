@@ -115,7 +115,7 @@ class HomeworkLibraryViewModel(private val app: LabApp, relId: String?, private 
         HomeworkLibraryUi(
             studentName = studentName,
             state = state,
-            today = Homework.localDate(),
+            today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
             filter = l.filter,
             selected = l.selected,
             dueFor = l.dueFor,
@@ -178,7 +178,7 @@ class HomeworkLibraryViewModel(private val app: LabApp, relId: String?, private 
             attempt { app.repo.api.updateHomeworkAssignment(item.relationship_id, assignmentId, AssignmentPatchBody(due_date = date)) }
                 .onSuccess {
                     app.haptics.tick()
-                    val today = Homework.localDate()
+                    val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey()
                     source.patch(item.key) { row ->
                         val complete = row.status == HomeworkLibrary.COMPLETED
                         row.copy(

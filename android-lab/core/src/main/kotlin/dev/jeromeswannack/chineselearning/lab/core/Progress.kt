@@ -71,14 +71,23 @@ object Progress {
     fun utcDate(reviewedAt: String): String =
         runCatching { Js.toIsoString(Js.parseDate(reviewedAt)).substring(0, 10) }.getOrElse { reviewedAt.take(10) }
 
-    /** Port of dailyProgress(): the `/api/progress/daily` SQL over the events on the phone. */
-    fun dailyProgress(events: List<ProgressEvent>, nowMs: Long): DailyProgress {
+    /** Port of progressDate(): SQLite `date(reviewed_at, '±N minutes')` — the progress day after the shift. */
+    fun progressDate(reviewedAt: String, shiftMinutes: Int = 0): String {
+        if (shiftMinutes == 0) return utcDate(reviewedAt)
+        return runCatching { Js.toIsoString(Js.parseDate(reviewedAt) + shiftMinutes * 60_000L).substring(0, 10) }.getOrElse { reviewedAt.take(10) }
+    }
+
+    /**
+     * Port of dailyProgress(): the `/api/progress/daily` SQL over the events on the phone. Days are
+     * the UTC date after `shiftMinutes` (the device's offset − "New day starts at", StudyDay.shiftMinutes).
+     */
+    fun dailyProgress(events: List<ProgressEvent>, nowMs: Long, shiftMinutes: Int = 0): DailyProgress {
         val start = windowStart(nowMs)
         class Acc { var count = 0; val cards = HashSet<String>(); var correct = 0; var time = 0L }
         val byDate = HashMap<String, Acc>()
         for (e in events) {
             if (e.reviewedAt < start) continue
-            val day = byDate.getOrPut(utcDate(e.reviewedAt)) { Acc() }
+            val day = byDate.getOrPut(progressDate(e.reviewedAt, shiftMinutes)) { Acc() }
             day.count++
             day.cards += e.cardId
             if (e.rating >= 2) day.correct++
@@ -95,9 +104,9 @@ object Progress {
     }
 
     /** Port of dayCards(): `/api/progress/day/:date` — cards reviewed on one UTC date, most difficult first. */
-    fun dayCards(events: List<ProgressEvent>, cards: List<ProgressCardInfo>, date: String): DayCards {
+    fun dayCards(events: List<ProgressEvent>, cards: List<ProgressCardInfo>, date: String, shiftMinutes: Int = 0): DayCards {
         val info = cards.associateBy { it.cardId }
-        val dayEvents = events.filter { it.cardId in info && utcDate(it.reviewedAt) == date }.sortedBy { it.reviewedAt }
+        val dayEvents = events.filter { it.cardId in info && progressDate(it.reviewedAt, shiftMinutes) == date }.sortedBy { it.reviewedAt }
         class Acc(val first: String) { val ratings = ArrayList<Int>(); var time = 0L; var answers = false }
         val byCard = LinkedHashMap<String, Acc>()
         for (e in dayEvents) {
@@ -158,19 +167,19 @@ data class StudyStreak(val streak: Int, val today: TodayStats, val heatmap: List
 
 object Streak {
     /**
-     * Port of studyStreak() (the web Home's streak card). Event dates are the first 10
-     * characters of reviewed_at; a day's date is the UTC date of LOCAL midnight N days ago
-     * (`toISOString()` of a local Date) — east of UTC that is the previous UTC date, as on the web.
+     * Port of studyStreak() (the web Home's streak card). Days are STUDY days (StudyDay): an event
+     * belongs to the study day of its instant in `zone`, turning over at `rolloverHour`.
      */
-    fun studyStreak(events: List<ProgressEvent>, nowMs: Long, zone: ZoneId): StudyStreak {
-        val midnight = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowMs), zone).toLocalDate()
-        fun dateString(daysAgo: Int): String =
-            midnight.minusDays(daysAgo.toLong()).atStartOfDay(zone).toInstant().atOffset(ZoneOffset.UTC).toLocalDate().toString()
+    fun studyStreak(events: List<ProgressEvent>, nowMs: Long, zone: ZoneId, rolloverHour: Int = StudyDay.DEFAULT_ROLLOVER_HOUR): StudyStreak {
+        val todayKey = StudyDay.key(nowMs, rolloverHour, zone)
+        val todayDate = LocalDate.parse(todayKey)
+        fun dateString(daysAgo: Int): String = todayDate.minusDays(daysAgo.toLong()).toString()
         val thirtyDaysAgo = dateString(30)
         val byDate = HashMap<String, MutableList<ProgressEvent>>()
         for (e in events) {
-            if (e.reviewedAt < thirtyDaysAgo) continue
-            byDate.getOrPut(e.reviewedAt.take(10)) { ArrayList() } += e
+            val date = runCatching { StudyDay.key(Js.parseDate(e.reviewedAt), rolloverHour, zone) }.getOrElse { e.reviewedAt.take(10) }
+            if (date < thirtyDaysAgo) continue
+            byDate.getOrPut(date) { ArrayList() } += e
         }
         var streak = 0
         for (i in 0..30) {

@@ -225,7 +225,8 @@ data class TutorDashboardDto(
 fun tzOffsetMinutes(zone: ZoneId = ZoneId.systemDefault()): Int = -ZonedDateTime.now(zone).offset.totalSeconds / 60
 
 /** Today as the web's `localDate()` ('YYYY-MM-DD' on this phone). */
-fun localToday(zone: ZoneId = ZoneId.systemDefault()): String = LocalDate.now(zone).toString()
+/** Today's STUDY day (StudyDayClock) — homework's `today` param, as the web sends. */
+fun localToday(zone: ZoneId = ZoneId.systemDefault()): String = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(zone = zone)
 
 private fun rel(relId: String) = "/api/relationships/${enc(relId)}"
 

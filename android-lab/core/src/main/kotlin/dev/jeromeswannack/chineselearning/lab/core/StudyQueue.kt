@@ -1,7 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
-import java.time.Instant
-import java.time.LocalTime
 import java.time.ZoneId
 import kotlin.random.Random
 
@@ -81,15 +79,16 @@ object StudyQueue {
     const val BONUS_INCREMENT = 10
     const val DEFAULT_SECONDARY_CAP = 10
 
-    /** `getStudyCutoff`: the later of local 23:59:59.999 today and now + 1 hour. */
-    fun cutoff(nowMs: Long, zone: ZoneId): StudyCutoff {
-        val eod = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
-            .atTime(LocalTime.of(23, 59, 59, 999_000_000)).atZone(zone).toInstant().toEpochMilli()
-        return StudyCutoff(Math.max(eod, nowMs + 60 * 60 * 1000))
-    }
+    /**
+     * `getStudyCutoff`: the later of the study day's last millisecond and now + 1 hour (StudyDay —
+     * "New day starts at"; a rollover of 0 = local 23:59:59.999).
+     */
+    fun cutoff(nowMs: Long, zone: ZoneId, rolloverHour: Int = 0): StudyCutoff =
+        StudyCutoff(StudyDay.cutoffMs(nowMs, StudyDay.at(nowMs, rolloverHour, zone)))
 
-    fun startOfDay(nowMs: Long, zone: ZoneId): Long =
-        Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli()
+    /** When the study day of `nowMs` started (rollover 0 = local midnight). */
+    fun startOfDay(nowMs: Long, zone: ZoneId, rolloverHour: Int = 0): Long =
+        StudyDay.at(nowMs, rolloverHour, zone).startMs
 
     fun reviewedNoteIds(cards: Collection<QueueCard>): Set<String> =
         cards.filter { it.queue != CardQueue.NEW }.mapTo(HashSet()) { it.noteId }
