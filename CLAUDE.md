@@ -346,7 +346,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `card_checkpoints` - Cached card state for performance (computed from review_events)
 - `deleted_items` - Tombstones (`kind` deck|note, `item_id`, `deleted_at`) written whenever a deck or note is deleted (API routes, Ask Claude's delete_current_card, the MCP server's delete_deck/delete_note); `GET /api/sync/changes` returns them as `deleted.deck_ids` / `note_ids` so offline clients drop the rows (with their cards) on the next sync
 - `graded_readers.queue_priority` - The reader queue ("Up next", migration 0140; `shared/reader/queue.ts`): NULL = never placed by hand (first, newest first); a move / reorder writes it on every unread ready story
-- `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence. See "Reader word chips"
+- `reader_pages.words` / `reader_word_explanations` - Reader word chips (migration 0087): the page split into `{ text, pinyin, gloss }` segments (JSON), and Haiku's cached "More about this word" answers keyed by a hash of word + sentence; `reader_pages.words_checked` (migration 0148) = the version of the pinyin check the words went through (NULL = stored before it: the backfill checks + corrects them). See "Reader word chips"
 - `char_explanations` - "More about 字" on the character sheet: Haiku's short card-independent explanation per character, shared by everyone (migration 0108). The dictionary itself is static (`worker/char-dict/`, see "Character sheet")
 - `coach_conversations` / `coach_messages` = **the Claude thread store** (migration 0144; docs/CHAT.md "Claude threads"; ALL thread SQL in `services/claude-agent/store.ts`): every chat with Claude — Coach / Ask chats (`general`), Ask Claude on a card (`card`), practice chats (`practice`, read-only for now), Discuss with Claude (`chat_message`). Thread: `context_kind` / `context_ref` / `context_json` (descriptor + badge snapshot, never another person's user id), `client_id` (idempotent create), inbox `last_message_at` / `preview` / `unread`, `changed_at` (ISO ms, the `?since=` cursor), `summary` / `summary_upto` / `summary_at` (Claude memory, migration 0145: the thread's rolling summary), `language`, `tutor_visible` (NULL = account default), `read_only`, `archived_at`, `deleted_at` (tombstone), `source` / `legacy_id` (backfill keys). Message: `client_id`, `intent`, `auto_check`, `meta` (first_token_ms, total_ms, rounds, inline), `lease_until` (the runner writing the reply), `updated_at` (ISO ms), `legacy_id`. A reply being written stays `status = 'pending'` with the text so far in `content`. `users.claude_threads_backfilled_at` = the lazy per-user copy of note_questions / practice chats / message_discussions (`claude-agent/backfill.ts`). The Coach page lists only `general` threads
 - `users.claude_tutor_visibility` - What the learner's tutor can read of his Claude chats (migration 0146; `shared/claude/visibility.ts`, docs/CHAT.md "What your tutor sees"): NULL / 'card_only' (default: card questions), 'all', 'none'; a thread's `tutor_visible` (1 / 0) wins. Learner Settings → Chat, `PUT /api/profile/claude-tutor-visibility`, on `/api/auth/me`
@@ -663,7 +663,11 @@ generation, and audio-lesson `submit_lesson`; copies (assign, push, share) inher
 update tools repeat them. TTS clips are keyed by the Chinese text + voice, so a pinyin fix never invalidates audio.
 Stored content: `POST /api/me/pinyin-scan { apply?, kinds? }` (dry run by default; `apply: true` writes in place — lesson
 ids / completions / FSRS kept, `updated_at` touched; library version not bumped; reader page ids kept) = MCP
-`scan_content_pinyin` (`dry_run` default true; `needs_a_look` per item). The call board's tab-complete uses the same aligner
+`scan_content_pinyin` (`dry_run` default true; `needs_a_look` per item); the scan covers readers' word chips too (one fix per
+chip, `pages[i].words[j].pinyin`). **Reader word chips** (Haiku's segments, the chat's word chips) go through the same check when
+they are made (`fixReaderWordsPinyin` in `services/reader-words.ts`: each chip by `checkAuthoredPinyin`, then the 一 / 不 rule
+over the whole page — 吴侬软语 "wúnóngkuǎnyǔ" → "wúnóngruǎnyǔ"), when a shared reader is copied, and lazily for words stored
+before (Nov 2026) — see "Reader word chips". The call board's tab-complete uses the same aligner
 (`services/calls/gloss-pinyin.ts`, which also replaces whole words, rebuilds its own short gloss when the count is off, and
 applies the 一 / 不 rule).
 
@@ -896,6 +900,15 @@ inputs, call board, games, the sentence rows' reveal). Word data: **`GET /api/wo
 records: { hanzi: WordRecord }, missing }` from `worker/char-dict/words/NNN.dat` (60,000 most frequent CC-CEDICT words,
 `npm run build:word-dict`, `buildWordDict` in `shared/chars/build.ts`, sharded by `wordShard`), cached on the device
 (IndexedDB `wordDict`, Dexie v30, `services/wordDict.ts`); offline the Word view builds from the character records + cards.
+**Pinyin per character** (`shared/pinyin/wordSyllables.ts`, Lab `core/…/WordSyllables.kt`, parity-tested in the `explorer`
+fixture; docs/LANGUAGE_EXPLORER.md): the header's pinyin is dictionary → the card's / the tapped text's pinyin CHECKED against
+its characters → the device's own reading. `wordChars` cuts a word's pinyin into exactly one syllable per character
+(`alignWordSyllables`: the cut with the fewest syllables its character can't have, then the fewest vowel-initial cuts inside a
+word — wú | nóng, never the greedy wún | óng; nǎr covers 哪儿); `resolveWord(…, { device })` (web `devicePinyin(charRecords)` in
+`utils/autoPinyin.ts` = pinyin-pro's `polyphonic` + the character records + `autoPinyin`; Lab `Pinyin.readings` +
+`ToneChange.autoPinyin`) replaces a syllable no reading allows by the device's reading of that character (软 kuǎn → ruǎn),
+and pinyin that can't be lined up (or none) gives way to the device's reading of the word; the word dictionary's is never
+touched, the character lists' only cut.
 **A character's own card**: the Character view says first whether the character ITSELF is a note (`charOwnCards` in
 `shared/chars/status.ts`, Lab `CharWords.ownCards`, parity-tested) — "📚 You have 性 as a card in <deck>" / "✓ Known — …"
 → Open card / ⚡, else "+ Add 性 as a card" (web `components/explorer/CardTieIn.tsx`, shared with the Word view's footer;
@@ -1853,7 +1866,12 @@ Made with Haiku via `structuredCall` (forced `split_words` tool, thinking off); 
 back (unmatched stretches → one character per segment; < 85 % coverage is retried once). Made at story generation (queue
 consumer), in the background after an editor save / import / page edit, copied with a shared reader, and lazily:
 `POST /api/reader-words/backfill { reader_id?, limit? }` → `{ pages, remaining }` (≤ 12 pages of the caller's, that reader
-first) — called when a reader opens and a couple of times per sync until none remain. Stale words (text edited since) are
+first) — called when a reader opens and a couple of times per sync until none remain. **Pinyin**: every chip's pinyin goes
+through the deterministic pinyin check when it is made (`fixReaderWordsPinyin`: an impossible syllable replaced, 软 never
+kuǎn; the 一 / 不 rule over the page; a chip is one word, no spaces inside) and when a shared reader is copied; words stored
+before that are checked by the backfill (≤ 200 pages a call, `reader_pages.words_checked`, migration 0148), the corrected pages
+returned in its `pages` so both apps replace their cached copies. The explorer checks a chip's pinyin again on the device
+(see "Language explorer" → Pinyin per character). Stale words (text edited since) are
 never served (`parseReaderWords` / `ReaderWords.matches`). Until words exist the page is plain text. Tapping a chip opens
 the word sheet: hanzi · pinyin · gloss, ▶, the sentence (`sentenceAround`), **More about this word**
 (`POST /api/reader-words/explain { word, sentence, pinyin?, gloss? }` → explanation + card-standard `fun_facts` / sentence

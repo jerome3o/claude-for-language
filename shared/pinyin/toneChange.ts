@@ -147,6 +147,14 @@ export function pinyinSyllables(pinyin: string): string[] | null {
   return syls ? syls.map(s => s.text) : null;
 }
 
+/**
+ * Is this one pinyin syllable (tone marks and capitals ignored; "nǎr" counts, as does "r" alone)?
+ * The same rule `pinyinSyllables` cuts with. Used by shared/pinyin/wordSyllables.ts.
+ */
+export function isPinyinSyllable(s: string): boolean {
+  return isSyllable(plain(s));
+}
+
 /** A syllable without its tone mark, lower case ("Dǎo" → "dao", "lǜ" → "lü"). */
 export function toneless(syllable: string): string {
   return plain(syllable);

@@ -17,6 +17,7 @@ import type { GradedReaderWithPages, ReaderPage, VocabularyItem } from '../types
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from './relationships';
 import { generateId } from './cards';
 import { parseReaderWords } from '@shared/reader/words';
+import { checkedWordsJson } from './reader-words';
 import { deleteGradedReader } from '../db/queries';
 
 export interface SharedReader {
@@ -118,6 +119,10 @@ export async function shareReader(
   const copiedPages: ReaderPage[] = [];
   for (const page of pages.results) {
     const pageId = generateId();
+    // The word chips travel with the copy (same text), their pinyin checked on the way.
+    const pageWords = await checkedWordsJson(typeof page.words === 'string' ? page.words : null, page.content_chinese).catch(() =>
+      typeof page.words === 'string' ? page.words : null,
+    );
     // image_url is the same R2 key on both copies — no bytes are copied.
     await db
       .prepare(`
@@ -133,11 +138,10 @@ export async function shareReader(
         page.content_english,
         page.image_url ?? null,
         page.image_prompt ?? null,
-        // The word chips travel with the copy (same text, same words).
-        typeof page.words === 'string' ? page.words : null
+        pageWords
       )
       .run();
-    copiedPages.push({ ...page, id: pageId, reader_id: targetReaderId, words: parseReaderWords(page.words ?? null, page.content_chinese) });
+    copiedPages.push({ ...page, id: pageId, reader_id: targetReaderId, words: parseReaderWords(pageWords, page.content_chinese) });
   }
 
   const shareId = generateId();
@@ -327,7 +331,10 @@ export async function updateSharedReaderCopy(db: D1Database, sourceReaderId: str
       .bind(source.title_chinese, source.title_english, source.difficulty_level, source.topic, source.vocabulary_used, targetReaderId),
   ];
   const result: ReaderCopyUpdate = { changed: 0, added: 0, removed: 0 };
-  const words = (p: ReaderPage) => (typeof p.words === 'string' ? p.words : p.words ? JSON.stringify(p.words) : null);
+  const raw = (p: ReaderPage) => (typeof p.words === 'string' ? p.words : p.words ? JSON.stringify(p.words) : null);
+  // The word chips travel with the text, their pinyin checked on the way.
+  const checked = await Promise.all(srcPages.results.map((p) => checkedWordsJson(raw(p), p.content_chinese).catch(() => raw(p))));
+  const words = (p: ReaderPage) => checked[srcPages.results.indexOf(p)] ?? null;
   srcPages.results.forEach((page, i) => {
     const copy = copyPages.results[i];
     if (copy) {

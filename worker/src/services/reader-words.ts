@@ -2,6 +2,8 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { structuredCall } from './structured-call';
 import { alignReaderWords, parseReaderWords, type ReaderWord, type ReaderWordExplanation } from '@shared/reader/words';
 import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
+import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
+import { checkAuthoredPinyin, type PinyinReadingSources } from './pinyin-check';
 
 /**
  * Reader word chips (shared/reader/words.ts): every graded-reader page gets
@@ -22,6 +24,14 @@ import { CARD_STANDARD, cardTextProblems } from '@shared/cards/standard';
  * proposes is aligned to the text, unmatched stretches fall back to one
  * character per segment, and an answer covering too little of the page is
  * retried before it is accepted.
+ *
+ * Every segment's pinyin then goes through the deterministic pinyin check
+ * (`fixReaderWordsPinyin`: services/pinyin-check.ts — only a syllable no
+ * reading of its character allows is replaced, 吴侬软语 "wúnóngkuǎnyǔ" →
+ * "wúnóngruǎnyǔ") and the 一 / 不 rule over the whole page. Words stored
+ * before this (Nov 2026) are corrected lazily by the backfill
+ * (`reader_pages.words_checked`, migration 0148) and come back to the devices
+ * in its `pages`; a shared copy is checked as it is copied.
  */
 
 export const READER_WORDS_MODEL = 'claude-haiku-4-5';
@@ -31,6 +41,64 @@ const ATTEMPTS = 2;
 /** Pages segmented per backfill call; the client calls again while `remaining` > 0. */
 export const BACKFILL_LIMIT = 12;
 const CONCURRENCY = 4;
+/** Version of the pinyin check stored with a page's words (`reader_pages.words_checked`). */
+export const WORDS_PINYIN_CHECK_VERSION = 1;
+/** Pages with older words whose pinyin one backfill call checks. */
+export const PINYIN_REPAIR_LIMIT = 200;
+
+/** One chip whose pinyin was corrected. */
+export interface ReaderWordPinyinFix {
+  index: number;
+  text: string;
+  before: string;
+  after: string;
+}
+
+const HAN = /\p{Script=Han}/u;
+
+/**
+ * Every chip's pinyin checked against its characters: `checkAuthoredPinyin` replaces only a
+ * syllable no reading of its character allows (软 is never kuǎn), keeping the rest byte for byte;
+ * then the 一 / 不 tone changes over the whole page (a chip alone doesn't know the next word).
+ * Never throws on odd pinyin (it is left as written).
+ */
+export async function fixReaderWordsPinyin(
+  words: readonly ReaderWord[],
+  sources: PinyinReadingSources = {},
+): Promise<{ words: ReaderWord[]; fixes: ReaderWordPinyinFix[] }> {
+  const out = words.map((w) => ({ ...w }));
+  for (const w of out) {
+    if (!w.pinyin?.trim() || !HAN.test(w.text)) continue;
+    const r = await checkAuthoredPinyin(w.text, w.pinyin, sources).catch(() => null);
+    if (r?.reason && r.pinyin !== w.pinyin) w.pinyin = r.pinyin;
+  }
+  // 一 / 不 over the page: the chips' pinyin lined up with the page's text as one line.
+  const page = out.map((w) => w.text).join('');
+  const han = out.flatMap((w, i) => (HAN.test(w.text) ? [i] : []));
+  if (/[一不]/.test(page) && han.every((i) => out[i].pinyin?.trim() && !out[i].pinyin.includes('|'))) {
+    const parts = han.map((i) => out[i].pinyin.trim().normalize('NFC'));
+    const joined = parts.join(' | ');
+    const changed = applyYiBuToneChanges(page, joined);
+    if (changed !== joined) {
+      const back = changed.split(' | ');
+      if (back.length === parts.length) {
+        back.forEach((p, k) => {
+          if (p !== parts[k]) out[han[k]].pinyin = p;
+        });
+      }
+    }
+  }
+  const fixes = out.flatMap((w, index) => (w.pinyin !== words[index].pinyin ? [{ index, text: w.text, before: words[index].pinyin, after: w.pinyin }] : []));
+  return { words: out, fixes };
+}
+
+/** A page's stored words (JSON) with their pinyin checked; the same string when nothing needed fixing or they don't parse. */
+export async function checkedWordsJson(words: string | null, text: string, sources: PinyinReadingSources = {}): Promise<string | null> {
+  const parsed = parseReaderWords(words, text);
+  if (!parsed) return words;
+  const { fixes, words: fixed } = await fixReaderWordsPinyin(parsed, sources);
+  return fixes.length ? JSON.stringify(fixed) : words;
+}
 
 const SEGMENT_SYSTEM = `You split Chinese text from a graded reader into words for a learner who taps a word to look it up.
 
@@ -73,10 +141,10 @@ type Client = Pick<Anthropic, 'messages'>;
 export async function segmentReaderText(
   apiKey: string,
   text: string,
-  opts: { client?: Client; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { client?: Client; sleep?: (ms: number) => Promise<void>; pinyin?: PinyinReadingSources } = {},
 ): Promise<ReaderWord[]> {
   let tries = 0;
-  return structuredCall({
+  const words = await structuredCall({
     apiKey,
     model: READER_WORDS_MODEL,
     fallbackModel: null,
@@ -100,6 +168,7 @@ export async function segmentReaderText(
       return words;
     },
   });
+  return (await fixReaderWordsPinyin(words, opts.pinyin)).words;
 }
 
 interface PageRow {
@@ -107,7 +176,10 @@ interface PageRow {
   reader_id: string;
   content_chinese: string;
   words: string | null;
+  words_checked?: number | null;
 }
+
+type SegmentOpts = { client?: Client; sleep?: (ms: number) => Promise<void>; pinyin?: PinyinReadingSources };
 
 export interface PageWords {
   id: string;
@@ -118,8 +190,8 @@ export interface PageWords {
 /** Store segments for a page — only if its text is still the one they were made from. */
 async function storeWords(db: D1Database, page: PageRow, words: ReaderWord[]): Promise<void> {
   await db
-    .prepare('UPDATE reader_pages SET words = ? WHERE id = ? AND content_chinese = ?')
-    .bind(JSON.stringify(words), page.id, page.content_chinese)
+    .prepare('UPDATE reader_pages SET words = ?, words_checked = ? WHERE id = ? AND content_chinese = ?')
+    .bind(JSON.stringify(words), WORDS_PINYIN_CHECK_VERSION, page.id, page.content_chinese)
     .run();
 }
 
@@ -141,7 +213,7 @@ export async function segmentPages(
   db: D1Database,
   apiKey: string | undefined,
   pages: PageRow[],
-  opts: { client?: Client; sleep?: (ms: number) => Promise<void> } = {},
+  opts: SegmentOpts = {},
 ): Promise<PageWords[]> {
   if (!apiKey && !opts.client) return [];
   const todo = pages.filter((p) => p.content_chinese.trim() && !parseReaderWords(p.words, p.content_chinese));
@@ -163,7 +235,7 @@ export async function segmentReader(
   db: D1Database,
   apiKey: string | undefined,
   readerId: string,
-  opts: { client?: Client; sleep?: (ms: number) => Promise<void> } = {},
+  opts: SegmentOpts = {},
 ): Promise<PageWords[]> {
   const rows = await db
     .prepare('SELECT id, reader_id, content_chinese, words FROM reader_pages WHERE reader_id = ? ORDER BY page_number ASC')
@@ -173,31 +245,69 @@ export async function segmentReader(
 }
 
 /**
+ * Words stored before their pinyin was checked (`words_checked` below the current version):
+ * checked now, the corrected ones stored (only while the page and its words are unchanged) and
+ * returned so the devices replace their copies; every checked page is marked. At most
+ * `PINYIN_REPAIR_LIMIT` pages a call.
+ */
+async function repairStoredWordsPinyin(db: D1Database, rows: PageRow[], sources: PinyinReadingSources | undefined): Promise<{ pages: PageWords[]; left: number }> {
+  const stale = rows.filter((p) => p.words && (p.words_checked ?? 0) < WORDS_PINYIN_CHECK_VERSION && parseReaderWords(p.words, p.content_chinese));
+  const batch = stale.slice(0, PINYIN_REPAIR_LIMIT);
+  const pages: PageWords[] = [];
+  const stmts: D1PreparedStatement[] = [];
+  for (const page of batch) {
+    const words = parseReaderWords(page.words, page.content_chinese)!;
+    const { words: fixed, fixes } = await fixReaderWordsPinyin(words, sources);
+    if (fixes.length) {
+      pages.push({ id: page.id, reader_id: page.reader_id, words: fixed });
+      stmts.push(
+        db
+          .prepare('UPDATE reader_pages SET words = ?, words_checked = ? WHERE id = ? AND content_chinese = ? AND words = ?')
+          .bind(JSON.stringify(fixed), WORDS_PINYIN_CHECK_VERSION, page.id, page.content_chinese, page.words),
+      );
+    } else {
+      stmts.push(db.prepare('UPDATE reader_pages SET words_checked = ? WHERE id = ? AND words = ?').bind(WORDS_PINYIN_CHECK_VERSION, page.id, page.words));
+    }
+  }
+  if (stmts.length) await db.batch(stmts);
+  if (pages.length) console.log(`[reader-words] pinyin corrected on ${pages.length} stored page(s)`);
+  return { pages, left: stale.length - batch.length };
+}
+
+/**
  * The lazy backfill behind `POST /api/reader-words/backfill`: up to `limit`
  * of the user's pages without (current) words — the given reader's first,
- * then the newest readers' — segmented and stored. `remaining` counts the
- * pages still without words after this call, so a client can keep going.
+ * then the newest readers' — segmented and stored. Stored words whose pinyin
+ * was never checked are checked too (`repairStoredWordsPinyin`); pages it
+ * corrected come back in `pages` as well, so the devices replace their copies.
+ * `remaining` counts the pages still without words after this call (plus
+ * stored words still to be checked), so a client can keep going.
  */
 export async function backfillReaderWords(
   db: D1Database,
   apiKey: string | undefined,
   userId: string,
-  opts: { readerId?: string; limit?: number; client?: Client; sleep?: (ms: number) => Promise<void> } = {},
+  opts: { readerId?: string; limit?: number } & SegmentOpts = {},
 ): Promise<{ pages: PageWords[]; remaining: number }> {
   const limit = Math.max(1, Math.min(BACKFILL_LIMIT, opts.limit ?? BACKFILL_LIMIT));
   const rows = await db
     .prepare(`
-      SELECT p.id, p.reader_id, p.content_chinese, p.words
+      SELECT p.id, p.reader_id, p.content_chinese, p.words, p.words_checked
       FROM reader_pages p JOIN graded_readers r ON r.id = p.reader_id
       WHERE r.user_id = ?
       ORDER BY (r.id = ?) DESC, r.created_at DESC, p.page_number ASC
     `)
     .bind(userId, opts.readerId ?? '')
     .all<PageRow>();
-  const missing = (rows.results ?? []).filter((p) => p.content_chinese.trim() && !parseReaderWords(p.words, p.content_chinese));
+  const all = rows.results ?? [];
+  const repaired = await repairStoredWordsPinyin(db, all, opts.pinyin).catch((err) => {
+    console.error('[reader-words] pinyin repair failed:', err instanceof Error ? err.message : err);
+    return { pages: [] as PageWords[], left: 0 };
+  });
+  const missing = all.filter((p) => p.content_chinese.trim() && !parseReaderWords(p.words, p.content_chinese));
   const batch = missing.slice(0, limit);
   const pages = await segmentPages(db, apiKey, batch, opts);
-  return { pages, remaining: missing.length - pages.length };
+  return { pages: [...repaired.pages, ...pages], remaining: missing.length - pages.length + repaired.left };
 }
 
 // ------------------------------------------------------------------

@@ -9,7 +9,9 @@
  *   touched so devices pick it up on their next sync (the same write as lesson-images.ts);
  * - a library item keeps its version (only the pinyin changed; the students' copies are scanned
  *   themselves when they were assigned by the caller);
- * - a reader page keeps its id (and its word chips, picture and reading history).
+ * - a reader page keeps its id (and its word chips, picture and reading history); its word chips'
+ *   pinyin (`reader_pages.words`, Haiku's segments) is checked the same way, one fix per chip
+ *   (`pages[i].words[j].pinyin`), and written with the page's `words_checked` mark.
  * Each write is conditional on the stored value being the one scanned, so a concurrent edit wins.
  * TTS clips are keyed by the Chinese text + voice, never the pinyin — nothing is regenerated.
  */
@@ -17,6 +19,8 @@
 import type { PinyinFix, PinyinWarning } from '@shared/pinyin/fixes';
 import { pinyinFixSummary } from '@shared/pinyin/fixes';
 import { checkSpecPinyin, type PinyinReadingSources } from './pinyin-check';
+import { fixReaderWordsPinyin, WORDS_PINYIN_CHECK_VERSION } from './reader-words';
+import { parseReaderWords, type ReaderWord } from '@shared/reader/words';
 
 export const PINYIN_SCAN_KINDS = ['lesson', 'library', 'reader'] as const;
 export type PinyinScanKind = (typeof PINYIN_SCAN_KINDS)[number];
@@ -67,7 +71,7 @@ function parse(json: string | null): unknown {
 interface LessonRow { id: string; title: string; spec: string; user_id: string }
 interface LibraryRow { id: string; title: string; spec: string }
 interface ReaderRow { id: string; title_english: string; title_chinese: string; vocabulary_used: string | null }
-interface PageRow { id: string; reader_id: string; page_number: number; content_chinese: string; content_pinyin: string | null }
+interface PageRow { id: string; reader_id: string; page_number: number; content_chinese: string; content_pinyin: string | null; words: string | null }
 
 async function changed(db: D1Database, sql: string, params: unknown[]): Promise<boolean> {
   const r = await db.prepare(sql).bind(...params).run();
@@ -131,7 +135,7 @@ export async function scanContentPinyin(
       .bind(userId)
       .all<ReaderRow>()).results;
     const pages = (await db
-      .prepare(`SELECT p.id, p.reader_id, p.page_number, p.content_chinese, p.content_pinyin
+      .prepare(`SELECT p.id, p.reader_id, p.page_number, p.content_chinese, p.content_pinyin, p.words
                 FROM reader_pages p JOIN graded_readers r ON r.id = p.reader_id
                 WHERE r.user_id = ? ORDER BY p.reader_id, p.page_number`)
       .bind(userId)
@@ -147,6 +151,26 @@ export async function scanContentPinyin(
         pages: own.map((p) => ({ content_chinese: p.content_chinese, content_pinyin: p.content_pinyin ?? '' })),
       };
       const { fixes, warnings } = await checkSpecPinyin(spec, sources);
+      // The pages' word chips: one fix per chip whose pinyin a character can't have.
+      const chipWords = new Map<number, ReaderWord[]>();
+      for (const [i, p] of own.entries()) {
+        const parsed = parseReaderWords(p.words, p.content_chinese);
+        if (!parsed) continue;
+        const r = await fixReaderWordsPinyin(parsed, sources);
+        if (!r.fixes.length) continue;
+        chipWords.set(i, r.words);
+        for (const f of r.fixes) {
+          fixes.push({
+            path: `pages[${i}].words[${f.index}].pinyin`,
+            where: `page ${i + 1} · word chip`,
+            hanzi: f.text,
+            before: f.before,
+            after: f.after,
+            reason: 'reading',
+            words: [{ hanzi: f.text, from: f.before, to: f.after }],
+          });
+        }
+      }
       if (!fixes.length && !warnings.length) continue;
       const item: PinyinScanItem = { kind: 'reader', id: reader.id, title: reader.title_english || reader.title_chinese, fixes, warnings };
       if (apply && fixes.length) {
@@ -160,6 +184,10 @@ export async function scanContentPinyin(
           if (!m) continue;
           const page = own[Number(m[1])];
           ok = (await changed(db, 'UPDATE reader_pages SET content_pinyin = ? WHERE id = ? AND content_pinyin = ?', [f.after, page.id, page.content_pinyin ?? ''])) && ok;
+        }
+        for (const [i, words] of chipWords) {
+          const page = own[i];
+          ok = (await changed(db, 'UPDATE reader_pages SET words = ?, words_checked = ? WHERE id = ? AND words = ?', [JSON.stringify(words), WORDS_PINYIN_CHECK_VERSION, page.id, page.words])) && ok;
         }
         item.status = ok ? 'applied' : 'changed_since_scan';
       }

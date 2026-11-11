@@ -93,7 +93,7 @@ export function readerExportResponse(spec: ReaderSpec, format: string): Response
 /** Word chips for pages whose text is new or changed (services/reader-words.ts); never blocks the save. */
 function wordsInBackground(c: { env: Env; executionCtx: { waitUntil(p: Promise<unknown>): void } }, readerId: string): void {
   if (!c.env.ANTHROPIC_API_KEY) return;
-  const work = segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId).catch((err) => console.error('[reader-words]', err));
+  const work = segmentReader(c.env.DB, c.env.ANTHROPIC_API_KEY, readerId, { pinyin: pinyinSources(c.env) }).catch((err) => console.error('[reader-words]', err));
   try {
     c.executionCtx.waitUntil(work);
   } catch {
