@@ -124,6 +124,7 @@ export const EXPLORER_SOURCE_DECKS: Readonly<Record<string, SourceDeckKey>> = {
   claude_chat: 'claude',
   coach: 'claude',
   breakdown: 'sentences',
+  sentence_round: 'sentences',
   lesson: 'practice',
   idioms: 'practice',
   audio_lesson: 'practice',

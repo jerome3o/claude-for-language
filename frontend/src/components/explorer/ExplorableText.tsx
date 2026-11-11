@@ -23,6 +23,7 @@ export function ExplorableText({
   newChars,
   onTap,
   onClosed,
+  suppressTap,
 }: {
   text: string;
   segments?: readonly WordSegmentInput[] | null;
@@ -40,6 +41,8 @@ export function ExplorableText({
   onTap?: (item: ExplorerItem) => void;
   /** Outside the explorer: called when the explorer this text opened closes again. */
   onClosed?: ExplorerOpenOptions['onClosed'];
+  /** True for the tap that ends a long press on the row around it (its menu opened): ignored. */
+  suppressTap?: () => boolean;
 }) {
   const explorer = useExplorer();
   const pieces = explorableSegments(text, segments, (s, e) => sentenceAround(text, s, e));
@@ -56,6 +59,7 @@ export function ExplorableText({
   const go = (item: ExplorerItem, e: MouseEvent | KeyboardEvent) => {
     e.stopPropagation();
     e.preventDefault();
+    if (suppressTap?.()) return;
     onTap?.(item);
     if (explorer.inside) explorer.push(item);
     else explorer.open(item, { source, cardHanzi, onWrite, onClosed });

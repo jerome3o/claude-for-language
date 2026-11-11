@@ -676,3 +676,67 @@ test('Red cards only: a card rated Again today gets Hard mode; two sentences →
   await expect.poll(() => topUps).toContainEqual(expect.objectContaining({ note_ids: [note.id], reason: 'few', counts: { [note.id]: expect.any(Number) } }));
   await shot(page, 'hard-07-round-of-two');
 });
+
+test('sentence round: a judged row\'s words open the explorer — + Add as card lands in "From example sentences"', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  await setHardMode(page, 'all');
+  // Jerome's example: the card 来源, its sentence 这个消息来源可靠。 — he taps 可靠 once the row is judged.
+  const clue = { hanzi: '这个消息来源可靠。', pinyin: 'Zhège xiāoxi láiyuán kěkào.', translation: 'The source of this news is reliable.' };
+  const set = [
+    { hanzi: '他的收入来源很多。', pinyin: 'Tā de shōurù láiyuán hěn duō.', translation: 'He has many sources of income.' },
+    { hanzi: '你知道这句话的来源吗？', pinyin: 'Nǐ zhīdào zhè jù huà de láiyuán ma?', translation: 'Do you know where this saying comes from?' },
+    { hanzi: '新闻的来源要写清楚。', pinyin: 'Xīnwén de láiyuán yào xiě qīngchu.', translation: 'The source of the news must be written clearly.' },
+  ];
+  const email = `round-explorer-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const { session_token: token } = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Jerome' } });
+  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token, data: { name: 'News words' } });
+  const note = await api<{ id: string }>(request, `/api/decks/${deck.id}/notes?check=none`, {
+    method: 'POST',
+    token,
+    data: { hanzi: '来源', pinyin: 'láiyuán', english: 'source', sentence_clue: clue.hanzi, sentence_clue_pinyin: clue.pinyin, sentence_clue_translation: clue.translation },
+  });
+  await stubSet(page, note.id, set);
+  await openCard(page, token, deck.id, 'News words');
+  await takeRead(page, '来源');
+  await expect(page.getByTestId('hard-feedback')).toHaveAttribute('data-result', 'right', { timeout: 15000 });
+  await expect(page.getByTestId('sentence-round')).toBeVisible({ timeout: 15000 });
+
+  // The read exercise of the card's sentence: before the take its Chinese is the question — plain text.
+  const row = page.locator('[data-testid="sentence-round-exercise"]', { hasText: '可靠' });
+  const zh = row.getByTestId('sentence-round-chinese');
+  await expect(zh).toHaveText(clue.hanzi);
+  await expect(zh.getByRole('button')).toHaveCount(0);
+  await hear(page, clue.hanzi);
+  await row.getByTestId('sentence-practise-mic').click();
+  await expect(row.getByTestId('sentence-practise-live')).toContainText('这个消息来源可靠', { timeout: 10000 });
+  await row.getByTestId('sentence-practise-mic').click();
+  await expect(row).toHaveAttribute('data-status', 'right', { timeout: 10000 });
+
+  // Judged: every word is a tap into the language explorer (by word, from the device segmenter).
+  await expect(zh).toHaveAttribute('data-explorable', 'true');
+  const word = zh.getByRole('button', { name: '可靠', exact: true });
+  await expect(word).toBeVisible({ timeout: 15000 });
+  await row.scrollIntoViewIfNeeded();
+  await shot(page, 'round-explorer-01-judged-row');
+  await word.click();
+  const view = page.getByRole('dialog', { name: 'The word 可靠' });
+  await expect(view).toBeVisible({ timeout: 15000 });
+  // The round stays as it was (a word tap is not a row tap): no menu, the row still right.
+  await expect(page.getByTestId('sentence-hide-sheet')).toHaveCount(0);
+  await expect(row).toHaveAttribute('data-status', 'right');
+  const add = view.getByTestId('explorer-add-card');
+  await expect(add).toBeVisible({ timeout: 15000 });
+  await shot(page, 'round-explorer-02-explorer-open');
+
+  // + Add as card: one tap, straight into "From example sentences".
+  await add.click();
+  await expect(view.getByTestId('added-to-deck')).toContainText('✓ Added to From example sentences', { timeout: 15000 });
+  await shot(page, 'round-explorer-03-added');
+  const sourceDeck = async () => {
+    const decks = await api<Array<{ id: string; name: string; source_key?: string | null }>>(request, '/api/decks', { token });
+    return decks.find((d) => d.source_key === 'sentences') ?? null;
+  };
+  await expect.poll(async () => (await sourceDeck())?.name ?? null, { timeout: 15000 }).toBe('From example sentences');
+  const inSource = await api<{ notes: Array<{ hanzi: string }> }>(request, `/api/decks/${(await sourceDeck())!.id}`, { token });
+  expect(inSource.notes.map((n) => n.hanzi)).toEqual(['可靠']);
+});

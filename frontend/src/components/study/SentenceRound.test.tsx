@@ -106,6 +106,19 @@ vi.mock('../../services/sentence-sets', () => ({
 }));
 
 
+// The language explorer (an answered row's words open it) and the device segmenter's words.
+const explorer = vi.hoisted(() => ({ open: vi.fn(), push: vi.fn() }));
+vi.mock('../explorer/ExplorerContext', async (orig) => ({
+  ...(await orig<typeof import('../explorer/ExplorerContext')>()),
+  useExplorer: () => ({ open: explorer.open, push: explorer.push, inside: false }),
+}));
+const WORDS: Record<string, string[]> = { '我去银行取钱。': ['我', '去', '银行', '取钱', '。'], '我去银行。': ['我', '去', '银行', '。'] };
+vi.mock('../../services/chineseSegmenter', () => ({
+  useSegmentedWords: (text: string, enabled = true) => (enabled && WORDS[text] ? WORDS[text].map((w) => ({ text: w, pinyin: '', gloss: '' })) : null),
+  preloadSegmenter: () => {},
+}));
+
+
 // The feel (services/studyFeel.ts): navigator.vibrate is what a phone feels.
 const vibrate = vi.fn();
 Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true, writable: true });
@@ -147,6 +160,8 @@ beforeEach(() => {
   vibrate.mockClear();
   try { localStorage.removeItem('study-feel-v1'); } catch { /* none */ }
   track.mockClear();
+  explorer.open.mockClear();
+  explorer.push.mockClear();
   checkLessonAnswer.mockReset();
   history.stats = new Map();
   history.record.length = 0;
@@ -746,5 +761,72 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
     await render();
     expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate', 'read']);
     expect(player.plays).toHaveLength(0);
+  });
+});
+
+describe('tapping a word of an answered row', () => {
+  const words = (el: HTMLElement | null) => [...(el?.querySelectorAll('[role="button"]') ?? [])] as HTMLElement[];
+  const word = (el: HTMLElement | null, w: string) => words(el).find((b) => b.textContent === w)!;
+
+  it('opens the explorer by word (source sentence_round) once answered — not while it is the question', async () => {
+    await render();
+    // Read it aloud, before the take: the sentence is the question — plain text.
+    expect(inEx(0, 'sentence-round-chinese')!.dataset.explorable).toBeUndefined();
+    expect(words(inEx(0, 'sentence-round-chinese'))).toHaveLength(0);
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    expect(ex(0).dataset.status).toBe('right');
+    const zh = inEx(0, 'sentence-round-chinese')!;
+    expect(zh.dataset.explorable).toBe('true');
+    // Same text, by word (the punctuation isn't a word).
+    expect(zh.textContent).toBe('我去银行取钱。');
+    expect(words(zh).map((b) => b.textContent)).toEqual(['我', '去', '银行', '取钱']);
+    act(() => word(zh, '银行').click());
+    expect(explorer.open).toHaveBeenCalledTimes(1);
+    expect(explorer.open).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'word', hanzi: '银行', sentence: '我去银行取钱。' }),
+      expect.objectContaining({ source: 'sentence_round' }),
+    );
+    // The row's own gestures are untouched: no menu from the word tap, ⋯ still opens it.
+    expect(all('sentence-hide-sheet')).toHaveLength(0);
+    act(() => inEx(0, 'sentence-round-more')!.click());
+    expect(all('sentence-hide-sheet')).toHaveLength(1);
+  });
+
+  it('"Say it in Chinese": no Chinese before the answer, its words explorable once answered', async () => {
+    await render();
+    expect(inEx(1, 'sentence-round-chinese')).toBeNull();
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行'));
+    expect(ex(1).dataset.status).toBe('right');
+    const zh = inEx(1, 'sentence-round-chinese')!;
+    act(() => word(zh, '银行').click());
+    expect(explorer.open).toHaveBeenCalledWith(expect.objectContaining({ kind: 'word', hanzi: '银行' }), expect.objectContaining({ source: 'sentence_round' }));
+  });
+
+  it('a long press on a word opens the row menu, and the tap ending it explores nothing', async () => {
+    await render();
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去银行取钱'));
+    vi.useFakeTimers();
+    const w = word(inEx(0, 'sentence-round-chinese'), '银行');
+    act(() => { w.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); });
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(all('sentence-hide-sheet')).toHaveLength(1);
+    act(() => { w.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); w.click(); });
+    expect(explorer.open).not.toHaveBeenCalled();
+  });
+
+  it('a listen exercise: its Chinese only after the reveal, then explorable', async () => {
+    rows.set = SET.map((r) => ({ ...r, audio_url: `generated/${r.id}.mp3` }));
+    await render();
+    const first = () => all('sentence-round-exercise').find((e) => e.dataset.mode === 'listen')!;
+    expect(first().querySelector('[data-testid="sentence-round-chinese"]')).toBeNull();
+    act(() => fakes.list.find((f) => f.surface === 'sentence_listen')!.land('i go to the bank'));
+    await flush();
+    const zh = first().querySelector('[data-testid="sentence-round-chinese"]') as HTMLElement;
+    expect(zh.dataset.explorable).toBe('true');
+    act(() => word(zh, '银行').click());
+    expect(explorer.open).toHaveBeenCalledWith(expect.objectContaining({ hanzi: '银行', sentence: '我去银行。' }), expect.objectContaining({ source: 'sentence_round' }));
   });
 });

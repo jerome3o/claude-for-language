@@ -53,6 +53,7 @@ describe('source decks', () => {
     expect(sourceDeckForExplorer('chat')).toBe('chats');
     expect(sourceDeckForExplorer('coach')).toBe('claude');
     expect(sourceDeckForExplorer('breakdown')).toBe('sentences');
+    expect(sourceDeckForExplorer('sentence_round')).toBe('sentences');
     expect(sourceDeckForExplorer('clips')).toBe('practice');
     expect(sourceDeckForExplorer('study')).toBe('explorer');
     expect(sourceDeckForExplorer(undefined)).toBe('explorer');
