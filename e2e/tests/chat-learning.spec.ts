@@ -259,20 +259,24 @@ test('make flashcards: pick messages → review → one batch add', async ({ bro
   await expect(review.getByText('Already in your decks')).toBeVisible();
   await expect(review.getByText('From “你周末打算做什么？”').first()).toBeVisible();
 
-  // The top deck of the queue is preselected and listed first.
-  await expect(review.getByLabel('Deck')).toHaveValue(deck.body.id);
-  await expect(review.getByLabel('Deck').locator('option').first()).toHaveText('聊天生词');
+  // Source decks: no deck to choose — the cards go straight into "From chats".
+  await expect(review.getByLabel('Deck')).toHaveCount(0);
+  void deck;
 
   // Edit one field, add.
   await review.getByRole('button', { name: 'Edit 打算' }).click();
   await review.getByRole('textbox', { name: 'English', exact: true }).fill('to plan (to)');
   await review.getByRole('button', { name: 'Done' }).click();
-  await review.getByRole('button', { name: 'Add 1 card' }).click();
+  await review.getByRole('button', { name: 'Add 1 card to From chats' }).click();
 
+  // "✓ Added to From chats · Change", then Done closes.
+  await expect(review.getByTestId('added-to-deck')).toContainText('Added to From chats', { timeout: 10000 });
+  await review.getByTestId('chat-cards-done').click();
   await expect(review).toHaveCount(0, { timeout: 10000 });
-  await expect(page.getByText('Added 1 card to 聊天生词.')).toBeVisible();
+  await expect(page.getByText('Added to From chats.')).toBeVisible();
   expect(batch).not.toBeNull();
-  expect(batch!.url).toContain(`/api/decks/${deck.body.id}/notes/batch`);
+  expect(batch!.url).toContain('/notes/batch');
+  expect(decodeURIComponent(batch!.url)).toContain('/api/decks/source:chats/notes/batch');
   expect(batch!.body).toEqual({
     notes: [
       {
