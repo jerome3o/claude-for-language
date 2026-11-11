@@ -174,7 +174,7 @@ fun ListenExerciseCard(
             // The reveal, at once.
             Row(Modifier.fillMaxWidth().padding(top = 6.dp).testTag(SentenceListenTags.REVEAL), verticalAlignment = Alignment.Top) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(row.hanzi, Modifier.testTag(SentenceRoundTags.CHINESE), color = Lab.colors.ink, fontSize = 22.sp)
+                    RoundChinese(row.hanzi, explorable = true)
                     if (!row.pinyin.isNullOrBlank()) Text(row.pinyin, color = Lab.colors.muted, fontSize = 14.sp)
                     if (!row.translation.isNullOrBlank()) Text(row.translation, Modifier.testTag(SentenceListenTags.ENGLISH), color = Lab.colors.muted, fontSize = 14.sp)
                     else Text(SentenceRound.TRANSLATION_OFFLINE, color = Lab.colors.muted.copy(alpha = 0.75f), fontSize = 14.sp, fontStyle = FontStyle.Italic)

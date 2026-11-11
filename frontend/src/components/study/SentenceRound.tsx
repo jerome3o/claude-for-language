@@ -47,6 +47,7 @@ import {
 import { useSentencesByEar } from '../../services/hardModePrefs';
 import { isAudioCached } from '../../services/audioCache';
 import { SentenceListenExercise } from './SentenceListenExercise';
+import { RoundChinese } from './RoundChinese';
 import { roundTakeFeel } from '@shared/study/hardMode';
 import { studyFeel } from '../../services/studyFeel';
 import { sentencePractiseResult } from '@shared/study/sentencePractise';
@@ -489,6 +490,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           onUnavailable={() => listenUnavailable(ex)}
           onMore={() => setHiding(ex)}
           longPress={longPress.bind(() => setHiding(ex))}
+          suppressTap={longPress.suppressTap}
           where={where}
         />
       );
@@ -553,7 +555,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           <div className="sentence-round-ex-text">
             {ex.mode === 'translate' && <p className="sentence-round-en" data-testid="sentence-round-english">{row.translation}</p>}
             {showChinese && (
-              <p className="sentence-round-zh" lang="zh-CN" data-testid="sentence-round-chinese">{row.hanzi}</p>
+              // Once answered, every word opens the language explorer (+ Add as card → "From example sentences").
+              <RoundChinese text={row.hanzi} explorable={answered && !busy} suppressTap={longPress.suppressTap} />
             )}
             {answered && !fullCheck && row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
             {ex.mode === 'read' && showEnglish && (readEnglish ? (

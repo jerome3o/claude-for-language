@@ -92,7 +92,7 @@ words; the tint only repeats them.
 - **Your card**: "📚 You have this in <deck>" → Open card (the card hub) and ⚡ Study it today; else
   **+ Add as card**: ONE tap, no deck picker. The card goes straight into the source deck of where the
   explorer was opened: a reader → "From readers", a chat → "From chats", the Coach / a Claude chat →
-  "From Claude", sentence breakdowns → "From example sentences", practice screens → "From lessons &
+  "From Claude", sentence breakdowns and the Sentence round → "From example sentences", practice screens → "From lessons &
   practice", anywhere else → "From the explorer" (`sourceDeckForExplorer`; docs/STUDY_SESSION.md
   "Source decks"). The footer says "✓ Added to From readers · Change", and Change moves the note. The
   "More about" explanation's fun facts and sentence go with it when they were loaded. **Right after an add** the
@@ -206,6 +206,7 @@ Inside a view it pushes; elsewhere it opens a fresh stack. Used on:
 - graded reader pages (word chips → Word view with the chip's pinyin / gloss / sentence),
 - chat word chips (→ Word view),
 - the coach / example-sentence breakdown rows (→ Word view; Add is inside it).
+- the study card's Sentence round, once an exercise is answered (by word, source `sentence_round`; docs/STUDY_SESSION.md "Sentence round").
 
 Not inside places where a tap already means something (answer inputs, the call board, games
 where tapping is the answer, example-sentence rows that reveal line by line).

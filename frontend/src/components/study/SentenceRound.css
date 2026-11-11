@@ -446,3 +446,19 @@
   font-weight: 700;
   color: var(--color-text);
 }
+
+/* An answered row's words open the language explorer (RoundChinese): no chip boxes — the line looks
+   as before; a tap shows itself with a brief tint. */
+.sentence-round-word {
+  cursor: pointer;
+  border-radius: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.sentence-round-word:hover,
+.sentence-round-word:focus-visible {
+  background: rgba(37, 99, 235, 0.1);
+  outline: none;
+}
+.sentence-round-word:active {
+  background: rgba(37, 99, 235, 0.18);
+}

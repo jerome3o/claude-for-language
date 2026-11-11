@@ -16,7 +16,7 @@ mkdirSync(OUT, { recursive: true });
 
 const EXPLORER_SOURCES = [
   'study', 'homework', 'reader', 'chat', 'ask_claude', 'claude_chat', 'breakdown', 'coach', 'lesson', 'card_hub', 'idioms',
-  'audio_lesson', 'meme_review', 'word_tag', 'clips', 'phone', 'read_aloud', 'podcast', 'call', 'picture_hunt', 'other',
+  'audio_lesson', 'meme_review', 'word_tag', 'clips', 'phone', 'read_aloud', 'sentence_round', 'podcast', 'call', 'picture_hunt', 'other',
   '', 'toString', 'READER',
 ];
 

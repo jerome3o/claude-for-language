@@ -46,6 +46,7 @@ import { track } from '../../services/analytics';
 import { API_BASE } from '../../api/client';
 import { VoiceTextInputView } from '../voice/VoiceTextInput';
 import type { RoundSentenceRow } from './SentenceRound';
+import { RoundChinese } from './RoundChinese';
 
 type Status = 'right' | 'close' | 'wrong' | null;
 
@@ -68,6 +69,8 @@ interface Props {
   onUnavailable: () => void;
   onMore: () => void;
   longPress: Record<string, unknown>;
+  /** True for the tap that ends a long press (the hide sheet opened): a word under it isn't explored. */
+  suppressTap?: () => boolean;
   where: 'session' | 'homework';
 }
 
@@ -78,7 +81,7 @@ type Verdict =
   | { kind: 'self_done'; result: 'right' | 'wrong' };
 
 export function SentenceListenExercise({
-  ex, index, row, active, onActivate, onRevealed, isRight, online, micBusy, onJudged, onUnavailable, onMore, longPress, where,
+  ex, index, row, active, onActivate, onRevealed, isRight, online, micBusy, onJudged, onUnavailable, onMore, longPress, suppressTap, where,
 }: Props) {
   const [answer, setAnswer] = useState('');
   const [said, setSaid] = useState<{ text: string; input: 'spoken' | 'edited' | 'typed' | 'none' } | null>(null);
@@ -284,7 +287,7 @@ export function SentenceListenExercise({
           {/* The reveal, at once: the sentence, its pinyin and English, ▶. */}
           <div className="sentence-round-ex-body" data-testid="sentence-listen-reveal">
             <div className="sentence-round-ex-text">
-              <p className="sentence-round-zh" lang="zh-CN" data-testid="sentence-round-chinese">{row.hanzi}</p>
+              <RoundChinese text={row.hanzi} explorable suppressTap={suppressTap} />
               {row.pinyin && <p className="sentence-round-pinyin">{row.pinyin}</p>}
               {row.translation?.trim() ? (
                 <p className="sentence-round-en is-after" data-testid="sentence-listen-english">{row.translation}</p>
