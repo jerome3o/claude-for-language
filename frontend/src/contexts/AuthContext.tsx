@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { STUDY_BUDGET_CHANGED, writeStudyBudget } from '../services/studyBudget';
 import { writeNewCardOrder } from '../services/newCardOrder';
+import { writeDayRolloverHour } from '../services/studyDay';
 import { writeBurySiblings } from '../services/burySiblings';
 import { writeSkipHandwriting } from '../services/skipHandwriting';
 import type { StudyBudgetInfo } from '@shared/decks';
@@ -82,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(userData);
       writeStudyBudget(userData);
       writeNewCardOrder(userData as { new_card_order?: unknown });
+      writeDayRolloverHour(userData);
       writeBurySiblings(userData as { bury_siblings?: unknown });
       writeSkipHandwriting(userData as { skip_handwriting?: unknown });
       writeConversationVoices(userData.conversation_voices);
@@ -169,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void refreshMediaTokenIfDue();
         writeStudyBudget(userData);
         writeNewCardOrder(userData as { new_card_order?: unknown });
+        writeDayRolloverHour(userData);
         writeConversationVoices(userData.conversation_voices);
         writeConversationAudio(userData.conversation_audio);
         if (typeof userData.share_usage === 'boolean') setSharingUsage(userData.share_usage);

@@ -34,6 +34,7 @@ import {
 } from '../db/database';
 import { API_BASE, getAuthHeaders } from '../api/client';
 import { readBonus, bonusKey } from '../utils/bonusNewCards';
+import { readDayRolloverHour, studyDayNow } from './studyDay';
 import { readStudyBudget } from './studyBudget';
 import { readNewCardOrder } from './newCardOrder';
 import { readBurySiblings } from './burySiblings';
@@ -56,10 +57,6 @@ import { CardQueue } from '../types';
 const AUTO_INTERVAL_MS = 30 * 60 * 1000;
 const LAST_UPLOAD_KEY = 'debugReportLastUpload';
 
-function localDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function counts(c: DeckQueueCounts): DebugQueueCounts {
   return { new: c.new, secondaryNew: c.secondaryNew, learning: c.learning, review: c.review, hasMoreNew: c.hasMoreNew };
 }
@@ -74,8 +71,8 @@ function dueMs(card: LocalCard): number | null {
 export async function buildDebugReport(): Promise<DebugReport> {
   const now = new Date();
   const cutoff = getStudyCutoff();
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
+  const studyDay = studyDayNow(now.getTime());
+  const dayStart = new Date(studyDay.startMs);
   const budget = readStudyBudget();
 
   const [decks, cards, noteRows, rawByDeck, eventIds, eventKeys, unsynced, pendingDeletions, syncMeta, eventSyncMeta, fromEvents, dueReaders] =
@@ -204,9 +201,10 @@ export async function buildDebugReport(): Promise<DebugReport> {
     },
     now_ms: now.getTime(),
     cutoff: { ms: cutoff.ts, iso: cutoff.iso },
-    day_start: { ms: dayStart.getTime(), iso: dayStart.toISOString(), local_date: localDate(now) },
+    day_start: { ms: dayStart.getTime(), iso: dayStart.toISOString(), local_date: studyDay.key },
+    day_rollover_hour: readDayRolloverHour(),
     introduced_basis:
-      'derived from review events: a card\'s first-ever review at/after local midnight (shared/decks/study-queue.ts introducedToday)',
+      'derived from review events: a card\'s first-ever review at/after the study day\'s start (the rollover hour; shared/decks/study-queue.ts introducedToday)',
     budget: { ...budget },
     new_card_order: readNewCardOrder(),
     up_next: await loadQueueUpNext(),

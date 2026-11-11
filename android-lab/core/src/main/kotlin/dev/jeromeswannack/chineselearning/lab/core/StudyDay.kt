@@ -1,134 +1,89 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
-import kotlin.math.floor
-import kotlin.math.max
-import kotlin.math.min
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
 
 /**
- * "Today is the session" (docs/STUDY_SESSION.md): ports of shared/study — parity-tested by
- * StudyDayParityTest against the TypeScript (android-lab/parity/fixtures/study.ts).
+ * "When does a new day start" — port of shared/study/studyDay.ts, parity-tested
+ * (StudyDayParityTest, parity/fixtures/study-day.ts, DST nights included).
+ *
+ * An instant before the account's rollover hour (0–6, default 4 am; `users.day_rollover_hour`,
+ * Settings → Study → "New day starts at") belongs to the previous calendar day. The day runs from
+ * its date's rollover hour to the next date's (java.time's gap / overlap rules, which the
+ * TypeScript copies). A rollover of 0 = midnight = the old calendar day. FSRS is untouched.
  */
+data class StudyDayInfo(
+    /** The study day's date, YYYY-MM-DD. */
+    val key: String,
+    /** The day's rollover instant (inclusive). */
+    val startMs: Long,
+    /** The next day's rollover instant (exclusive). */
+    val endMs: Long,
+)
 
-/**
- * Active study time: port of shared/study/activeTime.ts. Every interaction on the study screen
- * credits the time since the previous one, capped at [IDLE_MS]; a pause (background, screen
- * off, leaving Study) credits the pending interval and stops the clock. Totals per local date.
- */
-object ActiveTime {
-    /** `ACTIVE_IDLE_MS` */
-    const val IDLE_MS = 75_000L
-    /** `ACTIVE_KEEP_DAYS` */
-    const val KEEP_DAYS = 14
+object StudyDay {
+    const val DEFAULT_ROLLOVER_HOUR = 4
+    const val MIN_ROLLOVER_HOUR = 0
+    const val MAX_ROLLOVER_HOUR = 6
+    val CHOICES: List<Int> = (MIN_ROLLOVER_HOUR..MAX_ROLLOVER_HOUR).toList()
+    private const val HOUR_MS = 3_600_000L
+    private const val MINUTE_MS = 60_000L
+    private const val DAY_MS = 86_400_000L
 
-    data class Last(val at: Long, val day: String)
+    /** Port of isDayRolloverHour(). */
+    fun isRolloverHour(value: Int?): Boolean = value != null && value in MIN_ROLLOVER_HOUR..MAX_ROLLOVER_HOUR
 
-    /** `ActiveTimeState` */
-    data class State(val totals: Map<String, Long> = emptyMap(), val last: Last? = null)
+    /** Port of dayRolloverHour(): NULL / invalid = the default (4 am). */
+    fun rolloverHour(stored: Int?): Int = if (isRolloverHour(stored)) stored!! else DEFAULT_ROLLOVER_HOUR
 
-    /** `pendingActiveMs` */
-    fun pending(state: State, now: Long): Long {
-        val last = state.last ?: return 0
-        val gap = now - last.at
-        if (gap <= 0) return 0
-        return min(gap, IDLE_MS)
+    /** Port of dayRolloverLabel(): "midnight", "1 am" … "6 am". */
+    fun label(hour: Int): String = if (hour == 0) "midnight" else "$hour am"
+
+    /** Port of dayRolloverSummary(). */
+    fun summary(hour: Int): String = "New day starts at ${label(hour)}"
+
+    /** Port of studyDayAt(): the study day instant `ms` belongs to in `zone`. */
+    fun at(ms: Long, rolloverHour: Int, zone: ZoneId): StudyDayInfo {
+        val hour = rolloverHour(rolloverHour)
+        val local = Instant.ofEpochMilli(ms).atZone(zone)
+        val date = if (local.hour < hour) local.toLocalDate().minusDays(1) else local.toLocalDate()
+        return StudyDayInfo(date.toString(), instantOf(date, hour, zone), instantOf(date.plusDays(1), hour, zone))
     }
 
-    private fun credited(state: State, now: Long): Map<String, Long> {
-        val add = pending(state, now)
-        val last = state.last
-        if (last == null || add == 0L) return state.totals
-        return state.totals + (last.day to ((state.totals[last.day] ?: 0L) + add))
+    /** Port of studyDayKey(). */
+    fun key(ms: Long, rolloverHour: Int, zone: ZoneId): String {
+        val local = Instant.ofEpochMilli(ms).atZone(zone)
+        val date = if (local.hour < rolloverHour(rolloverHour)) local.toLocalDate().minusDays(1) else local.toLocalDate()
+        return date.toString()
     }
 
-    /** `activeInteract` */
-    fun interact(state: State, now: Long, day: String): State = State(credited(state, now), Last(now, day))
+    /** The study day's date as a LocalDate (what "today" means for day-keyed prefs). */
+    fun date(ms: Long, rolloverHour: Int, zone: ZoneId): LocalDate = LocalDate.parse(key(ms, rolloverHour, zone))
 
-    /** `activePause` */
-    fun pause(state: State, now: Long): State = if (state.last == null) state else State(credited(state, now), null)
+    /** Port of localTimeToInstant(): `date` at `hour`:00 in `zone` (gap → later, overlap → earlier). */
+    fun instantOf(date: LocalDate, hour: Int, zone: ZoneId): Long =
+        date.atTime(LocalTime.of(hour, 0)).atZone(zone).toInstant().toEpochMilli()
 
-    /** `activeTotal` */
-    fun total(state: State, day: String, now: Long): Long {
-        val base = state.totals[day] ?: 0L
-        return if (state.last != null && state.last.day == day) base + pending(state, now) else base
+    /** Port of studyDayAtOffset(): a fixed UTC offset (minutes, east positive). */
+    fun atOffset(ms: Long, rolloverHour: Int, utcOffsetMinutes: Int): StudyDayInfo {
+        val hour = rolloverHour(rolloverHour)
+        val shifted = ms + utcOffsetMinutes * MINUTE_MS - hour * HOUR_MS
+        val dayUtc = Math.floorDiv(shifted, DAY_MS) * DAY_MS
+        val start = dayUtc + hour * HOUR_MS - utcOffsetMinutes * MINUTE_MS
+        return StudyDayInfo(LocalDate.ofEpochDay(Math.floorDiv(shifted, DAY_MS)).toString(), start, start + DAY_MS)
     }
 
-    /** `pruneActiveTime` */
-    fun prune(state: State, firstKept: String): State = State(state.totals.filterKeys { it >= firstKept }, state.last)
+    /** Port of studyCutoffMs(): the study day's last millisecond, or now + 1 h if later. */
+    fun cutoffMs(nowMs: Long, day: StudyDayInfo): Long = maxOf(day.endMs - 1, nowMs + HOUR_MS)
 
-    /** `dayTotalAcrossDevices` */
-    fun acrossDevices(localMs: Long, serverTotal: Long, serverThisDevice: Long): Long =
-        max(0L, serverTotal - serverThisDevice) + max(0L, localMs)
+    /** Port of studyDayShiftMinutes(): offset − rollover × 60. */
+    fun shiftMinutes(utcOffsetMinutes: Int, rolloverHour: Int): Int = utcOffsetMinutes - rolloverHour(rolloverHour) * 60
 
-    /** `formatActiveMinutes`: "23 min", "1 h 5 min", "<1 min", "0 min". */
-    fun formatMinutes(ms: Long): String {
-        if (ms <= 0) return "0 min"
-        if (ms < 60_000) return "<1 min"
-        val minutes = floor(ms / 60_000.0 + 0.5).toLong() // JS Math.round (positive)
-        if (minutes < 60) return "$minutes min"
-        val h = minutes / 60
-        val m = minutes % 60
-        return if (m == 0L) "$h h" else "$h h $m min"
-    }
+    /** The device zone's offset now (minutes, east positive). */
+    fun utcOffsetMinutes(ms: Long, zone: ZoneId): Int = zone.rules.getOffset(Instant.ofEpochMilli(ms)).totalSeconds / 60
 
-    /** `todayStudyLine`: "Today: 23 min · 142 reviews". */
-    fun todayLine(activeMs: Long, reviews: Int): String =
-        "Today: ${formatMinutes(activeMs)} · $reviews review${if (reviews == 1) "" else "s"}"
-}
-
-/** Port of shared/study/resume.ts: the card left on screen comes back first while still due today. */
-object StudyResume {
-    /** `StudyResumePoint` */
-    data class Point(
-        val day: String,
-        val scope: String,
-        val cardId: String,
-        val revealed: Boolean,
-        val answer: String,
-        val elapsedMs: Long,
-        /** `round_open`: the Sentence round was up (core SentenceRound). */
-        val roundOpen: Boolean = false,
-        /** `sentences_right`: the round's exercises / the rows said right on this showing. */
-        val sentencesRight: List<String> = emptyList(),
-        /** `feedback_open`: Hard mode's check of the question's own answer was up (core HardMode). */
-        val feedbackOpen: Boolean = false,
-        /** `gave_up`: Hard mode — he looked at the answer before getting it right (Good / Easy locked). */
-        val gaveUp: Boolean = false,
-        /** `round_log`: the round's exercises as shown + each one's last result (core SentenceRound.LogEntry). */
-        val roundLog: List<SentenceRound.LogEntry> = emptyList(),
-    )
-
-    /** `RESUME_MAX_ELAPSED_MS` */
-    const val MAX_ELAPSED_MS = 3_600_000L
-
-    /** `studyScope` */
-    fun scope(deckId: String?): String = if (deckId.isNullOrEmpty()) "all" else deckId
-
-    /** `resumeCardId` */
-    fun cardId(point: Point?, day: String, scope: String, queueCardIds: Collection<String>): String? {
-        if (point == null || point.day != day || point.scope != scope) return null
-        return if (point.cardId in queueCardIds) point.cardId else null
-    }
-
-    /** `resumeElapsedMs` */
-    fun elapsedMs(point: Point?): Long {
-        val ms = point?.elapsedMs ?: 0L
-        if (ms <= 0) return 0
-        return min(ms, MAX_ELAPSED_MS)
-    }
-}
-
-/** Port of shared/study/celebration.ts: confetti for emptying today's queue — once, again after more was cleared. */
-object Celebration {
-    /** `CelebrationMark` */
-    data class Mark(val day: String, val reviews: Int)
-
-    /** `shouldCelebrate` */
-    fun should(mark: Mark?, day: String, reviewsToday: Int, queueEmpty: Boolean): Boolean {
-        if (!queueEmpty || reviewsToday <= 0) return false
-        if (mark == null || mark.day != day) return true
-        return reviewsToday > mark.reviews
-    }
-
-    /** `celebrationMark` */
-    fun mark(day: String, reviewsToday: Int) = Mark(day, reviewsToday)
+    /** Port of addDayKeys(). */
+    fun addDays(key: String, days: Int): String = LocalDate.parse(key).plusDays(days.toLong()).toString()
 }

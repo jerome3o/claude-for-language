@@ -14,6 +14,7 @@ import { AskClaudeLanguageSection } from '../components/settings/AskClaudeLangua
 import { PodcastFeedSection } from '../components/settings/PodcastFeedSection';
 import { SignOutSection } from '../components/settings/SignOutSection';
 import { FeedbackSettingsSection } from '../components/settings/FeedbackSettingsSection';
+import { DayRolloverSetting } from '../components/settings/DayRolloverSetting';
 import { readStudyBudget, readStudyBudgetInfo, writeStudyBudget } from '../services/studyBudget';
 import { readWordTagsOn, writeWordTagsOn } from '../services/wordTags';
 import { readNewCharShimmerOn, writeNewCharShimmerOn } from '../services/newCharacters';
@@ -796,6 +797,7 @@ function SpokenAnswerSection() {
   return (
     <div className="settings-section" data-testid="spoken-answers">
       <h2>Study</h2>
+      <DayRolloverSetting />
       <label className="settings-toggle-row">
         <input
           type="checkbox"

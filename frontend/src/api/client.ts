@@ -89,6 +89,14 @@ export function getLocalDateString(): string {
   return studyToday();
 }
 
+/**
+ * `tz_offset=` (Date.getTimezoneOffset()) for the progress pages: the server buckets reviews into
+ * the learner's STUDY days (their time zone, else this one; "New day starts at").
+ */
+export function tzQuery(): string {
+  return `tz_offset=${new Date().getTimezoneOffset()}`;
+}
+
 export const API_PATH = `${API_BASE}/api`;
 
 // Session token for Authorization header (used when cookies don't work cross-origin)
@@ -1076,7 +1084,7 @@ export async function removeRelationship(id: string): Promise<void> {
 }
 
 export async function getStudentProgress(relationshipId: string): Promise<StudentProgress> {
-  return fetchJSON<StudentProgress>(`/relationships/${relationshipId}/student-progress`);
+  return fetchJSON<StudentProgress>(`/relationships/${relationshipId}/student-progress?${tzQuery()}`);
 }
 
 // ============ Conversations ============
@@ -1489,11 +1497,11 @@ export async function getDeckProgress(deckId: string): Promise<DeckProgress> {
 // ============ Student Progress (Enhanced) ============
 
 export async function getStudentDailyProgress(relationshipId: string): Promise<DailyActivitySummary> {
-  return fetchJSON<DailyActivitySummary>(`/relationships/${relationshipId}/student-progress/daily`);
+  return fetchJSON<DailyActivitySummary>(`/relationships/${relationshipId}/student-progress/daily?${tzQuery()}`);
 }
 
 export async function getStudentDayCards(relationshipId: string, date: string): Promise<DayCardsDetail> {
-  return fetchJSON<DayCardsDetail>(`/relationships/${relationshipId}/student-progress/day/${date}`);
+  return fetchJSON<DayCardsDetail>(`/relationships/${relationshipId}/student-progress/day/${date}?${tzQuery()}`);
 }
 
 export async function getStudentCardReviews(
@@ -1502,22 +1510,22 @@ export async function getStudentCardReviews(
   cardId: string
 ): Promise<CardReviewsDetail> {
   return fetchJSON<CardReviewsDetail>(
-    `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}`
+    `/relationships/${relationshipId}/student-progress/day/${date}/card/${cardId}?${tzQuery()}`
   );
 }
 
 // ============ My Progress (Self-view) ============
 
 export async function getMyDailyProgress(): Promise<MyDailyProgress> {
-  return fetchJSON<MyDailyProgress>('/progress/daily');
+  return fetchJSON<MyDailyProgress>(`/progress/daily?${tzQuery()}`);
 }
 
 export async function getMyDayCards(date: string): Promise<DayCardsDetail> {
-  return fetchJSON<DayCardsDetail>(`/progress/day/${date}`);
+  return fetchJSON<DayCardsDetail>(`/progress/day/${date}?${tzQuery()}`);
 }
 
 export async function getMyCardReviews(date: string, cardId: string): Promise<CardReviewsDetail> {
-  return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}`);
+  return fetchJSON<CardReviewsDetail>(`/progress/day/${date}/card/${cardId}?${tzQuery()}`);
 }
 
 // ============ Sentence Analysis (Learning Subtitles) ============
@@ -1822,6 +1830,15 @@ export async function updateLandingPage(landing_page: LandingPage | null): Promi
     body: JSON.stringify({ landing_page }),
   });
   return data.landing_page;
+}
+
+/** "New day starts at" (0–6; null = back to the default, 4 am) → the hour now in effect. */
+export async function updateDayRollover(day_rollover_hour: number | null): Promise<number> {
+  const data = await fetchJSON<{ day_rollover_hour: number }>('/profile/day-rollover', {
+    method: 'PUT',
+    body: JSON.stringify({ day_rollover_hour }),
+  });
+  return data.day_rollover_hour;
 }
 
 export async function getFeatureRequests(options?: { status?: string; all?: boolean; kind?: 'request' | 'feedback' | 'bug' }): Promise<FeatureRequest[]> {

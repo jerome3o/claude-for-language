@@ -75,6 +75,8 @@ export interface AuthUser {
   study_budget?: StudyBudgetInfo | null;
   /** "Order new cards by" (Settings → New cards; shared/decks/new-card-order.ts). */
   new_card_order?: NewCardOrderInfo | null;
+  /** "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts). */
+  day_rollover_hour?: number | null;
   /** Voices this account's conversation exercises use (shared/lesson/voices.ts). */
   conversation_voices?: string[] | null;
   /** Speed / delivery / voices of conversation exercises + where clips come from now (docs/AUDIO.md "Conversation audio"). */

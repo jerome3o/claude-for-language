@@ -244,4 +244,13 @@ describe('compareDebugReports', () => {
     expect(same.context.holds.a).toBe(same.context.holds.b);
     expect(compareDebugReports(report('lab'), web).context.holds.a).toBe('?');
   });
+
+  it('diffs "New day starts at"', () => {
+    const cmp = compareDebugReports(report('lab', { day_rollover_hour: 4 }), report('web', { day_rollover_hour: 0 }));
+    expect(cmp.context.day_rollover).toEqual({ a: '4', b: '0' });
+    expect(cmp.hints.join('\n')).toContain('"New day starts at" differs: LAB 4 vs WEB 0');
+    const same = compareDebugReports(report('lab', { day_rollover_hour: 4 }), report('web', { day_rollover_hour: 4 }));
+    expect(same.hints.join('\n')).not.toContain('New day starts at');
+    expect(compareDebugReports(report('lab'), report('web', { day_rollover_hour: 4 })).context.day_rollover.a).toBe('?');
+  });
 });

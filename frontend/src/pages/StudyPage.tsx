@@ -3654,8 +3654,8 @@ export function StudyPage() {
 
   useEffect(() => {
     try {
-      // Clean up keys from previous days
-      const todayDate = new Date().toISOString().slice(0, 10);
+      // Clean up keys from previous study days (the bonus is keyed by the study day: utils/bonusNewCards.ts)
+      const todayDate = getLocalDateString();
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
         if (key?.startsWith('bonusNewCards_') && !key.endsWith(todayDate)) {

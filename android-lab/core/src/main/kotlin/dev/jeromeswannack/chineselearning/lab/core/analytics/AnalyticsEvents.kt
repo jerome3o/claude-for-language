@@ -358,6 +358,7 @@ object AnalyticsEvents {
         ev("settings.revisit_changed", "settings", listOf("fields", "reset", "new_lessons_per_day"), replacedBy = "lesson.complete"),
         ev("settings.new_card_order", "settings", listOf("field", "reset", "new_characters_first", "new_words_first", "most_common_first", "sentences_last", "known_characters_english_first", "everyday_first", "new_words_by_ear")),
         ev("settings.analytics", "settings", listOf("on")),
+        ev("settings.day_rollover", "settings", listOf("hour", "from", "reset")),
         ev("settings.full_sync", "settings", emptyList()),
         ev("settings.debug_report", "settings", emptyList()),
         ev("settings.sign_out_all", "settings", emptyList()),
