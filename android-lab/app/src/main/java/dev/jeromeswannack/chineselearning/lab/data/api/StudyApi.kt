@@ -34,6 +34,8 @@ data class StudyNoteDto(
     val multiple_choice_options: String? = null,
     val pinyin_only: Int? = null,
     val created_at: String? = null,
+    /** When the deck was a source deck ref (`source:readers`): the deck it resolved to. */
+    val deck: SourceDeckDto? = null,
 ) {
     /** Mirror the server's answer onto the local row (the Room note is a cache of the server's). */
     fun applyTo(local: NoteEntity): NoteEntity = local.copy(
@@ -180,6 +182,10 @@ data class NewNoteBody(
 )
 
 suspend fun Api.createNote(deckId: String, body: NewNoteBody): StudyNoteDto = post("/api/decks/${enc(deckId)}/notes", body)
+
+/** The deck a source deck ref resolved to (shared/decks/source-decks.ts), in a note-create reply. */
+@Serializable
+data class SourceDeckDto(val id: String, val name: String = "", val source_key: String? = null)
 
 // ---------------- tap a character → definition ----------------
 

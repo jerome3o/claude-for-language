@@ -318,7 +318,10 @@ describe('Claude agent harness', () => {
       const first = await prepareClaudeTurn(env, { kind: 'reader', reader_id: 'rd1' }, CONTEXTS.reader.input, { client: fakeModel([]).client });
       expect(first.system[2].text).toContain('page 1 of 3');
       // create_flashcards as the Coach words it: a deck from the list.
-      expect(a.tools.find((t) => t.name === 'create_flashcards')!.schema.input_schema).toMatchObject({ required: ['deck_id', 'flashcards'] });
+      // deck_id is optional: no deck named → the learner's "From Claude" source deck (never ask which deck).
+      const cf = a.tools.find((t) => t.name === 'create_flashcards')!.schema;
+      expect(cf.input_schema).toMatchObject({ required: ['flashcards'] });
+      expect(cf.description).toContain('From Claude');
       const e = await prepareClaudeTurn(env, { kind: 'exercise', lesson_id: 'ls1', exercise_key: 's0e0' }, CONTEXTS.exercise.input, { client: fakeModel([]).client });
       expect(e.system.at(-1)!.text).toContain('Note (type note)');
       expect(e.system.at(-1)!.text).toContain('They have not answered it yet');

@@ -186,7 +186,15 @@ data class FlashcardsRequest(val deck_id: String? = null, val deck_name: String?
 data class FlashcardsFailureDto(val index: Int = 0, val hanzi: String = "", val error: String = "")
 
 @Serializable
-data class FlashcardsResultDto(val deck_id: String, val created: Int = 0, val failed: List<FlashcardsFailureDto> = emptyList())
+data class FlashcardsResultDto(
+    val deck_id: String,
+    val created: Int = 0,
+    val failed: List<FlashcardsFailureDto> = emptyList(),
+    /** Since source decks: the deck's name, its key ("practice") and the new notes ("Change" moves them). */
+    val deck_name: String? = null,
+    val source_key: String? = null,
+    val note_ids: List<String> = emptyList(),
+)
 
 @Serializable
 /** Create, then send: auto_share stays false — the tutor sends what was made from the job card. */

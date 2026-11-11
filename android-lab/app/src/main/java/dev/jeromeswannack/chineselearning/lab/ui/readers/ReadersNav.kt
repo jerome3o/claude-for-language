@@ -177,6 +177,9 @@ fun rememberReaderEnv(app: LabApp, readerId: String): ReaderEnv {
                 decks = { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { DeckChoice(it.id, it.name, it.description) } },
                 isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
                 add = { deckId, word, ex -> tools.addNote(deckId, readerWordNote(word, ex)) },
+                // Source decks: a reader word goes straight into "From readers" (core SourceDecks.kt).
+                sourceKey = "readers",
+                move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
             ),
             onDismiss = { tapped = null },
             onAdded = { app.haptics.correct(); knownVersion++; app.analytics.track("reader.word_add_card") },

@@ -381,6 +381,9 @@ fun StudyRoute(
                 decks = vm::deckChoices,
                 deckHas = tools::deckHas,
                 addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
+                // Source decks: the add sheet saves straight into its source deck (core SourceDecks.kt).
+                alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+                move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
             ),
             chars = dev.jeromeswannack.chineselearning.lab.ui.chars.rememberCharSheetActions(app, onOpenCard = { id -> onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.cardHub(id)) }),
             readerEnv = { id -> dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderEnv(app, id) }, // Package B

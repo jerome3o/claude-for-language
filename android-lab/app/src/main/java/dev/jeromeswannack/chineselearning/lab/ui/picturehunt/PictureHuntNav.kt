@@ -128,6 +128,10 @@ fun NavGraphBuilder.pictureHuntGraph(nav: LabNav) {
             AddWordSheet(
                 SentenceChunkDto(hanzi = obj.hanzi, pinyin = obj.pinyin, english = obj.english),
                 AddWordActions(
+                    // Source decks: no deck to pick — straight into "From lessons & practice" (core SourceDecks.kt).
+                    sourceKey = "practice",
+                    alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+                    move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
                     decks = { app.repo.dao.decks().sortedBy { it.name.lowercase() }.map { DeckChoice(it.id, it.name, it.description) } },
                     isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
                     add = { deckId, _ -> tools.addNote(deckId, huntNoteBody(obj)) },

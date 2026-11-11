@@ -205,7 +205,9 @@ describe('a Claude thread reply', () => {
     expect(seen[0].tools.map((t) => t.name)).toEqual(['create_flashcards', 'search_cards', 'bump_cards', 'get_note_cards', 'search_my_chats', 'read_chat']);
     const row = reply(db, replyId);
     expect(row).toMatchObject({ status: null, content: 'Added 熊猫 to HSK 2.' });
-    expect(JSON.parse(row.tool_results!)).toEqual([{ tool: 'create_flashcards', success: true, data: { deck_name: 'HSK 2', notes: [{ hanzi: '熊猫', pinyin: 'xióngmāo', english: 'panda' }] } }]);
+    expect(JSON.parse(row.tool_results!)).toEqual([
+      { tool: 'create_flashcards', success: true, data: { deck_name: 'HSK 2', deck_id: 'd1', deck_source_key: null, notes: [{ id: expect.any(String), hanzi: '熊猫', pinyin: 'xióngmāo', english: 'panda' }] } },
+    ]);
     expect(db.rows("SELECT hanzi FROM notes WHERE deck_id = 'd1' ORDER BY hanzi")).toEqual([{ hanzi: '熊猫' }, { hanzi: '银行' }]);
   });
 
@@ -246,8 +248,10 @@ describe('a Claude thread reply', () => {
     expect(ack).toContain('no approval step');
     expect(ack).not.toContain('after user approval');
 
-    // The card exists, and the reply's tool_results (what the app's line is drawn from) say so.
-    expect(db.rows("SELECT hanzi FROM notes WHERE deck_id = 'd1' ORDER BY hanzi")).toEqual([{ hanzi: sentence }, { hanzi: '银行' }]);
+    // The card exists — no deck named, so in his "From Claude" source deck (made on first use; source
+    // decks, Nov 2026: before, the card's own deck) — and the reply's tool_results say so.
+    expect(db.rows("SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.source_key = 'claude' ORDER BY n.hanzi")).toEqual([{ hanzi: sentence }]);
+    expect(db.rows("SELECT name FROM decks WHERE source_key = 'claude'")).toEqual([{ name: 'From Claude' }]);
     const results = reply(db, replyId).tool_results;
     expect(cardToolLines(parseCardToolResults(results))).toEqual([{ kind: 'added', text: `✓ Added 1 card: ${sentence}`, undo: false }]);
 
@@ -258,7 +262,7 @@ describe('a Claude thread reply', () => {
     const earlier = history[1];
     expect(earlier.role).toBe('assistant');
     expect(earlier.content).toBe(`我已经加了一张新卡片：「${sentence}」\n\n${toolRecord(results)}`);
-    expect(earlier.content).toContain(`create_flashcards: added 1 card to the deck “HSK 2”: ${sentence}.`);
+    expect(earlier.content).toContain(`create_flashcards: added 1 card to the deck “From Claude”: ${sentence}.`);
     expect(history.at(-1)).toMatchObject({ role: 'user' });
     // Claude is told what the record is (static rules), and its own copy of one never reaches the learner.
     expect(seen[2].system[0].text).toContain(TOOL_RECORD_RULE);

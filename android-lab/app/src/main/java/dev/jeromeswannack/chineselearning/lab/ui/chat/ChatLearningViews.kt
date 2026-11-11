@@ -416,7 +416,11 @@ fun SelectionHeader(ui: ChatUi, actions: ChatActions) {
 fun SelectionFooter(ui: ChatUi, actions: ChatActions) {
     val n = ui.selection?.selected?.size ?: 0
     Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).testTag("chat-select-bar"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
+        ui.notice?.let { n ->
+            val added = n.added
+            if (added != null) dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(added, actions.moveAdded)
+            else InlineNotice(n.text, kind = if (n.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice)
+        }
         if (!ui.online) InlineNotice("You're offline — making cards needs a connection.", kind = NoticeKind.Offline)
         if (ui.proposingCards) ProposingRow()
         else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {

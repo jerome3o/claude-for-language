@@ -183,13 +183,21 @@ class CallReviewViewModel(private val app: LabApp, private val callId: String) :
             attempt { app.repo.api.makeCallFlashcards(callId, FlashcardsRequest(deck_id = deckId, deck_name = if (deckId == null) deckName else null, words = words)) }
                 .onSuccess { r ->
                     app.haptics.celebrate(); app.sounds.play(Sfx.FANFARE)
-                    local.update { it.copy(cardsResult = CardsResult(r.deck_id, r.created, r.failed.size)) }
+                    val key = r.source_key ?: dev.jeromeswannack.chineselearning.lab.core.SourceDecks.parseRef(deckId)
+                    val added = key?.let { k ->
+                        app.analytics.track("deck.source_add", mapOf("deck_key" to k, "surface" to "call_flashcards", "count" to r.created, "source_deck" to true))
+                        dev.jeromeswannack.chineselearning.lab.data.api.AddedNote(r.note_ids, r.deck_id, r.deck_name ?: dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(k), k)
+                    }
+                    local.update { it.copy(cardsResult = CardsResult(r.deck_id, r.created, r.failed.size, added)) }
                     app.scope.launch { runCatching { app.repo.sync() } } // the new cards come down for study
                 }
                 .onFailure { e -> local.update { it.copy(cardsError = e.userMessage()) } }
             local.update { it.copy(cardsBusy = false) }
         }
     }
+
+    /** "Change" moved the words to another deck. */
+    fun cardsMoved(now: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote) = local.update { u -> u.copy(cardsResult = u.cardsResult?.copy(added = now)) }
 
     fun reprocess() = busy { app.repo.api.processCall(callId); detail.refresh() }
 

@@ -154,5 +154,8 @@ fun passSentenceActions(app: dev.jeromeswannack.chineselearning.lab.LabApp): Sen
         decks = { withContext(Dispatchers.IO) { dev.jeromeswannack.chineselearning.lab.core.PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name } } },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english)) },
+        // Source decks: the add sheet saves straight into its source deck (core SourceDecks.kt).
+        alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+        move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
     )
 }

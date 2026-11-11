@@ -123,6 +123,10 @@ private fun ClipsRoute(nav: LabNav, startId: String?, startScene: Int) {
         AddWordSheet(
             SentenceChunkDto(hanzi = word.hanzi, pinyin = word.pinyin, english = word.english),
             AddWordActions(
+                // Source decks: no deck to pick — straight into "From lessons & practice" (core SourceDecks.kt).
+                sourceKey = "practice",
+                alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+                move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
                 decks = { withContext(Dispatchers.IO) { PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { DeckChoice(it.id, it.name, it.description) } } },
                 isDuplicate = { deckId, h -> tools.deckHas(deckId, h) },
                 add = { deckId, _ -> tools.addNote(deckId, NewNoteBody(word.hanzi, word.pinyin, word.english)) },

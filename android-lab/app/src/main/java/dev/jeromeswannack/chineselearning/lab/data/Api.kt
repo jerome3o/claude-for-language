@@ -112,6 +112,8 @@ data class DeckDto(
     val updated_at: String? = null,
     /** The deck's folder (migration 0105), null = Unfiled. */
     val folder_id: String? = null,
+    /** A source deck's key (migration 0150; core SourceDecks.kt), null = an ordinary deck. */
+    val source_key: String? = null,
     val notes: List<NoteDto> = emptyList(),
 )
 

@@ -219,7 +219,7 @@ class Repository(context: Context, val db: LabDatabase, val api: Api, val prefs:
         me.conversation_audio?.let { dev.jeromeswannack.chineselearning.lab.data.lessons.ConversationAudioCache.put(platform.cache, it) }
     }
 
-    private fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at, d.folder_id)
+    private fun deckEntity(d: DeckDto) = DeckEntity(d.id, d.name, d.description, d.new_cards_per_day, d.secondary_cards_per_day, d.study_priority, d.created_at, d.folder_id, d.source_key)
 
     private fun noteEntity(n: NoteDto, deckId: String = n.deck_id) = NoteEntity(
         id = n.id, deckId = deckId, hanzi = n.hanzi, pinyin = n.pinyin, english = n.english, audioUrl = n.audio_url,

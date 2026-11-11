@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.chat
 
+import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -105,6 +107,8 @@ class ChatSheetActions(
     val onPinyinAll: (Boolean) -> Unit = {},
     val onTranslationAll: (Boolean) -> Unit = {},
     val review: ReviewActions = ReviewActions(),
+    /** "Change" after cards went into "From chats" (null = none: previews). */
+    val moveAdded: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
     val onSaveCorrection: (ChatMessageDto, text: String, note: String) -> Unit = { _, _, _ -> },
     val onRemoveCorrection: (ChatMessageDto) -> Unit = {},
     // ---- round 2 (docs/CHAT.md "Round 2") ----
@@ -403,6 +407,21 @@ private fun SelectableCard(c: SuggestedCard, selected: Boolean, onToggle: () -> 
  */
 @Composable
 fun DeckPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckId: String?, newDeck: String?) -> Unit) {
+    // Source decks (docs/STUDY_SESSION.md "Source decks"; web DeckSelectorWithCreate sourceDeck="chats"):
+    // no deck list — ONE button, the cards go straight into "From chats" (the ref, made on first use).
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("deck-picker")) {
+        PrimaryPill(
+            if (ui.saving) "Saving…" else "Save $count card${if (count != 1) "s" else ""} to ${SourceDecks.name("chats")}",
+            Modifier.fillMaxWidth().height(50.dp).testTag("save-to-source-deck"),
+            enabled = !ui.saving,
+        ) { onPick(SourceDecks.ref("chats"), null) }
+    }
+}
+
+/** The old deck list (kept for reference in previews; not used since source decks). */
+@Composable
+@Suppress("unused")
+private fun DeckListPicker(ui: ChatUi, count: Int, actions: ChatSheetActions, onPick: (deckId: String?, newDeck: String?) -> Unit) {
     var creating by rememberSaveable { mutableStateOf(false) }
     var name by rememberSaveable { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("deck-picker")) {
@@ -503,6 +522,12 @@ private fun VoiceSheet(ui: ChatUi, actions: ChatSheetActions) {
 internal fun ProposedDiscussCards(m: ChatMessageDto, cards: List<SuggestedCard>, replyId: String, ui: ChatUi, actions: ChatSheetActions) {
     var selected by remember(replyId) { mutableStateOf(cards.indices.toSet()) }
     val saved = ui.discuss.saved[replyId]
+    val added = ui.discuss.added[replyId]
+    if (added != null) {
+        // Source decks: "✓ Added to From chats · Change".
+        dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(added, actions.moveAdded, Modifier.testTag("discuss-cards-done"))
+        return
+    }
     if (saved != null) {
         InlineNotice(saved, kind = NoticeKind.Success)
         return

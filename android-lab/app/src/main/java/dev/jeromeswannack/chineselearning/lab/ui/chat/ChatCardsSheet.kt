@@ -64,6 +64,9 @@ class ReviewActions(
     /** null closes "+ New deck"; a string is the name typed so far. */
     val onNewDeck: (String?) -> Unit = {},
     val onSave: () -> Unit = {},
+    /** "Change" after a source-deck add (null = none: previews). */
+    val move: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
+    val onMoved: (dev.jeromeswannack.chineselearning.lab.data.api.AddedNote) -> Unit = {},
 )
 
 /**
@@ -79,6 +82,28 @@ fun ReviewPanel(
     bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi("chat"),
 ) {
     val review = r.review
+    r.added?.let { a ->
+        // Source decks: saved — "✓ 3 cards added to From chats · Change" and Done.
+        PinnedFooterColumn(
+            Modifier.testTag("chat-review"),
+            body = {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(r.title, style = MaterialTheme.typography.titleLarge, color = Lab.colors.ink)
+                    dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(a, actions.move, onMoved = actions.onMoved)
+                    Text(
+                        "${a.noteIds.size} new card${if (a.noteIds.size == 1) "" else "s"} — they come up in your study like any new cards.",
+                        style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted,
+                    )
+                }
+            },
+            footer = {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    PrimaryPill("Done", Modifier.fillMaxWidth().height(56.dp).testTag("chat-review-done"), onClick = actions.onClose)
+                }
+            },
+        )
+        return
+    }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var bumpedHanzi by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Set<String>>(emptySet()) }
     var bumpNote by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -109,12 +134,14 @@ fun ReviewPanel(
                         },
                     )
                 }
-                Text("Add to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 4.dp))
-                DeckChipList(Modifier.testTag("chat-review-decks")) {
-                    for (d in decks) LabChip(d.name, selected = r.newDeck == null && d.id == r.deckId) { actions.onPickDeck(d.id) }
-                    LabChip("+ New deck", selected = r.newDeck != null) { actions.onNewDeck(if (r.newDeck == null) "" else null) }
+                if (r.sourceKey == null) {
+                    Text("Add to", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink, modifier = Modifier.padding(top = 4.dp))
+                    DeckChipList(Modifier.testTag("chat-review-decks")) {
+                        for (d in decks) LabChip(d.name, selected = r.newDeck == null && d.id == r.deckId) { actions.onPickDeck(d.id) }
+                        LabChip("+ New deck", selected = r.newDeck != null) { actions.onNewDeck(if (r.newDeck == null) "" else null) }
+                    }
                 }
-                AnimatedVisibility(r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                AnimatedVisibility(r.sourceKey == null && r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     OutlinedTextField(r.newDeck.orEmpty(), { actions.onNewDeck(it) }, label = { Text("New deck name") }, placeholder = { Text("e.g. From my chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("chat-review-new-deck"))
                 }
                 bumpNote?.let { InlineNotice(it, kind = NoticeKind.Success) }
@@ -126,14 +153,15 @@ fun ReviewPanel(
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val n = review.count
                 // The deck stays named next to the pinned button even when its chip is scrolled away.
-                val target = if (r.newDeck != null) r.newDeck.ifBlank { "a new deck" } else decks.firstOrNull { it.id == r.deckId }?.name
+                val target = if (r.sourceKey != null) dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(r.sourceKey)
+                else if (r.newDeck != null) r.newDeck.ifBlank { "a new deck" } else decks.firstOrNull { it.id == r.deckId }?.name
                 target?.let {
                     Text("To: $it", style = MaterialTheme.typography.labelLarge, color = Lab.colors.muted, maxLines = 1, modifier = Modifier.testTag("chat-review-target"))
                 }
                 PrimaryPill(
                     if (r.saving) "Adding…" else if (n == 0) "Check the cards to add" else "Add $n card${if (n == 1) "" else "s"}",
                     Modifier.fillMaxWidth().height(56.dp).testTag("chat-review-add"),
-                    enabled = n > 0 && !r.saving && online && (r.deckId != null || !r.newDeck.isNullOrBlank()),
+                    enabled = n > 0 && !r.saving && online && (r.sourceKey != null || r.deckId != null || !r.newDeck.isNullOrBlank()),
                     onClick = actions.onSave,
                 )
                 SecondaryPill("Not now", Modifier.fillMaxWidth(), onClick = actions.onClose)

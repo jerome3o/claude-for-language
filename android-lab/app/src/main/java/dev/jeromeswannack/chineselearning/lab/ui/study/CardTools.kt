@@ -3,6 +3,11 @@ package dev.jeromeswannack.chineselearning.lab.ui.study
 import androidx.room.withTransaction
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.PickerDecks
+import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
+import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
+import dev.jeromeswannack.chineselearning.lab.data.api.addNotesToSourceDeck
+import dev.jeromeswannack.chineselearning.lab.data.api.moveNotesTo
 import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.data.SentenceEntity
 import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
@@ -255,10 +260,60 @@ class CardTools(private val app: LabApp) {
         removeLocally(noteId)
     }
 
-    /** Add a word / sentence as a new card; the next sync brings its cards down. */
-    suspend fun addNote(deckId: String, body: NewNoteBody) {
-        api.createNote(deckId, body)
+    /**
+     * Add a word / sentence as a new card; the next sync brings its cards down. `deckId` may be a
+     * source deck ref (`SourceDecks.ref("readers")` — docs/STUDY_SESSION.md "Source decks"): the
+     * server makes the deck on first use and names it in the reply, for "Added to From readers · Change".
+     */
+    suspend fun addNote(deckId: String, body: NewNoteBody, surface: String = "add_chunk"): AddedNote {
+        val dto = api.createNote(deckId, body)
+        val key = SourceDecks.parseRef(deckId)
+        val added = withContext(Dispatchers.IO) {
+            val deck = dto.deck
+            val local = if (deck == null) repo.dao.decks().let { all -> key?.let { k -> SourceDecks.find(all, k) { it.sourceKey } } ?: all.firstOrNull { it.id == dto.deck_id } } else null
+            AddedNote(
+                noteIds = listOf(dto.id),
+                deckId = deck?.id ?: dto.deck_id.ifEmpty { local?.id.orEmpty() },
+                deckName = deck?.name?.ifEmpty { null } ?: local?.name ?: key?.let { SourceDecks.name(it) } ?: "your deck",
+                key = key,
+            )
+        }
+        if (key != null) app.analytics.track("deck.source_add", mapOf("deck_key" to key, "surface" to surface, "count" to 1, "source_deck" to true))
         syncSoon()
+        return added
+    }
+
+    /** Many cards in one batch into a source deck ("From chats", …): `POST /api/decks/source:<key>/notes/batch`. */
+    suspend fun addNotesToSource(key: String, notes: List<NewNoteBody>, surface: String): Pair<AddedNote, dev.jeromeswannack.chineselearning.lab.data.api.BatchNotesDto> {
+        val res = api.addNotesToSourceDeck(key, notes)
+        val ids = res.created.map { it.id }
+        val local = if (res.deck == null) withContext(Dispatchers.IO) { SourceDecks.find(repo.dao.decks(), key) { it.sourceKey } } else null
+        val added = AddedNote(ids, res.deck?.id ?: local?.id.orEmpty(), res.deck?.name ?: local?.name ?: SourceDecks.name(key), key)
+        app.analytics.track("deck.source_add", mapOf("deck_key" to key, "surface" to surface, "count" to ids.size, "source_deck" to true))
+        if (ids.isNotEmpty()) syncSoon()
+        return added to res
+    }
+
+    /** The decks "Change" offers, in study-queue order (the add-card pickers' order). */
+    suspend fun decksForMove(): List<Pair<String, String>> = withContext(Dispatchers.IO) {
+        PickerDecks.inQueueOrder(repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { it.id to it.name }
+    }
+
+    /**
+     * "Change": move the just-added note(s) to another deck (`POST /api/notes/move`, online), then on
+     * this device (the note and its cards carry the deck id).
+     */
+    suspend fun moveAdded(added: AddedNote, toDeckId: String, toDeckName: String, surface: String): AddedNote {
+        if (added.noteIds.isEmpty() || toDeckId == added.deckId) return added.copy(deckId = toDeckId, deckName = toDeckName)
+        api.moveNotesTo(added.noteIds, toDeckId)
+        withContext(Dispatchers.IO) {
+            val notes = repo.dao.notes(added.noteIds)
+            if (notes.isNotEmpty()) repo.dao.upsertNotes(notes.map { it.copy(deckId = toDeckId) })
+            added.noteIds.forEach { repo.dao.moveCardsOfNote(it, toDeckId) }
+        }
+        app.analytics.track("deck.source_change", mapOf("deck_key" to (added.key ?: "explorer"), "surface" to surface, "count" to added.noteIds.size))
+        syncSoon()
+        return added.copy(deckId = toDeckId, deckName = toDeckName)
     }
 
     suspend fun deckHas(deckId: String, hanzi: String): Boolean = withContext(Dispatchers.IO) {

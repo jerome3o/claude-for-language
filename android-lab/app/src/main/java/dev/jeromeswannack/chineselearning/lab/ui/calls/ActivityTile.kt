@@ -594,6 +594,7 @@ private fun WordsNeeded(v: ActivityView, words: List<CallActivities.NeededWord>,
             actions = v.actions.cards,
             onDismiss = { adding = null },
             bumpSource = "other",
+            sourceKey = "practice",
             existing = if (existing.isEmpty()) null else AddChunkExisting(existing),
             onAdded = { v.actions.wordAdded(w.kind, where) },
         )

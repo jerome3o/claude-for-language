@@ -47,6 +47,10 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
+import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
+import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.launch
 
@@ -60,8 +64,15 @@ class ReaderWordActions(
     val explain: suspend (word: ReaderWordDto, sentence: String) -> ReaderWordExplanationDto = { _, _ -> throw java.io.IOException("offline") },
     val decks: suspend () -> List<DeckChoice> = { emptyList() },
     val isDuplicate: suspend (deckId: String, hanzi: String) -> Boolean = { _, _ -> false },
-    /** Creates the note (the content service makes the cards and the audio). */
-    val add: suspend (deckId: String, word: ReaderWordDto, explanation: ReaderWordExplanationDto?) -> Unit = { _, _, _ -> },
+    /** Creates the note (the content service makes the cards and the audio); `deckId` may be a source deck ref. */
+    val add: suspend (deckId: String, word: ReaderWordDto, explanation: ReaderWordExplanationDto?) -> AddedNote? = { _, _, _ -> null },
+    /**
+     * Source decks (docs/STUDY_SESSION.md "Source decks"): the deck "+ Add as card" saves into in ONE
+     * tap — "readers" in a reader, "chats" in a chat; null = the old deck chips (previews / tests).
+     */
+    val sourceKey: String? = null,
+    /** "Change" after the add (null = none). */
+    val move: SourceDeckActions? = null,
 )
 
 private sealed interface Explain {
@@ -116,7 +127,7 @@ fun ReaderWordPanel(
     var deckId by remember { mutableStateOf<String?>(null) }
     var duplicate by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    var added by remember { mutableStateOf<String?>(null) }
+    var added by remember { mutableStateOf<AddedNote?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -206,7 +217,7 @@ fun ReaderWordPanel(
                         }
                     }
                 }
-                if (adding && added == null) {
+                if (adding && added == null && actions.sourceKey == null) {
                     Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
                     DeckChipList(Modifier.testTag("reader-word-decks")) {
                         for (d in decks) LabChip(d.name, selected = d.id == deckId) { deckId = d.id }
@@ -227,42 +238,49 @@ fun ReaderWordPanel(
                     } finally { bumping = false }
                 }
             }
+            // The deck: the source deck ref in ONE tap (source decks), else the chip he picked.
+            val addIt: () -> Unit = add@{
+                val id = actions.sourceKey?.let { SourceDecks.ref(it) } ?: deckId ?: return@add
+                if (!actions.online()) {
+                    error = "Adding a card needs a connection."
+                    return@add
+                }
+                saving = true
+                error = null
+                scope.launch {
+                    try {
+                        val ex = loadExplanation()
+                        if (ex == null && word.gloss.isBlank()) throw IllegalStateException("No meaning for this word yet — try \"More about this word\" first.")
+                        val made = actions.add(id, word, ex)
+                        added = made ?: AddedNote(emptyList(), id, actions.sourceKey?.let { SourceDecks.name(it) } ?: decks.firstOrNull { it.id == id }?.name ?: "your deck", actions.sourceKey)
+                        onAdded()
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        error = e.userMessage()
+                    } finally {
+                        saving = false
+                    }
+                }
+            }
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
                 when {
-                    added != null -> InlineNotice("Added to $added ✓", kind = NoticeKind.Success)
+                    added != null -> AddedToDeckRow(added!!, actions.move, onMoved = { added = it })
                     // Already a card: "⚡ Study it today" first, adding it again second.
                     !adding && known && bump != null -> {
                         error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                        dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, bumping, onAddAnyway = { adding = true }, onBump = ::doBump, addLabel = "+ Add anyway")
+                        dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, bumping || saving, onAddAnyway = { if (actions.sourceKey != null) addIt() else adding = true }, onBump = ::doBump, addLabel = "+ Add anyway")
                     }
-                    !adding -> PrimaryPill("+ Add as card", Modifier.fillMaxWidth().height(54.dp)) { adding = true }
+                    // Source decks: ONE tap — no deck chips.
+                    !adding || actions.sourceKey != null -> {
+                        error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                        PrimaryPill(if (saving) "Adding…" else "+ Add as card", Modifier.fillMaxWidth().height(54.dp).testTag("add-as-card"), enabled = !saving) {
+                            if (actions.sourceKey != null) addIt() else adding = true
+                        }
+                    }
                     else -> {
                         if (duplicate && bumped == null) InlineNotice("This word is already in that deck.", kind = NoticeKind.Warning)
                         error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                        val addIt: () -> Unit = add@{
-                            val id = deckId ?: return@add
-                            if (!actions.online()) {
-                                error = "Adding a card needs a connection."
-                                return@add
-                            }
-                            saving = true
-                            error = null
-                            scope.launch {
-                                try {
-                                    val ex = loadExplanation()
-                                    if (ex == null && word.gloss.isBlank()) throw IllegalStateException("No meaning for this word yet — try \"More about this word\" first.")
-                                    actions.add(id, word, ex)
-                                    added = decks.firstOrNull { it.id == id }?.name ?: "your deck"
-                                    onAdded()
-                                } catch (e: Exception) {
-                                    if (e is kotlinx.coroutines.CancellationException) throw e
-                                    error = e.userMessage()
-                                } finally {
-                                    saving = false
-                                }
-                            }
-                        }
                         if (duplicate && bump != null) {
                             dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpFirstRow(bumped, saving || bumping, onAddAnyway = addIt, onBump = ::doBump)
                         } else {
@@ -279,6 +297,7 @@ fun ReaderWordPanel(
         },
     )
 }
+
 
 /** The note a word becomes: the explanation's card fields when there are some, else the chip's pinyin + gloss. */
 fun readerWordNote(word: ReaderWordDto, ex: ReaderWordExplanationDto?): dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody =

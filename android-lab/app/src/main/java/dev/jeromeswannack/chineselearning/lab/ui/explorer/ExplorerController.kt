@@ -42,6 +42,10 @@ class ExplorerController(
     var context by mutableStateOf<String?>(null)
         private set
 
+    /** Where the showing explorer was opened from: "+ Add as card" picks the source deck by it (core SourceDecks.forExplorer). */
+    var openSource by mutableStateOf("other")
+        private set
+
     val isOpen: Boolean get() = stack.isNotEmpty()
     val current: ExplorerItem? get() = stack.lastOrNull()
 
@@ -73,6 +77,7 @@ class ExplorerController(
         warmUp()
         tick()
         this.context = context
+        this.openSource = source
         dispatch(ExplorerAction.Open(item))
         track("explorer.open", mapOf("source" to source, "kind" to item.kind))
     }
