@@ -38,7 +38,7 @@ export function cleanSentenceEvent(raw: unknown): SentencePracticeEvent | null {
   const at = eventTime(e.at);
   if (!id || !note_id || !sentence_key || !at) return null;
   if (e.kind === 'attempt') {
-    if (e.mode !== 'read' && e.mode !== 'translate') return null;
+    if (e.mode !== 'read' && e.mode !== 'translate' && e.mode !== 'listen') return null;
     if (e.result !== 'right' && e.result !== 'close' && e.result !== 'wrong') return null;
     return { id, note_id, sentence_key, kind: 'attempt', mode: e.mode, result: e.result, reason: null, at };
   }

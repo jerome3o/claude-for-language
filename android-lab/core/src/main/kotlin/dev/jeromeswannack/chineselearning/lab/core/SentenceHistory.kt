@@ -32,8 +32,28 @@ object SentenceHistory {
 
     data class ModeStats(val attempts: Int = 0, val rights: Int = 0, val misses: Int = 0, val lastAt: String? = null)
     data class Hidden(val at: String, val reason: String?)
-    data class Stats(val read: ModeStats = ModeStats(), val translate: ModeStats = ModeStats(), val hidden: Hidden? = null) {
-        fun mode(m: String): ModeStats = if (m == SentencePractise.TRANSLATE) translate else read
+    /** `SentencePracticeMode`: read · translate (the rows' 🎤 and the round) · listen (Hard mode's "Sentences by ear"). */
+    const val LISTEN = "listen"
+    val MODES = listOf(SentencePractise.READ, SentencePractise.TRANSLATE, LISTEN)
+
+    data class Stats(
+        val read: ModeStats = ModeStats(),
+        val translate: ModeStats = ModeStats(),
+        val hidden: Hidden? = null,
+        /** Understood by ear (Hard mode's "Sentences by ear"). */
+        val listen: ModeStats = ModeStats(),
+    ) {
+        fun mode(m: String): ModeStats = when (m) {
+            SentencePractise.TRANSLATE -> translate
+            LISTEN -> listen
+            else -> read
+        }
+
+        fun with(m: String, s: ModeStats): Stats = when (m) {
+            SentencePractise.TRANSLATE -> copy(translate = s)
+            LISTEN -> copy(listen = s)
+            else -> copy(read = s)
+        }
     }
 
     /** `sentenceHistoryKey`: `clue:<noteId>` → `clue`. */
@@ -49,17 +69,17 @@ object SentenceHistory {
             val s = out[e.sentenceKey]
             when (e.kind) {
                 "attempt" -> {
-                    if (e.mode != SentencePractise.READ && e.mode != SentencePractise.TRANSLATE) continue
+                    if (e.mode !in MODES) continue
                     if (e.result != "right" && e.result != "close" && e.result != "wrong") continue
                     val cur = s ?: Stats()
-                    val m = cur.mode(e.mode)
+                    val m = cur.mode(e.mode!!)
                     val next = m.copy(
                         attempts = m.attempts + 1,
                         rights = m.rights + if (e.result == "right") 1 else 0,
                         misses = m.misses + if (e.result == "right") 0 else 1,
                         lastAt = if (m.lastAt == null || e.at > m.lastAt) e.at else m.lastAt,
                     )
-                    out[e.sentenceKey] = if (e.mode == SentencePractise.TRANSLATE) cur.copy(translate = next) else cur.copy(read = next)
+                    out[e.sentenceKey] = cur.with(e.mode, next)
                 }
                 "hide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = Hidden(e.at, e.reason?.takeIf { it in HIDE_REASONS }))
                 "unhide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = null)
@@ -87,12 +107,22 @@ object SentenceHistory {
     }
 
     /**
-     * `isFreshSentence`: never practised in either mode (no take, right or wrong) and not hidden. The round
-     * asks fresh sentences first, so the word is practised in a sentence he hasn't seen in a round before.
+     * `isFreshSentence`: never practised in any mode — read, translate or listen (no take, right or wrong) — and
+     * not hidden. The round asks fresh sentences first, so the word is practised in a sentence he hasn't seen in
+     * a round before; one heard once by ear is used up like one read once (the fresh buffer refills).
      */
     fun isFresh(stats: Stats?): Boolean {
         if (stats == null) return true
-        return stats.hidden == null && stats.read.attempts == 0 && stats.translate.attempts == 0
+        return stats.hidden == null && stats.read.attempts == 0 && stats.translate.attempts == 0 && stats.listen.attempts == 0
+    }
+
+    /**
+     * `knownInAllModes`: known in every mode the sentence is practised in — the read slot by ear ([byEar]:
+     * listen) or by eye (read), plus translate when it has English.
+     */
+    fun knownInAllModes(stats: Stats?, translation: Boolean, byEar: Boolean): Boolean {
+        if (!known(stats, if (byEar) LISTEN else SentencePractise.READ)) return false
+        return !translation || known(stats, SentencePractise.TRANSLATE)
     }
 
     /** `freshSentenceCount` */

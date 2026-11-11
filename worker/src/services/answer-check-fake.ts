@@ -122,6 +122,29 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
             content: [{ type: 'tool_use', id: 'fake', name: 'check_speaking', input: result }],
           };
         }
+        if (text.includes('Chinese sentence they heard:')) {
+          // A meaning check (Sentences by ear): most of the reference's words = understood; a missed 没 / 不 = almost.
+          const heard = lineValue(text, /Chinese sentence they heard: ([^(\n]+)/);
+          const reference = lineValue(text, /Reference English: (.+)/);
+          const said = lineValue(text, /What they said it means[^:]*: (.+)/);
+          const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter((w) => w.length > 2);
+          const ref = new Set(words(reference));
+          const got = words(said).filter((w) => ref.has(w)).length;
+          const negated = /[没不别]/.test(heard) && !/\b(not|no|never|didn't|don't|doesn't|isn't|wasn't|won't|can't)\b|n't/i.test(said);
+          const share = ref.size ? got / ref.size : 0;
+          const result = negated && share >= 0.4
+            ? { verdict: 'almost', headline: 'Close — but you missed the negative.', corrected: '', tips: [{ text: `${heard.match(/[没不别]/)![0]} makes it negative.`, quote: heard.match(/[没不别]/)![0] }] }
+            : share >= 0.6
+              ? { verdict: 'correct', headline: 'You understood it.', corrected: '', tips: [] }
+              : share >= 0.3
+                ? { verdict: 'acceptable', headline: 'You got the gist.', corrected: '', tips: [] }
+                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] };
+          return {
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 400 + text.length, output_tokens: 60 },
+            content: [{ type: 'tool_use', id: 'fake', name: 'check_answer', input: result }],
+          };
+        }
         const answer = lineValue(text, /Learner's answer[^:]*: (.+)/);
         const model = lineValue(text, /Model answer: ([^(\n]+)/);
         const known = ANSWER_CHECK_FIXTURES.find((f) => normalizeHanziAnswer(f.answer) === normalizeHanziAnswer(answer));

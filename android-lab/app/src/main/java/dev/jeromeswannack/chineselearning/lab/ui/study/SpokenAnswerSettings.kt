@@ -31,6 +31,9 @@ fun SpokenAnswerSection(
     /** Settings → Study → "Hard mode" (the web's `HardModeSetting`): "off" | "red" | "all"; null = not shown. */
     hardMode: String? = null,
     onHardModeChange: (String) -> Unit = {},
+    /** Settings → Study → "Sentences by ear in Hard mode" (the web's `SentencesByEarSetting`; on by default); null = not shown. */
+    sentencesByEar: Boolean? = null,
+    onSentencesByEarChange: (Boolean) -> Unit = {},
     /** Settings → Study → "Hard mode in homework" (the web's `PassHardModeSetting`; default "all"); null = not shown. */
     passHardMode: String? = null,
     onPassHardModeChange: (String) -> Unit = {},
@@ -43,6 +46,15 @@ fun SpokenAnswerSection(
     ) {
         ToggleRow("🎤", SKIP_REVIEW_LABEL, on, onChange = onChange)
         if (hardMode != null) HardModeChoices(hardMode, onHardModeChange)
+        if (sentencesByEar != null) {
+            ToggleRow(
+                "👂",
+                dev.jeromeswannack.chineselearning.lab.core.SentenceRound.BY_EAR_TITLE,
+                sentencesByEar,
+                desc = dev.jeromeswannack.chineselearning.lab.core.SentenceRound.BY_EAR_HINT,
+                onChange = onSentencesByEarChange,
+            )
+        }
         if (passHardMode != null) PassHardModeChoices(passHardMode, onPassHardModeChange)
         if (wordTagsOn != null) {
             ToggleRow(
@@ -95,8 +107,14 @@ fun SpokenAnswerSettings(app: LabApp) {
     val shimmerOn by prefs.newCharShimmerOn.collectAsState()
     val hardMode by prefs.hardMode.collectAsState()
     val passHardMode by prefs.passHardMode.collectAsState()
+    val byEar by prefs.sentencesByEar.collectAsState()
     SpokenAnswerSection(
         on,
+        sentencesByEar = byEar,
+        onSentencesByEarChange = { next ->
+            prefs.setSentencesByEar(next)
+            app.analytics.track("settings.change", mapOf("setting" to "sentences_by_ear", "value" to if (next) "on" else "off"))
+        },
         passHardMode = passHardMode,
         onPassHardModeChange = { next ->
             prefs.setPassHardMode(next)

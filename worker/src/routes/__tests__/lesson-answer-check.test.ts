@@ -226,3 +226,56 @@ describe('free speaking (oral_expression / speak)', () => {
     expect(await checkAttemptSpeaking(env, 'user-2', 'att-1', 'm0', SPEAKING_FIXTURE.transcript)).toBe(false);
   });
 });
+
+describe('meaning check (Hard mode "Sentences by ear": the Chinese heard, his English)', () => {
+  let db: SqliteD1;
+  let post: ReturnType<typeof client>;
+  const listen = (answer: string, extra: Record<string, unknown> = {}) => ({
+    prompt_en: '我昨天没去银行。', model_answer: "I didn't go to the bank yesterday.", model_pinyin: 'Wǒ zuótiān méi qù yínháng.',
+    answer, exercise_type: 'listen_translate', input: 'spoken', ...extra,
+  });
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+  });
+
+  it('an English answer is accepted for listen_translate with an English model answer (no "no Chinese" 400)', async () => {
+    const r = await post('/lessons/answer-check', listen('I did not go to the bank yesterday'));
+    expect(r.status).toBe(200);
+    expect(['correct', 'acceptable']).toContain(r.json.check.verdict);
+    // A lesson's listen_translate (a Chinese model answer) still wants Chinese.
+    const lesson = await post('/lessons/answer-check', { prompt_en: 'I go to the bank.', model_answer: '我去银行。', answer: 'I go to the bank', exercise_type: 'listen_translate' });
+    expect(lesson.status).toBe(400);
+  });
+
+  it('the English itself (case / punctuation aside) is right with no model call', async () => {
+    const r = await post('/lessons/answer-check', listen("i didn't go to the bank yesterday"));
+    expect(r.json.local).toBe(true);
+    expect(r.json.check.verdict).toBe('correct');
+    expect(db.rows('SELECT verdict FROM lesson_answer_checks')).toHaveLength(0);
+  });
+
+  it('missed the 没 → almost with a tip quoting it; cached for the next ask', async () => {
+    const r = await post('/lessons/answer-check', listen('I went to the bank yesterday'));
+    expect(r.json.check.verdict).toBe('almost');
+    expect(r.json.check.tips[0].quote).toBe('没');
+    expect(r.json.check.corrected).toBe('');
+    const again = await post('/lessons/answer-check', listen('I went to the bank, yesterday.'));
+    expect(again.json.cached).toBe(true);
+  });
+
+  it('the prompt: the meaning system and the heard / reference / said lines', async () => {
+    const turn = answerCheckUserTurn(listen('I went to the bank') as never);
+    expect(turn).toContain('Chinese sentence they heard: 我昨天没去银行。');
+    expect(turn).toContain("Reference English: I didn't go to the bank yesterday.");
+    expect(turn).toContain('SPOKEN');
+    const create = vi.fn(async (params: { system?: unknown }) => {
+      expect(JSON.stringify(params.system)).toContain('UNDERSTOOD a Chinese sentence');
+      return { stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'tool_use', id: 'x', name: 'check_answer', input: { verdict: 'wrong', headline: 'No.', corrected: '', tips: [] } }] };
+    });
+    const check = await runAnswerCheck(listen('a cat') as never, { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
+    expect(check.verdict).toBe('wrong');
+    expect(create).toHaveBeenCalled();
+  });
+});

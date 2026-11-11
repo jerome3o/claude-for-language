@@ -369,3 +369,80 @@
   margin: 0 auto;
   border-top: 1px solid var(--color-border, #e5e7eb);
 }
+
+/* ---- Sentences by ear: the listen exercise (SentenceListenExercise.tsx) ---- */
+.sentence-listen-ex.is-turn {
+  border-color: var(--color-secondary);
+  box-shadow: 0 0 0 1px var(--color-secondary);
+}
+.sentence-listen-question {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.45rem;
+}
+.sentence-listen-audio {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.sentence-listen-audio .btn {
+  min-height: 44px;
+  font-size: 0.9375rem;
+}
+.sentence-listen-play.is-playing {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+.sentence-listen-show {
+  align-self: center;
+  min-height: 44px;
+}
+.sentence-listen-said {
+  margin: 0.35rem 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.sentence-listen-said-label {
+  color: var(--color-text-light);
+}
+/* The verdict row: its height is kept from the moment the reveal shows ("Checking…"), so the
+   verdict lands without moving anything above it. */
+.sentence-listen-verdict {
+  min-height: 2.75rem;
+  margin-top: 0.35rem;
+  display: flex;
+  align-items: center;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+.sentence-listen-checking {
+  color: var(--color-text-light);
+  font-style: italic;
+}
+.sentence-listen-self {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  width: 100%;
+}
+.sentence-listen-self-q {
+  flex: 1 1 100%;
+  color: var(--color-text-light);
+}
+.sentence-listen-self .btn {
+  flex: 1;
+  min-height: 44px;
+}
+.sentence-listen-tips {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+}
+.sentence-listen-quote {
+  font-weight: 700;
+  color: var(--color-text);
+}
