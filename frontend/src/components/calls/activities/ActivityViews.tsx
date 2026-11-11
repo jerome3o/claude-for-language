@@ -162,6 +162,7 @@ export function NeededWords({ session, round, where }: { session: ActivitySessio
       {adding && (
         <AddChunkModal
           source="other"
+          deckSource="practice"
           chunk={{ hanzi: adding.hanzi, pinyin: adding.pinyin, english: adding.english }}
           onClose={() => setAdding(null)}
           onAdded={() => {

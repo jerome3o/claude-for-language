@@ -120,7 +120,7 @@ export function exerciseBlock(d: ExerciseData): string {
   } else {
     lines.push('', 'They have not answered it yet (or asked before answering).');
   }
-  lines.push('', `The learner's decks (for create_flashcards): ${d.decks}`);
+  lines.push('', `The learner's decks (create_flashcards: only when he names one — otherwise leave deck_id out and the cards go to "From Claude"): ${d.decks}`);
   return lines.join('\n');
 }
 

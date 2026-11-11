@@ -148,6 +148,7 @@ fun NavGraphBuilder.podcastsGraph(nav: LabNav) {
                     onAdd = vm::addWords,
                     onBump = vm::bumpExisting,
                     onClose = vm::closeWords,
+                    move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "podcast"),
                 ),
             ),
         )
@@ -609,7 +610,8 @@ class EpisodeViewModel(private val app: LabApp, private val id: String) : ViewMo
                 local.update { it.copy(notice = "Make a deck first (More → Decks), then add words to it.") }
                 return@launch
             }
-            local.update { it.copy(newWords = NewWordsSheetUi(words, decks)) }
+            // Source decks: a podcast's words go straight into "From lessons & practice" (no deck to pick).
+            local.update { it.copy(newWords = NewWordsSheetUi(words, decks, sourceKey = "practice")) }
             // The meanings, so he can choose (Haiku, one call; the picker works without them).
             if (!app.online.value) return@launch
             val glossed = app.safely("podcast gloss") { app.repo.api.glossWords(words.map { GlossWordIn(it.hanzi, it.pinyin.ifBlank { null }) }) }.orEmpty()
@@ -635,7 +637,8 @@ class EpisodeViewModel(private val app: LabApp, private val id: String) : ViewMo
     fun addWords() {
         val sheet = local.value.newWords ?: return
         val seg = local.value.segments.getOrNull(local.value.current) ?: return
-        val deck = sheet.deck ?: return
+        val target = sheet.sourceKey?.let { dev.jeromeswannack.chineselearning.lab.core.SourceDecks.ref(it) } ?: sheet.deck?.id ?: return
+        val targetName = sheet.sourceKey?.let { dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(it) } ?: sheet.deck?.name ?: "your deck"
         val chosen = sheet.chosen
         if (sheet.saving || chosen.isEmpty()) return
         if (!app.online.value) {
@@ -667,7 +670,10 @@ class EpisodeViewModel(private val app: LabApp, private val id: String) : ViewMo
                 )
             }
             try {
-                val res = app.repo.api.addNotesBatch(deck.id, notes, skipExisting = true)
+                val res = app.repo.api.addNotesBatch(target, notes, skipExisting = true)
+                if (sheet.sourceKey != null) {
+                    app.analytics.track("deck.source_add", mapOf("deck_key" to sheet.sourceKey, "surface" to "podcast", "count" to res.created.size, "source_deck" to true, "existing" to res.existing.size))
+                }
                 knownNotes = knownNotes + res.created.map { it.hanzi } + res.existing.map { it.hanzi }
                 app.analytics.track("podcast.add_card", mapOf("count" to res.created.size, "existing" to res.existing.size))
                 if (res.created.isNotEmpty()) {
@@ -677,7 +683,10 @@ class EpisodeViewModel(private val app: LabApp, private val id: String) : ViewMo
                 val failed = res.failed.map { f -> "${f.hanzi}: ${f.error}" }
                 local.update { u ->
                     u.copy(
-                        newWords = u.newWords?.copy(saving = false, result = NewWordsResult(res.created.map { it.hanzi }, deck.name, res.existing, failed)),
+                        newWords = u.newWords?.copy(
+                            saving = false,
+                            result = NewWordsResult(res.created.map { it.hanzi }, res.deck?.name ?: targetName, res.existing, failed, res.created.map { it.id }, res.deck?.id.orEmpty(), sheet.sourceKey),
+                        ),
                         known = u.known + res.created.map { it.hanzi } + res.existing.map { it.hanzi },
                     )
                 }

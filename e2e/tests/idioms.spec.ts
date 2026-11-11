@@ -59,13 +59,18 @@ test('idioms: list → 画蛇添足 → story → try it → add as card; a typo
   await expect(questions.nth(1)).toContainText('✗ Not quite.');
   await expect(page.getByTestId('idiom-quiz-score')).toContainText('1 / 2');
 
-  // + Add as card → the deck.
+  // + Add as card → straight into "From lessons & practice" (source decks: no deck picker).
   await page.getByTestId('idiom-add-card').click();
   const dialog = page.getByRole('dialog', { name: 'Add 画蛇添足 as a card' });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Add to deck' }).click();
+  await expect(dialog.getByTestId('added-to-deck')).toContainText('Added to From lessons & practice', { timeout: 15_000 });
+  await dialog.getByTestId('add-chunk-done').click();
   await expect(page.getByTestId('idiom-card-footer')).toContainText('✓ Added', { timeout: 15_000 });
-  const saved = await api<{ notes: Array<{ hanzi: string; fun_facts: string | null; sentence_clue: string | null }> }>(request, `/api/decks/${deck.id}`, { token });
+  const decks = await api<Array<{ id: string; source_key?: string | null }>>(request, '/api/decks', { token });
+  const practice = decks.find((d) => d.source_key === 'practice');
+  expect(practice).toBeTruthy();
+  void deck;
+  const saved = await api<{ notes: Array<{ hanzi: string; fun_facts: string | null; sentence_clue: string | null }> }>(request, `/api/decks/${practice!.id}`, { token });
   const note = saved.notes.find((n) => n.hanzi === '画蛇添足');
   expect(note?.fun_facts).toContain('Origin: 《战国策·齐策二》');
   expect(note?.sentence_clue).toBe('这句话已经很好了，别画蛇添足。');

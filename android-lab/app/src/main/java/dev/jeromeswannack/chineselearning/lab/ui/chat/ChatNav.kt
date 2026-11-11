@@ -167,6 +167,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             onViewCheck = vm::viewCheck,
             onWord = vm::openWord,
             onDismissNotice = vm::dismissNotice,
+            moveAdded = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "chat_flashcards"),
             onJoinCall = { nav.open(Routes.call(it)) },
             onRetry = { nav.back(); nav.open(Routes.chat(relId, convId)) },
             onRetryPending = vm::retryPending,
@@ -248,6 +249,7 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
             ui,
             ChatSheetActions(
                 onDismiss = { vm.openSheet(null) },
+                moveAdded = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "chat_discuss"),
                 onReact = vm::react,
                 onSaveCards = { cards, deck, new -> vm.saveCards(cards, deck, new) },
                 onHelpMeSayIt = vm::helpMeSayIt,
@@ -315,6 +317,8 @@ private fun ChatRoute(nav: LabNav, relId: String, convId: String) {
                     onPickDeck = vm::reviewPickDeck,
                     onNewDeck = vm::reviewNewDeck,
                     onSave = vm::saveReview,
+                    move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "chat_flashcards"),
+                    onMoved = vm::reviewMoved,
                 ),
                 onSaveCorrection = vm::saveCorrection,
                 onRemoveCorrection = vm::removeCorrection,
@@ -362,6 +366,9 @@ private fun rememberChatWordActions(app: dev.jeromeswannack.chineselearning.lab.
             },
             isDuplicate = { deckId, hanzi -> tools.deckHas(deckId, hanzi) },
             add = { deckId, word, ex -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.ui.readers.readerWordNote(word, ex)) },
+            // Source decks: a chat word goes straight into "From chats" (core SourceDecks.kt).
+            sourceKey = "chats",
+            move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
         )
     }
 }
@@ -383,5 +390,8 @@ private fun rememberChatCardActions(app: dev.jeromeswannack.chineselearning.lab.
         },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+        // Source decks: the add sheet saves straight into its source deck (core SourceDecks.kt).
+        alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+        move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
     )
 }

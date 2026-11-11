@@ -65,6 +65,8 @@ data class NewWordsSheetUi(
     val picked: Set<String> = emptySet(),
     val saving: Boolean = false,
     val error: String? = null,
+    /** Source decks: the deck the words go to with NO picker ("practice" for a podcast); null = the deck picker. */
+    val sourceKey: String? = null,
     /** Set once saved: the done screen. */
     val result: NewWordsResult? = null,
     /** Notes bumped from the done screen ("⚡ In today"). */
@@ -80,6 +82,10 @@ data class NewWordsResult(
     val existing: List<BatchExistingDto>,
     /** "银行: reason" lines for rows the server refused. */
     val failed: List<String>,
+    /** A source-deck add: the new notes and where they are now ("Change" moves them). */
+    val noteIds: List<String> = emptyList(),
+    val deckId: String = "",
+    val sourceKey: String? = null,
 )
 
 /** Test tags. */
@@ -100,6 +106,8 @@ class NewWordsActions(
     val onAdd: () -> Unit = {},
     val onBump: (String) -> Unit = {},
     val onClose: () -> Unit = {},
+    /** "Change" after a source-deck add (null = none: previews). */
+    val move: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
 )
 
 /** The picker / done screen (stateless, so tests and screenshots render it without a sheet). */
@@ -115,7 +123,7 @@ fun CoachNewWordsForm(ui: NewWordsSheetUi, actions: NewWordsActions) {
             PrimaryPill(
                 if (ui.saving) "Adding…" else CoachNewWords.addButton(ui.chosen.size),
                 Modifier.weight(1.4f).height(52.dp).testTag(CoachNewWordsTags.ADD),
-                enabled = !ui.saving && ui.chosen.isNotEmpty() && ui.deck != null,
+                enabled = !ui.saving && ui.chosen.isNotEmpty() && (ui.sourceKey != null || ui.deck != null),
                 onClick = actions.onAdd,
             )
         },
@@ -130,7 +138,10 @@ fun CoachNewWordsForm(ui: NewWordsSheetUi, actions: NewWordsActions) {
             WordRow(w, checked = w.hanzi in ui.picked, enabled = !ui.saving) { actions.onToggle(w.hanzi) }
             if (i < ui.words.lastIndex) HorizontalDivider(color = Lab.colors.cardBorder)
         }
-        if (ui.decks.isNotEmpty()) {
+        if (ui.sourceKey != null) {
+            Spacer(Modifier.height(10.dp))
+            Text("They go to ${dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(ui.sourceKey)}", fontSize = 14.sp, color = Lab.colors.muted)
+        } else if (ui.decks.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             DeckPicker(ui, actions)
         }
@@ -184,7 +195,14 @@ private fun DoneForm(ui: NewWordsSheetUi, r: NewWordsResult, actions: NewWordsAc
         header = { SheetTitle("Cards added") },
         footer = { PrimaryPill("Done", Modifier.weight(1f).height(52.dp).testTag(CoachNewWordsTags.CLOSE), onClick = actions.onClose) },
     ) {
-        if (r.added.isNotEmpty()) {
+        if (r.added.isNotEmpty() && r.sourceKey != null) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(
+                dev.jeromeswannack.chineselearning.lab.data.api.AddedNote(r.noteIds, r.deckId, r.deckName, r.sourceKey),
+                actions.move,
+                Modifier.testTag(CoachNewWordsTags.DONE),
+            )
+            Text(r.added.joinToString("、"), fontSize = 18.sp, color = Lab.colors.ink)
+        } else if (r.added.isNotEmpty()) {
             Text(
                 "✓ Added ${r.added.size} card${if (r.added.size == 1) "" else "s"} to ${r.deckName}: ${r.added.joinToString("、")}",
                 style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, color = Palette.Good,

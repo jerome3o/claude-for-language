@@ -58,6 +58,7 @@ private fun CallReviewRoute(nav: LabNav, id: String) {
             onRefresh = vm::refresh,
             onPlay = vm::play,
             onMakeCards = vm::makeCards,
+            moveCards = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(nav.app, "call_flashcards"),
             onOpenDeck = { nav.open(Routes.deck(it)) },
             onReprocess = vm::reprocess,
             onDelete = { vm.delete { nav.back() } },

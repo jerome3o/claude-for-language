@@ -140,6 +140,8 @@ class ChatActions(
     val onViewCheck: (ChatMessageDto) -> Unit = {},
     val onWord: (hanzi: String, context: String) -> Unit = { _, _ -> },
     val onDismissNotice: () -> Unit = {},
+    /** "Change" on a "✓ Added to From chats" notice (null = none: previews). */
+    val moveAdded: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
     val onJoinCall: (String) -> Unit = {},
     val onRetry: () -> Unit = {},
     // ---- PR 2 ----

@@ -1,0 +1,58 @@
+/* "✓ Added to From readers · Change" (components/sourceDecks/AddedToDeckLine.tsx). */
+.added-to-deck {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #065f46;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.added-to-deck-dot {
+  color: #6b7280;
+}
+
+.added-to-deck-change {
+  min-height: 44px;
+  margin: -0.5rem 0;
+  padding: 0 0.35rem;
+  border: none;
+  background: none;
+  color: #1d4ed8;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.move-to-deck-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.move-to-deck-loading {
+  padding: 0.75rem 0;
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+/* Above every sheet that can show the line (the add sheet, the explorer, the chat sheets). */
+.rp-modal-backdrop.add-chunk-backdrop.move-to-deck-layer {
+  z-index: 3100;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .added-to-deck {
+    background: rgba(16, 185, 129, 0.15);
+    color: #a7f3d0;
+  }
+  :root:not([data-theme='light']) .added-to-deck-change {
+    color: #93c5fd;
+  }
+}

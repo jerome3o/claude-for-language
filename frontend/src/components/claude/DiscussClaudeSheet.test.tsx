@@ -57,17 +57,17 @@ const api = vi.hoisted(() => ({
   listClaudeThreads: vi.fn(),
 }));
 vi.mock('../../api/claudeThreads', () => api);
-const createNote = vi.hoisted(() => vi.fn(async () => ({ id: 'new-note' })));
+const createNotesBatch = vi.hoisted(() => vi.fn(async (_deck: string, notes: Array<{ hanzi: string }>) => ({
+  created: notes.map((n, i) => ({ id: `new-${i}`, hanzi: n.hanzi })),
+  failed: [],
+  deck: { id: 'src-chats', name: 'From chats', source_key: 'chats' },
+})));
 vi.mock('../../api/client', () => ({
   API_BASE: '', apiErrorStatus: (e: { status?: number } | null) => e?.status, backfillReaderWords: vi.fn(), setAskClaudeListening: vi.fn(),
   proposeCoachFlashcards: vi.fn(), translateCoachMessage: vi.fn(), getConversation: vi.fn(), requestCoachMistakeLesson: vi.fn(), saveCoachMistakeLesson: vi.fn(),
-  createNote: (...a: unknown[]) => createNote(...(a as [])),
+  createNotesBatch: (...a: unknown[]) => createNotesBatch(...(a as [string, Array<{ hanzi: string }>])),
 }));
-vi.mock('../chat/DeckSelectors', () => ({
-  DeckSelectorWithCreate: ({ onSelect, selectedCount }: { onSelect: (id: string) => void; selectedCount: number }) => (
-    <button type="button" data-testid="deck-pick" onClick={() => onSelect('d1')}>Save {selectedCount}</button>
-  ),
-}));
+vi.mock('../../services/sync', () => ({ syncService: { syncInBackground: vi.fn(async () => undefined) } }));
 const net = vi.hoisted(() => ({ online: true }));
 vi.mock('../../contexts/NetworkContext', () => ({ useNetwork: () => ({ isOnline: net.online }) }));
 vi.mock('../../services/askClaudeLanguage', () => ({ useAskLanguage: () => ['zh', vi.fn()] }));
@@ -127,7 +127,7 @@ beforeEach(async () => {
   Object.values(api).forEach((f) => f.mockReset());
   api.listClaudeThreads.mockResolvedValue({ threads: [], deleted_ids: [], server_time: iso(0) });
   track.mockClear();
-  createNote.mockClear();
+  createNotesBatch.mockClear();
   net.online = true;
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -175,14 +175,15 @@ describe('DiscussClaudeSheet', () => {
     expect(api.getClaudeThread).toHaveBeenCalledWith('t-old', null);
     expect(track).toHaveBeenCalledWith('claude.discuss_open', { resumed: true });
     expect(q('discuss-cards')!.textContent).toContain('Claude suggests 2 cards');
-    // Untick 下午, save 迟到 to the picked deck.
+    // Untick 下午, save 迟到 — no deck to pick: straight into "From chats".
     const cards = host.querySelectorAll('.discuss-card');
     await act(async () => (cards[1] as HTMLElement).click());
-    expect(q('deck-pick')!.textContent).toBe('Save 1');
-    await act(async () => q('deck-pick')!.click());
+    expect(q('discuss-cards-add')!.textContent).toBe('Add 1 card to From chats');
+    await act(async () => q('discuss-cards-add')!.click());
     await waitFor(() => !!q('discuss-cards-done'), 'saved');
-    expect(createNote).toHaveBeenCalledTimes(1);
-    expect(createNote).toHaveBeenCalledWith('d1', expect.objectContaining({ hanzi: '迟到', pinyin: 'chídào', english: 'to be late', context: MESSAGE.content }));
-    expect(q('discuss-cards-done')!.textContent).toBe('✓ 1 card added');
+    expect(createNotesBatch).toHaveBeenCalledTimes(1);
+    expect(createNotesBatch).toHaveBeenCalledWith('source:chats', [expect.objectContaining({ hanzi: '迟到', pinyin: 'chídào', english: 'to be late', context: MESSAGE.content })], {});
+    expect(q('discuss-cards-done')!.textContent).toContain('✓ Added to From chats');
+    expect(q('discuss-cards-done')!.textContent).toContain('Change');
   });
 });

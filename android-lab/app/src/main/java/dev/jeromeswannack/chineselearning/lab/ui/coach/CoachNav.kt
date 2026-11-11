@@ -177,6 +177,9 @@ internal fun coachCardActions(app: LabApp): SentenceActions {
         },
         deckHas = tools::deckHas,
         addCard = { deckId, c -> tools.addNote(deckId, NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+        // Source decks: the add sheet saves straight into its source deck (core SourceDecks.kt).
+        alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+        move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
     )
 }
 

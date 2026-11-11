@@ -148,7 +148,11 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
             if (rich) "Offline — messages send when you're back" else "You're offline. Messages to Claude can't be sent until you're back online.",
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 8.dp),
         )
-        ui.notice?.let { InlineNotice(it.text, kind = if (it.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice) }
+        ui.notice?.let { n ->
+            val added = n.added
+            if (added != null) dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(added, actions.moveAdded)
+            else InlineNotice(n.text, kind = if (n.error) NoticeKind.Error else NoticeKind.Success, actionLabel = "×", onAction = actions.onDismissNotice)
+        }
         if (ui.proposingCards) ProposingRow()
         if (ui.generatingOptions) Busy("Claude is thinking of ways to say it…")
         DraftCheckPanel(ui.draftCheck, actions, onUse = onUseCheck, onSendAsIs = onSendAsIs)

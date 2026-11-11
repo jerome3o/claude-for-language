@@ -234,6 +234,8 @@ fun ClaudeThreadContent(
                 onPickDeck = vm::reviewPickDeck,
                 onNewDeck = vm::reviewNewDeck,
                 onSave = vm::saveReview,
+                move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(app, "chat_flashcards"),
+                onMoved = vm::reviewMoved,
             ),
             coach = CoachChatActions(
                 onRetryReply = vm::retry,

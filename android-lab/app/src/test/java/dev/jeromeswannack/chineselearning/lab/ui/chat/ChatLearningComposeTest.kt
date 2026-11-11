@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.chat
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -133,10 +134,12 @@ class ChatLearningComposeTest {
         compose.onNodeWithText("3 of 4 checked · tap ✎ to change a card").assertExists()
         compose.onNodeWithTag("chat-review-have", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("买东西").performClick()
-        compose.onNodeWithText("HSK 3").performClick()
+        // Source decks: no deck chips — the cards go to "From chats".
+        assertEquals(0, compose.onAllNodesWithText("HSK 3").fetchSemanticsNodes().size)
+        compose.onNodeWithText("To: From chats").assertExists()
         compose.onAllNodesWithTag("chat-review-edit")[2].performClick()
         compose.onNodeWithText("Add 3 cards").performClick()
         compose.waitForIdle()
-        assertEquals(listOf("toggle 1", "deck d2", "edit 2", "save"), calls)
+        assertEquals(listOf("toggle 1", "edit 2", "save"), calls)
     }
 }

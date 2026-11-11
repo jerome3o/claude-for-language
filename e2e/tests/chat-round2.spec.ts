@@ -174,11 +174,13 @@ test('long-press opens the sheet; Explain and Save as flashcard; swipe right rep
   await expect(explain).toContainText("Let's go to the shop tomorrow!");
   await expect(explain.getByTestId('sentence-word-breakdown')).toContainText('shāngdiàn');
   await explain.getByRole('button', { name: '🃏 Save as flashcard' }).click();
-  // The whole sentence as one card, fun_facts glossing every word.
-  await expect(page.getByText('Save to deck:')).toBeVisible();
+  // The whole sentence as one card, fun_facts glossing every word — saved at once into "From chats"
+  // (source decks: no deck picker), then Done.
   await expect(page.getByText('wǒmen míngtiān qù shāngdiàn ba')).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByTestId('added-to-deck')).toContainText('Added to From chats', { timeout: 15000 });
   await expect(page.getByText('Save to deck:')).toHaveCount(0);
+  await page.getByTestId('add-chunk-done').click();
+  await expect(page.getByTestId('add-chunk-modal')).toHaveCount(0);
 
   // Swipe right → reply.
   await page.waitForTimeout(300);

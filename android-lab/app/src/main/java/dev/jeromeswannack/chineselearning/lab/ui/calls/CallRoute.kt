@@ -200,6 +200,9 @@ fun CallRoute(nav: LabNav, id: String) {
             },
             deckHas = activityCardTools::deckHas,
             addCard = { deckId, c -> activityCardTools.addNote(deckId, dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody(c.hanzi, c.pinyin, c.english, c.funFacts)) },
+            // Source decks: the add sheet saves straight into its source deck (core SourceDecks.kt).
+            alreadyHave = { h -> activityCardTools.decksHolding(h).isNotEmpty() },
+            move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(activityCardTools, "add_chunk"),
         )
     }
     val s by vm.controller.state.collectAsStateWithLifecycle()

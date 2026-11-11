@@ -330,10 +330,11 @@ export async function createNote(
     sentence_clue_translation?: string;
   },
   options: { skipCheck?: boolean } = {}
-): Promise<NoteWithCards> {
+): Promise<NoteWithCards & { deck?: SourceDeckSummary }> {
   // The server makes the cards, the word and sentence clips, and queues the sentence set
   // (and a word check, unless the caller already checked the row — Paste a list's preview).
-  return fetchJSON<NoteWithCards>(`/decks/${deckId}/notes${options.skipCheck ? '?check=none' : ''}`, {
+  // `deckId` may be a source deck ref (`sourceDeckRef('readers')`): the reply then names the deck.
+  return fetchJSON<NoteWithCards & { deck?: SourceDeckSummary }>(`/decks/${deckId}/notes${options.skipCheck ? '?check=none' : ''}`, {
     method: 'POST',
     body: JSON.stringify(data),
   });
@@ -345,12 +346,33 @@ export interface BatchNoteInput {
   pinyin: string;
   english: string;
   fun_facts?: string;
+  /** Where the word was met (a chat message): kept on the note. */
+  context?: string;
   sentence_clue?: string;
   sentence_clue_pinyin?: string;
   sentence_clue_translation?: string;
 }
 
+/** The deck a source deck ref resolved to (shared/decks/source-decks.ts), in a note-create reply. */
+export interface SourceDeckSummary {
+  id: string;
+  name: string;
+  source_key: string | null;
+}
+
+/** Get-or-create the learner's source deck ("From readers", …) by its stable key. */
+export async function ensureSourceDeckApi(key: string): Promise<{ deck: Deck; created: boolean }> {
+  return fetchJSON<{ deck: Deck; created: boolean }>('/decks/source', { method: 'POST', body: JSON.stringify({ key }) });
+}
+
+/** Move notes to another of my decks, cards and history kept (`POST /api/notes/move`). */
+export async function moveNotesApi(noteIds: string[], deckId: string): Promise<{ moved: number; note_ids: string[]; deck_id: string }> {
+  return fetchJSON('/notes/move', { method: 'POST', body: JSON.stringify({ note_ids: noteIds, deck_id: deckId }) });
+}
+
 export interface BatchNotesResult {
+  /** When the deck was a source deck ref: the deck it resolved to. */
+  deck?: SourceDeckSummary;
   created: Array<{ id: string; hanzi: string }>;
   failed: Array<{ index: number; hanzi: string; error: string }>;
   /** With skipExisting: rows not added because the word is already in one of my decks. */

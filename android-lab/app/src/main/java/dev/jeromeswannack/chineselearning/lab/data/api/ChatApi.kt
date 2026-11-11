@@ -212,7 +212,11 @@ suspend fun Api.setVoiceSettings(conversationId: String, voiceId: String?, speed
 data class ChatNoteBody(val hanzi: String, val pinyin: String, val english: String, val fun_facts: String? = null, val context: String? = null)
 
 @Serializable
-data class CreatedNoteDto(val id: String = "")
+data class CreatedNoteDto(
+    val id: String = "",
+    /** When the deck was a source deck ref (`source:chats`): the deck it resolved to. */
+    val deck: SourceDeckDto? = null,
+)
 
 suspend fun Api.addChatNote(deckId: String, card: ChatNoteBody): CreatedNoteDto = post("/api/decks/${enc(deckId)}/notes", card)
 
@@ -414,6 +418,8 @@ data class BatchNotesDto(
     val created: List<BatchCreatedDto> = emptyList(),
     val failed: List<BatchFailureDto> = emptyList(),
     val existing: List<BatchExistingDto> = emptyList(),
+    /** When the deck was a source deck ref (`source:chats`): the deck it resolved to. */
+    val deck: SourceDeckDto? = null,
 )
 
 /** `POST /api/decks/:id/notes/batch` — every row stands alone; failures come back by index. */

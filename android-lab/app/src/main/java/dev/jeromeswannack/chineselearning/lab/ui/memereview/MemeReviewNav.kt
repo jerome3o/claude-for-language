@@ -98,6 +98,10 @@ fun NavGraphBuilder.memeReviewGraph(nav: LabNav) {
             AddWordSheet(
                 SentenceChunkDto(hanzi = card.hanzi, pinyin = card.pinyin, english = card.english),
                 AddWordActions(
+                    // Source decks: no deck to pick — straight into "From lessons & practice" (core SourceDecks.kt).
+                    sourceKey = "practice",
+                    alreadyHave = { h -> tools.decksHolding(h).isNotEmpty() },
+                    move = dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions.from(tools, "add_chunk"),
                     decks = { withContext(Dispatchers.IO) { PickerDecks.inQueueOrder(app.repo.dao.decks(), { it.studyPriority }, { it.createdAt }).map { DeckChoice(it.id, it.name, it.description) } } },
                     isDuplicate = { deckId, h -> tools.deckHas(deckId, h) },
                     add = { deckId, _ ->

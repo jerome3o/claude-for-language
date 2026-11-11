@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { decksInQueueOrder } from '@shared/decks/queue';
+import { sourceDeckName, sourceDeckRef, type SourceDeckKey } from '@shared/decks/source-decks';
 import { createDeck, getDecks } from '../../api/client';
 import { Loading } from '../Loading';
 import { InlineNotice, describeError } from './InlineNotice';
@@ -14,7 +15,30 @@ import './DeckSelectors.css';
  * study-queue order, the top deck first; the list scrolls on its own (bounded
  * height) so "+ Create new deck" and the sheet's own buttons stay on screen.
  */
-export function DeckSelectorWithCreate({
+export function DeckSelectorWithCreate(props: {
+  onSelect: (deckId: string) => void;
+  isSaving: boolean;
+  selectedCount: number;
+  /**
+   * A source deck (docs/STUDY_SESSION.md "Source decks"): no list — one "Save N cards to From chats"
+   * button whose deck is the ref `source:chats` (the note-create route makes the deck on first use).
+   */
+  sourceDeck?: SourceDeckKey;
+}) {
+  if (props.sourceDeck) {
+    const { sourceDeck, onSelect, isSaving, selectedCount } = props;
+    return (
+      <div className="deck-selector deck-selector--source">
+        <SpinnerButton type="button" className="btn btn-primary" busy={isSaving} onClick={() => onSelect(sourceDeckRef(sourceDeck))} data-testid="save-to-source-deck">
+          Save {selectedCount} card{selectedCount !== 1 ? 's' : ''} to {sourceDeckName(sourceDeck)}
+        </SpinnerButton>
+      </div>
+    );
+  }
+  return <DeckList {...props} />;
+}
+
+function DeckList({
   onSelect,
   isSaving,
   selectedCount,

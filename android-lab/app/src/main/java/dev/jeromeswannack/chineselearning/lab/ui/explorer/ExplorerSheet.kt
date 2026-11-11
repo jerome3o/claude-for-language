@@ -119,7 +119,18 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             onDismiss = { adding = null; refresh++ },
             bumpSource = "explorer",
             bump = env.bump,
-            onAdded = { controller.record("explorer.add_card", mapOf("kind" to if (CharWords.isSingleHan(chunk.hanzi)) "char" else "word")) },
+            // Source decks: the deck of where the explorer was opened (a reader → "From readers"), else "From the explorer".
+            sourceKey = dev.jeromeswannack.chineselearning.lab.core.SourceDecks.forExplorer(controller.openSource),
+            onAdded = {
+                controller.record(
+                    "explorer.add_card",
+                    mapOf(
+                        "kind" to if (CharWords.isSingleHan(chunk.hanzi)) "char" else "word",
+                        "source_deck" to true,
+                        "deck_key" to dev.jeromeswannack.chineselearning.lab.core.SourceDecks.forExplorer(controller.openSource),
+                    ),
+                )
+            },
             onAddedTo = { added -> justAdded = justAdded + (added.hanzi to added) },
         )
     }

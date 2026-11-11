@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.readers
 
+import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -111,7 +112,8 @@ class ReaderWordsComposeTest {
                 actions = ReaderWordActions(
                     explain = { word, sentence -> rec.explained += word.text to sentence; explanation },
                     decks = { listOf(DeckChoice("d1", "Readers", null), DeckChoice("d2", "HSK 3", null)) },
-                    add = { deckId, word, ex -> rec.added += deckId to readerWordNote(word, ex) },
+                    add = { deckId, word, ex -> rec.added += deckId to readerWordNote(word, ex); AddedNote(listOf("n1"), "d-readers", "From readers", "readers") },
+                    sourceKey = "readers",
                 ),
             )
         }
@@ -124,13 +126,14 @@ class ReaderWordsComposeTest {
         assertEquals(listOf("小徐" to "我叫小徐。"), rec.explained)
         compose.onNodeWithTag("word-explanation", useUnmergedTree = true).assertExists()
 
+        // ONE tap, no deck chips: straight into "From readers" (source decks).
         press(compose.onNodeWithText("+ Add as card"))
-        press(compose.onNodeWithTag("add-to-deck"))
+        assertEquals(0, compose.onAllNodesWithTag("reader-word-decks").fetchSemanticsNodes().size)
         assertEquals(1, rec.added.size)
         val (deck, note) = rec.added[0]
-        assertEquals("d1", deck)
+        assertEquals("source:readers", deck)
         assertEquals(NewNoteBody("小徐", "Xiǎo Xú", "Xiao Xu (a name)", "小 (xiǎo) little + 徐 (Xú) surname.", "我叫小徐。", "wǒ jiào Xiǎo Xú", "My name is Xiao Xu."), note)
-        compose.onNodeWithText("Added to Readers ✓").assertExists()
+        compose.onNodeWithText("Added to From readers", substring = true).assertExists()
         assertEquals(listOf("小徐" to "我叫小徐。"), rec.explained) // asked once, reused for the card
     }
 

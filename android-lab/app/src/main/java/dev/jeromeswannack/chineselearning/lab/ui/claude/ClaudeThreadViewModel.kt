@@ -600,7 +600,7 @@ class ClaudeThreadViewModel(
                 app.haptics.tick()
                 app.sounds.play(Sounds.Sfx.FLIP, 0.5f)
                 local.update {
-                    it.copy(decks = decks, review = ReviewUi(FlashcardReview(cards, checked), emptyMap(), "Cards from this chat", decks.firstOrNull()?.id, newDeck = if (decks.isEmpty()) "" else null))
+                    it.copy(decks = decks, review = ReviewUi(FlashcardReview(cards, checked), emptyMap(), "Cards from this chat", decks.firstOrNull()?.id, newDeck = null, sourceKey = "claude"))
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -620,6 +620,9 @@ class ClaudeThreadViewModel(
     fun reviewNewDeck(name: String?) = updateReview { it.copy(newDeck = name, error = null) }
     fun closeReview() = local.update { it.copy(review = null) }
 
+    /** "Change" moved the just-added cards. */
+    fun reviewMoved(now: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote) = updateReview { it.copy(added = now) }
+
     /** "Add N cards": the checked ones in one batch (the content service validates them again). */
     fun saveReview() {
         val id = threadId.value ?: return
@@ -635,19 +638,26 @@ class ClaudeThreadViewModel(
         }
         if (!app.online.value) { updateReview { it.copy(error = "You're offline — adding cards needs a connection. Your picks stay here.") }; return }
         val newName = r.newDeck?.trim()
-        if (r.deckId == null && newName.isNullOrEmpty()) { updateReview { it.copy(error = "Pick a deck (or name a new one).") }; return }
+        if (r.sourceKey == null && r.deckId == null && newName.isNullOrEmpty()) { updateReview { it.copy(error = "Pick a deck (or name a new one).") }; return }
         updateReview { it.copy(saving = true, error = null) }
         viewModelScope.launch {
             try {
-                val (deckId, deckName) = if (!newName.isNullOrEmpty()) app.repo.api.createDeck(newName, null).let { d -> d.id to d.name.ifEmpty { newName } }
+                val (deckId, deckName) = if (r.sourceKey != null) {
+                    // Source decks: no deck to pick — `source:claude` ("From Claude"), made on first use.
+                    dev.jeromeswannack.chineselearning.lab.core.SourceDecks.ref(r.sourceKey) to dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(r.sourceKey)
+                } else if (!newName.isNullOrEmpty()) app.repo.api.createDeck(newName, null).let { d -> d.id to d.name.ifEmpty { newName } }
                 else r.deckId!! to (local.value.decks.firstOrNull { it.id == r.deckId }?.name ?: "your deck")
                 val res = app.repo.api.addNotesBatch(deckId, chosen.map { ChatViewModel.noteOf(it.second) })
                 val failed = res.failed.associate { it.index to it.error.ifBlank { "Couldn't add this card." } }
                 val added = res.created.size
                 app.analytics.track("coach.ask_flashcards", mapOf("count" to added, "focus" to recap.words(id).isNotEmpty()))
                 if (added > 0) { app.haptics.celebrate(); app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f) }
-                val msg = "Added $added card${if (added == 1) "" else "s"} to $deckName ✓"
-                if (failed.isEmpty()) local.update { it.copy(review = null, notice = msg) }
+                val msg = "Added $added card${if (added == 1) "" else "s"} to ${res.deck?.name ?: deckName} ✓"
+                if (r.sourceKey != null) app.analytics.track("deck.source_add", mapOf("deck_key" to r.sourceKey, "surface" to "chat_flashcards", "count" to added, "source_deck" to true))
+                if (failed.isEmpty() && r.sourceKey != null) {
+                    val made = dev.jeromeswannack.chineselearning.lab.data.api.AddedNote(res.created.map { it.id }, res.deck?.id.orEmpty(), res.deck?.name ?: deckName, r.sourceKey)
+                    updateReview { it.copy(saving = false, added = made) }
+                } else if (failed.isEmpty()) local.update { it.copy(review = null, notice = msg) }
                 else {
                     val next = r.review.afterBatch(chosen.map { it.first }, failed)
                     updateReview { it.copy(review = next, saving = false, editing = next.problems.keys.firstOrNull(), error = (if (added > 0) "$msg " else "") + "${failed.size} couldn't be added — fix and try again.") }

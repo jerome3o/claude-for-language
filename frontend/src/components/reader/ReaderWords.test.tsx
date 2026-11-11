@@ -119,7 +119,7 @@ describe('ReaderWordsText', () => {
       sentence_clue_pinyin: 'wǒ jiào Xiǎo Xú',
       sentence_clue_translation: 'My name is Xiao Xu.',
     });
-    api.createNote.mockResolvedValue({ id: 'n2' });
+    api.createNote.mockResolvedValue({ id: 'n2', deck: { id: 'src-readers', name: 'From readers', source_key: 'readers' } });
     api.getDecks.mockResolvedValue([{ id: 'd1', name: 'Readers', study_priority: 0, created_at: '' }]);
     api.fetchWordRecords.mockResolvedValue({ version: 1, records: {}, missing: ['小徐'] });
     api.fetchCharRecords.mockResolvedValue({ version: 1, records: {}, missing: [] });
@@ -139,9 +139,9 @@ describe('ReaderWordsText', () => {
     // the explanation is now on the device: offline it opens instantly
     expect(await db.sentenceTextExplanations.get('reader-word:小徐|我叫小徐。')).toBeTruthy();
 
+    // ONE tap, no deck picker: a reader word goes straight into "From readers" (source decks).
     await click(byText('button', '+ Add as card'));
-    await click(byText('button', 'Add to deck'));
-    expect(api.createNote).toHaveBeenCalledWith('d1', {
+    expect(api.createNote).toHaveBeenCalledWith('source:readers', {
       hanzi: '小徐',
       pinyin: 'Xiǎo Xú',
       english: 'Xiao Xu (a name)',
@@ -150,6 +150,7 @@ describe('ReaderWordsText', () => {
       sentence_clue_pinyin: 'wǒ jiào Xiǎo Xú',
       sentence_clue_translation: 'My name is Xiao Xu.',
     });
+    expect(document.querySelector('[data-testid="added-to-deck"]')?.textContent).toContain('✓ Added to From readers');
     expect(hide).not.toHaveBeenCalled();
   });
 

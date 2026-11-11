@@ -93,7 +93,8 @@ export function processCall(callId: string): Promise<{ ok: true; closed: number 
 export function makeCallFlashcards(
   callId: string,
   input: { deck_id?: string; deck_name?: string; words: CallReportWord[] },
-): Promise<{ deck_id: string; created: number; failed: Array<{ index: number; hanzi: string; error: string }> }> {
+): Promise<{ deck_id: string; deck_name?: string | null; source_key?: string | null; note_ids?: string[]; created: number; failed: Array<{ index: number; hanzi: string; error: string }> }> {
+  // `deck_id` may be a source deck ref ("source:practice", shared/decks/source-decks.ts).
   return request(`/calls/${callId}/flashcards`, { method: 'POST', body: JSON.stringify(input) });
 }
 

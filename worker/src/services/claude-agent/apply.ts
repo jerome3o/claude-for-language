@@ -5,7 +5,6 @@
  * (thread-turn.ts) one action at a time behind its checkpoint. Moved from routes/ask-claude.ts.
  */
 import type { Env, Note } from '../../types';
-import * as db from '../../db/queries';
 import * as content from '../content';
 import { createCustomLessonFromSpec } from '../custom-lesson';
 import type { ToolAction } from './types';
@@ -40,13 +39,12 @@ export async function applyCardAction(env: Env, userId: string, note: Note, acti
 
       case 'create_flashcards': {
         const input = action.input as { deck_id?: string; flashcards: Array<{ hanzi: string; pinyin: string; english: string; fun_facts?: string }> };
-        // The target deck: the one asked for when it is the learner's, else the card's.
-        const targetDeck = await db.getDeckById(env.DB, input.deck_id || note.deck_id, userId);
-        if (!targetDeck) return { tool: 'create_flashcards', success: false, error: 'Target deck not found or not owned by user' };
+        // The target deck: the one he named when it is his, else his "From Claude" source deck.
+        const targetDeck = await content.flashcardDeckFor(env.DB, userId, input.deck_id, 'claude');
         const targetDeckId = targetDeck.id;
         const made = await content.createNotes(env, userId, targetDeckId, input.flashcards, bg ? { audio: 'background', bg } : { audio: 'queue' });
         // deck_name: Claude is told on its next turns where the cards went (tool-record.ts).
-        return { tool: 'create_flashcards', success: true, data: { created: made.created, count: made.created.length, targetDeckId, deck_name: targetDeck.name } };
+        return { tool: 'create_flashcards', success: true, data: { created: made.created, count: made.created.length, targetDeckId, deck_name: targetDeck.name, deck_source_key: targetDeck.source_key ?? null } };
       }
 
       case 'delete_current_card': {

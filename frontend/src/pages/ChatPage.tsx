@@ -59,6 +59,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNetwork } from '../contexts/NetworkContext';
 import { OfflineWarning } from '../components/OfflineWarning';
 import { DeckSelectorWithCreate } from '../components/chat/DeckSelectors';
+import { AddedToDeckLine } from '../components/sourceDecks/AddedToDeckLine';
+import { parseSourceDeckRef } from '@shared/decks/source-decks';
+import type { AddedToDeck } from '../services/sourceDecks';
+import type { SourceDeckSummary } from '../api/client';
 import { FULL_EMOJI_LIST, getQuickEmojis, getRecentEmojis, saveRecentEmoji } from '../components/chat/emojis';
 import { attachmentLabel, useChatThread, type ChatMessage } from '../hooks/useChatThread';
 import { useChatScroll } from '../hooks/useChatScroll';
@@ -259,6 +263,7 @@ export function ChatPage() {
   const showModalError = (fallback: string, error: unknown) =>
     setModalNotice({ kind: 'error', text: describeError(error, fallback) });
   const showSuccess = (text: string) => setNotice({ kind: 'success', text });
+  const [chatAdded, setChatAdded] = useState<AddedToDeck | null>(null);
 
   // Response options ("Help me say it") state
   const [isGeneratingOptions, setIsGeneratingOptions] = useState(false);
@@ -965,6 +970,20 @@ export function ChatPage() {
   const deckNameFor = (deckId: string) =>
     queryClient.getQueryData<Array<{ id: string; name: string }>>(['decks'])?.find((d) => d.id === deckId)?.name;
 
+  // Cards saved into a source deck ("From chats"): "✓ Added to From chats · Change" under the
+  // composer instead of a plain toast (docs/STUDY_SESSION.md "Source decks").
+  const announceAdded = (made: Array<{ id: string; deck?: SourceDeckSummary }>, deckId: string, fallback: string) => {
+    const key = parseSourceDeckRef(deckId);
+    const deck = made.find((m) => m.deck)?.deck;
+    if (!key || !deck) {
+      showSuccess(fallback);
+      return;
+    }
+    track('deck.source_add', { deck_key: key, surface: 'chat_flashcards', count: made.length, source_deck: true });
+    void import('../services/sync').then((m) => m.syncService.syncInBackground()).catch(() => undefined);
+    setChatAdded({ key, noteIds: made.map((m) => m.id), deckId: deck.id, deckName: deck.name });
+  };
+
   // ----- Make flashcards from this chat (docs/CHAT.md PR 3) -----
   const startSelecting = (firstId?: string) => {
     setShowHeaderMenu(false);
@@ -1103,19 +1122,20 @@ export function ChatPage() {
     setModalNotice(null);
     try {
       const selectedCards = responseOptions.filter((_, i) => selectedOptions.has(i));
+      const made = [];
       for (const card of selectedCards) {
-        await createNote(deckId, {
+        made.push(await createNote(deckId, {
           hanzi: card.hanzi,
           pinyin: card.pinyin,
           english: card.english,
           fun_facts: card.fun_facts,
           context: card.context,
-        });
+        }));
       }
       setShowResponseOptionsModal(false);
       setResponseOptions(null);
       setSelectedOptions(new Set());
-      showSuccess(`Saved ${selectedCards.length} flashcard${selectedCards.length !== 1 ? 's' : ''} to ${deckNameFor(deckId) || 'your deck'}.`);
+      announceAdded(made, deckId, `Saved ${selectedCards.length} flashcard${selectedCards.length !== 1 ? 's' : ''} to ${deckNameFor(deckId) || 'your deck'}.`);
     } catch (error) {
       console.error('Failed to save flashcards:', error);
       showModalError("Couldn't save the flashcards.", error);
@@ -1130,18 +1150,19 @@ export function ChatPage() {
     setIsSaving(true);
     setModalNotice(null);
     try {
+      const made = [];
       for (const correction of currentCheckResult.result.corrections) {
-        await createNote(deckId, {
+        made.push(await createNote(deckId, {
           hanzi: correction.hanzi,
           pinyin: correction.pinyin,
           english: correction.english,
           fun_facts: correction.fun_facts,
-        });
+        }));
       }
       const count = currentCheckResult.result.corrections.length;
       setShowCheckResultModal(false);
       setCurrentCheckResult(null);
-      showSuccess(`Saved ${count} correction${count !== 1 ? 's' : ''} as flashcards in ${deckNameFor(deckId) || 'your deck'}.`);
+      announceAdded(made, deckId, `Saved ${count} correction${count !== 1 ? 's' : ''} as flashcards in ${deckNameFor(deckId) || 'your deck'}.`);
     } catch (error) {
       console.error('Failed to save corrections:', error);
       showModalError("Couldn't save the corrections.", error);
@@ -1162,7 +1183,7 @@ export function ChatPage() {
     setIsSavingWord(true);
     setModalNotice(null);
     try {
-      await createNote(deckId, {
+      const made = await createNote(deckId, {
         hanzi: wordToSave.hanzi,
         pinyin: wordToSave.pinyin,
         english: wordToSave.english,
@@ -1170,7 +1191,7 @@ export function ChatPage() {
       });
       setShowWordSaveModal(false);
       setWordToSave(null);
-      showSuccess(`Saved ${wordToSave.hanzi} to ${deckNameFor(deckId) || 'your deck'}.`);
+      announceAdded([made], deckId, `Saved ${wordToSave.hanzi} to ${deckNameFor(deckId) || 'your deck'}.`);
     } catch (error) {
       console.error('Failed to save word:', error);
       showModalError("Couldn't save the word.", error);
@@ -2421,6 +2442,12 @@ export function ChatPage() {
       <div className="chat-composer" style={selecting ? { display: 'none' } : undefined}>
         <OfflineWarning message="You're offline. Messages you send now wait here and go out when you're back online." />
         <InlineNotice notice={notice} onDismiss={clearNotice} className="chat-composer-notice" />
+        {chatAdded && (
+          <div className="chat-composer-notice chat-added-to-deck" onClick={(e) => e.stopPropagation()}>
+            <AddedToDeckLine added={chatAdded} surface="chat_flashcards" onMoved={setChatAdded} />
+            <button type="button" className="chat-link-btn" onClick={() => setChatAdded(null)} aria-label="Dismiss">✕</button>
+          </div>
+        )}
         {draftCheck && !recording && (
           <CheckDraftPanel
             check={draftCheck}
@@ -2879,6 +2906,7 @@ export function ChatPage() {
             </div>
             {selectedOptions.size > 0 && (
               <DeckSelectorWithCreate
+                sourceDeck="chats"
                 onSelect={(deckId) => handleSaveResponseOptions(deckId)}
                 isSaving={isSavingOptions}
                 selectedCount={selectedOptions.size}
@@ -2918,6 +2946,7 @@ export function ChatPage() {
                   ))}
                 </div>
                 <DeckSelectorWithCreate
+                sourceDeck="chats"
                   onSelect={(deckId) => handleSaveCorrections(deckId)}
                   isSaving={isSaving}
                   selectedCount={currentCheckResult.result.corrections?.length || 0}
@@ -2978,6 +3007,7 @@ export function ChatPage() {
               )}
             </div>
             <DeckSelectorWithCreate
+                sourceDeck="chats"
               onSelect={(deckId) => handleSaveWord(deckId)}
               isSaving={isSavingWord}
               selectedCount={1}

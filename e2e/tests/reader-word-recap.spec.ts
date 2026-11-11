@@ -6,7 +6,7 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
  * is recorded as always) → "Story finished ✓ — 📝 Recap 2 words" — the TAPPED words only, never the
  * take's mistakes → the one-off pass in story order, with a 🎤 Say it on the card (said inside a phrase =
  * contains → Got it suggested) → the switches start OFF → one switched on → Done makes ONE card in "From
- * my readers" (the content service's batch) and puts it on Up next; the other word stays out.
+ * readers" (the source deck; the content service's batch) and puts it on Up next; the other word stays out.
  *
  * WORD_RECAP_SHOTS=<dir> also saves phone-size screenshots there (PR screenshots).
  */
@@ -198,10 +198,10 @@ test('📝 Reader word recap: taps (not read-aloud mistakes) → recap with 🎤
   await page.getByTestId('recap-done').click();
   await expect(page.getByTestId('recap-done-line')).toHaveText('1 word added to your long-term review');
 
-  // ONE card, in "From my readers", on Up next.
+  // ONE card, in "From readers" (the source deck, found by its key), on Up next.
   await expect.poll(async () => {
-    const decks = await api<Array<{ id: string; name: string }>>(request, '/api/decks', { token });
-    const deck = decks.find((d) => d.name === 'From my readers');
+    const decks = await api<Array<{ id: string; name: string; source_key?: string | null }>>(request, '/api/decks', { token });
+    const deck = decks.find((d) => d.source_key === 'readers');
     if (!deck) return null;
     const full = await api<{ notes: Array<{ hanzi: string; fun_facts?: string; sentence_clue?: string }> }>(request, `/api/decks/${deck.id}`, { token });
     return full.notes.map((n) => `${n.hanzi}|${n.fun_facts}|${n.sentence_clue}`);

@@ -63,6 +63,10 @@ import dev.jeromeswannack.chineselearning.lab.data.api.ExplainedWord
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.ui.kit.MarkdownText
 import dev.jeromeswannack.chineselearning.lab.ui.kit.DeckChipList
+import dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow
+import dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions
+import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
+import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabFooterSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PinnedFooterColumn
@@ -197,7 +201,12 @@ class SentenceActions(
     /** Decks (current note's deck first) and whether one already has this hanzi. */
     val decks: suspend () -> List<Pair<String, String>> = { emptyList() },
     val deckHas: suspend (deckId: String, hanzi: String) -> Boolean = { _, _ -> false },
-    val addCard: suspend (deckId: String, Chunk) -> Unit = { _, _ -> },
+    /** `deckId` = a deck id or a source deck ref (`SourceDecks.ref(key)`); returns what was added. */
+    val addCard: suspend (deckId: String, Chunk) -> AddedNote? = { _, _ -> null },
+    /** The word is already a card in ANY deck (the add sheet then offers ⚡ first, never adds by itself). */
+    val alreadyHave: suspend (hanzi: String) -> Boolean = { false },
+    /** "Change" after a source-deck add; null = no Change (previews / tests). */
+    val move: SourceDeckActions? = null,
 )
 
 /**
@@ -781,12 +790,14 @@ fun AddChunkSheet(
     onAdded: () -> Unit = {},
     /** After a successful add: which deck it went to (the explorer offers ⚡ Study it today at once). */
     onAddedTo: (AddedTo) -> Unit = {},
+    /** The source deck it goes to (core SourceDecks); default: the bump source's. */
+    sourceKey: String = SourceDecks.forBump(bumpSource),
 ) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bumpSource = bumpSource, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo, sourceKey = sourceKey) }
 }
 
 /** What "+ Add as card" made: the word and the deck it went into (the note reaches Room with the next sync). */
-data class AddedTo(val hanzi: String, val deckId: String, val deckName: String)
+data class AddedTo(val hanzi: String, val deckId: String, val deckName: String, val noteId: String? = null)
 
 /**
  * The word is already one of his notes (in any deck, AddChunkModal's `existing`): [deckNames]
@@ -800,26 +811,43 @@ fun AddChunkBody(
     bumpSource: String = "breakdown",
     /** "⚡ Study it today" when the word is already a card (null = no bump: previews, outside the app). */
     bump: dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpHanzi? = dev.jeromeswannack.chineselearning.lab.ui.bumps.rememberBumpHanzi(bumpSource),
-    /** Known to be a note already (any deck): the bump-first footer whatever deck is picked. */
+    /** Known to be a note already (any deck): the bump-first footer. */
     existing: AddChunkExisting? = null,
     /** After a successful add (analytics). */
     onAdded: () -> Unit = {},
     onAddedTo: (AddedTo) -> Unit = {},
+    /** The source deck it goes to (core SourceDecks); default: the bump source's. */
+    sourceKey: String = SourceDecks.forBump(bumpSource),
 ) {
+    // Source decks (docs/STUDY_SESSION.md "Source decks"; web AddChunkModal): NO deck picker — a new
+    // word is saved at once into its source deck, then "✓ Added to From example sentences · Change".
+    @Suppress("UNUSED_VARIABLE") val unusedPreferred = preferredDeck
     var bumped by remember { mutableStateOf<String?>(null) }
-    var decks by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var deckId by remember { mutableStateOf(preferredDeck) }
-    var duplicate by remember { mutableStateOf(false) }
+    var have by remember { mutableStateOf<Boolean?>(if (existing != null) true else null) }
+    var added by remember { mutableStateOf<AddedNote?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var done by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) {
-        // Queue order from the caller; the preferred deck (if any) leads, else the top deck is the default.
-        decks = actions.decks().sortedByDescending { it.first == preferredDeck }
-        if (decks.none { it.first == deckId }) deckId = decks.firstOrNull()?.first.orEmpty()
+    suspend fun addNow() {
+        busy = true
+        error = null
+        try {
+            val a = actions.addCard(SourceDecks.ref(sourceKey), chunk) ?: AddedNote(emptyList(), "", SourceDecks.name(sourceKey), sourceKey)
+            added = a
+            onAdded()
+            onAddedTo(AddedTo(chunk.hanzi, a.deckId, a.deckName, a.noteIds.firstOrNull()))
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            error = CardTools.message(e)
+        } finally {
+            busy = false
+        }
     }
-    LaunchedEffect(deckId) { duplicate = existing != null || (deckId.isNotEmpty() && runCatching { actions.deckHas(deckId, chunk.hanzi) }.getOrDefault(false)) }
+    LaunchedEffect(chunk.hanzi) {
+        val h = existing != null || runCatching { actions.alreadyHave(chunk.hanzi) }.getOrDefault(false)
+        have = h
+        if (!h) addNow()
+    }
     PinnedFooterColumn(
         Modifier.testTag("add-chunk-sheet"),
         body = {
@@ -829,45 +857,45 @@ fun AddChunkBody(
                 Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
-                if (existing != null && bumped == null) {
-                    val where = existing.deckNames.distinct().joinToString(", ").ifEmpty { "your decks" }
+                val a = added
+                if (a != null) {
+                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) })
+                } else if (have == true && bumped == null) {
+                    val where = existing?.deckNames?.distinct()?.joinToString(", ")?.ifEmpty { null } ?: "your decks"
                     InlineNotice(
                         "You already have ${chunk.hanzi} in $where." + if (bump != null) " Study it today instead of adding it again?" else "",
                         kind = NoticeKind.Warning,
-                        actionLabel = existing.onOpenCard?.let { "Open card →" },
-                        onAction = existing.onOpenCard,
+                        actionLabel = existing?.onOpenCard?.let { "Open card →" },
+                        onAction = existing?.onOpenCard,
                     )
-                } else if (duplicate && bumped == null) InlineNotice(if (bump != null) "Already in this deck — study it today instead?" else "This word is already in the selected deck.", kind = NoticeKind.Warning)
-                Text("Save to deck:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
-                DeckChipList(Modifier.testTag("add-chunk-decks")) { for ((id, name) in decks) LabChip(name, selected = id == deckId) { deckId = id } }
+                } else if (error == null) {
+                    Text("Adding to ${SourceDecks.name(sourceKey)}…", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth().testTag("add-chunk-adding"))
+                }
             }
         },
         footer = {
-            if (duplicate && bump != null && !done) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SecondaryPill(if (busy) "Adding…" else "Add anyway", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && bumped == null) {
-                        busy = true
-                        error = null
-                        scope.launch {
-                            try { actions.addCard(deckId, chunk); done = true; onAdded(); onAddedTo(AddedTo(chunk.hanzi, deckId, decks.firstOrNull { it.first == deckId }?.second ?: "your deck")); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    added != null -> PrimaryPill("Done", Modifier.weight(1f).height(50.dp).testTag("add-chunk-done"), onClick = onDismiss)
+                    have == true && bump != null -> {
+                        SecondaryPill(if (busy) "Adding…" else "Add anyway", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && bumped == null) {
+                            scope.launch { addNow() }
+                        }
+                        PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1.3f).height(50.dp).testTag("add-chunk-bump"), enabled = !busy && bumped == null) {
+                            busy = true
+                            error = null
+                            scope.launch {
+                                try { bumped = bump(listOf(chunk.hanzi), null); delay(1400); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                            }
                         }
                     }
-                    PrimaryPill(if (bumped != null) "⚡ Bumped" else dev.jeromeswannack.chineselearning.lab.ui.bumps.STUDY_IT_TODAY, Modifier.weight(1.3f).height(50.dp).testTag("add-chunk-bump"), enabled = !busy && bumped == null) {
-                        busy = true
-                        error = null
-                        scope.launch {
-                            try { bumped = bump(listOf(chunk.hanzi), deckId); delay(1400); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
+                    have == true || error != null -> {
+                        SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+                        PrimaryPill(if (busy) "Adding…" else if (have == true) "Add anyway" else "Try again", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy) {
+                            scope.launch { addNow() }
                         }
                     }
-                }
-            } else Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
-                PrimaryPill(if (done) "✓ Added" else if (busy) "Adding…" else if (duplicate) "Add anyway" else "Add to deck", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = !busy && !done && deckId.isNotEmpty()) {
-                    busy = true
-                    error = null
-                    scope.launch {
-                        try { actions.addCard(deckId, chunk); done = true; onAdded(); onAddedTo(AddedTo(chunk.hanzi, deckId, decks.firstOrNull { it.first == deckId }?.second ?: "your deck")); delay(800); onDismiss() } catch (e: Exception) { error = CardTools.message(e) } finally { busy = false }
-                    }
+                    else -> PrimaryPill("Adding…", Modifier.weight(1f).height(50.dp).testTag("add-chunk-add"), enabled = false) {}
                 }
             }
         },

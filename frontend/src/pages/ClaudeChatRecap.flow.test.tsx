@@ -3,7 +3,7 @@
  * answer are kept for the thread → the ⋯ menu shows "📝 2 words to recap" (none before) → the
  * readers' word recap pass with the chat as its source (the message's sentence as the cue, "from
  * your chat with Claude") → every switch OFF by default → Done adds ONLY the switched-on new word as
- * a card in "From my chats" (+ Up next, source chat_recap) and bumps the switched-on word he already
+ * a card in "From Claude" (the source deck) (+ Up next, source chat_recap) and bumps the switched-on word he already
  * has → back in the chat the entry is gone (nothing left to recap).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -35,9 +35,7 @@ const api = vi.hoisted(() => ({
     messages: [msg('u1', 'user', '成都有什么好吃的？'), msg('a1', 'assistant', '成都的火锅很辣。', { answer_lang: 'zh' })],
     server_time: '2026-11-03T10:00:03.000Z',
   })),
-  createDeck: vi.fn(async (name: string) => ({ id: 'deck-chats', name })),
-  getDecks: vi.fn(async () => []),
-  moveDeck: vi.fn(async () => ({})),
+  ensureSourceDeckApi: vi.fn(async (key: string) => ({ deck: { id: 'deck-chats', name: key, source_key: key }, created: true })),
   glossWords: vi.fn(async (w: Array<{ hanzi: string; pinyin?: string; english?: string }>) => w.map((x) => ({ hanzi: x.hanzi, pinyin: x.pinyin || 'huǒguō', english: x.english || 'hot pot' }))),
   enrichWords: vi.fn(async (w: Array<{ hanzi: string }>) => w.map((x) => ({ hanzi: x.hanzi, fun_facts: `${x.hanzi} explained`, sentence_clue: '', sentence_clue_pinyin: '', sentence_clue_translation: '' }))),
   createNotesBatch: vi.fn(async (_deck: string, notes: Array<{ hanzi: string }>) => ({ created: notes.map((n, i) => ({ id: `new-${i}`, hanzi: n.hanzi })), failed: [] })),
@@ -49,7 +47,7 @@ vi.mock('../services/chatLive', () => ({ chatLive: { acquire: () => () => {}, on
 vi.mock('../api/client', () => ({
   API_BASE: '', apiErrorStatus: () => undefined, backfillReaderWords: vi.fn(), setAskClaudeListening: vi.fn(),
   proposeCoachFlashcards: vi.fn(), translateCoachMessage: vi.fn(), getConversation: vi.fn(), requestCoachMistakeLesson: vi.fn(), saveCoachMistakeLesson: vi.fn(),
-  createDeck: api.createDeck, getDecks: api.getDecks, moveDeck: api.moveDeck, glossWords: api.glossWords,
+  ensureSourceDeckApi: api.ensureSourceDeckApi, glossWords: api.glossWords,
   enrichWords: api.enrichWords, createNotesBatch: api.createNotesBatch,
 }));
 vi.mock('../api/upNext', () => ({ addUpNextApi: api.addUpNextApi }));
@@ -183,8 +181,8 @@ describe('Ask Claude chat → 📝 words to recap', () => {
     await click(q('recap-done'));
     await flush();
     expect(q('recap-done-line')?.textContent).toBe('1 word added to your long-term review · 1 for today ⚡');
-    expect(api.createDeck).toHaveBeenCalledWith('From my chats', 'Words you chose to keep from your chats with Claude.');
-    expect(api.moveDeck).toHaveBeenCalledWith('deck-chats', 'bottom');
+    // The source deck (shared/decks/source-decks.ts), found by key — never by name.
+    expect(api.ensureSourceDeckApi).toHaveBeenCalledWith('claude');
     expect(api.createNotesBatch).toHaveBeenCalledTimes(1);
     const [deckId, notes] = api.createNotesBatch.mock.calls[0] as unknown as [string, Array<Record<string, string>>];
     expect(deckId).toBe('deck-chats');

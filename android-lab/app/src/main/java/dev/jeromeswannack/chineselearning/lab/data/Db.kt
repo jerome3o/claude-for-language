@@ -37,6 +37,8 @@ data class DeckEntity(
     val createdAt: String,
     /** The deck's folder (server decks.folder_id, migration 0105; core Folders.kt), null = Unfiled. v5. */
     val folderId: String? = null,
+    /** A source deck's key (server decks.source_key, migration 0150; core SourceDecks.kt), null = an ordinary deck. v13. */
+    val sourceKey: String? = null,
 ) {
     fun toQueueDeck() = QueueDeck(id, studyPriority, createdAt, newCardsPerDay, secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
 }
@@ -380,7 +382,7 @@ interface LabDao {
         CardHoldEntity::class,
         CardForgetEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class LabDatabase : RoomDatabase() {

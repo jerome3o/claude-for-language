@@ -199,6 +199,7 @@ function WordRow({ word }: { word: ClipWord }) {
       {adding && (
         <AddChunkModal
           source="other"
+          deckSource="practice"
           chunk={{ hanzi: word.hanzi, pinyin: word.pinyin, english: word.english }}
           onOpenCard={(noteId) => navigate(`/cards/${noteId}`)}
           onAdded={() => {

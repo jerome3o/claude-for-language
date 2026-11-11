@@ -102,7 +102,12 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
 import java.io.File
 
-data class Notice(val text: String, val error: Boolean)
+data class Notice(
+    val text: String,
+    val error: Boolean,
+    /** Source decks: cards saved into "From chats" — the notice is "✓ Added to From chats · Change". */
+    val added: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote? = null,
+)
 
 /** A deck in the chat's add-card pickers, listed in study-queue order (the top deck first). */
 data class DeckChoice(val id: String, val name: String)
@@ -183,6 +188,13 @@ data class ReviewUi(
     val editing: Int? = null,
     val saving: Boolean = false,
     val error: String? = null,
+    /**
+     * Source decks (docs/STUDY_SESSION.md "Source decks"): the deck the cards go to with NO picker —
+     * "chats" for a chat, "claude" for a Claude thread; null = the old deck chips.
+     */
+    val sourceKey: String? = "chats",
+    /** After "Add N cards" into the source deck: "✓ 3 cards added to From chats · Change". */
+    val added: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote? = null,
 )
 
 /** The composer's ✓ "Check my Chinese": the draft it checked and Claude's answer. */
@@ -220,6 +232,8 @@ data class ScrollRequest(val id: String, val nonce: Int, val animate: Boolean = 
 data class DiscussState(
     val saving: Boolean = false,
     val saved: Map<String, String> = emptyMap(),
+    /** Source decks: what each reply's cards became ("✓ Added to From chats · Change"). */
+    val added: Map<String, dev.jeromeswannack.chineselearning.lab.data.api.AddedNote> = emptyMap(),
 )
 
 data class ChatUi(
@@ -1851,19 +1865,27 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     // ---------------- saving cards ----------------
 
     /** Saves [cards] to [deckId] (or a new deck named [newDeck]); closes the sheet with "Saved …". */
-    fun saveCards(cards: List<SuggestedCard>, deckId: String?, newDeck: String?, context: String? = null, closeSheet: Boolean = true, onSaved: (String) -> Unit = {}) {
+    fun saveCards(cards: List<SuggestedCard>, deckId: String?, newDeck: String?, context: String? = null, closeSheet: Boolean = true, onSaved: (String) -> Unit = {}, onAdded: (dev.jeromeswannack.chineselearning.lab.data.api.AddedNote) -> Unit = {}) {
         if (cards.isEmpty()) return
         _ui.update { it.copy(saving = true, modalNotice = null) }
         viewModelScope.launch {
             try {
+                // Source decks: `deckId` may be the ref `source:chats` (made on first use; the reply names it).
+                val key = dev.jeromeswannack.chineselearning.lab.core.SourceDecks.parseRef(deckId)
                 val (id, name) = if (newDeck != null) api.createDeck(newDeck.trim(), null).let { it.id to it.name.ifEmpty { newDeck.trim() } }
+                else if (key != null) deckId!! to dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(key)
                 else deckId!! to (_ui.value.decks.firstOrNull { it.id == deckId }?.name ?: "your deck")
-                for (c in cards) api.addChatNote(id, ChatNoteBody(c.hanzi, c.pinyin, c.english, c.fun_facts, context ?: c.context))
+                val made = cards.map { c -> api.addChatNote(id, ChatNoteBody(c.hanzi, c.pinyin, c.english, c.fun_facts, context ?: c.context)) }
+                val deck = made.firstNotNullOfOrNull { it.deck }
+                val realName = deck?.name ?: name
                 val what = if (cards.size == 1) cards[0].hanzi else "${cards.size} flashcards"
-                val msg = "Saved $what to $name."
+                val msg = "Saved $what to $realName."
+                val added = key?.let { k -> dev.jeromeswannack.chineselearning.lab.data.api.AddedNote(made.map { it.id }, deck?.id.orEmpty(), realName, k) }
+                if (key != null) app.analytics.track("deck.source_add", mapOf("deck_key" to key, "surface" to if (closeSheet) "chat_flashcards" else "chat_discuss", "count" to made.size, "source_deck" to true))
                 app.haptics.correct()
                 app.sounds.play(Sounds.Sfx.CORRECT, 0.6f)
-                _ui.update { it.copy(saving = false, sheet = if (closeSheet) null else it.sheet, notice = if (closeSheet) Notice(msg, false) else it.notice) }
+                _ui.update { it.copy(saving = false, sheet = if (closeSheet) null else it.sheet, notice = if (closeSheet) Notice(msg, false, added) else it.notice) }
+                added?.let(onAdded)
                 onSaved(msg)
                 app.scope.launch { runCatching { app.repo.sync() } }
                 if (newDeck != null) loadDecks()
@@ -1891,9 +1913,11 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
     fun saveDiscussCards(m: ChatMessageDto, chosen: List<SuggestedCard>, replyId: String, deckId: String?, newDeck: String?) {
         if (chosen.isEmpty()) return
         _ui.update { it.copy(discuss = it.discuss.copy(saving = true)) }
-        saveCards(chosen, deckId, newDeck, context = m.content, closeSheet = false) {
-            _ui.update { s -> s.copy(discuss = s.discuss.copy(saving = false, saved = s.discuss.saved + (replyId to "✓ ${chosen.size} card${if (chosen.size != 1) "s" else ""} added"))) }
-        }
+        saveCards(
+            chosen, deckId, newDeck, context = m.content, closeSheet = false,
+            onSaved = { _ -> _ui.update { s -> s.copy(discuss = s.discuss.copy(saving = false, saved = s.discuss.saved + (replyId to "✓ ${chosen.size} card${if (chosen.size != 1) "s" else ""} added"))) } },
+            onAdded = { a -> _ui.update { s -> s.copy(discuss = s.discuss.copy(added = s.discuss.added + (replyId to a))) } },
+        )
     }
 
 
@@ -2063,6 +2087,9 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
 
     fun closeReview() = _ui.update { it.copy(review = null, sheet = if (it.sheet == ChatSheet.Review) null else it.sheet) }
 
+    /** "Change" moved the just-added cards. */
+    fun reviewMoved(now: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote) = updateReview { it.copy(added = now) }
+
     /** "Add N cards": the checked cards in one `POST /api/decks/:id/notes/batch`. */
     fun saveReview() {
         val r = _ui.value.review ?: return
@@ -2077,13 +2104,17 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
         }
         if (!app.online.value) { updateReview { it.copy(error = "You're offline — adding cards needs a connection. Your picks stay here.") }; return }
         val newName = r.newDeck?.trim()
-        if (r.deckId == null && newName.isNullOrEmpty()) { updateReview { it.copy(error = "Pick a deck (or name a new one).") }; return }
+        if (r.sourceKey == null && r.deckId == null && newName.isNullOrEmpty()) { updateReview { it.copy(error = "Pick a deck (or name a new one).") }; return }
         updateReview { it.copy(saving = true, error = null) }
         viewModelScope.launch {
             try {
                 val deckId: String
                 val deckName: String
-                if (!newName.isNullOrEmpty()) {
+                if (r.sourceKey != null) {
+                    // Source decks: no deck to pick — `source:chats`, made on first use.
+                    deckId = dev.jeromeswannack.chineselearning.lab.core.SourceDecks.ref(r.sourceKey)
+                    deckName = dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name(r.sourceKey)
+                } else if (!newName.isNullOrEmpty()) {
                     val d = api.createDeck(newName, null)
                     deckId = d.id
                     deckName = d.name.ifEmpty { newName }
@@ -2101,8 +2132,15 @@ class ChatViewModel(private val app: LabApp, private val relId: String, private 
                     app.haptics.celebrate()
                     app.sounds.play(Sounds.Sfx.MILESTONE, 0.7f)
                 }
-                val msg = "Added $added card${if (added == 1) "" else "s"} to $deckName ✓"
-                if (failed.isEmpty()) {
+                val msg = "Added $added card${if (added == 1) "" else "s"} to ${res.deck?.name ?: deckName} ✓"
+                if (r.sourceKey != null) {
+                    app.analytics.track("deck.source_add", mapOf("deck_key" to r.sourceKey, "surface" to "chat_flashcards", "count" to added, "source_deck" to true))
+                }
+                if (failed.isEmpty() && r.sourceKey != null) {
+                    // Stay open on "✓ N cards added to From chats · Change"; Done closes.
+                    val made = dev.jeromeswannack.chineselearning.lab.data.api.AddedNote(res.created.map { it.id }, res.deck?.id.orEmpty(), res.deck?.name ?: deckName, r.sourceKey)
+                    updateReview { it.copy(saving = false, added = made) }
+                } else if (failed.isEmpty()) {
                     _ui.update { it.copy(review = null, sheet = if (it.sheet == ChatSheet.Review) null else it.sheet, notice = Notice(msg, false)) }
                 } else {
                     val next = r.review.afterBatch(chosen.map { it.first }, failed)

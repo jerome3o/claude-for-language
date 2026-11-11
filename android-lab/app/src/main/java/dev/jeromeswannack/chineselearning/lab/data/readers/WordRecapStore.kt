@@ -17,6 +17,7 @@ import dev.jeromeswannack.chineselearning.lab.data.api.MoveDeckBody
 import dev.jeromeswannack.chineselearning.lab.data.api.NewNoteBody
 import dev.jeromeswannack.chineselearning.lab.data.api.UpNextAddBody
 import dev.jeromeswannack.chineselearning.lab.data.api.addNotesBatch
+import dev.jeromeswannack.chineselearning.lab.data.api.ensureSourceDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.addUpNext
 import dev.jeromeswannack.chineselearning.lab.data.api.createDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.enrichWords
@@ -58,8 +59,7 @@ data class RecapOffer(val readerId: String, val words: Int, val line: String)
  * (`reader-recap/run/<readerId>`) or per chat (`chat-recap/run/chat:<thread>`, its own kind so the
  * Readers list never sees it) in the JsonCache, kept across closes and days, and the words switched
  * to "Add to my long-term review" (`reader-recap/adds`), sent at once when online or by [Sync]: the
- * source's deck — "From my readers" / "From my chats" (made on first use, moved to the bottom of the
- * deck queue) —, gloss / explanation via gloss-words + enrich-words (the story / message sentence as
+ * source deck — "From readers" / "From Claude" (core SourceDecks.kt: made on first use, found by key) —, gloss / explanation via gloss-words + enrich-words (the story / message sentence as
  * the card's sentence when it is short enough), one notes/batch (skip_existing — a resend never
  * duplicates), then Up next. "⚡ Study it today" on a word he already has = [BumpStore.bumpNotes]
  * (offline-first).
@@ -258,13 +258,12 @@ object WordRecapStore {
     }
 
     private suspend fun deckId(api: Api, dao: LabDao, source: String): String {
-        val d = WordRecap.deck(source)
-        withContext(Dispatchers.IO) { dao.decks() }.firstOrNull { it.name == d.name }?.let { return it.id }
-        api.decks().firstOrNull { it.name == d.name }?.let { return it.id }
-        val deck = api.createDeck(d.name, d.description)
-        // Organisation only: the chosen words go on Up next, so the deck itself waits at the bottom.
-        runCatching { api.post<MoveDeckBody, DeckDto>(DeckPaths.move(deck.id), MoveDeckBody("bottom")) }
-        return deck.id
+        // The source deck (core SourceDecks.kt, web services/wordRecap.ts): a reader's words → "From
+        // readers" (the old "From my readers" deck is adopted by the server), a Claude chat's → "From
+        // Claude"; found by its key, never by name.
+        val key = if (source == "chat") "claude" else "readers"
+        withContext(Dispatchers.IO) { dao.decks() }.firstOrNull { it.sourceKey == key }?.let { return it.id }
+        return api.ensureSourceDeck(key).deck.id
     }
 
     /** After every sync: words chosen while offline become cards. */

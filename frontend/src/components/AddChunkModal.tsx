@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { decksInQueueOrder, defaultPickerDeckId } from '@shared/decks/queue';
+import { useEffect, useRef, useState } from 'react';
 import type { BumpSource } from '@shared/decks';
-import { getDecks, createNote } from '../api/client';
-import { db, type LocalNote } from '../db/database';
+import { sourceDeckForBump, sourceDeckName, type SourceDeckKey } from '@shared/decks/source-decks';
+import { type LocalNote } from '../db/database';
 import { trackError } from '../services/analytics';
 import { bumpNotes, findExistingNotes, useBumps } from '../services/studyBumps';
+import { addCardToSourceDeck, type AddedToDeck } from '../services/sourceDecks';
+import { AddedToDeckLine } from './sourceDecks/AddedToDeckLine';
 import './bumps/bumps.css';
 import '../pages/RoleplayPage.css';
 import './AddChunkModal.css';
@@ -29,20 +30,22 @@ export interface Chunk {
 }
 
 /**
- * "+ Add as card" for a word or sentence (chat Explain / Save as flashcard, the
- * study card's sentences, the Coach, picture hunts). The decks are listed in
- * study-queue order and the top one is preselected — nothing is remembered
- * between sheets. The word stays at the top, the deck list scrolls on its own
- * and Cancel / Add to deck are pinned at the bottom, however many decks there are.
+ * "+ Add as card" for a word or sentence (chat Explain / Save as flashcard, the study card's
+ * sentences, picture hunts, idioms, clips, calls…). NO deck picker (docs/STUDY_SESSION.md "Source
+ * decks"): the card goes straight into the deck of its source — "From example sentences", "From
+ * chats", … (shared/decks/source-decks.ts; `deckSource`, else from `source`) — as soon as the sheet
+ * knows the word is new, and the sheet says "✓ Added to From chats · Change" (Change moves it).
  *
- * A word the learner ALREADY has (any deck, punctuation ignored) gets
- * "You already have 银行 in HSK 2" and "⚡ Study it today" as the primary action
- * (shared/decks/bumps.ts: its cards come first in today's session), "Add anyway" second.
+ * A word the learner ALREADY has (any deck, punctuation ignored) is never added by itself: "You
+ * already have 银行 in HSK 2" and "⚡ Study it today" as the primary action (shared/decks/bumps.ts:
+ * its cards come first in today's session), "Add anyway" second (into the source deck).
  */
 export function AddChunkModal(props: {
   chunk: Chunk;
   onClose: () => void;
   source?: BumpSource;
+  /** The source deck it goes to; default: the bump source's (sourceDeckForBump). */
+  deckSource?: SourceDeckKey;
   /** When given, a word they already have offers "Open card →" (the card hub). */
   onOpenCard?: (noteId: string) => void;
   /**
@@ -53,37 +56,28 @@ export function AddChunkModal(props: {
 }) {
   const { chunk, onClose } = props;
   const source = props.source ?? 'other';
-  const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }>>([]);
+  const deckKey: SourceDeckKey = props.deckSource ?? sourceDeckForBump(source);
+  // null = still reading this device's notes (never add before knowing the word is new).
+  const [existing, setExisting] = useState<Array<{ note: LocalNote; deckName: string }> | null>(null);
   const [bumpedMsg, setBumpedMsg] = useState<string | null>(null);
   const bumps = useBumps();
-  const [decks, setDecks] = useState<Array<{ id: string; name: string }>>([]);
-  const [deckId, setDeckId] = useState('');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [added, setAdded] = useState<AddedToDeck | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [isDuplicate, setIsDuplicate] = useState(false);
-
-  useEffect(() => {
-    getDecks()
-      .then((d) => {
-        setDecks(decksInQueueOrder(d).map((x) => ({ id: x.id, name: x.name })));
-        setDeckId(defaultPickerDeckId(d));
-      })
-      .catch(() => {});
-  }, []);
+  const started = useRef(false);
 
   useEffect(() => {
     findExistingNotes(chunk.hanzi).then(setExisting).catch(() => setExisting([]));
   }, [chunk.hanzi]);
 
-  const existingIds = existing.map((e) => e.note.id);
+  const existingIds = (existing ?? []).map((e) => e.note.id);
   const alreadyBumped = existingIds.length > 0 && existingIds.every((id) => bumps.has(id));
 
   async function bump() {
     setBusy(true);
     setErr(null);
     try {
-      const out = await bumpNotes(existingIds, source, new Map(existing.map((e) => [e.note.id, e.note.hanzi])));
+      const out = await bumpNotes(existingIds, source, new Map((existing ?? []).map((e) => [e.note.id, e.note.hanzi])));
       setBumpedMsg(out.message);
       setTimeout(onClose, 1100);
     } catch (e) {
@@ -94,42 +88,13 @@ export function AddChunkModal(props: {
     }
   }
 
-  useEffect(() => {
-    if (!deckId) {
-      setIsDuplicate(false);
-      return;
-    }
-    db.notes
-      .where('deck_id').equals(deckId)
-      .filter((n) => n.hanzi === chunk.hanzi)
-      .count()
-      .then((count) => setIsDuplicate(count > 0))
-      .catch(() => setIsDuplicate(false));
-  }, [deckId, chunk.hanzi]);
-
   async function add() {
-    if (!deckId) return;
     setBusy(true);
     setErr(null);
     try {
-      const note = await createNote(deckId, {
-        hanzi: chunk.hanzi,
-        pinyin: chunk.pinyin,
-        english: chunk.english,
-        ...(chunk.fun_facts ? { fun_facts: chunk.fun_facts } : {}),
-        ...(chunk.sentence_clue ? {
-          sentence_clue: chunk.sentence_clue,
-          sentence_clue_pinyin: chunk.sentence_clue_pinyin,
-          sentence_clue_translation: chunk.sentence_clue_translation,
-        } : {}),
-      });
-      setDone(true);
-      // Bring the new note (and its cards) down now, so the study queue and every "do I have
-      // this?" check on the device see it without waiting for the next scheduled sync.
-      // (Loaded on demand: the sync service pulls in half the app, every user of this sheet doesn't need it.)
-      void import('../services/sync').then((m) => m.syncService.syncInBackground()).catch(() => undefined);
-      props.onAdded?.({ noteId: note.id, hanzi: chunk.hanzi, deckId, deckName: decks.find((d) => d.id === deckId)?.name ?? 'your deck' });
-      setTimeout(onClose, 800);
+      const out = await addCardToSourceDeck(deckKey, chunk, 'add_chunk');
+      setAdded(out);
+      props.onAdded?.({ noteId: out.noteId, hanzi: chunk.hanzi, deckId: out.deckId, deckName: out.deckName });
     } catch (e) {
       trackError('add_card', e);
       setErr(e instanceof Error ? e.message : String(e));
@@ -138,52 +103,55 @@ export function AddChunkModal(props: {
     }
   }
 
+  // One tap: the sheet opened from "+ Add as card" saves at once when the word is new.
+  useEffect(() => {
+    if (existing === null || existing.length > 0 || started.current) return;
+    started.current = true;
+    void add();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing]);
+
+  const has = existing !== null && existing.length > 0;
   return (
     <div className="rp-modal-backdrop add-chunk-backdrop" onClick={onClose}>
-      <div className="rp-modal add-chunk-modal" role="dialog" aria-label={`Add ${chunk.hanzi} as a card`} onClick={(e) => e.stopPropagation()}>
+      <div className="rp-modal add-chunk-modal" role="dialog" aria-label={`Add ${chunk.hanzi} as a card`} onClick={(e) => e.stopPropagation()} data-testid="add-chunk-modal">
         <div className="add-chunk-head">
           <div className="rp-modal-hanzi">{chunk.hanzi}</div>
           <div className="rp-pinyin">{chunk.pinyin}</div>
           <div className="rp-english">{chunk.english}</div>
           {err && <div className="rp-error add-chunk-notice">{err}</div>}
-          {existing.length > 0 ? (
+          {has && !added && (
             <div className="add-chunk-duplicate add-chunk-notice" data-testid="already-have">
-              You already have {chunk.hanzi} in {[...new Set(existing.map((e) => e.deckName))].join(', ')}.
+              You already have {chunk.hanzi} in {[...new Set(existing!.map((e) => e.deckName))].join(', ')}.
               {alreadyBumped ? ' It comes first in today’s study ⚡' : ' Study it today instead of adding it again?'}
               {props.onOpenCard && (
                 <>
                   {' '}
-                  <button type="button" className="add-chunk-open-card" onClick={() => props.onOpenCard!(existing[0].note.id)}>
+                  <button type="button" className="add-chunk-open-card" onClick={() => props.onOpenCard!(existing![0].note.id)}>
                     Open card →
                   </button>
                 </>
               )}
             </div>
-          ) : isDuplicate && <div className="add-chunk-duplicate add-chunk-notice">This word is already in the selected deck.</div>}
+          )}
           {bumpedMsg && <div className="bump-hint" role="status">{bumpedMsg}</div>}
-          <div className="add-chunk-label">Save to deck:</div>
+          {added ? (
+            <AddedToDeckLine added={added} surface="add_chunk" className="add-chunk-notice" />
+          ) : (
+            !has && !err && (
+              <div className="add-chunk-label add-chunk-adding" role="status" data-testid="add-chunk-adding">
+                Adding to {sourceDeckName(deckKey)}…
+              </div>
+            )
+          )}
         </div>
-        <div className="add-chunk-decks" role="radiogroup" aria-label="Deck">
-          {decks.map((d) => (
-            <button
-              key={d.id}
-              type="button"
-              role="radio"
-              aria-checked={deckId === d.id}
-              className={`add-chunk-deck${deckId === d.id ? ' selected' : ''}`}
-              onClick={() => setDeckId(d.id)}
-            >
-              {d.name}
-            </button>
-          ))}
-        </div>
-        {existing.length > 0 ? (
+        {has && !added ? (
           <div className="add-chunk-foot add-chunk-foot--bump">
             <button className="rp-finish add-chunk-cancel" onClick={onClose}>
               Cancel
             </button>
-            <button className="rp-finish" onClick={add} disabled={busy || !deckId}>
-              {done ? '✓ Added' : 'Add anyway'}
+            <button className="rp-finish" onClick={() => void add()} disabled={busy} data-testid="add-chunk-add-anyway">
+              {busy ? 'Adding…' : 'Add anyway'}
             </button>
             <button className={`bump-btn${alreadyBumped || bumpedMsg ? ' bump-btn--on' : ''}`} onClick={bump} disabled={busy || alreadyBumped || !!bumpedMsg}>
               {bumpedMsg ? '✓ Bumped' : alreadyBumped ? '⚡ Today ✓' : '⚡ Study it today'}
@@ -191,12 +159,20 @@ export function AddChunkModal(props: {
           </div>
         ) : (
           <div className="add-chunk-foot">
-            <button className="rp-finish" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="rp-send" onClick={add} disabled={busy || !deckId}>
-              {done ? '✓ Added' : busy ? 'Adding…' : isDuplicate ? 'Add anyway' : 'Add to deck'}
-            </button>
+            {err && !added ? (
+              <>
+                <button className="rp-finish" onClick={onClose}>
+                  Cancel
+                </button>
+                <button className="rp-send" onClick={() => void add()} disabled={busy} data-testid="add-chunk-retry">
+                  {busy ? 'Adding…' : 'Try again'}
+                </button>
+              </>
+            ) : (
+              <button className="rp-send" onClick={onClose} disabled={!added} data-testid="add-chunk-done">
+                {added ? 'Done' : 'Adding…'}
+              </button>
+            )}
           </div>
         )}
       </div>

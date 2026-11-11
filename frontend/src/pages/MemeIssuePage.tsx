@@ -143,6 +143,7 @@ function CardFooter({ item, month }: { item: MemeItem; month: string }) {
       {adding && createPortal(
         <AddChunkModal
           source="other"
+          deckSource="practice"
           chunk={memeCardFields(item, month)}
           onOpenCard={(noteId) => navigate(`/cards/${noteId}`)}
           onAdded={() => {

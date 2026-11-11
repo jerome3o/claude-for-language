@@ -23,7 +23,7 @@ import { SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_MIN, freshTopUpCount } from '@shared
 const SENTENCE_KNOWN_TOPUP_COUNT = 4;
 /** The Sentence round's top-ups stop once a word holds this many sentences (card sentence + set). */
 const SENTENCE_SET_MAX_TOTAL = 80;
-import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce } from '@shared/decks';
+import { DEFAULT_STUDY_BUDGET, pickStudyBudgetUpdate, pickNewCardOrderUpdate, daysToIntroduce, isSourceDeckKey, SOURCE_DECK_KEYS } from '@shared/decks';
 import { parseVoiceGender, chatReadAloudVoice, chatReadAloudSpeed } from '@shared/chats';
 import { cachedConversationTTS } from './services/tts-cache';
 import { enqueueClip, enqueueNoteClips, handleTtsBatch, type TtsQueueMessage } from './services/tts/queue';
@@ -938,6 +938,19 @@ app.post('/api/decks', async (c) => {
   }
 });
 
+/**
+ * A source deck ("From readers", "From chats", …; shared/decks/source-decks.ts): get-or-create by
+ * its stable key. `{ key }` → `{ deck, created }` (400 for an unknown key). The note-create routes
+ * also take `source:<key>` in place of a deck id, so a sheet never needs this first.
+ */
+app.post('/api/decks/source', async (c) => {
+  const userId = c.get('user').id;
+  const body = await c.req.json<{ key?: unknown }>().catch(() => ({} as { key?: unknown }));
+  if (!isSourceDeckKey(body.key)) return c.json({ error: `key must be one of ${SOURCE_DECK_KEYS.join(', ')}` }, 400);
+  const { deck, created } = await content.ensureSourceDeck(c.env.DB, userId, body.key);
+  return c.json({ deck, created }, created ? 201 : 200);
+});
+
 app.get('/api/decks/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
@@ -1222,20 +1235,22 @@ app.get('/api/decks/:deckId/notes', async (c) => {
 
 app.post('/api/decks/:deckId/notes', async (c) => {
   const userId = c.get('user').id;
-  const deckId = c.req.param('deckId');
   const body = await c.req.json<content.NoteInput>();
   // ?check=sync runs the word check now and returns its issues (the MCP tools);
   // ?check=none skips it (Paste a list, whose preview already checked the row).
   const check = c.req.query('check');
   try {
+    // `:deckId` may be a source deck ref (`source:readers`): made on first use, named in the reply.
+    const { deckId, sourceDeck } = await content.resolveNoteDeck(c.env.DB, userId, c.req.param('deckId'));
     // TTS + clue audio after the response; sentence set queued.
     const note = await content.createNote(c.env, userId, deckId, body, { audio: 'background', bg: c.executionCtx, check: !check });
     console.log('[API] Created note:', note.id, 'hanzi:', note.hanzi);
+    const deck = sourceDeck ? { deck: content.sourceDeckSummary(sourceDeck) } : {};
     if (check === 'sync') {
       const issues = (await runNotesCheck(c.env, userId, [note.id]).catch(() => new Map())).get(note.id) ?? [];
-      return c.json({ ...note, check_issues: issues.length ? JSON.stringify(issues) : null }, 201);
+      return c.json({ ...note, ...deck, check_issues: issues.length ? JSON.stringify(issues) : null }, 201);
     }
-    return c.json(note, 201);
+    return c.json({ ...note, ...deck }, 201);
   } catch (err) {
     return contentErrorResponse(c, err) ?? Promise.reject(err);
   }
@@ -1248,7 +1263,6 @@ app.post('/api/decks/:deckId/notes', async (c) => {
  */
 app.post('/api/decks/:deckId/notes/batch', async (c) => {
   const userId = c.get('user').id;
-  const deckId = c.req.param('deckId');
   const body = await c.req.json<{ notes: content.NoteInput[] }>();
   if (!Array.isArray(body.notes) || body.notes.length === 0) {
     return c.json({ error: 'notes must be a non-empty array' }, 400);
@@ -1280,14 +1294,17 @@ app.post('/api/decks/:deckId/notes/batch', async (c) => {
     if (notesIn.length === 0) return c.json({ created: [], failed: [], existing }, 200);
   }
   try {
+    // `:deckId` may be a source deck ref (`source:chats`): made on first use, named in the reply.
+    const { deckId, sourceDeck } = await content.resolveNoteDeck(c.env.DB, userId, c.req.param('deckId'));
+    const deck = sourceDeck ? { deck: content.sourceDeckSummary(sourceDeck) } : {};
     const result = await content.createNotes(c.env, userId, deckId, notesIn, { audio: 'queue', sentences: true, check: !syncCheck });
-    if (existing.length) return c.json({ ...result, existing }, 201);
+    if (existing.length) return c.json({ ...result, ...deck, existing }, 201);
     if (syncCheck && result.created.length) {
       const issues = await runNotesCheck(c.env, userId, result.created.map(n => n.id)).catch(() => new Map());
       const check_warnings = result.created.flatMap(n => (issues.get(n.id) ?? []).map((i: { id: string; field: string; kind: string; current: string; proposed: string; reason: string }) => ({ note_id: n.id, hanzi: n.hanzi, issue_id: i.id, field: i.field, kind: i.kind, current: i.current, proposed: i.proposed, reason: i.reason })));
-      return c.json({ ...result, check_warnings }, 201);
+      return c.json({ ...result, ...deck, check_warnings }, 201);
     }
-    return c.json(result, 201);
+    return c.json({ ...result, ...deck }, 201);
   } catch (err) {
     return contentErrorResponse(c, err) ?? Promise.reject(err);
   }

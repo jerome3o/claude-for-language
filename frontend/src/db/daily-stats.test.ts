@@ -7,6 +7,7 @@ import {
   LocalCard,
 } from './database';
 import { CardQueue } from '../types';
+import { studyDayStartMs } from '../services/studyDay';
 
 // Helper to create a test deck
 async function createTestDeck(id: string, name = 'Test Deck') {
@@ -119,10 +120,11 @@ describe('Daily Stats', () => {
       expect(await getNewCardsStudiedToday(deckId)).toBe(1);
     });
 
-    it('counts a first review just after local midnight (local day, not the UTC date string)', async () => {
+    it('counts a first review just after the study day started (local day, not the UTC date string)', async () => {
       const card = await createTestCard('card-m', deckId);
-      const justAfterMidnight = new Date();
-      justAfterMidnight.setHours(0, 0, 30, 0);
+      // The study day starts at the rollover hour (4 am by default, services/studyDay.ts), not midnight:
+      // a fixed 00:00:30 is "yesterday" whenever this runs after 4 am.
+      const justAfterMidnight = new Date(studyDayStartMs() + 30_000);
       await createReviewEvent(card.id, justAfterMidnight);
       expect(await getNewCardsStudiedToday(deckId)).toBe(1);
     });

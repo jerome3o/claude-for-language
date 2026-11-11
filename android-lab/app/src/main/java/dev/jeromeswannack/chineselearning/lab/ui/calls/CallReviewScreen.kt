@@ -106,7 +106,13 @@ fun LessonCallsBox(calls: List<dev.jeromeswannack.chineselearning.lab.data.api.C
 /** A deck the words can go into. */
 data class DeckChoice(val id: String, val name: String)
 
-data class CardsResult(val deckId: String, val created: Int, val failed: Int)
+data class CardsResult(
+    val deckId: String,
+    val created: Int,
+    val failed: Int,
+    /** Source decks: where the words went ("From lessons & practice"), for "Added to … · Change". */
+    val added: dev.jeromeswannack.chineselearning.lab.data.api.AddedNote? = null,
+)
 
 /** The tutor's "Make homework from this lesson" section (web: CallHomeworkSection). */
 data class CallHomeworkUi(
@@ -151,6 +157,8 @@ data class CallReviewActions(
     val onRefresh: () -> Unit = {},
     val onPlay: (TranscriptSegmentDto) -> Unit = {},
     val onMakeCards: (words: List<CallReportWordDto>, deckId: String?, deckName: String) -> Unit = { _, _, _ -> },
+    /** "Change" after the words went into "From lessons & practice" (null = none: previews). */
+    val moveCards: dev.jeromeswannack.chineselearning.lab.ui.kit.SourceDeckActions? = null,
     val onOpenDeck: (String) -> Unit = {},
     val onReprocess: () -> Unit = {},
     val onDelete: () -> Unit = {},
@@ -484,10 +492,19 @@ private fun Banner(failed: Boolean = false, content: @Composable androidx.compos
     )
 }
 
-/** Tick the words, pick a deck, "Add N cards" (web: WordPicker). */
+/** Tick the words, "Add N cards" — straight into "From lessons & practice", no deck to pick (web: WordPicker). */
 @Composable
 private fun WordPicker(words: List<CallReportWordDto>, startedAt: Long?, ui: CallReviewUi, actions: CallReviewActions) {
     val result = ui.cardsResult
+    val added = result?.added
+    if (result != null && added != null) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.AddedToDeckRow(added, actions.moveCards)
+            if (result.failed > 0) Text("(${result.failed} skipped)", color = Lab.colors.muted, style = MaterialTheme.typography.bodySmall)
+            Text("Open the deck ›", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable { actions.onOpenDeck(added.deckId) }.padding(8.dp))
+        }
+        return
+    }
     if (result != null) {
         Banner {
             Text(
@@ -499,8 +516,6 @@ private fun WordPicker(words: List<CallReportWordDto>, startedAt: Long?, ui: Cal
         return
     }
     var picked by rememberSaveable(words) { mutableStateOf(words.indices.toSet().toList()) }
-    var deckId by rememberSaveable { mutableStateOf<String?>(null) }
-    var chooseDeck by remember { mutableStateOf(false) }
     val defaultName = CallsFormat.defaultDeckName(startedAt)
     LabCard(Modifier.animateContentSize()) {
         words.forEachIndexed { i, w ->
@@ -522,21 +537,15 @@ private fun WordPicker(words: List<CallReportWordDto>, startedAt: Long?, ui: Cal
                 }
             }
         }
-        RowDivider()
-        NavRow("🗂️", ui.decks.firstOrNull { it.id == deckId }?.name ?: "New deck: $defaultName", desc = "Cards go to", onClick = { chooseDeck = true })
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val target = dev.jeromeswannack.chineselearning.lab.core.SourceDecks.ref("practice")
             PrimaryPill(
-                if (ui.cardsBusy) "Adding…" else "Add ${CallsFormat.plural(picked.size, "card")}",
+                if (ui.cardsBusy) "Adding…" else "Add ${CallsFormat.plural(picked.size, "card")} to ${dev.jeromeswannack.chineselearning.lab.core.SourceDecks.name("practice")}",
                 Modifier.fillMaxWidth().height(52.dp),
                 enabled = !ui.cardsBusy && picked.isNotEmpty() && ui.online,
-            ) { actions.onMakeCards(words.filterIndexed { i, _ -> i in picked }, deckId, defaultName) }
+            ) { actions.onMakeCards(words.filterIndexed { i, _ -> i in picked }, target, defaultName) }
             ui.cardsError?.let { InlineNotice(it, kind = NoticeKind.Error) }
         }
-    }
-    if (chooseDeck) LabBottomSheet(onDismiss = { chooseDeck = false }, title = "Cards go to") {
-        NavRow("✨", "New deck: $defaultName", onClick = { deckId = null; chooseDeck = false })
-        ui.decks.forEach { deck -> RowDivider(); NavRow("🗂️", deck.name, onClick = { deckId = deck.id; chooseDeck = false }) }
-        Spacer(Modifier.height(16.dp))
     }
 }
 

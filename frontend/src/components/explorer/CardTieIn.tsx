@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import type { CharWordStatus } from '@shared/chars';
-import { track } from '../../services/analytics';
+import { sourceDeckForExplorer } from '@shared/decks/source-decks';
+import { track, trackError } from '../../services/analytics';
 import { invalidateKnownHanzi } from '../../services/readerWords';
-import { AddChunkModal, type AddedCard } from '../AddChunkModal';
+import { addCardToSourceDeck, type AddedToDeck } from '../../services/sourceDecks';
+import type { Chunk } from '../AddChunkModal';
 import { BumpButton } from '../bumps/BumpButton';
-
-type Chunk = Parameters<typeof AddChunkModal>[0]['chunk'];
+import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
+import { useExplorer } from './ExplorerContext';
 
 /** What the learner has of this word / character: null = still reading this device's cards. */
 export interface CardTieInHave {
@@ -20,8 +21,10 @@ export interface CardTieInHave {
 
 /**
  * The explorer's card tie-in (docs/LANGUAGE_EXPLORER.md): "📚 You have …" → Open card → /
- * ⚡ Study it today, or "+ Add as card" (the add-card sheet over the explorer). The Word view's
- * pinned footer and the Character view's status block under the glyph are both this.
+ * ⚡ Study it today, or "+ Add as card" — ONE tap, no deck picker: the card goes straight into the
+ * source deck of where the explorer was opened (a reader → "From readers", a chat → "From chats",
+ * else "From the explorer"; shared/decks/source-decks.ts) and the footer says "✓ Added to … ·
+ * Change". The Word view's pinned footer and the Character view's status block are both this.
  */
 export function CardTieIn({
   kind,
@@ -43,12 +46,32 @@ export function CardTieIn({
   className?: string;
 }) {
   const navigate = useNavigate();
-  const [adding, setAdding] = useState<Chunk | null>(null);
+  const explorer = useExplorer();
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   // What "+ Add" just made: the note isn't in this device's store until the sync it starts
   // finishes, so the footer offers ⚡ Study it today / Open card for it straight away (before,
   // "✓ Added" was all — Jerome closed and reopened the explorer until the card showed up).
-  const [added, setAdded] = useState<AddedCard | null>(null);
+  const [added, setAdded] = useState<(AddedToDeck & { noteId: string; hanzi: string }) | null>(null);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
+
+  async function add() {
+    const c: Chunk = chunk();
+    const key = sourceDeckForExplorer(explorer.source);
+    setAdding(true);
+    setAddError(null);
+    try {
+      const out = await addCardToSourceDeck(key, c, 'explorer');
+      track('explorer.add_card', { kind, source_deck: true, deck_key: key });
+      invalidateKnownHanzi();
+      setAdded({ ...out, hanzi: c.hanzi });
+    } catch (e) {
+      trackError('add_card', e);
+      setAddError(e instanceof Error ? e.message : "Couldn't add it — try again.");
+    } finally {
+      setAdding(false);
+    }
+  }
 
   return (
     <div className={className} data-testid={testIds.root} data-status={have ? (have.noteIds.length ? have.status ?? 'in_decks' : 'none') : 'checking'}>
@@ -84,7 +107,7 @@ export function CardTieIn({
         </div>
       ) : added ? (
         <div className="xp-have" data-testid="xp-added">
-          <div className="xp-have-line" role="status">✓ Added to {added.deckName}</div>
+          <AddedToDeckLine added={added} surface="explorer" onMoved={(now) => setAdded({ ...added, ...now })} className="xp-added-line" />
           {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
           <div className="xp-footer-row">
             <button
@@ -110,28 +133,13 @@ export function CardTieIn({
           </div>
         </div>
       ) : (
-        <button type="button" className="btn btn-primary xp-add" onClick={() => setAdding(chunk())} data-testid={testIds.add}>
-          {addLabel}
-        </button>
+        <>
+          {addError && <div className="xp-have-line xp-add-error" role="alert">{addError}</div>}
+          <button type="button" className="btn btn-primary xp-add" onClick={() => void add()} disabled={adding} data-testid={testIds.add}>
+            {adding ? 'Adding…' : addError ? 'Try again' : addLabel}
+          </button>
+        </>
       )}
-
-      {adding &&
-        createPortal(
-          // Its own layer above the explorer sheet (the add sheet's backdrop has a low z-index).
-          <div className="xp-modal-layer" onClick={(e) => e.stopPropagation()}>
-            <AddChunkModal
-              source="explorer"
-              chunk={adding}
-              onAdded={(card) => {
-                track('explorer.add_card', { kind });
-                invalidateKnownHanzi();
-                setAdded(card);
-              }}
-              onClose={() => setAdding(null)}
-            />
-          </div>,
-          document.body,
-        )}
     </div>
   );
 }

@@ -145,7 +145,8 @@ class SentenceBreakdownTest : LabScreenshotTest() {
         studyBack(1f, dark = true)
         compose.onNodeWithText("不能", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithText("Save to deck:").assertExists()
+        // Source decks: no deck picker — the word goes straight into "From example sentences".
+        compose.onNodeWithText("From example sentences", substring = true).assertExists()
         assertEquals(0, peeks)
         compose.onNodeWithText("Good").assertExists()
     }

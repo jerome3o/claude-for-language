@@ -6,8 +6,8 @@
  *   - `runs`: ONE run per reader (key = the reader id) or per chat (key = `chat:<thread id>`) — the
  *     words, the recap's answers and the switches. Kept across closes and days.
  *   - `adds`: words switched to "Add to my long-term review" waiting to become cards. Sent at once
- *     when online, else on the next sync (`flushRecapAdds`): the source's deck — "From my readers" /
- *     "From my chats" (made on first use, at the BOTTOM of the deck queue) —, the card standard's
+ *     when online, else on the next sync (`flushRecapAdds`): the source deck — "From readers" /
+ *     "From Claude" (shared/decks/source-decks.ts: made on first use, found by key) —, the card standard's
  *     explanation + an example sentence (the story's / message's own sentence when it is short enough
  *     — POST /api/ai/enrich-words writes the rest), one POST /api/decks/:id/notes/batch
  *     (`skip_existing`, so a resend never duplicates), then Up next, so the chosen words are
@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   addRecapMistakes, addRecapTap, answerRecap, chatRecapCount, chatRecapRun, chatRecapRunId, finishRecapRun, markRecapped,
-  recapAvailable, recapBumpSource, recapChoices, recapDeck, recapEvent, recapKey, recapRightFirstTime, recapRunFor,
+  recapAvailable, recapBumpSource, recapChoices, recapEvent, recapKey, recapRightFirstTime, recapRunFor,
   recapSentenceClue, recapSource, recapUpNextSource, recapWords, restartRecap, setRecapKeep,
   type WordRecapPage, type WordRecapRun, type WordRecapSource, type WordRecapTap, type WordRecapWord,
 } from '@shared/study/wordRecap';
@@ -29,7 +29,7 @@ import { autoPinyin } from '../utils/autoPinyin';
 import { db } from '../db/database';
 import { bumpNotes } from './studyBumps';
 import { track } from './analytics';
-import { createDeck, createNotesBatch, enrichWords, getDecks, glossWords, moveDeck, type BatchNoteInput } from '../api/client';
+import { createNotesBatch, enrichWords, ensureSourceDeckApi, glossWords, type BatchNoteInput } from '../api/client';
 import { addUpNextApi } from '../api/upNext';
 import { getRecapWords, useRecapWords } from './claudeChatRecap';
 
@@ -241,22 +241,19 @@ export function flushRecapAdds(): Promise<{ sent: number }> {
 }
 
 async function recapDeckId(source: WordRecapSource): Promise<string> {
-  const { name, description } = recapDeck(source);
-  const local = await db.decks.filter((d) => d.name === name).first().catch(() => undefined);
+  // The source deck (shared/decks/source-decks.ts): a reader's words → "From readers" (the old
+  // "From my readers" deck is adopted by the server), a Claude chat's → "From Claude"; found by key.
+  const key = source === 'chat' ? 'claude' : 'readers';
+  const local = await db.decks.filter((d) => d.source_key === key).first().catch(() => undefined);
   if (local) return local.id;
-  const remote = (await getDecks()).find((d) => d.name === name);
-  if (remote) return remote.id;
-  const deck = await createDeck(name, description);
-  // Organisation only: the chosen words go on Up next, so the deck itself waits at the bottom.
-  await moveDeck(deck.id, 'bottom').catch(() => undefined);
-  return deck.id;
+  return (await ensureSourceDeckApi(key)).deck.id;
 }
 
 async function doFlush(): Promise<{ sent: number }> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return { sent: 0 };
   const all = await recapDb().adds.orderBy('created_at').toArray().catch(() => [] as PendingRecapAdd[]);
   let sent = 0;
-  // One deck per source: a reader's words go to "From my readers", a chat's to "From my chats".
+  // One deck per source: a reader's words go to "From readers", a Claude chat's to "From Claude".
   for (const source of ['reader', 'chat'] as const) {
     const rows = all.filter((r) => (r.source ?? 'reader') === source);
     if (rows.length) sent += (await flushSource(source, rows)).sent;
