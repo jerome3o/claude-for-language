@@ -193,7 +193,7 @@ fun SentenceRoundPage(
                 SentenceRound.Sentence(r.key, r.hanzi, r.translation, audio = !url.isNullOrBlank() && (online || hasClip(url)))
             }
             val next = fromLog ?: if (listen) SentenceRound.pickListen(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, word, stats)
-                else SentenceRound.pick(heard, stats, byEar = byEar, online = online)
+                else SentenceRound.pick(heard, stats, byEar = byEar, online = online, cardHanzi = word)
             picked = next
             onPicked(next.map { it.id })
         }

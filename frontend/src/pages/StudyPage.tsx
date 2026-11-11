@@ -154,10 +154,9 @@ import type { AnswerCheckVerdict } from '@shared/lesson/answerCheck';
 import { useSentenceQuestionCheck } from '../components/study/useSentenceAnswerCheck';
 import { AnswerCheckBody } from '../components/lessons/AnswerCheckCard';
 import { sentenceGate, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shared/study/sentencePractise';
-import { listenRoundSentenceCount, roundRowMarks, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
+import { listenRoundSentenceCount, roundRowMarks, roundSentenceCount, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 import { useSentenceStats } from '../services/sentencePractice';
-import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -573,10 +572,16 @@ export function StudyCard({
   const listenRound = card.card_type === 'audio_to_hanzi';
   const roundVisibleCount = !roundSentenceRows ? null
     : listenRound ? listenRoundSentenceCount(roundSentenceRows, card.note.hanzi, roundStats ?? undefined)
-      : roundSentenceRows.filter((r) => !roundStats?.get(sentenceHistoryKey(r.key))?.hidden).length;
+      // A row that IS the card's own text never comes in the round (`isCardHanziSentence`).
+      : roundSentenceCount(roundSentenceRows, roundStats ?? undefined, card.note.hanzi);
   const [roundOpen, setRoundOpen] = useState(() => roundCardType && !!restored.point?.round_open && !restored.point?.revealed);
   const [sentenceCount, setSentenceCount] = useState<number | null>(null);
-  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: listenRound ? roundVisibleCount : sentenceCount ?? roundVisibleCount, rightKeys: gateKeys });
+  // In Hard mode the gate never asks for more than the round could offer (it leaves out a row that is the card's
+  // own text), else a round finished 1 / 1 would leave Good / Easy greyed on the answer side.
+  const gateSentenceCount = roundCardType && roundVisibleCount != null && sentenceCount != null
+    ? Math.min(sentenceCount, roundVisibleCount)
+    : sentenceCount ?? roundVisibleCount;
+  const gate = sentenceGate({ enabled: gateOn, cardType: card.card_type, sentenceCount: listenRound ? roundVisibleCount : gateSentenceCount, rightKeys: gateKeys });
   // Good / Easy: gave up → locked whatever the sentences say; else the sentence gate.
   const roundMarks = useMemo(() => (roundLog.length ? roundRowMarks(roundLog, gateKeys) : undefined), [roundLog, gateKeys]);
   // Greyed, never locked: a second tap within 3 s still rates (shared/study/hardMode.ts `overrideTap`).

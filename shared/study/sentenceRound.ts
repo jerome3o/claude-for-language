@@ -82,6 +82,35 @@ const hasTranslation = (s: RoundSentence) => !!(s.translation ?? '').trim();
 export interface RoundPickOptions {
   byEar?: boolean;
   online?: boolean;
+  /** The card's own hanzi: a sentence that says exactly the same is never an exercise (`isCardHanziSentence`). */
+  cardHanzi?: string;
+}
+
+/** Letters and digits only, lower-cased: punctuation, spaces and symbols never count. */
+function bareChinese(text: string): string {
+  return text.replace(/[^\p{L}\p{N}]/gu, '').toLowerCase();
+}
+
+/**
+ * This sentence IS the card's own text (a sentence card: 你和你妈妈除了聊这个，还聊什么了？ with that same
+ * sentence as its clue) — punctuation, spaces and case aside. The round never offers it: he just read /
+ * typed / heard it on the question, so "Read it aloud" of it would be a free point. '' never matches.
+ */
+export function isCardHanziSentence(hanzi: string, cardHanzi: string | null | undefined): boolean {
+  const card = bareChinese(cardHanzi ?? '');
+  return card.length > 0 && bareChinese(hanzi) === card;
+}
+
+/**
+ * How many of the card's sentences the (reading / meaning) round can use: not hidden, and not the card's
+ * own text (`isCardHanziSentence`). 0 = no round. The listening card's is `listenRoundSentenceCount`.
+ */
+export function roundSentenceCount(
+  sentences: readonly Pick<RoundSentence, 'key' | 'hanzi'>[],
+  stats?: ReadonlyMap<string, SentenceStats>,
+  cardHanzi?: string | null,
+): number {
+  return sentences.filter((s) => !stats?.get(sentenceHistoryKey(s.key))?.hidden && !isCardHanziSentence(s.hanzi, cardHanzi)).length;
 }
 
 /**
@@ -123,6 +152,9 @@ export function spreadOrder(n: number): number[] {
  * Sentences by ear (`opts.byEar`): a read slot is a LISTEN exercise for a sentence that can be heard
  * (`canListenTo`) — and prefers such a sentence (after fresh-first, before least-known, which then
  * compares the listen history); a sentence with no clip keeps read. Translate slots are unchanged.
+ *
+ * A sentence that is the card's own text (`opts.cardHanzi`, `isCardHanziSentence`) is left out like a
+ * hidden one: it would ask him to read the question he has just answered.
  */
 export function pickRoundExercises(
   sentences: readonly RoundSentence[],
@@ -130,7 +162,9 @@ export function pickRoundExercises(
   opts?: RoundPickOptions,
 ): RoundExercise[] {
   const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key));
-  const visible = sentences.map((s, index) => ({ s, index })).filter(({ s }) => !statsOf(s)?.hidden);
+  const visible = sentences
+    .map((s, index) => ({ s, index }))
+    .filter(({ s }) => !statsOf(s)?.hidden && !isCardHanziSentence(s.hanzi, opts?.cardHanzi));
   const n = visible.length;
   if (n === 0) return [];
   const spread = spreadOrder(n);
@@ -206,7 +240,8 @@ function squeeze(text: string): string {
 /**
  * The sentences the listening card's round can ask for (Jerome: "for the listening card … maybe I should
  * just get a few English sentences that I need to say"): the card's own sentence and the set's sentences
- * that contain the word, each with English (it is the question), not hidden. In list order.
+ * that contain the word, each with English (it is the question), not hidden, and not the word itself
+ * (`isCardHanziSentence`: a sentence card's own sentence is what he just heard). In list order.
  */
 export function listenRoundCandidates(
   sentences: readonly RoundSentence[],
@@ -216,7 +251,7 @@ export function listenRoundCandidates(
   const w = squeeze(word);
   return sentences
     .map((s, index) => ({ s, index }))
-    .filter(({ s }) => hasTranslation(s) && !stats?.get(sentenceHistoryKey(s.key))?.hidden)
+    .filter(({ s }) => hasTranslation(s) && !stats?.get(sentenceHistoryKey(s.key))?.hidden && !isCardHanziSentence(s.hanzi, word))
     .filter(({ s }) => isCardSentenceKey(s.key) || !w || squeeze(s.hanzi).includes(w));
 }
 

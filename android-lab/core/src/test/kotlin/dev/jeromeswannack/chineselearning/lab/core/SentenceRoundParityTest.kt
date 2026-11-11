@@ -205,4 +205,31 @@ class SentenceRoundParityTest {
         assertEquals(copy["youSaid"]!!.str, SentenceRound.LISTEN_EX_YOU_SAID)
         assertEquals(copy["noAudio"]!!.str, SentenceRound.LISTEN_EX_NO_AUDIO)
     }
+
+    @Test
+    fun cardOwnSentenceMatches() {
+        val c = fixture()["cardHanzi"]!!.jsonObject
+        var same = 0
+        for (x in c["sameText"]!!.jsonArray) {
+            val o = x.jsonObject
+            val want = o["same"]!!.jsonPrimitive.boolean
+            assertEquals(want, SentenceRound.isCardHanziSentence(o["hanzi"]!!.str!!, o["card"]!!.str), o.toString())
+            if (want) same++
+        }
+        assertTrue(same > 10, "vectors where the sentence is the card")
+        var dropped = 0
+        for (x in c["lists"]!!.jsonArray) {
+            val o = x.jsonObject
+            val what = o.toString()
+            val card = o["card"]!!.str!!
+            val sentences = o["sentences"]!!.jsonArray.map { sentence(it)!! }
+            assertEquals(o["exercises"]!!.jsonArray.map { exercise(it) }, SentenceRound.pick(sentences, cardHanzi = card), what)
+            val count = o["count"]!!.jsonPrimitive.int
+            assertEquals(count, SentenceRound.roundSentenceCount(sentences, null, card), what)
+            assertEquals(o["listen"]!!.jsonArray.map { exercise(it) }, SentenceRound.pickListen(sentences, card), what)
+            assertEquals(o["listenCount"]!!.jsonPrimitive.int, SentenceRound.listenSentenceCount(sentences, card), what)
+            if (count < sentences.size) dropped++
+        }
+        assertTrue(dropped >= 5, "vectors that drop the card's own sentence")
+    }
 }
