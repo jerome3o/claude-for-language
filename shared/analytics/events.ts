@@ -126,7 +126,7 @@ export const ANALYTICS_EVENTS = {
   'study.listen_more_sentences': e('study', '"+ More sentences" on a listening card\'s question side (sentences before / after).', ['before', 'after']),
   'study.tutor_note_practice': e('study', 'Practised cards from a tutor note.', ['count']),
   'study.tutor_model_play': e('study', "Played the tutor's model recording on a tutor note, or their own take beside it.", ['where', 'which']),
-  'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue.', ['source', 'count', 'already']),
+  'study.bump_added': e('study', '"⚡ Study it today": bumped cards the learner already had to the front of today\'s queue (card_types = how many card types of the note, 0 = the whole note).', ['source', 'count', 'already', 'card_types']),
   'study.bump_studied': e('study', 'Rated a card from the ⚡ bump pocket.', ['card_type', 'queue']),
   'study.bump_cleared': e('study', 'Took a word out of the ⚡ bump pocket by hand.', ['source']),
   'study.other_card_types_open': e('study', 'Opened ⋯ → "Practise this word other ways…" on the study card.', ['from_type']),

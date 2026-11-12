@@ -95,14 +95,15 @@ const val BUMP_TOGGLE_TAG = "bump-toggle"
  * clear, offline-first). Used on the homework pass's answer side.
  */
 @Composable
-fun BumpToggle(on: Boolean, bumpedBy: String?, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    val label = when {
+fun BumpToggle(on: Boolean, bumpedBy: String?, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, label: String? = null) {
+    val text = when {
+        on && !bumpedBy.isNullOrBlank() -> "⚡ From ${bumpedBy.substringBefore(' ')}"
+        label != null -> label
         !on -> STUDY_IT_TODAY
-        !bumpedBy.isNullOrBlank() -> "⚡ From ${bumpedBy.substringBefore(' ')}"
         else -> "⚡ Today ✓"
     }
     Text(
-        label,
+        text,
         style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.SemiBold,
         color = if (on) Color.White else BumpAmber,

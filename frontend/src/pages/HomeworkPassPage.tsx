@@ -23,7 +23,7 @@ import { Confetti } from '../components/Confetti';
 import { DueChip } from '../components/homework/HomeworkRow';
 import { LinkPass } from '../components/homework/LinkPass';
 import { RetryProgressBar } from '../components/homework/RetryProgressBar';
-import { BumpButton } from '../components/bumps/BumpButton';
+import { PassBumpButton } from '../components/homework/PassBumpButton';
 import { getMyRelationships, updateDeckSettings } from '../api/client';
 import { getIntervalPreviewLocal } from '../hooks/useStudySession';
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
@@ -378,10 +378,11 @@ function DeckPass({
                 }}
               />
             )}
-            {/* ⚡ Study it today: this word first in today's study (shared/decks/bumps.ts) —
-                its new cards too, past the budget and even from this one-off copy. A second tap
+            {/* ⚡ Study it today (shared/homework/pass-bump.ts): an unstarted word puts ONE card in
+                today's study — its listening card — past the budget, even from this one-off copy, and
+                goes into long-term review so its other cards come later as purple cards. A second tap
                 takes it out. */}
-            <BumpButton noteIds={[note.id]} source="homework_pass" compact removable label="⚡ Study it today" />
+            <PassBumpButton note={note} cards={cardsByNote.get(note.id) ?? []} started={started} deckInReview={longTerm?.inReview} />
           </div>
         ),
         onAnswer: (right, info) => void answer(right, info),

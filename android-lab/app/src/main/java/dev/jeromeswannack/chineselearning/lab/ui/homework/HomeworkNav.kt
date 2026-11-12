@@ -134,6 +134,7 @@ fun passCardUi(deck: PassUi.Deck, word: PassNote): PassCardUi = PassCardUi(
     started = word.started,
     bumped = deck.bumped,
     bumpedBy = deck.bumpedBy,
+    bumpKind = deck.bumpKind,
     busy = deck.busy,
     canUndo = deck.canUndo,
 )

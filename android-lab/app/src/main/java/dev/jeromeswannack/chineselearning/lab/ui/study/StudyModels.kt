@@ -110,6 +110,8 @@ data class PassCardUi(
     /** "⚡ Study it today": the word is in today's pocket (and who put it there, when the tutor did). */
     val bumped: Boolean = false,
     val bumpedBy: String? = null,
+    /** What ⚡ bumps / bumped (core PassBump): listening = the listening card only, lead = one other card, whole = the note. */
+    val bumpKind: String = dev.jeromeswannack.chineselearning.lab.core.PassBump.WHOLE,
     /** The answer is being written. */
     val busy: Boolean = false,
     /** ↺ in the top bar: a Got it / Not yet to take back (docs/HOMEWORK.md §3b). */
