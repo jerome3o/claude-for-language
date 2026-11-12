@@ -21,13 +21,13 @@ Cards exist in one of four queues:
 
 During a study session, cards are selected in this order:
 
-0. **Bumped cards ("⚡ Study it today")** - cards from the bump pocket (below) come first, in pocket order. The recent-notes filter still applies, so a bumped word's sibling cards are spaced out by a few other notes.
+1. **Learning/Relearning cards due NOW** - These have active timers and take priority — over bumped cards too. Selected using weighted randomization (more overdue = higher weight).
 
-1. **Learning/Relearning cards due NOW** - These have active timers and take priority. Selected using weighted randomization (more overdue = higher weight).
+2. **Bumped cards ("⚡ Study it today"), mixed with the reviews** - while the bump pocket (below) has cards on offer, each pick is a pocket card (in pocket order) with probability **max(0.5, pocket ÷ (pocket + other new / review cards))** — at least half the picks, more when the pocket is the bigger pile — otherwise the regular mix below (without the pocket's cards). With 100 bumped cards and 85 reviews that is a 54 % chance per pick: roughly every other card is green. One rule, `mixBumpedCard` / `bumpPickChance` in `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested over seeded sessions, `parity/fixtures/bump-mix.ts`). The recent-notes filter still applies, so a bumped word's sibling cards are spaced out by a few other notes, and a bumped card never comes within 3 cards of its sibling (`pickBumpedCard`). Nothing else to mix with → the pocket card. (Until Nov 2026 the pocket came strictly first, before learning cards due now: ~36 bumped words left nothing but ⚡ cards on screen while 85 reviews waited.)
 
-2. **Mix of New + Review cards** - While learning cards are on cooldown, new and review cards are shown. Selection is proportional to queue sizes (e.g., if 3 new and 7 review cards, ~30% chance of new).
+3. **Mix of New + Review cards** - While learning cards are on cooldown, new and review cards are shown. Selection is proportional to queue sizes (e.g., if 3 new and 7 review cards, ~30% chance of new).
 
-3. **Learning cards on cooldown (due today)** - When no other cards are available AND learning cards exist with cooldowns that haven't expired BUT are due today, show them immediately. This allows completing all study in one sitting.
+4. **Learning cards on cooldown (due today)** - When no other cards are available AND learning cards exist with cooldowns that haven't expired BUT are due today, show them immediately. This allows completing all study in one sitting.
 
 ## When does a new day start ("New day starts at", 4 am by default)
 
@@ -427,8 +427,9 @@ ported to Lab `core/…/SourceDecks.kt` and parity-tested (`parity/fixtures/sour
 
 Jerome often tries to add a card he already has (Coach → Explain → add → "already in this deck").
 Every place that finds the word already exists now offers **⚡ Study it today** first (Add anyway
-second): the note goes into a per-account pocket (`study_bumps`) and its cards come FIRST in
-today's session. One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested):
+second): the note goes into a per-account pocket (`study_bumps`) and its cards are guaranteed in
+today's session and come early — mixed with the day's reviews, at least half the picks, after any
+learning card due now ("Card Selection Priority" above). One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested):
 
 - **Which cards** — of the note's cards not reviewed since the bump: every NEW card, every card
   already due by the cutoff, plus ONE early review: the most important card that isn't due yet

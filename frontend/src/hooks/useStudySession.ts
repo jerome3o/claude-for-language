@@ -41,7 +41,7 @@ import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { readBurySiblings } from '../services/burySiblings';
 import { markDailyActivity, getLocalDateString } from '../api/client';
 import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
-import { isLeadCard, pickBumpedCard, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
+import { isLeadCard, mixBumpedCard, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
 import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
 import { Rating, CardQueue, CardWithNote, Note, IntervalPreview, QueueCounts, Deck } from '../types';
@@ -162,12 +162,14 @@ export function selectNextItem(
   reviewedNoteIds: Set<string>,
   lastRatedCardId?: string,
   lastRatedReaderId?: string,
-  /** "⚡ Study it today" pocket cards (shared/decks/bumps.ts): they come first. */
+  /** "⚡ Study it today" pocket cards (shared/decks/bumps.ts): after learning due now, mixed with the reviews — at least half the picks. */
   bumpedCardIds?: ReadonlySet<string>,
   /** Which card each unseen note starts with (shared/decks/lead-card.ts; a Set = the notes starting with meaning_to_hanzi). */
   leadCards?: LeadCardsArg,
   /** "Start new words by ear": a started word's listening card before its other new cards. */
   newWordsByEar = false,
+  /** The random source of the ⚡ / new / review draws (tests inject a seeded one). */
+  random: () => number = Math.random,
 ): NextStudyItem | null {
   const now = Date.now();
 
@@ -181,13 +183,6 @@ export function selectNextItem(
 
   const cardsToChooseFrom = availableCards.length > 0 ? availableCards : queue;
 
-  // Priority 0: bumped cards ("⚡ Study it today"), first in queue order — the learner
-  // asked for them. The recent-notes filter still spaces out a word's sibling cards, and a
-  // bumped card never jumps the queue within BUMP_SIBLING_GAP cards of its sibling
-  // (shared/decks/bumps.ts pickBumpedCard).
-  const bumped = pickBumpedCard(cardsToChooseFrom, bumpedCardIds, recentNoteIds);
-  if (bumped) return { card: bumped };
-
   // Priority 1: Learning cards due NOW
   const learningDue = cardsToChooseFrom.filter(c =>
     (c.queue === CardQueue.LEARNING || c.queue === CardQueue.RELEARNING) &&
@@ -199,16 +194,30 @@ export function selectNextItem(
     if (card) return { card };
   }
 
-  // Priority 2: Mix new and review cards proportionally
-  const newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
-  const reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
+  // Priority 2a: bumped cards ("⚡ Study it today"), in queue order, MIXED with the reviews:
+  // at least half the picks while any remain (shared/decks/bumps.ts mixBumpedCard — Nov 2026,
+  // a big pocket used to come strictly first and starve the day's reviews). The recent-notes
+  // filter still spaces out a word's sibling cards, and a bumped card never jumps the queue
+  // within BUMP_SIBLING_GAP cards of its sibling (pickBumpedCard).
+  const bumped = mixBumpedCard(cardsToChooseFrom, bumpedCardIds, recentNoteIds, random);
+  if (bumped) return { card: bumped };
+
+  // Priority 2b: Mix new and review cards proportionally — without the pocket's cards (their
+  // share was drawn above), unless nothing else is left.
+  const isBumped = (c: LocalCard) => !!bumpedCardIds?.has(c.id);
+  let newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW && !isBumped(c));
+  let reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW && !isBumped(c));
+  if (newCards.length + reviewCards.length === 0) {
+    newCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.NEW);
+    reviewCards = cardsToChooseFrom.filter(c => c.queue === CardQueue.REVIEW);
+  }
   const totalMixable = newCards.length + reviewCards.length;
 
   if (totalMixable > 0) {
     const newProbability = newCards.length / totalMixable;
-    const random = Math.random();
+    const roll = random();
 
-    if (random < newProbability && newCards.length > 0) {
+    if (roll < newProbability && newCards.length > 0) {
       const card = pickPrioritizedNewCard(newCards, reviewedNoteIds, leadCards, newWordsByEar);
       if (card) return { card };
     }

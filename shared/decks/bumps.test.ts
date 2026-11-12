@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bumpPocket, bumpedCardsForNote, bumpedLabel, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource, pickBumpedCard, type QueueBumps } from './bumps';
+import { bumpPocket, bumpedCardsForNote, bumpedLabel, bumpedMessage, mergeBumpCardTypes, normalizeBumpCardTypes, normalizeBumpSource, pickBumpedCard, bumpPickChance, mixBumpedCard, BUMP_MIN_SHARE, type QueueBumps } from './bumps';
 import { selectStudyQueue, countQueue, type QueueCardInput, type QueueDeckInput } from './study-queue';
 
 const H = 3_600_000;
@@ -240,5 +240,53 @@ describe('pickBumpedCard — spacing from the sibling', () => {
     expect(pickBumpedCard(q, new Set(['m', 'y']), ['n'])?.id).toBe('y');
     expect(pickBumpedCard(q, new Set(), [])).toBeNull();
     expect(pickBumpedCard(q, null, [])).toBeNull();
+  });
+});
+
+describe('mixBumpedCard — the pocket mixed with the reviews', () => {
+  const card = (id: string, note: string, queue: number) => ({ id, note_id: note, queue });
+
+  it('bumpPickChance: at least half while both kinds remain, the proportional share above that', () => {
+    expect(BUMP_MIN_SHARE).toBe(0.5);
+    expect(bumpPickChance(0, 10)).toBe(0);
+    expect(bumpPickChance(3, 0)).toBe(1);
+    expect(bumpPickChance(1, 85)).toBe(0.5);
+    expect(bumpPickChance(100, 85)).toBeCloseTo(100 / 185);
+    expect(bumpPickChance(85, 85)).toBe(0.5);
+  });
+
+  it('draws once against the chance; no draw when nothing else is mixable', () => {
+    const q = [card('b', 'nb', 0), card('r', 'nr', 2)];
+    const ids = new Set(['b']);
+    expect(mixBumpedCard(q, ids, [], () => 0.49)?.id).toBe('b');
+    expect(mixBumpedCard(q, ids, [], () => 0.5)).toBeNull();
+    let draws = 0;
+    expect(mixBumpedCard([card('b', 'nb', 0), card('l', 'nl', 1)], ids, [], () => { draws++; return 0.99; })?.id).toBe('b');
+    expect(draws).toBe(0);
+    expect(mixBumpedCard(q, null, [], () => 0)).toBeNull();
+    expect(mixBumpedCard(q, new Set(), [], () => 0)).toBeNull();
+  });
+
+  it('keeps the sibling gap', () => {
+    const q = [card('b', 'nb', 0), card('r', 'nr', 2)];
+    expect(mixBumpedCard(q, new Set(['b']), ['nb'], () => 0)).toBeNull();
+    expect(mixBumpedCard(q, new Set(['b']), ['nb', 'x', 'y', 'z'], () => 0)?.id).toBe('b');
+  });
+
+  it('with 100 bumped and 85 reviews, roughly every other card is green', () => {
+    let s = 1;
+    const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647; };
+    let bumped = 100, reviews = 85, greensFirst20 = 0;
+    for (let i = 0; bumped + reviews > 0; i++) {
+      const q = [
+        ...Array.from({ length: bumped }, (_, k) => card(`b${k}`, `nb${k}`, 0)),
+        ...Array.from({ length: reviews }, (_, k) => card(`r${k}`, `nr${k}`, 2)),
+      ];
+      const got = mixBumpedCard(q, new Set(q.filter(c => c.queue === 0).map(c => c.id)), [], rnd);
+      if (got) bumped--;
+      else { reviews--; if (i < 20) greensFirst20++; }
+    }
+    expect(greensFirst20).toBeGreaterThanOrEqual(5);
+    expect(greensFirst20).toBeLessThanOrEqual(13);
   });
 });
