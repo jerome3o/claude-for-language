@@ -485,9 +485,11 @@ describe('vocabulary for the agent', () => {
   });
 
   it('sleep lessons: fewer, longer words — the briefing number fits the target', () => {
-    expect(sleepWordTarget(20)).toBe(7);
+    // ~3¾ minutes a word since each example sentence is said twice more after its English (Nov 2026).
+    expect(sleepWordTarget(20)).toBe(5);
+    expect(sleepWordTarget(25)).toBe(7);
     expect(sleepWordTarget(5)).toBe(2);
-    expect(sleepWordTarget(40)).toBe(12);
+    expect(sleepWordTarget(40)).toBe(11);
     expect(maxLessonMinutes('sleep', 20)).toBe(28);
     // The sample (2 words) fits a 5-minute target.
     expect(acceptPlan('sleep', { plan: SAMPLE_SLEEP_PLAN }, { text: '', target_minutes: 5 }).ok).toBe(true);

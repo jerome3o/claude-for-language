@@ -17,7 +17,7 @@ import { callMiniMaxTTS, forgetKnownAccountPauses } from '../services/audio';
 import type { LimiterSnapshot } from '../durable/tts-limiter';
 import { accountFailureCondition, resetAccountFailures } from '../services/tts/account';
 import type { AccountProblem } from '../services/tts/account';
-import { queueStoryRerenders, STORY_RERENDER_FLAG } from '../services/audio-lessons/rerender';
+import { isRerenderFormat, queueRerenders, RERENDER_FORMATS, rerenderFlag, type QueueRerendersResult } from '../services/audio-lessons/rerender';
 
 function accountProblemView(p: AccountProblem | null | undefined, now: number) {
   if (!p) return null;
@@ -237,11 +237,12 @@ routes.post('/admin/audio/compare', async (c) => {
 });
 
 /**
- * Re-render every READY story lesson still in an older layout (docs/AUDIO_LESSONS.md "Story" →
- * "Re-rendering"): `{ format: 'story', dry_run? (default true) }` → the lessons (id, title, chunks,
- * duration now and about how long after) and, unless a dry run, one audio-lesson-queue message each.
- * Nothing is translated or spoken again; ids, titles, companions and listens stay; the file gets a
- * new version. Safe to repeat (an up-to-date lesson is skipped). `once` = the cron's one-time run.
+ * Re-render every READY story / sleep lesson still in an older layout (docs/AUDIO_LESSONS.md "Story" →
+ * "Re-rendering"): `{ format: 'story' | 'sleep' | 'all' (default), dry_run? (default true) }` → the
+ * lessons (id, format, title, chunks / words, duration now and about how long after) and, unless a dry
+ * run, one audio-lesson-queue message each. Nothing is translated or spoken again; ids, titles,
+ * companions and listens stay; the file gets a new version. Safe to repeat (an up-to-date lesson is
+ * skipped). `once` = the cron's one-time run per format.
  */
 routes.post('/admin/audio-lessons/rerender', async (c) => {
   let body: { format?: unknown; dry_run?: unknown; limit?: unknown } = {};
@@ -250,13 +251,27 @@ routes.post('/admin/audio-lessons/rerender', async (c) => {
   } catch {
     // defaults
   }
-  const format = body.format ?? 'story';
-  if (format !== 'story') return c.json({ error: 'Only story lessons have a new layout to re-render (format: "story")' }, 400);
+  const format = body.format ?? 'all';
+  if (format !== 'all' && !isRerenderFormat(format)) return c.json({ error: 'format: "story", "sleep" or "all" (dialogue lessons have no new layout)' }, 400);
+  const formats = format === 'all' ? RERENDER_FORMATS : [format];
   const dryRun = body.dry_run !== false;
   const limit = typeof body.limit === 'number' && body.limit > 0 ? Math.min(500, Math.floor(body.limit)) : 500;
-  const out = await queueStoryRerenders(c.env, { dryRun, limit });
-  const once = await c.env.DB.prepare('SELECT value, created_at FROM app_keys WHERE name = ?').bind(STORY_RERENDER_FLAG).first<{ value: string; created_at: string }>().catch(() => null);
-  return c.json({ format, ...out, once: once ? { ...JSON.parse(once.value), created_at: once.created_at } : null });
+  const results: QueueRerendersResult[] = [];
+  for (const f of formats) results.push(await queueRerenders(c.env, f, { dryRun, limit }));
+  const once: Record<string, unknown> = {};
+  for (const f of formats) {
+    const row = await c.env.DB.prepare('SELECT value, created_at FROM app_keys WHERE name = ?').bind(rerenderFlag(f)).first<{ value: string; created_at: string }>().catch(() => null);
+    once[f] = row ? { ...JSON.parse(row.value), created_at: row.created_at } : null;
+  }
+  return c.json({
+    format,
+    dry_run: dryRun,
+    count: results.reduce((n, r) => n + r.count, 0),
+    queued: results.reduce((n, r) => n + r.queued, 0),
+    by_format: Object.fromEntries(results.map((r) => [r.format, { count: r.count, queued: r.queued }])),
+    lessons: results.flatMap((r) => r.lessons),
+    once,
+  });
 });
 
 export default routes;

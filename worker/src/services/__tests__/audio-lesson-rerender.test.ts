@@ -11,7 +11,14 @@ import {
   compileDialogueLesson,
   compileStoryLesson,
   SAMPLE_DIALOGUE_PLAN,
+  SAMPLE_SLEEP_PLAN,
+  SAMPLE_SLEEP_SOURCE,
   SAMPLE_STORY_PLAN,
+  SLEEP_LAYOUT,
+  compileSleepLesson,
+  repeatLabel,
+  upgradeSleepScript,
+  type SleepPlan,
   ScriptBuilder,
   sleepTranslationText,
   speechKey,
@@ -27,7 +34,7 @@ import type { Env } from '../../types';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import * as q from '../../db/audio-lesson-queries';
 import { assembleMp3, emptyFrame, frameMs, LESSON_MP3, parseMp3Frames, type AssemblyPart } from '../audio-lessons/mp3';
-import { cutClips, queueStoryRerenders, queueStoryRerendersOnce, rerenderStoryLesson } from '../audio-lessons/rerender';
+import { cutClips, queueRerenders, queueRerendersOnce, rerenderAudioLesson, SLEEP_RERENDER_FLAG, STORY_RERENDER_FLAG } from '../audio-lessons/rerender';
 import { runAudioLessonJob } from '../audio-lessons/job';
 import type { ClipOutcome, ClipRequest } from '../audio-lessons/synth';
 
@@ -114,7 +121,7 @@ beforeEach(async () => {
 });
 
 /** A ready lesson as the job leaves it: plan, script, timeline, file in R2 (version `v1`). */
-async function readyLesson(format: 'story' | 'dialogue', script: AudioLessonScript, plan: unknown, clip?: (key: string) => Uint8Array[]): Promise<string> {
+async function readyLesson(format: 'story' | 'dialogue' | 'sleep', script: AudioLessonScript, plan: unknown, clip?: (key: string) => Uint8Array[]): Promise<string> {
   const id = await q.createAudioLesson(db, { userId: 'u1', format, title: 'Lesson title', input: { text: 'x' } });
   const { bytes, timeline } = render(script, clip);
   const audioKey = q.audioLessonFileKey('u1', id, 'v1');
@@ -157,12 +164,12 @@ describe('cutClips', () => {
   });
 });
 
-describe('rerenderStoryLesson', () => {
+describe('rerenderAudioLesson', () => {
   it('re-renders an old-layout story from its own file: same id / title / dates, new version, ×3 +2, nothing spoken', async () => {
     const old = compileOldLayout(SAMPLE_STORY_PLAN);
     const id = await readyLesson('story', old, SAMPLE_STORY_PLAN);
     const before = (await q.getAudioLesson(db, id))!;
-    const res = await rerenderStoryLesson(env, id, { speak: noSpeak, version: () => 'v2' });
+    const res = await rerenderAudioLesson(env, id, { speak: noSpeak, version: () => 'v2' });
     expect(res).toMatchObject({ id, outcome: 'rerendered', clips_cut: 10, clips_made: 0, version: 'v2' });
 
     const row = (await q.getAudioLesson(db, id))!;
@@ -188,7 +195,7 @@ describe('rerenderStoryLesson', () => {
     expect(parseMp3Frames(r2.store.get(row.audio_key!)!).frames.length * 24 + 24).toBe(row.duration_ms);
 
     // Idempotent: again → up to date, nothing changed.
-    expect(await rerenderStoryLesson(env, id, { speak: noSpeak, version: () => 'v3' })).toMatchObject({ outcome: 'up_to_date' });
+    expect(await rerenderAudioLesson(env, id, { speak: noSpeak, version: () => 'v3' })).toMatchObject({ outcome: 'up_to_date' });
     expect((await q.getAudioLesson(db, id))!.audio_key).toBe(row.audio_key);
     expect([...r2.store.keys()].filter((k) => k.includes(id))).toEqual([row.audio_key]);
   });
@@ -197,13 +204,13 @@ describe('rerenderStoryLesson', () => {
     const dialogue = compileDialogueLesson(SAMPLE_DIALOGUE_PLAN);
     const d = await readyLesson('dialogue', dialogue, SAMPLE_DIALOGUE_PLAN);
     const dBefore = await q.getAudioLesson(db, d);
-    expect(await rerenderStoryLesson(env, d, { speak: noSpeak })).toMatchObject({ outcome: 'not_story' });
+    expect(await rerenderAudioLesson(env, d, { speak: noSpeak })).toMatchObject({ outcome: 'not_supported' });
     expect(await q.getAudioLesson(db, d)).toEqual(dBefore);
 
     const s = await readyLesson('story', compileOldLayout(SAMPLE_STORY_PLAN), SAMPLE_STORY_PLAN);
     await q.patchAudioLesson(db, s, { status: 'speaking' });
-    expect(await rerenderStoryLesson(env, s, { speak: noSpeak })).toMatchObject({ outcome: 'not_ready' });
-    expect(await rerenderStoryLesson(env, 'nope', { speak: noSpeak })).toMatchObject({ outcome: 'not_found' });
+    expect(await rerenderAudioLesson(env, s, { speak: noSpeak })).toMatchObject({ outcome: 'not_ready' });
+    expect(await rerenderAudioLesson(env, 'nope', { speak: noSpeak })).toMatchObject({ outcome: 'not_found' });
   });
 
   it('a clip that is not in the old file is made (the pinned provider); one that can’t be made leaves the lesson as it was', async () => {
@@ -215,7 +222,7 @@ describe('rerenderStoryLesson', () => {
     const before = (await q.getAudioLesson(db, id))!;
 
     const busy = async (): Promise<ClipOutcome> => ({ ok: false, wait: true, retryAfterMs: 60_000, reason: 'minimax paused (account)' });
-    const res = await rerenderStoryLesson(env, id, { speak: busy });
+    const res = await rerenderAudioLesson(env, id, { speak: busy });
     expect(res).toMatchObject({ outcome: 'failed' });
     expect(res.reason).toMatch(/minimax paused/);
     expect(await q.getAudioLesson(db, id)).toEqual(before);
@@ -226,7 +233,7 @@ describe('rerenderStoryLesson', () => {
       asked.push({ clip, pinned });
       return { ok: true, bytes: assembleMp3([{ kind: 'frames', frames: clipFrames(clip.text) }]).bytes, provider: 'azure', voice: 'v' };
     };
-    expect(await rerenderStoryLesson(env, id, { speak, version: () => 'v2' })).toMatchObject({ outcome: 'rerendered', clips_cut: 9, clips_made: 1 });
+    expect(await rerenderAudioLesson(env, id, { speak, version: () => 'v2' })).toMatchObject({ outcome: 'rerendered', clips_cut: 9, clips_made: 1 });
     expect(asked).toEqual([{ clip: { lang: 'en', voice: 'recap', rate: 0.9, text: 'Of course. Large or small?' }, pinned: 'minimax' }]);
   });
 
@@ -234,7 +241,7 @@ describe('rerenderStoryLesson', () => {
     const id = await readyLesson('story', compileOldLayout(SAMPLE_STORY_PLAN), SAMPLE_STORY_PLAN);
     const row = (await q.getAudioLesson(db, id))!;
     await r2.bucket.put(row.audio_key!, r2.store.get(row.audio_key!)!.slice(0, 2000));
-    const res = await rerenderStoryLesson(env, id, { speak: noSpeak });
+    const res = await rerenderAudioLesson(env, id, { speak: noSpeak });
     expect(res.outcome).toBe('failed');
     expect(res.reason).toMatch(/couldn't cut the clips/);
     expect((await q.getAudioLesson(db, id))!.script_json).toBe(row.script_json);
@@ -249,20 +256,20 @@ describe('queueing', () => {
     const failedStory = await readyLesson('story', compileOldLayout(SAMPLE_STORY_PLAN), SAMPLE_STORY_PLAN);
     await q.patchAudioLesson(db, failedStory, { status: 'failed' });
 
-    const dry = await queueStoryRerenders(env, { dryRun: true });
+    const dry = await queueRerenders(env, 'story', { dryRun: true });
     expect(dry).toMatchObject({ dry_run: true, count: 1, queued: 0 });
     expect(dry.lessons[0]).toMatchObject({ id: stale, chunks: 5 });
     expect(dry.lessons[0].estimated_ms_after!).toBeGreaterThan(dry.lessons[0].duration_ms! * 1.3);
     expect(sent).toEqual([]);
 
-    expect(await queueStoryRerendersOnce(env)).toEqual({ ran: true, dry_run: false, count: 1, queued: 1 });
+    expect(await queueRerendersOnce(env, 'story')).toEqual({ ran: true, format: 'story', dry_run: false, count: 1, queued: 1 });
     expect(sent).toEqual([{ body: { lessonId: stale, rerender: true }, opts: undefined }]);
-    expect(await queueStoryRerendersOnce(env)).toEqual({ ran: false });
+    expect(await queueRerendersOnce(env, 'story')).toEqual({ ran: false, format: 'story' });
     expect(sent).toHaveLength(1);
 
     // The message's work, then nothing left to do.
-    await rerenderStoryLesson(env, stale, { speak: noSpeak });
-    expect((await queueStoryRerenders(env, { dryRun: true })).count).toBe(0);
+    await rerenderAudioLesson(env, stale, { speak: noSpeak });
+    expect((await queueRerenders(env, 'story', { dryRun: true })).count).toBe(0);
   });
 });
 
@@ -280,5 +287,104 @@ describe('the job', () => {
     const row = (await q.getAudioLesson(db, id))!;
     expect((JSON.parse(row.script_json!) as AudioLessonScript).layout).toBe(STORY_LAYOUT);
     expect(transcriptRows(q.lessonDetail(row).transcript).every((r) => r.again === 2)).toBe(true);
+  });
+});
+
+describe('sleep lessons (layout 2: each example sentence ×3, the English, ×2 more)', () => {
+  const oldSleep = () => compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE, layout: 1 });
+
+  it('re-renders an old-layout sleep lesson from its own file: every clip cut out, nothing spoken, ×3 +2 per sentence', async () => {
+    const old = oldSleep();
+    const id = await readyLesson('sleep', old, SAMPLE_SLEEP_PLAN);
+    const before = (await q.getAudioLesson(db, id))!;
+    const res = await rerenderAudioLesson(env, id, { speak: noSpeak, version: () => 'v2' });
+    expect(res).toMatchObject({ id, outcome: 'rerendered', clips_cut: uniqueSpeech(old).length, clips_made: 0, version: 'v2' });
+
+    const row = (await q.getAudioLesson(db, id))!;
+    expect(row).toMatchObject({ id, title: 'Lesson title', status: 'ready', created_at: before.created_at, finished_at: before.finished_at, plan_json: before.plan_json });
+    expect(row.audio_key).toBe(q.audioLessonFileKey('u1', id, 'v2'));
+    expect(r2.store.has(before.audio_key!)).toBe(false);
+    // Exactly what the plan compiles to in the current layout, rendered from the same clips.
+    const want = render(compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE }));
+    expect([...r2.store.get(row.audio_key!)!]).toEqual([...want.bytes]);
+    expect(row.duration_ms).toBe(want.timeline.duration_ms);
+    expect(row.duration_ms!).toBeGreaterThan(before.duration_ms!);
+    const script = JSON.parse(row.script_json!) as AudioLessonScript;
+    expect(script.layout).toBe(SLEEP_LAYOUT);
+    expect(script.title).toBe(old.title);
+    // The player: each example sentence one row, "×3 +2"; the word rows unchanged ("×3").
+    const rows = transcriptRows(q.lessonDetail(row).transcript);
+    const sentences = SAMPLE_SLEEP_PLAN.words.flatMap((w) => w.sentences.map((s) => s.hanzi));
+    expect(sentences.map((h) => rows.filter((r) => r.text === h).map((r) => repeatLabel(r).text))).toEqual(sentences.map(() => ['×3 +2']));
+    expect(rows.filter((r) => r.text === '邮局').map((r) => repeatLabel(r).text)).toEqual(['×3']);
+    expect(JSON.parse(row.timeline_json!).chapters).toEqual(want.timeline.chapters);
+
+    // Idempotent.
+    expect(await rerenderAudioLesson(env, id, { speak: noSpeak, version: () => 'v3' })).toMatchObject({ outcome: 'up_to_date' });
+    expect((await q.getAudioLesson(db, id))!.audio_key).toBe(row.audio_key);
+  });
+
+  it('works from the STORED script, not the plan: a lesson an older compiler made needs no new clip either', async () => {
+    const old = oldSleep();
+    // An older compiler: a wording today's plan doesn't have.
+    const seg = old.segments.find((s) => s.kind === 'speech' && s.text === '寄就是送东西给别人。');
+    expect(seg).toBeDefined();
+    if (seg && seg.kind === 'speech') seg.text = '寄，就是把东西送给别人。';
+    const id = await readyLesson('sleep', old, SAMPLE_SLEEP_PLAN);
+    const res = await rerenderAudioLesson(env, id, { speak: noSpeak, version: () => 'v2' });
+    expect(res).toMatchObject({ outcome: 'rerendered', clips_made: 0 });
+    const want = render(upgradeSleepScript(old).script);
+    expect([...r2.store.get((await q.getAudioLesson(db, id))!.audio_key!)!]).toEqual([...want.bytes]);
+  });
+
+  it('a file that does not match its timeline: left exactly as it was', async () => {
+    const id = await readyLesson('sleep', oldSleep(), SAMPLE_SLEEP_PLAN);
+    const row = (await q.getAudioLesson(db, id))!;
+    await r2.bucket.put(row.audio_key!, r2.store.get(row.audio_key!)!.slice(0, 3000));
+    const res = await rerenderAudioLesson(env, id, { speak: noSpeak });
+    expect(res.outcome).toBe('failed');
+    expect(await q.getAudioLesson(db, id)).toEqual(row);
+  });
+
+  it('queueing: only ready sleep lessons in layout 1; the cron runs once for sleep even though the story run is long done', async () => {
+    const stale = await readyLesson('sleep', oldSleep(), SAMPLE_SLEEP_PLAN);
+    await readyLesson('sleep', compileSleepLesson(SAMPLE_SLEEP_PLAN), SAMPLE_SLEEP_PLAN);
+    const making = await readyLesson('sleep', oldSleep(), SAMPLE_SLEEP_PLAN);
+    await q.patchAudioLesson(db, making, { status: 'speaking' });
+    await readyLesson('dialogue', compileDialogueLesson(SAMPLE_DIALOGUE_PLAN), SAMPLE_DIALOGUE_PLAN);
+
+    const dry = await queueRerenders(env, 'sleep', { dryRun: true });
+    expect(dry).toMatchObject({ format: 'sleep', dry_run: true, count: 1, queued: 0 });
+    expect(dry.lessons[0]).toMatchObject({ id: stale, format: 'sleep', words: SAMPLE_SLEEP_PLAN.words.length });
+    expect(dry.lessons[0].estimated_ms_after!).toBeGreaterThan(dry.lessons[0].duration_ms!);
+    expect((await queueRerenders(env, 'story', { dryRun: true })).count).toBe(0);
+
+    // The story's one-time run happened in Oct; the sleep flag is its own.
+    db.raw.run(`INSERT INTO app_keys (name, value) VALUES ('${STORY_RERENDER_FLAG}', '{}')`);
+    expect(SLEEP_RERENDER_FLAG).toBe('sleep_rerender_layout_2');
+    expect(await queueRerendersOnce(env, 'story')).toEqual({ ran: false, format: 'story' });
+    expect(await queueRerendersOnce(env, 'sleep')).toEqual({ ran: true, format: 'sleep', dry_run: false, count: 1, queued: 1 });
+    expect(sent).toEqual([{ body: { lessonId: stale, rerender: true }, opts: undefined }]);
+    expect(await queueRerendersOnce(env, 'sleep')).toEqual({ ran: false, format: 'sleep' });
+
+    await rerenderAudioLesson(env, stale, { speak: noSpeak });
+    expect((await queueRerenders(env, 'sleep', { dryRun: true })).count).toBe(0);
+  });
+
+  it('the job: a sleep lesson still speaking with a layout-1 script is rendered in layout 2 (same clips)', async () => {
+    const plan: SleepPlan = SAMPLE_SLEEP_PLAN;
+    const old = oldSleep();
+    const id = await q.createAudioLesson(db, { userId: 'u1', format: 'sleep', title: '邮局', input: { text: 'x' } });
+    await q.patchAudioLesson(db, id, { status: 'speaking', plan_json: plan, script_json: old });
+    const spoken: ClipRequest[] = [];
+    const speak = async (clip: ClipRequest): Promise<ClipOutcome> => {
+      spoken.push(clip);
+      return { ok: true, bytes: assembleMp3([{ kind: 'frames', frames: clipFrames(clip.text) }]).bytes, provider: 'azure', voice: 'v' };
+    };
+    expect(await runAudioLessonJob(env, id, { speak, requeue: async () => {} })).toBe('done');
+    expect(spoken).toHaveLength(uniqueSpeech(old).length);
+    const row = (await q.getAudioLesson(db, id))!;
+    expect((JSON.parse(row.script_json!) as AudioLessonScript).layout).toBe(SLEEP_LAYOUT);
+    expect(transcriptRows(q.lessonDetail(row).transcript).filter((r) => r.again === 2)).toHaveLength(6);
   });
 });

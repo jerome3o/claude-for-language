@@ -155,10 +155,10 @@ describe('show notes', () => {
     expect(html).toContain('<strong>Words (4)</strong>');
   });
 
-  it('a sleep lesson: every explanation line with pinyin, the sentences with English', () => {
+  it('a sleep lesson: every explanation line with pinyin, the sentences with English (×3, the English, ×2 more)', () => {
     const html = showNotesHtml(sleep());
     expect(html).toContain('<p>邮局是一个地方。<br/><em>yóu jú shì yí gè dì fāng.</em></p>');
-    expect(html).toContain('<p>邮局在银行旁边。 <small>×3</small><br/><em>yóujú zài yínháng pángbiān.</em><br/>The post office is next to the bank.</p>');
+    expect(html).toContain('<p>邮局在银行旁边。 <small>×3 +2</small><br/><em>yóujú zài yínháng pángbiān.</em><br/>The post office is next to the bank.</p>');
     expect(html).toContain('<p>The word was 邮局: post office, the place where you send letters and parcels.</p>');
     expect(html).toMatch(/<h3>\d+:\d\d · 原文 yuán wén<\/h3>\n<p>最后，我们慢慢地听一遍原文。<br\/><em>/);
   });

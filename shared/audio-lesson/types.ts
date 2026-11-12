@@ -108,7 +108,10 @@ export interface ScriptSpeaker {
 export interface AudioLessonScript {
   version: 1;
   format: AudioLessonFormat;
-  /** A story lesson's per-chunk layout (`STORY_LAYOUT` in story.ts); absent = 1 (×3 then the English). */
+  /**
+   * The layout of a story's chunks (`STORY_LAYOUT` in story.ts) / a sleep lesson's example sentences
+   * (`SLEEP_LAYOUT` in compile.ts); absent = 1 (×3 then the English). 2 = ×3, the English, ×2 more.
+   */
   layout?: number;
   title: string;
   chapters: Array<{ title: string }>;
@@ -224,7 +227,7 @@ export interface SleepPlan {
       related_known: string[];
       /**
        * Exactly three short, simple example sentences. Each is said three times, then its
-       * `english` translation once by the English voice.
+       * `english` translation once by the English voice, then twice more (`SLEEP_LAYOUT` 2).
        */
       sentences: PlanLine[];
     }
