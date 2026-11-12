@@ -1,6 +1,8 @@
 /**
  * "Study it today" — the bump pocket (study_bumps). A learner (or Claude, for
- * them) bumps a note they already have; its cards come FIRST in today's session.
+ * them) bumps a note they already have; its cards are guaranteed in today's session and
+ * come early — MIXED with the day's reviews, at least half the picks (`mixBumpedCard`;
+ * learning cards due now still go first).
  * Shared by the web app (frontend/src/db/database.ts → selectStudyQueue) and the
  * native Lab app (android-lab/core Bumps.kt, parity-tested through
  * android-lab/parity/fixtures/study-queue.ts). Pure: callers feed it rows.
@@ -263,6 +265,49 @@ export function pickBumpedCard<C extends { id: string; note_id: string }>(
   if (!bumpedCardIds || bumpedCardIds.size === 0) return null;
   const tooRecent = new Set(recentNoteIds.slice(-BUMP_SIBLING_GAP));
   return candidates.find(c => bumpedCardIds.has(c.id) && !tooRecent.has(c.note_id)) ?? null;
+}
+
+/**
+ * While ⚡ pocket cards remain they get at least this share of the session's picks (after
+ * learning cards due now), the reviews and the regular new cards the rest — so a big pocket is
+ * MIXED with the day's reviews instead of starving them (Nov 2026: ~36 bumped words left only
+ * blue / purple ⚡ cards on screen while 85 green reviews waited).
+ */
+export const BUMP_MIN_SHARE = 0.5;
+
+/**
+ * The chance the next pick is a ⚡ pocket card: max(BUMP_MIN_SHARE, its proportional share)
+ * — `bumped` / (`bumped` + `others`) —, 1 when nothing else is mixable, 0 without a pocket.
+ */
+export function bumpPickChance(bumped: number, others: number): number {
+  if (bumped <= 0) return 0;
+  if (others <= 0) return 1;
+  return Math.max(BUMP_MIN_SHARE, bumped / (bumped + others));
+}
+
+/**
+ * The session's ⚡ step, called AFTER learning cards due now (those keep their priority): the
+ * bumped card `pickBumpedCard` offers, shown with probability `bumpPickChance(pocket cards
+ * here, the other NEW / REVIEW cards here)` — one `random()` draw, made only when both kinds
+ * are on offer. Null = show the regular new / review mix now (without the pocket cards, so the
+ * share is exactly that chance). The sibling gap is pickBumpedCard's.
+ */
+export function mixBumpedCard<C extends { id: string; note_id: string; queue: number }>(
+  candidates: ReadonlyArray<C>,
+  bumpedCardIds: ReadonlySet<string> | null | undefined,
+  recentNoteIds: ReadonlyArray<string>,
+  random: () => number
+): C | null {
+  const card = pickBumpedCard(candidates, bumpedCardIds, recentNoteIds);
+  if (!card || !bumpedCardIds) return null;
+  let bumped = 0;
+  let others = 0;
+  for (const c of candidates) {
+    if (bumpedCardIds.has(c.id)) bumped++;
+    else if (c.queue === 0 || c.queue === 2) others++;
+  }
+  if (others === 0) return card;
+  return random() < bumpPickChance(bumped, others) ? card : null;
 }
 
 /** Home's line: "⚡ 2 bumped for today" ('' when none). */

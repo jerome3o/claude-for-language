@@ -5,6 +5,7 @@ import java.time.ZonedDateTime
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /** "⚡ Study it today" (Bumps.kt): copy, sources, and the session order (selectNext). The queue rule is in StudyQueueParityTest. */
 class BumpsTest {
@@ -71,8 +72,14 @@ class BumpsTest {
         assertEquals(listOf("w"), q.bumpedNoteIds)
     }
 
+    /** A Random whose nextDouble() is always [r] (nextInt picks the first). */
+    private class Fixed(val r: Double) : Random() {
+        override fun nextBits(bitCount: Int) = 0
+        override fun nextDouble() = r
+    }
+
     @Test
-    fun selectNextServesTheFirstBumpedCardBeforeLearningDueNow() {
+    fun learningDueNowComesBeforeABumpedCardThenTheBumpedCardIsMixedWithReviews() {
         val learning = card("l", "nl", queue = CardQueue.LEARNING, due = now - 10 * 60_000)
         val review = card("r", "nr", queue = CardQueue.REVIEW, due = now - h)
         val b1 = card("b1", "nb")
@@ -80,14 +87,41 @@ class BumpsTest {
         val queue = listOf(b1, b2, learning, review)
         val reviewed = setOf("nl", "nr")
         repeat(20) { seed ->
-            assertEquals("b1", StudyQueue.selectNext(queue, reviewed, emptyList(), null, now, cutoff, Random(seed), setOf("b1", "b2"))?.id)
+            assertEquals("l", StudyQueue.selectNext(queue, reviewed, emptyList(), null, now, cutoff, Random(seed), setOf("b1", "b2"))?.id)
         }
-        // b1 rated → it leaves the set; b2's note is recent (the card just rated) → skipped while others are available.
-        val next = StudyQueue.selectNext(queue - b1, reviewed, listOf("nb"), "b1", now, cutoff, Random(1), setOf("b2"))
-        assertEquals("l", next?.id)
-        // Nothing else available → the recent filter falls away and b2 comes.
+        // Learning card rated: a low roll shows the first bumped card, a high one the review.
+        val rest = listOf(b1, b2, review)
+        assertEquals("b1", StudyQueue.selectNext(rest, reviewed, listOf("nl"), "l", now, cutoff, Fixed(0.4), setOf("b1", "b2"))?.id)
+        assertEquals("r", StudyQueue.selectNext(rest, reviewed, listOf("nl"), "l", now, cutoff, Fixed(0.9), setOf("b1", "b2"))?.id)
+        // b1 rated -> it leaves the set; b2's note is recent (the card just rated) -> skipped while others are available.
+        assertEquals("r", StudyQueue.selectNext(listOf(b2, review), reviewed, listOf("nb"), "b1", now, cutoff, Fixed(0.0), setOf("b2"))?.id)
+        // Nothing else available -> the recent filter falls away and b2 comes.
         assertEquals("b2", StudyQueue.selectNext(listOf(b2), reviewed, listOf("nb"), "b1", now, cutoff, Random(1), setOf("b2"))?.id)
-        // Without bumps the old order holds: learning due now first.
-        assertEquals("l", StudyQueue.selectNext(queue, reviewed, emptyList(), null, now, cutoff, Random(3))?.id)
+    }
+
+    @Test
+    fun aBigPocketNoLongerStarvesTheReviews() {
+        // 100 bumped (one note each) + 85 reviews: about every other card is green, and every bumped card is shown.
+        val bumped = (0 until 100).map { card("b$it", "nb$it") }
+        val reviews = (0 until 85).map { card("r$it", "nr$it", queue = CardQueue.REVIEW, due = now - h) }
+        var queue: List<QueueCard> = bumped + reviews
+        val ids = bumped.mapTo(HashSet()) { it.id }
+        val recent = ArrayList<String>()
+        val order = ArrayList<String>()
+        val rnd = Random(11)
+        while (queue.isNotEmpty()) {
+            val next = StudyQueue.selectNext(queue, emptySet(), recent, order.lastOrNull(), now, cutoff, rnd, ids)!!
+            order += next.id
+            ids.remove(next.id)
+            queue = queue.filter { it.id != next.id }
+            recent += next.noteId
+            if (recent.size > 5) recent.removeAt(0)
+        }
+        assertEquals(185, order.size)
+        val greens = order.take(20).count { it.startsWith("r") }
+        assertTrue(greens in 5..13, "greens in the first 20: $greens")
+        assertTrue(order.take(6).any { it.startsWith("r") })
+        assertTrue(order.take(92).count { it.startsWith("b") } >= 40)
+        assertEquals(100, order.count { it.startsWith("b") })
     }
 }

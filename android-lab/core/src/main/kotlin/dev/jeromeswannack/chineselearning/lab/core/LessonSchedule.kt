@@ -181,8 +181,8 @@ object SessionMix {
     /**
      * `selectNextItem` with lessons and readers: learning cards due now → a lesson break
      * (every [LessonSchedule.MIX_INTERVAL] reviews) → the cards (StudyQueue.selectNext) →
-     * lessons left over → graded readers close out the session. A "⚡ Study it today" card
-     * ([bumpedCardIds], StudyQueue.selectNext) comes before all of it, the lesson break included.
+     * lessons left over → graded readers close out the session. "⚡ Study it today" cards
+     * ([bumpedCardIds]) are mixed with the reviews inside StudyQueue.selectNext (Bumps.mixBumpedCard).
      */
     fun next(
         queue: List<QueueCard>,
@@ -202,13 +202,9 @@ object SessionMix {
         /** "Start new words by ear" (BuiltQueue.newWordsByEar). */
         newWordsByEar: Boolean = false,
     ): SessionItem? {
-        if (bumpedCardIds.isNotEmpty()) {
-            StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar)
-                ?.takeIf { it.id in bumpedCardIds }?.let { return SessionItem.Card(it) }
-        }
         val learningDueNow = queue.any { CardQueue.isLearning(it.queue) && it.state.dueTimestamp.let { d -> d != null && d != 0L && d <= nowMs } }
         if (lessonBreakDue && lessons.isNotEmpty() && !learningDueNow) return SessionItem.Lesson(lessons[0])
-        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, leadCards = leadCards, newWordsByEar = newWordsByEar)?.let { return SessionItem.Card(it) }
+        StudyQueue.selectNext(queue, reviewedNoteIds, recentNoteIds, lastRatedCardId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar)?.let { return SessionItem.Card(it) }
         if (lessons.isNotEmpty()) return SessionItem.Lesson(lessons[0])
         return nextReader(readers, lastRatedReaderId, nowMs, cutoff, random)?.let { SessionItem.Reader(it) }
     }

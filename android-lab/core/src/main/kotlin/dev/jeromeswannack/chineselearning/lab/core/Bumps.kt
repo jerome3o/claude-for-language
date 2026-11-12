@@ -93,6 +93,43 @@ object Bumps {
         return candidates.firstOrNull { id(it) in bumpedCardIds && noteId(it) !in tooRecent }
     }
 
+    /** Port of BUMP_MIN_SHARE: while ⚡ pocket cards remain they get at least this share of the picks (after learning due now). */
+    const val BUMP_MIN_SHARE = 0.5
+
+    /** Port of bumpPickChance(): max(BUMP_MIN_SHARE, bumped / (bumped + others)); 1 with nothing else mixable, 0 without a pocket. */
+    fun bumpPickChance(bumped: Int, others: Int): Double {
+        if (bumped <= 0) return 0.0
+        if (others <= 0) return 1.0
+        return maxOf(BUMP_MIN_SHARE, bumped.toDouble() / (bumped + others))
+    }
+
+    /**
+     * Port of mixBumpedCard(): the session's ⚡ step AFTER learning cards due now — the card
+     * [pickBumpedCard] offers, shown with probability [bumpPickChance] (pocket cards here vs the
+     * other NEW / REVIEW cards here), one [random] draw made only when both kinds are on offer.
+     * Null = the regular new / review mix (without the pocket's cards) comes now.
+     */
+    fun <C> mixBumpedCard(
+        candidates: List<C>,
+        bumpedCardIds: Set<String>?,
+        recentNoteIds: List<String>,
+        random: () -> Double,
+        id: (C) -> String,
+        noteId: (C) -> String,
+        queue: (C) -> Int,
+    ): C? {
+        val card = pickBumpedCard(candidates, bumpedCardIds, recentNoteIds, id, noteId) ?: return null
+        val ids = bumpedCardIds ?: return null
+        var bumped = 0
+        var others = 0
+        for (c in candidates) {
+            if (id(c) in ids) bumped++
+            else if (queue(c) == CardQueue.NEW || queue(c) == CardQueue.REVIEW) others++
+        }
+        if (others == 0) return card
+        return if (random() < bumpPickChance(bumped, others)) card else null
+    }
+
     private fun typeRank(t: String): Int = BUMP_CARD_TYPE_ORDER.indexOf(t).let { if (it < 0) BUMP_CARD_TYPE_ORDER.size else it }
 
     private val byType = Comparator<QueueCard> { a, b ->

@@ -228,19 +228,64 @@ describe('lesson attempts (per-exercise answers + recordings)', () => {
 });
 
 describe('selectNextItem with bumped cards ("⚡ Study it today")', () => {
-  it('shows a bumped card first, even before a learning card due now', () => {
+  const pickId = (p: ReturnType<typeof selectNextItem>) => (p && 'card' in p ? p.card.id : null);
+
+  it('a learning card due now comes before a bumped card', () => {
     const learning = makeCard({ queue: CardQueue.LEARNING, due_timestamp: Date.now() - 60_000 });
     const review = makeCard();
     const bumped = makeCard({ queue: CardQueue.NEW });
-    const pick = selectNextItem([learning, review, bumped], [], null, [], new Set(), undefined, undefined, new Set([bumped.id]));
-    expect(pick && 'card' in pick && pick.card.id).toBe(bumped.id);
+    for (const r of [0, 0.99]) {
+      const pick = selectNextItem([bumped, learning, review], [], null, [], new Set(), undefined, undefined, new Set([bumped.id]), undefined, false, () => r);
+      expect(pickId(pick)).toBe(learning.id);
+    }
+  });
+
+  it('mixes the pocket with the reviews: a low roll shows the bumped card, a high one a review', () => {
+    const review = makeCard();
+    const bumped = makeCard({ queue: CardQueue.NEW });
+    const ids = new Set([bumped.id]);
+    expect(pickId(selectNextItem([bumped, review], [], null, [], new Set(), undefined, undefined, ids, undefined, false, () => 0.49))).toBe(bumped.id);
+    expect(pickId(selectNextItem([bumped, review], [], null, [], new Set(), undefined, undefined, ids, undefined, false, () => 0.51))).toBe(review.id);
+    // Nothing else to mix with → the bumped card.
+    expect(pickId(selectNextItem([bumped], [], null, [], new Set(), undefined, undefined, ids, undefined, false, () => 0.99))).toBe(bumped.id);
+  });
+
+  it('a big pocket no longer starves the reviews: ~half the first picks are green, and every bumped card is shown', () => {
+    // 100 bumped + 85 reviews, each on its own note (Jerome's day, Nov 2026).
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const bumpedCards = Array.from({ length: 100 }, (_, i) => makeCard({ id: `b${i}`, note_id: `nb${i}`, queue: CardQueue.NEW }));
+    const reviews = Array.from({ length: 85 }, (_, i) => makeCard({ id: `r${i}`, note_id: `nr${i}` }));
+    let queue: LocalCard[] = [...bumpedCards, ...reviews];
+    const ids = new Set(bumpedCards.map(c => c.id));
+    const recent: string[] = [];
+    const order: string[] = [];
+    while (queue.length > 0) {
+      const id = pickId(selectNextItem(queue, [], null, recent, new Set(), undefined, undefined, ids, undefined, false, rnd))!;
+      const card = queue.find(c => c.id === id)!;
+      order.push(id);
+      ids.delete(id);
+      queue = queue.filter(c => c.id !== id);
+      recent.push(card.note_id);
+      if (recent.length > 5) recent.shift();
+    }
+    expect(order.length).toBe(185);
+    const first20 = order.slice(0, 20);
+    const greens = first20.filter(id => id.startsWith('r')).length;
+    expect(first20.slice(0, 6).some(id => id.startsWith('r'))).toBe(true);
+    expect(greens).toBeGreaterThanOrEqual(5);
+    expect(greens).toBeLessThanOrEqual(13);
+    // The pocket keeps at least half the picks while it lasts: the 100 bumped cards are done within ~200 picks' worth of share.
+    const firstHalf = order.slice(0, 92);
+    expect(firstHalf.filter(id => id.startsWith('b')).length).toBeGreaterThanOrEqual(40);
+    expect(new Set(order.filter(id => id.startsWith('b'))).size).toBe(100);
   });
 
   it('keeps spacing a word’s siblings: a bumped card of a just-rated note waits', () => {
     const sibling = makeCard({ queue: CardQueue.NEW, note_id: 'n-recent' });
     const other = makeCard();
-    const pick = selectNextItem([sibling, other], [], null, ['n-recent'], new Set(), undefined, undefined, new Set([sibling.id]));
-    expect(pick && 'card' in pick && pick.card.id).toBe(other.id);
+    const pick = selectNextItem([sibling, other], [], null, ['n-recent'], new Set(), undefined, undefined, new Set([sibling.id]), undefined, false, () => 0);
+    expect(pickId(pick)).toBe(other.id);
   });
 });
 

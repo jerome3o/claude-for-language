@@ -410,9 +410,11 @@ object StudyQueue {
      * due today (shown at once — no waiting screen). Non-learning cards of the last 5
      * rated notes are skipped while anything else is available.
      *
-     * [bumpedCardIds] ("⚡ Study it today"): among the available cards, the FIRST one (queue
-     * order) in the set comes before everything else, learning-due-now included. The session
-     * drops a card from the set once it is rated.
+     * [bumpedCardIds] ("⚡ Study it today"): after learning cards due now, the FIRST available
+     * one (queue order) in the set is MIXED with the reviews — shown with probability
+     * Bumps.bumpPickChance (at least half the picks while any remain; Bumps.mixBumpedCard), else
+     * the regular new / review mix without the pocket's cards. The session drops a card from the
+     * set once it is rated.
      */
     fun selectNext(
         queue: List<QueueCard>,
@@ -431,14 +433,20 @@ object StudyQueue {
         if (queue.isEmpty()) return null
         val available = queue.filter { CardQueue.isLearning(it.queue) || it.noteId !in recentNoteIds }
         val choose = available.ifEmpty { queue }
-        // Bumped cards first — never within Bumps.BUMP_SIBLING_GAP cards of a sibling (pickBumpedCard).
-        Bumps.pickBumpedCard(choose, bumpedCardIds, recentNoteIds, { it.id }, { it.noteId })?.let { return it }
-
         val learningDue = choose.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp != null && it.state.dueTimestamp <= nowMs }
         if (learningDue.isNotEmpty()) return pickWeightedLearning(learningDue, nowMs, random)
 
-        val newCards = choose.filter { it.queue == CardQueue.NEW }
-        val reviewCards = choose.filter { it.queue == CardQueue.REVIEW }
+        // ⚡ bumped cards, mixed with the reviews (at least half the picks) — never within
+        // Bumps.BUMP_SIBLING_GAP cards of a sibling (Bumps.mixBumpedCard).
+        Bumps.mixBumpedCard(choose, bumpedCardIds, recentNoteIds, { random.nextDouble() }, { it.id }, { it.noteId }, { it.queue })?.let { return it }
+
+        // The regular mix, without the pocket's cards (their share was drawn above) unless nothing else is left.
+        var newCards = choose.filter { it.queue == CardQueue.NEW && it.id !in bumpedCardIds }
+        var reviewCards = choose.filter { it.queue == CardQueue.REVIEW && it.id !in bumpedCardIds }
+        if (newCards.isEmpty() && reviewCards.isEmpty()) {
+            newCards = choose.filter { it.queue == CardQueue.NEW }
+            reviewCards = choose.filter { it.queue == CardQueue.REVIEW }
+        }
         if (newCards.size + reviewCards.size > 0) {
             val newProbability = newCards.size.toDouble() / (newCards.size + reviewCards.size)
             if (random.nextDouble() < newProbability && newCards.isNotEmpty()) return pickPrioritizedNew(newCards, reviewedNoteIds, random, leadCards, newWordsByEar)
