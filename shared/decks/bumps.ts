@@ -219,6 +219,29 @@ export function bumpPocket<C extends QueueCardInput>(
 }
 
 /**
+ * The NEW cards that wait while their note's bump is open: an UNSTARTED note (no card reviewed)
+ * with cards in the pocket — a card-level bump, e.g. the homework pass's ⚡ that puts only the
+ * listening card there (shared/homework/pass-bump.ts) — feeds no new-card pool and no Up next
+ * slot today. Its other NEW cards come once the bumped card is reviewed: the note is then started
+ * and they are ordinary secondary (purple) cards, within the daily budget. (A whole-note bump of
+ * an unstarted note already holds every NEW card, so nothing waits.) `cards` = the cards in
+ * scope; `pocketCards` = the pocket over them; `reviewed` = notes with a reviewed card.
+ */
+export function pocketSiblingIds<C extends QueueCardInput>(
+  cards: ReadonlyArray<C>,
+  pocketCards: ReadonlyArray<C>,
+  reviewed: ReadonlySet<string>
+): Set<string> {
+  const out = new Set<string>();
+  if (pocketCards.length === 0) return out;
+  const inPocket = new Set(pocketCards.map(c => c.id));
+  const notes = new Set(pocketCards.filter(c => !reviewed.has(c.note_id)).map(c => c.note_id));
+  if (notes.size === 0) return out;
+  for (const c of cards) if (c.queue === 0 && notes.has(c.note_id) && !inPocket.has(c.id)) out.add(c.id);
+  return out;
+}
+
+/**
  * A card that is bumped this session waits until its note is out of the last
  * BUMP_SIBLING_GAP rated notes: added from its sibling's ⋯ menu, it comes up a few cards
  * later, never straight after the sibling. (The session's recent-notes filter — the last 5

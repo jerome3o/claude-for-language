@@ -198,6 +198,8 @@ data class PassNote(
     val started: Boolean = false,
     /** The card types the note has on this phone (Hard mode's second angle, core PassAngles). */
     val cardTypes: List<String> = emptyList(),
+    /** The note's cards (type + queue) on this phone — what the pass's ⚡ bumps (core PassBump). */
+    val cards: List<dev.jeromeswannack.chineselearning.lab.core.PassBump.NoteCard> = emptyList(),
 )
 
 enum class AddState { Idle, Busy, Done, Error }
@@ -220,6 +222,8 @@ sealed interface PassUi {
         /** "⚡ Study it today": [note] is in today's pocket (and who put it there, when the tutor did). */
         val bumped: Boolean = false,
         val bumpedBy: String? = null,
+        /** What the pass's ⚡ bumps / bumped for [note] (core PassBump): listening / lead / whole. */
+        val bumpKind: String = dev.jeromeswannack.chineselearning.lab.core.PassBump.WHOLE,
         val deckId: String,
         /** One-off only (no long-term review): offer "Add to my daily review" at the end. */
         val oneOffOnly: Boolean,

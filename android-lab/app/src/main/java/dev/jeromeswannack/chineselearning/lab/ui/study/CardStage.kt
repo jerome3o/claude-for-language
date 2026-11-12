@@ -43,6 +43,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -1654,12 +1655,31 @@ private fun PassChoices(pass: PassCardUi, actions: StudyActions) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         dev.jeromeswannack.chineselearning.lab.ui.homework.LongTermSwitch(on = pass.longTermOn, started = pass.started, onChange = actions.onPassLongTerm)
-        dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpToggle(on = pass.bumped, bumpedBy = pass.bumpedBy, onChange = actions.onPassBump)
+        // ⚡ (core PassBump): an unstarted word = its listening card only; the line under it says what comes later.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            dev.jeromeswannack.chineselearning.lab.ui.bumps.BumpToggle(
+                on = pass.bumped, bumpedBy = pass.bumpedBy, onChange = actions.onPassBump,
+                label = dev.jeromeswannack.chineselearning.lab.core.PassBump.label(pass.bumpKind, pass.bumped),
+            )
+            val hint = if (pass.bumped) dev.jeromeswannack.chineselearning.lab.core.PassBump.hint(pass.bumpKind) else ""
+            if (hint.isNotEmpty()) {
+                Text(
+                    hint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(top = 2.dp).widthIn(max = 260.dp).testTag(PASS_BUMP_HINT_TAG),
+                )
+            }
+        }
     }
 }
 
 /** Test tag of the pass's choices row on the answer side. */
 const val PASS_EXTRAS_TAG = "hw-pass-extras"
+
+/** Test tag of the line under the pass's ⚡ while it is on ("Its other cards come later…"). */
+const val PASS_BUMP_HINT_TAG = "hw-pass-bump-hint"
 
 @Composable
 private fun TypeChip(cardType: String) {

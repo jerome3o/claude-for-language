@@ -24,6 +24,8 @@
  *
  * Bumped notes ("⚡ Study it today", bumps.ts) come FIRST: their pocket cards head
  * the queue, NEW ones outside the budget (they never take from or wait for it).
+ * An unstarted note bumped card by card (the homework pass's ⚡: its listening card)
+ * holds its other NEW cards back until that card is reviewed (`pocketSiblingIds`).
  *
  * "Up next" (up-next.ts): the account's ordered list of chosen notes takes the
  * budget BEFORE the deck queue and "Order new cards by" — one blue card per
@@ -44,7 +46,7 @@ import { DEFAULT_NEW_CARD_ORDER, orderWithinDeck, pickNewCardsByOrder, studiedFr
 import type { FrequencyIndex } from './frequency';
 import { FORMALITY_NEUTRAL } from './formality';
 import { admitsNewCards, deckInDailyReview, longTermCaps, type LongTermPref } from './long-term';
-import { bumpPocket, type QueueBumps } from './bumps';
+import { bumpPocket, pocketSiblingIds, type QueueBumps } from './bumps';
 import { takeUpNext, upNextSlots } from './up-next';
 import { cardsInStudy, type QueueHolds } from './holds';
 import {
@@ -298,12 +300,15 @@ export function selectStudyQueue<C extends QueueCardInput>(
   const inReview = new Map(inScope.map(d => [d.id, deckInDailyReview(d.cap_primary, d.cap_secondary)]));
   const pocket = bumpPocket(live.filter(c => scopeIds.has(c.deck_id)), bumps, cutoffMs);
   const pocketIds = new Set(pocket.cards.map(c => c.id));
+  // The pocket's cards and, for an unstarted note bumped card by card, its other NEW cards
+  // (they wait until the bumped card is reviewed — bumps.ts `pocketSiblingIds`).
+  const skipIds = new Set([...pocketIds, ...pocketSiblingIds(live.filter(c => scopeIds.has(c.deck_id)), pocket.cards, reviewed)]);
   // Up next: its notes never feed the regular pools; it takes the budget first.
-  const slots = upNextSlots(live.filter(c => scopeIds.has(c.deck_id)), upNext, reviewed, pocketIds, longTerm);
+  const slots = upNextSlots(live.filter(c => scopeIds.has(c.deck_id)), upNext, reviewed, skipIds, longTerm);
 
   const newByDeck = new Map<string, C[]>();
   for (const c of live) {
-    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || pocketIds.has(c.id) || slots.noteIds.has(c.note_id)) continue;
+    if (c.queue !== QUEUE_NEW || !scopeIds.has(c.deck_id) || skipIds.has(c.id) || slots.noteIds.has(c.note_id)) continue;
     if (!admitsNewCards(longTerm?.get(c.note_id) ?? null, inReview.get(c.deck_id)!, reviewed.has(c.note_id))) continue;
     const list = newByDeck.get(c.deck_id);
     if (list) list.push(c);
@@ -339,7 +344,7 @@ export function selectStudyQueue<C extends QueueCardInput>(
   }
   // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
   // known characters, lead-card.ts) — the pools' notes and Up next's alike.
-  const scopeNew = live.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !pocketIds.has(c.id));
+  const scopeNew = live.filter(c => c.queue === QUEUE_NEW && scopeIds.has(c.deck_id) && !skipIds.has(c.id));
   const leadInfo = leadCardsInQueue(scopeNew, reviewed, cards, noteText);
   const lead = leadInfo.leads;
   // "Start new words by ear": in the purple pool a started word's listening card comes first.

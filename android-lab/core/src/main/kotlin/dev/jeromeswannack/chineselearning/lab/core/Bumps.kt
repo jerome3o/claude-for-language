@@ -152,6 +152,20 @@ object Bumps {
         return BumpPocket(out, active, done)
     }
 
+    /**
+     * Port of pocketSiblingIds(): the NEW cards that wait while their note's bump is open — an
+     * UNSTARTED note with cards in the pocket (a card-level bump, e.g. the homework pass's ⚡ =
+     * the listening card only, PassBump.kt) feeds no new-card pool and no Up next slot; its other
+     * NEW cards come once the bumped card is reviewed, as ordinary purple cards.
+     */
+    fun pocketSiblingIds(cards: List<QueueCard>, pocketCards: List<QueueCard>, reviewed: Set<String>): Set<String> {
+        if (pocketCards.isEmpty()) return emptySet()
+        val inPocket = pocketCards.mapTo(HashSet()) { it.id }
+        val notes = pocketCards.filter { it.noteId !in reviewed }.mapTo(HashSet()) { it.noteId }
+        if (notes.isEmpty()) return emptySet()
+        return cards.filter { it.queue == CardQueue.NEW && it.noteId in notes && it.id !in inPocket }.mapTo(LinkedHashSet()) { it.id }
+    }
+
     /** Home's line: "⚡ 2 bumped for today" ('' when none). */
     fun bumpedLabel(count: Int): String = if (count > 0) "⚡ $count bumped for today" else ""
 

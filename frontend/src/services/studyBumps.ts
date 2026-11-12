@@ -83,7 +83,7 @@ export async function bumpNotes(noteIds: string[], source: BumpSource, hanziById
     const notes = await db.notes.bulkGet(list);
     return list.map((id, i) => hanziById?.get(id) ?? notes[i]?.hanzi ?? '').filter(Boolean);
   };
-  track('study.bump_added', { source, count: added.length, already: already.length });
+  track('study.bump_added', { source, count: added.length, already: already.length, card_types: 0 });
   if (added.length && online()) void flushPendingBumps().catch(() => undefined);
   return { added, already, message: bumpedMessage(await names(added), already.length) };
 }
@@ -147,7 +147,7 @@ export async function bumpCardTypes(noteId: string, cardTypes: string[], source:
     });
     outcome = { added: true, cardTypes: merge.card_types };
   });
-  track('study.bump_added', { source, count: outcome.added ? 1 : 0, already: outcome.added ? 0 : 1 });
+  track('study.bump_added', { source, count: outcome.added ? 1 : 0, already: outcome.added ? 0 : 1, card_types: want.length });
   if (outcome.added && online()) void flushPendingBumps().catch(() => undefined);
   return outcome;
 }

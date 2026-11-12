@@ -98,8 +98,33 @@ test('the pass is the study card: record → "You said" → Got it suggested; �
   const assignmentId = mine.assignments[0].id;
 
   const uploads = await routeUploads(page, '银行');
-  // No clips in the test; don't wait for one to be made.
-  await page.route('**/api/notes/*/ensure-audio', (route) => route.abort());
+  // E2E makes no TTS: give 银行 a word clip in what the API hands the device (sync, decks, ensure-audio),
+  // so its listening card can be played — ⚡ then bumps that card. The other word has no clip.
+  const copy = await api<{ notes: Array<{ id: string; hanzi: string }> }>(request, `/api/decks/${mine.assignments[0].target_id}`, { token: student.token });
+  const yinhang = copy.notes.find((n) => n.hanzi === '银行')!.id;
+  const CLIP = 'generated/e2e-yinhang.mp3';
+  const withClip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(withClip);
+    if (v && typeof v === 'object') {
+      const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, withClip(x)]));
+      if (o.id === yinhang && 'audio_url' in o) o.audio_url = CLIP;
+      return o;
+    }
+    return v;
+  };
+  await page.route('**/api/**', async (route) => {
+    const req = route.request();
+    if (req.method() !== 'GET' || /\/api\/audio\//.test(req.url())) return route.fallback();
+    const res = await route.fetch();
+    const type = res.headers()['content-type'] ?? '';
+    if (!type.includes('application/json')) return route.fulfill({ response: res });
+    return route.fulfill({ response: res, json: withClip(await res.json()) });
+  });
+  await page.route('**/api/notes/*/ensure-audio', (route) => {
+    const id = new URL(route.request().url()).pathname.split('/')[3];
+    if (id !== yinhang) return route.abort();
+    return route.fulfill({ json: { note: { id, audio_url: CLIP, updated_at: new Date().toISOString() }, word: 'ok', sentence: 'none' } });
+  });
   await page.goto(`/?session_token=${student.token}`);
   await expect(page.getByTestId('homework-home-card')).toBeVisible({ timeout: 60_000 });
   await page.goto(`/homework/${assignmentId}`);
@@ -139,25 +164,29 @@ test('the pass is the study card: record → "You said" → Got it suggested; �
   await expect(page.getByTestId('hw-gotit')).toHaveClass(/hw-btn--suggested/);
   await expect(page.getByTestId('hw-notyet')).not.toHaveClass(/hw-btn--suggested/);
 
-  // ---- The answer side's choices: long-term review and the ⚡ toggle.
+  // ---- The answer side's choices: long-term review and the ⚡ toggle (shared/homework/pass-bump.ts:
+  // ONE card of an unstarted word — its listening card — not all three).
   const extras = page.getByTestId('hw-pass-extras');
   await expect(extras.getByTestId('hw-longterm')).toBeVisible();
-  const bump = extras.getByRole('button', { name: /Study it today|Today ✓/ });
-  await expect(bump).toHaveText('⚡ Study it today');
+  const bump = extras.getByRole('button', { name: /Study it today|today ✓/ });
+  // 银行 has its word clip: ⚡ is its listening card (a word without one says "· 1 card", its lead card).
+  await expect(bump).toHaveText('⚡ Study it today · listening card', { timeout: 15_000 });
   await bump.click();
-  await expect(bump).toHaveText('⚡ Today ✓');
+  await expect(bump).toHaveText('⚡ Listening card today ✓');
   await expect(bump).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(async () => (await rows<{ source: string; pending: string | null }>(page, 'studyBumps')).filter((b) => b.pending !== 'clear').map((b) => b.source)).toEqual(['homework_pass']);
+  await expect(page.getByTestId('pass-bump-hint')).toContainText('other cards come later');
+  const pocket = async () => (await rows<{ source: string; pending: string | null; card_types?: string[] | null }>(page, 'studyBumps')).filter((b) => b.pending !== 'clear');
+  await expect.poll(async () => (await pocket()).map((b) => [b.source, b.card_types])).toEqual([['homework_pass', ['audio_to_hanzi']]]);
   // Off again: taken out of today's pocket.
   await bump.click();
-  await expect(bump).toHaveText('⚡ Study it today');
-  await expect.poll(async () => (await rows<{ pending: string | null }>(page, 'studyBumps')).filter((b) => b.pending !== 'clear').length).toBe(0);
-  // …and on, for good: it reaches the server (the one-off copy's word is first in today's study).
+  await expect(bump).toHaveText('⚡ Study it today · listening card');
+  await expect.poll(async () => (await pocket()).length).toBe(0);
+  // …and on, for good: it reaches the server (the one-off copy's word — its listening card only).
   await bump.click();
-  await expect(bump).toHaveText('⚡ Today ✓');
+  await expect(bump).toHaveText('⚡ Listening card today ✓');
   await expect
-    .poll(async () => (await api<{ bumps: Array<{ hanzi: string }> }>(request, '/api/me/bumps', { token: student.token })).bumps.map((b) => b.hanzi), { timeout: 15_000 })
-    .toEqual(['银行']);
+    .poll(async () => (await api<{ bumps: Array<{ hanzi: string; card_types: string[] | null }> }>(request, '/api/me/bumps', { token: student.token })).bumps.map((b) => [b.hanzi, b.card_types]), { timeout: 15_000 })
+    .toEqual([['银行', ['audio_to_hanzi']]]);
 
   await page.getByTestId('hw-gotit').click();
   await expect(page.getByTestId('hw-pass-count')).toHaveText('1/2');
@@ -179,4 +208,10 @@ test('the pass is the study card: record → "You said" → Got it suggested; �
   const results = (await rows<{ result: string }>(page, 'homeworkEvents')).map((e) => e.result);
   expect(results.filter((r) => r === 'right')).toHaveLength(2);
   expect(results.filter((r) => r === 'wrong')).toHaveLength(wrongs);
+
+  // Today's study gained exactly ONE card from ⚡ — 银行's listening card — not its three cards.
+  await page.goto('/');
+  await expect(page.getByTestId('home-bumped')).toHaveText('⚡ 1 bumped for today', { timeout: 30_000 });
+  await expect(page.locator('.home-study-subtitle')).toContainText('1 card due');
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

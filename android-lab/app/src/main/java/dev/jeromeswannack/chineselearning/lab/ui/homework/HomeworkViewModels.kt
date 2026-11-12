@@ -7,6 +7,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Homework
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkAssignment
 import dev.jeromeswannack.chineselearning.lab.core.PassAngles
+import dev.jeromeswannack.chineselearning.lab.core.PassBump
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonEntry
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
 import dev.jeromeswannack.chineselearning.lab.data.readers.ReaderEntry
@@ -80,8 +81,10 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
 
     private val local = MutableStateFlow(Local())
     private val notes = MutableStateFlow<Map<String, PassNote>?>(null)
-    /** "⚡ Study it today": the notes in today's pocket on this phone → who bumped them (null = the learner). */
-    private val bumped = MutableStateFlow<Map<String, String?>>(emptyMap())
+    /** "⚡ Study it today": the notes in today's pocket on this phone → who bumped them (null = the learner) and which card types. */
+    private val bumped = MutableStateFlow<Map<String, PocketRow>>(emptyMap())
+    /** The long-term choice the pass's ⚡ replaced, per note, so taking ⚡ back restores it. */
+    private val longTermBeforeBump = HashMap<String, Int?>()
     /** The deck copy's own long-term default (null until read): false for a 0 + 0 one-off copy. */
     @Volatile private var deckInReview: Boolean? = null
     private val runtime by lazy { LessonRuntime.of(app) }
@@ -141,7 +144,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             attempt = attempt,
             assignmentId = a.id,
             bumped = current != null && current in bumpedNotes,
-            bumpedBy = current?.let { bumpedNotes[it] },
+            bumpedBy = current?.let { bumpedNotes[it]?.by },
+            bumpKind = current?.let { c -> bumpedNotes[c]?.let { PassBump.kindOfRow(it.cardTypes) } ?: notes?.get(c)?.let { bumpPlan(it).kind } } ?: PassBump.WHOLE,
             deckId = a.target_id,
             oneOffOnly = !Homework.hasFsrs(a.mode),
             addState = l.add,
@@ -168,11 +172,15 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
                         LongTerm.deckInDailyReview(d.newCardsPerDay, d.secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP)
                     }
                     val started = ids.chunked(500).flatMap { dao.startedNoteIds(it) }.toHashSet()
-                    val typesOf = ids.chunked(500).flatMap { dao.cardsOfNotes(it) }.groupBy({ it.noteId }, { it.cardType })
+                    val cardsOf = ids.chunked(500).flatMap { dao.cardsOfNotes(it) }.groupBy { it.noteId }
                     dao.notes(ids).associate { n ->
                         // The study card's rows: the card's own sentence, then the generated set.
                         val rows = sentenceRows(n, dao.sentencesFor(n.id))
-                        n.id to PassNote(n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId, n.longTerm, n.id in started, typesOf[n.id].orEmpty())
+                        val noteCards = cardsOf[n.id].orEmpty()
+                        n.id to PassNote(
+                            n.id, n.hanzi, n.pinyin, n.english, n.audioUrl, rows, n.deckId, n.longTerm, n.id in started,
+                            noteCards.map { it.cardType }, noteCards.map { PassBump.NoteCard(it.cardType, it.queue) },
+                        )
                     }
                 }
             }
@@ -344,23 +352,59 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         }
     }
 
+    /** The pass's ⚡ for [note] (core PassBump, shared/homework/pass-bump.ts), the known-characters lead given when asked. */
+    private fun bumpPlan(note: PassNote, knownCharactersLead: (() -> Boolean)? = null): PassBump.Plan = PassBump.plan(
+        note.cards, note.started, !note.audioUrl.isNullOrBlank(), note.longTerm,
+        current()?.deckInReview ?: deckInReview ?: true, knownCharactersLead,
+    )
+
     /**
-     * ⚡ Study it today on the answer side (shared/decks/bumps.ts, data/bumps/BumpStore.kt): on puts
-     * this word first in today's study — its NEW cards too, past the budget, even from a one-off
-     * copy (the pocket is outside the pools) — off takes it out of the pocket. Offline-first.
+     * ⚡ Study it today on the answer side (core PassBump — shared/homework/pass-bump.ts, docs/HOMEWORK.md
+     * §3c): an UNSTARTED word puts ONE card first in today's study — its listening card (else its lead
+     * card), past the budget, even from a one-off copy — and goes into long-term review so its other
+     * cards come later as purple cards; a started word is bumped whole, as before. Off takes it out
+     * of the pocket (and puts back the long-term choice ⚡ changed). Offline-first.
      */
     fun setBump(on: Boolean) {
         val note = current()?.note ?: return
         app.haptics.tick()
         // Optimistic: the toggle moves now; the pocket read back confirms it.
-        bumped.value = if (on) bumped.value + (note.id to null) else bumped.value - note.id
+        val first = bumpPlan(note)
+        bumped.value = if (on) bumped.value + (note.id to PocketRow(null, first.cardTypes)) else bumped.value - note.id
         viewModelScope.launch {
             runCatching {
-                if (on) dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpNotes(app, listOf(note.id), SOURCE_BUMP)
-                else dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.clear(app, note.id, SOURCE_BUMP)
+                val store = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
+                if (on) {
+                    val known = if (first.kind == PassBump.LEAD) withContext(Dispatchers.IO) { knownCharactersLead(note.hanzi) } else false
+                    val plan = bumpPlan(note) { known }
+                    val types = plan.cardTypes
+                    if (types != null) store.bumpCardTypes(app, note.id, types, SOURCE_BUMP) else store.bumpNotes(app, listOf(note.id), SOURCE_BUMP)
+                    if (plan.setLongTerm) {
+                        longTermBeforeBump[note.id] = note.longTerm
+                        notes.value = notes.value?.let { m -> m + (note.id to note.copy(longTerm = plan.longTerm)) }
+                        LongTermStore.set(app, note.id, plan.longTerm)
+                    }
+                } else {
+                    store.clear(app, note.id, SOURCE_BUMP)
+                    if (!note.started && longTermBeforeBump.containsKey(note.id)) {
+                        val prev = longTermBeforeBump.remove(note.id)
+                        notes.value = notes.value?.let { m -> m + (note.id to note.copy(longTerm = prev)) }
+                        LongTermStore.set(app, note.id, prev)
+                    }
+                }
             }
             refreshBumps()
         }
+    }
+
+    /** "English → Chinese" applies to [hanzi]: the setting is on and every character is known (core LeadCard). */
+    private suspend fun knownCharactersLead(hanzi: String): Boolean {
+        if (!app.prefs.newCardOrder.knownCharactersEnglishFirst) return false
+        val dao = app.repo.dao
+        val knownNotes = dev.jeromeswannack.chineselearning.lab.core.LeadCard.knownNoteIds(dao.cards().map { it.toQueueCard() })
+        if (knownNotes.isEmpty()) return false
+        val hanziOf = knownNotes.chunked(500).flatMap { dao.notes(it) }.map { it.hanzi }
+        return dev.jeromeswannack.chineselearning.lab.core.LeadCard.allCharactersKnown(hanzi, dev.jeromeswannack.chineselearning.lab.core.LeadCard.knownCharacters(hanziOf))
     }
 
     private suspend fun refreshBumps() {
@@ -368,7 +412,8 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             runCatching {
                 val dao = app.repo.dao
                 // The rows in the pocket (pending clears left out) — the web BumpButton's `useBumps`.
-                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(dao).associate { it.noteId to it.bumpedByName }
+                val store = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
+                store.active(dao).associate { it.noteId to PocketRow(it.bumpedByName, store.parseCardTypes(it.cardTypes)) }
             }.getOrDefault(bumped.value)
         }
     }
@@ -415,6 +460,9 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T = HomeworkPassViewModel(app, id) as T
     }
+
+    /** A word in today's pocket: who bumped it (null = the learner) and its card types (null = the whole note). */
+    data class PocketRow(val by: String?, val cardTypes: List<String>?)
 
     companion object {
         /** The bump's source (analytics + the API), shared/decks/bumps.ts BUMP_SOURCES. */

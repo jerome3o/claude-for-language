@@ -193,7 +193,7 @@ object BumpStore {
             app.repo.notifyLocalChange()
             send(app)
         }
-        app.analytics.track("study.bump_added", mapOf("source" to src, "count" to (if (added) 1 else 0), "already" to (if (added) 0 else 1)))
+        app.analytics.track("study.bump_added", mapOf("source" to src, "count" to (if (added) 1 else 0), "already" to (if (added) 0 else 1), "card_types" to want.size))
         return CardTypesResult(added, merge.cardTypes)
     }
 
@@ -212,7 +212,7 @@ object BumpStore {
 
     private fun track(app: LabApp, source: String, r: Result) {
         if (r.added.isEmpty() && r.already.isEmpty()) return
-        app.analytics.track("study.bump_added", mapOf("source" to Bumps.normalizeBumpSource(source), "count" to r.added.size, "already" to r.already.size))
+        app.analytics.track("study.bump_added", mapOf("source" to Bumps.normalizeBumpSource(source), "count" to r.added.size, "already" to r.already.size, "card_types" to 0))
     }
 
     private fun send(app: LabApp) {

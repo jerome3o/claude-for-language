@@ -245,29 +245,75 @@ class PassStudyCardTest {
         runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
     }
 
-    /** ⚡ on the answer side: on = in today's pocket (homework_pass), off = taken out; the queue follows. */
+    /**
+     * ⚡ on the answer side (core PassBump): a word with no audio bumps ONE card (its lead card, not
+     * the whole note), opts the one-off copy's word into long-term review, and a second tap takes
+     * both back; the queue follows.
+     */
     @Test
     fun theBumpToggleBumpsAndClears() {
         val vm = HomeworkPassViewModel(app, "a1")
         compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
         showAnswer()
         compose.onNodeWithTag(BUMP_TOGGLE_TAG).performScrollTo().assert(SemanticsMatcher.expectValue(SemanticsProperties.ToggleableState, androidx.compose.ui.state.ToggleableState.Off))
-        compose.onNodeWithText("⚡ Study it today").assertExists()
+        compose.onNodeWithText("⚡ Study it today · 1 card").assertExists()
 
         compose.onNodeWithTag(BUMP_TOGGLE_TAG).performClick()
         settle("the bump", { vm.ui.value }) { runBlocking { BumpStore.active(app.repo.dao).any { it.noteId == "n1" } } && (vm.ui.value as? PassUi.Deck)?.bumped == true }
         val row = runBlocking { BumpStore.active(app.repo.dao).single { it.noteId == "n1" } }
         assertEquals("homework_pass", row.source)
-        compose.onNodeWithText("⚡ Today ✓").assertExists()
+        assertEquals(listOf("hanzi_to_meaning"), BumpStore.parseCardTypes(row.cardTypes))
+        settle("the label", { vm.ui.value }) { compose.onAllNodesWithText("⚡ 1 card today ✓").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag(dev.jeromeswannack.chineselearning.lab.ui.study.PASS_BUMP_HINT_TAG).assertExists()
         assertTrue(runBlocking { app.outbox.all() }.any { it.method == "POST" && it.path == "/api/me/bumps" })
-        // The one-off copy's word is first in today's study now — outside the pools, past the caps.
-        assertTrue(runBlocking { BumpStore.openNoteIds(app.repo.dao) }.contains("n1"))
+        // The one-off copy's word is first in today's study now — ONE card, outside the pools, past the caps —
+        settle("the long-term opt-in", { vm.ui.value }) { runBlocking { app.repo.dao.notes(listOf("n1")).single().longTerm } == 1 }
+        val queue = todaysQueue()
+        assertEquals(listOf("c1h"), queue.bumped.map { it.id })
+        assertEquals(listOf("c1h"), queue.dueCards.map { it.id }.filter { it.startsWith("c1") })
 
         compose.onNodeWithTag(BUMP_TOGGLE_TAG).performClick()
         settle("the clear", { vm.ui.value }) { runBlocking { BumpStore.active(app.repo.dao).none { it.noteId == "n1" } } && (vm.ui.value as? PassUi.Deck)?.bumped == false }
-        compose.onNodeWithText("⚡ Study it today").assertExists()
+        compose.onNodeWithText("⚡ Study it today · 1 card").assertExists()
         assertTrue(runBlocking { app.outbox.all() }.any { it.method == "DELETE" && it.path == "/api/me/bumps/n1" })
+        // …and the long-term choice ⚡ made is put back.
+        settle("the long-term restore", { vm.ui.value }) { runBlocking { app.repo.dao.notes(listOf("n1")).single().longTerm } == null }
         runBlocking { assertEquals(0, app.repo.dao.allEvents().size) }
+    }
+
+    /** A word with audio and a listening card: ⚡ bumps ONLY the listening card; its siblings wait. */
+    @Test
+    fun theBumpIsTheListeningCardOnly() {
+        runBlocking {
+            val dao = app.repo.dao
+            dao.upsertNotes(listOf(NoteEntity("n1", "d1", "服务员", "fúwùyuán", "waiter; waitress", "generated/n1.mp3", null, null, null, null, null, null, null, null)))
+            dao.insertCardsIfMissing(listOf(CardEntity("c1a", "n1", "d1", "audio_to_hanzi")))
+        }
+        val vm = HomeworkPassViewModel(app, "a1")
+        compose.setContent { LabTheme { HomeworkPassContent(app, vm, PassActions()) } }
+        showAnswer()
+        settle("the listening label", { vm.ui.value }) { compose.onAllNodesWithText("⚡ Study it today · listening card").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag(BUMP_TOGGLE_TAG).performScrollTo().performClick()
+        settle("the bump", { vm.ui.value }) { runBlocking { BumpStore.active(app.repo.dao).any { it.noteId == "n1" } } && (vm.ui.value as? PassUi.Deck)?.bumped == true }
+        val row = runBlocking { BumpStore.active(app.repo.dao).single { it.noteId == "n1" } }
+        assertEquals(listOf("audio_to_hanzi"), BumpStore.parseCardTypes(row.cardTypes))
+        settle("the label", { vm.ui.value }) { compose.onAllNodesWithText("⚡ Listening card today ✓").fetchSemanticsNodes().isNotEmpty() }
+        settle("the long-term opt-in", { vm.ui.value }) { runBlocking { app.repo.dao.notes(listOf("n1")).single().longTerm } == 1 }
+        // Today gains exactly ONE card of the word: the listening card. Its reading / meaning cards wait.
+        val queue = todaysQueue()
+        assertEquals(listOf("c1a"), queue.bumped.map { it.id })
+        assertEquals(listOf("c1a"), queue.dueCards.map { it.id }.filter { it.startsWith("c1") })
+    }
+
+    private fun todaysQueue(): dev.jeromeswannack.chineselearning.lab.core.BuiltQueue = runBlocking {
+        val dao = app.repo.dao
+        val cards = dao.cards().map { it.toQueueCard() }
+        val decks = dao.decks().map { dev.jeromeswannack.chineselearning.lab.core.QueueDeck(it.id, 0, it.createdAt, it.newCardsPerDay, it.secondaryCardsPerDay ?: 6) }
+        dev.jeromeswannack.chineselearning.lab.core.StudyQueue.build(
+            decks, cards, StudyBudget(3, 6), 0, emptyMap(),
+            dev.jeromeswannack.chineselearning.lab.core.StudyQueue.cutoff(System.currentTimeMillis(), ZoneId.systemDefault(), dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.rolloverHour), null,
+            longTerm = dao.noteLongTermRows().associate { it.id to it.longTerm }, bumps = BumpStore.queueBumps(dao),
+        )
     }
 
     /** What the card saw suggests the answer: a matching take → Got it (ringed); nothing tried → nothing. He still chooses. */

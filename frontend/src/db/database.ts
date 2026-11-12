@@ -3,7 +3,7 @@ import type { HomeworkAssignment, HomeworkEvent } from '@shared/homework';
 import type { HuntObject, PictureHuntPlay, PictureHuntSummary } from '@shared/picture-hunt';
 import { withForgetEvents, type ReviewEvent as SchedulerReviewEvent } from '@shared/scheduler';
 import Dexie, { Table } from 'dexie';
-import { bumpPocket, cardsInStudy, heldCardIds, type QueueBump, type QueueBumps, type QueueHolds } from '@shared/decks';
+import { bumpPocket, cardsInStudy, heldCardIds, pocketSiblingIds, type QueueBump, type QueueBumps, type QueueHolds } from '@shared/decks';
 import { selectStudyQueue, isDueByCutoff, pickNewCardsFirst, respreadPrimary, studiedFrom, DEFAULT_NEW_CARD_ORDER, isLeadCard, leadCardsInQueue, isKnownCardState, type QueueNoteText, introducedToday as introducedTodayFromFirstReviews, DEFAULT_SECONDARY_CAP, type DeckNewPool, type StudyBudget, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { allocateNewCards, admitsNewCards, deckInDailyReview, longTermCaps, toLongTermPref, type LongTermPref } from '@shared/decks';
 import { newBudgetLeft, takeUpNext, upNextSlots, withUpNextPicks } from '@shared/decks';
@@ -1961,8 +1961,10 @@ function countRawQueues(
   const deckIds = new Set(decks.map(d => d.id));
   const pocket = bumpPocket(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), bumps, cutoff.ts);
   const pocketIds = new Set(pocket.cards.map(c => c.id));
+  // An unstarted note bumped card by card holds its other NEW cards back (pocketSiblingIds).
+  const waitingIds = pocketSiblingIds(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), pocket.cards, reviewedNoteIds);
   // "Up next": its notes leave the pools; their slots are allocated in allocateQueueCounts.
-  const slots = upNextSlots(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), upNext, reviewedNoteIds, pocketIds, longTerm);
+  const slots = upNextSlots(cards.filter(c => deckIds.has(c.deck_id)).map(queueInput), upNext, reviewedNoteIds, new Set([...pocketIds, ...waitingIds]), longTerm);
   const byDeck = new Map<string, DeckQueueRaw>();
   const unseenByDeck = new Map<string, Set<string>>();
   const inReview = new Map<string, boolean>();
@@ -2010,6 +2012,8 @@ function countRawQueues(
     if (!bucket) continue;
     // Bumped NEW cards are counted above, outside the budget's pools.
     if (card.queue === CardQueue.NEW && pocketIds.has(card.id)) continue;
+    // …and the other NEW cards of an unstarted note bumped card by card wait for it.
+    if (waitingIds.has(card.id)) continue;
     // Up next notes: their slots are counted below; still "words to go" while unseen.
     if (card.queue === CardQueue.NEW && slots.noteIds.has(card.note_id)) {
       if (!reviewedNoteIds.has(card.note_id)) unseenByDeck.get(card.deck_id)!.add(card.note_id);

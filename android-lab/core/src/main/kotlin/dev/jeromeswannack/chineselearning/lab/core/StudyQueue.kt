@@ -220,12 +220,15 @@ object StudyQueue {
         val inReview = inScope.associate { it.id to LongTerm.deckInDailyReview(it.capPrimary, it.capSecondary) }
         val pocket = Bumps.bumpPocket(live.filter { it.deckId in scopeIds }, bumps, cutoff.ts)
         val pocketIds = pocket.cards.mapTo(HashSet()) { it.id }
+        // The pocket's cards and, for an unstarted note bumped card by card, its other NEW cards
+        // (they wait until the bumped card is reviewed — Bumps.pocketSiblingIds).
+        val skipIds: Set<String> = pocketIds + Bumps.pocketSiblingIds(live.filter { it.deckId in scopeIds }, pocket.cards, reviewed)
         // Up next: its notes never feed the regular pools; it takes the budget first.
-        val slots = UpNext.slots(live.filter { it.deckId in scopeIds }, upNext, reviewed, pocketIds, longTerm)
+        val slots = UpNext.slots(live.filter { it.deckId in scopeIds }, upNext, reviewed, skipIds, longTerm)
         // The NEW cards each deck may introduce (opted-out words and a one-off copy's words
         // nobody opted in are left out; bumped cards are over the budget).
         val newByDeck = live.filter {
-            it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds && it.noteId !in slots.noteIds &&
+            it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in skipIds && it.noteId !in slots.noteIds &&
                 LongTerm.admitsNewCards(longTerm?.get(it.noteId), inReview.getValue(it.deckId), it.noteId in reviewed)
         }.groupBy { it.deckId }
 
@@ -250,7 +253,7 @@ object StudyQueue {
         val studiedAll = Spent(introduced.values.sumOf { it.primary }, introduced.values.sumOf { it.secondary })
         // Which card each unseen note leads with (hanzi_to_meaning, or meaning_to_hanzi for a word of
         // known characters, LeadCard.kt) — the pools' notes and Up next's alike.
-        val scopeNew = live.filter { it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in pocketIds }
+        val scopeNew = live.filter { it.queue == CardQueue.NEW && it.deckId in scopeIds && it.id !in skipIds }
         val leadInfo = leadCardsInQueue(scopeNew, reviewed, cards, noteHanzi, order, knownNoteIds)
         val lead = leadInfo.leads
         // "Start new words by ear": in the purple pool a started word's listening card comes first.

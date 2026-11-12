@@ -86,7 +86,7 @@ object AnalyticsEvents {
         ev("study.listen_more_sentences", "study", listOf("before", "after")),
         ev("study.tutor_note_practice", "study", listOf("count")),
         ev("study.tutor_model_play", "study", listOf("where", "which")),
-        ev("study.bump_added", "study", listOf("source", "count", "already")),
+        ev("study.bump_added", "study", listOf("source", "count", "already", "card_types")),
         ev("study.bump_studied", "study", listOf("card_type", "queue")),
         ev("study.bump_cleared", "study", listOf("source")),
         ev("study.other_card_types_open", "study", listOf("from_type")),

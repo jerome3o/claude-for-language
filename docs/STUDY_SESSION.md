@@ -492,6 +492,14 @@ first review the card follows FSRS like any other — no events are invented. An
 `study.other_card_types_open { from_type }`, `study.other_card_types { types, from_type, count, early }`
 (types joined with `/`); the bump itself is `study.bump_added` with `source: 'study_card'`.
 
+**The homework pass's ⚡ is a card-level bump too** (docs/HOMEWORK.md §3, `shared/homework/pass-bump.ts`): on a
+word not started yet it bumps ONE card — the listening card (else the lead card when the note has no clip) — and
+puts the word in long-term review. An **unstarted** note with cards in the pocket holds its other NEW cards back
+(`pocketSiblingIds` in `shared/decks/bumps.ts`, Lab `Bumps.pocketSiblingIds`, parity-tested): no blue card and no
+Up next slot for them while the bump is open, so ⚡ adds exactly one card to today. Once that card is reviewed the
+word is started and its siblings are purple cards within the daily budget. (A whole-note bump of an unstarted word
+holds every NEW card itself, so nothing waits; a started word's siblings were purple already.)
+
 ## "Up next" — words chosen to come next
 
 Jerome (Oct 2026): "Add a way for my tutor and me to manually add stuff to the learning queue … see
