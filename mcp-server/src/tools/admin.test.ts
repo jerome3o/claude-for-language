@@ -89,8 +89,8 @@ describe('admin tools', () => {
     expect(text(await tools.get('audio_lessons_rerender')!({}))).toContain('"queued": 0');
     expect(text(await tools.get('audio_lessons_rerender')!({ dry_run: false }))).toContain('"queued": 15');
     expect(calls).toEqual([
-      { method: 'POST', path: '/api/admin/audio-lessons/rerender', body: { format: 'story', dry_run: true } },
-      { method: 'POST', path: '/api/admin/audio-lessons/rerender', body: { format: 'story', dry_run: false } },
+      { method: 'POST', path: '/api/admin/audio-lessons/rerender', body: { format: 'all', dry_run: true } },
+      { method: 'POST', path: '/api/admin/audio-lessons/rerender', body: { format: 'all', dry_run: false } },
     ]);
   });
 

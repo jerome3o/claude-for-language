@@ -199,7 +199,7 @@ import { pruneUsageEvents } from './services/analytics/usage';
 import { runTutorNotesJob } from './services/tutor-notes-agent';
 import { runAudioLessonJob, type AudioLessonJobMessage } from './services/audio-lessons/job';
 import { runCompanionJob } from './services/companion-lesson';
-import { queueStoryRerendersOnce, rerenderStoryLesson } from './services/audio-lessons/rerender';
+import { queueRerendersOnce, RERENDER_FORMATS, rerenderAudioLesson } from './services/audio-lessons/rerender';
 import { applyLessonUnlocks, lessonUnlockFields, validateUnlockForUser, MAX_UNLOCK_EVENTS } from './services/lesson-unlock';
 import { deleteReaderWithImages } from './services/shared-readers';
 import {
@@ -6484,13 +6484,15 @@ export default {
           console.error('[cron] homework e-mails failed:', err);
         }
       }
-      // Once after the deploy that changed the story layout: re-render the ready story lessons
-      // (docs/AUDIO_LESSONS.md "Story" → "Re-rendering"; app_keys-guarded, logs its counts).
-      try {
-        const rerender = await queueStoryRerendersOnce(env);
-        if (rerender.ran) console.log(JSON.stringify({ type: 'cron', job: 'story_rerender', ...rerender }));
-      } catch (err) {
-        console.error('[cron] story re-render queueing failed:', err);
+      // Once per format after the deploy that changed its layout (story Oct 2026, sleep Nov 2026):
+      // re-render its ready lessons (docs/AUDIO_LESSONS.md "Story" → "Re-rendering"; app_keys-guarded, logs its counts).
+      for (const format of RERENDER_FORMATS) {
+        try {
+          const rerender = await queueRerendersOnce(env, format);
+          if (rerender.ran) console.log(JSON.stringify({ type: 'cron', job: `${format}_rerender`, ...rerender }));
+        } catch (err) {
+          console.error(`[cron] ${format} re-render queueing failed:`, err);
+        }
       }
       // Audio backfill (docs/AUDIO.md): nightly at London midnight, kept alive hourly.
       const audio = await runAudioCron(env, event.cron, new Date(event.scheduledTime || Date.now()));
@@ -7015,9 +7017,9 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         }
         const { lessonId, companion, rerender } = message.body as AudioLessonJobMessage & { companion?: boolean };
         try {
-          // A ready story lesson in an older layout, re-rendered from its own file (services/audio-lessons/rerender.ts).
+          // A ready story / sleep lesson in an older layout, re-rendered from its own file (services/audio-lessons/rerender.ts).
           if (rerender) {
-            console.log('[Queue] audio lesson re-render', JSON.stringify(await rerenderStoryLesson(env, lessonId)));
+            console.log('[Queue] audio lesson re-render', JSON.stringify(await rerenderAudioLesson(env, lessonId)));
             message.ack();
             continue;
           }

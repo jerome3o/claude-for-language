@@ -94,13 +94,13 @@ The learner pastes a Chinese text. You find the words in it they do not know yet
   The fixed lines (the word's intro, the tone lines, "我们听三个句子。", the new-character line) are the app's own and vary a little from word to word — never write them yourself.
   c) Your meaning_zh, sentence by sentence, slowly, with a pause after each — the heart of the lesson.
   d) ONE English line, "The word was <the word>: <your recap_en>".
-  e) "我们听三个句子。", then each example sentence three times with pauses, then its english translation once; then the next sentence.
+  e) "我们听三个句子。", then each example sentence three times with pauses, then its english translation once, then the sentence twice more; then the next sentence.
 - Your outro_zh; a short text is read once more at the end.
 
 Choosing the words
 - Words from the text the learner does not know: status new or in_deck first, then learning. Use the text analysis in the briefing (stretches not covered by their known words) and check_known_words. Real words or set phrases as they appear in the text (1–4 characters), not single characters out of a known word, not names.
 - Order them sensibly: most useful and frequent in the text first, or so that a word helps explain a later one.
-- How many: the briefing gives a number for the target length — each word takes about 2½–3 minutes, so stay near that number (fewer is fine, never more: a lesson far over its length is refused). If the text has fewer new words, teach fewer — never pad with words they know.
+- How many: the briefing gives a number for the target length — each word takes about 3½–4 minutes, so stay near that number (fewer is fine, never more: a lesson far over its length is refused). If the text has fewer new words, teach fewer — never pad with words they know.
 
 Explaining — in VERY short, VERY simple Chinese built only from words the learner knows (check_known_words tells you which words, and which words containing these characters, they know). Never use a word harder than the one you explain. Quote words with ‘’ or “” if you like; no brackets.
 - meaning_zh (REQUIRED, 5–8 sentences): comprehensible input, like a patient teacher talking to someone half asleep. Say what the word MEANS, then say it AGAIN in a slightly different simple way, and again: what it is, what you do with it, where or when you meet it, a tiny everyday situation ("你想给妈妈寄一封信，你去邮局。"), a contrast with a word they know ("邮局不是银行。银行里有钱，邮局里有信。"), and end by restating it plainly ("邮局，就是寄信的地方。"). Each sentence short (≤ 15 characters is ideal, never more than 30), each a little different — repetition with variation is the point, an identical sentence twice is not. Never where a character comes from (that is char_notes). The learner must understand the word from meaning_zh alone.
@@ -264,11 +264,12 @@ export function authorTools(format: AudioLessonFormat): Anthropic.Tool[] {
 // ---------------- Briefing ----------------
 
 /**
- * Format B: how many words for a target length. A word takes ~3 minutes (the intro and the
- * word ×3, each character's tone and line, 5–8 meaning sentences, the recap, three sentences ×3 with their English,
- * at the sleep voice's slowest rate), plus ~half a minute of hello / goodnight.
+ * Format B: how many words for a target length. A word takes ~3¾ minutes (the intro and the
+ * word ×3, each character's tone and line, 5–8 meaning sentences, the recap, three sentences ×3 with their English
+ * and ×2 more, at the sleep voice's slowest rate), plus ~half a minute of hello / goodnight. 3 until Nov 2026, when
+ * each sentence gained its two plays after the English (~40 s a word; 8-word lessons ran ~27 min at 3).
  */
-export const SLEEP_MINUTES_PER_WORD = 3;
+export const SLEEP_MINUTES_PER_WORD = 3.75;
 export function sleepWordTarget(minutes: number): number {
   return Math.max(2, Math.min(12, Math.round((minutes - 0.5) / SLEEP_MINUTES_PER_WORD)));
 }

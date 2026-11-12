@@ -104,7 +104,9 @@ export const PAUSES = {
   sleepSentenceRepeat: 1800,
   /** After its third repeat, before its English translation. */
   sleepBeforeTranslation: 1200,
-  /** After a sentence's English translation, before the next sentence. */
+  /** After a sentence's English translation, before the sentence again (layout 2; the story's 2 s). */
+  sleepAfterEnglish: 2000,
+  /** After a sentence's last play (layout 1: its English), before the next sentence. */
   sleepAfterTranslation: 2500,
   /** After the word's last sentence (the next word's intro follows). */
   sleepBetweenWords: 3500,
@@ -362,6 +364,60 @@ export function sleepTranslationText(english: string): string {
   return /[.!?]["”’)]?$/.test(t) ? t : `${t}.`;
 }
 
+/** An example sentence is said this many times before its English… */
+export const SLEEP_SENTENCE_REPEATS_BEFORE = 3;
+/** …and this many times after it (Jerome, Nov 2026: "so I can hear the English and then re-listen to the Chinese and fill in the gaps"). */
+export const SLEEP_SENTENCE_REPEATS_AFTER = 2;
+
+/**
+ * The layout of a compiled sleep script (`AudioLessonScript.layout`): 1 (absent) = each example
+ * sentence ×3 then its English; 2 = ×3, the English, ×2 more (like the story's layout 2). A ready
+ * lesson in layout 1 is re-rendered from its own MP3 (worker services/audio-lessons/rerender.ts,
+ * `upgradeSleepScript`) — no new clips.
+ */
+export const SLEEP_LAYOUT = 2;
+
+/**
+ * A layout-1 sleep script → the current layout, by inserting after each example sentence's English
+ * the sentence twice more (`PAUSES.sleepAfterEnglish` before, `sleepSentenceRepeat` between) — the
+ * SAME clip as its three plays, so the lesson needs no new clip. An example sentence is recognised
+ * by its shape (the sentence three times in a row in the sleep voice, the first carrying its
+ * `english`, then that translation in the recap voice), never by position, so scripts compiled by
+ * any earlier version of `compileSleepLesson` are upgraded. Equal to compiling the plan in the
+ * current layout (tested). `sentences` = how many were upgraded.
+ */
+export function upgradeSleepScript(script: AudioLessonScript): { script: AudioLessonScript; sentences: number } {
+  const out: ScriptSegment[] = [];
+  let sentences = 0;
+  const segs = script.segments;
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    out.push(s);
+    if (s.kind !== 'speech' || s.lang !== 'en' || s.voice !== 'recap') continue;
+    // The three plays before it, only pauses between.
+    const plays: SpeechSegment[] = [];
+    for (let j = i - 1; j >= 0 && plays.length < SLEEP_SENTENCE_REPEATS_BEFORE; j--) {
+      const p = segs[j];
+      if (p.kind === 'pause') continue;
+      plays.unshift(p);
+    }
+    if (plays.length < SLEEP_SENTENCE_REPEATS_BEFORE) continue;
+    const [first] = plays;
+    const isSentence =
+      plays.every((p) => p.lang === 'zh' && p.voice === 'sleep' && p.text === first.text && p.rate === first.rate && p.chapter === s.chapter) &&
+      !!first.english && sleepTranslationText(first.english) === s.text;
+    // Already followed by the sentence again (a layout-2 script): left as it is.
+    const next = segs.slice(i + 1).find((p) => p.kind === 'speech');
+    if (!isSentence || (next && next.kind === 'speech' && next.lang === 'zh' && next.text === first.text && next.chapter === s.chapter)) continue;
+    for (let k = 0; k < SLEEP_SENTENCE_REPEATS_AFTER; k++) {
+      out.push({ kind: 'pause', ms: k === 0 ? PAUSES.sleepAfterEnglish : PAUSES.sleepSentenceRepeat, chapter: s.chapter });
+      out.push({ kind: 'speech', lang: 'zh', voice: 'sleep', text: first.text, rate: first.rate, chapter: s.chapter });
+    }
+    sentences++;
+  }
+  return { script: { ...script, layout: SLEEP_LAYOUT, segments: out }, sentences };
+}
+
 /** Read the source text at the end of a sleep lesson only when it is this short. */
 export const SLEEP_SOURCE_MAX_CHARS = 600;
 
@@ -373,9 +429,13 @@ export const SLEEP_SOURCE_MAX_CHARS = 600;
  *    "‘航’也在‘航空’里。" / "‘驶’是一个新字，你以前没见过。"), then where the word says a tone differently;
  * c) what it means: 5–8 short sentences circling the meaning (comprehensible input), slowly, with room after each;
  * d) ONE English recap line ("The word was 银行: bank, as in …");
- * e) "我们听三个句子。" and each example sentence three times, then its English translation once.
+ * e) "我们听三个句子。" and each example sentence three times, then its English translation once, then the
+ *    sentence twice more (layout 2, Nov 2026: he hears the English, then fills in the gaps in the Chinese).
+ *
+ * `layout: 1` compiles the old example-sentence layout (tests of the re-render only).
  */
-export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string } = {}): AudioLessonScript {
+export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string; layout?: 1 | 2 } = {}): AudioLessonScript {
+  const layout = opts.layout ?? SLEEP_LAYOUT;
   const b = new ScriptBuilder();
   const sleepy = (text: string, rate: number = RATES.sleep, extra: PlanLine | null = null) =>
     extra ? b.zh('sleep', extra, rate) : b.say('zh', 'sleep', text, rate);
@@ -440,16 +500,25 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
       b.mixed(sleepRecapText(w.hanzi, w.recap_en, pickVariant(RECAP_OPENINGS, seed, 'recap', wi)), RATES.sleepWord, { en: 'recap', zh: 'sleep', enRate: RATES.recap });
       b.pause(PAUSES.sleepRecap);
     }
-    // e) The example sentences: each ×3, then its English once.
+    // e) The example sentences: each ×3, then its English once, then ×2 more (layout 2). One clip per
+    // sentence: the five plays reuse it. A sentence without English is said three times only.
     sleepy(pickVariant(SENTENCES_INTROS, seed, 'sentences', wi));
     b.pause(PAUSES.sleepPhrase + 300);
     w.sentences.forEach((s, j) => {
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < SLEEP_SENTENCE_REPEATS_BEFORE; i++) {
         if (i === 0) sleepy(s.hanzi, RATES.sleep, s);
         else sleepy(s.hanzi);
-        b.pause(i < 2 ? PAUSES.sleepSentenceRepeat : PAUSES.sleepBeforeTranslation);
+        b.pause(i < SLEEP_SENTENCE_REPEATS_BEFORE - 1 ? PAUSES.sleepSentenceRepeat : PAUSES.sleepBeforeTranslation);
       }
-      if (s.english?.trim()) b.say('en', 'recap', sleepTranslationText(s.english), RATES.recap);
+      if (s.english?.trim()) {
+        b.say('en', 'recap', sleepTranslationText(s.english), RATES.recap);
+        if (layout >= 2) {
+          for (let i = 0; i < SLEEP_SENTENCE_REPEATS_AFTER; i++) {
+            b.pause(i === 0 ? PAUSES.sleepAfterEnglish : PAUSES.sleepSentenceRepeat);
+            sleepy(s.hanzi);
+          }
+        }
+      }
       if (j < w.sentences.length - 1) b.pause(PAUSES.sleepAfterTranslation);
     });
     b.pause(PAUSES.sleepBetweenWords);
@@ -476,6 +545,7 @@ export function compileSleepLesson(plan: SleepPlan, opts: { sourceText?: string 
   return {
     version: 1,
     format: 'sleep',
+    ...(layout >= 2 ? { layout: SLEEP_LAYOUT } : {}),
     title: plan.title,
     chapters: b.chapters,
     segments: b.segments,

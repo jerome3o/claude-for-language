@@ -20,7 +20,9 @@ import {
   buildTimeline,
   compileStoryLesson,
   speechChars,
+  SLEEP_LAYOUT,
   STORY_LAYOUT,
+  upgradeSleepScript,
   speechKey,
   uniqueSpeech,
   type AudioLessonFormat,
@@ -46,7 +48,7 @@ import { anthropicStoryTranslate, fakeStoryTranslate, startStory, storyCostUsd, 
 
 export interface AudioLessonJobMessage {
   lessonId: string;
-  /** Re-render a ready story lesson in the current layout (rerender.ts) instead of building it. */
+  /** Re-render a ready story / sleep lesson in its current layout (rerender.ts) instead of building it. */
   rerender?: boolean;
 }
 
@@ -235,6 +237,12 @@ export async function runAudioLessonJob(env: Env, lessonId: string, deps: JobDep
       const title = script.title;
       script = compileStoryLesson(JSON.parse(row.plan_json) as StoryPlan);
       script.title = title || script.title;
+      await q.patchAudioLesson(env.DB, lessonId, { script_json: script });
+    }
+    // A sleep lesson compiled before its example sentences gained ×2 after the English (Nov 2026):
+    // the same script with those plays inserted — the same clips (docs/AUDIO_LESSONS.md "Sleep").
+    if (row.format === 'sleep' && (script.layout ?? 1) < SLEEP_LAYOUT) {
+      script = upgradeSleepScript(script).script;
       await q.patchAudioLesson(env.DB, lessonId, { script_json: script });
     }
     const priorUsage = parseJson<AudioLessonUsage | null>(row.usage_json, null);

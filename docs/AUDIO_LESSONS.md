@@ -136,7 +136,12 @@ each new word (one chapter each, round 3 order, Oct 2026; round 4 adds the per-c
    river." — Claude writes only what follows the colon (`recap_en`) and pins down the sense when the English word has
    several; the word inside it is the sleep voice's own clip (`sleepRecapText`, `mixed` with the recap / sleep voices).
 5. **"我们听三个句子。" and the three example sentences**: each said three times (1.8 s between, 1.2 s after), then its
-   `english` translation ONCE in the recap voice (`sleepTranslationText`), 2.5 s, the next sentence.
+   `english` translation ONCE in the recap voice (`sleepTranslationText`), 2 s (`sleepAfterEnglish`), the sentence again,
+   1.8 s, a fifth time, 2.5 s, the next sentence — **layout 2** (`SLEEP_LAYOUT`, Nov 2026; Jerome: "so I can hear the
+   English and then re-listen to the Chinese and fill in the gaps"; the story's layout 2 did the same in Oct). One clip per
+   sentence (the five plays reuse it), all at the sleep rate. A sentence without English is said three times only. The
+   transcript shows each sentence as ONE row "×3 +2" (`transcriptRows`). Layout 1 (lessons made before Nov 2026) = ×3,
+   the English, 2.5 s, the next sentence; they are re-rendered (below, "Re-rendering").
 3.5 s before the next word. A text of ≤ 600 characters is read once more at the end (原文).
 `validateSleepPlan` refuses a word whose `meaning_zh` has fewer than 5 or more than 8 sentences, repeats a sentence
 word for word, or has a sentence that only says where a character comes from (`isCharacterOrigin` — that belongs in
@@ -252,7 +257,11 @@ The music bed is on by default (background listening, like sleep); the transcrip
   rate, like the sleep voice (`lessonClipRate`: MiniMax 0.5, Azure 0.6, Google 0.6).
 - E2E_TEST_MODE: `fakeStoryTranslate` ("Line 3 of the story." + pinyin-pro's pinyin).
 - **Re-rendering** (`worker/src/services/audio-lessons/rerender.ts`): a READY story lesson whose script is in an older layout
-  is rebuilt in the current one from its stored plan — `compileStoryLesson(plan)` — and its clips are CUT OUT OF ITS OWN MP3
+  is rebuilt in the current one from its stored plan — `compileStoryLesson(plan)` — and a READY **sleep** lesson in layout 1
+  (Nov 2026) from its stored SCRIPT — `upgradeSleepScript` inserts the sentence twice after each example sentence's English
+  (recognised by its shape: the sentence ×3 in the sleep voice, the first carrying its `english`, then that translation), so
+  it needs exactly the clips it already has whichever version of the compiler wrote it (equal to compiling the plan in
+  layout 2, tested). Either way the clips are CUT OUT OF ITS OWN MP3
   (`cutClips`: the old script + its timeline give each clip's first frame, the pauses before the next clip where it ends — every
   check that could catch a file that doesn't match its script (frame count vs `duration_ms`, whole-frame starts, text per line,
   the same length at every use) refuses rather than guesses). The per-clip parts are deleted after a render, so this is what
@@ -264,12 +273,14 @@ The music bed is on by default (background listening, like sleep); the transcrip
   version (`…-<version>.mp3`), so the podcast feed's enclosure URL + guid change (a podcast app sees it as a new episode) and
   both apps' offline copies (web Cache API `/__audio-lessons/<id>/<version>.mp3`, Lab `files/audio-lessons/<id>-<version>.mp3`)
   are fetched again the next time the list / player loads. Idempotent: an up-to-date lesson is `up_to_date`.
-  Runs on audio-lesson-queue (`{ lessonId, rerender: true }`). Queued by `POST /api/admin/audio-lessons/rerender
-  { format: 'story', dry_run? (default true) }` (admin; the dry run lists each lesson with its length now and about how long
-  after) = MCP `audio_lessons_rerender`, and ONCE automatically by the first cron after the deploy that brought layout 2
-  (`queueStoryRerendersOnce`, claimed by an `app_keys` row `story_rerender_layout_2` holding the counts; logged as
-  `{"job":"story_rerender"}`). A story lesson still being made with a layout-1 script (or retried) is compiled again from its
-  plan before rendering (`runAudioLessonJob`), so nothing new is made in the old layout.
+  Runs on audio-lesson-queue (`{ lessonId, rerender: true }`, `rerenderAudioLesson`). Queued by `POST /api/admin/audio-lessons/rerender
+  { format: 'story' | 'sleep' | 'all' (default), dry_run? (default true) }` (admin; the dry run lists each lesson with its
+  length now and about how long after) = MCP `audio_lessons_rerender`, and ONCE per format automatically by the first cron
+  (any of them, hourly at :37 at the latest) after the deploy that brought its layout 2 (`queueRerendersOnce(env, format)`,
+  claimed by an `app_keys` row `story_rerender_layout_2` / `sleep_rerender_layout_2` holding the counts; logged as
+  `{"job":"story_rerender"}` / `{"job":"sleep_rerender"}`). A story / sleep lesson still being made with a layout-1 script (or
+  retried) is moved to layout 2 before rendering (`runAudioLessonJob`: the story compiled again from its plan, the sleep script
+  upgraded), so nothing new is made in the old layout.
 
 Speeds are on the app's scale (MiniMax's: 1 = normal, cards 0.6); Azure maps them with its
 `speed_factor` (0.75 → cards 0.7). Pauses: `PAUSES` in `shared/audio-lesson/compile.ts`.
@@ -304,12 +315,13 @@ the rates the app already uses; no clip was synthesised to compare them in the b
 | each meaning sentence | 2.2 s (`sleepMeaning`) |
 | the English recap | 1.5 s (`sleepRecap`) |
 | 我们听三个句子。 | 1.5 s |
-| each example sentence | 1.8 s between repeats, 1.2 s before its translation, 2.5 s after the translation |
+| each example sentence | 1.8 s between the first three plays, 1.2 s before its translation, 2 s after it (`sleepAfterEnglish`), 1.8 s between the last two plays, 2.5 s after the fifth (`sleepAfterTranslation`) |
 | end of the word | 3.5 s (`sleepBetweenWords`) |
 
-A word now takes about 3 minutes (`SLEEP_MINUTES_PER_WORD`, `agent.ts`; 2.7 before the character lines): the briefing
-asks for `round((minutes − 0.5) / 3)` words (2–12; 20 min → 7) and a plan estimated over `1.3 × target + 2` minutes is sent
-back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 20 clips).
+A word now takes about 3¾ minutes (`SLEEP_MINUTES_PER_WORD`, `agent.ts`; 3 before the ×2 after each sentence's English
+in Nov 2026 — 8-word lessons then ran ~27 min and gain ~40 s a word; 2.7 before the character lines): the briefing
+asks for `round((minutes − 0.5) / 3.75)` words (2–12; 20 min → 5, 25 min → 7) and a plan estimated over `1.3 × target + 2`
+minutes is sent back ("teach fewer words"). The distinct-clip limit is 260 (each word ≈ 20 clips).
 
 ## Music
 

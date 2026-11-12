@@ -19,7 +19,9 @@ import {
   PAUSES,
   RATES,
   repeatLabel,
+  SLEEP_LAYOUT,
   SLEEP_ZH_PROVIDER_RATE,
+  upgradeSleepScript,
   sleepTranslationText,
   previousChapterTarget,
   sleepFadeVolume,
@@ -162,7 +164,7 @@ describe('format B (sleep)', () => {
     expect(validateScript(script)).toEqual([]);
   });
 
-  it('per word: intro + word ×3, character tones + characters, the meaning, the English recap, then sentences ×3 + translation', () => {
+  it('per word: intro + word ×3, character tones + characters, the meaning, the English recap, then sentences ×3 + translation + ×2', () => {
     const ch = script.chapters.findIndex((c) => c.title.startsWith('邮局'));
     const segs = script.segments.filter((s) => s.chapter === ch);
     const texts = segs.map((s) => (s.kind === 'speech' ? s.text : null));
@@ -192,7 +194,7 @@ describe('format B (sleep)', () => {
     const inRecap = segs[at(recapOf(0)) + 2];
     expect(inRecap).toMatchObject({ lang: 'zh', voice: 'sleep', text: '邮局', rate: RATES.sleepWord });
     expect(speechKey(inRecap as SpeechSegment)).toBe(speechKey(segs[repeats[0]] as SpeechSegment));
-    // e) each sentence ×3, then its English once (the recap voice), then the next sentence
+    // e) each sentence ×3, then its English once (the recap voice), then ×2 more, then the next sentence
     const english = segs.filter((s): s is SpeechSegment => s.kind === 'speech' && s.lang === 'en');
     expect(english.map((s) => s.text)).toEqual([
       recapOf(0),
@@ -204,9 +206,15 @@ describe('format B (sleep)', () => {
     expect(english.every((s) => s.voice === 'recap' && s.rate === RATES.recap)).toBe(true);
     for (const sentence of SAMPLE_SLEEP_PLAN.words[0].sentences) {
       const idx = texts.flatMap((t, j) => (t === sentence.hanzi ? [j] : []));
-      expect(idx.length).toBe(3);
+      expect(idx.length).toBe(5);
       expect(texts[idx[2] + 2]).toBe(sentence.english);
+      // zh, pause, zh, pause, zh, pause, EN, pause, zh, pause, zh — one clip, the slow sleep rate.
+      expect(idx).toEqual([idx[0], idx[0] + 2, idx[0] + 4, idx[0] + 8, idx[0] + 10]);
+      const plays = idx.map((j) => segs[j] as SpeechSegment);
+      expect(plays.every((p) => p.voice === 'sleep' && p.rate === RATES.sleep && speechKey(p) === speechKey(plays[0]))).toBe(true);
+      expect(plays.slice(1).every((p) => !p.english && !p.pinyin)).toBe(true);
     }
+    expect(script.layout).toBe(SLEEP_LAYOUT);
     expect(at(sentencesOf(0))).toBeLessThan(at(SAMPLE_SLEEP_PLAN.words[0].sentences[0].hanzi));
   });
 
@@ -229,9 +237,15 @@ describe('format B (sleep)', () => {
     const first = SAMPLE_SLEEP_PLAN.words[1].sentences[0];
     expect(pauseAfter(first.hanzi, 0)).toBe(PAUSES.sleepSentenceRepeat);
     expect(pauseAfter(first.hanzi, 2)).toBe(PAUSES.sleepBeforeTranslation);
-    expect(pauseAfter(first.english)).toBe(PAUSES.sleepAfterTranslation);
-    // The last translation of a word: the pause before the next word only.
-    expect(pauseAfter(SAMPLE_SLEEP_PLAN.words[0].sentences[2].english)).toBe(0);
+    // Layout 2: 2 s after the English, the sentence, 1.8 s, once more, 2.5 s before the next sentence.
+    expect(pauseAfter(first.english)).toBe(PAUSES.sleepAfterEnglish);
+    expect(pauseAfter(first.hanzi, 3)).toBe(PAUSES.sleepSentenceRepeat);
+    expect(pauseAfter(first.hanzi, 4)).toBe(PAUSES.sleepAfterTranslation);
+    // The last sentence of a word: the pause before the next word only.
+    const lastSentence = SAMPLE_SLEEP_PLAN.words[0].sentences[2];
+    const firstWordSegs = script.segments.filter((s) => s.chapter === ch - 1);
+    const lastPlay = firstWordSegs.flatMap((s, j) => (s.kind === 'speech' && s.text === lastSentence.hanzi ? [j] : [])).pop()!;
+    expect(firstWordSegs.slice(lastPlay + 1)).toEqual([{ kind: 'pause', ms: PAUSES.sleepBetweenWords, chapter: ch - 1 }]);
     const firstCh = script.segments.filter((s) => s.chapter === ch - 1);
     const last = firstCh[firstCh.length - 1];
     expect(last).toEqual({ kind: 'pause', ms: PAUSES.sleepBetweenWords, chapter: ch - 1 });
@@ -250,9 +264,9 @@ describe('format B (sleep)', () => {
     expect(sleepRecapText('银行', 'That word was 银行: bank.', 'Our new word was')).toBe('Our new word was 银行: bank.');
   });
 
-  it('each word ×3 and each sentence ×3 with pauses of at least 1.2 s', () => {
+  it('each word ×3 and each sentence ×3 + ×2 with pauses of at least 1.2 s', () => {
     expect(speech.filter((s) => s.text === '邮局').length).toBe(4); // ×3 + once in the English recap
-    expect(speech.filter((s) => s.text === '我去邮局寄信。').length).toBe(3);
+    expect(speech.filter((s) => s.text === '我去邮局寄信。').length).toBe(5);
     const segs = script.segments;
     segs.forEach((s, i) => {
       if (s.kind === 'speech' && s.text === '我去邮局寄信。') {
@@ -460,11 +474,56 @@ describe('transcriptRows', () => {
     // The word ×3 is one row, "×3", with its pinyin; each sentence ×3 + its spoken translation is one row.
     expect(rows.filter((r) => r.text === '邮局')).toEqual([expect.objectContaining({ repeat: 3, pinyin: 'yóujú', english: 'post office' })]);
     const sentence = rows.find((r) => r.text === '我去邮局寄信。');
-    expect(sentence).toMatchObject({ repeat: 3, english: "I'm going to the post office to send a letter." });
-    expect(sentence!.last - sentence!.first).toBe(3);
+    expect(sentence).toMatchObject({ repeat: 3, again: 2, english: "I'm going to the post office to send a letter." });
+    expect(sentence!.last - sentence!.first).toBe(5);
+    expect(repeatLabel(sentence!).text).toBe('×3 +2');
+    expect(rows.filter((r) => r.text === '我去邮局寄信。')).toHaveLength(1);
+    // Every example sentence: one row, "×3 +2".
+    const sentences = SAMPLE_SLEEP_PLAN.words.flatMap((w) => w.sentences.map((x) => x.hanzi));
+    expect(sentences.map((h) => rows.filter((r) => r.text === h).map((r) => repeatLabel(r).text))).toEqual(sentences.map(() => ['×3 +2']));
     expect(rows.filter((r) => r.text === "I'm going to the post office to send a letter.")).toEqual([]);
     expect(rows.find((r) => r.text === introOf(0)[0])?.repeat).toBeUndefined();
     expect(rows.find((r) => r.text.startsWith(`${recapOf(1)} 寄`))?.lang).toBe('en');
+  });
+});
+
+describe('sleep layout 2 (each example sentence ×3, the English, ×2 more)', () => {
+  const old = compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE, layout: 1 });
+  const current = compileSleepLesson(SAMPLE_SLEEP_PLAN, { sourceText: SAMPLE_SLEEP_SOURCE });
+
+  it('layout 1 = ×3 then the English (what lessons made before Nov 2026 hold)', () => {
+    expect(old.layout).toBeUndefined();
+    expect(old.segments.filter((s) => s.kind === 'speech' && s.text === '我去邮局寄信。')).toHaveLength(3);
+  });
+
+  it('upgradeSleepScript(layout 1) = compiling the plan in layout 2, with no new clip', () => {
+    const up = upgradeSleepScript(old);
+    expect(up.sentences).toBe(6);
+    expect(up.script).toEqual(current);
+    expect(uniqueSpeech(up.script).map((u) => u.key)).toEqual(uniqueSpeech(old).map((u) => u.key));
+    expect(validateScript(up.script)).toEqual([]);
+    // About 35 s more a word in the estimate.
+    const extra = (estimateScriptMs(current) - estimateScriptMs(old)) / SAMPLE_SLEEP_PLAN.words.length;
+    expect(extra).toBeGreaterThan(25_000);
+    expect(extra).toBeLessThan(50_000);
+  });
+
+  it('a layout-2 script is left as it is; the word ×3 + the recap is never taken for a sentence', () => {
+    expect(upgradeSleepScript(current)).toEqual({ script: current, sentences: 0 });
+    // A word with nothing between its ×3 and the recap (no tone lines / meaning): the recap is not its translation.
+    const b = old.segments.filter((s) => s.kind === 'speech' && s.text === '邮局');
+    expect(b.length).toBeGreaterThan(0);
+    const bare = { ...old, segments: old.segments.filter((s) => !(s.kind === 'speech' && s.voice === 'sleep' && s.lang === 'zh' && s.chapter === b[0].chapter && s.text !== '邮局' && !SAMPLE_SLEEP_PLAN.words[0].sentences.some((x) => x.hanzi === s.text))) };
+    expect(upgradeSleepScript(bare).sentences).toBe(6);
+  });
+
+  it('a sentence without English stays ×3 (nothing to fill in after)', () => {
+    const plan = JSON.parse(JSON.stringify(SAMPLE_SLEEP_PLAN)) as typeof SAMPLE_SLEEP_PLAN;
+    plan.words[0].sentences[0].english = '';
+    const script = compileSleepLesson(plan);
+    expect(script.segments.filter((s) => s.kind === 'speech' && s.text === plan.words[0].sentences[0].hanzi)).toHaveLength(3);
+    expect(script.segments.filter((s) => s.kind === 'speech' && s.text === plan.words[0].sentences[1].hanzi)).toHaveLength(5);
+    expect(upgradeSleepScript(compileSleepLesson(plan, { layout: 1 })).script).toEqual(script);
   });
 });
 
