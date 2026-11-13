@@ -253,7 +253,11 @@ describe('a Claude thread reply', () => {
     expect(db.rows("SELECT n.hanzi FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.source_key = 'claude' ORDER BY n.hanzi")).toEqual([{ hanzi: sentence }]);
     expect(db.rows("SELECT name FROM decks WHERE source_key = 'claude'")).toEqual([{ name: 'From Claude' }]);
     const results = reply(db, replyId).tool_results;
-    expect(cardToolLines(parseCardToolResults(results))).toEqual([{ kind: 'added', text: `✓ Added 1 card: ${sentence}`, undo: false }]);
+    const lines = cardToolLines(parseCardToolResults(results));
+    expect(lines).toMatchObject([{ kind: 'added', text: `✓ Added 1 card: ${sentence}`, undo: false, head: '✓ Added 1 card' }]);
+    // The card with its note id — the line's tappable word (→ the explorer).
+    const noteId = db.rows("SELECT n.id FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.source_key = 'claude'")[0].id;
+    expect(lines[0].cards).toMatchObject([{ note_id: noteId, hanzi: sentence, deck_name: 'From Claude' }]);
 
     // The follow-up turn: the earlier reply is replayed WITH its record (deck and card named).
     const next = await store.appendTurn(db, { threadId, role: 'user', content: 'What did you do? I only want the card about chance.', intent: 'ask' }, { contentType: 'text', answerLang: 'en' });
