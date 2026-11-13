@@ -319,6 +319,7 @@ object AnalyticsEvents {
         ev("claude.message_send", "chat", listOf("context_kind", "intent", "offline", "chip", "spoken")),
         ev("claude.thread_action", "chat", listOf("action", "context_kind")),
         ev("claude.undo_card_edit", "study", listOf("context_kind")),
+        ev("claude.added_card_open", "study", listOf("surface", "count")),
         ev("claude.reply_shown", "chat", listOf("first_text_ms", "done_ms", "via", "intent", "context_kind")),
         ev("claude.practice_start", "chat", listOf("source", "preset", "level")),
         ev("claude.discuss_open", "chat", listOf("resumed")),

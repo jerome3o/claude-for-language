@@ -15,7 +15,7 @@ const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
 
 const EXPLORER_SOURCES = [
-  'study', 'homework', 'reader', 'chat', 'ask_claude', 'claude_chat', 'breakdown', 'coach', 'lesson', 'card_hub', 'idioms',
+  'study', 'homework', 'reader', 'chat', 'ask_claude', 'claude_chat', 'claude_card', 'breakdown', 'coach', 'lesson', 'card_hub', 'idioms',
   'audio_lesson', 'meme_review', 'word_tag', 'clips', 'phone', 'read_aloud', 'sentence_round', 'podcast', 'call', 'picture_hunt', 'other',
   '', 'toString', 'READER',
 ];

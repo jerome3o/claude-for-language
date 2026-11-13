@@ -71,8 +71,9 @@ vi.mock('../../services/wordRecap', () => ({ useChatRecapCount: () => 0 }));
 vi.mock('../../services/chineseSegmenter', () => ({ useSegmentedWords: () => null, preloadSegmenter: () => {} }));
 vi.mock('../../services/ttsCache', () => ({ getTTSWithCache: vi.fn(async () => null) }));
 vi.mock('../../services/audioCache', () => ({ speakWithBrowserTTS: vi.fn(async () => undefined) }));
+const explorerOpen = vi.hoisted(() => vi.fn());
 vi.mock('../explorer/ExplorerContext', () => ({
-  useExplorer: () => ({ open: vi.fn(), push: vi.fn(), inside: false }),
+  useExplorer: () => ({ open: explorerOpen, push: vi.fn(), inside: false }),
   ExplorerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -145,6 +146,38 @@ afterEach(() => {
 });
 
 describe('ClaudeThreadView', () => {
+  it('"✓ Added 2 cards": each word is a chip that opens the explorer on it, the cards marked as just added', async () => {
+    explorerOpen.mockClear();
+    const results = JSON.stringify([
+      { tool: 'create_flashcards', success: true, data: { deck_id: 'src-claude', deck_name: 'From Claude', deck_source_key: 'claude', notes: [{ id: 'n1', hanzi: '机会', pinyin: 'jīhuì', english: 'opportunity' }, { id: 'n2', hanzi: '这次机会很难得。', pinyin: 'zhè cì jīhuì hěn nándé.', english: 'This chance is rare.' }] } },
+    ]);
+    api.getClaudeThread.mockResolvedValue({ thread: threadRow('t1'), messages: [msg('u1', 't1', 'user', '帮我做两张卡片'), msg('a1', 't1', 'assistant', '好的，我做了两张卡片。', { tool_results: results })], server_time: T0 });
+    await render({ threadId: 't1' });
+    await waitFor(() => host.querySelectorAll('[data-testid="added-card-chip"]').length === 2, 'the word chips');
+    expect(q('claude-added-cards')!.textContent).toContain('✓ 2 cards added to From Claude');
+    const chips = [...host.querySelectorAll('[data-testid="added-card-chip"]')] as HTMLButtonElement[];
+    expect(chips.map((c) => c.textContent)).toEqual(['机会›', '这次机会很难得。›']);
+    await act(async () => chips[1].click());
+    const justAdded = [
+      { noteId: 'n1', hanzi: '机会', deckId: 'src-claude', deckName: 'From Claude' },
+      { noteId: 'n2', hanzi: '这次机会很难得。', deckId: 'src-claude', deckName: 'From Claude' },
+    ];
+    // A sentence card opens the Word view on its characters (punctuation dropped), with its pinyin / meaning.
+    expect(explorerOpen).toHaveBeenCalledWith({ kind: 'word', hanzi: '这次机会很难得', pinyin: 'zhè cì jīhuì hěn nándé.', gloss: 'This chance is rare.' }, { source: 'claude_card', justAdded });
+    expect(track).toHaveBeenCalledWith('claude.added_card_open', { surface: 'thread', count: 2 });
+  });
+
+  it('a card thread\'s "✓ Added 1 card" (the server\'s created notes) is a chip too', async () => {
+    explorerOpen.mockClear();
+    const results = JSON.stringify([{ tool: 'create_flashcards', success: true, data: { created: [{ id: 'n9', hanzi: '取钱', pinyin: 'qǔqián', english: 'withdraw money' }], count: 1, targetDeckId: 'src-claude', deck_name: 'From Claude', deck_source_key: 'claude' } }]);
+    api.getClaudeThread.mockResolvedValue({ thread: threadRow('t2', { context_kind: 'card', context: { kind: 'card', note_id: 'n0' } }), messages: [msg('u1', 't2', 'user', '做一张卡'), msg('a1', 't2', 'assistant', '好的。', { tool_results: results })], server_time: T0 });
+    await render({ threadId: 't2' });
+    await waitFor(() => host.querySelectorAll('[data-testid="added-card-chip"]').length === 1, 'the word chip');
+    expect(q('claude-added-cards')!.textContent).toContain('✓ Added to From Claude');
+    await act(async () => (host.querySelector('[data-testid="added-card-chip"]') as HTMLButtonElement).click());
+    expect(explorerOpen).toHaveBeenCalledWith({ kind: 'word', hanzi: '取钱', pinyin: 'qǔqián', gloss: 'withdraw money' }, { source: 'claude_card', justAdded: [{ noteId: 'n9', hanzi: '取钱', deckId: 'src-claude', deckName: 'From Claude' }] });
+  });
+
   it('the ✦ Claude tab: 🎤 starts at once, once, and no ← on the tab root', async () => {
     fake.mode = 'voice';
     const say = vi.fn();

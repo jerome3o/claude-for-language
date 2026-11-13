@@ -559,7 +559,7 @@ private fun MessageView(m: CoachMessageDto, online: Boolean, lesson: (@Composabl
         val tools = CoachAnalysisDto.toolResults(m.tool_results)
         if (tools.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            tools.forEach { ToolChip(it) }
+            tools.forEach { ToolChip(it, "coach") }
         }
     }
 }
@@ -578,16 +578,33 @@ private fun UserBubble(text: String) {
 
 /** Port of ToolResultChips: one chip per tool result (stored JSON, [CoachAnalysisDto.toolResults]). */
 @Composable
-internal fun CoachToolResults(raw: String?) {
-    CoachAnalysisDto.toolResults(raw).forEach { ToolChip(it) }
+internal fun CoachToolResults(raw: String?, surface: String = "thread") {
+    CoachAnalysisDto.toolResults(raw).forEach { ToolChip(it, surface) }
 }
 
 /** One tool result's chip. */
 @Composable
-private fun ToolChip(r: CoachToolResultDto) {
+private fun ToolChip(r: CoachToolResultDto, surface: String) {
+    if (r.tool == "create_flashcards" && r.success) {
+        // The cards with their note ids — `notes` (the Coach, reader / exercise chats) or `created` (a card thread):
+        // "✓ Added 2 cards to From Claude" + a chip per word → the language explorer (⚡ Study it today there).
+        val cards = dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.addedCards(r.data)
+        if (cards.isNotEmpty()) {
+            val deckName = (r.data?.get("deck_name") as? kotlinx.serialization.json.JsonPrimitive)?.content
+            Column(
+                Modifier.padding(top = 4.dp).clip(RoundedCornerShape(12.dp)).background(Palette.Good.copy(alpha = 0.12f)).padding(horizontal = 10.dp, vertical = 8.dp)
+                    .testTag("claude-added-cards"),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("${dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.addedCardsHead(cards.size)}${deckName?.let { " to $it" }.orEmpty()}", fontSize = 13.sp, color = Lab.colors.ink)
+                dev.jeromeswannack.chineselearning.lab.ui.claude.AddedCardChips(cards, surface, Palette.Good)
+            }
+            return
+        }
+    }
     val text = when {
         r.tool == "create_flashcards" && r.success -> {
-            val notes = (r.data?.get("notes") as? kotlinx.serialization.json.JsonArray).orEmpty()
+            val notes = ((r.data?.get("notes") ?: r.data?.get("created")) as? kotlinx.serialization.json.JsonArray).orEmpty()
             val hanzi = notes.mapNotNull { ((it as? kotlinx.serialization.json.JsonObject)?.get("hanzi") as? kotlinx.serialization.json.JsonPrimitive)?.content }.joinToString("、")
             val deckName = (r.data?.get("deck_name") as? kotlinx.serialization.json.JsonPrimitive)?.content
             "✓ Added ${notes.size} card${if (notes.size == 1) "" else "s"}${deckName?.let { " to $it" }.orEmpty()}${if (hanzi.isNotEmpty()) ": $hanzi" else ""}"

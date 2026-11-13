@@ -5,10 +5,24 @@ import { useBackLevels } from '../../hooks/useBackLevels';
 import { activeDrill, LanguageExplorer, type DrillRun } from './LanguageExplorer';
 
 /** Where the explorer was opened from (analytics `explorer.open` source). */
-export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'claude_chat' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'phone' | 'read_aloud' | 'sentence_round' | 'other';
+export type ExplorerSource = 'study' | 'homework' | 'reader' | 'chat' | 'ask_claude' | 'claude_chat' | 'claude_card' | 'breakdown' | 'coach' | 'lesson' | 'card_hub' | 'idioms' | 'audio_lesson' | 'meme_review' | 'word_tag' | 'clips' | 'phone' | 'read_aloud' | 'sentence_round' | 'other';
+
+/**
+ * A card made a moment ago somewhere else (Claude's "✓ Added 2 cards" · 机会 ›): the note may only
+ * be on the server until the next sync lands, so the view of that word shows it as added — ⚡ Study
+ * it today / Open card — instead of "+ Add as card" (a duplicate).
+ */
+export interface JustAddedNote {
+  noteId: string;
+  hanzi: string;
+  deckId: string;
+  deckName: string;
+}
 
 export interface ExplorerOpenOptions {
   source: ExplorerSource;
+  /** Cards just made by whoever opened it (any view of their words shows them as added). */
+  justAdded?: readonly JustAddedNote[];
   /** The card on screen: its word(s) are highlighted first in "Words with 字". */
   cardHanzi?: string | null;
   /** "✍️ Write it" on a Character view (the study card opens its own writing pad). */
@@ -30,6 +44,8 @@ export interface ExplorerApi {
   inside: boolean;
   /** Where the showing explorer was opened from (its "+ Add as card" picks the source deck by it). */
   source?: ExplorerSource;
+  /** Cards the opener just made (ExplorerOpenOptions.justAdded). */
+  justAdded?: readonly JustAddedNote[];
 }
 
 const NOOP: ExplorerApi = { open: () => {}, push: () => {}, inside: false };
@@ -54,6 +70,7 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
   const [stack, dispatch] = useReducer(explorerReducer, []);
   const opts = useRef<ExplorerOpenOptions>({ source: 'other' });
   const [openSource, setOpenSource] = useState<ExplorerSource>('other');
+  const [justAdded, setJustAdded] = useState<readonly JustAddedNote[] | undefined>(undefined);
   const stackRef = useRef(stack);
   stackRef.current = stack;
 
@@ -61,6 +78,7 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
     // A fresh stack replacing the one showing drops that one's onClosed (it never comes back).
     opts.current = o;
     setOpenSource(o.source);
+    setJustAdded(o.justAdded && o.justAdded.length ? o.justAdded : undefined);
     track('explorer.open', { source: o.source, kind: item.kind });
     dispatch({ type: 'open', item });
   }, []);
@@ -72,7 +90,7 @@ export function ExplorerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'push', item });
   }, []);
 
-  const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false, source: openSource }), [open, push, openSource]);
+  const api = useMemo<ExplorerApi>(() => ({ open, push, inside: false, source: openSource, justAdded }), [open, push, openSource, justAdded]);
 
   // The stack emptied (closed): tell whoever opened it, once.
   const wasOpen = useRef(false);

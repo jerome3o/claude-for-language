@@ -127,6 +127,7 @@ export function CharacterView({
           chunk={() => ({ hanzi: char, pinyin: record?.readings[0]?.pinyin ?? '', english: record?.meaning ?? '' })}
           onClose={onClose}
           testIds={{ root: 'explorer-char-own', checking: 'explorer-char-own-checking', add: 'explorer-char-add' }}
+          hanzi={char}
         />
       )}
 

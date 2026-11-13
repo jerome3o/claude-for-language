@@ -328,6 +328,7 @@ export function WordView({
       {footer && createPortal(
         <CardTieIn
           kind="word"
+          hanzi={hanzi}
           have={existing === null ? null : { noteIds: existing.map((e) => e.note.id), line: `📚 You have this card in ${decks.join(', ')}` }}
           addLabel="+ Add as card"
           chunk={() => ({

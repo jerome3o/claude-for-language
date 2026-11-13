@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CoachMistakeLesson
 import dev.jeromeswannack.chineselearning.lab.core.FlashcardReview
 import dev.jeromeswannack.chineselearning.lab.core.PickerDecks
 import dev.jeromeswannack.chineselearning.lab.core.ProposedCard
+import dev.jeromeswannack.chineselearning.lab.core.claude.CardTools
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
@@ -249,6 +250,10 @@ class ClaudeThreadViewModel(
                     }
                     if (t != null && m.status == null) {
                         finished.tryEmit(m)
+                        // Claude made cards: bring them into Room now, so the "✓ Added" chips' explorer shows them as his.
+                        if (CardTools.parse(m.tool_results).any { it.tool == "create_flashcards" && it.success && CardTools.addedCards(it.data).isNotEmpty() }) {
+                            app.scope.launch { app.safely("claude cards sync") { app.repo.sync() } }
+                        }
                         // A card question's "check my Chinese" may land a moment after the reply: look again.
                         if (c?.thread?.context?.kind == ClaudeChats.CARD) viewModelScope.launch {
                             for (wait in longArrayOf(2500, 5500)) {

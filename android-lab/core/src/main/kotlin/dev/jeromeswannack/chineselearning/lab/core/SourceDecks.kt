@@ -48,7 +48,7 @@ object SourceDecks {
     val EXPLORER: Map<String, String> = mapOf(
         "reader" to "readers", "read_aloud" to "readers",
         "chat" to "chats",
-        "ask_claude" to "claude", "claude_chat" to "claude", "coach" to "claude",
+        "ask_claude" to "claude", "claude_chat" to "claude", "claude_card" to "claude", "coach" to "claude",
         "breakdown" to "sentences", "sentence_round" to "sentences",
         "lesson" to "practice", "idioms" to "practice", "audio_lesson" to "practice", "meme_review" to "practice",
         "clips" to "practice", "phone" to "practice", "podcast" to "practice", "call" to "practice", "picture_hunt" to "practice",

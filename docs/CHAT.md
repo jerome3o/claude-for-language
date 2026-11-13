@@ -1171,6 +1171,24 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   a longer streamed one (`mergeMessage`). Coach results — ✏️ Check (+ 🎯 mini lesson), 🔍 Explain, Translate,
   the mistake-lesson card, tool-result chips — are the Coach's own cards, moved to
   `components/coach/CoachResults.tsx` (shared with `SentenceCoachPage`).
+- **Cards Claude added** (Jerome, Nov 2026: "I'd like to tap that and see that word … so I can click ⚡ Study it
+  today"): a reply whose `create_flashcards` made cards shows "✓ Added to From Claude · Change" (the thread, the Coach)
+  / "✓ Added 2 cards" (the card's Ask Claude sheet, `cardToolLines`) followed by **one tappable chip per card** —
+  hanzi + ›, wrapping, never a list (web `components/claude/AddedCardChips.tsx`, Lab `ui/claude/AddedCardChips.kt`).
+  A tap opens the **language explorer** on that word (a sentence card → the Word view of its characters, its pinyin
+  / meaning as the hint; source `claude_card` → "From Claude" for any "+ Add"), every card of the line passed as
+  **just added** (`ExplorerOpenOptions.justAdded` / Lab `ExplorerController.open(…, justAdded)`): until the sync brings
+  the note to the device, the view of that word shows it as added — "✓ Added to From Claude · Change", Open card, **⚡ Study
+  it today** (the bump path, offline-first; Lab bumps by hanzi + deck and polls Room for the card) — never "+ Add as
+  card" (a duplicate); once synced it is "📚 You have this card in From Claude". The thread view starts a sync as soon
+  as a reply that made cards finishes (web `incrementalSync`, Lab `repo.sync()`; the card sheet's study screen already
+  did). The data: `addedCards(data)` in `shared/claude/cardTools.ts` (Lab `CardTools.addedCards`, parity-tested) reads
+  `{ note_id, hanzi, pinyin, english, deck_id, deck_name }` from either shape the server stores — a card thread's
+  `data.created` (the note rows, `claude-agent/apply.ts`) or every other chat's `data.notes`
+  (`coach-replies.ts defaultApply`); an `added` line carries them as `cards` + `head` ("✓ Added 2 cards"). Old rows
+  without ids keep the plain line. Analytics `claude.added_card_open { surface: thread | card_sheet | coach, count }`.
+  E2E: the stand-in (`claude-agent/fake.ts`) calls `create_flashcards` (机会, + 难得 for "two cards") when asked for a
+  card (`e2e/tests/claude-thread.spec.ts`).
 - **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
   still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
   it mean · Is it natural · How to reply · Make flashcards, practice = 💡 hint · 🆘 How do I say… (`fill`: into the

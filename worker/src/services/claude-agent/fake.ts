@@ -8,6 +8,10 @@
  * the tools) whose question asks for a fun fact (the "Add a fun fact" chip, 小知识 / "fun fact"), the
  * first round calls edit_current_card with `FAKE_FUN_FACT`; the round after the tool result is the
  * usual streamed answer.
+ *
+ * A second one: in any context offering create_flashcards, a question asking for a card (卡片 /
+ * "make a card") makes `FAKE_CARDS[0]` — "two cards" / 两张 makes both — so a spec can tap the
+ * "✓ Added" line's word into the explorer (docs/CHAT.md "Cards Claude added").
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { AskLanguage } from '@shared/study/askClaude';
@@ -24,6 +28,12 @@ export const FAKE_STREAM_MODEL = 'e2e-fake-model';
 
 /** What the stand-in writes into the card's notes when asked for a fun fact. */
 export const FAKE_FUN_FACT = '(E2E) 小知识: Claude added this fun fact.';
+
+/** The cards the stand-in makes when asked for a card (card-standard complete, so the content service takes them). */
+export const FAKE_CARDS = [
+  { hanzi: '机会', pinyin: 'jīhuì', english: 'opportunity', fun_facts: '机 (jī) machine, moment + 会 (huì) meeting, chance → a moment that comes together: an opportunity.', sentence_clue: '这是一个好机会。', sentence_clue_pinyin: 'Zhè shì yí gè hǎo jīhuì.', sentence_clue_translation: 'This is a good opportunity.' },
+  { hanzi: '难得', pinyin: 'nándé', english: 'rare, hard to come by', fun_facts: '难 (nán) hard + 得 (dé) to get → hard to get: rare, precious.', sentence_clue: '这样的机会很难得。', sentence_clue_pinyin: 'Zhèyàng de jīhuì hěn nándé.', sentence_clue_translation: 'A chance like this is rare.' },
+] as const;
 
 type Params = { tools?: Array<{ name?: string }>; messages?: Array<{ role: string; content: unknown }> };
 
@@ -45,6 +55,21 @@ function funFactToolUse(params: Params | undefined): Anthropic.Message | null {
   if (!/小知识|fun fact/i.test(text)) return null;
   const m = message('', 'tool_use');
   m.content = [{ type: 'tool_use', id: `toolu_e2e_${Math.random().toString(36).slice(2, 10)}`, name: 'edit_current_card', input: { fun_facts: FAKE_FUN_FACT } } as Anthropic.ToolUseBlock];
+  return m;
+}
+
+/** The card-making tool call, when this round should make it (see the file comment). */
+function cardsToolUse(params: Params | undefined): Anthropic.Message | null {
+  if (!params?.tools?.some((t) => t.name === 'create_flashcards')) return null;
+  const messages = params.messages ?? [];
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return null;
+  if (Array.isArray(last.content) && last.content.some((b) => (b as { type?: string })?.type === 'tool_result')) return null;
+  const text = textOf(last.content);
+  if (!/卡片|make (a |two )?cards?|flashcard/i.test(text)) return null;
+  const flashcards = /两张|two cards/i.test(text) ? [...FAKE_CARDS] : [FAKE_CARDS[0]];
+  const m = message('', 'tool_use');
+  m.content = [{ type: 'tool_use', id: `toolu_e2e_${Math.random().toString(36).slice(2, 10)}`, name: 'create_flashcards', input: { flashcards } } as Anthropic.ToolUseBlock];
   return m;
 }
 
@@ -98,8 +123,8 @@ export function fakeStreamingClient(language: AskLanguage = 'zh', delayMs = 250,
   const chunks = variant === 'practice' ? FAKE_PRACTICE_CHUNKS : FAKE_STREAM_CHUNKS[language];
   return {
     messages: {
-      create: async (params: Params) => funFactToolUse(params) ?? message(chunks.join(''), 'end_turn'),
-      stream: (params: Params) => new FakeMessageStream(chunks, delayMs, funFactToolUse(params)),
+      create: async (params: Params) => funFactToolUse(params) ?? cardsToolUse(params) ?? message(chunks.join(''), 'end_turn'),
+      stream: (params: Params) => new FakeMessageStream(chunks, delayMs, funFactToolUse(params) ?? cardsToolUse(params)),
     },
   } as unknown as Pick<Anthropic, 'messages'>;
 }

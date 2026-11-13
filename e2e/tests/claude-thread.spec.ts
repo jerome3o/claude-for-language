@@ -92,6 +92,55 @@ test('a card thread: the header chip, the card’s chips, a streamed answer, the
   await expect(page.getByTestId('card-hub')).toBeVisible({ timeout: 20_000 });
 });
 
+test('a card Claude made: its word on the "✓ Added" line opens the explorer, the card is his, ⚡ Study it today works', async ({ page, request }) => {
+  test.setTimeout(150_000);
+  const { session_token } = await seedUser(request);
+  const deck = await apiPost<{ id: string }>(request, session_token, '/api/decks', { name: 'HSK 2' });
+  const note = await apiPost<{ id: string }>(request, session_token, `/api/decks/${deck.id}/notes`, { hanzi: '银行', pinyin: 'yínháng', english: 'bank' });
+  await page.goto(`/chats?session_token=${session_token}`);
+  await expect(page.getByTestId('chats-compose')).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/chats/claude/new?context=card&note_id=${note.id}&label=${encodeURIComponent('银行')}`);
+  await expect(page.getByTestId('claude-thread-context-chip')).toContainText('Asked on card · 银行', { timeout: 30_000 });
+  // The E2E stand-in calls create_flashcards (机会) when asked for a card.
+  await page.getByTestId('claude-chat-voice-type').click();
+  await page.getByTestId('claude-chat-voice-text').fill('Make a card for 机会');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+$/, { timeout: 15_000 });
+
+  const line = page.getByTestId('claude-added-cards');
+  await expect(line).toContainText(/[Aa]dded to From Claude/, { timeout: 30_000 });
+  const chip = line.getByTestId('added-card-chip');
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toContainText('机会');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/05-added-line.png` });
+
+  await chip.click();
+  const explorer = page.getByTestId('explorer');
+  await expect(explorer).toBeVisible();
+  await expect(explorer.getByTestId('explorer-word-view')).toBeVisible();
+  // The card is his — just added (before the sync lands) or "📚 You have this card" (after) — never "+ Add as card".
+  const footer = page.getByTestId('explorer-word-card');
+  await expect(footer).toContainText(/Added to From Claude|You have this card in From Claude/, { timeout: 15_000 });
+  await expect(page.getByTestId('explorer-add-card')).toHaveCount(0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/06-explorer-added-card.png` });
+  await footer.getByRole('button', { name: '⚡ Study it today' }).click();
+  await expect(footer.getByRole('button', { name: '⚡ Today ✓' })).toBeVisible({ timeout: 10_000 });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/07-explorer-bumped.png` });
+
+  // Several cards: one chip per word on the line.
+  await page.getByTestId('explorer-close').click();
+  await page.getByTestId('claude-chat-voice-type').click();
+  await page.getByTestId('claude-chat-voice-text').fill('Make two cards: 机会 and 难得');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const second = page.getByTestId('claude-added-cards').nth(1);
+  await expect(second.getByTestId('added-card-chip')).toHaveCount(2, { timeout: 30_000 });
+  await expect(second).toContainText('难得');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/08-added-two.png` });
+  await second.getByTestId('added-card-chip').nth(1).click();
+  await expect(page.getByTestId('explorer-word-card')).toContainText(/Added to From Claude|You have this card in From Claude/, { timeout: 15_000 });
+  await expect(page.getByTestId('explorer-add-card')).toHaveCount(0);
+});
+
 test('offline: the message waits in the outbox and is sent when the connection is back', async ({ page, request, context }) => {
   test.setTimeout(120_000);
   const { session_token } = await seedUser(request);

@@ -49,8 +49,44 @@ object CardTools {
 
     private fun strings(e: JsonElement?): List<String> = (e as? JsonArray)?.mapNotNull { str(it)?.takeIf { s -> s.trim().isNotEmpty() } }.orEmpty()
 
+    /** `data.created` (a card thread) when it is a list, else `data.notes` (every other Claude chat). */
+    private fun createdList(data: JsonObject?): JsonArray? = (data?.get("created") as? JsonArray) ?: (data?.get("notes") as? JsonArray)
+
     private fun createdHanzi(data: JsonObject?): List<String> =
-        (data?.get("created") as? JsonArray)?.mapNotNull { (it as? JsonObject)?.let { o -> str(o["hanzi"]) }?.takeIf { h -> h.isNotEmpty() } }.orEmpty()
+        createdList(data)?.mapNotNull { (it as? JsonObject)?.let { o -> str(o["hanzi"]) }?.takeIf { h -> h.isNotEmpty() } }.orEmpty()
+
+    /** A card create_flashcards made, as the tappable word under the reply (→ the language explorer). */
+    data class AddedCard(
+        val noteId: String,
+        val hanzi: String,
+        val pinyin: String? = null,
+        val english: String? = null,
+        val deckId: String? = null,
+        val deckName: String? = null,
+    )
+
+    /**
+     * `addedCards`: the cards ONE create_flashcards result made, in order, each once — `data.created`
+     * (a card thread) or `data.notes` (any other chat); entries without an id or hanzi left out.
+     */
+    fun addedCards(data: JsonObject?): List<AddedCard> {
+        val list = createdList(data) ?: return emptyList()
+        val deckId = str(data?.get("deck_id")) ?: str(data?.get("targetDeckId"))
+        val deckName = str(data?.get("deck_name"))
+        val seen = HashSet<String>()
+        val out = ArrayList<AddedCard>()
+        for (c in list) {
+            val o = c as? JsonObject ?: continue
+            val id = str(o["id"])?.trim()
+            val hanzi = str(o["hanzi"])?.trim()
+            if (id.isNullOrEmpty() || hanzi.isNullOrEmpty() || !seen.add(id)) continue
+            out += AddedCard(id, hanzi, str(o["pinyin"])?.trim()?.ifEmpty { null }, str(o["english"])?.trim()?.ifEmpty { null }, deckId, deckName)
+        }
+        return out
+    }
+
+    /** `addedCardsHead`: "✓ Added 2 cards" (the added line's start when its words follow as chips). */
+    fun addedCardsHead(n: Int): String = "✓ Added $n card${if (n == 1) "" else "s"}"
 
     private fun createdCount(data: JsonObject?): Int {
         val n = (data?.get("count") as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull
@@ -104,8 +140,12 @@ object CardTools {
         return out
     }
 
-    /** One line under the reply; [undo] = it offers Undo (an edit). [kind]: edited | added | deleted | lesson | bumped | failed. */
-    data class Line(val kind: String, val text: String, val undo: Boolean)
+    /**
+     * One line under the reply; [undo] = it offers Undo (an edit). [kind]: edited | added | deleted |
+     * lesson | bumped | failed. An added line also has [head] ("✓ Added 2 cards") and [cards] (with
+     * note ids; empty for an old row): shown as [head] + a tappable chip per card, else [text].
+     */
+    data class Line(val kind: String, val text: String, val undo: Boolean, val head: String? = null, val cards: List<AddedCard> = emptyList())
 
     private val FAILED_LABELS = mapOf(
         "edit_current_card" to "Couldn’t edit this card",
@@ -131,7 +171,7 @@ object CardTools {
                 "create_flashcards" -> {
                     val n = createdCount(r.data)
                     val hanzi = createdHanzi(r.data)
-                    out += Line("added", "✓ Added $n card${if (n == 1) "" else "s"}${if (hanzi.isNotEmpty()) ": ${hanzi.joinToString("、")}" else ""}", false)
+                    out += Line("added", "${addedCardsHead(n)}${if (hanzi.isNotEmpty()) ": ${hanzi.joinToString("、")}" else ""}", false, addedCardsHead(n), addedCards(r.data))
                 }
                 "create_custom_lesson" -> {
                     val title = str(r.data?.get("title"))?.trim()

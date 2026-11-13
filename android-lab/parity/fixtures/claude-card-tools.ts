@@ -33,6 +33,12 @@ const RAWS: Array<string | null> = [
     { tool: 'bump_cards', success: false, error: 'x' },
   ]),
   JSON.stringify([{ tool: 'edit_current_card', success: true, data: { changes: {} } }, { tool: 'create_flashcards', success: true, data: { count: 2.7 } }]),
+  // The cards with their note ids (the tappable words): a card thread's `created`, every other chat's `notes`.
+  JSON.stringify([
+    { tool: 'create_flashcards', success: true, data: { created: [{ id: 'n1', hanzi: ' 机会 ', pinyin: 'jīhuì', english: 'opportunity', deck_id: 'x' }, { id: 'n2', hanzi: '难得', pinyin: 7 }, { id: 'n1', hanzi: '机会' }, { hanzi: '没有' }, { id: 'n3' }, 4, { id: ' ', hanzi: '好' }], count: 2, targetDeckId: 'd1', deck_name: 'From Claude' } },
+    { tool: 'create_flashcards', success: true, data: { deck_id: 'd2', deck_name: 'HSK 2', deck_source_key: null, notes: [{ id: 'n4', hanzi: '这次机会很难得。', pinyin: 'zhè cì jīhuì hěn nándé.', english: '  ' }] } },
+    { tool: 'create_flashcards', success: true, data: { notes: [{ id: 7, hanzi: 'y' }, { id: 'n5', hanzi: '取钱', english: 'withdraw money' }], deck_id: 5, created: 'nope' } },
+  ]),
 ];
 
 const results = RAWS.map((raw) => {

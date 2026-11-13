@@ -19,6 +19,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { resumeThreadFor } from '@shared/claude/contexts';
+import { AddedCardChips } from './AddedCardChips';
 import { cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, type CardToolResult } from '@shared/claude/cardTools';
 import { chatRelativeTime } from '@shared/chats/inbox';
 import type { ClaudeThreadContext, ClaudeContextSnapshot } from '@shared/claude/context';
@@ -106,7 +107,15 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
       <div className="card-claude-tools" data-testid="card-claude-tools">
         {lines.map((line, i) => (
           <div key={i} className={`card-claude-tool ${line.kind}`} data-testid={`card-claude-tool-${line.kind}`}>
-            <span>{u?.state === 'done' && line.undo ? '↺ Undone — the card is back as it was' : line.text}</span>
+            {line.cards && line.cards.length > 0 ? (
+              // "✓ Added 2 cards" + a chip per card → the language explorer (⚡ Study it today there).
+              <>
+                <span>{line.head}</span>
+                <AddedCardChips cards={line.cards} surface="card_sheet" />
+              </>
+            ) : (
+              <span>{u?.state === 'done' && line.undo ? '↺ Undone — the card is back as it was' : line.text}</span>
+            )}
             {line.undo && props.canUndo(reply.id) && u?.state !== 'done' && (
               <button
                 type="button"

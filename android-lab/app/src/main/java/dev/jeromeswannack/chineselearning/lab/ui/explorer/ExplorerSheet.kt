@@ -105,7 +105,8 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             BackHandler(enabled = controller.isOpen) { controller.back() }
             ExplorerStackView(
                 controller, env, refresh,
-                justAdded = justAdded,
+                // The opener's just-made cards (Claude's "✓ Added" chips), then this sheet's own adds.
+                justAdded = controller.justAdded + justAdded,
                 onAdd = { adding = it },
                 onWrite = { ch -> controller.record("explorer.write"); writing = ch },
             )
