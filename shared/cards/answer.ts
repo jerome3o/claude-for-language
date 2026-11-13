@@ -24,6 +24,13 @@
  * pinyin-pro reads 他长得很好 as … dé …) matches that syllable said in any tone; the same rule
  * applies to the whole-answer `sound` check.
  *
+ * A dropped little word (`dropped`, given by `practiseSentence` in shared/coach/practise.ts — saying a
+ * SENTENCE aloud: the Sentence round, the example sentence rows, the Coach — never by this check, so a
+ * lesson whose point IS the 了 still marks it): a sentence (≥ `DROPPED_MIN_CHARS` Han characters) said
+ * with exactly one of `DROPPABLE_FUNCTION_CHARS` missing — 虾饺我最喜欢的点心 for 虾饺是我最喜欢的点心 —
+ * counts as right: an unstressed 是 / 的 / 了 is the first thing a recogniser loses when the learner
+ * pauses (Jerome: "it interprets my pause as grammar"). By hanzi or by sound (`droppedFunctionChar`).
+ *
  * Never used to bias recognition: the expected answer is NOT sent to the recogniser
  * (shared/transcription/soniox.ts `buildSonioxConfig` has no context).
  *
@@ -44,6 +51,11 @@ export type AnswerVerdict =
   | 'sound'
   /** Spoken only: the answer said inside a longer sentence (its hanzi, or a homophone window) — right. */
   | 'contains'
+  /**
+   * Spoken only: a sentence said with ONE short unstressed word missing (是 / 的 / 了 / 一 / 个 …) —
+   * the recogniser swallows those when the learner pauses, so it counts as right (`droppedFunctionChar`).
+   */
+  | 'dropped'
   /** Spoken only: the same syllables with other tones (or the recogniser gave none) — wrong. */
   | 'close'
   | 'wrong';
@@ -223,9 +235,41 @@ export function checkSpokenAnswer(
   return 'wrong';
 }
 
+/**
+ * The short unstressed words a speech recogniser drops when the learner pauses. Never 不 / 没 / 吗
+ * (they change the meaning) and never a content word.
+ */
+export const DROPPABLE_FUNCTION_CHARS = '是的了一个地得着吧呢啊';
+/** A dropped word is forgiven only in a sentence: at least this many Han characters in the answer. */
+export const DROPPED_MIN_CHARS = 4;
+
+/**
+ * The one short function word (`DROPPABLE_FUNCTION_CHARS`) the transcript leaves out of the answer,
+ * everything else said — by hanzi (traditional → simplified; punctuation, spaces and numbers as in the
+ * answer key) or by sound (toned syllables; a neutral syllable of the answer matches any tone). null =
+ * not that (more or other differences, a short answer, not all Chinese).
+ */
+export function droppedFunctionChar(transcript: string, correct: string): string | null {
+  const heardKey = toSimplified(hanziAnswerKey(transcript));
+  const t = [...toSimplified(hanziAnswerKey(correct))];
+  const h = [...heardKey];
+  if (t.length < DROPPED_MIN_CHARS || h.length !== t.length - 1) return null;
+  if (!t.every(c => HAN.test(c)) || !h.every(c => HAN.test(c))) return null;
+  const heardSyllables = spokenSyllables(transcript);
+  const targetSyllables = spokenSyllables(correct);
+  const bySound = allSyllables(heardSyllables) && allSyllables(targetSyllables) && targetSyllables.length === t.length;
+  for (let i = 0; i < t.length; i++) {
+    if (!DROPPABLE_FUNCTION_CHARS.includes(t[i])) continue;
+    if ([...t.slice(0, i), ...t.slice(i + 1)].join('') === heardKey) return t[i];
+    if (bySound && syllablesMatch(heardSyllables, [...targetSyllables.slice(0, i), ...targetSyllables.slice(i + 1)])) return t[i];
+  }
+  return null;
+}
+
 /** The line under a spoken answer on the back (null = nothing to add). */
 export function spokenVerdictNote(verdict: AnswerVerdict, correct: string): string | null {
   if (verdict === 'sound') return `Sounded right ✓ — written ${correct.trim()}`;
+  if (verdict === 'dropped') return `Right ✓ — one small word wasn’t caught: ${correct.trim()}`;
   if (verdict === 'close') return 'Close — the tones are off';
   return null;
 }
@@ -233,15 +277,25 @@ export function spokenVerdictNote(verdict: AnswerVerdict, correct: string): stri
 /** Sentence punctuation (and whitespace) a recogniser leaves at the end of what it heard. */
 const TRAILING_SENTENCE_PUNCTUATION = /[\s。．.！!？?，,、；;：:…~～]+$/;
 
+/** The marks a recogniser writes where the learner paused. */
+const PAUSE_MARKS = /[。．.！!？?，,、；;：:…~～]/;
+/** A pause between two Chinese characters: spaces and pause marks (the next character stays). */
+const PAUSE_BETWEEN_HAN = /(\p{Script=Han})[\s。．.！!？?，,、；;：:…~～]+(?=\p{Script=Han})/gu;
+
 /**
  * What was said, as shown and used as the answer: the recogniser ends a take with 。 (撤销。 /
  * chè xiāo。) — dropped when the card's answer itself doesn't end in punctuation (a word card); a
- * sentence card that ends in 。 / ？ keeps it. Works on the transcript's pinyin line too (only the
- * end of `correct` decides). The check ignores the punctuation either way (`punctuation_only`);
- * this is so the review and "You said" read like the card. Lab: `AnswerKey.tidySpokenTranscript`.
+ * sentence card that ends in 。 / ？ keeps it. And a PAUSE is never a sentence break (Jerome: "it
+ * interprets my pause as grammar"): when the answer has no punctuation inside it, the 。 / ， / spaces
+ * the recogniser put between two Chinese characters go (虾饺我最喜欢的。 点心。 → 虾饺我最喜欢的点心。).
+ * Works on the transcript's pinyin line too (only `correct` decides). The check ignores punctuation
+ * either way (`punctuation_only`); this is so the review, "You said" and what Claude is sent read like
+ * the card. Lab: `AnswerKey.tidySpokenTranscript`.
  */
 export function tidySpokenTranscript(transcript: string, correct: string): string {
-  const text = transcript.trim();
-  if (TRAILING_SENTENCE_PUNCTUATION.test(correct.trim())) return text;
+  let text = transcript.trim();
+  const target = correct.trim();
+  if (!PAUSE_MARKS.test(target.replace(TRAILING_SENTENCE_PUNCTUATION, ''))) text = text.replace(PAUSE_BETWEEN_HAN, '$1');
+  if (TRAILING_SENTENCE_PUNCTUATION.test(target)) return text;
   return text.replace(TRAILING_SENTENCE_PUNCTUATION, '');
 }

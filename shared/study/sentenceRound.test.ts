@@ -5,7 +5,7 @@ import {
   pickListenRoundExercises, listenRoundSentenceCount, listenRoundIntro, canListenTo, listenActiveId, exerciseAsRead, listenCheckBy,
   listenCheckInput, listenVerdictResult, listenSelfResult, parseSentencesByEar, SENTENCE_ROUND_PROMPT,
   SENTENCE_ROUND_SKIP, SENTENCE_ROUND_SKIP_CONFIRM, SENTENCE_ROUND_SKIP_CONFIRM_YES, SENTENCE_ROUND_SKIP_CONFIRM_NO,
-  isCardHanziSentence, roundSentenceCount,
+  isCardHanziSentence, roundSentenceCount, listenRepeatCheck, LISTEN_REPEAT_HEADLINE, roundTakeAfterReveal, roundTakeRecorded, roundRetryOffered,
 } from './sentenceRound';
 import { sentenceGate } from './sentencePractise';
 import { sentenceStats, wantsMoreSentences, type SentencePracticeEvent } from './sentenceHistory';
@@ -247,6 +247,50 @@ describe('Sentences by ear (listen exercises in the read slots)', () => {
 
   it('the setting: on unless switched off', () => {
     expect([null, undefined, '', '1', 'true', '0', 'false', 'x'].map((v) => parseSentencesByEar(v))).toEqual([true, true, true, true, true, false, false, true]);
+  });
+
+  it("said back in Chinese (Jerome's 虾饺): heard right on the device — a pause and a swallowed 是 are nothing", () => {
+    const row = { hanzi: '虾饺是我最喜欢的点心。', pinyin: 'Xiājiǎo shì wǒ zuì xǐhuan de diǎnxīn.', translation: 'Shrimp dumplings are my favourite dim sum.' };
+    const check = listenRepeatCheck('虾饺我最喜欢的。 点心。', row.hanzi);
+    expect(check).toEqual({ verdict: 'correct', headline: LISTEN_REPEAT_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it' });
+    expect(listenVerdictResult(check!.verdict)).toBe('right');
+    // English answers are the meaning check's; a real miss goes to Claude.
+    expect(listenRepeatCheck('Shrimp dumplings are my favourite', row.hanzi)).toBeNull();
+    expect(listenRepeatCheck('虾饺不是我喜欢的', row.hanzi)).toBeNull();
+    // Claude, when asked, checks what he HEARD (the lesson's listen_translate: the English as what it means,
+    // the Chinese as the model answer), the transcript tidied so a pause is never a sentence break.
+    expect(listenCheckInput(row, '虾饺不是我最喜欢的。 点心。', 'spoken')).toEqual({
+      prompt_en: 'Shrimp dumplings are my favourite dim sum.', model_answer: '虾饺是我最喜欢的点心。', model_pinyin: row.pinyin,
+      answer: '虾饺不是我最喜欢的点心。', exercise_type: 'listen_translate', input: 'spoken',
+    });
+    expect(listenCheckInput(row, '虾饺我最喜欢的。点心', 'typed').answer).toBe('虾饺我最喜欢的。点心');
+  });
+});
+
+describe('🔁 Try again, also after the answer was shown', () => {
+  it('a retake after the answer was seen counts for the round but is not written to the history (read never is "after")', () => {
+    expect(roundTakeAfterReveal('listen', true)).toBe(true);
+    expect(roundTakeAfterReveal('translate', true)).toBe(true);
+    expect(roundTakeAfterReveal('read', true)).toBe(false);
+    expect(roundTakeAfterReveal('listen', false)).toBe(false);
+    expect(roundTakeRecorded('listen', true)).toBe(false);
+    expect(roundTakeRecorded('translate', false)).toBe(true);
+    expect(roundTakeRecorded('read', true)).toBe(true);
+  });
+  it('Try again is offered on any answered exercise that is not right, unless a take is under way', () => {
+    expect(roundRetryOffered('wrong', true, false)).toBe(true);
+    expect(roundRetryOffered('close', true, false)).toBe(true);
+    expect(roundRetryOffered(null, true, false)).toBe(true); // 👁 shown, not judged yet
+    expect(roundRetryOffered('right', true, false)).toBe(false);
+    expect(roundRetryOffered('wrong', false, false)).toBe(false);
+    expect(roundRetryOffered('wrong', true, true)).toBe(false);
+  });
+  it('a right retake after the answer was seen counts toward any 2 right', () => {
+    const exercises = pickRoundExercises(["a", "b", "c", "d"].map((k) => ({ key: k, hanzi: `${k}我去银行。`, translation: "x" })));
+    const p = sentenceRoundProgress(exercises, [exercises[0].id]);
+    expect(p).toEqual({ needed: 2, got: 1, done: false });
+    // The listen exercise he got wrong, then (having seen it) said right on 🔁 Try again.
+    expect(sentenceRoundProgress(exercises, [exercises[0].id, exercises[1].id])).toEqual({ needed: 2, got: 2, done: true });
   });
 });
 

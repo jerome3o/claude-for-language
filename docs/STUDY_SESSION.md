@@ -1670,21 +1670,39 @@ the sentence can be heard. Settings → Study → **"Sentences by ear in Hard mo
   (its clip is asked for in the background through the rows' ensure-audio path, so it can be heard next time).
   Translate slots, hidden sentences, one exercise per sentence, any 2 right and the Good / Easy gate are unchanged;
   listen ids are `listen:<key>` and count like the others (progress, resume `round_log`, the answer side's marks).
-- **The exercise**: the clip **plays by itself** once the exercise has the floor (the first unanswered listen
-  exercise, or the one he tapped ▶ on — `listenActiveId`; one answer box at a time), **no text on screen**; **▶ Play
-  again** and **🐢 0.75×** (pitch kept). He gives the meaning **in English** in the voice-first box (🎤 Say it, ✏️ Type;
+- **The exercise**: **nothing plays by itself** (Jerome, Nov 2026: "the listening cards on the hard mode section
+  shouldn't autoplay. I actually think I should click the card to make it play"; `SENTENCE_LISTEN_AUTOPLAY` = false):
+  each listen exercise starts as one big **▶ Tap to listen** button, the row wide (`LISTEN_EX_TAP_TO_LISTEN`; testid
+  `sentence-listen-tap`), **no text on screen**; once tapped it plays and becomes **▶ Play again** and **🐢 0.75×**
+  (pitch kept). The exercise with the floor (the first unanswered one, or the one he tapped — `listenActiveId`; one
+  answer box at a time) shows the answer box. He gives the meaning **in English** in the voice-first box (🎤 Say it, ✏️ Type;
   `VoiceTextInput lang="en"` / Lab `VoiceTextField(lang = "en")`); a quiet **👁 Show the answer** gives up.
 - **Checking**: online with English → the **lesson answer check** as a MEANING check — `POST /api/lessons/answer-check`
   with `exercise_type: 'listen_translate'`, `prompt_en` = the Chinese heard, `model_answer` = the sentence's English,
   `answer` = his English (`listenCheckInput`; `isMeaningCheck` in shared/lesson/answerCheck.ts: listen_translate with
   English on both sides; its own Haiku prompt `MEANING_CHECK_SYSTEM`, judged on meaning only, tips quoting the Chinese
-  he missed; cached for everyone, device cache too, key `m1|…`). His English = the sentence's English (case /
+  he missed; cached for everyone, device cache too, key `m2|…`). His English = the sentence's English (case /
   punctuation aside) → right on the device with no call (`exactAnswerCheck`). correct / acceptable = **✓ Right**
   (counts), almost = **≈ Nearly**, wrong = **✗ Not quite** (`listenVerdictResult`). Offline, no English, no check to be
   had, or 👁 Show the answer → **self-check**: "Did you understand it?" **✗ Missed it** / **✓ Got it**.
+- **Said back in Chinese** (Jerome, Nov 2026, 虾饺: "You said: 虾饺我最喜欢的。 点心。" was marked ✗ for "fragments" —
+  "it interprets my pause as grammar"): an answer with Chinese in it is judged as a repeat of what he heard. First on the
+  device (`listenRepeatCheck` → `practiseSentence`, below "Spoken sentences are judged leniently"): heard right → **✓ Right
+  · You said it back right**, no call. Otherwise Claude checks it as "what they heard" (`listenCheckInput`: the English
+  as what it means, the Chinese as the model answer, a spoken take tidied), with the spoken rules below. "You said" shows
+  the tidied take.
 - **The reveal shows at once** — Chinese, pinyin, English, ▶ — and "You said: …"; the verdict lands in a **slim row
   under it whose height is kept from the start** ("Checking what you understood…" → "≈ Nearly · <headline>"), so
-  nothing in the exercise moves. No retry (the answer is revealed).
+  nothing in the exercise moves.
+- **🔁 Try again — also after the answer was shown** (Jerome: "I'd love to be able to retry these cards, even though
+  I've seen the answer … say them again and then get it correct technically"): every answered exercise that isn't right
+  (✗ / ≈ / a 👁 Show the answer not yet self-checked) offers **🔁 Try again** (`roundRetryOffered`): a listen exercise's
+  box opens again (it gets the floor); a read / translate exercise records a new take; the listening round offline
+  (self-check) hides the Chinese again after **✗ Not quite**. A right retake **counts toward "any 2 right"** and the Good /
+  Easy gate. Honest history: a take after he has SEEN the answer (`roundTakeAfterReveal`: a listen exercise's reveal, a
+  translate exercise's Chinese once a take landed, the self-check's Show the Chinese; never a read exercise) is **not**
+  written to the sentence practice history (`roundTakeRecorded`) — the first try was. Analytics: `study.sentence_round`
+  `after_reveal`, `study.sentence_listen` `retry`.
 - **No clip after all** (gone, not on the device offline, won't play): the exercise becomes the sentence's **read**
   exercise in place (`exerciseAsRead`) — never the device voice.
 - **History**: every judged listen take is a `sentence_practice_events` attempt with `mode: 'listen'` (the server
@@ -1698,6 +1716,25 @@ the sentence can be heard. Settings → Study → **"Sentences by ear in Hard mo
   `PlaybackParams`). Tests: `sentenceRound.test.ts` / `sentenceHistory.test.ts` / `answerCheck.test.ts`,
   `SentenceRound.test.tsx` ("Sentences by ear"), worker `lesson-answer-check.test.ts` (meaning check),
   E2E `study-sentences-by-ear.spec.ts`, Lab `SentenceListenUiTest` + the parity fixtures.
+
+### Spoken sentences are judged leniently (a pause is never grammar)
+
+Jerome (Nov 2026): "This seems to be grading me on like transcription errors when I pause for a bit, even though I
+said it correctly. It just interprets my pause as grammar." Every spoken SENTENCE take — the Sentence round's read /
+translate / listen-said-back, the answer side's 🎤 rows, the Coach's "Practise saying it", clips' speak scenes — is:
+- **tidied** (`tidySpokenTranscript`, shared/cards/answer.ts; Lab `AnswerKey.tidySpokenTranscript`, parity-tested): when
+  the sentence has no punctuation inside, the 。 / ， / spaces the recogniser put between two Chinese characters go
+  (虾饺我最喜欢的。 点心。 → 虾饺我最喜欢的点心。) — in "You said" and in what Claude is sent;
+- **forgiven one swallowed little word** (`practiseSentence` → verdict `dropped`, `droppedFunctionChar`; Lab
+  `CoachPractise.practise` / `AnswerKey.droppedFunctionChar`, parity-tested): a sentence of ≥ 4 Han characters said with
+  exactly ONE of 是 的 了 一 个 地 得 着 吧 呢 啊 missing (by hanzi, or by sound with a homophone elsewhere) counts as right
+  ("Right ✓ — one small word wasn't caught"). Never 不 / 没 / 吗 or a content word; the typing cards' and lessons' own
+  `checkSpokenAnswer` is unchanged (a lesson's point may be the 了);
+- **checked by Claude with the spoken rules** (`ANSWER_CHECK_SYSTEM` / `MEANING_CHECK_SYSTEM`, worker
+  services/answer-check.ts): punctuation, spacing and sentence breaks are ignored completely — never "a fragment" —, a
+  single missing / doubled little word is the recogniser's (correct, at worst acceptable, no tip), real mistakes (a
+  content word, the meaning, a negation, word order) still count. `ANSWER_CHECK_VERSION` / `MEANING_CHECK_VERSION` = 2, so
+  no older, harsher cached verdict is served.
 
 ### Right, but said differently (Hard mode holds it and shows the difference)
 

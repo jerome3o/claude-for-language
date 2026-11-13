@@ -390,6 +390,12 @@
   min-height: 44px;
   font-size: 0.9375rem;
 }
+.sentence-listen-tap {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
 .sentence-listen-play.is-playing {
   border-color: var(--color-primary);
   color: var(--color-primary);

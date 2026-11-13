@@ -20,9 +20,11 @@
  *
  * Pure; the Lab app's port (core `SentenceRound.kt`) is parity-tested (parity/fixtures/sentence-round.ts).
  */
-import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, type SentencePractiseMode } from './sentencePractise';
+import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, isLocalRight, type SentencePractiseMode } from './sentencePractise';
 import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
-import type { AnswerCheckInput, AnswerCheckVerdict } from '../lesson/answerCheck';
+import { hasHan, type AnswerCheck, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
+import { tidySpokenTranscript } from '../cards/answer';
+import { practiseSentence } from '../coach/practise';
 
 /** How many exercises a round offers at most (2 read / listen + 2 translate, one sentence each). */
 export const SENTENCE_ROUND_SIZE = 4;
@@ -526,13 +528,13 @@ export function listenCheckInput(
   said: string,
   input: 'spoken' | 'edited' | 'typed',
 ): AnswerCheckInput {
-  const out: AnswerCheckInput = {
-    prompt_en: row.hanzi.trim(),
-    model_answer: (row.translation ?? '').trim(),
-    answer: said.trim(),
-    exercise_type: 'listen_translate',
-    input,
-  };
+  // Said back in CHINESE (he repeated what he heard): checked as "what they heard" against the sentence
+  // — the lesson's listen_translate (the English as what it means, the Chinese as the model answer), the
+  // transcript tidied first so a pause is never a sentence break.
+  const answer = hasHan(said) ? (input === 'typed' ? said.trim() : tidySpokenTranscript(said, row.hanzi)) : said.trim();
+  const out: AnswerCheckInput = hasHan(said)
+    ? { prompt_en: (row.translation ?? '').trim(), model_answer: row.hanzi.trim(), answer, exercise_type: 'listen_translate', input }
+    : { prompt_en: row.hanzi.trim(), model_answer: (row.translation ?? '').trim(), answer, exercise_type: 'listen_translate', input };
   const pinyin = (row.pinyin ?? '').trim();
   if (pinyin) out.model_pinyin = pinyin;
   return out;
@@ -549,8 +551,52 @@ export function listenSelfResult(gotIt: boolean): 'right' | 'wrong' {
   return gotIt ? 'right' : 'wrong';
 }
 
+/** The headline when he said the sentence back in Chinese and the device heard it right. */
+export const LISTEN_REPEAT_HEADLINE = 'You said it back right';
+
 /**
- * The listen exercise that has the floor (its clip plays by itself once, its answer box is open): the one
+ * A listen exercise answered in CHINESE — he said back what he heard (Jerome, 虾饺: "You said: 虾饺我最喜欢的。
+ * 点心。" marked ✗ for "fragments"). Judged on the device first like a read take (`practiseSentence`: a pause
+ * is never a sentence break, punctuation ignored, homophones by sound, one swallowed 是 / 的 / 了 forgiven):
+ * heard right → a correct check, no call. null = not Chinese, or the device can't accept it — then Claude
+ * checks what he heard (`listenCheckInput`, spoken = lenient).
+ */
+export function listenRepeatCheck(said: string, hanzi: string): AnswerCheck | null {
+  if (!hasHan(said) || !hasHan(hanzi)) return null;
+  if (!isLocalRight(practiseSentence(said, hanzi).result.state)) return null;
+  return { verdict: 'correct', headline: LISTEN_REPEAT_HEADLINE, corrected: '', corrected_pinyin: '', tips: [], suggested: 'got_it' };
+}
+
+// --- 🔁 Try again, also after the answer was shown ----------------------------------------------------
+
+/**
+ * Has he SEEN this exercise's answer before this take? A listen exercise's reveal (Chinese, pinyin,
+ * English), a translate exercise's Chinese once a take landed, the listening round's "Show the Chinese".
+ * A read exercise's Chinese is its question, so a re-read never is.
+ */
+export function roundTakeAfterReveal(mode: RoundMode, answerSeen: boolean): boolean {
+  return answerSeen && mode !== 'read';
+}
+
+/**
+ * A take after the answer was seen still COUNTS toward the round (Jerome: "I just want to say them again
+ * and then get it correct technically"), but it is practice, not evidence of what he knows: it is not
+ * written to the sentence's practice history (the first take was), so "the one he knows least" stays honest.
+ */
+export function roundTakeRecorded(mode: RoundMode, answerSeen: boolean): boolean {
+  return !roundTakeAfterReveal(mode, answerSeen);
+}
+
+/**
+ * 🔁 Try again shows on an exercise once it was answered (or its answer shown) and isn't right — whether
+ * or not he has seen the answer — unless a take is being recorded / checked.
+ */
+export function roundRetryOffered(status: 'right' | 'close' | 'wrong' | null, answered: boolean, busy: boolean): boolean {
+  return answered && status !== 'right' && !busy;
+}
+
+/**
+ * The listen exercise that has the floor (its answer box is open; its clip plays when he taps): the one
  * he chose (▶ on it) while unanswered, else the first unanswered listen exercise in the round's order;
  * null = none left. One box at a time, so one microphone.
  */
@@ -573,6 +619,13 @@ export function exerciseAsRead(ex: RoundExercise): RoundExercise {
 export const LISTEN_EX_PLACEHOLDER = 'What does it mean? (in English)';
 export const LISTEN_EX_LISTENING = 'Listening… say what it means in English';
 export const LISTEN_EX_CHECKING = 'Checking what you understood…';
+/**
+ * A listen exercise never plays by itself (Jerome: "the listening cards on the hard mode section shouldn't
+ * autoplay. I actually think I should click the card to make it play"): until he taps, the row is one big
+ * ▶ Tap to listen; then ▶ Play again and 0.75×.
+ */
+export const SENTENCE_LISTEN_AUTOPLAY = false;
+export const LISTEN_EX_TAP_TO_LISTEN = 'Tap to listen';
 export const LISTEN_EX_PLAY = 'Play again';
 export const LISTEN_EX_SLOW = '0.75×';
 export const LISTEN_EX_SHOW_ANSWER = 'Show the answer';

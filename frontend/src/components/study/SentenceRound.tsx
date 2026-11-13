@@ -42,6 +42,9 @@ import {
   LISTEN_ROUND_SELF_WRONG,
   exerciseAsRead,
   listenActiveId,
+  roundRetryOffered,
+  roundTakeAfterReveal,
+  roundTakeRecorded,
   type RoundExercise,
 } from '@shared/study/sentenceRound';
 import { useSentencesByEar } from '../../services/hardModePrefs';
@@ -304,6 +307,11 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       .finally(() => fetching.current.delete(key));
   };
   const exerciseKey = useRef(new Map<string, string>());
+  /** Exercises whose answer he has seen on this showing (a judged take, a reveal): a retake is then "after the answer". */
+  const answerSeen = useRef(new Set<string>());
+  useEffect(() => {
+    answerSeen.current = new Set();
+  }, [showingKey]);
   exerciseKey.current = new Map((picked ?? []).map((e) => [e.id, e.key]));
   // The exercise said right last: when it was right in other words, the round waits for Continue.
   const lastRight = useRef<string | null>(null);
@@ -322,10 +330,13 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       lastRight.current = id;
       onRight(id);
     },
-    // Every judged take goes into the sentence's practice history.
+    // Every judged take goes into the sentence's practice history — except a 🔁 Try again after the answer
+    // was shown (a translate exercise's Chinese once a take landed): it counts for the round, not as evidence.
     onResult: (id, mode, result) => {
       const key = exerciseKey.current.get(id);
-      if (key) recordSentenceAttempt(noteId, key, mode, result);
+      const seen = answerSeen.current.has(id);
+      answerSeen.current.add(id);
+      if (key && roundTakeRecorded(mode, seen)) recordSentenceAttempt(noteId, key, mode, result);
     },
   });
 
@@ -421,14 +432,28 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const before = sentenceRoundProgress(exercises, right, visibleKeys);
     setSelfResult((p) => ({ ...p, [ex.id]: result }));
     onResult?.(ex.id, result);
-    recordSentenceAttempt(noteId, ex.key, ex.mode, result);
+    const afterReveal = roundTakeAfterReveal(ex.mode, selfTries.current.has(ex.id));
+    selfTries.current.add(ex.id);
+    if (roundTakeRecorded(ex.mode, afterReveal)) recordSentenceAttempt(noteId, ex.key, ex.mode, result);
     if (said) {
       lastRight.current = ex.id;
       onRight(ex.id);
     }
     const after = sentenceRoundProgress(exercises, said ? [...right, ex.id] : right, visibleKeys);
     studyFeel(roundTakeFeel(result, after.done && !before.done));
-    track('study.sentence_round', { action: said ? 'right' : 'miss', index, mode: ex.mode, got: after.got, needed: after.needed });
+    track('study.sentence_round', { action: said ? 'right' : 'miss', index, mode: ex.mode, got: after.got, needed: after.needed, after_reveal: afterReveal });
+  };
+  /** Self-checked exercises already tried once: a second "I said it" comes after the Chinese was shown. */
+  const selfTries = useRef(new Set<string>());
+  /** 🔁 Try again on a self-checked exercise: the Chinese hides again, say it, show it, check yourself. */
+  const selfRetry = (ex: RoundExercise, index: number) => {
+    track('study.sentence_round', { action: 'retry', index, mode: ex.mode, got: progress.got, needed: progress.needed, after_reveal: true });
+    setSelfShown((p) => ({ ...p, [ex.id]: false }));
+    setSelfResult((p) => {
+      const next = { ...p };
+      delete next[ex.id];
+      return next;
+    });
   };
 
   // Sentences by ear: the listen exercise with the floor (its clip plays, its box is open) — the one he
@@ -436,17 +461,23 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const [chosenListen, setChosenListen] = useState<string | null>(null);
   const [listenAnswered, setListenAnswered] = useState<string[]>([]);
   const activeListen = listenActiveId(exercises, listenAnswered, chosenListen);
-  const listenJudged = (ex: RoundExercise, index: number, result: 'right' | 'close' | 'wrong') => {
+  const listenJudged = (ex: RoundExercise, index: number, result: 'right' | 'close' | 'wrong', afterReveal: boolean) => {
     const before = sentenceRoundProgress(exercises, right, visibleKeys);
     onResult?.(ex.id, result);
-    recordSentenceAttempt(noteId, ex.key, 'listen', result);
+    // A 🔁 Try again after the reveal counts for the round, but isn't evidence of understanding by ear.
+    if (roundTakeRecorded('listen', afterReveal)) recordSentenceAttempt(noteId, ex.key, 'listen', result);
     if (result === 'right') {
       lastRight.current = ex.id;
       onRight(ex.id);
     }
     const after = sentenceRoundProgress(exercises, result === 'right' ? [...right, ex.id] : right, visibleKeys);
     studyFeel(roundTakeFeel(result, after.done && !before.done));
-    track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: 'listen', got: after.got, needed: after.needed });
+    track('study.sentence_round', { action: result === 'right' ? 'right' : 'miss', index, mode: 'listen', got: after.got, needed: after.needed, after_reveal: afterReveal });
+  };
+  /** 🔁 Try again on a listen exercise: the box opens again and it has the floor. */
+  const listenRetry = (ex: RoundExercise) => {
+    setListenAnswered((p) => p.filter((id) => id !== ex.id));
+    setChosenListen(ex.id);
   };
   /** The clip won't play here after all: the same sentence, read (the round keeps its place). */
   const listenUnavailable = (ex: RoundExercise) => {
@@ -486,7 +517,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           isRight={right.includes(ex.id)}
           online={isOnline}
           micBusy={practise.listening || practise.finishing}
-          onJudged={(result) => listenJudged(ex, index, result)}
+          onJudged={(result, afterReveal) => listenJudged(ex, index, result, afterReveal)}
+          onRetry={() => listenRetry(ex)}
           onUnavailable={() => listenUnavailable(ex)}
           onMore={() => setHiding(ex)}
           longPress={longPress.bind(() => setHiding(ex))}
@@ -618,7 +650,14 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
           onPlayModel={() => playRow(ex.id, row)}
           speak={(text) => play(null, text, API_BASE)}
         />
-        {selfCheck && selfShown[ex.id] && !isRight && (
+        {selfCheck && self === 'wrong' && !isRight && (
+          <div className="sentence-round-ex-actions">
+            <button type="button" className="btn btn-secondary btn-sm sentence-round-retry" onClick={() => selfRetry(ex, index)} data-testid="sentence-round-retry">
+              🔁 {SENTENCE_ROUND_TRY_AGAIN}
+            </button>
+          </div>
+        )}
+        {selfCheck && selfShown[ex.id] && !isRight && self !== 'wrong' && (
           <div className="sentence-round-ex-actions">
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => selfCheckTake(ex, index, false)} data-testid="listen-round-self-wrong">
               ✗ {LISTEN_ROUND_SELF_WRONG}
@@ -630,13 +669,13 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
         )}
         {answered && !selfCheck && (
           <div className="sentence-round-ex-actions">
-            {(status === 'close' || status === 'wrong') && !busy && (
+            {roundRetryOffered(status, answered, busy || take?.claude?.status === 'checking') && status != null && (
               <button
                 type="button"
                 className="btn btn-secondary btn-sm sentence-round-retry"
                 disabled={!practiseMicEnabled(blocked) || practise.listening || practise.finishing}
                 onClick={() => {
-                  track('study.sentence_round', { action: 'retry', index, mode: ex.mode, got: progress.got, needed: progress.needed });
+                  track('study.sentence_round', { action: 'retry', index, mode: ex.mode, got: progress.got, needed: progress.needed, after_reveal: roundTakeAfterReveal(ex.mode, true) });
                   practise.toggle(practiseRow, takeMode);
                 }}
                 data-testid="sentence-round-retry"

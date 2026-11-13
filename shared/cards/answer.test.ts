@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   checkSpokenAnswer,
+  droppedFunctionChar,
   checkTypedAnswer,
   isAcceptedVerdict,
   normalizeSpokenPinyin,
@@ -11,6 +12,7 @@ import {
   tidySpokenTranscript,
   tonelessPinyin,
 } from './answer';
+import { practiseSentence } from '../coach/practise';
 
 describe('tidySpokenTranscript', () => {
   it("drops the recogniser's trailing 。 on a word card, its pinyin too", () => {
@@ -20,10 +22,19 @@ describe('tidySpokenTranscript', () => {
     expect(tidySpokenTranscript('再见…', '再见')).toBe('再见');
     expect(tidySpokenTranscript('。', '撤销')).toBe('');
   });
-  it('keeps it when the answer is a sentence ending in punctuation, and never touches the middle', () => {
+  it('keeps it when the answer is a sentence ending in punctuation', () => {
     expect(tidySpokenTranscript('你好吗？', '你好吗？')).toBe('你好吗？');
     expect(tidySpokenTranscript('他来了。', '他来了！')).toBe('他来了。');
-    expect(tidySpokenTranscript('撤。销', '撤销')).toBe('撤。销');
+  });
+  it('a pause is never a sentence break: the 。 / ， / spaces between two characters go when the answer has none inside', () => {
+    // Jerome's 虾饺 take: he paused before 点心.
+    expect(tidySpokenTranscript('虾饺我最喜欢的。 点心。', '虾饺是我最喜欢的点心。')).toBe('虾饺我最喜欢的点心。');
+    expect(tidySpokenTranscript('撤。销', '撤销')).toBe('撤销');
+    expect(tidySpokenTranscript('我 想 去，银行', '我想去银行')).toBe('我想去银行');
+    // The answer has a comma inside: the transcript's marks stay (the check ignores them anyway).
+    expect(tidySpokenTranscript('你好， 我是小明', '你好，我是小明')).toBe('你好， 我是小明');
+    // Latin words keep their spaces.
+    expect(tidySpokenTranscript('我想 order 一个 coffee', '我想点一个咖啡')).toBe('我想 order 一个 coffee');
   });
   it('a tidied answer checks exact instead of punctuation-only', () => {
     expect(checkSpokenAnswer('撤销。', '撤销')).toBe('punctuation_only');
@@ -86,6 +97,38 @@ describe('checkSpokenAnswer', () => {
     expect(checkSpokenAnswer('', '由')).toBe('wrong');
     expect(checkSpokenAnswer('you', '由')).toBe('wrong');
     expect(checkSpokenAnswer('ma', '吗')).toBe('wrong');
+  });
+});
+
+describe('one little word the recogniser dropped (dropped — a sentence said right, 是 / 的 / 了 swallowed)', () => {
+  const XIAJIAO = '虾饺是我最喜欢的点心。';
+  it("Jerome's 虾饺 take: the pause and the swallowed 是 count as right", () => {
+    const said = tidySpokenTranscript('虾饺我最喜欢的。 点心。', XIAJIAO);
+    expect(said).toBe('虾饺我最喜欢的点心。');
+    expect(droppedFunctionChar(said, XIAJIAO)).toBe('是');
+    // Saying a sentence aloud (the Sentence round, the rows, the Coach) counts it right…
+    expect(practiseSentence('虾饺我最喜欢的。 点心。', XIAJIAO).verdict).toBe('dropped');
+    expect(practiseSentence('虾饺我最喜欢的。 点心。', XIAJIAO).result.state).toBe('match');
+    expect(isAcceptedVerdict('dropped')).toBe(true);
+    expect(spokenVerdictNote('dropped', XIAJIAO)).toBe('Right ✓ — one small word wasn’t caught: 虾饺是我最喜欢的点心。');
+    // …but the typing cards' / lessons' own check doesn't (a lesson's point may be the 了).
+    expect(checkSpokenAnswer(said, XIAJIAO)).toBe('wrong');
+  });
+  it('by sound too (a homophone elsewhere), and 的 / 了 / 一', () => {
+    expect(droppedFunctionChar('我去银航', '我去了银行')).toBe('了');
+    expect(droppedFunctionChar('这是我书', '这是我的书')).toBe('的');
+    expect(droppedFunctionChar('我买了本书', '我买了一本书')).toBe('一');
+    expect(practiseSentence('我去银航', '我去了银行').verdict).toBe('dropped');
+  });
+  it('stays honest: a content word, a negation, two words, a short answer', () => {
+    expect(practiseSentence('虾饺我喜欢的点心', XIAJIAO).verdict).toBe('wrong'); // 最 is a content word (and 是 too)
+    expect(practiseSentence('虾饺是我喜欢的点心', XIAJIAO).verdict).toBe('wrong'); // 最 is a content word
+    expect(practiseSentence('虾饺我最喜欢点心', XIAJIAO).verdict).toBe('wrong'); // two words missing
+    expect(practiseSentence('我想去', '我不想去').verdict).toBe('wrong'); // 不 is never a little word
+    expect(practiseSentence('好', '好的').verdict).toBe('wrong'); // a word, not a sentence
+    expect(practiseSentence('我去银行', '我去银行。').verdict).toBe('punctuation_only');
+    expect(droppedFunctionChar('我去银行', '我去银行')).toBeNull();
+    expect(droppedFunctionChar('I go 银行', '我去了银行')).toBeNull();
   });
 });
 

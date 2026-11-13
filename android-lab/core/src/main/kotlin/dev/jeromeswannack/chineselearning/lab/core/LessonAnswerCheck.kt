@@ -75,14 +75,14 @@ data class AnswerCheckInput(
 data class AnswerTry(val text: String, val input: String? = null, val check: AnswerCheck? = null)
 
 object LessonAnswerCheck {
-    const val VERSION = 1
+    const val VERSION = 2
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     val TYPES = listOf("translate", "listen_translate")
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
     const val SPEAKING_VERSION = 1
 
     /** Port of MEANING_CHECK_VERSION (Sentences by ear; cache texts start `m<version>`). */
-    const val MEANING_VERSION = 1
+    const val MEANING_VERSION = 2
     val PART_STATUSES = listOf("used", "used_with_issue", "missing")
 
     fun isSpeaking(exerciseType: String?): Boolean = exerciseType in SPEAKING_TYPES

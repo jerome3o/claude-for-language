@@ -222,20 +222,31 @@ fun SentenceRoundPage(
     val selfCheck = listen && !CoachPractise.micEnabled(practise.dictation.blocked)
     val selfShown = remember { mutableStateMapOf<String, Boolean>() }
     val selfResult = remember { mutableStateMapOf<String, String>() }
+    /** Self-checked exercises already tried once: a second "I said it" comes after the Chinese was shown. */
+    val selfTries = remember { HashSet<String>() }
     fun selfCheckTake(ex: SentenceRound.Exercise, index: Int, said: Boolean) {
         val result = if (said) "right" else "wrong"
         selfResult[ex.id] = result
         if (said && ex.id !in practise.rightKeys) practise.rightKeys.add(ex.id)
         onResult(ex.id, result)
-        practise.onResult?.invoke(ex.id, ex.mode, result)
+        val afterReveal = SentenceRound.takeAfterReveal(ex.mode, !selfTries.add(ex.id))
+        // A right after the Chinese was shown counts for the round, but isn't written to the history.
+        if (SentenceRound.takeRecorded(ex.mode, afterReveal)) practise.onResult?.invoke(ex.id, ex.mode, result)
         feelFor(ex.id, result)
         val p = SentenceRound.progress(feelExercises, practise.rightKeys.toList(), feelKeys)
-        Analytics.track("study.sentence_round", mapOf("action" to if (said) "right" else "miss", "index" to index, "mode" to ex.mode, "got" to p.got, "needed" to p.needed))
+        Analytics.track("study.sentence_round", mapOf("action" to if (said) "right" else "miss", "index" to index, "mode" to ex.mode, "got" to p.got, "needed" to p.needed, "after_reveal" to afterReveal))
+    }
+    /** 🔁 Try again on a self-checked exercise: the Chinese hides again — say it, show it, check yourself. */
+    fun selfRetry(ex: SentenceRound.Exercise, index: Int) {
+        Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed, "after_reveal" to true))
+        selfShown.remove(ex.id)
+        selfResult.remove(ex.id)
     }
     // --- Sentences by ear: the listen exercises (ListenExerciseCard) -----------------------------------
     val listenTakes = remember { mutableStateMapOf<String, ListenTake>().apply { putAll(initialListenTakes) } }
     var chosenListen by remember { mutableStateOf<String?>(null) }
-    val autoplayed = remember { HashSet<String>().apply { addAll(initialListenTakes.keys) } }
+    /** Listen exercises he has tapped to hear (nothing plays by itself — core SentenceRound.LISTEN_AUTOPLAY). */
+    val heardListen = remember { androidx.compose.runtime.mutableStateListOf<String>().apply { addAll(initialListenTakes.keys) } }
     val replays = remember { HashMap<String, Int>() }
     val slowUsed = remember { HashSet<String>() }
     val activeListen = SentenceRound.listenActiveId(exercises, listenTakes.keys, chosenListen)
@@ -254,39 +265,47 @@ fun SentenceRoundPage(
         if (url.isNullOrBlank()) { listenFallback(ex); return }
         onPlayClip(url, speed) { if (listenTakes[ex.id] == null) listenFallback(ex) }
     }
-    // Its turn: the clip plays by itself, once.
-    LaunchedEffect(activeListen) {
-        val id = activeListen ?: return@LaunchedEffect
-        if (!autoplayed.add(id)) return@LaunchedEffect
-        exercises.firstOrNull { it.id == id }?.let { playListen(it, 1.0) }
-    }
-    fun listenJudged(ex: SentenceRound.Exercise, index: Int, result: String, by: String, input: String) {
+    /** Listen exercises whose answer he has seen (a reveal): a 🔁 Try again is then "after the answer". */
+    val listenSeen = remember { HashSet<String>() }
+    fun listenJudged(ex: SentenceRound.Exercise, index: Int, result: String, by: String, input: String, afterReveal: Boolean) {
         onResult(ex.id, result)
-        practise.onResult?.invoke(ex.id, SentenceRound.LISTEN, result)
+        // A 🔁 Try again after the reveal counts for the round, but isn't evidence of understanding by ear.
+        if (SentenceRound.takeRecorded(SentenceRound.LISTEN, afterReveal)) practise.onResult?.invoke(ex.id, SentenceRound.LISTEN, result)
         if (result == "right" && ex.id !in practise.rightKeys) practise.rightKeys.add(ex.id)
         feelFor(ex.id, result)
         val p = SentenceRound.progress(feelExercises, practise.rightKeys.toList(), feelKeys)
-        Analytics.track("study.sentence_round", mapOf("action" to if (result == "right") "right" else "miss", "index" to index, "mode" to SentenceRound.LISTEN, "got" to p.got, "needed" to p.needed))
+        Analytics.track("study.sentence_round", mapOf("action" to if (result == "right") "right" else "miss", "index" to index, "mode" to SentenceRound.LISTEN, "got" to p.got, "needed" to p.needed, "after_reveal" to afterReveal))
         Analytics.track("study.sentence_listen", mapOf(
             "result" to result, "checked_by" to by, "input" to input, "replays" to (replays[ex.id] ?: 0),
-            "slow" to (ex.id in slowUsed), "fallback" to false, "where" to where,
+            "slow" to (ex.id in slowUsed), "fallback" to false, "where" to where, "retry" to afterReveal,
         ))
+    }
+    /** 🔁 Try again on a listen exercise — also after the answer was shown: the box opens again and it has the floor. */
+    fun listenRetry(ex: SentenceRound.Exercise, index: Int) {
+        Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to SentenceRound.LISTEN, "got" to progress.got, "needed" to progress.needed, "after_reveal" to true))
+        listenTakes.remove(ex.id)
+        chosenListen = ex.id
     }
     val listenScope = androidx.compose.runtime.rememberCoroutineScope()
     fun listenAnswer(ex: SentenceRound.Exercise, index: Int, text: String, input: String) {
         val row = byKey[ex.key] ?: return
+        val afterReveal = SentenceRound.takeAfterReveal(SentenceRound.LISTEN, !listenSeen.add(ex.id))
+        // What he said as shown and checked: a spoken Chinese take tidied (a pause is never a sentence break).
+        val checkInput = SentenceRound.listenCheckInput(row.hanzi, row.pinyin, row.translation, text, if (input == "none") "typed" else input)
+        val shown = if (input == "none") text else checkInput.answer
         if (input == "none" || SentenceRound.listenCheckBy(online, row.translation) == "self") {
-            listenTakes[ex.id] = ListenTake(text, input, ListenVerdict.Self)
+            listenTakes[ex.id] = ListenTake(shown, input, ListenVerdict.Self, afterReveal)
             return
         }
-        val checkInput = SentenceRound.listenCheckInput(row.hanzi, row.pinyin, row.translation, text, input)
-        val exact = dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck.exact(checkInput)
+        // Said back in Chinese and heard right on the device (a pause, a swallowed 是 are nothing), or his English
+        // IS the sentence's: right at once, no call.
+        val exact = SentenceRound.listenRepeatCheck(text, row.hanzi) ?: dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck.exact(checkInput)
         if (exact != null) {
-            listenTakes[ex.id] = ListenTake(text, input, ListenVerdict.Claude(exact, "right", "exact"))
-            listenJudged(ex, index, "right", "exact", input)
+            listenTakes[ex.id] = ListenTake(shown, input, ListenVerdict.Claude(exact, "right", "exact"), afterReveal)
+            listenJudged(ex, index, "right", "exact", input, afterReveal)
             return
         }
-        val take = ListenTake(text, input, ListenVerdict.Checking)
+        val take = ListenTake(shown, input, ListenVerdict.Checking, afterReveal)
         listenTakes[ex.id] = take
         listenScope.launch {
             val check = try { checkMeaning(checkInput) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null }
@@ -297,7 +316,7 @@ fun SentenceRoundPage(
             } else {
                 val result = SentenceRound.listenVerdictResult(check.verdict)
                 listenTakes[ex.id] = take.copy(verdict = ListenVerdict.Claude(check, result, "claude"))
-                listenJudged(ex, index, result, "claude", input)
+                listenJudged(ex, index, result, "claude", input, afterReveal)
             }
         }
     }
@@ -305,7 +324,7 @@ fun SentenceRoundPage(
         val take = listenTakes[ex.id] ?: return
         val result = SentenceRound.listenSelfResult(gotIt)
         listenTakes[ex.id] = take.copy(verdict = ListenVerdict.SelfDone(result))
-        listenJudged(ex, index, result, "self", take.input)
+        listenJudged(ex, index, result, "self", take.input, take.afterReveal)
     }
 
     /** Right but not the model sentence (core [AnswerDifference]): why, else null. */
@@ -452,19 +471,22 @@ fun SentenceRoundPage(
                         ListenExerciseCard(
                             index, ex, row,
                             active = activeListen == ex.id,
+                            heard = ex.id in heardListen,
                             isRight = ex.id in right,
                             take = listenTakes[ex.id],
                             playingKey = playingKey,
                             micBusy = practise.listening || practise.finishing,
                             onPlay = { speed ->
-                                if (activeListen != ex.id && listenTakes[ex.id] == null) { chosenListen = ex.id; autoplayed += ex.id }
-                                replays[ex.id] = (replays[ex.id] ?: 0) + 1
+                                if (activeListen != ex.id && listenTakes[ex.id] == null) chosenListen = ex.id
+                                // The first tap is the listen; later ones are replays.
+                                if (ex.id in heardListen) replays[ex.id] = (replays[ex.id] ?: 0) + 1 else heardListen += ex.id
                                 if (speed != 1.0) slowUsed += ex.id
                                 playListen(ex, speed)
                             },
                             onAnswer = { text, input -> listenAnswer(ex, index, text, input) },
                             onShowAnswer = { listenAnswer(ex, index, "", "none") },
                             onSelfCheck = { gotIt -> listenSelfCheck(ex, index, gotIt) },
+                            onRetry = { listenRetry(ex, index) },
                             onMore = { hiding = ex },
                         )
                         return@forEachIndexed
@@ -482,7 +504,7 @@ fun SentenceRoundPage(
                         },
                         onNeedEnglish = { wantEnglish(ex.key) },
                         onRetry = {
-                            Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
+                            Analytics.track("study.sentence_round", mapOf("action" to "retry", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed, "after_reveal" to SentenceRound.takeAfterReveal(ex.mode, true)))
                         },
                         onSayAgain = {
                             Analytics.track("study.sentence_round", mapOf("action" to "say_again", "index" to index, "mode" to ex.mode, "got" to progress.got, "needed" to progress.needed))
@@ -494,6 +516,7 @@ fun SentenceRoundPage(
                         selfResult = selfResult[ex.id],
                         onShowChinese = { selfShown[ex.id] = true },
                         onSelfCheck = { said -> selfCheckTake(ex, index, said) },
+                        onSelfRetry = { selfRetry(ex, index) },
                     )
                 }
                 Spacer(Modifier.height(4.dp))
@@ -608,6 +631,8 @@ private fun RoundExerciseCard(
     selfResult: String? = null,
     onShowChinese: () -> Unit = {},
     onSelfCheck: (said: Boolean) -> Unit = {},
+    /** 🔁 Try again after "Not quite" (offline listening round): the Chinese hides again. */
+    onSelfRetry: () -> Unit = {},
 ) {
     val take = practise.takes[ex.id]
     // Claude's check whole: "You said" vs the model answer carries the Chinese, its pinyin and ▶ — unless it
@@ -710,7 +735,11 @@ private fun RoundExerciseCard(
         }
         if (difference != null && !busy) DifferenceTitle(difference)
         SentencePractiseOutcome(practise, row, full = true, onPlayModel = { onPlay(row.audioUrl, row.hanzi) }, onSpeak = onSpeak)
-        if (selfCheck && selfShown && !isRight) {
+        if (selfCheck && selfResult == "wrong" && !isRight) {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                SecondaryPill("🔁 ${SentenceRound.TRY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.RETRY), horizontalPadding = 14.dp, fontSize = 14.sp, onClick = onSelfRetry)
+            }
+        } else if (selfCheck && selfShown && !isRight) {
             Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryPill("✗ ${SentenceRound.LISTEN_SELF_WRONG}", Modifier.weight(1f).heightIn(min = 44.dp).testTag(SentenceRoundTags.SELF_WRONG), horizontalPadding = 12.dp, fontSize = 14.sp) { onSelfCheck(false) }
                 PrimaryPill("✓ ${SentenceRound.LISTEN_SELF_RIGHT}", Modifier.weight(1f).heightIn(min = 44.dp).testTag(SentenceRoundTags.SELF_RIGHT)) { onSelfCheck(true) }
@@ -728,7 +757,7 @@ private fun RoundExerciseCard(
                         practise.onMic(row, ex.mode)
                     }
                 }
-                if ((status == "close" || status == "wrong") && !busy) {
+                if (SentenceRound.retryOffered(status, answered, busy || take?.claude == SentenceClaude.Checking) && status != null) {
                     SecondaryPill(
                         "🔁 ${SentenceRound.TRY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceRoundTags.RETRY),
                         enabled = CoachPractise.micEnabled(practise.dictation.blocked) && !practise.listening && !practise.finishing,

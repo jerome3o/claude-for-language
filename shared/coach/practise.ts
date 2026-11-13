@@ -4,13 +4,14 @@
  * records himself saying it — tap 🎤, tap again (or Enter, or the card) to stop — and the take is
  * checked against that sentence with the SAME rule as a spoken answer on a typing card:
  * `tidySpokenTranscript` (the recogniser's trailing 。 dropped unless the sentence has one), then
- * `checkSpokenAnswer` (punctuation ignored, homophones count by sound, other tones = close), shown
+ * `checkSpokenAnswer` (punctuation ignored, homophones count by sound, other tones = close; one
+ * swallowed 是 / 的 / 了 in a sentence = `dropped`, right — the recogniser's, not his), shown
  * with the compact "You said" row (`spokenResult`, shared/cards/spoken-result.ts) — the characters
  * that differ marked. Nothing is stored: no review event, no recording kept.
  *
  * Lab port: core `CoachPractise.kt`, parity-tested (parity/fixtures/coach.ts → CoachParityTest).
  */
-import { checkSpokenAnswer, tidySpokenTranscript, type AnswerVerdict } from '../cards/answer';
+import { checkSpokenAnswer, droppedFunctionChar, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '../cards/answer';
 import { spokenResult, type SpokenResult, type SpokenResultState } from '../cards/spoken-result';
 import type { VoiceBlock } from '../voice/dictation';
 
@@ -36,7 +37,9 @@ export interface PractisedSentence {
 /** A take of the learner saying `target`, checked like a spoken answer. */
 export function practiseSentence(transcript: string, target: string): PractisedSentence {
   const said = tidySpokenTranscript(transcript, target);
-  const verdict = checkSpokenAnswer(said, target);
+  const checked = checkSpokenAnswer(said, target);
+  // Saying a sentence aloud: one swallowed 是 / 的 / 了 is the recogniser's, not his (`droppedFunctionChar`).
+  const verdict: AnswerVerdict = !isAcceptedVerdict(checked) && droppedFunctionChar(said, target) !== null ? 'dropped' : checked;
   return { said, verdict, result: spokenResult(said, target, verdict) };
 }
 

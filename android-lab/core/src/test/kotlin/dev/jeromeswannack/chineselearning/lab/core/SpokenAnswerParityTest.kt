@@ -46,11 +46,15 @@ class SpokenAnswerParityTest {
             val syllables = c["syllables"]!!.jsonArray.map { if (it is JsonNull) null else it.jsonPrimitive.content }
             assertEquals(syllables, AnswerKey.spokenSyllables(transcript), "syllables $what")
             assertEquals(c["tidy"]!!.jsonPrimitive.content, AnswerKey.tidySpokenTranscript(transcript, correct), "tidy $what")
+            assertEquals(within(c["dropped"]), AnswerKey.droppedFunctionChar(transcript, correct), "dropped $what")
+            assertEquals(c["practised"]!!.jsonPrimitive.content, AnswerKey.verdictName(CoachPractise.practise(transcript, correct).verdict), "practised $what")
         }
+        assertTrue(cases.count { it["practised"]!!.jsonPrimitive.content == "dropped" } > 50, "few dropped cases")
         assertTrue(cases.count { it["within"] !is JsonNull && it["spoken"]!!.jsonPrimitive.content == "contains" } > 100, "few contains cases")
         // Every verdict is exercised.
         val counts = fixture["counts"]!!.jsonObject
-        for (v in AnswerKey.Verdict.entries) assertTrue(counts[AnswerKey.verdictName(v)]!!.jsonPrimitive.int > 0, "no ${v.name} case")
+        // DROPPED comes only from saying a sentence aloud (CoachPractise.practise), checked above as "practised".
+        for (v in AnswerKey.Verdict.entries.filter { it != AnswerKey.Verdict.DROPPED }) assertTrue(counts[AnswerKey.verdictName(v)]!!.jsonPrimitive.int > 0, "no ${v.name} case")
     }
 
     private fun within(el: kotlinx.serialization.json.JsonElement?): String? = if (el == null || el is JsonNull) null else el.jsonPrimitive.content

@@ -23,7 +23,7 @@
 import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 
 /** Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it. */
-export const ANSWER_CHECK_VERSION = 1;
+export const ANSWER_CHECK_VERSION = 2;
 
 export type AnswerCheckVerdict = 'correct' | 'acceptable' | 'almost' | 'wrong';
 export const ANSWER_CHECK_VERDICTS: readonly AnswerCheckVerdict[] = ['correct', 'acceptable', 'almost', 'wrong'];
@@ -106,7 +106,7 @@ export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_trans
 export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'speak'];
 
 /** Bump when the meaning-check prompt changes (Sentences by ear; its cache texts start `m<version>`). */
-export const MEANING_CHECK_VERSION = 1;
+export const MEANING_CHECK_VERSION = 2;
 
 /** Bump when the speaking prompt or its shape changes (its cache texts start `s<version>`). */
 export const SPEAKING_CHECK_VERSION = 1;

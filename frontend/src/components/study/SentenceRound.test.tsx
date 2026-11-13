@@ -630,12 +630,57 @@ describe("the listening card's round", () => {
     expect(inEx(0, 'sentence-practise-mic')).toBeNull();
     act(() => inEx(0, 'listen-round-show-chinese')!.click());
     expect(inEx(0, 'sentence-round-chinese')!.textContent).toBe('我去银行取钱。');
-    act(() => inEx(0, 'listen-round-self-wrong')!.click());
-    expect(ex(0).dataset.status).toBe('wrong');
     act(() => inEx(0, 'listen-round-self-right')!.click());
     expect(ex(0).dataset.status).toBe('right');
     expect(history.record.at(-1)).toEqual(['n1', 'clue:n1', 'translate', 'right']);
     expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+  });
+
+  it('offline: "Not quite", then 🔁 Try again — the Chinese hides, say it, show it, "I said it" counts (not in the history)', async () => {
+    fakes.blocked = 'offline';
+    await render({ kind: 'listen', word: '银行' });
+    act(() => inEx(0, 'listen-round-show-chinese')!.click());
+    act(() => inEx(0, 'listen-round-self-wrong')!.click());
+    expect(ex(0).dataset.status).toBe('wrong');
+    expect(history.record).toEqual([['n1', 'clue:n1', 'translate', 'wrong']]);
+    expect(inEx(0, 'listen-round-self-right')).toBeNull();
+    act(() => inEx(0, 'sentence-round-retry')!.click());
+    expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'retry', index: 0, after_reveal: true }));
+    expect(ex(0).dataset.status).toBe('open');
+    expect(inEx(0, 'sentence-round-chinese')).toBeNull();
+    act(() => inEx(0, 'listen-round-show-chinese')!.click());
+    act(() => inEx(0, 'listen-round-self-right')!.click());
+    expect(ex(0).dataset.status).toBe('right');
+    expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+    // The right after the Chinese was shown counts for the round, but the history keeps only the honest first try.
+    expect(history.record).toEqual([['n1', 'clue:n1', 'translate', 'wrong']]);
+  });
+});
+
+describe('🔁 Try again after the answer was seen (Jerome: "say them again and then get it correct technically")', () => {
+  it('a translate take wrong (its Chinese now shown), Try again said right: counts toward 2 / 2; history keeps the first try', async () => {
+    const onDone = vi.fn();
+    checkLessonAnswer.mockResolvedValue({ check: { verdict: 'wrong', headline: 'That’s the school, not the bank.', corrected: '我去银行。', corrected_pinyin: 'Wǒ qù yínháng.', tips: [], suggested: 'missed_it' }, cached: false });
+    await render({ onDone });
+    // The translate exercise (1): wrong, so its Chinese shows.
+    act(() => inEx(1, 'sentence-practise-mic')!.click());
+    act(() => dictation().land('我去学校'));
+    await flush();
+    expect(ex(1).dataset.status).toMatch(/close|wrong/);
+    expect(ex(1).textContent).toContain('我去银行'); // the answer is on screen now (You said vs the model)
+    act(() => inEx(1, 'sentence-round-retry')!.click());
+    expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'retry', index: 1, mode: 'translate', after_reveal: true }));
+    act(() => dictation().land('我去银行'));
+    expect(ex(1).dataset.status).toBe('right');
+    expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+    expect(history.record.filter((r) => r[1] === 's1')).toEqual([['n1', 's1', 'translate', expect.stringMatching(/close|wrong/)]]);
+    // The read exercise right too: 2 / 2, Good and Easy unlocked.
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    vi.useFakeTimers();
+    act(() => dictation().land('我去银行取钱'));
+    expect(all('sentence-round-counter')[0].textContent).toContain('2 / 2');
+    act(() => { vi.advanceTimersByTime(1500); });
+    expect(onDone).toHaveBeenCalled();
   });
 });
 
@@ -646,14 +691,22 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
   const listenEx = () => all('sentence-round-exercise').filter((e) => e.dataset.mode === 'listen');
   const inL = (el: HTMLElement, id: string) => el.querySelector(`[data-testid="${id}"]`) as HTMLElement | null;
 
-  it('a read slot with a clip is a listen exercise: the clip plays by itself, no text before the answer', async () => {
+  it('a read slot with a clip is a listen exercise: nothing plays until he taps ▶ Tap to listen, no text before the answer', async () => {
     rows.set = HEARD;
     await render();
+    await flush();
     expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'listen', 'listen']);
-    const first = listenEx()[0];
+    let first = listenEx()[0];
     expect(first.dataset.exercise).toBe('listen:s1');
-    // Autoplay: the first listen exercise's clip, once, at normal speed.
+    // Never by itself (Jerome: "I should click the card to make it play"): one big Tap to listen, no Play again yet.
+    expect(player.plays).toEqual([]);
+    expect(inL(first, 'sentence-listen-tap')!.textContent).toContain('Tap to listen');
+    expect(inL(first, 'sentence-listen-play')).toBeNull();
+    await act(async () => { inL(first, 'sentence-listen-tap')!.click(); });
     expect(player.plays.map((p) => [p.src, p.rate])).toEqual([['blob:generated/s1.mp3', 1]]);
+    first = listenEx()[0];
+    expect(inL(first, 'sentence-listen-tap')).toBeNull();
+    expect(inL(first, 'sentence-listen-play')).not.toBeNull();
     // Nothing to read: no Chinese, no pinyin, no English.
     expect(inL(first, 'sentence-round-chinese')).toBeNull();
     expect(first.textContent).not.toContain('我去银行。');
@@ -679,8 +732,9 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
     expect(inL(first, 'sentence-listen-english')!.textContent).toBe('I go to the bank.');
     expect(history.record).toContainEqual(['n1', 's1', 'listen', 'right']);
     expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'right', checked_by: 'exact', input: 'spoken', slow: false }));
-    // The next listen exercise gets the floor and plays.
-    expect(player.plays.at(-1)!.src).toBe('blob:generated/s2.mp3');
+    // The next listen exercise gets the floor — and waits for a tap.
+    expect(player.plays).toEqual([]);
+    expect(inL(listenEx()[1], 'sentence-listen-tap')).not.toBeNull();
   });
 
   it("Claude's verdict lands under the reveal without moving it (same nodes, height kept)", async () => {
@@ -744,10 +798,76 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
     expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'wrong', checked_by: 'self', input: 'none' }));
   });
 
+  it('said back in Chinese with a pause (the recogniser\'s 。): right on the device, no Claude, no "fragments"', async () => {
+    rows.set = HEARD;
+    await render();
+    act(() => listenDictation().land('我去。 银行。'));
+    await flush();
+    const first = listenEx()[0];
+    expect(first.dataset.status).toBe('right');
+    expect(checkLessonAnswer).not.toHaveBeenCalled();
+    expect(inL(first, 'sentence-listen-headline')!.textContent).toContain('You said it back right');
+    expect(history.record).toContainEqual(['n1', 's1', 'listen', 'right']);
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'right', checked_by: 'exact', retry: false }));
+  });
+
+  it('said back in Chinese but not the sentence: Claude checks what he heard (the Chinese as the model), tidied', async () => {
+    rows.set = HEARD;
+    checkLessonAnswer.mockResolvedValue({ check: { verdict: 'wrong', headline: 'That’s a different place.', corrected: '', corrected_pinyin: '', tips: [], suggested: 'missed_it' }, cached: false });
+    await render();
+    act(() => listenDictation().land('我去。 学校。'));
+    await flush();
+    expect(checkLessonAnswer).toHaveBeenCalledWith(expect.objectContaining({
+      exercise_type: 'listen_translate', prompt_en: 'I go to the bank.', model_answer: '我去银行。', answer: '我去学校。', input: 'spoken',
+    }));
+  });
+
+  it('wrong, the answer seen, 🔁 Try again: the box opens again and a right retake counts (not in the history)', async () => {
+    rows.set = HEARD;
+    checkLessonAnswer.mockResolvedValue({ check: { verdict: 'wrong', headline: 'Not that.', corrected: '', corrected_pinyin: '', tips: [], suggested: 'missed_it' }, cached: false });
+    await render();
+    act(() => listenDictation().land('A cat sleeps'));
+    await flush();
+    let first = listenEx()[0];
+    expect(first.dataset.status).toBe('wrong');
+    expect(inL(first, 'sentence-listen-english')!.textContent).toBe('I go to the bank.');
+    expect(history.record).toEqual([['n1', 's1', 'listen', 'wrong']]);
+    act(() => inL(first, 'sentence-listen-retry')!.click());
+    await flush();
+    first = listenEx()[0];
+    expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'retry', mode: 'listen', after_reveal: true }));
+    expect(first.dataset.status).toBe('open');
+    expect(first.querySelector('[data-testid^="sentence-listen-input"]')).not.toBeNull();
+    expect(inL(first, 'sentence-listen-reveal')).toBeNull();
+    act(() => listenDictation().land('I go to the bank'));
+    await flush();
+    expect(listenEx()[0].dataset.status).toBe('right');
+    expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+    expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ result: 'right', retry: true }));
+    expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'right', mode: 'listen', after_reveal: true }));
+    // Only the honest first try is in the history.
+    expect(history.record).toEqual([['n1', 's1', 'listen', 'wrong']]);
+  });
+
+  it('👁 Show the answer, then 🔁 Try again before checking himself', async () => {
+    rows.set = HEARD;
+    await render();
+    act(() => inL(listenEx()[0], 'sentence-listen-show')!.click());
+    await flush();
+    act(() => inL(listenEx()[0], 'sentence-listen-retry')!.click());
+    await flush();
+    act(() => listenDictation().land('i go to the bank'));
+    await flush();
+    expect(listenEx()[0].dataset.status).toBe('right');
+    expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
+    expect(history.record).toEqual([]);
+  });
+
   it("a clip that won't play turns the exercise into a read one", async () => {
     rows.set = HEARD;
     const picked: string[][] = [];
     await render({ onPicked: (ids) => picked.push(ids) });
+    await act(async () => { inL(listenEx()[0], 'sentence-listen-tap')!.click(); });
     act(() => player.plays[0].handlers.onError?.());
     await flush();
     expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'read', 'listen']);

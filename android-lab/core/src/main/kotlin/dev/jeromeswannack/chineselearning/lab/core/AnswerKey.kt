@@ -127,9 +127,10 @@ object AnswerKey {
     /**
      * Port of `AnswerVerdict` (shared/cards/answer.ts). [SOUND] and [CLOSE] only come from
      * [checkSpoken]: other characters with the answer's pinyin (tones included) / the same
-     * syllables with other tones.
+     * syllables with other tones. [DROPPED] only from [CoachPractise.practise] (saying a sentence aloud:
+     * one swallowed 是 / 的 / 了 is the recogniser's — [droppedFunctionChar]).
      */
-    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, SOUND, CONTAINS, CLOSE, WRONG }
+    enum class Verdict { EXACT, PUNCTUATION_ONLY, ALTERNATIVE, EQUIVALENT, SOUND, CONTAINS, DROPPED, CLOSE, WRONG }
 
     /**
      * The AnswerDiff decision: exact → punctuation-only → accepted equivalent
@@ -289,24 +290,62 @@ object AnswerKey {
         return Verdict.WRONG
     }
 
+    /** Port of `DROPPABLE_FUNCTION_CHARS`: the short unstressed words a recogniser drops when the learner pauses. */
+    const val DROPPABLE_FUNCTION_CHARS = "是的了一个地得着吧呢啊"
+    /** Port of `DROPPED_MIN_CHARS`: a dropped word is forgiven only in a sentence. */
+    const val DROPPED_MIN_CHARS = 4
+
+    /**
+     * Port of `droppedFunctionChar`: the one short function word the transcript leaves out of the answer,
+     * everything else said — by hanzi (traditional → simplified, the answer key) or by sound. null = not that.
+     */
+    fun droppedFunctionChar(transcript: String, correct: String): String? {
+        val heardKey = PictureHuntMatch.toSimplified(hanziAnswerKey(transcript))
+        val t = codePoints(PictureHuntMatch.toSimplified(hanziAnswerKey(correct)))
+        val h = codePoints(heardKey)
+        if (t.size < DROPPED_MIN_CHARS || h.size != t.size - 1) return null
+        if (!t.all(::hasHan) || !h.all(::hasHan)) return null
+        val heardSyllables = spokenSyllables(transcript)
+        val targetSyllables = spokenSyllables(correct)
+        val bySound = allSyllables(heardSyllables) && allSyllables(targetSyllables) && targetSyllables.size == t.size
+        for (i in t.indices) {
+            if (!DROPPABLE_FUNCTION_CHARS.contains(t[i])) continue
+            if ((t.subList(0, i) + t.subList(i + 1, t.size)).joinToString("") == heardKey) return t[i]
+            if (bySound) {
+                val target = (targetSyllables.subList(0, i) + targetSyllables.subList(i + 1, targetSyllables.size)).map { it!! }
+                if (syllablesMatch(heardSyllables.map { it!! }, target)) return t[i]
+            }
+        }
+        return null
+    }
+
     /** Port of `spokenVerdictNote`: the line under a spoken answer on the back. */
     fun spokenVerdictNote(verdict: Verdict, correct: String): String? = when (verdict) {
         Verdict.SOUND -> "Sounded right ✓ — written ${jsTrim(correct)}"
+        Verdict.DROPPED -> "Right ✓ — one small word wasn’t caught: ${jsTrim(correct)}"
         Verdict.CLOSE -> "Close — the tones are off"
         else -> null
     }
 
     /** Sentence punctuation (and JS whitespace) a recogniser leaves at the end of what it heard. */
     private val TRAILING_SENTENCE_PUNCTUATION = Regex("[$JS_WS" + "。．.！!？?，,、；;：:…~～]+$")
+    /** The marks a recogniser writes where the learner paused. */
+    private val PAUSE_MARKS = Regex("[。．.！!？?，,、；;：:…~～]")
+    /** A pause between two Chinese characters (JS `/(\p{Script=Han})[\s…]+(?=\p{Script=Han})/gu`). */
+    private val PAUSE_BETWEEN_HAN = Regex("(\\p{IsHan})[$JS_WS" + "。．.！!？?，,、；;：:…~～]+(?=\\p{IsHan})")
 
     /**
      * Port of `tidySpokenTranscript`: what was said, as shown and used as the answer — the
      * recogniser's trailing 。 (撤销。 / chè xiāo。) is dropped when the card's answer doesn't end in
-     * punctuation (a word card); a sentence card keeps it. Works on the pinyin line too.
+     * punctuation (a word card); a sentence card keeps it. A pause is never a sentence break: when the
+     * answer has no punctuation inside, the 。 / ， / spaces between two Chinese characters go
+     * (虾饺我最喜欢的。 点心。 → 虾饺我最喜欢的点心。). Works on the pinyin line too.
      */
     fun tidySpokenTranscript(transcript: String, correct: String): String {
-        val text = jsTrim(transcript)
-        if (TRAILING_SENTENCE_PUNCTUATION.containsMatchIn(jsTrim(correct))) return text
+        var text = jsTrim(transcript)
+        val target = jsTrim(correct)
+        if (!PAUSE_MARKS.containsMatchIn(TRAILING_SENTENCE_PUNCTUATION.replace(target, ""))) text = PAUSE_BETWEEN_HAN.replace(text, "$1")
+        if (TRAILING_SENTENCE_PUNCTUATION.containsMatchIn(target)) return text
         return TRAILING_SENTENCE_PUNCTUATION.replace(text, "")
     }
 

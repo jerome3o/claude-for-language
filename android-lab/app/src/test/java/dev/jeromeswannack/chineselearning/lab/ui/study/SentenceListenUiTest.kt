@@ -33,7 +33,8 @@ import kotlin.test.assertTrue
 
 /**
  * Hard mode's "Sentences by ear" in the Sentence round (docs/STUDY_SESSION.md "Sentences by ear"; core
- * SentenceRound.pick byEar): read slots with a clip are listen exercises — the clip plays by itself, no text before
+ * SentenceRound.pick byEar): read slots with a clip are listen exercises — the clip plays only when he taps ▶ Tap to
+ * listen, no text before
  * the answer, the meaning given in English and checked by Claude online (the reveal at once, the verdict under it
  * without moving it), a self-check offline, a clip that won't play falls back to read; screenshots of the states.
  */
@@ -92,14 +93,26 @@ class SentenceListenUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(500)
     }
 
-    @Test fun readSlotsWithAClipAreListenExercisesAndTheClipPlays() {
+    private fun tapToListen() {
+        compose.onAllNodesWithTag(SentenceListenTags.TAP, useUnmergedTree = true).onFirst().performClick()
+        compose.mainClock.advanceTimeBy(300)
+    }
+
+    @Test fun readSlotsWithAClipAreListenExercisesAndTheClipPlaysOnlyWhenTapped() {
         val calls = Calls()
         round(calls)
         // The clue (no clip) is read only if a read slot falls on it: here the clipped sentences take the read slots.
         assertEquals(listOf("translate:clue:n1", "listen:s1", "listen:s2", "translate:s3"), calls.picked.last())
         assertEquals(1, count("${SentenceRoundTags.EXERCISE}-1-listen-open"))
-        // Autoplay: the first listen exercise's clip, once, at normal speed.
+        // Never by itself (Jerome: "I should click the card to make it play"): ▶ Tap to listen on each, no Play again yet.
+        assertTrue(calls.plays.isEmpty())
+        assertEquals(2, count(SentenceListenTags.TAP))
+        assertEquals(0, count(SentenceListenTags.PLAY))
+        shot("sentence-listen-00-tap-to-listen")
+        tapToListen()
         assertEquals(listOf("generated/s1.mp3" to 1.0), calls.plays)
+        assertEquals(1, count(SentenceListenTags.TAP))
+        assertEquals(1, count(SentenceListenTags.PLAY))
         // No text before the answer.
         compose.onNodeWithText("银行在哪儿？", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("Where is the bank?", useUnmergedTree = true).assertDoesNotExist()
@@ -138,9 +151,38 @@ class SentenceListenUiTest : LabScreenshotTest() {
         assertEquals(before.height, after.height)
         assertEquals(verdictBefore.top - before.top, verdictAfter.top - after.top)
         assertTrue("listen:s1" to "right" in calls.results)
-        // The next listen exercise gets the floor and plays.
-        assertEquals("generated/s2.mp3", calls.plays.last().first)
+        // The next listen exercise gets the floor — and waits for a tap.
+        assertTrue(calls.plays.none { it.first == "generated/s2.mp3" })
+        assertEquals(1, count(SentenceListenTags.TAP))
         shot("sentence-listen-03-right")
+    }
+
+    @Test fun saidBackInChineseWithAPauseIsRightOnTheDevice() {
+        // Jerome's 虾饺: the recogniser's 。 at his pause is never a "fragment".
+        val calls = Calls()
+        round(calls)
+        typeAndSubmit("银行。 在哪儿")
+        assertEquals(0, calls.checks.size)
+        assertTrue("listen:s1" to "right" in calls.results)
+        compose.onNodeWithText("✓ Right · ${SentenceRound.LISTEN_REPEAT_HEADLINE}", useUnmergedTree = true).assertExists()
+    }
+
+    @Test fun tryAgainAfterTheAnswerWasSeenCountsTowardTheRound() {
+        val calls = Calls()
+        round(calls, check = { AnswerCheck(verdict = "wrong", headline = "That's not it.", suggested = "missed_it") })
+        typeAndSubmit("A cat sleeps")
+        assertTrue("listen:s1" to "wrong" in calls.results)
+        compose.onNodeWithText("Where is the bank?", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(SentenceListenTags.RETRY, useUnmergedTree = true).assertExists()
+        shot("sentence-listen-07-wrong-try-again")
+        compose.onNodeWithTag(SentenceListenTags.RETRY, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(500)
+        // The box opens again on that exercise (the reveal goes); the right meaning now counts.
+        assertEquals(1, count("${SentenceRoundTags.EXERCISE}-1-listen-open"))
+        typeAndSubmit("where is the bank")
+        assertTrue("listen:s1" to "right" in calls.results)
+        compose.onNodeWithText("1 / 2", useUnmergedTree = true).assertExists()
+        shot("sentence-listen-08-retry-right")
     }
 
     @Test fun nearlyWithATipQuotingTheChinese() {
@@ -185,6 +227,7 @@ class SentenceListenUiTest : LabScreenshotTest() {
     @Test fun aClipThatWontPlayBecomesARead() {
         val calls = Calls()
         round(calls)
+        tapToListen()
         calls.unavailable!!.invoke()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf("translate:clue:n1", "read:s1", "listen:s2", "translate:s3"), calls.picked.last())

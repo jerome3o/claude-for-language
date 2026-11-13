@@ -23,6 +23,7 @@ import {
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
+import { tidySpokenTranscript } from '@shared/cards/answer';
 import { structuredCall } from './structured-call';
 import { pinyinProLine } from './pinyin-check';
 
@@ -39,7 +40,11 @@ Verdicts:
 
 Rules:
 - Judge THEIR sentence, not how close it is to the model answer. Optional words (很 inside a 即使 clause, 了, 的, a subject left out where Chinese drops it) never make an answer wrong.
-- If the answer was SPOKEN it is a speech-recognition transcript: ignore punctuation, and read a wrong character that sounds like the right one (在/再, 他/她, 的/得) as the right one — never fault the learner for the recogniser.
+- If the answer was SPOKEN it is a speech-recognition transcript, not their writing — never fault the learner for the recogniser:
+  - Ignore punctuation, spacing and sentence breaks COMPLETELY. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
+  - Read a wrong character that sounds like the right one (在/再, 他/她, 的/得, homophones) as the right one.
+  - A single short unstressed word missing or doubled (是, 的, 了, 一, 个, 着, 吧, 呢, 啊) is almost always the recogniser's slip, not the learner's: when that is the only difference, the verdict is "correct" (at worst "acceptable") with no tip about it — never "almost" or "wrong" for it.
+  - Still judge honestly what the recogniser can't explain: a wrong or missing content word, a wrong meaning, a negation, wrong word order.
 - corrected: their OWN sentence with the smallest change that fixes it (keep their words and structure). Empty when the verdict is correct or acceptable.
 - headline: one short line in English (≤ 12 words) saying what is right or what to change.
 - tips: 0–3 short lines in English, each about one point. Quote the exact Chinese at fault in "quote" and say what to use instead and why, e.g. "也不着急 is a statement (\\"you're not anxious\\"); a command needs 别 → 也别着急." or "和 links nouns, not two actions — use a comma or 然后." No tips when there is nothing useful to add; never pad.
@@ -88,7 +93,7 @@ Verdicts:
 - "wrong": they didn't understand it — a different meaning, or only a word or two.
 
 Rules:
-- Judge the MEANING, never their English grammar or spelling. A spoken answer is a speech-recognition transcript: ignore punctuation and obvious recognition slips.
+- Judge the MEANING, never their English grammar or spelling. A spoken answer is a speech-recognition transcript: ignore punctuation, sentence breaks (a pause is nothing), dropped little words and obvious recognition slips.
 - headline: one short line in English (≤ 12 words) saying what they got or missed.
 - tips: 0–2 short lines in English about what they misheard or missed. Quote the exact Chinese words in "quote" (copied from the sentence) and say what they mean, e.g. "没 makes it negative — they did NOT go." No tips when the meaning is right; never pad.
 - corrected: always empty.
@@ -189,13 +194,15 @@ export function answerCheckUserTurn(input: AnswerCheckInput): string {
   if (isSpeakingCheckType(input.exercise_type)) return speakingCheckUserTurn(input);
   if (isMeaningCheck(input)) return meaningCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
+  // A pause is never a sentence break: the recogniser's 。 / ， between two characters go before Claude sees it.
+  const answer = input.input === 'spoken' ? tidySpokenTranscript(input.answer, input.model_answer) : input.answer;
   return [
     input.focus ? `Lesson focus: ${input.focus}` : null,
     input.exercise_type === 'listen_translate'
-      ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey wrote down what they heard / understood, in Chinese.`
+      ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey ${spoken ? 'said back' : 'wrote down'} what they heard / understood, in Chinese.`
       : `English to say in Chinese: ${input.prompt_en}`,
     `Model answer: ${input.model_answer}${input.model_pinyin ? ` (${input.model_pinyin})` : ''}`,
-    `Learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript)' : ' (typed)'}: ${input.answer}`,
+    `Learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'}: ${answer}`,
   ].filter(Boolean).join('\n');
 }
 
