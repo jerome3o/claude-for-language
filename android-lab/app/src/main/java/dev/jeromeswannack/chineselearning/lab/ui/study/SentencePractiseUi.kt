@@ -115,6 +115,11 @@ class SentencePractiseState internal constructor(
     /** Every take judged right / close / wrong (row key or round exercise id, mode, result): the sentence's practice history. */
     var onResult: ((key: String, mode: String, result: String) -> Unit)? = null
     /**
+     * Rows / exercises with a judged take on this showing: a retake of a translate exercise is then "after the
+     * answer" (its Chinese was shown) — it counts, but isn't written to the history (core SentenceRound.takeRecorded).
+     */
+    val answerSeen = HashSet<String>()
+    /**
      * A judged take's haptic + sound (fx/StudyFeel): null = the rows' default (right = round_right, close =
      * nearly, wrong = miss — core HardMode.roundTakeFeel). The Sentence round sets its own while it is up
      * (its last one needed = round_done). Called after [rightKeys] holds the take.
@@ -174,7 +179,8 @@ fun rememberSentencePractise(key: Any?): SentencePractiseState {
     fun finish(rowKey: String, mode: String, take: SentencePractise.Take, claude: AnswerCheck?) {
         val result = SentencePractise.result(take.practised, claude?.verdict)
         app?.analytics?.track("study.sentence_practise", mapOf("mode" to mode, "result" to result, "via" to SentencePractise.via(take, claude != null)))
-        if (result == "right" || result == "close" || result == "wrong") state.onResult?.invoke(rowKey, mode, result)
+        val seen = !state.answerSeen.add(rowKey)
+        if ((result == "right" || result == "close" || result == "wrong") && dev.jeromeswannack.chineselearning.lab.core.SentenceRound.takeRecorded(mode, seen)) state.onResult?.invoke(rowKey, mode, result)
         if (result == "right" && rowKey !in state.rightKeys) state.rightKeys.add(rowKey)
         state.feel?.invoke(rowKey, result) ?: studyFeel(dev.jeromeswannack.chineselearning.lab.core.HardMode.roundTakeFeel(result, false))
     }

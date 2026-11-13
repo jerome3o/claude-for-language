@@ -20,6 +20,8 @@ import {
   LISTEN_EX_PLAY, LISTEN_EX_SLOW, LISTEN_EX_SHOW_ANSWER, LISTEN_EX_SUBMIT, LISTEN_EX_SELF_QUESTION, LISTEN_EX_GOT_IT, LISTEN_EX_MISSED_IT,
   LISTEN_EX_YOU_SAID, LISTEN_EX_NO_AUDIO,
   isCardHanziSentence, roundSentenceCount, pickListenRoundExercises, listenRoundSentenceCount,
+  LISTEN_EX_TAP_TO_LISTEN, SENTENCE_LISTEN_AUTOPLAY,
+  listenRepeatCheck, roundTakeAfterReveal, roundTakeRecorded, roundRetryOffered, LISTEN_REPEAT_HEADLINE,
   type RoundSentence, type RoundLogEntry, type RoundExercise,
 } from '../../../shared/study/sentenceRound';
 
@@ -139,12 +141,29 @@ const listen = {
     { row: { hanzi: ' 我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank. ' }, said: ' I go to the bank ', input: 'spoken' as const },
     { row: { hanzi: '好', pinyin: '  ', translation: null }, said: 'good', input: 'typed' as const },
     { row: { hanzi: '你好', pinyin: null, translation: 'Hello' }, said: 'hi', input: 'edited' as const },
+    // Said back in Chinese: checked as what he heard (the Chinese as the model), a spoken take tidied.
+    { row: { hanzi: '虾饺是我最喜欢的点心。', pinyin: 'Xiājiǎo shì wǒ zuì xǐhuan de diǎnxīn.', translation: 'Shrimp dumplings are my favourite dim sum.' }, said: '虾饺我最喜欢的。 点心。', input: 'spoken' as const },
+    { row: { hanzi: '虾饺是我最喜欢的点心。', pinyin: null, translation: 'Shrimp dumplings are my favourite dim sum.' }, said: ' 虾饺我最喜欢的。 点心 ', input: 'typed' as const },
+    { row: { hanzi: '我去银行。', pinyin: null, translation: null }, said: '我去。 学校', input: 'edited' as const },
   ].map((c) => ({ ...c, check: listenCheckInput(c.row, c.said, c.input) })),
+  repeat: ([
+    ['虾饺我最喜欢的。 点心。', '虾饺是我最喜欢的点心。'], ['虾饺是我最喜欢的点心', '虾饺是我最喜欢的点心。'], ['虾饺不是我最喜欢的', '虾饺是我最喜欢的点心。'],
+    ['我去。 银行', '我去银行。'], ['我去银航', '我去银行。'], ['我去学校', '我去银行。'], ['I go to the bank', '我去银行。'], ['', '我去银行。'],
+    ['我去银行', 'I go to the bank'], ['这是我书', '这是我的书。'],
+  ] as const).map(([said, hanzi]) => ({ said, hanzi, check: listenRepeatCheck(said, hanzi) })),
+  retry: (['read', 'translate', 'listen'] as const).flatMap((mode) => [false, true].map((seen) => ({
+    mode, seen, after: roundTakeAfterReveal(mode, seen), recorded: roundTakeRecorded(mode, seen),
+  }))),
+  retryOffered: ([null, 'right', 'close', 'wrong'] as const).flatMap((status) => [false, true].flatMap((answered) => [false, true].map((busy) => ({
+    status, answered, busy, offered: roundRetryOffered(status, answered, busy),
+  })))),
+  repeatHeadline: LISTEN_REPEAT_HEADLINE,
   verdicts: (['correct', 'acceptable', 'almost', 'wrong'] as const).map((v) => ({ verdict: v, result: listenVerdictResult(v) })),
   self: [true, false].map((g) => ({ gotIt: g, result: listenSelfResult(g) })),
   byEar: [null, '', '1', 'true', '0', 'false', 'x'].map((raw) => ({ raw, on: parseSentencesByEar(raw) })),
   copy: {
     title: SENTENCES_BY_EAR_TITLE, hint: SENTENCES_BY_EAR_HINT, slowRate: LISTEN_SLOW_RATE,
+    tapToListen: LISTEN_EX_TAP_TO_LISTEN, autoplay: SENTENCE_LISTEN_AUTOPLAY,
     placeholder: LISTEN_EX_PLACEHOLDER, listening: LISTEN_EX_LISTENING, checking: LISTEN_EX_CHECKING, play: LISTEN_EX_PLAY,
     slow: LISTEN_EX_SLOW, showAnswer: LISTEN_EX_SHOW_ANSWER, submit: LISTEN_EX_SUBMIT, selfQuestion: LISTEN_EX_SELF_QUESTION,
     gotIt: LISTEN_EX_GOT_IT, missedIt: LISTEN_EX_MISSED_IT, youSaid: LISTEN_EX_YOU_SAID, noAudio: LISTEN_EX_NO_AUDIO,

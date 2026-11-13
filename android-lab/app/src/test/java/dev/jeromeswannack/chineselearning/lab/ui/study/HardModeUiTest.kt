@@ -224,6 +224,25 @@ class HardModeUiTest : LabScreenshotTest() {
         assertEquals(HardMode.FEEL_ROUND_RIGHT, felt.last())
     }
 
+    @Test fun theListeningRoundOfflineNotQuiteThenTryAgainCounts() {
+        card(start = CardStartState(roundOpen = true), type = CardTypes.AUDIO_TO_HANZI, practise = previewSentencePractise(dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(blocked = "offline")))
+        compose.onAllNodesWithTag(SentenceRoundTags.SHOW_CHINESE, useUnmergedTree = true)[0].performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag(SentenceRoundTags.SELF_WRONG, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertEquals(1, count("${SentenceRoundTags.EXERCISE}-0-translate-wrong"))
+        // ✗ Not quite → 🔁 Try again (the Chinese he has seen hides again): say it, show it, "I said it" counts.
+        compose.onNodeWithTag(SentenceRoundTags.SELF_RIGHT, useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag(SentenceRoundTags.RETRY, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertEquals(1, count("${SentenceRoundTags.EXERCISE}-0-translate-open"))
+        compose.onAllNodesWithTag(SentenceRoundTags.SHOW_CHINESE, useUnmergedTree = true)[0].performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithTag(SentenceRoundTags.SELF_RIGHT, useUnmergedTree = true).performClick()
+        compose.mainClock.advanceTimeBy(300)
+        assertEquals(1, count("${SentenceRoundTags.EXERCISE}-0-translate-right"))
+    }
+
     @Test fun aSentenceTakeStopsOnlyOnPurpose() {
         val practise = previewSentencePractise(
             dictation = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(phase = "listening", partialText = "孩子们在"),

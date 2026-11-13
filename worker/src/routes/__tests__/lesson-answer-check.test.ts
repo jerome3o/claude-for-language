@@ -14,6 +14,7 @@ import { ANSWER_CHECK_FIXTURES, SPEAKING_FIXTURE, fakeAnswerCheckClient } from '
 import {
   answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL,
 } from '../../services/answer-check';
+import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, answerCheckCacheText } from '@shared/lesson/answerCheck';
 import type { Env } from '../../types';
 
 function client(env: Env) {
@@ -122,6 +123,26 @@ describe('answer check service', () => {
     expect(turn).toContain('Lesson focus: 即使…也');
     expect(answerCheckUserTurn({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'typed' })).toContain('(typed)');
     expect(ANSWER_CHECK_SYSTEM).toMatch(/Never call different-but-valid wording wrong/);
+  });
+
+  it('a spoken answer: pauses are nothing (the recogniser\'s 。 between characters go), little words are the recogniser\'s', () => {
+    // Jerome's 虾饺: "You said: 虾饺我最喜欢的。 点心。" was judged "fragments" — the 。 was his pause.
+    const said = { prompt_en: 'Shrimp dumplings are my favourite dim sum.', model_answer: '虾饺是我最喜欢的点心。', answer: '虾饺我最喜欢的。 点心。', exercise_type: 'listen_translate', input: 'spoken' as const };
+    const turn = answerCheckUserTurn(said);
+    expect(turn).toContain("Learner's answer (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser's, not the learner's): 虾饺我最喜欢的点心。");
+    expect(turn).toContain('They said back what they heard');
+    // Typed answers keep what was typed.
+    expect(answerCheckUserTurn({ ...said, input: 'typed' })).toContain('(typed): 虾饺我最喜欢的。 点心。');
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/Ignore punctuation, spacing and sentence breaks COMPLETELY/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/Never call a spoken answer a fragment/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/A single short unstressed word missing or doubled \(是, 的, 了/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/never "almost" or "wrong" for it/);
+  });
+
+  it('the spoken rules changed: old cached checks are never served (the cache text carries the new version)', () => {
+    expect(ANSWER_CHECK_VERSION).toBe(2);
+    expect(MEANING_CHECK_VERSION).toBe(2);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v2\|/);
   });
 
   it('a correct verdict never carries a correction, whatever the model says', async () => {

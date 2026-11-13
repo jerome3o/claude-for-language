@@ -1513,8 +1513,8 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
     val size = hanziSize(correct) * 0.7f
     val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
-        // (SOUND / CONTAINS are spoken verdicts — never a typed answer's — shown as the answer.)
-        AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY, AnswerKey.Verdict.SOUND, AnswerKey.Verdict.CONTAINS -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // (SOUND / CONTAINS / DROPPED are spoken verdicts — never a typed answer's — shown as the answer.)
+        AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY, AnswerKey.Verdict.SOUND, AnswerKey.Verdict.CONTAINS, AnswerKey.Verdict.DROPPED -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // A punctuation-only difference shows the canonical answer (with its punctuation).
             val shown = if (verdict == AnswerKey.Verdict.EXACT) typed else correct
             TappableHanzi(shown, size, Palette.Good, onChar, newChars = newChars)

@@ -20,6 +20,7 @@ import { pinyin } from 'pinyin-pro';
 import {
   checkSpokenAnswer,
   checkTypedAnswer,
+  droppedFunctionChar,
   normalizeSpokenPinyin,
   spokenAnswerWithin,
   spokenPinyinKey,
@@ -29,6 +30,7 @@ import {
   tonelessPinyin,
 } from '../../../shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '../../../shared/cards/spoken-result';
+import { practiseSentence } from '../../../shared/coach/practise';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: spoken-answer <out-dir>');
@@ -96,6 +98,18 @@ TABLE.push(
   { transcript: '我觉的很好', correct: '觉得', alternatives: [], note_pinyin: 'juéde' },
   { transcript: '我决的很好', correct: '觉得', alternatives: [], note_pinyin: '' },
   { transcript: '看一看吧', correct: '看一看', alternatives: [], note_pinyin: 'kàn yi kàn' },
+  // One little word the recogniser dropped (`dropped`): Jerome's 虾饺 take (a pause, a swallowed 是), 的 / 了 / 一,
+  // by sound, and what stays wrong — a content word, a negation, two words, a short answer.
+  { transcript: '虾饺我最喜欢的。 点心。', correct: '虾饺是我最喜欢的点心。', alternatives: [], note_pinyin: '' },
+  { transcript: '虾饺我最喜欢的点心', correct: '虾饺是我最喜欢的点心。', alternatives: [], note_pinyin: 'Xiājiǎo shì wǒ zuì xǐhuan de diǎnxīn.' },
+  { transcript: '虾饺是我喜欢的点心', correct: '虾饺是我最喜欢的点心。', alternatives: [], note_pinyin: '' },
+  { transcript: '虾饺我最喜欢点心', correct: '虾饺是我最喜欢的点心。', alternatives: [], note_pinyin: '' },
+  { transcript: '这是我书', correct: '这是我的书', alternatives: [], note_pinyin: '' },
+  { transcript: '我去银航', correct: '我去了银行', alternatives: [], note_pinyin: '' },
+  { transcript: '我买了本书', correct: '我买了一本书', alternatives: [], note_pinyin: '' },
+  { transcript: '我想去', correct: '我不想去', alternatives: [], note_pinyin: '' },
+  { transcript: '好', correct: '好的', alternatives: [], note_pinyin: '' },
+  { transcript: '我去银行', correct: '我去了银行', alternatives: ['我去过银行'], note_pinyin: '' },
 );
 
 // A pool of common characters, grouped by toned and toneless pinyin.
@@ -139,13 +153,24 @@ for (let n = 0; n < 5000; n++) {
   const word = Array.from({ length: int(1, 5) }, () => pick(POOL));
   const correct = word.join('');
   const kind = pick(['same', 'homophone', 'homophone', 'tone', 'tone', 'any', 'two', 'punct', 'number', 'latin',
-    'sentence', 'sentence', 'sentence_homophone', 'sentence_tone'] as const);
+    'sentence', 'sentence', 'sentence_homophone', 'sentence_tone', 'dropped', 'dropped'] as const);
   let heard = word;
   if (kind === 'homophone' || kind === 'tone' || kind === 'any') heard = swap(word, int(0, word.length - 1), kind);
   if (kind === 'two') heard = swap(swap(word, 0, 'homophone'), word.length - 1, pick(['homophone', 'tone'] as const));
   if (kind === 'sentence_homophone') heard = swap(word, int(0, word.length - 1), 'homophone');
   if (kind === 'sentence_tone') heard = swap(word, int(0, word.length - 1), 'tone');
   let transcript = heard.join('');
+  // A little word of the answer left out (`droppedFunctionChar`): a 是 / 的 / 了 … put into the answer, then dropped
+  // (sometimes with a homophone elsewhere, sometimes a content character dropped instead — still wrong).
+  let droppedCorrect: string | null = null;
+  if (kind === 'dropped') {
+    const at = int(0, word.length);
+    const full = [...word.slice(0, at), pick([...'是的了一个地得着吧呢啊']), ...word.slice(at)];
+    droppedCorrect = full.join('');
+    const gone = rand() < 0.8 ? at : int(0, full.length - 1);
+    const said = full.filter((_, i) => i !== gone);
+    transcript = (rand() < 0.3 ? swap(said, int(0, said.length - 1), 'homophone') : said).join('') + (rand() < 0.3 ? '。' : '');
+  }
   // The word (or a homophone / other-tone version of it) said inside a sentence.
   if (kind.startsWith('sentence')) transcript = around() + transcript + around() + (rand() < 0.5 ? pick(PUNCT) : '');
   if (kind === 'punct') transcript = (rand() < 0.3 ? pick(PUNCT) : '') + transcript + pick(PUNCT);
@@ -159,7 +184,7 @@ for (let n = 0; n < 5000; n++) {
       : r < 0.65 ? pinyin(correct, { toneType: 'num', type: 'string' })
         // The card's pinyin with one syllable neutral (觉得 juéde): the neutral allowance.
         : r < 0.75 ? neutralOne(correct) : '';
-  cases.push({ transcript, correct, alternatives, note_pinyin });
+  cases.push({ transcript, correct: droppedCorrect ?? correct, alternatives, note_pinyin });
 }
 
 const out = cases.map((c) => ({
@@ -173,6 +198,9 @@ const out = cases.map((c) => ({
   within: spokenAnswerWithin(c.transcript, c.correct, c.alternatives, c.note_pinyin),
   within_read: spokenAnswerWithin(c.transcript, c.correct),
   syllables: spokenSyllables(c.transcript),
+  dropped: droppedFunctionChar(c.transcript, c.correct),
+  // Saying a sentence aloud (shared/coach/practise.ts): the same check + one swallowed little word forgiven.
+  practised: practiseSentence(c.transcript, c.correct).verdict,
   tidy: tidySpokenTranscript(c.transcript, c.correct),
   // The answer side's compact "You said" row (shared/cards/spoken-result.ts) for the spoken verdict.
   result: (() => {
@@ -186,18 +214,23 @@ const out = cases.map((c) => ({
   })(),
 }));
 // Every verdict's row, with the same transcript and answer: the state mapping, chips and icons.
-const resultsByVerdict = (['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const).map((v) => {
+const resultsByVerdict = (['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'dropped', 'close', 'wrong'] as const).map((v) => {
   const r = spokenResult(' 朗。', '狼 ', v);
   return { verdict: v, state: r.state, accepted: r.accepted, chip: r.chip, icon: r.icon, coach: r.coach, marks: r.chars.map((x) => x.mark), label: spokenResultLabel(r, '狼 ', ' lǎng ') };
 });
-const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'close', 'wrong'] as const;
+const verdicts = ['exact', 'punctuation_only', 'equivalent', 'alternative', 'sound', 'contains', 'dropped', 'close', 'wrong'] as const;
 const notes = verdicts.map((v) => ({ verdict: v, correct: '由', note: spokenVerdictNote(v, ' 由 ') }));
 const counts = Object.fromEntries(verdicts.map((v) => [v, out.filter((c) => c.spoken === v).length]));
+if (out.filter((c) => c.practised === 'dropped').length < 50) throw new Error('few dropped cases');
 // The transcript as shown / used (`tidySpokenTranscript`): a word answer drops the recogniser's 。, a sentence keeps it.
 const TIDY: [string, string][] = [
   ['撤销。', '撤销'], ['chè xiāo。', '撤销'], ['撤销。', '撤销。'], ['你好吗？', '你好吗？'], ['你好吗？', '你好吗'],
   ['好的！！ ', '好的'], ['  再见…', '再见'], ['再见~', '再见'], ['。', '撤销'], ['', '撤销'], ['他来了，', '他来了'],
   ['Hello.', 'hello'], ['撤销 。', ' 撤销 '], ['撤。销', '撤销'], ['撤销。', '撤销！ '], ['好', ''],
+  // A pause is never a sentence break (only when the answer has no punctuation inside).
+  ['虾饺我最喜欢的。 点心。', '虾饺是我最喜欢的点心。'], ['我 想 去，银行', '我想去银行'], ['你好， 我是小明', '你好，我是小明'],
+  ['我想 order 一个 coffee', '我想点一个咖啡'], ['xiā jiǎo。 diǎn xīn', '虾饺点心'], ['他来了。 我们走吧！', '他来了我们走吧'],
+  ['𠮷。 野家', '𠮷野家'],
 ];
 const tidy = TIDY.map(([transcript, correct]) => ({ transcript, correct, tidy: tidySpokenTranscript(transcript, correct) }));
 writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts, tidy, results_by_verdict: resultsByVerdict }));

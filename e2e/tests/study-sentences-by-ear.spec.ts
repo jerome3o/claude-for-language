@@ -3,8 +3,8 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
 
 /**
  * Hard mode's "Sentences by ear" (docs/STUDY_SESSION.md "Sentences by ear"; shared/study/sentenceRound.ts):
- * in the Sentence round a read slot whose sentence has a clip is a LISTEN exercise — the clip plays by
- * itself with no text on screen, he gives the meaning in English (voice-first box: ✏️ Type or 🎤 Say it),
+ * in the Sentence round a read slot whose sentence has a clip is a LISTEN exercise — the clip plays when he
+ * taps ▶ Tap to listen (never by itself) with no text on screen, he gives the meaning in English (voice-first box: ✏️ Type or 🎤 Say it),
  * the lesson answer check judges the meaning (the E2E stand-in, services/answer-check-fake.ts), the
  * Chinese / pinyin / English show at once with the verdict under them, and the attempt goes into the
  * sentence history as mode listen. Settings → Study → "Sentences by ear in Hard mode" off = read again.
@@ -187,7 +187,11 @@ test('sentences by ear: the clip plays with no text, the meaning in English is c
   expect(await listen.count()).toBeGreaterThanOrEqual(1);
   await expect(page.locator('[data-testid="sentence-round-exercise"][data-mode="translate"]')).toHaveCount(2);
   const first = listen.first();
-  // Its clip plays by itself (▶ lights up while the three-second stand-in plays).
+  // Nothing plays by itself: one big ▶ Tap to listen; a tap plays it (▶ lights up while the stand-in plays).
+  await expect(first.getByTestId('sentence-listen-tap')).toBeVisible({ timeout: 10000 });
+  await expect(first.getByTestId('sentence-listen-play')).toHaveCount(0);
+  await shot(page, 'web-00-listen-tap');
+  await first.getByTestId('sentence-listen-tap').click();
   await expect(first.getByTestId('sentence-listen-play')).toHaveClass(/is-playing/, { timeout: 10000 });
   const key = (await first.getAttribute('data-exercise'))!.replace('listen:', '');
   const sentence = key.startsWith('clue:') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
@@ -212,6 +216,7 @@ test('sentences by ear: the clip plays with no text, the meaning in English is c
   await recorded;
   await shot(page, 'web-02-listen-right');
 
+  let done = false;
   // The next listen exercise (when there is one) has the floor: 🎤 Say it, in English, checked by Claude.
   if (await listen.count() > 1) {
     const second = listen.nth(1);
@@ -226,13 +231,57 @@ test('sentences by ear: the clip plays with no text, the meaning in English is c
     await expect(second.getByTestId('sentence-listen-said')).toContainText('I like apples');
     await expect(second.getByTestId('sentence-listen-verdict')).toContainText('✗ Not quite');
     await shot(page, 'web-03-listen-wrong');
+    // 🔁 Try again, the answer seen: the box opens again; the right meaning now counts (2 / 2).
+    await second.getByTestId('sentence-listen-retry').click();
+    await second.getByTestId('sentence-listen-input-type').click();
+    const key2 = (await second.getAttribute('data-exercise'))!.replace('listen:', '');
+    const sentence2 = key2.startsWith('clue:') ? CLUE : SET[Number(key2.replace('e2e-s', ''))];
+    await second.getByTestId('sentence-listen-input-text').fill(sentence2.translation.replace(/[.?]$/, '').toLowerCase());
+    await second.getByTestId('sentence-listen-input-submit').click();
+    await expect(second).toHaveAttribute('data-status', 'right', { timeout: 15000 });
+    await expect(page.getByTestId('sentence-round-counter')).toContainText('2 / 2');
+    await shot(page, 'web-03b-listen-retry-right');
+    done = true;
   }
 
-  // Skip to the answer: the round's sentences on top, marked.
-  await page.getByTestId('sentence-round-skip').click();
-  await page.getByTestId('sentence-round-skip-yes').click();
+  // Skip to the answer (or, 2 / 2 right, it opens by itself): the round's sentences on top, marked.
+  if (!done) {
+    await page.getByTestId('sentence-round-skip').click();
+    await page.getByTestId('sentence-round-skip-yes').click();
+  }
   await expect(page.getByTestId('study-card-back')).toBeVisible();
   await expect(page.locator('.sentence-set-row.is-round[data-round="right"]').first()).toBeVisible();
+});
+
+test('said back in Chinese with a pause: the recogniser\'s 。 is nothing — right on the device, no check', async ({ page, request }) => {
+  test.setTimeout(180_000);
+  const { token, deck, note } = await seedBankNote(request);
+  await stubSetWithClips(page, note.id);
+  await openCard(page, token, deck.id);
+  await toTheRound(page);
+  const first = page.locator('[data-testid="sentence-round-exercise"][data-mode="listen"]').first();
+  await expect(first).toBeVisible({ timeout: 15000 });
+  await first.getByTestId('sentence-listen-tap').click();
+  const key = (await first.getAttribute('data-exercise'))!.replace('listen:', '');
+  const sentence = key.startsWith('clue:') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
+  // Jerome's 虾饺 take: a pause in the middle → the recogniser writes 。 and starts a new "sentence".
+  const chars = [...sentence.hanzi.replace(/[。？！?.!]$/, '')];
+  const mid = Math.floor(chars.length / 2);
+  const said = `${chars.slice(0, mid).join('')}。 ${chars.slice(mid).join('')}。`;
+  let checked = false;
+  page.on('request', (r) => { if (r.url().includes('/api/lessons/answer-check')) checked = true; });
+  await hear(page, said);
+  await first.getByTestId('sentence-listen-input-say').click();
+  await expect(first.getByTestId('sentence-listen-input-live')).toContainText(chars[0], { timeout: 10000 });
+  await first.getByTestId('sentence-listen-input-stop').click();
+  await first.getByTestId('sentence-listen-input-submit').click();
+  await expect(first).toHaveAttribute('data-status', 'right', { timeout: 15000 });
+  await expect(first.getByTestId('sentence-listen-headline')).toContainText('You said it back right');
+  // "You said" reads like the sentence: the pause's 。 is gone.
+  await expect(first.getByTestId('sentence-listen-said')).toContainText(chars.join(''));
+  await expect(page.getByTestId('sentence-round-counter')).toContainText('1 / 2');
+  expect(checked).toBe(false);
+  await shot(page, 'web-05-said-back-with-a-pause');
 });
 
 test('settings: "Sentences by ear in Hard mode" off → the round reads and translates', async ({ page, request }) => {

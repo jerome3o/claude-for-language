@@ -47,6 +47,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 /** Test tags of a listen exercise (the web's `sentence-listen-*` test ids). */
 object SentenceListenTags {
+    const val TAP = "sentence-listen-tap"
     const val PLAY = "sentence-listen-play"
     const val SLOW = "sentence-listen-slow"
     const val INPUT = "sentence-listen-input"
@@ -57,6 +58,7 @@ object SentenceListenTags {
     const val VERDICT = "sentence-listen-verdict"
     const val GOT = "sentence-listen-got"
     const val MISSED = "sentence-listen-missed"
+    const val RETRY = "sentence-listen-retry"
 }
 
 /** How a listen exercise was judged (or is being). */
@@ -70,7 +72,13 @@ sealed interface ListenVerdict {
 }
 
 /** A listen exercise answered on this showing: what he said ([input] spoken | edited | typed | none) and the verdict. */
-data class ListenTake(val said: String, val input: String, val verdict: ListenVerdict)
+data class ListenTake(
+    val said: String,
+    val input: String,
+    val verdict: ListenVerdict,
+    /** A 🔁 Try again after the answer was shown (core SentenceRound.takeAfterReveal): counts, not written to the history. */
+    val afterReveal: Boolean = false,
+)
 
 /** The result a listen take counts as (null while checking / waiting for the self-check). */
 fun ListenTake.result(): String? = when (val v = verdict) {
@@ -81,8 +89,8 @@ fun ListenTake.result(): String? = when (val v = verdict) {
 
 /**
  * Hard mode's "Sentences by ear" (the web's components/study/SentenceListenExercise.tsx; rules in core
- * [SentenceRound]; docs/STUDY_SESSION.md "Sentences by ear"): the clip with no text (it plays by itself once the
- * exercise has the floor — [active]), ▶ Play again and 🐢 0.75×, his meaning in English in the voice-first box, then
+ * [SentenceRound]; docs/STUDY_SESSION.md "Sentences by ear"): the clip with no text — never by itself: one big
+ * ▶ Tap to listen until [heard], then ▶ Play again and 🐢 0.75× — his meaning in English in the voice-first box, then
  * the reveal — Chinese, pinyin, English, ▶ — at once, and the verdict in a slim row under it whose height is kept
  * from the start (Checking… → ✓ Right · headline), so nothing above it moves.
  */
@@ -92,6 +100,8 @@ fun ListenExerciseCard(
     ex: SentenceRound.Exercise,
     row: SentenceRow,
     active: Boolean,
+    /** He has tapped to hear it (until then: one big ▶ Tap to listen — the clip never plays by itself). */
+    heard: Boolean = true,
     isRight: Boolean,
     take: ListenTake?,
     playingKey: String?,
@@ -101,6 +111,8 @@ fun ListenExerciseCard(
     onAnswer: (text: String, input: String) -> Unit,
     onShowAnswer: () -> Unit,
     onSelfCheck: (gotIt: Boolean) -> Unit,
+    /** 🔁 Try again — also after the answer was shown (Jerome: "say them again and then get it correct"). */
+    onRetry: () -> Unit = {},
     onMore: () -> Unit,
 ) {
     val result = take?.result()
@@ -136,9 +148,17 @@ fun ListenExerciseCard(
                 contentAlignment = Alignment.Center,
             ) { Text("⋯", color = Lab.colors.muted, fontSize = 18.sp) }
         }
+        if (take == null && !heard) {
+            // Nothing plays by itself (Jerome: "I should click the card to make it play"): one big target, the row wide.
+            PrimaryPill(
+                "▶ ${SentenceRound.LISTEN_EX_TAP_TO_LISTEN}",
+                Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(min = 56.dp).testTag(SentenceListenTags.TAP)
+                    .semantics { contentDescription = "${SentenceRound.LISTEN_EX_TAP_TO_LISTEN}: ${SentenceRound.PROMPT[SentenceRound.LISTEN].orEmpty()}" },
+            ) { onPlay(1.0) }
+        }
         if (take == null) {
             // The question: the clip only — no Chinese, no pinyin, no English.
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (heard) Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SecondaryPill(
                     "▶ ${SentenceRound.LISTEN_EX_PLAY}", Modifier.heightIn(min = 44.dp).testTag(SentenceListenTags.PLAY),
                     horizontalPadding = 14.dp, fontSize = 14.sp,
@@ -216,6 +236,14 @@ fun ListenExerciseCard(
                         }
                     }
                     is ListenVerdict.SelfDone -> Text(SentenceRound.RESULT[v.result].orEmpty(), color = Lab.colors.ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (SentenceRound.retryOffered(status, true, take.verdict == ListenVerdict.Checking)) {
+                Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    SecondaryPill(
+                        "🔁 ${SentenceRound.TRY_AGAIN}", Modifier.heightIn(min = 44.dp).testTag(SentenceListenTags.RETRY),
+                        enabled = !micBusy, horizontalPadding = 14.dp, fontSize = 14.sp, onClick = onRetry,
+                    )
                 }
             }
             (take.verdict as? ListenVerdict.Claude)?.check?.tips?.takeIf { it.isNotEmpty() }?.let { tips ->

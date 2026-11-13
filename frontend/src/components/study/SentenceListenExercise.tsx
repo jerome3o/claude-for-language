@@ -1,8 +1,8 @@
 /**
  * Hard mode's "Sentences by ear" (docs/STUDY_SESSION.md "Sentences by ear"; rules in
  * shared/study/sentenceRound.ts; Lab `ListenExerciseCard` in ui/study/SentenceRoundUi.kt): a listen
- * exercise of the Sentence round. The sentence's clip plays by itself once the exercise has the floor —
- * no text on screen — with ▶ Play again and 0.75×; he gives the meaning in English in the voice-first box
+ * exercise of the Sentence round. Nothing plays by itself (Jerome: "I should click the card to make it
+ * play"): a big ▶ Tap to listen — no text on screen — then ▶ Play again and 0.75×; he gives the meaning in English in the voice-first box
  * (🎤 Say it, ✏️ Type). Online with the sentence's English, Claude's lesson answer check judges the meaning
  * (`listenCheckInput`, cached; his English = the sentence's English → right at once with no call);
  * offline, with no English, or when no check can be had, he checks himself (✓ Got it / ✗ Missed it).
@@ -24,6 +24,7 @@ import {
   LISTEN_EX_SHOW_ANSWER,
   LISTEN_EX_SLOW,
   LISTEN_EX_SUBMIT,
+  LISTEN_EX_TAP_TO_LISTEN,
   LISTEN_EX_YOU_SAID,
   LISTEN_SLOW_RATE,
   SENTENCE_ROUND_PROMPT,
@@ -31,8 +32,12 @@ import {
   SENTENCE_ROUND_TRANSLATION_OFFLINE,
   listenCheckBy,
   listenCheckInput,
+  listenRepeatCheck,
   listenSelfResult,
   listenVerdictResult,
+  roundRetryOffered,
+  roundTakeAfterReveal,
+  SENTENCE_ROUND_TRY_AGAIN,
   type RoundExercise,
 } from '@shared/study/sentenceRound';
 import { exactAnswerCheck, type AnswerCheck } from '@shared/lesson/answerCheck';
@@ -64,7 +69,10 @@ interface Props {
   online: boolean;
   /** The round's 🎤 (a read / translate take) is on: this box waits. */
   micBusy: boolean;
-  onJudged: (result: 'right' | 'close' | 'wrong') => void;
+  /** A take judged; `afterReveal` = a 🔁 Try again after the answer was shown (counts, but is not history). */
+  onJudged: (result: 'right' | 'close' | 'wrong', afterReveal: boolean) => void;
+  /** 🔁 Try again: the box opens again (the parent gives this exercise the floor back). */
+  onRetry: () => void;
   /** The clip can't play: read it instead. */
   onUnavailable: () => void;
   onMore: () => void;
@@ -81,7 +89,7 @@ type Verdict =
   | { kind: 'self_done'; result: 'right' | 'wrong' };
 
 export function SentenceListenExercise({
-  ex, index, row, active, onActivate, onRevealed, isRight, online, micBusy, onJudged, onUnavailable, onMore, longPress, suppressTap, where,
+  ex, index, row, active, onActivate, onRevealed, isRight, online, micBusy, onJudged, onRetry, onUnavailable, onMore, longPress, suppressTap, where,
 }: Props) {
   const [answer, setAnswer] = useState('');
   const [said, setSaid] = useState<{ text: string; input: 'spoken' | 'edited' | 'typed' | 'none' } | null>(null);
@@ -90,15 +98,18 @@ export function SentenceListenExercise({
   const replays = useRef(0);
   const slowUsed = useRef(false);
   const played = useRef(false);
-  const autoplayed = useRef(false);
+  /** He has seen this exercise's answer (the reveal): a 🔁 Try again is then practice that still counts. */
+  const seenAnswer = useRef(false);
+  /** The current take came after the answer was shown (a retry): it counts, but isn't written to the history. */
+  const takeAfterReveal = useRef(false);
+  /** He tapped to listen at least once (the clip never plays by itself — Jerome: "I should click the card to make it play"). */
+  const [heard, setHeard] = useState(false);
   const playerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
-  const latest = useRef({ onJudged, onUnavailable, onRevealed, online });
-  latest.current = { onJudged, onUnavailable, onRevealed, online };
+  const latest = useRef({ onJudged, onUnavailable, onRevealed, onRetry, online });
+  latest.current = { onJudged, onUnavailable, onRevealed, onRetry, online };
   useEffect(() => () => {
     playerRef.current?.dispose();
     playerRef.current = null;
-    // Unmounted before the clip got going (React's dev double-mount, a quick re-render): it autoplays again.
-    if (!played.current) autoplayed.current = false;
   }, []);
 
   const answered = said != null;
@@ -132,34 +143,32 @@ export function SentenceListenExercise({
     });
   };
 
-  // Its turn: the clip plays by itself, once.
-  useEffect(() => {
-    if (!active || answered || autoplayed.current) return;
-    autoplayed.current = true;
-    play(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, answered]);
-
-  const report = (result: 'right' | 'close' | 'wrong', by: 'claude' | 'exact' | 'self', input: string) => {
-    track('study.sentence_listen', { result, checked_by: by, input, replays: replays.current, slow: slowUsed.current, fallback: false, where });
-    latest.current.onJudged(result);
+  const report = (result: 'right' | 'close' | 'wrong', by: 'claude' | 'exact' | 'self', input: string, afterReveal: boolean) => {
+    track('study.sentence_listen', { result, checked_by: by, input, replays: replays.current, slow: slowUsed.current, fallback: false, where, retry: afterReveal });
+    latest.current.onJudged(result, afterReveal);
   };
 
   const submit = (text: string, input: 'spoken' | 'edited' | 'typed' | 'none') => {
     playerRef.current?.stop();
     setPlaying(false);
-    setSaid({ text, input });
+    // What he said as shown and checked: a spoken Chinese take tidied (a pause is never a sentence break).
+    const checkInput = listenCheckInput(row, text, input === 'none' ? 'typed' : input);
+    setSaid({ text: input === 'none' ? text : checkInput.answer, input });
     latest.current.onRevealed();
+    const afterReveal = roundTakeAfterReveal('listen', seenAnswer.current);
+    takeAfterReveal.current = afterReveal;
+    seenAnswer.current = true;
     // 👁 Show the answer with nothing said, offline, or no English to compare: he checks himself.
     if (input === 'none' || listenCheckBy(latest.current.online, row.translation) === 'self') {
       setVerdict({ kind: 'self' });
       return;
     }
-    const checkInput = listenCheckInput(row, text, input);
-    const exact = exactAnswerCheck(checkInput);
+    // Said back in Chinese and heard right on the device (a pause, a swallowed 是 are nothing), or his English
+    // IS the sentence's: right at once, no call.
+    const exact = listenRepeatCheck(text, row.hanzi) ?? exactAnswerCheck(checkInput);
     if (exact) {
       setVerdict({ kind: 'claude', check: exact, result: 'right', by: 'exact' });
-      report('right', 'exact', input);
+      report('right', 'exact', input, afterReveal);
       return;
     }
     setVerdict({ kind: 'checking' });
@@ -167,7 +176,7 @@ export function SentenceListenExercise({
       ({ check }) => {
         const result = listenVerdictResult(check.verdict);
         setVerdict({ kind: 'claude', check, result, by: 'claude' });
-        report(result, 'claude', input);
+        report(result, 'claude', input, afterReveal);
       },
       // No check to be had (offline after all, busy, declined): he checks himself.
       () => setVerdict({ kind: 'self' }),
@@ -177,7 +186,17 @@ export function SentenceListenExercise({
   const selfCheck = (gotIt: boolean) => {
     const result = listenSelfResult(gotIt);
     setVerdict({ kind: 'self_done', result });
-    report(result, 'self', said?.input ?? 'none');
+    // His self-check rates the take he just gave: after the answer only if an EARLIER try showed it.
+    report(result, 'self', said?.input ?? 'none', takeAfterReveal.current);
+  };
+
+  /** 🔁 Try again — also after the answer was shown (Jerome: "say them again and then get it correct"). */
+  const retry = () => {
+    track('study.sentence_round', { action: 'retry', index, mode: 'listen', after_reveal: true });
+    setSaid(null);
+    setVerdict(null);
+    setAnswer('');
+    latest.current.onRetry();
   };
 
   const d = useVoiceDictation({
@@ -203,11 +222,12 @@ export function SentenceListenExercise({
       : verdict?.kind === 'self_done' ? verdict.result
         : null;
 
+  /** A tap plays the clip (never by itself): the first one is the listen, later ones are replays. */
   const tap = (rate: number) => {
     if (!active) onActivate();
-    if (played.current || autoplayed.current) replays.current += 1;
+    if (heard) replays.current += 1;
     if (rate !== 1) slowUsed.current = true;
-    autoplayed.current = true;
+    setHeard(true);
     play(rate);
   };
 
@@ -234,6 +254,18 @@ export function SentenceListenExercise({
 
       {!answered ? (
         <div className="sentence-listen-question">
+          {!heard ? (
+            // Nothing plays until he taps (SENTENCE_LISTEN_AUTOPLAY is off): one big target, the whole row wide.
+            <button
+              type="button"
+              className="btn btn-primary sentence-listen-tap"
+              onClick={() => tap(1)}
+              aria-label={`${LISTEN_EX_TAP_TO_LISTEN}: ${SENTENCE_ROUND_PROMPT.listen}`}
+              data-testid="sentence-listen-tap"
+            >
+              ▶ {LISTEN_EX_TAP_TO_LISTEN}
+            </button>
+          ) : (
           <div className="sentence-listen-audio">
             <button
               type="button"
@@ -253,6 +285,7 @@ export function SentenceListenExercise({
               🐢 {LISTEN_EX_SLOW}
             </button>
           </div>
+          )}
           {active && (
             <>
               <VoiceTextInputView
@@ -335,6 +368,13 @@ export function SentenceListenExercise({
               <span className="sentence-listen-headline"><strong>{SENTENCE_ROUND_RESULT[verdict.result]}</strong></span>
             )}
           </div>
+          {roundRetryOffered(status, true, verdict?.kind === 'checking') && (
+            <div className="sentence-round-ex-actions">
+              <button type="button" className="btn btn-secondary btn-sm sentence-round-retry" onClick={retry} disabled={micBusy} data-testid="sentence-listen-retry">
+                🔁 {SENTENCE_ROUND_TRY_AGAIN}
+              </button>
+            </div>
+          )}
           {verdict?.kind === 'claude' && verdict.check.tips.length > 0 && (
             <ul className="sentence-listen-tips" data-testid="sentence-listen-tips">
               {verdict.check.tips.map((t, i) => (

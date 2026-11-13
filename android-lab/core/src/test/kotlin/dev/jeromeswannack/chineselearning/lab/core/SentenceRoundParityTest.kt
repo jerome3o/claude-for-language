@@ -185,6 +185,25 @@ class SentenceRoundParityTest {
             val want = json.decodeFromJsonElement(AnswerCheckInput.serializer(), o["check"]!!)
             assertEquals(want, SentenceRound.listenCheckInput(row["hanzi"]!!.str!!, row["pinyin"]!!.str, row["translation"]!!.str, o["said"]!!.str!!, o["input"]!!.str!!), o.toString())
         }
+        // Said back in Chinese: heard right on the device (a pause, a swallowed 是 are nothing) → a correct check, no call.
+        for (c in l["repeat"]!!.jsonArray) {
+            val o = c.jsonObject
+            val want = o["check"]!!.let { if (it is kotlinx.serialization.json.JsonNull) null else json.decodeFromJsonElement(AnswerCheck.serializer(), it) }
+            assertEquals(want, SentenceRound.listenRepeatCheck(o["said"]!!.str!!, o["hanzi"]!!.str!!), o.toString())
+        }
+        assertEquals(l["repeatHeadline"]!!.str, SentenceRound.LISTEN_REPEAT_HEADLINE)
+        // 🔁 Try again after the answer was seen: counts, not written to the history; offered unless right / busy.
+        for (c in l["retry"]!!.jsonArray) {
+            val o = c.jsonObject
+            val mode = o["mode"]!!.str!!
+            val seen = o["seen"]!!.jsonPrimitive.boolean
+            assertEquals(o["after"]!!.jsonPrimitive.boolean, SentenceRound.takeAfterReveal(mode, seen), o.toString())
+            assertEquals(o["recorded"]!!.jsonPrimitive.boolean, SentenceRound.takeRecorded(mode, seen), o.toString())
+        }
+        for (c in l["retryOffered"]!!.jsonArray) {
+            val o = c.jsonObject
+            assertEquals(o["offered"]!!.jsonPrimitive.boolean, SentenceRound.retryOffered(o["status"]!!.str, o["answered"]!!.jsonPrimitive.boolean, o["busy"]!!.jsonPrimitive.boolean), o.toString())
+        }
         for (c in l["verdicts"]!!.jsonArray) assertEquals(c.jsonObject["result"]!!.str, SentenceRound.listenVerdictResult(c.jsonObject["verdict"]!!.str!!))
         for (c in l["self"]!!.jsonArray) assertEquals(c.jsonObject["result"]!!.str, SentenceRound.listenSelfResult(c.jsonObject["gotIt"]!!.jsonPrimitive.boolean))
         for (c in l["byEar"]!!.jsonArray) assertEquals(c.jsonObject["on"]!!.jsonPrimitive.boolean, SentenceRound.parseByEar(c.jsonObject["raw"]!!.str), c.toString())
@@ -193,6 +212,8 @@ class SentenceRoundParityTest {
         assertEquals(copy["hint"]!!.str, SentenceRound.BY_EAR_HINT)
         assertEquals(copy["slowRate"]!!.jsonPrimitive.content.toDouble(), SentenceRound.LISTEN_SLOW_RATE)
         assertEquals(copy["placeholder"]!!.str, SentenceRound.LISTEN_EX_PLACEHOLDER)
+        assertEquals(copy["tapToListen"]!!.str, SentenceRound.LISTEN_EX_TAP_TO_LISTEN)
+        assertEquals(copy["autoplay"]!!.jsonPrimitive.boolean, SentenceRound.LISTEN_AUTOPLAY)
         assertEquals(copy["listening"]!!.str, SentenceRound.LISTEN_EX_LISTENING)
         assertEquals(copy["checking"]!!.str, SentenceRound.LISTEN_EX_CHECKING)
         assertEquals(copy["play"]!!.str, SentenceRound.LISTEN_EX_PLAY)

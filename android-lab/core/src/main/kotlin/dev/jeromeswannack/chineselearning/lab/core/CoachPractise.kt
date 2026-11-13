@@ -4,7 +4,8 @@ package dev.jeromeswannack.chineselearning.lab.core
  * Sentence Coach "🎤 Practise saying it" — a port of shared/coach/practise.ts, parity-tested
  * (parity/fixtures/coach.ts → CoachParityTest): beside a coach answer's big sentence the learner says
  * it; the take is checked like a spoken answer on a typing card — [AnswerKey.tidySpokenTranscript],
- * then [AnswerKey.checkSpoken] (punctuation ignored, homophones by sound, other tones = close) — and
+ * then [AnswerKey.checkSpoken] (punctuation ignored, homophones by sound, other tones = close; one swallowed
+ * 是 / 的 / 了 in a sentence = [AnswerKey.Verdict.DROPPED], right) — and
  * shown in the compact "You said" row ([SpokenAnswerResult]). Nothing is stored.
  */
 object CoachPractise {
@@ -24,7 +25,9 @@ object CoachPractise {
     /** `practiseSentence`: a take of the learner saying [target], checked like a spoken answer. */
     fun practise(transcript: String, target: String): Practised {
         val said = AnswerKey.tidySpokenTranscript(transcript, target)
-        val verdict = AnswerKey.checkSpoken(said, target)
+        val checked = AnswerKey.checkSpoken(said, target)
+        // Saying a sentence aloud: one swallowed 是 / 的 / 了 is the recogniser's, not his.
+        val verdict = if (!AnswerKey.isAccepted(checked) && AnswerKey.droppedFunctionChar(said, target) != null) AnswerKey.Verdict.DROPPED else checked
         return Practised(said, verdict, SpokenAnswerResult.of(said, target, verdict))
     }
 

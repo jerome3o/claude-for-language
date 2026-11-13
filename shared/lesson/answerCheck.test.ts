@@ -157,7 +157,7 @@ describe('meaning check (Hard mode "Sentences by ear")', () => {
     const picked = pickAnswerCheckInput({ ...heard, answer: 'I went to the bank', input: 'spoken' });
     expect('input' in picked).toBe(true);
     const text = answerCheckCacheText({ ...heard, answer: 'I went to the BANK.', input: 'spoken' });
-    expect(text).toBe('m1|listen_translate|spoken|我昨天没去银行|i didn t go to the bank yesterday|i went to the bank');
+    expect(text).toBe('m2|listen_translate|spoken|我昨天没去银行|i didn t go to the bank yesterday|i went to the bank');
     expect(answerCheckCacheText({ ...heard, answer: 'i went to the bank', input: 'spoken' })).toBe(text);
     expect('problems' in pickAnswerCheckInput({ ...heard, model_answer: '我去银行。', answer: 'I go' })).toBe(true);
   });

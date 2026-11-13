@@ -321,18 +321,47 @@ object SentenceRound {
     fun listenCheckBy(online: Boolean, translation: String?): String =
         if (online && NoteSearch.jsTrim(translation ?: "").isNotEmpty()) "claude" else "self"
 
-    /** `listenCheckInput`: the lesson answer check as a MEANING check (the Chinese heard, its English, his English). */
+    /**
+     * `listenCheckInput`: the lesson answer check as a MEANING check (the Chinese heard, its English, his
+     * English) — or, said back in CHINESE, as "what they heard" (the English as what it means, the Chinese as
+     * the model answer; a spoken transcript tidied so a pause is never a sentence break).
+     */
     fun listenCheckInput(hanzi: String, pinyin: String?, translation: String?, said: String, input: String): AnswerCheckInput {
         val p = NoteSearch.jsTrim(pinyin ?: "")
+        val chinese = LessonAnswerCheck.hasHan(said)
+        val answer = if (chinese && input != "typed") AnswerKey.tidySpokenTranscript(said, hanzi) else NoteSearch.jsTrim(said)
         return AnswerCheckInput(
-            promptEn = NoteSearch.jsTrim(hanzi),
-            modelAnswer = NoteSearch.jsTrim(translation ?: ""),
+            promptEn = if (chinese) NoteSearch.jsTrim(translation ?: "") else NoteSearch.jsTrim(hanzi),
+            modelAnswer = if (chinese) NoteSearch.jsTrim(hanzi) else NoteSearch.jsTrim(translation ?: ""),
             modelPinyin = p.ifEmpty { null },
-            answer = NoteSearch.jsTrim(said),
+            answer = answer,
             exerciseType = "listen_translate",
             input = input,
         )
     }
+
+    /** `LISTEN_REPEAT_HEADLINE`. */
+    const val LISTEN_REPEAT_HEADLINE = "You said it back right"
+
+    /**
+     * `listenRepeatCheck`: a listen exercise answered in CHINESE (he said back what he heard), judged on the
+     * device like a read take ([CoachPractise.practise]: a pause is never a sentence break, homophones by sound,
+     * one swallowed 是 / 的 / 了 forgiven) — heard right → a correct check, no call; null → Claude checks.
+     */
+    fun listenRepeatCheck(said: String, hanzi: String): AnswerCheck? {
+        if (!LessonAnswerCheck.hasHan(said) || !LessonAnswerCheck.hasHan(hanzi)) return null
+        if (!SentencePractise.isLocalRight(CoachPractise.practise(said, hanzi).result.state)) return null
+        return AnswerCheck(verdict = "correct", headline = LISTEN_REPEAT_HEADLINE, corrected = "", correctedPinyin = "", tips = emptyList(), suggested = "got_it")
+    }
+
+    /** `roundTakeAfterReveal`: he has seen this exercise's answer before this take (never for a read exercise). */
+    fun takeAfterReveal(mode: String, answerSeen: Boolean): Boolean = answerSeen && mode != SentencePractise.READ
+
+    /** `roundTakeRecorded`: a take after the answer was seen counts for the round but isn't written to the history. */
+    fun takeRecorded(mode: String, answerSeen: Boolean): Boolean = !takeAfterReveal(mode, answerSeen)
+
+    /** `roundRetryOffered`: 🔁 Try again on an answered exercise that isn't right — the answer seen or not — unless a take is under way. */
+    fun retryOffered(status: String?, answered: Boolean, busy: Boolean): Boolean = answered && status != "right" && !busy
 
     /** `listenVerdictResult`: correct / acceptable = right, almost = close, wrong. */
     fun listenVerdictResult(verdict: String): String = when (verdict) {
@@ -358,6 +387,9 @@ object SentenceRound {
     const val LISTEN_EX_PLACEHOLDER = "What does it mean? (in English)"
     const val LISTEN_EX_LISTENING = "Listening… say what it means in English"
     const val LISTEN_EX_CHECKING = "Checking what you understood…"
+    /** `SENTENCE_LISTEN_AUTOPLAY`: a listen exercise never plays by itself — ▶ Tap to listen first. */
+    const val LISTEN_AUTOPLAY = false
+    const val LISTEN_EX_TAP_TO_LISTEN = "Tap to listen"
     const val LISTEN_EX_PLAY = "Play again"
     const val LISTEN_EX_SLOW = "0.75×"
     const val LISTEN_EX_SHOW_ANSWER = "Show the answer"
