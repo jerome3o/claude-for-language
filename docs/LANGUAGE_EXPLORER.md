@@ -207,6 +207,10 @@ Inside a view it pushes; elsewhere it opens a fresh stack. Used on:
 - chat word chips (→ Word view),
 - the coach / example-sentence breakdown rows (→ Word view; Add is inside it).
 - the study card's Sentence round, once an exercise is answered (by word, source `sentence_round`; docs/STUDY_SESSION.md "Sentence round").
+- the words of Claude's "✓ Added 2 cards" line in any Claude chat (source `claude_card` → "From Claude"; docs/CHAT.md
+  "Cards Claude added"): opened with the line's cards as **just added** (`ExplorerOpenOptions.justAdded`, Lab
+  `ExplorerController.open(…, justAdded)`), so the card tie-in shows "✓ Added to From Claude" + Open card + ⚡ Study it today
+  before the sync brings the note to the device — never "+ Add as card".
 
 Not inside places where a tap already means something (answer inputs, the call board, games
 where tapping is the answer, example-sentence rows that reveal line by line).

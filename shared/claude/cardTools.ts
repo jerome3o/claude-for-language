@@ -69,9 +69,9 @@ function strings(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
 }
 
-/** The hanzi of the cards create_flashcards made (`data.created[].hanzi`). */
+/** The hanzi of the cards create_flashcards made (`data.created[].hanzi`, else `data.notes[].hanzi`). */
 function createdHanzi(data: Record<string, unknown> | undefined): string[] {
-  const created = data?.created;
+  const created = Array.isArray(data?.created) ? data?.created : data?.notes;
   if (!Array.isArray(created)) return [];
   return created.map((c) => (c && typeof c === 'object' ? str((c as Record<string, unknown>).hanzi) : null)).filter((h): h is string => !!h);
 }
@@ -80,6 +80,49 @@ function createdCount(data: Record<string, unknown> | undefined): number {
   const n = data?.count;
   if (typeof n === 'number' && Number.isFinite(n) && n >= 0) return Math.floor(n);
   return createdHanzi(data).length;
+}
+
+/**
+ * A card create_flashcards made, as the tappable word under the reply ("✓ Added 2 cards" · 机会 ›
+ * 难得 ›): a tap opens the language explorer on it, where "⚡ Study it today" / Open card are
+ * (docs/CHAT.md "Claude thread view" → "Cards Claude added").
+ */
+export interface AddedCard {
+  note_id: string;
+  hanzi: string;
+  pinyin: string | null;
+  english: string | null;
+  deck_id: string | null;
+  deck_name: string | null;
+}
+
+/**
+ * The cards ONE create_flashcards result made, in order, each once: `data.created` (a card thread —
+ * the server's note rows, services/claude-agent/apply.ts) or `data.notes` (every other Claude chat
+ * and the Coach — services/coach-replies.ts). Entries without an id or hanzi are left out, so an old
+ * row carrying only a count gives [] (its plain line stays as it was).
+ */
+export function addedCards(data: Record<string, unknown> | undefined): AddedCard[] {
+  const list = Array.isArray(data?.created) ? data!.created : Array.isArray(data?.notes) ? data!.notes : [];
+  const deckId = str(data?.deck_id) ?? str(data?.targetDeckId);
+  const deckName = str(data?.deck_name);
+  const out: AddedCard[] = [];
+  const seen = new Set<string>();
+  for (const c of list as unknown[]) {
+    if (!c || typeof c !== 'object') continue;
+    const o = c as Record<string, unknown>;
+    const id = str(o.id)?.trim();
+    const hanzi = str(o.hanzi)?.trim();
+    if (!id || !hanzi || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ note_id: id, hanzi, pinyin: str(o.pinyin)?.trim() || null, english: str(o.english)?.trim() || null, deck_id: deckId, deck_name: deckName });
+  }
+  return out;
+}
+
+/** "✓ Added 2 cards" — the added line's start when its words follow as chips. */
+export function addedCardsHead(n: number): string {
+  return `✓ Added ${n} card${n === 1 ? '' : 's'}`;
 }
 
 /** The fields the edit asked for (`data.changes`), in CARD_EDIT_FIELDS order. */
@@ -140,11 +183,17 @@ export function cardToolEffects(results: readonly CardToolResult[]): CardToolEff
   return out;
 }
 
-/** One line under the reply. `undo` = the line offers Undo (an edit). */
+/**
+ * One line under the reply. `undo` = the line offers Undo (an edit). An `added` line also carries
+ * the cards with their note ids (`cards`, [] for an old row) and `head` ("✓ Added 2 cards"): the
+ * apps show `head` + one tappable chip per card when there are cards, else `text`.
+ */
 export interface CardToolLine {
   kind: 'edited' | 'added' | 'deleted' | 'lesson' | 'bumped' | 'failed';
   text: string;
   undo: boolean;
+  head?: string;
+  cards?: AddedCard[];
 }
 
 const FAILED_LABELS: Record<string, string> = {
@@ -176,7 +225,7 @@ export function cardToolLines(results: readonly CardToolResult[]): CardToolLine[
       case 'create_flashcards': {
         const n = createdCount(r.data);
         const hanzi = createdHanzi(r.data);
-        lines.push({ kind: 'added', text: `✓ Added ${n} card${n === 1 ? '' : 's'}${hanzi.length ? `: ${hanzi.join('、')}` : ''}`, undo: false });
+        lines.push({ kind: 'added', text: `${addedCardsHead(n)}${hanzi.length ? `: ${hanzi.join('、')}` : ''}`, undo: false, head: addedCardsHead(n), cards: addedCards(r.data) });
         break;
       }
       case 'create_custom_lesson': {

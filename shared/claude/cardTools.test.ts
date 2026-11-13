@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, undoEditFields } from './cardTools';
+import { addedCards, addedCardsHead, cardToolEffects, cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, undoEditFields } from './cardTools';
 
 const EDIT = {
   tool: 'edit_current_card',
@@ -56,12 +56,29 @@ describe('card tools in a card thread', () => {
     );
     expect(lines).toEqual([
       { kind: 'edited', text: '✓ Claude edited this card · notes, example sentence', undo: true },
-      { kind: 'added', text: '✓ Added 1 card: 存钱', undo: false },
+      { kind: 'added', text: '✓ Added 1 card: 存钱', undo: false, head: '✓ Added 1 card', cards: [] },
       { kind: 'lesson', text: '🎓 Mini lesson made: 存钱和取钱 — it’s on your Mini Lessons page', undo: false },
       { kind: 'bumped', text: '⚡ Already in today’s study: 银行', undo: false },
       { kind: 'deleted', text: '🗑 Claude deleted this card', undo: false },
       { kind: 'failed', text: '✗ Couldn’t edit this card: Failed to update note', undo: false },
     ]);
+  });
+
+  it('the cards Claude added carry their note ids, from a card thread (created) or any other chat (notes)', () => {
+    const card = { created: [{ id: 'n1', hanzi: ' 机会 ', pinyin: 'jīhuì', english: 'opportunity', deck_id: 'd9' }, { id: 'n2', hanzi: '难得' }, { id: 'n1', hanzi: '机会' }, { hanzi: '没有' }, { id: 'n3' }, 4], count: 2, targetDeckId: 'd1', deck_name: 'From Claude' };
+    expect(addedCards(card)).toEqual([
+      { note_id: 'n1', hanzi: '机会', pinyin: 'jīhuì', english: 'opportunity', deck_id: 'd1', deck_name: 'From Claude' },
+      { note_id: 'n2', hanzi: '难得', pinyin: null, english: null, deck_id: 'd1', deck_name: 'From Claude' },
+    ]);
+    const coach = { deck_id: 'd2', deck_name: 'HSK 2', deck_source_key: null, notes: [{ id: 'n4', hanzi: '这次机会很难得。', pinyin: 'zhè cì jīhuì hěn nándé.', english: '' }] };
+    expect(addedCards(coach)).toEqual([{ note_id: 'n4', hanzi: '这次机会很难得。', pinyin: 'zhè cì jīhuì hěn nándé.', english: null, deck_id: 'd2', deck_name: 'HSK 2' }]);
+    expect(addedCards({ count: 3 })).toEqual([]);
+    expect(addedCards(undefined)).toEqual([]);
+    expect(addedCardsHead(1)).toBe('✓ Added 1 card');
+    expect(addedCardsHead(2)).toBe('✓ Added 2 cards');
+    const [line] = cardToolLines([{ tool: 'create_flashcards', success: true, data: card }]);
+    expect(line).toMatchObject({ kind: 'added', head: '✓ Added 2 cards' });
+    expect(line.cards!.map((c) => c.hanzi)).toEqual(['机会', '难得']);
   });
 
   it('Undo puts back only the fields the edit changed', () => {

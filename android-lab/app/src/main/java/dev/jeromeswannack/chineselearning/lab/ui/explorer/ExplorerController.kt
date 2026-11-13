@@ -46,6 +46,14 @@ class ExplorerController(
     var openSource by mutableStateOf("other")
         private set
 
+    /**
+     * Cards the opener just made (Claude's "✓ Added 2 cards" chips), keyed by the view's text (its
+     * Han characters): not in Room until the sync lands, so their views offer ⚡ Study it today at
+     * once instead of "+ Add as card" (a duplicate).
+     */
+    var justAdded by mutableStateOf<Map<String, dev.jeromeswannack.chineselearning.lab.ui.study.AddedTo>>(emptyMap())
+        private set
+
     val isOpen: Boolean get() = stack.isNotEmpty()
     val current: ExplorerItem? get() = stack.lastOrNull()
 
@@ -69,7 +77,7 @@ class ExplorerController(
      * ONE tap = one sheet and one haptic: the same word opened again within [DOUBLE_OPEN_MS] while
      * it is the only view (two handlers answering one tap) is ignored.
      */
-    fun open(item: ExplorerItem, source: String, context: String? = null) {
+    fun open(item: ExplorerItem, source: String, context: String? = null, justAdded: List<dev.jeromeswannack.chineselearning.lab.ui.study.AddedTo> = emptyList()) {
         val t = now()
         val last = lastOpen
         if (last != null && last.first == item && t - last.second < DOUBLE_OPEN_MS && stack == listOf(item)) return
@@ -78,6 +86,7 @@ class ExplorerController(
         tick()
         this.context = context
         this.openSource = source
+        this.justAdded = justAdded.associateBy { ExplorerStack.hanOnly(it.hanzi) }.filterKeys { it.isNotEmpty() }
         dispatch(ExplorerAction.Open(item))
         track("explorer.open", mapOf("source" to source, "kind" to item.kind))
     }

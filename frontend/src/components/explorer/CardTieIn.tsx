@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { CharWordStatus } from '@shared/chars';
 import { sourceDeckForExplorer } from '@shared/decks/source-decks';
+import { normalizeHanzi } from '@shared/import/parse';
 import { track, trackError } from '../../services/analytics';
 import { invalidateKnownHanzi } from '../../services/readerWords';
 import { addCardToSourceDeck, type AddedToDeck } from '../../services/sourceDecks';
@@ -34,8 +35,11 @@ export function CardTieIn({
   onClose,
   testIds,
   className = 'xp-footer',
+  hanzi,
 }: {
   kind: 'word' | 'char';
+  /** The word / character on screen (matched against the opener's just-made cards). */
+  hanzi?: string;
   have: CardTieInHave | null;
   addLabel: string;
   /** What "+ Add" pre-fills (built when tapped, so it has the latest pinyin / meaning). */
@@ -54,6 +58,11 @@ export function CardTieIn({
   // "✓ Added" was all — Jerome closed and reopened the explorer until the card showed up).
   const [added, setAdded] = useState<(AddedToDeck & { noteId: string; hanzi: string }) | null>(null);
   const [bumpMsg, setBumpMsg] = useState<string | null>(null);
+  // A card the opener just made (Claude's "✓ Added" chips): not on this device until the sync
+  // lands, so it shows as added — never "+ Add as card" again.
+  const hanziKey = hanzi ? normalizeHanzi(hanzi) : '';
+  const made = hanziKey && have && have.noteIds.length === 0 ? explorer.justAdded?.find((n) => normalizeHanzi(n.hanzi) === hanziKey) : undefined;
+  const shownAdded = added ?? (made ? { key: sourceDeckForExplorer(explorer.source), noteIds: [made.noteId], deckId: made.deckId, deckName: made.deckName, noteId: made.noteId, hanzi: made.hanzi } : null);
 
   async function add() {
     const c: Chunk = chunk();
@@ -105,9 +114,9 @@ export function CardTieIn({
             />
           </div>
         </div>
-      ) : added ? (
+      ) : shownAdded ? (
         <div className="xp-have" data-testid="xp-added">
-          <AddedToDeckLine added={added} surface="explorer" onMoved={(now) => setAdded({ ...added, ...now })} className="xp-added-line" />
+          <AddedToDeckLine added={shownAdded} surface="explorer" onMoved={(now) => setAdded({ ...shownAdded, ...now })} className="xp-added-line" />
           {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
           <div className="xp-footer-row">
             <button
@@ -115,16 +124,16 @@ export function CardTieIn({
               className="btn btn-secondary"
               onClick={() => {
                 onClose();
-                navigate(`/cards/${added.noteId}`);
+                navigate(`/cards/${shownAdded.noteId}`);
               }}
             >
               Open card →
             </button>
             <BumpButton
-              noteIds={[added.noteId]}
+              noteIds={[shownAdded.noteId]}
               source="explorer"
               label="⚡ Study it today"
-              hanziById={new Map([[added.noteId, added.hanzi]])}
+              hanziById={new Map([[shownAdded.noteId, shownAdded.hanzi]])}
               onBumped={(m) => {
                 track('explorer.bump', { kind, just_added: true });
                 setBumpMsg(m);

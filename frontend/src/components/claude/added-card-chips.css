@@ -1,0 +1,59 @@
+/* Claude's "✓ Added 2 cards" words: one tappable chip per card → the language explorer. */
+.added-card-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+}
+.added-card-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 36px;
+  max-width: 100%;
+  padding: 0 0.5rem 0 0.65rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: var(--color-bg, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.added-card-chip:active {
+  transform: scale(0.96);
+}
+.added-card-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14em;
+}
+.added-card-chip-go {
+  font-weight: 600;
+  opacity: 0.7;
+}
+:root[data-theme='dark'] .added-card-chip {
+  background: transparent;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .added-card-chip {
+    background: transparent;
+  }
+}
+
+/* The Coach / thread line: "✓ Added to From Claude · Change" then the word chips, wrapping. */
+.coach-tool-chip.coach-tool-chip-added {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 12px;
+}
+.coach-tool-chip-added .added-to-deck {
+  padding: 0 0.25rem;
+  background: transparent;
+}

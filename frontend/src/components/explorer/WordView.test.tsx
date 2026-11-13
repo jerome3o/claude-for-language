@@ -52,6 +52,7 @@ vi.mock('../../services/idioms', () => ({ hasCachedIdiom: vi.fn(async () => fals
 
 import { MemoryRouter } from 'react-router-dom';
 import { WordView } from './WordView';
+import { ExplorerInside, type ExplorerApi } from './ExplorerContext';
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
@@ -63,17 +64,14 @@ afterEach(() => {
   root = null;
 });
 
-async function render() {
+async function render(api?: ExplorerApi) {
   container = document.createElement('div');
   const footer = document.createElement('div');
   document.body.append(container, footer);
   await act(async () => {
     root = createRoot(container!);
-    root.render(
-      <MemoryRouter>
-        <WordView item={{ kind: 'word', hanzi: '学习', pinyin: 'xuéxí', gloss: 'to study', sentence: '我们一起学习中文。' }} onClose={() => {}} footer={footer} />
-      </MemoryRouter>,
-    );
+    const view = <WordView item={{ kind: 'word', hanzi: '学习', pinyin: 'xuéxí', gloss: 'to study', sentence: '我们一起学习中文。' }} onClose={() => {}} footer={footer} />;
+    root.render(<MemoryRouter>{api ? <ExplorerInside api={api}>{view}</ExplorerInside> : view}</MemoryRouter>);
   });
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
   return footer;
@@ -150,6 +148,40 @@ describe('WordView card tie-in', () => {
     expect(block!.textContent).toContain('⚡ 学习 is first in today’s study');
   });
 
+  it('a card Claude just made (opened from its "✓ Added" chip): shown as added with ⚡ — never "+ Add as card" — before the sync brings it', async () => {
+    const api: ExplorerApi = {
+      open: vi.fn(),
+      push: vi.fn(),
+      inside: false,
+      source: 'claude_card',
+      justAdded: [{ noteId: 'claude-note', hanzi: '学习', deckId: 'src-claude', deckName: 'From Claude' }],
+    };
+    const footer = await render(api);
+    await act(async () => {
+      resolveExisting([]);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(footer.querySelector('[data-testid="explorer-add-card"]')).toBeNull();
+    const block = footer.querySelector('[data-testid="xp-added"]');
+    expect(block?.textContent).toContain('✓ Added to From Claude');
+    const bump = [...block!.querySelectorAll('button')].find((b) => b.textContent === '⚡ Study it today');
+    await act(async () => {
+      bump!.click();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(added.bumpNotes).toHaveBeenCalledWith(['claude-note'], 'explorer', new Map([['claude-note', '学习']]));
+  });
+
+  it('a card Claude made for ANOTHER word does not change this one', async () => {
+    const footer = await render({ open: vi.fn(), push: vi.fn(), inside: false, source: 'claude_card', justAdded: [{ noteId: 'x', hanzi: '机会', deckId: 'd', deckName: 'From Claude' }] });
+    await act(async () => {
+      resolveExisting([]);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(footer.querySelector('[data-testid="xp-added"]')).toBeNull();
+    expect(footer.querySelector('[data-testid="explorer-add-card"]')).not.toBeNull();
+  });
+
   it('Change moves the just-added note to the deck he picks (POST /api/notes/move)', async () => {
     const footer = await render();
     await act(async () => {
@@ -173,8 +205,8 @@ describe('WordView card tie-in', () => {
       hsk!.click();
       await new Promise((r) => setTimeout(r, 20));
     });
-    expect(added.moveNotesApi).toHaveBeenCalledWith(['new-note'], 'd2');
-    expect(document.body.querySelector('[data-testid="move-to-deck"]')).toBeNull();
+    await vi.waitFor(() => expect(added.moveNotesApi).toHaveBeenCalledWith(['new-note'], 'd2'));
+    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="move-to-deck"]')).toBeNull());
     expect(footer.querySelector('[data-testid="added-to-deck"]')?.textContent).toContain('✓ Moved to HSK 2');
   });
 });

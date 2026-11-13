@@ -8,6 +8,8 @@
 import { useEffect, useState } from 'react';
 import { isSourceDeckKey } from '@shared/decks/source-decks';
 import { AddedToDeckLine } from '../sourceDecks/AddedToDeckLine';
+import { addedCards } from '@shared/claude/cardTools';
+import { AddedCardChips } from '../claude/AddedCardChips';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { saveCoachMistakeLesson, apiErrorStatus } from '../../api/client';
@@ -268,30 +270,35 @@ export function parseToolResults(raw: string | null): CoachToolResult[] {
   }
 }
 
-export function ToolResultChips({ results }: { results: CoachToolResult[] }) {
+export function ToolResultChips({ results, surface = 'thread' }: { results: CoachToolResult[]; surface?: 'thread' | 'coach' }) {
   if (results.length === 0) return null;
   return (
     <div className="coach-tool-results">
       {results.map((r, i) => {
         if (r.tool === 'create_flashcards' && r.success) {
-          const data = r.data as { deck_name?: string; deck_id?: string; deck_source_key?: string | null; notes?: Array<{ id?: string; hanzi: string }> } | undefined;
-          const hanzi = (data?.notes || []).map(n => n.hanzi).join('、');
-          const noteIds = (data?.notes || []).map((n) => n.id).filter((id): id is string => !!id);
+          const data = r.data as { deck_name?: string; deck_id?: string; targetDeckId?: string; deck_source_key?: string | null; notes?: Array<{ id?: string; hanzi: string }>; created?: Array<{ id?: string; hanzi: string }> } | undefined;
+          // The cards with their note ids — `notes` (the Coach, reader / exercise chats) or `created` (a card thread).
+          const cards = addedCards(r.data);
+          const list = data?.notes ?? data?.created ?? [];
+          const hanzi = list.map((n) => n.hanzi).join('、');
+          const noteIds = cards.map((c) => c.note_id);
+          const deckId = data?.deck_id ?? data?.targetDeckId;
           // A reply since source decks (the cards went to "From Claude" unless he named a deck): Change moves them.
-          if (data?.deck_id && noteIds.length) {
+          // Each word is a chip → the language explorer (⚡ Study it today / Open card there).
+          if (deckId && noteIds.length) {
             return (
-              <div key={i} className="coach-tool-chip coach-tool-chip-success coach-tool-chip-added">
+              <div key={i} className="coach-tool-chip coach-tool-chip-success coach-tool-chip-added" data-testid="claude-added-cards">
                 <AddedToDeckLine
-                  added={{ key: isSourceDeckKey(data.deck_source_key) ? data.deck_source_key : 'claude', noteIds, deckId: data.deck_id, deckName: data.deck_name || 'your deck' }}
+                  added={{ key: isSourceDeckKey(data?.deck_source_key) ? data!.deck_source_key! : 'claude', noteIds, deckId, deckName: data?.deck_name || 'your deck' }}
                   surface="coach"
                 />
-                {hanzi && <span className="coach-tool-chip-words" lang="zh">{hanzi}</span>}
+                <AddedCardChips cards={cards} surface={surface} />
               </div>
             );
           }
           return (
             <div key={i} className="coach-tool-chip coach-tool-chip-success">
-              ✓ Added {data?.notes?.length ?? 0} card{(data?.notes?.length ?? 0) === 1 ? '' : 's'}
+              ✓ Added {list.length} card{list.length === 1 ? '' : 's'}
               {data?.deck_name ? ` to ${data.deck_name}` : ''}{hanzi ? `: ${hanzi}` : ''}
             </div>
           );

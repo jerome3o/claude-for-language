@@ -326,7 +326,15 @@ fun CardToolLines(reply: ClaudeMessageDto, actions: CardClaudeActions, online: B
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val done = line.undo && undo == "done"
-                Text(if (done) "↺ Undone — the card is back as it was" else line.text, color = color, fontSize = 13.sp, modifier = Modifier.weight(1f, fill = false))
+                if (line.cards.isNotEmpty()) {
+                    // "✓ Added 2 cards" + a chip per card → the language explorer (⚡ Study it today there).
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f, fill = false)) {
+                        Text(line.head ?: line.text, color = color, fontSize = 13.sp)
+                        dev.jeromeswannack.chineselearning.lab.ui.claude.AddedCardChips(line.cards, "card_sheet", color)
+                    }
+                } else {
+                    Text(if (done) "↺ Undone — the card is back as it was" else line.text, color = color, fontSize = 13.sp, modifier = Modifier.weight(1f, fill = false))
+                }
                 if (line.undo && !done && actions.canUndo(reply.id)) {
                     val busy = undo == "busy"
                     Box(

@@ -44,7 +44,17 @@ class CardToolsParityTest {
                 bumped = e["bumped"]!!.jsonArray.map { it.str!! },
             )
             assertEquals(wantEffects, CardTools.effects(parsed), o["raw"].toString())
-            val wantLines = o["lines"]!!.jsonArray.map { l -> l.jsonObject.let { CardTools.Line(it["kind"].str!!, it["text"].str!!, it["undo"]!!.jsonPrimitive.boolean) } }
+            val wantLines = o["lines"]!!.jsonArray.map { l ->
+                l.jsonObject.let {
+                    CardTools.Line(
+                        it["kind"].str!!, it["text"].str!!, it["undo"]!!.jsonPrimitive.boolean, it["head"].str,
+                        it["cards"]?.jsonArray?.map { c ->
+                            val x = c.jsonObject
+                            CardTools.AddedCard(x["note_id"].str!!, x["hanzi"].str!!, x["pinyin"].str, x["english"].str, x["deck_id"].str, x["deck_name"].str)
+                        }.orEmpty(),
+                    )
+                }
+            }
             assertEquals(wantLines, CardTools.lines(parsed), o["raw"].toString())
         }
     }

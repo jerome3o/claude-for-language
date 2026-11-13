@@ -53,6 +53,7 @@ import { ClaudeChatComposer } from '../claudeChat/ClaudeChatComposer';
 import { MakeFlashcardsSheet } from '../chat/MakeFlashcardsSheet';
 import { CoachMessageView, parseAnalysis, parseToolResults, ToolResultChips, type MistakeLessonChip } from '../coach/CoachResults';
 import { useClaudeThread } from '../../hooks/useClaudeThread';
+import { addedCards } from '@shared/claude/cardTools';
 import { useFollowEnd } from '../../hooks/useFollowEnd';
 import { useAskLanguage } from '../../services/askClaudeLanguage';
 import { getAskRevealed, setAskRevealed, useAskListening } from '../../services/askClaudeListening';
@@ -73,6 +74,11 @@ import {
 } from '../../services/claudeThreads';
 import { track, trackError } from '../../services/analytics';
 import '../claudeChat/claude-chat.css';
+
+/** A reply whose tools made cards (create_flashcards with at least one note). */
+function repliedWithCards(raw: string | null | undefined): boolean {
+  return parseToolResults(raw ?? null).some((r) => r.tool === 'create_flashcards' && r.success && addedCards(r.data).length > 0);
+}
 
 export interface ClaudeThreadMenuItem {
   id: string;
@@ -350,6 +356,9 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         seenPending.current.delete(m.id);
         if (m.status === null) {
           onReplyFinished?.(m);
+          // Claude made cards: bring them to this device now (the card sheet's caller syncs itself),
+          // so the explorer — a tap on the line's words — shows them as cards he has.
+          if (!onReplyFinished && repliedWithCards(m.tool_results)) void import('../../services/sync').then(({ syncService }) => syncService.incrementalSync()).catch(() => undefined);
           if (ctx.kind === 'card') {
             for (const ms of [2500, 8000]) window.setTimeout(() => void state.refresh(), ms);
           }
