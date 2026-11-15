@@ -24,3 +24,21 @@ Hard mode's check on the question: "Checking…" while Claude reads the take.
 ![Hard mode: ≈ Nearly](web-read-take-05-hard-close.png)
 
 Hard mode: ≈ Nearly with Claude's card (~ Almost, the reason and a tip), 🔁 Try again / 👁 Show answer.
+
+## Lab app
+
+![Lab: only the quotes differ](lab-read-take-01-quotes-match.png)
+
+Only the quotes differ: ✓ Match, no call.
+
+![Lab: Checking…](lab-read-take-02-checking.png)
+
+英语 for 英文: "Checking…" while Claude reads it.
+
+![Lab: ≈ Close](lab-read-take-03-close.png)
+
+≈ Close with Claude's reason.
+
+![Lab: ≈ Close, dark](lab-read-take-04-close-dark.png)
+
+The same in the dark theme.
