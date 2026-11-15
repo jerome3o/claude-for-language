@@ -174,3 +174,35 @@ export function sayAgainFix(corrected: string | null | undefined, said: string |
   if (clean(offered) && isExactHanziMatch(clean(offered), c)) return null;
   return c;
 }
+
+/** The neutral line under "You said" when his answer is the model answer's characters in another order. */
+export const REORDERED_NOTE = 'Same characters, different word order';
+
+/** Whether to mark "You said" / the model answer with the device's diff, or show a neutral note instead. */
+export interface AnswerMarks {
+  marks: boolean;
+  note: string | null;
+}
+
+/** The same characters, each as often (punctuation / spaces ignored), in any order. */
+export function sameCharacters(answer: string, model: string): boolean {
+  const sorted = (s: string) => Array.from(normalizeHanziAnswer(s)).sort().join('');
+  const a = sorted(answer);
+  return a.length > 0 && a === sorted(model);
+}
+
+/**
+ * The device's character marks on "You said" and the model answer (`markedChars`), or not. Jerome said
+ * 因为这个问题，我睡不着觉 for 我因为这个问题睡不着觉 and both rows painted 我 red — a pure reordering read as "you got 我
+ * wrong" under a ✓ verdict. So: no marks when it IS the model answer; a reordering of the same characters gets the
+ * neutral `REORDERED_NOTE` instead; and once Claude's check says correct / acceptable (`verdict`) the marks go — a
+ * right answer is never painted as errors. Otherwise (no verdict yet, almost, wrong) the marks show.
+ */
+export function answerMarks(answer: string, model: string, verdict?: string | null): AnswerMarks {
+  const a = normalizeHanziAnswer(answer);
+  const m = normalizeHanziAnswer(model);
+  if (!a || !m || a === m) return { marks: false, note: null };
+  if (sameCharacters(a, m)) return { marks: false, note: REORDERED_NOTE };
+  if (verdict === 'correct' || verdict === 'acceptable') return { marks: false, note: null };
+  return { marks: true, note: null };
+}

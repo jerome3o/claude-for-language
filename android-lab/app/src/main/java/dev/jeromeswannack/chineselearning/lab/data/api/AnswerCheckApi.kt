@@ -82,7 +82,7 @@ suspend fun Api.checkLessonAnswer(input: AnswerCheckInput, cache: JsonCache, onl
     runCatching { cache.get<AnswerCheck>(key) }.getOrNull()?.let { return AnswerCheckResult(it, cached = true) }
     if (!online) throw AnswerCheckUnavailable("offline", offline = true)
     val reply = retryBusy { post<AnswerCheckInput, AnswerCheckReply>("/api/lessons/answer-check", input) }
-    val check = LessonAnswerCheck.parse(reply.check, input.answer) ?: throw AnswerCheckUnavailable("bad reply")
+    val check = LessonAnswerCheck.parse(reply.check, input.answer, input.modelAnswer) ?: throw AnswerCheckUnavailable("bad reply")
     runCatching { cache.put(key, "lesson_answer_check", check) }
     return AnswerCheckResult(check, reply.cached)
 }

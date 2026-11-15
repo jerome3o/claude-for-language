@@ -209,6 +209,13 @@
   text-transform: none;
 }
 
+/* A neutral line under "You said" (a reordering of the model answer's characters — never marked as wrong). */
+.lesson-answer-note {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-light, #6b7280);
+}
+
 /* ---- Lesson width inside the study session ---- */
 /* .practice-page carries `margin: 0 auto` for its old standalone layout. As
  * a flex item of .study-card-content (a flex column), those cross-axis auto
