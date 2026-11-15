@@ -223,7 +223,17 @@ export async function setNoteLongTerm(
     throw new ContentError('long_term must be true, false or null');
   }
   const pref = toLongTermPref(value);
-  return db.setNoteLongTerm(env.DB, userId, noteId, pref);
+  return setNoteLongTermPref(env.DB, userId, noteId, pref);
+}
+
+/** The same write with a validated choice (the "⚡ Study it today" rule's long-term opt-in, services/study-bumps.ts). */
+export async function setNoteLongTermPref(
+  d1: D1Database,
+  userId: string,
+  noteId: string,
+  pref: 0 | 1 | null
+): Promise<{ id: string; long_term: 0 | 1 | null; long_term_at: string } | null> {
+  return db.setNoteLongTerm(d1, userId, noteId, pref);
 }
 
 /** Delete a note the user owns: row + cards, tombstone, and clips nothing else uses. */

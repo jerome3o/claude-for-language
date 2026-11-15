@@ -44,7 +44,9 @@ describe('study bumps on the device', () => {
   it('a bumped NEW card comes first over a spent budget, and Home counts it', async () => {
     expect((await getStudyQueue()).dueCards).toEqual([]);
     const out = await bumpNotes(['n-bank'], 'coach');
-    expect(out.message).toBe('⚡ 银行 will come first in today’s study');
+    // No audio, one card: the lead card, one card (shared/decks/study-today.ts).
+    expect(out.message).toBe('⚡ 1 card of 银行 added to today');
+    expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.card_types).toEqual(['hanzi_to_meaning']);
     const q = await getStudyQueue();
     expect(q.dueCards.map(c => c.id)).toEqual(['c-bank']);
     expect([...q.bumpedCardIds]).toEqual(['c-bank']);
@@ -98,6 +100,59 @@ describe('study bumps on the device', () => {
     expect(clearBumpApi).toHaveBeenCalledWith('n-bank');
     expect(await db.studyBumps.where('note_id').equals('n-bank').count()).toBe(0);
     expect((await getStudyQueue()).dueCards).toEqual([]);
+  });
+
+  describe('the ONE "Study it today" rule (shared/decks/study-today.ts) from any ⚡', () => {
+    const cardOf = (id: string, type: string, queue = CardQueue.NEW, dueMs: number | null = null): LocalCard => ({
+      id, note_id: 'n-bank', deck_id: 'd1', card_type: type, queue, stability: queue ? 20 : 0, difficulty: 5, lapses: 0,
+      learning_step: 0, ease_factor: 2.5, interval: queue ? 12 : 0, repetitions: queue ? 3 : 0,
+      next_review_at: dueMs ? new Date(dueMs).toISOString() : null, due_timestamp: dueMs,
+      created_at: iso(), updated_at: iso(), _synced_at: null,
+    } as LocalCard);
+
+    beforeEach(async () => {
+      await db.notes.update('n-bank', { audio_url: 'generated/n-bank.mp3' });
+      await db.cards.bulkPut([cardOf('c-bank-m', 'meaning_to_hanzi'), cardOf('c-bank-a', 'audio_to_hanzi')]);
+    });
+
+    it('an unstarted word: ONLY its listening card comes today; its siblings wait', async () => {
+      const out = await bumpNotes(['n-bank'], 'explorer');
+      expect(out.message).toBe('⚡ Listening card of 银行 added to today');
+      expect(out.results).toEqual([{ noteId: 'n-bank', kind: 'listening', cardTypes: ['audio_to_hanzi'], added: true }]);
+      expect(await db.studyBumps.where('note_id').equals('n-bank').first()).toMatchObject({ card_types: ['audio_to_hanzi'], planned: true, pending: 'add' });
+      expect((await getStudyQueue()).dueCards.map(c => c.id)).toEqual(['c-bank-a']);
+      // A second tap: already in today.
+      expect((await bumpNotes(['n-bank'], 'deck')).already).toEqual(['n-bank']);
+    });
+
+    it('a started word: only its listening card (due → first; not due → its one early review), never the others', async () => {
+      const later = Date.now() + 12 * 86_400_000;
+      await db.cards.bulkPut([
+        cardOf('c-bank', 'hanzi_to_meaning', CardQueue.REVIEW, Date.now() - 3_600_000), // due today
+        cardOf('c-bank-m', 'meaning_to_hanzi'),
+        cardOf('c-bank-a', 'audio_to_hanzi', CardQueue.REVIEW, later),
+      ]);
+      const out = await bumpNotes(['n-bank'], 'card_hub');
+      expect(out.results[0]).toMatchObject({ kind: 'listening', cardTypes: ['audio_to_hanzi'] });
+      expect([...(await getStudyQueue()).bumpedCardIds]).toEqual(['c-bank-a']);
+    });
+
+    it('a started word with no audio: the whole note, as before', async () => {
+      await db.notes.update('n-bank', { audio_url: null });
+      await db.cards.update('c-bank', { queue: CardQueue.REVIEW, next_review_at: new Date(Date.now() + 9 * 86_400_000).toISOString() });
+      const out = await bumpNotes(['n-bank'], 'deck');
+      expect(out.results[0]).toMatchObject({ kind: 'whole', cardTypes: null });
+      expect(out.message).toBe('⚡ 银行 will come first in today’s study');
+      expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.planned).toBe(true);
+    });
+
+    it('a note not on this device goes up without a plan (the server applies the rule)', async () => {
+      const out = await bumpNotes(['n-elsewhere'], 'mcp', new Map([['n-elsewhere', '想到']]));
+      expect(out.added).toEqual(['n-elsewhere']);
+      const row = await db.studyBumps.where('note_id').equals('n-elsewhere').first();
+      expect(row?.planned).toBeUndefined();
+      expect(row?.card_types).toBeUndefined();
+    });
   });
 
   describe('card-level bumps ("Practise this word other ways…")', () => {

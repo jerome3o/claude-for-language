@@ -35,6 +35,8 @@ data class StudyBumpDto(
     val source: String,
     /** Only these card types of the note (a card-level bump); null = the whole note. */
     val card_types: List<String>? = null,
+    /** The phone applied the "⚡ Study it today" rule (core StudyToday): the server stores it as sent. */
+    val planned: Boolean? = null,
 )
 
 @Serializable data class BumpBody(val items: List<BumpItemBody>)

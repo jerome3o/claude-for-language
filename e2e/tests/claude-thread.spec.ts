@@ -124,7 +124,8 @@ test('a card Claude made: its word on the "✓ Added" line opens the explorer, t
   await expect(page.getByTestId('explorer-add-card')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/06-explorer-added-card.png` });
   await footer.getByRole('button', { name: '⚡ Study it today' }).click();
-  await expect(footer.getByRole('button', { name: '⚡ Today ✓' })).toBeVisible({ timeout: 10_000 });
+  // One card of the word (shared/decks/study-today.ts) — "⚡ 1 card today ✓" once the note is on the device.
+  await expect(footer.getByRole('button', { name: /today ✓/i })).toBeVisible({ timeout: 10_000 });
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/07-explorer-bumped.png` });
 
   // Several cards: one chip per word on the line.

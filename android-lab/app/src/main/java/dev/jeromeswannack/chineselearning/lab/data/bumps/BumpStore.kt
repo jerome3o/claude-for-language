@@ -2,19 +2,28 @@ package dev.jeromeswannack.chineselearning.lab.data.bumps
 
 import androidx.room.withTransaction
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.core.BumpMerge
 import dev.jeromeswannack.chineselearning.lab.core.Bumps
+import dev.jeromeswannack.chineselearning.lab.core.CardQueue
+import dev.jeromeswannack.chineselearning.lab.core.LeadCard
+import dev.jeromeswannack.chineselearning.lab.core.LongTerm
+import dev.jeromeswannack.chineselearning.lab.core.StudyToday
 import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueBump
 import dev.jeromeswannack.chineselearning.lab.core.QueueBumps
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
+import dev.jeromeswannack.chineselearning.lab.data.CardEntity
+import dev.jeromeswannack.chineselearning.lab.data.DeckEntity
 import dev.jeromeswannack.chineselearning.lab.data.LabDao
+import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.data.LabDatabase
 import dev.jeromeswannack.chineselearning.lab.data.StudyBumpEntity
 import dev.jeromeswannack.chineselearning.lab.data.api.BumpBody
 import dev.jeromeswannack.chineselearning.lab.data.api.BumpItemBody
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyBumpDto
 import dev.jeromeswannack.chineselearning.lab.data.api.enc
+import dev.jeromeswannack.chineselearning.lab.data.homework.LongTermStore
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
 import dev.jeromeswannack.chineselearning.lab.data.platform.PlatformDao
 import kotlinx.coroutines.Dispatchers
@@ -38,8 +47,11 @@ import java.util.UUID
  *    a row whose Outbox item is still pending stays on top as made here.
  *  - The queue's bumps ([queueBumps]): active rows (not pending clear) with their cards' first /
  *    latest review from the local events (events are the truth).
- *  - A CARD-LEVEL bump ([bumpCardTypes], `cardTypes`): the study card's "Practise this word other
- *    ways…" — only those card types of the note go in the pocket (core Bumps / OtherCardTypes).
+ *  - What one ⚡ tap bumps is ONE rule from everywhere ([bumpNotes] → core StudyToday, shared/decks/
+ *    study-today.ts): an unstarted word's listening card (else its lead card), a started word's listening
+ *    card, the whole note only without one — a CARD-LEVEL bump (`cardTypes`) sent as `planned`.
+ *  - [bumpCardTypes]: the study card's "Practise this word other ways…" (an explicit choice) — only those
+ *    card types of the note go in the pocket (core Bumps / OtherCardTypes).
  */
 object BumpStore {
     const val OUTBOX_ADD = "study-bump"
@@ -47,9 +59,21 @@ object BumpStore {
     const val PENDING_ADD = "add"
     const val PENDING_CLEAR = "clear"
 
-    /** What a bump did: the hanzi of the notes now in the pocket, how many already were, how many matched nothing. */
-    data class Result(val added: List<String>, val already: List<String>, val notFound: Int) {
-        val message: String get() = if (added.isEmpty() && already.isEmpty() && notFound > 0) "Not in your decks yet" else Bumps.bumpedMessage(added, already.size)
+    /**
+     * What a bump did: the hanzi of the notes now in the pocket, how many already were, how many matched nothing;
+     * [kinds] = what went in per added word (core StudyToday listening / lead / whole, aligned with [added]),
+     * [addedNoteIds] their notes, [longTermBefore] the long-term choices the tap replaced (note id → before).
+     */
+    data class Result(
+        val added: List<String>,
+        val already: List<String>,
+        val notFound: Int,
+        val kinds: List<String> = emptyList(),
+        val addedNoteIds: List<String> = emptyList(),
+        val longTermBefore: Map<String, Int?> = emptyMap(),
+    ) {
+        val message: String get() = if (added.isEmpty() && already.isEmpty() && notFound > 0) "Not in your decks yet"
+        else StudyToday.message(added.mapIndexed { i, h -> h to (kinds.getOrNull(i) ?: StudyToday.WHOLE) }, already.size)
     }
 
     private fun nowIso(nowMs: Long) = Js.toIsoString(nowMs)
@@ -113,26 +137,87 @@ object BumpStore {
         return out
     }
 
-    /** Bump [noteIds]: written here at once, sent through the Outbox. */
-    suspend fun bumpNotes(app: LabApp, noteIds: List<String>, source: String, nowMs: Long = System.currentTimeMillis(), track: Boolean = true): Result {
+    /** "English → Chinese" applies to [hanzi]: the setting is on and every character is known (core LeadCard). */
+    suspend fun knownCharactersLead(app: LabApp, hanzi: String): Boolean = LeadCard.allCharactersKnown(hanzi, knownCharacters(app))
+
+    /** The characters he knows (every Han character of a note with a mature card); empty with "English → Chinese" off. */
+    private suspend fun knownCharacters(app: LabApp): Set<String> {
+        if (!app.prefs.newCardOrder.knownCharactersEnglishFirst) return emptySet()
+        val dao = app.repo.dao
+        val knownNotes = LeadCard.knownNoteIds(dao.cards().map { it.toQueueCard() })
+        if (knownNotes.isEmpty()) return emptySet()
+        val hanziOf = knownNotes.chunked(500).flatMap { dao.notes(it) }.map { it.hanzi }
+        return LeadCard.knownCharacters(hanziOf)
+    }
+
+    /**
+     * The "⚡ Study it today" plan of one note on this phone (core StudyToday — shared/decks/study-today.ts).
+     * [known] = the known characters, shared across one call's notes (read only when a plan needs it).
+     */
+    suspend fun studyTodayPlan(app: LabApp, note: NoteEntity, cards: List<CardEntity>, deck: DeckEntity?, known: (suspend () -> Set<String>)? = null): StudyToday.Plan {
+        val noteCards = cards.map { StudyToday.NoteCard(it.cardType, it.queue) }
+        val started = cards.any { it.queue != CardQueue.NEW }
+        val inReview = deck?.let { LongTerm.deckInDailyReview(it.newCardsPerDay, it.secondaryCardsPerDay ?: StudyQueue.DEFAULT_SECONDARY_CAP) } ?: true
+        val hasAudio = !note.audioUrl.isNullOrBlank()
+        val first = StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview)
+        if (first.kind != StudyToday.LEAD) return first
+        val lead = LeadCard.allCharactersKnown(note.hanzi, known?.invoke() ?: knownCharacters(app))
+        return StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview) { lead }
+    }
+
+    /**
+     * "⚡ Study it today" — the ONE phone entry point every ⚡ goes through (the explorer, the add-card sheets,
+     * word sheets, chat Make flashcards / Paste a list, the deck page, the card hub, Up next, the homework
+     * pass, the reader recap, clips, idioms, podcasts): each note follows core StudyToday (shared/decks/
+     * study-today.ts) — an unstarted word puts ONLY its listening card in today (else its lead card) and goes
+     * into long-term review; a started word its listening card; a word with no listening card (or no audio)
+     * the whole note. Written here at once (marked `planned`, so the server stores it as sent), sent through
+     * the Outbox.
+     */
+    suspend fun bumpNotes(app: LabApp, noteIds: List<String>, source: String, nowMs: Long = System.currentTimeMillis(), track: Boolean = true, zone: ZoneId = ZoneId.systemDefault()): Result {
         val src = Bumps.normalizeBumpSource(source)
         val dao = app.repo.dao
-        val open = openNoteIds(dao, nowMs)
+        val ids = noteIds.distinct()
+        val open = openNoteIds(dao, nowMs, zone)
         val existing = dao.studyBumps().associateBy { it.noteId }
-        val notes = dao.notes(noteIds.distinct()).associateBy { it.id }
+        val notes = dao.notes(ids).associateBy { it.id }
+        val decks = if (notes.isEmpty()) emptyMap() else dao.decks().associateBy { it.id }
         val added = ArrayList<String>()
+        val addedIds = ArrayList<String>()
+        val kinds = ArrayList<String>()
         val already = ArrayList<String>()
         val items = ArrayList<BumpItemBody>()
         val rows = ArrayList<StudyBumpEntity>()
-        for (id in noteIds.distinct()) {
+        val longTerms = LinkedHashMap<String, Int?>()
+        val longTermBefore = LinkedHashMap<String, Int?>()
+        var knownOnce: Set<String>? = null
+        val known: suspend () -> Set<String> = { knownOnce ?: knownCharacters(app).also { knownOnce = it } }
+        for (id in ids) {
             val note = notes[id] ?: continue
+            val cards = dao.cardsOfNotes(listOf(id))
+            val plan = studyTodayPlan(app, note, cards, decks[note.deckId], known)
             val row = existing[id]
-            // A card-level bump of the word becomes a whole-note bump (Bumps.mergeBumpCardTypes).
-            if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += note.hanzi; continue }
+            val types: List<String>?
+            val planned = plan.cardTypes
+            if (planned != null) {
+                val merge = cardLevelMerge(dao, id, row, cards, planned, nowMs, zone)
+                if (merge.action == "already") { already += note.hanzi; continue }
+                types = merge.cardTypes
+            } else {
+                // A card-level bump of the word becomes a whole-note bump (Bumps.mergeBumpCardTypes).
+                if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += note.hanzi; continue }
+                types = null
+            }
             val clientId = UUID.randomUUID().toString()
-            items += BumpItemBody(clientId, id, nowIso(nowMs), src)
-            rows += StudyBumpEntity(id, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD)
+            items += BumpItemBody(clientId, id, nowIso(nowMs), src, types, planned = true)
+            rows += StudyBumpEntity(id, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD, cardTypes = encodeCardTypes(types))
             added += note.hanzi
+            addedIds += id
+            kinds += if (types == null) StudyToday.WHOLE else StudyToday.kindOfRow(types)
+            if (plan.setLongTerm) {
+                longTermBefore[id] = note.longTerm
+                longTerms[id] = plan.longTerm
+            }
         }
         if (items.isNotEmpty()) {
             withContext(Dispatchers.IO) {
@@ -140,33 +225,22 @@ object BumpStore {
                 app.outbox.enqueueJson(OUTBOX_ADD, "POST", "/api/me/bumps", BumpBody(items), id = outboxId)
                 dao.upsertStudyBumps(rows.map { it.copy(outboxId = outboxId) })
             }
+            // The long-term opt-in of an unstarted word, so its other cards come later as purple cards.
+            for ((noteId, pref) in longTerms) LongTermStore.set(app, noteId, pref)
             app.repo.notifyLocalChange()
             send(app)
         }
-        val result = Result(added, already, noteIds.distinct().count { it !in notes })
+        val result = Result(added, already, ids.count { it !in notes }, kinds, addedIds, longTermBefore)
         if (track) track(app, src, result)
         return result
     }
 
-    /** What [bumpCardTypes] did: [added] false = already in today; [cardTypes] afterwards (null = the whole note). */
-    data class CardTypesResult(val added: Boolean, val cardTypes: List<String>?)
-
-    /**
-     * "Practise this word other ways…" (core OtherCardTypes): put these card types of one note in
-     * today's pocket — a card-level bump, written here at once and sent through the Outbox. An open
-     * card-level bump keeps its types still to review and gains these (re-dated now); a finished one
-     * starts afresh; a whole-note bump already covers them. Port of bumpCardTypes() (web).
-     */
-    suspend fun bumpCardTypes(app: LabApp, noteId: String, cardTypes: List<String>, source: String = "study_card", nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): CardTypesResult {
-        val want = Bumps.normalizeBumpCardTypes(cardTypes) ?: return CardTypesResult(false, null)
-        val src = Bumps.normalizeBumpSource(source)
-        val dao = app.repo.dao
-        val row = dao.studyBumps().firstOrNull { it.noteId == noteId }?.takeIf { it.pending != PENDING_CLEAR }
+    /** A card-level request meets the note's bump row (core Bumps.mergeBumpCardTypes, with the still-open types worked out here). */
+    private suspend fun cardLevelMerge(dao: LabDao, noteId: String, row: StudyBumpEntity?, cards: List<CardEntity>, want: List<String>, nowMs: Long, zone: ZoneId): BumpMerge {
         var hasExisting = false
         var existing: List<String>? = null
         var stillOpen: List<String> = emptyList()
-        if (row != null) {
-            val cards = dao.cardsOfNotes(listOf(noteId))
+        if (row != null && row.pending != PENDING_CLEAR) {
             val spans = dao.reviewSpans(cards.map { it.id })
             val open = Bumps.bumpedCardsForNote(
                 cards.map { it.toQueueCard() },
@@ -182,12 +256,30 @@ object BumpStore {
                 stillOpen = open.map { it.cardType }
             }
         }
-        val merge = Bumps.mergeBumpCardTypes(hasExisting, existing, stillOpen, want)
+        return Bumps.mergeBumpCardTypes(hasExisting, existing, stillOpen, want)
+    }
+
+    /** What [bumpCardTypes] did: [added] false = already in today; [cardTypes] afterwards (null = the whole note). */
+    data class CardTypesResult(val added: Boolean, val cardTypes: List<String>?)
+
+    /**
+     * "Practise this word other ways…" (core OtherCardTypes): put these card types of one note in
+     * today's pocket — an explicit choice, so the "Study it today" rule doesn't apply. Written here at once
+     * and sent through the Outbox. An open card-level bump keeps its types still to review and gains these
+     * (re-dated now); a finished one starts afresh; a whole-note bump already covers them. Port of
+     * bumpCardTypes() (web).
+     */
+    suspend fun bumpCardTypes(app: LabApp, noteId: String, cardTypes: List<String>, source: String = "study_card", nowMs: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): CardTypesResult {
+        val want = Bumps.normalizeBumpCardTypes(cardTypes) ?: return CardTypesResult(false, null)
+        val src = Bumps.normalizeBumpSource(source)
+        val dao = app.repo.dao
+        val row = dao.studyBumps().firstOrNull { it.noteId == noteId }
+        val merge = cardLevelMerge(dao, noteId, row, dao.cardsOfNotes(listOf(noteId)), want, nowMs, zone)
         val added = merge.action != "already"
         if (added) {
             val clientId = UUID.randomUUID().toString()
             withContext(Dispatchers.IO) {
-                app.outbox.enqueueJson(OUTBOX_ADD, "POST", "/api/me/bumps", BumpBody(listOf(BumpItemBody(clientId, noteId, nowIso(nowMs), src, merge.cardTypes))), id = clientId)
+                app.outbox.enqueueJson(OUTBOX_ADD, "POST", "/api/me/bumps", BumpBody(listOf(BumpItemBody(clientId, noteId, nowIso(nowMs), src, merge.cardTypes, planned = true))), id = clientId)
                 dao.upsertStudyBumps(listOf(StudyBumpEntity(noteId, clientId, nowIso(nowMs), src, bumpedByName = null, pending = PENDING_ADD, outboxId = clientId, cardTypes = encodeCardTypes(merge.cardTypes))))
             }
             app.repo.notifyLocalChange()
@@ -212,7 +304,7 @@ object BumpStore {
 
     private fun track(app: LabApp, source: String, r: Result) {
         if (r.added.isEmpty() && r.already.isEmpty()) return
-        app.analytics.track("study.bump_added", mapOf("source" to Bumps.normalizeBumpSource(source), "count" to r.added.size, "already" to r.already.size, "card_types" to 0))
+        app.analytics.track("study.bump_added", mapOf("source" to Bumps.normalizeBumpSource(source), "count" to r.added.size, "already" to r.already.size, "card_types" to r.kinds.count { it != StudyToday.WHOLE }))
     }
 
     private fun send(app: LabApp) {

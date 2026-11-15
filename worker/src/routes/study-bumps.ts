@@ -3,9 +3,12 @@
  * Mounted under /api after the auth middleware.
  *
  *   GET    /me/bumps                         → { bumps: StudyBump[] }  (active: not cleared, not done)
- *   POST   /me/bumps { items?: [{ id, note_id, created_at?, source? }], note_ids?, hanzi?, source? }
- *          → { bumps, added, already, not_found }   (idempotent by note and client id; hanzi looked
- *            up in the caller's notes; 400 when nothing was given, 404 when nothing matched)
+ *   POST   /me/bumps { items?: [{ id, note_id, created_at?, source?, card_types?, planned? }], note_ids?, hanzi?, source? }
+ *          → { bumps, added, already, not_found, kinds }   (idempotent by note and client id; hanzi looked
+ *            up in the caller's notes; 400 when nothing was given, 404 when nothing matched). A bump
+ *            without card_types and not `planned` follows the ONE "Study it today" rule here
+ *            (shared/decks/study-today.ts: a word's listening card; `kinds` says what went in) — note_ids /
+ *            hanzi always, and items from older app builds.
  *   DELETE /me/bumps/:noteId                 → { cleared, bumps }  (idempotent)
  *   POST   /relationships/:relId/student-bumps { note_ids?, hanzi? }
  *          → the same result for the STUDENT's notes (their tutor only; bumped_by = the tutor,

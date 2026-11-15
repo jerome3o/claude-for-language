@@ -47,8 +47,9 @@ describe('passBumpPlan — what the homework pass’s ⚡ bumps', () => {
     expect(asked).toBe(0);
   });
 
-  it('a started word: the whole-note bump, as before, and the long-term choice is left alone', () => {
-    expect(passBumpPlan(input({ started: true, longTermPref: 0, deckInReview: false }))).toEqual({ kind: 'whole', cardTypes: null, longTerm: undefined });
+  it('a started word: only its listening card (the whole note without one), the long-term choice left alone', () => {
+    expect(passBumpPlan(input({ started: true, longTermPref: 0, deckInReview: false }))).toEqual({ kind: 'listening', cardTypes: ['audio_to_hanzi'], longTerm: undefined });
+    expect(passBumpPlan(input({ started: true, hasAudio: false }))).toEqual({ kind: 'whole', cardTypes: null, longTerm: undefined });
   });
 
   it('opts the word into long-term review when it isn’t already (a one-off copy, or opted out)', () => {
