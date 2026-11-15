@@ -92,6 +92,29 @@ describe('transcript match', () => {
     const c = compareTranscription('两百', '200', '');
     expect(c.isMatch).toBe(true);
   });
+  it('punctuation of any kind never matters — the recogniser\'s quote marks (Jerome, Nov 2026)', () => {
+    const card = '我越学中文，越觉得英文很繁琐。';
+    for (const said of ['我越学中文，越觉得英文很"繁琐"。', '我越学中文越觉得英文很“繁琐”', '我越学中文。 越觉得英文很「繁琐」！', "我越学中文，越觉得英文很'繁琐'。"]) {
+      const c = compareTranscription(said, card, '');
+      expect(c.isMatch).toBe(true);
+      expect(c.droppedWord).toBeNull();
+    }
+  });
+  it('英语 for 英文 is not a device match (it goes to Claude), quotes or not', () => {
+    const c = compareTranscription('我越学中文，越觉得英语很"繁琐"。', '我越学中文，越觉得英文很繁琐。', '');
+    expect(c.isMatch).toBe(false);
+    expect(c.containsExpected).toBe(false);
+    expect(c.tonesOff).toBe(false);
+  });
+  it('a sentence read with one little word swallowed is a match (the recogniser\'s, PR #739)', () => {
+    const c = compareTranscription('虾饺我最喜欢的点心。', '虾饺是我最喜欢的点心。', '');
+    expect(c.isMatch).toBe(true);
+    expect(c.droppedWord).toBe('是');
+    expect(transcriptMatches('虾饺我最喜欢的点心', '虾饺是我最喜欢的点心。')).toBe(true);
+    // Never on a short answer, never a content word.
+    expect(compareTranscription('好', '好的', '').isMatch).toBe(false);
+    expect(compareTranscription('虾饺是我喜欢的点心', '虾饺是我最喜欢的点心。', '').isMatch).toBe(false);
+  });
 });
 
 describe('mix-ups', () => {

@@ -65,6 +65,20 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
   },
 ];
 
+/** A read card's take checked by Claude (shared/study/readTakeCheck.ts): Jerome's real 英语 / 英文 reading. */
+export const READ_ALOUD_FIXTURES: Array<{ card: string; said: string; result: Record<string, unknown> }> = [
+  {
+    card: '我越学中文，越觉得英文很繁琐。',
+    said: '我越学中文，越觉得英语很繁琐。',
+    result: {
+      verdict: 'almost',
+      headline: 'You said 英语 — the card has 英文 (same meaning).',
+      corrected: '',
+      tips: [{ text: '英文 is English as a subject or written language; 英语 is the same in speech.', quote: '英文' }],
+    },
+  },
+];
+
 /** Jerome's "Annie" speaking task (docs/STUDY_SESSION.md "Claude checks your speaking"): a realistic transcript. */
 export const SPEAKING_FIXTURE = {
   prompt: "A new colleague, Annie, arrives at your office. Guess who she is (① 就是…吧), tell her where two places are (② 就在), what today's meeting is about (③ 是关于…的), and how busy the team is (④ 形容词 + 到…).",
@@ -120,6 +134,26 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
             stop_reason: 'tool_use',
             usage: { input_tokens: 900 + text.length, output_tokens: 400 },
             content: [{ type: 'tool_use', id: 'fake', name: 'check_speaking', input: result }],
+          };
+        }
+        if (text.includes('(what they READ ALOUD)')) {
+          // A read card's take (shared/study/readTakeCheck.ts): Jerome's 英语 / 英文 reading → almost with the reason;
+          // the card read with only recogniser slips → correct; most characters there → almost; else wrong.
+          const card = lineValue(text, /The card's Chinese \(what they READ ALOUD\): ([^(\n]+)/);
+          const said = lineValue(text, /Transcript of their reading[^:]*\): (.+)/);
+          const fixture = READ_ALOUD_FIXTURES.find((f) => normalizeHanziAnswer(f.card) === normalizeHanziAnswer(card) && normalizeHanziAnswer(f.said) === normalizeHanziAnswer(said));
+          const cardChars = [...normalizeHanziAnswer(card)];
+          const saidChars = new Set(normalizeHanziAnswer(said));
+          const share = cardChars.length ? cardChars.filter((ch) => saidChars.has(ch)).length / cardChars.length : 0;
+          const result = fixture?.result ?? (normalizeHanziAnswer(said) === normalizeHanziAnswer(card)
+            ? { verdict: 'correct', headline: 'Read right — the recogniser just wrote it differently.', corrected: '', tips: [] }
+            : share >= 0.7
+              ? { verdict: 'almost', headline: 'Nearly — one word came out differently.', corrected: '', tips: [] }
+              : { verdict: 'wrong', headline: 'That isn’t what the card says.', corrected: '', tips: [{ text: 'Read it again slowly, word by word.', quote: card.slice(0, 2) }] });
+          return {
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 350 + text.length, output_tokens: 50 },
+            content: [{ type: 'tool_use', id: 'fake', name: 'check_answer', input: result }],
           };
         }
         if (text.includes('Chinese sentence they heard:')) {

@@ -49,6 +49,28 @@ class TranscriptionTest {
         assertFalse(Transcription.compare("他很高", "长得").containsExpected)
     }
 
+    /** Jerome, Nov 2026: the recogniser's quote marks (英语很"繁琐") — punctuation of any kind never matters. */
+    @Test fun quotesNeverMatter() {
+        val card = "我越学中文，越觉得英文很繁琐。"
+        for (said in listOf("我越学中文，越觉得英文很\"繁琐\"。", "我越学中文越觉得英文很“繁琐”", "我越学中文。 越觉得英文很「繁琐」！")) {
+            val r = Transcription.compare(said, card)
+            assertTrue(said, r.isMatch)
+            assertEquals(null, r.droppedWord)
+        }
+        // 英语 for 英文 is not a device match: it goes to Claude (core ReadTakeCheck).
+        val r = Transcription.compare("我越学中文，越觉得英语很\"繁琐\"。", card)
+        assertFalse(r.isMatch || r.containsExpected || r.tonesOff)
+    }
+
+    /** A sentence read with one little word swallowed is a match (core AnswerKey.droppedFunctionChar). */
+    @Test fun oneSwallowedLittleWordInASentence() {
+        val r = Transcription.compare("虾饺我最喜欢的“点心”。", "虾饺是我最喜欢的点心。")
+        assertTrue(r.isMatch)
+        assertEquals("是", r.droppedWord)
+        assertFalse(Transcription.compare("好", "好的").isMatch)
+        assertFalse(Transcription.compare("虾饺是我喜欢的点心", "虾饺是我最喜欢的点心。").isMatch)
+    }
+
     @Test fun normalizePinyin() {
         assertEquals("dǎsuàn", Transcription.normalizePinyin("Dǎ suàn."))
     }

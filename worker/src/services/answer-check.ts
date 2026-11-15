@@ -18,7 +18,7 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, speakingTaskParts,
+  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, isReadAloudCheck, speakingTaskParts, suggestedFor,
   ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
@@ -109,6 +109,45 @@ export function meaningCheckUserTurn(input: AnswerCheckInput): string {
   ].join('\n');
 }
 
+// ============ Read aloud (a read card's take, shared/study/readTakeCheck.ts) ============
+
+export const READ_ALOUD_CHECK_SYSTEM = `You check ONE recording of a learner of Chinese READING a flashcard's Chinese ALOUD. You get the card's Chinese (what they were reading), what it means, and a speech-recognition TRANSCRIPT of their reading. The device already compared them by sound and found a difference it can't explain; decide what the difference means.
+
+The transcript is the recogniser's, not their writing — never fault the learner for the recogniser:
+- Ignore punctuation, quote marks, spacing and sentence breaks COMPLETELY (a pause is nothing). Never mention punctuation.
+- A character that sounds like the card's (在/再, 他/她, 的/得, other homophones) is the card's character.
+- A single short unstressed word missing or doubled (是, 的, 了, 一, 个, 着, 吧, 呢, 啊) is the recogniser's slip.
+- Numbers written as digits are the same as in characters.
+
+Verdicts:
+- "correct": they read it as written — every difference is one of the recogniser's above.
+- "almost": they read it nearly right: a word came out as a DIFFERENT WORD WITH THE SAME OR A VERY CLOSE MEANING (英语 for 英文, 这儿 for 这里, 觉得 for 认为 — a misread, or the recogniser's choice), or one word misread / left out / added while the rest is right. A same-meaning word is ALWAYS "almost" at worst, never "wrong".
+- "wrong": they read something different — the meaning changes (a negation lost or added, a different content word with another meaning AND more besides), or much of it is missing or unrecognisable.
+
+Fields:
+- headline: ONE short line in English (≤ 14 words) naming the difference, quoting the Chinese: e.g. "You said 英语 — the card has 英文 (same meaning)." For "correct": "Read right — the recogniser just wrote it differently."
+- tips: for "almost" / "wrong", at most 1 short line in English about the word to read again (quote the card's Chinese in "quote"); none for "correct".
+- corrected: always empty (the card's Chinese is the answer).
+- No alternative. Answer with the check_answer tool.`;
+
+/** The user turn of a read-aloud check. */
+export function readAloudCheckUserTurn(input: AnswerCheckInput): string {
+  return [
+    `The card's Chinese (what they READ ALOUD): ${input.model_answer}${input.model_pinyin ? ` (${input.model_pinyin})` : ''}`,
+    `It means: ${input.prompt_en}`,
+    `Transcript of their reading (speech recognition — punctuation and little words are the recogniser's): ${tidySpokenTranscript(input.answer, input.model_answer)}`,
+  ].join('\n');
+}
+
+/** A read-aloud verdict is right, close or a miss: "acceptable" (also right) reads as close; nothing to correct. */
+export function readAloudVerdict(check: AnswerCheck): AnswerCheck {
+  const verdict = check.verdict === 'acceptable' ? 'almost' : check.verdict;
+  const out: AnswerCheck = { ...check, verdict, corrected: '', corrected_pinyin: '', suggested: suggestedFor(verdict) };
+  delete out.alternative;
+  if (verdict === 'correct') out.tips = [];
+  return out;
+}
+
 // ============ Free speaking ============
 
 export const SPEAKING_CHECK_SYSTEM = `You are a warm, encouraging Chinese tutor marking ONE spoken answer from a learner in a lesson's free speaking exercise. You get the task, any "useful words", sometimes a model answer (only ONE way to do it — never mark them against it) and a speech-recognition TRANSCRIPT of their recording, often a minute or more long.
@@ -192,6 +231,7 @@ export function speakingCheckUserTurn(input: AnswerCheckInput): string {
 /** The user turn the model sees. */
 export function answerCheckUserTurn(input: AnswerCheckInput): string {
   if (isSpeakingCheckType(input.exercise_type)) return speakingCheckUserTurn(input);
+  if (isReadAloudCheck(input.exercise_type)) return readAloudCheckUserTurn(input);
   if (isMeaningCheck(input)) return meaningCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
   // A pause is never a sentence break: the recogniser's 。 / ， between two characters go before Claude sees it.
@@ -260,7 +300,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     apiKey: deps.apiKey,
     model: ANSWER_CHECK_MODEL,
     fallbackModel: ANSWER_CHECK_FALLBACK_MODEL,
-    system: isMeaningCheck(input) ? MEANING_CHECK_SYSTEM : ANSWER_CHECK_SYSTEM,
+    system: isReadAloudCheck(input.exercise_type) ? READ_ALOUD_CHECK_SYSTEM : isMeaningCheck(input) ? MEANING_CHECK_SYSTEM : ANSWER_CHECK_SYSTEM,
     user: answerCheckUserTurn(input),
     tool: TOOL,
     maxTokens: 700,
@@ -270,7 +310,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     onUsage: deps.onUsage,
     client: deps.client,
   });
-  return withPinyin(check);
+  return withPinyin(isReadAloudCheck(input.exercise_type) ? readAloudVerdict(check) : check);
 }
 
 /** A free-speaking answer: the longer judgement on the larger model, the smaller one as the last attempt. */

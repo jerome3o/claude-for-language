@@ -2509,6 +2509,37 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   (↻ circle on the left, the whole box is the button — also the say-it flow's retry) are the same shell
   with the same minimum height (88 px), so the result replaces them without a jump. Tests: unit
   `answer.test.ts`, `useTranscription.test.ts`; Lab `TranscriptionTest`, `YouSaidBoxUiTest`.
+- **Read takes checked by Claude** (Nov 2026; Jerome, Hard mode, the card 我越学中文，越觉得英文很繁琐。 read aloud: "✕
+  Didn't match" for 我越学中文，越觉得英语很"繁琐"。 — "I think it's to do with the apostrophes, but can you update the logic of
+  matching here to be more like the other more advanced answer checking?"). Two differences: the recogniser's quote
+  marks, and 英语 for 英文 (a same-meaning word). **On the device first** (`compareTranscription`,
+  `shared/recordings/transcript.ts`; Lab `Transcription.compare`): every punctuation mark, symbol and space is dropped
+  from both sides before they go to pinyin (`bareSpokenText` — quotes of any kind, commas, full stops), so punctuation
+  can never cause ✗; a SENTENCE read with one short unstressed word missing (是 / 的 / 了 …, `droppedFunctionChar`, the
+  Sentence round's rule from #739) is a match (`droppedWord`); homophones still count by sound, other tones are still
+  ≈ Close. What was said is shown without the recogniser's quote marks (`tidySpokenTranscript` → `stripSpokenQuotes`,
+  unless the card quotes something itself; on the pinyin line a quote between two words becomes a space).
+  **Then Claude** (`shared/study/readTakeCheck.ts`, Lab `core/…/ReadTakeCheck.kt`, parity-tested
+  `parity/fixtures/read-take-check.ts`): when the device still says ✗ on a read card whose hanzi has two or more Chinese
+  characters and the device is online, the take goes to the SAME lesson answer check as the sentence answers
+  (`POST /api/lessons/answer-check`, cost guard `ai`, cached on the device and for everyone on the server) as a
+  **read-aloud check** — `exercise_type: 'read_aloud'`, input spoken, model = the card's hanzi + pinyin, answer = his
+  tidied transcript, prompt = the card's English (`READ_ALOUD_CHECK_SYSTEM` in `worker/src/services/answer-check.ts`:
+  punctuation / quote marks / homophones / a swallowed little word are the recogniser's; a different word with the same
+  or a very close meaning, or one word misread, is "almost" — never "wrong"; the model's "acceptable" is stored as
+  almost; no correction, no alternative). Meanwhile the box's chip says **Checking…** (blue, three dots — never the
+  bare ✗), then: **correct → ✓ Right**, **acceptable / almost → ≈ Close** with Claude's one-line reason under the
+  pinyin ("You said 英语 — the card has 英文 (same meaning)."), **wrong → ✕ Didn't match** with its reason and first
+  tip. Every rule reads the checked take (`readTakeChecked`): ✓ as a device match (Hard mode ✓, the pass's Got it),
+  ≈ as the device's ≈ Close today (Hard mode ≈ Nearly); Hard mode's question shows "Checking…" and then Claude's card
+  (chip, headline, tip). Offline or failed → the device's verdict stands (but punctuation no longer causes ✗). Only
+  the quotes differing never reaches Claude. Analytics `study.read_take_check { verdict: correct | acceptable | almost
+  | wrong | offline | error, retry, input, cached, ms, card_type, where }`. Web `components/study/useReadTakeCheck.ts`
+  (on `useSentenceAnswerCheck`) in `StudyPage.tsx`, the box `YouSaid` (`checking`, `claude`); Lab `CardStage.kt`
+  (`readCheck`, `StudyActions.answerCheck`) + `YouSaidBox(checking, claude)`. Tests: `shared/study/readTakeCheck.test.ts`,
+  `shared/recordings/recordings.test.ts`, `shared/cards/answer.test.ts`, worker `lesson-answer-check.test.ts`, web
+  `ReadTakeCheck.test.tsx`, E2E `study-read-take-check.spec.ts`, Lab `ReadTakeCheckParityTest`, `TranscriptionTest`,
+  `ReadTakeCheckUiTest` (Roborazzi `read-take-*`).
 - **"Partly right" is YELLOW, never orange** (Oct 2026, Jerome is red / green colour-blind: the dark
   orange "Contains the answer" chip read as the red "Didn't match"). One partial colour per app — web
   `--color-partial` / `-soft` / `-strong` / `-ink` (index.css, a dark set under `data-theme="dark"`),

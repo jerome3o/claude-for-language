@@ -36,6 +36,19 @@ describe('tidySpokenTranscript', () => {
     // Latin words keep their spaces.
     expect(tidySpokenTranscript('我想 order 一个 coffee', '我想点一个咖啡')).toBe('我想 order 一个 coffee');
   });
+  it("the recogniser's quote marks never show (Jerome: 英语很\"繁琐\"), unless the card has quotes itself", () => {
+    expect(tidySpokenTranscript('我越学中文，越觉得英语很"繁琐"。', '我越学中文，越觉得英文很繁琐。')).toBe('我越学中文，越觉得英语很繁琐。');
+    expect(tidySpokenTranscript('他说“你好”', '他说你好')).toBe('他说你好');
+    expect(tidySpokenTranscript('「繁琐」', '繁琐')).toBe('繁琐');
+    expect(tidySpokenTranscript("《红楼梦》很'长'", '红楼梦很长')).toBe('红楼梦很长');
+    // The pinyin line: a quote between two words becomes a space.
+    expect(tidySpokenTranscript('wǒ yuè xué zhōng wén， yuè jué dé yīng yǔ hěn"fán suǒ".', '我越学中文，越觉得英文很繁琐。'))
+      .toBe('wǒ yuè xué zhōng wén， yuè jué dé yīng yǔ hěn fán suǒ.');
+    // An apostrophe inside a Latin word stays.
+    expect(tidySpokenTranscript("我 don't know", '我不知道')).toBe("我 don't know");
+    // The card quotes something: the transcript keeps its quotes.
+    expect(tidySpokenTranscript('他说“好”。', '他说“好”。')).toBe('他说“好”。');
+  });
   it('a tidied answer checks exact instead of punctuation-only', () => {
     expect(checkSpokenAnswer('撤销。', '撤销')).toBe('punctuation_only');
     expect(checkSpokenAnswer(tidySpokenTranscript('撤销。', '撤销'), '撤销')).toBe('exact');

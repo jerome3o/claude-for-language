@@ -334,16 +334,36 @@ object AnswerKey {
     /** A pause between two Chinese characters (JS `/(\p{Script=Han})[\s…]+(?=\p{Script=Han})/gu`). */
     private val PAUSE_BETWEEN_HAN = Regex("(\\p{IsHan})[$JS_WS" + "。．.！!？?，,、；;：:…~～]+(?=\\p{IsHan})")
 
+    /** Port of DOUBLE_QUOTES / APOSTROPHES: quote marks of any kind (apostrophes kept inside a Latin word). */
+    private const val DOUBLE_QUOTES = "\"“”„‟«»‹›「」『』《》〈〉〝〞＂＇"
+    private const val APOSTROPHES = "'’‘`´"
+    private val QUOTE_MARKS_ANY = Regex("[$DOUBLE_QUOTES$APOSTROPHES]")
+    private val QUOTE_BETWEEN_LATIN = Regex("(?<=\\p{IsLatin})[$JS_WS]*[$DOUBLE_QUOTES]+[$JS_WS]*(?=\\p{IsLatin})")
+    private val DOUBLE_QUOTES_ALL = Regex("[$DOUBLE_QUOTES]")
+    private val LOOSE_APOSTROPHE = Regex("(?<!\\p{IsLatin})[$APOSTROPHES]|[$APOSTROPHES](?!\\p{IsLatin})")
+    private val DOUBLE_SPACES = Regex(" {2,}")
+
+    /** Port of `stripSpokenQuotes`: the recogniser's quote marks out of a transcript (or its pinyin line); spaces collapsed. */
+    fun stripSpokenQuotes(text: String): String {
+        var t = QUOTE_BETWEEN_LATIN.replace(text, " ")
+        t = DOUBLE_QUOTES_ALL.replace(t, "")
+        t = LOOSE_APOSTROPHE.replace(t, "")
+        return jsTrim(DOUBLE_SPACES.replace(t, " "))
+    }
+
     /**
      * Port of `tidySpokenTranscript`: what was said, as shown and used as the answer — the
      * recogniser's trailing 。 (撤销。 / chè xiāo。) is dropped when the card's answer doesn't end in
      * punctuation (a word card); a sentence card keeps it. A pause is never a sentence break: when the
      * answer has no punctuation inside, the 。 / ， / spaces between two Chinese characters go
-     * (虾饺我最喜欢的。 点心。 → 虾饺我最喜欢的点心。). Works on the pinyin line too.
+     * (虾饺我最喜欢的。 点心。 → 虾饺我最喜欢的点心。). Works on the pinyin line too. The
+     * recogniser's quote marks go (unless the card has quotes).
      */
     fun tidySpokenTranscript(transcript: String, correct: String): String {
         var text = jsTrim(transcript)
         val target = jsTrim(correct)
+        // The recogniser's quote marks (英语很"繁琐") are never shown — unless the card quotes something itself.
+        if (!QUOTE_MARKS_ANY.containsMatchIn(target)) text = stripSpokenQuotes(text)
         if (!PAUSE_MARKS.containsMatchIn(TRAILING_SENTENCE_PUNCTUATION.replace(target, ""))) text = PAUSE_BETWEEN_HAN.replace(text, "$1")
         if (TRAILING_SENTENCE_PUNCTUATION.containsMatchIn(target)) return text
         return TRAILING_SENTENCE_PUNCTUATION.replace(text, "")
