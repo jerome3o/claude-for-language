@@ -34,9 +34,11 @@ object PassSentenceTopUp {
             val none = mutableListOf<String>()
             val few = mutableListOf<Pair<String, Int>>()
             for (id in ids) {
-                val set = dao.sentencesFor(id).size
+                val rows = dao.sentencesFor(id)
+                // Natural sentences only: the round never uses a contrived one (core SentenceFocus).
+                val natural = dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalCount(rows) { it.focus }
                 val clue = if (notes[id]?.sentenceClue.isNullOrBlank()) 0 else 1
-                if (set == 0) none += id else if (set + clue < SentenceHistory.MIN_VISIBLE) few += id to set + clue
+                if (rows.isEmpty()) none += id else if (natural + clue < SentenceHistory.MIN_VISIBLE) few += id to natural + clue
             }
             none to few
         }

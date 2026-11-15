@@ -103,6 +103,8 @@ export interface RoundSentenceRow {
   pinyin: string | null;
   translation: string | null;
   audio_url: string | null;
+  /** The set row's focus: a contrived one (shared/study/sentenceFocus.ts) is listed last and never an exercise. */
+  focus?: string | null;
 }
 
 type NoteSentenceFields = Pick<Note, 'id' | 'sentence_clue' | 'sentence_clue_pinyin' | 'sentence_clue_translation' | 'sentence_clue_audio_url'>;
@@ -120,8 +122,8 @@ export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, op
     setSet(null);
     if (!enabled) return;
     let live = true;
-    const toRows = (rows: Array<{ id: string; hanzi: string; pinyin: string | null; translation: string | null; audio_url: string | null }>) =>
-      rows.map((s) => ({ key: s.id, hanzi: s.hanzi, pinyin: s.pinyin, translation: s.translation, audio_url: s.audio_url }));
+    const toRows = (rows: Array<{ id: string; hanzi: string; pinyin: string | null; translation: string | null; audio_url: string | null; focus?: string | null }>) =>
+      rows.map((s) => ({ key: s.id, hanzi: s.hanzi, pinyin: s.pinyin, translation: s.translation, audio_url: s.audio_url, focus: s.focus ?? null }));
     void (async () => {
       const local = await getLocalNoteSentences(note.id);
       if (!live) return;

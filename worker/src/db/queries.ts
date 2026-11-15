@@ -26,6 +26,7 @@ import {
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
 import { parseReaderWords } from '@shared/reader/words';
+import { CONTRIVED_SENTENCE_FOCUSES } from '@shared/study/sentenceFocus';
 import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, studyBudgetInfo, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow, type StudyBudgetUpdate } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
@@ -3699,8 +3700,9 @@ export async function appendNoteSentences(
 
 /**
  * Listening cards' background top-up (shared/study/listenContext.ts): of these notes (the
- * caller's), the ones with fewer than `min` sentences in total — the card's own sentence
- * (unless the set repeats it) plus the set — that may be asked for again: no job for the
+ * caller's), the ones with fewer than `min` NATURAL sentences in total — the card's own sentence
+ * (unless the set repeats it) plus the set's rows not written around a look-alike (focus
+ * shared_character / contrast, shared/study/sentenceFocus.ts) — that may be asked for again: no job for the
  * note in the last day (queued, done or failed — at most one top-up a day, so a model that
  * keeps returning too few never loops) and not given up on (3 failed attempts).
  */
@@ -3713,10 +3715,12 @@ export async function getNotesForSentenceTopUp(
   const ids = noteIds.slice(0, 50);
   if (ids.length === 0) return [];
   const placeholders = ids.map(() => '?').join(',');
+  const contrived = CONTRIVED_SENTENCE_FOCUSES.map(() => '?').join(',');
   const rows = await db
     .prepare(`
       SELECT n.id,
-        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id)
+        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id
+          AND COALESCE(ns.focus, '') NOT IN (${contrived}))
         + CASE WHEN TRIM(COALESCE(n.sentence_clue, '')) <> ''
             AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.hanzi = n.sentence_clue)
           THEN 1 ELSE 0 END AS total
@@ -3729,7 +3733,7 @@ export async function getNotesForSentenceTopUp(
             AND (j.updated_at > datetime('now', '-1 day') OR (j.status = 'error' AND j.attempts >= 3))
         )
     `)
-    .bind(userId, ...ids)
+    .bind(...CONTRIVED_SENTENCE_FOCUSES, userId, ...ids)
     .all<{ id: string; total: number }>();
   return rows.results.filter((r) => r.total < min);
 }

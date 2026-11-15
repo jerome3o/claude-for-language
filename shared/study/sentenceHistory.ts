@@ -10,6 +10,7 @@
  * Pure; the Lab app's port (core `SentenceHistory.kt`) is parity-tested (parity/fixtures/sentence-history.ts).
  */
 import type { SentencePractiseMode } from './sentencePractise';
+import { isContrivedSentence } from './sentenceFocus';
 
 /**
  * The modes a take on a sentence is recorded in: read (the Chinese up, read aloud) and translate (the
@@ -197,13 +198,14 @@ export type MoreSentencesReason = 'few' | 'fresh';
 /**
  * Ask for more sentences for this word, and how many: fewer than four left in rotation ('few'), or fewer
  * than `SENTENCE_FRESH_LOW` fresh ones left ('fresh' — every round uses up to four, so the buffer is
- * refilled before it runs out). Hidden sentences don't count. null = enough.
+ * refilled before it runs out). Hidden sentences don't count, nor contrived ones (`isContrivedSentence`,
+ * sentenceFocus.ts: the round never uses them, so a word that relied on them gets natural ones). null = enough.
  */
 export function moreSentencesWanted(
-  sentences: readonly { key: string; translation: string | null | undefined }[],
+  sentences: readonly { key: string; translation: string | null | undefined; focus?: string | null }[],
   stats: ReadonlyMap<string, SentenceStats>,
 ): { reason: MoreSentencesReason; fresh: number; count: number } | null {
-  const visible = sentences.filter((s) => !stats.get(sentenceHistoryKey(s.key))?.hidden);
+  const visible = sentences.filter((s) => !stats.get(sentenceHistoryKey(s.key))?.hidden && !isContrivedSentence(s.focus));
   const fresh = freshSentenceCount(visible, stats);
   if (visible.length < SENTENCE_ROUND_MIN_VISIBLE) return { reason: 'few', fresh, count: freshTopUpCount(fresh) };
   if (fresh < SENTENCE_FRESH_LOW) return { reason: 'fresh', fresh, count: freshTopUpCount(fresh) };
@@ -212,7 +214,7 @@ export function moreSentencesWanted(
 
 /** True when the word should ask for more sentences (`moreSentencesWanted`). */
 export function wantsMoreSentences(
-  sentences: readonly { key: string; translation: string | null | undefined }[],
+  sentences: readonly { key: string; translation: string | null | undefined; focus?: string | null }[],
   stats: ReadonlyMap<string, SentenceStats>,
 ): boolean {
   return moreSentencesWanted(sentences, stats) != null;

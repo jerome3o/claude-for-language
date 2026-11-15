@@ -1875,6 +1875,30 @@ The sentence key is the set row's id, or `clue` for the note's own sentence.
   Analytics `study.sentence_hidden { reason, where, unhidden }`, `study.sentence_topup_requested { why,
   queued }`, `server.sentence_practice_events { count }`.
 
+### Natural sentences (no sentences built around a look-alike)
+
+Jerome (Nov 2026): "a few example sentences … are used to build a sentence with some related or similar sounding
+word … they make kind of contrived sentences." Until then the sentence-set generator HAD to write, for every word,
+one sentence around a different word sharing a character with it (focus `shared_character`) and one around an
+easily-confused / similar-sounding word or near-synonym (`contrast`). Now:
+
+- **Generation** (`worker/src/services/sentence-set.ts`, the first set, the listening / round top-ups and "+ more"):
+  every sentence must be something a native speaker would naturally say, the word in its common meanings and usual
+  collocations, spread over different everyday situations, easiest → hardest; never a sentence built to squeeze in a
+  look-alike, homophone, near-synonym or shared-character word. The tool's focus enum is `core` / `collocation` /
+  `complex` only. (A contrast still belongs in a sentence's "What's going on here?" breakdown or the card's fun facts.)
+- **Old rows are kept** (nothing deleted, nothing regenerated) but, by their focus (`isContrivedSentence`,
+  `shared/study/sentenceFocus.ts`; Lab `core/…/SentenceFocus.kt`, parity-tested in `parity/fixtures/sentence-round.ts`
+  `natural` and `listen-context.ts`):
+  - never a **Sentence round** or **listening round** exercise (`pickRoundExercises`, `pickListenRoundExercises`, a
+    resumed round's `exercisesFromLog` drops them) and not counted by `roundSentenceCount` / `listenRoundSentenceCount`;
+  - listed **after the natural sentences** on the card's example list and in "Listen in context" (badge + note kept —
+    hiding them would leave some words with too few sentences, and a few of them read fine);
+  - never count toward **"enough sentences"**: the round's fresh buffer (`moreSentencesWanted`), the homework pass's
+    "fewer than four", the listening card's "fewer than five" (device `listenNaturalCount` and the server's
+    `getNotesForSentenceTopUp` / the queue's top-up check) count natural rows only — so a word that relied on them
+    is topped up with natural ones. The 80-sentence cap still counts every row.
+
 ### The gate — Good / Easy wait (greyed) for two sentences (part of Hard mode)
 
 Hard mode above (Settings → Study → 🎯 Hard mode / the header chip; was the switch "Sentence round before the answer

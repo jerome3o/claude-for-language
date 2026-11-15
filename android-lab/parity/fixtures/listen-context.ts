@@ -1,7 +1,8 @@
 /**
  * "Listen in context" (shared/study/listenContext.ts): row order (the card's sentence first
  * unless the set repeats it, then the set by position), row states, the auto-play choice, the
- * word-first ask, the top-up / "+ More" counts and the labels, over seeded random notes.
+ * word-first ask, the top-up / "+ More" counts (natural sentences only — contrived set rows come last
+ * and never count, shared/study/sentenceFocus.ts) and the labels, over seeded random notes.
  * Writes listen-context.json; core ListenContextParityTest asserts ListenContext.kt matches.
  */
 import { writeFileSync, mkdirSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { join } from 'node:path';
 import {
   listenAutoplay,
   listenContextRows,
+  listenNaturalCount,
   listenRowLabel,
   listenRowState,
   moreSentencesCount,
@@ -36,6 +38,7 @@ const r = rng(5150);
 const pick = <T>(xs: readonly T[]) => xs[Math.floor(r() * xs.length)];
 const SENTENCES = ['我去银行。', '银行在哪儿？', '这是银行。', '银行几点开门？', '他在银行工作。', '我们一起去吧。'];
 const TRANSLATIONS = ['I go to the bank.', '', '  ', 'Where is it?', null];
+const FOCUSES = ['core', 'collocation', 'complex', 'shared_character', 'contrast', null, undefined];
 
 const cases = [] as unknown[];
 for (let c = 0; c < 200; c++) {
@@ -46,6 +49,7 @@ for (let c = 0; c < 200; c++) {
     translation: pick(TRANSLATIONS),
     audio_url: r() < 0.6 ? `generated/s${c}-${i}.mp3` : null,
     position: r() < 0.9 ? Math.floor(r() * 10) : null,
+    focus: pick(FOCUSES),
   }));
   const clue = r() < 0.2 ? null : { hanzi: r() < 0.1 ? '  ' : pick(SENTENCES), translation: pick(TRANSLATIONS), audio_url: r() < 0.5 ? 'generated/clue.mp3' : null };
   const rows = listenContextRows(`n${c}`, clue, sentences);
@@ -69,9 +73,10 @@ for (let c = 0; c < 200; c++) {
     anyway,
     wordTap: wordTapAction({ sentencesPlayed: played, playableSentences: playable, playedWordAnyway: anyway }),
     total: rows.length,
-    needsTopUp: needsSentenceTopUp(rows.length),
-    topUpCount: topUpCount(rows.length),
-    moreCount: moreSentencesCount(rows.length),
+    natural: listenNaturalCount(rows),
+    needsTopUp: needsSentenceTopUp(listenNaturalCount(rows)),
+    topUpCount: topUpCount(listenNaturalCount(rows)),
+    moreCount: moreSentencesCount(listenNaturalCount(rows)),
     labels: rows.map((_, i) => [listenRowLabel(i, false), listenRowLabel(i, true)]),
   });
 }

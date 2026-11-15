@@ -116,16 +116,18 @@ describe('local sentence storage', () => {
     expect(await getLocalNoteSentences('note-2')).toHaveLength(1);
   });
 
-  it('counts sentences per note', async () => {
+  it('counts sentences per note, and the natural ones apart', async () => {
     await putLocalNoteSentences('note-1', [
       makeSentence({ id: 'a', position: 0 }),
-      makeSentence({ id: 'b', position: 1 }),
+      makeSentence({ id: 'b', position: 1, focus: 'contrast' }),
+      makeSentence({ id: 'd', position: 2, focus: 'shared_character' }),
+      makeSentence({ id: 'e', position: 3, focus: 'collocation' }),
     ]);
     await putLocalNoteSentences('note-2', [makeSentence({ id: 'c', note_id: 'note-2' })]);
 
     const counts = await getLocalSentenceCounts(['note-1', 'note-2', 'note-3']);
-    expect(counts.get('note-1')).toBe(2);
-    expect(counts.get('note-2')).toBe(1);
+    expect(counts.get('note-1')).toEqual({ total: 4, natural: 2 });
+    expect(counts.get('note-2')).toEqual({ total: 1, natural: 1 });
     expect(counts.has('note-3')).toBe(false);
   });
 

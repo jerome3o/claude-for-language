@@ -14,21 +14,28 @@ import kotlin.math.floor
 object SentenceRound {
     const val SIZE = 4
 
-    /** [audio] = its clip can be played now (streamed online / on the device): it may be a listen exercise. */
-    data class Sentence(val key: String, val hanzi: String, val translation: String?, val audio: Boolean = false)
+    /**
+     * [audio] = its clip can be played now (streamed online / on the device): it may be a listen exercise.
+     * [focus] = the set row's focus; a contrived one ([SentenceFocus.isContrived]) is never an exercise.
+     */
+    data class Sentence(val key: String, val hanzi: String, val translation: String?, val audio: Boolean = false, val focus: String? = null)
 
     /** The listen exercise's mode (Hard mode's "Sentences by ear"). */
     const val LISTEN = SentenceHistory.LISTEN
     data class Exercise(val id: String, val key: String, val mode: String, val index: Int)
     data class Progress(val needed: Int, val got: Int, val done: Boolean)
 
-    /** `roundSentences`: the card's own sentence first unless the set has it, then the set. */
+    /** `roundSentences`: the card's own sentence first unless the set has it, then the set — natural sentences first. */
     fun sentences(clue: Sentence?, set: List<Sentence>): List<Sentence> {
         val out = ArrayList<Sentence>()
         if (clue != null && NoteSearch.jsTrim(clue.hanzi).isNotEmpty() && set.none { it.hanzi == clue.hanzi }) out += clue
-        out += set
+        out += SentenceFocus.naturalFirst(set) { it.focus }
         return out
     }
+
+    /** `roundUsable`: not hidden, not the card's own text, not contrived ([SentenceFocus.isContrived]). */
+    private fun usable(s: Sentence, stats: Map<String, SentenceHistory.Stats>?, cardHanzi: String?): Boolean =
+        stats?.get(SentenceHistory.key(s.key))?.hidden == null && !isCardHanziSentence(s.hanzi, cardHanzi) && !SentenceFocus.isContrived(s.focus)
 
     private val NOT_LETTER_OR_DIGIT = Regex("[^\\p{L}\\p{N}]")
 
@@ -46,7 +53,7 @@ object SentenceRound {
 
     /** `roundSentenceCount`: the card's sentences the (reading / meaning) round can use — not hidden, not the card itself. */
     fun roundSentenceCount(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, cardHanzi: String? = null): Int =
-        sentences.count { stats?.get(SentenceHistory.key(it.key))?.hidden == null && !isCardHanziSentence(it.hanzi, cardHanzi) }
+        sentences.count { usable(it, stats, cardHanzi) }
 
     /** `roundExerciseId` */
     fun exerciseId(mode: String, key: String) = "$mode:$key"
@@ -80,7 +87,8 @@ object SentenceRound {
     fun pick(sentences: List<Sentence>, stats: Map<String, SentenceHistory.Stats>? = null, byEar: Boolean = false, online: Boolean = true, cardHanzi: String? = null): List<Exercise> {
         fun statsOf(s: Sentence) = stats?.get(SentenceHistory.key(s.key))
         // A sentence that is the card's own text is left out like a hidden one ([isCardHanziSentence]).
-        val visible = sentences.withIndex().filter { statsOf(it.value)?.hidden == null && !isCardHanziSentence(it.value.hanzi, cardHanzi) }
+        // ... and so is a contrived one ([SentenceFocus.isContrived]).
+        val visible = sentences.withIndex().filter { usable(it.value, stats, cardHanzi) }
         val n = visible.size
         if (n == 0) return emptyList()
         val rank = spreadOrder(n).withIndex().associate { it.value to it.index }
@@ -151,7 +159,7 @@ object SentenceRound {
     fun listenCandidates(sentences: List<Sentence>, word: String, stats: Map<String, SentenceHistory.Stats>? = null): List<IndexedValue<Sentence>> {
         val w = squeeze(word)
         return sentences.withIndex()
-            .filter { hasTranslation(it.value) && stats?.get(SentenceHistory.key(it.value.key))?.hidden == null && !isCardHanziSentence(it.value.hanzi, word) }
+            .filter { hasTranslation(it.value) && usable(it.value, stats, word) }
             .filter { isCardSentenceKey(it.value.key) || w.isEmpty() || squeeze(it.value.hanzi).contains(w) }
     }
 
@@ -294,6 +302,7 @@ object SentenceRound {
         for (id in ids) {
             val (mode, key) = exerciseParts(id) ?: continue
             if (key in seen || key !in index || hidden(key)) continue
+            if (SentenceFocus.isContrived(sentences[index.getValue(key)].focus)) continue
             seen += key
             out += Exercise(exerciseId(mode, key), key, mode, index.getValue(key))
         }

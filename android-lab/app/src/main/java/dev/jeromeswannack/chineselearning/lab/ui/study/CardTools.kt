@@ -193,9 +193,10 @@ class CardTools(private val app: LabApp) {
                 val rows = dev.jeromeswannack.chineselearning.lab.core.ListenContext.rows(
                     id,
                     dev.jeromeswannack.chineselearning.lab.core.ListenContext.Clue(note.sentenceClue),
-                    repo.dao.sentencesFor(id).map { dev.jeromeswannack.chineselearning.lab.core.ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position) },
+                    repo.dao.sentencesFor(id).map { dev.jeromeswannack.chineselearning.lab.core.ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus) },
                 )
-                dev.jeromeswannack.chineselearning.lab.core.ListenContext.needsTopUp(rows.size)
+                // Natural sentences only: a contrived row (core SentenceFocus) never makes "enough".
+                dev.jeromeswannack.chineselearning.lab.core.ListenContext.needsTopUp(dev.jeromeswannack.chineselearning.lab.core.ListenContext.naturalCount(rows))
             }
         }
         if (ask.isEmpty()) return 0

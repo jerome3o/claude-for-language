@@ -42,11 +42,12 @@ class ListenContextParityTest {
         assertTrue(cases.size >= 100)
         var prompts = 0
         var sentenceAutoplays = 0
+        var contrivedCases = 0
         for (c in cases) {
             val noteId = c["noteId"]!!.jsonPrimitive.content
             val clue = (c["clue"] as? JsonObject)?.let { ListenContext.Clue(str(it["hanzi"]), str(it["translation"]), str(it["audio_url"])) }
             val sentences = c["sentences"]!!.jsonArray.map { it.jsonObject }.map {
-                ListenContext.Sentence(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content, str(it["translation"]), str(it["audio_url"]), int(it["position"]))
+                ListenContext.Sentence(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content, str(it["translation"]), str(it["audio_url"]), int(it["position"]), str(it["focus"]))
             }
             val rows = ListenContext.rows(noteId, clue, sentences)
             val expected = c["rows"]!!.jsonArray.map { it.jsonObject }
@@ -58,6 +59,7 @@ class ListenContextParityTest {
                 assertEquals(str(e["translation"]), row.translation, "translation of ${row.key}")
                 assertEquals(str(e["audioUrl"]), row.audioUrl)
                 assertEquals(e["fromCard"]!!.jsonPrimitive.boolean, row.fromCard)
+                assertEquals(e["contrived"]!!.jsonPrimitive.boolean, row.contrived, "contrived of ${row.key}")
             }
             val online = c["online"]!!.jsonPrimitive.boolean
             val cached = c["cached"]!!.jsonArray.map { it.jsonPrimitive.boolean }
@@ -71,9 +73,12 @@ class ListenContextParityTest {
             if (tap == ListenContext.WordTap.PROMPT) prompts++
             val total = c["total"]!!.jsonPrimitive.int
             assertEquals(total, rows.size)
-            assertEquals(c["needsTopUp"]!!.jsonPrimitive.boolean, ListenContext.needsTopUp(total))
-            assertEquals(c["topUpCount"]!!.jsonPrimitive.int, ListenContext.topUpCount(total))
-            assertEquals(c["moreCount"]!!.jsonPrimitive.int, ListenContext.moreCount(total))
+            val natural = ListenContext.naturalCount(rows)
+            assertEquals(c["natural"]!!.jsonPrimitive.int, natural, "natural of $noteId")
+            if (natural < total) contrivedCases++
+            assertEquals(c["needsTopUp"]!!.jsonPrimitive.boolean, ListenContext.needsTopUp(natural))
+            assertEquals(c["topUpCount"]!!.jsonPrimitive.int, ListenContext.topUpCount(natural))
+            assertEquals(c["moreCount"]!!.jsonPrimitive.int, ListenContext.moreCount(natural))
             c["labels"]!!.jsonArray.forEachIndexed { i, pair ->
                 val p = pair.jsonArray.map { it.jsonPrimitive.content }
                 assertEquals(p[0], ListenContext.rowLabel(i, false))
@@ -82,5 +87,6 @@ class ListenContextParityTest {
         }
         assertTrue(prompts > 10, "the ask is exercised")
         assertTrue(sentenceAutoplays > 10, "sentence auto-play is exercised")
+        assertTrue(contrivedCases > 10, "contrived rows are exercised")
     }
 }

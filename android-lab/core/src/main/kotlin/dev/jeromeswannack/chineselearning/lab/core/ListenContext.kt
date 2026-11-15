@@ -15,7 +15,7 @@ object ListenContext {
     const val GENERATE_MAX = 10
 
     data class Clue(val hanzi: String?, val translation: String? = null, val audioUrl: String? = null)
-    data class Sentence(val id: String, val hanzi: String, val translation: String? = null, val audioUrl: String? = null, val position: Int? = null)
+    data class Sentence(val id: String, val hanzi: String, val translation: String? = null, val audioUrl: String? = null, val position: Int? = null, val focus: String? = null)
 
     /** One row. The hanzi is carried for the device voice — NEVER shown on the question. */
     data class Row(
@@ -25,6 +25,8 @@ object ListenContext {
         val translation: String?,
         val audioUrl: String?,
         val fromCard: Boolean,
+        /** A set row written around a look-alike ([SentenceFocus.isContrived]): listed last, never counted. */
+        val contrived: Boolean = false,
     )
 
     enum class RowState(val wire: String) { READY("ready"), FETCH("fetch"), DEVICE("device"), UNAVAILABLE("unavailable") }
@@ -42,7 +44,7 @@ object ListenContext {
 
     private fun blankToNull(s: String?): String? = s?.let { AnswerKey.jsTrim(it) }?.takeIf { it.isNotEmpty() }
 
-    /** Port of listenContextRows: the card's sentence first (unless the set repeats it), then the set by position. */
+    /** Port of listenContextRows: the card's sentence first (unless the set repeats it), then the set by position — natural ones first. */
     fun rows(noteId: String, clue: Clue?, sentences: List<Sentence>): List<Row> {
         val out = ArrayList<Row>()
         val clueHanzi = clue?.hanzi?.takeIf { AnswerKey.jsTrim(it).isNotEmpty() }
@@ -50,9 +52,12 @@ object ListenContext {
             out += Row(clueRowKey(noteId), null, clueHanzi, blankToNull(clue.translation), clue.audioUrl?.takeIf { it.isNotEmpty() }, fromCard = true)
         }
         sentences.withIndex()
-            .sortedWith(compareBy<IndexedValue<Sentence>> { it.value.position ?: it.index }.thenBy { it.index })
+            .sortedWith(
+                compareBy<IndexedValue<Sentence>> { if (SentenceFocus.isContrived(it.value.focus)) 1 else 0 }
+                    .thenBy { it.value.position ?: it.index }.thenBy { it.index },
+            )
             .forEach { (_, s) ->
-                out += Row(s.id, s.id, s.hanzi, blankToNull(s.translation), s.audioUrl?.takeIf { it.isNotEmpty() }, fromCard = false)
+                out += Row(s.id, s.id, s.hanzi, blankToNull(s.translation), s.audioUrl?.takeIf { it.isNotEmpty() }, fromCard = false, contrived = SentenceFocus.isContrived(s.focus))
             }
         return out
     }
@@ -77,6 +82,9 @@ object ListenContext {
     /** Port of wordTapAction. */
     fun wordTap(sentencesPlayed: Int, playableSentences: Int, playedWordAnyway: Boolean): WordTap =
         if (sentencesPlayed > 0 || playableSentences == 0 || playedWordAnyway) WordTap.PLAY else WordTap.PROMPT
+
+    /** Port of listenNaturalCount: the rows the top-ups count (contrived ones never make "enough"). */
+    fun naturalCount(rows: List<Row>): Int = rows.count { !it.contrived }
 
     /** Port of needsSentenceTopUp. */
     fun needsTopUp(total: Int) = total < MIN_SENTENCES

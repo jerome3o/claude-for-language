@@ -173,8 +173,9 @@ class ListenContextUiTest : LabScreenshotTest() {
         screen()
         compose.onNodeWithTag(LISTEN_MORE_TAG).performScrollTo().performClick()
         compose.mainClock.advanceTimeBy(300)
-        // Four sentences → enough to reach about eight, keeping the set.
-        assertEquals(4 to true, generated)
+        // Four sentences, three of them natural (s3 was written around a look-alike, core SentenceFocus) →
+        // enough natural ones to reach about eight, keeping the set.
+        assertEquals(5 to true, generated)
     }
 
     @Test fun darkQuestion() {

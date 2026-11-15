@@ -11,14 +11,16 @@ import { appendNoteSentences, getNotesForRoundTopUp, getNotesForSentenceTopUp } 
 
 let db: SqliteD1;
 
-function addNote(id: string, user: string, clue: string | null, sentences: string[]) {
+/** A sentence is its hanzi, or `[hanzi, focus]`. */
+function addNote(id: string, user: string, clue: string | null, sentences: Array<string | [string, string]>) {
   db.raw.run('INSERT OR IGNORE INTO decks (id, user_id, name) VALUES (?, ?, ?)', [`d-${user}`, user, 'Deck']);
   db.raw.run('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, sentence_clue) VALUES (?, ?, ?, ?, ?, ?)', [id, `d-${user}`, '银行', 'yínháng', 'bank', clue]);
-  sentences.forEach((hanzi, i) => {
+  sentences.forEach((entry, i) => {
+    const [hanzi, focus] = typeof entry === 'string' ? [entry, null] : entry;
     db.raw.run(
-      `INSERT INTO note_sentences (id, note_id, position, hanzi, pinyin, translation, audio_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, '', '', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
-      [`${id}-s${i}`, id, i, hanzi, `generated/${id}-${i}.mp3`],
+      `INSERT INTO note_sentences (id, note_id, position, hanzi, pinyin, translation, audio_url, focus, created_at, updated_at)
+       VALUES (?, ?, ?, ?, '', '', ?, ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+      [`${id}-s${i}`, id, i, hanzi, `generated/${id}-${i}.mp3`, focus],
     );
   });
 }
@@ -37,6 +39,14 @@ describe('getNotesForSentenceTopUp', () => {
     addNote('theirs', 'u2', null, []);
     const got = await getNotesForSentenceTopUp(db, 'u1', ['few', 'repeat', 'enough', 'bare', 'theirs'], 5);
     expect(Object.fromEntries(got.map((r) => [r.id, r.total]))).toEqual({ few: 3, repeat: 4, bare: 0 });
+  });
+
+  // Sentences once written around a look-alike (shared/study/sentenceFocus.ts) never count as "enough".
+  it('counts natural sentences only', async () => {
+    addNote('contrived', 'u1', '这是银行。', ['a', ['b', 'shared_character'], ['c', 'contrast'], ['d', 'collocation'], ['e', 'core']]); // 6 rows, 4 natural
+    addNote('natural', 'u1', '这是银行。', ['a', ['b', 'complex'], ['c', 'collocation'], ['d', 'core']]); // 5 natural
+    const got = await getNotesForSentenceTopUp(db, 'u1', ['contrived', 'natural'], 5);
+    expect(Object.fromEntries(got.map((r) => [r.id, r.total]))).toEqual({ contrived: 4 });
   });
 
   it('skips a note with a job in the last day or one given up on', async () => {

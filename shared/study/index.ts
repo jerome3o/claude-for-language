@@ -10,6 +10,7 @@ export * from './lessonRevision';
 export * from './sentencePractise';
 export * from './sentenceRound';
 export * from './sentenceHistory';
+export * from './sentenceFocus';
 export * from './hardMode';
 export * from './answerDifference';
 export * from './wordRecap';

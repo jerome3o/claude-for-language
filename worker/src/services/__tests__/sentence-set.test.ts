@@ -10,6 +10,8 @@ import {
   SENTENCE_SET_MAX_COUNT,
   sentenceAudioRetryDelay,
   SENTENCE_AUDIO_RETRY_DELAYS_S,
+  SENTENCE_SET_SYSTEM_PROMPT,
+  GENERATED_SENTENCE_FOCUS,
 } from '../sentence-set';
 
 describe('clampSentenceCount', () => {
@@ -71,6 +73,11 @@ describe('normalizeGeneratedSentences', () => {
   it('coerces an unknown focus to core', () => {
     const result = normalizeGeneratedSentences([{ hanzi: '我懂。', focus: 'nonsense' }], 6);
     expect(result[0].focus).toBe('core');
+  });
+
+  it('keeps a contrived focus the model sent off the enum, so the round leaves it out', () => {
+    const result = normalizeGeneratedSentences([{ hanzi: '我懂。', focus: 'contrast' }, { hanzi: '我明白。', focus: 'collocation' }], 6);
+    expect(result.map((r) => r.focus)).toEqual(['contrast', 'collocation']);
   });
 
   it('never returns more sentences than requested', () => {
@@ -145,6 +152,24 @@ describe('sentences in an unexpected shape', () => {
   });
 });
 
+// Jerome, Nov 2026: sentences built around "some related or similar sounding word" felt contrived.
+describe('natural sentences only', () => {
+  it('the prompt never asks for a look-alike / homophone / shared-character sentence', () => {
+    const p = SENTENCE_SET_SYSTEM_PROMPT;
+    expect(p).not.toMatch(/shared_character/);
+    expect(p).not.toMatch(/"contrast"/);
+    expect(p).not.toMatch(/at least one of each/i);
+    expect(p).not.toMatch(/easily confused with the target/i);
+    expect(p).toMatch(/native speaker would naturally say/);
+    expect(p).toMatch(/Never build a sentence to show off another word/);
+    expect(p).toMatch(/collocation/);
+  });
+
+  it('the tool offers natural focuses only', () => {
+    expect(GENERATED_SENTENCE_FOCUS).toEqual(['core', 'collocation', 'complex']);
+  });
+});
+
 describe('generateSentenceSet', () => {
   const input = { hanzi: '曾', pinyin: 'céng', english: 'once, at some time in the past' };
   const reply = (toolInput: unknown) => ({
@@ -181,6 +206,9 @@ describe('generateSentenceSet', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].thinking).toEqual({ type: 'disabled' });
     expect(calls[0].tool_choice).toEqual({ type: 'tool', name: 'create_sentence_set' });
+    const tool = (calls[0].tools as Array<{ input_schema: { properties: { sentences: { items: { properties: { focus: { enum: string[] } } } } } } }>)[0];
+    expect(tool.input_schema.properties.sentences.items.properties.focus.enum).toEqual(['core', 'collocation', 'complex']);
+    expect(JSON.stringify(calls[0])).not.toMatch(/shared_character|look-alike, used correctly/);
   });
 
   it('retries an unusable reply instead of failing the set', async () => {

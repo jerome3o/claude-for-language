@@ -1237,9 +1237,15 @@ in localStorage (`folders-collapsed-v1:<kind>`). Lab: same rules (`core/…/Fold
 
 ### Sentence sets (graded example sentences per note)
 Each note can have a **set** of example sentences (separate from the single `sentence_clue`
-shown inline on the card): ordered easiest → hardest, with a couple deliberately placing the
-word in the language (one uses a word sharing a character, one contrasts an easily-confused
-word, one shows the usual collocation). Each sentence gets its own TTS clip and is cached in
+shown inline on the card): ordered easiest → hardest, every one a sentence a native speaker would
+naturally say — the word in its common meanings, everyday situations, at least one showing its usual
+collocation (focus `core` / `collocation` / `complex`). **Natural sentences only** (Nov 2026, Jerome:
+"used to build a sentence with some related or similar sounding word … contrived"): the generator no
+longer writes a sentence around a word sharing a character or an easily-confused / similar-sounding word;
+older rows with focus `shared_character` / `contrast` stay stored but are listed LAST on the card and
+"Listen in context", are never a Sentence round / listening round exercise, and never count toward
+"enough sentences" for any top-up (`shared/study/sentenceFocus.ts`, Lab `core/…/SentenceFocus.kt`,
+parity-tested; docs/STUDY_SESSION.md "Natural sentences"). Each sentence gets its own TTS clip and is cached in
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
 On the study card there is ONE sentence list: the note's own `sentence_clue` is rendered as
 row 1 (badged "From the card", read straight from the note — never copied into the set, so

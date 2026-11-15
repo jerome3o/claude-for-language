@@ -24,6 +24,8 @@ import {
   listenRepeatCheck, roundTakeAfterReveal, roundTakeRecorded, roundRetryOffered, LISTEN_REPEAT_HEADLINE,
   type RoundSentence, type RoundLogEntry, type RoundExercise,
 } from '../../../shared/study/sentenceRound';
+import { moreSentencesWanted } from '../../../shared/study/sentenceHistory';
+import { CONTRIVED_SENTENCE_FOCUSES, isContrivedSentence } from '../../../shared/study/sentenceFocus';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: sentence-round <out-dir>');
@@ -193,8 +195,38 @@ for (let i = 0; i < 80; i++) {
 }
 const cardHanzi = { sameText, lists: cardLists };
 
+// Natural sentences only (shared/study/sentenceFocus.ts): rows once written around a look-alike / homophone
+// (focus shared_character / contrast) are listed last, never an exercise and never counted for a top-up.
+const FOCUSES = ['core', 'collocation', 'complex', 'shared_character', 'contrast', null, undefined, 'from_card', ''];
+const naturalLists = [] as unknown[];
+for (let i = 0; i < 120; i++) {
+  const n = Math.floor(r() * 9);
+  const set: RoundSentence[] = Array.from({ length: n }, (_, k) => {
+    const focus = FOCUSES[Math.floor(r() * FOCUSES.length)];
+    return { key: `s${k}`, hanzi: HANZI[Math.floor(r() * HANZI.length)] + k, translation: translation(), ...(focus !== undefined ? { focus } : {}) };
+  });
+  const clue = r() < 0.4 ? null : { key: 'clue:n1', hanzi: '我去银行。', translation: translation() };
+  const sentences = roundSentences({ clue, set });
+  const ids = sentences.filter(() => r() < 0.5).map((s) => `${r() < 0.5 ? 'read' : 'translate'}:${s.key}`);
+  naturalLists.push({
+    clue, set, sentences,
+    exercises: pickRoundExercises(sentences),
+    count: roundSentenceCount(sentences),
+    listen: pickListenRoundExercises(sentences, '银行'),
+    listenCount: listenRoundSentenceCount(sentences, '银行'),
+    want: moreSentencesWanted(sentences, new Map()),
+    ids,
+    fromLog: exercisesFromLog(sentences, ids),
+  });
+}
+const natural = {
+  contrived: CONTRIVED_SENTENCE_FOCUSES,
+  checks: FOCUSES.map((f) => ({ focus: f ?? null, contrived: isContrivedSentence(f) })),
+  lists: naturalLists,
+};
+
 writeFileSync(join(OUT, 'sentence-round.json'), JSON.stringify({
-  lists, opens, answerSide, parts, english, listen, cardHanzi,
+  lists, opens, answerSide, parts, english, listen, cardHanzi, natural,
   copy: {
     size: SENTENCE_ROUND_SIZE, title: SENTENCE_ROUND_TITLE, skip: SENTENCE_ROUND_SKIP, skipConfirm: SENTENCE_ROUND_SKIP_CONFIRM,
     skipConfirmYes: SENTENCE_ROUND_SKIP_CONFIRM_YES, skipConfirmNo: SENTENCE_ROUND_SKIP_CONFIRM_NO, tryAgain: SENTENCE_ROUND_TRY_AGAIN,
