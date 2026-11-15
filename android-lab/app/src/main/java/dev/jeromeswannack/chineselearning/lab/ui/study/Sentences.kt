@@ -100,7 +100,16 @@ data class SentenceRow(
      * ([SentenceActions.translate], cached on the device by text).
      */
     val fetchTranslation: Boolean = false,
+    /**
+     * The set row's focus. A contrived one (core [dev.jeromeswannack.chineselearning.lab.core.SentenceFocus]: written
+     * around a look-alike / homophone) is listed last and never a Sentence round exercise.
+     */
+    val focus: String? = null,
 )
+
+/** This row as the Sentence round sees it (core [SentenceRound.Sentence], its focus included). */
+fun SentenceRow.toRoundSentence(audio: Boolean = false): dev.jeromeswannack.chineselearning.lab.core.SentenceRound.Sentence =
+    dev.jeromeswannack.chineselearning.lab.core.SentenceRound.Sentence(key, hanzi, translation, audio, focus)
 
 /** SentenceSet.tsx `FOCUS_LABELS`. */
 private val FOCUS_LABELS = mapOf(
@@ -125,8 +134,12 @@ fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, s
             fromCard = true, fetchTranslation = translation == null,
         )
     }
-    sentences.sortedBy { it.position }.forEach { s ->
-        rows += SentenceRow(s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote)
+    // Natural sentences first; the ones once written around a look-alike / homophone after them (core SentenceFocus).
+    dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalFirst(sentences.sortedBy { it.position }) { it.focus }.forEach { s ->
+        rows += SentenceRow(
+            s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote,
+            focus = s.focus,
+        )
     }
     return rows
 }

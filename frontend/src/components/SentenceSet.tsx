@@ -40,12 +40,15 @@ import { hideSentence, recordSentenceAttempt, unhideSentence, useSentenceStats }
 import { useLongPress } from './chat/useLongPress';
 import { UndoToast } from './upNext/UpNextBoard';
 import { SentenceHideSheet } from './study/SentenceHideSheet';
+import { naturalSentencesFirst } from '@shared/study/sentenceFocus';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
- * a very simple structure to a properly complex one, with a couple of them
- * deliberately placing the word in the language (a word sharing a character,
- * an easily-confused neighbour, its usual collocation).
+ * a very simple structure to a properly complex one — natural sentences in
+ * everyday contexts and the word's usual collocations. Older sets also hold
+ * sentences written around a word sharing a character or an easily-confused
+ * neighbour (focus shared_character / contrast): they are listed last
+ * (shared/study/sentenceFocus.ts) and never come in the Sentence round.
  *
  * Reads come from IndexedDB so the whole set — audio included — works offline.
  * Only generation needs a connection.
@@ -536,7 +539,9 @@ export function SentenceSet({
       fetchTranslation: !ownTranslation,
     });
   }
-  for (const sentence of sentences) {
+  // Natural sentences first; the ones once written around a look-alike / homophone after them
+  // (shared/study/sentenceFocus.ts — kept, never in the Sentence round).
+  for (const sentence of naturalSentencesFirst(sentences)) {
     rows.push({
       key: sentence.id,
       sentenceId: sentence.id,

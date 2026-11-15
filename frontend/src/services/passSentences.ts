@@ -25,10 +25,11 @@ export async function ensurePassSentences(assignmentId: string, noteIds: readonl
   const none: string[] = [];
   const few: { id: string; total: number }[] = [];
   ids.forEach((id, i) => {
-    const set = counts.get(id) ?? 0;
+    const set = counts.get(id) ?? { total: 0, natural: 0 };
     const clue = notes[i]?.sentence_clue?.trim() ? 1 : 0;
-    if (set === 0) none.push(id);
-    else if (set + clue < SENTENCE_ROUND_MIN_VISIBLE) few.push({ id, total: set + clue });
+    if (set.total === 0) none.push(id);
+    // Natural sentences only: the round never uses a contrived one (sentenceFocus.ts).
+    else if (set.natural + clue < SENTENCE_ROUND_MIN_VISIBLE) few.push({ id, total: set.natural + clue });
   });
   for (const { id, total } of few) requestMoreSentences(id, { reason: 'few', count: freshTopUpCount(total) });
   let queued = 0;

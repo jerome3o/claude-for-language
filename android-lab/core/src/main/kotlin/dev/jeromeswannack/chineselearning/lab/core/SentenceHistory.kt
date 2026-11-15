@@ -147,10 +147,11 @@ object SentenceHistory {
 
     /**
      * `moreSentencesWanted`: fewer than four left in rotation ("few"), or fewer than [FRESH_LOW] fresh ones left
-     * ("fresh" — the buffer is refilled before it runs out). Hidden sentences don't count. null = enough.
+     * ("fresh" — the buffer is refilled before it runs out). Hidden and contrived sentences don't count. null = enough.
      */
     fun moreWanted(sentences: List<SentenceRound.Sentence>, stats: Map<String, Stats>): MoreWanted? {
-        val visible = sentences.filter { stats[key(it.key)]?.hidden == null }
+        // Contrived sentences never count ([SentenceFocus]): the round never uses them.
+        val visible = sentences.filter { stats[key(it.key)]?.hidden == null && !SentenceFocus.isContrived(it.focus) }
         val fresh = freshCount(visible, stats)
         if (visible.size < MIN_VISIBLE) return MoreWanted("few", fresh, freshTopUpCount(fresh))
         if (fresh < FRESH_LOW) return MoreWanted("fresh", fresh, freshTopUpCount(fresh))

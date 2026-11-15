@@ -1,15 +1,21 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { structuredCall } from './structured-call';
+import { isContrivedSentence } from '@shared/study/sentenceFocus';
 
 /**
  * Sentence sets: a graded list of example sentences for a single vocabulary
  * item, generated in one AI call.
  *
- * The set is deliberately varied rather than "five ways to say the same thing":
- * it ramps from a very simple structure to a genuinely complex one, and a
- * couple of the sentences exist to place the word in the language — one uses
- * another word sharing a character with the target, one contrasts it with an
- * easily-confused word, one shows its most common collocation.
+ * The set is varied rather than "five ways to say the same thing": it ramps
+ * from a very simple structure to a genuinely complex one, across different
+ * everyday situations, and shows the word's usual collocations. Every sentence
+ * is one a native speaker would naturally say. Until Nov 2026 the prompt also
+ * REQUIRED one sentence around a word sharing a character with the target and
+ * one around an easily-confused / similar-sounding word — Jerome found those
+ * contrived ("used to build a sentence with some related or similar sounding
+ * word"). New sets never ask for them; the old rows (focus shared_character /
+ * contrast) stay stored, listed last and kept out of the Sentence round
+ * (shared/study/sentenceFocus.ts).
  *
  * Sonnet is used here (rather than Opus) because the set is generated
  * interactively while studying and speed matters more than prose quality.
@@ -21,6 +27,10 @@ export const SENTENCE_SET_DEFAULT_COUNT = 6;
 export const SENTENCE_SET_MIN_COUNT = 3;
 export const SENTENCE_SET_MAX_COUNT = 10;
 
+/**
+ * Why a sentence is in the set. `shared_character` / `contrast` are only on rows written before
+ * Nov 2026 (contrived: `isContrivedSentence`); the generator offers the natural ones only.
+ */
 export type SentenceFocus =
   | 'core'
   | 'shared_character'
@@ -28,13 +38,8 @@ export type SentenceFocus =
   | 'collocation'
   | 'complex';
 
-const VALID_FOCUS: SentenceFocus[] = [
-  'core',
-  'shared_character',
-  'contrast',
-  'collocation',
-  'complex',
-];
+/** The focuses a new sentence may have (the tool's enum): natural usage only. */
+export const GENERATED_SENTENCE_FOCUS: SentenceFocus[] = ['core', 'collocation', 'complex'];
 
 export interface GeneratedSentence {
   hanzi: string;
@@ -56,9 +61,9 @@ export interface SentenceSetInput {
   customPrompt?: string | null;
 }
 
-const SYSTEM_PROMPT = `You are an expert Mandarin teacher building a graded "sentence set" for a single vocabulary item.
+export const SENTENCE_SET_SYSTEM_PROMPT = `You are an expert Mandarin teacher building a graded "sentence set" for a single vocabulary item.
 
-The learner wants to see the word used several different ways in one sitting, so they can feel where it sits in the language: what it collocates with, what it is near, and what it is different from.
+The learner wants to see the word used several different ways in one sitting, in the kind of sentences people really say, so they can feel how it is used: the situations it comes up in and the words it normally goes with.
 
 HARD REQUIREMENTS
 1. Every sentence must contain the target word exactly as written, unchanged.
@@ -66,20 +71,19 @@ HARD REQUIREMENTS
 3. Each entry is ONE sentence. Internal Chinese commas (，) are fine in the harder sentences; never use line breaks, never return two sentences in one entry, and never use English punctuation in the Chinese.
 4. Pinyin uses tone marks (nǐ hǎo), never tone numbers. Multi-syllable words stay together (zhège, not zhè ge).
 5. The English translation is natural English, not a gloss.
+6. Every sentence is something a native speaker would naturally say or write in real life. Use the word in its most common meaning(s) and its usual collocations. Never build a sentence to show off another word: no sentence exists to squeeze in a look-alike, a homophone, a similar-sounding word, a near-synonym or another word sharing a character with the target. If a sentence sounds like a textbook exercise rather than something people say, replace it.
 
 DIFFICULTY RAMP
 - First 1-2 sentences: 4-8 characters. Basic subject-verb-object, 是 / 有 / adjective predicates. Only very common vocabulary. No subordinate clauses.
 - Middle sentences: everyday spoken structures — time and place words, 在 / 给 / 跟 / 对, modal verbs (想 / 要 / 会 / 可以), 了 / 过 aspect, simple 的 modifiers.
 - Last 1-2 sentences: 12-25 characters with genuinely more complex grammar — connectives (虽然…但是, 不但…而且, 如果…就, 因为…所以), 把 or 被, resultative/directional complements, or a relative clause with 的.
 
-VARIETY REQUIREMENTS (this is the point of the set — do not skip)
-Across the set, include at least one of each of these, tagged with the matching "focus":
-- "shared_character": the sentence also contains a DIFFERENT word that shares a character with the target word, so the learner sees that character doing another job. Explain the link in focus_note.
-- "contrast": the sentence includes a word that is easily confused with the target — a near-synonym, a homophone, or a look-alike — used correctly alongside it, so the difference is visible. Explain the difference in focus_note.
-- "collocation": the sentence shows the most common collocation, set phrase, or grammatical pattern this word normally appears in. Name the pattern in focus_note.
-Tag the remaining sentences "core" (plain natural usage), or "complex" for the hardest ones at the end.
+VARIETY
+- Spread the sentences over different everyday situations (home, work, shopping, travel, friends, plans, feelings …) rather than one scene repeated.
+- At least one sentence shows the most common collocation, set phrase or grammatical pattern this word normally appears in — tag it "collocation" and name the pattern in focus_note.
+- Tag the other sentences "core" (plain natural usage), or "complex" for the hardest ones at the end.
 
-focus_note is a short learner-facing English note (under 90 characters) explaining why this sentence is in the set. It is REQUIRED for shared_character, contrast, and collocation, and optional otherwise.
+focus_note is a short learner-facing English note (under 90 characters). It is REQUIRED for collocation and optional otherwise.
 
 Return the sentences via the create_sentence_set tool.`;
 
@@ -100,7 +104,7 @@ function buildUserPrompt(input: SentenceSetInput, count: number): string {
 
   if (input.bio) {
     parts.push(
-      `The learner describes themselves as: "${input.bio}". Where it fits naturally, make a couple of the sentences relevant to their life or interests — but never at the cost of the difficulty ramp or the variety requirements.`
+      `The learner describes themselves as: "${input.bio}". Where it fits naturally, make a couple of the sentences relevant to their life or interests — but never at the cost of natural sentences or the difficulty ramp.`
     );
   }
 
@@ -112,7 +116,10 @@ function buildUserPrompt(input: SentenceSetInput, count: number): string {
 }
 
 function coerceFocus(value: unknown): SentenceFocus {
-  return VALID_FOCUS.includes(value as SentenceFocus) ? (value as SentenceFocus) : 'core';
+  if (GENERATED_SENTENCE_FOCUS.includes(value as SentenceFocus)) return value as SentenceFocus;
+  // Off the enum but saying it was built around a look-alike: keep that, so it stays out of the round.
+  if (typeof value === 'string' && isContrivedSentence(value)) return value as SentenceFocus;
+  return 'core';
 }
 
 /** Strip anything that would break TTS or the single-sentence contract. */
@@ -235,13 +242,13 @@ export async function generateSentenceSet(
               },
               focus: {
                 type: 'string',
-                enum: VALID_FOCUS,
+                enum: GENERATED_SENTENCE_FOCUS,
                 description: 'Why this sentence is in the set',
               },
               focus_note: {
                 type: 'string',
                 description:
-                  'Short English note (<90 chars) explaining the link, contrast, or pattern. Required for shared_character, contrast and collocation.',
+                  'Short English note (<90 chars) naming the pattern. Required for collocation.',
               },
             },
             required: ['hanzi', 'pinyin', 'translation', 'focus'],
@@ -255,7 +262,7 @@ export async function generateSentenceSet(
   return structuredCall({
     apiKey,
     model: MODEL,
-    system: SYSTEM_PROMPT,
+    system: SENTENCE_SET_SYSTEM_PROMPT,
     user: userPrompt,
     tool,
     maxTokens: 6000,

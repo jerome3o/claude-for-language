@@ -96,7 +96,7 @@ object SentenceRoundTags {
 
 /** The round's exercises over the card's sentence rows and his history of them (core [SentenceRound.pick]). */
 fun sentenceRoundExercises(rows: List<SentenceRow>, stats: Map<String, SentenceHistory.Stats>? = null): List<SentenceRound.Exercise> =
-    SentenceRound.pick(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, stats)
+    SentenceRound.pick(rows.map { it.toRoundSentence() }, stats)
 
 /**
  * The Sentence round (the web's components/study/SentenceRound.tsx; rules in core [SentenceRound];
@@ -186,13 +186,13 @@ fun SentenceRoundPage(
     LaunchedEffect(roundRows, stats != null, clueLooked) {
         if (picked == null && stats != null && clueLooked) {
             val fromLog = if (initialIds.isEmpty()) null else SentenceRound.exercisesFromLog(
-                roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, initialIds,
+                roundRows.map { it.toRoundSentence() }, initialIds,
             ) { stats[SentenceHistory.key(it)]?.hidden != null }
             val heard = roundRows.map { r ->
                 val url = r.audioUrl
-                SentenceRound.Sentence(r.key, r.hanzi, r.translation, audio = !url.isNullOrBlank() && (online || hasClip(url)))
+                r.toRoundSentence(audio = !url.isNullOrBlank() && (online || hasClip(url)))
             }
-            val next = fromLog ?: if (listen) SentenceRound.pickListen(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, word, stats)
+            val next = fromLog ?: if (listen) SentenceRound.pickListen(roundRows.map { it.toRoundSentence() }, word, stats)
                 else SentenceRound.pick(heard, stats, byEar = byEar, online = online, cardHanzi = word)
             picked = next
             onPicked(next.map { it.id })
@@ -350,7 +350,7 @@ fun SentenceRoundPage(
     val latestWantMore by rememberUpdatedState(onWantMore)
     LaunchedEffect(rows, stats) {
         val st = stats ?: return@LaunchedEffect
-        val want = SentenceHistory.moreWanted(rows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, st)
+        val want = SentenceHistory.moreWanted(rows.map { it.toRoundSentence() }, st)
         if (want != null) latestWantMore(want.reason, want.count)
         if (!noted) {
             noted = true

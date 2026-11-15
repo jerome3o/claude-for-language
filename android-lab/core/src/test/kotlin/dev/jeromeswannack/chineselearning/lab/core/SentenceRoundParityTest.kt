@@ -27,7 +27,7 @@ class SentenceRoundParityTest {
     private fun sentence(e: JsonElement?): SentenceRound.Sentence? {
         if (e == null || e is JsonNull) return null
         val o = e.jsonObject
-        return SentenceRound.Sentence(o["key"]!!.str!!, o["hanzi"]!!.str!!, o["translation"]?.str)
+        return SentenceRound.Sentence(o["key"]!!.str!!, o["hanzi"]!!.str!!, o["translation"]?.str, focus = o["focus"]?.str)
     }
 
     @Test
@@ -252,5 +252,37 @@ class SentenceRoundParityTest {
             if (count < sentences.size) dropped++
         }
         assertTrue(dropped >= 5, "vectors that drop the card's own sentence")
+    }
+
+    /** Natural sentences only (shared/study/sentenceFocus.ts → core [SentenceFocus]). */
+    @Test
+    fun naturalSentencesMatch() {
+        val n = fixture()["natural"]!!.jsonObject
+        assertEquals(n["contrived"]!!.jsonArray.map { it.str!! }, SentenceFocus.CONTRIVED)
+        for (x in n["checks"]!!.jsonArray) {
+            val o = x.jsonObject
+            assertEquals(o["contrived"]!!.jsonPrimitive.boolean, SentenceFocus.isContrived(o["focus"]!!.str), o.toString())
+        }
+        var withContrived = 0
+        for (x in n["lists"]!!.jsonArray) {
+            val o = x.jsonObject
+            val what = o.toString()
+            val set = o["set"]!!.jsonArray.map { sentence(it)!! }
+            val sentences = SentenceRound.sentences(sentence(o["clue"]), set)
+            assertEquals(o["sentences"]!!.jsonArray.map { sentence(it)!! }, sentences, what)
+            assertEquals(o["exercises"]!!.jsonArray.map { exercise(it) }, SentenceRound.pick(sentences), what)
+            assertEquals(o["count"]!!.jsonPrimitive.int, SentenceRound.roundSentenceCount(sentences), what)
+            assertEquals(o["listen"]!!.jsonArray.map { exercise(it) }, SentenceRound.pickListen(sentences, "银行"), what)
+            assertEquals(o["listenCount"]!!.jsonPrimitive.int, SentenceRound.listenSentenceCount(sentences, "银行"), what)
+            val want = o["want"]!!.let { if (it is JsonNull) null else it.jsonObject }
+            val got = SentenceHistory.moreWanted(sentences, emptyMap())
+            assertEquals(want?.let { SentenceHistory.MoreWanted(it["reason"]!!.str!!, it["fresh"]!!.jsonPrimitive.int, it["count"]!!.jsonPrimitive.int) }, got, what)
+            val ids = o["ids"]!!.jsonArray.map { it.str!! }
+            val fromLog = o["fromLog"]!!.let { if (it is JsonNull) null else it.jsonArray.map { e -> exercise(e) } }
+            assertEquals(fromLog, SentenceRound.exercisesFromLog(sentences, ids), what)
+            if (set.any { SentenceFocus.isContrived(it.focus) }) withContrived++
+            assertTrue(sentences.none { SentenceFocus.isContrived(it.focus) } || SentenceRound.pick(sentences).none { e -> SentenceFocus.isContrived(sentences[e.index].focus) }, what)
+        }
+        assertTrue(withContrived > 30, "lists with contrived rows")
     }
 }

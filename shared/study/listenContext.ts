@@ -10,10 +10,14 @@
  * English), then "▶ The word". Tapping the word before any sentence asks once:
  * "Try the sentences first?" — [Play the word anyway] [Play a sentence].
  *
+ * Contrived set rows (written around a look-alike / homophone, `isContrivedSentence` in sentenceFocus.ts)
+ * come after the natural ones and never count toward the top-up's "enough sentences".
+ *
  * Pure rules, shared by the web (`components/study/ListenContext.tsx`) and the
  * Lab app (`core/…/ListenContext.kt`, parity-tested by
  * android-lab/parity/fixtures/listen-context.ts).
  */
+import { isContrivedSentence } from './sentenceFocus';
 
 /** Fewer sentences than this (card sentence + set) → the background top-up asks for more. */
 export const LISTEN_CONTEXT_MIN_SENTENCES = 5;
@@ -35,6 +39,8 @@ export interface ListenSentenceInput {
   translation?: string | null;
   audio_url?: string | null;
   position?: number | null;
+  /** The set row's focus (a contrived one comes last and isn't counted, sentenceFocus.ts). */
+  focus?: string | null;
 }
 
 /** One row of the list. The hanzi is carried for the device voice — NEVER shown on the question. */
@@ -47,6 +53,8 @@ export interface ListenRow {
   translation: string | null;
   audioUrl: string | null;
   fromCard: boolean;
+  /** A set row written around a look-alike / homophone (`isContrivedSentence`): listed last, never counted. */
+  contrived: boolean;
 }
 
 /** The key of the card's own sentence row (the card-back list uses the same one). */
@@ -57,7 +65,8 @@ export function clueRowKey(noteId: string): string {
 /**
  * The rows in order: the card's own sentence first (unless the set already
  * holds the same sentence — it is then shown once, as the set row), then the
- * set by position. Same order as the card-back SentenceSet.
+ * set by position, its natural sentences before the contrived ones. Same
+ * order as the card-back SentenceSet.
  */
 export function listenContextRows(
   noteId: string,
@@ -74,11 +83,14 @@ export function listenContextRows(
       translation: clue?.translation?.trim() || null,
       audioUrl: clue?.audio_url || null,
       fromCard: true,
+      contrived: false,
     });
   }
   const sorted = sentences
     .map((s, i) => ({ s, i }))
-    .sort((a, b) => (a.s.position ?? a.i) - (b.s.position ?? b.i) || a.i - b.i)
+    .sort((a, b) =>
+      Number(isContrivedSentence(a.s.focus)) - Number(isContrivedSentence(b.s.focus))
+      || (a.s.position ?? a.i) - (b.s.position ?? b.i) || a.i - b.i)
     .map(({ s }) => s);
   for (const s of sorted) {
     rows.push({
@@ -88,6 +100,7 @@ export function listenContextRows(
       translation: s.translation?.trim() || null,
       audioUrl: s.audio_url || null,
       fromCard: false,
+      contrived: isContrivedSentence(s.focus),
     });
   }
   return rows;
@@ -143,7 +156,12 @@ export function wordTapAction(opts: {
   return 'prompt';
 }
 
-/** The background top-up: fewer than LISTEN_CONTEXT_MIN_SENTENCES in total. */
+/** The rows the top-ups count: the natural ones (contrived rows never make "enough sentences"). */
+export function listenNaturalCount(rows: readonly Pick<ListenRow, 'contrived'>[]): number {
+  return rows.filter((r) => !r.contrived).length;
+}
+
+/** The background top-up: fewer than LISTEN_CONTEXT_MIN_SENTENCES natural sentences in total (`listenNaturalCount`). */
 export function needsSentenceTopUp(total: number): boolean {
   return total < LISTEN_CONTEXT_MIN_SENTENCES;
 }

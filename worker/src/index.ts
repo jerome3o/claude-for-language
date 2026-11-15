@@ -17,6 +17,7 @@ import * as db from './db/queries';
 import * as content from './services/content';
 import { enqueueSentenceSet, enqueueSentenceTopUp, ensureSentenceClueAudio, enqueueClueAudio, ContentError } from './services/content';
 import { LISTEN_CONTEXT_MIN_SENTENCES, needsSentenceTopUp, topUpCount } from '@shared/study/listenContext';
+import { naturalSentenceCount } from '@shared/study/sentenceFocus';
 import { SENTENCE_TOPUP_MAX, SENTENCE_TOPUP_MIN, freshTopUpCount } from '@shared/study/sentenceHistory';
 
 /** An older app's "every sentence known" ask (reason 'known') gets this many more. */
@@ -1933,7 +1934,8 @@ app.post('/api/sentences/prefetch', async (c) => {
  *   fresh (or four in rotation) → `counts[noteId]` more (3–8), at most one job in flight per note, no
  *   daily limit, until the word holds SENTENCE_SET_MAX_TOTAL. Older apps' 'known' asks count as 4 more.
  * - Listening cards ("Listen in context", shared/study/listenContext.ts), no reason: a note with fewer
- *   than five sentences in total gets more, at most one job per note a day.
+ *   than five natural sentences in total (contrived rows never count, shared/study/sentenceFocus.ts)
+ *   gets more, at most one job per note a day.
  * Never one given up on; ≤ 50 notes a call.
  */
 app.post('/api/sentences/top-up', async (c) => {
@@ -7075,13 +7077,16 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           }
 
           // A listening card's top-up: ADD sentences after the set (the rows it has stay —
-          // ids, clips, breakdowns), only while the note still has fewer than five in total.
+          // ids, clips, breakdowns), only while the note still has fewer than five natural ones.
           if (kind === 'top_up') {
             const current = await db.getNoteSentences(env.DB, noteId);
             const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
-            const total = current.length + (clue && !current.some((s) => s.hanzi === clue) ? 1 : 0);
-            // A Sentence round top-up adds to any set (up to the cap); a listening one only below five.
-            if (round ? total >= SENTENCE_SET_MAX_TOTAL : !needsSentenceTopUp(total)) {
+            const clueCounts = clue && !current.some((s) => s.hanzi === clue) ? 1 : 0;
+            const total = current.length + clueCounts;
+            // Contrived rows (written around a look-alike, shared/study/sentenceFocus.ts) never make "enough".
+            const natural = naturalSentenceCount(current) + clueCounts;
+            // A Sentence round top-up adds to any set (up to the cap); a listening one only below five natural.
+            if (round ? total >= SENTENCE_SET_MAX_TOTAL : !needsSentenceTopUp(natural)) {
               await db.markSentenceSetJobDone(env.DB, noteId);
               message.ack();
               continue;
@@ -7096,7 +7101,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
                 existing: [...(clue ? [clue] : []), ...current.map((s) => s.hanzi)],
                 bio,
               },
-              round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(total)
+              round ? Math.max(1, Math.min(count ?? SENTENCE_TOPUP_MIN, SENTENCE_SET_MAX_TOTAL - total)) : count ?? topUpCount(natural)
             );
             const known = new Set([...(clue ? [clue] : []), ...current.map((s) => s.hanzi)]);
             const fresh = generated.filter((s) => !known.has(s.hanzi));

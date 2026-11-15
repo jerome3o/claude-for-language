@@ -14,7 +14,8 @@ import {
 import { SentenceBriefExplanation } from '../types';
 import { preCacheAudio } from './audioCache';
 import { isEffectivelyOffline } from './offlineMode';
-import { listenContextRows, needsSentenceTopUp } from '@shared/study/listenContext';
+import { listenContextRows, listenNaturalCount, needsSentenceTopUp } from '@shared/study/listenContext';
+import { isContrivedSentence } from '@shared/study/sentenceFocus';
 
 /**
  * Sentence sets: offline-first storage + sync.
@@ -61,12 +62,16 @@ export async function getLocalNoteSentences(noteId: string): Promise<LocalNoteSe
 }
 
 /** How many sentences each of these notes has locally (for badges/counts). */
-export async function getLocalSentenceCounts(noteIds: string[]): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
+export async function getLocalSentenceCounts(noteIds: string[]): Promise<Map<string, { total: number; natural: number }>> {
+  const counts = new Map<string, { total: number; natural: number }>();
   if (noteIds.length === 0) return counts;
   const rows = await db.noteSentences.where('note_id').anyOf(noteIds).toArray();
   for (const row of rows) {
-    counts.set(row.note_id, (counts.get(row.note_id) || 0) + 1);
+    const c = counts.get(row.note_id) ?? { total: 0, natural: 0 };
+    c.total += 1;
+    // A contrived row (written around a look-alike, sentenceFocus.ts) is never "enough".
+    if (!isContrivedSentence(row.focus)) c.natural += 1;
+    counts.set(row.note_id, c);
   }
   return counts;
 }
@@ -298,7 +303,8 @@ const topUpAsked = new Set<string>();
 /** Card sentence + set rows, counted like the "Listen in context" list (a repeated card sentence once). */
 export async function countListenSentences(noteId: string, clue: string | null | undefined): Promise<number> {
   const rows = await getLocalNoteSentences(noteId);
-  return listenContextRows(noteId, { hanzi: clue }, rows).length;
+  // Natural sentences only: a contrived row (sentenceFocus.ts) never makes "enough".
+  return listenNaturalCount(listenContextRows(noteId, { hanzi: clue }, rows));
 }
 
 /**

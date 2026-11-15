@@ -24,6 +24,7 @@ import {
   listenRowLabel,
   listenRowState,
   moreSentencesCount,
+  listenNaturalCount,
   wordTapAction,
   type ListenRow,
   type ListenRowState,
@@ -295,7 +296,7 @@ export function ListenContext({
     setError(null);
     const forNote = noteId;
     try {
-      const stored = await generateAndStoreSentenceSet(noteId, { count: moreSentencesCount(rows.length), keepExisting: true });
+      const stored = await generateAndStoreSentenceSet(noteId, { count: moreSentencesCount(listenNaturalCount(rows)), keepExisting: true });
       if (noteRef.current !== forNote) return;
       setSentences(stored);
       track('study.listen_more_sentences', { before: rows.length, after: listenContextRows(noteId, cardSentence, stored).length });

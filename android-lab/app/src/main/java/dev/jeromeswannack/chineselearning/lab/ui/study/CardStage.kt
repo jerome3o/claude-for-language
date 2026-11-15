@@ -317,9 +317,9 @@ fun CardStage(
     val sentencesByEar by StudyPrefs.get(appCtx).sentencesByEar.collectAsState()
     // The listening card's round asks only for the English sentences that carry the word (core SentenceRound.pickListen).
     val listenRound = view.card.cardType == CardTypes.AUDIO_TO_HANZI
-    val sentenceCount = if (listenRound) SentenceRound.listenSentenceCount(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, note.hanzi, noteStats)
+    val sentenceCount = if (listenRound) SentenceRound.listenSentenceCount(roundRows.map { it.toRoundSentence() }, note.hanzi, noteStats)
         // A row that IS the card's own text never comes in the round (core SentenceRound.isCardHanziSentence).
-        else SentenceRound.roundSentenceCount(roundRows.map { SentenceRound.Sentence(it.key, it.hanzi, it.translation) }, noteStats, note.hanzi)
+        else SentenceRound.roundSentenceCount(roundRows.map { it.toRoundSentence() }, noteStats, note.hanzi)
     SideEffect {
         practise.onResult = if (!history || labApp == null) null else { key, mode, result ->
             val rowKey = key.removePrefix("${SentencePractise.READ}:").removePrefix("${SentencePractise.TRANSLATE}:").removePrefix("${SentenceRound.LISTEN}:")

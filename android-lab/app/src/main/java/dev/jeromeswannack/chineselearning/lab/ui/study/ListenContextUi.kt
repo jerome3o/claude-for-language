@@ -107,7 +107,7 @@ const val LISTEN_MORE_TAG = "listen-more"
 fun listenRows(view: CardView): List<ListenContext.Row> = ListenContext.rows(
     view.note.id,
     ListenContext.Clue(view.note.sentenceClue, view.note.sentenceClueTranslation, view.note.sentenceClueAudioUrl),
-    view.sentences.map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position) },
+    view.sentences.map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus) },
 )
 
 fun listenStates(rows: List<ListenContext.Row>, view: CardView, online: Boolean): List<ListenContext.RowState> =
@@ -224,7 +224,7 @@ fun ListenContextPanel(
                     listen.error = null
                     scope.launch {
                         try {
-                            actions.sentences.generate(ListenContext.moreCount(before), true, null)
+                            actions.sentences.generate(ListenContext.moreCount(ListenContext.naturalCount(rows)), true, null)
                             actions.onListenMore(before)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e

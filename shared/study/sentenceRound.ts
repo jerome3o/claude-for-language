@@ -22,6 +22,7 @@
  */
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, isLocalRight, type SentencePractiseMode } from './sentencePractise';
 import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
+import { isContrivedSentence, naturalSentencesFirst } from './sentenceFocus';
 import { hasHan, type AnswerCheck, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
 import { tidySpokenTranscript } from '../cards/answer';
 import { practiseSentence } from '../coach/practise';
@@ -41,6 +42,11 @@ export interface RoundSentence {
   translation: string | null | undefined;
   /** Its clip can be played now (a clip, streamed online or on the device): it may be a listen exercise. */
   audio?: boolean;
+  /**
+   * The set row's focus. A contrived one (`isContrivedSentence`: written around a look-alike) is never an
+   * exercise and doesn't count toward the round's sentences (sentenceFocus.ts).
+   */
+  focus?: string | null;
 }
 
 export interface RoundSentenceSource {
@@ -52,7 +58,8 @@ export interface RoundSentenceSource {
 
 /**
  * The card's sentences as one list — exactly the answer side's list: the card's own sentence
- * first unless a set row says the same thing, then the set.
+ * first unless a set row says the same thing, then the set — its natural sentences first, the
+ * contrived ones last (`naturalSentencesFirst`, sentenceFocus.ts).
  */
 export function roundSentences(source: RoundSentenceSource): RoundSentence[] {
   const out: RoundSentence[] = [];
@@ -60,8 +67,18 @@ export function roundSentences(source: RoundSentenceSource): RoundSentence[] {
   if (clue && clue.hanzi.trim() && !source.set.some((s) => s.hanzi === clue.hanzi)) {
     out.push({ key: clue.key, hanzi: clue.hanzi, translation: clue.translation });
   }
-  for (const s of source.set) out.push({ key: s.key, hanzi: s.hanzi, translation: s.translation });
+  for (const s of naturalSentencesFirst(source.set)) {
+    out.push({ key: s.key, hanzi: s.hanzi, translation: s.translation, ...(s.focus != null ? { focus: s.focus } : {}) });
+  }
   return out;
+}
+
+/**
+ * The round may use this sentence: not hidden, not the card's own text (`isCardHanziSentence`), and not a
+ * contrived one (`isContrivedSentence`: written around a look-alike or homophone — sentenceFocus.ts).
+ */
+function roundUsable(s: Pick<RoundSentence, 'key' | 'hanzi' | 'focus'>, stats: ReadonlyMap<string, SentenceStats> | undefined, cardHanzi: string | null | undefined): boolean {
+  return !stats?.get(sentenceHistoryKey(s.key))?.hidden && !isCardHanziSentence(s.hanzi, cardHanzi) && !isContrivedSentence(s.focus);
 }
 
 export interface RoundExercise {
@@ -104,15 +121,16 @@ export function isCardHanziSentence(hanzi: string, cardHanzi: string | null | un
 }
 
 /**
- * How many of the card's sentences the (reading / meaning) round can use: not hidden, and not the card's
- * own text (`isCardHanziSentence`). 0 = no round. The listening card's is `listenRoundSentenceCount`.
+ * How many of the card's sentences the (reading / meaning) round can use: not hidden, not the card's
+ * own text (`isCardHanziSentence`), not contrived (`isContrivedSentence`). 0 = no round. The listening
+ * card's is `listenRoundSentenceCount`.
  */
 export function roundSentenceCount(
-  sentences: readonly Pick<RoundSentence, 'key' | 'hanzi'>[],
+  sentences: readonly Pick<RoundSentence, 'key' | 'hanzi' | 'focus'>[],
   stats?: ReadonlyMap<string, SentenceStats>,
   cardHanzi?: string | null,
 ): number {
-  return sentences.filter((s) => !stats?.get(sentenceHistoryKey(s.key))?.hidden && !isCardHanziSentence(s.hanzi, cardHanzi)).length;
+  return sentences.filter((s) => roundUsable(s, stats, cardHanzi)).length;
 }
 
 /**
@@ -146,7 +164,7 @@ export function spreadOrder(n: number): number[] {
  * wait), then the one he knows LEAST in that mode (never practised in it, then fewest rights, most
  * misses, longest ago: `compareLeastKnown`), ties in spread order;
  * every slot a different sentence, a translate only where the sentence has English (else that slot
- * reads). Shown easiest → harder. A sentence is in AT MOST ONE exercise (its English would answer
+ * reads). Contrived sentences (`isContrivedSentence`) never come. Shown easiest → harder. A sentence is in AT MOST ONE exercise (its English would answer
  * the other): fewer than four sentences = fewer exercises (3 → 3, 2 → read + translate when it can,
  * 1 → 1), and the word asks for more (`wantsMoreSentences`, reason few). Deterministic: the same list
  * and history give the same round in both apps.
@@ -166,7 +184,7 @@ export function pickRoundExercises(
   const statsOf = (s: RoundSentence) => stats?.get(sentenceHistoryKey(s.key));
   const visible = sentences
     .map((s, index) => ({ s, index }))
-    .filter(({ s }) => !statsOf(s)?.hidden && !isCardHanziSentence(s.hanzi, opts?.cardHanzi));
+    .filter(({ s }) => roundUsable(s, stats, opts?.cardHanzi));
   const n = visible.length;
   if (n === 0) return [];
   const spread = spreadOrder(n);
@@ -242,8 +260,9 @@ function squeeze(text: string): string {
 /**
  * The sentences the listening card's round can ask for (Jerome: "for the listening card … maybe I should
  * just get a few English sentences that I need to say"): the card's own sentence and the set's sentences
- * that contain the word, each with English (it is the question), not hidden, and not the word itself
- * (`isCardHanziSentence`: a sentence card's own sentence is what he just heard). In list order.
+ * that contain the word, each with English (it is the question), not hidden, not the word itself
+ * (`isCardHanziSentence`: a sentence card's own sentence is what he just heard) and not contrived
+ * (`isContrivedSentence`, sentenceFocus.ts). In list order.
  */
 export function listenRoundCandidates(
   sentences: readonly RoundSentence[],
@@ -253,7 +272,7 @@ export function listenRoundCandidates(
   const w = squeeze(word);
   return sentences
     .map((s, index) => ({ s, index }))
-    .filter(({ s }) => hasTranslation(s) && !stats?.get(sentenceHistoryKey(s.key))?.hidden && !isCardHanziSentence(s.hanzi, word))
+    .filter(({ s }) => hasTranslation(s) && roundUsable(s, stats, word))
     .filter(({ s }) => isCardSentenceKey(s.key) || !w || squeeze(s.hanzi).includes(w));
 }
 
@@ -476,7 +495,7 @@ export function orderKeysForRound(keys: readonly string[], marks: readonly Round
 
 /**
  * The exercises of a round shown before (resume): the logged ids whose sentences are still in
- * rotation, in sentence order — null when none (pick afresh).
+ * rotation (not hidden, not contrived), in sentence order — null when none (pick afresh).
  */
 export function exercisesFromLog(sentences: readonly RoundSentence[], ids: readonly string[], hidden?: (key: string) => boolean): RoundExercise[] | null {
   const index = new Map(sentences.map((s, i) => [s.key, i]));
@@ -485,6 +504,8 @@ export function exercisesFromLog(sentences: readonly RoundSentence[], ids: reado
   for (const id of ids) {
     const parts = roundExerciseParts(id);
     if (!parts || seen.has(parts.key) || !index.has(parts.key) || hidden?.(parts.key)) continue;
+    // A round logged before contrived sentences left the round (sentenceFocus.ts): that one is dropped.
+    if (isContrivedSentence(sentences[index.get(parts.key)!].focus)) continue;
     seen.add(parts.key);
     out.push({ id: roundExerciseId(parts.mode, parts.key), key: parts.key, mode: parts.mode, index: index.get(parts.key)! });
   }
