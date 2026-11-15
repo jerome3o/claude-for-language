@@ -1,6 +1,15 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -85,4 +94,25 @@ fun SayItAgainRow(hanzi: String, exerciseType: String, kind: String = "answer", 
         }
         if (bursts > 0) ConfettiBurst(key = "say-$hanzi-$bursts", colors = Palette.Confetti, modifier = Modifier.matchParentSize())
     }
+}
+
+/**
+ * ▶ the exercise's clip again, as often as he likes (web `ReplayButton`; Jerome: "it doesn't allow me to replay the
+ * AI audio"): the lesson's own cache-first speak, so it plays offline once prefetched. Not while a take records.
+ */
+@Composable
+fun ReplayButton(hanzi: String, env: ExerciseEnv, exerciseType: String, tag: String = "lesson-replay") {
+    val lock = dev.jeromeswannack.chineselearning.lab.ui.kit.LocalTakeLock.current
+    val recording = lock?.phase == dev.jeromeswannack.chineselearning.lab.core.TakeLock.RECORDING
+    Box(
+        Modifier.size(44.dp).clip(CircleShape)
+            .border(1.5.dp, Lab.colors.accent.copy(alpha = if (recording) 0.2f else 0.5f), CircleShape)
+            .bouncyClickable(!recording, 0.9f, role = Role.Button) {
+                env.speak(hanzi)
+                Analytics.track("lesson.feedback_replay", mapOf("exercise_type" to exerciseType))
+            }
+            .semantics { contentDescription = "Play it again: $hanzi" }
+            .testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Text("▶", color = Lab.colors.accent.copy(alpha = if (recording) 0.35f else 1f), fontSize = 16.sp) }
 }

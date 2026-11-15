@@ -37,7 +37,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
@@ -127,10 +129,26 @@ fun ResultBanner(correct: Boolean, text: String) {
     }
 }
 
-/** `exercise-actions`: one or two pills, full width. */
+/**
+ * `exercise-actions`: one or two pills, full width. Under a take lock (the mini-lesson player, ui/kit/TakeLock.kt)
+ * while a 🎤 take records, a primary row (Check / Continue / Got it / Show answer / Done) is ONE "■ Stop recording"
+ * in its place that stops the take and never advances; a [secondary] row (▶ Play, Listen back, one question's own
+ * buttons) stays where it is, greyed and untappable.
+ */
 @Composable
-fun ActionRow(content: @Composable RowScope.() -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+fun ActionRow(secondary: Boolean = false, content: @Composable RowScope.() -> Unit) {
+    val lock = dev.jeromeswannack.chineselearning.lab.ui.kit.LocalTakeLock.current
+    val footer = lock?.footer ?: "proceed"
+    val base = Modifier.fillMaxWidth().padding(top = 4.dp)
+    when {
+        footer == "proceed" -> Row(base, horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+        secondary -> Box(base.testTag(dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockTags.MUTED)) {
+            Row(Modifier.fillMaxWidth().alpha(0.4f), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically, content = content)
+            // Swallows every tap on the greyed row.
+            Box(Modifier.matchParentSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
+        }
+        else -> Box(base) { dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockStopButton(recording = footer == "stop", onStop = { lock?.stop() }) }
+    }
 }
 
 @Composable
@@ -141,36 +159,41 @@ fun RowScope.Primary(label: String, enabled: Boolean = true, onClick: () -> Unit
 fun RowScope.Secondary(label: String, enabled: Boolean = true, onClick: () -> Unit) =
     SecondaryPill(label, Modifier.weight(1f).heightIn(min = 54.dp), enabled = enabled, onClick = onClick)
 
-/** `translate-ref`: a model sentence — tap it to hear it. */
+/**
+ * `translate-ref` (web `FeedbackSentence`): a model sentence on an answer screen — every word tappable into the
+ * language explorer (the device segmenter), ▶ to hear the exercise's clip again ([ReplayButton]), then its pinyin /
+ * English. [missedBy] = his answer: the characters it missed are marked (the other half of the device's diff).
+ */
 @Composable
-fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null, missedBy: String? = null) {
+fun Reference(sentence: LessonSentence, env: ExerciseEnv, label: String? = null, missedBy: String? = null, exerciseType: String = "lesson", tag: String = "lesson-feedback-sentence") {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (label != null) Explanation(label)
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Lab.colors.card)
                 .border(1.dp, Lab.colors.outline, RoundedCornerShape(18.dp))
-                .bouncyClickable(pressedScale = 0.98f) { env.speak(sentence.hanzi) }
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .testTag(tag),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (missedBy.isNullOrBlank()) {
-                Text("${sentence.hanzi} 🔊", fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-            } else {
-                // The other half of the device's diff: the characters his answer [missedBy] doesn't have, highlighted.
-                Text(
-                    androidx.compose.ui.text.buildAnnotatedString {
-                        for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(missedBy, sentence.hanzi, "model")) {
-                            if (m.hit) append(m.ch) else {
-                                pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, background = Palette.Again.copy(alpha = 0.12f), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
-                                append(m.ch)
-                                pop()
-                            }
-                        }
-                        append(" 🔊")
-                    },
-                    fontSize = 24.sp, color = Lab.colors.ink, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-                    modifier = Modifier.testTag("lesson-marked-model"),
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth()) {
+                val segments = androidx.compose.runtime.remember(sentence.hanzi, dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.of(sentence.hanzi) != null) {
+                    dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.of(sentence.hanzi)?.map { dev.jeromeswannack.chineselearning.lab.core.explorer.WordSegmentInput(it.text, it.pinyin, it.gloss) }
+                }
+                val marks = androidx.compose.runtime.remember(sentence.hanzi, missedBy) {
+                    missedBy?.takeIf { it.isNotBlank() }?.let { a -> dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(a, sentence.hanzi, "model").map { !it.hit } }
+                }
+                dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText(
+                    sentence.hanzi,
+                    source = "lesson",
+                    segments = segments,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    marks = marks,
+                    markStyle = SpanStyle(color = Palette.Again, background = Palette.Again.copy(alpha = 0.12f), textDecoration = TextDecoration.Underline),
+                    modifier = Modifier.weight(1f, fill = false).then(if (marks != null) Modifier.testTag("lesson-marked-model") else Modifier),
                 )
+                if (hasHanText(sentence.hanzi)) ReplayButton(sentence.hanzi, env, exerciseType)
             }
             sentence.pinyin?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.accent, fontSize = 15.sp, textAlign = TextAlign.Center) }
             sentence.english?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.muted, fontSize = 15.sp, textAlign = TextAlign.Center) }
@@ -201,6 +224,9 @@ fun OptionButton(
     english: String? = null,
     enabled: Boolean = true,
     big: Boolean = true,
+    /** Answered: the hanzi is words to explore with a ▶ to hear it again (web `AnsweredOption`); null = plain. */
+    explore: ExerciseEnv? = null,
+    exerciseType: String = "lesson",
     onClick: () -> Unit,
 ) {
     val border by animateColorAsState(
@@ -216,7 +242,14 @@ fun OptionButton(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(hanzi, fontSize = if (big) 22.sp else 17.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        if (explore != null && hasHanText(hanzi)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), modifier = Modifier.fillMaxWidth().testTag("lesson-answered-option")) {
+                dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText(hanzi, source = "lesson", fontSize = if (big) 22.sp else 17.sp, textAlign = TextAlign.Center, modifier = Modifier.weight(1f, fill = false))
+                ReplayButton(hanzi, explore, exerciseType, tag = "lesson-option-replay")
+            }
+        } else {
+            Text(hanzi, fontSize = if (big) 22.sp else 17.sp, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        }
         pinyin?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.accent, fontSize = 14.sp, textAlign = TextAlign.Center) }
         english?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center) }
     }
@@ -363,3 +396,6 @@ fun ListenPlayButton(text: String, env: ExerciseEnv, autoPlay: Boolean = true, o
         Text("Tap to replay", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.padding(top = 6.dp))
     }
 }
+
+/** Any Han character (the answer screen's Chinese: words to explore + ▶ only then). */
+internal fun hasHanText(s: String): Boolean = s.codePoints().anyMatch { dev.jeromeswannack.chineselearning.lab.core.Known.isHan(it) }

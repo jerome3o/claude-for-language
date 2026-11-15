@@ -24,6 +24,8 @@ export function ExplorableText({
   onTap,
   onClosed,
   suppressTap,
+  marks,
+  markClassName = 'miss',
 }: {
   text: string;
   segments?: readonly WordSegmentInput[] | null;
@@ -43,6 +45,12 @@ export function ExplorableText({
   onClosed?: ExplorerOpenOptions['onClosed'];
   /** True for the tap that ends a long press on the row around it (its menu opened): ignored. */
   suppressTap?: () => boolean;
+  /**
+   * Characters to mark, one flag per code point of `text` (a lesson answer screen's diff: the characters his answer
+   * missed): each marked character is wrapped in `markClassName`, the word stays one tap.
+   */
+  marks?: readonly boolean[];
+  markClassName?: string;
 }) {
   const explorer = useExplorer();
   const pieces = explorableSegments(text, segments, (s, e) => sentenceAround(text, s, e));
@@ -73,7 +81,9 @@ export function ExplorableText({
         const hl = marked.has(start);
         const at = charIndex;
         charIndex += [...p.text].length;
-        const shown = shimmerText(p.text, newChars, at);
+        const shown = marks
+          ? [...p.text].map((ch, k) => (marks[at + k] ? <span key={k} className={markClassName}>{ch}</span> : ch))
+          : shimmerText(p.text, newChars, at);
         return p.item ? (
           <span
             key={i}

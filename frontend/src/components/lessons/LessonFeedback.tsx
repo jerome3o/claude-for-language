@@ -9,6 +9,10 @@
  * - `SayItAgain` — 🎤 Say it again: the coach's "Practise saying it" (live transcription, the "You said"
  *   row) over the exercise's answer / example / Claude's fix. Practice only: nothing is scored or stored.
  * - `MarkedAnswer` — his answer with the characters the model answer doesn't have marked (the device's diff).
+ * - `FeedbackSentence` — the answer screen's Chinese sentence: every word tappable into the language explorer (the
+ *   device segmenter) with a ▶ that plays the exercise's own clip again (the lesson's cache-first speak — offline once
+ *   prefetched), never while a take records. Jerome: "it doesn't allow me to click on letters after I've submitted my
+ *   answer. It also doesn't allow me to replay the AI audio."
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
@@ -18,6 +22,9 @@ import { ConfettiBurst } from '../ConfettiBurst';
 import { PractiseSentence } from '../coach/PractiseSentence';
 import { studyFeel } from '../../services/studyFeel';
 import { track } from '../../services/analytics';
+import { ExplorableText } from '../explorer/ExplorableText';
+import { useSegmentedWords } from '../../services/chineseSegmenter';
+import { useTakeLock } from '../voice/TakeLock';
 import './LessonFeedback.css';
 
 /** Plays a moment's feel once, when mounted, and shows its burst (inside a position: relative parent). */
@@ -90,5 +97,67 @@ export function MarkedModel({ answer, model }: { answer: string; model: string }
     <span className="lesson-marked-model" data-testid="lesson-marked-model">
       {markedChars(answer, model, 'model').map((m, i) => <span key={i} className={m.hit ? undefined : 'miss'}>{m.ch}</span>)}
     </span>
+  );
+}
+
+/** ▶ the exercise's clip again, as often as he likes (not while a take records — it would play into the mic). */
+export function ReplayButton({ hanzi, speak, exerciseType, testId = 'lesson-replay' }: {
+  hanzi: string;
+  speak: (text: string) => void;
+  exerciseType: string;
+  testId?: string;
+}) {
+  const lock = useTakeLock();
+  const recording = lock?.phase === 'recording';
+  return (
+    <button
+      type="button"
+      className="lesson-replay-btn"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (recording) return;
+        speak(hanzi);
+        track('lesson.feedback_replay', { exercise_type: exerciseType });
+      }}
+      disabled={recording}
+      aria-label={`Play it again: ${hanzi}`}
+      title="Play it again"
+      data-testid={testId}
+    >
+      <span aria-hidden="true">▶</span>
+    </button>
+  );
+}
+
+/**
+ * The answer screen's Chinese sentence: tappable word by word into the explorer, ▶ to hear it again, then its pinyin
+ * / English. `answer` = his answer, when the characters it missed are to be marked (the device's diff).
+ */
+export function FeedbackSentence({ hanzi, pinyin, english, speak, exerciseType, answer, label, testId = 'lesson-feedback-sentence' }: {
+  hanzi: string;
+  pinyin?: string | null;
+  english?: string | null;
+  speak: (text: string) => void;
+  exerciseType: string;
+  answer?: string | null;
+  label?: string;
+  testId?: string;
+}) {
+  const words = useSegmentedWords(hanzi, /\p{Script=Han}/u.test(hanzi));
+  const marks = answer ? markedChars(answer, hanzi, 'model').flatMap((m) => Array.from(m.ch).map(() => !m.hit)) : undefined;
+  return (
+    <>
+      {label && <p className="result-explanation">{label}</p>}
+      <div className="translate-ref lesson-feedback-sentence" data-testid={testId}>
+        <div className="lesson-feedback-sentence-line">
+          <span className={`translate-ref-hanzi lesson-feedback-sentence-hanzi${marks ? ' lesson-marked-model' : ''}`}>
+            <ExplorableText text={hanzi} segments={words} source="lesson" marks={marks} />
+          </span>
+          <ReplayButton hanzi={hanzi} speak={speak} exerciseType={exerciseType} />
+        </div>
+        {pinyin && <div className="translate-ref-pinyin">{pinyin}</div>}
+        {english && <div className="contrast-english">{english}</div>}
+      </div>
+    </>
   );
 }

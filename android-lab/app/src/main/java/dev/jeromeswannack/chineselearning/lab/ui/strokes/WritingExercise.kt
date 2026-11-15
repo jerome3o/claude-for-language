@@ -489,7 +489,13 @@ fun WritingSummary(
             SecondaryPill("↺ Again", Modifier.weight(1f), onClick = onAgain)
             if (allowModeSwitch) SecondaryPill(if (mode == WritingMode.TRACE) "🧠 From memory" else "✏️ Trace it", Modifier.weight(1f), onClick = onSwitchMode)
         }
-        if (onDone != null) PrimaryPill(doneLabel, Modifier.fillMaxWidth().height(56.dp), onClick = onDone)
+        if (onDone != null) {
+            // Under a take lock (a mini lesson's 🎤 Say it again recording below): "■ Stop recording" in its place.
+            val lock = dev.jeromeswannack.chineselearning.lab.ui.kit.LocalTakeLock.current
+            val footer = lock?.footer ?: "proceed"
+            if (footer == "proceed") PrimaryPill(doneLabel, Modifier.fillMaxWidth().height(56.dp), onClick = onDone)
+            else dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockStopButton(recording = footer == "stop", onStop = { lock?.stop() })
+        }
     }
 }
 

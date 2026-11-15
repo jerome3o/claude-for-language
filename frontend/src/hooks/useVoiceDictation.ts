@@ -16,6 +16,8 @@ import { IDLE_SPOKEN, SpokenAnswerController, type SpokenAnswerState } from '../
 import { useManualOfflineMode } from '../services/offlineMode';
 import { track } from '../services/analytics';
 import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
+import { takePhase } from '@shared/voice/takeLock';
+import { useReportTake } from '../components/voice/TakeLock';
 import {
   dictationAnswer,
   dictationLanguageHints,
@@ -157,6 +159,9 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
   }), [report]);
 
   useEffect(() => () => controller.dispose(), [controller]);
+  // The take lock (shared/voice/takeLock.ts; a no-op outside a TakeLockProvider): while this box records, the
+  // screen's primary action is "■ Stop recording"; while the take is transcribed, "Checking what you said…".
+  useReportTake(takePhase(spoken.phase === 'listening', spoken.phase === 'finishing'), () => controller.stop());
   useEffect(() => { if (online && supported) prefetchLiveSession(); }, [online, supported]);
   // Going offline mid-take: the take is thrown away (the box says why).
   useEffect(() => {

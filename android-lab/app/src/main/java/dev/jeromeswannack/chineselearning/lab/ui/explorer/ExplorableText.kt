@@ -51,6 +51,12 @@ fun ExplorableText(
     onTap: ((ExplorerItem) -> Unit)? = null,
     /** The tappable pieces are underlined — where tapping Chinese isn't otherwise expected (a sheet). */
     underline: Boolean = false,
+    /**
+     * Characters to mark, one flag per code point of [text] (a lesson answer screen's diff: the characters his answer
+     * missed) in [markStyle]; each word stays one tap (web ExplorableText `marks`).
+     */
+    marks: List<Boolean>? = null,
+    markStyle: SpanStyle? = null,
 ) {
     val explorerTap = rememberExplorerTap(source, context)
     val tap: ((ExplorerItem) -> Unit)? = remember(explorerTap, onTap) {
@@ -59,7 +65,7 @@ fun ExplorableText(
     val pieces = remember(text, segments) { ExplorableSegments.explorableSegments(text, segments, sentenceOf) }
     val linkColor = if (tint) Lab.colors.accent else color
     val highlightColor = Lab.colors.accent
-    val annotated = remember(pieces, tap, linkColor, highlight, underline) {
+    val annotated = remember(pieces, tap, linkColor, highlight, underline, marks, markStyle) {
         buildAnnotatedString {
             for (p in pieces) {
                 val item = p.item
@@ -76,6 +82,17 @@ fun ExplorableText(
                         linkInteractionListener = { tap(item) },
                     ),
                 ) { append(p.text) }
+            }
+            // The marked characters (by code point → UTF-16 offset).
+            if (marks != null && markStyle != null) {
+                var offset = 0
+                var cp = 0
+                while (offset < text.length) {
+                    val len = Character.charCount(text.codePointAt(offset))
+                    if (marks.getOrNull(cp) == true) addStyle(markStyle, offset, offset + len)
+                    offset += len
+                    cp++
+                }
             }
             // Every occurrence of the explored word, by position in the text (web ExplorableText `highlight`).
             if (!highlight.isNullOrEmpty()) {

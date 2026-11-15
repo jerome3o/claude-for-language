@@ -194,6 +194,9 @@ fun LessonPlayer(
 ) {
     val preview = context is PlayerContext.Preview
     val claudeState = remember { ExerciseClaudeState() }
+    // The take lock (core TakeLock, ui/kit/TakeLock.kt): while any 🎤 take records, the exercise's primary action is
+    // "■ Stop recording" and can never advance; ✕ / back stop the take first.
+    val takeLock = remember { dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockState(if (preview) "lesson_preview" else "lesson") }
     val shape = remember(spec) { LessonRun.shape(spec) }
     var run by remember { mutableIntStateOf(0) }
     // A run saved earlier continues where it stopped (the exercise on screen starts again) — any day.
@@ -271,6 +274,8 @@ fun LessonPlayer(
     }
 
     fun advance(isCorrect: Boolean?, answer: dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer?, recording: java.io.File?) {
+        // Never moved on while a take records (the footer is "■ Stop recording" then; this is the backstop).
+        if (!takeLock.mayProceed()) { takeLock.stop("advance"); return }
         val cur = LessonRun.current(state, steps) ?: return
         val ex = exercises[cur.step.key]?.first ?: return
         val retry = if (cur.phase == "retry") LessonRun.retryNumber(attempts, cur.step.key) else 0
@@ -312,6 +317,8 @@ fun LessonPlayer(
         run++
     }
 
+    androidx.activity.compose.BackHandler(enabled = takeLock.phase == dev.jeromeswannack.chineselearning.lab.core.TakeLock.RECORDING) { takeLock.stop("back") }
+    androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.kit.LocalTakeLock provides takeLock) {
     Box(Modifier.fillMaxSize().background(Lab.colors.background).then(if (showTopBar) Modifier.safeDrawingPadding() else Modifier)) {
         Column(Modifier.fillMaxSize()) {
             if (showTopBar) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -329,7 +336,7 @@ fun LessonPlayer(
                     SecondaryPill(if (previewSave.busy) "Saving…" else "＋ Save", Modifier.heightIn(min = 44.dp).testTag(PREVIEW_SAVE_NOW_TAG), enabled = !previewSave.busy, onClick = previewSave.onSaveNow)
                 }
                 claudeTarget?.let { t -> LessonAskClaudeButton { claudeState.open = Triple(t, "toolbar", null) } }
-                IconButton(onClick = onEnd) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "Close lesson", tint = Lab.colors.muted) }
+                IconButton(onClick = { takeLock.guardLeave(onEnd) }) { Icon(Icons.Filled.Close, if (preview) "Close preview" else "Close lesson", tint = Lab.colors.muted) }
             }
 
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -429,6 +436,7 @@ fun LessonPlayer(
             }
         }
         ExerciseClaudeSheet(claudeState)
+    }
     }
 }
 

@@ -3,7 +3,7 @@
  * shared/coach/practise.ts): ▶ plays the sentence (practice TTS, cached on the device), 🎤 records a
  * take through the voice boxes' pipeline (`useVoiceDictation`: live Soniox transcript while speaking,
  * upload fallback, "Couldn't transcribe — tap to retry"); tap 🎤 again, press Enter or tap anywhere
- * (the card) to stop, and the take is checked against the sentence like a spoken answer — the
+ * (the card; not under a take lock — the mini-lesson player, components/voice/TakeLock.tsx) to stop, and the take is checked against the sentence like a spoken answer — the
  * compact "You said" row (`YouSaidRow`) with the characters that differ marked, then 🔁 Try again.
  * Nothing is stored (no review event, no recording kept). Lab: `PractiseSentenceRow` in
  * ui/coach/CoachPractise.kt.
@@ -31,6 +31,7 @@ import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { useLessonSpeak } from '../editor/useLessonSpeak';
 import { YouSaidFailed, YouSaidRow } from '../study/YouSaid';
 import { track } from '../../services/analytics';
+import { useTakeLock } from '../voice/TakeLock';
 import './PractiseSentence.css';
 
 export interface PractiseSentenceProps {
@@ -98,7 +99,11 @@ export function PractiseSentence({
   const micRef = useRef<HTMLButtonElement>(null);
   const stopRef = useRef(dictation.stop);
   stopRef.current = dictation.stop;
-  // While recording: Enter, or a tap anywhere but 🎤 itself (the card, the page), stops the take.
+  // While recording: Enter, or a tap anywhere but 🎤 itself (the card, the page), stops the take — except under a
+  // take lock (the mini-lesson player, shared/voice/takeLock.ts), where stopping is intentional: 🎤 again, Enter or
+  // the "■ Stop recording" the screen's primary action became (a tap elsewhere must never also press Next).
+  const takeLock = useTakeLock();
+  const tapAnywhere = !takeLock;
   useEffect(() => {
     if (!listening) return;
     const onKey = (e: KeyboardEvent) => {
@@ -112,12 +117,12 @@ export function PractiseSentence({
       stopRef.current();
     };
     window.addEventListener('keydown', onKey);
-    document.addEventListener('pointerdown', onTap, true);
+    if (tapAnywhere) document.addEventListener('pointerdown', onTap, true);
     return () => {
       window.removeEventListener('keydown', onKey);
       document.removeEventListener('pointerdown', onTap, true);
     };
-  }, [listening]);
+  }, [listening, tapAnywhere]);
 
   const toggle = () => {
     if (listening) return dictation.stop();

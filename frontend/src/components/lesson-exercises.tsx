@@ -16,11 +16,12 @@ import type { ExerciseAnswer } from '@shared/lesson';
 import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
+import { TakeLockActions } from './voice/TakeLock';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import { isExactHanziMatch } from '@shared/lesson/answer-check';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
-import { LessonFeel, MarkedAnswer, MarkedModel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
+import { FeedbackSentence, LessonFeel, MarkedAnswer, ReplayButton, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -45,6 +46,29 @@ export function checkScrambleOrder(
   const userSentence = join(userOrder);
   if (userSentence === join(correctOrder)) return true;
   return (altOrders ?? []).some(alt => userSentence === join(alt));
+}
+
+/**
+ * A multiple-choice option once answered: its Chinese tappable word by word into the explorer, ▶ to hear it again,
+ * then its pinyin / English (a choice is never changed once checked).
+ */
+function AnsweredOption({ option, cls, speak, exerciseType }: {
+  option: { hanzi: string; pinyin?: string | null; english?: string | null };
+  cls: string;
+  speak: Speak;
+  exerciseType: string;
+}) {
+  const han = /\p{Script=Han}/u.test(option.hanzi);
+  return (
+    <div className={`contrast-option answered ${cls}`} data-testid="lesson-answered-option">
+      <div className="contrast-hanzi answered-option-line">
+        {han ? <ExplorableText text={option.hanzi} source="lesson" /> : option.hanzi}
+        {han && <ReplayButton hanzi={option.hanzi} speak={speak} exerciseType={exerciseType} testId="lesson-option-replay" />}
+      </div>
+      {option.pinyin && <div className="contrast-pinyin">{option.pinyin}</div>}
+      {option.english && <div className="contrast-english">{option.english}</div>}
+    </div>
+  );
 }
 
 // ============ Word order (scramble) ============
@@ -89,15 +113,19 @@ export function ScrambleExercise(props: {
         </button>
       )}
       <div className="scramble-row answer">
-        {picked.map((t, i) => (
+        {picked.map((t, i) => result === null ? (
           <button
             key={i}
             className="tile"
-            onClick={() => result === null && setPickedOrder(pickedOrder.filter((_, j) => j !== i))}
-            disabled={result !== null}
+            onClick={() => setPickedOrder(pickedOrder.filter((_, j) => j !== i))}
           >
             {t}
           </button>
+        ) : (
+          // Checked: his blocks are words to explore now (while arranging, a tap places / removes a block).
+          <span key={i} className="tile tile-done" data-testid="scramble-answer-tile">
+            <ExplorableText text={t} source="lesson" />
+          </span>
         ))}
         {picked.length === 0 && <div className="tile-placeholder">Tap tiles below</div>}
       </div>
@@ -117,21 +145,27 @@ export function ScrambleExercise(props: {
         })}
       </div>
       {result === null ? (
-        <div className="exercise-actions">
+        <TakeLockActions>
           <button className="practice-btn primary" onClick={check} disabled={!allPicked}>
             Check
           </button>
-        </div>
+        </TakeLockActions>
       ) : (
         <>
           <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
-          {!result && <div className="result-correction">{correctOrder.join(' ')}</div>}
+          <FeedbackSentence
+            hanzi={correctOrder.join('')}
+            label={result ? undefined : 'The right order:'}
+            speak={speak}
+            exerciseType="scramble"
+            testId="scramble-correct-sentence"
+          />
           <SayItAgain hanzi={correctOrder.join('')} exerciseType="scramble" />
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(result, { order: picked, hint_used: showEnglish })}>
               Continue
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -168,17 +202,15 @@ export function ChoiceExercise(props: {
         const s = options[index];
         const cls =
           result === null ? '' : index === correctIndex ? 'correct' : index === choice ? 'wrong' : '';
+        if (result !== null) return <AnsweredOption key={index} option={s} cls={cls} speak={speak} exerciseType="choice" />;
         return (
           <button
             key={index}
             className={`contrast-option ${cls}`}
-            onClick={() => result === null && pick(index)}
-            disabled={result !== null}
+            onClick={() => pick(index)}
           >
-            <div className="contrast-hanzi">{s.hanzi}</div>
             {/* Pinyin/English only after answering — reading the hanzi IS the exercise */}
-            {result !== null && s.pinyin && <div className="contrast-pinyin">{s.pinyin}</div>}
-            {result !== null && s.english && <div className="contrast-english">{s.english}</div>}
+            <div className="contrast-hanzi">{s.hanzi}</div>
           </button>
         );
       })}
@@ -187,11 +219,11 @@ export function ChoiceExercise(props: {
           <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
           {explanation && <p className="result-explanation">{explanation}</p>}
           {/\p{Script=Han}/u.test(options[correctIndex]?.hanzi ?? '') && <SayItAgain hanzi={options[correctIndex].hanzi} exerciseType="choice" />}
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined })}>
               Continue
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -255,11 +287,11 @@ export function TranslateExercise(props: {
             multiline
             testId="lesson-voice"
           />
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn" onClick={() => reveal()} data-testid="lesson-show-answer">
               Show answer
             </button>
-          </div>
+          </TakeLockActions>
         </>
       ) : (
         <>
@@ -278,24 +310,25 @@ export function TranslateExercise(props: {
               {matched && <LessonFeel moment="matched_answer" />}
             </div>
           )}
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(referenceHanzi)}>
-              {answer.trim() && !matched ? <MarkedModel answer={answer.trim()} model={referenceHanzi} /> : referenceHanzi} 🔊
-            </div>
-            {referencePinyin && <div className="translate-ref-pinyin">{referencePinyin}</div>}
-          </div>
+          <FeedbackSentence
+            hanzi={referenceHanzi}
+            pinyin={referencePinyin}
+            answer={answer.trim() && !matched ? answer.trim() : null}
+            speak={speak}
+            exerciseType="translate"
+          />
           <SayItAgain hanzi={referenceHanzi} exerciseType="translate" />
           <p className="result-explanation">
             {note || 'Did yours match the meaning? (Different wording is fine.)'}
           </p>
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, report())} data-testid="lesson-missed-it">
               ✗ Missed it
             </button>
             <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, report())} data-testid="lesson-got-it">
               ✓ Got it
             </button>
-          </div>
+          </TakeLockActions>
           {answer.trim() && ac.view(answer.trim(), speak, { offered: referenceHanzi, celebrated: matched })}
         </>
       )}
@@ -400,11 +433,11 @@ export function MatchExercise(props: {
           <ResultBanner ok={mistakes === 0}>
             {mistakes === 0 ? '✓ All matched!' : `Matched with ${mistakes} miss${mistakes === 1 ? '' : 'es'}`}
           </ResultBanner>
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(mistakes === 0, { mistakes })}>
               Continue
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -473,32 +506,26 @@ export function DescribeImageExercise(props: {
       <DescribeImagePicture image={image} imagePrompt={imagePrompt} />
       <p className="describe-task">{task || 'Describe what you see — out loud, in Chinese.'}</p>
       {!revealed ? (
-        <div className="exercise-actions">
+        <TakeLockActions>
           <button className="practice-btn primary" onClick={reveal}>
             🎤 I've described it
           </button>
-        </div>
+        </TakeLockActions>
       ) : (
         <>
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(referenceHanzi)}>
-              {referenceHanzi} 🔊
-            </div>
-            {referencePinyin && <div className="translate-ref-pinyin">{referencePinyin}</div>}
-            {referenceEnglish && <div className="contrast-english">{referenceEnglish}</div>}
-          </div>
+          <FeedbackSentence hanzi={referenceHanzi} pinyin={referencePinyin} english={referenceEnglish} speak={speak} exerciseType="describe_image" />
           <SayItAgain hanzi={referenceHanzi} exerciseType="describe_image" kind="example" />
           <p className="result-explanation">
             Did your description capture the scene? (Any correct sentence counts.)
           </p>
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn" onClick={() => onNext(false, { self_assessed: true })}>
               ✗ Not quite
             </button>
             <button className="practice-btn primary" onClick={() => onNext(true, { self_assessed: true })}>
               ✓ Got it
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -582,38 +609,30 @@ export function ListenChoiceExercise(props: {
         const s = options[index];
         const cls =
           result === null ? '' : index === correctIndex ? 'correct' : index === choice ? 'wrong' : '';
+        // After answering, ▶ on an option speaks it — hearing the contrast between the choices is the point.
+        if (result !== null) return <AnsweredOption key={index} option={s} cls={cls} speak={speak} exerciseType="listen_choice" />;
         return (
           <button
             key={index}
             className={`contrast-option ${cls}`}
-            // After answering, tapping an option speaks it — hearing the
-            // contrast between the choices is the point of the exercise.
-            onClick={() => (result === null ? setChoice(index) : speak(s.hanzi))}
+            onClick={() => setChoice(index)}
           >
-            <div className="contrast-hanzi">{s.hanzi}</div>
             {/* Pinyin/English only after answering — they'd give the audio away */}
-            {result !== null && s.pinyin && <div className="contrast-pinyin">{s.pinyin}</div>}
-            {result !== null && s.english && <div className="contrast-english">{s.english}</div>}
+            <div className="contrast-hanzi">{s.hanzi}</div>
           </button>
         );
       })}
       {result !== null && (
         <>
           <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(audio.hanzi)}>
-              {audio.hanzi} 🔊
-            </div>
-            {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
-            {audio.english && <div className="contrast-english">{audio.english}</div>}
-          </div>
+          <FeedbackSentence hanzi={audio.hanzi} pinyin={audio.pinyin} english={audio.english} speak={speak} exerciseType="listen_choice" />
           <SayItAgain hanzi={audio.hanzi} exerciseType="listen_choice" />
           {explanation && <p className="result-explanation">{explanation}</p>}
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined, plays: plays.current })}>
               Continue
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -681,11 +700,11 @@ export function ListenTranslateExercise(props: {
             lang="en"
             testId="lesson-voice"
           />
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn" onClick={() => reveal()} data-testid="lesson-show-answer">
               Show answer
             </button>
-          </div>
+          </TakeLockActions>
         </>
       ) : (
         <>
@@ -701,25 +720,19 @@ export function ListenTranslateExercise(props: {
               {isListenAnswerMatch(answer, audio) && <LessonFeel moment="matched_answer" />}
             </div>
           )}
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(audio.hanzi)}>
-              {audio.hanzi} 🔊
-            </div>
-            {audio.pinyin && <div className="translate-ref-pinyin">{audio.pinyin}</div>}
-            {audio.english && <div className="contrast-english">{audio.english}</div>}
-          </div>
+          <FeedbackSentence hanzi={audio.hanzi} pinyin={audio.pinyin} english={audio.english} speak={speak} exerciseType="listen_translate" />
           <SayItAgain hanzi={audio.hanzi} exerciseType="listen_translate" />
           <p className="result-explanation">
             {note || 'Did you catch the meaning? (Different wording is fine.)'}
           </p>
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, report())}>
               ✗ Missed it
             </button>
             <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, report())}>
               ✓ Got it
             </button>
-          </div>
+          </TakeLockActions>
           {answer.trim() && ac.view(answer.trim(), speak, { offered: audio.hanzi, celebrated: isListenAnswerMatch(answer, audio) })}
         </>
       )}
@@ -763,11 +776,11 @@ export function LessonNoteCard(props: {
           {s.english && <div className="contrast-english">{s.english}</div>}
         </div>
       ))}
-      <div className="exercise-actions">
+      <TakeLockActions>
         <button className="practice-btn primary" onClick={onNext}>
           Continue
         </button>
-      </div>
+      </TakeLockActions>
     </div>
   );
 }

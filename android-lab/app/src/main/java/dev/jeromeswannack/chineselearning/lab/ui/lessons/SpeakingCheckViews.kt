@@ -262,6 +262,8 @@ fun SpeakingAnswerView(
             delay(250)
         }
     }
+    // The take lock (core TakeLock): while this answer records, the screen's primary action is "■ Stop recording".
+    dev.jeromeswannack.chineselearning.lab.ui.kit.ReportTake(dev.jeromeswannack.chineselearning.lab.core.TakeLock.phase(recording, false)) { take.stop() }
     val text = (take.transcript as? SpeakingTranscript.Done)?.text.orEmpty()
     // The check starts once the answer is final (Done) and its transcript exists — whichever comes last.
     LaunchedEffect(done, skipped, text) {
@@ -318,7 +320,7 @@ fun SpeakingAnswerView(
                 t != null -> {
                     Text("Recorded ${SpeakingTake.clock(take.durationMs / 1000.0)}", color = Lab.colors.ink, fontWeight = FontWeight.SemiBold)
                     SpeakingTranscriptBlock(take.transcript, onRetry = take::retry)
-                    ActionRow {
+                    ActionRow(secondary = true) {
                         Secondary("▶ Listen back") { env.playFile(t) }
                         Secondary("🎙 Again") { start() }
                     }
@@ -336,9 +338,9 @@ fun SpeakingAnswerView(
             }
         }
     } else {
-        if (file != null) ActionRow { Secondary("▶ Your answer") { env.playFile(file) } }
+        if (file != null) ActionRow(secondary = true) { Secondary("▶ Your answer") { env.playFile(file) } }
         if (file != null) SpeakingTranscriptBlock(take.transcript, onRetry = take::retry)
-        example?.let { Reference(it, env, label = dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.EXAMPLE_LABEL) }
+        example?.let { Reference(it, env, label = dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.EXAMPLE_LABEL, exerciseType = exerciseType) }
         example?.let { SayItAgainRow(it.hanzi, exerciseType, "example", env) }
         if (mediaKey != null && file != null) Explanation("Your tutor can listen to this recording.")
         SelfAssess("How did it go?", yes = gotItLabel, suggested = ac.suggested?.let { it == "got_it" }) { ok -> onDone(ok, answer(), file) }

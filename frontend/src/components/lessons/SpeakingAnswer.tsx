@@ -19,7 +19,8 @@ import type { ExerciseAnswer, LessonSentence } from '@shared/lesson';
 import { speakingClock, speakingTakeLine } from '@shared/lesson/speakingTake';
 import { useSpeakingTake } from '../../hooks/useSpeakingTake';
 import { useLessonAnswerCheck } from './useLessonAnswerCheck';
-import { SayItAgain } from './LessonFeedback';
+import { FeedbackSentence, SayItAgain } from './LessonFeedback';
+import { TakeLockActions } from '../voice/TakeLock';
 import { EXAMPLE_LABEL } from '@shared/lesson/feedback';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { createAudioPlayer } from '../../utils/audioPlayback';
@@ -103,13 +104,13 @@ export function SpeakingAnswer(props: {
           <>
             <div className="rec-status">Recorded {speakingClock(Math.round(take.durationMs / 1000))}</div>
             {transcriptBlock}
-            <div className="exercise-actions">
+            <TakeLockActions role="secondary">
               <button className="practice-btn" onClick={listen}>▶ Listen back</button>
               <button className="practice-btn" onClick={start}>🎙 Again</button>
-            </div>
-            <div className="exercise-actions">
+            </TakeLockActions>
+            <TakeLockActions>
               <button className="practice-btn primary" onClick={() => finish()} data-testid="speaking-done">Done</button>
-            </div>
+            </TakeLockActions>
           </>
         ) : (
           <>
@@ -117,11 +118,11 @@ export function SpeakingAnswer(props: {
             <div className="rec-hint">Tap to record your answer (about {targetSeconds} seconds)</div>
             {take.error && <p className="result-explanation">{take.error}</p>}
             {(take.error || props.allowWithoutRecording) && (
-              <div className="exercise-actions">
+              <TakeLockActions>
                 <button className="practice-btn" onClick={() => finish(true)}>
                   {props.allowWithoutRecording && !take.error ? '🎤 I said it without recording' : 'Say it without recording'}
                 </button>
-              </div>
+              </TakeLockActions>
             )}
           </>
         )}
@@ -132,27 +133,22 @@ export function SpeakingAnswer(props: {
   return (
     <>
       {blob && (
-        <div className="exercise-actions">
+        <TakeLockActions role="secondary">
           <button className="practice-btn" onClick={listen}>▶ Your answer</button>
-        </div>
+        </TakeLockActions>
       )}
       {!skipped && take.take && transcriptBlock}
       {example && (
         <>
-          <p className="result-explanation">{EXAMPLE_LABEL}</p>
-          <div className="translate-ref">
-            <div className="translate-ref-hanzi" onClick={() => speak(example.hanzi)} lang="zh-CN">{example.hanzi} 🔊</div>
-            {example.pinyin && <div className="translate-ref-pinyin">{example.pinyin}</div>}
-            {example.english && <div className="contrast-english">{example.english}</div>}
-          </div>
+          <FeedbackSentence hanzi={example.hanzi} pinyin={example.pinyin} english={example.english} label={EXAMPLE_LABEL} speak={speak} exerciseType={exerciseType} />
         </>
       )}
       {example && <SayItAgain hanzi={example.hanzi} exerciseType={exerciseType} kind="example" />}
       {mediaKey && blob && <p className="result-explanation small">Your tutor can listen to this recording.</p>}
-      <div className="exercise-actions">
+      <TakeLockActions>
         <button className={`practice-btn${ac.suggested === 'missed_it' ? ' suggested' : ''}`} onClick={() => onNext(false, answer(), blob ?? undefined)} data-testid="lesson-missed-it">✗ Not quite</button>
         <button className={`practice-btn primary${ac.suggested === 'got_it' ? ' suggested' : ''}`} onClick={() => onNext(true, answer(), blob ?? undefined)} data-testid="lesson-got-it">{props.gotItLabel ?? '✓ I said it well'}</button>
-      </div>
+      </TakeLockActions>
       {/* Claude's check LAST, below the buttons: "Claude is checking…" then the verdict, nothing above moves. */}
       {!skipped && text ? ac.view(text, speak, { offered: example?.hanzi ?? null }) : null}
     </>
