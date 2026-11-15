@@ -4,6 +4,7 @@
  * (`ctx.userId`); nothing here reads another account, a tutor's data or `student_profiles`.
  * Moved verbatim from services/ai.ts (Ask Claude's and Discuss with Claude's executors).
  */
+import type { StudyTodayKind } from '@shared/decks';
 import { addBumps, MAX_BUMPS_PER_REQUEST } from '../../study-bumps';
 import type { ToolContext } from '../types';
 import { executeReadChat, executeSearchMyChats } from './memory';
@@ -26,16 +27,20 @@ export async function executeBumpCardsTool(
     const r = await addBumps(ctx.db, ctx.userId, { noteIds, hanzi, source });
     return {
       bumped: r.added.map((a) => a.hanzi),
+      // What one ⚡ put in today per word (shared/decks/study-today.ts): listening card / one card / the whole word.
+      added_today: r.added.map((a) => ({ hanzi: a.hanzi, what: KIND_WORDS[r.kinds?.[a.note_id] ?? 'whole'] })),
       already_bumped: r.already.map((a) => a.hanzi),
       not_found: r.not_found,
       pocket: r.bumps.map((b) => ({ note_id: b.note_id, hanzi: b.hanzi, deck: b.deck_name })),
-      message: r.added.length || r.already.length ? "They come first in today's study." : 'None of those words are in the learner\'s decks — create_flashcards instead.',
+      message: r.added.length || r.already.length ? "They come first in today's study (see added_today for which card)." : 'None of those words are in the learner\'s decks — create_flashcards instead.',
     };
   } catch (error) {
     console.error('bump_cards failed:', error);
     return { error: 'Failed to bump the cards' };
   }
 }
+
+const KIND_WORDS: Record<StudyTodayKind, string> = { listening: 'its listening card', lead: 'one card', whole: 'the whole word' };
 
 /** Runs one read tool; failures come back as `{ error }` for the model, never a throw. */
 export async function executeReadTool(

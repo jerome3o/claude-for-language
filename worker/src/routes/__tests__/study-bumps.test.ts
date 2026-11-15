@@ -87,7 +87,8 @@ describe('study bumps', () => {
   });
 
   it('is done once every bumped card is reviewed since the bump; a re-bump re-opens it', async () => {
-    await me('POST', '/me/bumps', { items: [{ id: 'b1', note_id: 'n-bank', created_at: '2026-10-01T08:00:00.000Z' }] });
+    // A device's planned whole-note bump (planned: true) is stored as sent.
+    await me('POST', '/me/bumps', { items: [{ id: 'b1', note_id: 'n-bank', created_at: '2026-10-01T08:00:00.000Z', planned: true }] });
     review(db, 'e0', 'c-bank-h', '2026-09-30T08:00:00.000Z'); // before the bump: doesn't count
     review(db, 'e1', 'c-bank-h', '2026-10-01T09:00:00.000Z');
     expect((await me('GET', '/me/bumps')).json.bumps).toHaveLength(1); // m still open
@@ -149,12 +150,77 @@ describe('study bumps', () => {
     const more = await me('POST', '/me/bumps', { items: [{ id: 'k2', note_id: 'n-bank', created_at: '2026-10-04T08:10:00.000Z', card_types: ['hanzi_to_meaning', 'meaning_to_hanzi'] }] });
     expect(more.json.added).toHaveLength(1);
     expect(more.json.bumps[0]).toMatchObject({ id: 'k1', created_at: '2026-10-04T08:10:00.000Z', card_types: ['hanzi_to_meaning', 'meaning_to_hanzi'] });
-    const whole = await me('POST', '/me/bumps', { note_ids: ['n-bank'] });
+    const whole = await me('POST', '/me/bumps', { items: [{ id: 'k2b', note_id: 'n-bank', planned: true }] });
     expect(whole.json.added).toHaveLength(1);
     expect(whole.json.bumps[0].card_types).toBeNull();
     const covered = await me('POST', '/me/bumps', { items: [{ id: 'k3', note_id: 'n-bank', card_types: ['meaning_to_hanzi'] }] });
     expect(covered.json.already).toHaveLength(1);
     expect(covered.json.bumps[0].card_types).toBeNull();
+  });
+
+  describe('the ONE "Study it today" rule (shared/decks/study-today.ts) for bumps without a plan', () => {
+    const three = (noteId: string, queues: [number, number, number] = [0, 0, 0], next: string | null = null) => {
+      ['hanzi_to_meaning', 'meaning_to_hanzi', 'audio_to_hanzi'].forEach((t, i) =>
+        db.raw.run('INSERT INTO cards (id, note_id, card_type, queue, next_review_at, stability) VALUES (?, ?, ?, ?, ?, ?)', [`${noteId}-${t[0]}`, noteId, t, queues[i], queues[i] ? next : null, queues[i] ? 30 : 0]));
+    };
+    const noteWithAudio = (id: string, deck: string, hanzi: string) =>
+      db.raw.run("INSERT INTO notes (id, deck_id, hanzi, pinyin, english, audio_url) VALUES (?, ?, ?, 'pīnyīn', 'meaning', ?)", [id, deck, hanzi, `generated/${id}.mp3`]);
+    const longTerm = (id: string) => db.rows<{ long_term: number | null }>('SELECT long_term FROM notes WHERE id = ?', [id])[0].long_term;
+
+    beforeEach(() => {
+      noteWithAudio('n-train', 'd-1', '火车');
+      three('n-train');
+      noteWithAudio('n-old', 'd-1', '学生');
+      three('n-old', [2, 2, 2], '2027-01-01T00:00:00.000Z');
+      db.raw.run("INSERT INTO decks (id, user_id, name, new_cards_per_day, secondary_cards_per_day) VALUES ('d-once', ?, 'Homework', 0, 0)", [ME]);
+      noteWithAudio('n-once', 'd-once', '服务员');
+      three('n-once');
+    });
+
+    it('an unstarted word (MCP / Claude): ONLY its listening card; its long-term choice is left alone in a deck in review', async () => {
+      const r = await me('POST', '/me/bumps', { hanzi: ['火车'], source: 'mcp' });
+      expect(r.json.added).toEqual([{ note_id: 'n-train', hanzi: '火车' }]);
+      expect(r.json.kinds).toEqual({ 'n-train': 'listening' });
+      expect(r.json.bumps[0].card_types).toEqual(['audio_to_hanzi']);
+      expect(longTerm('n-train')).toBeNull();
+      // Again: already in today (its listening card is still open).
+      expect((await me('POST', '/me/bumps', { note_ids: ['n-train'] })).json.already).toHaveLength(1);
+    });
+
+    it('an unstarted word of a one-off deck also goes into long-term review', async () => {
+      await me('POST', '/me/bumps', { note_ids: ['n-once'] });
+      expect(db.rows<{ card_types: string }>("SELECT card_types FROM study_bumps WHERE note_id = 'n-once'")[0].card_types).toBe('["audio_to_hanzi"]');
+      expect(longTerm('n-once')).toBe(1);
+    });
+
+    it('a started word: only its listening card, never the whole note', async () => {
+      const r = await me('POST', '/me/bumps', { note_ids: ['n-old'] });
+      expect(r.json.bumps[0]).toMatchObject({ note_id: 'n-old', card_types: ['audio_to_hanzi'] });
+      // Done once the listening card is reviewed since the bump; the others never count.
+      review(db, 'e-o1', 'n-old-h', new Date(Date.now() + 1000).toISOString());
+      expect(await listActiveBumps(db, ME)).toHaveLength(1);
+      review(db, 'e-o2', 'n-old-a', new Date(Date.now() + 2000).toISOString());
+      expect(await listActiveBumps(db, ME)).toEqual([]);
+      // A new tap re-opens it.
+      expect((await me('POST', '/me/bumps', { hanzi: ['学生'] })).json.added).toHaveLength(1);
+    });
+
+    it('an older app build’s whole-note item is planned too; a device’s card-level / planned item is stored as sent', async () => {
+      const old = await me('POST', '/me/bumps', { items: [{ id: 'legacy', note_id: 'n-train', source: 'deck' }] });
+      expect(old.json.bumps[0]).toMatchObject({ id: 'legacy', card_types: ['audio_to_hanzi'] });
+      const chosen = await me('POST', '/me/bumps', { items: [{ id: 'chosen', note_id: 'n-old', card_types: ['meaning_to_hanzi'], planned: true }] });
+      expect(chosen.json.bumps.find((b: any) => b.note_id === 'n-old').card_types).toEqual(['meaning_to_hanzi']);
+      const whole = await me('POST', '/me/bumps', { items: [{ id: 'w', note_id: 'n-once', planned: true }] });
+      expect(whole.json.bumps.find((b: any) => b.note_id === 'n-once').card_types).toBeNull();
+      expect(longTerm('n-once')).toBeNull(); // the device sets its own long-term choice
+    });
+
+    it('the tutor’s bump and Claude’s bump_cards follow the same rule', async () => {
+      const t = await client(env, TUTOR)('POST', '/relationships/rel-1/student-bumps', { hanzi: ['火车'] });
+      expect(t.json.bumps[0]).toMatchObject({ note_id: 'n-train', card_types: ['audio_to_hanzi'], bumped_by_name: 'Minghui' });
+      const c = await executeBumpCardsTool({ hanzi: ['学生'] }, { db, userId: ME }, 'ask_claude');
+      expect(c).toMatchObject({ bumped: ['学生'], added_today: [{ hanzi: '学生', what: 'its listening card' }] });
+    });
   });
 
   it('the in-app agents’ bump_cards tool bumps existing words and says what it could not find', async () => {

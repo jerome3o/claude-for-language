@@ -1,17 +1,18 @@
 import { useRef, useState } from 'react';
-import { allCharactersKnown, knownCharactersFrom, knownNoteIdsFrom, toLongTermPref, type LongTermPref } from '@shared/decks';
+import { toLongTermPref, type LongTermPref } from '@shared/decks';
 import { passBumpHint, passBumpKindOfRow, passBumpLabel, passBumpPlan, type PassBumpKind, type PassBumpPlan } from '@shared/homework';
-import { db, type LocalCard, type LocalNote } from '../../db/database';
-import { bumpCardTypes, bumpNotes, clearBump, useBumps } from '../../services/studyBumps';
+import type { LocalCard, LocalNote } from '../../db/database';
+import { bumpNotes, clearBump, useBumps } from '../../services/studyBumps';
 import { setNoteLongTerm } from '../../services/longTerm';
-import { readNewCardOrder } from '../../services/newCardOrder';
 import '../bumps/bumps.css';
 
 /**
  * The homework pass's "⚡ Study it today" (shared/homework/pass-bump.ts, docs/HOMEWORK.md §3c): an
  * unstarted word puts ONE card in today's study — its listening card (else its lead card) — and
- * goes into long-term review so its other cards come later as purple cards; a started word is
- * bumped whole, as before. A second tap takes it out (and puts back the long-term choice ⚡ changed).
+ * goes into long-term review so its other cards come later as purple cards; a started word its
+ * listening card (whole without one). The same rule as every ⚡ (shared/decks/study-today.ts,
+ * services/studyBumps.ts bumpNotes). A second tap takes it out (and puts back the long-term choice
+ * ⚡ changed).
  */
 export function PassBumpButton(props: {
   note: LocalNote;
@@ -28,8 +29,8 @@ export function PassBumpButton(props: {
   // The long-term choice ⚡ replaced, per note, so taking ⚡ back restores it.
   const restore = useRef(new Map<string, LongTermPref>());
 
-  const plan = (knownLead?: () => boolean): PassBumpPlan => passBumpPlan({
-    cards, started, hasAudio: !!note.audio_url, knownCharactersLead: knownLead,
+  const plan = (): PassBumpPlan => passBumpPlan({
+    cards, started, hasAudio: !!note.audio_url,
     longTermPref: toLongTermPref(note.long_term), deckInReview: deckInReview ?? true,
   });
   const kind: PassBumpKind = row ? passBumpKindOfRow(row.card_types) : plan().kind;
@@ -50,21 +51,17 @@ export function PassBumpButton(props: {
         }
         return;
       }
-      const lead = plan().kind === 'lead' ? await knownCharactersLead(note.hanzi) : false;
-      const p = plan(() => lead);
-      if (p.cardTypes) await bumpCardTypes(note.id, p.cardTypes, 'homework_pass');
-      else await bumpNotes([note.id], 'homework_pass');
-      if (p.longTerm !== undefined) {
-        restore.current.set(note.id, toLongTermPref(note.long_term));
-        await setNoteLongTerm(note.id, p.longTerm);
-      }
+      // The one "⚡ Study it today" rule (shared/decks/study-today.ts), as everywhere else.
+      const out = await bumpNotes([note.id], 'homework_pass');
+      const before = out.results[0]?.longTermBefore;
+      if (before !== undefined) restore.current.set(note.id, before);
     } finally {
       setBusy(false);
     }
   }
 
   const fromTutor = row?.bumped_by_name;
-  const hint = on ? passBumpHint(kind) : '';
+  const hint = on ? passBumpHint(kind, started) : '';
   return (
     <div className="pass-bump" data-testid="pass-bump">
       <button
@@ -81,13 +78,4 @@ export function PassBumpButton(props: {
       {hint && <span className="pass-bump-hint" data-testid="pass-bump-hint">{hint}</span>}
     </div>
   );
-}
-
-/** "English → Chinese" applies to this word: the setting is on and he knows every character (lead-card.ts). */
-async function knownCharactersLead(hanzi: string): Promise<boolean> {
-  if (!readNewCardOrder().known_characters_english_first) return false;
-  const known = knownNoteIdsFrom(await db.cards.toArray());
-  if (known.size === 0) return false;
-  const notes = await db.notes.bulkGet([...known]);
-  return allCharactersKnown(hanzi, knownCharactersFrom(notes.map((n) => n?.hanzi ?? '')));
 }

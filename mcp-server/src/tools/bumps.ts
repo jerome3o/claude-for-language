@@ -12,7 +12,7 @@
 import { z } from 'zod';
 import type { ToolContext } from './context.js';
 import { errorResult, guard, jsonResult } from './context.js';
-import { bumpedMessage } from '../../../shared/decks/bumps';
+import { studyTodayMessage, type StudyTodayKind } from '../../../shared/decks/study-today';
 
 interface ApiBump {
   id: string;
@@ -34,6 +34,8 @@ interface BumpResult {
   added: Array<{ note_id: string; hanzi: string }>;
   already: Array<{ note_id: string; hanzi: string }>;
   not_found: string[];
+  /** What the server's "Study it today" rule bumped per note (shared/decks/study-today.ts). */
+  kinds?: Record<string, StudyTodayKind>;
 }
 
 /** The pocket as a chat needs it. Pure. */
@@ -54,7 +56,7 @@ export function shapePocket(bumps: ApiBump[]) {
 export function shapeBumpResult(r: BumpResult) {
   return {
     message: r.added.length || r.already.length
-      ? bumpedMessage(r.added.map((a) => a.hanzi), r.already.length)
+      ? studyTodayMessage(r.added.map((a) => ({ hanzi: a.hanzi, kind: r.kinds?.[a.note_id] ?? 'whole' })), r.already.length)
       : 'None of those words are in the decks — add them as new notes instead.',
     bumped: r.added.map((a) => a.hanzi),
     already_bumped: r.already.map((a) => a.hanzi),
@@ -73,7 +75,7 @@ export function registerBumpTools(ctx: ToolContext): void {
 
   server.tool(
     'bump_cards',
-    "\"⚡ Study it today\": push words the user ALREADY HAS to the front of today's study queue. Their cards come first in today's session — new cards even past the daily new-card limit (it doesn't use up the budget), and cards not due yet get one early review. A bump finishes once each bumped card has been reviewed; unfinished ones carry over to tomorrow. Use this whenever the user wants to add or study a word that search_notes / batch_search_notes shows they already have — never add a duplicate. (For \"learn these next\" over the coming days, within the daily budget and in a chosen order, use add_to_up_next.) Give note_ids or hanzi — an explicit list of the words the user named, never every word of a sentence that happens to be a card. Returns the whole pocket.",
+    "\"⚡ Study it today\": push words the user ALREADY HAS to the front of today's study queue. The same rule as the app's ⚡ button: each word's LISTENING card comes first in today's session — for a word not started yet ONLY its listening card (even past the daily new-card limit; its other cards come later with the daily new cards; a word in a one-off homework deck is added to long-term review for that), for a started word its listening card (due → first, else one early review); a word without audio gets one card, a word with no listening card the whole word. A bump finishes once each bumped card has been reviewed; unfinished ones carry over to tomorrow. Use this whenever the user wants to add or study a word that search_notes / batch_search_notes shows they already have — never add a duplicate. (For \"learn these next\" over the coming days, within the daily budget and in a chosen order, use add_to_up_next.) Give note_ids or hanzi — an explicit list of the words the user named, never every word of a sentence that happens to be a card. Returns the whole pocket.",
     IDS,
     async ({ note_ids, hanzi }) => guard(async () => {
       if (!note_ids?.length && !hanzi?.length) return errorResult('Give note_ids or hanzi');
@@ -123,7 +125,7 @@ export function registerBumpTools(ctx: ToolContext): void {
 
   server.tool(
     'bump_student_cards',
-    "Tutor only: bump words a STUDENT already has to the front of their study today (\"⚡ Study it today\" — the student sees \"⚡ from <you>\" on those cards). Nothing is created or sent; only the order of the student's own cards changes. relationship_id from list_students; note_ids from the student's decks, or hanzi looked up in the student's notes.",
+    "Tutor only: bump words a STUDENT already has to the front of their study today (\"⚡ Study it today\", the app's one rule: each word's listening card — the student sees \"⚡ from <you>\" on those cards). Nothing is created or sent; only the order of the student's own cards changes. relationship_id from list_students; note_ids from the student's decks, or hanzi looked up in the student's notes.",
     { relationship_id: z.string().describe('The tutor relationship (from list_students).'), ...IDS },
     async ({ relationship_id, note_ids, hanzi }) => guard(async () => {
       if (!note_ids?.length && !hanzi?.length) return errorResult('Give note_ids or hanzi');

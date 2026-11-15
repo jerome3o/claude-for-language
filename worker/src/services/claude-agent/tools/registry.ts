@@ -47,7 +47,7 @@ export const FLASHCARD_ITEM_SCHEMA = {
 export const BUMP_CARDS_TOOL = {
   name: 'bump_cards',
   description:
-    "Bump words the learner ALREADY HAS as cards to the front of today's study queue (\"⚡ Study it today\"): their cards come first in today's session, new cards even past the daily limit. Use this INSTEAD of create_flashcards whenever search_cards shows the word already exists, or when the learner asks to study / review / practise an existing word today. Give note_ids (from search_cards) or hanzi (looked up in the learner's notes). Always an explicit list of the words the learner named or asked about — never every word of a sentence that happens to be a card (for a sentence, bump the sentence's own card, or ask which words).",
+    "Bump words the learner ALREADY HAS as cards to the front of today's study queue (\"⚡ Study it today\"): the same rule as the app's ⚡ — each word's LISTENING card comes first in today's session (a new word: only its listening card, even past the daily limit; its other cards come later with the daily new cards), the whole word only when it has no listening card. Use this INSTEAD of create_flashcards whenever search_cards shows the word already exists, or when the learner asks to study / review / practise an existing word today. Give note_ids (from search_cards) or hanzi (looked up in the learner's notes). Always an explicit list of the words the learner named or asked about — never every word of a sentence that happens to be a card (for a sentence, bump the sentence's own card, or ask which words).",
   input_schema: {
     type: 'object' as const,
     properties: {

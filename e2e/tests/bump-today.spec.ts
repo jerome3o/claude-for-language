@@ -94,7 +94,9 @@ test('Coach (the Chats box) → a word I already have → ⚡ Study it today →
   const word = page.getByRole('dialog', { name: 'The word 银行' });
   await expect(word.getByTestId('explorer-word-card')).toContainText('You have this card in HSK 2');
   await word.getByRole('button', { name: '⚡ Study it today' }).click();
-  await expect(page.getByText('⚡ 银行 will come first in today’s study').first()).toBeVisible();
+  // The one "Study it today" rule (shared/decks/study-today.ts): E2E makes no TTS, so 银行 has no clip —
+  // one card (its lead card) comes today, not the whole word (study-today-listening.spec.ts has the clip case).
+  await expect(page.getByText('⚡ 1 card of 银行 added to today').first()).toBeVisible();
 
   // Home: one bumped word, and today's cards now hold its cards.
   await page.goto('/');
@@ -107,6 +109,6 @@ test('Coach (the Chats box) → a word I already have → ⚡ Study it today →
   await expect(page.locator('.study-fullscreen')).not.toContainText('苹果');
 
   // The server has it too (uploaded right away while online).
-  const mine = await api<{ bumps: Array<{ hanzi: string; source: string }> }>(request, '/api/me/bumps', { token });
-  expect(mine.bumps.map((b) => [b.hanzi, b.source])).toEqual([['银行', 'explorer']]);
+  const mine = await api<{ bumps: Array<{ hanzi: string; source: string; card_types: string[] | null }> }>(request, '/api/me/bumps', { token });
+  expect(mine.bumps.map((b) => [b.hanzi, b.source, b.card_types])).toEqual([['银行', 'explorer', ['hanzi_to_meaning']]]);
 });

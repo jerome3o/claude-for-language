@@ -59,5 +59,8 @@ describe('bump tools', () => {
   it('shapes', () => {
     expect(shapePocket([{ ...BANK, bumped_by_name: 'Minghui' }])[0].bumped_by).toBe('Minghui');
     expect(shapeBumpResult({ bumps: [], added: [], already: [{ note_id: 'n', hanzi: '银行' }], not_found: [] }).message).toBe('Already in today’s pocket ⚡');
+    // The server's "Study it today" rule says which card went in.
+    expect(shapeBumpResult({ bumps: [], added: [{ note_id: 'n', hanzi: '银行' }], already: [], not_found: [], kinds: { n: 'listening' } }).message)
+      .toBe('⚡ Listening card of 银行 added to today');
   });
 });

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import type { BumpSource } from '@shared/decks';
+import { studyTodayKindOfRow, studyTodayLabel, type BumpSource } from '@shared/decks';
 import { bumpNotes, clearBump, findExistingNotes, useBumps } from '../../services/studyBumps';
 import './bumps.css';
 
 /**
- * "⚡ Study today" for notes the learner already has (shared/decks/bumps.ts):
- * puts them first in today's session. Shows "⚡ Today ✓" once they're in the
- * pocket (tap again to take them out when `removable`). Offline-first.
+ * "⚡ Study today" for notes the learner already has (shared/decks/bumps.ts): one tap follows the ONE
+ * "Study it today" rule (shared/decks/study-today.ts — an unstarted word's listening card, a started
+ * word's listening card, the whole note without one). Shows "⚡ Listening card today ✓" / "⚡ Today ✓"
+ * once they're in the pocket (tap again to take them out when `removable`). Offline-first.
  */
 export function BumpButton(props: {
   noteIds: string[];
@@ -44,7 +45,7 @@ export function BumpButton(props: {
   }
 
   const text = inPocket
-    ? fromTutor ? `⚡ From ${fromTutor}` : '⚡ Today ✓'
+    ? fromTutor ? `⚡ From ${fromTutor}` : noteIds.length === 1 ? studyTodayLabel(studyTodayKindOfRow(bumps.get(noteIds[0])?.card_types), true) : '⚡ Today ✓'
     : props.label ?? '⚡ Study today';
   return (
     <button

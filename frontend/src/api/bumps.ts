@@ -48,7 +48,11 @@ export function listBumpsApi(): Promise<{ bumps: ApiStudyBump[] }> {
 }
 
 /** 404 (none of the notes are the account's any more) comes back as a normal result. */
-export function addBumpsApi(items: Array<{ id: string; note_id: string; created_at: string; source: string; card_types?: string[] | null }>): Promise<BumpApiResult> {
+/**
+ * `planned: true` = the device applied the "⚡ Study it today" rule (shared/decks/study-today.ts) already —
+ * a whole-note row without it is planned by the server (older builds, a note not on this device).
+ */
+export function addBumpsApi(items: Array<{ id: string; note_id: string; created_at: string; source: string; card_types?: string[] | null; planned?: boolean }>): Promise<BumpApiResult> {
   return call('/me/bumps', { method: 'POST', body: JSON.stringify({ items }) });
 }
 

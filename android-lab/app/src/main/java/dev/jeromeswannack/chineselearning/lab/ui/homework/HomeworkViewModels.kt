@@ -352,18 +352,19 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
         }
     }
 
-    /** The pass's ⚡ for [note] (core PassBump, shared/homework/pass-bump.ts), the known-characters lead given when asked. */
-    private fun bumpPlan(note: PassNote, knownCharactersLead: (() -> Boolean)? = null): PassBump.Plan = PassBump.plan(
+    /** What the pass's ⚡ would bump for [note] (core StudyToday via PassBump) — the button's label before a tap. */
+    private fun bumpPlan(note: PassNote): dev.jeromeswannack.chineselearning.lab.core.StudyToday.Plan = PassBump.plan(
         note.cards, note.started, !note.audioUrl.isNullOrBlank(), note.longTerm,
-        current()?.deckInReview ?: deckInReview ?: true, knownCharactersLead,
+        current()?.deckInReview ?: deckInReview ?: true,
     )
 
     /**
-     * ⚡ Study it today on the answer side (core PassBump — shared/homework/pass-bump.ts, docs/HOMEWORK.md
-     * §3c): an UNSTARTED word puts ONE card first in today's study — its listening card (else its lead
-     * card), past the budget, even from a one-off copy — and goes into long-term review so its other
-     * cards come later as purple cards; a started word is bumped whole, as before. Off takes it out
-     * of the pocket (and puts back the long-term choice ⚡ changed). Offline-first.
+     * ⚡ Study it today on the answer side — the ONE rule every ⚡ follows (core StudyToday —
+     * shared/decks/study-today.ts, docs/HOMEWORK.md §3c; BumpStore.bumpNotes): an UNSTARTED word puts ONE
+     * card first in today's study — its listening card (else its lead card), past the budget, even from a
+     * one-off copy — and goes into long-term review so its other cards come later as purple cards; a
+     * started word its listening card (the whole note without one). Off takes it out of the pocket (and
+     * puts back the long-term choice ⚡ changed). Offline-first.
      */
     fun setBump(on: Boolean) {
         val note = current()?.note ?: return
@@ -375,14 +376,11 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             runCatching {
                 val store = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore
                 if (on) {
-                    val known = if (first.kind == PassBump.LEAD) withContext(Dispatchers.IO) { knownCharactersLead(note.hanzi) } else false
-                    val plan = bumpPlan(note) { known }
-                    val types = plan.cardTypes
-                    if (types != null) store.bumpCardTypes(app, note.id, types, SOURCE_BUMP) else store.bumpNotes(app, listOf(note.id), SOURCE_BUMP)
-                    if (plan.setLongTerm) {
-                        longTermBeforeBump[note.id] = note.longTerm
-                        notes.value = notes.value?.let { m -> m + (note.id to note.copy(longTerm = plan.longTerm)) }
-                        LongTermStore.set(app, note.id, plan.longTerm)
+                    val r = store.bumpNotes(app, listOf(note.id), SOURCE_BUMP)
+                    if (r.longTermBefore.containsKey(note.id)) {
+                        longTermBeforeBump[note.id] = r.longTermBefore[note.id]
+                        val now = withContext(Dispatchers.IO) { app.repo.dao.notes(listOf(note.id)).firstOrNull()?.longTerm }
+                        notes.value = notes.value?.let { m -> m + (note.id to note.copy(longTerm = now)) }
                     }
                 } else {
                     store.clear(app, note.id, SOURCE_BUMP)
@@ -395,16 +393,6 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
             }
             refreshBumps()
         }
-    }
-
-    /** "English → Chinese" applies to [hanzi]: the setting is on and every character is known (core LeadCard). */
-    private suspend fun knownCharactersLead(hanzi: String): Boolean {
-        if (!app.prefs.newCardOrder.knownCharactersEnglishFirst) return false
-        val dao = app.repo.dao
-        val knownNotes = dev.jeromeswannack.chineselearning.lab.core.LeadCard.knownNoteIds(dao.cards().map { it.toQueueCard() })
-        if (knownNotes.isEmpty()) return false
-        val hanziOf = knownNotes.chunked(500).flatMap { dao.notes(it) }.map { it.hanzi }
-        return dev.jeromeswannack.chineselearning.lab.core.LeadCard.allCharactersKnown(hanzi, dev.jeromeswannack.chineselearning.lab.core.LeadCard.knownCharacters(hanziOf))
     }
 
     private suspend fun refreshBumps() {

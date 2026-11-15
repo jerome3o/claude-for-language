@@ -10,16 +10,33 @@
  *
  * `card_types` (migration 0134): a card-level bump — only those card types of the note
  * ("Practise this word other ways…" on the study card). NULL = the whole note.
+ *
+ * "⚡ Study it today" is ONE rule from everywhere (shared/decks/study-today.ts): a bump that arrives
+ * WITHOUT a plan — no `card_types` and not `planned` (Claude's bump_cards, the MCP tools, the tutor's
+ * student bumps, older app builds) — is planned here from the server's notes and cards: an unstarted
+ * word's listening card (else its lead card) + the long-term opt-in, a started word's listening card,
+ * the whole note only without one. A device's bump (card-level, or `planned: true`) is stored as sent.
  */
 import {
+  allCharactersKnown,
   bumpedCardsForNote,
+  deckInDailyReview,
+  DEFAULT_DECK_SETTINGS,
+  isKnownCardState,
+  knownCharactersFrom,
   mergeBumpCardTypes,
   normalizeBumpCardTypes,
   normalizeBumpSource,
+  parseNewCardOrder,
+  studyTodayPlan,
+  toLongTermPref,
   type BumpSource,
+  type LongTermPref,
   type QueueCardInput,
+  type StudyTodayKind,
 } from '@shared/decks';
 import { normalizeHanzi } from '@shared/import/parse';
+import { setNoteLongTermPref } from './content/notes';
 
 export const MAX_BUMPS_PER_REQUEST = 50;
 
@@ -49,6 +66,8 @@ export interface BumpInputItem {
   source?: string;
   /** Only these card types of the note (a card-level bump); absent / null = the whole note. */
   card_types?: string[] | null;
+  /** The device applied the "Study it today" rule already: store as sent (else a whole-note item is planned here). */
+  planned?: boolean;
 }
 
 export interface BumpResult {
@@ -57,6 +76,8 @@ export interface BumpResult {
   added: Array<{ note_id: string; hanzi: string }>;
   /** Already in the pocket — nothing changed. */
   already: Array<{ note_id: string; hanzi: string }>;
+  /** What the server's "Study it today" plan bumped, per note it planned (listening / lead / whole). */
+  kinds?: Record<string, StudyTodayKind>;
   /** note ids / hanzi that matched none of the user's notes. */
   not_found: string[];
 }
@@ -122,6 +143,102 @@ export async function findNotesByHanzi(db: D1Database, userId: string, hanzi: st
   return (res.results ?? []).filter((n) => normalizeHanzi(n.hanzi ?? '') === key);
 }
 
+/** The server's "⚡ Study it today" plan of one note (shared/decks/study-today.ts) and the inputs a merge needs. */
+interface ServerPlan {
+  kind: StudyTodayKind;
+  cardTypes: string[] | null;
+  longTerm: LongTermPref | undefined;
+  cards: QueueCardInput[];
+}
+
+/**
+ * Plan bumps that arrived without one: every note's cards, audio, long-term choice and deck caps from D1,
+ * then the shared rule. "English → Chinese" (a no-audio unstarted word of known characters leads with
+ * meaning_to_hanzi) is looked up only when a plan needs it.
+ */
+async function planServerBumps(db: D1Database, userId: string, noteIds: string[]): Promise<Map<string, ServerPlan>> {
+  const out = new Map<string, ServerPlan>();
+  if (noteIds.length === 0) return out;
+  const ph = noteIds.map(() => '?').join(',');
+  const notes = (
+    await db
+      .prepare(
+        `SELECT n.id, n.hanzi, n.audio_url, n.long_term, d.new_cards_per_day, d.secondary_cards_per_day
+         FROM notes n JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ? AND n.id IN (${ph})`
+      )
+      .bind(userId, ...noteIds)
+      .all<{ id: string; hanzi: string; audio_url: string | null; long_term: number | null; new_cards_per_day: number | null; secondary_cards_per_day: number | null }>()
+  ).results ?? [];
+  const cards = (
+    await db
+      .prepare(`SELECT c.id, c.note_id, n.deck_id, c.card_type, c.queue, c.due_timestamp, c.next_review_at FROM cards c JOIN notes n ON n.id = c.note_id WHERE c.note_id IN (${ph})`)
+      .bind(...noteIds)
+      .all<CardRow>()
+  ).results ?? [];
+  const byNote = new Map<string, QueueCardInput[]>();
+  for (const c of cards) {
+    const list = byNote.get(c.note_id) ?? [];
+    list.push(cardInput(c));
+    byNote.set(c.note_id, list);
+  }
+  let known: Set<string> | null = null;
+  const knownCharacters = async (): Promise<Set<string>> => {
+    if (known) return known;
+    known = new Set();
+    const order = await db.prepare('SELECT new_card_order FROM users WHERE id = ?').bind(userId).first<{ new_card_order: string | null }>();
+    if (!parseNewCardOrder(order?.new_card_order ?? null).known_characters_english_first) return known;
+    const mature = (
+      await db
+        .prepare(
+          `SELECT DISTINCT n.hanzi, c.queue, c.stability FROM cards c JOIN notes n ON n.id = c.note_id JOIN decks d ON d.id = n.deck_id
+           WHERE d.user_id = ? AND c.queue = 2 AND c.stability > 21`
+        )
+        .bind(userId)
+        .all<{ hanzi: string; queue: number; stability: number }>()
+    ).results ?? [];
+    known = knownCharactersFrom(mature.filter((r) => isKnownCardState(r.queue, r.stability)).map((r) => r.hanzi));
+    return known;
+  };
+  for (const n of notes) {
+    const noteCards = byNote.get(n.id) ?? [];
+    const base = {
+      cards: noteCards,
+      started: noteCards.some((c) => c.queue !== 0),
+      hasAudio: !!n.audio_url,
+      longTermPref: toLongTermPref(n.long_term),
+      deckInReview: deckInDailyReview(n.new_cards_per_day ?? DEFAULT_DECK_SETTINGS.new_cards_per_day, n.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day),
+    };
+    let plan = studyTodayPlan(base);
+    if (plan.kind === 'lead') {
+      const lead = allCharactersKnown(n.hanzi ?? '', await knownCharacters());
+      plan = studyTodayPlan({ ...base, knownCharactersLead: () => lead });
+    }
+    out.set(n.id, { kind: plan.kind, cardTypes: plan.cardTypes, longTerm: plan.longTerm, cards: noteCards });
+  }
+  return out;
+}
+
+/** card id → first / latest review (epoch ms) of these cards. */
+async function reviewSpans(db: D1Database, userId: string, cardIds: string[]): Promise<{ first: Map<string, number>; last: Map<string, number> }> {
+  const first = new Map<string, number>();
+  const last = new Map<string, number>();
+  if (cardIds.length === 0) return { first, last };
+  const rows = (
+    await db
+      .prepare(
+        `SELECT card_id, MIN(reviewed_at) AS first_at, MAX(reviewed_at) AS last_at FROM review_events
+         WHERE user_id = ? AND card_id IN (${cardIds.map(() => '?').join(',')}) GROUP BY card_id`
+      )
+      .bind(userId, ...cardIds)
+      .all<{ card_id: string; first_at: string; last_at: string }>()
+  ).results ?? [];
+  for (const r of rows) {
+    first.set(r.card_id, sqlMs(r.first_at));
+    last.set(r.card_id, sqlMs(r.last_at));
+  }
+  return { first, last };
+}
+
 /**
  * Put notes in the pocket. `items` carry client ids (offline); `noteIds` / `hanzi`
  * are the agents' form (hanzi looked up in the user's notes). Idempotent: an active
@@ -174,17 +291,45 @@ export async function addBumps(
     for (const r of res.results ?? []) existing.set(r.note_id, r);
   }
 
+  // "⚡ Study it today": a bump without a plan follows the one rule (shared/decks/study-today.ts).
+  const toPlan = [...wanted].filter(([, it]) => !normalizeBumpCardTypes(it.card_types) && it.planned !== true).map(([id]) => id);
+  const plans = await planServerBumps(db, userId, toPlan);
+  // For a planned note with an active bump: which of its bumped cards are still open (the device's rule).
+  const activePlanned = [...plans.keys()].filter((id) => {
+    const r = existing.get(id);
+    return !!r && !r.done_at && !r.cleared_at;
+  });
+  const spans = await reviewSpans(db, userId, activePlanned.flatMap((id) => plans.get(id)!.cards.map((c) => c.id)));
+  const cutoff = Date.now() + 12 * 3_600_000;
+
   const added: BumpResult['added'] = [];
   const already: BumpResult['already'] = [];
+  const kinds: Record<string, StudyTodayKind> = {};
+  const longTerms: Array<[string, LongTermPref]> = [];
   const stmts: D1PreparedStatement[] = [];
   for (const [noteId, it] of wanted) {
-    const row = existing.get(noteId);
+    let row = existing.get(noteId);
     const createdAt = validIso(it.created_at) ?? isoNow();
     const source = it.source !== undefined ? normalizeBumpSource(it.source) : fallbackSource;
     const hanzi = hanziOf.get(noteId) ?? '';
-    const wantTypes = normalizeBumpCardTypes(it.card_types);
+    const plan = plans.get(noteId);
+    const wantTypes = plan ? plan.cardTypes : normalizeBumpCardTypes(it.card_types);
+    let stillOpen: string[] = [];
+    if (plan && row && !row.done_at && !row.cleared_at) {
+      const open = bumpedCardsForNote(plan.cards, { note_id: noteId, created_ms: sqlMs(row.created_at), card_types: parseBumpCardTypes(row.card_types) }, spans.last, spans.first, cutoff);
+      // A bump whose cards were all reviewed is finished: re-open it with this plan.
+      if (plan.cards.length > 0 && open.length === 0) row = { ...row, done_at: isoNow() };
+      else stillOpen = open.map((c) => c.card_type);
+    }
+    const noteAdded = () => {
+      added.push({ note_id: noteId, hanzi });
+      if (plan) {
+        kinds[noteId] = wantTypes ? plan.kind : 'whole';
+        if (plan.longTerm !== undefined) longTerms.push([noteId, plan.longTerm]);
+      }
+    };
     if (row && !row.done_at && !row.cleared_at) {
-      const merge = mergeBumpCardTypes(parseBumpCardTypes(row.card_types), [], wantTypes);
+      const merge = mergeBumpCardTypes(parseBumpCardTypes(row.card_types), stillOpen, wantTypes);
       if (merge.action !== 'replace') {
         already.push({ note_id: noteId, hanzi });
         continue;
@@ -194,7 +339,7 @@ export async function addBumps(
           .prepare(`UPDATE study_bumps SET created_at = ?, card_types = ?, source = ?, bumped_by = ?, updated_at = datetime('now') WHERE id = ?`)
           .bind(createdAt, merge.card_types ? JSON.stringify(merge.card_types) : null, source, input.bumpedBy ?? userId, row.id)
       );
-      added.push({ note_id: noteId, hanzi });
+      noteAdded();
       continue;
     }
     if (row && it.id && row.id === it.id) {
@@ -220,10 +365,12 @@ export async function addBumps(
           .bind(it.id || crypto.randomUUID(), userId, noteId, source, input.bumpedBy ?? userId, createdAt, wantTypes ? JSON.stringify(wantTypes) : null)
       );
     }
-    added.push({ note_id: noteId, hanzi });
+    noteAdded();
   }
   if (stmts.length) await db.batch(stmts);
-  return { bumps: await listActiveBumps(db, userId), added, already, not_found: notFound };
+  // The long-term opt-in of an unstarted word, so its other cards come later as purple cards.
+  for (const [noteId, pref] of longTerms) await setNoteLongTermPref(db, userId, noteId, pref);
+  return { bumps: await listActiveBumps(db, userId), added, already, not_found: notFound, kinds };
 }
 
 /** Take notes out of the pocket by hand (idempotent). Returns how many were active. */

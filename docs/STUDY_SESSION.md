@@ -431,7 +431,32 @@ second): the note goes into a per-account pocket (`study_bumps`) and its cards a
 today's session and come early — mixed with the day's reviews, at least half the picks, after any
 learning card due now ("Card Selection Priority" above). One rule, `shared/decks/bumps.ts` (Lab `Bumps.kt`, parity-tested):
 
-- **Which cards** — of the note's cards not reviewed since the bump: every NEW card, every card
+- **One tap = the listening card, from anywhere** (Nov 2026, Jerome: "I think the 'study today' behaviour should
+  all be unified so it behaves the same from anywhere, rn specifically it should just add the listening cards to
+  the queue"). What one ⚡ puts in the pocket is ONE rule, `shared/decks/study-today.ts` `studyTodayPlan` (Lab core
+  `StudyToday.kt`, parity-tested by `parity/fixtures/study-today.ts`; first made for the homework pass, HOMEWORK.md §3c):
+  - an **unstarted** word (no card past NEW) → a card-level bump of its **listening card** (`audio_to_hanzi`) when the
+    note has its word clip and a NEW listening card, else its lead card (`lead-card.ts`); its other NEW cards wait
+    (`pocketSiblingIds`) and come later as purple cards; the word goes into long-term review when it isn't (a one-off
+    copy);
+  - a **started** word → a card-level bump of its **listening card** only (due → first; NEW → introduced; not due →
+    one early review);
+  - the **whole-note** bump below only for a started word with no listening card or no clip.
+  Every ⚡ that doesn't let him choose card types goes through it: web `services/studyBumps.ts` `bumpNotes` (the
+  explorer's Word / Character views — `CardTieIn` → `BumpButton` —, AddChunkModal — Coach Explain, chat Explain /
+  Save as flashcard, sentence rows, picture hunt —, reader / chat word sheets, Make flashcards' "Already in your
+  decks", Paste a list's "Already in deck", the deck page rows / edit sheet, the card hub, Up next's ⚡, Claude's
+  added-card chips, the reader / chat recap, clips, idioms, meme review, the homework pass), Lab `BumpStore.bumpNotes`
+  / `bumpHanzi` (the same places). The device stores it as a card-level row marked `planned` (`POST /api/me/bumps`
+  items carry `planned: true`); **the server applies the same rule to any bump that arrives without a plan** —
+  Claude's `bump_cards`, the MCP `bump_cards` / `bump_student_cards`, the tutor's student bumps, a note not on the
+  device, and older app builds' whole-note items (`services/study-bumps.ts` `planServerBumps`: notes, cards, audio,
+  deck caps, long-term choice, "English → Chinese" from D1; `kinds` in the reply). A device's card-level / planned
+  item is stored exactly as sent. The toast says what happened (`studyTodayMessage`): "⚡ Listening card of 银行
+  added to today", "⚡ 1 card of 银行 added to today", the whole note "⚡ 银行 will come first in today’s study"; a
+  single word's button shows "⚡ Listening card today ✓". **"Practise this word other ways…"** (below) is an explicit
+  choice of card types and keeps its own rule.
+- **Which cards (a whole-note bump)** — of the note's cards not reviewed since the bump: every NEW card, every card
   already due by the cutoff, plus ONE early review: the most important card that isn't due yet
   (hanzi_to_meaning → meaning_to_hanzi → audio_to_hanzi), unless a due card is already in or a card
   that was in circulation before the bump has been reviewed since. At most 3 per note.

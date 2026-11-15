@@ -164,6 +164,8 @@ export interface LocalStudyBump {
   bumped_by_name: string | null;
   /** A card-level bump ("Practise this word other ways…"): only these card types; null / absent = the whole note. */
   card_types?: string[] | null;
+  /** The device applied the "⚡ Study it today" rule (study-today.ts); unset = the server plans a whole-note row. */
+  planned?: boolean;
   pending?: 'add' | 'clear' | null;
 }
 

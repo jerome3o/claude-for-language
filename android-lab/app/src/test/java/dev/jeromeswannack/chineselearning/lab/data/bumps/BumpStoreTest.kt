@@ -108,6 +108,8 @@ class BumpStoreTest {
         assertEquals(Bumps.bumpedMessage(listOf("银行")), BumpStore.Result(listOf("银行"), emptyList(), 0).message)
         assertEquals("Already in today’s pocket ⚡", BumpStore.Result(emptyList(), listOf("银行"), 0).message)
         assertEquals("Not in your decks yet", BumpStore.Result(emptyList(), emptyList(), 1).message)
+        // The one "Study it today" rule says what went in (core StudyToday).
+        assertEquals("⚡ Listening card of 银行 added to today", BumpStore.Result(listOf("银行"), emptyList(), 0, kinds = listOf("listening")).message)
     }
 
     private fun note(id: String, hanzi: String) = NoteEntity(id, "d1", hanzi, "", "", null, null, null, null, null, null, null, null, null)

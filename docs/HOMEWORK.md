@@ -111,8 +111,8 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   `card_type`, `answered` (take / spoken / typed / choice / none), `suggested`, `followed`; the study events
   (`study.take_transcribed`, `study.answer_spoken`, `study.spoken_answer_checked`, `study.you_said_coach`) carry
   `where: homework`. On the answer side, beside "Add to my long-term review" (§3a), **⚡ Study it today** is a
-  toggle (web `components/homework/PassBumpButton.tsx`, Lab `BumpToggle` with `PassBump` labels; rules
-  `shared/homework/pass-bump.ts`, Lab core `PassBump.kt`, parity-tested): on = ONE card of the word goes to the
+  toggle (web `components/homework/PassBumpButton.tsx` → `services/studyBumps.ts` `bumpNotes`, Lab `BumpToggle` with
+  `PassBump` labels → `BumpStore.bumpNotes`; rules `shared/decks/study-today.ts`, Lab core `StudyToday.kt`, parity-tested): on = ONE card of the word goes to the
   front of today's study, off = taken out of the pocket. Jerome (Nov 2026): "I've heard them in my lesson and done
   a one-off review once — just add 1 card, the listening card, and let the other 2 come the way I normally get
   purple cards, so I can be liberal with adding these words." So:
@@ -130,9 +130,15 @@ Pure logic lives in `shared/homework/` (unit-tested): `due.ts` (dates, labels), 
   - ⚡ also puts the word in **long-term review** when it isn't already (`prefForToggle(true, …)`: 1 on a one-off
     copy, back to the deck default after an opt-out) — else a one-off copy's other cards would never come; a second
     tap puts the previous choice back. The long-term switch alone adds nothing to today's pocket;
-  - a **started** word → the whole-note bump, as before (its due cards / one early review, and any NEW card left).
-  Analytics: `study.bump_added { source: 'homework_pass', card_types }` (card_types = how many card types, 0 = the
-  whole note). Tested in `shared/homework/pass-bump.test.ts`, `PassBumpButton.test.tsx`, Lab `PassStudyCardTest`,
+  - a **started** word → a card-level bump of its **listening card** only (due → first; NEW → introduced; not due →
+    its one early review), the whole note only when it has no listening card or no clip (Nov 2026, Jerome: "the
+    'study today' behaviour should all be unified so it behaves the same from anywhere … it should just add the
+    listening cards"). The hint is left out for a started word (its other cards keep their own schedule).
+  **This is now the ONE rule every ⚡ follows** — `shared/decks/study-today.ts` (`studyTodayPlan`; `pass-bump.ts`
+  keeps the old names as aliases), Lab core `StudyToday.kt` (`PassBump` delegates), the server for bumps without a
+  plan; see STUDY_SESSION.md "⚡ Study it today". Analytics: `study.bump_added { source: 'homework_pass', card_types }`
+  (card_types = how many card-level bumps, 0 = whole notes). Tested in `shared/decks/study-today.test.ts`,
+  `shared/homework/pass-bump.test.ts`, `PassBumpButton.test.tsx`, Lab `StudyTodayParityTest` / `PassStudyCardTest`,
   e2e `homework-pass-voice.spec.ts`. The example
   sentence is the study card's sentence row, kept calm (web `SentenceSet variant="pass"`, Lab
   `PassSentences` → `SentenceRowView`): the Chinese is up, ▶ plays it, a tap adds the pinyin, the next the

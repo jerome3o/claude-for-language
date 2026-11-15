@@ -1706,7 +1706,7 @@ private fun PassChoices(pass: PassCardUi, actions: StudyActions) {
                 on = pass.bumped, bumpedBy = pass.bumpedBy, onChange = actions.onPassBump,
                 label = dev.jeromeswannack.chineselearning.lab.core.PassBump.label(pass.bumpKind, pass.bumped),
             )
-            val hint = if (pass.bumped) dev.jeromeswannack.chineselearning.lab.core.PassBump.hint(pass.bumpKind) else ""
+            val hint = if (pass.bumped) dev.jeromeswannack.chineselearning.lab.core.PassBump.hint(pass.bumpKind, pass.started) else ""
             if (hint.isNotEmpty()) {
                 Text(
                     hint,
