@@ -25,6 +25,7 @@ import type { ReactNode } from 'react';
 import { compareTranscription } from '@shared/recordings/transcript';
 import type { AnswerVerdict } from '@shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
+import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck';
 import './YouSaid.css';
 
 export type YouSaidState = 'match' | 'contains' | 'close' | 'miss';
@@ -50,6 +51,13 @@ export interface YouSaidProps {
   onCoach?: () => void;
   /** ▶ on the left: play the take this was transcribed from (read cards). */
   onPlay?: () => void;
+  /**
+   * Claude is checking a take the device couldn't accept (shared/study/readTakeCheck.ts): the chip says
+   * "Checking…" (blue, the waiting tone) instead of ✗ Didn't match.
+   */
+  checking?: boolean;
+  /** Claude's verdict on such a take: the chip (✓ Right / ≈ Close / ✗ Didn't match) and its one-line reason (+ tip). */
+  claude?: { state: 'match' | 'close' | 'miss'; reason: string; tip?: string | null } | null;
 }
 
 /** The pinyin line under the hanzi: no space before punctuation ("zhōng guó 。" → "zhōng guó。"). Lab: `tidyYouSaidPinyin`. */
@@ -123,25 +131,40 @@ function RoundButton({ icon, label, onClick, testId }: { icon: string; label: st
   );
 }
 
-export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay }: YouSaidProps) {
-  const state: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : tonesOff ? 'close' : 'miss';
+export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay, checking = false, claude = null }: YouSaidProps) {
+  const device: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : tonesOff ? 'close' : 'miss';
+  const state: YouSaidState = claude ? claude.state : device;
   const coach = state === 'contains' && onCoach;
+  const waiting = checking && !claude;
   return (
     <Shell
-      tone={state}
-      state={state}
+      tone={waiting ? 'pending' : state}
+      state={waiting ? 'checking' : state}
       left={onPlay && <RoundButton icon={ICON.play} label={YOU_SAID_PLAY_LABEL} onClick={onPlay} testId="you-said-play" />}
       right={coach && <RoundButton icon={ICON.edit} label={YOU_SAID_COACH_LABEL} onClick={coach} testId="you-said-coach" />}
     >
       <div className="you-said-head">
         <span className="you-said-label">You said</span>
-        <span className="you-said-verdict" data-testid="you-said-verdict" data-icon={YOU_SAID_VERDICT_ICON[state]}>
-          <Icon d={ICON[YOU_SAID_VERDICT_ICON[state]]} />
-          {YOU_SAID_VERDICT[state]}
-        </span>
+        {waiting ? (
+          <span className="you-said-verdict" data-testid="you-said-verdict" data-icon="checking" role="status">
+            <span className="you-said-dots" aria-hidden="true"><span /><span /><span /></span>
+            {READ_TAKE_CHECKING}
+          </span>
+        ) : (
+          <span className="you-said-verdict" data-testid="you-said-verdict" data-icon={YOU_SAID_VERDICT_ICON[state]} data-by={claude ? 'claude' : 'device'}>
+            <Icon d={ICON[YOU_SAID_VERDICT_ICON[state]]} />
+            {claude ? READ_TAKE_CHIP[claude.state] : YOU_SAID_VERDICT[state]}
+          </span>
+        )}
       </div>
       <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi">{hanzi || '…'}</div>
       {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
+      {claude && claude.reason && (
+        <div className="you-said-reason" data-testid="you-said-reason">
+          <span lang="zh-CN">{claude.reason}</span>
+          {claude.tip && <span className="you-said-tip" data-testid="you-said-tip">{claude.tip}</span>}
+        </div>
+      )}
     </Shell>
   );
 }

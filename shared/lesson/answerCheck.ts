@@ -99,8 +99,18 @@ export interface AnswerCheckInput {
   question_audio?: string;
 }
 
+/**
+ * A read card's take (shared/study/readTakeCheck.ts): he READ the card's Chinese aloud — model = the card's
+ * hanzi, answer = the transcript; did he read it right (a same-meaning word = almost, never wrong).
+ */
+export const READ_ALOUD_CHECK_TYPE = 'read_aloud';
+
 /** Exercise types whose answer gets the check (sentence_making has its own, POST /api/lessons/sentence-feedback). */
-export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_translate'];
+export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_translate', READ_ALOUD_CHECK_TYPE];
+
+export function isReadAloudCheck(exerciseType: string | null | undefined): boolean {
+  return exerciseType === READ_ALOUD_CHECK_TYPE;
+}
 
 /** Free speaking: the recording's transcript is checked (model answer = only "one way to say it"). */
 export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'speak'];

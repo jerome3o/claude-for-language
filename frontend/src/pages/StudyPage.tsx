@@ -51,6 +51,8 @@ import { ensureAudioForNote, isPending, nextAskInMs, reportBrokenClip } from '..
 import { useNativeOutputHold } from '../hooks/useNativeOutputHold';
 import { FirstCardExplainer } from '../components/onboarding/FirstCardExplainer';
 import { useTranscription } from '../hooks/useTranscription';
+import { useReadTakeCheck } from '../components/study/useReadTakeCheck';
+import { READ_TAKE_CHECKING } from '@shared/study/readTakeCheck';
 import { useSpokenAnswer } from '../hooks/useSpokenAnswer';
 import { checkSpokenAnswer, checkTypedAnswer, isAcceptedVerdict, tidySpokenTranscript, type AnswerVerdict } from '@shared/cards/answer';
 import { passSuggestion, type PassAnsweredBy, type PassOutcome } from '@shared/homework/pass-card';
@@ -785,6 +787,21 @@ export function StudyCard({
     transcribe,
     retry: retryTranscription,
   } = useTranscription(restored.recording ? restored.transcription : null, where);
+  // A read card's take the device couldn't accept (✗) goes to Claude's read-aloud check when online
+  // (shared/study/readTakeCheck.ts): ✓ Right / ≈ Close with its reason / ✗ with its tip, "Checking…" meanwhile.
+  const readCheck = useReadTakeCheck({
+    showingKey: card.id,
+    cardType: card.card_type,
+    hanzi: card.note.hanzi,
+    pinyin: card.note.pinyin,
+    english: card.note.english,
+    comparison: transcriptionComparison,
+    transcribing: isTranscribing,
+    online: !effectiveOffline,
+    where: pass ? 'homework' : 'session',
+  });
+  /** The take as the card judges it: the device's, or Claude's verdict on a take it checked. */
+  const takeComparison = readCheck.comparison;
   // The take the card came back with already has its "You said": not transcribed again.
   const restoredTakeRef = useRef<Blob | null>(restored.transcription ? restored.recording : null);
 
@@ -1683,6 +1700,8 @@ export function StudyCard({
           isMatch={isMatch}
           containsExpected={containsExpected}
           tonesOff={!!tonesOff}
+          checking={readCheck.checking}
+          claude={readCheck.claude}
           onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
           onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
         />
@@ -1803,7 +1822,7 @@ export function StudyCard({
       // A sentence Claude checked: its verdict (correct / acceptable = Got it).
       return passSuggestion({ answerVerdict: sentenceCheckedVerdict(verdict, sentenceCheck.check?.verdict) });
     }
-    return passSuggestion({ take: isSpeakingCard && audioBlob ? transcriptionComparison : null });
+    return passSuggestion({ take: isSpeakingCard && audioBlob ? takeComparison : null });
   })();
   const handlePassAnswer = (right: boolean) => {
     if (!pass) return;
@@ -1845,8 +1864,8 @@ export function StudyCard({
     if (isTypingCard && questionVerdict && sentenceCheck.checking) return 'checking' as const;
     if (isTypingCard) return questionVerdict ? hardModeQuestionResult({ answerVerdict: questionVerdict }) : null;
     if (!audioBlob) return null;
-    const take: HardModeTake = transcriptionComparison && !isTranscribing
-      ? { status: 'done', isMatch: transcriptionComparison.isMatch, containsExpected: transcriptionComparison.containsExpected, tonesOff: !!transcriptionComparison.tonesOff }
+    const take: HardModeTake = takeComparison && !isTranscribing && !readCheck.checking
+      ? { status: 'done', isMatch: takeComparison.isMatch, containsExpected: takeComparison.containsExpected, tonesOff: !!takeComparison.tonesOff }
       : transcriptionOffline || transcriptionError ? { status: 'unknown' } : { status: 'checking' };
     return hardModeQuestionResult({ take });
   })();
@@ -3378,8 +3397,8 @@ export function StudyCard({
                     onTryAgain={hardTryAgain}
                     onShowAnswer={giveUp}
                     onNext={hardNext}
-                    check={sentenceCheck.check}
-                    checkingLabel={sentenceCheck.checking ? SENTENCE_CHECKING : undefined}
+                    check={sentenceCheck.check ?? (isSpeakingCard ? readCheck.check : null)}
+                    checkingLabel={sentenceCheck.checking ? SENTENCE_CHECKING : isSpeakingCard && readCheck.checking ? READ_TAKE_CHECKING : undefined}
                     onTypeInstead={sentenceCheck.check && answerWasSpoken && questionResult !== 'right' ? hardTypeInstead : undefined}
                     speak={(text) => playAudio(null, text, API_BASE)}
                     sentenceView={sentenceCheck.view}

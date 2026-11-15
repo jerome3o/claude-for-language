@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.StartOffset
+import dev.jeromeswannack.chineselearning.lab.core.ReadTakeCheck
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -265,7 +266,7 @@ private fun YouSaidRound(icon: ImageVector, label: String, tone: YouSaidTone, ta
 }
 
 @Composable
-private fun YouSaidHead(tone: YouSaidTone? = null, state: String? = null) {
+private fun YouSaidHead(tone: YouSaidTone? = null, state: String? = null, label: String? = null) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Text("You said", fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.Medium, color = Lab.colors.muted)
         if (tone != null && state != null) {
@@ -277,14 +278,25 @@ private fun YouSaidHead(tone: YouSaidTone? = null, state: String? = null) {
                     .padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    verdictIconVector(state),
-                    contentDescription = null,
-                    tint = style.chipInk,
-                    modifier = Modifier.size(14.dp).testTag("$YOU_SAID_VERDICT_TAG-${youSaidVerdictIcon(state)}"),
-                )
+                if (state == "checking") {
+                    // Claude is reading the take: three pulsing dots, never a ✗.
+                    val pulse = rememberInfiniteTransition(label = "you-said-checking")
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.testTag("$YOU_SAID_VERDICT_TAG-checking")) {
+                        repeat(3) { i ->
+                            val a by pulse.animateFloat(0.3f, 1f, infiniteRepeatable(tween(480), RepeatMode.Reverse, StartOffset(i * 150)), label = "c$i")
+                            Box(Modifier.size(4.dp).alpha(a).clip(CircleShape).background(style.chipInk))
+                        }
+                    }
+                } else {
+                    Icon(
+                        verdictIconVector(state),
+                        contentDescription = null,
+                        tint = style.chipInk,
+                        modifier = Modifier.size(14.dp).testTag("$YOU_SAID_VERDICT_TAG-${youSaidVerdictIcon(state)}"),
+                    )
+                }
                 Spacer(Modifier.width(3.dp))
-                Text(youSaidVerdictLabel(state), fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = style.chipInk)
+                Text(label ?: youSaidVerdictLabel(state), fontSize = 12.sp, lineHeight = 15.sp, fontWeight = FontWeight.SemiBold, color = style.chipInk)
             }
         }
     }
@@ -300,25 +312,49 @@ private fun YouSaidHead(tone: YouSaidTone? = null, state: String? = null) {
  * on the right of the yellow box only.
  */
 @Composable
-fun YouSaidBox(r: TranscriptionComparison, onCoach: (() -> Unit)? = null, onPlay: (() -> Unit)? = null) {
-    val state = if (r.isMatch) "match" else if (r.containsExpected) "contains" else if (r.tonesOff) "close" else "miss"
+fun YouSaidBox(
+    r: TranscriptionComparison,
+    onCoach: (() -> Unit)? = null,
+    onPlay: (() -> Unit)? = null,
+    /** Claude is checking a take the device couldn't accept (core ReadTakeCheck): "Checking…" instead of ✗. */
+    checking: Boolean = false,
+    /** Claude's verdict on such a take: ✓ Right / ≈ Close / ✗ Didn't match + its one-line reason (and a ✗'s tip). */
+    claude: ReadTakeClaude? = null,
+) {
+    val device = if (r.isMatch) "match" else if (r.containsExpected) "contains" else if (r.tonesOff) "close" else "miss"
+    val state = claude?.state ?: device
+    val waiting = checking && claude == null
     // Close — tones off is partly right: the same yellow as Contains (never orange — red / green colour-blind).
-    val tone = when (state) { "match" -> YouSaidTone.MATCH; "contains", "close" -> YouSaidTone.CONTAINS; else -> YouSaidTone.MISS }
+    val tone = if (waiting) YouSaidTone.PENDING else when (state) { "match" -> YouSaidTone.MATCH; "contains", "close" -> YouSaidTone.CONTAINS; else -> YouSaidTone.MISS }
     val coach = onCoach?.takeIf { state == "contains" }
     YouSaidShell(
         tone,
-        Modifier.testTag("$YOU_SAID_TAG-$state"),
+        Modifier.testTag("$YOU_SAID_TAG-${if (waiting) "checking" else state}"),
         left = onPlay?.let { play -> { YouSaidRound(Icons.Rounded.PlayArrow, YOU_SAID_PLAY_LABEL, tone, YOU_SAID_PLAY_TAG, play) } },
         right = coach?.let { open -> { YouSaidRound(Icons.Rounded.Edit, YOU_SAID_COACH_LABEL, tone, YOU_SAID_COACH_TAG, open) } },
     ) {
-        YouSaidHead(tone, state)
+        if (waiting) YouSaidHead(tone, "checking", label = ReadTakeCheck.CHECKING)
+        else YouSaidHead(tone, state, label = claude?.let { ReadTakeCheck.CHIP[it.state] })
         Spacer(Modifier.size(4.dp))
         Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
         if (r.transcribedPinyin.isNotBlank()) {
             Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
+        if (claude != null && claude.reason.reason.isNotBlank()) {
+            Spacer(Modifier.size(6.dp))
+            Text(claude.reason.reason, fontSize = 14.sp, lineHeight = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, modifier = Modifier.testTag(YOU_SAID_REASON_TAG))
+            claude.reason.tip?.let { tip ->
+                Text(tip, fontSize = 13.sp, lineHeight = 18.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp).testTag(YOU_SAID_TIP_TAG))
+            }
+        }
     }
 }
+
+/** Claude's verdict on a read take the device couldn't accept (core ReadTakeCheck): the box's state + its reason. */
+data class ReadTakeClaude(val state: String, val reason: ReadTakeCheck.Reason)
+
+const val YOU_SAID_REASON_TAG = "you-said-reason"
+const val YOU_SAID_TIP_TAG = "you-said-tip"
 
 /** "Transcribing…" in the result's shell (no jump when the result arrives). */
 @Composable

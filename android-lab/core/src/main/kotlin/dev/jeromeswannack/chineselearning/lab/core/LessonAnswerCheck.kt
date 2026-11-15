@@ -77,7 +77,9 @@ data class AnswerTry(val text: String, val input: String? = null, val check: Ans
 object LessonAnswerCheck {
     const val VERSION = 2
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
-    val TYPES = listOf("translate", "listen_translate")
+    /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
+    const val READ_ALOUD_TYPE = "read_aloud"
+    val TYPES = listOf("translate", "listen_translate", READ_ALOUD_TYPE)
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
     const val SPEAKING_VERSION = 1
 

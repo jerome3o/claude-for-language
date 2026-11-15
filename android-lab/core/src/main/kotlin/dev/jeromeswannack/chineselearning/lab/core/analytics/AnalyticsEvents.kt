@@ -80,6 +80,7 @@ object AnalyticsEvents {
         ev("study.sentence_listen", "study", listOf("result", "checked_by", "input", "replays", "slow", "fallback", "where", "retry")),
         ev("study.round_difference_shown", "study", listOf("kind", "reason", "verdict", "where", "held")),
         ev("study.sentence_answer_check", "study", listOf("verdict", "retry", "input", "cached", "ms", "card_type", "where")),
+        ev("study.read_take_check", "study", listOf("verdict", "retry", "input", "cached", "ms", "card_type", "where")),
         ev("study.sentence_hidden", "study", listOf("reason", "where", "unhidden")),
         ev("study.sentence_topup_requested", "study", listOf("why", "count", "queued")),
         ev("study.listen_context", "study", listOf("sentences_played", "word_first_prompt_shown", "played_word_anyway")),

@@ -37,6 +37,8 @@ export function useSentenceAnswerCheck(args: {
   cardType: string;
   where: 'session' | 'homework';
   checker?: SentenceChecker;
+  /** The analytics event for each check (a read card's take: `study.read_take_check`). */
+  event?: 'study.sentence_answer_check' | 'study.read_take_check';
 }): SentenceCheckState {
   const [state, setState] = useState<SentenceCheckState>({ status: 'idle' });
   const key = args.input ? answerCheckCacheText(args.input) : null;
@@ -56,19 +58,20 @@ export function useSentenceAnswerCheck(args: {
     const retry = tries.current++;
     const began = Date.now();
     const { cardType, where, checker } = latest.current;
+    const event = latest.current.event ?? 'study.sentence_answer_check';
     const props = { retry, input: input.input ?? 'typed', card_type: cardType, where };
     setState({ status: 'checking', key: k });
     (checker ?? checkLessonAnswer)(input).then(
       ({ check, cached }) => {
         if (run.current !== id) return;
         setState({ status: 'done', key: k, check });
-        track('study.sentence_answer_check', { verdict: check.verdict, cached, ms: Date.now() - began, ...props });
+        track(event, { verdict: check.verdict, cached, ms: Date.now() - began, ...props });
       },
       (error: unknown) => {
         if (run.current !== id) return;
         const offline = error instanceof AnswerCheckUnavailable && error.offline;
         setState({ status: 'unavailable', key: k, offline });
-        track('study.sentence_answer_check', { verdict: offline ? 'offline' : 'error', cached: false, ms: Date.now() - began, ...props });
+        track(event, { verdict: offline ? 'offline' : 'error', cached: false, ms: Date.now() - began, ...props });
       },
     );
   }, []);

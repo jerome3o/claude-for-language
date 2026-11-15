@@ -279,6 +279,20 @@ const TRAILING_SENTENCE_PUNCTUATION = /[\s。．.！!？?，,、；;：:…~～]
 
 /** The marks a recogniser writes where the learner paused. */
 const PAUSE_MARKS = /[。．.！!？?，,、；;：:…~～]/;
+/** Quote marks: double / corner / book-title kinds, and apostrophe kinds (kept inside a Latin word: don't). */
+const DOUBLE_QUOTES = '"“”„‟«»‹›「」『』《》〈〉〝〞＂＇';
+const APOSTROPHES = "'’‘`´";
+const QUOTE_MARKS = new RegExp(`[${DOUBLE_QUOTES}${APOSTROPHES}]`);
+/** A double quote between two Latin letters (with any spaces around it): one space (the pinyin line: hěn"fán). */
+const QUOTE_BETWEEN_LATIN = new RegExp(`(?<=\\p{Script=Latin})\\s*[${DOUBLE_QUOTES}]+\\s*(?=\\p{Script=Latin})`, 'gu');
+const DOUBLE_QUOTES_ALL = new RegExp(`[${DOUBLE_QUOTES}]`, 'g');
+/** An apostrophe that isn't inside a Latin word. */
+const LOOSE_APOSTROPHE = new RegExp(`(?<!\\p{Script=Latin})[${APOSTROPHES}]|[${APOSTROPHES}](?!\\p{Script=Latin})`, 'gu');
+
+/** The recogniser's quote marks out of a transcript (or its pinyin line); spaces collapsed. */
+export function stripSpokenQuotes(text: string): string {
+  return text.replace(QUOTE_BETWEEN_LATIN, ' ').replace(DOUBLE_QUOTES_ALL, '').replace(LOOSE_APOSTROPHE, '').replace(/ {2,}/g, ' ').trim();
+}
 /** A pause between two Chinese characters: spaces and pause marks (the next character stays). */
 const PAUSE_BETWEEN_HAN = /(\p{Script=Han})[\s。．.！!？?，,、；;：:…~～]+(?=\p{Script=Han})/gu;
 
@@ -295,6 +309,9 @@ const PAUSE_BETWEEN_HAN = /(\p{Script=Han})[\s。．.！!？?，,、；;：:…~
 export function tidySpokenTranscript(transcript: string, correct: string): string {
   let text = transcript.trim();
   const target = correct.trim();
+  // The recogniser's quote marks (英语很"繁琐" — Jerome, Nov 2026): never said, so never shown — unless the card
+  // has quotes itself. Between two Latin words (the pinyin line: hěn"fán suǒ") a quote becomes a space.
+  if (!QUOTE_MARKS.test(target)) text = stripSpokenQuotes(text);
   if (!PAUSE_MARKS.test(target.replace(TRAILING_SENTENCE_PUNCTUATION, ''))) text = text.replace(PAUSE_BETWEEN_HAN, '$1');
   if (TRAILING_SENTENCE_PUNCTUATION.test(target)) return text;
   return text.replace(TRAILING_SENTENCE_PUNCTUATION, '');

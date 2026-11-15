@@ -231,6 +231,11 @@ const TIDY: [string, string][] = [
   ['虾饺我最喜欢的。 点心。', '虾饺是我最喜欢的点心。'], ['我 想 去，银行', '我想去银行'], ['你好， 我是小明', '你好，我是小明'],
   ['我想 order 一个 coffee', '我想点一个咖啡'], ['xiā jiǎo。 diǎn xīn', '虾饺点心'], ['他来了。 我们走吧！', '他来了我们走吧'],
   ['𠮷。 野家', '𠮷野家'],
+  // The recogniser's quote marks (Jerome: 英语很"繁琐") — gone unless the card quotes something itself.
+  ['我越学中文，越觉得英语很"繁琐"。', '我越学中文，越觉得英文很繁琐。'],
+  ['wǒ yuè xué zhōng wén， yuè jué dé yīng yǔ hěn"fán suǒ".', '我越学中文，越觉得英文很繁琐。'],
+  ['他说“你好”', '他说你好'], ['「繁琐」', '繁琐'], ["《红楼梦》很'长'", '红楼梦很长'], ["我 don't know", '我不知道'],
+  ['他说“好”。', '他说“好”。'], ['hěn “ fán suǒ ” le', '很繁琐了'], ['‘好’', '好'], ['a’b \'c\' d', '好'],
 ];
 const tidy = TIDY.map(([transcript, correct]) => ({ transcript, correct, tidy: tidySpokenTranscript(transcript, correct) }));
 writeFileSync(join(OUT, 'spoken-answer.json'), JSON.stringify({ cases: out, notes, counts, tidy, results_by_verdict: resultsByVerdict }));

@@ -14,7 +14,7 @@ import {
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
 
-const types = ['translate', 'listen_translate', 'sentence_making', 'dictation'];
+const types = ['translate', 'listen_translate', 'read_aloud', 'sentence_making', 'dictation'];
 const answers = ['即使便宜，我也不买。', "I won't buy it", '', '   ', '。', '我也不买 ok', '　你好　', null];
 const applies = types.flatMap((t) => answers.map((a) => ({ type: t, answer: a, applies: answerCheckApplies(t, a) })));
 

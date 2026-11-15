@@ -12,8 +12,9 @@ import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d
 import lessonAttempts, { checkAttemptSpeaking } from '../lesson-attempts';
 import { ANSWER_CHECK_FIXTURES, SPEAKING_FIXTURE, fakeAnswerCheckClient } from '../../services/answer-check-fake';
 import {
-  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL,
+  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM,
 } from '../../services/answer-check';
+import { readTakeCheckInput, readTakeClaudeState } from '@shared/study/readTakeCheck';
 import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, answerCheckCacheText } from '@shared/lesson/answerCheck';
 import type { Env } from '../../types';
 
@@ -298,5 +299,63 @@ describe('meaning check (Hard mode "Sentences by ear": the Chinese heard, his En
     const check = await runAnswerCheck(listen('a cat') as never, { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
     expect(check.verdict).toBe('wrong');
     expect(create).toHaveBeenCalled();
+  });
+});
+
+describe('read aloud (a read card\'s take the device couldn\'t accept, shared/study/readTakeCheck.ts)', () => {
+  let db: SqliteD1;
+  let post: ReturnType<typeof client>;
+  // Jerome, Nov 2026: the card 我越学中文，越觉得英文很繁琐。 read aloud, heard as 英语 with the recogniser's quotes.
+  const read = (answer: string) => readTakeCheckInput({
+    hanzi: '我越学中文，越觉得英文很繁琐。',
+    pinyin: 'wǒ yuè xué Zhōngwén, yuè juéde Yīngwén hěn fánsuǒ.',
+    english: 'The more I study Chinese, the more I find English to be complicated.',
+    transcript: answer,
+  });
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+  });
+
+  it('英语 for 英文 (same meaning) → almost (≈ Close) with the reason, never wrong; nothing to correct', async () => {
+    const r = await post('/lessons/answer-check', read('我越学中文，越觉得英语很"繁琐"。'));
+    expect(r.status).toBe(200);
+    expect(r.json.check.verdict).toBe('almost');
+    expect(r.json.check.headline).toContain('英语');
+    expect(r.json.check.headline).toContain('英文');
+    expect(r.json.check.corrected).toBe('');
+    expect(readTakeClaudeState(r.json.check.verdict)).toBe('close');
+    // Cached for everyone (quotes / punctuation aside).
+    const again = await post('/lessons/answer-check', read('我越学中文越觉得英语很繁琐'));
+    expect(again.json.cached).toBe(true);
+  });
+
+  it('the card itself (quotes and all) is right with no model call', async () => {
+    const r = await post('/lessons/answer-check', read('我越学中文，越觉得英文很“繁琐”。'));
+    expect(r.json.local).toBe(true);
+    expect(r.json.check.verdict).toBe('correct');
+  });
+
+  it('the prompt: read aloud, the card\'s Chinese as what was read, the transcript tidied (no quotes), a same-meaning word = almost at worst', () => {
+    const turn = answerCheckUserTurn(read('我越学中文，越觉得英语很"繁琐"。'));
+    expect(turn).toContain("The card's Chinese (what they READ ALOUD): 我越学中文，越觉得英文很繁琐。 (wǒ yuè xué Zhōngwén, yuè juéde Yīngwén hěn fánsuǒ.)");
+    expect(turn).toContain('It means: The more I study Chinese');
+    expect(turn).toContain("Transcript of their reading (speech recognition — punctuation and little words are the recogniser's): 我越学中文，越觉得英语很繁琐。");
+    expect(turn).not.toContain('"');
+    expect(READ_ALOUD_CHECK_SYSTEM).toMatch(/A same-meaning word is ALWAYS "almost" at worst, never "wrong"/);
+    expect(READ_ALOUD_CHECK_SYSTEM).toMatch(/quote marks/);
+  });
+
+  it('the model\'s "acceptable" reads as almost (≈ Close), and a read-aloud check never carries a correction or alternative', async () => {
+    const create = vi.fn(async (params: { system?: unknown }) => {
+      expect(JSON.stringify(params.system)).toContain('READING a flashcard');
+      return { stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'tool_use', id: 'x', name: 'check_answer', input: { verdict: 'acceptable', headline: 'You said 英语 — same meaning.', corrected: '我越学中文，越觉得英文很繁琐。', tips: [], alternative: { hanzi: '我越学中文越觉得英语繁琐。' } } }] };
+    });
+    const check = await runAnswerCheck(read('我越学中文，越觉得英语很繁琐。'), { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
+    expect(check.verdict).toBe('almost');
+    expect(check.suggested).toBe('missed_it');
+    expect(check.corrected).toBe('');
+    expect(check.alternative).toBeUndefined();
   });
 });

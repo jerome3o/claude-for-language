@@ -107,6 +107,7 @@ import dev.jeromeswannack.chineselearning.lab.core.HardMode
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.SentenceAnswerCheck
+import dev.jeromeswannack.chineselearning.lab.core.ReadTakeCheck
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDifference
 import dev.jeromeswannack.chineselearning.lab.core.SentenceHistory
 import androidx.compose.runtime.SideEffect
@@ -384,6 +385,46 @@ fun CardStage(
         applies = sentenceInput != null, checking = sentenceChecking, claude = sentenceCheck?.verdict,
         said = answer.trim(), model = note.hanzi, corrected = sentenceCheck?.corrected,
     )
+    // A read card's take the device couldn't accept (✗) goes to Claude's read-aloud check when online (core
+    // ReadTakeCheck; docs/STUDY_SESSION.md "You said"): ✓ Right / ≈ Close with its reason / ✗ with its tip, "Checking…"
+    // meanwhile; offline / failed → the device's verdict. One call per distinct take (device cache, then the server's).
+    val takeDone = (ui.extras.take.transcription as? TranscriptionUi.Done)?.result
+    val readInput = takeDone?.takeIf {
+        ReadTakeCheck.applies(view.card.cardType, note.hanzi, it.transcribedHanzi, it.isMatch, it.containsExpected, it.tonesOff)
+    }?.let { ReadTakeCheck.input(note.hanzi, note.pinyin, note.english, it.transcribedHanzi) }
+    val readKey = readInput?.let { LessonAnswerCheck.cacheText(it) }
+    var readState by remember(view.presentation) { mutableStateOf<SentenceCheckState?>(null) }
+    var readTries by remember(view.presentation) { mutableIntStateOf(0) }
+    LaunchedEffect(readKey, ui.aiAvailable) {
+        val input = readInput ?: return@LaunchedEffect
+        val key = readKey ?: return@LaunchedEffect
+        if (!ui.aiAvailable) return@LaunchedEffect
+        val prev = readState
+        if (prev != null && prev.key == key && !prev.checking) return@LaunchedEffect
+        readState = SentenceCheckState(key, checking = true)
+        val retry = readTries++
+        val began = System.currentTimeMillis()
+        val props = mapOf("retry" to retry, "input" to input.input, "card_type" to view.card.cardType, "where" to if (pass != null) "homework" else "session")
+        try {
+            val r = actions.answerCheck(input)
+            readState = SentenceCheckState(key, check = r.check)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.read_take_check", mapOf("verdict" to r.check.verdict, "cached" to r.cached, "ms" to System.currentTimeMillis() - began) + props)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val offline = e is dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable && e.offline
+            readState = SentenceCheckState(key)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.read_take_check", mapOf("verdict" to if (offline) "offline" else "error", "cached" to false, "ms" to System.currentTimeMillis() - began) + props)
+        }
+    }
+    val readNow = readState?.takeIf { it.key == readKey }
+    /** Claude's check of the read take (null = none, or the device's verdict stands). */
+    val readCheck: AnswerCheck? = readNow?.check
+    val readChecking = readInput != null && ui.aiAvailable && (readNow == null || readNow.checking)
+    /** The take as the card judges it (core ReadTakeCheck.checked): the device's, or Claude's verdict. */
+    val readTake: ReadTakeCheck.Take? = takeDone?.let { ReadTakeCheck.checked(ReadTakeCheck.Take(it.isMatch, it.containsExpected, it.tonesOff), readCheck?.verdict) }
+    val readClaude: ReadTakeClaude? = readCheck?.let { ReadTakeClaude(ReadTakeCheck.claudeState(it.verdict), ReadTakeCheck.reason(it)) }
+
     /** The verdict the card goes on with: the device's, or Claude's for a sentence it checked. */
     fun cardVerdict(v: AnswerKey.Verdict): AnswerKey.Verdict = if (mcSlots == null) SentenceAnswerCheck.checkedVerdict(v, sentenceCheck?.verdict) else v
 
@@ -510,7 +551,8 @@ fun CardStage(
         typing -> questionVerdict?.let { HardMode.questionResult(it) }
         !take.hasTake -> null
         else -> when (val t = take.transcription) {
-            is TranscriptionUi.Done -> HardMode.questionResult(null, "done", t.result.isMatch, t.result.containsExpected, t.result.tonesOff)
+            is TranscriptionUi.Done -> if (readChecking) HardMode.questionResult(null, "checking")
+                else HardMode.questionResult(null, "done", readTake!!.isMatch, readTake.containsExpected, readTake.tonesOff)
             TranscriptionUi.Offline, TranscriptionUi.Failed, TranscriptionUi.SignedOut -> HardMode.questionResult(null, "unknown")
             else -> HardMode.questionResult(null, "checking")
         }
@@ -777,7 +819,7 @@ fun CardStage(
                         // A tapped character opens the language explorer (ui/explorer) — the old sheet only where there is none (previews).
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
-                            sentenceCheck = sentenceCheck, localVerdict = localVerdict,
+                            sentenceCheck = sentenceCheck, localVerdict = localVerdict, readChecking = readChecking, readClaude = readClaude,
                             canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory, roundMarks = roundMarks,
                             onLeech = {
                                 sheet = CardSheet.Leech
@@ -828,8 +870,8 @@ fun CardStage(
                     onTryAgain = { hardTryAgain() },
                     onShowAnswer = { giveUp() },
                     onNext = { hardNext() },
-                    check = sentenceCheck,
-                    checkingLabel = if (sentenceChecking) SentenceAnswerCheck.CHECKING else null,
+                    check = sentenceCheck ?: readCheck.takeIf { !typing },
+                    checkingLabel = if (sentenceChecking) SentenceAnswerCheck.CHECKING else if (!typing && readChecking) ReadTakeCheck.CHECKING else null,
                     onTypeInstead = if (sentenceCheck != null && answerIsSpoken(answer) && questionResult != "right") ({ hardTypeInstead() }) else null,
                     onPlay = { text -> actions.onPlay(null, text) },
                     sentenceView = sentenceView,
@@ -940,7 +982,7 @@ fun CardStage(
                         // Hard mode, given up: Not yet (Got it is locked).
                         passGotItLocked -> "wrong"
                         typing && answer.isNotBlank() -> if (partialMc) "wrong" else verdict?.let { Homework.passSuggestion(it) }
-                        !typing -> (ui.extras.take.transcription as? TranscriptionUi.Done)?.result?.let { Homework.passSuggestion(null, it.isMatch, it.containsExpected) }
+                        !typing -> readTake?.let { Homework.passSuggestion(null, it.isMatch, it.containsExpected) }
                         else -> null
                     }
                     val answered = when {
@@ -1263,6 +1305,9 @@ private fun CardBack(
     sentenceCheck: AnswerCheck? = null,
     /** The device's own verdict of the answer: the "You said" row compares the words with the card. */
     localVerdict: AnswerKey.Verdict? = null,
+    /** A read card's take Claude is checking ("Checking…" in the box), and its verdict (core ReadTakeCheck). */
+    readChecking: Boolean = false,
+    readClaude: ReadTakeClaude? = null,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -1294,7 +1339,7 @@ private fun CardBack(
                     TappableHanzi(note.hanzi, hanziSize(note.hanzi) * (if (spokenAnswer) 0.7f else 0.85f), color, onChar, newChars = newChars)
                 }
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }, checking = readChecking, claude = readClaude) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -2267,7 +2312,15 @@ private fun SpokenStatus(spoken: SpokenUi, online: Boolean, actions: StudyAction
 
 /** "You said" under the answer (the web's renderTranscriptionResult): every state is the same box ([YouSaidBox]). */
 @Composable
-private fun TranscriptionLine(t: TranscriptionUi?, answer: String, onRetry: () -> Unit = {}, onCoach: ((String) -> Unit)? = null, onPlay: (() -> Unit)? = null) {
+private fun TranscriptionLine(
+    t: TranscriptionUi?,
+    answer: String,
+    onRetry: () -> Unit = {},
+    onCoach: ((String) -> Unit)? = null,
+    onPlay: (() -> Unit)? = null,
+    checking: Boolean = false,
+    claude: ReadTakeClaude? = null,
+) {
     if (t == null) return
     Spacer(Modifier.height(6.dp))
     when (t) {
@@ -2283,7 +2336,7 @@ private fun TranscriptionLine(t: TranscriptionUi?, answer: String, onRetry: () -
                 transcribedHanzi = AnswerKey.tidySpokenTranscript(t.result.transcribedHanzi, answer),
                 transcribedPinyin = AnswerKey.tidySpokenTranscript(t.result.transcribedPinyin, answer),
             )
-            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay)
+            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay, checking = checking, claude = claude)
         }
     }
 }

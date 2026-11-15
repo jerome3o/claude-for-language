@@ -24,11 +24,16 @@ data class TranscriptionComparison(
     val containsExpected: Boolean,
     /** Neither, but the same syllables with other tones (老伴 lǎobàn for 老板 lǎobǎn): "≈ Close — tones off". */
     val tonesOff: Boolean = false,
+    /** A match with one short function word not caught (a sentence; `AnswerKey.droppedFunctionChar`): that word. */
+    val droppedWord: String? = null,
 )
 
 object Transcription {
     private val NON_PINYIN = Regex("[^a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]")
     private val SPACES = Regex("\\s+")
+    /** Port of `bareSpokenText`: every punctuation mark, symbol and (JS) space out — what is SAID. */
+    private val NOT_SAID = Regex("[\\p{P}\\p{S}\\t\\n\\u000B\\f\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]+")
+    fun bareSpokenText(text: String): String = NOT_SAID.replace(text, "")
 
     /** `normalizePinyin`: lowercase, no spaces, only letters and tone-marked vowels. */
     fun normalizePinyin(py: String): String = NON_PINYIN.replace(SPACES.replace(py.lowercase(), ""), "")
@@ -39,21 +44,26 @@ object Transcription {
      */
     fun compare(transcribed: String, expectedHanzi: String, pinyin: (String) -> String = Pinyin::of): TranscriptionComparison {
         val original = transcribed.trim()
-        val heard = AnswerKey.normalizeNumbersToHanzi(original)
-        val expected = AnswerKey.normalizeNumbersToHanzi(expectedHanzi)
+        val heardShown = AnswerKey.normalizeNumbersToHanzi(original)
+        // Punctuation of any kind never matters (the recogniser's quote marks: 英语很"繁琐"): compared bare.
+        val heard = bareSpokenText(heardShown)
+        val expected = bareSpokenText(AnswerKey.normalizeNumbersToHanzi(expectedHanzi))
         fun key(h: String) = normalizePinyin(pinyin(h))
         val tKey = key(heard)
         val eKey = key(expected)
         val tAlt = key(heard.replace("两", "二"))
         val eAlt = key(expected.replace("两", "二"))
-        val match = tKey == eKey || tAlt == eAlt
+        val exact = tKey == eKey || tAlt == eAlt
+        // A sentence read with one little word swallowed (是 / 的 / 了 …) is the recogniser's, not his.
+        val dropped = if (!exact && eKey.isNotEmpty()) AnswerKey.droppedFunctionChar(bareSpokenText(original), expectedHanzi) else null
+        val match = exact || dropped != null
         // "Contains the answer": also the typing cards' spoken rule (AnswerKey.answerWithin —
         // the hanzi inside, or a syllable window that sounds like it), as in shared/recordings/transcript.ts.
         val contains = !match && eKey.isNotEmpty() &&
             (tKey.contains(eKey) || tAlt.contains(eAlt) || AnswerKey.answerWithin(original, expectedHanzi) != null)
         val tonesOff = !match && !contains && eKey.isNotEmpty() &&
             (AnswerKey.tonelessPinyin(tKey) == AnswerKey.tonelessPinyin(eKey) || AnswerKey.tonelessPinyin(tAlt) == AnswerKey.tonelessPinyin(eAlt))
-        return TranscriptionComparison(original, pinyin(heard), match, contains, tonesOff)
+        return TranscriptionComparison(original, pinyin(heardShown), match, contains, tonesOff, dropped)
     }
 }
 
