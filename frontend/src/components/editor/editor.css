@@ -725,7 +725,8 @@ textarea.ed-input { min-height: 0; resize: vertical; }
 
 /* Note form → Structures (PatternsField.tsx) */
 .ed-pattern { display: flex; flex-direction: column; gap: 0.6rem; flex: 1; min-width: 0; }
-.ed-pattern-row { align-items: flex-start; }
+.ed-pattern-row, .ed-pattern .ed-list-row { flex-direction: column-reverse; align-items: stretch; }
+.ed-pattern-row > :last-child, .ed-pattern .ed-list-row > :last-child { align-self: flex-end; }
 .ed-pattern-preview { padding: 0.5rem 0; }
 .ed-pattern-example { font-size: 1.2rem; margin-top: 0.3rem; }
 .ed-inline-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }

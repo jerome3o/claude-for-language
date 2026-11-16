@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  alignPatternExample, examplePartsFor, noteTextBlocks, parsePatternLine, patternLine, patternName, pieceTones, slotClass,
+  alignPatternExample, examplePartsFor, mergePieceDetails, noteTextBlocks, parsePatternLine, patternEditText, patternLine, patternName, pieceTones, slotClass,
   structureNoteView, validExampleParts,
 } from './pattern';
 import { ALL_STRUCTURES_NOTE, PLAIN_NOTES, STRUCTURE_FOUR_NOTE, STRUCTURE_ONE_NOTE } from './__fixtures__/structures';
@@ -162,6 +162,13 @@ describe('colours, classes, text', () => {
       { kind: 'heading', text: 'Common mistake' }, { kind: 'wrong', text: '二十个多学生' }, { kind: 'right', text: '二十多个学生' },
       { kind: 'text', text: 'Just a line.' },
     ]);
+  });
+  it('round-trips the editor text and keeps glosses across a re-read', () => {
+    const p = structureNoteView(ALL_STRUCTURES_NOTE)!.cards[0].pattern;
+    const text = patternEditText(p.pieces);
+    expect(text).toBe('除了 + 名词／动词短语 + （以外） + ， + 主语 + 还 + 动词');
+    const reread = parsePatternLine(text)!.pieces;
+    expect(mergePieceDetails(reread, p.pieces)).toEqual(p.pieces);
   });
   it('writes the pattern as one line and names it', () => {
     const p = structureNoteView(ALL_STRUCTURES_NOTE)!.cards[0].pattern;
