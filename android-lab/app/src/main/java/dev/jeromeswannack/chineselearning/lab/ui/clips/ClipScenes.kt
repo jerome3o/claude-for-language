@@ -280,6 +280,7 @@ fun SceneView(spec: ClipSpec, scene: ClipScene, index: Int, play: ClipPlayState,
             "order" -> OrderView(interact, scene)
             "reveal" -> RevealView(interact, scene)
             "speak" -> SpeakView(interact, scene)
+            "pattern" -> PatternSceneView(scene, ctx, clock, building = scene.pattern?.example == null && spec.scenes.indexOfFirst { it.layout == "pattern" } == index)
             "story" -> scene.story?.let { st ->
                 val cast = remember(st) { Clips.storyCast(st.lines.map { it.speaker }) }
                 val shown = Clips.storyLinesShown(st.lines.size, scene.duration_ms.toDouble(), play.elapsedMs, spokenLine)

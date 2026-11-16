@@ -120,6 +120,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
 │   │   ├── pattern.ts     # Structure cards (docs/STUDY_SESSION.md "Structure cards"): a note's `patterns` (fixed words + slots, meaning, examples mapped by `parts`), the parser that reads older free-text structures ("① 除了 + 名词 +（以外），主语 + 还 + 动词") into the same cards + matches / aligns their sentences, colour roles (`pieceTones`), ✗ / ✓ text blocks — Lab core LessonPatterns.kt, parity-tested
+│   │   ├── patternIntro.ts # "▶ Watch the intro" on a structure card (docs/STUDY_SESSION.md "Structure intro"): the card as a 🎬 clip (`pattern` layout), the simple-Chinese voice-over (`patterns[].intro`, else a template), its prefetch texts, the lit part — Lab core LessonPatternIntro.kt, parity-tested
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
 │   │   ├── voices.ts      # Conversation voices: curated MiniMax catalogue (default_on), enabled pools, per-dialogue rotation (conversationVoicesFor), 0.9× speed + 200 ms turn gap
 │   │   ├── conversationAudio.ts # Conversation audio prefs (speed / delivery / voices per provider, per-conversation choices), resolveConversationAudio — docs/AUDIO.md "Conversation audio"

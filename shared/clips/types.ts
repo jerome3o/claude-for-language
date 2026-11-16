@@ -12,12 +12,14 @@
  * The Lab app's port: android-lab/core/…/clips/Clips.kt (parity-tested).
  */
 
+import type { PatternExamplePart, PatternPiece } from '../lesson/types';
+
 export const CLIP_SPEC_VERSION = 1;
 
 export const CLIP_THEMES = ['neon', 'paper', 'chalk', 'comic', 'sunset', 'mono', 'ink', 'retro'] as const;
 export type ClipTheme = (typeof CLIP_THEMES)[number];
 
-export const CLIP_LAYOUTS = ['title', 'big_word', 'sentence', 'compare', 'quiz', 'story', 'list', 'fact', 'listen', 'order', 'reveal', 'speak'] as const;
+export const CLIP_LAYOUTS = ['title', 'big_word', 'sentence', 'compare', 'quiz', 'story', 'list', 'fact', 'listen', 'order', 'reveal', 'speak', 'pattern'] as const;
 export type ClipLayout = (typeof CLIP_LAYOUTS)[number];
 
 /**
@@ -49,6 +51,8 @@ export interface ClipVoiceLine {
   lang: ClipLang;
   /** teacher (default) | female | male | narrator. */
   voice?: ClipVoiceName;
+  /** Optional (added): the line in English, shown under the caption with English on. */
+  en?: string;
 }
 
 export interface ClipTitleBody {
@@ -163,6 +167,19 @@ export interface ClipSpeakBody {
   prompt_en?: string;
 }
 
+/**
+ * Added: a grammar structure (shared/lesson/pattern.ts — a lesson's structure card): its pieces build
+ * up one by one (fixed words as chips, slots as labelled boxes); with an `example`, the example shows
+ * big below, every part coloured like the piece it fills, the parts lighting up as it is read. Used by
+ * a mini lesson's "▶ Watch the intro" (shared/lesson/patternIntro.ts).
+ */
+export interface ClipPatternBody {
+  name?: string;
+  pieces: PatternPiece[];
+  meaning?: string;
+  example?: { hanzi: string; pinyin?: string; english?: string; parts?: PatternExamplePart[] };
+}
+
 interface ClipSceneBase {
   layout: ClipLayout;
   /** 1500–9000 ms (an interactive scene waits for the learner; this is its nominal length). */
@@ -185,6 +202,7 @@ export interface ClipListenScene extends ClipSceneBase { layout: 'listen'; liste
 export interface ClipOrderScene extends ClipSceneBase { layout: 'order'; order: ClipOrderBody }
 export interface ClipRevealScene extends ClipSceneBase { layout: 'reveal'; reveal: ClipRevealBody }
 export interface ClipSpeakScene extends ClipSceneBase { layout: 'speak'; speak: ClipSpeakBody }
+export interface ClipPatternScene extends ClipSceneBase { layout: 'pattern'; pattern: ClipPatternBody }
 
 export type ClipScene =
   | ClipTitleScene
@@ -198,7 +216,8 @@ export type ClipScene =
   | ClipListenScene
   | ClipOrderScene
   | ClipRevealScene
-  | ClipSpeakScene;
+  | ClipSpeakScene
+  | ClipPatternScene;
 
 export interface ClipStyle {
   theme: ClipTheme;

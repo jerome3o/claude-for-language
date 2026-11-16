@@ -41,7 +41,12 @@ data class LessonPattern(
     val note: String? = null,
     @SerialName("image_prompt") val imagePrompt: String? = null,
     @SerialName("image_url") val imageUrl: String? = null,
+    /** "▶ Watch the intro": the voice-over, ≤ 6 lines of simple Chinese (LessonPatternIntro). */
+    val intro: List<PatternIntroLine>? = null,
 )
+
+@Serializable
+data class PatternIntroLine(val zh: String = "", val en: String? = null)
 
 object LessonPatterns {
     // ------------------------------------------------------------ characters

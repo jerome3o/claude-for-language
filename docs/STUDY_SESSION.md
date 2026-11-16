@@ -795,6 +795,39 @@ Web `components/lessons/StructureCards.tsx` (+ `.css`, colour tokens with a `dat
 `shared/lesson/__fixtures__/structures.ts`), parity `android-lab/parity/fixtures/lesson-patterns.ts` →
 `LessonPatternsParityTest`, e2e `lesson-structure-cards.spec.ts`, Roborazzi `structure-cards-01…05`.
 
+### Structure intro — "▶ Watch the intro" (`shared/lesson/patternIntro.ts`; Lab `core/…/LessonPatternIntro.kt`, parity-tested)
+
+Jerome (Nov 2026): *"a little video with just the text on the screen, a few example sentences that you can play from
+here … with a voice maybe talking over the video, introducing the concepts with very simple things like, today we're
+going to learn about this sentence structure … in Chinese, obviously. Using simple language."* Every structure card
+has **▶ Watch the intro**: the card played full screen by the 🎬 Clips player (no new player) as a short walkthrough —
+
+1. a title — 新句型 + the structure's name and meaning — with the first voice line ("今天我们学“把”字句。");
+2. the pattern **building up piece by piece** (the card's own chips, 520 ms apart);
+3. each example (≤ 3) big on a card, every part coloured like its piece, **the part being read lit up as the voice
+   reads it** (`introLitPart` over the clips' karaoke timeline);
+4. a closing title "你也试一试！" and the end card **Done · ↻ Watch again**.
+
+The voice-over is in **simple Chinese**: the structure's own `intro` (spec: `patterns[].intro: [{ zh, en? }]`, 1–6
+lines, `validateLessonSpec`; `LESSON_SPEC_DOC` asks for very simple Chinese — HSK 1–2 words, short sentences — with an
+English line each), else a **template** so every older / parsed lesson gets one too: "今天我们学一个新句型：“除了……还……”。
+/ 我们先看看这个句型。/ 我们听一个例子。(几个例子) / 现在你也试一试吧！" (`templateIntroLines`). Lines map onto the
+scenes: line 1 = title, line 2 = the pattern, the middle lines = extra pattern beats then one per example (the example
+itself is read after its line), the last = the closing title (`patternIntroClip`).
+
+Captions with 拼 / EN toggles (the clips' karaoke line + an English line under it, `ClipVoiceLine.en`), tap = pause,
+🔇 works muted; no like / save / Learn more / music in an intro (ClipPlayer `intro` / `introDone`); ✕ closes. **Nothing
+plays until ▶** (the E2E checks no audio before the tap). Audio: the app voice at the clip speed through practice TTS;
+every line is in `exerciseTtsTexts` for the note (`patternIntroTexts`), so the lesson prefetch and the server's lesson
+audio pre-generation fetch it — it plays offline. The clip layout `pattern` (`shared/clips`: `{ name?, pieces, meaning?,
+example?: { hanzi, pinyin?, english?, parts? } }`) is made by the app only (docs/CLIPS.md). Analytics
+`lesson.structure_intro` (action play / finish / close, source, index, count, scenes, duration_ms).
+
+Web `components/lessons/StructureIntro.tsx`, `components/clips/ClipPatternScene.tsx`; Lab `ui/lessons/StructureIntro.kt`,
+`ui/clips/ClipPatternScene.kt`. Tests: `shared/lesson/patternIntro.test.ts`, parity `parity/fixtures/lesson-pattern-intro.ts`
+→ `LessonPatternIntroParityTest` (lines, clip, utterances, prefetch texts, lit part), e2e `lesson-structure-intro.spec.ts`,
+Roborazzi `structure-intro-01…05`.
+
 ### Judge each sentence / Choose the word (`shared/lesson/judgeGap.ts`; Lab `core/…/JudgeGap.kt`, parity-tested)
 
 Jerome (Oct 2026): lessons kept asking "which sentence in this list is wrong?" — one pick from a list. Two

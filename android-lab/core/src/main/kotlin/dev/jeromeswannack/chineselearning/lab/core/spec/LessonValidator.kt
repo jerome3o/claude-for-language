@@ -35,6 +35,7 @@ object LessonValidator {
     private const val MAX_PATTERNS = 8
     private const val MAX_PATTERN_PIECES = 12
     private const val MAX_PATTERN_EXAMPLES = 4
+    private const val MAX_INTRO_LINES = 6
 
     /** Every exercise type the validator accepts, in catalogue order (EXERCISE_TYPE_IDS). */
     val EXERCISE_TYPE_IDS = listOf(
@@ -152,6 +153,12 @@ object LessonValidator {
                 if (p[field] != null && str(p[field]) == null) errors += "$w: \"$field\" must be text"
             }
             if (p["image_prompt"] != null && !nonEmpty(p["image_prompt"])) errors += "$w: \"image_prompt\" must be a non-empty scene description"
+            if (p["intro"] != null) {
+                val intro = p["intro"]
+                val ok = intro is JsonArray && intro.size >= 1 && intro.size <= MAX_INTRO_LINES &&
+                    intro.all { l -> l is JsonObject && nonEmpty(l["zh"]) && (l["en"] == null || str(l["en"]) != null) }
+                if (!ok) errors += "$w: \"intro\" must be 1-$MAX_INTRO_LINES lines {zh, en?} (simple Chinese, read aloud)"
+            }
             val examples = p["examples"] ?: return@forEachIndexed
             if (examples !is JsonArray || examples.size > MAX_PATTERN_EXAMPLES) {
                 errors += "$w: \"examples\" must be a list of up to $MAX_PATTERN_EXAMPLES sentences"

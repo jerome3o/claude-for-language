@@ -8,6 +8,9 @@
  * frontend renders it fully offline inside the study session.
  */
 
+import { structureNoteView } from './pattern';
+import { patternIntroTexts } from './patternIntro';
+
 /** A Chinese sentence with optional pinyin and translation. */
 export interface LessonSentence {
   hanzi: string;
@@ -77,6 +80,17 @@ export interface LessonPattern {
   image_prompt?: string;
   /** R2 key of the generated illustration; filled in by the server. */
   image_url?: string | null;
+  /** "▶ Watch the intro": the voice-over in SIMPLE Chinese, ≤ 6 short lines (the first introduces the structure,
+   * the last closes) — shared/lesson/patternIntro.ts; without it a template is used. */
+  intro?: PatternIntroLine[];
+}
+
+/** One line of a structure's intro voice-over. */
+export interface PatternIntroLine {
+  /** Simple Chinese, read aloud (no brackets / ellipses). */
+  zh: string;
+  /** The English caption. */
+  en?: string;
 }
 
 /** Arrange the tiles into the correct sentence. English starts hidden and is
@@ -421,10 +435,14 @@ export function countScoreable(spec: CustomLessonSpec): number {
 export function exerciseTtsTexts(ex: LessonExercise): string[] {
   const texts: string[] = [];
   switch (ex.type) {
-    case 'note':
+    case 'note': {
       for (const p of ex.patterns ?? []) for (const e of p.examples ?? []) texts.push(e.hanzi);
       for (const s of ex.sentences ?? []) texts.push(s.hanzi);
+      // "▶ Watch the intro" of each structure card (shared/lesson/patternIntro.ts) — prefetched with the lesson.
+      const view = structureNoteView(ex);
+      if (view) texts.push(...patternIntroTexts(view));
       break;
+    }
     case 'scramble':
       texts.push(ex.correct_order.join(''));
       break;

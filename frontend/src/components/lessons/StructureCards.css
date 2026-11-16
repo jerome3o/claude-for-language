@@ -374,3 +374,9 @@
     font-size: 2rem;
   }
 }
+
+/* ▶ Watch the intro (StructureIntro.tsx): the clips player, full screen. */
+.structure-intro { position: fixed; inset: 0; z-index: 1200; background: #000; height: 100dvh; }
+.structure-intro-close { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 22px); left: 12px; z-index: 5; width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(0, 0, 0, 0.45); color: #fff; font-size: 1.1rem; cursor: pointer; }
+.sc-intro-btn { display: inline-flex; align-items: center; gap: 0.35rem; min-height: 44px; padding: 0 0.9rem; border-radius: 999px; border: none; background: var(--sc-fixed); color: var(--sc-fixed-ink); font-weight: 700; font-size: 0.9rem; cursor: pointer; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25); }
+.sc-intro-row { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }

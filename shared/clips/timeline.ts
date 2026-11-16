@@ -163,8 +163,9 @@ export function sceneUtterances(scene: ClipScene, index: number): ClipUtterance[
     scene.voice && scene.voice.text?.trim()
       ? [{ scene: index, line: -1, text: clipTtsText(scene.voice.text), lang: scene.voice.lang === 'en' ? 'en' : 'zh', voice_id: CLIP_VOICE_IDS[scene.voice.voice ?? 'teacher'] ?? null }]
       : [];
-  if (scene.layout === 'listen' || scene.layout === 'speak') {
-    const hanzi = scene.layout === 'listen' ? scene.listen.hanzi : scene.speak.hanzi;
+  if (scene.layout === 'listen' || scene.layout === 'speak' || scene.layout === 'pattern') {
+    // A pattern scene (a structure intro) says its line, then reads its example (the parts light up).
+    const hanzi = scene.layout === 'listen' ? scene.listen.hanzi : scene.layout === 'speak' ? scene.speak.hanzi : scene.pattern.example?.hanzi ?? '';
     return [...voiced, ...(hanzi?.trim() ? [zh(hanzi, 0)] : [])];
   }
   if (voiced.length) return voiced;
