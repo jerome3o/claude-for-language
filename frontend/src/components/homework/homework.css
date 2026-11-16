@@ -322,25 +322,9 @@
   border-top: none;
 }
 
-.sentence-set--pass .sentence-set-row {
-  padding: 0.5rem 0.625rem;
-  border-bottom: none;
-  border-radius: var(--radius-md);
-  background: #f5f3ff;
-}
+/* The pass's rows like the session's: no boxes inside the card — a hairline between rows (docs/STUDY_SESSION.md
+   "The study card's layout"). */
 
-.sentence-set--pass .sentence-set-row + .sentence-set-row {
-  margin-top: 0.5rem;
-}
-
-.sentence-set--pass .sentence-set-play {
-  background-color: var(--color-surface, #fff);
-}
-
-/* "From the card" tab: clear of ▶ with the pass row's wider side padding */
-.sentence-set--pass .sentence-set-corner {
-  right: calc(36px + 0.625rem + 0.625rem);
-}
 
 /* The pass on the study card: Not yet / Got it where the ratings are (PassAnswerButtons). */
 .hw-pass-rate {

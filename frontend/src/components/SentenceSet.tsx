@@ -508,8 +508,10 @@ export function SentenceSet({
             className="sentence-set-tool"
             onClick={() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })}
             data-testid="sentence-set-hide"
+            aria-label={SENTENCE_HIDE_TITLE}
+            title={SENTENCE_HIDE_TITLE}
           >
-            🙈 {SENTENCE_HIDE_TITLE}
+            🙈 Hide
           </button>
         )}
       </div>

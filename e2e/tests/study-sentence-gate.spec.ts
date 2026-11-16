@@ -178,7 +178,6 @@ async function api<T = unknown>(
 test.beforeEach(async ({ context, page }) => {
   await skipFirstCardExplainer(context);
   await fakeSoniox(page);
-  if (process.env.SHOTS_DARK) await page.addInitScript(() => { const set = () => document.documentElement.setAttribute('data-theme', 'dark'); set(); new MutationObserver(set).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); });
   await page.route(/\/api\/transcribe$/, (route) => route.fulfill({ json: { text: heard.text, language: 'zh', provider: 'e2e' } }));
 });
 test.use({ viewport: { width: 412, height: 915 }, deviceScaleFactor: process.env.SHOTS_DIR ? 2 : 1 });

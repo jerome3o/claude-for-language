@@ -46,12 +46,12 @@ import androidx.compose.ui.unit.sp
  * and the card-to-card transition.
  */
 
-/** Corner of the study card. */
-val StudyCardShape = RoundedCornerShape(28.dp)
+/** Corner of the study card: small — the frame sits at the screen's edge (Jerome, Nov 2026). */
+val StudyCardShape = RoundedCornerShape(12.dp)
 
 /** The card surface: shadow (higher once turned), rounded, filled, bordered ([border] tints it by the verdict). */
 fun Modifier.studyCardSurface(background: Color, border: Color, lifted: Boolean, borderWidth: Dp = 1.dp): Modifier =
-    shadow(if (lifted) 10.dp else 6.dp, StudyCardShape)
+    shadow(if (lifted) 3.dp else 2.dp, StudyCardShape)
         .clip(StudyCardShape)
         .background(background)
         .border(borderWidth, border, StudyCardShape)

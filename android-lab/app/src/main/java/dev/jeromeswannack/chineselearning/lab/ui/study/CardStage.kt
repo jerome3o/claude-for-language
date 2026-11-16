@@ -730,12 +730,13 @@ fun CardStage(
     val cardMin = (maxHeight * 0.26f).coerceIn(160.dp, 240.dp)
     val controlsMax = (maxHeight - cardMin).coerceAtLeast(0.dp)
     Column(Modifier.fillMaxSize()) {
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        // The card's frame sits at the screen's edge (a 4dp gutter): its content gets the width and the height.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
             val wide = maxWidth >= 640.dp
             val density = LocalDensity.current
             if (roundOpen && !revealed) {
                 // The Sentence round between the question and the answer (core SentenceRound).
-                Box(Modifier.fillMaxSize().studyCardSurface(Lab.colors.card, glow, lifted = false, borderWidth = 1.dp).padding(12.dp)) {
+                Box(Modifier.fillMaxSize().studyCardSurface(Lab.colors.card, Lab.colors.cardBorder, lifted = false, borderWidth = 1.dp).padding(horizontal = 12.dp, vertical = 6.dp)) {
                     SentenceRoundPage(
                         question = if (view.card.cardType == CardTypes.MEANING_TO_HANZI) note.english else note.hanzi,
                         questionIsChinese = view.card.cardType != CardTypes.MEANING_TO_HANZI,
@@ -790,7 +791,9 @@ fun CardStage(
                         rotationY = rotation
                         cameraDistance = 14f * density.density
                     }
-                    .studyCardSurface(Lab.colors.card, glow, lifted = flipped, borderWidth = if (verdict != null) 2.dp else 1.dp),
+                    // One thin frame; its colour tells the typed answer's verdict on the QUESTION only — the answer side's
+                    // frame stays neutral (no green box around the whole card after the round).
+                    .studyCardSurface(Lab.colors.card, if (flipped) Lab.colors.cardBorder else glow, lifted = flipped, borderWidth = 1.dp),
             ) {
                 // Once revealed both faces stay composed (the answer side keeps its scroll
                 // position and opened sentence rows through a peek); the one turned away is
@@ -849,8 +852,8 @@ fun CardStage(
             Modifier
                 .fillMaxWidth()
                 .then(if (mcGridUp) Modifier.heightIn(max = controlsMax) else Modifier)
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 12.dp),
+                .padding(horizontal = 6.dp)
+                .padding(bottom = 8.dp),
         ) {
             if (SentencePractise.stopBar(practise.listening, practise.finishing) != null) {
                 // A sentence take under way (the round or the answer side's rows): ONE big "■ Stop recording"
@@ -986,7 +989,7 @@ fun CardStage(
                     onEditCard = { sheet = CardSheet.Edit; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.edit_card") },
                     onMore = { sheet = CardSheet.More },
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(4.dp))
                 if (pass != null) {
                     // The pass: what the card saw before the reveal may suggest one (core Homework.passSuggestion).
                     val partialMc = mcSlots != null && !MultipleChoice.allRight(mcSlots!!)
@@ -1158,7 +1161,7 @@ private fun CardFront(
             // Peeking (revealed): a tap anywhere on the question turns back to the answer.
             // Unrevealed: the face is inert — only the controls below reveal.
             .then(if (revealed) Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onTapToAnswer) else Modifier)
-            .padding(if (short) 14.dp else 24.dp),
+            .padding(if (short) 10.dp else 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = if (short) Arrangement.spacedBy(6.dp, Alignment.CenterVertically) else Arrangement.Top,
     ) {
@@ -1458,10 +1461,11 @@ private fun CardBack(
             note.funFacts?.takeIf { it.isNotBlank() }?.let {
                 MarkdownText(
                     it,
-                    Modifier.fillMaxWidth().keepTaps().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint).padding(14.dp),
-                    style = MaterialTheme.typography.bodyMedium,
+                    // Plain text, not a box (no boxes inside the card).
+                    Modifier.fillMaxWidth().keepTaps().padding(horizontal = 2.dp),
+                    style = MaterialTheme.typography.bodyLarge,
                 )
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(10.dp))
             }
             if (pass != null) {
                 // The pass keeps its calm rows: the Chinese up, the generated set behind "+ N more".
@@ -1476,16 +1480,16 @@ private fun CardBack(
         }
     }
     if (wide) {
-        Row(Modifier.fillMaxSize().padding(24.dp)) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 8.dp)) {
             Box(Modifier.weight(1f).fillMaxSize().verticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) { main() }
-            Spacer(Modifier.width(24.dp))
+            Spacer(Modifier.width(20.dp))
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { details() }
         }
     } else {
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp)) {
-            Spacer(Modifier.height(8.dp))
+        // Lean padding: the answer side's content gets the space (Jerome, Nov 2026: "All the padding is pretty intense").
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
             main()
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
             details()
         }
     }

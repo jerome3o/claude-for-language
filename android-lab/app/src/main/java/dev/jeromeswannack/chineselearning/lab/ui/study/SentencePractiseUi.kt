@@ -281,8 +281,7 @@ fun SentenceMicButton(state: SentencePractiseState, row: SentenceRow, mode: Stri
     ) {
         Box(
             Modifier.size(40.dp).scale(s).clip(CircleShape)
-                .background(if (listening) Palette.Again else Lab.colors.card)
-                .then(if (listening) Modifier else Modifier.border(1.dp, Lab.colors.cardBorder, CircleShape)),
+                .background(if (listening) Palette.Again else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
             when {
