@@ -77,27 +77,46 @@ object LessonFeedback {
 
     /** Port of `markedChars`: the device's diff on the sentence AS WRITTEN (side = answer | model). */
     fun markedChars(answer: String, model: String, side: String): List<ShownChar> {
-        val d = LessonAnswers.diffHanzi(answer, model)
+        // Digits are read as Chinese numerals first: a spoken 3块 IS 三块, never a red 3.
+        val d = LessonAnswers.diffHanzi(AnswerKey.digitsToHanzi(answer), AnswerKey.digitsToHanzi(model))
         val marks = if (side == "answer") d.typed else d.expected
         val text = if (side == "answer") answer else model
         var k = 0
-        return LessonAnswers.chars(text).map { ch ->
-            val n = LessonAnswers.chars(LessonAnswers.normalizeHanzi(ch)).size
-            if (n == 0) return@map ShownChar(ch, true)
+        return shownUnits(text).flatMap { (shown, norm) ->
+            val n = LessonAnswers.chars(norm).size
             var hit = true
             repeat(n) { val m = marks.getOrNull(k++); if (m != null && !m.hit) hit = false }
-            ShownChar(ch, hit)
+            LessonAnswers.chars(shown).map { ShownChar(it, if (n == 0) true else hit) }
         }
+    }
+
+    /** Port of `answerKey`: digits as Chinese numerals, then whitespace / punctuation dropped. */
+    fun answerKey(s: String): String = LessonAnswers.normalizeHanzi(AnswerKey.digitsToHanzi(java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKC)))
+
+    /** Port of `shownUnits`: a digit run is ONE unit, every other character its own (shown, normalised). */
+    private fun shownUnits(text: String): List<Pair<String, String>> {
+        val out = mutableListOf<Pair<String, String>>()
+        fun pushChars(part: String) = LessonAnswers.chars(part).forEach { out += it to LessonAnswers.normalizeHanzi(it) }
+        var at = 0
+        for (m in AnswerKey.DIGIT_RUN.findAll(text)) {
+            pushChars(text.substring(at, m.range.first))
+            val end = m.range.last + 1
+            out += m.value to LessonAnswers.normalizeHanzi(AnswerKey.digitRunToHanzi(m.value, if (end < text.length) text[end].toString() else ""))
+            at = end
+        }
+        pushChars(text.substring(at))
+        return out
     }
 
     /** Port of `sayAgainFix`: Claude's corrected sentence, when it is new (not what he said, not already offered). */
     fun sayAgainFix(corrected: String?, said: String?, offered: String?): String? {
-        val c = JsJson.trim(corrected ?: "")
+        // Digits as numerals (a fix 3块多钱 IS the model answer 三块多钱 — nothing new to practise; shown with numerals).
+        val c = AnswerKey.digitsToHanzi(JsJson.trim(corrected ?: ""))
         if (c.isEmpty() || !HAN.containsMatchIn(c)) return null
         val s = JsJson.trim(said ?: "")
-        if (s.isNotEmpty() && LessonAnswers.isExactHanziMatch(s, c)) return null
+        if (s.isNotEmpty() && LessonAnswers.isExactHanziMatch(AnswerKey.digitsToHanzi(s), c)) return null
         val o = JsJson.trim(offered ?: "")
-        if (o.isNotEmpty() && LessonAnswers.isExactHanziMatch(o, c)) return null
+        if (o.isNotEmpty() && LessonAnswers.isExactHanziMatch(AnswerKey.digitsToHanzi(o), c)) return null
         return c
     }
 
@@ -120,8 +139,8 @@ object LessonFeedback {
      * Claude's [verdict] is correct / acceptable; otherwise the marks show.
      */
     fun answerMarks(answer: String, model: String, verdict: String? = null): AnswerMarks {
-        val a = LessonAnswers.normalizeHanzi(answer)
-        val m = LessonAnswers.normalizeHanzi(model)
+        val a = answerKey(answer)
+        val m = answerKey(model)
         if (a.isEmpty() || m.isEmpty() || a == m) return AnswerMarks(false, null)
         if (sameCharacters(a, m)) return AnswerMarks(false, REORDERED_NOTE)
         if (verdict == "correct" || verdict == "acceptable") return AnswerMarks(false, null)

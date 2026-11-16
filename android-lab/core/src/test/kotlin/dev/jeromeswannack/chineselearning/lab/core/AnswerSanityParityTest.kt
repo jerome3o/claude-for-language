@@ -69,4 +69,54 @@ class AnswerSanityParityTest {
             assertEquals(LessonFeedback.AnswerMarks(want["marks"]!!.jsonPrimitive.boolean, want["note"].str), LessonFeedback.answerMarks(a, m, c["verdict"].str), c.toString())
         }
     }
+
+    @Test
+    fun coherenceRulesMatch() {
+        val c = data["croissant"]!!.jsonObject
+        val mine = c["mine"].str!!
+        val corrected = c["corrected"].str!!
+        val model = c["model"].str!!
+        assertEquals(mine, LessonAnswerCheck.checkKey("这个牛角包 3块多元。"))
+        for (e in data["coherence"]!!.jsonArray.map { it.jsonObject }) {
+            val text = e["text"].str!!
+            val starts = Regex("\\p{IsHan}+").findAll(text).map { it.range.first }.toList()
+            assertEquals(e["recommended"]!!.jsonArray.map { it.jsonPrimitive.boolean }, starts.map { LessonAnswerCheck.recommendedAt(text, it) }, text)
+            assertEquals(e["wrongForm"]!!.jsonPrimitive.boolean, LessonAnswerCheck.recommendsWrongForm(text, mine, corrected, model), text)
+            assertEquals(e["forbids"]!!.jsonPrimitive.boolean, LessonAnswerCheck.forbidsCorrected(text, corrected), text)
+            assertEquals(e["forbidsNoFix"]!!.jsonPrimitive.boolean, LessonAnswerCheck.forbidsCorrected(text, ""), text)
+        }
+        for (n in data["neutral"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(n["headline"].str, LessonAnswerCheck.neutralHeadline(n["verdict"].str!!, n["fix"]!!.jsonPrimitive.boolean), n.toString())
+        }
+    }
+
+    @Test
+    fun digitsAsNumeralsMatch() {
+        val cases = data["digits"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 10)
+        for (c in cases) {
+            val text = c["text"].str!!
+            assertEquals(c["hanzi"].str, AnswerKey.digitsToHanzi(text), text)
+            assertEquals(c["key"].str, LessonAnswerCheck.checkKey(text), text)
+            assertEquals(c["answerKey"].str, LessonFeedback.answerKey(text), text)
+            assertEquals(c["display"].str, LessonAnswerCheck.correctedDisplay(text), text)
+        }
+        for (c in data["digitMarks"]!!.jsonArray.map { it.jsonObject }) {
+            val a = c["answer"].str!!
+            val m = c["model"].str!!
+            fun shown(side: String) = c[side]!!.jsonArray.map { it.jsonObject }.map { LessonFeedback.ShownChar(it["ch"].str!!, it["hit"]!!.jsonPrimitive.boolean) }
+            assertEquals(shown("answerSide"), LessonFeedback.markedChars(a, m, "answer"), c.toString())
+            assertEquals(shown("modelSide"), LessonFeedback.markedChars(a, m, "model"), c.toString())
+            val want = c["marks"]!!.jsonObject
+            assertEquals(LessonFeedback.AnswerMarks(want["marks"]!!.jsonPrimitive.boolean, want["note"].str), LessonFeedback.answerMarks(a, m), c.toString())
+        }
+    }
+
+    @Test
+    fun wordsPinyinLineMatches() {
+        for (c in data["wordLines"]!!.jsonArray.map { it.jsonObject }) {
+            val words = c["words"]!!.jsonArray.map { it.jsonObject }.map { it["text"].str!! to it["pinyin"].str }
+            assertEquals(c["line"].str, LessonAnswerCheck.wordsPinyinLine(words), c.toString())
+        }
+    }
 }

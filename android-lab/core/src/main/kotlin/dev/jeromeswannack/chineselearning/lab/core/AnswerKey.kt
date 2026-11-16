@@ -116,6 +116,33 @@ object AnswerKey {
         return result
     }
 
+    /** Port of DIGIT_RUN (shared/text/numberHanzi.ts): one run of digits + a decimal part + %. */
+    val DIGIT_RUN = Regex("([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.([0-9]+))?(%)?")
+    private val DIGIT_RUN_WHOLE = Regex("^([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.([0-9]+))?(%)?$")
+    private val YEAR_DIGITS = arrayOf("〇", "一", "二", "三", "四", "五", "六", "七", "八", "九")
+    private val DECIMAL_DIGITS = arrayOf("零", "一", "二", "三", "四", "五", "六", "七", "八", "九")
+
+    /** Port of digitRunToHanzi(): one digit run as Chinese numerals; runs over 8 digits stay as they are. */
+    fun digitRunToHanzi(run: String, next: String = ""): String {
+        val m = DIGIT_RUN_WHOLE.find(run) ?: return run
+        val intPart = m.groupValues[1].replace(",", "")
+        val frac = m.groups[2]?.value.orEmpty()
+        val pct = m.groups[3]?.value.orEmpty()
+        if (intPart.length > 8) return run
+        val num = if (frac.isNotEmpty()) intToHanzi(intPart.toLong()) + "点" + frac.map { DECIMAL_DIGITS[it - '0'] }.joinToString("")
+        else intToHanzi(intPart.toLong())
+        if (pct.isNotEmpty()) return "百分之$num"
+        // A year is read digit by digit: 2026年 → 二〇二六年.
+        if (frac.isEmpty() && intPart.length == 4 && next == "年") return intPart.map { YEAR_DIGITS[it - '0'] }.joinToString("")
+        return num
+    }
+
+    /** Port of digitsToHanzi(): Arabic digits → Chinese numerals, nothing else (3块 → 三块, 2026年 → 二〇二六年). */
+    fun digitsToHanzi(text: String): String = DIGIT_RUN.replace(text) { m ->
+        val end = m.range.last + 1
+        digitRunToHanzi(m.value, if (end < text.length) text[end].toString() else "")
+    }
+
     /** `normalizeHanzi`: trim + lowercase. */
     fun normalize(s: String): String = lower(jsTrim(s))
 

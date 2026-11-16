@@ -64,6 +64,20 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
     },
   },
   {
+    // The SELF-CONTRADICTORY check Jerome got (Nov 2026, v3), as the model returned it: the headline forbids "both" 块 and 钱
+    // while the corrected line uses both, and the tip offers his own 块多元 as a fix. The coherence rules
+    // (normalizeAnswerCheck) give a neutral headline and drop the tip; the "You said" marks read 3 as 三.
+    english: 'This croissant was just over three yuan.',
+    model: '这个牛角包三块多钱。',
+    answer: '这个牛角包 3块多元。',
+    result: {
+      verdict: 'almost',
+      headline: 'Use 钱 or 块 alone, not both together',
+      corrected: '这个牛角包3块多钱',
+      tips: [{ text: '3块多元: 块 and 元 are both money units; use 钱 instead (块多钱) or just 元 alone (块多元)', quote: '3块多元' }],
+    },
+  },
+  {
     // The CONTRADICTORY check Jerome got (Nov 2026), word for word as the model returned it: it mixed up his answer
     // and the model answer, and its tip compares a text with itself. The sanity rules (normalizeAnswerCheck) drop the
     // tip and give the "but" headline a plain positive one — this fixture proves they do, end to end.

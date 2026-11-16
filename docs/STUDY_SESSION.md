@@ -1100,6 +1100,29 @@ and the model answer. Now:
   "Same characters, different word order" under "You said"), and the marks go once Claude's verdict is correct /
   acceptable (a right answer is never painted as errors). Before the verdict, or on almost / wrong, they show.
 
+**…and stays coherent when it says "almost"** (Jerome, Nov 2026: "This croissant was just over three yuan." — he said
+这个牛角包 3块多元; ~ Almost was right, 块 and 元 are two units stacked, but the headline said "Use 钱 or 块 alone, not both
+together" over a corrected line 这个牛角包3块多钱 that has both, a tip offered "…or just 元 alone (块多元)" — his own wrong
+form —, the fix's pinyin dropped the 3 and split 牛角包 into syllables, and "You said" painted 3 red against 三):
+
+- **coherence rules** in `normalizeAnswerCheck` (shared/lesson/answerCheck.ts `recommendsWrongForm` / `forbidsCorrected` /
+  `incoherentLine`, Lab `LessonAnswerCheck`, parity-tested in `answer-sanity.ts`), on almost / wrong (not speaking): a
+  line recommending — the last cue word of its clause is use / say / try / just / or / → (not "not" / "instead of") — a
+  Chinese text that is in his answer but neither in the corrected line nor in the model answer, or telling him to avoid
+  what the corrected line uses ("not both" after texts all in it, "avoid / don't use X"), is incoherent: such a tip is
+  dropped, such a headline becomes a neutral one (**Nearly — compare with the corrected version.** / **Not quite — …**;
+  without a fix: **Nearly — one thing to fix.** / **Not quite — have another go.**). The croissant is an E2E fake fixture;
+- **digits are numerals** (`digitsToHanzi` in shared/text/numberHanzi.ts, Lab `AnswerKey.digitsToHanzi`: 3块 → 三块,
+  1.5 → 一点五, 50% → 百分之五十, 1,000 → 一千, 2026年 → 二〇二六年 read digit by digit, runs over 8 digits kept):
+  `checkKey` / `answerKey` compare through it (the check's own rules, the cache text, "You said" marks — a digit run is
+  one unit, marked as a whole), the corrected line is SHOWN with numerals on both sides of its ✗ / ✓ diff
+  (`correctedDisplay`), and the server's pinyin reads them (`appPinyin`);
+- **the corrected line's pinyin is made on the device word by word** (`wordsPinyinLine` over the device segmenter:
+  zhège niújiǎobāo sānkuài duō qián), the server's line until the segmenter is loaded;
+- the prompt states the actual rule and keeps every line consistent with the correction (never "avoid" what the fix
+  uses, never the learner's wrong form as an option; digits = numerals) — `ANSWER_CHECK_VERSION` 4, so no v3 check is
+  served again.
+
 Checks are cached for
 everyone (`lesson_answer_checks`, SHA-256 of `answerCheckCacheText`: version, type, spoken / typed,
 prompt, model answer, the answer — punctuation-blind) and on the device (web localStorage
