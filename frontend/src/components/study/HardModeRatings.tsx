@@ -1,9 +1,12 @@
 /**
  * The answer side's Again / Hard / Good / Easy under Hard mode (docs/STUDY_SESSION.md "Hard mode"): Good /
  * Easy are GREYED — never locked — while the sentences wait or after giving up (`goodEasyGate`). Hard is
- * suggested; the first tap on a greyed rating arms it ("Tap again to rate Good anyway", ~3 s), the second
+ * suggested (ringed); the first tap on a greyed rating arms it ("tap again" on the button, ~3 s), the second
  * rates it (`overrideTap`). Jerome: "sometimes I'm just on the train … guiding me towards the lower review
- * scores, but I can still override it." Lab: `HardModeRatingBar` in ui/study/HardModeUi.kt.
+ * scores, but I can still override it." NO line above the ratings (Jerome, Nov 2026: "I don't think we need that
+ * extra bar above the ratings at all"): why they're greyed ("You looked at the answer — …", "Try the sentences
+ * first · 1/2 right") and "Tap again to rate Good anyway" are the buttons' accessible labels only. Lab: `RatingBar`
+ * in ui/study/CardStage.kt.
  */
 import { useEffect, useState } from 'react';
 import {
@@ -23,13 +26,11 @@ export interface HardModeRatingsProps {
   onArmed?: (rating: Rating) => void;
   /** A greyed rating rated on its second tap (`study.hard_mode_override`). */
   onOverride?: (rating: Rating) => void;
-  /** A tap on the line (not after giving up): scroll to the sentences. */
-  onLineClick?: () => void;
-  /** Changes when a sentence is said right: the arm is dropped, the line goes back to the count. */
+  /** Changes when a sentence is said right: the arm is dropped. */
   resetKey?: unknown;
 }
 
-export function HardModeRatings({ goodEasy, intervalPreviews, disabled, onRate, onArmed, onOverride, onLineClick, resetKey }: HardModeRatingsProps) {
+export function HardModeRatings({ goodEasy, intervalPreviews, disabled, onRate, onArmed, onOverride, resetKey }: HardModeRatingsProps) {
   const [armed, setArmed] = useState<OverrideArm | null>(null);
   useEffect(() => {
     if (!armed) return;
@@ -51,21 +52,7 @@ export function HardModeRatings({ goodEasy, intervalPreviews, disabled, onRate, 
     onRate(rating);
   };
   return (
-    <>
-      {(goodEasy.label || armed) && (
-        <button
-          type="button"
-          className={`sentence-gate-line${greyed ? ' is-locked' : ' is-open'}${goodEasy.gaveUp ? ' is-gave-up' : ''}${armed ? ' is-armed' : ''}`}
-          onClick={goodEasy.gaveUp ? undefined : onLineClick}
-          data-testid="sentence-gate"
-          data-locked={greyed}
-          data-state={goodEasy.state}
-          data-gave-up={goodEasy.gaveUp}
-          aria-live="polite"
-        >
-          {armed ? overridePrompt(armed.rating) : goodEasy.label}
-        </button>
-      )}
+    <div className="hard-mode-ratings" data-testid="hard-mode-ratings" data-state={goodEasy.state} data-gave-up={goodEasy.gaveUp || undefined}>
       <RatingButtons
         intervalPreviews={intervalPreviews}
         onRate={tap}
@@ -73,7 +60,9 @@ export function HardModeRatings({ goodEasy, intervalPreviews, disabled, onRate, 
         greyed={greyed ? [2, 3] : undefined}
         suggested={suggestedRating(goodEasy) as Rating | null}
         armed={(armed?.rating as Rating | undefined) ?? null}
+        why={goodEasy.label}
+        armedLabel={armed ? overridePrompt(armed.rating) : null}
       />
-    </>
+    </div>
   );
 }

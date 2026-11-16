@@ -46,6 +46,7 @@ import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import { DifferenceCompare } from './DifferenceCompare';
 import { StopRecordingFooter } from '../reader/StopRecordingFooter';
+import { usePinnedStop } from '../../services/takeLock';
 import { roundTakeView } from '@shared/study/answerDifference';
 import '../lessons/AnswerCheckCard.css';
 import './SentenceRound.css';
@@ -215,6 +216,8 @@ export type SentencePractise = ReturnType<typeof useSentencePractise>;
  */
 export function SentenceStopBar({ practise }: { practise: SentencePractise }) {
   const bar = sentenceStopBar(practise.listening, practise.finishing);
+  // The ONE stop on screen: rows of advancing buttons (the round's footer, the card's footer) are held, not a second stop.
+  usePinnedStop(bar != null);
   if (!bar) return null;
   return (
     <div className="sentence-stop-bar" data-testid="sentence-stop-bar" data-state={bar}>

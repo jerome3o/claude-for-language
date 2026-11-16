@@ -14,6 +14,8 @@ export function RatingButtons({
   greyed,
   suggested,
   armed,
+  why,
+  armedLabel,
 }: {
   intervalPreviews: Record<Rating, IntervalPreview>;
   onRate: (rating: Rating) => void;
@@ -28,6 +30,10 @@ export function RatingButtons({
   suggested?: Rating | null;
   /** A greyed rating tapped once, waiting for the second tap. */
   armed?: Rating | null;
+  /** Why the greyed ones are greyed ("You looked at the answer — …") — their and the suggested one's accessible label, never shown. */
+  why?: string | null;
+  /** The armed one's accessible label ("Tap again to rate Good anyway"). */
+  armedLabel?: string | null;
 }) {
   return (
     <div>
@@ -36,6 +42,16 @@ export function RatingButtons({
           const isGreyed = !!greyed?.includes(rating);
           const isArmed = isGreyed && armed === rating;
           const isSuggested = suggested === rating;
+          const name = RATING_INFO[rating].label;
+          const interval = intervalPreviews[rating].intervalText;
+          // Hard mode's reasons ride on the buttons for screen readers (nothing is shown above the ratings).
+          const ariaLabel = isArmed && armedLabel
+            ? `${name}, ${interval} — ${armedLabel}`
+            : isGreyed
+              ? `${name}, ${interval} — ${why ? `${why}; ` : ''}${HARD_MODE_TAP_TWICE} to rate anyway`
+              : isSuggested
+                ? `${name}, ${interval} — ${HARD_MODE_SUGGESTED}${why ? `: ${why}` : ''}`
+                : undefined;
           return (
           <button
             key={rating}
@@ -45,10 +61,11 @@ export function RatingButtons({
             data-greyed={isGreyed || undefined}
             data-armed={isArmed || undefined}
             data-suggested={isSuggested || undefined}
+            aria-label={ariaLabel}
             data-testid={`rating-${RATING_INFO[rating].label.toLowerCase()}`}
           >
-            <span className="rating-label">{RATING_INFO[rating].label}</span>
-            <span className="rating-interval">{intervalPreviews[rating].intervalText}</span>
+            <span className="rating-label">{name}</span>
+            <span className="rating-interval">{interval}</span>
             {isSuggested && <span className="rating-suggested-mark">{HARD_MODE_SUGGESTED}</span>}
             {isGreyed && <span className="rating-greyed-mark" aria-hidden="true">{isArmed ? HARD_MODE_TAP_AGAIN : HARD_MODE_TAP_TWICE}</span>}
           </button>

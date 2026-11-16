@@ -15,8 +15,8 @@
  *
  * Lab twin: ui/kit/TakeLock.kt (`TakeLocks`, the fallback of `ReportTake`).
  */
-import { useSyncExternalStore } from 'react';
-import { combineTakePhases, takeLockLeave, takeLockMayProceed, type TakePhase } from '@shared/voice/takeLock';
+import { useEffect, useId, useSyncExternalStore } from 'react';
+import { combineTakePhases, takeLockLeave, takeLockMayProceed, takeLockRow, type TakePhase } from '@shared/voice/takeLock';
 
 interface TakeEntry {
   phase: TakePhase;
@@ -31,19 +31,26 @@ export interface TakeLockSnapshot {
   phase: TakePhase;
   /** The same over the takes whose back the global guard handles. */
   backPhase: TakePhase;
+  /**
+   * A pinned "■ Stop recording" bar is on screen (`SentenceStopBar`): rows of advancing buttons are then HELD (greyed,
+   * untappable) instead of showing a second stop of their own (`takeLockRow`).
+   */
+  pinned: boolean;
 }
 
 const entries = new Map<string, TakeEntry>();
+const pinnedBars = new Set<string>();
 const listeners = new Set<() => void>();
-let snapshot: TakeLockSnapshot = { phase: 'idle', backPhase: 'idle' };
+let snapshot: TakeLockSnapshot = { phase: 'idle', backPhase: 'idle', pinned: false };
 
 function recompute() {
   const all = [...entries.values()];
   const next: TakeLockSnapshot = {
     phase: combineTakePhases(all.map((e) => e.phase)),
     backPhase: combineTakePhases(all.filter((e) => !e.ownBack).map((e) => e.phase)),
+    pinned: pinnedBars.size > 0,
   };
-  if (next.phase === snapshot.phase && next.backPhase === snapshot.backPhase) return;
+  if (next.phase === snapshot.phase && next.backPhase === snapshot.backPhase && next.pinned === snapshot.pinned) return;
   snapshot = next;
   listeners.forEach((l) => l());
 }
@@ -53,6 +60,22 @@ export function setTake(id: string, entry: TakeEntry | null): void {
   if (entry) entries.set(id, entry);
   else entries.delete(id);
   recompute();
+}
+
+/** A pinned stop bar shown (or, with false, gone) — see `TakeLockSnapshot.pinned`. */
+export function setPinnedStop(id: string, shown: boolean): void {
+  if (shown) pinnedBars.add(id);
+  else pinnedBars.delete(id);
+  recompute();
+}
+
+/** A pinned "■ Stop recording" bar reports itself while it is on screen. */
+export function usePinnedStop(shown: boolean): void {
+  const id = useId();
+  useEffect(() => {
+    setPinnedStop(id, shown);
+    return () => setPinnedStop(id, false);
+  }, [id, shown]);
 }
 
 export function takeLockSnapshot(): TakeLockSnapshot {
@@ -95,6 +118,7 @@ export function guardTake<A extends unknown[]>(fn: (...args: A) => void): (...ar
 /** For tests: forget every take. */
 export function resetTakeLock(): void {
   entries.clear();
+  pinnedBars.clear();
   recompute();
 }
 
@@ -104,9 +128,11 @@ export function useTakeLockSnapshot(): TakeLockSnapshot {
 
 /** The screen's view of the app-wide lock. */
 export function useAppTakeLock() {
-  const { phase } = useTakeLockSnapshot();
+  const { phase, pinned } = useTakeLockSnapshot();
   return {
     phase,
+    /** What a row of advancing buttons shows: itself, the stop / checking button, or held (a pinned bar has the stop). */
+    row: takeLockRow(phase, pinned),
     locked: phase !== 'idle',
     recording: phase === 'recording',
     checking: phase === 'checking',

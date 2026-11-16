@@ -719,7 +719,6 @@ fun CardStage(
         }
         gateWasLocked = gate.locked
     }
-    val showSentences: () -> Unit = { scope.launch { runCatching { practise.showList() } } }
 
     val typed = answer.trim().takeIf { typing && it.isNotEmpty() }
     val mc = ui.extras.mc
@@ -1005,8 +1004,12 @@ fun CardStage(
                         answerIsSpoken(answer) -> "spoken"
                         else -> "typed"
                     }
-                    if (passGotItLocked) PassLockedLine(if (arm != null) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GOT_IT_OVERRIDE else dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE)
-                    PassAnswerBar(suggested, enabled = !rated && !pass.busy, gotItLocked = passGotItLocked, gotItArmed = arm != null) { right ->
+                    // No line above Not yet / Got it (Jerome, Nov 2026): the greyed Got it says it; why is TalkBack's.
+                    PassAnswerBar(
+                        suggested, enabled = !rated && !pass.busy, gotItLocked = passGotItLocked, gotItArmed = arm != null,
+                        why = if (passGotItLocked) dev.jeromeswannack.chineselearning.lab.core.PassAngles.GAVE_UP_LINE else null,
+                        armedLabel = dev.jeromeswannack.chineselearning.lab.core.PassAngles.GOT_IT_OVERRIDE,
+                    ) { right ->
                         // Greyed, never locked: the first tap on Got it arms it, the second says Got it anyway.
                         if (right) {
                             val tap = HardMode.overrideTap(passGotItLocked, 2, arm, System.currentTimeMillis())
@@ -1018,12 +1021,15 @@ fun CardStage(
                         actions.onPassAnswer(right, answered, suggested, gateEnabled)
                     }
                 } else {
-                    if (goodEasy.label != null || arm != null) SentenceGateLine(goodEasy, arm?.rating, onTap = if (goodEasy.gaveUp) ({}) else showSentences)
+                    // No bar above the ratings (Jerome, Nov 2026: "I don't think we need that extra bar above the ratings
+                    // at all"): the greyed Good / Easy ("tap twice") and the ringed Hard say it; why is TalkBack's.
                     RatingBar(
                         view.previews, enabled = !rated,
                         greyed = if (goodEasy.suggestLower) setOf(2, 3) else emptySet(),
                         suggested = HardMode.suggestedRating(goodEasy),
                         armed = arm?.rating,
+                        why = goodEasy.label,
+                        armedLabel = arm?.rating?.let { HardMode.overridePrompt(it) },
                     ) { rating ->
                         // Good / Easy greyed while the sentences wait / after giving up (every way of rating comes
                         // through here): the first tap arms it ("Tap again to rate Good anyway"), the second rates.
@@ -1609,6 +1615,10 @@ fun RatingBar(
     suggested: Int? = null,
     /** A greyed rating tapped once, waiting for the second tap ("tap again"). */
     armed: Int? = null,
+    /** Why the greyed ones are greyed (core HardMode.GoodEasy.label) — TalkBack only; nothing is shown above the ratings. */
+    why: String? = null,
+    /** The armed one's TalkBack words ("Tap again to rate Good anyway"). */
+    armedLabel: String? = null,
     onRate: (Int) -> Unit,
 ) {
     val labels = listOf("Again", "Hard", "Good", "Easy")
@@ -1630,9 +1640,9 @@ fun RatingBar(
                         .then(if (isGreyed && !isArmed) Modifier.alpha(0.5f) else Modifier)
                         .semantics {
                             when {
-                                isArmed -> stateDescription = HardMode.TAP_AGAIN
-                                isGreyed -> stateDescription = HardMode.TAP_TWICE
-                                isSuggested -> stateDescription = HardMode.SUGGESTED
+                                isArmed -> stateDescription = armedLabel ?: HardMode.TAP_AGAIN
+                                isGreyed -> stateDescription = listOfNotNull(why, "${HardMode.TAP_TWICE} to rate anyway").joinToString("; ")
+                                isSuggested -> stateDescription = listOfNotNull(HardMode.SUGGESTED, why).joinToString(": ")
                             }
                         }
                         .testTag("rating-${labels[r].lowercase()}"),
@@ -1654,7 +1664,17 @@ fun RatingBar(
  * card suggests ([suggested] = right | wrong) is ringed and marked "✓ suggested" — he still chooses.
  */
 @Composable
-fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = false, gotItArmed: Boolean = false, onAnswer: (right: Boolean) -> Unit) {
+fun PassAnswerBar(
+    suggested: String?,
+    enabled: Boolean,
+    gotItLocked: Boolean = false,
+    gotItArmed: Boolean = false,
+    /** Why Got it is greyed (core PassAngles.GAVE_UP_LINE) — TalkBack only; no line above the buttons. */
+    why: String? = null,
+    /** The armed Got it's TalkBack words ("Tap again to say Got it anyway"). */
+    armedLabel: String? = null,
+    onAnswer: (right: Boolean) -> Unit,
+) {
     Row(Modifier.fillMaxWidth().testTag(PASS_RATE_TAG), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         // Hard mode, given up: Got it greyed ("tap twice"), never locked — the second tap counts (docs/HOMEWORK.md §3e).
         for ((right, label, color) in listOf(Triple(false, "Not yet", Palette.Hard), Triple(true, "Got it", if (gotItLocked && !gotItArmed) Lab.colors.muted else Palette.Good))) {
@@ -1670,7 +1690,13 @@ fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = f
                     Modifier.fillMaxWidth()
                         .then(if (right && gotItLocked && !gotItArmed) Modifier.alpha(0.55f) else Modifier)
                         .testTag(if (right) "hw-gotit" else "hw-notyet")
-                        .semantics { if (isSuggested) stateDescription = "Suggested" else if (right && gotItLocked) stateDescription = if (gotItArmed) HardMode.TAP_AGAIN else HardMode.TAP_TWICE },
+                        .semantics {
+                            when {
+                                right && gotItLocked && gotItArmed -> stateDescription = armedLabel ?: HardMode.TAP_AGAIN
+                                right && gotItLocked -> stateDescription = listOfNotNull(why, "${HardMode.TAP_TWICE} to say it anyway").joinToString("; ")
+                                isSuggested || (!right && gotItLocked) -> stateDescription = listOfNotNull("Suggested", why).joinToString(": ")
+                            }
+                        },
                     sub = if (isSuggested) "✓ suggested" else if (right && gotItLocked) (if (gotItArmed) HardMode.TAP_AGAIN else HardMode.TAP_TWICE) else null,
                     enabled = enabled,
                 ) { onAnswer(right) }
@@ -1682,26 +1708,6 @@ fun PassAnswerBar(suggested: String?, enabled: Boolean, gotItLocked: Boolean = f
 /** Test tag of the pass's answer bar. */
 const val PASS_RATE_TAG = "hw-pass-rate"
 
-/** Above Not yet / Got it after giving up in Hard mode (web `.hw-pass-locked-line`). */
-@Composable
-private fun PassLockedLine(text: String) {
-    Text(
-        text,
-        color = Palette.Again,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 13.sp,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(RoundedCornerShape(12.dp))
-            .border(1.dp, Palette.Again.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
-            .background(Palette.Again.copy(alpha = 0.06f))
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics { liveRegion = LiveRegionMode.Polite }
-            .testTag(PASS_LOCKED_TAG),
-    )
-}
-
-/** Test tag of the pass's "👁 You looked at the answer" line. */
-const val PASS_LOCKED_TAG = "hw-pass-locked"
 
 /** The pass's two choices on the answer side: "Add to my long-term review" and ⚡ Study it today. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)

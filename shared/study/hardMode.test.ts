@@ -86,10 +86,13 @@ describe('Good / Easy: greyed, never locked', () => {
     const g2 = gate(['read:a', 'read:b']);
     const open = goodEasyGate(g2, false, sentenceGateLabel(g2));
     expect(open.state).toBe('open');
+    expect(open.label).toBeNull();
+    // Open with a label passed anyway: still none (nothing to say on unlocked buttons).
+    expect(goodEasyGate(g2, false, 'x').label).toBeNull();
     expect([0, 1, 2, 3].map((r) => ratingNeedsOverride(r, open))).toEqual([false, false, false, false]);
     expect(suggestedRating(open)).toBeNull();
     const g1 = gate(['read:a']);
-    expect(goodEasyGate(g1, false, sentenceGateLabel(g1))).toEqual({ state: 'suggest_lower', reason: 'sentences', gaveUp: false, label: '🎤 Try the sentences first · 1/2 right' });
+    expect(goodEasyGate(g1, false, sentenceGateLabel(g1))).toEqual({ state: 'suggest_lower', reason: 'sentences', gaveUp: false, label: 'Try the sentences first · 1/2 right' });
   });
   it('a second tap on the same greyed rating within 3 s rates it anyway', () => {
     const first = overrideTap({ needsOverride: true, rating: 2, armed: null, now: 1000 });

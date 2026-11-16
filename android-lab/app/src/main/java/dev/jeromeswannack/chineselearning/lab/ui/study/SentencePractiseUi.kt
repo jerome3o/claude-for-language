@@ -247,7 +247,10 @@ fun Modifier.sentencePractiseWatch(state: SentencePractiseState?): Modifier = th
  */
 @Composable
 fun SentenceStopBar(state: SentencePractiseState, modifier: Modifier = Modifier) {
-    val bar = SentencePractise.stopBar(state.listening, state.finishing) ?: return
+    val bar = SentencePractise.stopBar(state.listening, state.finishing)
+    // The ONE stop on screen: rows of advancing buttons (the round's See the answer / Skip) are held, never a second stop.
+    dev.jeromeswannack.chineselearning.lab.ui.kit.PinnedStopBar(bar != null)
+    if (bar == null) return
     Box(modifier.fillMaxWidth()) {
         dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudStopFooter(
             recording = bar == "stop",
@@ -375,35 +378,5 @@ fun SentencePractiseOutcome(
         if (SentencePractise.showCheckOnline(t.take, claude is SentenceClaude.Done, claude == SentenceClaude.Checking)) {
             Text(SentencePractise.CHECK_ONLINE, color = Lab.colors.muted, fontSize = 13.sp, modifier = Modifier.testTag(SentencePractiseTags.CHECK_ONLINE))
         }
-    }
-}
-
-/**
- * The line above the ratings with Hard mode's greyed Good / Easy (core [HardMode.goodEasy]): the sentence gate
- * ("🎤 Try the sentences first · 1/2 right"), or "👁 You looked at the answer — Again or Hard suggested"; after a
- * first tap on a greyed rating, "Tap again to rate Good anyway" ([armed]). A tap brings the sentences into view.
- */
-@Composable
-fun SentenceGateLine(goodEasy: dev.jeromeswannack.chineselearning.lab.core.HardMode.GoodEasy, armed: Int?, onTap: () -> Unit) {
-    val hm = dev.jeromeswannack.chineselearning.lab.core.HardMode
-    val text = armed?.let { hm.overridePrompt(it) } ?: goodEasy.label ?: return
-    val shape = RoundedCornerShape(14.dp)
-    val greyed = goodEasy.suggestLower
-    val (bg, line, ink) = when {
-        armed != null -> Triple(Palette.Hard.copy(alpha = 0.12f), Palette.Hard, Lab.colors.ink)
-        greyed -> Triple(Lab.colors.faint, Lab.colors.cardBorder, Lab.colors.ink)
-        else -> Triple(Palette.Good.copy(alpha = 0.12f), Palette.Good.copy(alpha = 0.6f), Palette.Good)
-    }
-    Box(
-        Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 44.dp).clip(shape)
-            .background(bg)
-            .border(1.dp, line, shape)
-            .bouncyClickable(true, 0.98f, role = Role.Button, onClick = onTap)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
-            .testTag(if (goodEasy.gaveUp) HardModeTags.GAVE_UP else SentencePractiseTags.GATE),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(text, color = ink, fontSize = 14.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

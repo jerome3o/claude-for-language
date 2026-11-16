@@ -2155,34 +2155,6 @@ button.queue-counts:active {
   letter-spacing: 0.02em;
 }
 .rating-greyed-mark { text-transform: none; }
-.sentence-gate-line {
-  display: block;
-  width: 100%;
-  min-height: 36px;
-  margin: 0 0 0.375rem;
-  padding: 0.375rem 0.75rem;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface, #fff);
-  color: var(--color-text);
-  font-size: 0.8125rem;
-  font-weight: 600;
-  text-align: center;
-  cursor: pointer;
-}
-.sentence-gate-line.is-armed {
-  border-style: solid;
-  border-color: #f97316;
-  background: #fff7ed;
-  color: #9a3412;
-}
-.sentence-gate-line.is-open {
-  border-style: solid;
-  border-color: #86efac;
-  background: #f0fdf4;
-  color: #166534;
-}
-
 /* Loading spinner */
 .spinner {
   width: 40px;
@@ -4204,25 +4176,23 @@ html.has-tab-bar .sync-badge {
 }
 
 /* The Sentence round's sentences on the answer side (shared/study/sentenceRound.ts roundRowMarks):
-   at the top, opened, an outline in the result's style + a label with its icon (never colour alone). */
+   at the top, opened, a quiet 1px outline in the result's colour (the app's normal row weight — no thick
+   coloured boxes, and the card around them never changes colour) + a label with its icon (never colour alone). */
 .sentence-set-row.is-round {
   margin: 0.4rem 0;
   padding: 0.55rem 0.5rem;
-  border: 2px solid var(--color-border);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
 }
 .sentence-set-row.is-round-right {
-  border-color: #22c55e;
-  background: rgba(34, 197, 94, 0.06);
+  border-color: color-mix(in srgb, var(--color-success) 55%, var(--color-border));
 }
 .sentence-set-row.is-round-close {
-  border-color: #eab308;
-  background: rgba(234, 179, 8, 0.06);
+  border-color: color-mix(in srgb, var(--color-partial) 60%, var(--color-border));
 }
 .sentence-set-row.is-round-wrong {
-  border-color: #ef4444;
+  border-color: color-mix(in srgb, var(--color-error) 55%, var(--color-border));
   border-style: dashed;
-  background: rgba(239, 68, 68, 0.05);
 }
 .sentence-set-row.is-round-untried {
   border-style: dotted;

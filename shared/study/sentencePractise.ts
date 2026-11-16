@@ -183,9 +183,13 @@ export function sentenceGate(args: {
   return { needed, got, locked: got < needed };
 }
 
-/** The line above the ratings (null = no gate): "🎤 Try the sentences first · 1/2 right". */
+/**
+ * Why Good / Easy are greyed, for screen readers only (the buttons' accessible label — there is NO line above
+ * the ratings: Jerome, Nov 2026, "we don't need that extra bar above the ratings at all"; the greyed buttons, the
+ * ringed Hard and "tap twice" say it on screen): "Try the sentences first · 1/2 right". null = nothing greyed
+ * (no gate, or enough right — the old "✓ 2/2 right — Good and Easy unlocked" banner is gone).
+ */
 export function sentenceGateLabel(gate: SentenceGate): string | null {
-  if (gate.needed === 0) return null;
-  if (gate.locked) return `🎤 Try the sentences first · ${gate.got}/${gate.needed} right`;
-  return `✓ ${gate.got}/${gate.needed} right — Good and Easy unlocked`;
+  if (gate.needed === 0 || !gate.locked) return null;
+  return `Try the sentences first · ${gate.got}/${gate.needed} right`;
 }

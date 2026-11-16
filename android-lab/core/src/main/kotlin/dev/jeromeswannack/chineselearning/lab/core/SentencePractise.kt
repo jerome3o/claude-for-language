@@ -102,10 +102,9 @@ object SentencePractise {
         return Gate(needed, got, got < needed)
     }
 
-    /** `sentenceGateLabel`. */
-    fun label(gate: Gate): String? = when {
-        gate.needed == 0 -> null
-        gate.locked -> "🎤 Try the sentences first · ${gate.got}/${gate.needed} right"
-        else -> "✓ ${gate.got}/${gate.needed} right — Good and Easy unlocked"
-    }
+    /**
+     * `sentenceGateLabel`: why Good / Easy are greyed, for TalkBack only (no line above the ratings — Jerome, Nov 2026);
+     * null when nothing is greyed (the old "✓ 2/2 right — Good and Easy unlocked" banner is gone).
+     */
+    fun label(gate: Gate): String? = if (gate.needed == 0 || !gate.locked) null else "Try the sentences first · ${gate.got}/${gate.needed} right"
 }

@@ -397,10 +397,6 @@
   border-color: #16a34a;
   color: #166534;
 }
-.hw-pass-locked-line {
-  cursor: default;
-}
-
 /* The pass's line under the bar in Hard mode ("🎯 2 angles per word") and a second angle's banner. */
 .hw-pass-angles {
   font-size: 0.75rem;

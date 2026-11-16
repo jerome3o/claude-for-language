@@ -34,11 +34,16 @@ describe('PassAnswerButtons', () => {
   it('a greyed Got it: the first tap asks again, Not yet answers', () => {
     const onAnswer = vi.fn();
     const el = render(<PassAnswerButtons suggested="wrong" onAnswer={onAnswer} gotItLocked={{ line: PASS_GAVE_UP_LINE, overridePrompt: PASS_GOT_IT_OVERRIDE }} />);
-    expect(q(el, 'hw-pass-locked')?.textContent).toBe(PASS_GAVE_UP_LINE);
+    // No line above the buttons: why is their accessible label.
+    expect(q(el, 'hw-pass-locked')).toBeNull();
+    expect(el.textContent).not.toContain(PASS_GAVE_UP_LINE);
+    expect(q(el, 'hw-gotit')?.getAttribute('aria-label')).toBe(`Got it — ${PASS_GAVE_UP_LINE}; tap twice to say it anyway`);
+    expect(q(el, 'hw-notyet')?.getAttribute('aria-label')).toBe(`Not yet — ${PASS_GAVE_UP_LINE}`);
     expect(q(el, 'hw-gotit')?.dataset.locked).toBe('true');
     act(() => q(el, 'hw-gotit')!.click());
     expect(onAnswer).not.toHaveBeenCalled();
-    expect(q(el, 'hw-pass-locked')?.textContent).toBe(PASS_GOT_IT_OVERRIDE);
+    expect(q(el, 'hw-gotit')?.getAttribute('aria-label')).toBe(`Got it — ${PASS_GOT_IT_OVERRIDE}`);
+    expect(q(el, 'hw-gotit')?.textContent).toContain('tap again');
     expect(q(el, 'hw-gotit')?.dataset.armed).toBe('true');
     act(() => q(el, 'hw-notyet')!.click());
     expect(onAnswer).toHaveBeenCalledWith(false);

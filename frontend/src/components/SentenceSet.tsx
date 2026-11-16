@@ -816,32 +816,10 @@ export function SentenceSet({
                 data-round={mark?.outcome}
                 {...(historyOn ? longPress.bind(() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })) : {})}
               >
-                {/* Left: the reverse exercise — English up alone, translate it
-                    back into Chinese before revealing. (Not in the calm pass.) */}
-                {!pass && (
-                <button
-                  className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
-                  onClick={() => toggleEnglishFirst(row)}
-                  disabled={!row.translation}
-                  aria-pressed={isEnglishFirst}
-                  title={
-                    !row.translation
-                      ? 'No translation for this sentence'
-                      : isEnglishFirst
-                        ? 'Back to listening first'
-                        : 'Show the English only — translate it back into Chinese'
-                  }
-                >
-                  EN
-                </button>
-                )}
                 <div className="sentence-set-body">
-                  {/* The card's own sentence: a small badge on its own line at the
-                      top right, never where the lines it uncovers go. */}
-                  {row.fromCard && <span className="sentence-set-badge sentence-set-corner">From the card</span>}
-                  {mark && (
-                    <span className={`sentence-set-round-label is-${mark.outcome}`} data-testid="sentence-set-round-label">{mark.label}</span>
-                  )}
+                  {/* The sentence spans the row; only a small ▶ sits at the end of its first line (hear it — the
+                      first thing to do on a blank row). Everything else is one quiet line under it. */}
+                  <div className="sentence-set-line">
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
                   <button
@@ -885,6 +863,16 @@ export function SentenceSet({
                       </span>
                     )}
                   </button>
+                  <button
+                    className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}${audioWait[row.key] ? ' is-waiting' : ''}`}
+                    onClick={() => playSentence(row)}
+                    disabled={isThisPlaying || !!audioWait[row.key]}
+                    aria-label="Play sentence"
+                    title={audioWait[row.key] ? SENTENCE_AUDIO_COMING_LABEL : 'Play sentence'}
+                  >
+                    {audioWait[row.key] ? '…' : isThisPlaying ? '⏸' : '▶'}
+                  </button>
+                  </div>
                   {practiseOn && <SentencePractiseOutcome practise={practise} row={practiseRow} />}
                   {audioWait[row.key] === 'coming' && (
                     <span className="sentence-set-audio-coming" data-testid="sentence-audio-coming">
@@ -899,21 +887,40 @@ export function SentenceSet({
                       {row.focus_note && <span>{row.focus_note}</span>}
                     </div>
                   )}
-                  {isFullyShown && renderTools(row)}
+                  {/* One compact line under the sentence: EN (the reverse exercise — English up alone, translate it
+                      back before revealing; not in the calm pass), 🎤 once something is open, the tools on an open
+                      row, and the row's small marks ("From the card", how it went in the round) — never a box. */}
+                  <div className="sentence-set-actionline">
+                    {!pass && (
+                      <button
+                        className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
+                        onClick={() => toggleEnglishFirst(row)}
+                        disabled={!row.translation}
+                        aria-pressed={isEnglishFirst}
+                        title={
+                          !row.translation
+                            ? 'No translation for this sentence'
+                            : isEnglishFirst
+                              ? 'Back to listening first'
+                              : 'Show the English only — translate it back into Chinese'
+                        }
+                      >
+                        EN
+                      </button>
+                    )}
+                    {practiseMode && <SentenceMicButton practise={practise} row={practiseRow} mode={practiseMode} />}
+                    {isFullyShown && renderTools(row)}
+                    {(row.fromCard || mark) && (
+                      <span className="sentence-set-marks">
+                        {mark && (
+                          <span className={`sentence-set-round-label is-${mark.outcome}`} data-testid="sentence-set-round-label">{mark.label}</span>
+                        )}
+                        {row.fromCard && <span className="sentence-set-badge sentence-set-from-card">From the card</span>}
+                      </span>
+                    )}
+                  </div>
                   {isFullyShown && renderExplanation(row)}
                 </div>
-                {/* 🎤 left of ▶ once something is open: read it aloud / say it in Chinese. */}
-                {practiseMode && <SentenceMicButton practise={practise} row={practiseRow} mode={practiseMode} />}
-                {/* Right: hear it — the first thing to do on a blank row. */}
-                <button
-                  className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}${audioWait[row.key] ? ' is-waiting' : ''}`}
-                  onClick={() => playSentence(row)}
-                  disabled={isThisPlaying || !!audioWait[row.key]}
-                  aria-label="Play sentence"
-                  title={audioWait[row.key] ? SENTENCE_AUDIO_COMING_LABEL : 'Play sentence'}
-                >
-                  {audioWait[row.key] ? '…' : isThisPlaying ? '⏸' : '▶'}
-                </button>
               </li>
             );
           })}

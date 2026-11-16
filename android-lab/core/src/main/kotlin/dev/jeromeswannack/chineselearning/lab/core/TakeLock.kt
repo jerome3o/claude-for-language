@@ -41,6 +41,16 @@ object TakeLock {
         else -> "proceed"
     }
 
+    /**
+     * `takeLockRow`: a row of advancing buttons while a take is under way — "stop" / "checking" (the row becomes the
+     * stop), or "held" when the screen already PINS its own stop bar for the take (the sentence rows' SentenceStopBar):
+     * greyed and untappable where it is, no second stop. "proceed" = no take.
+     */
+    fun row(phase: String, pinnedStop: Boolean): String {
+        val f = footer(phase)
+        return if (f != "proceed" && pinnedStop) "held" else f
+    }
+
     /** May the screen move on (advance, submit, skip) right now? */
     fun mayProceed(phase: String): Boolean = phase == IDLE
 

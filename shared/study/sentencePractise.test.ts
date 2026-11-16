@@ -73,10 +73,10 @@ describe('sentenceGate', () => {
     expect(sentenceGate({ ...base, cardType: 'other' }).needed).toBe(0);
     expect(sentenceGate({ ...base, enabled: false }).needed).toBe(0);
   });
-  it('words the line', () => {
-    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a'] }))).toBe('🎤 Try the sentences first · 1/2 right');
-    expect(sentenceGateLabel(sentenceGate({ ...base, sentenceCount: 1 }))).toBe('🎤 Try the sentences first · 0/1 right');
-    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a', 'b'] }))).toBe('✓ 2/2 right — Good and Easy unlocked');
+  it('words the greyed buttons\' accessible label — and says nothing once enough are right (no "unlocked" banner)', () => {
+    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a'] }))).toBe('Try the sentences first · 1/2 right');
+    expect(sentenceGateLabel(sentenceGate({ ...base, sentenceCount: 1 }))).toBe('Try the sentences first · 0/1 right');
+    expect(sentenceGateLabel(sentenceGate({ ...base, rightKeys: ['a', 'b'] }))).toBeNull();
     expect(sentenceGateLabel(sentenceGate({ ...base, enabled: false }))).toBeNull();
   });
 });
