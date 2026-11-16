@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
+import dev.jeromeswannack.chineselearning.lab.core.LessonPatterns
 
 /**
  * Port of shared/lesson/validate.ts: structural validation for a lesson spec. Returns the
@@ -31,6 +32,9 @@ object LessonValidator {
     private const val MIN_GAP_ITEMS = 2
     private const val MAX_GAP_ITEMS = 8
     private const val MAX_GAP_OPTIONS = 4
+    private const val MAX_PATTERNS = 8
+    private const val MAX_PATTERN_PIECES = 12
+    private const val MAX_PATTERN_EXAMPLES = 4
 
     /** Every exercise type the validator accepts, in catalogue order (EXERCISE_TYPE_IDS). */
     val EXERCISE_TYPE_IDS = listOf(
@@ -111,6 +115,68 @@ object LessonValidator {
         }
     }
 
+    /** A note's grammar patterns (shared/lesson/pattern.ts). */
+    private fun checkPatterns(patterns: JsonElement?, where: String, errors: MutableList<String>) {
+        if (patterns !is JsonArray || patterns.size < 1 || patterns.size > MAX_PATTERNS) {
+            errors += "$where: \"patterns\" must be a list of 1-$MAX_PATTERNS structures"
+            return
+        }
+        patterns.forEachIndexed { i, p ->
+            val w = "$where.patterns[$i]"
+            if (p !is JsonObject) {
+                errors += "$w: expected a pattern object"
+                return@forEachIndexed
+            }
+            val pieces = p["pieces"]
+            var pieceCount = 0
+            if (pieces !is JsonArray || pieces.size < 2 || pieces.size > MAX_PATTERN_PIECES) {
+                errors += "$w: \"pieces\" must be 2-$MAX_PATTERN_PIECES pieces"
+            } else {
+                pieceCount = pieces.size
+                var anchored = false
+                pieces.forEachIndexed { k, piece ->
+                    val pw = "$w.pieces[$k]"
+                    val fixed = piece is JsonObject && nonEmpty(piece["hanzi"])
+                    val slot = piece is JsonObject && nonEmpty(piece["slot"])
+                    if (fixed == slot) {
+                        errors += "$pw: a piece is either a fixed word {hanzi} or a slot {slot} (an English label like \"Noun\")"
+                        return@forEachIndexed
+                    }
+                    val rec = piece as JsonObject
+                    if (rec["optional"] != null && bool(rec["optional"]) == null) errors += "$pw: \"optional\" must be true or false"
+                    if (fixed && bool(rec["optional"]) != true && !LessonPatterns.isPunctuation(str(rec["hanzi"])!!)) anchored = true
+                }
+                if (!anchored) errors += "$w: a pattern needs at least one fixed word (e.g. 除了) that is not optional"
+            }
+            for (field in listOf("name", "meaning", "note")) {
+                if (p[field] != null && str(p[field]) == null) errors += "$w: \"$field\" must be text"
+            }
+            if (p["image_prompt"] != null && !nonEmpty(p["image_prompt"])) errors += "$w: \"image_prompt\" must be a non-empty scene description"
+            val examples = p["examples"] ?: return@forEachIndexed
+            if (examples !is JsonArray || examples.size > MAX_PATTERN_EXAMPLES) {
+                errors += "$w: \"examples\" must be a list of up to $MAX_PATTERN_EXAMPLES sentences"
+                return@forEachIndexed
+            }
+            examples.forEachIndexed { j, e ->
+                val ew = "$w.examples[$j]"
+                checkSentence(e, ew, errors)
+                if (e !is JsonObject || e["parts"] == null) return@forEachIndexed
+                val parts = e["parts"]
+                val ok = parts is JsonArray && parts.isNotEmpty() && parts.all { part ->
+                    part is JsonObject && (str(part["text"])?.isNotEmpty() == true) &&
+                        (part["piece"] == null || isIndex(part["piece"], pieceCount))
+                }
+                if (!ok) {
+                    errors += "$ew.parts: each part needs \"text\" and an optional \"piece\" (an index into \"pieces\")"
+                    return@forEachIndexed
+                }
+                val joined = (parts as JsonArray).joinToString("") { str((it as JsonObject)["text"])!! }
+                val hanzi = str(e["hanzi"])
+                if (hanzi != null && joined != hanzi) errors += "$ew.parts must spell the example's hanzi exactly (got \"$joined\")"
+            }
+        }
+    }
+
     private fun checkExercise(ex: JsonElement?, where: String, errors: MutableList<String>) {
         if (ex !is JsonObject) {
             errors += "$where: expected an exercise object"
@@ -121,8 +187,11 @@ object LessonValidator {
                 val sentences = ex["sentences"]
                 val hasBody = nonEmpty(ex["body"])
                 val hasSentences = sentences is JsonArray && sentences.isNotEmpty()
-                if (!hasBody && !hasSentences) errors += "$where: note needs \"body\" text and/or \"sentences\""
+                val patterns = ex["patterns"]
+                val hasPatterns = patterns is JsonArray && patterns.isNotEmpty()
+                if (!hasBody && !hasSentences && !hasPatterns) errors += "$where: note needs \"body\" text, \"sentences\" and/or \"patterns\""
                 if (sentences is JsonArray) sentences.forEachIndexed { i, s -> checkSentence(s, "$where.sentences[$i]", errors) }
+                if (patterns != null) checkPatterns(patterns, where, errors)
             }
             "scramble" -> {
                 if (!nonEmpty(ex["english"])) errors += "$where: scramble needs \"english\""

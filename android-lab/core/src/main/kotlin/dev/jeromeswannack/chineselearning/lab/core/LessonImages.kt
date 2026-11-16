@@ -17,8 +17,16 @@ object LessonImages {
     /** `normalizeImagePrompt`: what the picture is keyed by. */
     fun normalizePrompt(prompt: String): String = prompt.replace(WHITESPACE, " ").trim()
 
-    private fun exercises(spec: CustomLessonSpec): List<DescribeImageExercise> =
-        spec.sections.flatMap { it.exercises }.filterIsInstance<DescribeImageExercise>().filter { it.imagePrompt.isNotBlank() }
+    /** Something that carries a picture: a describe_image exercise or a note structure with an image_prompt. */
+    private class Holder(val imagePrompt: String, val imageUrl: String?)
+
+    private fun exercises(spec: CustomLessonSpec): List<Holder> = spec.sections.flatMap { it.exercises }.flatMap { ex ->
+        when (ex) {
+            is DescribeImageExercise -> if (ex.imagePrompt.isNotBlank()) listOf(Holder(ex.imagePrompt, ex.imageUrl)) else emptyList()
+            is NoteExercise -> ex.patterns.orEmpty().mapNotNull { p -> p.imagePrompt?.takeIf { it.isNotBlank() }?.let { Holder(it, p.imageUrl) } }
+            else -> emptyList()
+        }
+    }
 
     /** `describeImagePrompts`: distinct scene prompts (by normalised text); [missingOnly] skips exercises with a picture. */
     fun prompts(spec: CustomLessonSpec, missingOnly: Boolean = false): List<String> =
@@ -30,9 +38,16 @@ object LessonImages {
         for (section in (spec["sections"] as? JsonArray).orEmpty()) {
             for (ex in ((section as? JsonObject)?.get("exercises") as? JsonArray).orEmpty()) {
                 val o = ex as? JsonObject ?: continue
-                if ((o["type"] as? JsonPrimitive)?.contentOrNull != "describe_image") continue
-                val prompt = (o["image_prompt"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: continue
-                out.putIfAbsent(normalizePrompt(prompt), prompt)
+                when ((o["type"] as? JsonPrimitive)?.contentOrNull) {
+                    "describe_image" -> {
+                        val prompt = (o["image_prompt"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: continue
+                        out.putIfAbsent(normalizePrompt(prompt), prompt)
+                    }
+                    "note" -> for (p in (o["patterns"] as? JsonArray).orEmpty()) {
+                        val prompt = ((p as? JsonObject)?.get("image_prompt") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: continue
+                        out.putIfAbsent(normalizePrompt(prompt), prompt)
+                    }
+                }
             }
         }
         return out.values.toList()

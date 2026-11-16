@@ -152,7 +152,8 @@ private fun NoteForm(ex: JsonObject, onChange: (JsonObject) -> Unit, speak: Spea
     EdField("Teaching text", hint = "blank line = new paragraph") {
         EdTextField(ex.text("body"), { onChange(ex.withClean("body", it)) }, placeholder = "Explain the point in a few sentences…", singleLine = false, minLines = 4)
     }
-    EdField("Example sentences") { SentenceList(ex.objs("sentences"), { onChange(ex.withObjs("sentences", it)) }, speak, "Add sentence") }
+    PatternsField(ex, onChange, speak)
+    EdField("Example sentences", hint = if (ex.objs("patterns").isNotEmpty()) "extra ones, after the structures" else null) { SentenceList(ex.objs("sentences"), { onChange(ex.withObjs("sentences", it)) }, speak, "Add sentence") }
 }
 
 @Composable
@@ -445,3 +446,82 @@ private fun ConversationForm(ex: JsonObject, onChange: (JsonObject) -> Unit, spe
 
 /** For `without` users elsewhere in the package. */
 internal fun JsonObject.dropImage(): JsonObject = without("image_url")
+
+// ---------------- note → structures (web components/editor/PatternsField.tsx) ----------------
+
+private val piecesSerializer = kotlinx.serialization.builtins.ListSerializer(dev.jeromeswannack.chineselearning.lab.core.PatternPiece.serializer())
+
+private fun piecesOf(pattern: JsonObject): List<dev.jeromeswannack.chineselearning.lab.core.PatternPiece> =
+    runCatching { dev.jeromeswannack.chineselearning.lab.core.LessonJson.decodeFromJsonElement(piecesSerializer, pattern["pieces"] ?: JsonArray(emptyList())) }.getOrDefault(emptyList())
+
+private fun JsonObject.withPieces(pieces: List<dev.jeromeswannack.chineselearning.lab.core.PatternPiece>): JsonObject =
+    with("pieces", dev.jeromeswannack.chineselearning.lab.core.LessonJson.encodeToJsonElement(piecesSerializer, pieces))
+
+private fun blankPattern(): JsonObject = JsJson.obj(
+    "pieces" to JsonArray(listOf(JsJson.obj("hanzi" to JsJson.s("")), JsJson.obj("slot" to JsJson.s("Verb"), "zh" to JsJson.s("动词")))),
+)
+
+@Composable
+private fun PatternsField(ex: JsonObject, onChange: (JsonObject) -> Unit, speak: Speak) {
+    val patterns = ex.objs("patterns")
+    val set = { list: List<JsonObject> -> onChange(if (list.isEmpty()) ex.without("patterns") else ex.withObjs("patterns", list)) }
+    EdField("Structures", hint = "each one becomes a pattern card") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            patterns.forEachIndexed { i, p ->
+                ListRow {
+                    PatternEditor(p, { set(patterns.replaceAt(i, it)) }, speak)
+                    ControlsRow {
+                        androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                        RowControls(i, patterns.size, onMove = { from, to -> if (to in patterns.indices) set(patterns.moveItem(from, to)) }, onRemove = { set(patterns.removeAtIndex(i)) })
+                    }
+                }
+            }
+            if (patterns.size < 8) AddButton("Add structure", { set(patterns + blankPattern()) })
+        }
+    }
+}
+
+@Composable
+private fun PatternEditor(p: JsonObject, onChange: (JsonObject) -> Unit, speak: Speak) {
+    val pieces = piecesOf(p)
+    var text by remember(p["pieces"]) { mutableStateOf(dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.editText(pieces)) }
+    var problem by remember { mutableStateOf<String?>(null) }
+    EdField("Name", hint = "optional, e.g. 除了…还…") { EdTextField(p.text("name"), { onChange(p.withClean("name", it)) }, chinese = true) }
+    EdField("Pattern", hint = "pieces joined by +; 名词 / 动词 / V… become slots; （…） = optional") {
+        EdTextField(text, { v ->
+            text = v
+            val parsed = dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.parsePatternLine(v)
+            if (parsed == null) problem = "Write it as pieces joined by +, with at least one fixed Chinese word: 除了 + 名词 + 还 + 动词"
+            else {
+                problem = null
+                onChange(p.withPieces(dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.mergeDetails(parsed.pieces, pieces)))
+            }
+        }, chinese = true, placeholder = "除了 + 名词 + （以外），主语 + 还 + 动词")
+        problem?.let { Text(it, color = Lab.colors.muted) }
+    }
+    dev.jeromeswannack.chineselearning.lab.ui.lessons.PatternChips(pieces)
+    pieces.forEachIndexed { k, piece ->
+        if (dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.isSlotPiece(piece)) {
+            EdTextField(piece.slot ?: "", { onChange(p.withPieces(pieces.replaceAt(k, piece.copy(slot = it)))) }, label = "Slot label ${piece.zh ?: ""}", placeholder = "Slot ${piece.zh ?: ""}: English label")
+        } else if (!dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.isPunctuation(piece.hanzi ?: "") && !piece.hanzi.isNullOrBlank()) {
+            EdTextField(piece.english ?: "", { onChange(p.withPieces(pieces.replaceAt(k, piece.copy(english = it.ifEmpty { null })))) }, label = "Gloss of ${piece.hanzi}", placeholder = "${piece.hanzi}: gloss, e.g. besides")
+        }
+    }
+    EdField("Meaning", hint = "one short line") { EdTextField(p.text("meaning"), { onChange(p.withClean("meaning", it)) }, placeholder = "besides A, also B") }
+    EdField("Examples", hint = "1–3; coloured to match the pattern") {
+        val examples = p.objs("examples")
+        SentenceList(examples, { next ->
+            // An example whose Chinese changed loses its hand-made parts; the app aligns it.
+            onChange(p.withObjs("examples", next.mapIndexed { i, e -> if (examples.getOrNull(i)?.text("hanzi") == e.text("hanzi")) e else e.without("parts") }))
+        }, speak, "Add example", max = 4)
+    }
+    EdField("Note", hint = "optional — the rule, or ✗ wrong / ✓ right lines") {
+        EdTextField(p.text("note"), { onChange(p.withClean("note", it)) }, singleLine = false, minLines = 2)
+    }
+    EdField("Picture", hint = "optional — only when a scene shows the meaning; English, no text") {
+        EdTextField(p.text("image_prompt"), { v ->
+            val next = p.withClean("image_prompt", v)
+            onChange(if (next.text("image_prompt") != p.text("image_prompt")) next.without("image_url") else next)
+        }, singleLine = false, minLines = 2)
+    }
+}

@@ -252,7 +252,10 @@ object AnkiSources {
             for (ex in section.exercises) {
                 when (ex) {
                     is MatchExercise -> ex.pairs.forEach { c.word(it.hanzi, it.pinyin, it.english) }
-                    is NoteExercise -> ex.sentences.orEmpty().forEach { c.auto(it) }
+                    is NoteExercise -> {
+                        ex.patterns.orEmpty().forEach { p -> p.examples.orEmpty().forEach { c.auto(LessonSentence(it.hanzi, it.pinyin, it.english)) } }
+                        ex.sentences.orEmpty().forEach { c.auto(it) }
+                    }
                     is TranslateExercise -> c.sentence(ex.referenceHanzi, ex.referencePinyin, ex.english)
                     is ScrambleExercise -> c.sentence(ex.correctOrder.joinToString(""), null, ex.english)
                     is DescribeImageExercise -> c.sentence(ex.referenceHanzi, ex.referencePinyin, ex.referenceEnglish)

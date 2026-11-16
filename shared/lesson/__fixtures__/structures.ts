@@ -44,3 +44,17 @@ export const PLAIN_NOTES: NoteExercise[] = [
   { type: 'note', body: '好 before a verb = easy to do. It describes the THING, so the thing is the subject.', sentences: [{ hanzi: '这个字好写。' }] },
   { type: 'note', body: 'Remember: 1 + 1 = 2, and 我 + 你 = 我们。' },
 ];
+
+/** A second real overview note (16 Nov 2026), same format. */
+export const ALL_STRUCTURES_NOTE_2: NoteExercise = {
+  type: 'note',
+  title: '结构一览 · All structures',
+  body: "① 动词 + 回／上／下／进／出 + 地点 + 来／去\n   Verb + back / up / down / in / out + Place + come / go\n   → move to a place (towards / away from the speaker)\n\n② 动词 + 了 + 时间段 + 的 + 名词\n   Verb + 了 + Duration + 的 + Noun\n   → the [noun] that someone has [verb]-ed for [duration]\n\n③ 本来 + 要／想 + 动词\n   originally + going to / want to + Verb\n   → was originally going to … (but it changed)\n\n④ 不知道／不介意 + 动词不动词\n   don't know / don't mind + Verb-not-Verb\n   → don't know / don't mind whether …\n\n⑤ 从 + 名词 + 能 + 动词 + 出来\n   from + Noun + can + Verb + out\n   → can tell / work out … from …",
+  sentences: [
+    { hanzi: "他下班以后马上跑回家去了。", pinyin: "Tā xiàbān yǐhòu mǎshàng pǎo huí jiā qù le.", english: "He ran back home right after work." },
+    { hanzi: "这是我用了五年的手机。", pinyin: "Zhè shì wǒ yòng le wǔ nián de shǒujī.", english: "This is the phone I've used for five years." },
+    { hanzi: "我本来要坐火车去。", pinyin: "Wǒ běnlái yào zuò huǒchē qù.", english: "I was originally going to go by train." },
+    { hanzi: "我不知道他来不来。", pinyin: "Wǒ bù zhīdào tā lái bu lái.", english: "I don't know whether he's coming." },
+    { hanzi: "从他的话能听出来他不高兴。", pinyin: "Cóng tā de huà néng tīng chūlái tā bù gāoxìng.", english: "You can tell from what he says that he's unhappy." },
+  ],
+};

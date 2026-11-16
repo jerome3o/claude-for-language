@@ -1,5 +1,7 @@
 /* Structure cards (components/lessons/StructureCards.tsx). Colours are tokens: one strong colour for
-   every fixed word, one per slot (s0…s4), redefined for the dark set. */
+   every fixed word, one per slot (s0…s4), redefined for the dark set. No red-vs-green pairs (Jerome is
+   red / green colour-blind): shapes carry the roles too — fixed = solid chip / bold, slot = dashed box /
+   underlined part. */
 .structure-note {
   --sc-fixed: #dc2626;
   --sc-fixed-ink: #ffffff;
@@ -11,12 +13,12 @@
   --sc-s0-soft: rgba(37, 99, 235, 0.09);
   --sc-s1: #7c3aed;
   --sc-s1-soft: rgba(124, 58, 237, 0.09);
-  --sc-s2: #059669;
-  --sc-s2-soft: rgba(5, 150, 105, 0.1);
-  --sc-s3: #c2410c;
-  --sc-s3-soft: rgba(194, 65, 12, 0.09);
-  --sc-s4: #be185d;
-  --sc-s4-soft: rgba(190, 24, 93, 0.09);
+  --sc-s2: #0e7490;
+  --sc-s2-soft: rgba(14, 116, 144, 0.1);
+  --sc-s3: #be185d;
+  --sc-s3-soft: rgba(190, 24, 93, 0.09);
+  --sc-s4: #a16207;
+  --sc-s4-soft: rgba(161, 98, 7, 0.1);
   --sc-wrong: #b91c1c;
   --sc-wrong-soft: rgba(220, 38, 38, 0.07);
   --sc-right: #15803d;
@@ -34,12 +36,12 @@
   --sc-s0-soft: rgba(96, 165, 250, 0.14);
   --sc-s1: #a78bfa;
   --sc-s1-soft: rgba(167, 139, 250, 0.14);
-  --sc-s2: #34d399;
-  --sc-s2-soft: rgba(52, 211, 153, 0.13);
-  --sc-s3: #fb923c;
-  --sc-s3-soft: rgba(251, 146, 60, 0.14);
-  --sc-s4: #f472b6;
-  --sc-s4-soft: rgba(244, 114, 182, 0.14);
+  --sc-s2: #22d3ee;
+  --sc-s2-soft: rgba(34, 211, 238, 0.13);
+  --sc-s3: #f472b6;
+  --sc-s3-soft: rgba(244, 114, 182, 0.14);
+  --sc-s4: #fbbf24;
+  --sc-s4-soft: rgba(251, 191, 36, 0.14);
   --sc-wrong: #f87171;
   --sc-wrong-soft: rgba(248, 113, 113, 0.1);
   --sc-right: #4ade80;

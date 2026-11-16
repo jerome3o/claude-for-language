@@ -112,27 +112,33 @@ const LATIN_TERMS: Record<string, [string, SlotClass]> = {
   classifier: ['Measure word', 'measure'], place: ['Place', 'noun'], time: ['Time', 'other'], adv: ['Adverb', 'other'],
 };
 
+/** A table lookup that never reaches Object.prototype ("constructor"…). */
+function lookup<T>(table: Record<string, T>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 function englishClass(label: string): SlotClass | null {
-  const l = label.toLowerCase();
-  if (/\b(number|digit|amount)\b/.test(l)) return 'number';
-  if (/\b(measure|classifier)\b/.test(l)) return 'measure';
-  if (/\badjective\b|\badj\b/.test(l)) return 'adjective';
-  if (/\bverb\b|^v$/.test(l)) return 'verb';
-  if (/\bsubject\b/.test(l)) return 'subject';
-  if (/\b(noun|object|place|person|someone|something|thing)\b/.test(l)) return 'noun';
+  const words = label.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const has = (...w: string[]) => words.some((x) => w.includes(x));
+  if (has('number', 'digit', 'amount')) return 'number';
+  if (has('measure', 'classifier')) return 'measure';
+  if (has('adjective', 'adj')) return 'adjective';
+  if (has('verb') || label.toLowerCase() === 'v') return 'verb';
+  if (has('subject')) return 'subject';
+  if (has('noun', 'object', 'place', 'person', 'someone', 'something', 'thing')) return 'noun';
   return null;
 }
 
 /** What kind of words a slot takes (drives how an example is cut into the slots). */
 export function slotClass(p: PatternPiece): SlotClass {
   for (const term of splitAlternatives(p.zh ?? '')) {
-    const hit = ZH_TERMS[term];
+    const hit = lookup(ZH_TERMS, term);
     if (hit) return hit[1];
   }
   for (const term of splitAlternatives(p.slot ?? '')) {
-    const latin = LATIN_TERMS[term.toLowerCase()];
+    const latin = lookup(LATIN_TERMS, term.toLowerCase());
     if (latin) return latin[1];
-    const zh = ZH_TERMS[term];
+    const zh = lookup(ZH_TERMS, term);
     if (zh) return zh[1];
   }
   return englishClass(p.slot ?? '') ?? 'other';
@@ -193,7 +199,10 @@ function findFixed(text: string, alts: string[], from: number, before: number): 
 }
 
 /** Where a word / break ends a subject before an adjective / verb ("咖啡馆里|热闹", "他最近|胖"). */
-const PREDICATE_MARKERS = ['最近', '现在', '已经', '越来越', '里', '的', '很', '都', '也', '就', '还', '又', '更', '太', '真', '了'];
+const PREDICATE_MARKERS = [
+  '最近', '现在', '已经', '正在', '马上', '以后', '然后', '一起', '越来越', '可以', '里', '的', '很', '都', '也', '就', '还', '又', '更', '太', '真',
+  '了', '是', '要', '会', '能', '想',
+];
 const TOPIC_WORDS = ['天气', '我们', '你们', '他们', '她们', '大家', '天', '我', '你', '他', '她', '它'];
 const FINAL_PARTICLES = '吗呢吧啊呀了';
 
@@ -275,15 +284,48 @@ export function alignPatternExample(pieces: PatternPiece[], hanzi: string): Alig
   const required = fixedIdx.filter((i) => !pieces[i].optional);
   if (!hanzi || required.length === 0) return plain;
 
-  // 1. Required fixed words, in order (earliest occurrence).
-  const pos = new Map<number, [number, number]>();
-  let from = 0;
-  for (const i of required) {
-    const hit = findFixed(hanzi, fixedAlternatives(pieces[i]), from, hanzi.length);
-    if (!hit) return plain;
-    pos.set(i, hit);
-    from = hit[0] + hit[1];
-  }
+  // 1. Required fixed words, in order. A word can occur more than once (下 in 下班 … 跑回家): every
+  // placement is tried (bounded) and the one that fits best wins — the higher score, then the least
+  // text between the fixed words, then the earliest.
+  let best: { aligned: AlignedExample; middle: number } | null = null;
+  let tries = 0;
+  const chosen: Array<[number, number]> = [];
+  const search = (r: number, from: number) => {
+    if (tries >= MAX_PLACEMENTS) return;
+    if (r === required.length) {
+      tries++;
+      const pos = new Map<number, [number, number]>();
+      required.forEach((i, k) => pos.set(i, chosen[k]));
+      const got = alignAt(pieces, hanzi, isSlot, fixedIdx, pos);
+      if (!best || got.aligned.score > best.aligned.score || (got.aligned.score === best.aligned.score && got.middle < best.middle)) best = got;
+      return;
+    }
+    const alts = fixedAlternatives(pieces[required[r]]);
+    let at = from;
+    for (let n = 0; n < MAX_OCCURRENCES; n++) {
+      const hit = findFixed(hanzi, alts, at, hanzi.length);
+      if (!hit) break;
+      chosen[r] = hit;
+      search(r + 1, hit[0] + hit[1]);
+      at = hit[0] + 1;
+    }
+  };
+  search(0, 0);
+  return best ? (best as { aligned: AlignedExample }).aligned : plain;
+}
+
+/** Bounds on the placements tried. */
+const MAX_OCCURRENCES = 4;
+const MAX_PLACEMENTS = 64;
+
+/** The alignment for one placement of the required fixed words (`pos`: piece → [start, length]). */
+function alignAt(
+  pieces: PatternPiece[],
+  hanzi: string,
+  isSlot: boolean[],
+  fixedIdx: number[],
+  pos: Map<number, [number, number]>,
+): { aligned: AlignedExample; middle: number } {
   // 2. Optional fixed words: next to a neighbour when no slot is between, else inside the gap.
   for (const i of fixedIdx) {
     if (!pieces[i].optional) continue;
@@ -408,7 +450,9 @@ export function alignPatternExample(pieces: PatternPiece[], hanzi: string): Alig
     at = s.end;
   }
   pushPlain(hanzi.slice(at));
-  return { parts, matched: true, score };
+  let middle = 0;
+  for (let a = 0; a + 1 < anchors.length; a++) middle += pos.get(anchors[a + 1])![0] - (pos.get(anchors[a])![0] + pos.get(anchors[a])![1]);
+  return { aligned: { parts, matched: true, score }, middle };
 }
 
 /** An author's `parts` when they spell the example exactly and point at real pieces, else null. */
@@ -576,7 +620,7 @@ function scriptRuns(text: string): string[] {
 }
 
 function zhTerm(t: string): [string, SlotClass] | null {
-  const hit = ZH_TERMS[t];
+  const hit = lookup(ZH_TERMS, t);
   if (hit) return hit;
   if (t.length >= 2 && (t.endsWith('词') || t.endsWith('短语'))) return [t, 'other'];
   return null;
@@ -587,7 +631,7 @@ function pieceFromRun(run: string, optional: boolean): PatternPiece {
   const opt = optional ? { optional: true } : {};
   const alts = splitAlternatives(run);
   if (alts.length > 0 && alts.every((a) => isLatinLetter(a[0]))) {
-    const labels = alts.map((a) => LATIN_TERMS[a.toLowerCase()]?.[0] ?? a);
+    const labels = alts.map((a) => lookup(LATIN_TERMS, a.toLowerCase())?.[0] ?? a);
     return { slot: labels.join(' / '), ...opt };
   }
   if (alts.length > 0 && alts.every((a) => zhTerm(a) !== null)) {
@@ -638,7 +682,7 @@ export function parsePatternLine(line: string, englishLine?: string | null): { m
       let english: string | null = null;
       if (aligned) english = eToks![k].kind === 'punct' ? null : stripRemarks(eToks![k].text) || eToks![k].text;
       else if (eToks && meaningful.length === 1 && meaningful[0] === tok) english = stripRemarks(en![r]);
-      if (english && made.length === 1) {
+      if (english && !hasHan(english) && made.length === 1) {
         const p = made[0];
         if (isSlotPiece(p)) p.slot = english;
         else if (!isPunctuation(p.hanzi ?? '')) p.english = english;
@@ -650,8 +694,16 @@ export function parsePatternLine(line: string, englishLine?: string | null): { m
   return { marker, pieces };
 }
 
+/** The English line under a pattern ("Verb + 了 + Duration + 的 + Noun"): mostly Latin letters, with "+". */
 function isEnglishPatternLine(line: string): boolean {
-  return !hasHan(line) && /[+＋]/.test(line);
+  if (!/[+＋]/.test(line)) return false;
+  let latin = 0;
+  let han = 0;
+  for (const c of line) {
+    if (isLatinLetter(c)) latin++;
+    else if (isHanChar(c)) han++;
+  }
+  return latin > 2 * han;
 }
 
 function meaningOf(line: string): string | null {
