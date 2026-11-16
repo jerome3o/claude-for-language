@@ -88,12 +88,20 @@ export const SAMPLE_LESSONS: SampleLesson[] = [
     id: 'scramble',
     type: 'scramble',
     spec: {
-      title: 'Word order: 把',
+      title: 'Word order: 把 and 一…就',
       icon: '🧩',
       sections: [{
         exercises: [
           { type: 'scramble', english: 'I finished my homework.', tiles: ['作业', '我', '做完了', '把'], correct_order: ['我', '把', '作业', '做完了'] },
           { type: 'scramble', english: 'Please close the door.', tiles: ['关上', '门', '请', '把'], correct_order: ['请', '把', '门', '关上'] },
+          // Two natural orders: the subject before 一, or only in the 就 clause — every one listed in alt_orders.
+          {
+            type: 'scramble',
+            english: 'As soon as the child saw the cake, he cheered up.',
+            tiles: ['高兴起来了', '孩子', '就', '蛋糕', '一看见'],
+            correct_order: ['孩子', '一看见', '蛋糕', '就', '高兴起来了'],
+            alt_orders: [['一看见', '蛋糕', '孩子', '就', '高兴起来了']],
+          },
         ],
       }],
     },

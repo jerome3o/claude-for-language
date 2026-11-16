@@ -96,6 +96,21 @@ export const READ_ALOUD_FIXTURES: Array<{ card: string; said: string; result: Re
   },
 ];
 
+/**
+ * A word order (scramble) built in an order the lesson didn't list (shared/lesson/scrambleCheck.ts). The rule: the
+ * expected order's FIRST tile (its subject) moved later, landing right before 就 / 也 / 都 / 才 / 还 / 又, is right
+ * (Jerome's 一看见蛋糕孩子就高兴起来了 — the subject only in the second clause of 一…就); any other order is wrong.
+ */
+export function fakeScrambleCheck(expectedTiles: string[], learnerTiles: string[]): Record<string, unknown> {
+  const [subject, ...rest] = expectedTiles;
+  const at = learnerTiles.indexOf(subject);
+  const without = learnerTiles.filter((_, i) => i !== at);
+  const movedSubject = at > 0 && without.join('|') === rest.join('|') && /^[就也都才还又]/.test(learnerTiles[at + 1] ?? '');
+  return movedSubject
+    ? { verdict: 'correct', headline: `Also natural — ${subject} can come later, right before ${learnerTiles[at + 1].slice(0, 1)}.`, corrected: '', tips: [] }
+    : { verdict: 'wrong', headline: `That order doesn't read naturally — start with ${subject}.`, corrected: '', tips: [] };
+}
+
 /** Jerome's "Annie" speaking task (docs/STUDY_SESSION.md "Claude checks your speaking"): a realistic transcript. */
 export const SPEAKING_FIXTURE = {
   prompt: "A new colleague, Annie, arrives at your office. Guess who she is (① 就是…吧), tell her where two places are (② 就在), what today's meeting is about (③ 是关于…的), and how busy the team is (④ 形容词 + 到…).",
@@ -170,6 +185,15 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
           return {
             stop_reason: 'tool_use',
             usage: { input_tokens: 350 + text.length, output_tokens: 50 },
+            content: [{ type: 'tool_use', id: 'fake', name: 'check_answer', input: result }],
+          };
+        }
+        if (text.includes('<learner_order>')) {
+          const tiles = (label: RegExp) => lineValue(text, label).split('/').map((t) => t.trim()).filter(Boolean);
+          const result = fakeScrambleCheck(tiles(/Expected order tiles: (.+)/), tiles(/Learner order tiles: (.+)/));
+          return {
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 450 + text.length, output_tokens: 50 },
             content: [{ type: 'tool_use', id: 'fake', name: 'check_answer', input: result }],
           };
         }

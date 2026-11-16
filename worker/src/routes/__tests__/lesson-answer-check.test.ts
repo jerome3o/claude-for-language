@@ -12,8 +12,9 @@ import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d
 import lessonAttempts, { checkAttemptSpeaking } from '../lesson-attempts';
 import { ANSWER_CHECK_FIXTURES, SPEAKING_FIXTURE, fakeAnswerCheckClient } from '../../services/answer-check-fake';
 import {
-  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM,
+  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM, SCRAMBLE_CHECK_SYSTEM,
 } from '../../services/answer-check';
+import { scrambleCheckInput, scrambleOutcome } from '@shared/lesson/scrambleCheck';
 import { readTakeCheckInput, readTakeClaudeState } from '@shared/study/readTakeCheck';
 import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, PLAIN_ACCEPTABLE_HEADLINE, answerCheckCacheText } from '@shared/lesson/answerCheck';
 import type { Env } from '../../types';
@@ -383,5 +384,61 @@ describe('read aloud (a read card\'s take the device couldn\'t accept, shared/st
     expect(check.suggested).toBe('missed_it');
     expect(check.corrected).toBe('');
     expect(check.alternative).toBeUndefined();
+  });
+});
+
+describe('word order (scramble) — an order the lesson didn\'t list', () => {
+  let db: SqliteD1;
+  let post: ReturnType<typeof client>;
+  const cake = { english: 'As soon as the child saw the cake, he cheered up.', correct_order: ['孩子', '一看见', '蛋糕', '就', '高兴起来了'] };
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+  });
+
+  it('Jerome\'s 一看见蛋糕孩子就高兴起来了 → correct (the subject in the 就 clause), nothing to correct, cached for everyone', async () => {
+    const input = scrambleCheckInput(cake, ['一看见', '蛋糕', '孩子', '就', '高兴起来了'], '一…就')!;
+    expect(input.answer).toBe('一看见 蛋糕 孩子 就 高兴起来了');
+    const r = await post('/lessons/answer-check', input);
+    expect(r.status).toBe(200);
+    expect(r.json.check.verdict).toBe('correct');
+    expect(r.json.check.corrected).toBe('');
+    expect(r.json.check.alternative).toBeUndefined();
+    expect(scrambleOutcome('unexpected', { status: 'done', check: r.json.check }).kind).toBe('also_right');
+    const again = await post('/lessons/answer-check', { ...input, focus: 'another lesson' });
+    expect(again.json.cached).toBe(true);
+  });
+
+  it('an order that doesn\'t work → wrong with a one-line reason', async () => {
+    const r = await post('/lessons/answer-check', scrambleCheckInput(cake, ['就', '孩子', '一看见', '蛋糕', '高兴起来了'])!);
+    expect(r.json.check.verdict).toBe('wrong');
+    expect(r.json.check.headline).toContain('孩子');
+    const outcome = scrambleOutcome('unexpected', { status: 'done', check: r.json.check });
+    expect(outcome.banner).toBe('✗ Not quite');
+    expect(outcome.note).toBe(r.json.check.headline);
+  });
+
+  it('the prompt: the English, both orders tagged apart with their tiles, the word-order rules', () => {
+    const turn = answerCheckUserTurn(scrambleCheckInput(cake, ['一看见', '蛋糕', '孩子', '就', '高兴起来了'], '一…就')!);
+    expect(turn).toContain('Lesson focus: 一…就');
+    expect(turn).toContain('English: As soon as the child saw the cake, he cheered up.');
+    expect(turn).toContain('<expected_order>孩子一看见蛋糕就高兴起来了</expected_order>');
+    expect(turn).toContain('<learner_order>一看见蛋糕孩子就高兴起来了</learner_order>');
+    expect(turn).toContain('Learner order tiles: 一看见 / 蛋糕 / 孩子 / 就 / 高兴起来了');
+    expect(SCRAMBLE_CHECK_SYSTEM).toContain('一看见蛋糕孩子就高兴起来了');
+    expect(SCRAMBLE_CHECK_SYSTEM).toMatch(/Never call an order wrong only because it differs/);
+  });
+
+  it('the model\'s correction / alternative / extra tips are dropped (the tiles are fixed)', async () => {
+    const create = vi.fn(async (params: { system?: unknown }) => {
+      expect(JSON.stringify(params.system)).toContain('word-order exercise');
+      return { stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'tool_use', id: 'x', name: 'check_answer', input: { verdict: 'almost', headline: 'Stilted — 孩子 reads better first.', corrected: '孩子一看见蛋糕就高兴起来了', tips: [{ text: 'a', quote: '孩子' }, { text: 'b', quote: '就' }], alternative: { hanzi: '孩子看见蛋糕就高兴了' } } }] };
+    });
+    const check = await runAnswerCheck(scrambleCheckInput(cake, ['蛋糕', '孩子', '一看见', '就', '高兴起来了'])!, { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
+    expect(check.verdict).toBe('almost');
+    expect(check.corrected).toBe('');
+    expect(check.alternative).toBeUndefined();
+    expect(check.tips).toHaveLength(1);
   });
 });

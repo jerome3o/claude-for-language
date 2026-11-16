@@ -5,6 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson.num
 import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson.str
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
@@ -210,9 +211,13 @@ object LessonValidator {
                     errors += "$where: \"correct_order\" must use exactly the tiles in \"tiles\" (same multiset)"
                 } else {
                     val alts = ex["alt_orders"]
-                    if (alts is JsonArray) alts.forEachIndexed { i, alt ->
+                    if (alts != null && alts !is JsonNull && alts !is JsonArray) {
+                        errors += "$where: \"alt_orders\" must be a list of tile orders"
+                    } else if (alts is JsonArray) alts.forEachIndexed { i, alt ->
                         if (alt !is JsonArray || !allNonEmpty(alt) || !sameMultiset(strings(tiles), strings(alt))) {
                             errors += "$where: alt_orders[$i] must use exactly the tiles in \"tiles\""
+                        } else if (strings(alt).joinToString("") == strings(order).joinToString("")) {
+                            errors += "$where: alt_orders[$i] is the same as \"correct_order\" — list only OTHER natural orders"
                         }
                     }
                 }

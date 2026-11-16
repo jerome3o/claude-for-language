@@ -47,6 +47,7 @@ import dev.jeromeswannack.chineselearning.lab.core.ListenTranslateExercise
 import dev.jeromeswannack.chineselearning.lab.core.MatchExercise
 import dev.jeromeswannack.chineselearning.lab.core.NoteExercise
 import dev.jeromeswannack.chineselearning.lab.core.ScrambleExercise
+import dev.jeromeswannack.chineselearning.lab.core.ScrambleCheck
 import dev.jeromeswannack.chineselearning.lab.core.SpeakExercise
 import dev.jeromeswannack.chineselearning.lab.core.TranslateExercise
 import dev.jeromeswannack.chineselearning.lab.core.UnknownExercise
@@ -56,6 +57,7 @@ import dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 
 /*
@@ -101,14 +103,30 @@ fun NoteView(ex: NoteExercise, env: ExerciseEnv, onNext: () -> Unit) {
 @Composable
 fun ScrambleView(ex: ScrambleExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     val picked = remember { mutableStateListOf<Int>() }
-    var result by remember { mutableStateOf<Boolean?>(null) }
+    // The device's verdict on Check (core ScrambleCheck): the listed orders are right at once; any other order of every
+    // tile goes to Claude — "Checking…" in place, then ✓ Also right / ✗ Not quite (offline / failed: ✗ at once).
+    var local by remember { mutableStateOf<String?>(null) }
+    var status by remember { mutableStateOf<ScrambleCheck.Status?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val focus = LocalLessonFocus.current
     // Shuffled per attempt, never presenting an accepted order (exercises repeat under FSRS).
     val pool = remember { LessonAnswers.scramblePoolOrder(ex.tiles, ex.correctOrder, ex.altOrders, env.random) }
     var showEnglish by remember { mutableStateOf(false) }
     val pickedTiles = picked.map { ex.tiles[it] }
+    val outcome = local?.let { ScrambleCheck.outcome(it, status, ScrambleCheck.sentence(pickedTiles) == ScrambleCheck.sentence(ex.correctOrder)) }
+    val checked = outcome != null
+
+    // Play once the verdict is known (his own order when right, else the expected one) and feel it once.
+    val toSpeak = outcome?.let { ScrambleCheck.spokenSentence(it.kind, pickedTiles, ex.correctOrder) }
+    LaunchedEffect(toSpeak) {
+        val o = outcome ?: return@LaunchedEffect
+        if (toSpeak == null) return@LaunchedEffect
+        if (o.correct) env.onCorrect() else env.onWrong()
+        env.speak(toSpeak)
+    }
 
     PhaseLabel("Word order")
-    if (showEnglish || result != null) {
+    if (showEnglish || checked) {
         PromptText(ex.english)
     } else {
         Text(
@@ -128,31 +146,102 @@ fun ScrambleView(ex: ScrambleExercise, env: ExerciseEnv, onNext: (Boolean, Exerc
         if (picked.isEmpty()) Text("Tap tiles below", color = Lab.colors.muted, modifier = Modifier.padding(12.dp))
         picked.forEachIndexed { i, tileIndex ->
             // Checked: his blocks are words to explore now (while arranging, a tap places / removes a block).
-            if (result == null) Tile(ex.tiles[tileIndex], ghost = false, enabled = true) { picked.removeAt(i); env.onTap() }
+            if (!checked) Tile(ex.tiles[tileIndex], ghost = false, enabled = true) { picked.removeAt(i); env.onTap() }
             else DoneTile(ex.tiles[tileIndex])
         }
     }
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (i in pool) {
             val isPicked = i in picked
-            Tile(ex.tiles[i], ghost = isPicked, enabled = !isPicked && result == null) { picked.add(i); env.onTap() }
+            Tile(ex.tiles[i], ghost = isPicked, enabled = !isPicked && !checked) { picked.add(i); env.onTap() }
         }
     }
-    val r = result
-    if (r == null) {
+    if (outcome == null) {
         ActionRow {
             Primary("Check", enabled = picked.size == ex.tiles.size) {
-                val ok = LessonAnswers.checkScrambleOrder(pickedTiles, ex.correctOrder, ex.altOrders)
-                result = ok
-                if (ok) env.onCorrect() else env.onWrong()
-                env.speak(ex.correctOrder.joinToString(""))
+                val verdict = ScrambleCheck.localVerdict(pickedTiles, ex.tiles, ex.correctOrder, ex.altOrders)
+                if (verdict == "incomplete") return@Primary
+                if (verdict == "unexpected") {
+                    val input = ScrambleCheck.checkInput(ex.english, ex.correctOrder, pickedTiles, focus)
+                    status = if (input == null) ScrambleCheck.Status.Unavailable else startScrambleCheck(input, env, scope) { status = it }
+                }
+                local = verdict
             }
         }
     } else {
-        ResultBanner(r, if (r) "✓ Correct" else "✗ Not quite")
-        Reference(LessonSentence(ex.correctOrder.joinToString("")), env, label = if (r) null else "The right order:", exerciseType = ex.type, tag = "scramble-correct-sentence")
+        if (outcome.tone == "neutral") CheckingBanner(outcome.banner)
+        else ResultBanner(outcome.tone == "good", outcome.banner)
+        Reference(LessonSentence(ex.correctOrder.joinToString("")), env, label = outcome.expectedLabel, exerciseType = ex.type, tag = "scramble-correct-sentence")
         LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
-        ActionRow { Primary("Continue") { onNext(r, ExerciseAnswer(order = pickedTiles, hintUsed = showEnglish)) } }
+        ActionRow {
+            Primary("Continue") {
+                val done = (status as? ScrambleCheck.Status.Done)?.check?.takeIf { local == "unexpected" }
+                onNext(outcome.correct, ExerciseAnswer(order = pickedTiles, hintUsed = showEnglish, check = done))
+            }
+        }
+        // Claude's slot, LAST so nothing he reads moves when it lands (core LessonFeedback).
+        if (outcome.checking) ClaudeCheckingRow()
+        outcome.note?.let { ScrambleClaudeNote(it, outcome.tone == "good") }
+    }
+}
+
+/**
+ * Claude's check of an unlisted order (env.answerCheck = the device cache, then the API): a punctuation-only difference
+ * and a check seen before answer at once; analytics `lesson.scramble_checked`.
+ */
+private fun startScrambleCheck(
+    input: dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput,
+    env: ExerciseEnv,
+    scope: kotlinx.coroutines.CoroutineScope,
+    set: (ScrambleCheck.Status) -> Unit,
+): ScrambleCheck.Status {
+    dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck.exact(input)?.let { exact ->
+        dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.scramble_checked", mapOf("verdict" to exact.verdict, "cached" to true, "ms" to 0L))
+        return ScrambleCheck.Status.Done(exact)
+    }
+    val began = System.currentTimeMillis()
+    scope.launch {
+        val next = try {
+            val r = env.answerCheck(input)
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.scramble_checked", mapOf("verdict" to r.check.verdict, "cached" to r.cached, "ms" to System.currentTimeMillis() - began))
+            ScrambleCheck.Status.Done(r.check)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val offline = e is dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable && e.offline
+            dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("lesson.scramble_checked", mapOf("verdict" to if (offline) "offline" else "error", "cached" to false, "ms" to System.currentTimeMillis() - began))
+            ScrambleCheck.Status.Unavailable
+        }
+        set(next)
+    }
+    return ScrambleCheck.Status.Checking
+}
+
+/** "Checking…" in place of the verdict — the same box, so nothing moves when it lands. */
+@Composable
+private fun CheckingBanner(text: String) {
+    Text(
+        text,
+        color = Lab.colors.muted,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Lab.colors.faint)
+            .padding(vertical = 12.dp, horizontal = 14.dp).testTag("scramble-checking-banner"),
+    )
+}
+
+/** Claude's one line on an unlisted order, below the buttons; its Chinese opens the explorer. */
+@Composable
+private fun ScrambleClaudeNote(text: String, good: Boolean) {
+    val accent = if (good) Palette.Good else Palette.Again
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(12.dp)).background(Lab.colors.card)
+            .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 8.dp)
+            .testTag("scramble-claude-note"),
+    ) {
+        Text("Claude", color = Lab.colors.muted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        dev.jeromeswannack.chineselearning.lab.ui.explorer.ExplorableText(text, source = "lesson", fontSize = 15.sp)
     }
 }
 

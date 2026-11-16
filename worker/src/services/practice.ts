@@ -100,7 +100,7 @@ const SESSION_TOOL: Anthropic.Tool = {
       scrambles: {
         type: 'array',
         description:
-          '3 word-order exercises. Tiles are individual words/particles the learner drags into order. correct_order is the canonical ordering of those tiles. Only include alt_orders if a genuinely different ordering is also grammatical.',
+          '3 word-order exercises. Tiles are individual words/particles the learner drags into order. correct_order is the canonical ordering of those tiles. List in alt_orders every OTHER order of the same tiles a native speaker would naturally say with the same meaning (e.g. 一看见蛋糕孩子就高兴起来了 beside 孩子一看见蛋糕就高兴起来了; a time word before or after the subject) — an unlisted order is marked wrong offline.',
         items: {
           type: 'object',
           properties: {
@@ -118,6 +118,7 @@ const SESSION_TOOL: Anthropic.Tool = {
             alt_orders: {
               type: 'array',
               items: { type: 'array', items: { type: 'string' } },
+              description: 'Every other natural order of the same tiles (never correct_order again)',
             },
           },
           required: ['english', 'tiles', 'correct_order'],

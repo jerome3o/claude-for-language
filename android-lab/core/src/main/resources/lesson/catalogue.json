@@ -401,7 +401,7 @@
       "id": "scramble",
       "type": "scramble",
       "spec": {
-        "title": "Word order: 把",
+        "title": "Word order: 把 and 一…就",
         "icon": "🧩",
         "sections": [
           {
@@ -436,6 +436,33 @@
                   "把",
                   "门",
                   "关上"
+                ]
+              },
+              {
+                "type": "scramble",
+                "english": "As soon as the child saw the cake, he cheered up.",
+                "tiles": [
+                  "高兴起来了",
+                  "孩子",
+                  "就",
+                  "蛋糕",
+                  "一看见"
+                ],
+                "correct_order": [
+                  "孩子",
+                  "一看见",
+                  "蛋糕",
+                  "就",
+                  "高兴起来了"
+                ],
+                "alt_orders": [
+                  [
+                    "一看见",
+                    "蛋糕",
+                    "孩子",
+                    "就",
+                    "高兴起来了"
+                  ]
                 ]
               }
             ]
