@@ -63,6 +63,23 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
       alternative: { hanzi: '我早上喝咖啡，这样上班就不困了。', english: "I drink coffee in the morning, so I'm not sleepy at work." },
     },
   },
+  {
+    // The CONTRADICTORY check Jerome got (Nov 2026), word for word as the model returned it: it mixed up his answer
+    // and the model answer, and its tip compares a text with itself. The sanity rules (normalizeAnswerCheck) drop the
+    // tip and give the "but" headline a plain positive one — this fixture proves they do, end to end.
+    english: "I can't sleep because of this problem.",
+    model: '我因为这个问题睡不着觉。',
+    answer: '因为这个问题，我睡不着觉。',
+    result: {
+      verdict: 'acceptable',
+      headline: 'Correct meaning, but 因为 clause should come before the subject in formal style.',
+      corrected: '',
+      tips: [{
+        text: '因为 (reason) typically comes before the subject, then the consequence. 因为这个问题 我睡不着觉 reads more naturally than 因为这个问题 我睡不着觉.',
+        quote: '因为',
+      }],
+    },
+  },
 ];
 
 /** A read card's take checked by Claude (shared/study/readTakeCheck.ts): Jerome's real 英语 / 英文 reading. */
@@ -179,8 +196,8 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
             content: [{ type: 'tool_use', id: 'fake', name: 'check_answer', input: result }],
           };
         }
-        const answer = lineValue(text, /Learner's answer[^:]*: (.+)/);
-        const model = lineValue(text, /Model answer: ([^(\n]+)/);
+        const answer = lineValue(text, /<learner_answer>([^<]*)<\/learner_answer>/);
+        const model = lineValue(text, /<model_answer>([^<]*)<\/model_answer>/);
         const known = ANSWER_CHECK_FIXTURES.find((f) => normalizeHanziAnswer(f.answer) === normalizeHanziAnswer(answer));
         const result = known?.result ?? (normalizeHanziAnswer(answer) === normalizeHanziAnswer(model)
           ? { verdict: 'correct', headline: 'Correct — exactly the model answer.', corrected: '', tips: [] }

@@ -113,7 +113,7 @@ lessonAttempts.post('/lessons/answer-check/ask', async (c) => {
     .filter((t): t is { role: string; text: string } => !!t && typeof t === 'object' && typeof (t as { text?: unknown }).text === 'string')
     .slice(-8)
     .map((t) => ({ role: t.role === 'assistant' ? 'assistant' as const : 'user' as const, text: t.text.slice(0, 1500) }));
-  const check = parseAnswerCheck(body.check, picked.input.answer);
+  const check = parseAnswerCheck(body.check, picked.input.answer, picked.input.model_answer);
   try {
     const reply = await askAboutAnswer(picked.input, check, history, question, deps);
     return c.json({ reply });

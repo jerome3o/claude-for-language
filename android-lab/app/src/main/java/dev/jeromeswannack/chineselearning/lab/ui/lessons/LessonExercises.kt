@@ -249,10 +249,16 @@ fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         // At once, from the device: what he said (a match is felt; otherwise the characters the model answer
         // doesn't have are marked), the model answer big, 🎤 Say it again — Claude's check lands LAST, below the
         // buttons, so nothing here moves (core LessonFeedback).
+        // Never marked on a reordering of the same characters (a neutral note instead) nor once Claude says it's right
+        // (core LessonFeedback.answerMarks).
+        val marks = LessonFeedback.answerMarks(typed, ex.referenceHanzi, ac.check?.verdict)
         if (typed.isNotEmpty()) FeelBox(if (matched) LessonFeedback.MATCHED_ANSWER else null, env, key = typed) {
-            YourAnswer(typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer", badge = if (exact) "✓ Exact match" else "✓ Sounds right", model = ex.referenceHanzi)
+            YourAnswer(
+                typed, matched, label = if (source == "spoken" || source == "edited") "🎤 You said" else "Your answer", badge = if (exact) "✓ Exact match" else "✓ Sounds right",
+                model = ex.referenceHanzi.takeIf { marks.marks }, note = marks.note.takeIf { !matched },
+            )
         }
-        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env, missedBy = typed.takeIf { it.isNotEmpty() && !matched }, exerciseType = ex.type)
+        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env, missedBy = typed.takeIf { it.isNotEmpty() && !matched && marks.marks }, exerciseType = ex.type)
         SayItAgainRow(ex.referenceHanzi, ex.type, "answer", env)
         SelfAssess(
             ex.note?.takeIf { it.isNotBlank() } ?: "Did yours match the meaning? (Different wording is fine.)",

@@ -19,6 +19,7 @@ import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { TakeLockActions } from './voice/TakeLock';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import { isExactHanziMatch } from '@shared/lesson/answer-check';
+import { answerMarks } from '@shared/lesson/feedback';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { FeedbackSentence, LessonFeel, MarkedAnswer, ReplayButton, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
@@ -269,6 +270,9 @@ export function TranslateExercise(props: {
   }
   // Voice-first (shared/voice/dictation.ts): an unchanged spoken answer also matches by sound.
   const matched = isExactHanziMatch(answer, referenceHanzi) || lessonSpokenCheck(answer, referenceHanzi, [], source).accepted;
+  // The device's character marks — never on a reordering of the same characters (a neutral note instead) nor once
+  // Claude says it's right (shared/lesson/feedback.ts `answerMarks`).
+  const marks = answerMarks(answer, referenceHanzi, ac.verdict);
   const report = () => ac.report({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true });
 
   return (
@@ -306,14 +310,15 @@ export function TranslateExercise(props: {
                   <span className="speak-transcript-exact-badge">{isExactHanziMatch(answer, referenceHanzi) ? '✓ Exact match' : '✓ Sounds right'}</span>
                 )}
               </div>
-              <div className="speak-transcript-text">{matched ? answer.trim() : <MarkedAnswer answer={answer.trim()} model={referenceHanzi} />}</div>
+              <div className="speak-transcript-text">{matched || !marks.marks ? answer.trim() : <MarkedAnswer answer={answer.trim()} model={referenceHanzi} />}</div>
+              {!matched && marks.note && <div className="lesson-answer-note" data-testid="lesson-answer-note">{marks.note}</div>}
               {matched && <LessonFeel moment="matched_answer" />}
             </div>
           )}
           <FeedbackSentence
             hanzi={referenceHanzi}
             pinyin={referencePinyin}
-            answer={answer.trim() && !matched ? answer.trim() : null}
+            answer={answer.trim() && !matched && marks.marks ? answer.trim() : null}
             speak={speak}
             exerciseType="translate"
           />

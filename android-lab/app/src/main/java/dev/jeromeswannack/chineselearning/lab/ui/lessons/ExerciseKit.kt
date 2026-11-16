@@ -293,7 +293,7 @@ fun AnswerField(
 
 /** `speak-transcript`: what the learner typed, green when it matches exactly. */
 @Composable
-fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badge: String = "✓ Exact match", model: String? = null) {
+fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badge: String = "✓ Exact match", model: String? = null, note: String? = null) {
     val tint = if (exact) Palette.Good else Lab.colors.muted
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (exact) Palette.Good.copy(alpha = 0.10f) else Lab.colors.faint).padding(14.dp),
@@ -320,6 +320,8 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
                 modifier = Modifier.testTag("lesson-marked-answer"),
             )
         }
+        // A neutral line (core LessonFeedback.answerMarks): e.g. the model answer's characters in another order.
+        if (!note.isNullOrBlank()) Text(note, fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.padding(top = 4.dp).testTag("lesson-answer-note"))
     }
 }
 
