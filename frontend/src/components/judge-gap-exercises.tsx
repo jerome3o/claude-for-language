@@ -11,6 +11,7 @@
  * icon + words (✓ / ✗, "Right" / "Not quite"), never colour alone.
  */
 import { ResultBanner } from './lessons/LessonFeedback';
+import { TakeLockActions } from './voice/TakeLock';
 import { useState } from 'react';
 import {
   allAnswered,
@@ -57,20 +58,20 @@ function Footer({ results, checked, onCheck, onContinue }: {
   if (!checked) {
     const left = results.filter(r => r === null).length;
     return (
-      <div className="exercise-actions">
+      <TakeLockActions>
         <button className="practice-btn primary" disabled={!ready} onClick={onCheck} data-testid="jg-check">
           {ready ? 'Check' : `Check · ${left} to go`}
         </button>
-      </div>
+      </TakeLockActions>
     );
   }
   const all = results.every(r => r === true);
   return (
     <>
       <ResultBanner ok={all}>{itemsScoreLine(results)}</ResultBanner>
-      <div className="exercise-actions">
+      <TakeLockActions>
         <button className="practice-btn primary" onClick={onContinue}>Continue</button>
-      </div>
+      </TakeLockActions>
     </>
   );
 }

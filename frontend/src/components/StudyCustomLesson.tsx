@@ -63,6 +63,7 @@ import { readSkipHandwriting } from '../services/skipHandwriting';
 import { Confetti } from './Confetti';
 import { RetryProgressBar } from './homework/RetryProgressBar';
 import { ExerciseClaudeProvider, useExerciseClaude, type ExerciseClaudeTarget } from './lessons/ExerciseClaude';
+import { TakeLockProvider, useTakeLock } from './voice/TakeLock';
 import '../pages/PracticePage.css';
 import './StudyReader.css';
 
@@ -117,7 +118,23 @@ export interface PreviewSave {
   onSaveDone: (result: { correct: number; total: number; attempt: LessonAttemptData; outcome: LessonRunOutcome }) => void;
 }
 
-export function StudyCustomLesson({
+type StudyCustomLessonProps = Parameters<typeof StudyCustomLessonPlayer>[0];
+
+/**
+ * The mini-lesson player (every entry point: the Home card / Mini Lessons page, a homework pass, a revision, the
+ * catalogue / tutor previews). It holds the TAKE LOCK (shared/voice/takeLock.ts, components/voice/TakeLock.tsx):
+ * while any 🎤 take records, the exercise's primary action is "■ Stop recording" and can never advance; ✕ / back
+ * stop the take first.
+ */
+export function StudyCustomLesson(props: StudyCustomLessonProps) {
+  return (
+    <TakeLockProvider backOwner="lesson-take">
+      <StudyCustomLessonPlayer {...props} />
+    </TakeLockProvider>
+  );
+}
+
+function StudyCustomLessonPlayer({
   lesson,
   lessonId,
   revisionKeys = null,
@@ -146,6 +163,7 @@ export function StudyCustomLesson({
   previewSave?: PreviewSave;
 }) {
   const real = !preview && !!lessonId;
+  const takeLock = useTakeLock();
   const shape = useMemo(() => lessonShape(lesson.spec), [lesson.spec]);
   // "Skip handwriting exercises" (shared/lesson/handwriting.ts): read once per run; a tutor's plain
   // preview shows every exercise.
@@ -261,6 +279,11 @@ export function StudyCustomLesson({
 
   function advance(correct: boolean | null, answer?: ExerciseAnswer, recording?: Blob) {
     if (!current) return;
+    // Never moved on while a take records (the footer is "■ Stop recording" then; this is the backstop).
+    if (takeLock && !takeLock.mayProceed()) {
+      takeLock.stop('advance');
+      return;
+    }
     const { step, phase } = current;
     const ex = exercises.get(step.key)?.exercise;
     const maxPoints = ex ? exercisePoints(ex) : 0;
@@ -342,7 +365,7 @@ export function StudyCustomLesson({
             </button>
           )}
           {claudeTarget && !done && <LessonAskClaudeButton />}
-          <button className="study-close-btn" onClick={onEnd} aria-label={preview ? 'Close preview' : 'Close lesson'}>✕</button>
+          <button className="study-close-btn" onClick={() => (takeLock ? takeLock.guardLeave(onEnd) : onEnd())} aria-label={preview ? 'Close preview' : 'Close lesson'}>✕</button>
         </div>
       </div>
 

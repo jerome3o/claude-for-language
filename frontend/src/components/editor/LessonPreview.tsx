@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import type { CustomLessonSpec, LessonExercise } from '@shared/lesson';
 import { exercisePrimaryText } from '@shared/lesson';
 import { ExerciseView } from '../ExerciseView';
+import { TakeLockProvider } from '../voice/TakeLock';
 import { EXERCISE_ICONS, EXERCISE_TYPE_NAMES } from './DiffCard';
 import type { Speak } from './fields';
 import '../../pages/PracticePage.css';
@@ -76,7 +77,8 @@ export function LessonPreview({ spec, speak }: { spec: CustomLessonSpec; speak: 
   if (!renderable(exercise)) {
     body = <div className="ed-preview-empty">This exercise isn't complete yet — fill in its fields to preview it.</div>;
   } else {
-    body = <ExerciseView key={key} exercise={exercise} speak={speak} onDone={advance} />;
+    // The take lock as in the player: a 🎤 take's "■ Stop recording" replaces the exercise's primary action.
+    body = <TakeLockProvider backOwner="lesson-preview-take" screen="lesson_preview"><ExerciseView key={key} exercise={exercise} speak={speak} onDone={advance} /></TakeLockProvider>;
   }
 
   return (

@@ -24,14 +24,14 @@ import {
 import { track } from '../services/analytics';
 import { useNetwork } from '../contexts/NetworkContext';
 import '../components/clips/clips.css';
-import { useTakeLock } from '../services/takeLock';
+import { useAppTakeLock } from '../services/takeLock';
 
 export function ClipsPage() {
   const { id: startId } = useParams();
   const [search] = useSearchParams();
   const startScene = Number(search.get('scene') ?? '') || 0;
   const navigate = useNavigate();
-  const takeLock = useTakeLock();
+  const takeLock = useAppTakeLock();
   const { isOnline } = useNetwork();
   const [clips, setClips] = useState<ClipRecord[] | null>(null);
   const [active, setActive] = useState(0);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TakeLockActions } from '../voice/TakeLock';
 import {
   createQuiz,
   hintLevel,
@@ -538,7 +539,8 @@ function WritingSummary({
       {skipped.length > 0 && (
         <div className="writing-summary-sub">No stroke data for {skipped.join(' ')} — skipped.</div>
       )}
-      <div className="writing-summary-actions">
+      {/* Under a take lock (a mini lesson: 🎤 Say it again recording below) this row is "■ Stop recording". */}
+      <TakeLockActions className="writing-summary-actions">
         <button type="button" className={`btn btn-secondary${allowModeSwitch ? '' : ' full'}`} onClick={onAgain}>
           ↺ Again
         </button>
@@ -552,7 +554,7 @@ function WritingSummary({
             {doneLabel}
           </button>
         )}
-      </div>
+      </TakeLockActions>
     </div>
   );
 }

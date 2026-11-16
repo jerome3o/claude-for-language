@@ -863,6 +863,35 @@ Claude; and the answer screen should let him practise the right sentence before 
    **"Another way to say it:"**, `EXAMPLE_LABEL` — it is another answer, not THE answer); and when Claude's check
    brings a corrected sentence that is new (`sayAgainFix`: not what he said, not already offered), a second row
    "🎤 Say the corrected version" under Claude's card. Analytics `lesson.say_again { exercise_type, target, result }`.
+4. **A take never skips the exercise — the take lock** (Jerome, Nov 2026: on a word-order exercise he pressed 🎤 Say
+   it again, then tapped what he thought finished the recording — it was Continue, and the lesson skipped on; then
+   the same on another type). ONE rule for every take in the mini-lesson player, both apps (`shared/voice/takeLock.ts`,
+   Lab core `TakeLock.kt`, parity-tested by `parity/fixtures/take-lock.ts`; web `components/voice/TakeLock.tsx`, Lab
+   `ui/kit/TakeLock.kt`): while ANY take on the screen records — 🎤 Say it again, a voice-first answer box (translate,
+   listen_translate, sentence_making, write_typed, dictation, a conversation question), the speaking answer (speak,
+   oral_expression) — the exercise's primary action row (Check / Continue / Got it / Show answer / Done, the stroke
+   pad's Continue) is ONE big red **"■ Stop recording"** in the same place and size (the reader's read-aloud footer /
+   the sentence rows' stop bar); tapping it stops the take, which is then checked as before, and NEVER advances. While
+   the take is transcribed it reads **"Checking what you said…"** (not tappable, a moment). Rows that never move the
+   exercise on (▶ Play conversation, ▶ Listen back, one question's own buttons) stay where they are, greyed and
+   untappable. Inside the player a tap elsewhere no longer stops a 🎤 Say it again take (stopping is intentional:
+   🎤 again, Enter, or the Stop button — `sentenceStopBar`'s rule). ✕ and back while a take records stop the take and
+   stay on the exercise; the player itself refuses to advance mid-take (it stops the take instead). Every entry point
+   goes through the one player (`StudyCustomLesson` / Lab `LessonPlayer`: Home, Mini Lessons, revisions, homework
+   passes, the catalogue / tutor previews; the editor preview too). Every recorder reports its take into the lock
+   (`useVoiceDictation` / `useSpeakingTake` on the web, `rememberVoiceDictation` / the speaking answer in the Lab), so a
+   new exercise type is covered by using the action row (`TakeLockActions` / `ActionRow`); a test runs every exercise
+   type's sample with a take recording. Analytics `voice.take_lock_stop { via: footer | leave | back | advance, screen }`.
+5. **Explore and replay on the answer screen** (Jerome: "it doesn't allow me to click on letters after I've submitted
+   my answer. It also doesn't allow me to replay the AI audio"). Once checked, the answer screen's Chinese sentence
+   (web `FeedbackSentence`, Lab `Reference`) is tappable word by word into the language explorer (the device
+   segmenter; source `lesson`) — the characters his answer missed still marked — with a **▶** that plays the
+   exercise's own clip again, as often as he likes (the lesson's cache-first speak, so offline once prefetched; off
+   while a take records). Word order: the right order (both when right and wrong) and his own blocks — words to
+   explore now, never while still being arranged (a tap there places a block). Choice / listen_choice: every option,
+   once answered, has its words to explore and a ▶. Also translate, describe_image, listen_translate, write_typed,
+   dictation, sentence_making (the example and Claude's corrected sentence), speak / oral_expression (the example).
+   Analytics `lesson.feedback_replay { exercise_type }`; explorer opens are `explorer.open` with source `lesson`.
 
 | Type | Feel | Answer + diff at once | Claude below, no jump | 🎤 Say it again |
 |------|------|------------------------|-----------------------|-----------------|
@@ -2770,23 +2799,23 @@ Continue / Submit / rating button sitting in the same place, so the app moved on
 - A tap anywhere else still never stops a take (the sentence rows' rule): only the 🎤 / ⏹ itself, Enter, the
   red bar, or a guarded control.
 
-**One rule, two registries.** `shared/voice/takeLock.ts` (Lab `core/…/TakeLock.kt`, parity-tested by
-`parity/fixtures/take-lock.ts`): any recorder phase → idle | recording | checking (`takeLockPhase`), several
-takes merged (`mergeTakePhases`), the footer (`takeFooter`) and what a tap does (`takeGuard`: run · stop · wait).
-The sentence rows' `sentenceStopBar` and the reader's `readAloudLocksPage` now answer from it. Each app keeps
-ONE registry of the takes on screen: web `services/takeLock.ts` (`useRegisterTake`, `useTakeLock`, `guardTake`,
-`takeTap`) with `components/voice/TakeStop.tsx` (`TakeLockedActions`, `TakeBackGuard` in App.tsx); Lab
-`ui/kit/TakeLock.kt` (`TakeLocks`, `RegisterTake`, `TakeLockedActions`, `TakeBackGuard` in ShellFrame, and
-every `LabModalSheet` refuses to hide mid-take — the swipe / scrim / back stop the take). Every voice-first box
-and 🎤 practice take registers by itself (`useVoiceDictation` / `rememberVoiceDictation`); the study card's own
-recorder (read take, Say the answer, Record again) registers from StudyPage / CardStage; the card editor's
-recording and the tutor's model recording register too.
+**One rule; a provider for the lesson player, one app-wide lock for everything else.** The rule is
+`shared/voice/takeLock.ts` (Lab `core/…/TakeLock.kt`, parity-tested by `parity/fixtures/take-lock.ts`): a take's phase
+from its recorder flags (`takePhase`), several takes combined (`combineTakePhases`), the footer (`takeLockFooter`),
+`takeLockMayProceed`, `takeLockLeave`; the sentence rows' `sentenceStopBar` and the reader's `readAloudLocksPage` say the
+same. Every recorder reports with `useReportTake` (Lab `ReportTake`) — `useVoiceDictation` / `rememberVoiceDictation`
+(every voice-first box and 🎤 practice take), the study card's own recorder (StudyPage / CardStage), the card editor's and
+the tutor's model recording. Inside a `TakeLockProvider` (the mini-lesson player, see "Feedback" above) it goes to the
+provider; anywhere else it lands in the **app-wide lock**: web `services/takeLock.ts` (`guardTake`, `takeTap`,
+`useAppTakeLock`; `ownBack` for a screen with its own back) with `components/voice/TakeStop.tsx` (`TakeLockedActions`,
+`TakeBackGuard` in App.tsx); Lab `ui/kit/TakeLock.kt` (`TakeLocks`, `TakeLockedActions`, `TakeBackGuard` in ShellFrame,
+and every `LabModalSheet` refuses to hide mid-take — the swipe / scrim / back stop the take).
 
 Where it holds (web · Lab): the study card and the homework pass (✕ / ↺, the answer side's action row +
 ratings / Got it, the Sentence round's See the answer / Skip, Hard mode's Continue / Next / Try again rows while
 🎤 Read it again records), Flag for tutor (Cancel), the feedback sheet, the card editor (Save / Cancel), the
 Ask Claude / Discuss sheets (close), clips (Skip / Next, gestures, the feed swipe), phone practice (back,
-leaving the task). Mini lessons: their own lock (the lesson player). Video calls: out of scope (the mic is on
+leaving the task). Mini lessons: the lesson player's provider (above). Video calls: out of scope (the mic is on
 for the whole call).
 
 ## Multiple choice

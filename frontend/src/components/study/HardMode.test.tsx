@@ -67,12 +67,12 @@ describe('HardModeFeedback', () => {
     const h = await render('revealed');
     expect(q('hard-continue')).not.toBeNull();
     const stop = vi.fn();
-    act(() => setTake('read-again', { phase: 'listening', stop }));
+    act(() => setTake('read-again', { phase: 'recording', stop }));
     expect(q('hard-continue')).toBeNull();
     act(() => q('hard-feedback-stop')!.click());
     expect(stop).toHaveBeenCalledTimes(1);
     expect(h.onNext).not.toHaveBeenCalled();
-    act(() => setTake('read-again', { phase: 'finishing', stop }));
+    act(() => setTake('read-again', { phase: 'checking', stop }));
     expect((q('hard-feedback-stop') as HTMLButtonElement).disabled).toBe(true);
     act(() => setTake('read-again', null));
     act(() => q('hard-continue')!.click());

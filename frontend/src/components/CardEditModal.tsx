@@ -17,7 +17,8 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { SentenceSet } from './SentenceSet';
 import { NotePictureSection, type NotePictureFields } from './noteImage/NotePictureSection';
 import './CardEditModal.css';
-import { guardTake, useRegisterTake } from '../services/takeLock';
+import { guardTake } from '../services/takeLock';
+import { useReportTake } from './voice/TakeLock';
 
 interface CardEditModalProps {
   card: CardWithNote;
@@ -81,7 +82,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
     clearRecording,
   } = useAudioRecorder();
   // The take lock: while a custom recording is made, Save / Cancel / ✕ / back stop it first.
-  useRegisterTake(isRecording ? 'recording' : 'idle', stopRecording);
+  useReportTake(isRecording ? 'recording' : 'idle', stopRecording);
 
   const loadRecordings = useCallback(async () => {
     try {

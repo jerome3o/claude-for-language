@@ -685,13 +685,11 @@ fun CardStage(
     // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the card's own recorder — the read
     // card's take, Say the answer, Record again / Say it again. While it records, ✕ / ↺ / back stop it instead
     // of leaving (Record again / Say it again keep their own back above: it cancels the new take).
-    dev.jeromeswannack.chineselearning.lab.ui.kit.RegisterTake(
-        phase = when {
-            spoken.listening -> "listening"
-            spoken.phase == SpokenPhase.FINISHING -> "finishing"
-            ui.extras.take.recording -> "recording"
-            else -> "idle"
-        },
+    dev.jeromeswannack.chineselearning.lab.ui.kit.ReportTake(
+        phase = dev.jeromeswannack.chineselearning.lab.core.TakeLock.phase(
+            recording = spoken.listening || (!spoken.busy && ui.extras.take.recording),
+            checking = spoken.phase == SpokenPhase.FINISHING,
+        ),
         ownBack = reRecording || sayingAgain,
     ) {
         if (spoken.listening) actions.onStopSpoken() else if (ui.extras.take.recording) actions.onStopRecording(revealed)

@@ -48,3 +48,47 @@
   text-decoration: underline;
   text-underline-offset: 4px;
 }
+
+/* The answer screen's sentence (FeedbackSentence): tappable words + ▶ to hear the clip again. */
+.lesson-feedback-sentence-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.lesson-feedback-sentence-hanzi {
+  cursor: auto;
+}
+.lesson-replay-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, #8b5cf6 50%, transparent);
+  background: transparent;
+  color: #8b5cf6;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.lesson-replay-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.lesson-replay-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* A multiple-choice option once answered: words to explore + ▶. */
+.contrast-option.answered .answered-option-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+/* A word-order block once checked: a word to explore, not a block to move. */
+.scramble-row .tile.tile-done {
+  cursor: default;
+}

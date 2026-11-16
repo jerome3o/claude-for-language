@@ -31,7 +31,7 @@ import { YouSaidRow } from '../study/YouSaid';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { Mixed, Zh, type SceneCtx } from './ClipScenes';
 import { KaraokeLine, type SpeechClock } from './Karaoke';
-import { guardTake, useTakeLock } from '../../services/takeLock';
+import { guardTake, useAppTakeLock } from '../../services/takeLock';
 
 const HAN = /\p{Script=Han}/u;
 
@@ -62,7 +62,7 @@ export interface InteractProps {
 /** The prompt while the scene waits; Skip after a while; "Next ›" once answered. */
 function InteractBar({ play, hint, actions, testId }: { play: ClipPlayState; hint: string; actions: InteractActions; testId: string }) {
   const waiting = play.interact?.result === null;
-  const lock = useTakeLock();
+  const lock = useAppTakeLock();
   return (
     <div className="clip-interact-bar" data-no-gesture>
       {waiting ? (

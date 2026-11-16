@@ -1,36 +1,36 @@
 /**
- * The take lock's registry (rules: shared/voice/takeLock.ts; docs/STUDY_SESSION.md "While a take is
- * recording"): every voice take on screen reports its phase here, and any control that advances, submits,
- * rates, closes or navigates asks it first — while a take records, the control stops the take instead (and
- * does nothing else); while the stopped take is checked, it waits.
+ * The APP-WIDE take lock (rules: shared/voice/takeLock.ts; docs/STUDY_SESSION.md "While a take is recording"): the
+ * take lock everywhere outside a `TakeLockProvider` (components/voice/TakeLock.tsx — the mini-lesson player has its
+ * own). Every voice take on screen reports its phase here, and any control that advances, submits, rates, closes or
+ * navigates asks it first — while a take records, the control stops the take instead (and does nothing else); while
+ * the stopped take is checked, it waits.
  *
- * - `useVoiceDictation` registers every voice-first box / 🎤 practice take by itself; the study card's own
- *   recorder (read take, Say the answer, Record again) registers from StudyPage; anything else with a
- *   recorder calls `useRegisterTake`.
- * - `useTakeLock()` = the merged phase + stop for a screen; `guardTake(fn)` wraps a handler (✕, Cancel, a
- *   rating, Next …) — the decision is taken at TAP time from the registry, never from a stale render.
- * - `TakeBackGuard` (App.tsx): back (the Android gesture, the browser's ←, an in-app ← that goes back in
- *   history) stops a recording take instead of leaving — unless the take's owner handles back itself.
+ * - `useReportTake` (components/voice/TakeLock.tsx) lands here when there is no provider: `useVoiceDictation` (every
+ *   voice-first box / 🎤 practice take), the study card's own recorder (StudyPage), the card editor's and the tutor's
+ *   model recording.
+ * - `useAppTakeLock()` = the merged phase + stop for a screen; `guardTake(fn)` wraps a handler (✕, Cancel, a rating,
+ *   Next …) — decided at TAP time from the registry, never from a stale render.
+ * - `TakeBackGuard` (components/voice/TakeStop.tsx, App.tsx): back stops a recording take instead of leaving —
+ *   unless the take's owner handles back itself (`ownBack`).
  *
- * Lab twin: ui/kit/TakeLock.kt (`TakeLocks`).
+ * Lab twin: ui/kit/TakeLock.kt (`TakeLocks`, the fallback of `ReportTake`).
  */
-import { useEffect, useId, useRef, useSyncExternalStore } from 'react';
-import { mergeTakePhases, takeGuard, takeLockPhase, type TakeLockPhase } from '@shared/voice/takeLock';
+import { useSyncExternalStore } from 'react';
+import { combineTakePhases, takeLockLeave, takeLockMayProceed, type TakePhase } from '@shared/voice/takeLock';
 
 interface TakeEntry {
-  /** The recorder's own phase (listening, finishing, recording, review…). */
-  phase: string;
+  phase: TakePhase;
   /** Stop the take (kept and checked as usual) — called only while it records. */
   stop: () => void;
-  /** The owner handles back itself (the study card's Record again / Say it again): the global guard leaves it alone. */
+  /** The owner handles back itself (the study card's Record again / Say it again, the reader, the phone): the global back guard leaves it alone. */
   ownBack?: boolean;
 }
 
 export interface TakeLockSnapshot {
-  /** All takes on screen merged: idle | recording | checking. */
-  phase: TakeLockPhase;
+  /** All takes on screen combined: idle | recording | checking. */
+  phase: TakePhase;
   /** The same over the takes whose back the global guard handles. */
-  backPhase: TakeLockPhase;
+  backPhase: TakePhase;
 }
 
 const entries = new Map<string, TakeEntry>();
@@ -40,8 +40,8 @@ let snapshot: TakeLockSnapshot = { phase: 'idle', backPhase: 'idle' };
 function recompute() {
   const all = [...entries.values()];
   const next: TakeLockSnapshot = {
-    phase: mergeTakePhases(all.map((e) => e.phase)),
-    backPhase: mergeTakePhases(all.filter((e) => !e.ownBack).map((e) => e.phase)),
+    phase: combineTakePhases(all.map((e) => e.phase)),
+    backPhase: combineTakePhases(all.filter((e) => !e.ownBack).map((e) => e.phase)),
   };
   if (next.phase === snapshot.phase && next.backPhase === snapshot.backPhase) return;
   snapshot = next;
@@ -68,18 +68,21 @@ export function subscribeTakeLock(listener: () => void): () => void {
 export function stopTakes(opts: { backOnly?: boolean } = {}): void {
   for (const e of [...entries.values()]) {
     if (opts.backOnly && e.ownBack) continue;
-    if (takeLockPhase(e.phase) === 'recording') e.stop();
+    if (e.phase === 'recording') e.stop();
   }
 }
 
 /**
- * What a tap does right now: 'run' (nothing under way), 'stop' (the take was stopped instead) or 'wait'
+ * What a tap does right now: 'run' (nothing under way), 'stop' (a recording take was stopped instead) or 'wait'
  * (a stopped take is being checked — nothing happens).
  */
 export function takeTap(): 'run' | 'stop' | 'wait' {
-  const g = takeGuard(snapshot.phase);
-  if (g === 'stop') stopTakes();
-  return g;
+  if (takeLockMayProceed(snapshot.phase)) return 'run';
+  if (takeLockLeave(snapshot.phase) === 'stop_take') {
+    stopTakes();
+    return 'stop';
+  }
+  return 'wait';
 }
 
 /** `fn`, unless a take is under way: then a tap stops it (or waits for its check) and does nothing else. */
@@ -99,8 +102,8 @@ export function useTakeLockSnapshot(): TakeLockSnapshot {
   return useSyncExternalStore(subscribeTakeLock, takeLockSnapshot, takeLockSnapshot);
 }
 
-/** The screen's view of the takes on it. */
-export function useTakeLock() {
+/** The screen's view of the app-wide lock. */
+export function useAppTakeLock() {
   const { phase } = useTakeLockSnapshot();
   return {
     phase,
@@ -110,16 +113,4 @@ export function useTakeLock() {
     stop: () => stopTakes(),
     guard: guardTake,
   };
-}
-
-/** Report a take from a component: its phase as it changes; removed on unmount. */
-export function useRegisterTake(phase: string, stop: () => void, opts: { ownBack?: boolean } = {}): void {
-  const id = useId();
-  const stopRef = useRef(stop);
-  stopRef.current = stop;
-  const ownBack = !!opts.ownBack;
-  useEffect(() => {
-    setTake(id, { phase, stop: () => stopRef.current(), ownBack });
-  }, [id, phase, ownBack]);
-  useEffect(() => () => setTake(id, null), [id]);
 }

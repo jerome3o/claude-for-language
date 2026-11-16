@@ -1,39 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import { mergeTakePhases, takeFooter, takeGuard, takeLocked, takeLockPhase, TAKE_CHECKING, TAKE_STOP_RECORDING } from './takeLock';
+import {
+  combineTakePhases,
+  TAKE_LOCK_CHECKING,
+  TAKE_LOCK_STOP,
+  TAKE_PHASES,
+  takeLockFooter,
+  takeLockLeave,
+  takeLockMayProceed,
+  takePhase,
+} from './takeLock';
 import { sentenceStopBar, SENTENCE_PRACTISE_CHECKING_TAKE, SENTENCE_PRACTISE_STOP_RECORDING } from '../study/sentencePractise';
-import { readAloudLocksPage, READ_ALOUD_STOP_RECORDING } from '../reader/readAloud';
 
-describe('take lock', () => {
-  it('maps every recorder phase', () => {
-    expect(['listening', 'recording', 'starting'].map(takeLockPhase)).toEqual(['recording', 'recording', 'recording']);
-    expect(['finishing', 'checking', 'transcribing'].map(takeLockPhase)).toEqual(['checking', 'checking', 'checking']);
-    expect(['idle', 'review', 'editing', 'failed', 'done', '', null, undefined, ' listening '].map(takeLockPhase))
-      .toEqual(['idle', 'idle', 'idle', 'idle', 'idle', 'idle', 'idle', 'idle', 'recording']);
+describe('the take lock', () => {
+  it('reads a take from its recorder flags (recording wins)', () => {
+    expect(takePhase(false, false)).toBe('idle');
+    expect(takePhase(true, false)).toBe('recording');
+    expect(takePhase(false, true)).toBe('checking');
+    expect(takePhase(true, true)).toBe('recording');
   });
 
-  it('merges takes: recording wins, then checking', () => {
-    expect(mergeTakePhases([])).toBe('idle');
-    expect(mergeTakePhases(['idle', 'review'])).toBe('idle');
-    expect(mergeTakePhases(['finishing', 'idle'])).toBe('checking');
-    expect(mergeTakePhases(['finishing', 'listening', 'idle'])).toBe('recording');
+  it('combines several takes on one screen: recording > checking > idle', () => {
+    expect(combineTakePhases([])).toBe('idle');
+    expect(combineTakePhases(['idle', 'idle'])).toBe('idle');
+    expect(combineTakePhases(['idle', 'checking'])).toBe('checking');
+    expect(combineTakePhases(['checking', 'recording', 'idle'])).toBe('recording');
   });
 
-  it('locks, footer and guard follow the phase', () => {
-    expect(takeLocked('listening')).toBe(true);
-    expect(takeLocked('finishing')).toBe(true);
-    expect(takeLocked('review')).toBe(false);
-    expect([takeFooter('listening'), takeFooter('finishing'), takeFooter('failed')]).toEqual(['stop', 'checking', null]);
-    expect([takeGuard('recording'), takeGuard('checking'), takeGuard('idle')]).toEqual(['stop', 'wait', 'run']);
+  it('turns the primary action into Stop recording while recording, never proceeding mid-take', () => {
+    expect(takeLockFooter('idle')).toBe('proceed');
+    expect(takeLockFooter('recording')).toBe('stop');
+    expect(takeLockFooter('checking')).toBe('checking');
+    expect(TAKE_PHASES.filter(takeLockMayProceed)).toEqual(['idle']);
   });
 
-  it('the sentence rows and the reader answer from it', () => {
-    expect(sentenceStopBar(true, false)).toBe('stop');
-    expect(sentenceStopBar(false, true)).toBe('checking');
-    expect(sentenceStopBar(true, true)).toBe('stop');
-    expect(sentenceStopBar(false, false)).toBeNull();
-    expect(['idle', 'listening', 'finishing', 'failed', 'review'].map(readAloudLocksPage)).toEqual([false, true, true, false, false]);
-    expect(SENTENCE_PRACTISE_STOP_RECORDING).toBe(TAKE_STOP_RECORDING);
-    expect(READ_ALOUD_STOP_RECORDING).toBe(TAKE_STOP_RECORDING);
-    expect(SENTENCE_PRACTISE_CHECKING_TAKE).toBe(TAKE_CHECKING);
+  it('back / ✕ stop a recording take first, and leave otherwise', () => {
+    expect(takeLockLeave('recording')).toBe('stop_take');
+    expect(takeLockLeave('checking')).toBe('leave');
+    expect(takeLockLeave('idle')).toBe('leave');
+  });
+
+  it('is the study sentence rows’ stop bar: same states, same words', () => {
+    for (const listening of [false, true]) {
+      for (const finishing of [false, true]) {
+        const footer = takeLockFooter(takePhase(listening, finishing));
+        expect(sentenceStopBar(listening, finishing)).toBe(footer === 'proceed' ? null : footer);
+      }
+    }
+    expect(SENTENCE_PRACTISE_STOP_RECORDING).toBe(TAKE_LOCK_STOP);
+    expect(SENTENCE_PRACTISE_CHECKING_TAKE).toBe(TAKE_LOCK_CHECKING);
   });
 });

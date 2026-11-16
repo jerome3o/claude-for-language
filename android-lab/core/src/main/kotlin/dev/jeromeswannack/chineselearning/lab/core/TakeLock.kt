@@ -1,54 +1,52 @@
 package dev.jeromeswannack.chineselearning.lab.core
 
 /**
- * Port of shared/voice/takeLock.ts — the take lock (docs/STUDY_SESSION.md "While a take is recording"):
- * while a voice take records, nothing on the screen may advance, submit, rate, close or navigate. The
- * footer's primary action becomes a red "■ Stop recording" in the same place, ratings and other advancing
- * buttons are disabled, back / ✕ stop the take first; while the stopped take is checked they stay held.
- * Parity-tested (parity/fixtures/take-lock.ts → TakeLockParityTest).
+ * The take lock — a port of shared/voice/takeLock.ts, parity-tested (parity/fixtures/take-lock.ts → TakeLockParityTest).
+ *
+ * While a voice take is RECORDING, nothing on screen may move the learner on: the screen's primary action (Check /
+ * Next / Continue / Done / Skip) becomes the big red "■ Stop recording" in the same place — tapping it stops the take,
+ * never advances; "Checking what you said…" while the take is judged; back / ✕ stop a recording take first. Jerome
+ * (Nov 2026, a mini lesson): the tap meant to stop the recording pressed Next and skipped the exercise.
+ *
+ * Phases: "idle" | "recording" | "checking". Used by the mini-lesson player (app ui/kit/TakeLock.kt); neutral so any
+ * other screen that records can use it.
  */
 object TakeLock {
     const val IDLE = "idle"
     const val RECORDING = "recording"
     const val CHECKING = "checking"
+    val PHASES = listOf(IDLE, RECORDING, CHECKING)
 
-    /** `takeLockPhase`: any recorder's own phase → idle | recording | checking. */
-    fun phase(phase: String?): String = when ((phase ?: "").trim()) {
-        "listening", "recording", "starting" -> RECORDING
-        "finishing", "checking", "transcribing" -> CHECKING
+    /** One take's phase from its recorder's flags (recording wins). */
+    fun phase(recording: Boolean, checking: Boolean): String = when {
+        recording -> RECORDING
+        checking -> CHECKING
         else -> IDLE
     }
 
-    /** `mergeTakePhases`: recording wins over checking, checking over idle. */
-    fun merge(phases: Iterable<String?>): String {
+    /** Several takes on one screen: recording > checking > idle. */
+    fun combine(phases: Iterable<String>): String {
         var out = IDLE
         for (p in phases) {
-            when (phase(p)) {
-                RECORDING -> return RECORDING
-                CHECKING -> out = CHECKING
-            }
+            if (p == RECORDING) return RECORDING
+            if (p == CHECKING) out = CHECKING
         }
         return out
     }
 
-    /** `takeLocked`. */
-    fun locked(phase: String?): Boolean = phase(phase) != IDLE
-
-    /** `takeFooter`: "stop" while recording, "checking" while judged, null = the footer as usual. */
-    fun footer(phase: String?): String? = when (phase(phase)) {
+    /** What the primary action shows: "proceed" (itself) | "stop" | "checking". */
+    fun footer(phase: String): String = when (phase) {
         RECORDING -> "stop"
         CHECKING -> "checking"
-        else -> null
+        else -> "proceed"
     }
 
-    /** `takeGuard`: what a tap on an advancing control does — "run", "stop" the take instead, or "wait". */
-    fun guard(phase: String?): String = when (phase(phase)) {
-        RECORDING -> "stop"
-        CHECKING -> "wait"
-        else -> "run"
-    }
+    /** May the screen move on (advance, submit, skip) right now? */
+    fun mayProceed(phase: String): Boolean = phase == IDLE
 
-    const val STOP_RECORDING = "Stop recording"
-    const val CHECKING_LABEL = "Checking what you said…"
-    const val LOCKED_HINT = "Stop the recording first"
+    /** Back / ✕: "leave", or "stop_take" first while recording. */
+    fun leave(phase: String): String = if (phase == RECORDING) "stop_take" else "leave"
+
+    const val STOP = "Stop recording"
+    const val CHECKING_LINE = "Checking what you said…"
 }

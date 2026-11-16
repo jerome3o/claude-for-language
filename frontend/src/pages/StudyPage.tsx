@@ -123,7 +123,9 @@ import {
 import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
 import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
 import { track } from '../services/analytics';
-import { guardTake, useRegisterTake } from '../services/takeLock';
+import { guardTake } from '../services/takeLock';
+import { useReportTake } from '../components/voice/TakeLock';
+import { takePhase } from '@shared/voice/takeLock';
 import { playFanfare } from '../utils/fanfare';
 import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -1318,8 +1320,8 @@ export function StudyCard({
   // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the card's own recorder — the read
   // card's take, Say the answer, Record again / Say it again. While it records, ✕ / ↺ / back stop it instead
   // of leaving (Record again / Say it again keep their own back above: it cancels the new take).
-  useRegisterTake(
-    spoken.busy ? spoken.phase : isRecording ? 'recording' : 'idle',
+  useReportTake(
+    takePhase(spoken.listening || (!spoken.busy && isRecording), spoken.phase === 'finishing'),
     () => {
       if (spoken.listening) spoken.stop();
       else if (isRecording) stopRecordingWithDelay();

@@ -53,7 +53,7 @@ class TakeLockTest : LabScreenshotTest() {
         var closes = 0
         compose.setContent {
             LabTheme {
-                RegisterTake(phase) { stops++; phase = "finishing" }
+                RegisterTake(phase) { stops++; phase = "checking" }
                 TakeLockedActions(stopTag = "row-stop") {
                     PrimaryPill("Next", Modifier.fillMaxWidth().height(52.dp).testTag("next")) { nexts++ }
                 }
@@ -61,21 +61,21 @@ class TakeLockTest : LabScreenshotTest() {
         }
         compose.onNodeWithTag("next").assertIsDisplayed()
 
-        phase = "listening"
+        phase = "recording"
         compose.waitForIdle()
         assertTrue(TakeLocks.recording)
         assertEquals(0, compose.onAllNodes(hasTestTag("next")).fetchSemanticsNodes().size)
-        compose.onNodeWithTag("row-stop").assertContentDescriptionEquals(TakeLock.STOP_RECORDING).performClick()
+        compose.onNodeWithTag("row-stop").assertContentDescriptionEquals(TakeLock.STOP).performClick()
         compose.waitForIdle()
         assertEquals(1, stops)
         assertEquals(0, nexts)
-        compose.onNodeWithTag("row-stop").assertContentDescriptionEquals(TakeLock.CHECKING_LABEL).assertIsNotEnabled()
+        compose.onNodeWithTag("row-stop").assertContentDescriptionEquals(TakeLock.CHECKING_LINE).assertIsNotEnabled()
 
         // A guarded ✕ while it is checked: nothing happens.
         TakeLocks.guard { closes++ }()
         assertEquals(0, closes)
 
-        phase = "review"
+        phase = "idle"
         compose.waitForIdle()
         assertFalse(TakeLocks.locked)
         compose.onNodeWithTag("next").performClick()
@@ -96,10 +96,10 @@ class TakeLockTest : LabScreenshotTest() {
                 // The screen's own back (leaving), composed first like a route's.
                 BackHandler { left++ }
                 TakeBackGuard()
-                RegisterTake(phase) { stops++; phase = "finishing" }
+                RegisterTake(phase) { stops++; phase = "checking" }
             }
         }
-        phase = "listening"
+        phase = "recording"
         compose.waitForIdle()
         compose.runOnIdle { dispatcher.onBackPressed() }
         compose.waitForIdle()
@@ -124,7 +124,7 @@ class TakeLockTest : LabScreenshotTest() {
                 dispatcher = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
                 BackHandler { left++ }
                 TakeBackGuard()
-                RegisterTake("listening", ownBack = true) {}
+                RegisterTake("recording", ownBack = true) {}
             }
         }
         assertTrue(TakeLocks.locked)
@@ -138,7 +138,7 @@ class TakeLockTest : LabScreenshotTest() {
         var stops = 0
         compose.setContent {
             LabTheme {
-                RegisterTake("listening") { stops++ }
+                RegisterTake("recording") { stops++ }
                 HardModeFeedbackPanel(
                     result = "revealed", said = "银航", spoken = true, roundFollows = true,
                     onTryAgain = {}, onShowAnswer = {}, onNext = { nexts++ },
@@ -156,7 +156,7 @@ class TakeLockTest : LabScreenshotTest() {
     fun screenshotReadAgain() {
         TakeLocks.reset()
         shoot("take-lock-01-hard-read-again") {
-            RegisterTake("listening") {}
+            RegisterTake("recording") {}
             Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) {
                 Column {
                     HardModeFeedbackPanel(
@@ -164,7 +164,7 @@ class TakeLockTest : LabScreenshotTest() {
                         onTryAgain = {}, onShowAnswer = {}, onNext = {},
                         answer = Triple("银行", "yínháng", "bank"),
                         readAgainPreview = {
-                            ReadAgainContent(VoiceDictationUi(mode = "voice", phase = "listening", finalText = "银行"), null, 0, "银行", onMic = {}, onRetry = {})
+                            ReadAgainContent(VoiceDictationUi(mode = "voice", phase = "recording", finalText = "银行"), null, 0, "银行", onMic = {}, onRetry = {})
                         },
                     )
                 }
@@ -176,7 +176,7 @@ class TakeLockTest : LabScreenshotTest() {
     fun screenshotChecking() {
         TakeLocks.reset()
         shoot("take-lock-02-checking") {
-            RegisterTake("finishing") {}
+            RegisterTake("checking") {}
             Box(Modifier.fillMaxSize().background(Lab.colors.background).padding(16.dp)) {
                 Column {
                     Text("银行", color = Lab.colors.ink)

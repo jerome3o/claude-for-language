@@ -42,8 +42,9 @@ import { audioForConversation, onConversationAudioChange } from '../services/con
 import { ConversationAudioSheet } from './lesson/ConversationAudioSheet';
 import { track } from '../services/analytics';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
+import { TakeLockActions } from './voice/TakeLock';
 import { lessonSpokenCheck, lessonAnswerCorrect, type LessonSpokenCheck } from '@shared/lesson/spoken-check';
-import { LessonFeel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
+import { FeedbackSentence, LessonFeel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
 import { CLAUDE_CHECKING_LINE, EXAMPLE_LABEL, lessonFeel, sayAgainFix } from '@shared/lesson/feedback';
 import { studyFeel } from '../services/studyFeel';
 import './lesson-exercises.css';
@@ -71,29 +72,19 @@ function WordChips({ words, speak, marks }: { words: LessonWord[]; speak: Speak;
   );
 }
 
-function Reference({ sentence, speak, label }: { sentence: LessonSentence; speak: Speak; label?: string }) {
-  return (
-    <>
-      {label && <p className="result-explanation">{label}</p>}
-      <div className="translate-ref">
-        <div className="translate-ref-hanzi" onClick={() => speak(sentence.hanzi)} lang="zh-CN">
-          {sentence.hanzi} 🔊
-        </div>
-        {sentence.pinyin && <div className="translate-ref-pinyin">{sentence.pinyin}</div>}
-        {sentence.english && <div className="contrast-english">{sentence.english}</div>}
-      </div>
-    </>
-  );
+/** The model sentence on an answer screen: words to explore, ▶ to hear it again (FeedbackSentence). */
+function Reference({ sentence, speak, label, exerciseType }: { sentence: LessonSentence; speak: Speak; label?: string; exerciseType: string }) {
+  return <FeedbackSentence hanzi={sentence.hanzi} pinyin={sentence.pinyin} english={sentence.english} label={label} speak={speak} exerciseType={exerciseType} />;
 }
 
 function SelfAssess({ onAnswer, question }: { onAnswer: (correct: boolean) => void; question: string }) {
   return (
     <>
       <p className="result-explanation">{question}</p>
-      <div className="exercise-actions">
+      <TakeLockActions>
         <button className="practice-btn" onClick={() => onAnswer(false)}>✗ Not quite</button>
         <button className="practice-btn primary" onClick={() => onAnswer(true)}>✓ Got it</button>
-      </div>
+      </TakeLockActions>
     </>
   );
 }
@@ -223,9 +214,9 @@ export function SentenceMakingExercise(props: {
         ) : (
           <>
             <HandwritingPad onChange={setHw} />
-            <div className="exercise-actions">
+            <TakeLockActions>
               <button className="practice-btn primary" onClick={() => check()} disabled={!canCheck}>Done</button>
-            </div>
+            </TakeLockActions>
           </>
         )
       ) : (
@@ -238,7 +229,7 @@ export function SentenceMakingExercise(props: {
               <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
             </div>
           ) : hw?.strokes && <StrokesView strokes={hw.strokes} label="Your sentence" />}
-          {example && <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} />}
+          {example && <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} exerciseType="sentence_making" />}
           {example && <SayItAgain hanzi={example.hanzi} exerciseType="sentence_making" kind="example" />}
 
           {/* The same line before and after Claude's verdict: only the buttons below it change, in place. */}
@@ -246,14 +237,14 @@ export function SentenceMakingExercise(props: {
             {typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
           </p>
           {feedback ? (
-            <div className="exercise-actions">
+            <TakeLockActions>
               <button className="practice-btn primary" onClick={() => onNext(claudeCorrect === true, answer())} data-testid="lesson-continue">Continue</button>
-            </div>
+            </TakeLockActions>
           ) : (
-            <div className="exercise-actions">
+            <TakeLockActions>
               <button className="practice-btn" onClick={() => onNext(false, answer())} data-testid="lesson-missed-it">✗ Not quite</button>
               <button className="practice-btn primary" onClick={() => onNext(true, answer())} data-testid="lesson-got-it">✓ Got it</button>
-            </div>
+            </TakeLockActions>
           )}
 
           {claude !== 'none' && (
@@ -270,10 +261,8 @@ export function SentenceMakingExercise(props: {
                   <div className="feedback-verdict">{verdictLabel[feedback.verdict]}</div>
                   {!feedback.uses_all_words && <div className="feedback-note">Use every target word.</div>}
                   {feedback.corrected && (
-                    <div className="feedback-corrected" onClick={() => speak(feedback.corrected!.hanzi)}>
-                      <div className="translate-ref-hanzi" lang="zh-CN">{feedback.corrected.hanzi} 🔊</div>
-                      {feedback.corrected.pinyin && <div className="translate-ref-pinyin">{feedback.corrected.pinyin}</div>}
-                      {feedback.corrected.english && <div className="contrast-english">{feedback.corrected.english}</div>}
+                    <div className="feedback-corrected">
+                      <FeedbackSentence hanzi={feedback.corrected.hanzi} pinyin={feedback.corrected.pinyin} english={feedback.corrected.english} speak={speak} exerciseType="sentence_making" testId="sentence-feedback-corrected" />
                     </div>
                   )}
                   <p className="feedback-comment">{feedback.comment}</p>
@@ -348,11 +337,11 @@ export function WriteTypedExercise(props: {
           </ResultBanner>
           {spoken?.note && <p className="result-explanation" data-testid="lesson-spoken-note">{spoken.note}</p>}
           {!(correct && !diff.correct) && <CharDiffView diff={diff} />}
-          <Reference sentence={answer} speak={speak} />
+          <Reference sentence={answer} speak={speak} exerciseType="write_typed" />
           <SayItAgain hanzi={answer.hanzi} exerciseType="write_typed" />
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(correct, { text: text.trim(), input: source ?? undefined })}>Continue</button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>
@@ -463,11 +452,11 @@ export function WriteHandwritingExercise(props: {
       {pad === 'checking' ? null : !checked ? (
         <>
           <HandwritingPad target={answer.hanzi} onChange={setHw} />
-          <div className="exercise-actions">
+          <TakeLockActions>
             <button className="practice-btn primary" onClick={() => { setChecked(true); speak(answer.hanzi); }} disabled={!hasStrokes(hw)}>
               Check
             </button>
-          </div>
+          </TakeLockActions>
         </>
       ) : (
         <>
@@ -555,9 +544,9 @@ export function DictationExercise(props: {
         ) : pad === 'checking' ? null : (
           <>
             <HandwritingPad target={audio.hanzi} onChange={setHw} />
-            <div className="exercise-actions">
+            <TakeLockActions>
               <button className="practice-btn primary" onClick={() => check()} disabled={!hasStrokes(hw)}>Check</button>
-            </div>
+            </TakeLockActions>
           </>
         )
       ) : (
@@ -577,13 +566,13 @@ export function DictationExercise(props: {
             </ResultBanner>
           )}
           {!typed && !strokeRun && <HandwritingCompare hw={hw} model={audio} speak={speak} />}
-          <Reference sentence={audio} speak={speak} />
+          <Reference sentence={audio} speak={speak} exerciseType="dictation" />
           <SayItAgain hanzi={audio.hanzi} exerciseType="dictation" />
           {note && <p className="result-explanation">{note}</p>}
           {verdict !== null ? (
-            <div className="exercise-actions">
+            <TakeLockActions>
               <button className="practice-btn primary" onClick={() => onNext(verdict, base())}>Continue</button>
-            </div>
+            </TakeLockActions>
           ) : (
             <SelfAssess
               question="Did you write down every character you heard?"
@@ -830,13 +819,13 @@ export function ConversationExercise(props: {
         ))}
       </div>
 
-      <div className="exercise-actions">
+      <TakeLockActions role="secondary">
         {playing ? (
           <button className="practice-btn" onClick={stopPlaying}>■ Stop</button>
         ) : (
           <button className="practice-btn" onClick={() => void playAll()}>{listened ? '↻ Play again' : '▶ Play conversation'}</button>
         )}
-      </div>
+      </TakeLockActions>
 
       {audioUnavailable && !transcriptPeek && (
         <div className="convo-offline">
@@ -883,19 +872,19 @@ export function ConversationExercise(props: {
                       multiline
                       testId={`lesson-voice-q${qi}`}
                     />
-                    <div className="exercise-actions">
+                    <TakeLockActions role="secondary">
                       <button className="practice-btn" onClick={() => setAnswer(qi, { revealed: true })}>Show answer</button>
-                    </div>
+                    </TakeLockActions>
                   </>
                 ) : (
                   <>
                     {a.text?.trim() && <div className="convo-your-answer">You: {a.text.trim()}</div>}
                     <div className="convo-model-answer">{q.answer}</div>
                     {a.correct === null && (
-                      <div className="exercise-actions">
+                      <TakeLockActions role="secondary">
                         <button className="practice-btn" onClick={() => setAnswer(qi, { correct: false })}>✗ Missed it</button>
                         <button className="practice-btn primary" onClick={() => setAnswer(qi, { correct: true })}>✓ Got it</button>
-                      </div>
+                      </TakeLockActions>
                     )}
                   </>
                 )}
@@ -911,14 +900,14 @@ export function ConversationExercise(props: {
           <ResultBanner ok={score === questions.length}>
             {score}/{questions.length} questions right
           </ResultBanner>
-          <div className="exercise-actions">
+          <TakeLockActions>
             {!showTranscript && (
               <button className="practice-btn" onClick={() => setShowTranscript(true)}>Show transcript</button>
             )}
             <button className="practice-btn primary" onClick={() => { stopPlaying(); onNext(score === questions.length, report()); }}>
               Continue
             </button>
-          </div>
+          </TakeLockActions>
         </>
       )}
     </div>

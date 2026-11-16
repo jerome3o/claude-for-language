@@ -13,17 +13,17 @@
 import type { ReactNode } from 'react';
 import '../reader/ReadAloud.css';
 import './TakeStop.css';
-import { TAKE_CHECKING, TAKE_STOP_RECORDING } from '@shared/voice/takeLock';
-import { stopTakes, useTakeLock, useTakeLockSnapshot } from '../../services/takeLock';
+import { TAKE_LOCK_CHECKING, TAKE_LOCK_STOP } from '@shared/voice/takeLock';
+import { stopTakes, useAppTakeLock, useTakeLockSnapshot } from '../../services/takeLock';
 import { useBackLevels } from '../../hooks/useBackLevels';
 
 /** The red "■ Stop recording" / held "Checking…" button, or null when no take is under way. */
-export function TakeStopButton({ testId = 'take-stop', label = TAKE_STOP_RECORDING, checkingLabel = TAKE_CHECKING }: {
+export function TakeStopButton({ testId = 'take-stop', label = TAKE_LOCK_STOP, checkingLabel = TAKE_LOCK_CHECKING }: {
   testId?: string;
   label?: string;
   checkingLabel?: string;
 }) {
-  const lock = useTakeLock();
+  const lock = useAppTakeLock();
   if (!lock.locked) return null;
   return (
     <button
@@ -51,7 +51,7 @@ export function TakeStopButton({ testId = 'take-stop', label = TAKE_STOP_RECORDI
 
 /** `children` (the row's own buttons) — or, while a take is under way, the stop button in their place. */
 export function TakeLockedActions({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
-  const lock = useTakeLock();
+  const lock = useAppTakeLock();
   if (!lock.locked) return <>{children}</>;
   return (
     <div className={`take-locked-actions reader-read-aloud-footer${className ? ` ${className}` : ''}`} data-testid="take-locked-actions">

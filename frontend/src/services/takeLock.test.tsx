@@ -6,7 +6,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { guardTake, resetTakeLock, setTake, stopTakes, takeLockSnapshot, takeTap, useRegisterTake } from './takeLock';
+import { guardTake, resetTakeLock, setTake, stopTakes, takeLockSnapshot, takeTap } from './takeLock';
+import { useReportTake } from '../components/voice/TakeLock';
+import { takePhase } from '@shared/voice/takeLock';
 import { TakeLockedActions } from '../components/voice/TakeStop';
 import { StudyCardFooter } from '../components/study/ReRecordBar';
 
@@ -39,21 +41,21 @@ describe('registry', () => {
     guarded();
     expect(next).toHaveBeenCalledTimes(1);
 
-    setTake('a', { phase: 'listening', stop });
-    setTake('b', { phase: 'finishing', stop: vi.fn() });
+    setTake('a', { phase: 'recording', stop });
+    setTake('b', { phase: 'checking', stop: vi.fn() });
     expect(takeLockSnapshot().phase).toBe('recording');
     guarded();
     expect(next).toHaveBeenCalledTimes(1); // not advanced …
     expect(stop).toHaveBeenCalledTimes(1); // … the take was stopped instead
 
-    setTake('a', { phase: 'finishing', stop });
+    setTake('a', { phase: 'checking', stop });
     expect(takeTap()).toBe('wait');
     guarded();
     expect(next).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1); // nothing to stop while it is checked
 
     setTake('a', null);
-    setTake('b', { phase: 'review', stop: vi.fn() });
+    setTake('b', { phase: 'idle', stop: vi.fn() });
     guarded();
     expect(next).toHaveBeenCalledTimes(2);
   });
@@ -61,8 +63,8 @@ describe('registry', () => {
   it('back stops only the takes the global guard owns', () => {
     const own = vi.fn();
     const global = vi.fn();
-    setTake('own', { phase: 'listening', stop: own, ownBack: true });
-    setTake('global', { phase: 'listening', stop: global });
+    setTake('own', { phase: 'recording', stop: own, ownBack: true });
+    setTake('global', { phase: 'recording', stop: global });
     expect(takeLockSnapshot()).toEqual({ phase: 'recording', backPhase: 'recording' });
     stopTakes({ backOnly: true });
     expect(global).toHaveBeenCalledTimes(1);
@@ -75,7 +77,7 @@ describe('registry', () => {
 function Harness({ onNext, onRate }: { onNext: () => void; onRate: () => void }) {
   const [phase, setPhase] = useState('idle');
   const stop = () => setPhase('finishing');
-  useRegisterTake(phase, stop);
+  useReportTake(takePhase(phase === 'listening', phase === 'finishing'), stop);
   return (
     <>
       <button type="button" data-testid="mic" onClick={() => setPhase(phase === 'listening' ? 'finishing' : 'listening')}>🎤</button>
