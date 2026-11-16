@@ -87,6 +87,7 @@ object SentenceRoundTags {
     const val SAY_AGAIN = "sentence-round-say-again"
     const val SKIP = "sentence-round-skip"
     const val CONTINUE = "sentence-round-continue"
+    const val TAKE_STOP = "sentence-round-stop"
     const val MORE = "sentence-round-more"
     const val SHOW_CHINESE = "listen-round-show-chinese"
     const val SELF_RIGHT = "listen-round-self-right"
@@ -522,7 +523,8 @@ fun SentenceRoundPage(
                 Spacer(Modifier.height(4.dp))
             }
             Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                if (progress.done) {
+                // A 🎤 / 👂 take under way holds See the answer / Skip: ONE ■ Stop recording here (the take lock).
+                dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions(stopTag = SentenceRoundTags.TAKE_STOP) { if (progress.done) {
                     PrimaryPill(
                         "${if (heldId != null || stayPut) AnswerDifference.CONTINUE else SentenceRound.SEE_ANSWER} →",
                         Modifier.fillMaxWidth().height(56.dp).testTag(SentenceRoundTags.CONTINUE), onClick = onDone,
@@ -548,7 +550,7 @@ fun SentenceRoundPage(
                             Text(SentenceRound.SKIP, color = Lab.colors.muted, fontSize = 14.sp)
                         }
                     }
-                }
+                } }
             }
         }
         SparkBurst(sparks, listOf(Palette.Good, Palette.Gold, Palette.Easy, Color.White), origin = androidx.compose.ui.geometry.Offset(0.5f, 0.2f))

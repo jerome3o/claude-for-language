@@ -56,6 +56,8 @@ export interface VoiceDictationOptions {
   autoSubmit?: boolean;
   /** Override the connection state (tests / callers that know better). */
   online?: boolean;
+  /** The screen handles back itself while this take runs (the phone practice's own back stack): the app-wide take back guard leaves it alone. */
+  ownBack?: boolean;
 }
 
 function subscribeOnline(cb: () => void) {
@@ -159,9 +161,10 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
   }), [report]);
 
   useEffect(() => () => controller.dispose(), [controller]);
-  // The take lock (shared/voice/takeLock.ts; a no-op outside a TakeLockProvider): while this box records, the
-  // screen's primary action is "■ Stop recording"; while the take is transcribed, "Checking what you said…".
-  useReportTake(takePhase(spoken.phase === 'listening', spoken.phase === 'finishing'), () => controller.stop());
+  // The take lock (shared/voice/takeLock.ts): inside a TakeLockProvider (the mini-lesson player) the screen's
+  // primary action is "■ Stop recording" while this box records; anywhere else the app-wide lock
+  // (services/takeLock.ts) holds the screen's advancing controls and back stops the take.
+  useReportTake(takePhase(spoken.phase === 'listening', spoken.phase === 'finishing'), () => controller.stop(), { ownBack: opts.ownBack });
   useEffect(() => { if (online && supported) prefetchLiveSession(); }, [online, supported]);
   // Going offline mid-take: the take is thrown away (the box says why).
   useEffect(() => {

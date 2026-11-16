@@ -74,6 +74,7 @@ import {
 } from '../../services/claudeThreads';
 import { track, trackError } from '../../services/analytics';
 import '../claudeChat/claude-chat.css';
+import { takeTap } from '../../services/takeLock';
 
 /** A reply whose tools made cards (create_flashcards with at least one note). */
 function repliedWithCards(raw: string | null | undefined): boolean {
@@ -540,7 +541,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       {sheet && <SheetHandle onClose={props.onClose} />}
       <header className="claude-chat-header">
         {!sheet && !props.hideBack && (
-          <button type="button" className="claude-chat-back" onClick={props.onBack} aria-label="Back" data-testid="claude-thread-back">
+          <button type="button" className="claude-chat-back" onClick={() => { if (takeTap() === 'run') props.onBack?.(); }} aria-label="Back" data-testid="claude-thread-back">
             ←
           </button>
         )}

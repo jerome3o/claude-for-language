@@ -182,12 +182,11 @@ fun rememberVoiceDictation(surface: String, lang: String = "zh", defaultMode: St
     }
     val connected = isOnline()
     LaunchedEffect(connected) { controller.refreshBlocked() }
-    // The take lock (core TakeLock; a no-op outside a provider): while this box records, the screen's primary
-    // action is "■ Stop recording"; while the take is transcribed, "Checking what you said…".
-    if (LocalTakeLock.current != null) {
-        val ui by controller.ui.collectAsState()
-        ReportTake(dev.jeromeswannack.chineselearning.lab.core.TakeLock.phase(ui.phase == "listening", ui.phase == "finishing")) { controller.stop() }
-    }
+    // The take lock (core TakeLock): inside a provider (the mini-lesson player) the screen's primary action is
+    // "■ Stop recording" while this box records, "Checking what you said…" while it is transcribed; anywhere else the
+    // app-wide lock (TakeLocks) holds the screen's advancing controls and back stops the take.
+    val takeUi by controller.ui.collectAsState()
+    ReportTake(dev.jeromeswannack.chineselearning.lab.core.TakeLock.phase(takeUi.phase == "listening", takeUi.phase == "finishing")) { controller.stop() }
     DisposableEffect(controller) { onDispose { controller.dispose(); controller.onDispose() } }
     return controller
 }

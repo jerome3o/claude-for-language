@@ -16,6 +16,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalBottomSheetProperties
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -76,7 +77,12 @@ fun LabModalSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded),
+        // The take lock (TakeLock.kt): while a voice take in the sheet records, a swipe down / the scrim / back stop
+        // it instead of closing the sheet (and throwing the take away); while it is checked they wait.
+        sheetState = rememberModalBottomSheetState(
+            skipPartiallyExpanded = skipPartiallyExpanded,
+            confirmValueChange = { value -> value != SheetValue.Hidden || TakeLocks.tap() == "run" },
+        ),
         containerColor = Lab.colors.card,
         properties = ModalBottomSheetProperties(shouldDismissOnBackPress = dismissOnBack),
     ) {

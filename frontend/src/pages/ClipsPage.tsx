@@ -24,12 +24,14 @@ import {
 import { track } from '../services/analytics';
 import { useNetwork } from '../contexts/NetworkContext';
 import '../components/clips/clips.css';
+import { useAppTakeLock } from '../services/takeLock';
 
 export function ClipsPage() {
   const { id: startId } = useParams();
   const [search] = useSearchParams();
   const startScene = Number(search.get('scene') ?? '') || 0;
   const navigate = useNavigate();
+  const takeLock = useAppTakeLock();
   const { isOnline } = useNetwork();
   const [clips, setClips] = useState<ClipRecord[] | null>(null);
   const [active, setActive] = useState(0);
@@ -172,7 +174,7 @@ export function ClipsPage() {
     const f = flick.current;
     flick.current = null;
     const t = e.changedTouches[0];
-    if (!f || !t) return;
+    if (!f || !t || takeLock.locked) return; // no flick to another clip mid-take (the take lock)
     const dy = t.clientY - f.y;
     const dx = t.clientX - f.x;
     if (Math.abs(dy) < 70 || Math.abs(dy) < Math.abs(dx) * 1.5 || Date.now() - f.t > 1200) return;
@@ -259,7 +261,7 @@ export function ClipsPage() {
           <MakeClips onMade={(made) => setClips((prev) => [...made, ...(prev ?? [])])} />
         </div>
       ) : (
-        <div className="clips-feed" ref={feedRef} onScroll={onScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="clips-feed">
+        <div className={`clips-feed${takeLock.locked ? ' is-take-locked' : ''}`} ref={feedRef} onScroll={onScroll} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd} data-testid="clips-feed">
           {clips.map((clip, i) => (
             <section className="clips-item" key={clip.id} data-testid="clips-item" data-index={i} aria-label={clip.title ?? 'Clip'}>
               {Math.abs(i - active) > 1 ? null : clip.status === 'ready' && clip.spec ? (

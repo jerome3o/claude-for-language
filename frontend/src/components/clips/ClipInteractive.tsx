@@ -31,6 +31,7 @@ import { YouSaidRow } from '../study/YouSaid';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { Mixed, Zh, type SceneCtx } from './ClipScenes';
 import { KaraokeLine, type SpeechClock } from './Karaoke';
+import { guardTake, useAppTakeLock } from '../../services/takeLock';
 
 const HAN = /\p{Script=Han}/u;
 
@@ -61,15 +62,17 @@ export interface InteractProps {
 /** The prompt while the scene waits; Skip after a while; "Next ›" once answered. */
 function InteractBar({ play, hint, actions, testId }: { play: ClipPlayState; hint: string; actions: InteractActions; testId: string }) {
   const waiting = play.interact?.result === null;
+  const lock = useAppTakeLock();
   return (
     <div className="clip-interact-bar" data-no-gesture>
       {waiting ? (
         <div className="clip-interact-hint" role="status" data-testid={`${testId}-hint`}>{hint}</div>
       ) : (
-        <button type="button" className="clip-btn clip-next-scene" onClick={actions.onContinue} data-testid="clip-continue">Next ›</button>
+        <button type="button" className="clip-btn clip-next-scene" onClick={guardTake(actions.onContinue)} data-testid="clip-continue">Next ›</button>
       )}
-      {waiting && clipSkipShown(play) && (
-        <button type="button" className="clip-btn clip-skip" onClick={actions.onSkip} data-testid="clip-skip">Skip ›</button>
+      {/* Never Skip while a 🎤 take records / is checked (the take lock): ⏹ Stop is the mic itself. */}
+      {waiting && clipSkipShown(play) && !lock.locked && (
+        <button type="button" className="clip-btn clip-skip" onClick={guardTake(actions.onSkip)} data-testid="clip-skip">Skip ›</button>
       )}
     </div>
   );

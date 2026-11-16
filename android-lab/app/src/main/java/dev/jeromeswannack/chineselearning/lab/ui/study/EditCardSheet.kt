@@ -134,8 +134,13 @@ fun EditCardForm(note: NoteEntity, aiAvailable: Boolean, actions: EditCardAction
         },
         footerAbove = error?.let { e -> { InlineNotice(e, kind = NoticeKind.Error) } },
         footer = {
-            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
-            PrimaryPill(if (saving) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !saving && aiAvailable && hanzi.isNotBlank()) { save() }
+            if (dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.locked) {
+                // A recording being made in the editor (the take lock): ONE ■ Stop recording where Cancel / Save were.
+                dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions(Modifier.weight(1f), stopTag = "edit-card-stop") {}
+            } else {
+                SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp), onClick = onDismiss)
+                PrimaryPill(if (saving) "Saving…" else "Save", Modifier.weight(1f).height(52.dp), enabled = !saving && aiAvailable && hanzi.isNotBlank()) { save() }
+            }
         },
     ) {
         if (!aiAvailable) InlineNotice("You're offline — edits need a connection.", kind = NoticeKind.Offline)

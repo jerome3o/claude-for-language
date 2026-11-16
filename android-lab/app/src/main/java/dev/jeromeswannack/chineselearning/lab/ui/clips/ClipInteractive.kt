@@ -121,8 +121,9 @@ fun InteractBar(i: InteractCtx, hint: String, tag: String) {
                 hint, color = Color.White, fontWeight = FontWeight.Black, fontSize = 17.sp, textAlign = TextAlign.Center,
                 modifier = Modifier.graphicsLayer { translationY = -4.dp.toPx() * nudge }.background(look.accent, RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 10.dp).testTag("$tag-hint"),
             )
-            if (Clips.skipShown(i.play)) Pill("Skip ›", look, primary = false, tag = "clip-skip", onClick = i.actions.onSkip)
-        } else Pill("Next ›", look, primary = false, tag = "clip-continue", onClick = i.actions.onContinue)
+            // Never Skip while a 🎤 take records / is checked (the take lock): ⏹ is the mic itself.
+            if (Clips.skipShown(i.play) && !dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.locked) Pill("Skip ›", look, primary = false, tag = "clip-skip", onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(i.actions.onSkip))
+        } else Pill("Next ›", look, primary = false, tag = "clip-continue", onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(i.actions.onContinue))
     }
 }
 

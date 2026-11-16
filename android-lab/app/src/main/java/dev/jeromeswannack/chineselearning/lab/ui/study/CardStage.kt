@@ -682,6 +682,18 @@ fun CardStage(
         }
     }
     BackHandler(enabled = sayingAgain) { actions.onCancelSpoken() }
+    // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the card's own recorder — the read
+    // card's take, Say the answer, Record again / Say it again. While it records, ✕ / ↺ / back stop it instead
+    // of leaving (Record again / Say it again keep their own back above: it cancels the new take).
+    dev.jeromeswannack.chineselearning.lab.ui.kit.ReportTake(
+        phase = dev.jeromeswannack.chineselearning.lab.core.TakeLock.phase(
+            recording = spoken.listening || (!spoken.busy && ui.extras.take.recording),
+            checking = spoken.phase == SpokenPhase.FINISHING,
+        ),
+        ownBack = reRecording || sayingAgain,
+    ) {
+        if (spoken.listening) actions.onStopSpoken() else if (ui.extras.take.recording) actions.onStopRecording(revealed)
+    }
     // ✏️ Edit on a "Say it again" review: the box on the question side; its Check is in the footer.
     var sayAgainDraft by remember(view.presentation) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
     LaunchedEffect(spoken.phase) {
@@ -967,7 +979,8 @@ fun CardStage(
                         onCheck = { actions.onSubmitEditedSpoken(sayAgainDraft.text) },
                     )
                 }
-            } else {
+            } else dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions(stopTag = "study-footer-stop") { Column(Modifier.fillMaxWidth()) {
+                // Any other take under way (the take lock) holds the action row + ratings: ONE ■ Stop recording here.
                 StudyActionRow(
                     aiAvailable = ui.aiAvailable,
                     onAskClaude = { sheet = CardSheet.Ask },
@@ -1032,7 +1045,7 @@ fun CardStage(
                         actions.onRate(rating, System.currentTimeMillis() - startedAt, answer.takeIf { typing && it.isNotEmpty() })
                     }
                 }
-            }
+            } }
         }
     }
     }

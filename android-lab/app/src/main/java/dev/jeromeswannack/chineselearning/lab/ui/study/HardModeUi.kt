@@ -55,6 +55,7 @@ import dev.jeromeswannack.chineselearning.lab.core.PassAngles
 import dev.jeromeswannack.chineselearning.lab.ui.kit.NavRow
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
+import dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
@@ -62,6 +63,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 /** Test tags of Hard mode (the web's data-testids). */
 object HardModeTags {
     const val CHIP = "hard-mode-chip"
+    /** The take lock's ■ Stop recording in place of the panel's buttons (web hard-feedback-stop). */
+    const val TAKE_STOP = "hard-feedback-stop"
     const val MENU = "hard-mode-menu"
     fun option(mode: String) = "hard-mode-option-$mode"
     const val FEEDBACK = "hard-feedback"
@@ -317,7 +320,8 @@ fun HardModeFeedbackPanel(
         } else if (said != null && result != "checking" && result != "unknown") {
             Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // While 🎤 Read it again records, the buttons give way to ONE ■ Stop recording (the take lock).
+        TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             when (result) {
                 "right" -> PrimaryPill("${HardMode.nextLabel(roundFollows)} →", Modifier.weight(1f).height(54.dp).testTag(HardModeTags.NEXT), onClick = onNext)
                 "checking" -> SecondaryPill("👁 ${HardMode.SHOW_ANSWER}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.SHOW_ANSWER), onClick = onShowAnswer)
@@ -339,7 +343,7 @@ fun HardModeFeedbackPanel(
                     PrimaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
                 }
             }
-        }
+        } }
         if (result == "wrong" || result == "close") {
             Text(HardMode.MISS_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
         }
@@ -406,7 +410,7 @@ private fun RevealedInPlace(
         if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 15.sp, textAlign = TextAlign.Center)
         // 🎤 Read it again: practice only — Continue stays the way on.
         readAgain?.invoke()
-        PrimaryPill("${HardMode.revealedNextLabel(roundFollows)} ›", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.CONTINUE), onClick = onNext)
+        TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { PrimaryPill("${HardMode.revealedNextLabel(roundFollows)} ›", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.CONTINUE), onClick = onNext) }
         Text(HardMode.REVEALED_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
@@ -503,7 +507,7 @@ private fun SentenceAnswerFirst(
                 )
             }
         }
-        when (result) {
+        TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { when (result) {
             "right" -> PrimaryPill("${HardMode.nextLabel(roundFollows)} →", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.NEXT), onClick = onNext)
             "unknown" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SecondaryPill("🔁 ${HardMode.TRY_AGAIN}", Modifier.weight(1f).height(52.dp).testTag(HardModeTags.TRY_AGAIN), onClick = onTryAgain)
@@ -519,7 +523,7 @@ private fun SentenceAnswerFirst(
                     }
                 }
             }
-        }
+        } }
         if (miss) Text(SentenceAnswerCheck.MOVE_ON_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }

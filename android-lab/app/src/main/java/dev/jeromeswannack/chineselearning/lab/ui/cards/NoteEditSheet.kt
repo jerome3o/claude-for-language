@@ -134,12 +134,17 @@ fun NoteEditForm(ui: NoteEditUi, actions: NoteEditActions, extras: (@Composable 
             }
         },
         footer = {
-            SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { actions.onClose() }
-            PrimaryPill(
-                if (ui.busy) "Saving…" else if (adding) "Add word" else "Save",
-                Modifier.weight(1f).height(52.dp),
-                enabled = !ui.busy && (!adding || ui.online) && f.hanzi.isNotBlank(),
-            ) { actions.onSave(f) }
+            if (dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.locked) {
+                // A recording being made in the editor (the take lock): ONE ■ Stop recording where Cancel / Save were.
+                dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions(Modifier.weight(1f), stopTag = "note-edit-stop") {}
+            } else {
+                SecondaryPill("Cancel", Modifier.weight(1f).height(52.dp)) { actions.onClose() }
+                PrimaryPill(
+                    if (ui.busy) "Saving…" else if (adding) "Add word" else "Save",
+                    Modifier.weight(1f).height(52.dp),
+                    enabled = !ui.busy && (!adding || ui.online) && f.hanzi.isNotBlank(),
+                ) { actions.onSave(f) }
+            }
         },
     ) {
         if (adding && !ui.online) InlineNotice("You're offline — adding a word needs the server (it makes the three cards and the audio).", kind = NoticeKind.Offline)

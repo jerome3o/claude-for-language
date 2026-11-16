@@ -16,6 +16,7 @@ import { PhoneProvider, usePhone } from '../phone/runtime';
 import { PhoneShell } from '../phone/PhoneShell';
 import { HintBubble, PhoneSummary, TaskCard } from '../phone/TaskPanel';
 import '../phone/phone.css';
+import { guardTake } from '../services/takeLock';
 
 interface PlayState {
   key: number;
@@ -72,7 +73,7 @@ export function PhoneScenarioPage() {
   };
 
   return (
-    <Play key={play.key} spec={spec} play={play} onRestart={restart} onExit={() => navigate('/phone')} />
+    <Play key={play.key} spec={spec} play={play} onRestart={guardTake(restart)} onExit={guardTake(() => navigate('/phone'))} />
   );
 }
 

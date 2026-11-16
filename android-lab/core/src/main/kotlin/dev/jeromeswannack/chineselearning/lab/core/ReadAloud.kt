@@ -400,14 +400,14 @@ object ReadAloud {
     }
 
     /** `READ_ALOUD_STOP_RECORDING`: the footer's big red button while a take records. */
-    const val STOP_RECORDING = "Stop recording"
+    const val STOP_RECORDING = TakeLock.STOP
 
     /**
      * `readAloudLocksPage`: a take is under way (the dictation phase is `listening` or `finishing`),
      * so the page is locked — the footer becomes one big red "■ Stop recording", the audio row and
      * ▶ Play whole story are disabled, and back / ✕ stop the take instead of leaving.
      */
-    fun locksPage(phase: String): Boolean = phase == "listening" || phase == "finishing"
+    fun locksPage(phase: String): Boolean = TakeLock.phase(phase == "listening", phase == "finishing") != TakeLock.IDLE
 
     /**
      * `readAloudAllRight`: the WHOLE page read right — every character ok or a homophone, nothing

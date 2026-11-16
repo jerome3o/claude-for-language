@@ -13,6 +13,7 @@ import { FeedbackProvider } from './components/feedback/FeedbackProvider';
 import { CallAlerts } from './components/calls/CallAlerts';
 import { ReaderRecapOffer } from './components/readerRecap/ReaderRecapOffer';
 import { SignedOutBanner } from './components/auth/SignedOutBanner';
+import { TakeBackGuard } from './components/voice/TakeStop';
 import { AccountGuards } from './components/auth/AccountGuards';
 import { ExplorerProvider } from './components/explorer/ExplorerContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -782,6 +783,8 @@ function App() {
               <FeedbackProvider>
                 <NativeNavigationListener />
                 <AnalyticsListener />
+                {/* Back stops a recording voice take instead of leaving (docs/STUDY_SESSION.md "While a take is recording"). */}
+                <TakeBackGuard />
                 {/* In the page flow above everything (normal pages); a fixed pill on full-screen ones. */}
                 <SignedOutBanner />
                 <AppRoutes />

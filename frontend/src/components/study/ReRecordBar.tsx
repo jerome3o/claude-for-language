@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { TakeLockedActions } from '../voice/TakeStop';
 
 /**
  * The card back's footer while a take is being made AGAIN (docs/STUDY_SESSION.md "Say the answer"
@@ -134,7 +135,8 @@ export function ReRecordBar({ step, practice, canCheck, onBack, onStop, onRetry,
 /**
  * The card back's sticky footer: the action row + the ratings (or the pass's answer buttons) — or,
  * while a take is being made again, ONLY the re-record bar (`rerecord`), so nothing can be rated
- * from inside it.
+ * from inside it. Any other take under way on the card (a sentence row's 🎤, …) holds it too: the action
+ * row + ratings give way to ONE red "■ Stop recording" (the take lock, shared/voice/takeLock.ts).
  */
 export function StudyCardFooter({ rerecord, actions, ratings }: { rerecord: ReRecordBarProps | null; actions: ReactNode; ratings: ReactNode }) {
   return (
@@ -142,10 +144,10 @@ export function StudyCardFooter({ rerecord, actions, ratings }: { rerecord: ReRe
       {rerecord ? (
         <ReRecordBar {...rerecord} />
       ) : (
-        <>
+        <TakeLockedActions testId="study-footer-stop">
           <div className="study-card-actions study-card-actions--footer">{actions}</div>
           {ratings}
-        </>
+        </TakeLockedActions>
       )}
     </div>
   );

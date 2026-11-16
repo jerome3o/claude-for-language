@@ -5,6 +5,7 @@ import { useChatList } from '../../hooks/useChatList';
 import { unreadConversationCount } from '@shared/chats/inbox';
 import { tabsFor, activeTab, isImmersiveRoute, TabId } from './tabs';
 import './TabBar.css';
+import { takeTap } from '../../services/takeLock';
 
 /**
  * Keeps the document in step with the bar:
@@ -154,6 +155,9 @@ export function TabBar() {
               className={`tab-bar-item${isActive ? ' tab-bar-item-active' : ''}`}
               aria-current={isActive ? 'page' : undefined}
               data-tab={tab.id}
+              // A tab tap mid-take (the ✦ Claude tab dictates at once, its 🎤 right above the bar) stops the take
+              // instead of leaving (the take lock, services/takeLock.ts).
+              onClick={(e) => { if (takeTap() !== 'run') e.preventDefault(); }}
             >
               <span className="tab-bar-icon">
                 <TabIcon id={tab.id} />

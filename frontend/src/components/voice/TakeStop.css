@@ -1,0 +1,9 @@
+/* The take lock (TakeStop.tsx): a row of advancing buttons gives way to ONE red "■ Stop recording" in the same
+   place while a take records (the reader's / sentence rows' button, ReadAloud.css), then "Checking…". */
+.take-locked-actions {
+  display: flex;
+  width: 100%;
+}
+.take-locked-actions .take-stop-btn {
+  width: 100%;
+}

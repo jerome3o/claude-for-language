@@ -35,6 +35,7 @@ import { SceneView, Zh, type SceneCtx } from './ClipScenes';
 import { KaraokeLine, type SpeechClock } from './Karaoke';
 import { clipFeedback } from './clipFeedback';
 import type { InteractActions } from './ClipInteractive';
+import { guardTake, takeLockSnapshot } from '../../services/takeLock';
 
 const TICK_MS = 100;
 /** A line whose audio takes longer than this to arrive is skipped (the scene goes on). */
@@ -280,6 +281,8 @@ export function ClipPlayer(props: ClipPlayerProps) {
 
   const onPointerDown = (e: ReactPointerEvent) => {
     if (ignoreTarget(e.target)) return;
+    // A 🎤 take under way (a speak scene): no pause / like / Learn more gestures over it (the take lock).
+    if (takeLockSnapshot().phase !== 'idle') return;
     const g = { x: e.clientX, y: e.clientY, t: Date.now(), long: false, timer: null as number | null };
     g.timer = window.setTimeout(() => {
       g.long = true;
@@ -434,7 +437,7 @@ export function ClipPlayer(props: ClipPlayerProps) {
           <span className="ico" aria-hidden="true">🔖</span>
           <span className="lbl">{clip.state.saved ? 'Saved' : 'Save'}</span>
         </button>
-        <button type="button" onClick={() => props.onLearnMore('button')} data-testid="clip-learn-more">
+        <button type="button" onClick={guardTake(() => props.onLearnMore('button'))} data-testid="clip-learn-more">
           <span className="ico" aria-hidden="true">✨</span>
           <span className="lbl">More</span>
         </button>
@@ -455,7 +458,7 @@ export function ClipPlayer(props: ClipPlayerProps) {
           <span className="lbl">{prefs.muted ? 'Muted' : 'Sound'}</span>
         </button>
         {props.onNext && (
-          <button type="button" className="clip-rail-next" onClick={() => props.onNext?.('button')} aria-label="Next clip" data-testid="clip-next">
+          <button type="button" className="clip-rail-next" onClick={guardTake(() => props.onNext?.('button'))} aria-label="Next clip" data-testid="clip-next">
             <span className="ico" aria-hidden="true">⌄</span>
             <span className="lbl">Next</span>
           </button>

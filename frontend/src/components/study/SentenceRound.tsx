@@ -93,6 +93,7 @@ import { track } from '../../services/analytics';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { Confetti } from '../Confetti';
 import { SentenceMicButton, SentencePractiseOutcome, SentenceStopBar, useSentencePractise, type PractiseRow, type RowTake } from './SentencePractise';
+import { TakeLockedActions } from '../voice/TakeStop';
 import './DifferenceCompare.css';
 import './SentenceRound.css';
 
@@ -739,6 +740,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
       )}
       <ol className="sentence-round-list">{exercises.map(renderExercise)}</ol>
       <div className="sentence-round-footer">
+        {/* The take lock: a 🎤 / 👂 take under way holds "See the answer" / Skip — ONE red ■ Stop recording here. */}
+        <TakeLockedActions testId="sentence-round-stop">
         {progress.done ? (
           <>
             <button type="button" className="btn btn-primary btn-block" onClick={() => onDone()} data-testid="sentence-round-continue" data-held={heldId ? 'true' : undefined}>
@@ -760,6 +763,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
             </button>
           </>
         )}
+        </TakeLockedActions>
       </div>
       <SentenceStopBar practise={practise} />
       {confirmSkip && (

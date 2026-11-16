@@ -176,6 +176,8 @@ fun ShellFrame(
     // Measured, not WindowInsets.isImeVisible: that reads true where no keyboard exists (tests).
     val imeUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val barShowing = showBar && !imeUp
+    // Back while a voice take records stops it instead of leaving (the take lock, docs/STUDY_SESSION.md).
+    dev.jeromeswannack.chineselearning.lab.ui.kit.TakeBackGuard()
     Column(Modifier.fillMaxSize().background(Lab.colors.background)) {
         if (topBanner != null) {
             Box(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) { topBanner() }
@@ -192,7 +194,8 @@ fun ShellFrame(
             enter = slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(160)),
             exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(120)),
         ) {
-            LabTabBar(tabs, active, onSelect, badges = badges)
+            // A tab tap mid-take (the ✦ Claude tab dictates at once) stops the take instead of leaving (the take lock).
+            LabTabBar(tabs, active, { tab -> if (dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.tap() == "run") onSelect(tab) }, badges = badges)
         }
     }
 }

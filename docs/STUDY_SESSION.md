@@ -2812,6 +2812,46 @@ as "✓ Correct (spoken)" with "Sounded right ✓ — written 图书馆"; the tr
 "✓ Sounds right". The attempt keeps how it was given (`ExerciseAnswer.input`: spoken / edited / typed),
 and the tutor's attempt review labels it "🎤 Said" / "🎤 Said, then edited" (`answerInputLabel`).
 
+## While a take is recording (the take lock)
+
+Jerome kept starting a 🎤 take, then tapping what he thought ended it — but it was the screen's Next /
+Continue / Submit / rating button sitting in the same place, so the app moved on and the take was lost
+("I think we might have a UX problem in many places"). The rule, everywhere a voice take can be made:
+**while a take is recording, nothing on the screen may advance, submit, rate, close or navigate.**
+
+- The footer's primary action (Next, Continue, Check, Send, the ratings, Got it / Not yet, Cancel / Save …)
+  becomes ONE red **■ Stop recording** in the same place (a thumb aimed at Next stops the take), then a held
+  **"Checking what you said…"** while the stopped take is transcribed / judged. The normal buttons come back
+  with the result.
+- Any other advancing control (✕, ↺ undo, Skip, a sheet's backdrop / Cancel / ×, "Send the screenshot only",
+  the clips feed's Next clip / Learn more) **stops the take instead** and does nothing else; while the take is
+  checked it does nothing.
+- **Back** (the Android gesture, the browser's ←, an in-app ← that goes back in history) stops a recording take
+  instead of leaving. A screen with its own back for a take keeps it (the study card's Record again / Say it
+  again: back cancels the new take; the reader's read-aloud lock; the phone practice's voice overlay — back
+  there now stops the take too). A swipe to the next clip is blocked mid-take (web feed + Lab pager).
+- A tap anywhere else still never stops a take (the sentence rows' rule): only the 🎤 / ⏹ itself, Enter, the
+  red bar, or a guarded control.
+
+**One rule; a provider for the lesson player, one app-wide lock for everything else.** The rule is
+`shared/voice/takeLock.ts` (Lab `core/…/TakeLock.kt`, parity-tested by `parity/fixtures/take-lock.ts`): a take's phase
+from its recorder flags (`takePhase`), several takes combined (`combineTakePhases`), the footer (`takeLockFooter`),
+`takeLockMayProceed`, `takeLockLeave`; the sentence rows' `sentenceStopBar` and the reader's `readAloudLocksPage` say the
+same. Every recorder reports with `useReportTake` (Lab `ReportTake`) — `useVoiceDictation` / `rememberVoiceDictation`
+(every voice-first box and 🎤 practice take), the study card's own recorder (StudyPage / CardStage), the card editor's and
+the tutor's model recording. Inside a `TakeLockProvider` (the mini-lesson player, see "Feedback" above) it goes to the
+provider; anywhere else it lands in the **app-wide lock**: web `services/takeLock.ts` (`guardTake`, `takeTap`,
+`useAppTakeLock`; `ownBack` for a screen with its own back) with `components/voice/TakeStop.tsx` (`TakeLockedActions`,
+`TakeBackGuard` in App.tsx); Lab `ui/kit/TakeLock.kt` (`TakeLocks`, `TakeLockedActions`, `TakeBackGuard` in ShellFrame,
+and every `LabModalSheet` refuses to hide mid-take — the swipe / scrim / back stop the take).
+
+Where it holds (web · Lab): the study card and the homework pass (✕ / ↺, the answer side's action row +
+ratings / Got it, the Sentence round's See the answer / Skip, Hard mode's Continue / Next / Try again rows while
+🎤 Read it again records), Flag for tutor (Cancel), the feedback sheet, the card editor (Save / Cancel), the
+Ask Claude / Discuss sheets (close), clips (Skip / Next, gestures, the feed swipe), phone practice (back,
+leaving the task). Mini lessons: the lesson player's provider (above). Video calls: out of scope (the mic is on
+for the whole call).
+
 ## Multiple choice
 
 Options come from the note's cached `multiple_choice_options`; otherwise a generation request

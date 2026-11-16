@@ -16,6 +16,11 @@
   overscroll-behavior-y: contain;
   scrollbar-width: none;
 }
+/* No swipe to the next clip while a 🎤 take records / is checked (the take lock, services/takeLock.ts). */
+.clips-feed.is-take-locked {
+  overflow-y: hidden;
+  touch-action: none;
+}
 .clips-feed::-webkit-scrollbar { display: none; }
 
 .clips-item {

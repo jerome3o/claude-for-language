@@ -105,6 +105,8 @@ export function useReadAloud(
     value: '',
     onChange: () => {},
     autoSubmit: true,
+    // The reading view handles back itself while a take locks the page (ReaderView `useBackLevels`).
+    ownBack: place === READER_PLACE,
     onSubmit: (answer) => {
       const { pageText: text, hooks: h, place: p } = latest.current;
       if (!readAloudHeardAnything(answer.text)) {

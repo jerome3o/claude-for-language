@@ -62,6 +62,23 @@ describe('HardModeFeedback', () => {
     act(() => root.render(<HardModeFeedback result={result} said="银航" spoken roundFollows={extra.roundFollows ?? true} difference={extra.difference} answer={{ hanzi: '银行', pinyin: 'yínháng', english: 'bank' }} {...handlers} />));
     return handlers;
   };
+  it('while a take records (🎤 Read it again), Continue gives way to Stop recording — a tap stops, never advances', async () => {
+    const { setTake, resetTakeLock } = await import('../../services/takeLock');
+    const h = await render('revealed');
+    expect(q('hard-continue')).not.toBeNull();
+    const stop = vi.fn();
+    act(() => setTake('read-again', { phase: 'recording', stop }));
+    expect(q('hard-continue')).toBeNull();
+    act(() => q('hard-feedback-stop')!.click());
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(h.onNext).not.toHaveBeenCalled();
+    act(() => setTake('read-again', { phase: 'checking', stop }));
+    expect((q('hard-feedback-stop') as HTMLButtonElement).disabled).toBe(true);
+    act(() => setTake('read-again', null));
+    act(() => q('hard-continue')!.click());
+    expect(h.onNext).toHaveBeenCalledTimes(1);
+    resetTakeLock();
+  });
   it('a miss: Not quite, what he said, Try again and Show answer (a miss)', async () => {
     const h = await render('wrong');
     expect(q('hard-feedback')!.dataset.result).toBe('wrong');

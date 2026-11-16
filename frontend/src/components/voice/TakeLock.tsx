@@ -22,6 +22,7 @@ import {
 } from '@shared/voice/takeLock';
 import { useBackLevels } from '../../hooks/useBackLevels';
 import { track } from '../../services/analytics';
+import { setTake } from '../../services/takeLock';
 import './TakeLock.css';
 
 export interface TakeLock {
@@ -98,18 +99,32 @@ export function TakeLockProvider({ children, backOwner = 'take-lock', screen = '
   return <TakeLockContext.Provider value={value}>{children}</TakeLockContext.Provider>;
 }
 
-/** A recorder reports its take; nothing happens outside a TakeLockProvider. */
-export function useReportTake(phase: TakePhase, stop: () => void): void {
+/**
+ * A recorder reports its take: to the screen's TakeLockProvider, or — outside one — to the app-wide lock
+ * (services/takeLock.ts: the study card, sheets, chats, clips … hold their advancing controls and back stops the
+ * take). `ownBack`: the take's screen handles back itself, the app-wide back guard leaves it alone.
+ */
+export function useReportTake(phase: TakePhase, stop: () => void, opts: { ownBack?: boolean } = {}): void {
   const lock = useContext(TakeLockContext);
   const id = useId();
   const stopRef = useRef(stop);
   stopRef.current = stop;
   const report = lock?.report;
   const remove = lock?.remove;
+  const inApp = !lock;
+  const ownBack = !!opts.ownBack;
   useEffect(() => {
     report?.(id, phase, () => stopRef.current());
   }, [report, id, phase]);
   useEffect(() => () => remove?.(id), [remove, id]);
+  useEffect(() => {
+    if (!inApp) return;
+    setTake(id, { phase, stop: () => stopRef.current(), ownBack });
+  }, [inApp, id, phase, ownBack]);
+  useEffect(() => {
+    if (!inApp) return;
+    return () => setTake(id, null);
+  }, [inApp, id]);
 }
 
 /**

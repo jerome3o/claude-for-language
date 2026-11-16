@@ -137,7 +137,7 @@ fun FeedbackSheetBody(ui: FeedbackSheetUi, actions: FeedbackSheetActions, modifi
         if (ui.contextLine.isNotBlank()) Text(ui.contextLine, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted)
         ui.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
         if (ui.message.isBlank() && ui.screenshot != null && ui.includeScreenshot) {
-            SecondaryPill("Send the screenshot only", Modifier.padding(bottom = 8.dp).testTag("feedback-send-shot"), enabled = !ui.sending) { actions.send("") }
+            SecondaryPill("Send the screenshot only", Modifier.padding(bottom = 8.dp).testTag("feedback-send-shot"), enabled = !ui.sending, onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard { actions.send("") })
         }
     }
 }
