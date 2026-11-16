@@ -15,7 +15,7 @@ import {
   answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM,
 } from '../../services/answer-check';
 import { readTakeCheckInput, readTakeClaudeState } from '@shared/study/readTakeCheck';
-import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, answerCheckCacheText } from '@shared/lesson/answerCheck';
+import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, PLAIN_ACCEPTABLE_HEADLINE, answerCheckCacheText } from '@shared/lesson/answerCheck';
 import type { Env } from '../../types';
 
 function client(env: Env) {
@@ -32,6 +32,7 @@ function client(env: Env) {
 }
 
 const [cheap, worry, doctor] = ANSWER_CHECK_FIXTURES;
+const sleep = ANSWER_CHECK_FIXTURES.find((f) => f.model === '我因为这个问题睡不着觉。')!;
 const body = (f: typeof cheap, extra: Record<string, unknown> = {}) => ({
   prompt_en: f.english, model_answer: f.model, answer: f.answer, exercise_type: 'translate', input: 'spoken', ...extra,
 });
@@ -130,20 +131,45 @@ describe('answer check service', () => {
     // Jerome's 虾饺: "You said: 虾饺我最喜欢的。 点心。" was judged "fragments" — the 。 was his pause.
     const said = { prompt_en: 'Shrimp dumplings are my favourite dim sum.', model_answer: '虾饺是我最喜欢的点心。', answer: '虾饺我最喜欢的。 点心。', exercise_type: 'listen_translate', input: 'spoken' as const };
     const turn = answerCheckUserTurn(said);
-    expect(turn).toContain("Learner's answer (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser's, not the learner's): 虾饺我最喜欢的点心。");
+    expect(turn).toContain("The learner's answer (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser's, not the learner's) — the only text you judge:\n<learner_answer>虾饺我最喜欢的点心。</learner_answer>");
     expect(turn).toContain('They said back what they heard');
     // Typed answers keep what was typed.
-    expect(answerCheckUserTurn({ ...said, input: 'typed' })).toContain('(typed): 虾饺我最喜欢的。 点心。');
+    expect(answerCheckUserTurn({ ...said, input: 'typed' })).toContain('(typed) — the only text you judge:\n<learner_answer>虾饺我最喜欢的。 点心。</learner_answer>');
     expect(ANSWER_CHECK_SYSTEM).toMatch(/Ignore punctuation, spacing and sentence breaks COMPLETELY/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/Never call a spoken answer a fragment/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/A single short unstressed word missing or doubled \(是, 的, 了/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/never "almost" or "wrong" for it/);
   });
 
-  it('the spoken rules changed: old cached checks are never served (the cache text carries the new version)', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(2);
+  it('the rules changed: old cached checks are never served (the cache text carries the new version)', () => {
+    expect(ANSWER_CHECK_VERSION).toBe(3);
     expect(MEANING_CHECK_VERSION).toBe(2);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v2\|/);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v3\|/);
+  });
+
+  it('the learner\'s answer and the model answer are tagged apart, and the prompt says which one is judged', () => {
+    const turn = answerCheckUserTurn({ prompt_en: sleep.english, model_answer: sleep.model, model_pinyin: 'Wǒ yīnwèi zhège wèntí shuì bu zháo jiào.', answer: sleep.answer, exercise_type: 'translate', input: 'spoken' });
+    expect(turn).toContain('<model_answer>我因为这个问题睡不着觉。</model_answer>');
+    expect(turn).toContain('Model answer pinyin: Wǒ yīnwèi');
+    expect(turn).toContain('<learner_answer>因为这个问题我睡不着觉。</learner_answer>'); // the recogniser's pause comma goes
+    expect(turn).toMatch(/NOT the learner's answer/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/never tell the learner to do something their answer already does/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/A different but natural word order or wording is right/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/Never write a tip that compares a text with itself/);
+  });
+
+  it('Jerome\'s 因为 answer: the model\'s contradictory check is cleaned before anyone sees it or it is cached', async () => {
+    const db = await createSqliteD1();
+    const input = { prompt_en: sleep.english, model_answer: sleep.model, answer: sleep.answer, exercise_type: 'translate', input: 'spoken' as const };
+    const r = await checkLessonAnswer(db, input, { apiKey: 'k', client: fakeAnswerCheckClient() });
+    expect(r.check.verdict).toBe('acceptable');
+    expect(r.check.tips).toEqual([]);
+    expect(r.check.headline).toBe(PLAIN_ACCEPTABLE_HEADLINE);
+    expect(r.check.headline).not.toMatch(/but/);
+    expect(r.check.suggested).toBe('got_it');
+    const again = await checkLessonAnswer(db, input, { apiKey: 'k', client: fakeAnswerCheckClient() });
+    expect(again.cached).toBe(true);
+    expect(again.check.tips).toEqual([]);
   });
 
   it('a correct verdict never carries a correction, whatever the model says', async () => {

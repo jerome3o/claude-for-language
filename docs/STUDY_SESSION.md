@@ -921,7 +921,34 @@ clients). Analytics: `lesson.answer_check` with `local: true`, `ms: 0`. A homoph
 not exact and is still checked.
 
 The prompt never marks different-but-valid wording wrong (optional 很 / 了 / 的, a dropped subject) and
-reads a spoken answer as a speech-recognition transcript (homophones, punctuation). Checks are cached for
+reads a spoken answer as a speech-recognition transcript (homophones, punctuation).
+
+**A check never contradicts itself** (Jerome, Nov 2026: he said 因为这个问题，我睡不着觉 for 我因为这个问题睡不着觉 and
+got "✓ Also right — Correct meaning, but 因为 clause should come before the subject", a tip "因为这个问题 我睡不着觉
+reads more naturally than 因为这个问题 我睡不着觉", and 我 painted red on both rows). The model had mixed up his answer
+and the model answer. Now:
+
+- the user turn tags the two apart — `<model_answer>` ("a reference written by someone else — NOT the learner's
+  answer") and `<learner_answer>` ("the only text you judge") — and the system prompt says: never tell the learner to
+  do what their answer already does, a different natural word order is right with no "but" (the 因为 example), a
+  correct / acceptable headline is plainly positive unless a real problem in HIS words is quoted, never a tip
+  comparing a text with itself;
+- **sanity rules** in `normalizeAnswerCheck(raw, answer, model)` (`insaneTip` / `saneHeadline`, shared/lesson/answerCheck.ts;
+  Lab `LessonAnswerCheck.normalize`, parity-tested `parity/fixtures/answer-sanity.ts`), run on the server's reply,
+  its cache and the device's: a tip comparing a Chinese text with itself ("X reads better than X") goes; a tip
+  recommending his own whole answer ("Use X", "→ X", "X sounds more natural") goes; on a right verdict a tip writing
+  out his whole sentence goes, and so does every tip when his answer IS the model answer; a right verdict whose
+  "but / should" headline lost all its tips gets a plain one (**Different wording, same meaning — that works.** /
+  **Natural and right — nicely said.**). The real case is a fixture of the E2E fake model, so the whole path is tested;
+- `ANSWER_CHECK_VERSION` 3: the cache text starts `v3|`, so no v2 check (the bad one included) is served again —
+  on the server or on a device;
+- **the device's character marks** (`answerMarks`, shared/lesson/feedback.ts; Lab `LessonFeedback.answerMarks`,
+  parity-tested): "You said" and the model answer are marked by the device's diff only while it can mean
+  something — never when his answer is the model answer's characters in another order (instead a neutral
+  "Same characters, different word order" under "You said"), and the marks go once Claude's verdict is correct /
+  acceptable (a right answer is never painted as errors). Before the verdict, or on almost / wrong, they show.
+
+Checks are cached for
 everyone (`lesson_answer_checks`, SHA-256 of `answerCheckCacheText`: version, type, spoken / typed,
 prompt, model answer, the answer — punctuation-blind) and on the device (web localStorage
 `lesson-answer-checks-v1`, Lab JsonCache `lessons/answer-check/<hash>`), so a check seen once shows

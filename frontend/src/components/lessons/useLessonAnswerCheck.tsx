@@ -113,6 +113,8 @@ export function useLessonAnswerCheck(ctx: {
     retry,
     /** The button to ring (null while checking / without a check). */
     suggested: check?.suggested ?? null,
+    /** Claude's verdict once it landed (the device's marks go on a right one, `answerMarks`). */
+    verdict: check?.verdict ?? null,
     tries: tries.length,
   };
 }
