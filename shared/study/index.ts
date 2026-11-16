@@ -15,3 +15,4 @@ export * from './hardMode';
 export * from './answerDifference';
 export * from './wordRecap';
 export * from './studyDay';
+export * from './homeCounts';

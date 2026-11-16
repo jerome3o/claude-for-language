@@ -25,13 +25,39 @@ import { useRawQueueCounts, useOfflineDecks } from '../hooks/useOfflineData';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useNetwork } from '../contexts/NetworkContext';
 import { useAuth } from '../contexts/AuthContext';
-import { allocateQueueCounts, sumQueueCounts, DeckQueueCounts } from '../db/database';
+import { allocateQueueCounts, sumQueueCounts, DeckQueueCounts, EMPTY_QUEUE_COUNTS } from '../db/database';
 import { getDueReaders } from '../services/reader-study';
 import { readBonus, writeBonus } from '../utils/bonusNewCards';
 import { track } from '../services/analytics';
+import { useSessionCounts } from '../services/sessionCounts';
+import { studyToday } from '../services/studyDay';
+import { bumpedAfterSession, deckCountsAfterSession, sessionCountsNewer, totalAfterSession } from '@shared/study';
 import './HomePage.css';
 
 const COUNTS_CACHE_KEY = 'lastQueueCounts';
+
+/** The last totals Home worked out, with when (shared/study/homeCounts.ts) — painted on a cold start. */
+interface CachedCounts {
+  counts: QueueCounts;
+  at: number;
+  day: string;
+}
+
+function readCountsCache(): CachedCounts | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(COUNTS_CACHE_KEY) || 'null');
+    if (!parsed) return null;
+    // Before Nov 2026 the bare counts were kept (no time): older than anything worked out since.
+    if (typeof parsed.at !== 'number') return { counts: parsed as QueueCounts, at: 0, day: '' };
+    return parsed as CachedCounts;
+  } catch {
+    return null;
+  }
+}
+
+function writeCountsCache(value: CachedCounts) {
+  try { localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(value)); } catch { /* ignore */ }
+}
 
 /**
  * `/`. A tutor account (users.role = 'tutor') gets the teaching home — no
@@ -77,7 +103,7 @@ function StudyHome() {
   };
 
   // ---- Queue counts: ONE live query, bonus applied in-memory ----
-  const { byDeck: rawByDeck, isLoading: countsLoading, reviewLoad } = useRawQueueCounts();
+  const { byDeck: rawByDeck, isLoading: countsLoading, reviewLoad, stamp } = useRawQueueCounts();
   // "Pause new cards on heavy days": recorded once a local day while Home says so.
   useEffect(() => {
     if (!reviewLoad?.paused) return;
@@ -91,7 +117,7 @@ function StudyHome() {
   }, [reviewLoad?.paused, reviewLoad?.load, reviewLoad?.threshold]);
   const dueReaders = useLiveQuery(() => getDueReaders(), []) ?? [];
 
-  const { perDeck, liveTotal } = useMemo(() => {
+  const { perDeck: computedPerDeck, liveTotal } = useMemo(() => {
     const perDeck: Map<string, DeckQueueCounts> = allocateQueueCounts(rawByDeck, 0);
     const liveTotal = sumQueueCounts(allocateQueueCounts(rawByDeck, bonusAll).values());
     for (const reader of dueReaders) {
@@ -102,25 +128,40 @@ function StudyHome() {
     return { perDeck, liveTotal };
   }, [rawByDeck, bonusAll, dueReaders]);
 
-  // Last-known totals from localStorage while the live query loads.
-  const cachedCounts = useState<QueueCounts | null>(() => {
-    try {
-      return JSON.parse(localStorage.getItem(COUNTS_CACHE_KEY) || 'null');
-    } catch {
-      return null;
-    }
-  })[0];
+  // Last-known totals from localStorage until this page load has worked any out.
+  const cached = useState(readCountsCache)[0];
   useEffect(() => {
-    if (!countsLoading) {
-      try { localStorage.setItem(COUNTS_CACHE_KEY, JSON.stringify(liveTotal)); } catch { /* ignore */ }
-    }
-  }, [countsLoading, liveTotal]);
+    if (!countsLoading && stamp) writeCountsCache({ counts: liveTotal, at: stamp.at, day: stamp.day });
+  }, [countsLoading, liveTotal, stamp]);
 
-  const totalCounts: QueueCounts = countsLoading && cachedCounts
-    ? { ...cachedCounts, secondaryNew: cachedCounts.secondaryNew ?? 0 }
+  // Back from Study: the session's own numbers while they are newer than Home's (0 after "All
+  // done"), never the counts from before the session; the recount replaces them when done
+  // (shared/study/homeCounts.ts — docs/STUDY_SESSION.md "Back on Home").
+  const session = useSessionCounts();
+  const today = studyToday();
+  const computedStamp = countsLoading ? (cached ? { at: cached.at, day: cached.day } : null) : stamp;
+  const fromSession = !!session && sessionCountsNewer(session, computedStamp, today);
+  const baseTotal: QueueCounts | null = countsLoading
+    ? (cached ? { ...cached.counts, secondaryNew: cached.counts.secondaryNew ?? 0 } : null)
     : liveTotal;
-  const totalDue = sumDue(totalCounts);
-  const showStudyLoading = countsLoading && !cachedCounts;
+  const perDeck = useMemo(() => {
+    if (!fromSession || !session) return computedPerDeck;
+    const out = new Map<string, DeckQueueCounts>();
+    const ids = new Set([...computedPerDeck.keys(), ...Object.keys(session.byDeck)]);
+    for (const id of ids) {
+      const row = computedPerDeck.get(id);
+      out.set(id, { hasMoreNew: row?.hasMoreNew ?? false, bumped: row?.bumped, ...deckCountsAfterSession(row ?? null, session, id) });
+    }
+    return out;
+  }, [fromSession, session, computedPerDeck]);
+  const totalCounts: QueueCounts | null = fromSession && session
+    ? totalAfterSession(baseTotal, Object.fromEntries(computedPerDeck), session)
+    : baseTotal;
+  const totalDue = totalCounts ? sumDue(totalCounts) : 0;
+  const showStudyLoading = !totalCounts;
+  const bumpedNow = fromSession && session
+    ? bumpedAfterSession(liveTotal.bumped ?? 0, session)
+    : (countsLoading ? 0 : liveTotal.bumped ?? 0);
 
   const overview = useDeckOverview();
   const homework = useHomework(decks);
@@ -159,8 +200,8 @@ function StudyHome() {
         <StudyStreak />
 
         <StudyTodayCard
-          bumped={countsLoading ? 0 : liveTotal.bumped ?? 0}
-          counts={totalCounts}
+          bumped={bumpedNow}
+          counts={totalCounts ?? EMPTY_QUEUE_COUNTS}
           totalDue={totalDue}
           isLoading={showStudyLoading}
           hasSyncedOnce={hasSyncedOnce}

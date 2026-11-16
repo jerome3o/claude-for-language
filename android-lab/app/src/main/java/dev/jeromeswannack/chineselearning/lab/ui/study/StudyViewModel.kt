@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -222,6 +224,20 @@ class StudyViewModel(
             _ui.update { it.copy(showExplainer = pass == null && none && !studyPrefs.explainerSeen) }
         }
         viewModelScope.launch { load(resetRecent = true) }
+        // Home paints the session's numbers the moment Study is left (0 after "All done"), never
+        // the counts it worked out before the session (core HomeCounts, docs/STUDY_SESSION.md "Back on Home").
+        if (practice == null && pass == null) viewModelScope.launch {
+            ui.map { it.counts }.distinctUntilChanged().collect { publishSessionCounts() }
+        }
+    }
+
+    /** The session's queue → [SessionCountsBus] (only once a queue was built; not the practice / pass). */
+    private fun publishSessionCounts() {
+        if (loadedDay.isEmpty()) return
+        val now = System.currentTimeMillis()
+        dev.jeromeswannack.chineselearning.lab.data.study.SessionCountsBus.publish(
+            dev.jeromeswannack.chineselearning.lab.core.HomeCounts.fromSession(today(), now, deckId, queue, reviewedNoteIds, bumpedCardIds),
+        )
     }
 
     private val aiAvailable get() = _ui.value.aiAvailable

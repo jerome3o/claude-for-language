@@ -1,12 +1,12 @@
-import React from 'react';
+import React, { useSyncExternalStore } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   db,
-  getRawQueueCounts,
   type RawQueueCounts,
   DeckQueueRaw,
 } from '../db/database';
 import { syncService } from '../services/sync';
+import { queueCountsSnapshot, subscribeQueueCounts } from '../services/queueCountsStore';
 
 // Hook to get all decks from IndexedDB with background sync
 // Pass apiDecks to detect mismatches and auto-fix via full sync
@@ -107,14 +107,21 @@ export function useOfflineDecks(apiDecks?: { id: string }[]) {
  * serve every view on the page.
  */
 export function useRawQueueCounts() {
-  const raw = useLiveQuery(() => getRawQueueCounts(), []);
+  // ONE shared live count (services/queueCountsStore.ts): a view mounting paints the last result
+  // at once and a fresh count follows.
+  const snap = useSyncExternalStore(subscribeQueueCounts, queueCountsSnapshot, queueCountsSnapshot);
+  const raw = snap?.raw;
   return {
-    byDeck: raw ?? (new Map<string, DeckQueueRaw>() as RawQueueCounts),
+    byDeck: raw ?? EMPTY_RAW,
     isLoading: raw === undefined,
     /** "Pause new cards on heavy days" (shared/decks/review-load.ts): today's load against the limit. */
     reviewLoad: raw?.reviewLoad ?? null,
+    /** When the counts shown were worked out (shared/study/homeCounts.ts — Home vs the session's numbers). */
+    stamp: snap ? { at: snap.at, day: snap.day } : null,
   };
 }
+
+const EMPTY_RAW = new Map<string, DeckQueueRaw>() as RawQueueCounts;
 
 export function usePendingReviewsCount() {
   const count = useLiveQuery(

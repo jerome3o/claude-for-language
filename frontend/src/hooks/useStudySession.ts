@@ -40,7 +40,9 @@ import { ensureDailyReader, syncReadersFromServer, prefetchReaderMedia } from '.
 import { ensureSentenceSetForNote } from '../services/sentence-sets';
 import { readBurySiblings } from '../services/burySiblings';
 import { markDailyActivity, getLocalDateString } from '../api/client';
-import { resumeCardId, studyScope, type StudyResumePoint } from '@shared/study';
+import { resumeCardId, studyScope, countSessionCards, type StudyResumePoint } from '@shared/study';
+import { publishSessionCounts } from '../services/sessionCounts';
+import { studyToday } from '../services/studyDay';
 import { isLeadCard, mixBumpedCard, EAR_LEAD_CARD_TYPE, type LeadCardsArg } from '@shared/decks';
 import { clearResumePoint, loadResumePoint, loadUndoSnapshot, saveUndoSnapshot } from '../services/studyResume';
 import { syncService } from '../services/sync';
@@ -1118,6 +1120,18 @@ export function useStudySession(options: UseStudySessionOptions = {}) {
     }
     return { new: n, secondaryNew: s, learning: l, review: r };
   }, [queue, readerQueue, dailyReaderPending, grammarLesson, grammarPending]);
+
+  // Home paints these the moment Study is left (0 after "All done") instead of the counts it
+  // worked out before the session; its own recount replaces them once done
+  // (shared/study/homeCounts.ts, services/sessionCounts.ts).
+  useEffect(() => {
+    if (!enabled || isLoading) return;
+    const { byDeck } = countSessionCards(queue, reviewedNoteIdsRef.current);
+    const bumpedNotes = new Set(queue.filter(c => bumpedCardIds.has(c.id)).map(c => c.note_id)).size;
+    const at = Date.now();
+    publishSessionCounts({ day: studyToday(at), at, deckId: deckId ?? null, remaining: counts, byDeck, bumpedNotes });
+  }, [enabled, isLoading, counts, queue, bumpedCardIds, deckId]);
+
   const { card: currentCard, note: currentNote, deck: currentDeck } = currentCardState;
   const currentReader = currentCardState.reader ?? null;
   const currentGrammar = currentCardState.grammar ?? null;

@@ -42,6 +42,8 @@ fun NavGraphBuilder.homeGraph(nav: LabNav) {
             )
         } else {
             val vm: HomeViewModel = viewModel(factory = HomeViewModel.Factory(app))
+            // Each time Home comes back (from Study): the session's numbers are already shown; the exact ones follow.
+            androidx.compose.runtime.LaunchedEffect(Unit) { vm.onShown() }
             val ui by vm.ui.collectAsStateWithLifecycle()
             val sync by app.repo.status.collectAsStateWithLifecycle()
             val online by app.online.collectAsStateWithLifecycle()
