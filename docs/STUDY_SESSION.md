@@ -119,6 +119,40 @@ more) and those are cleared too, that is a new finish and it is celebrated again
 reviewed today, and today's review count has grown since the last celebration (so Undo + the same
 rating doesn't count twice). The mark lives in localStorage / SharedPreferences.
 
+### Back on Home
+
+Jerome (Nov 2026): "When I finish my flashcards … it takes me back to the home screen. The home
+screen still shows the previous cached values before I started the study session. And then after a
+little bit of loading, it shows the zeros." Home's counts take a moment to work out (every card, the
+budget, "Order new cards by"), and meanwhile it painted the numbers it had shown BEFORE the session
+(web: the `lastQueueCounts` copy and a fresh count started on every mount; Lab: Home's view model
+recounted only after the next sync — a review never told it — and said "Getting your cards…" while
+that upload sync ran).
+
+Now the session publishes its own numbers whenever they change — what it still has to show, per
+deck, the ⚡ notes left, the study day and the time (`SessionCounts`, `shared/study/homeCounts.ts`;
+web `services/sessionCounts.ts` from `useStudySession`, Lab `data/study/SessionCountsBus.kt` from
+`StudyViewModel`) — and Home paints the **newest** of the two (`sessionCountsNewer`: the session's
+numbers while they are today's and newer than Home's last worked-out counts; a tie goes to Home's —
+they are exact):
+
+- an all-decks session: its numbers are the total, each deck row keeps only the learning / review
+  cards the session still holds of it and never more new cards than before nor than the session has
+  left (`deckCountsAfterSession`), the ⚡ line is the session's (`bumpedAfterSession`);
+- a one-deck session: that deck's row is replaced in the total (`totalAfterSession`);
+- so after "All done" → Done, ✕ or back, Home shows 0 / "✓ Flashcards done" on its first frame,
+  without waiting for a sync, and the exact recount (which reads the data after the session's last
+  change) replaces it when done — never an older count over a newer one.
+
+The web also keeps ONE live count of today's queue for every view (`services/queueCountsStore.ts`:
+Home, the tab bar, Decks, Up next): its last result stays in memory with when it was worked out, a
+view mounting paints it at once and a fresh count follows; the subscription lingers a minute after
+the last view goes, so moving between pages never starts it from nothing. The Lab's Home recounts
+when it comes back with newer session numbers (`HomeViewModel.onShown`), and only the FIRST sync
+(never synced before) makes it say "Getting your cards…". Rule ported to core `HomeCounts.kt`,
+parity-tested (`parity/fixtures/home-counts.ts`); E2E `e2e/tests/home-counts-after-study.spec.ts`
+(the sync routes hang; the old count must never appear after Done).
+
 ### Time: active study time, per day
 
 Study time is how long you were actually studying — not how long a "session" was open.

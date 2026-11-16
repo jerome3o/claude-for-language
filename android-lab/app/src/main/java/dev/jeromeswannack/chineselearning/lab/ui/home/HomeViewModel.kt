@@ -8,7 +8,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.ComputedStamp
+import dev.jeromeswannack.chineselearning.lab.core.HomeCounts
 import dev.jeromeswannack.chineselearning.lab.core.QueueCounts
+import dev.jeromeswannack.chineselearning.lab.core.SessionCounts
+import dev.jeromeswannack.chineselearning.lab.data.StudyDayClock
+import dev.jeromeswannack.chineselearning.lab.data.study.SessionCountsBus
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +44,21 @@ data class HomeUi(
     val reviewLoad: dev.jeromeswannack.chineselearning.lab.core.ReviewLoadState? = null,
 )
 
+/**
+ * Home's numbers with a newer study session's on top (core HomeCounts — port of shared/study/homeCounts.ts):
+ * the total, every deck row, the ⚡ line and today's "cards due".
+ */
+internal fun withSession(base: HomeUi, session: SessionCounts): HomeUi {
+    val rows = base.decks.associate { it.id to it.due }
+    val due = HomeCounts.totalAfterSession(base.due, rows, session)
+    return base.copy(
+        due = due,
+        decks = base.decks.map { it.copy(due = HomeCounts.deckAfterSession(it.due, session, it.id)) },
+        bumped = HomeCounts.bumpedAfterSession(base.bumped, session),
+        today = base.today?.copy(cardsDue = due.total),
+    )
+}
+
 class HomeViewModel(private val app: LabApp) : ViewModel() {
     private val _ui = MutableStateFlow(HomeUi())
     val ui: StateFlow<HomeUi> = _ui
@@ -46,8 +66,15 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
     private val todayData = dev.jeromeswannack.chineselearning.lab.ui.today.TodayData(app)
     private var askedForStory = false
 
+    /** Home's own last counts (before the session's numbers go on top) and when they were worked out. */
+    private var computed: HomeUi? = null
+    private var computedStamp: ComputedStamp? = null
+
     init {
         viewModelScope.launch { app.repo.dataVersion.collect { refresh() } }
+        // Back from Study: the session's numbers at once while they are newer than Home's own
+        // (0 after "All done"), never the counts from before the session (core HomeCounts).
+        viewModelScope.launch { SessionCountsBus.latest.collect { present() } }
         // Today's lessons / story change when one is completed or a sync brings new ones.
         val runtime = dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime.of(app)
         viewModelScope.launch {
@@ -60,14 +87,55 @@ class HomeViewModel(private val app: LabApp) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
             // Never crash Home: on a failure the last numbers stay (logged + reported, CrashLog).
-            app.safely("home load") { withContext(Dispatchers.IO) { load() } }?.let { _ui.value = it }
+            val loaded = app.safely("home load") { withContext(Dispatchers.IO) { load(now) } } ?: return@launch
+            val stamp = ComputedStamp(now, StudyDayClock.todayKey(now))
+            // A load that read the data before the one shown never replaces it.
+            if (computedStamp?.let { it.day == stamp.day && it.at > stamp.at } == true) return@launch
+            computed = loaded
+            computedStamp = stamp
+            present()
         }
     }
 
-    private suspend fun load(): HomeUi {
+    /**
+     * Home is on screen again (back from Study). The session's numbers, when newer than Home's
+     * own, are already shown — work the exact ones out now (today's reviews, the story, …).
+     */
+    fun onShown() {
+        // No counts yet: the first load is already under way (init).
+        if (computedStamp == null || !HomeCounts.sessionNewer(SessionCountsBus.latest.value, computedStamp, StudyDayClock.todayKey())) return
+        // "Nothing due. N reviews today": today's count is one quick query — before the full recount.
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val reviewed = app.safely("home reviews today") {
+                withContext(Dispatchers.IO) {
+                    app.repo.dao.reviewsSince(Js.toIsoString(StudyQueue.startOfDay(now, ZoneId.systemDefault(), StudyDayClock.rolloverHour)))
+                }
+            }
+            val base = computed
+            if (reviewed != null && base != null) {
+                computed = base.copy(reviewedToday = reviewed, today = base.today?.copy(cardsReviewed = reviewed))
+                present()
+            }
+        }
+        refresh()
+    }
+
+    /** Home's own counts, or the session's on top of them while those are newer (core HomeCounts). */
+    private fun present() {
+        val base = computed ?: return
+        val session = SessionCountsBus.latest.value
+        _ui.value = if (session != null && HomeCounts.sessionNewer(session, computedStamp, StudyDayClock.todayKey())) {
+            withSession(base, session)
+        } else {
+            base
+        }
+    }
+
+    private suspend fun load(now: Long): HomeUi {
         val zone = ZoneId.systemDefault()
-        val now = System.currentTimeMillis()
         val dao = app.repo.dao
         val decks = dao.decks()
         val cards = dao.cards().map { it.toQueueCard() }

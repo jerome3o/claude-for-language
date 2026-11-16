@@ -181,7 +181,10 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "hero")
-    val empty = ui.loaded && due.total == 0 && !sync.running
+    // Only the FIRST sync stands between an empty cache and "nothing due" (the web's hasSyncedOnce):
+    // the upload after a session must not turn "All caught up" into "Getting your cards…".
+    val firstSync = sync.running && sync.lastSyncAt == 0L
+    val empty = ui.loaded && due.total == 0 && !firstSync
     // Lab "today split": cards done but the story left → the hero says so (Study → Continue).
     val extras = ui.today?.let { dev.jeromeswannack.chineselearning.lab.core.TodayPlan.extrasPhrase(0, it.readerLeft) }.orEmpty()
     Column(
@@ -198,7 +201,7 @@ private fun StudyHero(ui: HomeUi, sync: SyncStatus, onStudy: () -> Unit) {
         val minutes = Math.max(1, Math.round(due.total * 20 / 60f))
         Text(
             when {
-                !ui.loaded || (sync.running && due.total == 0) -> "Getting your cards…" + (sync.progress?.let { "\n${sync.phase} · $it" } ?: "")
+                !ui.loaded || (firstSync && due.total == 0) ->"Getting your cards…" + (sync.progress?.let { "\n${sync.phase} · $it" } ?: "")
                 empty && extras.isNotEmpty() -> extras.replaceFirstChar { it.uppercase() } + " left"
                 empty -> "Nothing due. ${ui.reviewedToday} reviews today — 很好！"
                 extras.isNotEmpty() -> "${due.total} card${if (due.total == 1) "" else "s"} due · about $minutes min\nthen $extras"
