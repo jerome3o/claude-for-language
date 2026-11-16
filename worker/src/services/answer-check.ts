@@ -23,6 +23,7 @@ import {
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
+import { digitsToHanzi } from '@shared/text/numberHanzi';
 import { tidySpokenTranscript } from '@shared/cards/answer';
 import { structuredCall } from './structured-call';
 import { pinyinProLine } from './pinyin-check';
@@ -48,6 +49,8 @@ Rules:
 - A different but natural word order or wording is right — "correct", with no "but" and no tip about it. E.g. a 因为 clause before the subject (因为这个问题，我睡不着觉) and after it (我因为这个问题睡不着觉) are both natural.
 - Headline and tips agree with the verdict. For "correct" / "acceptable" the headline is plainly positive — no "but", "however" or "should" — unless there is a real, specific problem in the learner's own words, quoted from <learner_answer>. Tips on a right answer are optional extras, never criticism of what they did right.
 - Never write a tip that compares a text with itself ("X reads better than X"), and never recommend the learner's own sentence back to them.
+- State the ACTUAL rule, and keep every line consistent with your own correction: never tell the learner to avoid a word or a combination that your corrected sentence still uses, and never offer the learner's wrong form (or the part of it you are correcting) as an option, a fix or an alternative. E.g. for 三块多元 (two money units stacked): "块 and 元 are both units — use one: 三块多（钱） or 三元多." — NOT "use 钱 or 块 alone, not both" (三块多钱 uses both, and 块钱 is normal) and never "…or 块多元".
+- Numbers: Arabic digits and Chinese numerals are the same (3 = 三, 10 = 十); never fault one for the other, and write numbers in your corrected sentence in Chinese numerals.
 - If the answer was SPOKEN it is a speech-recognition transcript, not their writing — never fault the learner for the recogniser:
   - Ignore punctuation, spacing and sentence breaks COMPLETELY. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
   - Read a wrong character that sounds like the right one (在/再, 他/她, 的/得, homophones) as the right one.
@@ -304,8 +307,10 @@ export function answerCheckUserTurn(input: AnswerCheckInput): string {
 /** Pinyin the app's way (pinyin-pro by word + the 一 / 不 tone changes), never the model's. */
 export function appPinyin(hanzi: string): string {
   if (!hanzi) return '';
+  // Digits are read as numerals (这个牛角包3块多钱 → … sān kuài …): pinyin-pro leaves a digit out.
+  const text = digitsToHanzi(hanzi);
   try {
-    return applyYiBuToneChanges(hanzi, pinyinProLine(hanzi));
+    return applyYiBuToneChanges(text, pinyinProLine(text));
   } catch {
     return '';
   }

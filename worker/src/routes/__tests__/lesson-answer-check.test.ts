@@ -143,9 +143,9 @@ describe('answer check service', () => {
   });
 
   it('the rules changed: old cached checks are never served (the cache text carries the new version)', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(3);
+    expect(ANSWER_CHECK_VERSION).toBe(4);
     expect(MEANING_CHECK_VERSION).toBe(2);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v3\|/);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v4\|/);
   });
 
   it('the learner\'s answer and the model answer are tagged apart, and the prompt says which one is judged', () => {

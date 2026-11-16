@@ -18,7 +18,8 @@
  */
 import type { ReactNode } from 'react';
 import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
-import { answerCheckChip, cleanerVersion, speakingPartMark, tipSegments, type AnswerCheck } from '@shared/lesson/answerCheck';
+import { answerCheckChip, cleanerVersion, correctedDisplay, speakingPartMark, tipSegments, wordsPinyinLine, type AnswerCheck } from '@shared/lesson/answerCheck';
+import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import type { AnswerCheckState } from '../../hooks/useAnswerCheck';
@@ -87,15 +88,7 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel
         </ul>
       )}
       {check.cleaned && <CleanerVersion check={check} speak={speak} />}
-      {check.corrected && !check.cleaned && !hideFix && (
-        <div className="answer-check-fix">
-          <div className="answer-check-fix-line" lang="zh-CN" onClick={speak ? () => speak(check.corrected) : undefined}>
-            <CorrectionDiffLine original={answer} corrected={check.corrected} />
-            {speak && <span className="answer-check-play" aria-label="Play the corrected sentence"> 🔊</span>}
-          </div>
-          {check.corrected_pinyin && <div className="answer-check-pinyin">{check.corrected_pinyin}</div>}
-        </div>
-      )}
+      {check.corrected && !check.cleaned && !hideFix && <CorrectedLine check={check} answer={answer} speak={speak} />}
       {check.tips.length > 0 && (
         <ul className="answer-check-tips">
           {check.tips.map((tip, i) => {
@@ -160,6 +153,26 @@ function CleanerVersion({ check, speak }: { check: AnswerCheck; speak?: (text: s
         {speak && <span className="answer-check-play" aria-label="Play the cleaner version"> 🔊</span>}
       </div>
       {v.pinyin && <div className="answer-check-pinyin">{v.pinyin}</div>}
+    </div>
+  );
+}
+
+/**
+ * Claude's corrected sentence: digits read as Chinese numerals on both sides of the red-pen diff (a spoken 3块 IS 三块 —
+ * never a red 3), and the pinyin made on the device word by word (zhège niújiǎobāo sānkuài …) once the segmenter is
+ * loaded, else the server's line (shared/lesson/answerCheck.ts `correctedDisplay`, `wordsPinyinLine`).
+ */
+function CorrectedLine({ check, answer, speak }: { check: AnswerCheck; answer: string; speak?: (text: string) => void }) {
+  const shown = correctedDisplay(check.corrected);
+  const words = useSegmentedWords(shown);
+  const pinyin = (words && wordsPinyinLine(words)) || check.corrected_pinyin;
+  return (
+    <div className="answer-check-fix">
+      <div className="answer-check-fix-line" lang="zh-CN" onClick={speak ? () => speak(shown) : undefined}>
+        <CorrectionDiffLine original={correctedDisplay(answer)} corrected={shown} />
+        {speak && <span className="answer-check-play" aria-label="Play the corrected sentence"> 🔊</span>}
+      </div>
+      {pinyin && <div className="answer-check-pinyin" data-testid="answer-check-pinyin">{pinyin}</div>}
     </div>
   );
 }

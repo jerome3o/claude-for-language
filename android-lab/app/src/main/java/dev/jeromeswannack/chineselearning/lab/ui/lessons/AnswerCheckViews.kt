@@ -297,9 +297,15 @@ fun AnswerCheckBody(
             check.parts?.takeIf { it.isNotEmpty() }?.let { SpeakingParts(it) }
             if (!check.cleaned.isNullOrEmpty()) CleanerVersionBlock(check, onPlay, compact)
             if (check.corrected.isNotEmpty() && check.cleaned.isNullOrEmpty() && !hideFix) {
-                val diff = remember(answer, check.corrected) { ChatLearning.correctionDiff(answer, check.corrected) }
+                // Digits read as numerals on both sides (a spoken 3块 IS 三块 — never a red 3); the pinyin made on the phone
+                // word by word once the segmenter is loaded, else the server's line (core LessonAnswerCheck.correctedDisplay /
+                // wordsPinyinLine, web AnswerCheckCard `CorrectedLine`).
+                val shown = remember(check.corrected) { LessonAnswerCheck.correctedDisplay(check.corrected) }
+                val diff = remember(answer, shown) { ChatLearning.correctionDiff(LessonAnswerCheck.correctedDisplay(answer), shown) }
+                val words = dev.jeromeswannack.chineselearning.lab.data.text.DeviceWords.of(shown)
+                val pinyin = words?.let { w -> LessonAnswerCheck.wordsPinyinLine(w.map { it.text to it.pinyin }) }?.ifEmpty { null } ?: check.correctedPinyin
                 Column(
-                    Modifier.fillMaxWidth().then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(check.corrected) } else Modifier),
+                    Modifier.fillMaxWidth().then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(shown) } else Modifier),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Row { Text("✗ ", color = Palette.Again.copy(alpha = 0.8f)); DiffLine(diff.original, added = false, fontSize = if (compact) 15.sp else 16.sp, base = Lab.colors.muted) }
@@ -308,7 +314,7 @@ fun AnswerCheckBody(
                         DiffLine(diff.corrected, added = true, fontSize = if (compact) 17.sp else 20.sp)
                         if (onPlay != null) Text(" 🔊", fontSize = 16.sp)
                     }
-                    if (check.correctedPinyin.isNotEmpty()) Text(check.correctedPinyin, color = Lab.colors.accent, fontSize = 14.sp)
+                    if (pinyin.isNotEmpty()) Text(pinyin, color = Lab.colors.accent, fontSize = 14.sp)
                 }
             }
             for (tip in check.tips) {
