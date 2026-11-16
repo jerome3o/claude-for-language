@@ -68,8 +68,13 @@ import java.io.File
 
 @Composable
 fun NoteView(ex: NoteExercise, env: ExerciseEnv, onNext: () -> Unit) {
-    // Listen-first: the first example plays right away.
-    LaunchedEffect(Unit) { ex.sentences?.firstOrNull()?.let { env.speak(it.hanzi) } }
+    // Nothing plays by itself on a note (Jerome, Nov 2026): a tap plays an example.
+    // Grammar structures — the note's own patterns, or ones read from older free text — are cards.
+    val structures = remember(ex) { dev.jeromeswannack.chineselearning.lab.core.LessonPatterns.noteView(ex.body, ex.sentences, ex.patterns) }
+    if (structures != null) {
+        StructureCardsView(ex.title, structures, env, onNext)
+        return
+    }
     ex.title?.takeIf { it.isNotBlank() }?.let { PhaseLabel(it) }
     ex.body?.takeIf { it.isNotBlank() }?.let { body ->
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -358,7 +363,7 @@ private fun MatchItem(text: String, sub: String?, state: OptionState, big: Boole
 
 /** A cached / downloaded R2 image file by key (null while loading or unavailable). */
 @Composable
-private fun rememberImageFile(key: String?, env: ExerciseEnv): File? {
+internal fun rememberImageFile(key: String?, env: ExerciseEnv): File? {
     val first = remember(key) { env.cachedImage(key) }
     val loaded by produceState(first, key) { if (value == null) value = env.image(key) }
     return loaded

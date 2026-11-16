@@ -739,6 +739,62 @@ card** and the **Mini Lessons page** (`/lessons`); `/lessons/:id/play?from=&mode
 (`LESSON_MIX_INTERVAL`, `pickTodaysLessons`), "New lessons a day" and the Settings → "Lessons &
 readers" section are gone (the server still accepts their old settings / events from older apps).
 
+### Structure cards (`shared/lesson/pattern.ts`; Lab `core/…/LessonPatterns.kt`, parity-tested)
+
+Jerome (Nov 2026), on a lesson's opening "All structures" note — five "① 除了 + 名词／动词短语 +（以外），主语 +
+还 + 动词 / Besides + … / → besides A, also B" lines, then the examples, one of them auto-playing: *"a wall of text …
+I don't really read them … pretty bleak"*. A note's grammar structures are now **cards, one per screen**:
+
+- **The pattern as pieces**: a FIXED word of the structure (除了, 还, 起来了) is a solid chip in the strong colour
+  with its pinyin / gloss under it; a SLOT the learner fills is a dashed, tinted box with its English label
+  ("Noun / Verb phrase") and the Chinese term (名词／动词短语) — each slot its own colour (`pieceTones`: every fixed
+  word `fixed`, slots `s0`…`s4` by order, punctuation `punct`); an optional piece is dashed and says OPTIONAL. The
+  pieces settle in one after another (none under reduced motion).
+- **The meaning** in one line ("= besides A, also B"), an optional **picture** (`image_prompt`, the lesson-images
+  pipeline: "Drawing the picture…" then the picture, one per prompt shared by every copy).
+- **The examples BIG**, each part coloured like the piece it fills (a fixed part bold, a slot's part underlined —
+  shapes as well as colours: Jerome is red / green colour-blind, so no red-vs-green pairs), pinyin + English
+  smaller; **▶ plays it** and lights its parts up in turn. **Nothing plays by itself on a note** any more (the old
+  "hear the first example" autoplay is gone on both apps, plain notes too). Every part is tappable into the
+  language explorer.
+- Under the examples, the structure's note: headings ("Usage", "Common mistake"), paragraphs, and "✗ …" / "✓ …"
+  lines as crossed-out / right rows (`noteTextBlocks`).
+- Progress dots (tap to jump), swipe, ‹ Back / Next structure ›, Continue on the last; sentences that belong to no
+  structure come after the last card as "More examples". Analytics `lesson.structure_card` (action open / next /
+  back / dot / swipe / play / done, source spec / parsed, index, count).
+
+**Where the cards come from** (`structureNoteView`, the one rule both apps use):
+1. **The note's `patterns`** (spec, below) — what every lesson-writing Claude now writes (`STRUCTURE_RULE` in
+   `LESSON_SPEC_DOC`).
+2. **Older lessons' free text**, parsed deterministically: a line with "+" / "＋" between pieces (① / 1. / - numbering
+   stripped) is a structure — a Chinese grammar term (名词, 动词, 形容词, 量词, 主语, 动词短语, 整十数, 个位数, 地点, …, any
+   …词 / …短语) or a Latin shorthand (V, Adj, N, Subj, sb, MW…) is a slot, other Chinese is a fixed word, "／"
+   separates alternatives, （…） is optional, a comma inside a piece is its own piece; the English line under it
+   (mostly Latin, the same number of "+" pieces) labels the slots and glosses the fixed words, a "→ …" line is the
+   meaning, the following text (usage, ✗ / ✓) belongs to that card. The note's sentences are matched to the
+   structures — in order when there is one per structure and each fits, else each to the structure it fits best,
+   a lone structure takes them all — and coloured by **aligning** them (`alignPatternExample`: the fixed words found
+   in order, every placement of a repeated one tried and the best fit kept; the stretches between them go to the slots
+   — a number slot takes a run of numerals, a measure-word slot one measure word, a slot before the first fixed word
+   the predicate after the subject, a slot after the last one the words up to the punctuation less a final 吗 / 了).
+   Anything it doesn't understand renders exactly as before (null = plain note, never worse).
+
+**Spec** (optional on `note`; older apps ignore it and show `body` / `sentences`): `patterns: [{ name?, pieces:
+[{ hanzi, pinyin?, english?, optional? } | { slot, zh?, optional? }] (2–12, ≥ 1 non-optional fixed word), meaning?,
+examples?: [{ hanzi, pinyin?, english?, parts?: [{ text, piece? }] }] (≤ 4; parts concatenate to the hanzi exactly,
+`piece` = the index of the piece it fills), note?, image_prompt?, image_url? }] (1–8)`. `validateLessonSpec` checks
+it; examples without (or with broken) `parts` are aligned on the device. The pinyin check walks it like any hanzi /
+pinyin pair; `exerciseTtsTexts` / `lessonAudioClips` include the examples (prefetched, pre-generated); exports print
+"**除了…还…:** 除了 + [Noun] + (以外) + ， + …", the meaning and the examples; JSON export drops `image_url`. Editors:
+web `components/editor/PatternsField.tsx` / Lab `ExerciseForms.kt` — the pattern typed as one line in the same "+"
+syntax (read back by the parser, glosses kept), a live chip preview, slot labels / glosses, meaning, examples
+(coloured automatically), note, picture. Catalogue sample: the 把 sentence (two structures, one with a picture).
+
+Web `components/lessons/StructureCards.tsx` (+ `.css`, colour tokens with a `data-theme="dark"` set); Lab
+`ui/lessons/StructureCards.kt`. Tests: `shared/lesson/pattern.test.ts` (the real five-structure note as a fixture,
+`shared/lesson/__fixtures__/structures.ts`), parity `android-lab/parity/fixtures/lesson-patterns.ts` →
+`LessonPatternsParityTest`, e2e `lesson-structure-cards.spec.ts`, Roborazzi `structure-cards-01…05`.
+
 ### Judge each sentence / Choose the word (`shared/lesson/judgeGap.ts`; Lab `core/…/JudgeGap.kt`, parity-tested)
 
 Jerome (Oct 2026): lessons kept asking "which sentence in this list is wrong?" — one pick from a list. Two

@@ -8,6 +8,9 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import dev.jeromeswannack.chineselearning.lab.core.JudgeGap
+import dev.jeromeswannack.chineselearning.lab.core.LessonJson
+import dev.jeromeswannack.chineselearning.lab.core.LessonPattern
+import dev.jeromeswannack.chineselearning.lab.core.LessonPatterns
 
 /**
  * Port of shared/lesson/export.ts: Markdown (teaching notes + numbered exercises + answer key),
@@ -54,6 +57,14 @@ object LessonExport {
         "note" -> buildList {
             if (t(ex, "title")) addAll(listOf("**${s(ex, "title")}**", ""))
             if (t(ex, "body")) addAll(listOf(s(ex, "body"), ""))
+            for (pj in objs(ex, "patterns")) {
+                val p = LessonJson.decodeFromJsonElement(LessonPattern.serializer(), pj)
+                add("**${LessonPatterns.patternName(p).ifEmpty { "Structure" }}:** ${LessonPatterns.patternLine(p.pieces)}")
+                if (t(pj, "meaning")) add("→ ${s(pj, "meaning")}")
+                for (e in objs(pj, "examples")) add("- ${sentenceLine(e)}")
+                if (t(pj, "note")) addAll(listOf("", s(pj, "note")))
+                add("")
+            }
             for (x in objs(ex, "sentences")) add("- ${sentenceLine(x)}")
         }
         "scramble" -> listOf(
@@ -232,7 +243,12 @@ object LessonExport {
             val sec = section as? JsonObject ?: return@map section
             val exercises = sec["exercises"] as? JsonArray ?: return@map sec
             sec.with("exercises", JsonArray(exercises.map { ex ->
-                if (ex is JsonObject && str(ex["type"]) == "describe_image") ex.without("image_url") else ex
+                when {
+                    ex is JsonObject && str(ex["type"]) == "describe_image" -> ex.without("image_url")
+                    ex is JsonObject && str(ex["type"]) == "note" && ex["patterns"] is JsonArray ->
+                        ex.with("patterns", JsonArray((ex["patterns"] as JsonArray).map { p -> if (p is JsonObject) p.without("image_url") else p }))
+                    else -> ex
+                }
             }))
         }))
     }
@@ -254,7 +270,10 @@ object LessonExport {
         fun addSentence(x: JsonObject?) { if (x != null) add(x["hanzi"], x["english"], x["pinyin"]) }
         for (section in objs(spec, "sections")) for (ex in objs(section, "exercises")) when (str(ex["type"])) {
             "match" -> objs(ex, "pairs").forEach { add(it["hanzi"], it["english"], it["pinyin"]) }
-            "note" -> objs(ex, "sentences").forEach(::addSentence)
+            "note" -> {
+                objs(ex, "patterns").forEach { p -> objs(p, "examples").forEach(::addSentence) }
+                objs(ex, "sentences").forEach(::addSentence)
+            }
             "translate" -> add(ex["reference_hanzi"], ex["english"], ex["reference_pinyin"])
             "choice" -> addSentence(optionAt(ex, intAt(ex, "correct")))
             "scramble" -> add(JsJson.s(a(ex, "correct_order").joinToString("") { JsJson.jsString(it) }), ex["english"])

@@ -23,6 +23,60 @@ export interface NoteExercise {
   /** Explanation / teaching text. Plain text with blank-line paragraphs. */
   body?: string;
   sentences?: LessonSentence[];
+  /** Grammar structures shown as designed "pattern cards" (one per screen): the
+   * pattern as coloured pieces, its meaning, examples coloured piece by piece.
+   * Older apps ignore it and show body / sentences. See shared/lesson/pattern.ts. */
+  patterns?: LessonPattern[];
+}
+
+/** One piece of a grammar pattern: a FIXED word of the structure (除了, 还, 起来了 —
+ * `hanzi`) or a SLOT the learner fills (a noun, a verb… — `slot`, a short English
+ * label). Exactly one of `hanzi` / `slot`. */
+export interface PatternPiece {
+  /** A fixed word of the pattern, e.g. 除了. Punctuation (，) is a fixed piece too. */
+  hanzi?: string;
+  /** The fixed word's pinyin. */
+  pinyin?: string;
+  /** The fixed word's short English gloss ("besides"). */
+  english?: string;
+  /** A slot's English label: "Noun", "Verb phrase", "Subject", "Round number". */
+  slot?: string;
+  /** A slot's Chinese grammar term (名词, 动词短语, 主语). */
+  zh?: string;
+  /** Can be left out (（以外）, （不）). */
+  optional?: boolean;
+}
+
+/** An example's hanzi cut into parts; `piece` = the index of the pattern piece it
+ * fills (absent = plain text — punctuation, words outside the pattern). The parts
+ * concatenate to the example's hanzi exactly. */
+export interface PatternExamplePart {
+  text: string;
+  piece?: number;
+}
+
+/** An example of a pattern; `parts` maps it onto the pattern's pieces (colours).
+ * Without `parts` the app aligns it itself (best effort, `alignPatternExample`). */
+export interface PatternExample extends LessonSentence {
+  parts?: PatternExamplePart[];
+}
+
+/** A grammar structure taught as a pattern card. */
+export interface LessonPattern {
+  /** Short name, e.g. "除了…还…". */
+  name?: string;
+  /** The pattern in order (2-12 pieces, at least one fixed word). */
+  pieces: PatternPiece[];
+  /** What it means, one line: "besides A, also B". */
+  meaning?: string;
+  /** 1-4 examples, ideally with `parts`. */
+  examples?: PatternExample[];
+  /** One or two short lines: the rule to remember / the common mistake ("✗ … / ✓ …" lines are styled). */
+  note?: string;
+  /** Optional illustration (English scene description, no text in the image) — only when a scene really helps. */
+  image_prompt?: string;
+  /** R2 key of the generated illustration; filled in by the server. */
+  image_url?: string | null;
 }
 
 /** Arrange the tiles into the correct sentence. English starts hidden and is
@@ -368,6 +422,7 @@ export function exerciseTtsTexts(ex: LessonExercise): string[] {
   const texts: string[] = [];
   switch (ex.type) {
     case 'note':
+      for (const p of ex.patterns ?? []) for (const e of p.examples ?? []) texts.push(e.hanzi);
       for (const s of ex.sentences ?? []) texts.push(s.hanzi);
       break;
     case 'scramble':

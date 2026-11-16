@@ -7,6 +7,7 @@
 
 import { CustomLessonSpec, LessonExercise, LessonSentence, gapCount } from './types';
 import { normalizeHanziAnswer } from './answer-check';
+import { isPunctuation } from './pattern';
 
 const MAX_SECTIONS = 20;
 const MAX_EXERCISES = 50;
@@ -23,6 +24,9 @@ const MAX_JUDGE_SENTENCES = 8;
 const MIN_GAP_ITEMS = 2;
 const MAX_GAP_ITEMS = 8;
 const MAX_GAP_OPTIONS = 4;
+const MAX_PATTERNS = 8;
+const MAX_PATTERN_PIECES = 12;
+const MAX_PATTERN_EXAMPLES = 4;
 
 /** Every exercise type the validator accepts, in catalogue order. */
 export const EXERCISE_TYPE_IDS = [
@@ -58,6 +62,73 @@ function sameMultiset(a: string[], b: string[]): boolean {
   return true;
 }
 
+/** A note's grammar patterns (shared/lesson/pattern.ts). */
+function checkPatterns(patterns: unknown, where: string, errors: string[]): void {
+  if (!Array.isArray(patterns) || patterns.length < 1 || patterns.length > MAX_PATTERNS) {
+    errors.push(`${where}: "patterns" must be a list of 1-${MAX_PATTERNS} structures`);
+    return;
+  }
+  patterns.forEach((p, i) => {
+    const w = `${where}.patterns[${i}]`;
+    if (!isRecord(p)) {
+      errors.push(`${w}: expected a pattern object`);
+      return;
+    }
+    const pieces = p.pieces as unknown;
+    let pieceCount = 0;
+    if (!Array.isArray(pieces) || pieces.length < 2 || pieces.length > MAX_PATTERN_PIECES) {
+      errors.push(`${w}: "pieces" must be 2-${MAX_PATTERN_PIECES} pieces`);
+    } else {
+      pieceCount = pieces.length;
+      let anchored = false;
+      pieces.forEach((piece, k) => {
+        const pw = `${w}.pieces[${k}]`;
+        const fixed = isRecord(piece) && nonEmptyString(piece.hanzi);
+        const slot = isRecord(piece) && nonEmptyString(piece.slot);
+        if (fixed === slot) {
+          errors.push(`${pw}: a piece is either a fixed word {hanzi} or a slot {slot} (an English label like "Noun")`);
+          return;
+        }
+        const rec = piece as Record<string, unknown>;
+        if (rec.optional !== undefined && typeof rec.optional !== 'boolean') {
+          errors.push(`${pw}: "optional" must be true or false`);
+        }
+        if (fixed && rec.optional !== true && !isPunctuation(rec.hanzi as string)) anchored = true;
+      });
+      if (!anchored) errors.push(`${w}: a pattern needs at least one fixed word (e.g. 除了) that is not optional`);
+    }
+    for (const field of ['name', 'meaning', 'note'] as const) {
+      if (p[field] !== undefined && typeof p[field] !== 'string') errors.push(`${w}: "${field}" must be text`);
+    }
+    if (p.image_prompt !== undefined && !nonEmptyString(p.image_prompt)) {
+      errors.push(`${w}: "image_prompt" must be a non-empty scene description`);
+    }
+    const examples = p.examples as unknown;
+    if (examples === undefined) return;
+    if (!Array.isArray(examples) || examples.length > MAX_PATTERN_EXAMPLES) {
+      errors.push(`${w}: "examples" must be a list of up to ${MAX_PATTERN_EXAMPLES} sentences`);
+      return;
+    }
+    examples.forEach((e, j) => {
+      const ew = `${w}.examples[${j}]`;
+      checkSentence(e, ew, errors);
+      if (!isRecord(e) || e.parts === undefined) return;
+      const parts = e.parts as unknown;
+      const ok = Array.isArray(parts) && parts.length > 0 && parts.every((part) =>
+        isRecord(part) && typeof part.text === 'string' && part.text.length > 0
+        && (part.piece === undefined || (typeof part.piece === 'number' && Number.isInteger(part.piece) && part.piece >= 0 && part.piece < pieceCount)));
+      if (!ok) {
+        errors.push(`${ew}.parts: each part needs "text" and an optional "piece" (an index into "pieces")`);
+        return;
+      }
+      const joined = (parts as Array<{ text: string }>).map((part) => part.text).join('');
+      if (typeof e.hanzi === 'string' && joined !== e.hanzi) {
+        errors.push(`${ew}.parts must spell the example's hanzi exactly (got "${joined}")`);
+      }
+    });
+  });
+}
+
 function checkExercise(ex: unknown, where: string, errors: string[]): void {
   if (!isRecord(ex)) {
     errors.push(`${where}: expected an exercise object`);
@@ -68,12 +139,14 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
       const sentences = ex.sentences as unknown;
       const hasBody = nonEmptyString(ex.body);
       const hasSentences = Array.isArray(sentences) && sentences.length > 0;
-      if (!hasBody && !hasSentences) {
-        errors.push(`${where}: note needs "body" text and/or "sentences"`);
+      const hasPatterns = Array.isArray(ex.patterns) && ex.patterns.length > 0;
+      if (!hasBody && !hasSentences && !hasPatterns) {
+        errors.push(`${where}: note needs "body" text, "sentences" and/or "patterns"`);
       }
       if (Array.isArray(sentences)) {
         sentences.forEach((s, i) => checkSentence(s, `${where}.sentences[${i}]`, errors));
       }
+      if (ex.patterns !== undefined) checkPatterns(ex.patterns, where, errors);
       break;
     }
     case 'scramble': {

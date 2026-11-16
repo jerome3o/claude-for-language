@@ -39,7 +39,13 @@ sealed interface LessonExercise {
 }
 
 @Serializable
-data class NoteExercise(val title: String? = null, val body: String? = null, val sentences: List<LessonSentence>? = null) : LessonExercise {
+data class NoteExercise(
+    val title: String? = null,
+    val body: String? = null,
+    val sentences: List<LessonSentence>? = null,
+    /** Grammar structures as pattern cards (LessonPatterns, shared/lesson/pattern.ts). */
+    val patterns: List<LessonPattern>? = null,
+) : LessonExercise {
     override val type get() = "note"
 }
 
@@ -374,7 +380,10 @@ object Lessons {
     fun exerciseTtsTexts(ex: LessonExercise): List<String> {
         val texts = ArrayList<String>()
         when (ex) {
-            is NoteExercise -> ex.sentences.orEmpty().forEach { texts += it.hanzi }
+            is NoteExercise -> {
+                ex.patterns.orEmpty().forEach { p -> p.examples.orEmpty().forEach { texts += it.hanzi } }
+                ex.sentences.orEmpty().forEach { texts += it.hanzi }
+            }
             is ScrambleExercise -> texts += ex.correctOrder.joinToString("")
             is ChoiceExercise -> ex.options.forEach { texts += it.hanzi }
             is TranslateExercise -> texts += ex.referenceHanzi

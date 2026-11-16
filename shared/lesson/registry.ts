@@ -46,7 +46,7 @@ export const EXERCISE_TYPE_INFO: Record<ExerciseType, ExerciseTypeInfo> = {
   note: {
     type: 'note', icon: '📖', name: 'Note', label: 'note', skill: 'teaching',
     summary: 'Teaching text with example sentences (has audio). Not scored.',
-    description: 'Explains a point in a few short paragraphs, with example sentences the learner can tap to hear. Open a lesson with one, or put one before each new idea.',
+    description: 'Explains a point with example sentences the learner can tap to hear. Grammar structures become pattern cards — one per screen: the fixed words and the slots in colour, the meaning, examples coloured to match. Open a lesson with one, or put one before each new idea.',
     checking: 'Not scored — the learner reads and continues.',
   },
   scramble: {

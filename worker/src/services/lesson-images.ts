@@ -200,7 +200,7 @@ export async function applyLessonImageToLesson(db: D1Database, lessonId: string,
 /** Write a ready picture into every lesson (any user) still waiting for it. Returns rows updated. */
 export async function applyLessonImageEverywhere(db: D1Database, prompt: string, key: string): Promise<number> {
   const { results } = await db
-    .prepare(`SELECT id, spec FROM custom_lessons WHERE instr(spec, '"describe_image"') > 0 AND instr(spec, '"image_prompt"') > 0`)
+    .prepare(`SELECT id, spec FROM custom_lessons WHERE instr(spec, '"image_prompt"') > 0`)
     .all<{ id: string; spec: string }>();
   let updated = 0;
   for (const row of results ?? []) {
@@ -316,11 +316,11 @@ export interface TopUpResult {
  */
 export async function topUpLessonImages(env: ImageEnv, userId: string | null): Promise<TopUpResult> {
   const lessonRows = userId
-    ? (await env.DB.prepare(`SELECT id, spec FROM custom_lessons WHERE user_id = ? AND instr(spec, '"describe_image"') > 0`).bind(userId).all<{ id: string; spec: string }>()).results ?? []
-    : (await env.DB.prepare(`SELECT id, spec FROM custom_lessons WHERE instr(spec, '"describe_image"') > 0`).all<{ id: string; spec: string }>()).results ?? [];
+    ? (await env.DB.prepare(`SELECT id, spec FROM custom_lessons WHERE user_id = ? AND instr(spec, '"image_prompt"') > 0`).bind(userId).all<{ id: string; spec: string }>()).results ?? []
+    : (await env.DB.prepare(`SELECT id, spec FROM custom_lessons WHERE instr(spec, '"image_prompt"') > 0`).all<{ id: string; spec: string }>()).results ?? [];
   const libraryRows = userId
-    ? (await env.DB.prepare(`SELECT spec FROM lesson_library WHERE owner_id = ? AND archived_at IS NULL AND instr(spec, '"describe_image"') > 0`).bind(userId).all<{ spec: string }>()).results ?? []
-    : (await env.DB.prepare(`SELECT spec FROM lesson_library WHERE archived_at IS NULL AND instr(spec, '"describe_image"') > 0`).all<{ spec: string }>()).results ?? [];
+    ? (await env.DB.prepare(`SELECT spec FROM lesson_library WHERE owner_id = ? AND archived_at IS NULL AND instr(spec, '"image_prompt"') > 0`).bind(userId).all<{ spec: string }>()).results ?? []
+    : (await env.DB.prepare(`SELECT spec FROM lesson_library WHERE archived_at IS NULL AND instr(spec, '"image_prompt"') > 0`).all<{ spec: string }>()).results ?? [];
 
   const byNorm = new Map<string, string>();
   const add = (p: string) => { const n = normalizeImagePrompt(p); if (!byNorm.has(n)) byNorm.set(n, p); };

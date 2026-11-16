@@ -14,6 +14,7 @@ import { getEditableLesson, getLibraryItem } from '../../api/lessonEditor';
 import type { EditorTargetType } from '../../types/lessonEditor';
 import { Loading, ErrorMessage } from '../../components/Loading';
 import './LessonPrintPage.css';
+import { patternLine, patternName } from '@shared/lesson/pattern';
 
 function letter(i: number): string {
   return String.fromCharCode(65 + i);
@@ -36,6 +37,14 @@ function Body({ ex }: { ex: LessonExercise }) {
         <div className="pr-note">
           {ex.title && <div className="pr-note-title">{ex.title}</div>}
           {ex.body && ex.body.split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)}
+          {ex.patterns?.map((pt, i) => (
+            <div key={`p${i}`} className="pr-pattern">
+              <p><strong>{patternName(pt) || 'Structure'}:</strong> {patternLine(pt.pieces)}</p>
+              {pt.meaning && <p>→ {pt.meaning}</p>}
+              {pt.examples?.map((s, k) => <div key={k} className="pr-line"><Sentence {...s} /></div>)}
+              {pt.note && pt.note.split('\n').map((l, k) => <p key={`n${k}`}>{l}</p>)}
+            </div>
+          ))}
           {ex.sentences?.map((s, i) => <div key={i} className="pr-line"><Sentence {...s} /></div>)}
         </div>
       );

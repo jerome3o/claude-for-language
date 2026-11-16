@@ -119,6 +119,7 @@ For detailed setup instructions, see [docs/SETUP.md](./docs/SETUP.md).
 │   │   ├── types.ts       # Lesson spec (sections of exercises, 17 exercise types)
 │   │   ├── registry.ts    # One entry per exercise type (name, icon, skill, how it's checked) — every type list reads it
 │   │   ├── doc.ts         # LESSON_SPEC_DOC: the spec text every lesson-authoring Claude reads (worker + MCP)
+│   │   ├── pattern.ts     # Structure cards (docs/STUDY_SESSION.md "Structure cards"): a note's `patterns` (fixed words + slots, meaning, examples mapped by `parts`), the parser that reads older free-text structures ("① 除了 + 名词 +（以外），主语 + 还 + 动词") into the same cards + matches / aligns their sentences, colour roles (`pieceTones`), ✗ / ✓ text blocks — Lab core LessonPatterns.kt, parity-tested
 │   │   ├── samples.ts     # Bundled sample lesson per type (tutor catalogue)
 │   │   ├── voices.ts      # Conversation voices: curated MiniMax catalogue (default_on), enabled pools, per-dialogue rotation (conversationVoicesFor), 0.9× speed + 200 ms turn gap
 │   │   ├── conversationAudio.ts # Conversation audio prefs (speed / delivery / voices per provider, per-conversation choices), resolveConversationAudio — docs/AUDIO.md "Conversation audio"
@@ -1625,7 +1626,7 @@ add-as-card goes through `POST /api/decks/:id/notes` (content service). E2E seed
 ### Custom mini lessons (agent-authored; Home's homework card + the Mini Lessons page)
 The generalized successor to the fixed-phase grammar lesson: a **schema-driven lesson**
 (`shared/lesson`) that agents author — sections in any order, each holding any number of
-exercises of any type. Exercise types: `note` (teaching text + example sentences with TTS),
+exercises of any type. Exercise types: `note` (teaching text + example sentences with TTS; grammar structures as `patterns` → structure cards, one per screen, nothing auto-plays — `shared/lesson/pattern.ts`),
 `scramble` (word order), `choice` (multiple choice), `translate` (EN→ZH, self-assessed),
 `match` (connect hanzi↔English pairs), `describe_image` (an illustration is generated from
 `image_prompt` via the image queue; the learner describes it aloud, self-assessed),

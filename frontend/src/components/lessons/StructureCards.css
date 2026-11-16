@@ -1,0 +1,376 @@
+/* Structure cards (components/lessons/StructureCards.tsx). Colours are tokens: one strong colour for
+   every fixed word, one per slot (s0…s4), redefined for the dark set. No red-vs-green pairs (Jerome is
+   red / green colour-blind): shapes carry the roles too — fixed = solid chip / bold, slot = dashed box /
+   underlined part. */
+.structure-note {
+  --sc-fixed: #dc2626;
+  --sc-fixed-ink: #ffffff;
+  --sc-card: #ffffff;
+  --sc-card-edge: #f1e4e2;
+  --sc-ink: #1f2937;
+  --sc-muted: #6b7280;
+  --sc-s0: #2563eb;
+  --sc-s0-soft: rgba(37, 99, 235, 0.09);
+  --sc-s1: #7c3aed;
+  --sc-s1-soft: rgba(124, 58, 237, 0.09);
+  --sc-s2: #0e7490;
+  --sc-s2-soft: rgba(14, 116, 144, 0.1);
+  --sc-s3: #be185d;
+  --sc-s3-soft: rgba(190, 24, 93, 0.09);
+  --sc-s4: #a16207;
+  --sc-s4-soft: rgba(161, 98, 7, 0.1);
+  --sc-wrong: #b91c1c;
+  --sc-wrong-soft: rgba(220, 38, 38, 0.07);
+  --sc-right: #15803d;
+  --sc-right-soft: rgba(34, 197, 94, 0.09);
+}
+
+:root[data-theme='dark'] .structure-note {
+  --sc-fixed: #f87171;
+  --sc-fixed-ink: #1c1c20;
+  --sc-card: #1c1c20;
+  --sc-card-edge: #2c2c33;
+  --sc-ink: #f3f4f6;
+  --sc-muted: #a1a1aa;
+  --sc-s0: #60a5fa;
+  --sc-s0-soft: rgba(96, 165, 250, 0.14);
+  --sc-s1: #a78bfa;
+  --sc-s1-soft: rgba(167, 139, 250, 0.14);
+  --sc-s2: #22d3ee;
+  --sc-s2-soft: rgba(34, 211, 238, 0.13);
+  --sc-s3: #f472b6;
+  --sc-s3-soft: rgba(244, 114, 182, 0.14);
+  --sc-s4: #fbbf24;
+  --sc-s4-soft: rgba(251, 191, 36, 0.14);
+  --sc-wrong: #f87171;
+  --sc-wrong-soft: rgba(248, 113, 113, 0.1);
+  --sc-right: #4ade80;
+  --sc-right-soft: rgba(74, 222, 128, 0.1);
+}
+
+.sc-deck {
+  touch-action: pan-y;
+}
+
+.sc-card {
+  background: var(--sc-card);
+  border: 1px solid var(--sc-card-edge);
+  border-radius: 20px;
+  padding: 1.1rem 1rem 1.2rem;
+  box-shadow: 0 6px 18px rgba(17, 24, 39, 0.06);
+  color: var(--sc-ink);
+  animation: sc-card-in 280ms ease-out both;
+}
+
+.sc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.sc-marker {
+  font-size: 1.15rem;
+  color: var(--sc-fixed);
+  font-weight: 700;
+}
+.sc-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.sc-count {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--sc-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The pattern: fixed words as solid chips, slots as dashed tinted boxes. */
+.sc-pattern {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.45rem;
+}
+.sc-piece {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 3.1rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 12px;
+  line-height: 1.15;
+  text-align: center;
+}
+.sc-fixed {
+  background: var(--sc-fixed);
+  color: var(--sc-fixed-ink);
+}
+.sc-fixed-zh {
+  font-size: 1.45rem;
+  font-weight: 700;
+}
+.sc-fixed-gloss {
+  font-size: 0.68rem;
+  opacity: 0.9;
+  margin-top: 0.15rem;
+}
+.sc-slot {
+  border: 2px dashed currentColor;
+  background: var(--sc-slot-soft);
+  color: var(--sc-slot);
+}
+.sc-slot-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.sc-slot-zh {
+  font-size: 0.72rem;
+  opacity: 0.8;
+  margin-top: 0.1rem;
+}
+.sc-opt {
+  opacity: 0.72;
+}
+.sc-fixed.sc-opt {
+  background: transparent;
+  color: var(--sc-fixed);
+  border: 2px dashed var(--sc-fixed);
+}
+.sc-opt::after {
+  content: 'optional';
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 0.1rem;
+}
+.sc-punct {
+  align-self: center;
+  font-size: 1.4rem;
+  color: var(--sc-muted);
+}
+
+.sc-tone-s0 { --sc-slot: var(--sc-s0); --sc-slot-soft: var(--sc-s0-soft); }
+.sc-tone-s1 { --sc-slot: var(--sc-s1); --sc-slot-soft: var(--sc-s1-soft); }
+.sc-tone-s2 { --sc-slot: var(--sc-s2); --sc-slot-soft: var(--sc-s2-soft); }
+.sc-tone-s3 { --sc-slot: var(--sc-s3); --sc-slot-soft: var(--sc-s3-soft); }
+.sc-tone-s4 { --sc-slot: var(--sc-s4); --sc-slot-soft: var(--sc-s4-soft); }
+
+.sc-meaning {
+  margin: 0.9rem 0 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+  color: var(--sc-ink);
+}
+.sc-meaning::before {
+  content: '= ';
+  color: var(--sc-muted);
+}
+
+.sc-picture {
+  margin-top: 0.9rem;
+}
+.sc-picture .describe-image {
+  border-radius: 14px;
+}
+
+/* Examples: big, each part coloured like the piece it fills. */
+.sc-examples {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.sc-example {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--sc-card-edge);
+}
+.sc-play {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--sc-fixed);
+  color: var(--sc-fixed-ink);
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
+}
+.sc-play:active {
+  transform: scale(0.94);
+}
+.sc-example-body {
+  min-width: 0;
+}
+.sc-example-zh {
+  font-size: 1.75rem;
+  line-height: 1.45;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.sc-part {
+  border-radius: 6px;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+.sc-part .xt-tap {
+  color: inherit;
+}
+.sc-part.sc-tone-fixed {
+  color: var(--sc-fixed);
+  font-weight: 800;
+}
+.sc-part.sc-tone-s0, .sc-part.sc-tone-s1, .sc-part.sc-tone-s2, .sc-part.sc-tone-s3, .sc-part.sc-tone-s4 {
+  color: var(--sc-slot);
+  box-shadow: inset 0 -0.16em 0 var(--sc-slot-soft);
+}
+.sc-part.sc-tone-plain {
+  color: var(--sc-ink);
+}
+.sc-part.sc-lit {
+  background: var(--sc-slot-soft, rgba(220, 38, 38, 0.12));
+  display: inline-block;
+  transform: translateY(-2px);
+}
+.sc-part.sc-tone-fixed.sc-lit {
+  background: rgba(220, 38, 38, 0.12);
+}
+.sc-example-pinyin {
+  font-size: 0.95rem;
+  color: var(--sc-muted);
+  margin-top: 0.15rem;
+}
+.sc-example-english {
+  font-size: 0.9rem;
+  color: var(--sc-ink);
+  opacity: 0.85;
+}
+
+/* Usage text, headings, ✗ / ✓ rows. */
+.sc-blocks {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.structure-note > .sc-blocks {
+  margin: 0 0 0.75rem;
+}
+.sc-block-heading {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sc-muted);
+  margin-top: 0.35rem;
+}
+.sc-block-text {
+  white-space: pre-line;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--sc-ink);
+}
+.sc-block-mark {
+  display: flex;
+  gap: 0.55rem;
+  align-items: baseline;
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
+  font-size: 1.15rem;
+}
+.sc-block-mark-icon {
+  font-weight: 800;
+}
+.sc-block-wrong {
+  background: var(--sc-wrong-soft);
+  color: var(--sc-wrong);
+}
+.sc-block-wrong .xt-tap,
+.sc-block-wrong span[lang] {
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.sc-block-right {
+  background: var(--sc-right-soft);
+  color: var(--sc-right);
+}
+
+.sc-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 0.9rem 0 0.2rem;
+}
+.sc-dot {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+}
+.sc-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--sc-card-edge);
+  transition: width 200ms ease, background-color 200ms ease;
+}
+.sc-dot.active::after {
+  width: 22px;
+  background: var(--sc-fixed);
+}
+
+.sc-extras {
+  margin-top: 0.75rem;
+}
+
+/* Entrances: the card settles, then the pieces one by one. */
+@keyframes sc-card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes sc-piece-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+.sc-in {
+  animation: sc-piece-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1.1) both;
+}
+.sc-opt.sc-in {
+  animation-name: sc-piece-in-opt;
+}
+@keyframes sc-piece-in-opt {
+  from { opacity: 0; transform: translateY(10px) scale(0.92); }
+  to { opacity: 0.72; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-card, .sc-in, .sc-opt.sc-in {
+    animation: none;
+  }
+  .sc-part {
+    transition: none;
+  }
+  .sc-part.sc-lit {
+    transform: none;
+  }
+}
+
+@media (min-width: 640px) {
+  .sc-card {
+    padding: 1.4rem 1.5rem;
+  }
+  .sc-example-zh {
+    font-size: 2rem;
+  }
+}
