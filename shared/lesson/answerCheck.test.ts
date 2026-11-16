@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   answerCheckApplies, answerCheckCacheText, answerCheckChip, exactAnswerCheck, normalizeAnswerCheck, parseAnswerCheck, pickAnswerCheckInput,
   suggestedFor, tipSegments, EXACT_ANSWER_HEADLINE, isMeaningCheck, meaningAnswerText,
+  comparesIdenticalTexts, recommendsText, PLAIN_ACCEPTABLE_HEADLINE, PLAIN_CORRECT_HEADLINE, ANSWER_CHECK_VERSION,
 } from './answerCheck';
 import { isExactHanziMatch } from './answer-check';
 import { sanitizeAttemptData } from './attempt';
@@ -280,5 +281,79 @@ describe('speaking: never the exact-match short-circuit', () => {
     expect(exactAnswerCheck({ exercise_type: 'oral_expression', answer: '你就是Annie吧？', model_answer: '你就是Annie吧' })).toBeNull();
     expect(exactAnswerCheck({ exercise_type: 'speak', answer: '你好', model_answer: '你好' })).toBeNull();
     expect(exactAnswerCheck({ exercise_type: 'translate', answer: '你好', model_answer: '你好' })?.verdict).toBe('correct');
+  });
+});
+
+describe('sanity rules (Jerome, Nov 2026: "因为 clause should come before the subject" when it already did)', () => {
+  // The real case: his answer puts the 因为 clause first; the model answer has it after the subject.
+  const answer = '因为这个问题，我睡不着觉。';
+  const model = '我因为这个问题睡不着觉。';
+  const raw = {
+    verdict: 'acceptable',
+    headline: 'Correct meaning, but 因为 clause should come before the subject in formal style.',
+    corrected: '',
+    tips: [{
+      text: '因为 (reason) typically comes before the subject, then the consequence. 因为这个问题 我睡不着觉 reads more naturally than 因为这个问题 我睡不着觉.',
+      quote: '因为',
+    }],
+  };
+
+  it('the screenshot: the self-comparing tip is dropped and the "but" headline becomes a plain positive one', () => {
+    const c = normalizeAnswerCheck(raw, answer, model);
+    expect(c.verdict).toBe('acceptable');
+    expect(c.tips).toEqual([]);
+    expect(c.headline).toBe(PLAIN_ACCEPTABLE_HEADLINE);
+    expect(c.suggested).toBe('got_it');
+    // The same without the model answer (an old cached check parsed on the device).
+    expect(parseAnswerCheck(raw, answer)?.headline).toBe(PLAIN_ACCEPTABLE_HEADLINE);
+  });
+
+  it('a tip comparing a text with itself goes whatever the verdict; a real comparison stays', () => {
+    expect(comparesIdenticalTexts('因为这个问题 我睡不着觉 reads more naturally than 因为这个问题，我睡不着觉.')).toBe(true);
+    expect(comparesIdenticalTexts('也不着急 is a statement; use 也别着急 instead.')).toBe(false);
+    expect(comparesIdenticalTexts('和 links nouns, not 和 actions')).toBe(false); // one character: not a text
+    expect(comparesIdenticalTexts('Say 你好 — 你好 is fine')).toBe(false); // no comparison
+    const almost = normalizeAnswerCheck({ ...raw, verdict: 'almost', headline: 'Fix the order.' }, answer, model);
+    expect(almost.tips).toEqual([]);
+    expect(almost.headline).toBe('Fix the order.');
+  });
+
+  it('a tip recommending what he already said goes; one recommending something else stays', () => {
+    const mine = '因为这个问题我睡不着觉';
+    expect(recommendsText('Say 因为这个问题，我睡不着觉 instead.', mine)).toBe(true);
+    expect(recommendsText('→ 因为这个问题，我睡不着觉', mine)).toBe(true);
+    expect(recommendsText('因为这个问题，我睡不着觉 sounds more natural.', mine)).toBe(true);
+    expect(recommendsText('Say 我因为这个问题睡不着觉 instead.', mine)).toBe(false);
+    const c = normalizeAnswerCheck({
+      verdict: 'almost', headline: 'Close.', corrected: '我因为这个问题睡不着。',
+      tips: [{ text: 'Use 因为这个问题，我睡不着觉 here.' }, { text: '睡不着觉 is fine; 睡不着 alone also works.', quote: '睡不着觉' }],
+    }, answer, model);
+    expect(c.tips).toEqual([{ text: '睡不着觉 is fine; 睡不着 alone also works.', quote: '睡不着觉' }]);
+  });
+
+  it('a right answer that IS the model answer gets no tips; a right answer keeps a useful tip about something else', () => {
+    const same = normalizeAnswerCheck({ verdict: 'correct', headline: 'Correct, but try 再.', tips: [{ text: 'You could add 再 for emphasis.', quote: '再' }] }, model, model);
+    expect(same.tips).toEqual([]);
+    expect(same.headline).toBe(PLAIN_CORRECT_HEADLINE);
+    const useful = normalizeAnswerCheck({
+      verdict: 'correct', headline: 'Correct and natural — 很 is optional here.',
+      tips: [{ text: '很 is optional inside a 即使 clause; 即使再便宜 stresses it.', quote: '即使便宜' }],
+    }, '即使便宜，我也不买。', '即使很便宜，我也不买。');
+    expect(useful.tips).toHaveLength(1);
+    expect(useful.headline).toBe('Correct and natural — 很 is optional here.');
+  });
+
+  it('a right answer: a tip writing out his whole sentence (praise or the mix-up) goes; "but" stays when a real tip is left', () => {
+    const c = normalizeAnswerCheck({
+      verdict: 'acceptable', headline: 'Right, but 觉 is optional.',
+      tips: [{ text: '因为这个问题，我睡不着觉 is natural.' }, { text: '睡不着 alone is enough; 觉 is optional.', quote: '睡不着觉' }],
+    }, answer, model);
+    expect(c.tips).toEqual([{ text: '睡不着 alone is enough; 觉 is optional.', quote: '睡不着觉' }]);
+    expect(c.headline).toBe('Right, but 觉 is optional.');
+  });
+
+  it('the cache text carries the new version, so the bad v2 checks are never served again', () => {
+    expect(ANSWER_CHECK_VERSION).toBe(3);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v3\|/);
   });
 });
