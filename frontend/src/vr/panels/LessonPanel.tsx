@@ -12,6 +12,13 @@ import type { CustomLessonSpec, LessonExercise } from '@shared/lesson/types';
 import { db } from '../../db/database';
 import { playText } from '../audio';
 import type { UiNode } from '../ui/layout';
+import { patternLine } from '@shared/lesson/pattern';
+import type { NoteExercise } from '@shared/lesson/types';
+
+/** A note's sentences to show / play: its structures' examples first, then its own sentences. */
+function noteSentences(ex: NoteExercise) {
+  return [...(ex.patterns ?? []).flatMap((p) => p.examples ?? []), ...(ex.sentences ?? [])];
+}
 import { segmentsOf } from './StudyPanel';
 import type { PanelHostProps } from './types';
 
@@ -68,7 +75,11 @@ export function lessonView(spec: CustomLessonSpec, run: LessonRunState, segments
   if (ex.type === 'note') {
     if (ex.title) nodes.push({ t: 'text', text: ex.title, size: 34, weight: 600 });
     if (ex.body) nodes.push({ t: 'text', text: ex.body, size: 26, explore: true, segments: segments?.(ex.body), maxLines: 10 });
-    (ex.sentences ?? []).slice(0, 4).forEach((s, i) => {
+    for (const p of ex.patterns ?? []) {
+      nodes.push({ t: 'text', text: patternLine(p.pieces), size: 28, weight: 600 });
+      if (p.meaning) nodes.push({ t: 'text', text: `= ${p.meaning}`, size: 22, color: 'muted' });
+    }
+    noteSentences(ex).slice(0, 4).forEach((s, i) => {
       nodes.push(zh(s.hanzi, 36));
       const sub = [s.pinyin, s.english].filter(Boolean).join(' — ');
       if (sub) nodes.push({ t: 'text', text: sub, size: 22, color: 'muted' });
@@ -165,7 +176,7 @@ export function LessonPanel({ spec, ctx, report }: PanelHostProps<{ kind: 'lesso
     if (!lesson) return;
     if (action.startsWith('say:')) {
       const ex = flattenExercises(lesson)[run.index];
-      const s = ex?.type === 'note' ? ex.sentences?.[Number(action.slice(4))] : undefined;
+      const s = ex?.type === 'note' ? noteSentences(ex)[Number(action.slice(4))] : undefined;
       if (s) void playText(s.hanzi);
       return;
     }

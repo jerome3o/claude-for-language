@@ -32,6 +32,7 @@ import type {
 } from '@shared/lesson';
 import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise, fillGap, gapCount, GAP_MARKER } from '@shared/lesson';
 import { useLessonImage } from '../../hooks/useLessonImage';
+import { PatternsField } from './PatternsField';
 import { Field, TextInput, TextArea, HanziInput, SentenceEditor, RowControls, moveItem, toPinyin, Speak } from './fields';
 
 export interface ExerciseTypeInfo {
@@ -133,7 +134,8 @@ function NoteForm({ exercise, onChange, speak }: FormProps<NoteExercise>) {
       <Field label="Teaching text" hint="blank line = new paragraph">
         <TextArea value={exercise.body} onChange={v => onChange({ ...exercise, body: clean(v) })} rows={4} placeholder="Explain the point in a few sentences…" />
       </Field>
-      <Field label="Example sentences">
+      <PatternsField patterns={exercise.patterns} onChange={patterns => onChange({ ...exercise, patterns })} speak={speak} />
+      <Field label="Example sentences" hint={exercise.patterns?.length ? 'extra ones, after the structures' : undefined}>
         <SentenceList items={exercise.sentences ?? []} onChange={sentences => onChange({ ...exercise, sentences })} speak={speak} addLabel="Add sentence" />
       </Field>
     </>
@@ -905,7 +907,11 @@ export function fillMissingPinyin(ex: LessonExercise): LessonExercise {
   const fillSentence = (s: LessonSentence): LessonSentence => (s.pinyin || !s.hanzi.trim() ? s : { ...s, pinyin: toPinyin(s.hanzi) });
   switch (ex.type) {
     case 'note':
-      return { ...ex, sentences: ex.sentences?.map(fillSentence) };
+      return {
+        ...ex,
+        sentences: ex.sentences?.map(fillSentence),
+        ...(ex.patterns ? { patterns: ex.patterns.map(p => ({ ...p, ...(p.examples ? { examples: p.examples.map(e => ({ ...e, ...fillSentence(e) })) } : {}) })) } : {}),
+      };
     case 'choice':
       return { ...ex, options: ex.options.map(fillSentence) };
     case 'translate':

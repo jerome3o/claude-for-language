@@ -5,7 +5,8 @@ export type { LessonDiff, ExerciseDiffEntry, SectionDiffEntry, FieldChange } fro
 export { lessonToMarkdown, lessonToJson, lessonToCsv, lessonToExportSpec, lessonVocabRows, lessonExportFilename } from './export';
 export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo } from './registry';
 export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
-export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE } from './doc';
+export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE, STRUCTURE_RULE } from './doc';
+export * from './pattern';
 export {
   resolveConversationVoices, conversationVoicesFor, conversationSeed, conversationVoicePools, conversationVoice,
   validateConversationVoiceSelection, speakerGender,

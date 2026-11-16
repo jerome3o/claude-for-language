@@ -274,6 +274,7 @@ object AnalyticsEvents {
         ev("lesson.resume", "lessons", listOf("source", "mode", "exercises", "at")),
         ev("lesson.retry", "lessons", listOf("type", "right", "left")),
         ev("lesson.items_checked", "lessons", listOf("exercise_type", "items", "right")),
+        ev("lesson.structure_card", "lessons", listOf("action", "source", "index", "count")),
         ev("lesson.start_over", "lessons", listOf("source")),
         ev("lesson.row_action", "lessons", listOf("action", "kind", "from", "undo")),
         ev("lesson.audio", "lessons", listOf("source", "hits", "misses", "stale", "max_wait_ms", "clips", "prefetched")),

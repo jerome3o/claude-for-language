@@ -29,10 +29,49 @@ export const SAMPLE_LESSONS: SampleLesson[] = [
         exercises: [{
           type: 'note',
           title: 'Doing something TO something',
-          body: '把 moves the object in front of the verb: Subject + 把 + object + verb + result.\n\nUse it when you do something to a specific thing and something happens to it — it gets finished, moved, closed.',
-          sentences: [
-            { hanzi: '我把作业做完了。', pinyin: 'Wǒ bǎ zuòyè zuò wán le.', english: 'I finished my homework.' },
-            { hanzi: '请把门关上。', pinyin: 'Qǐng bǎ mén guān shang.', english: 'Please close the door.' },
+          body: 'Use 把 when you do something to a specific thing and it changes — it gets finished, moved, closed.',
+          patterns: [
+            {
+              name: '把 + object + verb + result',
+              pieces: [
+                { slot: 'Subject', zh: '主语' },
+                { hanzi: '把', pinyin: 'bǎ', english: 'takes the object' },
+                { slot: 'Object', zh: '宾语' },
+                { slot: 'Verb', zh: '动词' },
+                { slot: 'Result', zh: '结果' },
+              ],
+              meaning: 'do something to the object, and it ends up done',
+              examples: [
+                {
+                  hanzi: '我把作业做完了。', pinyin: 'Wǒ bǎ zuòyè zuò wán le.', english: 'I finished my homework.',
+                  parts: [{ text: '我', piece: 0 }, { text: '把', piece: 1 }, { text: '作业', piece: 2 }, { text: '做', piece: 3 }, { text: '完了', piece: 4 }, { text: '。' }],
+                },
+                {
+                  hanzi: '请把门关上。', pinyin: 'Qǐng bǎ mén guān shang.', english: 'Please close the door.',
+                  parts: [{ text: '请' }, { text: '把', piece: 1 }, { text: '门', piece: 2 }, { text: '关', piece: 3 }, { text: '上', piece: 4 }, { text: '。' }],
+                },
+              ],
+              note: '把 needs something after the verb:\n✗ 我把作业做。\n✓ 我把作业做完了。',
+            },
+            {
+              name: '把 + object + verb + 在 + place',
+              pieces: [
+                { slot: 'Subject', zh: '主语' },
+                { hanzi: '把', pinyin: 'bǎ', english: 'takes the object' },
+                { slot: 'Object', zh: '宾语' },
+                { slot: 'Verb', zh: '动词' },
+                { hanzi: '在', pinyin: 'zài', english: 'at' },
+                { slot: 'Place', zh: '地点' },
+              ],
+              meaning: 'put the object somewhere',
+              examples: [
+                {
+                  hanzi: '他把书放在桌子上。', pinyin: 'Tā bǎ shū fàng zài zhuōzi shang.', english: 'He put the book on the table.',
+                  parts: [{ text: '他', piece: 0 }, { text: '把', piece: 1 }, { text: '书', piece: 2 }, { text: '放', piece: 3 }, { text: '在', piece: 4 }, { text: '桌子上', piece: 5 }, { text: '。' }],
+                },
+              ],
+              image_prompt: 'A young man placing a book on a wooden table in a bright, tidy living room. Simple flat illustration, warm colours, no text.',
+            },
           ],
         }],
       }],

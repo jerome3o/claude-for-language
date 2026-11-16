@@ -11,6 +11,7 @@ import { exercisePrimaryText } from '../../../../../shared/lesson/diff';
 import { defaultExercise } from '../../../../../shared/lesson/defaults';
 import { conversationVoicesFor } from '../../../../../shared/lesson/voices';
 import { fillGap, gapItemOptions } from '../../../../../shared/lesson/types';
+import { patternLine, patternName } from '../../../../../shared/lesson/pattern';
 import type {
   AssignResult,
   CustomLessonSpec,
@@ -241,7 +242,17 @@ function viewExercise(ex: LessonExercise): HTMLElement {
   const body = h('div', { class: 'ex-body' });
   switch (ex.type) {
     case 'note':
-      body.append(ex.title ? h('div', { class: 'bold', style: 'margin-bottom:0.25rem' }, ex.title) : '', ex.body ? h('div', { class: 'note-body' }, ex.body) : '', ...(ex.sentences ?? []).map((s) => sentenceRow(s)));
+      body.append(
+        ex.title ? h('div', { class: 'bold', style: 'margin-bottom:0.25rem' }, ex.title) : '',
+        ex.body ? h('div', { class: 'note-body' }, ex.body) : '',
+        ...(ex.patterns ?? []).flatMap((p) => [
+          h('div', { class: 'bold', style: 'margin-top:0.35rem' }, `${patternName(p) || 'Structure'}: ${patternLine(p.pieces)}`),
+          p.meaning ? h('div', { class: 'small muted' }, `→ ${p.meaning}`) : '',
+          ...(p.examples ?? []).map((s) => sentenceRow(s)),
+          p.note ? h('div', { class: 'note-body' }, p.note) : '',
+        ]),
+        ...(ex.sentences ?? []).map((s) => sentenceRow(s)),
+      );
       break;
     case 'scramble':
       body.append(

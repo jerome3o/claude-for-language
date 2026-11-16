@@ -236,6 +236,7 @@ export function lessonToAnki(spec: CustomLessonSpec, options: LessonToAnkiOption
           for (const p of ex.pairs) collector.word(p.hanzi, p.pinyin, p.english);
           break;
         case 'note':
+          for (const p of ex.patterns ?? []) for (const e of p.examples ?? []) collector.auto(e);
           for (const s of ex.sentences ?? []) collector.auto(s);
           break;
         // Exercises whose answer is a whole sentence by construction (even

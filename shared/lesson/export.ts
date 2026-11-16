@@ -9,6 +9,7 @@
  */
 
 import { CustomLessonSpec, LessonExercise, LessonSentence, fillGap } from './types';
+import { patternLine, patternName } from './pattern';
 
 // ============ Markdown ============
 
@@ -48,6 +49,13 @@ function exerciseBody(ex: LessonExercise): string[] {
       const lines: string[] = [];
       if (ex.title) lines.push(`**${ex.title}**`, '');
       if (ex.body) lines.push(ex.body, '');
+      for (const p of ex.patterns ?? []) {
+        lines.push(`**${patternName(p) || 'Structure'}:** ${patternLine(p.pieces)}`);
+        if (p.meaning) lines.push(`→ ${p.meaning}`);
+        for (const e of p.examples ?? []) lines.push(`- ${sentenceLine(e)}`);
+        if (p.note) lines.push('', p.note);
+        lines.push('');
+      }
       for (const s of ex.sentences ?? []) lines.push(`- ${sentenceLine(s)}`);
       return lines;
     }
@@ -239,6 +247,12 @@ export function lessonToExportSpec(spec: CustomLessonSpec): CustomLessonSpec {
           const { image_url: _drop, ...rest } = ex;
           return rest as LessonExercise;
         }
+        if (ex.type === 'note' && Array.isArray(ex.patterns)) {
+          return { ...ex, patterns: ex.patterns.map(p => {
+            const { image_url: _drop, ...rest } = p;
+            return rest;
+          }) };
+        }
         return ex;
       }),
     })),
@@ -277,6 +291,7 @@ export function lessonVocabRows(spec: CustomLessonSpec): VocabRow[] {
           for (const p of ex.pairs) add(p.hanzi, p.english, p.pinyin);
           break;
         case 'note':
+          for (const p of ex.patterns ?? []) for (const e of p.examples ?? []) addSentence(e);
           for (const s of ex.sentences ?? []) addSentence(s);
           break;
         case 'translate':

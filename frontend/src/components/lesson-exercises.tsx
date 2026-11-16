@@ -10,9 +10,11 @@
  * lesson-exercises.css for the new match / describe-image views.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ExplorableText } from './explorer/ExplorableText';
-import type { ExerciseAnswer } from '@shared/lesson';
+import type { ExerciseAnswer, LessonPattern } from '@shared/lesson';
+import { structureNoteView } from '@shared/lesson/pattern';
+import { StructureCards } from './lessons/StructureCards';
 import { useLessonImage, lessonImagePlaceholder } from '../hooks/useLessonImage';
 import { shuffledIndexes, scramblePoolOrder } from '../utils/shuffle';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
@@ -751,17 +753,15 @@ export function LessonNoteCard(props: {
   title?: string;
   body?: string;
   sentences?: ExerciseSentence[];
+  patterns?: LessonPattern[];
   speak: Speak;
   onNext: () => void;
 }) {
-  const { title, body, sentences, speak, onNext } = props;
-
-  // Hearing the first example right away mirrors the grammar lesson's
-  // listen-first flow.
-  useEffect(() => {
-    if (sentences && sentences.length > 0) speak(sentences[0].hanzi);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { title, body, sentences, patterns, speak, onNext } = props;
+  // Nothing plays by itself on a note (Jerome, Nov 2026): ▶ / a tap plays an example.
+  // Grammar structures — the note's own patterns, or ones read from older free text — are cards.
+  const structures = useMemo(() => structureNoteView({ body, sentences, patterns }), [body, sentences, patterns]);
+  if (structures) return <StructureCards title={title} view={structures} speak={speak} onNext={onNext} />;
 
   return (
     <div className="exercise">

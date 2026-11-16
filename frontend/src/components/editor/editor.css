@@ -722,3 +722,12 @@ textarea.ed-input { min-height: 0; resize: vertical; }
 .ed-word-list { display: flex; flex-direction: column; gap: 0.25rem; }
 .ed-hint-warn { font-size: 0.8rem; color: #92400e; }
 .ed-gap-tools { justify-content: flex-end; }
+
+/* Note form → Structures (PatternsField.tsx) */
+.ed-pattern { display: flex; flex-direction: column; gap: 0.6rem; flex: 1; min-width: 0; }
+.ed-pattern-row { align-items: flex-start; }
+.ed-pattern-preview { padding: 0.5rem 0; }
+.ed-pattern-example { font-size: 1.2rem; margin-top: 0.3rem; }
+.ed-inline-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.ed-inline-row .ed-hint { min-width: 4.5rem; }
+.ed-inline-row .ed-input { flex: 1; min-width: 8rem; }

@@ -39,7 +39,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
   const onNext = (correct: boolean, answer?: ExerciseAnswer) => onDone(correct, answer);
   switch (exercise.type) {
     case 'note':
-      return <LessonNoteCard title={exercise.title} body={exercise.body} sentences={exercise.sentences} speak={speak} onNext={() => onDone(null)} />;
+      return <LessonNoteCard title={exercise.title} body={exercise.body} sentences={exercise.sentences} patterns={exercise.patterns} speak={speak} onNext={() => onDone(null)} />;
     case 'scramble':
       return <ScrambleExercise english={exercise.english} tiles={exercise.tiles} correctOrder={exercise.correct_order} altOrders={exercise.alt_orders} speak={speak} onNext={onNext} />;
     case 'choice':

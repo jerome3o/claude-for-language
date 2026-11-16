@@ -3,21 +3,34 @@
  * generated picture by a hash of the normalised image_prompt
  * (worker/src/services/lesson-images.ts), so every copy of a lesson — and the
  * catalogue sample — with the same scene shares one picture; the web app and
- * the Lab app remember prompt → picture the same way for offline use.
+ * the Lab app remember prompt → picture the same way for offline use. A note's
+ * structure card (`patterns[].image_prompt`) gets its picture the same way.
  */
 
-import type { CustomLessonSpec, DescribeImageExerciseSpec } from './types';
+import type { CustomLessonSpec } from './types';
 
 /** Whitespace-insensitive form of a scene description (what the picture is keyed by). */
 export function normalizeImagePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim();
 }
 
-function describeImageExercises(spec: CustomLessonSpec): DescribeImageExerciseSpec[] {
-  const out: DescribeImageExerciseSpec[] = [];
+/** Something in a lesson that carries a picture: a describe_image exercise, or a structure
+ * (pattern) of a note with an `image_prompt` (shared/lesson/pattern.ts). */
+interface ImageHolder {
+  image_prompt: string;
+  image_url?: string | null;
+}
+
+function describeImageExercises(spec: CustomLessonSpec): ImageHolder[] {
+  const out: ImageHolder[] = [];
   for (const section of spec.sections ?? []) {
     for (const ex of section.exercises ?? []) {
       if (ex && ex.type === 'describe_image' && typeof ex.image_prompt === 'string' && ex.image_prompt.trim()) out.push(ex);
+      if (ex && ex.type === 'note' && Array.isArray(ex.patterns)) {
+        for (const p of ex.patterns) {
+          if (p && typeof p.image_prompt === 'string' && p.image_prompt.trim()) out.push(p as ImageHolder);
+        }
+      }
     }
   }
   return out;
