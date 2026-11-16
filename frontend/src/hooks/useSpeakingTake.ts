@@ -16,6 +16,8 @@ import { transcribeAudio } from '../api/client';
 import { liveErrorKind, liveFailureInvalidatesKey, transcriptText } from '@shared/transcription/soniox';
 import { SPEAKING_FINISH_TIMEOUT_MS, SPEAKING_LIVE_KEY_MARGIN_MS, SPEAKING_MAX_SECONDS } from '@shared/lesson/speakingTake';
 import { track } from '../services/analytics';
+import { useReportTake } from '../components/voice/TakeLock';
+import { takePhase } from '@shared/voice/takeLock';
 
 export type SpeakingTranscript =
   | { status: 'none' }
@@ -101,6 +103,8 @@ export function useSpeakingTake(exerciseType: string) {
   }, [startRecording, transcribe]);
 
   const stop = stopRecording;
+  // The take lock (shared/voice/takeLock.ts): the screen's primary action is "■ Stop recording" while it records.
+  useReportTake(takePhase(isRecording, false), stop);
 
   // The timer, and the automatic stop at SPEAKING_MAX_SECONDS.
   useEffect(() => {

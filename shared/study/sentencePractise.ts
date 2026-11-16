@@ -20,6 +20,7 @@
  *
  * Lab port: core `SentencePractise.kt`, parity-tested (parity/fixtures/sentence-practise.ts).
  */
+import { TAKE_LOCK_CHECKING, TAKE_LOCK_STOP } from '../voice/takeLock';
 import { practiseSentence, type PractisedSentence } from '../coach/practise';
 import type { SpokenResultState } from '../cards/spoken-result';
 import { hasHan, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
@@ -69,8 +70,8 @@ export function sentenceStopBar(listening: boolean, finishing: boolean): 'stop' 
   if (listening) return 'stop';
   return finishing ? 'checking' : null;
 }
-export const SENTENCE_PRACTISE_STOP_RECORDING = 'Stop recording';
-export const SENTENCE_PRACTISE_CHECKING_TAKE = 'Checking what you said…';
+export const SENTENCE_PRACTISE_STOP_RECORDING = TAKE_LOCK_STOP;
+export const SENTENCE_PRACTISE_CHECKING_TAKE = TAKE_LOCK_CHECKING;
 
 /** right = counts (the gate); close = nearly; wrong; failed / empty = no take to judge. */
 export type SentencePractiseResult = 'right' | 'close' | 'wrong' | 'failed' | 'empty';

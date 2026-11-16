@@ -1,0 +1,73 @@
+/* The take lock's action row (TakeLock.tsx): while a take records, the screen's primary row is ONE big red
+   "■ Stop recording" in the same place and size (the reader's read-aloud footer / the sentence rows' stop bar),
+   then a quiet "Checking what you said…". */
+.take-lock-actions .practice-btn.take-lock-stop {
+  flex: 1;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  background: #dc2626;
+  border: none;
+  color: #fff;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  animation: take-lock-pulse 1.4s ease-in-out infinite;
+}
+
+.take-lock-actions .practice-btn.take-lock-stop:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.take-lock-actions .practice-btn.take-lock-stop:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.take-lock-actions .practice-btn.take-lock-stop.checking,
+.take-lock-actions .practice-btn.take-lock-stop:disabled {
+  background: #fee2e2;
+  color: #b91c1c;
+  opacity: 1;
+  animation: none;
+  cursor: default;
+}
+
+:root[data-theme='dark'] .take-lock-actions .practice-btn.take-lock-stop.checking {
+  background: rgba(220, 38, 38, 0.18);
+  color: #fca5a5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .take-lock-actions .practice-btn.take-lock-stop.checking {
+    background: rgba(220, 38, 38, 0.18);
+    color: #fca5a5;
+  }
+}
+
+.take-lock-stop-square {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.take-lock-spinner {
+  width: 18px;
+  height: 18px;
+}
+
+@keyframes take-lock-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .take-lock-actions .practice-btn.take-lock-stop { animation: none; }
+}
+
+/* A row that never moves the screen on, while a take records: where it was, greyed, untappable. */
+.take-lock-muted {
+  opacity: 0.4;
+  pointer-events: none;
+}

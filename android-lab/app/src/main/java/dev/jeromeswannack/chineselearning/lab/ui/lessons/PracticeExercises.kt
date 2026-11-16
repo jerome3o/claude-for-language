@@ -162,7 +162,7 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         // lands LAST, below the buttons, so nothing he is reading moves.
         if (typed) YourAnswer(text.trim(), exact = false, label = if (source == "spoken" || source == "edited") "🎤 Your sentence" else "Your sentence")
         else hw?.strokes?.let { StrokesView(it, "Your sentence") }
-        ex.example?.let { Reference(it, env, label = LessonFeedback.EXAMPLE_LABEL) }
+        ex.example?.let { Reference(it, env, label = LessonFeedback.EXAMPLE_LABEL, exerciseType = ex.type) }
         ex.example?.let { SayItAgainRow(it.hanzi, ex.type, "example", env) }
         val f = feedback
         if (f != null) {
@@ -196,13 +196,8 @@ private fun FeedbackCard(f: SentenceFeedback, env: ExerciseEnv) {
             color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp,
         )
         if (!f.usesAllWords) Text("Use every target word.", color = Palette.Again, style = MaterialTheme.typography.bodyMedium)
-        f.corrected?.let { c ->
-            Column(Modifier.fillMaxWidth().bouncyClickable(pressedScale = 0.98f) { env.speak(c.hanzi) }) {
-                Text("${c.hanzi} 🔊", fontSize = 21.sp, color = Lab.colors.ink)
-                c.pinyin?.let { Text(it, color = Lab.colors.accent, fontSize = 14.sp) }
-                c.english?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp) }
-            }
-        }
+        // Claude's corrected sentence: words to explore + ▶ to hear it (web FeedbackSentence).
+        f.corrected?.let { c -> Reference(c, env, exerciseType = "sentence_making", tag = "sentence-feedback-corrected") }
         Text(f.comment, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
     }
 }
@@ -249,7 +244,7 @@ fun WriteTypedView(ex: WriteTypedExercise, env: ExerciseEnv, onNext: (Boolean, E
         ResultBanner(ok, if (d.correct) "✓ Correct" else if (ok) "✓ Correct (spoken)" else "✗ Not quite — ${Math.round(d.accuracy * 100)}% of the characters")
         s.note?.let { Explanation(it) }
         if (!(ok && !d.correct)) CharDiffView(d)
-        Reference(ex.answer, env)
+        Reference(ex.answer, env, exerciseType = ex.type)
         SayItAgainRow(ex.answer.hanzi, ex.type, "answer", env)
         ActionRow { Primary("Continue") { onNext(ok, ExerciseAnswer(text = text.trim(), input = source)) } }
     }
@@ -434,7 +429,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
             ResultBanner(ok, if (ok) "✓ Written from memory" else "✗ Needed help with some strokes")
         }
         if (!typed && strokeRun == null) HandwritingCompare(hw, ex.audio, env)
-        Reference(ex.audio, env)
+        Reference(ex.audio, env, exerciseType = ex.type)
         SayItAgainRow(ex.audio.hanzi, ex.type, "answer", env)
         ex.note?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
         if (verdict != null) {
@@ -664,12 +659,12 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
             }
         }
     }
-    ActionRow {
+    ActionRow(secondary = true) {
         if (playing) Secondary("■ Stop") { stopPlaying() } else Secondary(if (listened) "↻ Play again" else "▶ Play conversation") { playAll() }
     }
     if (audioUnavailable && !transcriptPeek) {
         Explanation("The audio isn’t on this device yet (it downloads on the next sync online).")
-        ActionRow { Secondary("Read it instead") { transcriptPeek = true } }
+        ActionRow(secondary = true) { Secondary("Read it instead") { transcriptPeek = true } }
     }
     if (questionsOpen) {
         ex.questions.forEachIndexed { qi, q ->
@@ -696,12 +691,12 @@ fun ConversationView(ex: ConversationExercise, env: ExerciseEnv, onNext: (Boolea
                         onSubmit = { d -> answers[qi] = QuestionState(text = d.text, revealed = true) },
                         surface = "lesson_conversation", submitLabel = "Check", placeholder = "Your answer (English or Chinese)…", multiline = true,
                     )
-                    ActionRow { Secondary("Show answer") { answers[qi] = QuestionState(text = a.text, revealed = true) } }
+                    ActionRow(secondary = true) { Secondary("Show answer") { answers[qi] = QuestionState(text = a.text, revealed = true) } }
                 } else {
                     if (a.text.isNotBlank()) Text("You: ${a.text.trim()}", color = Lab.colors.muted)
                     Text(q.answer ?: "", color = Palette.Good, fontWeight = FontWeight.SemiBold)
                     if (a.correct == null) {
-                        ActionRow {
+                        ActionRow(secondary = true) {
                             Secondary("✗ Missed it") { answers[qi] = QuestionState(text = a.text, revealed = true, correct = false) }
                             Primary("✓ Got it") { answers[qi] = QuestionState(text = a.text, revealed = true, correct = true) }
                         }
