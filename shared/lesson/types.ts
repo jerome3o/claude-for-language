@@ -101,7 +101,10 @@ export interface ScrambleExerciseSpec {
   /** Tiles must be exactly a permutation of correct_order. */
   tiles: string[];
   correct_order: string[];
-  /** Other acceptable orderings of the same tiles. */
+  /**
+   * EVERY other natural ordering of the same tiles (doc.ts SCRAMBLE_ALT_ORDERS_RULE); an order not listed is
+   * checked by Claude when online (scrambleCheck.ts), marked wrong offline.
+   */
   alt_orders?: string[][];
 }
 

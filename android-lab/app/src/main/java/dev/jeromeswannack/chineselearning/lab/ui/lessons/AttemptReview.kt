@@ -194,7 +194,11 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
         is ScrambleExercise -> {
             AttRow("Task", exercise.english)
             AttRow("Built", a?.order?.takeIf { it.isNotEmpty() }?.joinToString(" ") ?: "—")
-            if (attempt.correct != true) AttRow("Answer", exercise.correctOrder.joinToString(" "))
+            // An order the lesson didn't list, checked by Claude (core ScrambleCheck).
+            val orderCheck = a?.check
+            val built = a?.order?.takeIf { it.isNotEmpty() }
+            if (orderCheck != null && built != null) AnswerCheckBody(orderCheck, built.joinToString(""), compact = true)
+            if (attempt.correct != true || orderCheck != null) AttRow(if (attempt.correct == true) "Expected" else "Answer", exercise.correctOrder.joinToString(" "))
             if (a?.hintUsed == true) AttRow("Hint", "looked at the English")
         }
         is ChoiceExercise -> {

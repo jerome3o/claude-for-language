@@ -18,8 +18,8 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, isReadAloudCheck, speakingTaskParts, suggestedFor,
-  ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION,
+  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, isReadAloudCheck, isScrambleCheck, speakingTaskParts, suggestedFor,
+  ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION, SCRAMBLE_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
@@ -156,6 +156,52 @@ export function readAloudVerdict(check: AnswerCheck): AnswerCheck {
   return out;
 }
 
+// ============ Word order (a scramble built in an order the lesson didn't list) ============
+
+export const SCRAMBLE_CHECK_SYSTEM = `You check ONE word-order exercise from a Chinese lesson. The learner was shown an English sentence and a set of Chinese tiles, and arranged ALL the tiles into a sentence. The lesson's expected order is ONE right order, often not the only one. The learner's order is different from it. Decide whether THEIR order is also right.
+
+Two different orders — never mix them up:
+- <expected_order>…</expected_order> is the lesson's order, a reference written by someone else.
+- <learner_order>…</learner_order> is the order the LEARNER built. It is the ONLY thing you judge; every quote comes from it.
+Both use exactly the same tiles; the tiles can't be changed, only moved.
+
+Verdicts:
+- "correct": their order is natural, grammatical Chinese a native speaker would say, and it means what the English says. Examples of orders that are BOTH right:
+  - 一…就 with the subject before 一 or only in the second clause, before 就: 孩子一看见蛋糕就高兴起来了 and 一看见蛋糕孩子就高兴起来了 (like 一到家，我就睡觉了).
+  - A time or place phrase before or after the subject: 我明天去北京 and 明天我去北京.
+  - A 因为 / 虽然 / 如果 clause before or after the subject: 因为下雨，我没去 and 我因为下雨没去.
+- "acceptable": grammatical with the same meaning; a native speaker would accept it, just a little less usual or with a slightly different emphasis.
+- "almost": possible but stilted or unnatural — a native speaker would understand it but wouldn't say it that way.
+- "wrong": ungrammatical, or the order changes the meaning (who does what to whom, what is negated, what a word describes).
+
+Rules:
+- Never call an order wrong only because it differs from the expected order. Missing or moved punctuation never matters.
+- headline: ONE short line in English (≤ 16 words). If right: why their order also works ("With 一…就 the subject can come after the first clause."). If not: the one reason, quoting the Chinese at fault from <learner_order> ("就 must come right before the verb: 就高兴起来了.").
+- tips: at most 1 short line, only when it adds something; quote the Chinese from <learner_order>. None for a right order unless it teaches something.
+- corrected: always empty (the tiles are fixed — the expected order is shown already). No alternative.
+- Answer with the check_answer tool.`;
+
+/** The user turn of a word-order check: the English, the expected order and his order, each with its tiles. */
+export function scrambleCheckUserTurn(input: AnswerCheckInput): string {
+  const sentence = (order: string) => order.replace(/\s+/g, '');
+  const tiles = (order: string) => order.split(/\s+/).filter(Boolean).join(' / ');
+  return [
+    input.focus ? `Lesson focus: ${input.focus}` : null,
+    `English: ${input.prompt_en}`,
+    `Expected order (the lesson's — a reference, NOT the learner's): <expected_order>${sentence(input.model_answer)}</expected_order>`,
+    `Expected order tiles: ${tiles(input.model_answer)}`,
+    `The learner's order — the only one you judge: <learner_order>${sentence(input.answer)}</learner_order>`,
+    `Learner order tiles: ${tiles(input.answer)}`,
+  ].filter(Boolean).join('\n');
+}
+
+/** A word order: the tiles are fixed, so nothing to correct and no alternative; at most one tip. */
+export function scrambleVerdict(check: AnswerCheck): AnswerCheck {
+  const out: AnswerCheck = { ...check, corrected: '', corrected_pinyin: '', tips: check.tips.slice(0, 1) };
+  delete out.alternative;
+  return out;
+}
+
 // ============ Free speaking ============
 
 export const SPEAKING_CHECK_SYSTEM = `You are a warm, encouraging Chinese tutor marking ONE spoken answer from a learner in a lesson's free speaking exercise. You get the task, any "useful words", sometimes a model answer (only ONE way to do it — never mark them against it) and a speech-recognition TRANSCRIPT of their recording, often a minute or more long.
@@ -240,6 +286,7 @@ export function speakingCheckUserTurn(input: AnswerCheckInput): string {
 export function answerCheckUserTurn(input: AnswerCheckInput): string {
   if (isSpeakingCheckType(input.exercise_type)) return speakingCheckUserTurn(input);
   if (isReadAloudCheck(input.exercise_type)) return readAloudCheckUserTurn(input);
+  if (isScrambleCheck(input.exercise_type)) return scrambleCheckUserTurn(input);
   if (isMeaningCheck(input)) return meaningCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
   // A pause is never a sentence break: the recogniser's 。 / ， between two characters go before Claude sees it.
@@ -287,6 +334,7 @@ export function withPinyin(check: AnswerCheck): AnswerCheck {
 
 /** The cache row's version for this exercise type. */
 export function checkVersionFor(exerciseType: string): number {
+  if (isScrambleCheck(exerciseType)) return SCRAMBLE_CHECK_VERSION;
   return isSpeakingCheckType(exerciseType) ? SPEAKING_CHECK_VERSION : ANSWER_CHECK_VERSION;
 }
 
@@ -308,7 +356,9 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     apiKey: deps.apiKey,
     model: ANSWER_CHECK_MODEL,
     fallbackModel: ANSWER_CHECK_FALLBACK_MODEL,
-    system: isReadAloudCheck(input.exercise_type) ? READ_ALOUD_CHECK_SYSTEM : isMeaningCheck(input) ? MEANING_CHECK_SYSTEM : ANSWER_CHECK_SYSTEM,
+    system: isReadAloudCheck(input.exercise_type) ? READ_ALOUD_CHECK_SYSTEM
+      : isScrambleCheck(input.exercise_type) ? SCRAMBLE_CHECK_SYSTEM
+        : isMeaningCheck(input) ? MEANING_CHECK_SYSTEM : ANSWER_CHECK_SYSTEM,
     user: answerCheckUserTurn(input),
     tool: TOOL,
     maxTokens: 700,
@@ -318,6 +368,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     onUsage: deps.onUsage,
     client: deps.client,
   });
+  if (isScrambleCheck(input.exercise_type)) return withPinyin(scrambleVerdict(check));
   return withPinyin(isReadAloudCheck(input.exercise_type) ? readAloudVerdict(check) : check);
 }
 

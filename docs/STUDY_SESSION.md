@@ -1110,6 +1110,29 @@ keeps its own check (`/api/lessons/sentence-feedback`). Analytics `lesson.answer
 offline, ms, cached, try), `lesson.answer_retry`, `lesson.answer_ask`. E2E_TEST_MODE answers with
 `services/answer-check-fake.ts`.
 
+#### Word order — an order the lesson didn't list
+
+Jerome (Nov 2026) built 一看见蛋糕孩子就高兴起来了 for "As soon as the child saw the cake, he cheered up." — natural
+Chinese (like 一到家，我就睡觉了) — and got "✗ Not quite": the lesson listed only 孩子一看见蛋糕就高兴起来了 and no
+`alt_orders`. Two fixes:
+
+- **Authoring**: `LESSON_SPEC_DOC` (`SCRAMBLE_ALT_ORDERS_RULE` in `shared/lesson/doc.ts`) tells every lesson-writing
+  Claude to list EVERY other natural order in `alt_orders` (the 一…就 subject, a time / place phrase before or after the
+  subject, a 因为 / 如果 clause), with an example; the validator refuses an `alt_orders` entry that isn't the same tiles or
+  repeats `correct_order`; the catalogue's word-order sample has one; both editors have "Other accepted orders".
+- **Checking** (`shared/lesson/scrambleCheck.ts`, Lab `core/…/ScrambleCheck.kt`, parity-tested): the correct order or an
+  `alt_orders` entry is ✓ Correct on the device as before. Every tile in ANOTHER order, online → the same answer check
+  (`exercise_type: 'scramble'`, the orders as their tiles joined with spaces; its own prompt `SCRAMBLE_CHECK_SYSTEM` — the
+  same tiles in a natural, grammatical order with the same meaning is right; merely possible but stilted = almost; cache
+  texts `o<SCRAMBLE_CHECK_VERSION>|scramble|english|model|answer`). The banner says **Checking…** in place (same box — nothing
+  moves) with "Claude is checking…" below the buttons; then **✓ Also right** (scored right: no retry round, no revision
+  for it; the expected order shown as "Also: …" with ▶; his order is played) or **✗ Not quite** + Claude's one line below
+  the buttons. Offline / failed / no key → ✗ Not quite at once, never blocking. A check seen before (device cache) or an
+  order differing only in punctuation answers at once. The attempt row keeps the check with the order (the tutor's
+  attempt review shows it). Regular lesson player, homework pass and previews alike (they share the exercise views).
+  Analytics `lesson.scramble_checked { verdict, cached, ms }`. E2E stand-in: the expected order's first tile moved right
+  before 就 / 也 / 都 / 才 / 还 / 又 is right, anything else wrong (`fakeScrambleCheck`).
+
 ### Claude checks your speaking (free speaking: `oral_expression`, `speak`)
 
 Jerome (Oct 2026): in "口语 · Speaking — recorded 🎙" he records a long answer to a task like "Annie

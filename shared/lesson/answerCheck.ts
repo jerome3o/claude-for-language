@@ -109,8 +109,21 @@ export interface AnswerCheckInput {
  */
 export const READ_ALOUD_CHECK_TYPE = 'read_aloud';
 
+/**
+ * A word order (scramble) he built that is neither the correct order nor an accepted alternative
+ * (shared/lesson/scrambleCheck.ts): the answer / model answer are the tiles joined with spaces.
+ */
+export const SCRAMBLE_CHECK_TYPE = 'scramble';
+
+/** Bump when the word-order prompt or its shape changes (its cache texts start `o<version>`). */
+export const SCRAMBLE_CHECK_VERSION = 1;
+
+export function isScrambleCheck(exerciseType: string | null | undefined): boolean {
+  return exerciseType === SCRAMBLE_CHECK_TYPE;
+}
+
 /** Exercise types whose answer gets the check (sentence_making has its own, POST /api/lessons/sentence-feedback). */
-export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_translate', READ_ALOUD_CHECK_TYPE];
+export const ANSWER_CHECK_TYPES: readonly string[] = ['translate', 'listen_translate', READ_ALOUD_CHECK_TYPE, SCRAMBLE_CHECK_TYPE];
 
 export function isReadAloudCheck(exerciseType: string | null | undefined): boolean {
   return exerciseType === READ_ALOUD_CHECK_TYPE;
@@ -190,6 +203,16 @@ export function answerCheckCacheText(input: AnswerCheckInput): string {
       collapse((input.focus ?? '').normalize('NFKC')).toLowerCase(),
       (input.hints ?? []).map((h) => normalizeHanziAnswer(h)).filter(Boolean).join(','),
       normalizeHanziAnswer(input.question_audio ?? ''),
+    ].join('|');
+  }
+  if (isScrambleCheck(input.exercise_type)) {
+    // A word order: the English and the two orders (the tiles' spaces aside) — no input mode, no focus.
+    return [
+      `o${SCRAMBLE_CHECK_VERSION}`,
+      input.exercise_type,
+      collapse(input.prompt_en.normalize('NFKC')).toLowerCase(),
+      normalizeHanziAnswer(input.model_answer),
+      normalizeHanziAnswer(input.answer),
     ].join('|');
   }
   const mode = input.input === 'spoken' ? 'spoken' : 'typed';

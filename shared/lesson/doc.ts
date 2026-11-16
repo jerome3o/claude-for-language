@@ -5,9 +5,16 @@
  * a new exercise type is documented once.
  */
 
+/**
+ * Every natural order of a word-order exercise (Jerome, Nov 2026: 一看见蛋糕孩子就高兴起来了 was marked "Not quite" because the
+ * lesson listed only 孩子一看见蛋糕就高兴起来了). The app also asks Claude about an unlisted order when online, but offline
+ * only the listed orders count.
+ */
+export const SCRAMBLE_ALT_ORDERS_RULE = `List in alt_orders EVERY other order of the same tiles a native speaker would naturally say with the same meaning — an unlisted order is marked wrong when the learner is offline. Typical cases: a subject before 一 or only in the 就 clause (孩子一看见蛋糕就高兴起来了 / 一看见蛋糕孩子就高兴起来了, like 一到家，我就睡觉了); a time or place phrase before or after the subject (我明天去北京 / 明天我去北京); a 因为 / 如果 / 虽然 clause before or after the subject. Never repeat correct_order in alt_orders; leave alt_orders out only when there is truly one natural order. Example: {type:"scramble", english:"As soon as the child saw the cake, he cheered up.", tiles:["高兴起来了","孩子","就","蛋糕","一看见"], correct_order:["孩子","一看见","蛋糕","就","高兴起来了"], alt_orders:[["一看见","蛋糕","孩子","就","高兴起来了"]]}.`;
+
 /** One line per exercise type: its fields and what the learner does. */
 export const LESSON_EXERCISE_DOC = `- {type:"note", title?, body?, sentences?:[{hanzi,pinyin?,english?}], patterns?:[{name?, pieces:[{hanzi, pinyin?, english?, optional?} | {slot, zh?, optional?}] (2-12), meaning?, examples?:[{hanzi, pinyin?, english?, parts?:[{text, piece?}]}] (1-4), note?, image_prompt?, intro?:[{zh, en?}] (1-6)}] (1-8)} — teaching text with example sentences (sentences get TTS). Not scored. "patterns" = grammar structures shown as designed cards (see STRUCTURES below).
-- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order.
+- {type:"scramble", english, tiles:[...], correct_order:[...], alt_orders?:[[...], ...]} — arrange tiles into the sentence; tiles must be exactly a permutation of correct_order. ${SCRAMBLE_ALT_ORDERS_RULE}
 - {type:"choice", question, options:[{hanzi,pinyin?,english?}], correct:<index>, explanation?} — multiple choice (2-5 options).
 - {type:"translate", english, reference_hanzi, reference_pinyin?, note?} — translate EN→ZH, self-assessed against the reference.
 - {type:"match", pairs:[{hanzi,pinyin?,english}]} — connect hanzi with meanings (2-8 pairs, no duplicate hanzi/english).

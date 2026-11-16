@@ -25,6 +25,9 @@ import { answerMarks } from '@shared/lesson/feedback';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { FeedbackSentence, LessonFeel, MarkedAnswer, ReplayButton, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
+import { useScrambleCheck } from './lessons/useScrambleCheck';
+import { scrambleCheckInput, scrambleLocalVerdict, scrambleOutcome, scrambleSentence, scrambleSpokenSentence } from '@shared/lesson/scrambleCheck';
+import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -81,12 +84,17 @@ export function ScrambleExercise(props: {
   tiles: string[];
   correctOrder: string[];
   altOrders?: string[][];
+  /** The lesson's title / grammar point, for Claude's check of an unlisted order. */
+  focus?: string;
   speak: Speak;
   onNext: OnNext;
 }) {
-  const { english, tiles, correctOrder, altOrders, speak, onNext } = props;
+  const { english, tiles, correctOrder, altOrders, focus, speak, onNext } = props;
   const [pickedOrder, setPickedOrder] = useState<number[]>([]);
-  const [result, setResult] = useState<boolean | null>(null);
+  // The device's verdict on Check: the listed orders are right at once; any other order of every tile is asked of
+  // Claude (shared/lesson/scrambleCheck.ts) — "Checking…" in place, then ✓ Also right / ✗ Not quite.
+  const [local, setLocal] = useState<'right' | 'unexpected' | null>(null);
+  const scrambleCheck = useScrambleCheck();
   // Pool display order is shuffled per attempt (never presenting a correct
   // order) — exercises repeat under FSRS, so fixed positions would be
   // memorizable, and authored tile order is often the answer itself.
@@ -98,17 +106,36 @@ export function ScrambleExercise(props: {
 
   const picked = pickedOrder.map(i => tiles[i]);
   const allPicked = pickedOrder.length === tiles.length;
+  const outcome = local ? scrambleOutcome(local, scrambleCheck.status, scrambleSentence(picked) === scrambleSentence(correctOrder)) : null;
+  const checked = outcome !== null;
+
+  // Play once the verdict is known: his own order when it is right, else the expected one.
+  const spokenFor = useRef<string | null>(null);
+  const toSpeak = outcome ? scrambleSpokenSentence(outcome, picked, correctOrder) : null;
+  useEffect(() => {
+    if (!toSpeak || spokenFor.current === toSpeak) return;
+    spokenFor.current = toSpeak;
+    speak(toSpeak);
+  }, [toSpeak, speak]);
 
   function check() {
-    const ok = checkScrambleOrder(picked, correctOrder, altOrders);
-    setResult(ok);
-    speak(correctOrder.join(''));
+    const verdict = scrambleLocalVerdict(picked, tiles, correctOrder, altOrders);
+    if (verdict === 'incomplete') return;
+    setLocal(verdict);
+    if (verdict === 'unexpected') scrambleCheck.start(scrambleCheckInput({ english, correct_order: correctOrder }, picked, focus));
+  }
+
+  function next() {
+    if (!outcome) return;
+    const status = scrambleCheck.status;
+    const done = local === 'unexpected' && status?.status === 'done' ? status.check : undefined;
+    onNext(outcome.correct, { order: picked, hint_used: showEnglish, ...(done ? { check: done } : {}) });
   }
 
   return (
     <div className="exercise">
       <div className="phase-label">Word order</div>
-      {showEnglish || result !== null ? (
+      {showEnglish || checked ? (
         <div className="scramble-prompt">{english}</div>
       ) : (
         <button className="scramble-prompt hidden-hint" onClick={() => setShowEnglish(true)}>
@@ -116,7 +143,7 @@ export function ScrambleExercise(props: {
         </button>
       )}
       <div className="scramble-row answer">
-        {picked.map((t, i) => result === null ? (
+        {picked.map((t, i) => !checked ? (
           <button
             key={i}
             className="tile"
@@ -140,14 +167,14 @@ export function ScrambleExercise(props: {
               key={i}
               className={`tile ${isPicked ? 'ghost' : ''}`}
               onClick={() => !isPicked && setPickedOrder([...pickedOrder, i])}
-              disabled={isPicked || result !== null}
+              disabled={isPicked || checked}
             >
               {tiles[i]}
             </button>
           );
         })}
       </div>
-      {result === null ? (
+      {!outcome ? (
         <TakeLockActions>
           <button className="practice-btn primary" onClick={check} disabled={!allPicked}>
             Check
@@ -155,20 +182,40 @@ export function ScrambleExercise(props: {
         </TakeLockActions>
       ) : (
         <>
-          <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
+          {outcome.tone === 'neutral' ? (
+            <div className="result-banner checking" role="status" aria-live="polite" data-testid="lesson-result-banner" data-kind={outcome.kind}>
+              {outcome.banner}
+            </div>
+          ) : (
+            <ResultBanner ok={outcome.tone === 'good'}>
+              <span data-kind={outcome.kind} data-testid="scramble-verdict">{outcome.banner}</span>
+            </ResultBanner>
+          )}
           <FeedbackSentence
             hanzi={correctOrder.join('')}
-            label={result ? undefined : 'The right order:'}
+            label={outcome.expectedLabel ?? undefined}
             speak={speak}
             exerciseType="scramble"
             testId="scramble-correct-sentence"
           />
           <SayItAgain hanzi={correctOrder.join('')} exerciseType="scramble" />
           <TakeLockActions>
-            <button className="practice-btn primary" onClick={() => onNext(result, { order: picked, hint_used: showEnglish })}>
+            <button className="practice-btn primary" onClick={next}>
               Continue
             </button>
           </TakeLockActions>
+          {/* Claude's slot, LAST so nothing he reads moves when it lands (shared/lesson/feedback.ts). */}
+          {outcome.checking && (
+            <div className="answer-check checking" role="status" aria-live="polite" data-testid="answer-check-checking">
+              <span className="answer-check-dot" aria-hidden="true" /> {CLAUDE_CHECKING_LINE}
+            </div>
+          )}
+          {outcome.note && (
+            <p className={`scramble-claude-note ${outcome.tone}`} data-testid="scramble-claude-note">
+              <span className="scramble-claude-note-label">Claude: </span>
+              <ExplorableText text={outcome.note} source="lesson" />
+            </p>
+          )}
         </>
       )}
     </div>

@@ -856,3 +856,25 @@
 :root[data-theme='dark'] .jg-result.right { color: #86efac; }
 :root[data-theme='dark'] .jg-result.miss { color: #fca5a5; }
 :root[data-theme='dark'] .jg-fix { background: #111113; border-color: #3f3f46; }
+
+/* Word order: "Checking…" in place of the verdict while Claude checks an order the lesson didn't list
+   (shared/lesson/scrambleCheck.ts) — the same box as the verdict, so nothing moves when it lands. */
+.result-banner.checking {
+  background: var(--color-surface, #f3f4f6);
+  color: var(--color-text-light, #6b7280);
+  border: 1px dashed var(--color-border, #e5e7eb);
+}
+
+/* Claude's one line on an unlisted word order, below the buttons. */
+.scramble-claude-note {
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-left-width: 4px;
+  font-size: 0.9375rem;
+  text-align: left;
+}
+.scramble-claude-note.good { border-left-color: #16a34a; }
+.scramble-claude-note.bad { border-left-color: #dc2626; }
+.scramble-claude-note-label { font-weight: 600; color: var(--color-text-light, #6b7280); }

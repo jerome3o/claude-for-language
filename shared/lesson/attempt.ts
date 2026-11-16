@@ -88,7 +88,7 @@ export interface ExerciseAnswer {
   /** A recording made in this exercise, uploaded under this media key. */
   recording?: { media_key: string; duration_ms: number; mime?: string };
   feedback?: SentenceFeedback;
-  /** Claude's check of `text` (shared/lesson/answerCheck.ts), when it came back. */
+  /** Claude's check of `text` (shared/lesson/answerCheck.ts), or of a word order's `order` (scrambleCheck.ts), when it came back. */
   check?: AnswerCheck;
   /** Earlier answers to this exercise (🔁 Try again), oldest first, each with its check. */
   tries?: AnswerTry[];
@@ -306,8 +306,10 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
       };
     }
   }
-  if (isRecord(v.check) && out.text) {
-    const check = parseAnswerCheck(v.check, out.text);
+  // A word order Claude checked (shared/lesson/scrambleCheck.ts) carries its check with the order, no text.
+  const checkedText = out.text ?? (out.order?.length ? out.order.join(' ') : undefined);
+  if (isRecord(v.check) && checkedText) {
+    const check = parseAnswerCheck(v.check, checkedText);
     if (check) out.check = check;
   }
   if (Array.isArray(v.tries)) {

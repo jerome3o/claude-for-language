@@ -97,4 +97,55 @@ class LessonAnswerCheckParityTest {
             assertEquals(c["questions"]!!.jsonArray.map { it.str!! }, LessonAnswerCheck.askQuickQuestions(c["verdict"].str), c.toString())
         }
     }
+
+    private fun strings(e: JsonElement?): List<String> = e!!.jsonArray.map { it.str!! }
+
+    @Test
+    fun scrambleLocalVerdictMatches() {
+        for (c in data["scrambleLocal"]!!.jsonArray.map { it.jsonObject }) {
+            val alts = c["alts"]?.takeIf { it !is JsonNull }?.jsonArray?.map { strings(it) }
+            val got = ScrambleCheck.localVerdict(strings(c["picked"]), listOf("高兴起来了", "孩子", "就", "蛋糕", "一看见"), listOf("孩子", "一看见", "蛋糕", "就", "高兴起来了"), alts)
+            assertEquals(c["verdict"].str, got, c.toString())
+        }
+    }
+
+    @Test
+    fun scrambleCheckInputMatches() {
+        val cases = data["scrambleInputs"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.count { it["input"] !is JsonNull } >= 2)
+        for (c in cases) {
+            val picked = strings(c["picked"])
+            val got = ScrambleCheck.checkInput(c["english"].str, strings(c["correct_order"]), picked, c["focus"].str)
+            val want = c["input"]?.takeIf { it !is JsonNull }?.let { json.decodeFromJsonElement(AnswerCheckInput.serializer(), it) }
+            assertEquals(want, got, c.toString())
+            assertEquals(c["sentence"].str, ScrambleCheck.sentence(picked), c.toString())
+            assertEquals(c["text"].str, ScrambleCheck.orderText(picked), c.toString())
+            if (got != null) assertTrue(LessonAnswerCheck.applies(got.exerciseType, got.answer))
+        }
+    }
+
+    @Test
+    fun scrambleOutcomeMatches() {
+        val jerome = listOf("一看见", "蛋糕", "孩子", "就", "高兴起来了")
+        val correct = listOf("孩子", "一看见", "蛋糕", "就", "高兴起来了")
+        val cases = data["scrambleOutcomes"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 20)
+        for (c in cases) {
+            val st = c["status"]?.takeIf { it !is JsonNull }?.jsonObject
+            val status: ScrambleCheck.Status? = when (st?.get("status").str) {
+                null -> null
+                "checking" -> ScrambleCheck.Status.Checking
+                "unavailable" -> ScrambleCheck.Status.Unavailable
+                else -> ScrambleCheck.Status.Done(json.decodeFromJsonElement(AnswerCheck.serializer(), st!!["check"]!!))
+            }
+            val o = c["outcome"]!!.jsonObject
+            val want = ScrambleCheck.Outcome(
+                o["kind"].str!!, o["banner"].str!!, o["tone"].str!!, o["correct"]!!.jsonPrimitive.boolean,
+                o["expectedLabel"].str, o["note"].str, o["checking"]!!.jsonPrimitive.boolean, o["moment"].str,
+            )
+            val got = ScrambleCheck.outcome(c["local"].str!!, status, c["same"]!!.jsonPrimitive.boolean)
+            assertEquals(want, got, c.toString())
+            assertEquals(c["spoken"].str, ScrambleCheck.spokenSentence(got.kind, jerome, correct), c.toString())
+        }
+    }
 }

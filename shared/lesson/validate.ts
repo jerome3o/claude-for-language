@@ -164,10 +164,14 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
         errors.push(`${where}: "tiles" must be 2-${MAX_TILES} non-empty strings`);
       } else if (!Array.isArray(order) || !order.every(nonEmptyString) || !sameMultiset(tiles as string[], order as string[])) {
         errors.push(`${where}: "correct_order" must use exactly the tiles in "tiles" (same multiset)`);
+      } else if (ex.alt_orders !== undefined && ex.alt_orders !== null && !Array.isArray(ex.alt_orders)) {
+        errors.push(`${where}: "alt_orders" must be a list of tile orders`);
       } else if (Array.isArray(ex.alt_orders)) {
         (ex.alt_orders as unknown[]).forEach((alt, i) => {
           if (!Array.isArray(alt) || !alt.every(nonEmptyString) || !sameMultiset(tiles as string[], alt as string[])) {
             errors.push(`${where}: alt_orders[${i}] must use exactly the tiles in "tiles"`);
+          } else if ((alt as string[]).join('') === (order as string[]).join('')) {
+            errors.push(`${where}: alt_orders[${i}] is the same as "correct_order" — list only OTHER natural orders`);
           }
         });
       }

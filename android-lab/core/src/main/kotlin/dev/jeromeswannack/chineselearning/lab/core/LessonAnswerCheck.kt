@@ -80,7 +80,13 @@ object LessonAnswerCheck {
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
     const val READ_ALOUD_TYPE = "read_aloud"
-    val TYPES = listOf("translate", "listen_translate", READ_ALOUD_TYPE)
+    /** Port of SCRAMBLE_CHECK_TYPE: a word order built in an order the lesson didn't list ([ScrambleCheck]). */
+    const val SCRAMBLE_TYPE = "scramble"
+    /** Port of SCRAMBLE_CHECK_VERSION (cache texts start `o<version>`). */
+    const val SCRAMBLE_VERSION = 1
+    val TYPES = listOf("translate", "listen_translate", READ_ALOUD_TYPE, SCRAMBLE_TYPE)
+
+    fun isScramble(exerciseType: String?): Boolean = exerciseType == SCRAMBLE_TYPE
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
     const val SPEAKING_VERSION = 1
 
@@ -159,6 +165,16 @@ object LessonAnswerCheck {
                 collapse(nfkc(input.focus ?: "")).lowercase(),
                 (input.hints ?: emptyList()).map { LessonAnswers.normalizeHanzi(it) }.filter { it.isNotEmpty() }.joinToString(","),
                 LessonAnswers.normalizeHanzi(input.questionAudio ?: ""),
+            ).joinToString("|")
+        }
+        if (isScramble(input.exerciseType)) {
+            // A word order: the English and the two orders (the tiles' spaces aside) — no input mode, no focus.
+            return listOf(
+                "o$SCRAMBLE_VERSION",
+                input.exerciseType,
+                collapse(nfkc(input.promptEn)).lowercase(),
+                LessonAnswers.normalizeHanzi(input.modelAnswer),
+                LessonAnswers.normalizeHanzi(input.answer),
             ).joinToString("|")
         }
         val mode = if (input.input == "spoken") "spoken" else "typed"

@@ -5,7 +5,7 @@ export type { LessonDiff, ExerciseDiffEntry, SectionDiffEntry, FieldChange } fro
 export { lessonToMarkdown, lessonToJson, lessonToCsv, lessonToExportSpec, lessonVocabRows, lessonExportFilename } from './export';
 export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo } from './registry';
 export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
-export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE, STRUCTURE_RULE } from './doc';
+export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE, STRUCTURE_RULE, SCRAMBLE_ALT_ORDERS_RULE } from './doc';
 export * from './pattern';
 export * from './patternIntro';
 export {
@@ -51,3 +51,4 @@ export {
   judgeResults, gapResults, allAnswered, itemsScoreLine, judgeFeedback, gapFeedback, gapOptionsFor,
 } from './judgeGap';
 export * from './handwriting';
+export * from './scrambleCheck';

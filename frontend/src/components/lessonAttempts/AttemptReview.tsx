@@ -109,7 +109,9 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
         <>
           <Row label="Task">{exercise.english}</Row>
           <Row label="Built">{a.order?.length ? a.order.join(' ') : '—'}</Row>
-          {!attempt.correct && <Row label="Answer">{exercise.correct_order.join(' ')}</Row>}
+          {/* An order the lesson didn't list, checked by Claude (shared/lesson/scrambleCheck.ts). */}
+          {a.check && a.order?.length ? <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.order.join('')} compact /></Row> : null}
+          {(!attempt.correct || a.check) && <Row label={attempt.correct ? 'Expected' : 'Answer'}>{exercise.correct_order.join(' ')}</Row>}
           {a.hint_used && <Row label="Hint">looked at the English</Row>}
         </>
       );
