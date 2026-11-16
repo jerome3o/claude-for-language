@@ -9,8 +9,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   comparesIdenticalTexts, normalizeAnswerCheck, recommendsText, ANSWER_CHECK_VERSION, PLAIN_ACCEPTABLE_HEADLINE, PLAIN_CORRECT_HEADLINE,
+  checkKey, correctedDisplay, forbidsCorrected, recommendedAt, recommendsWrongForm, wordsPinyinLine, neutralHeadline,
 } from '../../../shared/lesson/answerCheck';
-import { answerMarks, sameCharacters, REORDERED_NOTE } from '../../../shared/lesson/feedback';
+import { answerKey, answerMarks, markedChars, sameCharacters, REORDERED_NOTE } from '../../../shared/lesson/feedback';
+import { digitsToHanzi } from '../../../shared/text/numberHanzi';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -32,6 +34,12 @@ const raws: Array<{ raw: unknown; answer: string; model: string | null }> = [
   { raw: { verdict: 'acceptable', headline: 'Good, but… Butter.', tips: [{ text: 'Nothing to add — ok' }] }, answer, model },
   // Free speaking: a tip whose better version IS the whole transcript goes.
   { raw: { verdict: 'acceptable', headline: 'Clear, though shorter is fine.', cleaned: '你好，我是安妮。', corrected: '', tips: [{ text: 'Fine.', quote: '你好', fix: '你好，我是安妮' }] }, answer: '你好，我是安妮。', model: '你好！' },
+  // Coherence (Nov 2026): Jerome's croissant — "not both" over a fix with both, his own 块多元 offered as a fix.
+  { raw: { verdict: 'almost', headline: 'Use 钱 or 块 alone, not both together', corrected: '这个牛角包3块多钱', corrected_pinyin: 'zhège niú jiǎo bāo kuài duō qián', tips: [{ text: '3块多元: 块 and 元 are both money units; use 钱 instead (块多钱) or just 元 alone (块多元)', quote: '3块多元' }] }, answer: '这个牛角包 3块多元。', model: '这个牛角包三块多钱。' },
+  { raw: { verdict: 'almost', headline: '块 and 元 are both units — use one.', corrected: '这个牛角包三块多钱。', tips: [{ text: '块多元 stacks two units: say 三块多钱 or 三元多.', quote: '块多元' }], alternative: { hanzi: '这个牛角包3块多元' } }, answer: '这个牛角包 3块多元。', model: '这个牛角包三块多钱。' },
+  { raw: { verdict: 'wrong', headline: 'Or just say 三元', corrected: '', tips: [{ text: 'Avoid 牛角包 here', quote: '牛角包' }] }, answer: '这个牛角包三元', model: '这个牛角包三块多钱。' },
+  { raw: { verdict: 'wrong', headline: 'Don’t use 三块多 — try 3块', corrected: '这个牛角包三块多钱', tips: [{ text: 'Say 也别着急 instead of 也不着急.' }] }, answer: '这个牛角包3块多元', model: null },
+  { raw: { verdict: 'correct', headline: 'Use 钱 or 块 alone, not both together', corrected: '', tips: [] }, answer: '这个牛角包三块多钱。', model: '这个牛角包三块多钱。' },
 ];
 const normalized = raws.map((c) => ({ ...c, check: normalizeAnswerCheck(c.raw, c.answer, c.model) }));
 
@@ -61,8 +69,58 @@ const PAIRS: Array<[string, string]> = [
 const VERDICTS = [null, 'correct', 'acceptable', 'almost', 'wrong'];
 const marks = PAIRS.flatMap(([a, m]) => VERDICTS.map((v) => ({ answer: a, model: m, verdict: v, same: sameCharacters(a, m), marks: answerMarks(a, m, v) })));
 
+// Coherence rules + digits read as numerals.
+const croissant = { mine: checkKey('这个牛角包 3块多元。'), corrected: checkKey('这个牛角包3块多钱'), model: checkKey('这个牛角包三块多钱。') };
+const coherenceLines = [
+  '3块多元: 块 and 元 are both money units; use 钱 instead (块多钱) or just 元 alone (块多元)',
+  'Use 钱 or 块 alone, not both together',
+  'Use 元 or 块 alone, NOT BOTH',
+  'Avoid 块多钱 here',
+  "don't use “块多钱”",
+  'Say 也别着急 instead of 也不着急.',
+  'Use 别, not 块多元',
+  'Wrong: use it. 块多元 is two units',
+  '→ 块多元',
+  'or 牛角包三块多元',
+  'Keep 这个牛角包 — use 这个牛角包',
+  '块 and 钱 can’t combine with 元',
+  'try 块多元; 块多元 is wrong',
+];
+const coherence = coherenceLines.map((text) => ({
+  text,
+  recommended: Array.from(text.matchAll(/\p{Script=Han}+/gu), (m) => recommendedAt(text, m.index!)),
+  wrongForm: recommendsWrongForm(text, croissant.mine, croissant.corrected, croissant.model),
+  forbids: forbidsCorrected(text, croissant.corrected),
+  forbidsNoFix: forbidsCorrected(text, ''),
+}));
+const numberTexts = ['这个牛角包 3块多元。', '2026年3月1.5%', '电话123456789', '我12岁', '３块', '0点', '10个人', '1,000元', '第2026届', '5.0', 'abc', ''];
+const digits = numberTexts.map((text) => ({ text, hanzi: digitsToHanzi(text), key: checkKey(text), answerKey: answerKey(text), display: correctedDisplay(text) }));
+const MARK_PAIRS: Array<[string, string]> = [
+  ['这个牛角包 3块多元。', '这个牛角包三块多钱。'], ['我12岁', '我十二岁'], ['我13岁', '我十二岁'], ['2026年', '二〇二六年'],
+  ['3个人', '三个人'], ['1.5公斤', '一点五公斤'], ['50%的人', '百分之五十的人'], ['三块', '3块'], ['我10岁了', '我十岁'],
+];
+const digitMarks = MARK_PAIRS.map(([a, m]) => ({
+  answer: a, model: m,
+  answerSide: markedChars(a, m, 'answer'), modelSide: markedChars(a, m, 'model'),
+  marks: answerMarks(a, m),
+}));
+const wordLines = [
+  [{ text: '这个', pinyin: 'zhège' }, { text: '牛角包', pinyin: 'niú jiǎo bāo' }, { text: '三块', pinyin: 'sānkuài' }, { text: '多', pinyin: 'duō' }, { text: '钱', pinyin: 'qián' }, { text: '。', pinyin: '' }],
+  [{ text: '你好', pinyin: 'nǐhǎo' }, { text: '，', pinyin: '' }, { text: '世界', pinyin: 'shìjiè' }, { text: '！', pinyin: '' }],
+  [{ text: '你好', pinyin: 'nǐhǎo' }, { text: '，', pinyin: '' }, { text: '世界', pinyin: '' }],
+  [{ text: 'Annie', pinyin: '' }, { text: ' ', pinyin: '' }, { text: '来了', pinyin: 'láile' }, { text: '?', pinyin: '' }],
+  [],
+].map((words) => ({ words, line: wordsPinyinLine(words) }));
+const neutral = (['almost', 'wrong'] as const).flatMap((v) => [true, false].map((fix) => ({ verdict: v, fix, headline: neutralHeadline(v, fix) })));
+
 writeFileSync(join(OUT, 'answer-sanity.json'), JSON.stringify({
   version: ANSWER_CHECK_VERSION,
+  croissant,
+  coherence,
+  digits,
+  digitMarks,
+  wordLines,
+  neutral,
   plain: { correct: PLAIN_CORRECT_HEADLINE, acceptable: PLAIN_ACCEPTABLE_HEADLINE, reordered: REORDERED_NOTE },
   normalized,
   texts,

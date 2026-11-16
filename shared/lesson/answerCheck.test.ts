@@ -352,8 +352,8 @@ describe('sanity rules (Jerome, Nov 2026: "因为 clause should come before the 
     expect(c.headline).toBe('Right, but 觉 is optional.');
   });
 
-  it('the cache text carries the new version, so the bad v2 checks are never served again', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(3);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v3\|/);
+  it('the cache text carries the new version, so the bad v2 / v3 checks are never served again', () => {
+    expect(ANSWER_CHECK_VERSION).toBe(4);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v4\|/);
   });
 });

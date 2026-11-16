@@ -19,6 +19,7 @@
 import type { StudyFeel } from '../study/hardMode';
 import type { LessonExercise } from './types';
 import { diffHanzi, isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
+import { DIGIT_RUN, digitRunToHanzi, digitsToHanzi } from '../text/numberHanzi';
 
 /** The slim row while Claude's check is on its way. */
 export const CLAUDE_CHECKING_LINE = 'Claude is checking…';
@@ -147,20 +148,45 @@ export interface ShownChar {
  * answer missed marked. Punctuation, spaces and symbols are kept, never marked.
  */
 export function markedChars(answer: string, model: string, side: 'answer' | 'model'): ShownChar[] {
-  const d = diffHanzi(answer, model);
+  // Digits are read as Chinese numerals first: a spoken 3块 IS 三块, never a red 3.
+  const d = diffHanzi(digitsToHanzi(answer), digitsToHanzi(model)); // (full-width digits stay digits: shown 1:1)
   const marks = side === 'answer' ? d.typed : d.expected;
   const text = side === 'answer' ? answer : model;
   let k = 0;
-  return Array.from(text).map((ch) => {
-    const n = Array.from(normalizeHanziAnswer(ch)).length;
-    if (n === 0) return { ch, hit: true };
+  return shownUnits(text).flatMap((u) => {
+    const n = Array.from(u.norm).length;
     let hit = true;
     for (let i = 0; i < n; i++) {
       const m = marks[k++];
       if (m && !m.hit) hit = false;
     }
-    return { ch, hit };
+    return Array.from(u.shown).map((ch) => ({ ch, hit: n === 0 ? true : hit }));
   });
+}
+
+/**
+ * The comparison key of an answer: digits as Chinese numerals, then whitespace / punctuation dropped
+ * (这个牛角包 3块多元 = 这个牛角包三块多元). Lab `LessonFeedback.answerKey`.
+ */
+export function answerKey(s: string): string {
+  return normalizeHanziAnswer(digitsToHanzi(s.normalize('NFKC')));
+}
+
+/** The text as shown, in units: a digit run is ONE unit (all its numerals marked together), every other character its own. */
+function shownUnits(text: string): Array<{ shown: string; norm: string }> {
+  const out: Array<{ shown: string; norm: string }> = [];
+  const pushChars = (part: string) => {
+    for (const ch of Array.from(part)) out.push({ shown: ch, norm: normalizeHanziAnswer(ch) });
+  };
+  let at = 0;
+  for (const m of text.matchAll(DIGIT_RUN)) {
+    const start = m.index!;
+    pushChars(text.slice(at, start));
+    out.push({ shown: m[0], norm: normalizeHanziAnswer(digitRunToHanzi(m[0], text.charAt(start + m[0].length))) });
+    at = start + m[0].length;
+  }
+  pushChars(text.slice(at));
+  return out;
 }
 
 /**
@@ -168,10 +194,11 @@ export function markedChars(answer: string, model: string, side: 'answer' | 'mod
  * differs from what he said and from the target already offered (punctuation / spaces ignored).
  */
 export function sayAgainFix(corrected: string | null | undefined, said: string | null | undefined, offered: string | null | undefined): string | null {
-  const c = clean(corrected);
+  // Digits as numerals (a fix 3块多钱 IS the model answer 三块多钱 — nothing new to practise; shown with numerals).
+  const c = digitsToHanzi(clean(corrected));
   if (!c || !/\p{Script=Han}/u.test(c)) return null;
-  if (clean(said) && isExactHanziMatch(clean(said), c)) return null;
-  if (clean(offered) && isExactHanziMatch(clean(offered), c)) return null;
+  if (clean(said) && isExactHanziMatch(digitsToHanzi(clean(said)), c)) return null;
+  if (clean(offered) && isExactHanziMatch(digitsToHanzi(clean(offered)), c)) return null;
   return c;
 }
 
@@ -195,12 +222,12 @@ export function sameCharacters(answer: string, model: string): boolean {
  * The device's character marks on "You said" and the model answer (`markedChars`), or not. Jerome said
  * 因为这个问题，我睡不着觉 for 我因为这个问题睡不着觉 and both rows painted 我 red — a pure reordering read as "you got 我
  * wrong" under a ✓ verdict. So: no marks when it IS the model answer; a reordering of the same characters gets the
- * neutral `REORDERED_NOTE` instead; and once Claude's check says correct / acceptable (`verdict`) the marks go — a
+ * neutral `REORDERED_NOTE` instead; digits count as their numerals (3 = 三, `answerKey`); and once Claude's check says correct / acceptable (`verdict`) the marks go — a
  * right answer is never painted as errors. Otherwise (no verdict yet, almost, wrong) the marks show.
  */
 export function answerMarks(answer: string, model: string, verdict?: string | null): AnswerMarks {
-  const a = normalizeHanziAnswer(answer);
-  const m = normalizeHanziAnswer(model);
+  const a = answerKey(answer);
+  const m = answerKey(model);
   if (!a || !m || a === m) return { marks: false, note: null };
   if (sameCharacters(a, m)) return { marks: false, note: REORDERED_NOTE };
   if (verdict === 'correct' || verdict === 'acceptable') return { marks: false, note: null };

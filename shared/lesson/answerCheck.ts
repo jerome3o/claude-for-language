@@ -21,13 +21,17 @@
  * better version per tip (`fix`). docs/STUDY_SESSION.md "Claude checks your speaking".
  */
 import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
+import { digitsToHanzi } from '../text/numberHanzi';
 
 /**
  * Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it.
  * 3 (Nov 2026): the learner's / model answer tagged apart + the sanity rules (`insaneTip`) — a v2 check told
  * Jerome to put the 因为 clause first when his answer already did, comparing two identical strings.
+ * 4 (Nov 2026): the coherence rules (`recommendsWrongForm`, `forbidsCorrected`), digits read as numerals (3 = 三) and a
+ * prompt that states the actual rule — a v3 check told Jerome "use 钱 or 块 alone, not both" over a fix with 块…钱 and
+ * offered his own 块多元 as the alternative.
  */
-export const ANSWER_CHECK_VERSION = 3;
+export const ANSWER_CHECK_VERSION = 4;
 
 export type AnswerCheckVerdict = 'correct' | 'acceptable' | 'almost' | 'wrong';
 export const ANSWER_CHECK_VERDICTS: readonly AnswerCheckVerdict[] = ['correct', 'acceptable', 'almost', 'wrong'];
@@ -187,6 +191,11 @@ export function answerCheckApplies(exerciseType: string, answer: string | null |
 /** Whitespace collapsed (display text keeps its full-width punctuation). */
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
 
+/** A Chinese text as compared: digits as numerals (3块 = 三块), whitespace / punctuation dropped. */
+export function checkKey(s: string): string {
+  return normalizeHanziAnswer(digitsToHanzi(s.normalize('NFKC')));
+}
+
 /**
  * The text a check is cached by (server: SHA-256 of it; device: the text itself). Answers that
  * differ only in punctuation / spacing share a check; a spoken answer is checked differently from
@@ -232,8 +241,8 @@ export function answerCheckCacheText(input: AnswerCheckInput): string {
     input.exercise_type,
     mode,
     collapse(input.prompt_en.normalize('NFKC')).toLowerCase(),
-    normalizeHanziAnswer(input.model_answer),
-    normalizeHanziAnswer(input.answer),
+    checkKey(input.model_answer),
+    checkKey(input.answer),
     collapse((input.focus ?? '').normalize('NFKC')).toLowerCase(),
   ].join('|');
 }
@@ -307,7 +316,7 @@ export function insaneTip(tip: { text: string; fix?: string }, good: boolean, mi
   if (good && sameAsModel) return true;
   if (comparesIdenticalTexts(tip.text)) return true;
   if (recommendsText(tip.text, mine)) return true;
-  if (tip.fix && Array.from(mine).length >= 2 && normalizeHanziAnswer(tip.fix) === mine) return true;
+  if (tip.fix && Array.from(mine).length >= 2 && checkKey(tip.fix) === mine) return true;
   if (good && quotesWholeAnswer(tip.text, mine)) return true;
   return false;
 }
@@ -323,6 +332,81 @@ export function saneHeadline(headline: string, verdict: AnswerCheckVerdict, mine
   if (comparesIdenticalTexts(headline) || recommendsText(headline, mine)) return plain;
   if (dropped > 0 && tipsLeft === 0 && CRITIQUE.test(headline)) return plain;
   return headline;
+}
+
+// ============ Coherence rules (Nov 2026) ============
+//
+// Jerome said 这个牛角包 3块多元 for "This croissant was just over three yuan." (model 这个牛角包三块多钱). "~ Almost" was right
+// — 块 and 元 are two units stacked — but the check said "Use 钱 or 块 alone, not both together" over a corrected line
+// 这个牛角包3块多钱 that has both, and its tip offered "…or just 元 alone (块多元)" — his own wrong form — as a fix. On an
+// almost / wrong check: a tip recommending (part of) what he got wrong, or telling him to avoid what the corrected line
+// itself uses, is dropped; such a headline becomes a neutral one.
+
+export const NEUTRAL_ALMOST_HEADLINE = 'Nearly — compare with the corrected version.';
+export const NEUTRAL_WRONG_HEADLINE = 'Not quite — compare with the corrected version.';
+export const NEUTRAL_ALMOST_NO_FIX_HEADLINE = 'Nearly — one thing to fix.';
+export const NEUTRAL_WRONG_NO_FIX_HEADLINE = 'Not quite — have another go.';
+
+/** The neutral headline of an almost / wrong check whose own headline contradicted it. */
+export function neutralHeadline(verdict: AnswerCheckVerdict, hasFix: boolean): string {
+  if (verdict === 'wrong') return hasFix ? NEUTRAL_WRONG_HEADLINE : NEUTRAL_WRONG_NO_FIX_HEADLINE;
+  return hasFix ? NEUTRAL_ALMOST_HEADLINE : NEUTRAL_ALMOST_NO_FIX_HEADLINE;
+}
+
+/** Words that say what to use (positive) or not to use (negative); the last one before a text decides. */
+const CUES = new RegExp(
+  `→|->|⇒|${W("instead of|rather than|do not|don't|don’t|not|never|avoid|without|than|use|say|try|write|prefer|better|just|or|instead|should be|becomes")}`,
+  'gi',
+);
+const NEGATIVE_CUE = new RegExp(`^(?:${["instead of", 'rather than', 'do not', "don't", 'don’t', 'not', 'never', 'avoid', 'without', 'than'].join('|')})$`, 'i');
+/** Where a clause ends (a recommendation never reaches past it). */
+const CLAUSE_END = /[.;:!?。；：！？]/;
+/** "not both", "both together", "can't combine…" */
+const NOT_BOTH = new RegExp(W("not both|never both|both together|not together|do not combine|don't combine|don’t combine|never combine|can't combine|can’t combine|cannot combine"), 'i');
+/** "avoid X", "don't use X", "drop X" right before a Chinese text. */
+const AVOID_BEFORE = new RegExp(`${W("avoid|do not use|don't use|don’t use|never use|drop|remove")}[ :："'“”‘’(（]*$`, 'i');
+const HAN_RUN = /\p{Script=Han}+/gu;
+
+/** Is the text at `start` recommended — the last cue word in its clause says use / say / try / or / → (not "not", "instead of")? */
+export function recommendedAt(text: string, start: number): boolean {
+  let from = 0;
+  for (let i = start - 1; i >= 0; i--) {
+    if (CLAUSE_END.test(text[i])) {
+      from = i + 1;
+      break;
+    }
+  }
+  let last: string | null = null;
+  for (const m of text.slice(from, start).matchAll(CUES)) last = m[0];
+  return last !== null && !NEGATIVE_CUE.test(last);
+}
+
+/**
+ * A line offering (part of) his own wrong answer as the thing to say: a Chinese text (2+ characters) recommended by its
+ * clause that is in his answer but neither in the corrected line nor in the model answer (keys from `checkKey`).
+ */
+export function recommendsWrongForm(text: string, mine: string, corrected: string, model: string): boolean {
+  return chineseSpans(text).some((s) => mine.includes(s.norm) && !corrected.includes(s.norm) && !model.includes(s.norm) && recommendedAt(text, s.start));
+}
+
+/**
+ * A line telling him to avoid what the corrected line itself uses: "not both" / "both together" after 2+ Chinese texts
+ * that are ALL in the corrected line ("Use 钱 or 块 alone, not both together" over 三块多钱), or "avoid / don't use X" where
+ * X (2+ characters) is in it. `corrected` = its key ('' = nothing to contradict).
+ */
+export function forbidsCorrected(text: string, corrected: string): boolean {
+  if (!corrected) return false;
+  const both = NOT_BOTH.exec(text);
+  if (both) {
+    const items = [...new Set(Array.from(text.slice(0, both.index).matchAll(HAN_RUN), (m) => normalizeHanziAnswer(m[0])).filter(Boolean))];
+    if (items.length >= 2 && items.every((i) => corrected.includes(i))) return true;
+  }
+  return chineseSpans(text).some((s) => corrected.includes(s.norm) && AVOID_BEFORE.test(text.slice(0, s.start)));
+}
+
+/** A line of an almost / wrong check that contradicts the check itself. */
+export function incoherentLine(text: string, mine: string, corrected: string, model: string): boolean {
+  return recommendsWrongForm(text, mine, corrected, model) || forbidsCorrected(text, corrected);
 }
 
 /** Request body → input, or the problems (400). */
@@ -412,25 +496,30 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
   const verdict = (ANSWER_CHECK_VERDICTS as readonly unknown[]).includes(r.verdict) ? r.verdict as AnswerCheckVerdict : null;
   const headline = str(r.headline, L.headline);
   if (!verdict || !headline) throw new Error('Invalid answer check');
-  const mine = normalizeHanziAnswer(answer);
+  const mine = checkKey(answer);
   // A speaking check is the one with `cleaned` (what they meant): its "cleaner version" may fix an
   // acceptable answer too, and it is compared with what they meant, not the raw transcript.
   const cleanedRaw = str(r.cleaned, L.speech);
   const speaking = !!cleanedRaw && hasHan(cleanedRaw);
-  const meant = speaking ? normalizeHanziAnswer(cleanedRaw) : mine;
+  const meant = speaking ? checkKey(cleanedRaw) : mine;
   const noFix = verdict === 'correct' || (verdict === 'acceptable' && !speaking);
   let corrected = noFix ? '' : str(r.corrected, speaking ? L.speech : L.answer * 2);
-  if (corrected && (!hasHan(corrected) || normalizeHanziAnswer(corrected) === mine || normalizeHanziAnswer(corrected) === meant)) corrected = '';
+  if (corrected && (!hasHan(corrected) || checkKey(corrected) === mine || checkKey(corrected) === meant)) corrected = '';
   const correctedPinyin = corrected ? str(r.corrected_pinyin, (speaking ? L.speech : L.answer) * 6) : '';
   const good = verdict === 'correct' || verdict === 'acceptable';
-  const sameAsModel = !!model && !!mine && normalizeHanziAnswer(model) === mine;
+  const sameAsModel = !!model && !!mine && checkKey(model) === mine;
+  // Almost / wrong: no line may offer his wrong form or forbid what the corrected line uses (coherence rules).
+  const bad = verdict === 'almost' || verdict === 'wrong';
+  const correctedKey = checkKey(corrected);
+  const modelKey = model ? checkKey(model) : '';
+  const incoherent = (line: string) => bad && !speaking && incoherentLine(line, mine, correctedKey, modelKey);
   let dropped = 0;
   const tips: AnswerCheckTip[] = [];
   for (const t of Array.isArray(r.tips) ? r.tips : []) {
     const o = (t && typeof t === 'object' ? t : { text: t }) as Record<string, unknown>;
     const text = str(o.text, L.tip);
     if (!text) continue;
-    if (insaneTip({ text, fix: str(o.fix, L.alternative) }, good, mine, sameAsModel)) {
+    if (insaneTip({ text, fix: str(o.fix, L.alternative) }, good, mine, sameAsModel) || incoherent(text)) {
       dropped++;
       continue;
     }
@@ -449,8 +538,8 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
   const a = (r.alternative && typeof r.alternative === 'object' ? r.alternative : null) as Record<string, unknown> | null;
   const altHanzi = a ? str(a.hanzi, L.alternative) : '';
   if (altHanzi && hasHan(altHanzi)) {
-    const n = normalizeHanziAnswer(altHanzi);
-    if (n !== mine && n !== normalizeHanziAnswer(corrected)) {
+    const n = checkKey(altHanzi);
+    if (n !== mine && n !== correctedKey) {
       alternative = { hanzi: altHanzi };
       const p = str(a!.pinyin, L.alternative * 6);
       const e = str(a!.english, L.alternative);
@@ -458,7 +547,7 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
       if (e) alternative.english = e;
     }
   }
-  const saneHead = saneHeadline(headline, verdict, mine, dropped, tips.length, speaking);
+  const saneHead = incoherent(headline) ? neutralHeadline(verdict, !!corrected) : saneHeadline(headline, verdict, mine, dropped, tips.length, speaking);
   const out: AnswerCheck = { verdict, headline: saneHead, corrected, corrected_pinyin: correctedPinyin, tips, suggested: suggestedFor(verdict) };
   if (alternative) out.alternative = alternative;
   if (speaking) {
@@ -612,4 +701,33 @@ export interface AnswerTry {
   text: string;
   input?: 'spoken' | 'edited' | 'typed';
   check?: AnswerCheck;
+}
+
+/** Claude's corrected line as shown: digits as Chinese numerals (a spoken 3块 → 三块), so its red-pen diff and pinyin agree. */
+export function correctedDisplay(corrected: string): string {
+  return digitsToHanzi(corrected);
+}
+
+const PINYIN_PUNCT: Record<string, string> = { '，': ',', '。': '.', '！': '!', '？': '?', '、': ',', '；': ';', '：': ':' };
+
+/**
+ * A line's pinyin from its word segments (the device segmenter, shared/chinese/segment.ts): one space between words, none
+ * inside one (zhège niújiǎobāo sānkuài duō qián), Chinese punctuation as its ASCII mark, nothing for anything else.
+ * '' when a Han word has no pinyin (the server's line is shown instead).
+ */
+export function wordsPinyinLine(words: ReadonlyArray<{ text: string; pinyin?: string | null }>): string {
+  let out = '';
+  for (const w of words) {
+    if (hasHan(w.text)) {
+      const p = (w.pinyin ?? '').replace(/\s+/g, '');
+      if (!p) return '';
+      out += (out && !/[\s(“]$/.test(out) ? ' ' : '') + p;
+    } else {
+      for (const ch of Array.from(w.text)) {
+        const mark = PINYIN_PUNCT[ch] ?? (/[,.!?;:]/.test(ch) ? ch : '');
+        if (mark) out += mark;
+      }
+    }
+  }
+  return out.trim();
 }

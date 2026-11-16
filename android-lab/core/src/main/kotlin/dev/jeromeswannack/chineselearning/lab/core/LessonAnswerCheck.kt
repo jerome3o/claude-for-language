@@ -75,8 +75,8 @@ data class AnswerCheckInput(
 data class AnswerTry(val text: String, val input: String? = null, val check: AnswerCheck? = null)
 
 object LessonAnswerCheck {
-    /** Port of ANSWER_CHECK_VERSION — 3: the answers tagged apart + the sanity rules ([insaneTip]). */
-    const val VERSION = 3
+    /** Port of ANSWER_CHECK_VERSION — 4: the coherence rules ([incoherentLine]) + digits as numerals ([checkKey]). */
+    const val VERSION = 4
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
     const val READ_ALOUD_TYPE = "read_aloud"
@@ -193,8 +193,8 @@ object LessonAnswerCheck {
             input.exerciseType,
             mode,
             collapse(nfkc(input.promptEn)).lowercase(),
-            LessonAnswers.normalizeHanzi(input.modelAnswer),
-            LessonAnswers.normalizeHanzi(input.answer),
+            checkKey(input.modelAnswer),
+            checkKey(input.answer),
             collapse(nfkc(input.focus ?: "")).lowercase(),
         ).joinToString("|")
     }
@@ -283,7 +283,7 @@ object LessonAnswerCheck {
         if (good && sameAsModel) return true
         if (comparesIdenticalTexts(text)) return true
         if (recommendsText(text, mine)) return true
-        if (!fix.isNullOrEmpty() && LessonAnswers.chars(mine).size >= 2 && LessonAnswers.normalizeHanzi(fix) == mine) return true
+        if (!fix.isNullOrEmpty() && LessonAnswers.chars(mine).size >= 2 && checkKey(fix) == mine) return true
         if (good && quotesWholeAnswer(text, mine)) return true
         return false
     }
@@ -297,6 +297,91 @@ object LessonAnswerCheck {
         return headline
     }
 
+    // ============ Coherence rules (port of the TS block: Jerome's croissant, Nov 2026) ============
+
+    const val NEUTRAL_ALMOST_HEADLINE = "Nearly — compare with the corrected version."
+    const val NEUTRAL_WRONG_HEADLINE = "Not quite — compare with the corrected version."
+    const val NEUTRAL_ALMOST_NO_FIX_HEADLINE = "Nearly — one thing to fix."
+    const val NEUTRAL_WRONG_NO_FIX_HEADLINE = "Not quite — have another go."
+
+    /** Port of checkKey(): digits as numerals (3块 = 三块), whitespace / punctuation dropped. */
+    fun checkKey(s: String): String = LessonAnswers.normalizeHanzi(AnswerKey.digitsToHanzi(nfkc(s)))
+
+    /** Port of neutralHeadline(). */
+    fun neutralHeadline(verdict: String, hasFix: Boolean): String =
+        if (verdict == "wrong") (if (hasFix) NEUTRAL_WRONG_HEADLINE else NEUTRAL_WRONG_NO_FIX_HEADLINE)
+        else (if (hasFix) NEUTRAL_ALMOST_HEADLINE else NEUTRAL_ALMOST_NO_FIX_HEADLINE)
+
+    private val CUES = Regex(
+        "→|->|⇒|" + w("instead of|rather than|do not|don't|don’t|not|never|avoid|without|than|use|say|try|write|prefer|better|just|or|instead|should be|becomes"),
+        RegexOption.IGNORE_CASE,
+    )
+    private val NEGATIVE_CUE = Regex("^(?:instead of|rather than|do not|don't|don’t|not|never|avoid|without|than)$", RegexOption.IGNORE_CASE)
+    private val CLAUSE_END = Regex("[.;:!?。；：！？]")
+    private val NOT_BOTH = Regex(
+        w("not both|never both|both together|not together|do not combine|don't combine|don’t combine|never combine|can't combine|can’t combine|cannot combine"),
+        RegexOption.IGNORE_CASE,
+    )
+    private val AVOID_BEFORE = Regex(w("avoid|do not use|don't use|don’t use|never use|drop|remove") + "[ :：\"'“”‘’(（]*$", RegexOption.IGNORE_CASE)
+    private val HAN_RUN = Regex("\\p{IsHan}+")
+
+    /** Port of recommendedAt(): the last cue word in the clause before [start] says use / say / or / → (not "not"). */
+    fun recommendedAt(text: String, start: Int): Boolean {
+        var from = 0
+        for (i in start - 1 downTo 0) {
+            if (CLAUSE_END.matches(text[i].toString())) {
+                from = i + 1
+                break
+            }
+        }
+        val last = CUES.findAll(text.substring(from, start)).lastOrNull()?.value ?: return false
+        return !NEGATIVE_CUE.matches(last)
+    }
+
+    /** Port of recommendsWrongForm(): his own text (2+ characters), recommended, that the fix and the model left out. */
+    fun recommendsWrongForm(text: String, mine: String, corrected: String, model: String): Boolean =
+        chineseSpans(text).any { s -> mine.contains(s.norm) && !corrected.contains(s.norm) && !model.contains(s.norm) && recommendedAt(text, s.start) }
+
+    /** Port of forbidsCorrected(): "not both" over items all in the fix, or "avoid X" where the fix has X. */
+    fun forbidsCorrected(text: String, corrected: String): Boolean {
+        if (corrected.isEmpty()) return false
+        val both = NOT_BOTH.find(text)
+        if (both != null) {
+            val items = HAN_RUN.findAll(text.substring(0, both.range.first)).map { LessonAnswers.normalizeHanzi(it.value) }.filter { it.isNotEmpty() }.distinct().toList()
+            if (items.size >= 2 && items.all { corrected.contains(it) }) return true
+        }
+        return chineseSpans(text).any { s -> corrected.contains(s.norm) && AVOID_BEFORE.containsMatchIn(text.substring(0, s.start)) }
+    }
+
+    /** Port of incoherentLine(). */
+    fun incoherentLine(text: String, mine: String, corrected: String, model: String): Boolean =
+        recommendsWrongForm(text, mine, corrected, model) || forbidsCorrected(text, corrected)
+
+    /** Port of correctedDisplay(): Claude's corrected line with digits as Chinese numerals. */
+    fun correctedDisplay(corrected: String): String = AnswerKey.digitsToHanzi(corrected)
+
+    private val PINYIN_PUNCT = mapOf("，" to ",", "。" to ".", "！" to "!", "？" to "?", "、" to ",", "；" to ";", "：" to ":")
+    private val ASCII_MARK = Regex("[,.!?;:]")
+    private val ENDS_OPEN = Regex("[$WS(“]$")
+
+    /** Port of wordsPinyinLine(): a line's pinyin from its word segments; "" when a Han word has none. */
+    fun wordsPinyinLine(words: List<Pair<String, String?>>): String {
+        var out = ""
+        for ((text, pinyin) in words) {
+            if (hasHan(text)) {
+                val p = WS_RUN.replace(pinyin ?: "", "")
+                if (p.isEmpty()) return ""
+                out += (if (out.isNotEmpty() && !ENDS_OPEN.containsMatchIn(out)) " " else "") + p
+            } else {
+                for (ch in LessonAnswers.chars(text)) {
+                    val mark = PINYIN_PUNCT[ch] ?: if (ASCII_MARK.matches(ch)) ch else ""
+                    out += mark
+                }
+            }
+        }
+        return jsTrim(out)
+    }
+
     /** Port of normalizeAnswerCheck(): throws when the essentials are missing. [model] = the model answer (sanity rules). */
     fun normalize(raw: JsonElement?, answer: String, model: String? = null): AnswerCheck {
         val r = raw as? JsonObject ?: JsonObject(emptyMap())
@@ -304,24 +389,29 @@ object LessonAnswerCheck {
         val verdict = verdictRaw?.takeIf { it in VERDICTS }
         val headline = str(r["headline"], HEADLINE)
         if (verdict == null || headline.isEmpty()) throw IllegalArgumentException("Invalid answer check")
-        val mine = LessonAnswers.normalizeHanzi(answer)
+        val mine = checkKey(answer)
         // A speaking check is the one with `cleaned`: its cleaner version may fix an acceptable answer too.
         val cleanedRaw = str(r["cleaned"], SPEECH)
         val speaking = cleanedRaw.isNotEmpty() && hasHan(cleanedRaw)
-        val meant = if (speaking) LessonAnswers.normalizeHanzi(cleanedRaw) else mine
+        val meant = if (speaking) checkKey(cleanedRaw) else mine
         val noFix = verdict == "correct" || (verdict == "acceptable" && !speaking)
         var corrected = if (noFix) "" else str(r["corrected"], if (speaking) SPEECH else ANSWER * 2)
-        if (corrected.isNotEmpty() && (!hasHan(corrected) || LessonAnswers.normalizeHanzi(corrected).let { it == mine || it == meant })) corrected = ""
+        if (corrected.isNotEmpty() && (!hasHan(corrected) || checkKey(corrected).let { it == mine || it == meant })) corrected = ""
         val correctedPinyin = if (corrected.isNotEmpty()) str(r["corrected_pinyin"], (if (speaking) SPEECH else ANSWER) * 6) else ""
         val good = verdict == "correct" || verdict == "acceptable"
-        val sameAsModel = model != null && mine.isNotEmpty() && LessonAnswers.normalizeHanzi(model) == mine
+        val sameAsModel = model != null && mine.isNotEmpty() && checkKey(model) == mine
+        // Almost / wrong: no line may offer his wrong form or forbid what the corrected line uses (coherence rules).
+        val bad = verdict == "almost" || verdict == "wrong"
+        val correctedKey = checkKey(corrected)
+        val modelKey = if (model != null) checkKey(model) else ""
+        fun incoherent(line: String) = bad && !speaking && incoherentLine(line, mine, correctedKey, modelKey)
         var dropped = 0
         val tips = mutableListOf<AnswerCheckTip>()
         for (t in (r["tips"] as? JsonArray).orEmpty()) {
             val o = t as? JsonObject
             val text = if (o != null) str(o["text"], TIP) else str(t, TIP)
             if (text.isEmpty()) continue
-            if (insaneTip(text, if (o != null) str(o["fix"], ALTERNATIVE) else "", good, mine, sameAsModel)) {
+            if (insaneTip(text, if (o != null) str(o["fix"], ALTERNATIVE) else "", good, mine, sameAsModel) || incoherent(text)) {
                 dropped++
                 continue
             }
@@ -338,8 +428,8 @@ object LessonAnswerCheck {
         val a = r["alternative"] as? JsonObject
         val altHanzi = if (a != null) str(a["hanzi"], ALTERNATIVE) else ""
         if (altHanzi.isNotEmpty() && hasHan(altHanzi)) {
-            val n = LessonAnswers.normalizeHanzi(altHanzi)
-            if (n != mine && n != LessonAnswers.normalizeHanzi(corrected)) {
+            val n = checkKey(altHanzi)
+            if (n != mine && n != correctedKey) {
                 alternative = AnswerCheckAlternative(
                     altHanzi,
                     str(a!!["pinyin"], ALTERNATIVE * 6).ifEmpty { null },
@@ -347,7 +437,8 @@ object LessonAnswerCheck {
                 )
             }
         }
-        val base = AnswerCheck(verdict, saneHeadline(headline, verdict, mine, dropped, tips.size, speaking), corrected, correctedPinyin, tips, alternative, suggestedFor(verdict))
+        val head = if (incoherent(headline)) neutralHeadline(verdict, corrected.isNotEmpty()) else saneHeadline(headline, verdict, mine, dropped, tips.size, speaking)
+        val base = AnswerCheck(verdict, head, corrected, correctedPinyin, tips, alternative, suggestedFor(verdict))
         if (!speaking) return base
         val parts = mutableListOf<AnswerCheckPart>()
         for (p in (r["parts"] as? JsonArray).orEmpty()) {

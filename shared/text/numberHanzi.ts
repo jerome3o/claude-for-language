@@ -107,6 +107,39 @@ export function normalizeNumbersToHanzi(text: string): string {
 // considered correct (e.g. a missing trailing 。).
 const ANSWER_PUNCTUATION = /[\s。，、！？．·….,!?;:；：""''"'()（）【】\[\]《》<>「」-]/g;
 
+/** One run of Arabic digits (thousands separators allowed, + a decimal part, + %) — the unit `digitsToHanzi` reads. */
+export const DIGIT_RUN = /([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]+))?(%)?/g;
+const DIGIT_HANZI = ['〇', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+
+/** One digit run as Chinese numerals (its own reading: `digitsToHanzi`); runs over 8 digits stay as they are. */
+export function digitRunToHanzi(run: string, next = ''): string {
+  const m = /^([0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.([0-9]+))?(%)?$/.exec(run);
+  if (!m) return run;
+  const [, grouped, frac, pct] = m;
+  const intPart = grouped.replace(/,/g, '');
+  if (intPart.length > 8) return run;
+  const num = frac
+    ? intToHanzi(parseInt(intPart, 10)) + '点' + Array.from(frac).map((d) => '零一二三四五六七八九'[parseInt(d, 10)]).join('')
+    : intToHanzi(parseInt(intPart, 10));
+  if (pct) return '百分之' + num;
+  // A year is read digit by digit: 2026年 → 二〇二六年.
+  if (!frac && intPart.length === 4 && next === '年') return Array.from(intPart).map((d) => DIGIT_HANZI[parseInt(d, 10)]).join('');
+  return num;
+}
+
+/**
+ * Arabic digits → Chinese numerals, nothing else (unlike `normalizeNumbersToHanzi`, no English words / Roman numerals):
+ * 3块 → 三块, 1.5 → 一点五, 50% → 百分之五十, 2026年 → 二〇二六年. Used wherever a learner's answer is compared with or
+ * shown against Chinese — a spoken "3块" IS 三块 (the "You said" marks, Claude's corrected line and its pinyin).
+ * Lab: `AnswerKey.digitsToHanzi` (parity-tested).
+ */
+export function digitsToHanzi(text: string): string {
+  return text.replace(DIGIT_RUN, (run: string, ...rest: unknown[]) => {
+    const offset = rest[rest.length - 2] as number;
+    return digitRunToHanzi(run, text.charAt(offset + run.length));
+  });
+}
+
 /**
  * Strip punctuation and whitespace from a typed answer (also trims and
  * lowercases). Two answers that differ ONLY by punctuation produce the same
