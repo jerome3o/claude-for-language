@@ -270,6 +270,16 @@ function checkScene(problems: string[], scene: ClipScene, at: string): void {
       if (body.note !== undefined && typeof body.note !== 'string') problems.push(`${where}.note must be a string`);
       break;
     }
+    case 'pattern': {
+      const pieces = body.pieces;
+      if (!Array.isArray(pieces) || pieces.length < 2 || pieces.length > 12 || pieces.some((p) => !isObj(p) || (!str(p.hanzi) && !str(p.slot)))) {
+        problems.push(`${where}.pieces must be 2–12 pieces, each { hanzi } (a fixed word) or { slot } (a label)`);
+      }
+      if (body.example !== undefined) {
+        if (!isObj(body.example) || !str(body.example.hanzi)) problems.push(`${where}.example must be { hanzi, pinyin?, english?, parts? }`);
+      }
+      break;
+    }
     case 'speak': {
       checkTriple(problems, body, where);
       const hanzi = str(body.hanzi);

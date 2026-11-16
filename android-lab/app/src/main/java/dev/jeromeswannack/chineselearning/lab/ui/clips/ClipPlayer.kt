@@ -129,6 +129,11 @@ fun ClipPlayer(
     speakPreview: dev.jeromeswannack.chineselearning.lab.ui.coach.PractiseUi? = null,
     /** Previews: a line being read (karaoke) without audio. */
     previewSpeech: SpeechClock? = null,
+    /**
+     * Played as a lesson's structure intro (ui/lessons/StructureIntro.kt): no like / save / Learn more / music,
+     * no title line, and the end card is Done · ↻ Watch again.
+     */
+    introDone: (() -> Unit)? = null,
 ) {
     val spec = clip.spec ?: return
     val look = remember(spec.style) { ClipLooks.of(spec.style.theme, spec.style.accent) }
@@ -269,6 +274,7 @@ fun ClipPlayer(
                 detectTapGestures(
                     onTap = { if (!play.done) paused = !paused },
                     onDoubleTap = { at ->
+                        if (introDone != null) return@detectTapGestures
                         val id = System.nanoTime()
                         hearts += id to at
                         currentActions.onLike("double_tap")
@@ -279,7 +285,7 @@ fun ClipPlayer(
                             hearts.removeAll { it.first == id }
                         }
                     },
-                    onLongPress = { currentActions.onLearnMore("long_press") },
+                    onLongPress = { if (introDone == null) currentActions.onLearnMore("long_press") },
                 )
             },
     ) {
@@ -311,7 +317,8 @@ fun ClipPlayer(
             contentAlignment = Alignment.Center,
         ) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (play.done) key("end-$replay") { EndCard(clip, ctx, onLearnMore = { currentActions.onLearnMore("end_card") }, onReplay = { replay++ }, onNext = currentActions.onNext?.let { n -> { n("end_card") } }) }
+                if (play.done && introDone != null) key("end-$replay") { IntroEndCard(spec.title.removePrefix("Intro · "), ctx, introDone) { replay++ } }
+                else if (play.done) key("end-$replay") { EndCard(clip, ctx, onLearnMore = { currentActions.onLearnMore("end_card") }, onReplay = { replay++ }, onNext = currentActions.onNext?.let { n -> { n("end_card") } }) }
                 else if (scene != null) key("${play.scene}-$replay") {
                     val interact = InteractCtx(
                         spec, clip.id, play.scene, play, ctx, prefs.muted, speech,
@@ -344,22 +351,29 @@ fun ClipPlayer(
                         Color(0xFFFFE14D), animate, ctx.onExplore,
                     )
                 }
+                voice.en?.takeIf { prefs.english && it.isNotBlank() }?.let {
+                    Text(it, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, modifier = Modifier.background(Color(0x80000000), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 5.dp).testTag("clip-caption-en"))
+                }
             }
-            Text("🎬 ${spec.title}", color = if (look.light && !onPicture) look.fg else Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Text(
-                spec.words.joinToString(" · ") { it.hanzi } + if (spec.tags.isNotEmpty()) " · #" + spec.tags.take(3).joinToString(" #") else "",
-                color = (if (look.light && !onPicture) look.fg else Color.White).copy(alpha = 0.85f), fontSize = 13.sp,
-            )
+            if (introDone == null) {
+                Text("🎬 ${spec.title}", color = if (look.light && !onPicture) look.fg else Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                Text(
+                    spec.words.joinToString(" · ") { it.hanzi } + if (spec.tags.isNotEmpty()) " · #" + spec.tags.take(3).joinToString(" #") else "",
+                    color = (if (look.light && !onPicture) look.fg else Color.White).copy(alpha = 0.85f), fontSize = 13.sp,
+                )
+            }
         }
 
         // The rail.
         Column(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            RailButton(if (clip.state.liked) "❤️" else "🤍", if (clip.state.liked) "Liked" else "Like", clip.state.liked, "clip-like") { currentActions.onLike("button") }
-            RailButton("🔖", if (clip.state.saved) "Saved" else "Save", clip.state.saved, "clip-save") { currentActions.onSave() }
-            RailButton("✨", "More", false, "clip-learn-more") { currentActions.onLearnMore("button") }
+            if (introDone == null) {
+                RailButton(if (clip.state.liked) "❤️" else "🤍", if (clip.state.liked) "Liked" else "Like", clip.state.liked, "clip-like") { currentActions.onLike("button") }
+                RailButton("🔖", if (clip.state.saved) "Saved" else "Save", clip.state.saved, "clip-save") { currentActions.onSave() }
+                RailButton("✨", "More", false, "clip-learn-more") { currentActions.onLearnMore("button") }
+            }
             RailButton("拼", "Pinyin ${if (prefs.pinyin) "on" else "off"}", prefs.pinyin, "clip-toggle-pinyin") { currentActions.onPrefs(prefs.copy(pinyin = !prefs.pinyin), "pinyin") }
             RailButton("EN", "English ${if (prefs.english) "on" else "off"}", prefs.english, "clip-toggle-english") { currentActions.onPrefs(prefs.copy(english = !prefs.english), "english") }
-            RailButton(if (prefs.music) "🎵" else "♪", "Music ${if (prefs.music) "on" else "off"}", prefs.music, "clip-toggle-music") { currentActions.onPrefs(prefs.copy(music = !prefs.music), "music") }
+            if (introDone == null) RailButton(if (prefs.music) "🎵" else "♪", "Music ${if (prefs.music) "on" else "off"}", prefs.music, "clip-toggle-music") { currentActions.onPrefs(prefs.copy(music = !prefs.music), "music") }
             RailButton(if (prefs.muted) "🔇" else "🔊", if (prefs.muted) "Muted" else "Sound", prefs.muted, "clip-toggle-mute") { currentActions.onPrefs(prefs.copy(muted = !prefs.muted), "mute") }
             currentActions.onNext?.let { next -> RailButton("⌄", "Next", false, "clip-next") { next("button") } }
         }
@@ -429,6 +443,22 @@ private fun EndCard(clip: ClipRecord, ctx: SceneCtx, onLearnMore: () -> Unit, on
             EndButton("✨ Learn more", look, primary = true, onLearnMore)
             EndButton("↻ Watch again", look, primary = false, onReplay)
             if (onNext != null) EndButton("Next ↓", look, primary = false, onNext)
+        }
+    }
+}
+
+/** A structure intro's end card: its name, Done, ↻ Watch again. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun IntroEndCard(name: String, ctx: SceneCtx, onDone: () -> Unit, onReplay: () -> Unit) {
+    val look = ctx.look
+    Column(Modifier.fillMaxWidth().testTag("clip-end"), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        val p = entrance(ctx)
+        Text("✨", fontSize = 52.sp, modifier = Modifier.enter(p, Entrance.POP))
+        Text(name, color = look.fg, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = look.zhFont, textAlign = TextAlign.Center)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            EndButton("Done", look, primary = true, onDone)
+            EndButton("↻ Watch again", look, primary = false, onReplay)
         }
     }
 }

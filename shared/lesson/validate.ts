@@ -27,6 +27,7 @@ const MAX_GAP_OPTIONS = 4;
 const MAX_PATTERNS = 8;
 const MAX_PATTERN_PIECES = 12;
 const MAX_PATTERN_EXAMPLES = 4;
+const MAX_INTRO_LINES = 6;
 
 /** Every exercise type the validator accepts, in catalogue order. */
 export const EXERCISE_TYPE_IDS = [
@@ -102,6 +103,12 @@ function checkPatterns(patterns: unknown, where: string, errors: string[]): void
     }
     if (p.image_prompt !== undefined && !nonEmptyString(p.image_prompt)) {
       errors.push(`${w}: "image_prompt" must be a non-empty scene description`);
+    }
+    if (p.intro !== undefined) {
+      const intro = p.intro as unknown;
+      const ok = Array.isArray(intro) && intro.length >= 1 && intro.length <= MAX_INTRO_LINES
+        && intro.every((l) => isRecord(l) && nonEmptyString(l.zh) && (l.en === undefined || typeof l.en === 'string'));
+      if (!ok) errors.push(`${w}: "intro" must be 1-${MAX_INTRO_LINES} lines {zh, en?} (simple Chinese, read aloud)`);
     }
     const examples = p.examples as unknown;
     if (examples === undefined) return;

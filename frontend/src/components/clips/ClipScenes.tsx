@@ -15,6 +15,7 @@ import {
 import { KaraokeLine, type SpeechClock } from './Karaoke';
 import { ListenView, OrderView, QuizView, RevealView, SpeakView, type InteractActions } from './ClipInteractive';
 import { ExplorableText } from '../explorer/ExplorableText';
+import { PatternSceneView } from './ClipPatternScene';
 import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 
@@ -190,6 +191,9 @@ export function SceneView({ spec, clipId, scene, index, play, ctx, spokenLine, c
       break;
     case 'speak':
       body = <SpeakView {...interact} scene={scene} emoji={emoji} />;
+      break;
+    case 'pattern':
+      body = <PatternSceneView scene={scene} ctx={ctx} clock={clock} building={!scene.pattern.example && spec.scenes.findIndex((s) => s.layout === 'pattern') === index} />;
       break;
     case 'story': {
       const lines = scene.story.lines;

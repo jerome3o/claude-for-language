@@ -52,6 +52,13 @@ export const SAMPLE_LESSONS: SampleLesson[] = [
                 },
               ],
               note: '把 needs something after the verb:\n✗ 我把作业做。\n✓ 我把作业做完了。',
+              intro: [
+                { zh: '今天我们学“把”字句。', en: 'Today: the 把 sentence.' },
+                { zh: '先说人，再说“把”和东西。', en: 'First the person, then 把 and the thing.' },
+                { zh: '我们听一个例子。', en: "Let's hear an example." },
+                { zh: '再听一个例子。', en: 'One more.' },
+                { zh: '现在你也试一试吧！', en: 'Now you try!' },
+              ],
             },
             {
               name: '把 + object + verb + 在 + place',

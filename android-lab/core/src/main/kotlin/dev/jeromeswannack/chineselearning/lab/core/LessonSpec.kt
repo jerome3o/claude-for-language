@@ -383,6 +383,8 @@ object Lessons {
             is NoteExercise -> {
                 ex.patterns.orEmpty().forEach { p -> p.examples.orEmpty().forEach { texts += it.hanzi } }
                 ex.sentences.orEmpty().forEach { texts += it.hanzi }
+                // "▶ Watch the intro" of each structure card (LessonPatternIntro) — prefetched with the lesson.
+                LessonPatterns.noteView(ex.body, ex.sentences, ex.patterns)?.let { texts += LessonPatternIntro.texts(it) }
             }
             is ScrambleExercise -> texts += ex.correctOrder.joinToString("")
             is ChoiceExercise -> ex.options.forEach { texts += it.hanzi }

@@ -18,7 +18,7 @@ data class ClipWord(val hanzi: String, val pinyin: String = "", val english: Str
 
 /** Port of `ClipVoiceLine`. lang: zh | en; voice: teacher | female | male | narrator. */
 @Serializable
-data class ClipVoiceLine(val text: String, val lang: String = "zh", val voice: String? = null)
+data class ClipVoiceLine(val text: String, val lang: String = "zh", val voice: String? = null, val en: String? = null)
 
 @Serializable
 data class ClipTitleBody(val headline_zh: String? = null, val headline_en: String? = null, val sub: String? = null)
@@ -83,6 +83,23 @@ data class ClipRevealBody(val prompt_en: String = "", val hanzi: String, val pin
 @Serializable
 data class ClipSpeakBody(val hanzi: String, val pinyin: String = "", val english: String = "", val prompt_en: String? = null)
 
+/** Port of `ClipPatternBody` (added): a grammar structure — its pieces build up; an example coloured piece by piece. */
+@Serializable
+data class ClipPatternExample(
+    val hanzi: String,
+    val pinyin: String? = null,
+    val english: String? = null,
+    val parts: List<dev.jeromeswannack.chineselearning.lab.core.PatternExamplePart>? = null,
+)
+
+@Serializable
+data class ClipPatternBody(
+    val name: String? = null,
+    val pieces: List<dev.jeromeswannack.chineselearning.lab.core.PatternPiece> = emptyList(),
+    val meaning: String? = null,
+    val example: ClipPatternExample? = null,
+)
+
 /** Port of `ClipScene`: one class, the body named by `layout` filled. */
 @Serializable
 data class ClipScene(
@@ -103,6 +120,7 @@ data class ClipScene(
     val order: ClipOrderBody? = null,
     val reveal: ClipRevealBody? = null,
     val speak: ClipSpeakBody? = null,
+    val pattern: ClipPatternBody? = null,
 )
 
 @Serializable
@@ -279,8 +297,13 @@ object Clips {
             listOf(ClipUtterance(index, -1, ttsText(voice.text), if (voice.lang == "en") "en" else "zh", VOICE_IDS[voice.voice ?: "teacher"]))
         } else emptyList()
         fun zh(text: String, line: Int, voiceId: String? = null) = ClipUtterance(index, line, ttsText(text), "zh", voiceId)
-        if (scene.layout == "listen" || scene.layout == "speak") {
-            val hanzi = (if (scene.layout == "listen") scene.listen?.hanzi else scene.speak?.hanzi).orEmpty()
+        if (scene.layout == "listen" || scene.layout == "speak" || scene.layout == "pattern") {
+            // A pattern scene (a structure intro) says its line, then reads its example.
+            val hanzi = when (scene.layout) {
+                "listen" -> scene.listen?.hanzi
+                "speak" -> scene.speak?.hanzi
+                else -> scene.pattern?.example?.hanzi
+            }.orEmpty()
             return voiced + (if (hanzi.trim().isNotEmpty()) listOf(zh(hanzi, 0)) else emptyList())
         }
         if (voiced.isNotEmpty()) return voiced

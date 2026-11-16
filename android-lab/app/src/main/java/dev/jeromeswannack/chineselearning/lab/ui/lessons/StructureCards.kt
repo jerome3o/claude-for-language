@@ -85,6 +85,7 @@ object StructureCardTags {
     const val EXAMPLE = "structure-example"
     const val PLAY = "structure-play"
     const val NEXT = "structure-next"
+    const val INTRO = "structure-intro-play"
 }
 
 /** The card colours: every fixed word one strong colour, each slot its own (no red-vs-green pairs: shapes carry it too). */
@@ -116,6 +117,8 @@ fun StructureCardsView(title: String?, view: LessonPatterns.View, env: ExerciseE
     val count = view.cards.size
     var index by remember { mutableIntStateOf(0) }
     var forward by remember { mutableStateOf(true) }
+    var intro by remember { mutableStateOf<Int?>(null) }
+    intro?.let { i -> view.cards.getOrNull(i)?.let { StructureIntro(it, view.source, i, count) { intro = null } } }
     val last = index >= count - 1
     LaunchedEffect(Unit) { track(app, "open", view.source, 0, count) }
     fun go(to: Int, how: String) {
@@ -150,7 +153,7 @@ fun StructureCardsView(title: String?, view: LessonPatterns.View, env: ExerciseE
                 },
                 label = "structure-card",
             ) { i ->
-                CardView(view.cards[i], i, count, showHead = count > 1 || title.isNullOrBlank(), env) { track(app, "play", view.source, i, count) }
+                CardView(view.cards[i], i, count, showHead = count > 1 || title.isNullOrBlank(), env, onPlay = { track(app, "play", view.source, i, count) }, onIntro = { intro = i })
             }
         }
         if (count > 1) Dots(count, index) { go(it, "dot") }
@@ -201,7 +204,7 @@ private fun SmallHeading(text: String) {
 }
 
 @Composable
-private fun CardView(card: LessonPatterns.Card, index: Int, count: Int, showHead: Boolean, env: ExerciseEnv, onPlay: () -> Unit) {
+private fun CardView(card: LessonPatterns.Card, index: Int, count: Int, showHead: Boolean, env: ExerciseEnv, onPlay: () -> Unit, onIntro: () -> Unit) {
     val tones = remember(card) { LessonPatterns.pieceTones(card.pattern.pieces) }
     val name = remember(card) { LessonPatterns.patternName(card.pattern) }
     val marker = card.pattern.name?.takeIf { it.length == 1 }
@@ -218,6 +221,13 @@ private fun CardView(card: LessonPatterns.Card, index: Int, count: Int, showHead
                 Box(Modifier.weight(1f))
                 if (count > 1) Text("${index + 1} / $count", color = Lab.colors.muted, fontSize = 13.sp)
             }
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            Box(
+                Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(22.dp)).background(structurePalette().fixed)
+                    .clickable(onClick = onIntro).padding(horizontal = 18.dp, vertical = 10.dp).testTag(StructureCardTags.INTRO),
+                contentAlignment = Alignment.Center,
+            ) { Text("▶ Watch the intro", color = structurePalette().onFixed, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
         }
         PatternChips(card.pattern.pieces)
         card.pattern.meaning?.takeIf { it.isNotBlank() }?.let {
@@ -241,17 +251,21 @@ private fun PatternPicture(pattern: LessonPattern, prompt: String, env: Exercise
     LessonPictureView(picture, prompt)
 }
 
+/** A piece tone's colour on the structure cards (null = punctuation / plain ink) — the intro clip's example (ui/clips/ClipPatternScene.kt). */
+@Composable
+fun structureToneColor(tone: String?): Color? = structurePalette().tone(tone)
+
 /** The pattern as pieces: fixed words solid, slots dashed and tinted; each settles in, one after another. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PatternChips(pieces: List<PatternPiece>) {
+fun PatternChips(pieces: List<PatternPiece>, stagger: Long = 70L, center: Boolean = false) {
     val palette = structurePalette()
     val tones = remember(pieces) { LessonPatterns.pieceTones(pieces) }
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    FlowRow(horizontalArrangement = if (center) Arrangement.spacedBy(7.dp, Alignment.CenterHorizontally) else Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         pieces.forEachIndexed { i, p ->
             val enter = remember(pieces) { Animatable(0f) }
             LaunchedEffect(pieces) {
-                delay(i * 70L)
+                delay(i * stagger)
                 enter.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow))
             }
             val faded = if (p.optional == true) 0.75f else 1f

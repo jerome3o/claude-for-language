@@ -67,6 +67,11 @@ export interface ClipPlayerProps {
   onSpeaking?: (speaking: boolean) => void;
   /** Start the first play at this scene (a /clips/:id?scene= link). */
   startScene?: number;
+  /**
+   * Played as a lesson's structure intro (components/lessons/StructureIntro.tsx): no like / save / Learn more,
+   * no title line, and the end card is ↻ Watch again · Done.
+   */
+  intro?: { onDone: () => void };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
@@ -311,6 +316,7 @@ export function ClipPlayer(props: ClipPlayerProps) {
       lastTap.current = null;
       if (singleTimer.current) window.clearTimeout(singleTimer.current);
       singleTimer.current = null;
+      if (props.intro) return; // a structure intro has no like / Learn more
       const id = now;
       setHearts((h) => [...h, { id, x: e.clientX - rect.left, y: e.clientY - rect.top }]);
       window.setTimeout(() => setHearts((h) => h.filter((x) => x.id !== id)), 950);
@@ -384,7 +390,16 @@ export function ClipPlayer(props: ClipPlayerProps) {
         ))}
       </div>
 
-      {play.done ? (
+      {play.done && props.intro ? (
+        <div className="clip-stage clip-end" key={`end-${replay}`} data-testid="clip-end">
+          <div className="clip-emoji" aria-hidden="true">✨</div>
+          <div className="clip-end-q">{spec.title.replace(/^Intro · /, '')}</div>
+          <div className="clip-end-actions">
+            <button type="button" className="clip-btn primary" onClick={props.intro.onDone} data-testid="clip-intro-done">Done</button>
+            <button type="button" className="clip-btn" onClick={() => setReplay((n) => n + 1)} data-testid="clip-intro-replay">↻ Watch again</button>
+          </div>
+        </div>
+      ) : play.done ? (
         <div className="clip-stage clip-end" key={`end-${replay}`} data-testid="clip-end">
           <div className="clip-emoji" aria-hidden="true">🎬</div>
           {spec.ending?.question_en && <div className="clip-end-q"><EndQuestion text={spec.ending.question_en} ctx={ctx} /></div>}
@@ -422,25 +437,30 @@ export function ClipPlayer(props: ClipPlayerProps) {
             />
           </div>
         )}
-        <div className="clip-meta">
+        {voiceText && !play.done && prefs.english && scene?.voice?.en && <div className="clip-caption-en" data-testid="clip-caption-en">{scene.voice.en}</div>}
+        {!props.intro && <div className="clip-meta">
           <strong>🎬 {spec.title}</strong>
           <span>{spec.words.map((w) => w.hanzi).join(' · ')}{spec.tags?.length ? ` · #${spec.tags.slice(0, 3).join(' #')}` : ''}</span>
-        </div>
+        </div>}
       </div>
 
       <div className="clip-rail" data-no-gesture>
-        <button type="button" className={clip.state.liked ? 'liked' : ''} aria-pressed={clip.state.liked} onClick={() => props.onLike('button')} data-testid="clip-like">
-          <span className="ico" aria-hidden="true">{clip.state.liked ? '❤️' : '🤍'}</span>
-          <span className="lbl">{clip.state.liked ? 'Liked' : 'Like'}</span>
-        </button>
-        <button type="button" aria-pressed={clip.state.saved} onClick={props.onSave} data-testid="clip-save">
-          <span className="ico" aria-hidden="true">🔖</span>
-          <span className="lbl">{clip.state.saved ? 'Saved' : 'Save'}</span>
-        </button>
-        <button type="button" onClick={guardTake(() => props.onLearnMore('button'))} data-testid="clip-learn-more">
-          <span className="ico" aria-hidden="true">✨</span>
-          <span className="lbl">More</span>
-        </button>
+        {!props.intro && (
+          <>
+            <button type="button" className={clip.state.liked ? 'liked' : ''} aria-pressed={clip.state.liked} onClick={() => props.onLike('button')} data-testid="clip-like">
+              <span className="ico" aria-hidden="true">{clip.state.liked ? '❤️' : '🤍'}</span>
+              <span className="lbl">{clip.state.liked ? 'Liked' : 'Like'}</span>
+            </button>
+            <button type="button" aria-pressed={clip.state.saved} onClick={props.onSave} data-testid="clip-save">
+              <span className="ico" aria-hidden="true">🔖</span>
+              <span className="lbl">{clip.state.saved ? 'Saved' : 'Save'}</span>
+            </button>
+            <button type="button" onClick={guardTake(() => props.onLearnMore('button'))} data-testid="clip-learn-more">
+              <span className="ico" aria-hidden="true">✨</span>
+              <span className="lbl">More</span>
+            </button>
+          </>
+        )}
         <button type="button" aria-pressed={prefs.pinyin} onClick={() => props.onPrefs({ ...prefs, pinyin: !prefs.pinyin }, 'pinyin')} data-testid="clip-toggle-pinyin">
           <span className="ico zh-toggle" aria-hidden="true">拼</span>
           <span className="lbl">Pinyin {prefs.pinyin ? 'on' : 'off'}</span>
@@ -449,10 +469,12 @@ export function ClipPlayer(props: ClipPlayerProps) {
           <span className="ico" aria-hidden="true">EN</span>
           <span className="lbl">English {prefs.english ? 'on' : 'off'}</span>
         </button>
-        <button type="button" aria-pressed={prefs.music} onClick={() => props.onPrefs({ ...prefs, music: !prefs.music }, 'music')} data-testid="clip-toggle-music">
-          <span className="ico" aria-hidden="true">{prefs.music ? '🎵' : '♪'}</span>
-          <span className="lbl">Music {prefs.music ? 'on' : 'off'}</span>
-        </button>
+        {!props.intro && (
+          <button type="button" aria-pressed={prefs.music} onClick={() => props.onPrefs({ ...prefs, music: !prefs.music }, 'music')} data-testid="clip-toggle-music">
+            <span className="ico" aria-hidden="true">{prefs.music ? '🎵' : '♪'}</span>
+            <span className="lbl">Music {prefs.music ? 'on' : 'off'}</span>
+          </button>
+        )}
         <button type="button" aria-pressed={prefs.muted} onClick={() => props.onPrefs({ ...prefs, muted: !prefs.muted }, 'mute')} data-testid="clip-toggle-mute">
           <span className="ico" aria-hidden="true">{prefs.muted ? '🔇' : '🔊'}</span>
           <span className="lbl">{prefs.muted ? 'Muted' : 'Sound'}</span>

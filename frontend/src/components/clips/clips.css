@@ -1060,3 +1060,19 @@
 @media (min-width: 900px) {
   .clips-item .clip-root { left: 50%; right: auto; width: min(100%, 560px); transform: translateX(-50%); border-left: 1px solid #222; border-right: 1px solid #222; }
 }
+
+/* A structure intro (lessons → ▶ Watch the intro): the caption's English, the pattern layout. */
+.clip-caption-en { align-self: flex-start; max-width: 100%; padding: 4px 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.5); color: rgba(255, 255, 255, 0.9); font-size: 0.9rem; }
+.clip-pattern { display: flex; flex-direction: column; gap: 14px; width: 100%; background: transparent; }
+.clip-pattern-name { font-size: 1.6rem; font-weight: 800; color: var(--clip-fg); text-align: center; }
+.clip-pattern-pieces { display: flex; justify-content: center; }
+.clip-pattern-pieces .sc-pattern { justify-content: center; }
+.clip-pattern-pieces.small .sc-fixed-zh { font-size: 1.15rem; }
+.clip-pattern-pieces.small .sc-piece { min-height: 2.5rem; padding: 0.25rem 0.55rem; }
+.clip-pattern-meaning { text-align: center; font-size: 1.15rem; font-weight: 600; color: var(--clip-fg); }
+.clip-pattern-example { background: var(--sc-card); border-radius: 18px; padding: 16px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); text-align: center; }
+.clip-pattern-example-zh { font-size: 2.1rem; font-weight: 700; line-height: 1.4; }
+.clip-pattern-example .clip-pinyin { color: var(--sc-muted); }
+.clip-pattern-example .clip-en { color: var(--sc-ink); opacity: 0.85; }
+.clip-pattern .sc-part.sc-lit { background: var(--sc-slot-soft, rgba(220, 38, 38, 0.14)); transform: translateY(-3px) scale(1.06); display: inline-block; }
+.clip-paused .clip-pattern .sc-in { animation-play-state: paused; }

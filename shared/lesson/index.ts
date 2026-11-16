@@ -7,6 +7,7 @@ export { EXERCISE_TYPE_INFO, EXERCISE_TYPE_LIST, SKILL_LABELS, exerciseTypeInfo 
 export type { ExerciseTypeInfo, ExerciseSkill } from './registry';
 export { LESSON_EXERCISE_DOC, LESSON_AUTHORING_RULES, LESSON_SPEC_DOC, CONVERSATION_INTRO_RULE, STRUCTURE_RULE } from './doc';
 export * from './pattern';
+export * from './patternIntro';
 export {
   resolveConversationVoices, conversationVoicesFor, conversationSeed, conversationVoicePools, conversationVoice,
   validateConversationVoiceSelection, speakerGender,

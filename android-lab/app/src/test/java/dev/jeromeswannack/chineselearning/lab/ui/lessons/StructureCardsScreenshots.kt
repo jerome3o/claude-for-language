@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -72,6 +73,16 @@ class StructureCardsScreenshots : LabScreenshotTest() {
     @Test fun parsedThird() = shootAfter("structure-cards-03-parsed-third", dark = false, content = player(wall, "天冷起来了")) {
         repeat(2) { compose.onAllNodesWithTag(StructureCardTags.NEXT).onFirst().performClick(); compose.mainClock.advanceTimeBy(600) }
     }
+    @Test fun introOpensOnlyOnTap() {
+        compose.setContent { LabTheme { player(sample, "The 把 sentence")() } }
+        compose.mainClock.advanceTimeBy(1_500)
+        assertEquals(0, compose.onAllNodesWithTag(StructureIntroTags.ROOT).fetchSemanticsNodes().size)
+        compose.onAllNodesWithTag(StructureCardTags.INTRO).onFirst().performClick()
+        compose.mainClock.advanceTimeBy(500)
+        compose.onNodeWithTag(StructureIntroTags.ROOT).assertExists()
+        compose.onNodeWithTag("clip-pattern", useUnmergedTree = true).assertDoesNotExist()
+    }
+
     @Test fun spec() = shoot("structure-cards-04-spec", content = player(sample, "The 把 sentence"))
     @Test fun specDark() = shoot("structure-cards-05-spec-dark", dark = true, content = player(sample, "The 把 sentence"))
 }

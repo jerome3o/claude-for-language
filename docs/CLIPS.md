@@ -49,8 +49,14 @@ worker's generator and the MCP `create_clip` description). Summary:
 }
 ```
 
-Field names never change; fields may only be **added** (optional): so far `topic`, `fact.pinyin` and the
-layouts `listen`, `order`, `reveal`, `speak` (v stays 1; every older clip stays valid).
+Field names never change; fields may only be **added** (optional): so far `topic`, `fact.pinyin`, the
+layouts `listen`, `order`, `reveal`, `speak`, `voice.en` (an English caption line under a voice line) and the
+app-made layout `pattern` (v stays 1; every older clip stays valid).
+
+**`pattern`** `{ name?, pieces (2–12, a lesson structure's pieces), meaning?, example?: { hanzi, pinyin?, english?, parts? } }`
+is not offered to clip writers: it is what a lesson's structure intro is made of (docs/STUDY_SESSION.md "Structure
+intro", `shared/lesson/patternIntro.ts`) — the pieces as the structure card's chips (built up one by one in the first
+pattern scene), the example with its parts coloured and lit while it is read. It says its voice line, then the example.
 
 `validateClipSpec` (`shared/clips/validate.ts`) checks every machine-checkable rule and returns readable
 problems: v = 1; title / hook 1–60 chars; the theme; a hex accent; 1–6 words each with hanzi + tone-marked

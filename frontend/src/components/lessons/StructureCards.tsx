@@ -18,6 +18,7 @@ import { useLessonImage } from '../../hooks/useLessonImage';
 import { DescribeImagePicture } from '../lesson-exercises';
 import { TakeLockActions } from '../voice/TakeLock';
 import { track } from '../../services/analytics';
+import { StructureIntro } from './StructureIntro';
 import './StructureCards.css';
 
 type Speak = (text: string) => void;
@@ -49,13 +50,13 @@ export function NoteBlocks({ blocks }: { blocks: NoteBlock[] }) {
   );
 }
 
-export function PatternChips({ pieces }: { pieces: PatternPiece[] }) {
+export function PatternChips({ pieces, stagger = 70 }: { pieces: PatternPiece[]; /** ms between two pieces settling in (0 = all at once). */ stagger?: number }) {
 
   const tones = pieceTones(pieces);
   return (
     <div className="sc-pattern" data-testid="structure-pattern">
       {pieces.map((p, i) => {
-        const delay = { animationDelay: `${i * 70}ms` };
+        const delay = { animationDelay: `${i * stagger}ms` };
         if (tones[i] === 'punct') return <span key={i} className="sc-punct sc-in" style={delay}>{p.hanzi}</span>;
         if (isSlotPiece(p)) {
           return (
@@ -126,7 +127,7 @@ function PatternPicture({ imageKey, prompt }: { imageKey?: string | null; prompt
   return <div className="sc-picture"><DescribeImagePicture image={image} imagePrompt={prompt} /></div>;
 }
 
-function CardView({ card, index, count, showHead, speak, onPlay }: {
+function CardView({ card, index, count, showHead, speak, onPlay, onIntro }: {
   card: StructureCard;
   index: number;
   count: number;
@@ -134,6 +135,8 @@ function CardView({ card, index, count, showHead, speak, onPlay }: {
   showHead: boolean;
   speak: Speak;
   onPlay: () => void;
+  /** ▶ Watch the intro (the animated walkthrough, StructureIntro.tsx). */
+  onIntro: () => void;
 }) {
   const tones = useMemo(() => pieceTones(card.pattern.pieces), [card]);
   const name = patternName(card.pattern);
@@ -145,6 +148,9 @@ function CardView({ card, index, count, showHead, speak, onPlay }: {
         {name && <span className="sc-name" lang="zh-CN">{name}</span>}
         {count > 1 && <span className="sc-count">{index + 1} / {count}</span>}
       </header>}
+      <div className="sc-intro-row">
+        <button type="button" className="sc-intro-btn" onClick={onIntro} data-testid="structure-intro-play">▶ Watch the intro</button>
+      </div>
       <PatternChips pieces={card.pattern.pieces} />
       {card.pattern.meaning && <p className="sc-meaning">{card.pattern.meaning}</p>}
       {card.pattern.image_prompt && <PatternPicture imageKey={card.pattern.image_url} prompt={card.pattern.image_prompt} />}
@@ -166,6 +172,7 @@ export function StructureCards({ title, view, speak, onNext }: {
 }) {
   const count = view.cards.length;
   const [index, setIndex] = useState(0);
+  const [intro, setIntro] = useState<number | null>(null);
   const touch = useRef<{ x: number; y: number } | null>(null);
   const last = index >= count - 1;
 
@@ -203,7 +210,11 @@ export function StructureCards({ title, view, speak, onNext }: {
           showHead={count > 1 || !title}
           speak={speak}
           onPlay={() => track('lesson.structure_card', { action: 'play', source: view.source, index, count })}
+          onIntro={() => setIntro(index)}
         />
+        {intro !== null && view.cards[intro] && (
+          <StructureIntro card={view.cards[intro]} source={view.source} index={intro} count={count} onClose={() => setIntro(null)} />
+        )}
       </div>
       {count > 1 && (
         <div className="sc-dots" role="tablist" aria-label="Structures">
