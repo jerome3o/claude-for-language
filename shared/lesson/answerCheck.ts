@@ -22,8 +22,12 @@
  */
 import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 
-/** Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it. */
-export const ANSWER_CHECK_VERSION = 2;
+/**
+ * Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it.
+ * 3 (Nov 2026): the learner's / model answer tagged apart + the sanity rules (`insaneTip`) — a v2 check told
+ * Jerome to put the 因为 clause first when his answer already did, comparing two identical strings.
+ */
+export const ANSWER_CHECK_VERSION = 3;
 
 export type AnswerCheckVerdict = 'correct' | 'acceptable' | 'almost' | 'wrong';
 export const ANSWER_CHECK_VERDICTS: readonly AnswerCheckVerdict[] = ['correct', 'acceptable', 'almost', 'wrong'];
@@ -213,6 +217,91 @@ export function answerCheckCacheText(input: AnswerCheckInput): string {
 
 const str = (v: unknown, max: number): string => (typeof v === 'string' ? collapse(v).slice(0, max) : '');
 
+// ============ Sanity rules (Nov 2026) ============
+//
+// Rules the model can't break, on top of the shape: Jerome said "因为这个问题，我睡不着觉" (the model answer was
+// 我因为这个问题睡不着觉) and got "✓ Also right — Correct meaning, but 因为 clause should come before the subject"
+// with the tip "因为这个问题 我睡不着觉 reads more naturally than 因为这个问题 我睡不着觉": the model mixed up the two
+// answers and criticised him for what he already did. A tip that compares a text with itself, or recommends what he
+// already said, is dropped; a right answer that IS the model answer gets no tips; a right verdict whose "but" headline
+// lost all its tips gets a plain positive one.
+
+/** The plain headline of a right answer whose critique the sanity rules removed. */
+export const PLAIN_CORRECT_HEADLINE = 'Natural and right — nicely said.';
+export const PLAIN_ACCEPTABLE_HEADLINE = 'Different wording, same meaning — that works.';
+
+// English words matched with explicit ASCII edges (never `\b`), so the Lab's Java regexes agree character for character.
+const W = (words: string) => `(?<![A-Za-z0-9_])(?:${words})(?![A-Za-z0-9_])`;
+/** A headline that criticises ("…, but …", "should"). */
+const CRITIQUE = new RegExp(W('but|however|though|although|should|instead'), 'i');
+/** A line that compares two texts. */
+const COMPARES = new RegExp(`${W('than|instead|rather|vs|versus|not')}|→|->|⇒`, 'i');
+/** Words right before a recommended text ("Use X", "→ X"). */
+const RECOMMEND_BEFORE = new RegExp(`(?:→|->|⇒|${W('use|say|try|write|prefer|better|instead')})[ :："'“”‘’(（]*$`, 'i');
+/** Words right after a recommended text ("X reads more naturally", "X is better"). */
+const RECOMMEND_AFTER = new RegExp(`^[ "'“”‘’)）]*(?:reads|sounds|is|would be|works|feels) +${W('more|better|nicer|preferred')}`, 'i');
+/** A stretch of Chinese in an English line: Han characters, spaces / Chinese punctuation between them kept in. */
+const HAN_SPAN = /\p{Script=Han}(?:[\p{Script=Han} ，。、！？；：]*\p{Script=Han})?/gu;
+
+export interface HanSpan { start: number; end: number; norm: string }
+
+/** The Chinese stretches of a line (2+ characters once normalised), in order; `start` / `end` in UTF-16 units. */
+export function chineseSpans(text: string): HanSpan[] {
+  const out: HanSpan[] = [];
+  for (const m of text.matchAll(HAN_SPAN)) {
+    const norm = normalizeHanziAnswer(m[0]);
+    if (Array.from(norm).length >= 2) out.push({ start: m.index!, end: m.index! + m[0].length, norm });
+  }
+  return out;
+}
+
+/** "X reads better than X": a line comparing a Chinese text with itself. */
+export function comparesIdenticalTexts(text: string): boolean {
+  if (!COMPARES.test(text)) return false;
+  const spans = chineseSpans(text);
+  return spans.some((a, i) => spans.slice(i + 1).some((b) => b.norm === a.norm));
+}
+
+/** Does the line recommend `mine` (his own whole answer, normalised) — "Use X", "→ X", "X reads more naturally"? */
+export function recommendsText(text: string, mine: string): boolean {
+  if (Array.from(mine).length < 2) return false;
+  return chineseSpans(text).some((s) => s.norm === mine
+    && (RECOMMEND_BEFORE.test(text.slice(0, s.start)) || RECOMMEND_AFTER.test(text.slice(s.end))));
+}
+
+/** Does the line write out his whole answer (normalised)? */
+function quotesWholeAnswer(text: string, mine: string): boolean {
+  return Array.from(mine).length >= 2 && chineseSpans(text).some((s) => s.norm === mine);
+}
+
+/**
+ * Is this tip one to drop? (`good` = the verdict is correct / acceptable; `mine` = his answer normalised;
+ * `sameAsModel` = his answer IS the model answer.) A right answer that is the model answer gets no tips; any tip
+ * comparing a text with itself or recommending what he already said goes; on a right answer, so does a tip that
+ * writes out his whole sentence (praise, or the model confusing the two answers).
+ */
+export function insaneTip(tip: { text: string; fix?: string }, good: boolean, mine: string, sameAsModel: boolean): boolean {
+  if (good && sameAsModel) return true;
+  if (comparesIdenticalTexts(tip.text)) return true;
+  if (recommendsText(tip.text, mine)) return true;
+  if (tip.fix && Array.from(mine).length >= 2 && normalizeHanziAnswer(tip.fix) === mine) return true;
+  if (good && quotesWholeAnswer(tip.text, mine)) return true;
+  return false;
+}
+
+/**
+ * The headline after the sanity rules: a right verdict keeps its own unless it compares a text with itself /
+ * recommends his own answer, or it criticises ("but", "should") and every tip behind the criticism was dropped —
+ * then the plain positive line. Almost / wrong keep theirs.
+ */
+export function saneHeadline(headline: string, verdict: AnswerCheckVerdict, mine: string, dropped: number, tipsLeft: number, speaking = false): string {
+  if (verdict !== 'correct' && verdict !== 'acceptable') return headline;
+  const plain = verdict === 'correct' || speaking ? PLAIN_CORRECT_HEADLINE : PLAIN_ACCEPTABLE_HEADLINE;
+  if (comparesIdenticalTexts(headline) || recommendsText(headline, mine)) return plain;
+  if (dropped > 0 && tipsLeft === 0 && CRITIQUE.test(headline)) return plain;
+  return headline;
+}
+
 /** Request body → input, or the problems (400). */
 export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } | { problems: string[] } {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -289,9 +378,12 @@ export function answerCheckChip(verdict: AnswerCheckVerdict, speaking = false): 
  * - correct / acceptable never carry a correction;
  * - a "correction" that changes no character is dropped;
  * - a quote must contain Chinese; an alternative must be Chinese and say something new;
- * - `suggested` follows the verdict.
+ * - `suggested` follows the verdict;
+ * - the sanity rules (`insaneTip`, `saneHeadline`): no tip comparing a text with itself or recommending what he
+ *   already said, no tips on a right answer that IS the model answer (`model`, when given), no "but" headline left
+ *   with nothing behind it.
  */
-export function normalizeAnswerCheck(raw: unknown, answer: string): AnswerCheck {
+export function normalizeAnswerCheck(raw: unknown, answer: string, model?: string | null): AnswerCheck {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const L = ANSWER_CHECK_LIMITS;
   const verdict = (ANSWER_CHECK_VERDICTS as readonly unknown[]).includes(r.verdict) ? r.verdict as AnswerCheckVerdict : null;
@@ -307,11 +399,18 @@ export function normalizeAnswerCheck(raw: unknown, answer: string): AnswerCheck 
   let corrected = noFix ? '' : str(r.corrected, speaking ? L.speech : L.answer * 2);
   if (corrected && (!hasHan(corrected) || normalizeHanziAnswer(corrected) === mine || normalizeHanziAnswer(corrected) === meant)) corrected = '';
   const correctedPinyin = corrected ? str(r.corrected_pinyin, (speaking ? L.speech : L.answer) * 6) : '';
+  const good = verdict === 'correct' || verdict === 'acceptable';
+  const sameAsModel = !!model && !!mine && normalizeHanziAnswer(model) === mine;
+  let dropped = 0;
   const tips: AnswerCheckTip[] = [];
   for (const t of Array.isArray(r.tips) ? r.tips : []) {
     const o = (t && typeof t === 'object' ? t : { text: t }) as Record<string, unknown>;
     const text = str(o.text, L.tip);
     if (!text) continue;
+    if (insaneTip({ text, fix: str(o.fix, L.alternative) }, good, mine, sameAsModel)) {
+      dropped++;
+      continue;
+    }
     const quote = str(o.quote, L.quote);
     const tip: AnswerCheckTip = quote && hasHan(quote) ? { text, quote } : { text };
     const fix = str(o.fix, L.alternative);
@@ -336,7 +435,8 @@ export function normalizeAnswerCheck(raw: unknown, answer: string): AnswerCheck 
       if (e) alternative.english = e;
     }
   }
-  const out: AnswerCheck = { verdict, headline, corrected, corrected_pinyin: correctedPinyin, tips, suggested: suggestedFor(verdict) };
+  const saneHead = saneHeadline(headline, verdict, mine, dropped, tips.length, speaking);
+  const out: AnswerCheck = { verdict, headline: saneHead, corrected, corrected_pinyin: correctedPinyin, tips, suggested: suggestedFor(verdict) };
   if (alternative) out.alternative = alternative;
   if (speaking) {
     out.cleaned = cleanedRaw;
@@ -431,9 +531,9 @@ export function speakingTaskParts(prompt: string | null | undefined): SpeakingTa
 }
 
 /** Lenient parse of a stored / cached / received check: null when it isn't one. */
-export function parseAnswerCheck(raw: unknown, answer: string): AnswerCheck | null {
+export function parseAnswerCheck(raw: unknown, answer: string, model?: string | null): AnswerCheck | null {
   try {
-    return normalizeAnswerCheck(raw, answer);
+    return normalizeAnswerCheck(raw, answer, model);
   } catch {
     return null;
   }

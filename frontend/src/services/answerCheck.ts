@@ -48,7 +48,7 @@ function writeCache(key: string, check: AnswerCheck): void {
 
 export function cachedAnswerCheck(input: AnswerCheckInput): AnswerCheck | null {
   const hit = readCache()[answerCheckCacheText(input)];
-  return hit ? parseAnswerCheck(hit.check, input.answer) : null;
+  return hit ? parseAnswerCheck(hit.check, input.answer, input.model_answer) : null;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -86,7 +86,7 @@ export async function checkLessonAnswer(input: AnswerCheckInput): Promise<Answer
   const local = cachedAnswerCheck(input);
   if (local) return { check: local, cached: true };
   const r = await postJson<{ check: unknown; cached?: boolean }>('/lessons/answer-check', input);
-  const check = parseAnswerCheck(r.check, input.answer);
+  const check = parseAnswerCheck(r.check, input.answer, input.model_answer);
   if (!check) throw new AnswerCheckUnavailable('bad reply');
   writeCache(answerCheckCacheText(input), check);
   return { check, cached: r.cached === true };

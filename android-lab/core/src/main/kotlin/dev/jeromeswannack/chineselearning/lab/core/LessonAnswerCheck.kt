@@ -75,7 +75,8 @@ data class AnswerCheckInput(
 data class AnswerTry(val text: String, val input: String? = null, val check: AnswerCheck? = null)
 
 object LessonAnswerCheck {
-    const val VERSION = 2
+    /** Port of ANSWER_CHECK_VERSION — 3: the answers tagged apart + the sanity rules ([insaneTip]). */
+    const val VERSION = 3
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
     const val READ_ALOUD_TYPE = "read_aloud"
@@ -223,8 +224,65 @@ object LessonAnswerCheck {
         return collapse(p.content).take(max)
     }
 
-    /** Port of normalizeAnswerCheck(): throws when the essentials are missing. */
-    fun normalize(raw: JsonElement?, answer: String): AnswerCheck {
+    // ============ Sanity rules (port of the TS block: Jerome's 因为 answer, Nov 2026) ============
+
+    const val PLAIN_CORRECT_HEADLINE = "Natural and right — nicely said."
+    const val PLAIN_ACCEPTABLE_HEADLINE = "Different wording, same meaning — that works."
+
+    private fun w(words: String) = "(?<![A-Za-z0-9_])(?:$words)(?![A-Za-z0-9_])"
+    private val CRITIQUE = Regex(w("but|however|though|although|should|instead"), RegexOption.IGNORE_CASE)
+    private val COMPARES = Regex("${w("than|instead|rather|vs|versus|not")}|→|->|⇒", RegexOption.IGNORE_CASE)
+    private val RECOMMEND_BEFORE = Regex("(?:→|->|⇒|${w("use|say|try|write|prefer|better|instead")})[ :：\"'“”‘’(（]*$", RegexOption.IGNORE_CASE)
+    private val RECOMMEND_AFTER = Regex("^[ \"'“”‘’)）]*(?:reads|sounds|is|would be|works|feels) +${w("more|better|nicer|preferred")}", RegexOption.IGNORE_CASE)
+    private val HAN_SPAN = Regex("\\p{IsHan}(?:[\\p{IsHan} ，。、！？；：]*\\p{IsHan})?")
+
+    data class HanSpan(val start: Int, val end: Int, val norm: String)
+
+    /** Port of chineseSpans(): the Chinese stretches of a line (2+ characters once normalised). */
+    fun chineseSpans(text: String): List<HanSpan> = HAN_SPAN.findAll(text).mapNotNull { m ->
+        val norm = LessonAnswers.normalizeHanzi(m.value)
+        if (LessonAnswers.chars(norm).size >= 2) HanSpan(m.range.first, m.range.last + 1, norm) else null
+    }.toList()
+
+    /** Port of comparesIdenticalTexts(): "X reads better than X". */
+    fun comparesIdenticalTexts(text: String): Boolean {
+        if (!COMPARES.containsMatchIn(text)) return false
+        val spans = chineseSpans(text)
+        return spans.withIndex().any { (i, a) -> spans.drop(i + 1).any { it.norm == a.norm } }
+    }
+
+    /** Port of recommendsText(): "Use X", "→ X", "X reads more naturally" where X is his own whole answer. */
+    fun recommendsText(text: String, mine: String): Boolean {
+        if (LessonAnswers.chars(mine).size < 2) return false
+        return chineseSpans(text).any { s ->
+            s.norm == mine && (RECOMMEND_BEFORE.containsMatchIn(text.substring(0, s.start)) || RECOMMEND_AFTER.containsMatchIn(text.substring(s.end)))
+        }
+    }
+
+    private fun quotesWholeAnswer(text: String, mine: String): Boolean =
+        LessonAnswers.chars(mine).size >= 2 && chineseSpans(text).any { it.norm == mine }
+
+    /** Port of insaneTip(). */
+    fun insaneTip(text: String, fix: String?, good: Boolean, mine: String, sameAsModel: Boolean): Boolean {
+        if (good && sameAsModel) return true
+        if (comparesIdenticalTexts(text)) return true
+        if (recommendsText(text, mine)) return true
+        if (!fix.isNullOrEmpty() && LessonAnswers.chars(mine).size >= 2 && LessonAnswers.normalizeHanzi(fix) == mine) return true
+        if (good && quotesWholeAnswer(text, mine)) return true
+        return false
+    }
+
+    /** Port of saneHeadline(). */
+    fun saneHeadline(headline: String, verdict: String, mine: String, dropped: Int, tipsLeft: Int, speaking: Boolean = false): String {
+        if (verdict != "correct" && verdict != "acceptable") return headline
+        val plain = if (verdict == "correct" || speaking) PLAIN_CORRECT_HEADLINE else PLAIN_ACCEPTABLE_HEADLINE
+        if (comparesIdenticalTexts(headline) || recommendsText(headline, mine)) return plain
+        if (dropped > 0 && tipsLeft == 0 && CRITIQUE.containsMatchIn(headline)) return plain
+        return headline
+    }
+
+    /** Port of normalizeAnswerCheck(): throws when the essentials are missing. [model] = the model answer (sanity rules). */
+    fun normalize(raw: JsonElement?, answer: String, model: String? = null): AnswerCheck {
         val r = raw as? JsonObject ?: JsonObject(emptyMap())
         val verdictRaw = (r["verdict"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val verdict = verdictRaw?.takeIf { it in VERDICTS }
@@ -239,11 +297,18 @@ object LessonAnswerCheck {
         var corrected = if (noFix) "" else str(r["corrected"], if (speaking) SPEECH else ANSWER * 2)
         if (corrected.isNotEmpty() && (!hasHan(corrected) || LessonAnswers.normalizeHanzi(corrected).let { it == mine || it == meant })) corrected = ""
         val correctedPinyin = if (corrected.isNotEmpty()) str(r["corrected_pinyin"], (if (speaking) SPEECH else ANSWER) * 6) else ""
+        val good = verdict == "correct" || verdict == "acceptable"
+        val sameAsModel = model != null && mine.isNotEmpty() && LessonAnswers.normalizeHanzi(model) == mine
+        var dropped = 0
         val tips = mutableListOf<AnswerCheckTip>()
         for (t in (r["tips"] as? JsonArray).orEmpty()) {
             val o = t as? JsonObject
             val text = if (o != null) str(o["text"], TIP) else str(t, TIP)
             if (text.isEmpty()) continue
+            if (insaneTip(text, if (o != null) str(o["fix"], ALTERNATIVE) else "", good, mine, sameAsModel)) {
+                dropped++
+                continue
+            }
             val quote = if (o != null) str(o["quote"], QUOTE) else ""
             var tip = if (quote.isNotEmpty() && hasHan(quote)) AnswerCheckTip(text, quote) else AnswerCheckTip(text)
             val fix = if (o != null) str(o["fix"], ALTERNATIVE) else ""
@@ -266,7 +331,7 @@ object LessonAnswerCheck {
                 )
             }
         }
-        val base = AnswerCheck(verdict, headline, corrected, correctedPinyin, tips, alternative, suggestedFor(verdict))
+        val base = AnswerCheck(verdict, saneHeadline(headline, verdict, mine, dropped, tips.size, speaking), corrected, correctedPinyin, tips, alternative, suggestedFor(verdict))
         if (!speaking) return base
         val parts = mutableListOf<AnswerCheckPart>()
         for (p in (r["parts"] as? JsonArray).orEmpty()) {
@@ -343,7 +408,7 @@ object LessonAnswerCheck {
         return out
     }
 
-    fun parse(raw: JsonElement?, answer: String): AnswerCheck? = try { normalize(raw, answer) } catch (_: IllegalArgumentException) { null }
+    fun parse(raw: JsonElement?, answer: String, model: String? = null): AnswerCheck? = try { normalize(raw, answer, model) } catch (_: IllegalArgumentException) { null }
 
     data class TipSegment(val text: String, val han: Boolean, val quote: Boolean)
     data class TipSegments(val segments: List<TipSegment>, val quoteInText: Boolean)

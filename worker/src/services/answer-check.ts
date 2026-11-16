@@ -32,6 +32,11 @@ export const ANSWER_CHECK_FALLBACK_MODEL = 'claude-sonnet-5';
 
 export const ANSWER_CHECK_SYSTEM = `You check ONE answer a learner of Chinese gave in a lesson exercise: they were shown an English sentence and said or typed it in Chinese. A model answer is given, but it is only ONE way to say it.
 
+Two different texts — never mix them up:
+- <learner_answer>…</learner_answer> is what the LEARNER said or typed. It is the ONLY thing you judge, and every quote in a tip comes from it.
+- <model_answer>…</model_answer> is a reference someone else wrote. It is NOT the learner's answer: never describe its wording or word order as theirs.
+Before you write anything, read <learner_answer> again: never tell the learner to do something their answer already does, and never suggest a change that turns their text into itself.
+
 Verdicts:
 - "correct": grammatical, natural, means what the English says. Wording may differ freely from the model answer.
 - "acceptable": right and understandable, a native speaker would accept it — just phrased differently, a little plainer or less idiomatic than the model. Never call different-but-valid wording wrong.
@@ -40,6 +45,9 @@ Verdicts:
 
 Rules:
 - Judge THEIR sentence, not how close it is to the model answer. Optional words (很 inside a 即使 clause, 了, 的, a subject left out where Chinese drops it) never make an answer wrong.
+- A different but natural word order or wording is right — "correct", with no "but" and no tip about it. E.g. a 因为 clause before the subject (因为这个问题，我睡不着觉) and after it (我因为这个问题睡不着觉) are both natural.
+- Headline and tips agree with the verdict. For "correct" / "acceptable" the headline is plainly positive — no "but", "however" or "should" — unless there is a real, specific problem in the learner's own words, quoted from <learner_answer>. Tips on a right answer are optional extras, never criticism of what they did right.
+- Never write a tip that compares a text with itself ("X reads better than X"), and never recommend the learner's own sentence back to them.
 - If the answer was SPOKEN it is a speech-recognition transcript, not their writing — never fault the learner for the recogniser:
   - Ignore punctuation, spacing and sentence breaks COMPLETELY. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
   - Read a wrong character that sounds like the right one (在/再, 他/她, 的/得, homophones) as the right one.
@@ -47,7 +55,7 @@ Rules:
   - Still judge honestly what the recogniser can't explain: a wrong or missing content word, a wrong meaning, a negation, wrong word order.
 - corrected: their OWN sentence with the smallest change that fixes it (keep their words and structure). Empty when the verdict is correct or acceptable.
 - headline: one short line in English (≤ 12 words) saying what is right or what to change.
-- tips: 0–3 short lines in English, each about one point. Quote the exact Chinese at fault in "quote" and say what to use instead and why, e.g. "也不着急 is a statement (\\"you're not anxious\\"); a command needs 别 → 也别着急." or "和 links nouns, not two actions — use a comma or 然后." No tips when there is nothing useful to add; never pad.
+- tips: 0–3 short lines in English, each about one point. Quote the exact Chinese at fault in "quote", copied from <learner_answer>, and say what to use instead and why, e.g. "也不着急 is a statement (\\"you're not anxious\\"); a command needs 别 → 也别着急." or "和 links nouns, not two actions — use a comma or 然后." No tips when there is nothing useful to add; never pad.
 - alternative: optionally ONE natural, idiomatic way a native speaker would say it (hanzi + English), only when it teaches something beyond the correction (e.g. 即使再便宜, 多练习就好了). Omit otherwise.
 - Stay on the lesson's focus when one is given. No pinyin needed. Answer with the check_answer tool.`;
 
@@ -241,8 +249,8 @@ export function answerCheckUserTurn(input: AnswerCheckInput): string {
     input.exercise_type === 'listen_translate'
       ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey ${spoken ? 'said back' : 'wrote down'} what they heard / understood, in Chinese.`
       : `English to say in Chinese: ${input.prompt_en}`,
-    `Model answer: ${input.model_answer}${input.model_pinyin ? ` (${input.model_pinyin})` : ''}`,
-    `Learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'}: ${answer}`,
+    `Model answer (a reference written by someone else — NOT the learner's answer):\n<model_answer>${input.model_answer}</model_answer>${input.model_pinyin ? `\nModel answer pinyin: ${input.model_pinyin}` : ''}`,
+    `The learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'} — the only text you judge:\n<learner_answer>${answer}</learner_answer>`,
   ].filter(Boolean).join('\n');
 }
 
@@ -306,7 +314,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     maxTokens: 700,
     attempts: 2,
     timeoutMs: 15_000,
-    validate: (raw) => normalizeAnswerCheck(raw, input.answer),
+    validate: (raw) => normalizeAnswerCheck(raw, input.answer, input.model_answer),
     onUsage: deps.onUsage,
     client: deps.client,
   });
@@ -326,7 +334,7 @@ export async function runSpeakingCheck(input: AnswerCheckInput, deps: AnswerChec
     attempts: 2,
     timeoutMs: 40_000,
     validate: (raw) => {
-      const c = normalizeAnswerCheck(raw, input.answer);
+      const c = normalizeAnswerCheck(raw, input.answer, input.model_answer);
       if (!c.cleaned) throw new Error('Speaking check without the cleaned text');
       return c;
     },
@@ -346,7 +354,7 @@ export async function checkLessonAnswer(
   try {
     const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?')
       .bind(hash, checkVersionFor(input.exercise_type)).first<{ check_json: string }>();
-    if (row) return { check: normalizeAnswerCheck(JSON.parse(row.check_json), input.answer), cached: true };
+    if (row) return { check: normalizeAnswerCheck(JSON.parse(row.check_json), input.answer, input.model_answer), cached: true };
   } catch (error) {
     console.warn('[answer-check] cache read failed:', error instanceof Error ? error.message : error);
   }

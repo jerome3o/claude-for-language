@@ -100,4 +100,31 @@ object LessonFeedback {
         if (o.isNotEmpty() && LessonAnswers.isExactHanziMatch(o, c)) return null
         return c
     }
+
+    /** Port of REORDERED_NOTE: the neutral line under "You said" for a reordering of the model answer's characters. */
+    const val REORDERED_NOTE = "Same characters, different word order"
+
+    /** Port of `AnswerMarks`: mark "You said" / the model answer with the device's diff, or a neutral note instead. */
+    data class AnswerMarks(val marks: Boolean, val note: String?)
+
+    /** Port of `sameCharacters`: the same characters, each as often (punctuation / spaces ignored), in any order. */
+    fun sameCharacters(answer: String, model: String): Boolean {
+        fun sorted(s: String) = LessonAnswers.chars(LessonAnswers.normalizeHanzi(s)).sorted().joinToString("")
+        val a = sorted(answer)
+        return a.isNotEmpty() && a == sorted(model)
+    }
+
+    /**
+     * Port of `answerMarks`: no marks when it IS the model answer; a reordering of the same characters gets
+     * [REORDERED_NOTE] instead (Jerome's 因为这个问题，我睡不着觉 had 我 painted red under ✓ Also right); none once
+     * Claude's [verdict] is correct / acceptable; otherwise the marks show.
+     */
+    fun answerMarks(answer: String, model: String, verdict: String? = null): AnswerMarks {
+        val a = LessonAnswers.normalizeHanzi(answer)
+        val m = LessonAnswers.normalizeHanzi(model)
+        if (a.isEmpty() || m.isEmpty() || a == m) return AnswerMarks(false, null)
+        if (sameCharacters(a, m)) return AnswerMarks(false, REORDERED_NOTE)
+        if (verdict == "correct" || verdict == "acceptable") return AnswerMarks(false, null)
+        return AnswerMarks(true, null)
+    }
 }
