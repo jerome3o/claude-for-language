@@ -153,7 +153,7 @@ class TakeLockTest : LabScreenshotTest() {
     }
 
     @Test
-    fun screenshots() {
+    fun screenshotReadAgain() {
         TakeLocks.reset()
         shoot("take-lock-01-hard-read-again") {
             RegisterTake("listening") {}
@@ -170,6 +170,10 @@ class TakeLockTest : LabScreenshotTest() {
                 }
             }
         }
+    }
+
+    @Test
+    fun screenshotChecking() {
         TakeLocks.reset()
         shoot("take-lock-02-checking") {
             RegisterTake("finishing") {}
