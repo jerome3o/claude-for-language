@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAudioRecorder } from '../../hooks/useAudio';
+import { useRegisterTake } from '../../services/takeLock';
 import { getModelRecordingBlob } from '../../services/modelRecordings';
 import { ClipButton } from './ModelRecordingButtons';
 import './model-recording.css';
@@ -91,6 +92,8 @@ export function ModelRecorder({
   };
 
   const recording = recorder.isRecording && startedAt !== null;
+  // The take lock: back stops her recording instead of leaving the page (Save is already held while it records).
+  useRegisterTake(recording ? 'recording' : 'idle', stop);
   useEffect(() => {
     onRecordingChange?.(recording);
     // eslint-disable-next-line react-hooks/exhaustive-deps

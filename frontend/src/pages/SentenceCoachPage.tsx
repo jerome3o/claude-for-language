@@ -38,6 +38,7 @@ import { syncCustomLessons, prefetchCustomLessonMedia } from '../services/custom
 import { coachReturnPath, setCoachReturn } from '../services/studyResume';
 import { track, trackError } from '../services/analytics';
 import { useVoiceDictation, type DictatedAnswer } from '../hooks/useVoiceDictation';
+import { guardTake } from '../services/takeLock';
 import { VoiceTextInputView } from '../components/voice/VoiceTextInput';
 import { enterToSubmit } from '../components/voice/enterToSubmit';
 import { devicePinyinLine } from '../utils/autoPinyin';
@@ -416,12 +417,12 @@ export function SentenceCoachPage() {
       <div className="page">
         <div className="container">
           {returnTo && (
-            <button className="btn btn-secondary btn-block coach-back-to-card" onClick={backToCard} data-testid="coach-back-to-card">
+            <button className="btn btn-secondary btn-block coach-back-to-card" onClick={guardTake(backToCard)} data-testid="coach-back-to-card">
               ← Back to your card
             </button>
           )}
           <div className="coach-conv-header">
-            <button className="btn btn-secondary" onClick={backToList}>← Coach</button>
+            <button className="btn btn-secondary" onClick={guardTake(backToList)}>← Coach</button>
             <button
               className="btn btn-secondary"
               onClick={() => {
@@ -522,7 +523,7 @@ export function SentenceCoachPage() {
     <div className="page">
       <div className="container">
         {returnTo && (
-          <button className="btn btn-secondary btn-block coach-back-to-card" onClick={backToCard} data-testid="coach-back-to-card">
+          <button className="btn btn-secondary btn-block coach-back-to-card" onClick={guardTake(backToCard)} data-testid="coach-back-to-card">
             ← Back to your card
           </button>
         )}

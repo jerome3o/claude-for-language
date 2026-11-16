@@ -4,6 +4,7 @@ import { AnnotationCanvas } from '../AnnotationCanvas';
 import { getConsoleBuffer } from '../../utils/consoleBuffer';
 import { feedbackContext, queueFeedback } from '../../services/feedback';
 import { track, trackError } from '../../services/analytics';
+import { guardTake } from '../../services/takeLock';
 import { FEEDBACK_COPY, FEEDBACK_MAX_MESSAGE, feedbackContextLine, type FeedbackKind, type FeedbackVia } from '@shared/feedback';
 
 export interface FeedbackSheetProps {
@@ -45,7 +46,7 @@ export function FeedbackSheet({ via, path, screenshot, onClose }: FeedbackSheetP
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy && !annotating) onClose();
+      if (e.key === 'Escape' && !busy && !annotating) guardTake(onClose)();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -87,11 +88,11 @@ export function FeedbackSheet({ via, path, screenshot, onClose }: FeedbackSheetP
   const line = feedbackContextLine(context);
 
   return (
-    <div className="feedback-modal-overlay" onClick={() => { if (!busy) onClose(); }} data-html2canvas-ignore>
+    <div className="feedback-modal-overlay" onClick={guardTake(() => { if (!busy) onClose(); })} data-html2canvas-ignore>
       <div className="feedback-modal" role="dialog" aria-modal="true" aria-label={FEEDBACK_COPY.title} onClick={(e) => e.stopPropagation()} data-testid="feedback-sheet">
         <div className="feedback-modal-header">
           <h3>{FEEDBACK_COPY.title}</h3>
-          <button className="modal-close" onClick={onClose} aria-label="Close" disabled={busy}>&times;</button>
+          <button className="modal-close" onClick={guardTake(onClose)} aria-label="Close" disabled={busy} data-testid="feedback-close">&times;</button>
         </div>
 
         {done ? (
@@ -158,7 +159,7 @@ export function FeedbackSheet({ via, path, screenshot, onClose }: FeedbackSheetP
 
             {!message.trim() && hasShot && (
               <div className="feedback-actions">
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void send('')} disabled={busy} data-testid="feedback-send-shot">
+                <button type="button" className="btn btn-secondary btn-sm" onClick={guardTake(() => void send(''))} disabled={busy} data-testid="feedback-send-shot">
                   Send the screenshot only
                 </button>
               </div>

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { VoiceTextInput } from '../voice/VoiceTextInput';
 import { queueCardFlag, type RememberedTutor } from '../../services/cardFlags';
 import { track, trackError } from '../../services/analytics';
+import { guardTake } from '../../services/takeLock';
+import { TakeLockedActions } from '../voice/TakeStop';
 
 /**
  * "Flag for tutor": a bottom sheet on the card back. One short note, sent to
@@ -71,7 +73,7 @@ export function FlagCardSheet({
 
   return (
     <>
-      <div className="study-sheet-backdrop" onClick={onClose} role="presentation" />
+      <div className="study-sheet-backdrop" onClick={guardTake(onClose)} role="presentation" />
       <div className="study-sheet study-flag-sheet" role="dialog" aria-label="Flag this card for your tutor" data-testid="flag-card-sheet">
         <div className="study-sheet-grip" aria-hidden="true" />
         <div className="study-flag-title">
@@ -107,12 +109,21 @@ export function FlagCardSheet({
             />
             {error && <div className="study-inline-error" role="alert">{error}</div>}
             <p className="study-flag-hint">Your tutor gets it in the chat with a link to this card, and their reply shows here next time.</p>
-            <div className="study-flag-actions">
-              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={busy}>Cancel</button>
-            </div>
+            <FlagActions>
+              <button type="button" className="btn btn-secondary" onClick={guardTake(onClose)} disabled={busy} data-testid="flag-card-cancel">Cancel</button>
+            </FlagActions>
           </>
         )}
       </div>
     </>
+  );
+}
+
+/** Cancel at the sheet's foot — or, while the message is being said, ONE red "■ Stop recording" there (the take lock). */
+function FlagActions({ children }: { children: ReactNode }) {
+  return (
+    <TakeLockedActions testId="flag-card-stop">
+      <div className="study-flag-actions">{children}</div>
+    </TakeLockedActions>
   );
 }

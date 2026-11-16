@@ -123,6 +123,7 @@ import {
 import { activeMsToday, reportStudyTimeIfDue } from '../services/studyTime';
 import { useActiveStudyTime } from '../hooks/useActiveStudyTime';
 import { track } from '../services/analytics';
+import { guardTake, useRegisterTake } from '../services/takeLock';
 import { playFanfare } from '../utils/fanfare';
 import { getTodayReviewSummary } from '../db/database';
 import { DEFAULT_TTS_SPEED } from '../types';
@@ -1314,6 +1315,17 @@ export function StudyCard({
       if (!popped && (window.history.state as { studyRerecord?: boolean } | null)?.studyRerecord) window.history.back();
     };
   }, [recordingOnQuestion]);
+  // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the card's own recorder — the read
+  // card's take, Say the answer, Record again / Say it again. While it records, ✕ / ↺ / back stop it instead
+  // of leaving (Record again / Say it again keep their own back above: it cancels the new take).
+  useRegisterTake(
+    spoken.busy ? spoken.phase : isRecording ? 'recording' : 'idle',
+    () => {
+      if (spoken.listening) spoken.stop();
+      else if (isRecording) stopRecordingWithDelay();
+    },
+    { ownBack: recordingOnQuestion },
+  );
 
 
   const handleGenerateSentenceClue = async (
@@ -3188,7 +3200,7 @@ export function StudyCard({
             {/* The pass undoes its last Got it / Not yet the same way (docs/HOMEWORK.md §3b). */}
             <button
               className="study-close-btn study-undo-btn"
-              onClick={onUndo}
+              onClick={guardTake(onUndo)}
               disabled={!canUndo}
               aria-label={pass ? 'Undo last answer' : 'Undo last review'}
               title={pass ? 'Undo last answer' : 'Undo last review'}
@@ -3204,7 +3216,7 @@ export function StudyCard({
             <OfflineModeToggle />
             <button
               className="study-close-btn"
-              onClick={onEnd}
+              onClick={guardTake(onEnd)}
               aria-label="Leave study (you can come back to this card)"
               data-testid="study-close"
             >

@@ -4,7 +4,7 @@ import {
   hardModeQuestionFeel, hardModeReadAgainOffered, type HardModeQuestionResult,
 } from '@shared/study/hardMode';
 import { HardModeReadAgain, type HardModeReadAgainProps } from './HardModeReadAgain';
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { studyFeel } from '../../services/studyFeel';
 import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
 import { DifferenceCompare } from './DifferenceCompare';
@@ -16,6 +16,8 @@ import {
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import '../lessons/AnswerCheckCard.css';
 import './HardModeFeedback.css';
+import { takeTap } from '../../services/takeLock';
+import { TakeLockedActions } from '../voice/TakeStop';
 
 export interface HardModeFeedbackProps {
   /** 'revealed' = he gave up: the answer is shown in place, the round still to come. */
@@ -76,7 +78,8 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
   useEffect(() => {
     if (result !== 'revealed') studyFeel(hardModeQuestionFeel(result));
   }, [result]);
-  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  // A tap while a take records (🎤 Read it again) stops the take instead (the take lock).
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); if (takeTap() === 'run') fn(); };
   const saidLine = said ? <p className="hard-feedback-said" data-testid="hard-said">{hardModeSaidLine(said, spoken)}</p> : null;
   if (result === 'revealed') {
     // 👁 Show answer before a right answer: the answer IN PLACE, then on to the sentences (a miss all the same).
@@ -97,11 +100,11 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         )}
         {saidLine}
         {readAgain && hardModeReadAgainOffered(readAgain.hanzi) && <HardModeReadAgain {...readAgain} />}
-        <div className="hard-feedback-row">
+        <FeedbackRow>
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-continue" autoFocus>
             {hardModeRevealedNextLabel(roundFollows)} ›
           </button>
-        </div>
+        </FeedbackRow>
         <p className="hard-feedback-note">{HARD_MODE_REVEALED_NOTE}</p>
       </div>
     );
@@ -132,11 +135,11 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
     return (
       <div className="hard-feedback hard-feedback--checking" data-testid="hard-feedback" data-result="checking" aria-live="polite">
         <p className="hard-feedback-title"><span className="spinner hard-feedback-spinner" aria-hidden="true" /> {checkingLabel ?? HARD_MODE_CHECKING}</p>
-        <div className="hard-feedback-row">
+        <FeedbackRow>
           <button type="button" className="btn btn-secondary" onClick={stop(onShowAnswer)} data-testid="hard-show-answer">
             <span aria-hidden="true">👁</span> {HARD_MODE_SHOW_ANSWER}
           </button>
-        </div>
+        </FeedbackRow>
       </div>
     );
   }
@@ -158,11 +161,11 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
             {compare ?? saidLine}
           </>
         )}
-        <div className="hard-feedback-row">
+        <FeedbackRow>
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
             {hardModeNextLabel(roundFollows)} →
           </button>
-        </div>
+        </FeedbackRow>
       </div>
     );
   }
@@ -170,14 +173,14 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
     return (
       <div className="hard-feedback hard-feedback--unknown" data-testid="hard-feedback" data-result="unknown" aria-live="polite">
         <p className="hard-feedback-title">{HARD_MODE_UNKNOWN}</p>
-        <div className="hard-feedback-row">
+        <FeedbackRow>
           <button type="button" className="btn btn-secondary" onClick={stop(onTryAgain)} data-testid="hard-try-again">
             <span aria-hidden="true">🔁</span> {HARD_MODE_TRY_AGAIN}
           </button>
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
             {hardModeNextLabel(roundFollows)} →
           </button>
-        </div>
+        </FeedbackRow>
       </div>
     );
   }
@@ -195,7 +198,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
           {saidLine}
         </>
       )}
-      <div className="hard-feedback-row">
+      <FeedbackRow>
         <button type="button" className="btn btn-secondary" onClick={stop(onShowAnswer)} data-testid="hard-show-answer">
           <span aria-hidden="true">👁</span> {HARD_MODE_SHOW_ANSWER}
         </button>
@@ -207,7 +210,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onTryAgain)} data-testid="hard-try-again" autoFocus>
           <span aria-hidden="true">🔁</span> {HARD_MODE_TRY_AGAIN}
         </button>
-      </div>
+      </FeedbackRow>
       <p className="hard-feedback-note">{HARD_MODE_MISS_NOTE}</p>
     </div>
   );
@@ -240,7 +243,8 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
   /** 🎤 Read it again under the answer (`view.readAgain`): practice only, the card stays a miss. */
   readAgain?: HardModeReadAgainProps;
 }) {
-  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  // A tap while a take records (🎤 Read it again) stops the take instead (the take lock).
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); if (takeTap() === 'run') fn(); };
   const miss = result === 'wrong' || result === 'close';
   return (
     <div
@@ -286,7 +290,7 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
           </p>
         )}
       </div>
-      <div className="hard-feedback-row">
+      <FeedbackRow>
         {result === 'right' ? (
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-next">
             {hardModeNextLabel(roundFollows)} →
@@ -317,8 +321,21 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
             )}
           </>
         )}
-      </div>
+      </FeedbackRow>
       {miss && <p className="hard-feedback-note">{SENTENCE_CHECK_MOVE_ON_NOTE}</p>}
     </div>
+  );
+}
+
+/**
+ * A row of the panel's buttons (Continue / Next / Try again / Show answer …): while a take records (🎤 Read it
+ * again sits right above it) the row gives way to ONE red "■ Stop recording" in the same place, then
+ * "Checking…" — never Next under a thumb that meant to stop (the take lock, shared/voice/takeLock.ts).
+ */
+function FeedbackRow({ children }: { children: ReactNode }) {
+  return (
+    <TakeLockedActions testId="hard-feedback-stop">
+      <div className="hard-feedback-row">{children}</div>
+    </TakeLockedActions>
   );
 }

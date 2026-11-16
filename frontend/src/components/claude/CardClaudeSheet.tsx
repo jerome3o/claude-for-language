@@ -29,6 +29,7 @@ import type { LocalClaudeMessage } from '../../services/claudeThreads';
 import { useNetwork } from '../../contexts/NetworkContext';
 import { track } from '../../services/analytics';
 import '../askClaude/ask-claude.css';
+import { guardTake } from '../../services/takeLock';
 
 export interface CardClaudeSheetProps {
   open: boolean;
@@ -182,7 +183,7 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
     ) : null;
 
   return (
-    <div className="modal-overlay claude-modal-overlay card-claude-overlay" hidden={!open} aria-hidden={!open} onClick={props.onClose}>
+    <div className="modal-overlay claude-modal-overlay card-claude-overlay" hidden={!open} aria-hidden={!open} onClick={guardTake(props.onClose)}>
       <div className="modal claude-modal ask-claude-modal card-claude-sheet" role="dialog" aria-label={`Ask Claude about ${hanzi}`} onClick={(e) => e.stopPropagation()} data-testid="ask-claude-sheet">
         <ClaudeThreadView
           threadId={threadId}
@@ -193,7 +194,7 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
           typed={props.typed}
           cardType={props.cardType}
           autoSend={props.autoAsk && threads !== undefined ? { text: props.autoAsk.text, intent: 'ask', key: props.autoAsk.key } : null}
-          onClose={props.onClose}
+          onClose={guardTake(props.onClose)}
           onThreadCreated={(id) => setChosen(id)}
           onReplyFinished={onReplyFinished}
           renderToolResults={renderToolResults}

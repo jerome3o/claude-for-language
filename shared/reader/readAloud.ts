@@ -37,6 +37,7 @@ import { applyYiBuToneChanges } from '../pinyin/toneChange';
 import { normalizeNumbersToHanzi } from '../text/numberHanzi';
 import { toSimplified } from '../picture-hunt/match';
 import { normalizeSpokenPinyin, tonelessPinyin } from '../cards/answer';
+import { takeLocked, TAKE_STOP_RECORDING } from '../voice/takeLock';
 
 /**
  * How one character of the page was read. `plain` = punctuation / space (nothing to read); `unread` =
@@ -498,17 +499,18 @@ export const READ_ALOUD_EMPTY = 'Didn’t catch that — try again.';
 export const READ_ALOUD_YOU_SAID = 'You said';
 
 /** The footer's big red button while a take records (it replaces Previous / Next / Finish — Jerome tapped Next mid-take). */
-export const READ_ALOUD_STOP_RECORDING = 'Stop recording';
+export const READ_ALOUD_STOP_RECORDING = TAKE_STOP_RECORDING;
 
 /**
  * A take is under way — the dictation phase is `listening` (recording) or `finishing` (stopped,
  * the transcript on its way) — so the page is LOCKED: the footer's Previous / Next / Finish give
  * way to one big red "■ Stop recording" (disabled "Checking your reading…" while finishing), the
  * audio row (play, waveform, ↻, speed, ⏮ ⏭) and ▶ Play whole story are disabled, and back / ✕
- * stop the take instead of leaving the page.
+ * stop the take instead of leaving the page. The app-wide take lock's rule (`takeLocked`,
+ * shared/voice/takeLock.ts) — the reader was its first user.
  */
 export function readAloudLocksPage(phase: string): boolean {
-  return phase === 'listening' || phase === 'finishing';
+  return takeLocked(phase);
 }
 
 /**

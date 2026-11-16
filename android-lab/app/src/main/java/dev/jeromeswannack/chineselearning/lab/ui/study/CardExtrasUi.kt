@@ -316,8 +316,11 @@ fun FlagCardForm(tutors: List<FlagTutor>, hanzi: String, send: suspend (FlagTuto
         footer = {
             if (done != null) {
                 SecondaryPill("Close", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+            } else if (voiceUi.busy) {
+                // While the message is being said: ONE ■ Stop recording where Cancel was (the take lock).
+                dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockedActions(Modifier.weight(1f), stopTag = "flag-card-stop") {}
             } else {
-                SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), enabled = !busy, onClick = onDismiss)
+                SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), enabled = !busy, onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(onDismiss))
             }
         },
     ) {

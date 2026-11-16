@@ -132,7 +132,8 @@ fun ClipsScreen(
                 LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { actions.onActive(it) } }
                 // A quarter of the page (or a flick) is enough to go on: a slow swipe should page too.
                 val fling = PagerDefaults.flingBehavior(pager, snapPositionalThreshold = 0.25f)
-                VerticalPager(pager, Modifier.fillMaxSize().testTag("clips-feed"), beyondViewportPageCount = 1, flingBehavior = fling, key = { clips[it].id }) { page ->
+                // No swipe to the next clip while a 🎤 take records / is checked (the take lock).
+                VerticalPager(pager, Modifier.fillMaxSize().testTag("clips-feed"), beyondViewportPageCount = 1, flingBehavior = fling, userScrollEnabled = !dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.locked, key = { clips[it].id }) { page ->
                     val clip = clips[page]
                     if (clip.status == "ready" && clip.spec != null) {
                         val base = actions.player(clip)

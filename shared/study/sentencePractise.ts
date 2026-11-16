@@ -23,6 +23,7 @@
 import { practiseSentence, type PractisedSentence } from '../coach/practise';
 import type { SpokenResultState } from '../cards/spoken-result';
 import { hasHan, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
+import { takeFooter, TAKE_STOP_RECORDING, TAKE_CHECKING } from '../voice/takeLock';
 
 export type SentencePractiseMode = 'read' | 'translate';
 
@@ -63,14 +64,14 @@ export const SENTENCE_PRACTISE_CHECK_ONLINE = 'Check online for other ways to sa
  * which is bad — e.g. I scroll down because something popped up"): a tap or a scroll elsewhere never stops
  * it — only the 🎤 again (it toggles off), Enter, or the big pinned "■ Stop recording" bar at the bottom
  * (the graded reader's read-aloud footer). What the bar shows: 'stop' while recording, 'checking' while the
- * take is finished and judged, null otherwise. There is no auto-stop on silence.
+ * take is finished and judged, null otherwise. There is no auto-stop on silence. The app-wide take lock's
+ * footer (`takeFooter`, shared/voice/takeLock.ts).
  */
 export function sentenceStopBar(listening: boolean, finishing: boolean): 'stop' | 'checking' | null {
-  if (listening) return 'stop';
-  return finishing ? 'checking' : null;
+  return takeFooter(listening ? 'recording' : finishing ? 'checking' : 'idle');
 }
-export const SENTENCE_PRACTISE_STOP_RECORDING = 'Stop recording';
-export const SENTENCE_PRACTISE_CHECKING_TAKE = 'Checking what you said…';
+export const SENTENCE_PRACTISE_STOP_RECORDING = TAKE_STOP_RECORDING;
+export const SENTENCE_PRACTISE_CHECKING_TAKE = TAKE_CHECKING;
 
 /** right = counts (the gate); close = nearly; wrong; failed / empty = no take to judge. */
 export type SentencePractiseResult = 'right' | 'close' | 'wrong' | 'failed' | 'empty';

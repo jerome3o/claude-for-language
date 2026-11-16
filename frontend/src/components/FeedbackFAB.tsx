@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useFeedback } from './feedback/FeedbackProvider';
 import { isImmersiveRoute } from './nav/tabs';
 import { FAB_SIZE, clampFabPosition, hasEditorBottomBar, isStudyLikePath } from './fabPosition';
+import { useTakeLock } from '../services/takeLock';
 
 const TAB_BAR_HEIGHT = 56; // keep in step with --tab-bar-height in index.css
 const STORAGE_KEY = 'feedback-fab-position';
@@ -30,6 +31,7 @@ export function FeedbackFAB() {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const { openFeedback } = useFeedback();
+  const takeLocked = useTakeLock().locked;
 
   // Position state — null means use CSS default (bottom-right)
   const [position, setPosition] = useState<{ x: number; y: number } | null>(loadPosition);
@@ -144,6 +146,8 @@ export function FeedbackFAB() {
   }, [openFeedback]);
 
   if (!isAuthenticated) return null;
+  // Never over the take lock's ■ Stop recording (it sits where the bar is) while a voice take is under way.
+  if (takeLocked) return null;
   // A video call fills the screen and has its own controls where the FAB would sit; so does the homework pass,
   // and a chat (its 🎤 / Send button is in that corner).
   if (/^\/(calls|homework|audio-lessons|group-class)\/[^/]+\/?$/.test(location.pathname)) return null;

@@ -214,8 +214,16 @@ export function PhoneMic(props: { onText: (text: string) => void; testId?: strin
     defaultMode: 'voice',
     lang: 'zh',
     autoSubmit: true,
+    // The phone's own back stack (useBackHandler below) handles back while the overlay is up.
+    ownBack: true,
   });
+  // Back while the words are being said stops the take (they go into the field) instead of throwing it
+  // away (the take lock, docs/STUDY_SESSION.md "While a take is recording"); otherwise it closes the overlay.
   useBackHandler(active, () => {
+    if (d.listening) {
+      d.stop();
+      return;
+    }
     d.cancel();
     setActive(false);
   });

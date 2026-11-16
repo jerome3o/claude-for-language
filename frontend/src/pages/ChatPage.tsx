@@ -111,6 +111,7 @@ import { AlbumBubble, AlbumViewer, type AlbumPhoto } from '../components/chat/Al
 import { SystemMessageRow } from '../components/chat/SystemMessageRow';
 import { systemMessageView, systemViewText } from '@shared/chats/system';
 import { useBackLevels } from '../hooks/useBackLevels';
+import { takeTap } from '../services/takeLock';
 import { VoiceBubble } from '../components/chat/VoiceBubble';
 import { VoiceComposer, type VoiceCommand } from '../components/chat/VoiceComposer';
 import { DictationComposer, WaveformIcon } from '../components/chat/DictationComposer';
@@ -1518,7 +1519,7 @@ export function ChatPage() {
       return (
         <div className="chat-page">
           <div className="chat-header">
-            <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
+            <Link to={backTo} className="chat-back" aria-label="Back" onClick={(e) => { if (takeTap() !== 'run') e.preventDefault(); }}>←</Link>
             <span className="chat-header-name">Chat</span>
           </div>
           <div className="chat-messages">
@@ -2154,7 +2155,7 @@ export function ChatPage() {
     <div className="chat-page">
       {/* Header */}
       <div className="chat-header">
-        <Link to={backTo} className="chat-back" aria-label="Back">←</Link>
+        <Link to={backTo} className="chat-back" aria-label="Back" onClick={(e) => { if (takeTap() !== 'run') e.preventDefault(); }}>←</Link>
         <ChatHeaderPerson path={personPath} name={otherUser.name}>
           {otherUser.picture_url ? (
             <img src={otherUser.picture_url} alt="" className="chat-avatar" />

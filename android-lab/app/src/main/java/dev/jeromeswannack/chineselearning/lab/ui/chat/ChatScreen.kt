@@ -300,7 +300,7 @@ data class ViewerTarget(
 @Composable
 private fun ChatHeader(ui: ChatUi, actions: ChatActions) {
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 6.dp).testTag("chat-header"), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = actions.onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
+        IconButton(onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(actions.onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
         // The avatar + name open the person's page (the learner's Tutor tab went, Nov 2026).
         val personPath = ui.personPath
         Row(

@@ -17,6 +17,7 @@ import { useAudioRecorder, useNoteAudio } from '../hooks/useAudio';
 import { SentenceSet } from './SentenceSet';
 import { NotePictureSection, type NotePictureFields } from './noteImage/NotePictureSection';
 import './CardEditModal.css';
+import { guardTake, useRegisterTake } from '../services/takeLock';
 
 interface CardEditModalProps {
   card: CardWithNote;
@@ -79,6 +80,8 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
     stopRecording,
     clearRecording,
   } = useAudioRecorder();
+  // The take lock: while a custom recording is made, Save / Cancel / ✕ / back stop it first.
+  useRegisterTake(isRecording ? 'recording' : 'idle', stopRecording);
 
   const loadRecordings = useCallback(async () => {
     try {
@@ -241,7 +244,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
   };
 
   return (
-    <div className="modal-overlay card-edit-modal-overlay" onClick={onClose}>
+    <div className="modal-overlay card-edit-modal-overlay" onClick={guardTake(onClose)}>
       <div className="modal card-edit-modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2 className="modal-title">Edit Card</h2>
@@ -275,7 +278,7 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
                 )}
               </div>
             )}
-            <button className="modal-close" onClick={onClose} aria-label="Close">&times;</button>
+            <button className="modal-close" onClick={guardTake(onClose)} aria-label="Close">&times;</button>
           </div>
         </div>
 
@@ -566,10 +569,10 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
         {/* Footer: Cancel / Save (Delete note lives in the header ⋯ menu) */}
         <div className="card-edit-footer">
           <div className="card-edit-footer-right">
-            <button className="btn btn-secondary btn-sm" onClick={onClose}>
+            <button className="btn btn-secondary btn-sm" onClick={guardTake(onClose)}>
               Cancel
             </button>
-            <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+            <button className="btn btn-primary btn-sm" onClick={guardTake(handleSave)} disabled={saving}>
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>

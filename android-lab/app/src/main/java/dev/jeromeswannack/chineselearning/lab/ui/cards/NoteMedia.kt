@@ -227,6 +227,8 @@ fun NoteMediaSections(app: LabApp, noteId: String, fields: dev.jeromeswannack.ch
     val playing by app.audio.playingKey.collectAsState()
     val context = LocalContext.current
     val permission = rememberMicPermission { controller.startRecording(context) }
+    // The take lock: while a recording is made here, the editor's Save / Cancel / back stop it first.
+    dev.jeromeswannack.chineselearning.lab.ui.kit.RegisterTake(if (audio.recording) "recording" else "idle") { controller.stopRecording() }
     note?.let { n ->
         SectionTitle("Sentence Set")
         // Row 1 is the card's sentence as currently typed in the form (the web passes cardSentence).

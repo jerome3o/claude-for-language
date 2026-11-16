@@ -183,6 +183,10 @@ fun rememberVoiceDictation(surface: String, lang: String = "zh", defaultMode: St
     val connected = isOnline()
     LaunchedEffect(connected) { controller.refreshBlocked() }
     DisposableEffect(controller) { onDispose { controller.dispose(); controller.onDispose() } }
+    // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the screen around this box holds its
+    // advancing controls while the take records / is checked, and back stops it instead of leaving.
+    val takePhase = controller.ui.collectAsState().value.phase
+    RegisterTake(takePhase) { controller.stop() }
     return controller
 }
 

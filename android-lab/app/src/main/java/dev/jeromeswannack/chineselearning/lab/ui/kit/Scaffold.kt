@@ -102,7 +102,8 @@ fun ScreenTitle(title: String, subtitle: String? = null, onBack: (() -> Unit)? =
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (onBack != null) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
+            // ← mid-take stops the take instead of leaving (the take lock, TakeLock.kt).
+            IconButton(onClick = TakeLocks.guard(onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Lab.colors.ink) }
             Spacer(Modifier.width(4.dp))
         }
         Column(Modifier.weight(1f)) {

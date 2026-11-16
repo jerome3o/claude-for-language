@@ -423,7 +423,8 @@ fun StudyScreen(ui: StudyUi, playingKey: String?, actions: StudyActions, cardSta
     val context = androidx.compose.ui.platform.LocalContext.current
     // The session's reader: ✕ while a 🎤 Read it aloud take is under way stops the take first.
     val readerTake = dev.jeromeswannack.chineselearning.lab.ui.readers.rememberReaderTakeLock()
-    val onClose = readerTake.guard(actions.onClose)
+    // ✕ / ↺ while any voice take is under way (the card's own, a sentence row, Read it again …) stop it first (the take lock).
+    val onClose = readerTake.guard(dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(actions.onClose))
     Box(modifier.fillMaxSize().background(Lab.colors.background).safeDrawingPadding()) {
         Column(Modifier.fillMaxSize()) {
             if (pass != null) PassTopBar(pass, ui, actions, pendingReviews, onClose)
@@ -497,7 +498,7 @@ private fun StudyTopBar(ui: StudyUi, actions: StudyActions, pendingReviews: Int,
                     Spacer(Modifier.width(if (fit.compactChips) 2.dp else 6.dp))
                 }
                 OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline, compact = fit.compactChips)
-                IconButton(onClick = actions.onUndo, enabled = ui.canUndo) {
+                IconButton(onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(actions.onUndo), enabled = ui.canUndo) {
                     Icon(Icons.AutoMirrored.Filled.Undo, "Undo last review", tint = if (ui.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
                 }
             }
@@ -538,7 +539,7 @@ private fun PassTopBar(pass: PassCardUi, ui: StudyUi, actions: StudyActions, pen
                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("homework.pass_hard_mode", mapOf("mode" to next, "where" to "header"))
             })
             OfflinePill(ui.online, ui.forcedOffline, pendingReviews, actions.onToggleOffline)
-            IconButton(onClick = actions.onPassUndo, enabled = pass.canUndo && !pass.busy, modifier = Modifier.testTag(PASS_UNDO_TAG)) {
+            IconButton(onClick = dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.guard(actions.onPassUndo), enabled = pass.canUndo && !pass.busy, modifier = Modifier.testTag(PASS_UNDO_TAG)) {
                 Icon(Icons.AutoMirrored.Filled.Undo, "Undo last answer", tint = if (pass.canUndo) Lab.colors.ink else Lab.colors.muted.copy(alpha = 0.3f))
             }
         }

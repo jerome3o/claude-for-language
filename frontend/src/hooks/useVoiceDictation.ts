@@ -15,6 +15,7 @@ import { getLiveSession, LiveTranscriber, liveSessionUnavailable, prefetchLiveSe
 import { IDLE_SPOKEN, SpokenAnswerController, type SpokenAnswerState } from '../services/spokenAnswer';
 import { useManualOfflineMode } from '../services/offlineMode';
 import { track } from '../services/analytics';
+import { useRegisterTake } from '../services/takeLock';
 import { liveFailureInvalidatesKey } from '@shared/transcription/soniox';
 import {
   dictationAnswer,
@@ -54,6 +55,8 @@ export interface VoiceDictationOptions {
   autoSubmit?: boolean;
   /** Override the connection state (tests / callers that know better). */
   online?: boolean;
+  /** The screen handles back itself while this take runs (the phone practice's own back stack): the app-wide take back guard leaves it alone. */
+  ownBack?: boolean;
 }
 
 function subscribeOnline(cb: () => void) {
@@ -157,6 +160,9 @@ export function useVoiceDictation(opts: VoiceDictationOptions) {
   }), [report]);
 
   useEffect(() => () => controller.dispose(), [controller]);
+  // The take lock (docs/STUDY_SESSION.md "While a take is recording"): the screen around this box holds its
+  // advancing controls while the take records / is checked, and back / ✕ stop it instead of leaving.
+  useRegisterTake(spoken.phase, () => controller.stop(), { ownBack: opts.ownBack });
   useEffect(() => { if (online && supported) prefetchLiveSession(); }, [online, supported]);
   // Going offline mid-take: the take is thrown away (the box says why).
   useEffect(() => {

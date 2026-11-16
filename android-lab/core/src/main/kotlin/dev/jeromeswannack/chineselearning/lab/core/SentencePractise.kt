@@ -77,13 +77,10 @@ object SentencePractise {
     fun showCheckOnline(take: Take, claudeAnswered: Boolean, checking: Boolean): Boolean = take.askClaude && !claudeAnswered && !checking
 
     /** `sentenceStopBar`: "stop" while recording, "checking" while judged, null — a tap elsewhere never stops a take. */
-    fun stopBar(listening: Boolean, finishing: Boolean): String? = when {
-        listening -> "stop"
-        finishing -> "checking"
-        else -> null
-    }
-    const val STOP_RECORDING = "Stop recording"
-    const val CHECKING_TAKE = "Checking what you said…"
+    fun stopBar(listening: Boolean, finishing: Boolean): String? =
+        TakeLock.footer(if (listening) TakeLock.RECORDING else if (finishing) TakeLock.CHECKING else TakeLock.IDLE)
+    const val STOP_RECORDING = TakeLock.STOP_RECORDING
+    const val CHECKING_TAKE = TakeLock.CHECKING_LABEL
 
     // --- the gate ---------------------------------------------------------------------------------
 

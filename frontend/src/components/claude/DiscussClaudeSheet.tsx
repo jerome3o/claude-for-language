@@ -28,6 +28,7 @@ import { track, trackError } from '../../services/analytics';
 import type { GeneratedNote, MessageWithSender } from '../../types';
 import '../askClaude/ask-claude.css';
 import './discuss-sheet.css';
+import { guardTake } from '../../services/takeLock';
 
 export interface DiscussClaudeSheetProps {
   message: Pick<MessageWithSender, 'id' | 'content'>;
@@ -147,14 +148,14 @@ export function DiscussClaudeSheet({ message, conversationId, onClose }: Discuss
   };
 
   return (
-    <div className="modal-overlay claude-modal-overlay discuss-claude-overlay" onClick={onClose}>
+    <div className="modal-overlay claude-modal-overlay discuss-claude-overlay" onClick={guardTake(onClose)}>
       <div className="modal claude-modal ask-claude-modal card-claude-sheet discuss-claude-sheet" role="dialog" aria-label="Discuss with Claude" onClick={(e) => e.stopPropagation()} data-testid="discuss-claude-sheet">
         <ClaudeThreadView
           threadId={threadId}
           newContext={newContext}
           variant="sheet"
           source="chat_message"
-          onClose={onClose}
+          onClose={guardTake(onClose)}
           onThreadCreated={(id) => setChosen(id)}
           renderToolResults={renderToolResults}
           headerExtra={
