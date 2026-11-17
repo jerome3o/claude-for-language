@@ -43,7 +43,9 @@ class StudyTodayParityTest {
             val started = c["started"]!!.jsonPrimitive.boolean
             val got = StudyToday.plan(
                 cards, started, c["hasAudio"]!!.jsonPrimitive.boolean, intOrNull(c["longTermPref"]), c["deckInReview"]!!.jsonPrimitive.boolean,
-            ) { known }
+                knownCharactersLead = { known },
+                newWordsByEar = c["newWordsByEar"]!!.jsonPrimitive.boolean,
+            )
             val want = c["plan"]!!.jsonObject
             assertEquals(want["kind"]!!.jsonPrimitive.content, got.kind, "$n kind")
             assertEquals(stringsOrNull(want["cardTypes"]), got.cardTypes, "$n cardTypes")

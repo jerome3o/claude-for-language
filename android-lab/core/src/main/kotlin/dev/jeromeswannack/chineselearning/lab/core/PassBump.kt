@@ -20,7 +20,8 @@ object PassBump {
         longTermPref: Int?,
         deckInReview: Boolean,
         knownCharactersLead: (() -> Boolean)? = null,
-    ): StudyToday.Plan = StudyToday.plan(cards.map { StudyToday.NoteCard(it.cardType, it.queue) }, started, hasAudio, longTermPref, deckInReview, knownCharactersLead)
+        newWordsByEar: Boolean = false,
+    ): StudyToday.Plan = StudyToday.plan(cards.map { StudyToday.NoteCard(it.cardType, it.queue) }, started, hasAudio, longTermPref, deckInReview, knownCharactersLead, newWordsByEar)
 
     fun label(kind: String, on: Boolean): String = StudyToday.label(kind, on)
 
