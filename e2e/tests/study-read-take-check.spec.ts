@@ -110,7 +110,7 @@ test('英语 for 英文: Checking… instead of ✗, then ≈ Close with Claude\
   await expect(box).not.toContainText('Didn’t match');
   await expect(page.getByTestId('you-said-hanzi')).toHaveText('我越学中文，越觉得英语很繁琐。');
   expect(checks).toHaveLength(1);
-  expect(checks[0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文，越觉得英语很繁琐。', prompt_en: ENGLISH });
+  expect(checks[0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文越觉得英语很繁琐', prompt_en: ENGLISH });
   await shot(page, 'read-take-02-checking');
   release();
   await expect(box).toHaveAttribute('data-state', 'close', { timeout: 15000 });
