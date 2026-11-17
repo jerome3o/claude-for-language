@@ -138,25 +138,9 @@ fun ScrambleView(ex: ScrambleExercise, env: ExerciseEnv, onNext: (Boolean, Exerc
                 .clip(RoundedCornerShape(14.dp)).border(1.5.dp, Lab.colors.outline, RoundedCornerShape(14.dp)).padding(14.dp),
         )
     }
-    // The answer row.
-    FlowRow(
-        Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(18.dp)).background(Lab.colors.faint).padding(10.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        if (picked.isEmpty()) Text("Tap tiles below", color = Lab.colors.muted, modifier = Modifier.padding(12.dp))
-        picked.forEachIndexed { i, tileIndex ->
-            // Checked: his blocks are words to explore now (while arranging, a tap places / removes a block).
-            if (!checked) Tile(ex.tiles[tileIndex], ghost = false, enabled = true) { picked.removeAt(i); env.onTap() }
-            else DoneTile(ex.tiles[tileIndex])
-        }
-    }
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (i in pool) {
-            val isPicked = i in picked
-            Tile(ex.tiles[i], ghost = isPicked, enabled = !isPicked && !checked) { picked.add(i); env.onTap() }
-        }
-    }
+    // The answer row + the pool: tap to place / take out, drag to rearrange, drag in / out (ScrambleBoard, core ScrambleOrder).
+    // Checked: his blocks are words to explore now.
+    ScrambleBoard(ex.tiles, pool, picked, checked, env) { DoneTile(it) }
     if (outcome == null) {
         ActionRow {
             Primary("Check", enabled = picked.size == ex.tiles.size) {
@@ -258,20 +242,6 @@ private fun DoneTile(text: String) {
             .border(1.5.dp, Lab.colors.outline, RoundedCornerShape(12.dp))
             .padding(horizontal = 14.dp, vertical = 8.dp)
             .testTag("scramble-answer-tile"),
-    )
-}
-
-@Composable
-private fun Tile(text: String, ghost: Boolean, enabled: Boolean, onClick: () -> Unit) {
-    val alpha by animateFloatAsState(if (ghost) 0.25f else 1f, tween(160), label = "tile")
-    Text(
-        text,
-        fontSize = 22.sp,
-        color = Lab.colors.ink.copy(alpha = alpha),
-        modifier = Modifier.heightIn(min = 48.dp).bouncyClickable(enabled, 0.9f, onClick = onClick)
-            .clip(RoundedCornerShape(12.dp)).background(Lab.colors.card.copy(alpha = if (ghost) 0.4f else 1f))
-            .border(1.5.dp, Lab.colors.outline.copy(alpha = alpha), RoundedCornerShape(12.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
     )
 }
 

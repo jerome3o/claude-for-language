@@ -10,7 +10,7 @@
  * lesson-exercises.css for the new match / describe-image views.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ExplorableText } from './explorer/ExplorableText';
 import type { ExerciseAnswer, LessonPattern } from '@shared/lesson';
 import { structureNoteView } from '@shared/lesson/pattern';
@@ -26,6 +26,9 @@ import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { FeedbackSentence, LessonFeel, MarkedAnswer, ReplayButton, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
 import { useScrambleCheck } from './lessons/useScrambleCheck';
+import { useScrambleDrag } from './lessons/useScrambleDrag';
+import { scrambleMovedAnnouncement, scrambleNudge, scrambleTileLabel, SCRAMBLE_TILE_HINT, type ScrambleChange } from '@shared/lesson/scrambleOrder';
+import { track } from '../services/analytics';
 import { scrambleCheckInput, scrambleLocalVerdict, scrambleOutcome, scrambleSentence, scrambleSpokenSentence } from '@shared/lesson/scrambleCheck';
 import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
 import { choiceAsksForWrong, choicePickSpeech, choiceSayAgainSentence, isWrongOption } from '@shared/lesson/choiceMistake';
@@ -105,6 +108,27 @@ export function ScrambleExercise(props: {
   // tiles alone, reaching for the English only as a deliberate hint. After
   // checking it's always shown so the feedback has full context.
   const [showEnglish, setShowEnglish] = useState(false);
+  // Rearranging by hand (shared/lesson/scrambleOrder.ts): drag a tile, or arrow keys on a focused placed tile.
+  const drag = useScrambleDrag({
+    order: pickedOrder,
+    tiles,
+    disabled: local !== null,
+    onChange: (next: number[], change: ScrambleChange, fromPool: boolean) => {
+      setPickedOrder(next);
+      track('lesson.scramble_reorder', { how: 'drag', from_pool: fromPool, change });
+    },
+  });
+  const hintId = useId();
+  const [announcement, setAnnouncement] = useState('');
+  // After an arrow-key move the moved tile keeps the focus (React may move its node).
+  const [focusTile, setFocusTile] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusTile === null) return;
+    const el = drag.answerElement()?.querySelector<HTMLElement>(`[data-scramble-placed][data-tile="${focusTile}"]`);
+    el?.focus();
+    setFocusTile(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTile, pickedOrder]);
 
   const picked = pickedOrder.map(i => tiles[i]);
   const allPicked = pickedOrder.length === tiles.length;
@@ -144,31 +168,73 @@ export function ScrambleExercise(props: {
           Tap to show English
         </button>
       )}
-      <div className="scramble-row answer">
-        {picked.map((t, i) => !checked ? (
-          <button
-            key={i}
-            className="tile"
-            onClick={() => setPickedOrder(pickedOrder.filter((_, j) => j !== i))}
-          >
-            {t}
-          </button>
-        ) : (
+      {/* The answer row: tap a tile to take it out; drag it to a new place (or back down to the pool); arrow keys
+          move a focused tile (shared/lesson/scrambleOrder.ts, useScrambleDrag). */}
+      <div
+        className={`scramble-row answer${drag.drag?.zone === 'answer' ? ' drop-target' : ''}`}
+        ref={drag.answerRef}
+        role="group"
+        aria-label="Your sentence"
+        data-testid="scramble-answer"
+      >
+        {!checked ? drag.preview.map((tileIndex, i) => {
+          const isGap = drag.drag?.tile === tileIndex;
+          if (isGap) {
+            return (
+              <span key={`t${tileIndex}`} className="tile tile-gap" data-scramble-placed data-scramble-gap aria-hidden="true" data-testid="scramble-gap">
+                {tiles[tileIndex]}
+              </span>
+            );
+          }
+          const place = pickedOrder.indexOf(tileIndex);
+          return (
+            <button
+              key={`t${tileIndex}`}
+              className="tile"
+              data-scramble-placed
+              data-tile={tileIndex}
+              data-testid="scramble-placed-tile"
+              aria-label={scrambleTileLabel(tiles[tileIndex], i, drag.preview.length)}
+              aria-describedby={hintId}
+              {...drag.tileProps({ from: 'answer', index: place })}
+              onClick={() => {
+                if (drag.isDragClick()) return;
+                setPickedOrder(pickedOrder.filter(t => t !== tileIndex));
+              }}
+              onKeyDown={e => {
+                if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+                e.preventDefault();
+                const next = scrambleNudge(pickedOrder, place, e.key === 'ArrowLeft' ? -1 : 1);
+                if (next === pickedOrder) return;
+                setPickedOrder(next);
+                setFocusTile(tileIndex);
+                setAnnouncement(scrambleMovedAnnouncement(tiles[tileIndex], next.indexOf(tileIndex), next.length));
+                track('lesson.scramble_reorder', { how: 'keyboard', from_pool: false, change: 'moved' });
+              }}
+            >
+              {tiles[tileIndex]}
+            </button>
+          );
+        }) : picked.map((t, i) => (
           // Checked: his blocks are words to explore now (while arranging, a tap places / removes a block).
           <span key={i} className="tile tile-done" data-testid="scramble-answer-tile">
             <ExplorableText text={t} source="lesson" />
           </span>
         ))}
-        {picked.length === 0 && <div className="tile-placeholder">Tap tiles below</div>}
+        {drag.preview.length === 0 && !(drag.drag?.zone === 'answer') && <div className="tile-placeholder">Tap tiles below</div>}
       </div>
-      <div className="scramble-row pool">
+      <span id={hintId} className="scramble-sr">{SCRAMBLE_TILE_HINT}</span>
+      <span className="scramble-sr" role="status" aria-live="polite">{announcement}</span>
+      <div className="scramble-row pool" ref={drag.poolRef} data-testid="scramble-pool">
         {poolOrder.map(i => {
-          const isPicked = pickedOrder.includes(i);
+          const isPicked = pickedOrder.includes(i) || drag.drag?.src.from === 'pool' && drag.drag.tile === i;
           return (
             <button
               key={i}
               className={`tile ${isPicked ? 'ghost' : ''}`}
-              onClick={() => !isPicked && setPickedOrder([...pickedOrder, i])}
+              data-testid="scramble-pool-tile"
+              {...(!isPicked && !checked ? drag.tileProps({ from: 'pool', tile: i }) : {})}
+              onClick={() => !isPicked && !drag.isDragClick() && setPickedOrder([...pickedOrder, i])}
               disabled={isPicked || checked}
             >
               {tiles[i]}
@@ -176,6 +242,7 @@ export function ScrambleExercise(props: {
           );
         })}
       </div>
+      {drag.floating}
       {!outcome ? (
         <TakeLockActions>
           <button className="practice-btn primary" onClick={check} disabled={!allPicked}>
