@@ -299,7 +299,7 @@ test('Jerome\'s 狼 said 朗 (tones off): the answer once with its pinyin and me
   expect(meaning!.y).toBeGreaterThan(py!.y);
   expect(row!.y).toBeGreaterThan(meaning!.y);
   expect(row!.height).toBeLessThan(80); // one compact row (the old box alone was ≥ 88px)
-  await expect(said.getByTestId('you-said-play')).toBeVisible(); // ▶ the take
+  await expect(said.getByTestId('you-said-play')).toHaveCount(0); // no ▶ on the row: the take is in ⋯
   await expect(said.getByTestId('you-said-coach')).toBeVisible(); // ✎ Open in Coach
 });
 

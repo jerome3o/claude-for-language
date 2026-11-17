@@ -16,41 +16,24 @@
   min-height: 5.5rem;
   margin: 0 0 0.5rem;
   padding: 0.625rem 0.5rem;
-  border-radius: 14px;
-  border: 1px solid var(--ys-border, color-mix(in srgb, var(--ys-tone) 24%, transparent));
-  background: var(--ys-bg, color-mix(in srgb, var(--ys-tone) 8%, var(--color-surface)));
+  /* The one result surface (index.css .result-surface; shared/study/resultState.ts): a light 1px outline in the
+     state's colour and a faint tint of it — the same for every state, only the colour differs. */
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ys-tone) 35%, transparent);
+  background: color-mix(in srgb, var(--ys-tone) 8%, transparent);
   color: var(--color-text);
   font: inherit;
   text-align: center;
 }
 .you-said--sides { grid-template-columns: 44px minmax(0, 1fr) 44px; }
-.you-said--match { --ys-tone: var(--color-success); --ys-ink: #15803d; }
-/* Contains the answer / Close — tones off = YELLOW (index.css --color-partial*): a lemon box, a solid lemon chip and
-   round buttons with dark words / icons on them — never orange, which red / green colour-blind eyes
-   can't tell from the red "Didn't match". */
+/* The states (shared/study/resultState.ts): right ✓ green · close ≈ yellow (contains the answer, tones off) · wrong ✗
+   red · pending … blue — each ONE colour token and one ink, never a thicker border or a stronger fill for one of them. */
+.you-said--match { --ys-tone: var(--result-right); --ys-ink: var(--result-right-ink); }
 .you-said--contains,
-.you-said--close {
-  --ys-tone: var(--color-partial);
-  --ys-ink: var(--color-partial-ink);
-  --ys-bg: var(--color-partial-soft);
-  --ys-border: var(--color-partial);
-  --ys-chip-bg: var(--color-partial-strong);
-  --ys-round-bg: var(--color-partial-strong);
-  --ys-round-ink: var(--color-partial-ink);
-  border-width: 1.5px;
-}
+.you-said--close { --ys-tone: var(--result-close); --ys-ink: var(--result-close-ink); }
 .you-said--miss,
-.you-said--failed { --ys-tone: var(--color-error); --ys-ink: #b91c1c; }
-.you-said--pending { --ys-tone: #3b82f6; --ys-ink: #1d4ed8; }
-:root[data-theme='dark'] .you-said--match { --ys-ink: #4ade80; }
-:root[data-theme='dark'] .you-said--contains,
-:root[data-theme='dark'] .you-said--close {
-  --ys-round-bg: color-mix(in srgb, var(--color-partial) 20%, transparent);
-  --ys-round-ink: var(--color-partial);
-}
-:root[data-theme='dark'] .you-said--miss,
-:root[data-theme='dark'] .you-said--failed { --ys-ink: #f87171; }
-:root[data-theme='dark'] .you-said--pending { --ys-ink: #93c5fd; }
+.you-said--failed { --ys-tone: var(--result-wrong); --ys-ink: var(--result-wrong-ink); }
+.you-said--pending { --ys-tone: var(--result-pending); --ys-ink: var(--result-pending-ink); }
 
 .you-said-side {
   display: flex;
@@ -82,7 +65,7 @@
   gap: 0.2rem;
   padding: 0.125rem 0.5rem 0.125rem 0.375rem;
   border-radius: 999px;
-  background: var(--ys-chip-bg, color-mix(in srgb, var(--ys-tone) 14%, transparent));
+  background: color-mix(in srgb, var(--ys-tone) 16%, transparent);
   color: var(--ys-ink);
   font-weight: 600;
   white-space: nowrap;
@@ -120,33 +103,36 @@
 }
 .you-said-verdict .you-said-dots span { width: 4px; height: 4px; }
 
-/* ▶ / ✎: a quiet tinted circle in the box's colour, no border. */
+/* ▶ / ✎: the result rows' one action button (index.css .result-action): a 36px circle with a hairline, a 44px
+   target — the same in every state. */
 .you-said-round {
-  width: 44px;
-  height: 44px;
+  position: relative;
+  width: 36px;
+  height: 36px;
   flex: none;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 0;
+  border: 1px solid var(--color-border);
   border-radius: 50%;
-  background: var(--ys-round-bg, color-mix(in srgb, var(--ys-tone) 16%, transparent));
-  color: var(--ys-round-ink, var(--ys-ink));
+  background: var(--color-surface);
+  color: var(--color-text);
   cursor: pointer;
   transition: transform 0.1s ease, background-color 0.15s ease;
 }
-.you-said-round svg {
-  width: 22px;
-  height: 22px;
+.you-said-round::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
-button.you-said-round:hover { background: color-mix(in srgb, var(--ys-tone) 24%, transparent); }
-.you-said--contains button.you-said-round:hover,
-.you-said--close button.you-said-round:hover { background: var(--color-partial); }
-:root[data-theme='dark'] .you-said--contains button.you-said-round:hover,
-:root[data-theme='dark'] .you-said--close button.you-said-round:hover { background: color-mix(in srgb, var(--color-partial) 30%, transparent); }
+.you-said-round svg {
+  width: 18px;
+  height: 18px;
+}
+button.you-said-round:hover { background: var(--color-background); }
 button.you-said-round:active { transform: scale(0.94); }
 button.you-said-round:focus-visible {
-  outline: 2px solid var(--ys-round-ink, var(--ys-ink));
+  outline: 2px solid var(--ys-ink);
   outline-offset: 2px;
 }
 
@@ -194,54 +180,31 @@ button.you-said-round:focus-visible {
   color: var(--color-text-light);
 }
 
-/* A spoken answer on a typing card (and 🎤 Say it practice): the card's answer ONCE — green when it
-   counts — with its own pinyin and meaning, then ONE compact "You said" row (YouSaidRow;
-   shared/cards/spoken-result.ts; Lab SpokenResultRow). Never a second copy of what was said or of
-   the answer. */
-.spoken-answer-hanzi--right { color: #15803d; }
-:root[data-theme='dark'] .spoken-answer-hanzi--right { color: #4ade80; }
-
+/* A spoken answer on a typing card (and 🎤 Say it practice): the card's answer ONCE — in normal ink (the result row
+   under it carries the state) — with its own pinyin and meaning, then ONE compact "You said" row (YouSaidRow;
+   shared/cards/spoken-result.ts; Lab SpokenResultRow). Never a second copy of what was said or of the answer. */
 .spoken-result {
-  --ys-tone: var(--color-success);
-  --ys-ink: #15803d;
+  --ys-tone: var(--result-right);
+  --ys-ink: var(--result-right-ink);
   display: flex;
   align-items: center;
   gap: 0.25rem;
   width: 100%;
   margin: 0.625rem 0 0.25rem;
   padding: 0.25rem;
-  border-radius: 14px;
-  border: 1px solid var(--ys-border, color-mix(in srgb, var(--ys-tone) 24%, transparent));
-  background: var(--ys-bg, color-mix(in srgb, var(--ys-tone) 8%, var(--color-surface)));
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ys-tone) 35%, transparent);
+  background: color-mix(in srgb, var(--ys-tone) 8%, transparent);
   color: var(--color-text);
 }
-/* Contains the answer / Close — tones off: the partly-right YELLOW (index.css --color-partial*),
-   like the read card's "Contains the answer" box — never orange. */
+/* The same states, the same surface (shared/study/resultState.ts): close (contains / tones off) is the yellow sibling
+   of right — never a thicker or stronger box. */
 .spoken-result--contains,
-.spoken-result--close {
-  --ys-tone: var(--color-partial);
-  --ys-ink: var(--color-partial-ink);
-  --ys-bg: var(--color-partial-soft);
-  --ys-border: var(--color-partial);
-  --ys-chip-bg: var(--color-partial-strong);
-  --ys-round-bg: var(--color-partial-strong);
-  --ys-round-ink: var(--color-partial-ink);
-  border-width: 1.5px;
-}
-.spoken-result--wrong { --ys-tone: var(--color-error); --ys-ink: #b91c1c; }
-:root[data-theme='dark'] .spoken-result--match,
-:root[data-theme='dark'] .spoken-result--sound { --ys-ink: #4ade80; }
-:root[data-theme='dark'] .spoken-result--wrong { --ys-ink: #f87171; }
-:root[data-theme='dark'] .spoken-result--contains,
-:root[data-theme='dark'] .spoken-result--close {
-  --ys-round-bg: color-mix(in srgb, var(--color-partial) 20%, transparent);
-  --ys-round-ink: var(--color-partial);
-}
-.spoken-result--contains button.you-said-round:hover,
-.spoken-result--close button.you-said-round:hover { background: var(--color-partial); }
+.spoken-result--close { --ys-tone: var(--result-close); --ys-ink: var(--result-close-ink); }
+.spoken-result--wrong { --ys-tone: var(--result-wrong); --ys-ink: var(--result-wrong-ink); }
 
 .spoken-result-side {
-  width: 44px;
+  width: 36px;
   flex: none;
 }
 /* The Sentence round's take (YouSaidRow `compact`): the sentence is already up above with its pinyin,
@@ -302,7 +265,7 @@ button.you-said-round:focus-visible {
   display: inline-block;
   padding: 0.125rem 0.4375rem 0.125rem 0.3125rem;
   border-radius: 0.75rem;
-  background: var(--ys-chip-bg, color-mix(in srgb, var(--ys-tone) 14%, transparent));
+  background: color-mix(in srgb, var(--ys-tone) 16%, transparent);
   color: var(--ys-ink);
   text-align: center;
   font-size: 0.75rem;
@@ -327,7 +290,7 @@ button.you-said-round:focus-visible {
   text-underline-offset: 0.18em;
 }
 .spoken-mark--wrong {
-  color: #b91c1c;
+  color: var(--result-wrong-ink);
   text-decoration: underline solid 2px;
   text-underline-offset: 0.18em;
 }
@@ -335,7 +298,6 @@ button.you-said-round:focus-visible {
   background: color-mix(in srgb, var(--color-partial) 22%, transparent);
   color: var(--color-partial);
 }
-:root[data-theme='dark'] .spoken-mark--wrong { color: #f87171; }
 /* The row's one sentence for a screen reader (the visible parts are aria-hidden). */
 .spoken-result-sr {
   position: absolute;

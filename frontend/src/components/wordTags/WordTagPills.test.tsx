@@ -98,7 +98,8 @@ describe('WordTagPills', () => {
     await render('书');
     expect(pills()).toEqual(['Noun', 'Measure: 本 běn, 册 cè', 'HSK 1', 'Top 1,000', 'Trad. 書']);
     const freq = host.querySelector('[data-tag="frequency"]')!;
-    expect(freq.className).toContain('freq-decal--top1000');
+    // One pill style: no decal outline on the card's pills (Nov 2026 — a border that isn't a result state).
+    expect(freq.className).not.toContain('freq-decal');
   });
 
   it('a tap opens the explanation sheet — and never reaches the card (no peek)', async () => {

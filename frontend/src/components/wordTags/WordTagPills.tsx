@@ -95,7 +95,7 @@ export function WordTagPills({
           <button
             key={t.id}
             type="button"
-            className={`word-tag word-tag--${t.tone}${t.kind === 'frequency' ? ` freq-decal freq-decal--${t.tone}` : ''}${t.ai ? ' word-tag--ai' : ''}`}
+            className={`word-tag word-tag--${t.tone}${t.ai ? ' word-tag--ai' : ''}`}
             data-tag={t.id}
             data-ai={t.ai ? 'true' : undefined}
             aria-label={t.ai ? `${t.label} (suggested by AI)` : undefined}
@@ -230,7 +230,7 @@ function WordTagSheet({
       <div className="word-tag-sheet" role="dialog" aria-label={e.title} data-testid="word-tag-sheet" onClick={(ev) => ev.stopPropagation()}>
         <div className="word-tag-sheet-grip" aria-hidden="true" />
         <div className="word-tag-sheet-head">
-          <span className={`word-tag word-tag--${tag.tone} word-tag--static${tag.kind === 'frequency' ? ` freq-decal freq-decal--${tag.tone}` : ''}${tag.ai ? ' word-tag--ai' : ''}`}>
+          <span className={`word-tag word-tag--${tag.tone} word-tag--static${tag.ai ? ' word-tag--ai' : ''}`}>
             {tag.ai && <AiMark />}
             {tag.label}
           </span>

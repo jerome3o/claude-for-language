@@ -119,6 +119,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.ShakeState
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Spacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -730,8 +731,9 @@ fun CardStage(
     val cardMin = (maxHeight * 0.26f).coerceIn(160.dp, 240.dp)
     val controlsMax = (maxHeight - cardMin).coerceAtLeast(0.dp)
     Column(Modifier.fillMaxSize()) {
-        // The card's frame sits at the screen's edge (a 4dp gutter): its content gets the width and the height.
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+        // The card's frame sits near the screen's edge — the standard minimum gap ([Spacing.gapMin]) on every side, so
+        // nothing above or below (the session bar, the grid, the footer, the ratings) ever touches or overlaps it.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.gapMin).padding(top = Spacing.gapMin / 2, bottom = Spacing.gapMin)) {
             val wide = maxWidth >= 640.dp
             val density = LocalDensity.current
             if (roundOpen && !revealed) {
@@ -793,7 +795,8 @@ fun CardStage(
                     }
                     // One thin frame; its colour tells the typed answer's verdict on the QUESTION only — the answer side's
                     // frame stays neutral (no green box around the whole card after the round).
-                    .studyCardSurface(Lab.colors.card, if (flipped) Lab.colors.cardBorder else glow, lifted = flipped, borderWidth = 1.dp),
+                    .studyCardSurface(Lab.colors.card, if (flipped) Lab.colors.cardBorder else glow, lifted = flipped, borderWidth = 1.dp)
+                    .testTag(CARD_FRAME_TAG),
             ) {
                 // Once revealed both faces stay composed (the answer side keeps its scroll
                 // position and opened sentence rows through a peek); the one turned away is
@@ -852,8 +855,9 @@ fun CardStage(
             Modifier
                 .fillMaxWidth()
                 .then(if (mcGridUp) Modifier.heightIn(max = controlsMax) else Modifier)
-                .padding(horizontal = 6.dp)
-                .padding(bottom = 8.dp),
+                .padding(horizontal = Spacing.gapMin)
+                .padding(bottom = Spacing.gapMin)
+                .testTag(CARD_CONTROLS_TAG),
         ) {
             if (SentencePractise.stopBar(practise.listening, practise.finishing) != null) {
                 // A sentence take under way (the round or the answer side's rows): ONE big "■ Stop recording"
@@ -1362,7 +1366,7 @@ private fun CardBack(
                     TappableHanzi(note.hanzi, hanziSize(note.hanzi) * (if (spokenAnswer) 0.7f else 0.85f), color, onChar, newChars = newChars)
                 }
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }, checking = readChecking, claude = readClaude) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, checking = readChecking, claude = readClaude) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -1375,8 +1379,9 @@ private fun CardBack(
                 Spacer(Modifier.height(10.dp))
                 KeepTaps {
                     Box(if (source == "practice") Modifier.testTag(PRACTICE_YOU_SAID_TAG) else Modifier) {
-                        // ▶ the take (a spoken answer's / practice take is the card's take, uploaded with the review).
-                        SpokenResultRow(transcript, note.hanzi, v, onPlay = actions.onYouSaidPlay, onCoach = { actions.onYouSaidCoach(transcript, source) })
+                        // No ▶ here (Jerome, Nov 2026: a big ▶ pinned to the side "is weirdly placed"): the take plays from
+                        // ⋯ → "Play my recording".
+                        SpokenResultRow(transcript, note.hanzi, v, onCoach = { actions.onYouSaidCoach(transcript, source) })
                     }
                 }
             }
@@ -1508,6 +1513,9 @@ const val CARD_BACK_TAG = "card-back"
 
 /** Test tag of the question side (inert until revealed; then a tap turns back to the answer). */
 const val CARD_FRONT_TAG = "card-front"
+/** The card's frame (the one border) and the controls under it: nothing below may touch or overlap the frame. */
+const val CARD_FRAME_TAG = "card-frame"
+const val CARD_CONTROLS_TAG = "card-controls"
 
 /** One face of the card: the one turned away is see-through, has no semantics and sits under the other. */
 private fun Modifier.face(visible: Boolean): Modifier =

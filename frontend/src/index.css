@@ -7,6 +7,21 @@
   --color-text: #1f2937;
   --color-text-light: #6b7280;
   --color-border: #e5e7eb;
+  /* The standard minimum gap (Lab: Spacing.gapMin = 8dp). Jerome, Nov 2026: "Maybe we have a standardized minimum
+     gap that's quite small, but bigger than this." The study card frame's gutter, the air between the frame and
+     anything outside it, and the least space between stacked controls. */
+  --space-gap-min: 8px;
+  /* ONE look for every judged result (shared/study/resultState.ts; Lab ResultColors): a colour (the outline + tint)
+     and an ink (chips, icons, words) per state — muted, never fluorescent. Close stays YELLOW (never orange: red /
+     green colour-blind eyes can't tell orange from the red "wrong"). */
+  --result-right: #16a34a;
+  --result-right-ink: #15803d;
+  --result-close: #eab308;
+  --result-close-ink: #854d0e;
+  --result-wrong: #dc2626;
+  --result-wrong-ink: #b91c1c;
+  --result-pending: #3b82f6;
+  --result-pending-ink: #1d4ed8;
   --color-success: #22c55e;
   --color-warning: #f97316;
   --color-error: #ef4444;
@@ -52,6 +67,14 @@
    Partly right: lemon #fde047 border / icons (12.9:1 on #1c1c20), the chip stays solid lemon with
    near-black brown words (#422006, 13:1), the box a faint lemon wash. */
 :root[data-theme='dark'] {
+  --result-right: #22c55e;
+  --result-right-ink: #4ade80;
+  --result-close: #facc15;
+  --result-close-ink: #fde047;
+  --result-wrong: #ef4444;
+  --result-wrong-ink: #f87171;
+  --result-pending: #60a5fa;
+  --result-pending-ink: #93c5fd;
   --btn-outline: #7c7c86;
   --btn-bg: #26262c;
   --btn-disabled-bg: #1c1c20;
@@ -525,7 +548,8 @@ html:has(.study-page-fullscreen) .header {
 
 /* The study card's frame sits at the screen's edge: a 2px gutter, ONE thin border, a small radius — and no
    boxes inside it (Jerome, Nov 2026: "no large areas taken up by borders … as close to the edge of the screen
-   as possible"). The content gets the vertical space. */
+   as possible"). The content gets the vertical space. The gutter is the standard minimum gap (Nov 2026: 2px was
+   "probably too thin"), so the frame never touches the screen's edge or anything outside it. */
 .study-page-fullscreen {
   position: fixed;
   top: 0;
@@ -535,7 +559,7 @@ html:has(.study-page-fullscreen) .header {
   background-color: var(--color-surface);
   display: flex;
   flex-direction: column;
-  padding: 2px;
+  padding: var(--space-gap-min);
   z-index: 200;
 }
 
@@ -645,7 +669,8 @@ html:has(.study-page-fullscreen) .header {
 /* Typing cards: anchor content to top so keyboard doesn't shift text */
 .study-card-main--typing {
   justify-content: flex-start;
-  padding-top: 1rem;
+  /* Room above the prompt (Jerome, Nov 2026: "use the white space to emphasise the important things"). */
+  padding-top: clamp(1.75rem, 7dvh, 4rem);
 }
 
 @media (min-width: 640px) {
@@ -1605,34 +1630,63 @@ button.queue-counts:active {
   border-top: 1px solid var(--color-border);
 }
 
-/* A row: the sentence spans the whole width (a small ▶ at the end of its first line), then ONE quiet line —
-   EN · 🎤 · the tools · its small marks. Rows are separated by a hairline, never boxed. */
+/* A row: ONE line while collapsed — [EN] Tap to reveal · From the card … [🎤] [▶], all centred on that line, about one
+   touch target tall (Jerome, Nov 2026). Revealing grows it downward under the same first line; the tools and the row's
+   marks are a quiet line under an opened row. Every row has the same text edge (after EN), the same controls edge and
+   the same padding; rows are separated by a hairline, never boxed. */
 .sentence-set-row {
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  padding: 0.375rem 0 0.25rem;
+  padding: 0.25rem 0;
   border-bottom: 1px solid var(--color-border);
 }
 
-.sentence-set-line {
+.sentence-set-head {
   display: flex;
   align-items: flex-start;
   gap: 0.25rem;
+  min-height: 44px;
 }
-.sentence-set-line > .sentence-set-reveal,
-.sentence-set-line > .sentence-set-hidden {
+.sentence-set-head.is-collapsed {
+  align-items: center;
+}
+.sentence-set-head > .sentence-set-reveal,
+.sentence-set-head > .sentence-set-hidden {
   flex: 1 1 auto;
   min-width: 0;
 }
+/* Open: the controls (44px) line up with the first line of text — the text gets the same top inset. */
+.sentence-set-head > .sentence-set-reveal {
+  padding-top: 0.5rem;
+  padding-bottom: 0.25rem;
+}
+.sentence-set-head > .sentence-set-en,
+.sentence-set-head > .sentence-set-play,
+.sentence-set-head > .sentence-set-mic {
+  margin-top: 4px;
+}
+.sentence-set-head.is-collapsed > .sentence-set-en,
+.sentence-set-head.is-collapsed > .sentence-set-play,
+.sentence-set-head.is-collapsed > .sentence-set-mic {
+  margin-top: 0;
+}
+.sentence-set-head > .sentence-set-marks {
+  margin-left: 0;
+  flex: 0 0 auto;
+}
 
+/* The line under an opened row: its tools, then its marks — indented to the text edge (after EN). */
 .sentence-set-actionline {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0 0.125rem;
-  margin-left: -0.25rem;
+  margin-left: calc(36px + 0.25rem - 0.5rem);
   min-height: 36px;
+}
+.sentence-set--pass .sentence-set-actionline {
+  margin-left: -0.5rem;
 }
 .sentence-set-actionline .sentence-set-tools {
   display: contents;
@@ -1644,6 +1698,12 @@ button.queue-counts:active {
   gap: 0.375rem;
   margin-left: auto;
   padding-right: 0.125rem;
+}
+/* "From the card" is a small badge, on the collapsed row's own line. */
+.sentence-set-marks .sentence-set-from-card {
+  font-size: 0.6875rem;
+  padding: 0.0625rem 0.4rem;
+  white-space: nowrap;
 }
 
 /* EN and ▶: small, borderless; a 44px tap target around a 32px glyph (::after). */
@@ -1695,9 +1755,10 @@ button.queue-counts:active {
 }
 
 .sentence-set-play {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   padding-left: 2px;
-  color: var(--color-text-light);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
 }
 
 .sentence-set-play:hover:not(:disabled) {
@@ -1808,30 +1869,32 @@ button.queue-counts:active {
 }
 
 /* A blank row: nothing to read yet, so you listen (or ask for the English)
-   first. The faint bar is the tap target for the first line. */
+   first. "Tap to reveal" is the tap target, on the row's one line. */
 .sentence-set-hidden {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 36px;
+  min-height: 44px;
   background: none;
   border: none;
-  padding: 0;
+  padding: 0 0.25rem;
+  text-align: left;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
 }
 
 .sentence-set-blank {
   display: block;
-  width: 62%;
-  max-width: 14rem;
-  height: 10px;
-  border-radius: 5px;
-  background-color: var(--color-background, #f3f4f6);
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+  opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sentence-set-hidden:hover .sentence-set-blank {
-  background-color: var(--color-border);
+  opacity: 1;
 }
 
 /* The tappable text: whatever has been uncovered so far */
@@ -1841,7 +1904,7 @@ button.queue-counts:active {
   text-align: left;
   background: none;
   border: none;
-  padding: 0.125rem 0;
+  padding: 0.125rem 0.25rem;
   min-height: 36px;
   color: var(--color-text);
   cursor: pointer;
@@ -4324,3 +4387,56 @@ html.has-tab-bar .sync-badge {
 .feedback-modal input {
   font-family: inherit;
 }
+
+/* ============================================================
+   The one result surface (shared/study/resultState.ts RESULT_SURFACE): every judged result — "You said", Hard mode's
+   check, the Sentence round, a sentence row's take, a typed answer — wears the same light 1px outline in its state's
+   colour and a faint tint of it, the same small radius; states differ only by colour (+ their icon). The right
+   moment's wash settles to the green one.
+   ============================================================ */
+.result-surface {
+  --rs-tone: var(--result-pending);
+  --rs-ink: var(--result-pending-ink);
+  border: 1px solid color-mix(in srgb, var(--rs-tone) 35%, transparent);
+  background: color-mix(in srgb, var(--rs-tone) 8%, transparent);
+  border-radius: 10px;
+}
+.result-surface--right { --rs-tone: var(--result-right); --rs-ink: var(--result-right-ink); }
+.result-surface--close { --rs-tone: var(--result-close); --rs-ink: var(--result-close-ink); }
+.result-surface--wrong { --rs-tone: var(--result-wrong); --rs-ink: var(--result-wrong-ink); }
+.result-surface--pending { --rs-tone: var(--result-pending); --rs-ink: var(--result-pending-ink); }
+/* The state's chip: its icon + words in the state's ink on a light wash of its colour. */
+.result-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--rs-tone) 16%, transparent);
+  color: var(--rs-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* ▶ / ✏️ / 🎤 inside a result row: one size and style — a 36px circle (44px target) with a hairline, never pinned to
+   the screen's edge. */
+.result-action {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+.result-action::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+.result-action svg { width: 18px; height: 18px; }
