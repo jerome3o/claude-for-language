@@ -1,12 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CHAR_STATUS_LABEL, addOwnCardLabel, charWordsSummary, ownCardLine, type CharRecord, type CharWord, type CharWordRow } from '@shared/chars';
 import { buildDrill, type DrillTarget, type FrequencyDecal } from '@shared/explorer';
+import { EXPLORER_ADD_WAIT_MS } from '@shared/explorer/addCard';
 import { isHanCodePoint } from '@shared/progress/known';
 import { charWordStatuses, explainChar, lookupChar, ownCardsFor, type CharLookup, type OwnCardInfo } from '../../services/charDict';
 import { track } from '../../services/analytics';
 import { CardTieIn } from './CardTieIn';
 import { useExplorer } from './ExplorerContext';
 import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useDecalIndex } from './FrequencyDecal';
+
+/** `p`'s value, or null once `ms` have passed. */
+function waitFor<T>(p: Promise<T | null> | null, ms: number): Promise<T | null> {
+  if (!p) return Promise.resolve(null);
+  return Promise.race([p.catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+}
 
 const isHan = (ch: string | null | undefined) => !!ch && [...ch].length === 1 && isHanCodePoint(ch.codePointAt(0)!);
 
@@ -38,6 +45,8 @@ export function CharacterView({
   const [keyOpen, setKeyOpen] = useState(false);
   // Is the character itself one of his cards (性, not 人性)? null = still reading the device.
   const [own, setOwn] = useState<OwnCardInfo | null>(null);
+  // The lookup in flight: "+ Add 字 as a card" tapped before it answers waits for it (≤ 8 s).
+  const lookupDone = useRef<Promise<CharLookup | null> | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -51,11 +60,16 @@ export function CharacterView({
 
   useEffect(() => {
     let alive = true;
-    lookupChar(char).then((r) => {
-      if (!alive) return;
-      setLookup(r);
-      track('study.char_sheet_open', { found: r.status === 'ok', words: r.status === 'ok' ? r.record.words.length : 0 });
-    });
+    lookupDone.current = lookupChar(char).then(
+      (r) => {
+        if (alive) {
+          setLookup(r);
+          track('study.char_sheet_open', { found: r.status === 'ok', words: r.status === 'ok' ? r.record.words.length : 0 });
+        }
+        return r;
+      },
+      () => null,
+    );
     return () => {
       alive = false;
     };
@@ -124,7 +138,11 @@ export function CharacterView({
           className="xp-own"
           have={own && { noteIds: own.note_ids, line: ownCardLine(char, own.status, own.decks), status: own.status }}
           addLabel={addOwnCardLabel(char)}
-          chunk={() => ({ hanzi: char, pinyin: record?.readings[0]?.pinyin ?? '', english: record?.meaning ?? '' })}
+          chunk={async () => {
+            const found = record ? lookup : await waitFor(lookupDone.current, EXPLORER_ADD_WAIT_MS);
+            const rec = found?.status === 'ok' ? found.record : null;
+            return { hanzi: char, pinyin: rec?.readings[0]?.pinyin ?? '', english: rec?.meaning ?? '' };
+          }}
           onClose={onClose}
           testIds={{ root: 'explorer-char-own', checking: 'explorer-char-own-checking', add: 'explorer-char-add' }}
           hanzi={char}

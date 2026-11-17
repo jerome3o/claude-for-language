@@ -79,6 +79,8 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import dev.jeromeswannack.chineselearning.lab.core.SentencePractise
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import kotlinx.coroutines.delay
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAdd
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAddFillReason
 import kotlinx.coroutines.launch
 
 /** A sentence row: the card's own clue first, then the generated graded set. */
@@ -826,8 +828,120 @@ fun AddChunkSheet(
     onAddedTo: (AddedTo) -> Unit = {},
     /** The source deck it goes to (core SourceDecks); default: the bump source's. */
     sourceKey: String = SourceDecks.forBump(bumpSource),
+    /** The fill sheet (core ExplorerAdd): no meaning to save yet, or offline — the meaning to type first. */
+    fill: ExplorerAddFillReason? = null,
+    online: () -> Boolean = { true },
 ) {
-    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bumpSource = bumpSource, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo, sourceKey = sourceKey) }
+    LabFooterSheet(onDismiss = onDismiss) { AddChunkBody(chunk, preferredDeck, actions, onDismiss, bumpSource = bumpSource, bump = bump, existing = existing, onAdded = onAdded, onAddedTo = onAddedTo, sourceKey = sourceKey, fill = fill, online = online) }
+}
+
+const val ADD_CHUNK_FILL_TAG = "add-chunk-fill"
+const val ADD_CHUNK_FILL_PINYIN_TAG = "add-chunk-fill-pinyin"
+const val ADD_CHUNK_FILL_ENGLISH_TAG = "add-chunk-fill-english"
+const val ADD_CHUNK_FILL_SAVE_TAG = "add-chunk-fill-save"
+const val ADD_CHUNK_FILL_HINT_TAG = "add-chunk-fill-hint"
+
+/** The add sheet's fill mode: the meaning (and pinyin) to type before the card is saved. */
+@Composable
+private fun AddChunkFillBody(
+    chunk: Chunk,
+    reason: ExplorerAddFillReason,
+    actions: SentenceActions,
+    onDismiss: () -> Unit,
+    online: () -> Boolean,
+    onAdded: () -> Unit,
+    onAddedTo: (AddedTo) -> Unit,
+    sourceKey: String,
+) {
+    var pinyin by remember { mutableStateOf(chunk.pinyin) }
+    var english by remember { mutableStateOf(chunk.english) }
+    var isOnline by remember { mutableStateOf(online()) }
+    var added by remember { mutableStateOf<AddedNote?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    // Offline: Add waits for the connection (checked every second while the sheet is up).
+    LaunchedEffect(Unit) {
+        while (true) {
+            isOnline = online()
+            delay(1000)
+        }
+    }
+    val problem = ExplorerAdd.problem(english, isOnline)
+    val hint = when {
+        !isOnline -> ExplorerAdd.hint(ExplorerAddFillReason.OFFLINE, chunk.english.isNotBlank())
+        reason == ExplorerAddFillReason.OFFLINE -> "You’re back online."
+        else -> ExplorerAdd.hint(ExplorerAddFillReason.NO_MEANING, false)
+    }
+    fun save() {
+        if (problem != null || busy) return
+        val c = chunk.copy(pinyin = pinyin.trim(), english = english.trim())
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                val a = actions.addCard(SourceDecks.ref(sourceKey), c) ?: AddedNote(emptyList(), "", SourceDecks.name(sourceKey), sourceKey)
+                added = a
+                onAdded()
+                onAddedTo(AddedTo(c.hanzi, a.deckId, a.deckName, a.noteIds.firstOrNull()))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                error = CardTools.message(e)
+            } finally {
+                busy = false
+            }
+        }
+    }
+    PinnedFooterColumn(
+        Modifier.testTag(ADD_CHUNK_FILL_TAG),
+        body = {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(chunk.hanzi, style = MaterialTheme.typography.headlineMedium, color = Lab.colors.ink, modifier = Modifier.align(Alignment.CenterHorizontally))
+                val a = added
+                if (a != null) {
+                    Text(english.trim(), style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, modifier = Modifier.align(Alignment.CenterHorizontally))
+                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) })
+                } else {
+                    Text(ExplorerAdd.prompt(chunk.hanzi), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                    Text(hint, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.testTag(ADD_CHUNK_FILL_HINT_TAG))
+                    OutlinedTextField(
+                        value = pinyin,
+                        onValueChange = { pinyin = it },
+                        modifier = Modifier.fillMaxWidth().testTag(ADD_CHUNK_FILL_PINYIN_TAG),
+                        singleLine = true,
+                        label = { Text("Pinyin") },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                    )
+                    OutlinedTextField(
+                        value = english,
+                        onValueChange = { english = it },
+                        modifier = Modifier.fillMaxWidth().testTag(ADD_CHUNK_FILL_ENGLISH_TAG),
+                        singleLine = true,
+                        label = { Text("Meaning") },
+                        placeholder = { Text("In English") },
+                        shape = RoundedCornerShape(14.dp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Lab.colors.accent),
+                    )
+                    error?.let { InlineNotice(it, kind = NoticeKind.Error) }
+                }
+            }
+        },
+        footer = {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 22.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (added != null) {
+                    PrimaryPill("Done", Modifier.weight(1f).height(50.dp).testTag("add-chunk-done"), onClick = onDismiss)
+                } else {
+                    SecondaryPill("Cancel", Modifier.weight(1f).height(50.dp), onClick = onDismiss)
+                    PrimaryPill(
+                        if (busy) "Adding…" else if (!isOnline) "Waiting for a connection…" else "Add as card",
+                        Modifier.weight(1.4f).height(50.dp).testTag(ADD_CHUNK_FILL_SAVE_TAG),
+                        enabled = problem == null && !busy,
+                    ) { save() }
+                }
+            }
+        },
+    )
 }
 
 /** What "+ Add as card" made: the word and the deck it went into (the note reaches Room with the next sync). */
@@ -852,7 +966,18 @@ fun AddChunkBody(
     onAddedTo: (AddedTo) -> Unit = {},
     /** The source deck it goes to (core SourceDecks); default: the bump source's. */
     sourceKey: String = SourceDecks.forBump(bumpSource),
+    /**
+     * The fill sheet (docs/LANGUAGE_EXPLORER.md "Adding before the meaning has loaded"; web
+     * CardTieIn's MeaningFill): "What does 吴侬软语 mean?", the pinyin and the meaning to type, Add
+     * once there is a meaning and a connection — never a raw "english is required". Null = add at once.
+     */
+    fill: ExplorerAddFillReason? = null,
+    online: () -> Boolean = { true },
 ) {
+    if (fill != null) {
+        AddChunkFillBody(chunk, fill, actions, onDismiss, online, onAdded, onAddedTo, sourceKey)
+        return
+    }
     // Source decks (docs/STUDY_SESSION.md "Source decks"; web AddChunkModal): NO deck picker — a new
     // word is saved at once into its source deck, then "✓ Added to From example sentences · Change".
     @Suppress("UNUSED_VARIABLE") val unusedPreferred = preferredDeck

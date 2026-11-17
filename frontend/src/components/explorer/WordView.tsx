@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { charChipLabel, OWN_CARD_BADGE, type CharRecord, type CharWord, type CharWordRow, type WordRecord } from '@shared/chars';
 import { buildDrill, relatedWords, resolveWord, wordChars, wordFrequencyLabel, type DrillTarget, type WordItem } from '@shared/explorer';
+import { EXPLORER_ADD_WAIT_MS } from '@shared/explorer/addCard';
 import { hanCharacters } from '@shared/progress/known';
 import { isIdiomShaped, showIdiomLink } from '@shared/idioms';
 import { hasCachedIdiom } from '../../services/idioms';
@@ -26,6 +27,24 @@ import { WordRows } from './CharacterView';
 import { FrequencyKey, FrequencyKeyButton, decalClass, decalFor, useDecalIndex } from './FrequencyDecal';
 
 const online = () => typeof navigator === 'undefined' || navigator.onLine;
+
+/** `p`'s value, or `fallback` once `ms` have passed (a tap never waits forever). */
+function within<T>(p: Promise<T> | null, ms: number, fallback: T): Promise<T> {
+  if (!p) return Promise.resolve(fallback);
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(fallback);
+      },
+    );
+  });
+}
 
 interface Example {
   id: string;
@@ -99,22 +118,35 @@ export function WordView({
   const player = useRef(createAudioPlayer());
   const tts = useTTS();
   const sentence = item.sentence || hanzi;
+  // The lookups in flight: "+ Add as card" tapped before they answer waits for them (≤ 8 s), so a
+  // fast tap never saves a card without its meaning (shared/explorer/addCard.ts).
+  const lookupDone = useRef<Promise<WordLookup | null> | null>(null);
+  const charsDone = useRef<Promise<CharRecord[]> | null>(null);
 
   useEffect(() => {
     let alive = true;
     const chars = hanCharacters(hanzi);
     // Local first (instant), then one batched call for the characters this device lacks.
-    void (async () => {
+    charsDone.current = (async () => {
       const local = await Promise.all(chars.map((c) => lookupChar(c).catch(() => null)));
       const ok = local.flatMap((r) => (r?.status === 'ok' ? [r.record] : []));
       if (alive) setCharRecords(ok);
       if (ok.length < chars.length && online()) {
         await prefetchChars(chars).catch(() => 0);
         const again = await Promise.all(chars.map((c) => lookupChar(c).catch(() => null)));
-        if (alive) setCharRecords(again.flatMap((r) => (r?.status === 'ok' ? [r.record] : [])));
+        const records = again.flatMap((r) => (r?.status === 'ok' ? [r.record] : []));
+        if (alive) setCharRecords(records);
+        return records;
       }
+      return ok;
     })();
-    void lookupWord(hanzi).then((r) => alive && setLookup(r));
+    lookupDone.current = lookupWord(hanzi).then(
+      (r) => {
+        if (alive) setLookup(r);
+        return r;
+      },
+      () => null,
+    );
     void loadWordFrequency().then((idx) => {
       if (!alive || !idx) return;
       setRank(idx.words.get(hanzi) ?? null);
@@ -189,6 +221,35 @@ export function WordView({
   };
 
   const decks = existing ? [...new Set(existing.map((e) => e.deckName))] : [];
+
+  /** "+ Add as card": waits for the word / character lookups still in flight, then resolves again. */
+  const chunkForAdd = async () => {
+    const [found, records] = await Promise.all([
+      within(lookupDone.current, EXPLORER_ADD_WAIT_MS, lookup),
+      within(charsDone.current, EXPLORER_ADD_WAIT_MS, charRecords),
+    ]);
+    const now = resolveWord(hanzi, {
+      record: found?.status === 'ok' ? found.record : null,
+      charWords: records.flatMap((r) => r.words),
+      notes: existing?.map((e) => e.note) ?? [],
+      hint: { pinyin: item.pinyin, gloss: item.gloss },
+      rank,
+      device: devicePinyin(records),
+    });
+    return {
+      hanzi,
+      pinyin: explanation?.pinyin || now.pinyin,
+      english: explanation?.english || now.english,
+      ...(explanation?.fun_facts ? { fun_facts: explanation.fun_facts } : {}),
+      ...(explanation?.sentence_clue
+        ? {
+            sentence_clue: explanation.sentence_clue,
+            sentence_clue_pinyin: explanation.sentence_clue_pinyin,
+            sentence_clue_translation: explanation.sentence_clue_translation,
+          }
+        : {}),
+    };
+  };
   const drillTarget: DrillTarget | null = word.english ? { kind: 'word', word: { hanzi, pinyin: word.pinyin, english: word.english }, syllables: word.syllables } : null;
   const drillPool: CharWord[] = (related ?? []).map((r) => r.word);
 
@@ -331,19 +392,7 @@ export function WordView({
           hanzi={hanzi}
           have={existing === null ? null : { noteIds: existing.map((e) => e.note.id), line: `📚 You have this card in ${decks.join(', ')}` }}
           addLabel="+ Add as card"
-          chunk={() => ({
-            hanzi,
-            pinyin: explanation?.pinyin || word.pinyin,
-            english: explanation?.english || word.english,
-            ...(explanation?.fun_facts ? { fun_facts: explanation.fun_facts } : {}),
-            ...(explanation?.sentence_clue
-              ? {
-                  sentence_clue: explanation.sentence_clue,
-                  sentence_clue_pinyin: explanation.sentence_clue_pinyin,
-                  sentence_clue_translation: explanation.sentence_clue_translation,
-                }
-              : {}),
-          })}
+          chunk={chunkForAdd}
           onClose={onClose}
           testIds={{ root: 'explorer-word-card', checking: 'explorer-checking-cards', add: 'explorer-add-card' }}
         />,
