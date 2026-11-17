@@ -90,6 +90,7 @@ import {
 } from '../../services/sentence-sets';
 import type { LocalNoteSentence } from '../../db/database';
 import { isContrivedSentence } from '@shared/study/sentenceFocus';
+import { isCardSentenceRow } from '@shared/study/cardSentence';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { useNoteAudio } from '../../hooks/useAudio';
 import { track } from '../../services/analytics';
@@ -141,7 +142,7 @@ export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, op
     void (async () => {
       const local = await getNoteSentenceRows(note.id, note);
       if (!live) return;
-      if (local.length === 0 && navigator.onLine) {
+      if (!local.some((r) => !isCardSentenceRow(r)) && navigator.onLine) {
         try {
           const remote = await fetchNoteSentences(note.id);
           if (remote.length > 0) {

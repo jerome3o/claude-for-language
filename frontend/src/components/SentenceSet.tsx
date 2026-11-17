@@ -8,6 +8,7 @@ import {
   cacheSentenceAudio,
   resetSentenceSetSyncCursor,
   getSentenceExplanation,
+  getCachedTextExplanation,
   getSentenceTranslation,
   cachedSentenceTranslation,
   awaitSentenceAudio,
@@ -261,9 +262,9 @@ export function SentenceSet({
     setSentences(local);
     setLoading(false);
 
-    // Nothing cached yet but we're online: the set may exist server-side
-    // (generated on another device) and simply not have synced down yet.
-    if (local.length === 0 && navigator.onLine) {
+    // No set cached yet (the card's own row alone doesn't count) but we're online: the set may exist
+    // server-side (generated on another device) and simply not have synced down yet.
+    if (!local.some((r) => !isCardSentenceRow(r)) && navigator.onLine) {
       try {
         const remote = await fetchNoteSentences(noteId);
         if (noteIdRef.current !== noteId || remote.length === 0) return;
@@ -543,6 +544,34 @@ export function SentenceSet({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantEnglishKey, isOnline]);
+
+  // A row with no breakdown of its own whose text was explained on this device before (the card's own sentence
+  // before it was a row, the Coach's Explain): that breakdown, offline too — as if the row had it.
+  const unexplainedKey = rows.filter((r) => !r.explanation).map((r) => `${r.key}\u0000${r.hanzi}`).join('|');
+  useEffect(() => {
+    if (!unexplainedKey) return;
+    let live = true;
+    const forNote = noteId;
+    void (async () => {
+      const found: Record<string, SentenceBriefExplanation> = {};
+      for (const pair of unexplainedKey.split('|')) {
+        const [key, hanzi] = pair.split('\u0000');
+        const cached = hanzi ? await getCachedTextExplanation(hanzi) : null;
+        if (cached) found[key] = cached;
+      }
+      if (live && noteIdRef.current === forNote && Object.keys(found).length > 0) {
+        setExplanations((prev) => {
+          const next = { ...prev };
+          for (const [k, e] of Object.entries(found)) if (!next[k]) next[k] = e;
+          return next;
+        });
+      }
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unexplainedKey]);
 
   // The gate counts the sentences there are (fewer than two → as many as exist); hidden ones don't count.
   const hiddenRows = rows.filter((r) => isHidden(r.key));

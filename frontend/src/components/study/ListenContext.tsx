@@ -34,7 +34,7 @@ import {
   type ListenRowState,
 } from '@shared/study/listenContext';
 import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
-import type { NoteCardSentenceFields } from '@shared/study/cardSentence';
+import { isCardSentenceRow, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 
 /**
  * "Listen in context" — the question side of a listening card (audio → hanzi;
@@ -149,7 +149,7 @@ export function ListenContext({
       if (!live) return;
       setSentences(local);
       setLoaded(true);
-      if (local.length === 0 && online) {
+      if (!local.some((r) => !isCardSentenceRow(r)) && online) {
         try {
           const remote = await fetchNoteSentences(noteId);
           if (live && remote.length > 0) {

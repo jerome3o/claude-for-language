@@ -110,7 +110,7 @@ class NoteMediaController(private val app: LabApp, private val noteId: String, p
             val (n, s) = withContext(Dispatchers.IO) { app.repo.dao.note(noteId) to app.repo.dao.sentencesFor(noteId) }
             _note.value = n
             _sentences.value = s
-            if (s.isEmpty() && app.online.value) runCatching { tools.fetchSetIfMissing(noteId) }.getOrNull()?.let { _sentences.value = it }
+            if (s.none { !it.isCard } && app.online.value) runCatching { tools.fetchSetIfMissing(noteId) }.getOrNull()?.let { _sentences.value = it }
         }
         refreshRecordings()
     }
