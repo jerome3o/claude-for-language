@@ -201,7 +201,8 @@ export function systemMessageView(msg: SystemMessageLike, ctx: SystemContext): S
       const nums = budgetNumbers(d);
       return me
         ? view('📚', `You set ${possessive(systemFirstName(ctx.otherName, 'your student'))} new cards ${to}${nums}`)
-        : view('📚', `${capitalise(systemFirstName(ctx.otherName, 'your tutor'))} set your new cards ${to}${nums}`);
+        : // The student can see / change it where it lives (the flow audit, docs/CHAT.md "Tool lines you can tap").
+          view('📚', `${capitalise(systemFirstName(ctx.otherName, 'your tutor'))} set your new cards ${to}${nums}`, { action: { label: 'See in Settings', path: '/settings' } });
     }
     case 'call_started': {
       const callId = str(d.call_id);
