@@ -26,7 +26,8 @@ import { AddChunkModal, Chunk } from './AddChunkModal';
 import { SentenceWordBreakdown } from './SentenceWordBreakdown';
 import { track } from '../services/analytics';
 import { sentencePractiseMode } from '@shared/study/sentencePractise';
-import { orderKeysForRound, type RoundRowMark } from '@shared/study/sentenceRound';
+import { type RoundRowMark } from '@shared/study/sentenceRound';
+import { answerSentenceOrder, questionSentenceKeys } from '@shared/study/answerOrder';
 import { SentenceMicButton, SentencePractiseOutcome, SentenceStopBar, useSentencePractise } from './study/SentencePractise';
 import {
   SENTENCE_HIDDEN_TOAST,
@@ -177,6 +178,12 @@ interface SentenceSetProps {
    * ("In the round · ✓ Right"), so he can find them and ask about them.
    */
   roundRows?: readonly RoundRowMark[];
+  /**
+   * The row keys the question side showed on this showing, in its order (a listening card's "Listen in
+   * context"): the answer side's list starts with them, then the round's sentences, then the rest as usual
+   * (shared/study/answerOrder.ts — the answer keeps the question's order).
+   */
+  questionOrder?: readonly string[];
 }
 
 export function SentenceSet({
@@ -191,6 +198,7 @@ export function SentenceSet({
   onRowCount,
   history,
   roundRows,
+  questionOrder,
 }: SentenceSetProps) {
   const roundMark = new Map((roundRows ?? []).map((m) => [m.key, m]));
   const pass = variant === 'pass';
@@ -701,12 +709,16 @@ export function SentenceSet({
 
   // The pass shows the card's own sentence; the rest wait behind "+ N more". Hidden ones only on "Show hidden".
   const shownRows = rows.filter((r) => !isHidden(r.key) || showHidden);
-  // The round's sentences first, in its order (opened, outlined); the rest as they were.
-  const listRows = roundRows?.length
-    ? orderKeysForRound(shownRows.map((r) => r.key), roundRows).map((k) => shownRows.find((r) => r.key === k)!)
+  // The answer keeps the question's order: what the question side showed first, in the order shown — Listen in
+  // context's rows, then the round's sentences (opened, outlined) — then the rest as they were.
+  const firstKeys = questionSentenceKeys(questionOrder, roundRows?.map((m) => m.key));
+  const listRows = firstKeys.length
+    ? answerSentenceOrder(shownRows.map((r) => r.key), firstKeys).map((k) => shownRows.find((r) => r.key === k)!)
     : shownRows;
-  // The pass in Hard mode shows the round's sentences (opened, outlined) before "+ N more".
-  const passFirst = Math.max(1, roundRows?.length ?? 0);
+  // The pass shows what the question side showed (Listen in context's rows, the round's sentences — opened,
+  // outlined) before "+ N more"; nothing shown → the card's own sentence.
+  const placed = new Set(firstKeys.filter((k) => shownRows.some((r) => r.key === k))).size;
+  const passFirst = Math.max(1, placed);
   const visibleRows = pass && !showMore ? listRows.slice(0, passFirst) : listRows;
   const moreCount = Math.max(0, listRows.length - passFirst);
 

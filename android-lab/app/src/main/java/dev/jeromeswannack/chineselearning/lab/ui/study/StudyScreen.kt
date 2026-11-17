@@ -168,6 +168,8 @@ class StudyActions(
     val onCardRound: (presentation: Int, roundOpen: Boolean, sentencesRight: List<String>) -> Unit = { _, _, _ -> },
     /** Hard mode's state of the card (the question's check up, gave up, the round's log) for the resume point. */
     val onCardHard: (presentation: Int, feedbackOpen: Boolean, gaveUp: Boolean, roundLog: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.LogEntry>) -> Unit = { _, _, _, _ -> },
+    /** A listening card's "Listen in context" rows as this showing offered them (resume point; the answer side follows them). */
+    val onCardListen: (presentation: Int, listenShown: List<String>) -> Unit = { _, _ -> },
     /** ⋯ → Sentence coach, prefilled with [text]; back returns to this card as it is. */
     val onOpenCoach: (text: String) -> Unit = {},
     /**
@@ -316,6 +318,7 @@ fun StudyRoute(
             onCardProgress = vm::onCardProgress,
             onCardRound = vm::onCardRound,
             onCardHard = vm::onCardHard,
+            onCardListen = vm::onCardListen,
             onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true, from = "card")) }, // from a card: the Coach page stays (docs/CHAT.md "Coach entry points")
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
