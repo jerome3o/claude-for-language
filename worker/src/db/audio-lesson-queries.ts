@@ -19,6 +19,7 @@ import type {
 import { storyCutNotice } from '@shared/audio-lesson/story';
 import { parseVoiceGender } from '@shared/chats/voice';
 import { chapterTitleParts } from '@shared/audio-lesson/chapter-pinyin';
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 
 export interface AudioLessonRow {
   id: string;
@@ -288,7 +289,7 @@ export async function learnerVocabulary(db: D1Database, userId: string): Promise
   const rows = await db
     .prepare(
       `SELECT n.hanzi AS hanzi, MAX(n.pinyin) AS pinyin, MAX(n.english) AS english,
-         MAX(CASE WHEN c.queue = 2 AND c.stability > 21 THEN 2 WHEN c.queue != 0 THEN 1 ELSE 0 END) AS tier
+         MAX(CASE WHEN ${MASTERED_CARD_SQL} THEN 2 WHEN c.queue != 0 THEN 1 ELSE 0 END) AS tier
        FROM notes n
        JOIN decks d ON d.id = n.deck_id
        JOIN cards c ON c.note_id = n.id

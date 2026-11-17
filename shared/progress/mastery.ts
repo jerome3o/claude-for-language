@@ -7,6 +7,8 @@
  * ≤ 7 days), `familiar` (stability ≤ 21 days) or `mastered` (> 21 days). "Seen" = not new.
  */
 
+import { MASTERED_STABILITY_DAYS } from './cardSql';
+
 export type MasteryLevel = 'new' | 'learning' | 'familiar' | 'mastered';
 
 export interface MasteryCard {
@@ -38,7 +40,7 @@ export function masteryLevel(queue: number, stability: number): MasteryLevel {
   if (queue === 0) return 'new';
   if (queue === 1 || queue === 3) return 'learning';
   if (stability <= 7) return 'learning';
-  if (stability <= 21) return 'familiar';
+  if (stability <= MASTERED_STABILITY_DAYS) return 'familiar';
   return 'mastered';
 }
 

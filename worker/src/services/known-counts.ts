@@ -1,4 +1,5 @@
 import { knownCountsFromTiers, type KnownCounts } from '@shared/progress/known';
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 
 export interface KnownCountsSummary {
   characters: KnownCounts;
@@ -15,7 +16,7 @@ export interface KnownCountsSummary {
 export async function getKnownCounts(db: D1Database, userId: string): Promise<KnownCountsSummary> {
   const rows = await db.prepare(`
     SELECT n.hanzi AS hanzi,
-      MAX(CASE WHEN c.queue = 2 AND c.stability > 21 THEN 2 WHEN c.queue != 0 THEN 1 ELSE 0 END) AS tier
+      MAX(CASE WHEN ${MASTERED_CARD_SQL} THEN 2 WHEN c.queue != 0 THEN 1 ELSE 0 END) AS tier
     FROM notes n
     JOIN decks d ON d.id = n.deck_id
     JOIN cards c ON c.note_id = n.id

@@ -37,6 +37,7 @@ import {
 } from '@shared/decks';
 import { normalizeHanzi } from '@shared/import/parse';
 import { setNoteLongTermPref } from './content/notes';
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 
 export const MAX_BUMPS_PER_REQUEST = 50;
 
@@ -191,7 +192,7 @@ async function planServerBumps(db: D1Database, userId: string, noteIds: string[]
       await db
         .prepare(
           `SELECT DISTINCT n.hanzi, c.queue, c.stability FROM cards c JOIN notes n ON n.id = c.note_id JOIN decks d ON d.id = n.deck_id
-           WHERE d.user_id = ? AND c.queue = 2 AND c.stability > 21`
+           WHERE d.user_id = ? AND ${MASTERED_CARD_SQL}`
         )
         .bind(userId)
         .all<{ hanzi: string; queue: number; stability: number }>()
