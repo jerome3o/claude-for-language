@@ -116,8 +116,9 @@ export function StudyTodayCard({
         </div>
         {bumped > 0 && (
           // Tappable (docs/CHAT.md "Tool lines you can tap" → the flow audit): the words are listed under Up next's "⚡ Today".
-          <Link to="/up-next" className="home-bumped home-bumped-link" data-testid="home-bumped" aria-label={`${bumpedLabel(bumped)} — see them`}>
-            {bumpedLabel(bumped)} <span aria-hidden="true">›</span>
+          <Link to="/up-next" className="home-bumped home-bumped-link" data-testid="home-bumped-link" aria-label={`${bumpedLabel(bumped)} — see them`}>
+            <span data-testid="home-bumped">{bumpedLabel(bumped)}</span>
+            <span aria-hidden="true">›</span>
           </Link>
         )}
         <PausedLine reviewLoad={reviewLoad} />
