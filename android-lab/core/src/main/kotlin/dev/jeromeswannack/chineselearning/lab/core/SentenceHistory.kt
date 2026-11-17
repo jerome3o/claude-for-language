@@ -18,7 +18,10 @@ object SentenceHistory {
     const val HIDDEN_TOAST = "Sentence hidden"
     const val SHOW_AGAIN = "Show again"
 
-    /** `SentencePracticeEvent` (kind attempt | hide | unhide). */
+    /** `LISTEN_CONTEXT_MODE`: the mode of a `heard` event (played on a listening card's "Listen in context" question). */
+    const val LISTEN_CONTEXT_MODE = "listen_context"
+
+    /** `SentencePracticeEvent` (kind attempt | hide | unhide | heard). */
     data class Event(
         val id: String,
         val noteId: String,
@@ -32,6 +35,8 @@ object SentenceHistory {
 
     data class ModeStats(val attempts: Int = 0, val rights: Int = 0, val misses: Int = 0, val lastAt: String? = null)
     data class Hidden(val at: String, val reason: String?)
+    /** `HeardStats`: played on "Listen in context" — how many showings, the last (ISO). */
+    data class Heard(val count: Int = 0, val lastAt: String? = null)
     /** `SentencePracticeMode`: read · translate (the rows' 🎤 and the round) · listen (Hard mode's "Sentences by ear"). */
     const val LISTEN = "listen"
     val MODES = listOf(SentencePractise.READ, SentencePractise.TRANSLATE, LISTEN)
@@ -42,6 +47,8 @@ object SentenceHistory {
         val hidden: Hidden? = null,
         /** Understood by ear (Hard mode's "Sentences by ear"). */
         val listen: ModeStats = ModeStats(),
+        /** Played on a listening card's "Listen in context" question (not a take: never makes it un-fresh). */
+        val heard: Heard = Heard(),
     ) {
         fun mode(m: String): ModeStats = when (m) {
             SentencePractise.TRANSLATE -> translate
@@ -83,6 +90,11 @@ object SentenceHistory {
                 }
                 "hide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = Hidden(e.at, e.reason?.takeIf { it in HIDE_REASONS }))
                 "unhide" -> out[e.sentenceKey] = (s ?: Stats()).copy(hidden = null)
+                "heard" -> {
+                    val cur = s ?: Stats()
+                    val h = cur.heard
+                    out[e.sentenceKey] = cur.copy(heard = Heard(h.count + 1, if (h.lastAt == null || e.at > h.lastAt) e.at else h.lastAt))
+                }
             }
         }
         return out

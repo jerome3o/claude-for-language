@@ -72,6 +72,25 @@ describe('sentence practice events', () => {
     expect((await me('POST', '/me/sentence-practice', { events: [] })).status).toBe(400);
   });
 
+  it('stores "heard in context" events (Listen in context) and hands them back', async () => {
+    const r = await me('POST', '/me/sentence-practice', { events: [
+      { id: 'hd1', note_id: 'n-bank', sentence_key: 's1', kind: 'heard', mode: 'listen_context', at: '2026-11-17T08:00:00.000Z' },
+      { id: 'hd2', note_id: 'n-bank', sentence_key: 'clue', kind: 'heard', at: '2026-11-17T08:01:00.000Z' },
+      { id: 'hd3', note_id: 'n-bank', sentence_key: 's2', kind: 'heard', mode: 'read', at: '2026-11-17T08:02:00.000Z' },
+    ] });
+    expect(r.json.accepted.sort()).toEqual(['hd1', 'hd2']);
+    expect(r.json.rejected).toEqual(['hd3']);
+    const list = await me('GET', '/me/sentence-practice');
+    const heard = list.json.events.filter((e: { kind: string }) => e.kind === 'heard');
+    expect(heard.map((e: { id: string; mode: string; result: string | null }) => [e.id, e.mode, e.result]).sort()).toEqual([
+      ['hd1', 'listen_context', null],
+      ['hd2', 'listen_context', null],
+    ]);
+    // A heard sentence is never hidden.
+    const hidden = await hiddenSentenceKeys(db as unknown as D1Database, ME, ['n-bank']);
+    expect(hidden.get('n-bank')).toBeUndefined();
+  });
+
   it('hidden keys: the last hide / unhide decides', async () => {
     await me('POST', '/me/sentence-practice', { events: [
       { id: 'h1', note_id: 'n-bank', sentence_key: 's2', kind: 'hide', reason: 'weird', at: '2026-10-20T08:02:00.000Z' },

@@ -51,6 +51,7 @@ class SentenceHistoryParityTest {
                     mode(x["read"]!!.jsonObject), mode(x["translate"]!!.jsonObject),
                     x["hidden"]!!.let { h -> if (h is JsonNull) null else SentenceHistory.Hidden(h.jsonObject.s("at")!!, h.jsonObject.s("reason")) },
                     mode(x["listen"]!!.jsonObject),
+                    x["heard"]!!.jsonObject.let { h -> SentenceHistory.Heard(h["count"]!!.jsonPrimitive.int, h.s("last_at")) },
                 )
             }
             assertEquals(want, stats.toSortedMap(), what)

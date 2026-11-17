@@ -46,7 +46,7 @@ for (let i = 0; i < 360; i++) {
   const events: SentencePracticeEvent[] = [];
   const count = long ? Math.floor(r() * 10) : Math.floor(r() * 30);
   for (let e = 0; e < count; e++) {
-    const kind = pick(['attempt', 'attempt', 'attempt', 'attempt', 'hide', 'unhide', 'junk'] as const);
+    const kind = pick(['attempt', 'attempt', 'attempt', 'attempt', 'hide', 'unhide', 'junk', 'heard'] as const);
     const day = String(1 + Math.floor(r() * 9)).padStart(2, '0');
     const at = `2026-10-${day}T0${Math.floor(r() * 9)}:00:00.000Z`;
     const ev: SentencePracticeEvent = {
@@ -61,6 +61,8 @@ for (let i = 0; i < 360; i++) {
       ev.result = pick(['right', 'right', 'close', 'wrong', 'meh'] as never[]);
     }
     if (kind === 'hide') ev.reason = pick([...SENTENCE_HIDE_REASONS, 'bogus', null] as never[]);
+    // Played on "Listen in context" (listenContext.ts): counted, never a take.
+    if (kind === 'heard') ev.mode = 'listen_context' as never;
     events.push(ev);
   }
   const stats = sentenceStats(events, 'n1');

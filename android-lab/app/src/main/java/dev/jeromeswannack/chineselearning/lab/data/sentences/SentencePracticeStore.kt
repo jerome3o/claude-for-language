@@ -90,6 +90,15 @@ object SentencePracticeStore {
         add(app, noteId, rowKey, "attempt", mode = mode, result = result)
     }
 
+    /**
+     * Played on a listening card's "Listen in context" question — once per sentence per showing (web
+     * `recordSentenceHeard`): every device knows how often / how lately, so the next showing picks fresh ones
+     * (core [dev.jeromeswannack.chineselearning.lab.core.ListenContext.pick]).
+     */
+    fun recordHeard(app: LabApp, noteId: String, rowKey: String) {
+        add(app, noteId, rowKey, "heard", mode = SentenceHistory.LISTEN_CONTEXT_MODE)
+    }
+
     /** "Stop showing this sentence". */
     fun hide(app: LabApp, noteId: String, rowKey: String, reason: String, where: String) {
         Analytics.track("study.sentence_hidden", mapOf("reason" to reason, "where" to where, "unhidden" to false))
