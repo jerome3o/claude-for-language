@@ -3131,9 +3131,9 @@ Tapping a character of the hanzi on the card back (or of the answer diff on a ty
 opens the **character sheet**: dictionary data about that character that is the SAME on every
 card — it never looks at the card on screen and needs no AI call. It replaced the old popup
 that asked Claude to define the character in the context of the current card
-(`WordDefinitionPopup` → `POST /api/vocabulary/define`; that endpoint, the D1
-`character_definitions` table and the IndexedDB `characterDefinitions` cache are kept but the
-card no longer uses them; chat role-play's word tap still does).
+(`WordDefinitionPopup` → `POST /api/vocabulary/define`; the popup and the endpoint were retired in
+Nov 2026 with the old Claude practice chat that last used them — the endpoint answers 410; the D1
+`character_definitions` table and the IndexedDB `characterDefinitions` cache are left unused).
 
 The sheet shows the big character, its readings (most used first), a one-line meaning, each
 reading's gloss when there are several, chips for the radical, stroke count and frequency rank

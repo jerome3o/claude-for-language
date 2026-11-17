@@ -940,7 +940,7 @@ Card-INDEPENDENT dictionary data — readings, meaning, radical / components, st
 the ~20 most frequent words with the character, each marked **✓ Known** (mature card) / **📚 In your decks**
 from the learner's own cards on the device (`shared/chars/status.ts`, Lab `CharWords.kt`, parity-tested);
 a row → the explorer's Word view (⚡ Study it today / Open card → / + Add as card there); the radical and components are tappable too. Replaces the per-card Claude
-popup (`WordDefinitionPopup`, `/api/vocabulary/define` — kept, unused by the card). Data: built by
+popup (`WordDefinitionPopup`, `/api/vocabulary/define` — both retired Nov 2026: the endpoint answers 410, docs/CHAT.md "Practice with Claude"). Data: built by
 `npm run build:char-dict` (`scripts/build-char-dict.ts`, rules in `shared/chars/build.ts`) from **CC-CEDICT**
 (CC BY-SA 4.0), **Make Me a Hanzi** `dictionary.txt` (LGPL-3.0) and **wordfreq** `large_zh` (CC BY-SA 4.0
 data) → ~10,200 characters in 128 gzipped JSON shards `worker/char-dict/NNN.dat` (committed, 2.3 MB), the
