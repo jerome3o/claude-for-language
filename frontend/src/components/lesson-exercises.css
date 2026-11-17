@@ -392,20 +392,18 @@
   word-break: break-all;
 }
 
+/* Colour only, like the slim answer diff (index.css `--mark-*`; Jerome, Nov 2026: no strikes, fills or underlines):
+   a typed character that isn't in the answer, and an answer character he missed, in the wrong mark's rose. */
 .char-diff-chars .hit {
-  color: #166534;
+  color: var(--result-right-ink);
 }
 
 .char-diff-chars .extra {
-  color: #b91c1c;
-  text-decoration: line-through;
+  color: var(--mark-wrong);
 }
 
 .char-diff-chars .miss {
-  color: #b91c1c;
-  background: #fee2e2;
-  border-radius: 4px;
-  padding: 0 0.1em;
+  color: var(--mark-wrong);
 }
 
 .char-diff-empty {
