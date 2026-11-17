@@ -878,3 +878,21 @@
 .scramble-claude-note.good { border-left-color: #16a34a; }
 .scramble-claude-note.bad { border-left-color: #dc2626; }
 .scramble-claude-note-label { font-weight: 600; color: var(--color-text-light, #6b7280); }
+
+/* ---- "Which sentence is wrong?" choices (shared/lesson/choiceMistake.ts) ----
+ * The mistake is struck through and said in words (never colour alone); it has no ▶ — the correction below plays. */
+.contrast-option.choice-mistake .choice-mistake-hanzi {
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--color-error, #dc2626);
+}
+
+.choice-mistake-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 0.2rem;
+  color: var(--color-text-secondary, #555);
+}
+
+.choice-correction-pending {
+  color: var(--color-text-secondary, #666);
+}

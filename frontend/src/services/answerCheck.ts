@@ -54,7 +54,7 @@ export function cachedAnswerCheck(input: AnswerCheckInput): AnswerCheck | null {
   return check ? forgiveUnheard(check, input) : null;
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new AnswerCheckUnavailable('offline', true);
   for (let attempt = 0; attempt < 2; attempt++) {
     let response: Response;

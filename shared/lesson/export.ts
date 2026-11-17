@@ -10,6 +10,7 @@
 
 import { CustomLessonSpec, LessonExercise, LessonSentence, fillGap } from './types';
 import { patternLine, patternName } from './pattern';
+import { choiceSayAgainSentence, specChoiceCorrection } from './choiceMistake';
 
 // ============ Markdown ============
 
@@ -161,7 +162,8 @@ function exerciseAnswer(ex: LessonExercise): string | null {
     }
     case 'choice': {
       const o = ex.options[ex.correct];
-      return `${String.fromCharCode(65 + ex.correct)}. ${o?.hanzi ?? ''}${o?.english ? ` — ${o.english}` : ''}${ex.explanation ? ` (${ex.explanation})` : ''}`;
+      const fix = specChoiceCorrection(ex);
+      return `${String.fromCharCode(65 + ex.correct)}. ${o?.hanzi ?? ''}${o?.english ? ` — ${o.english}` : ''}${fix ? ` → correct: ${fix.hanzi}` : ''}${ex.explanation ? ` (${ex.explanation})` : ''}`;
     }
     case 'translate':
       return `${ex.reference_hanzi}${ex.reference_pinyin ? ` (${ex.reference_pinyin})` : ''}`;
@@ -297,9 +299,12 @@ export function lessonVocabRows(spec: CustomLessonSpec): VocabRow[] {
         case 'translate':
           add(ex.reference_hanzi, ex.english, ex.reference_pinyin);
           break;
-        case 'choice':
-          addSentence(ex.options[ex.correct]);
+        case 'choice': {
+          // The answer — or for a "which is wrong?" choice its correction, never the mistake (choiceMistake.ts).
+          const said = choiceSayAgainSentence(ex);
+          if (said) addSentence(said);
           break;
+        }
         case 'scramble':
           add(ex.correct_order.join(''), ex.english);
           break;

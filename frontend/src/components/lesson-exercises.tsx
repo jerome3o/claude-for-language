@@ -28,6 +28,8 @@ import { FeedbackSentence, LessonFeel, MarkedAnswer, ReplayButton, ResultBanner,
 import { useScrambleCheck } from './lessons/useScrambleCheck';
 import { scrambleCheckInput, scrambleLocalVerdict, scrambleOutcome, scrambleSentence, scrambleSpokenSentence } from '@shared/lesson/scrambleCheck';
 import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
+import { choiceAsksForWrong, choicePickSpeech, choiceSayAgainSentence, isWrongOption } from '@shared/lesson/choiceMistake';
+import { useChoiceCorrection } from '../services/choiceCorrection';
 import './lesson-exercises.css';
 
 export interface ExerciseSentence {
@@ -224,35 +226,79 @@ export function ScrambleExercise(props: {
 
 // ============ Multiple choice ============
 
+/**
+ * The option of a "which sentence is wrong?" choice that IS the mistake, once answered: struck through, marked in words
+ * (never colour alone), no ▶ — the mistake is never read aloud (shared/lesson/choiceMistake.ts).
+ */
+function MistakeOption({ option, cls }: { option: ExerciseSentence; cls: string }) {
+  return (
+    <div className={`contrast-option answered choice-mistake ${cls}`} data-testid="choice-mistake-option">
+      <div className="contrast-hanzi answered-option-line">
+        <s className="choice-mistake-hanzi" lang="zh-CN">{option.hanzi}</s>
+      </div>
+      <div className="choice-mistake-label">✗ This sentence has the mistake</div>
+      {option.english && <div className="contrast-english">{option.english}</div>}
+    </div>
+  );
+}
+
 export function ChoiceExercise(props: {
   question: string;
   options: ExerciseSentence[];
   correctIndex: number;
   explanation?: string;
+  /** A "which is wrong?" choice's right version of the wrong option (spec `correction`). */
+  correction?: ExerciseSentence | null;
   speak: Speak;
   onNext: OnNext;
 }) {
-  const { question, options, correctIndex, explanation, speak, onNext } = props;
+  const { question, options, correctIndex, explanation, correction, speak, onNext } = props;
+  const ex = useMemo(() => ({
+    question,
+    options: options.map(o => ({ hanzi: o.hanzi, pinyin: o.pinyin ?? undefined, english: o.english ?? undefined })),
+    correct: correctIndex,
+    explanation,
+    correction: correction?.hanzi ? { hanzi: correction.hanzi, pinyin: correction.pinyin ?? undefined, english: correction.english ?? undefined } : undefined,
+  }), [question, options, correctIndex, explanation, correction]);
+  // "Which sentence is wrong?": the reveal plays the CORRECTION, never the mistake (an older lesson asks for one).
+  const fix = useChoiceCorrection(ex);
+  const asksWrong = choiceAsksForWrong(ex);
   const [choice, setChoice] = useState<number | null>(null);
   // Options are shuffled per attempt — under FSRS the same exercise comes
   // back, and "the answer is always the first one" would be memorizable.
   const [optionOrder] = useState(() => shuffledIndexes(options.length));
   const result = choice === null ? null : choice === correctIndex;
+  // Picked the mistake before its correction arrived: speak the correction once it does (never the mistake).
+  const owedCorrection = useRef(false);
 
   function pick(index: number) {
     setChoice(index);
-    speak(options[index].hanzi);
+    const text = choicePickSpeech(ex, index, fix);
+    if (text) speak(text);
+    else owedCorrection.current = isWrongOption(ex, index, fix);
   }
+
+  useEffect(() => {
+    if (!owedCorrection.current || fix.status === 'loading') return;
+    owedCorrection.current = false;
+    const text = choice === null ? '' : choicePickSpeech(ex, choice, fix);
+    if (text) speak(text);
+  }, [fix, choice, ex, speak]);
+
+  const sayAgain = result !== null ? choiceSayAgainSentence(ex, fix) : null;
 
   return (
     <div className="exercise">
-      <div className="phase-label">Which one fits?</div>
+      <div className="phase-label">{asksWrong ? 'Which one is wrong?' : 'Which one fits?'}</div>
       <div className="contrast-context">{question}</div>
       {optionOrder.map(index => {
         const s = options[index];
         const cls =
           result === null ? '' : index === correctIndex ? 'correct' : index === choice ? 'wrong' : '';
-        if (result !== null) return <AnsweredOption key={index} option={s} cls={cls} speak={speak} exerciseType="choice" />;
+        if (result !== null) {
+          if (isWrongOption(ex, index, fix)) return <MistakeOption key={index} option={s} cls={cls} />;
+          return <AnsweredOption key={index} option={s} cls={cls} speak={speak} exerciseType="choice" />;
+        }
         return (
           <button
             key={index}
@@ -267,8 +313,27 @@ export function ChoiceExercise(props: {
       {result !== null && (
         <>
           <ResultBanner ok={result}>{result ? '✓ Correct' : '✗ Not quite'}</ResultBanner>
+          {fix.status === 'ready' && (
+            <FeedbackSentence
+              hanzi={fix.correction.hanzi}
+              pinyin={fix.correction.pinyin}
+              english={fix.correction.english}
+              label="✓ Correct:"
+              speak={speak}
+              exerciseType="choice"
+              testId="choice-correction"
+            />
+          )}
+          {fix.status === 'loading' && (
+            <p className="result-explanation choice-correction-pending" role="status" data-testid="choice-correction-pending">Finding the correct version…</p>
+          )}
+          {fix.status === 'unavailable' && (
+            <p className="result-explanation choice-correction-pending" data-testid="choice-correction-offline">
+              {fix.offline ? 'The correct version needs a connection.' : 'Couldn’t get the correct version this time.'}
+            </p>
+          )}
           {explanation && <p className="result-explanation">{explanation}</p>}
-          {/\p{Script=Han}/u.test(options[correctIndex]?.hanzi ?? '') && <SayItAgain hanzi={options[correctIndex].hanzi} exerciseType="choice" />}
+          {sayAgain && /\p{Script=Han}/u.test(sayAgain.hanzi) && <SayItAgain hanzi={sayAgain.hanzi} exerciseType="choice" />}
           <TakeLockActions>
             <button className="practice-btn primary" onClick={() => onNext(result, { choice: choice ?? undefined })}>
               Continue

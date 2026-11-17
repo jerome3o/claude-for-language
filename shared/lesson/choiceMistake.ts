@@ -24,15 +24,18 @@ export const CHOICE_CORRECTION_VERSION = 1;
 
 /** One clause: never across a sentence end or a line break. */
 const CLAUSE = '[^.?!。？！\\n]';
-const WRONG_EN = "(?:wrong(?:ly)?|incorrect(?:ly)?|not\\s+(?:correct|right|grammatical|natural)|(?:is|are)n['’]t\\s+(?:correct|right|grammatical|natural)|ungrammatical|unnatural|mistakes?|errors?|mistaken)";
+/** ASCII word edges (not `\b`: JS and Java disagree on a Han character next to a Latin one — "用了incorrectly"). */
+const WB = '(?<![A-Za-z0-9_])';
+const WE = '(?![A-Za-z0-9_])';
+const WRONG_EN = `(?:wrong(?:ly)?|incorrect(?:ly)?|not\\s+(?:correct|right|grammatical|natural)|(?:is|are)n['’]t\\s+(?:correct|right|grammatical|natural)|ungrammatical|unnatural|mistakes?|errors?|mistaken)`;
 const ZH_WRONG = '(?:错|不对|不正确|有问题|有毛病|语病|病句|不通|不自然|不合适|不恰当)';
 
 /** Patterns that ask for the WRONG option. */
 const ASKS_WRONG: RegExp[] = [
   // Which (sentence / one / of these) is wrong / has a mistake / uses 了 incorrectly?
-  new RegExp(`\\bwhich\\b${CLAUSE}{0,60}?\\b${WRONG_EN}\\b`, 'i'),
+  new RegExp(`${WB}which${WE}${CLAUSE}{0,60}?${WB}${WRONG_EN}${WE}`, 'i'),
   // Find / spot / pick / choose the wrong sentence · the mistake · the error.
-  new RegExp(`\\b(?:find|spot|pick|choose|select|identify|tap|mark)\\b${CLAUSE}{0,40}?\\b${WRONG_EN}\\b`, 'i'),
+  new RegExp(`${WB}(?:find|spot|pick|choose|select|identify|tap|mark)${WE}${CLAUSE}{0,40}?${WB}${WRONG_EN}${WE}`, 'i'),
   // 哪个 / 哪句 / 哪一项 … 错 / 不对 / 有问题 / 病句
   new RegExp(`哪一?(?:个|句|项|条|段|些)${CLAUSE}{0,12}?${ZH_WRONG}`),
   // 找出 / 选出 / 指出 … 错 / 病句
@@ -42,12 +45,12 @@ const ASKS_WRONG: RegExp[] = [
 /** Patterns that mean it is NOT asking for a mistake (checked first; conservative). */
 const NOT_WRONG: RegExp[] = [
   // Which has NO mistake / is not wrong / nothing wrong / error-free.
-  /\b(?:no|without|free\s+of|nothing|not)\s+(?:an?\s+|any\s+)?(?:mistakes?|errors?|wrong)\b/i,
-  /\berror-free\b/i,
+  new RegExp(`${WB}(?:no|without|free\\s+of|nothing|not)\\s+(?:an?\\s+|any\\s+)?(?:mistakes?|errors?|wrong)${WE}`, 'i'),
+  new RegExp(`${WB}error-free${WE}`, 'i'),
   // The question asks for the RIGHT one (and maybe mentions that one has a mistake).
-  /(?:^|[^a-z])(?<!not\s)(?:correct|right|natural|grammatical)\s+(?:one|sentence|option|answer|version|choice)\b/i,
+  new RegExp(`${WB}(?<!not\\s)(?:correct|right|natural|grammatical)\\s+(?:one|sentence|option|answer|version|choice)${WE}`, 'i'),
   // Comprehension: a statement that is "wrong" about the text, not wrong Chinese.
-  /\baccording\s+to\b|\bbased\s+on\b|\bin\s+the\s+(?:text|dialogue|story|passage|conversation|audio|reading|article)\b/i,
+  new RegExp(`${WB}according\\s+to${WE}|${WB}based\\s+on${WE}|${WB}in\\s+the\\s+(?:text|dialogue|story|passage|conversation|audio|reading|article)${WE}`, 'i'),
   /根据|对话中|短文|课文|文章/,
   // 没有错误 / 没错 / 无误 / 不错 ("good").
   /没有?(?:错|问题|毛病|语病)|无误|不错/,
