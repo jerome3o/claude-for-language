@@ -75,7 +75,7 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   await page.getByRole('button', { name: 'Check', exact: true }).click();
   // The slim answer diff, judged by the characters (官 sounds like 馆 but is the wrong character).
   await expect(page.locator('[data-testid="char-diff"] [data-kind="wrong"]')).toHaveText('官');
-  await expect(page.getByText('官 instead of 馆')).toBeVisible();
+  await expect(page.getByText('Not quite — 官 instead of 馆')).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // Dictation (typed): punctuation doesn't count
