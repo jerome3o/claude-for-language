@@ -162,7 +162,7 @@ export function StudentCard({ overview, onSendHomework, recent }: { overview: St
 
 /**
  * "📚 5 + 10 a day" — the student's daily new cards, only when not the default — and, on a day
- * their review load is over their limit, "⏸ New cards paused today · 124 reviews due"
+ * their review load is over their limit, "⏸ New cards paused today · 124 cards reviewed or due"
  * (shared/decks/review-load.ts).
  */
 function BudgetPill({ overview, relId }: { overview: StudentOverview; relId: string }) {

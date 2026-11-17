@@ -104,11 +104,12 @@ function StudyHome() {
 
   // ---- Queue counts: ONE live query, bonus applied in-memory ----
   const { byDeck: rawByDeck, isLoading: countsLoading, reviewLoad, stamp } = useRawQueueCounts();
-  // "Pause new cards on heavy days": recorded once a local day while Home says so.
+  // "Pause new cards on heavy days": recorded once a STUDY day while Home says so (the Lab app's
+  // HomeViewModel.trackPaused keys it the same way — a calendar day counted 00:00–04:00 twice).
   useEffect(() => {
     if (!reviewLoad?.paused) return;
     const key = 'new-cards-paused-tracked';
-    const today = new Date().toDateString();
+    const today = studyToday();
     try {
       if (localStorage.getItem(key) === today) return;
       localStorage.setItem(key, today);

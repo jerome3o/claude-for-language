@@ -208,3 +208,66 @@ export function sqliteDayModifier(shiftMinutes: number): string {
 export function shiftedDayKey(ms: number, shiftMinutes: number): string {
   return keyOfUtcDate(new Date(ms + shiftMinutes * MINUTE_MS));
 }
+
+// ---------------------------------------------------------------- the server's SQL "today"
+
+/** SQLite's `datetime()` text of an instant: "YYYY-MM-DD HH:MM:SS" (UTC). */
+export function sqliteDateTime(ms: number): string {
+  const d = new Date(ms);
+  return `${keyOfUtcDate(d)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
+/**
+ * An account's study day on a server that only has the account's row: its IANA zone
+ * (`users.time_zone`, DST-aware) when known, else a fixed UTC offset (minutes EAST, default 0),
+ * turning over at its stored hour (`users.day_rollover_hour`, NULL = 4 am).
+ */
+export function accountStudyDay(
+  account: { time_zone?: string | null; day_rollover_hour?: number | null } | null | undefined,
+  nowMs: number,
+  utcOffsetMinutes = 0
+): StudyDay {
+  const hour = dayRolloverHour(account?.day_rollover_hour);
+  if (isKnownTimeZone(account?.time_zone)) return studyDayAt(nowMs, hour, account!.time_zone);
+  return studyDayAtOffset(nowMs, hour, utcOffsetMinutes);
+}
+
+/**
+ * What a SQL "today" of study needs — never `date('now')` (the UTC date: at 00:44 in London
+ * with a 4 am rollover it is already tomorrow) nor `date('now', '+1 day', 'start of day')`:
+ * - `key`: the study day (YYYY-MM-DD) — compare snooze dates (`card_holds.until`) with it;
+ * - `startSql` / `endSql`: its edges as `datetime()` text —
+ *   `datetime(reviewed_at) >= startSql AND datetime(reviewed_at) < endSql` = reviewed today
+ *   (works for ISO "…T…Z" and "YYYY-MM-DD HH:MM:SS" rows alike);
+ * - `floor`: a plain date before the day, for an index-friendly `reviewed_at >= floor` prefilter;
+ * - `cutoffSql`: "due today" (`studyCutoffMs`) — `datetime(next_review_at) <= cutoffSql`.
+ */
+export interface StudyDaySql {
+  key: string;
+  startSql: string;
+  endSql: string;
+  floor: string;
+  cutoffSql: string;
+}
+
+export function studyDaySql(day: StudyDay, nowMs: number): StudyDaySql {
+  return {
+    key: day.key,
+    startSql: sqliteDateTime(day.startMs),
+    endSql: sqliteDateTime(day.endMs),
+    floor: keyOfUtcDate(new Date(day.startMs - DAY_MS)),
+    cutoffSql: sqliteDateTime(studyCutoffMs(nowMs, day)),
+  };
+}
+
+/**
+ * `column` (an ISO / SQLite time text) is in the study day: three `?` to bind with
+ * `inStudyDaySqlParams` — the plain prefilter keeps the (user_id, reviewed_at) index useful.
+ */
+export function inStudyDaySql(column: string): string {
+  return `${column} >= ? AND datetime(${column}) >= ? AND datetime(${column}) < ?`;
+}
+
+export function inStudyDaySqlParams(today: StudyDaySql): [string, string, string] {
+  return [today.floor, today.startSql, today.endSql];
+}

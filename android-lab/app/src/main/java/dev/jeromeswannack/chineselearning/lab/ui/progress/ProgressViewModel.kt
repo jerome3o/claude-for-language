@@ -17,14 +17,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.ZoneOffset
 
 data class ProgressUi(
     val loaded: Boolean = false,
     val snapshot: ProgressSnapshot? = null,
     /** The local date (labels: Today / Yesterday). */
-    val today: LocalDate = LocalDate.now(),
-    /** The chart's days: the last 30 UTC dates (the days the numbers are grouped by), oldest first. */
+    val today: LocalDate = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.today(),
+    /** The chart's days: the last 30 STUDY days (the days the numbers are grouped by), oldest first. */
     val bars: List<BarDay> = emptyList(),
     /** Characters & words known (null until the replay of every event is done). */
     val known: KnownProgress? = null,
@@ -32,10 +31,16 @@ data class ProgressUi(
     val knownRate: KnownRate? = null,
 )
 
-/** Builds the chart's 30 bars from the daily rows; days without reviews are empty bars. */
-fun barsFor(snapshot: ProgressSnapshot, nowMs: Long): List<BarDay> {
+/**
+ * Builds the chart's 30 bars from the daily rows; days without reviews are empty bars. The rows
+ * are keyed by STUDY day (ProgressStore: the device's offset − "New day starts at"), so the last
+ * bar is today's study day [today] — never the UTC date: at 00:44 with a 4 am rollover the UTC
+ * date is already tomorrow, and the chart used to end on an empty bar with tonight's reviews one
+ * bar to its left ("Yesterday").
+ */
+fun barsFor(snapshot: ProgressSnapshot, today: LocalDate): List<BarDay> {
     val byDate = snapshot.daily.days.associateBy { it.date }
-    val end = LocalDate.ofInstant(java.time.Instant.ofEpochMilli(nowMs), ZoneOffset.UTC)
+    val end = today
     return (29 downTo 0).map { i ->
         val date = end.minusDays(i.toLong()).toString()
         val d = byDate[date]
@@ -64,7 +69,8 @@ class ProgressViewModel(private val app: LabApp) : ViewModel() {
             val now = System.currentTimeMillis()
             val snap = app.safely("progress") { store.snapshot(now, zone) } ?: return@launch
             // Keep the last known counts on screen while they are recomputed.
-            _ui.value = ProgressUi(true, snap, dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.today(zone = zone), barsFor(snap, now), known = _ui.value.known, knownRate = _ui.value.knownRate)
+            val today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.today(now, zone)
+            _ui.value = ProgressUi(true, snap, today, barsFor(snap, today), known = _ui.value.known, knownRate = _ui.value.knownRate)
             val known = app.safely("known counts") { store.known(now, zone) } ?: return@launch
             _ui.value = _ui.value.copy(known = known.progress, knownRate = known.rate)
         }

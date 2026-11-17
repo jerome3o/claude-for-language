@@ -8,6 +8,7 @@ import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
 import { kindCondition, shapeFeatureRequestForMcp } from './tools/feedback.js';
 import { signMediaUrls } from './tools/media.js';
 import type { CustomLessonSpec } from '../../shared/lesson/types';
+import { accountStudyDay, inStudyDaySql, inStudyDaySqlParams, studyDaySql, type StudyDaySql } from '../../shared/study/studyDay';
 
 /** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
 /** The API's automatic pinyin corrections, as a paragraph after the reply ('' when none). */
@@ -142,6 +143,14 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
   async init() {
     const userId = this.props!.userId;
+    // The user's "today" of study for SQL: their zone and "New day starts at" — never
+    // date('now'), the UTC date (shared/study/studyDay.ts studyDaySql).
+    const studyToday = async (): Promise<StudyDaySql> => {
+      const account = await this.env.DB.prepare('SELECT time_zone, day_rollover_hour FROM users WHERE id = ?')
+        .bind(userId).first<{ time_zone: string | null; day_rollover_hour: number | null }>().catch(() => null);
+      const now = Date.now();
+      return studyDaySql(accountStudyDay(account, now), now);
+    };
 
     // Every write to decks / notes / cards goes through the main API as this
     // user (the worker's content service owns card generation, tombstones,
@@ -188,6 +197,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             .map((d) => ({ ...d, folder_id: folderById.has(d.folder_id ?? '') ? d.folder_id : null, folder: folderName(d.folder_id) })),
         };
 
+        const today = await studyToday();
         const decksWithStats = await Promise.all(
           decks.results.map(async (deck) => {
             const [noteCount, cardsDue, cardsMastered] = await Promise.all([
@@ -196,8 +206,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
                  JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))`
-              ).bind(deck.id).first<{ count: number }>(),
+                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`
+              ).bind(deck.id, today.key).first<{ count: number }>(),
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
                  JOIN notes n ON c.note_id = n.id
@@ -1287,10 +1297,10 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
           JOIN notes n ON c.note_id = n.id
           JOIN decks d ON n.deck_id = d.id
           WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-            AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
+            AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
         `;
 
-        const params: (string | number)[] = [userId];
+        const params: (string | number)[] = [userId, (await studyToday()).key];
 
         if (deck_id) {
           query += ' AND n.deck_id = ?';
@@ -1335,6 +1345,7 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
       "Get overall study statistics",
       {},
       async () => {
+        const today = await studyToday();
         const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
           this.env.DB.prepare(`
             SELECT COUNT(*) as count FROM cards c
@@ -1347,12 +1358,12 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
             JOIN notes n ON c.note_id = n.id
             JOIN decks d ON n.deck_id = d.id
             WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
-          `).bind(userId).first<{ count: number }>(),
+              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
+          `).bind(userId, today.key).first<{ count: number }>(),
           this.env.DB.prepare(`
             SELECT COUNT(*) as count FROM review_events
-            WHERE user_id = ? AND date(reviewed_at) = date('now')
-          `).bind(userId).first<{ count: number }>(),
+            WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
+          `).bind(userId, ...inStudyDaySqlParams(today)).first<{ count: number }>(),
           this.env.DB.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
             .bind(userId).first<{ count: number }>(),
         ]);
@@ -1452,14 +1463,14 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
             JOIN notes n ON c.note_id = n.id
             WHERE n.deck_id = ?
               AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
+              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
             ORDER BY
               CASE WHEN c.queue IN (1, 3) THEN 0 ELSE 1 END,
               c.due_timestamp ASC NULLS LAST,
               c.next_review_at ASC NULLS LAST
             LIMIT 50
           `)
-          .bind(deck_id)
+          .bind(deck_id, (await studyToday()).key)
           .all();
 
         const cards = cardsResult.results.map((row: Record<string, unknown>) => ({

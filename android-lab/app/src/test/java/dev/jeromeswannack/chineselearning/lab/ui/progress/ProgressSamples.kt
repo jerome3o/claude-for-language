@@ -125,7 +125,7 @@ object ProgressSamples {
         )
     }
 
-    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, NOW), known = known, knownRate = knownRate)
+    val ui = ProgressUi(true, snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone), barsFor(snapshot, LocalDate.ofInstant(java.time.Instant.ofEpochMilli(NOW), zone)), known = known, knownRate = knownRate)
 
     val day = Progress.dayCards(events, cards, snapshot.daily.days[1].date)
 

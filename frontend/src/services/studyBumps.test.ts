@@ -91,8 +91,10 @@ describe('study bumps on the device', () => {
     vi.mocked(clearBumpApi).mockResolvedValueOnce({ cleared: true, bumps: [] } as never);
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
     await bumpNotes(['n-bank'], 'homework_pass');
-    await new Promise((r) => setTimeout(r, 0));
-    expect(addBumpsApi).toHaveBeenCalledTimes(1);
+    // The flush starts after a few IndexedDB round trips (fake-indexeddb ticks): wait for it rather than
+    // one macrotask — under load one tick was not enough (CI, 17 Nov), and the never-answered add then
+    // hung the next test's flush.
+    await vi.waitFor(() => expect(addBumpsApi).toHaveBeenCalledTimes(1));
     await clearBump('n-bank', 'homework_pass');
     expect((await db.studyBumps.where('note_id').equals('n-bank').first())?.pending).toBe('clear');
     answerAdd({ bumps: [serverRow], added: [], already: [], not_found: [] });

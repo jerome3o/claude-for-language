@@ -2,7 +2,7 @@
  * "Pause new cards on heavy days" for the tutor's view of a student: the same rule the
  * apps apply on the device (shared/decks/review-load.ts `reviewLoadToday` /
  * `reviewLoadState`) over the server's card rows, so the student card and the student
- * page can say "⏸ New cards paused today · 124 reviews due". The device decides what
+ * page can say "⏸ New cards paused today · 124 cards reviewed or due". The device decides what
  * the learner actually studies; this is the tutor's read of it (the server's card state
  * is recomputed from the same review events on every sync).
  *

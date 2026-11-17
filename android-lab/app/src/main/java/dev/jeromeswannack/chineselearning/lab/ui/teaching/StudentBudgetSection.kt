@@ -70,7 +70,7 @@ private val PAUSED_INK = Color(0xFF92400E)
 fun budgetRowValue(info: StudyBudgetInfo): String =
     TutorBudget.budgetSummary(info.budget) + if (info.isDefault) " · default" else ""
 
-/** The dashboard card's "⏸ New cards paused today · 124 reviews due" while the student is paused (core ReviewLoad). */
+/** The dashboard card's "⏸ New cards paused today · 124 cards reviewed or due" while the student is paused (core ReviewLoad). */
 fun pausedChip(dto: ReviewLoadDto?): String? = ReviewLoad.tutorPausedLabel(dto?.toState())
 
 /** The dashboard card's compact chip — only once someone changed the budget. */
@@ -114,7 +114,7 @@ class StudentBudgetController(private val app: LabApp, private val vm: ViewModel
 /**
  * The row: "Daily new cards" · "3 new words + 6 extra a day · default" · Edit, then the student's
  * "Pause new cards on heavy days" limit and — while it holds today — "⏸ New cards paused today ·
- * 124 reviews due" ([reviewLoad] from the overview).
+ * 124 cards reviewed or due" ([reviewLoad] from the overview).
  */
 @Composable
 fun DailyBudgetRow(info: StudyBudgetInfo?, error: String?, onEdit: () -> Unit, onRetry: () -> Unit, reviewLoad: ReviewLoadState? = null) {

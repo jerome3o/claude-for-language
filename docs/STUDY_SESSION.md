@@ -63,6 +63,15 @@ Anki's "Next day starts at", the **study day** turns over at a rollover hour ins
   study day ends), as in Anki.
 - The debug report carries `day_rollover_hour` and `day_start` is the study day's start;
   `compareDebugReports` says when the two apps use different hours. Analytics `settings.day_rollover`.
+- **Server SQL never uses `date('now')`** for a user's study data: `studyDaySql` (shared/study/studyDay.ts;
+  worker `loadUserStudyDaySql`) gives the study day's key, edges and cutoff as SQLite `datetime()` text —
+  `/api/stats/overview` / `/api/stats/deck/:id` "studied / due today", the server's due list
+  (`/api/cards/due`, legacy queue counts), Claude's `get_overall_stats` tool, the MCP server's
+  `get_overall_stats` / `get_due_cards` / `list_decks` / study app (snoozes end on a STUDY date), and the
+  tutor's lesson-revision "due 8 Oct" (the student's study day). The Lab's Progress chart ends on today's
+  study day (it ended on the UTC date: an empty "tomorrow" bar between midnight and 4 am).
+  `shared/study/studyDayGuard.test.ts` fails on a new raw-midnight / UTC "today" in the apps' sources
+  (an allow-list says why each remaining one isn't study data).
 
 ## Today is the session
 
@@ -377,10 +386,14 @@ and cached on the device with the budget (web `services/studyBudget.ts` `readRev
   `{ pause_new_when_reviews_over }`). The tutor's "Daily new cards" sheet has the same field
   (`PUT …/student-study-budget`; the pause alone posts no chat message); MCP `set_student_study_budget`
   takes it.
-- **Home** says why: "⏸️ New cards paused — 124 reviews due today (limit 100)" + "Up next waits too.
+- **Home** says why: "⏸️ New cards paused — 124 cards reviewed or due today (limit 100)" + "Up next waits too.
   ⚡ bumps and homework still come; Study 10 more adds new cards anyway." (`pausedNewCardsLabel`,
-  `PAUSED_NEW_CARDS_DETAIL`; analytics `study.new_cards_paused` once a local day). The tutor's student
-  card and "Daily new cards" row say "⏸️ New cards paused today · 124 reviews due" from the overview's
+  `PAUSED_NEW_CARDS_DETAIL`; analytics `study.new_cards_paused` once a study day). The load counts CARDS,
+  each once, the ones already reviewed today included and a new card's learning steps left out — so it is
+  often SMALLER than Home's "132 reviews today", which counts every rating (relearns, learning steps, new
+  words). Until Nov 2026 the line said "104 reviews due today", which beside "132 reviews today" (both on the
+  same 4 am study day) read as a contradiction and, once the cards were done, as 104 still waiting. The tutor's student
+  card and "Daily new cards" row say "⏸️ New cards paused today · 124 cards reviewed or due" from the overview's
   `review_load` (the same rule in SQL over the server's card rows, `worker/src/services/review-load.ts`,
   in the student's own time zone).
 - **Debug report**: `review_load: { threshold, load, paused }` (`budget` stays the configured numbers);

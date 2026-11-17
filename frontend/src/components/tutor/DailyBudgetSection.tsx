@@ -16,7 +16,7 @@ import './daily-budget.css';
  * (shared/decks/review-load.ts). Saving new numbers posts a chat message from the
  * tutor (the pause alone posts nothing); the student can still change it in their
  * Settings (last write wins). `reviewLoad`: today's state from the overview — the row
- * says "⏸ New cards paused today · 124 reviews due" while it holds.
+ * says "⏸ New cards paused today · 124 cards reviewed or due" while it holds.
  */
 export function DailyBudgetSection({ relId, studentName, initial, reviewLoad }: { relId: string; studentName: string; initial?: StudyBudgetInfo; reviewLoad?: ReviewLoadState | null }) {
   const [editing, setEditing] = useState(false);

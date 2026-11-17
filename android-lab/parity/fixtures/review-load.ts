@@ -22,6 +22,7 @@ import {
   REVIEW_LOAD_CAP_SUGGESTED,
   type ReviewLoadCard,
 } from '../../../shared/decks/review-load';
+import { studyCutoffMs, studyDayAt } from '../../../shared/study/studyDay';
 
 const OUT = process.argv[2];
 mkdirSync(OUT, { recursive: true });
@@ -89,12 +90,65 @@ const states = thresholds.flatMap((threshold) =>
   }),
 );
 const summaries = thresholds.map((threshold) => ({ threshold, summary: reviewLoadCapSummary(threshold) }));
+
+// Evenings that run past midnight (Jerome, 17 Nov 2026: Home at 00:44 said "104 reviews due today"
+// beside "132 reviews today"): the study day of `now` (studyDayAt — "New day starts at"), the reviews
+// since its start (every rating: what Home's "N reviews today" counts), the cards reviewed since then
+// and today's review load, in Europe/London across an ordinary night and both DST nights. The Lab
+// app builds the same numbers from StudyQueue.startOfDay / cutoff + ReviewLoad.reviewLoadToday.
+const nights: unknown[] = [];
+{
+  const r = rng(20261117);
+  const MIN = 60_000;
+  const evenings: number[] = [
+    Date.UTC(2026, 10, 16, 18, 0), // 16 Nov: the screenshot's night (GMT)
+    Date.UTC(2026, 9, 24, 17, 0), // 24/25 Oct: clocks go back at 02:00 BST
+    Date.UTC(2026, 2, 28, 18, 0), // 28/29 Mar: clocks go forward at 01:00 GMT
+  ];
+  for (const from of evenings) {
+    for (let now = from; now <= from + 12 * H; now += 22 * MIN) {
+      for (const rollover of [0, 4, 6]) {
+        const zone = 'Europe/London';
+        const day = studyDayAt(now, rollover, zone);
+        const cutoff = studyCutoffMs(now, day);
+        const cards: ReviewLoadCard[] = [];
+        const events: Array<[string, number]> = [];
+        const n = 6 + Math.floor(r() * 18);
+        for (let i = 0; i < n; i++) {
+          const id = `k${i}`;
+          // Reviews spread over the last 30 hours (a few ratings each: learning steps, relearns).
+          const times = Array.from({ length: Math.floor(r() * 4) }, () => Math.round(now - r() * 30 * H));
+          if (r() < 0.4) times.push(Math.round(now - r() * 40 * 24 * H)); // an older review
+          for (const t of times) events.push([id, t]);
+          const queue = times.length === 0 ? (r() < 0.5 ? 0 : 2) : 1 + Math.floor(r() * 3);
+          const due_ms = queue === 0 ? null : Math.round(now + (r() * 3 - 1) * 24 * H);
+          cards.push({ id, queue, due_ms });
+        }
+        const today = events.filter(([, t]) => t >= day.startMs && t <= now);
+        const reviewed = [...new Set(today.map(([id]) => id))];
+        const first = new Map<string, number>();
+        for (const [id, t] of events) if (!first.has(id) || t < first.get(id)!) first.set(id, t);
+        const load = reviewLoadToday(cards, new Set(reviewed), first, day.startMs, cutoff);
+        // The invariant the screenshot seemed to break, which DOES hold on one study day: every card
+        // reviewed today that was not new today is in the load.
+        const notNewToday = reviewed.filter((id) => (first.get(id) ?? 0) < day.startMs && cards.find((c) => c.id === id)!.queue !== 0);
+        if (load < notNewToday.length) throw new Error(`review load ${load} < ${notNewToday.length} cards reviewed today`);
+        nights.push({
+          now, zone, rollover, cards, events, first: [...first.entries()],
+          day_key: day.key, day_start: day.startMs, cutoff,
+          reviews_today: today.length, cards_reviewed_today: reviewed.length, load,
+        });
+      }
+    }
+  }
+}
 const caps = [-1, 0, 1, 9, 10, 11, 99, 100, 500, 999, 1000, 1001, 5000].map((v) => ({ value: v, valid: !pickReviewLoadCap(v).problem }));
 
 writeFileSync(
   join(OUT, 'review-load.json'),
   JSON.stringify({
     loads,
+    nights,
     states,
     summaries,
     caps,

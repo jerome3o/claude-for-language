@@ -52,8 +52,10 @@ describe('the tutor\'s summaries', () => {
     exec("INSERT INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at, rating) VALUES ('c3', 'u1', 'l3', 2, 3, '2026-10-01T09:00:00.000Z', 0)");
     const now = Date.parse('2026-10-05T12:00:00.000Z');
     const s = await lessonRevisionSummaries(db, 'u1', ['l1', 'l2', 'l3'], now);
-    // 23:30 UTC on 1 Oct is 00:30 on 2 Oct in London (BST) → due 9 Oct there.
-    expect(s.get('l1')).toMatchObject({ status: 'revision', revision: 1, due_date: '2026-10-09', to_get_right: 2, percent: 33, retired: false, revision_label: 'Revision 1 due 9 Oct · 2 to get right' });
+    // 23:30 UTC on 1 Oct is 00:30 on 2 Oct in London (BST) → due at 00:30 on 9 Oct there, which is
+    // still the STUDY day of 8 Oct ("New day starts at" 4 am): the student's devices offer it on the
+    // evening of the 8th (due by that study day's cutoff), so the tutor sees "due 8 Oct" too.
+    expect(s.get('l1')).toMatchObject({ status: 'revision', revision: 1, due_date: '2026-10-08', to_get_right: 2, percent: 33, retired: false, revision_label: 'Revision 1 due 8 Oct · 2 to get right' });
     expect(s.get('l2')).toMatchObject({ status: 'done', retired: true, next_revisit_at: null, revision_label: 'all right first time', percent: 100 });
     // Again without answers kept → a revision of the whole lesson (3 scored exercises).
     expect(s.get('l3')).toMatchObject({ status: 'revision', to_get_right: 3, revision_label: 'Revision 1 due 8 Oct · 3 to get right' });

@@ -85,14 +85,14 @@ describe('the threshold', () => {
   });
 
   it('copy', () => {
-    expect(pausedNewCardsLabel(reviewLoadState(124, 100))).toBe('New cards paused — 124 reviews due today (limit 100)');
-    expect(pausedNewCardsLabel(reviewLoadState(11, 10))).toBe('New cards paused — 11 reviews due today (limit 10)');
+    expect(pausedNewCardsLabel(reviewLoadState(124, 100))).toBe('New cards paused — 124 cards reviewed or due today (limit 100)');
+    expect(pausedNewCardsLabel(reviewLoadState(11, 10))).toBe('New cards paused — 11 cards reviewed or due today (limit 10)');
     expect(pausedNewCardsLabel(reviewLoadState(90, 100))).toBeNull();
-    expect(tutorPausedLabel(reviewLoadState(124, 100))).toBe('⏸ New cards paused today · 124 reviews due');
+    expect(tutorPausedLabel(reviewLoadState(124, 100))).toBe('⏸ New cards paused today · 124 cards reviewed or due');
     expect(tutorPausedLabel(reviewLoadState(50, 100))).toBeNull();
     expect(reviewLoadCapSummary(100)).toBe('Pauses new cards on days with more than 100 reviews due');
     expect(reviewLoadCapSummary(null)).toBeNull();
-    expect(upNextPausedLabel(reviewLoadState(124, 100))).toBe('Up next waits — new cards are paused today (124 reviews due, limit 100).');
+    expect(upNextPausedLabel(reviewLoadState(124, 100))).toBe('Up next waits — new cards are paused today (124 cards reviewed or due, limit 100).');
     expect(upNextPausedLabel(reviewLoadState(100, 100))).toBeNull();
   });
 
