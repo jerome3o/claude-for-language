@@ -51,7 +51,7 @@ export interface ClaudeOutboxEntry {
   /** The thread it goes to: the server id, or the client id of a thread started offline. */
   thread_id: string;
   /** A message that starts a thread: the thread's client id + context. */
-  create?: { thread_client_id: string; context: ClaudeThreadContext };
+  create?: { thread_client_id: string; context: ClaudeThreadContext; chat_message_id?: string };
   text: string;
   intent: ClaudeIntent;
   language?: 'zh' | 'en';
@@ -239,6 +239,8 @@ export async function startClaudeThread(input: {
   intent: ClaudeIntent;
   language?: 'zh' | 'en';
   quick?: boolean;
+  /** "Open in Coach" from a chat message: that message (its stored check is the analysis, no Claude call). */
+  chatMessageId?: string | null;
 }): Promise<SendResult> {
   const threadClientId = newClientId();
   const messageClientId = newClientId();
@@ -250,6 +252,7 @@ export async function startClaudeThread(input: {
     text: input.text,
     ...(input.language ? { language: input.language } : {}),
     ...(input.quick ? { quick: true } : {}),
+    ...(input.chatMessageId ? { chat_message_id: input.chatMessageId } : {}),
   };
   if (!isOffline()) {
     try {
@@ -266,7 +269,7 @@ export async function startClaudeThread(input: {
     await db.claudeOutbox.put({
       client_id: messageClientId,
       thread_id: threadClientId,
-      create: { thread_client_id: threadClientId, context: input.context },
+      create: { thread_client_id: threadClientId, context: input.context, ...(input.chatMessageId ? { chat_message_id: input.chatMessageId } : {}) },
       text: input.text,
       intent: input.intent,
       language: input.language,
@@ -384,6 +387,7 @@ export function flushClaudeOutbox(): Promise<{ sent: number; failed: number }> {
               text: current.text,
               ...(current.language ? { language: current.language } : {}),
               ...(current.quick ? { quick: true } : {}),
+              ...(current.create.chat_message_id ? { chat_message_id: current.create.chat_message_id } : {}),
             })
           : await sendClaudeThreadMessage(current.thread_id, {
               ...(current.fields ?? {}),

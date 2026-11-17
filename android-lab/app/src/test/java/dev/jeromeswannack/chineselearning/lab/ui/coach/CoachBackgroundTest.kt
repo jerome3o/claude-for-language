@@ -16,38 +16,21 @@ import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachBackgroundSamples as
 class CoachBackgroundTest : dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest() {
 
     @Test fun pendingAnalysisIsTheLoadingCard() {
-        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingAnalysis)), CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachConversationPreview(CoachChatUi(thread = Loadable(B.pendingAnalysis)), CoachChatActions()) } }
         compose.onNodeWithTag(COACH_REPLY_PENDING_TAG).assertIsDisplayed()
         compose.onNodeWithText("Checking your sentence…").assertIsDisplayed()
     }
 
-    @Test fun pendingReplyDisablesSend() {
-        var sent = 0
-        compose.setContent {
-            LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.pendingReply), followUp = "And 去了?"), CoachChatActions(onSend = { sent++ }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) }
-        }
-        compose.onNodeWithTag(COACH_REPLY_PENDING_TAG).assertIsDisplayed()
-        compose.onNodeWithTag(COACH_SEND_TAG).assertIsNotEnabled()
-        assertEquals(0, sent)
-    }
-
     @Test fun failedReplyRetries() {
         var retried: String? = null
-        compose.setContent { LabTheme { CoachChatScreen(CoachChatUi(thread = Loadable(B.failedReply), followUp = "x"), CoachChatActions(onRetryReply = { retried = it }), voicePreview = dev.jeromeswannack.chineselearning.lab.ui.kit.VoiceDictationUi(mode = "type")) } }
+        compose.setContent { LabTheme { CoachConversationPreview(CoachChatUi(thread = Loadable(B.failedReply), followUp = "x"), CoachChatActions(onRetryReply = { retried = it })) } }
         compose.onNodeWithText("Claude is busy right now — try again in a moment.").assertIsDisplayed()
-        compose.onNodeWithTag(COACH_SEND_TAG).assertIsEnabled()
         compose.onNodeWithText("Retry").performClick()
         assertEquals("p4", retried)
     }
 
-    @Test fun listShowsThinkingAndFailed() {
-        compose.setContent { LabTheme { CoachHomeScreen(CoachHomeUi(conversations = Loadable(B.conversations)), CoachHomeActions(onBack = {})) } }
-        compose.onNodeWithTag(COACH_CONV_PENDING_TAG, useUnmergedTree = true).assertExists()
-        compose.onNodeWithTag(COACH_CONV_FAILED_TAG, useUnmergedTree = true).assertExists()
-    }
-
     @Test fun noQuickActionsOrDeckPicker() {
-        compose.setContent { LabTheme { CoachChatScreen(B.quickActions, CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachConversationPreview(B.quickActions, CoachChatActions()) } }
         compose.onNodeWithText("Yesterday I went to the shop to buy things.").assertIsDisplayed()
         assertEquals(0, compose.onAllNodesWithTextCount("Cards go to"))
         assertEquals(0, compose.onAllNodesWithTextCount("➕ Add new words (2)"))

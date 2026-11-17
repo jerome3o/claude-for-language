@@ -38,7 +38,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
 
     @Test fun chipAsksForTheLesson() {
         var asked = 0
-        compose.setContent { LabTheme { CoachChatScreen(B.quickActions, CoachChatActions(onMistakeLesson = { asked++ })) } }
+        compose.setContent { LabTheme { CoachConversationPreview(B.quickActions, CoachChatActions(onMistakeLesson = { asked++ })) } }
         compose.onNodeWithTag(CoachLessonTags.CHIP).assertIsDisplayed()
         compose.onNodeWithText(CoachMistakeLesson.LABEL).performClick()
         assertEquals(1, asked)
@@ -47,7 +47,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
     @Test fun pendingLessonDoesNotHoldUpTheChat() {
         assertFalse(CoachMistakeLessonSamples.pending.replyPending)
         val ui = CoachMistakeLessonSamples.pendingLean
-        compose.setContent { LabTheme { CoachChatScreen(ui, CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachConversationPreview(ui, CoachChatActions()) } }
         compose.onNodeWithTag(CoachLessonTags.PENDING).assertExists()
     }
 
@@ -55,7 +55,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
         var played: String? = null
         var saved: String? = null
         compose.setContent {
-            LabTheme { CoachChatScreen(CoachMistakeLessonSamples.readyLean, CoachChatActions(onPlayLesson = { id, _ -> played = id }, onSaveLesson = { saved = it })) }
+            LabTheme { CoachConversationPreview(CoachMistakeLessonSamples.readyLean, CoachChatActions(onPlayLesson = { id, _ -> played = id }, onSaveLesson = { saved = it })) }
         }
         compose.onNodeWithTag(CoachLessonTags.CARD).assertExists()
         compose.onNodeWithTag(CoachLessonTags.PLAY).performClick()
@@ -65,7 +65,7 @@ class CoachMistakeLessonTest : LabScreenshotTest() {
     }
 
     @Test fun savedCardSaysSo() {
-        compose.setContent { LabTheme { CoachChatScreen(CoachMistakeLessonSamples.savedLean, CoachChatActions()) } }
+        compose.setContent { LabTheme { CoachConversationPreview(CoachMistakeLessonSamples.savedLean, CoachChatActions()) } }
         compose.onNodeWithTag(CoachLessonTags.SAVED).assertExists()
     }
 

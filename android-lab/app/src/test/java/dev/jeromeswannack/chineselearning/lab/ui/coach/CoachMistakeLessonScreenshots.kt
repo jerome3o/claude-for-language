@@ -10,11 +10,11 @@ import dev.jeromeswannack.chineselearning.lab.ui.coach.CoachMistakeLessonSamples
 
 /** "🎯 Mini lesson on this mistake": the chip, the card in the conversation, an exercise in the preview, the save step. */
 class CoachMistakeLessonScreenshots : LabScreenshotTest() {
-    @Test fun chip() = shoot("coach-mistake-01-chip") { CoachChatScreen(CoachBackgroundSamples.quickActions, CoachChatActions()) }
+    @Test fun chip() = shoot("coach-mistake-01-chip") { CoachConversationPreview(CoachBackgroundSamples.quickActions, CoachChatActions()) }
 
-    @Test fun writing() = shoot("coach-mistake-02-writing", settleMs = 600) { CoachChatScreen(M.pending, CoachChatActions()) }
+    @Test fun writing() = shoot("coach-mistake-02-writing", settleMs = 600) { CoachConversationPreview(M.pending, CoachChatActions()) }
 
-    @Test fun card() = shoot("coach-mistake-03-card") { CoachChatScreen(M.ready, CoachChatActions()) }
+    @Test fun card() = shoot("coach-mistake-03-card") { CoachConversationPreview(M.ready, CoachChatActions()) }
 
     @Test fun exercise() = shoot("coach-mistake-04-exercise") {
         LessonPlayer(

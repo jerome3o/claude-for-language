@@ -346,7 +346,7 @@ class ClaudeThreadViewModel(
      * Send (the first message starts the thread; [onStarted] moves the screen to its route). Offline
      * — or when the request didn't get through — it waits in the outbox and shows at once.
      */
-    fun send(text: String, spoken: Boolean, intent: String = "ask", chip: String? = null, onStarted: (String) -> Unit = {}) {
+    fun send(text: String, spoken: Boolean, intent: String = "ask", chip: String? = null, onStarted: (String) -> Unit = {}, chatMessageId: String? = null) {
         val msg = text.trim()
         val u = ui.value
         if (msg.isEmpty() || u.busy || u.readOnly) return
@@ -362,7 +362,7 @@ class ClaudeThreadViewModel(
                     app.analytics.track("study.ask_claude", mapOf("card_type" to (cardType ?: u.context.card_type), "language" to language, "quick" to (chip != null), "via" to "thread"))
                 }
                 if (id == null) {
-                    val res = store.start(newContext ?: ClaudeContextDto(), msg, intent, language, online, quick = chip != null)
+                    val res = store.start(newContext ?: ClaudeContextDto(), msg, intent, language, online, quick = chip != null, chatMessageId = chatMessageId)
                     app.analytics.track("claude.message_send", mapOf("context_kind" to kind, "intent" to intent, "offline" to res.queued, "chip" to (chip != null), "spoken" to spoken))
                     recap.move(NEW, res.threadId)
                     if (res.queued) app.scheduleBackgroundUpload()
@@ -391,11 +391,11 @@ class ClaudeThreadViewModel(
 
     private var autoSent = false
 
-    /** A deep link's text (`?text=&intent=`) runs at once — once. */
-    fun autoSend(text: String, intent: String, onStarted: (String) -> Unit) {
+    /** A deep link's text (`?text=&intent=`, + `from_message` = "Open in Coach" from a chat message) runs at once — once. */
+    fun autoSend(text: String, intent: String, onStarted: (String) -> Unit, chatMessageId: String? = null) {
         if (autoSent || !isNew) return
         autoSent = true
-        send(text, spoken = false, intent = intent, onStarted = onStarted)
+        send(text, spoken = false, intent = intent, onStarted = onStarted, chatMessageId = chatMessageId)
     }
 
     private val autoAsked = HashSet<String>()

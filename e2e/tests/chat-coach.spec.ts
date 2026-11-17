@@ -4,8 +4,8 @@ import { test, expect, type APIRequestContext, type Browser, type Locator, type 
  * Chat ↔ Coach (docs/CHAT.md "Chat ↔ Coach"), web:
  *   1. a photo with a Chinese caption is auto-checked (it used to be skipped) → the ✎ and a
  *      small "🎓 Open in Coach" chip under the bubble; the long-press menu has Open in Coach
- *      second; the chip opens the Coach with the check's result at once (no second Claude call)
- *      and the conversation is in the Coach history;
+ *      second; the chip opens a Claude thread started from that message with the check's result at
+ *      once (no second Claude call); back returns to the chat and the same message reopens the same thread;
  *   2. Coach replies are written in the background: start a check, leave, come back → the
  *      answer is there; send a follow-up, leave, come back → the reply is there;
  *   3. "➕ Add new words (N)": the words of the sentence in none of my decks, nothing ticked,
@@ -74,7 +74,7 @@ async function touch(bubble: Locator, steps: Array<{ type: string; wait?: number
 async function shoot(page: Page, name: string) {
   if (!process.env.SHOOT) return;
   await page.waitForTimeout(500);
-  await page.screenshot({ path: `../docs/pr-screenshots/chat-coach-integration/${name}.png` });
+  await page.screenshot({ path: `${process.env.SHOOT_DIR || '../docs/pr-screenshots/chat-coach-integration'}/${name}.png` });
 }
 
 /** A tiny PNG (the server reads the magic bytes and the IHDR size). */
@@ -84,7 +84,7 @@ function png(): Buffer {
   return b;
 }
 
-test('a photo caption is auto-checked → Open in Coach shows the check at once and keeps it in the history', async ({ browser, request }) => {
+test('a photo caption is auto-checked → Open in Coach is a Claude thread with the check at once; back returns to the chat; reopening reuses it', async ({ browser, request }) => {
   test.setTimeout(150_000);
   const { student, relId, convId } = await seedChat(request);
   const sent = await api<{ id: string }>(request, `/api/conversations/${convId}/media?kind=image&caption=${encodeURIComponent(CAPTION)}`, {
@@ -112,24 +112,27 @@ test('a photo caption is auto-checked → Open in Coach shows the check at once 
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
 
-  // The chip → the Coach, with the auto-check's result straight away (no Claude call: 201).
-  const started = page.waitForResponse((r) => r.url().endsWith('/api/coach/conversations') && r.request().method() === 'POST');
+  // The chip → a Claude thread started from this message, with the auto-check's result straight away
+  // (no Claude call: 201) — there is no Coach page any more.
+  const started = page.waitForResponse((r) => r.url().endsWith('/api/claude/threads') && r.request().method() === 'POST');
   await chip.click();
-  expect((await started).status()).toBe(201);
-  await expect(page).toHaveURL(/\/coach\?c=/);
+  const res = await started;
+  expect(res.status()).toBe(201);
+  expect(res.request().postDataJSON()).toMatchObject({ intent: 'check', text: CAPTION, chat_message_id: sent.body.id });
+  await expect(page).toHaveURL(/\/chats\/claude\/(?!new)[^/?]+/, { timeout: 15000 });
+  const threadUrl = page.url();
   await expect(page.getByText('Needs a little work')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('.coach-corrected-hanzi')).toHaveText('我昨天去商店买东西了');
   await expect(page.getByText('One 了 at the end is enough here', { exact: false })).toBeVisible();
   await shoot(page, 'web-03-coach-from-chat');
 
-  // In the Coach history; opening the same message again reopens it (200, reused).
-  await page.getByRole('button', { name: '← Coach' }).click();
-  await expect(page.locator('.coach-conv-item').filter({ hasText: CAPTION })).toHaveCount(1);
-  const again = await api<{ reused?: boolean }>(request, '/api/coach/conversations', {
-    method: 'POST', token: student.token, data: { text: CAPTION, action: 'check', background: true, chat_message_id: sent.body.id },
-  });
-  expect(again.status).toBe(200);
-  expect(again.body.reused).toBe(true);
+  // Back returns to the chat; opening the same message again opens the same thread (200, reused).
+  await page.getByTestId('claude-thread-back').click();
+  await expect(page).toHaveURL(new RegExp(`/connections/${relId}/chat/${convId}$`));
+  const reopened = page.waitForResponse((r) => r.url().endsWith('/api/claude/threads') && r.request().method() === 'POST');
+  await page.getByTestId('chat-message').filter({ hasText: CAPTION }).getByTestId('chat-open-in-coach').click();
+  expect((await reopened).status()).toBe(200);
+  await expect(page).toHaveURL(threadUrl, { timeout: 15000 });
   await page.context().close();
 });
 

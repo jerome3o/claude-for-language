@@ -314,8 +314,8 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      {/* The Coach lives in the Chats tab (its bottom box): /coach redirects there, except "Open in Coach"
-          from a chat message and the study card's Coach, which keep the Coach page (pages/CoachEntry.tsx). */}
+      {/* The Coach lives in the Chats tab (its bottom box): /coach redirects there or to a Claude thread
+          ("Open in Coach" from a chat message included) — there is no Coach page (pages/CoachEntry.tsx). */}
       <Route
         path="/coach"
         element={

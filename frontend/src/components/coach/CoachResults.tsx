@@ -39,7 +39,7 @@ import { CoachMarkdown, CoachZh } from './CoachText';
 import { PractiseSentence } from './PractiseSentence';
 import { syncCustomLessons, prefetchCustomLessonMedia } from '../../services/custom-lesson-study';
 import { track } from '../../services/analytics';
-import '../../pages/SentenceCoachPage.css';
+import './coach.css';
 
 export const ACTION_LOADING: Record<CoachAction, string> = {
   check: 'Checking your sentence…',

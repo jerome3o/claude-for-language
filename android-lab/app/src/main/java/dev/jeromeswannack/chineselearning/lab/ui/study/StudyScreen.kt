@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.ui.claude.SOURCE_STUDY_CARD
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThreadNew
 import dev.jeromeswannack.chineselearning.lab.ui.kit.studyCardTransition
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -319,11 +321,16 @@ fun StudyRoute(
             onCardRound = vm::onCardRound,
             onCardHard = vm::onCardHard,
             onCardListen = vm::onCardListen,
-            onOpenCoach = { text -> app.analytics.track("study.sentence_coach"); onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(draft = text, focus = true, from = "card")) }, // from a card: the Coach page stays (docs/CHAT.md "Coach entry points")
+            // ⋯ → Sentence coach: a Claude thread with the card's sentence waiting on ✏️ Check / 🔍 Explain; its
+            // "← Back to your card" (and back) return to the card as it was (docs/CHAT.md "Coach entry points").
+            onOpenCoach = { text ->
+                app.analytics.track("study.sentence_coach")
+                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.claudeThreadNew(draft = text, source = SOURCE_STUDY_CARD))
+            },
             onYouSaidCoach = { text, source ->
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()
                 vm.currentCardType()?.let { app.analytics.track("study.you_said_coach", mapOf("card_type" to it, "source" to source) + where) }
-                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.coach(text = text, action = "check", from = "card"))
+                onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.claudeThreadNew(text = text, intent = "check", source = SOURCE_STUDY_CARD))
             },
             onYouSaidPlay = {
                 val where = if (pass != null) mapOf("where" to "homework") else emptyMap()

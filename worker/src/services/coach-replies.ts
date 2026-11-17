@@ -32,7 +32,8 @@ import * as content from './content';
 import * as db from '../db/queries';
 import { conversationAction, mistakeLessonExerciseCount, parseMistakeLessonContent, MISTAKE_LESSON_CONTENT_TYPE, type CoachAction, type MistakeLessonContent } from '@shared/coach';
 import { writeMistakeLesson, type MistakeLessonInput } from './mistake-lesson';
-import type { AutoCheckResult } from '@shared/chats/autoCheck';
+import { autoCheckText, parseAutoCheck, type AutoCheckResult } from '@shared/chats/autoCheck';
+import { parseStoredAttachment } from './chat/media';
 import { COACH_ASK_ACTION } from '@shared/coach/askChat';
 import { coachAskTurns, defaultCoachAskReply, storedAskAnswer, type CoachAskReplyFn } from './claude-chat';
 import { askSettings, pregenerateAskClip, type AskClipMaker } from './ask-claude';
@@ -521,4 +522,28 @@ export async function retryCoachReply(database: D1Database, messageId: string): 
     .bind(messageId)
     .run();
   return (res.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * "Open in Coach" from a chat message (docs/CHAT.md "Chat ↔ Coach"): the ✏️ Check analysis its stored
+ * auto-check already is — my own message, not deleted, the check about this very text — so the thread shows
+ * it at once with no Claude call. Null otherwise (a check with no stored result, Explain, someone else's
+ * message): the reply is written as usual. Used by `POST /api/claude/threads` and the old Coach route.
+ */
+export async function chatMessageCheckSeed(
+  database: D1Database,
+  userId: string,
+  chatMessageId: string,
+  action: CoachAction,
+  input: string,
+): Promise<CoachAnalysis | null> {
+  if (action !== 'check') return null;
+  const row = await database
+    .prepare('SELECT sender_id, content, attachment, auto_check, deleted_at FROM messages WHERE id = ?')
+    .bind(chatMessageId)
+    .first<{ sender_id: string; content: string; attachment: string | null; auto_check: string | null; deleted_at: string | null }>();
+  if (!row || row.sender_id !== userId || row.deleted_at) return null;
+  const checkedText = autoCheckText({ content: row.content, attachment: parseStoredAttachment(row.attachment) });
+  const stored = parseAutoCheck(row.auto_check, checkedText);
+  return stored && checkedText.trim() === input.trim() ? coachAnalysisFromAutoCheck(stored) : null;
 }

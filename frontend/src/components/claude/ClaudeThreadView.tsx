@@ -99,7 +99,12 @@ export interface ClaudeThreadViewProps {
    * Send this at once in a fresh thread (a `/coach?text=&action=` deep link); with a `key`, also into
    * the thread on screen once it is loaded (once per key — the leech sheet's "memory hook").
    */
-  autoSend?: { text: string; intent: ClaudeIntent; key?: string } | null;
+  autoSend?: { text: string; intent: ClaudeIntent; key?: string; chatMessageId?: string | null } | null;
+  /**
+   * Opened from a study card (⋯ → Sentence coach, ✎ Check on "You said"): "← Back to your card" under the
+   * header returns to it — today is the session, so the card comes back as it was (shared/study/resume.ts).
+   */
+  onBackToCard?: () => void;
   /** A card thread: the answer typed on this showing of the card, sent with each question (null = none). */
   typed?: { answer: string; correct?: string } | null;
   /**
@@ -239,7 +244,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const [addedNote, setAddedNote] = useState<string | null>(null);
   const [lessonBusy, setLessonBusy] = useState(false);
   const [lessonError, setLessonError] = useState<unknown>(null);
-  const [typeRequest, setTypeRequest] = useState(0);
+  // A draft handed in (a study card's ⋯ → Sentence coach) is shown in the box, ready to Check / Explain or edit.
+  const [typeRequest, setTypeRequest] = useState(() => (props.initialDraft?.trim() ? 1 : 0));
   const recap = useRecapWords(threadId ?? 'new');
   const recapCount = useChatRecapCount(threadId ?? 'new');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -334,7 +340,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     [ctx, variant, threadId, source, location, navigate],
   );
 
-  const send = async (text: string, spoken: boolean, intent: ClaudeIntent = 'ask', fromChip?: string) => {
+  const send = async (text: string, spoken: boolean, intent: ClaudeIntent = 'ask', fromChip?: string, chatMessageId?: string | null) => {
     const msg = text.trim();
     if (!msg || busy || readOnly || props.closedNote) return;
     setSendError(null);
@@ -344,7 +350,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
       let res;
       if (!threadId) {
         const context: ClaudeThreadContext = newContext ? stripSnapshot(newContext) : { kind: 'general' };
-        res = await startClaudeThread({ context, snapshot: snapshotOf(newContext), text: msg, intent, language, quick });
+        res = await startClaudeThread({ context, snapshot: snapshotOf(newContext), text: msg, intent, language, quick, chatMessageId });
         props.onThreadCreated?.(res.threadId);
       } else {
         res = await sendClaudeMessage(threadId, {
@@ -375,7 +381,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
     if (autoRef.current === key) return;
     if (!isNew && (!autoSend.key || !thread || busy)) return;
     autoRef.current = key;
-    void send(autoSend.text, false, autoSend.intent);
+    void send(autoSend.text, false, autoSend.intent, undefined, isNew ? autoSend.chatMessageId : null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, autoSend, thread, busy]);
 
@@ -611,6 +617,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         </button>
         </>)}
       </header>
+      {props.onBackToCard && !sheet && (
+        <div className="claude-thread-back-to-card">
+          <button type="button" className="btn btn-secondary btn-block" onClick={() => { if (takeTap() === 'run') props.onBackToCard?.(); }} data-testid="coach-back-to-card">
+            ← Back to your card
+          </button>
+        </div>
+      )}
       {/* The sheet opens from the card / page it is about: no chip saying so (Jerome, Nov 2026). */}
       {chip && !sheet && (
         <div className="claude-thread-context">

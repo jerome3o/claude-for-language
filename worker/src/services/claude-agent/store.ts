@@ -165,6 +165,8 @@ export interface NewThread {
   readOnly?: boolean;
   /** When it began (backfill: the first copied message's time; any format SQLite's datetime() reads). */
   createdAt?: string | null;
+  /** "Open in Coach" from a chat message: that message (the same check opened again reuses the thread). */
+  sourceMessageId?: string | null;
 }
 
 /** The INSERT of a thread (OR IGNORE: an existing id / client id / legacy key wins). */
@@ -175,8 +177,8 @@ export function insertThreadStatement(db: D1Database, t: NewThread): D1PreparedS
     .prepare(
       `INSERT OR IGNORE INTO coach_conversations
          (id, user_id, title, input_language, action, kind, context_kind, context_ref, context_json, client_id,
-          language, source, legacy_id, read_only, created_at, updated_at, last_message_at, changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          language, source, legacy_id, read_only, source_message_id, created_at, updated_at, last_message_at, changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                COALESCE(datetime(?), datetime('now')), COALESCE(datetime(?), datetime('now')),
                COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ', ?), ${NOW_ISO}), ${NOW_ISO})`,
     )
@@ -195,6 +197,7 @@ export function insertThreadStatement(db: D1Database, t: NewThread): D1PreparedS
       t.source,
       t.legacyId ?? null,
       t.readOnly ? 1 : 0,
+      t.sourceMessageId ?? null,
       t.createdAt ?? null,
       t.createdAt ?? null,
       t.createdAt ?? null,

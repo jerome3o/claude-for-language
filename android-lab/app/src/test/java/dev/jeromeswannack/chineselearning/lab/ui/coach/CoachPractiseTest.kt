@@ -61,20 +61,18 @@ object PractiseSamples {
 
 /**
  * The Coach conversation (docs/CHAT.md "Chat ↔ Coach"): no quick-action chips, no "Cards go to";
- * the follow-up's 🎤 says Respond; the answer's Chinese opens the explorer by word; "🎤 Practise
+ * the answer's Chinese opens the explorer by word; "🎤 Practise
  * saying it" beside each sentence (listening → the You said row → Try again; failed / empty / offline).
  */
 class CoachPractiseTest : LabScreenshotTest() {
     @Before fun words() = DeviceWords.setForTests(Segmenter.shipped)
     @After fun noWords() = DeviceWords.setForTests(null)
 
-    @Test fun noChipsAndTheFollowUpSaysRespond() {
-        compose.setContent { LabTheme { CoachChatScreen(PractiseSamples.ui, CoachChatActions()) } }
+    @Test fun noChips() {
+        compose.setContent { LabTheme { CoachConversationPreview(PractiseSamples.ui, CoachChatActions()) } }
         compose.onNodeWithText("He took up a lot of room on the couch.").assertIsDisplayed()
         assertEquals(0, compose.onAllNodes(hasText("Cards go to"), useUnmergedTree = true).fetchSemanticsNodes().size)
         assertEquals(0, compose.onAllNodes(hasText("💬 More examples"), useUnmergedTree = true).fetchSemanticsNodes().size)
-        compose.onNodeWithTag(VoiceTextFieldTags.SAY).assertContentDescriptionContains("Respond", substring = true)
-        assertEquals(0, compose.onAllNodes(hasText("Say it", substring = true), useUnmergedTree = true).fetchSemanticsNodes().size)
         // A practise row beside the sentence and each alternative.
         compose.onNodeWithTag(CoachPractiseTags.mic(CoachPractiseTags.ROOT), useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(CoachPractiseTags.mic("${CoachPractiseTags.ROOT}-alt-0"), useUnmergedTree = true).assertExists()
@@ -83,7 +81,7 @@ class CoachPractiseTest : LabScreenshotTest() {
     @Test fun theSentencesWordsOpenTheExplorer() {
         val controller = ExplorerController()
         compose.setContent {
-            LabTheme { CompositionLocalProvider(LocalExplorer provides controller) { CoachChatScreen(PractiseSamples.ui, CoachChatActions()) } }
+            LabTheme { CompositionLocalProvider(LocalExplorer provides controller) { CoachConversationPreview(PractiseSamples.ui, CoachChatActions()) } }
         }
         val node = compose.onAllNodes(SemanticsMatcher("the sentence") { n ->
             (if (SemanticsProperties.Text in n.config) n.config[SemanticsProperties.Text] else null)?.any { it.text == PractiseSamples.SENTENCE } == true
@@ -168,12 +166,8 @@ class CoachPractiseTest : LabScreenshotTest() {
 
     // ---- screenshots (light + dark)
 
-    @Test fun shotConversation() = shoot("coach-practise-01-conversation") { CoachChatScreen(PractiseSamples.ui, CoachChatActions()) }
-    @Test fun shotConversationDark() = shoot("coach-practise-01-conversation-dark", dark = true) { CoachChatScreen(PractiseSamples.ui, CoachChatActions()) }
-
-    @Test fun shotTyping() = shoot("coach-practise-02-respond") {
-        CoachChatScreen(PractiseSamples.ui, CoachChatActions(), voicePreview = VoiceDictationUi())
-    }
+    @Test fun shotConversation() = shoot("coach-practise-01-conversation") { CoachConversationPreview(PractiseSamples.ui, CoachChatActions()) }
+    @Test fun shotConversationDark() = shoot("coach-practise-01-conversation-dark", dark = true) { CoachConversationPreview(PractiseSamples.ui, CoachChatActions()) }
 
     private fun row(ui: PractiseUi, dark: Boolean, name: String) = shoot(name, dark = dark) {
         Column(Modifier.padding(16.dp)) {

@@ -612,11 +612,16 @@ threads" below), merged by ONE pure rule — `mergeInbox` in `shared/claude/inbo
 - **Coach entry points** (`pages/CoachEntry.tsx` `coachEntryTarget`): `/coach` (and the widget's
   `?focus=1`) → `/chats?compose=1` (the box, typing); `?c=<id>` → `/chats/claude/<id>`;
   `?text=&action=` (or English text, which can only be translated) → a new thread with that intent;
-  Chinese `?text=` without an action / `?draft=` → the box with the text. Two exceptions keep the
-  Coach page (`SentenceCoachPage`), as #690 left them: "Open in Coach" from a chat message
-  (`from_message`, reuses the stored auto-check) and anything opened from a study card (its return
-  path is set → "Back to your card"); once shown, the Coach page keeps its own `?c=` for that visit.
-  More → "✦ Ask Claude / Coach" → `/chats?compose=1`. A mistake lesson's ← goes back to its thread.
+  Chinese `?text=` without an action / `?draft=` → the box with the text. **There is no Coach page any
+  more** (Nov 2026; it was `pages/SentenceCoachPage.tsx`, 742 lines, + the Lab's Coach home / conversation
+  screens): "Open in Coach" from a chat message (`&from_message=`) → `/chats/claude/new?text=&intent=&
+  from_message=&source=chat_message` — a thread started from that message (`POST /api/claude/threads
+  { chat_message_id }`): my own message's stored auto-check IS the ✏️ Check analysis (201, no Claude call), the
+  same message opened again reuses its thread (200), back returns to the chat; the study card's ⋯ → Sentence
+  coach (`?draft=`, waiting on ✏️ Check / 🔍 Explain in the box) and ✎ Check on "You said" (`?text=&intent=check`)
+  open `/chats/claude/new?…&source=study_card` with "← Back to your card" under the header (the card is kept as
+  it was — today is the session). More → "✦ Ask Claude / Coach" → `/chats?compose=1`. A mistake lesson's ← goes
+  back to its thread. Old builds keep `/api/coach/*` (it is the thread store).
 - **Analytics**: `chats.open { kind }`, `chats.context_info { context_kind, action: show | open }`,
   `chats.compose_send { intent, offline, spoken }` (+ `claude.message_send`); `chat.inbox_open`
   counts both kinds. `chats.filter` and `chats.compose_to_person` are kept in the catalogues for old
@@ -627,7 +632,7 @@ threads" below), merged by ONE pure rule — `mergeInbox` in `shared/claude/inbo
   (`data/claude/ClaudeThreadList.kt`: whole once, then `?since=` + `deleted_ids`; every thread response
   the thread screen caches is written over its row; threads started offline from their own entries;
   synced after every core sync too). Route `/chats?compose=1&text=`; `/coach` → `CoachEntry` in
-  `ui/coach/CoachNav.kt` (the study card's links carry `from=card`, the Coach page's own `from=coach`).
+  `ui/coach/CoachNav.kt` (always a redirect; "Open in Coach" opens the thread directly, `coachOpenPath`).
 
 ## One chat per pair (migration 0102_one_chat_per_pair.sql)
 
@@ -918,10 +923,9 @@ question' … tapping on the words to open up the map … a recap of all the wor
 Claude's words — for me to be able to read them and have them checked … a nice little path to adding
 a flashcard."
 
-- **Entry**: the Coach page's 💬 Ask Claude card (web `pages/SentenceCoachPage.tsx`, Lab
-  `ui/coach/CoachScreens.kt`) → `/chats/claude/new` (the Claude thread view, below). Past chats are in the
-  Coach's Recent conversations with 💬 and open `/chats/claude/:id` (`/coach/chat/:id` and a `?c=` link to one
-  redirect there, in both apps).
+- **Entry**: the Chats tab's box / ✏️ new chat → `/chats/claude/new` (the Claude thread view, below); the Coach
+  page that had a 💬 Ask Claude card is gone. Past chats are in the Chats tab and open `/chats/claude/:id`
+  (`/coach/chat/:id` and a `?c=` link to one redirect there, in both apps).
 - **Data**: a coach conversation with `kind = 'ask'` (+ `action = 'ask'` for older apps; `kind` is the
   generic column other Claude chats can join). `coach_messages.answer_lang` = the language of a reply
   ('zh' plain Chinese / 'en' Markdown), written on the pending row from the turn's language — the
@@ -1150,8 +1154,9 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   sends at once, `?draft=` only fills the box. `/coach/chat/:id` (the Coach's 💬 Ask chats — the same rows: a
   coach conversation IS a thread) redirects to `/chats/claude/:id`; the Coach's 💬 Ask Claude card opens
   `/chats/claude/new`; a `/coach?text=&action=` deep link (no `from_message`, not from a study card) starts a
-  general thread with that intent and opens it. "Open in Coach" from a chat message (`from_message`, reuses the
-  stored auto-check) and the study card's ✎ Check in Coach ("Back to your card") stay on the Coach page for now.
+  general thread with that intent and opens it — "Open in Coach" from a chat message too (`from_message`: the
+  thread starts from it, its stored auto-check the analysis), and the study card's (`source=study_card`: "← Back
+  to your card").
 - **Header**: ← · title · 🎧 Listen first · 中文 | EN · ⋯ (the sheet's own items first — the card's 🕘 Earlier /
   ＋ New chat, a reader page's ＋ New chat —, then 🃏 Make flashcards from this chat, 📝 N words to
   recap → `/chats/claude/:id/recap`). The **sheet variant** (a card / reader page / exercise / chat message's Claude
@@ -1170,7 +1175,7 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   first 10 s, then 1.5 s**; while frames arrive, only a 1.5 s safety net. A poll's shorter text never overwrites
   a longer streamed one (`mergeMessage`). Coach results — ✏️ Check (+ 🎯 mini lesson), 🔍 Explain, Translate,
   the mistake-lesson card, tool-result chips — are the Coach's own cards, moved to
-  `components/coach/CoachResults.tsx` (shared with `SentenceCoachPage`).
+  `components/coach/CoachResults.tsx` (styles `components/coach/coach.css`).
 - **Cards Claude added** (Jerome, Nov 2026: "I'd like to tap that and see that word … so I can click ⚡ Study it
   today"): a reply whose `create_flashcards` made cards shows "✓ Added to From Claude · Change" (the thread, the Coach)
   / "✓ Added 2 cards" (the card's Ask Claude sheet, `cardToolLines`) followed by **one tappable chip per card** —

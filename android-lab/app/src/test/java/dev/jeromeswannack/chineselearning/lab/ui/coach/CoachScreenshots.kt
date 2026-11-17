@@ -7,45 +7,25 @@ import dev.jeromeswannack.chineselearning.lab.testing.LabScreenshotTest
 import dev.jeromeswannack.chineselearning.lab.ui.analyze.AnalyzeActions
 import dev.jeromeswannack.chineselearning.lab.ui.analyze.AnalyzeScreen
 import dev.jeromeswannack.chineselearning.lab.ui.analyze.AnalyzeUi
-import dev.jeromeswannack.chineselearning.lab.ui.nav.TabId
 import org.junit.Test
 import org.robolectric.annotation.Config
 
 /** Sentence Coach + Sentence Breakdown (package H). */
 class CoachScreenshots : LabScreenshotTest() {
-    @Test fun home() = shootInShell("coach-01-home", active = TabId.MORE) {
-        CoachHomeScreen(CoachHomeUi(draft = "我昨天去了商店买苹果", conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}))
-    }
-
-    /** Study card ⋯ → Sentence coach: the card's sentence in the box (not sent), keyboard up; back returns to the card. */
-    @Test fun fromStudyCard() = shoot("coach-06-from-study-card") {
-        CoachHomeScreen(CoachHomeUi(draft = "我打算明年去中国学习中文。", conversations = Loadable(CoachSamples.conversations)), CoachHomeActions(onBack = {}), autoFocus = true)
-    }
-
-    @Test fun startingOffline() = shoot("coach-02-start-error-offline") {
-        CoachHomeScreen(
-            CoachHomeUi(draft = "How do I say I'm running late?", startError = "You're offline — the coach needs a connection. Your text is kept; try again when you're back online.", conversations = Loadable(CoachSamples.conversations, offline = true, updatedAt = System.currentTimeMillis() - 3_600_000)),
-            CoachHomeActions(onBack = {}),
-        )
-    }
-
-    @Test fun analysing() = shoot("coach-03-analysing", settleMs = 600) {
-        CoachHomeScreen(CoachHomeUi(draft = "How do I say I'm running late?", starting = true), CoachHomeActions(onBack = {}))
-    }
 
     @Test fun conversation() = shoot("coach-04-conversation") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     @Test fun translationSending() = shoot("coach-05-translation-sending", settleMs = 600) {
-        CoachChatScreen(
+        CoachConversationPreview(
             CoachChatUi(thread = Loadable(CoachSamples.translationThread), sending = true, pendingMessage = "Show me 2–3 other natural ways to say \"我昨天去买茶了。\""),
             CoachChatActions(),
         )
     }
 
     @Test fun sendError() = shoot("coach-06-send-error") {
-        CoachChatScreen(
+        CoachConversationPreview(
             CoachChatUi(thread = Loadable(CoachSamples.translationThread), followUp = "Why 了 at the end?", sendError = "Couldn't send that — the connection dropped. Try again."),
             CoachChatActions(),
         )
@@ -53,11 +33,11 @@ class CoachScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = UNFOLDED)
     @Test fun unfolded() = shoot("coach-07-unfolded") {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     @Test fun dark() = shoot("coach-08-dark", dark = true) {
-        CoachChatScreen(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
+        CoachConversationPreview(CoachChatUi(thread = Loadable(CoachSamples.thread)), CoachChatActions())
     }
 
     private val breakdown = SentenceBreakdownDto(

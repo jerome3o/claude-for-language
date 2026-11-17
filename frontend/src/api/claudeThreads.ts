@@ -54,6 +54,11 @@ export function createClaudeThread(body: {
   title?: string;
   /** A suggestion chip (the app wrote it): not checked. */
   quick?: boolean;
+  /**
+   * "Open in Coach" from a chat message (a check / explain in a new chat): my message's stored auto-check is
+   * the analysis at once, and opening it again reuses the chat (docs/CHAT.md "Chat ↔ Coach").
+   */
+  chat_message_id?: string;
 }): Promise<ThreadWithMessages> {
   return call('/claude/threads', { method: 'POST', body: JSON.stringify(body) });
 }
