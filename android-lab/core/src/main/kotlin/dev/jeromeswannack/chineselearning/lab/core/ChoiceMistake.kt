@@ -29,6 +29,7 @@ object ChoiceMistake {
         Regex("${WB}(?:find|spot|pick|choose|select|identify|tap|mark)$WE$CLAUSE{0,40}?$WB$WRONG_EN$WE", I),
         Regex("哪一?(?:个|句|项|条|段|些)$CLAUSE{0,12}?$ZH_WRONG"),
         Regex("(?:找出|选出|指出|挑出)$CLAUSE{0,8}?$ZH_WRONG"),
+        Regex("${ZH_WRONG}的?(?:是|为)哪"),
     )
 
     private val NOT_WRONG = listOf(
@@ -42,12 +43,14 @@ object ChoiceMistake {
     )
 
     /** Does this question ask the learner to pick the WRONG sentence? (English or Chinese, conservative.) */
-    fun questionAsksForWrong(question: String?): Boolean {
-        val q = AnswerKey.jsTrim(question ?: "")
-        if (q.isEmpty()) return false
-        if (NOT_WRONG.any { it.containsMatchIn(q) }) return false
-        return ASKS_WRONG.any { it.containsMatchIn(q) }
-    }
+    private val CLAUSE_BREAK = Regex("[.?!。？！\\n]+")
+
+    /** Clause by clause: an exclusion only counts in the clause that asks. */
+    fun questionAsksForWrong(question: String?): Boolean =
+        (question ?: "").split(CLAUSE_BREAK).any { clause ->
+            val q = AnswerKey.jsTrim(clause)
+            q.isNotEmpty() && NOT_WRONG.none { it.containsMatchIn(q) } && ASKS_WRONG.any { it.containsMatchIn(q) }
+        }
 
     private fun hasCorrection(ex: ChoiceExercise): Boolean = AnswerKey.jsTrim(ex.correction?.hanzi ?: "").isNotEmpty()
 

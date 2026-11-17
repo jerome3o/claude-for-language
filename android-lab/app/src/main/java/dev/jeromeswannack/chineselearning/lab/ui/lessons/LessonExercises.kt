@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.ChoiceExercise
+import dev.jeromeswannack.chineselearning.lab.core.ChoiceMistake
 import dev.jeromeswannack.chineselearning.lab.core.DescribeImageExercise
 import dev.jeromeswannack.chineselearning.lab.core.ExerciseAnswer
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswers
@@ -276,16 +277,69 @@ private fun Tile(text: String, ghost: Boolean, enabled: Boolean, onClick: () -> 
 
 // ============ Multiple choice ============
 
+/**
+ * A choice's correction state (core ChoiceMistake): the spec's own `correction`; for an older "which is wrong?" choice
+ * the device cache / the API (env.choiceCorrection), asked as soon as the exercise shows so it is there by the reveal.
+ */
+@Composable
+private fun rememberChoiceCorrection(ex: ChoiceExercise, env: ExerciseEnv): ChoiceMistake.State {
+    val state = produceState(initialValue = ChoiceMistake.initial(ex), ex) {
+        if (!ChoiceMistake.needsCorrection(ex)) return@produceState
+        val input = ChoiceMistake.input(ex) ?: run { value = ChoiceMistake.State.Unavailable(offline = false); return@produceState }
+        value = try {
+            ChoiceMistake.fromResult(env.choiceCorrection(input).result)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ChoiceMistake.State.Unavailable(offline = e is dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable && e.offline)
+        }
+    }
+    return state.value
+}
+
+/** The option that IS the mistake, once answered: struck through, said in words (never colour alone), no ▶. */
+@Composable
+private fun MistakeOption(option: LessonSentence, picked: Boolean) {
+    val border = if (picked) Palette.Good else Lab.colors.outline
+    androidx.compose.foundation.layout.Column(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp)).background(if (picked) Palette.Good.copy(alpha = 0.10f) else Lab.colors.card)
+            .border(2.dp, border, RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .testTag("choice-mistake-option"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            option.hanzi, fontSize = 22.sp, color = Lab.colors.ink, textAlign = TextAlign.Center,
+            style = androidx.compose.ui.text.TextStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.LineThrough),
+        )
+        Text("✗ This sentence has the mistake", color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, textAlign = TextAlign.Center)
+        option.english?.takeIf { it.isNotBlank() }?.let { Text(it, color = Lab.colors.muted, fontSize = 14.sp, textAlign = TextAlign.Center) }
+    }
+}
+
 @Composable
 fun ChoiceView(ex: ChoiceExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var choice by remember { mutableStateOf<Int?>(null) }
     val order = remember { LessonAnswers.shuffledIndexes(ex.options.size, env.random) }
     val result = choice?.let { it == ex.correct }
+    // "Which sentence is wrong?": the reveal plays the CORRECTION, never the mistake (core ChoiceMistake).
+    val fix = rememberChoiceCorrection(ex, env)
+    var owedCorrection by remember { mutableStateOf(false) }
+    LaunchedEffect(fix, owedCorrection) {
+        if (!owedCorrection || fix == ChoiceMistake.State.Loading) return@LaunchedEffect
+        owedCorrection = false
+        choice?.let { ChoiceMistake.pickSpeech(ex, it, fix) }?.takeIf { it.isNotEmpty() }?.let(env.speak)
+    }
 
-    PhaseLabel("Which one fits?")
+    PhaseLabel(if (ChoiceMistake.asksForWrong(ex)) "Which one is wrong?" else "Which one fits?")
     ContextBox(ex.question)
     for (index in order) {
         val s = ex.options[index]
+        if (result != null && ChoiceMistake.isWrongOption(ex, index, fix)) {
+            MistakeOption(s, picked = index == choice)
+            continue
+        }
         OptionButton(
             s.hanzi,
             optionState(result != null, index, ex.correct, choice),
@@ -297,13 +351,20 @@ fun ChoiceView(ex: ChoiceExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseA
         ) {
             choice = index
             if (index == ex.correct) env.onCorrect() else env.onWrong()
-            env.speak(s.hanzi)
+            val text = ChoiceMistake.pickSpeech(ex, index, fix)
+            if (text.isNotEmpty()) env.speak(text) else owedCorrection = ChoiceMistake.isWrongOption(ex, index, fix)
         }
     }
     if (result != null) {
         ResultBanner(result, if (result) "✓ Correct" else "✗ Not quite")
+        when (fix) {
+            is ChoiceMistake.State.Ready -> Reference(fix.correction, env, label = "✓ Correct:", exerciseType = ex.type, tag = "choice-correction")
+            ChoiceMistake.State.Loading -> Explanation("Finding the correct version…")
+            is ChoiceMistake.State.Unavailable -> Explanation(if (fix.offline) "The correct version needs a connection." else "Couldn’t get the correct version this time.")
+            else -> Unit
+        }
         ex.explanation?.takeIf { it.isNotBlank() }?.let { Explanation(it) }
-        LessonFeedback.sayAgainTarget(ex)?.let { SayItAgainRow(it.hanzi, ex.type, it.kind, env) }
+        ChoiceMistake.sayAgainSentence(ex, fix)?.takeIf { hasHanText(it.hanzi) }?.let { SayItAgainRow(it.hanzi, ex.type, "answer", env) }
         ActionRow { Primary("Continue") { onNext(result, ExerciseAnswer(choice = choice)) } }
     }
 }

@@ -40,6 +40,8 @@ const ASKS_WRONG: RegExp[] = [
   new RegExp(`哪一?(?:个|句|项|条|段|些)${CLAUSE}{0,12}?${ZH_WRONG}`),
   // 找出 / 选出 / 指出 … 错 / 病句
   new RegExp(`(?:找出|选出|指出|挑出)${CLAUSE}{0,8}?${ZH_WRONG}`),
+  // 错的是哪个？ / 不对的是哪一句？
+  new RegExp(`${ZH_WRONG}的?(?:是|为)哪`),
 ];
 
 /** Patterns that mean it is NOT asking for a mistake (checked first; conservative). */
@@ -60,10 +62,12 @@ const NOT_WRONG: RegExp[] = [
 
 /** Does this question ask the learner to pick the WRONG sentence? (English or Chinese, conservative.) */
 export function questionAsksForWrong(question: string | null | undefined): boolean {
-  const q = (question ?? '').trim();
-  if (!q) return false;
-  if (NOT_WRONG.some((re) => re.test(q))) return false;
-  return ASKS_WRONG.some((re) => re.test(q));
+  // Clause by clause: "Which sentence is wrong? Then say the correct version." asks; "Choose the correct sentence (one
+  // has a mistake)." doesn't — an exclusion only counts in the clause that asks.
+  return (typeof question === 'string' ? question : '').split(/[.?!。？！\n]+/).some((clause) => {
+    const q = clause.trim();
+    return !!q && !NOT_WRONG.some((re) => re.test(q)) && ASKS_WRONG.some((re) => re.test(q));
+  });
 }
 
 function hasCorrection(ex: Pick<ChoiceExerciseSpec, 'correction'>): boolean {

@@ -80,7 +80,7 @@ private fun JsonObject.fillField(hanziKey: String, pinyinKey: String): JsonObjec
 /** "Auto-fill missing pinyin": pinyin for every hanzi field of an exercise that has none (ExerciseForm `fillMissingPinyin`). */
 fun fillMissingPinyin(ex: JsonObject): JsonObject = when (ex.str("type")) {
     "note" -> ex.mapList("sentences", ::fillSentence)
-    "choice" -> ex.mapList("options", ::fillSentence)
+    "choice" -> ex.mapList("options", ::fillSentence).mapObj("correction", ::fillSentence)
     "translate", "describe_image" -> ex.fillField("reference_hanzi", "reference_pinyin")
     "match" -> ex.mapList("pairs", ::fillSentence)
     "speak" -> ex.mapObj("example", ::fillSentence)

@@ -18,6 +18,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.ChoiceMistake
 import dev.jeromeswannack.chineselearning.lab.core.spec.JsJson
 import dev.jeromeswannack.chineselearning.lab.core.spec.LessonValidator
 import dev.jeromeswannack.chineselearning.lab.core.spec.str
@@ -209,6 +210,15 @@ private fun ChoiceForm(ex: JsonObject, onChange: (JsonObject) -> Unit, speak: Sp
         )
     }
     EdField("Explanation", hint = "shown after answering") { EdTextField(ex.text("explanation"), { onChange(ex.withClean("explanation", it)) }) }
+    // A "which one is wrong?" choice: the right version, heard instead of the mistake (core ChoiceMistake).
+    if (!listen && (ChoiceMistake.questionAsksForWrong(ex.text("question")) || ex["correction"] is JsonObject)) {
+        EdField("Correct version of the wrong sentence", hint = "what the learner hears instead of the mistake") {
+            SentenceEditor(ex["correction"] as? JsonObject ?: JsJson.obj("hanzi" to JsJson.s("")), { v ->
+                val empty = (v["hanzi"] as? JsonPrimitive)?.content.isNullOrBlank() && (v["pinyin"] as? JsonPrimitive)?.content.isNullOrBlank() && (v["english"] as? JsonPrimitive)?.content.isNullOrBlank()
+                onChange(if (empty) ex.without("correction") else ex.with("correction", v))
+            }, speak)
+        }
+    }
 }
 
 @Composable

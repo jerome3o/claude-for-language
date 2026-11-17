@@ -10,7 +10,7 @@
 
 import { CustomLessonSpec, LessonExercise, LessonSentence, fillGap } from './types';
 import { patternLine, patternName } from './pattern';
-import { choiceSayAgainSentence, specChoiceCorrection } from './choiceMistake';
+import { choiceAsksForWrong, specChoiceCorrection } from './choiceMistake';
 
 // ============ Markdown ============
 
@@ -299,12 +299,10 @@ export function lessonVocabRows(spec: CustomLessonSpec): VocabRow[] {
         case 'translate':
           add(ex.reference_hanzi, ex.english, ex.reference_pinyin);
           break;
-        case 'choice': {
+        case 'choice':
           // The answer — or for a "which is wrong?" choice its correction, never the mistake (choiceMistake.ts).
-          const said = choiceSayAgainSentence(ex);
-          if (said) addSentence(said);
+          addSentence(choiceAsksForWrong(ex) ? specChoiceCorrection(ex) : ex.options[ex.correct]);
           break;
-        }
         case 'scramble':
           add(ex.correct_order.join(''), ex.english);
           break;

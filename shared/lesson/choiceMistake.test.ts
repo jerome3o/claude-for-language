@@ -44,6 +44,9 @@ export const ASKS_WRONG_QUESTIONS = [
   '选出错误的句子',
   '指出有问题的句子',
   'Is 了 in the right place? Which sentence is wrong?',
+  'Which sentence is wrong? Then hear the correct version.',
+  'Which sentence uses了incorrectly?',
+  '错的是哪个？',
 ];
 
 export const NOT_WRONG_QUESTIONS = [
