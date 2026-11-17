@@ -10,7 +10,6 @@
  */
 
 import type { SentenceFeedback } from './sentenceCheck';
-import type { LessonSentence } from './types';
 import { parseAnswerCheck, type AnswerCheck, type AnswerTry } from './answerCheck';
 
 /** Handwriting as vector strokes — small, and re-drawable at any size. */

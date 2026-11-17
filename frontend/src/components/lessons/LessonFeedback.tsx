@@ -55,13 +55,15 @@ export function ResultBanner({ ok, children, testId }: { ok: boolean; children: 
 }
 
 /** 🎤 Say it again over one sentence: practice only (never scored); `kind` tells the analytics which target. */
-export function SayItAgain({ hanzi, exerciseType, kind = 'answer', testId = 'lesson-say-again' }: {
+export function SayItAgain({ hanzi, exerciseType, kind = 'answer', testId = 'lesson-say-again', label: ownLabel }: {
   hanzi: string;
   exerciseType: string;
   kind?: 'answer' | 'example' | 'fix';
   testId?: string;
+  /** The button's words (default "Say it again" / "Say the corrected version"). */
+  label?: string;
 }) {
-  const label = kind === 'fix' ? SAY_AGAIN_FIX_LABEL : SAY_AGAIN_LABEL;
+  const label = ownLabel ?? (kind === 'fix' ? SAY_AGAIN_FIX_LABEL : SAY_AGAIN_LABEL);
   const [burst, setBurst] = useState(0);
   return (
     <div className="lesson-say-again lesson-feel-host" data-testid={testId} data-kind={kind}>

@@ -1,0 +1,47 @@
+/* Claude's grade of a made sentence (SentenceCheck.tsx): no box — the coloured headline, one muted reason, actions. */
+.sentence-check {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  text-align: left;
+}
+.sentence-verdict { display: flex; flex-direction: column; gap: 0.15rem; }
+.sentence-verdict-head { margin: 0; font-size: 1.05rem; font-weight: 700; line-height: 1.35; }
+.sentence-verdict.compact .sentence-verdict-head { font-size: 0.98rem; }
+.sentence-verdict.good .sentence-verdict-head { color: #15803d; }
+.sentence-verdict.warn .sentence-verdict-head { color: #b45309; }
+.sentence-verdict.bad .sentence-verdict-head { color: #b91c1c; }
+.sentence-verdict-icon { font-weight: 800; }
+.sentence-verdict-reason,
+.sentence-verdict-full { margin: 0; font-size: 0.92rem; color: var(--text-secondary, #555); line-height: 1.4; }
+.sentence-verdict-full { margin-top: 0.15rem; }
+.sentence-verdict-more {
+  background: none;
+  border: none;
+  padding: 0 0.15rem;
+  min-height: 0;
+  color: var(--primary-color, #2563eb);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.sentence-check-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.sentence-retry { display: flex; flex-direction: column; gap: 0.25rem; padding-top: 0.35rem; border-top: 1px dashed var(--border-color, #e5e7eb); position: relative; }
+.sentence-retry-label { font-size: 0.82rem; color: var(--text-secondary, #666); }
+.sentence-retry-text { font-size: 1.1rem; }
+.sentence-try { display: flex; flex-direction: column; gap: 0.25rem; }
+.sentence-try-note { margin: 0; font-size: 0.8rem; color: var(--text-secondary, #777); text-align: center; }
+.sentence-fix { display: flex; flex-direction: column; gap: 0.5rem; }
+
+/* The example, collapsed while Claude grades (it is ANOTHER answer, not his). */
+.sentence-example-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  min-height: 44px;
+  color: var(--text-secondary, #555);
+  font-size: 0.95rem;
+  cursor: pointer;
+}
