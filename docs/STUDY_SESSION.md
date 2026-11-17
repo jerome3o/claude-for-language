@@ -2574,7 +2574,7 @@ are a resume point's `listen_shown` keys and the last Listen-in-context set save
 ### Example sentences — one model (the card's own sentence is a row)
 
 Jerome (Nov 2026): *"the first example sentence is coded differently and embedded differently … have it just
-another one of the example sentences."* Since migration 0153 the card's own sentence (what the card standard calls
+another one of the example sentences."* Since migration 0154 the card's own sentence (what the card standard calls
 `sentence_clue`) is a **`note_sentences` row** like every generated one: id **`<note id>-card`** (deterministic — a
 device can make the same row from a note it cached earlier), **`is_card = 1`**, **position −1** (first; the set keeps
 0..n), its clip the SAME R2 key the note had (nothing regenerated). Rules: `shared/study/cardSentence.ts` (Lab core

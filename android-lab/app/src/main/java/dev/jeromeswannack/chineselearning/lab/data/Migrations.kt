@@ -144,7 +144,7 @@ object LabMigrations {
 
     /**
      * v14: sentences.isCard — the card's own example sentence is one of the note's sentence rows (server migration
-     * 0153, core CardSentence.kt). Old rows are set rows (0); a note's card row comes with the next sentence sync,
+     * 0154, core CardSentence.kt). Old rows are set rows (0); a note's card row comes with the next sentence sync,
      * and until then it is made from the note (CardSentence.withCardSentence), so nothing shows less meanwhile.
      */
     val MIGRATION_13_14 = object : Migration(13, 14) {

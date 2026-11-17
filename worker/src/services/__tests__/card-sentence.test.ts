@@ -1,5 +1,5 @@
 /**
- * The card's own example sentence as a note_sentences row (migration 0153, db/card-sentence.ts,
+ * The card's own example sentence as a note_sentences row (migration 0154, db/card-sentence.ts,
  * shared/study/cardSentence.ts) against real SQLite with every migration:
  * - the migration backfills one row per note with a card sentence (clip key reused, never regenerated),
  *   merges a set row repeating it, leaves notes without one alone, and is idempotent;
@@ -16,7 +16,7 @@ import * as q from '../../db/queries';
 import { reconcileCardSentencesForUser, syncCardSentences, noteIdOfCardSentence } from '../../db/card-sentence';
 import { updateSharedDeckCopy } from '../relationships';
 
-const MIGRATION = '0153_card_sentence_rows.sql';
+const MIGRATION = '0154_card_sentence_rows.sql';
 const D1 = (db: SqliteD1) => db as unknown as D1Database;
 
 function seedUsers(db: SqliteD1) {
@@ -47,7 +47,7 @@ const rowsOf = (db: SqliteD1, noteId: string) =>
     [noteId],
   );
 
-describe('migration 0153: the card sentence becomes a row', () => {
+describe('migration 0154: the card sentence becomes a row', () => {
   let db: SqliteD1;
   beforeEach(async () => {
     db = await createSqliteD1({ stopBefore: MIGRATION });

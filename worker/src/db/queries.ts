@@ -3636,7 +3636,7 @@ export async function appendNoteSentences(
 /**
  * Listening cards' background top-up (shared/study/listenContext.ts): of these notes (the
  * caller's), the ones with fewer than `min` NATURAL sentences in total — the card's own sentence
- * (its own row since migration 0153) plus the set's rows not written around a look-alike (focus
+ * (its own row since migration 0154) plus the set's rows not written around a look-alike (focus
  * shared_character / contrast, shared/study/sentenceFocus.ts) — that may be asked for again: no job for the
  * note in the last day (queued, done or failed — at most one top-up a day, so a model that
  * keeps returning too few never loops) and not given up on (3 failed attempts).

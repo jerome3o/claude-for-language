@@ -126,7 +126,7 @@ for (let c = 0; c < 200; c++) {
 
 // Fresh sentences every showing: picks over the same kind of rows with a heard / hidden history, seeds and
 // the previous showing's set (pickListenRows, listenTopUpWant, listenShownRows).
-// `clue` = an event written before migration 0153 for the card sentence (folded into `<note>-card`).
+// `clue` = an event written before migration 0154 for the card sentence (folded into `<note>-card`).
 const KEYS_EXTRA = ['clue', 'gone'];
 const picks = [] as unknown[];
 for (let c = 0; c < 300; c++) {

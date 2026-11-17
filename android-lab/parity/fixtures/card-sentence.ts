@@ -1,5 +1,5 @@
 /**
- * The card's own example sentence as one of the note's rows (shared/study/cardSentence.ts, migration 0153):
+ * The card's own example sentence as one of the note's rows (shared/study/cardSentence.ts, migration 0154):
  * ids and keys (legacy `clue` / `clue:<note>` folded into `<note>-card`), and `withCardSentence` over seeded
  * notes — no note, a removed card sentence, the note's text equal to / newer than the stored card row, set rows
  * repeating it, rows in any order. Writes card-sentence.json; core CardSentenceParityTest asserts CardSentence.kt.

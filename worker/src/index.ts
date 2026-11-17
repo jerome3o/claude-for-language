@@ -1799,7 +1799,7 @@ app.delete('/api/notes/:id/sentences', async (c) => {
 
 /**
  * Offline sync: every sentence the user owns that changed since `since`, whole notes at a time (the card's
- * own sentence row included, migration 0153). The client replaces all local rows for each note in
+ * own sentence row included, migration 0154). The client replaces all local rows for each note in
  * `note_ids` (older clients: each note_id that appears in `sentences`).
  */
 app.get('/api/sentences/changes', async (c) => {
@@ -1987,7 +1987,7 @@ app.post('/api/sentences/top-up', async (c) => {
 
 /**
  * The same brief breakdown, for a sentence that isn't a stored row (the Coach's Explain, a chat message).
- * The card's own sentence is a row since migration 0153 and uses `/api/sentences/:id/explain`; older app
+ * The card's own sentence is a row since migration 0154 and uses `/api/sentences/:id/explain`; older app
  * builds still send it here.
  */
 app.post('/api/sentences/explain-text', async (c) => {
@@ -6794,7 +6794,7 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
           // A listening card's top-up: ADD sentences after the set (the rows it has stay —
           // ids, clips, breakdowns), only while the note still has fewer than five natural ones.
           if (kind === 'top_up') {
-            // Every row counts — the card's own sentence is one of them (migration 0153).
+            // Every row counts — the card's own sentence is one of them (migration 0154).
             const current = await db.getNoteSentences(env.DB, noteId);
             const total = current.length;
             // Contrived rows (written around a look-alike, shared/study/sentenceFocus.ts) never make "enough".

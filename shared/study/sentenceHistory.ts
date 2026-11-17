@@ -23,7 +23,7 @@ export const SENTENCE_PRACTICE_MODES: readonly SentencePracticeMode[] = ['read',
 
 /**
  * A sentence's key within its note = its row id; the card's own sentence is the row `<note>-card`
- * (cardSentence.ts). Events written before migration 0153 carry `clue` for it: folded as the card row.
+ * (cardSentence.ts). Events written before migration 0154 carry `clue` for it: folded as the card row.
  */
 
 /** Right this many times in a mode = known in that mode. */

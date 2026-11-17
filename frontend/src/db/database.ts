@@ -487,7 +487,7 @@ export interface LocalNoteSentence {
   structure?: string | null;
   /** JSON SentenceBriefExplanation, cached after the first "explain" tap */
   explanation: string | null;
-  /** 1 = the card's own example sentence (`<note>-card`, shared/study/cardSentence.ts; migration 0153). */
+  /** 1 = the card's own example sentence (`<note>-card`, shared/study/cardSentence.ts; migration 0154). */
   is_card?: number;
   created_at: string;
   updated_at: string;
