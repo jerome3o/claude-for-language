@@ -27,6 +27,8 @@ import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
 import { parseReaderWords } from '@shared/reader/words';
 import { CONTRIVED_SENTENCE_FOCUSES } from '@shared/study/sentenceFocus';
+import { inStudyDaySql, inStudyDaySqlParams } from '@shared/study/studyDay';
+import { loadUserStudyDaySql } from '../services/study-day';
 import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, studyBudgetInfo, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow, type StudyBudgetUpdate } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
@@ -1152,17 +1154,20 @@ export async function getDueCards(
   includeNew: boolean = true,
   limit: number = 20
 ): Promise<CardWithNote[]> {
+  // "Due today" = due by the end of the user's STUDY day (their zone, "New day starts at"), and a
+  // snooze ends on a study date — never the UTC date (services/study-day.ts).
+  const today = await loadUserStudyDaySql(db, userId);
   let query = `
     SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.audio_provider, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url, n.multiple_choice_options, n.pinyin_only, n.alternatives
     FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day'))
+    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?)
       -- Suspended / snoozed cards (card_holds, shared/decks/holds.ts) leave study.
-      AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
+      AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
   `;
 
-  const params: (string | number)[] = [userId];
+  const params: (string | number)[] = [userId, today.cutoffSql, today.key];
 
   if (!includeNew) {
     query += ' AND c.next_review_at IS NOT NULL';
@@ -1566,6 +1571,8 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
   cards_studied_today: number;
   total_decks: number;
 }> {
+  // "Today" = the user's STUDY day (their zone, "New day starts at"), not the UTC date.
+  const today = await loadUserStudyDaySql(db, userId);
   const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
     db.prepare(`
       SELECT COUNT(*) as count FROM cards c
@@ -1577,12 +1584,12 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
       SELECT COUNT(*) as count FROM cards c
       JOIN notes n ON c.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))
-    `).bind(userId).first<{ count: number }>(),
+      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
+    `).bind(userId, today.cutoffSql, today.key).first<{ count: number }>(),
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events
-      WHERE user_id = ? AND date(reviewed_at) = date('now')
-    `).bind(userId).first<{ count: number }>(),
+      WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
+    `).bind(userId, ...inStudyDaySqlParams(today)).first<{ count: number }>(),
     db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
       .bind(userId).first<{ count: number }>(),
   ]);
@@ -1608,6 +1615,7 @@ export async function getDeckStats(
 } | null> {
   const deck = await getDeckById(db, deckId, userId);
   if (!deck) return null;
+  const today = await loadUserStudyDaySql(db, userId);
 
   const [totalNotes, totalCards, cardsDue, cardsMastered, cardsLearning] = await Promise.all([
     db
@@ -1624,9 +1632,9 @@ export async function getDeckStats(
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
          JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= date('now', '+1 day', 'start of day')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > date('now')))`
+         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`
       )
-      .bind(deckId)
+      .bind(deckId, today.cutoffSql, today.key)
       .first<{ count: number }>(),
     db
       .prepare(
@@ -1666,7 +1674,9 @@ export async function getQueueCounts(
   deckId?: string,
   localDate?: string
 ): Promise<QueueCounts> {
-  const today = localDate || new Date().toISOString().split('T')[0];
+  // The user's STUDY day (zone + "New day starts at"): reviews due by its end, its key as "today".
+  const studyDay = await loadUserStudyDaySql(db, userId);
+  const today = localDate || studyDay.key;
 
   let deckFilter = '';
   const params: (string | number)[] = [userId];
@@ -1708,7 +1718,7 @@ export async function getQueueCounts(
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? ${deckFilter}
     AND c.queue = 2
-    AND c.next_review_at <= date('now', '+1 day', 'start of day')
+    AND datetime(c.next_review_at) <= ?
   `;
 
   const [newResult, dailyResult, learningResult, reviewResult] = await Promise.all([
@@ -1717,7 +1727,7 @@ export async function getQueueCounts(
       ? db.prepare(dailyCountQuery).bind(userId, deckId, today).first<{ studied: number }>()
       : db.prepare(dailyCountQuery).bind(userId, today).first<{ studied: number }>(),
     db.prepare(learningQuery).bind(...params).first<{ count: number }>(),
-    db.prepare(reviewQuery).bind(...params).first<{ count: number }>(),
+    db.prepare(reviewQuery).bind(...params, studyDay.cutoffSql).first<{ count: number }>(),
   ]);
 
   // Get deck settings for new card limit
@@ -1752,7 +1762,8 @@ export async function getNextStudyCard(
   localDate?: string
 ): Promise<CardWithNote | null> {
   const now = Date.now();
-  const today = localDate || new Date().toISOString().split('T')[0];
+  const studyDay = await loadUserStudyDaySql(db, userId, now);
+  const today = localDate || studyDay.key;
 
   let deckFilter = '';
   const baseParams: string[] = [userId];
@@ -1802,13 +1813,13 @@ export async function getNextStudyCard(
     JOIN decks d ON n.deck_id = d.id
     WHERE d.user_id = ? ${deckFilter}
     AND c.queue = 2
-    AND c.next_review_at <= date('now', '+1 day', 'start of day')
+    AND datetime(c.next_review_at) <= ?
     ${noteExclude}
     ORDER BY c.next_review_at ASC
     LIMIT 1
   `;
 
-  const reviewParams = [...baseParams, ...excludeNoteIds];
+  const reviewParams = [...baseParams, studyDay.cutoffSql, ...excludeNoteIds];
   const reviewCard = await db.prepare(reviewQuery).bind(...reviewParams).first();
 
   if (reviewCard) {

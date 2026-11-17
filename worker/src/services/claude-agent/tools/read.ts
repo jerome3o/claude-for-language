@@ -7,6 +7,8 @@
 import type { StudyTodayKind } from '@shared/decks';
 import { addBumps, MAX_BUMPS_PER_REQUEST } from '../../study-bumps';
 import type { ToolContext } from '../types';
+import { inStudyDaySql, inStudyDaySqlParams } from '@shared/study/studyDay';
+import { loadUserStudyDaySql } from '../../study-day';
 import { executeReadChat, executeSearchMyChats } from './memory';
 
 /**
@@ -236,6 +238,8 @@ export async function executeReadTool(
       }
 
       case 'get_overall_stats': {
+        // "Studied today" = the learner's STUDY day ("New day starts at"), never the UTC date.
+        const today = await loadUserStudyDaySql(ctx.db, ctx.userId);
         const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
           ctx.db.prepare(`
             SELECT COUNT(*) as count FROM cards c
@@ -251,8 +255,8 @@ export async function executeReadTool(
           `).bind(ctx.userId).first<{ count: number }>(),
           ctx.db.prepare(`
             SELECT COUNT(*) as count FROM review_events
-            WHERE user_id = ? AND date(reviewed_at) = date('now')
-          `).bind(ctx.userId).first<{ count: number }>(),
+            WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
+          `).bind(ctx.userId, ...inStudyDaySqlParams(today)).first<{ count: number }>(),
           ctx.db.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
             .bind(ctx.userId).first<{ count: number }>(),
         ]);

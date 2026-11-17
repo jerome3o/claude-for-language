@@ -89,16 +89,26 @@ export function budgetForToday(budget: StudyBudget, state: Pick<ReviewLoadState,
   return state?.paused ? { new_cards_per_day: 0, secondary_cards_per_day: 0 } : budget;
 }
 
-/** Home's line while paused: "New cards paused — 124 reviews due today (limit 100)"; null otherwise. */
-export function pausedNewCardsLabel(state: ReviewLoadState | null | undefined): string | null {
-  if (!state?.paused || state.threshold === null) return null;
-  return `New cards paused — ${state.load} ${state.load === 1 ? 'review' : 'reviews'} due today (limit ${state.threshold})`;
+/**
+ * The load in words: "124 cards reviewed or due" — CARDS (each counted once), the ones already
+ * reviewed today included. Not "124 reviews due": beside Home's "132 reviews today" (every rating,
+ * a card's learning steps and relearns included, new cards too) that read as a contradiction, and
+ * after the last card as if 124 were still waiting (Jerome, 17 Nov 2026).
+ */
+function cardsReviewedOrDue(n: number): string {
+  return `${n} ${n === 1 ? 'card' : 'cards'} reviewed or due`;
 }
 
-/** The Up next page while paused: "Up next waits — new cards are paused today (124 reviews due, limit 100)."; null otherwise. */
+/** Home's line while paused: "New cards paused — 124 cards reviewed or due today (limit 100)"; null otherwise. */
+export function pausedNewCardsLabel(state: ReviewLoadState | null | undefined): string | null {
+  if (!state?.paused || state.threshold === null) return null;
+  return `New cards paused — ${cardsReviewedOrDue(state.load)} today (limit ${state.threshold})`;
+}
+
+/** The Up next page while paused: "Up next waits — new cards are paused today (124 cards reviewed or due, limit 100)."; null otherwise. */
 export function upNextPausedLabel(state: ReviewLoadState | null | undefined): string | null {
   if (!state?.paused || state.threshold === null) return null;
-  return `Up next waits — new cards are paused today (${state.load} ${state.load === 1 ? 'review' : 'reviews'} due, limit ${state.threshold}).`;
+  return `Up next waits — new cards are paused today (${cardsReviewedOrDue(state.load)}, limit ${state.threshold}).`;
 }
 
 /** The line under it: what else waits and the way round it. */
@@ -110,10 +120,10 @@ export function reviewLoadCapSummary(threshold: number | null | undefined): stri
   return `Pauses new cards on days with more than ${threshold} reviews due`;
 }
 
-/** The tutor's dashboard / student page while paused: "⏸ New cards paused today · 124 reviews due"; null otherwise. */
+/** The tutor's dashboard / student page while paused: "⏸ New cards paused today · 124 cards reviewed or due"; null otherwise. */
 export function tutorPausedLabel(state: ReviewLoadState | null | undefined): string | null {
   if (!state?.paused) return null;
-  return `⏸ New cards paused today · ${state.load} ${state.load === 1 ? 'review' : 'reviews'} due`;
+  return `⏸ New cards paused today · ${cardsReviewedOrDue(state.load)}`;
 }
 
 /**

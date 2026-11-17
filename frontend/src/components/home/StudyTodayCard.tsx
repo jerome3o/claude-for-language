@@ -23,7 +23,7 @@ interface StudyTodayCardProps {
   reviewLoad?: ReviewLoadState | null;
 }
 
-/** "⏸ New cards paused — 124 reviews due today (limit 100)" + what else waits; nothing on a normal day. */
+/** "⏸ New cards paused — 124 cards reviewed or due today (limit 100)" + what else waits; nothing on a normal day. */
 function PausedLine({ reviewLoad }: { reviewLoad?: ReviewLoadState | null }) {
   const label = pausedNewCardsLabel(reviewLoad);
   if (!label) return null;

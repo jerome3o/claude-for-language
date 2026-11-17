@@ -15,8 +15,10 @@ import {
   studyDayAt,
   studyDayAtOffset,
   studyDayShiftMinutes,
+  studyDaySql,
   zoneOffsetMinutes,
   type StudyDay,
+  type StudyDaySql,
 } from '../../../shared/study/studyDay';
 
 export interface StudyDayUser {
@@ -68,4 +70,17 @@ export function userStudyDayKey(user: StudyDayUser, at: number | string | Date, 
  */
 export function userProgressShiftMinutes(user: StudyDayUser, nowMs: number, fallbackTzOffset?: number | null): number {
   return studyDayShiftMinutes(userUtcOffsetMinutes(user, nowMs, fallbackTzOffset), dayRolloverHour(user.day_rollover_hour));
+}
+
+/**
+ * The user's "today" for SQL (shared/study/studyDay.ts `studyDaySql`): reviewed today, due by
+ * the study cutoff, snoozes still on — in their zone and "New day starts at", never UTC dates.
+ */
+export function userStudyDaySql(user: StudyDayUser, nowMs: number, fallbackTzOffset?: number | null): StudyDaySql {
+  return studyDaySql(userStudyDay(user, nowMs, fallbackTzOffset), nowMs);
+}
+
+/** `userStudyDaySql` for a user id (one row read). */
+export async function loadUserStudyDaySql(db: D1Database, userId: string, nowMs = Date.now()): Promise<StudyDaySql> {
+  return userStudyDaySql(await getStudyDayUser(db, userId), nowMs);
 }

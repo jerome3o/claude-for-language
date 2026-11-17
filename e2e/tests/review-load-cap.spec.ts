@@ -80,7 +80,7 @@ test('the learner pauses new cards on heavy days; Home says why', async ({ page,
   // Home: 12 reviews due today > 10 → no new cards, and the line saying so.
   await expect(async () => {
     await page.goto('/');
-    await expect(page.getByTestId('home-new-paused')).toContainText('New cards paused — 12 reviews due today (limit 10)', { timeout: 5_000 });
+    await expect(page.getByTestId('home-new-paused')).toContainText('New cards paused — 12 cards reviewed or due today (limit 10)', { timeout: 5_000 });
   }).toPass({ timeout: 60_000 });
   await expect(page.getByTestId('home-new-paused')).toContainText('Up next waits too');
 
@@ -115,7 +115,7 @@ test('the tutor sets the pause; the student page says the student is paused toda
   await sheet.getByTestId('daily-budget-save').click();
   await expect(sheet).toBeHidden();
   await expect(row.getByTestId('daily-budget-cap')).toHaveText('Pauses new cards on days with more than 10 reviews due');
-  await expect(row.getByTestId('daily-budget-paused')).toHaveText('⏸ New cards paused today · 12 reviews due', { timeout: 30_000 });
+  await expect(row.getByTestId('daily-budget-paused')).toHaveText('⏸ New cards paused today · 12 cards reviewed or due', { timeout: 30_000 });
 
   // The student's account has it; no chat message for the pause alone.
   const me = await api<{ study_budget: { pause_new_when_reviews_over: number; set_by_tutor: boolean } }>(request, '/api/auth/me', { token: student.token });

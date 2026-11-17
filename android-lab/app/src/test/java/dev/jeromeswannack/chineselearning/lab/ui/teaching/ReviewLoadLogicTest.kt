@@ -76,7 +76,7 @@ class ReviewLoadLogicTest {
         assertNull(prefs.reviewLoadCap)
 
         val ov = json.decodeFromString(StudentOverviewDto.serializer(), """{"relationship_id":"r","student":{"id":"s"},"review_load":{"load":124,"threshold":100,"paused":true}}""")
-        assertEquals("⏸ New cards paused today · 124 reviews due", pausedChip(ov.review_load))
+        assertEquals("⏸ New cards paused today · 124 cards reviewed or due", pausedChip(ov.review_load))
         assertNull(pausedChip(null))
         assertNull(pausedChip(json.decodeFromString(StudentOverviewDto.serializer(), """{"relationship_id":"r","student":{"id":"s"},"review_load":{"load":80,"threshold":100,"paused":false}}""").review_load))
     }

@@ -47,6 +47,47 @@ class ReviewLoadParityTest {
         assertTrue(nonZero > 40)
     }
 
+    /**
+     * Evenings that run past midnight (Home at 00:44 with a 4 am rollover): the study day, the
+     * reviews and cards since its start and the load, built the way the app builds them
+     * (StudyQueue.startOfDay / cutoff, TodaysBudget → ReviewLoad.reviewLoadToday).
+     */
+    @Test
+    fun nightsPastMidnight() {
+        val cases = data["nights"]!!.jsonArray
+        assertTrue(cases.size >= 300)
+        var acrossMidnight = 0
+        for (c in cases) {
+            val o = c.jsonObject
+            val now = o["now"]!!.jsonPrimitive.long
+            val zone = java.time.ZoneId.of(o["zone"].str!!)
+            val rollover = o["rollover"]!!.jsonPrimitive.int
+            val cards = o["cards"]!!.jsonArray.map { e ->
+                val x = e.jsonObject
+                ReviewLoadCard(x["id"].str!!, x["queue"]!!.jsonPrimitive.int, x["due_ms"].longOrNull)
+            }
+            val events = o["events"]!!.jsonArray.map { p -> p.jsonArray[0].str!! to p.jsonArray[1].jsonPrimitive.long }
+            val first = o["first"]!!.jsonArray.associate { p -> p.jsonArray[0].str!! to p.jsonArray[1].jsonPrimitive.long }
+            val dayStart = StudyQueue.startOfDay(now, zone, rollover)
+            val cutoff = StudyQueue.cutoff(now, zone, rollover).ts
+            assertEquals(o["day_key"].str, StudyDay.key(now, rollover, zone), "$now r$rollover")
+            assertEquals(o["day_start"]!!.jsonPrimitive.long, dayStart, "$now r$rollover")
+            assertEquals(o["cutoff"]!!.jsonPrimitive.long, cutoff, "$now r$rollover")
+            val today = events.filter { (_, t) -> t >= dayStart && t <= now }
+            val reviewed = today.map { it.first }.toSet()
+            assertEquals(o["reviews_today"]!!.jsonPrimitive.int, today.size, "$now r$rollover")
+            assertEquals(o["cards_reviewed_today"]!!.jsonPrimitive.int, reviewed.size, "$now r$rollover")
+            val load = ReviewLoad.reviewLoadToday(cards, reviewed, first, dayStart, cutoff)
+            assertEquals(o["load"]!!.jsonPrimitive.int, load, "$now r$rollover")
+            // Every card reviewed today that was not new today is in the load.
+            assertTrue(load >= reviewed.count { (first[it] ?: 0) < dayStart })
+            val local = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalTime()
+            if (rollover == 4 && local.hour < 4 && today.any { (_, t) -> java.time.Instant.ofEpochMilli(t).atZone(zone).hour >= 18 }) acrossMidnight++
+        }
+        // Some cases are the screenshot's: after midnight, before 4 am, with last evening's reviews counted as today's.
+        assertTrue(acrossMidnight > 10, "across midnight: $acrossMidnight")
+    }
+
     @Test
     fun stateBudgetAndCopy() {
         for (c in data["states"]!!.jsonArray) {

@@ -21,6 +21,7 @@ import {
 import { lessonSteps } from '@shared/study/lessonRun';
 import { revisionProgressLabel, type LessonRevisionSummary } from '@shared/homework/library';
 import { handwritingKeys, type CustomLessonSpec } from '@shared/lesson';
+import { userStudyDayKey } from './study-day';
 
 /** The outcome to store for an uploaded completion: the device's, else derived from its attempt. */
 export function outcomeForUpload(sent: unknown, attempt: { exercises: unknown[] } | null): LessonRunOutcome | null {
@@ -60,7 +61,10 @@ export async function backfillCompletionOutcomes(db: D1Database, userId: string,
   return stmts.length;
 }
 
-/** The student's calendar day of a moment, in their time zone (UTC when unknown). */
+/**
+ * The student's calendar day of a moment, in their time zone (UTC when unknown). NOT the study
+ * day — "today" / a revision's due date go through `userStudyDayKey` (their "New day starts at").
+ */
 export function dayIn(ms: number, timeZone: string | null | undefined): string {
   try {
     return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
@@ -91,19 +95,21 @@ export function learnStateOf(
 
 /**
  * The revision state of some of a student's lessons, as their tutor sees it. `today` = the
- * student's calendar day (for "due today").
+ * student's STUDY day (their zone + "New day starts at", for "due today") — the day the student's
+ * own devices call today: a revision due at 01:00 is due on the evening before, as on the device
+ * (shared/study/lessonRevision.ts isRevisionDue: due by the study day's cutoff).
  */
 export async function lessonRevisionSummaries(db: D1Database, studentId: string, lessonIds: string[], nowMs = Date.now()): Promise<Map<string, LessonRevisionInfo>> {
   const out = new Map<string, LessonRevisionInfo>();
   const ids = [...new Set(lessonIds)];
   if (ids.length === 0) return out;
   await backfillCompletionOutcomes(db, studentId).catch(() => 0);
-  const user = await db.prepare('SELECT time_zone, skip_handwriting FROM users WHERE id = ?').bind(studentId)
-    .first<{ time_zone: string | null; skip_handwriting: number | null }>().catch(() => null);
-  const tz = user?.time_zone ?? null;
+  const user = await db.prepare('SELECT time_zone, day_rollover_hour, skip_handwriting FROM users WHERE id = ?').bind(studentId)
+    .first<{ time_zone: string | null; day_rollover_hour: number | null; skip_handwriting: number | null }>().catch(() => null);
+  const dayOwner = { time_zone: user?.time_zone ?? null, day_rollover_hour: user?.day_rollover_hour ?? null };
   // "Skip handwriting exercises" (shared/lesson/handwriting.ts): earlier handwriting misses stop counting.
   const skipHandwriting = Number(user?.skip_handwriting) === 1;
-  const today = dayIn(nowMs, tz);
+  const today = userStudyDayKey(dayOwner, nowMs);
   const completions = new Map<string, Array<{ id: string; completed_at: string; rating: number | null; outcome: string | null; correct: number; total: number }>>();
   const specs = new Map<string, string>();
   const marks = new Map<string, LessonMarkRecord[]>();
@@ -151,7 +157,7 @@ export async function lessonRevisionSummaries(db: D1Database, studentId: string,
     const summary: LessonRevisionSummary = {
       status: state.status,
       revision: state.revision,
-      due_date: state.status === 'revision' && state.due_ms !== null ? dayIn(state.due_ms, tz) : null,
+      due_date: state.status === 'revision' && state.due_ms !== null ? userStudyDayKey(dayOwner, state.due_ms) : null,
       to_get_right: state.status !== 'revision' ? 0 : state.full || state.missed.length === 0 ? scored : state.missed.length,
       percent,
     };

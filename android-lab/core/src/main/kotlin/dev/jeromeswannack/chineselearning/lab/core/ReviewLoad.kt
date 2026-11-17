@@ -64,26 +64,27 @@ object ReviewLoad {
     fun budgetForToday(budget: StudyBudget, state: ReviewLoadState?): StudyBudget =
         if (state?.paused == true) StudyBudget(0, 0) else budget
 
-    private fun reviews(n: Int) = "$n ${if (n == 1) "review" else "reviews"}"
+    /** The load in words (`cardsReviewedOrDue`): CARDS, the ones already reviewed today included. */
+    private fun cardsReviewedOrDue(n: Int) = "$n ${if (n == 1) "card" else "cards"} reviewed or due"
 
-    /** Port of `pausedNewCardsLabel`: "New cards paused — 124 reviews due today (limit 100)"; null otherwise. */
+    /** Port of `pausedNewCardsLabel`: "New cards paused — 124 cards reviewed or due today (limit 100)"; null otherwise. */
     fun pausedLabel(state: ReviewLoadState?): String? {
         if (state == null || !state.paused || state.threshold == null) return null
-        return "New cards paused — ${reviews(state.load)} due today (limit ${state.threshold})"
+        return "New cards paused — ${cardsReviewedOrDue(state.load)} today (limit ${state.threshold})"
     }
 
     /** Port of `upNextPausedLabel`: the Up next page while paused; null otherwise. */
     fun upNextPausedLabel(state: ReviewLoadState?): String? {
         if (state == null || !state.paused || state.threshold == null) return null
-        return "Up next waits — new cards are paused today (${reviews(state.load)} due, limit ${state.threshold})."
+        return "Up next waits — new cards are paused today (${cardsReviewedOrDue(state.load)}, limit ${state.threshold})."
     }
 
     /** Port of `reviewLoadCapSummary`: "Pauses new cards on days with more than 100 reviews due"; null = off. */
     fun capSummary(threshold: Int?): String? = threshold?.let { "Pauses new cards on days with more than $it reviews due" }
 
-    /** Port of `tutorPausedLabel`: "⏸ New cards paused today · 124 reviews due"; null otherwise. */
+    /** Port of `tutorPausedLabel`: "⏸ New cards paused today · 124 cards reviewed or due"; null otherwise. */
     fun tutorPausedLabel(state: ReviewLoadState?): String? =
-        if (state?.paused == true) "⏸ New cards paused today · ${reviews(state.load)} due" else null
+        if (state?.paused == true) "⏸ New cards paused today · ${cardsReviewedOrDue(state.load)}" else null
 
     /** The field's value can be saved: off, or a whole number [CAP_MIN]–[CAP_MAX] (`pickReviewLoadCap`). */
     fun isValid(v: Int?): Boolean = v == null || v in CAP_MIN..CAP_MAX
