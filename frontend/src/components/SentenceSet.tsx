@@ -841,6 +841,7 @@ export function SentenceSet({
                 key={row.key}
                 className={`sentence-set-row${isFullyShown ? ' is-open' : ''}${row.fromCard ? ' is-from-card' : ''}${mark ? ` is-round is-round-${mark.outcome}` : ''}`}
                 data-round={mark?.outcome}
+                data-key={row.key}
                 {...(historyOn ? longPress.bind(() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })) : {})}
               >
                 <div className="sentence-set-body">
