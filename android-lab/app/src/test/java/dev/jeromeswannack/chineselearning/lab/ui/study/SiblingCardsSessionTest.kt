@@ -5,7 +5,7 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes
+import dev.jeromeswannack.chineselearning.lab.core.SiblingStatus
 import dev.jeromeswannack.chineselearning.lab.core.Rating
 import dev.jeromeswannack.chineselearning.lab.core.ReviewEventInput
 import dev.jeromeswannack.chineselearning.lab.core.StudyBudget
@@ -27,14 +27,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * ⋯ → "Practise this word other ways…" in the Lab session (web useStudySession.otherCards.test.tsx):
- * the sheet lists the note's card types with their state (the new sibling ticked), Add makes a
- * card-level ⚡ bump, and the sibling joins THIS session over a spent budget — a few cards later,
- * never straight after its sibling — then leaves the pocket once rated.
+ * ⋯ → the word's other cards (core SiblingStatus) in the Lab session (web useStudySession.otherCards.test.tsx):
+ * the tiles say the sibling is "Not started", its sheet's ⚡ Study it today makes a card-level ⚡ bump, and
+ * the sibling joins THIS session over a spent budget — a few cards later, never straight after its sibling —
+ * then leaves the pocket once rated.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = LabApp::class)
-class OtherCardTypesSessionTest {
+class SiblingCardsSessionTest {
     private lateinit var app: LabApp
     private val now = System.currentTimeMillis()
     private val day = 86_400_000L
@@ -67,7 +67,7 @@ class OtherCardTypesSessionTest {
             if (ok(u)) return u
             Thread.sleep(10)
         }
-        error("timed out waiting for $what: ${vm.ui.value.phase} ${vm.ui.value.extras.otherCards}")
+        error("timed out waiting for $what: ${vm.ui.value.phase} ${vm.ui.value.extras.siblings} ${vm.ui.value.extras.siblingSheet}")
     }
 
     private fun showing(vm: StudyViewModel) = (awaitUi(vm, "a card") { it.phase is StudyPhase.Showing }.phase as StudyPhase.Showing).view
@@ -77,23 +77,25 @@ class OtherCardTypesSessionTest {
         val vm = StudyViewModel(app, null)
         val first = showing(vm)
         assertEquals(0, vm.ui.value.counts.new + vm.ui.value.counts.secondaryNew)
-        awaitUi(vm, "the ⋯ item") { it.extras.hasOtherCardTypes }
         val sibling = "m" + first.card.id.removePrefix("c")
+        val tiles = awaitUi(vm, "the tiles") { it.extras.siblings != null }.extras.siblings!!
+        assertEquals(listOf(sibling), tiles.tiles.map { it.cardId })
+        assertEquals(listOf("Not started"), tiles.tiles.map { it.line })
+        assertEquals(listOf(SiblingStatus.BUMP_ADD), tiles.tiles.map { it.bump })
 
-        vm.openOtherCards()
-        val sheet = awaitUi(vm, "the rows") { it.extras.otherCards?.loading == false }.extras.otherCards!!
-        assertEquals(listOf("this card", "new"), sheet.rows.map { it.status })
-        assertEquals(listOf(null, OtherCardTypes.ACTION_ADD), sheet.rows.map { it.action })
-        assertEquals(setOf(sibling), sheet.picked)
-
-        vm.addOtherCards()
-        val done = awaitUi(vm, "added") { it.extras.otherCards?.done != null }
-        assertEquals("⚡ English → 汉字 comes up in a few cards", done.extras.otherCards!!.done)
+        vm.openSibling(sibling)
+        awaitUi(vm, "the sheet") { it.extras.siblingSheet?.cardId == sibling }
+        vm.bumpSibling()
+        val done = awaitUi(vm, "added") { it.extras.siblingSheet?.done != null }
+        assertEquals("⚡ English → 汉字 comes up in a few cards", done.extras.siblingSheet!!.done)
+        // The tile now says it is in today's study, and ⚡ is spent.
+        val after = awaitUi(vm, "the tile refreshed") { u -> u.extras.siblings?.tiles?.firstOrNull()?.status == SiblingStatus.NEW_TODAY }.extras.siblings!!
+        assertEquals("Already in today’s study", after.tiles.single().bumpNote)
         assertEquals(1, done.counts.new + done.counts.secondaryNew)
         val bump = runBlocking { BumpStore.active(app.repo.dao) }.single()
         assertEquals(first.note.id, bump.noteId)
         assertEquals(listOf(CardTypes.MEANING_TO_HANZI), BumpStore.parseCardTypes(bump.cardTypes))
-        vm.closeOtherCards()
+        vm.closeSibling()
 
         val shown = mutableListOf(first.card.id)
         var current = first
