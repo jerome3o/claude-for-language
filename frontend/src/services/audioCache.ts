@@ -241,30 +241,57 @@ export function pickChineseVoiceFrom<V extends { lang: string; name: string; loc
   return from.find(v => v.localService) || from[0];
 }
 
+export interface SpeakFallbackOptions {
+  /** The speaker's voice gender, when known (a chat message's sender): a device voice of that gender when one is recognisable. */
+  gender?: 'male' | 'female' | null;
+  /** BCP-47 language (default zh-CN). */
+  lang?: string;
+  /** Called when the device starts speaking. */
+  onStart?: () => void;
+}
+
 /**
- * Use browser's Web Speech API as fallback for TTS
+ * THE device-voice fallback (speech synthesis) every surface uses when no clip can be played — offline and never
+ * downloaded, TTS unavailable: cancels whatever the device was saying, then speaks `text` in a Chinese voice
+ * (`pickChineseVoice`: zh-CN first, on-device first, of `gender` when recognisable) at `DEVICE_SPEECH_RATE`. Resolves
+ * when it has finished; rejects when the device can't speak (no speechSynthesis — the Android app's WebView) or the
+ * utterance fails.
  */
-export function speakWithBrowserTTS(text: string, gender?: 'male' | 'female' | null): Promise<void> {
+export function speakFallback(text: string, options: SpeakFallbackOptions = {}): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (!('speechSynthesis' in window)) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       reject(new Error('Speech synthesis not supported'));
       return;
     }
-
-    const utterance = new SpeechSynthesisUtterance(text);
-
-    // A Chinese voice (on-device first, of the speaker's gender when known)
-    const chineseVoice = pickChineseVoice(gender);
-    if (chineseVoice) {
-      utterance.voice = chineseVoice;
+    const synth = window.speechSynthesis;
+    try {
+      synth.cancel();
+    } catch {
+      // Nothing to cancel
     }
-
-    utterance.lang = 'zh-CN';
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = options.lang ?? 'zh-CN';
     utterance.rate = DEVICE_SPEECH_RATE;
-
+    const voice = pickChineseVoice(options.gender);
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => options.onStart?.();
     utterance.onend = () => resolve();
-    utterance.onerror = (event) => reject(new Error(event.error));
-
-    window.speechSynthesis.speak(utterance);
+    utterance.onerror = (event) => reject(new Error(event.error || 'speech-error'));
+    synth.speak(utterance);
   });
+}
+
+/** Stop the device voice (a no-op where there is none). */
+export function cancelSpeakFallback(): void {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+  } catch {
+    // Nothing to cancel
+  }
+}
+
+/** `speakFallback` with the speaker's gender — the name older callers use. */
+export function speakWithBrowserTTS(text: string, gender?: 'male' | 'female' | null): Promise<void> {
+  return speakFallback(text, { gender });
 }

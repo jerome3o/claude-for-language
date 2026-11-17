@@ -4,9 +4,10 @@ import { formatDuration } from '../../services/chatThread';
 import { ChatWordsText, type TappedWord } from './ChatWords';
 import type { ChatWord } from '../../types';
 import { nextVoiceSpeed, useWaveform, voiceSpeed } from '../../services/voiceWaveform';
+import { createMediaTrack, type MediaTrack } from '../../utils/audioPlayback';
 
-/** Only one voice message plays at a time across the page. */
-let current: HTMLAudioElement | null = null;
+/** Only one voice message plays at a time across the page (the tracks' group). */
+const VOICE_GROUP = 'chat-voice';
 
 /**
  * A voice message: ▶ / ⏸, the waveform (tap to seek), the time and a 1× / 1.5× / 2× speed chip;
@@ -45,7 +46,8 @@ export function VoiceBubble({
   suppressTap?: () => boolean;
 }) {
   const { url, error, retry } = useChatMedia(messageId, mediaUrl, localBlob);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Seeks + shows its position: a media track (utils/audioPlayback.ts), made on first play.
+  const audioRef = useRef<MediaTrack | null>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [wantPlay, setWantPlay] = useState(false);
@@ -53,34 +55,28 @@ export function VoiceBubble({
   const bars = useWaveform(messageId, url);
   const total = Math.max(durationMs / 1000, 0.1);
 
-  useEffect(() => {
-    return () => {
-      const a = audioRef.current;
-      if (a) {
-        a.pause();
-        if (current === a) current = null;
-      }
-    };
+  useEffect(() => () => {
+    audioRef.current?.dispose();
+    audioRef.current = null;
   }, []);
 
-  const audio = (): HTMLAudioElement | null => {
+  const audio = (): MediaTrack | null => {
     if (!url) return null;
-    if (!audioRef.current || audioRef.current.dataset.src !== url) {
-      audioRef.current?.pause();
-      const a = new Audio(url);
-      a.dataset.src = url;
-      a.preload = 'auto';
-      a.playbackRate = speed;
-      a.ontimeupdate = () => setPosition(a.currentTime);
-      a.onplay = () => setPlaying(true);
-      a.onpause = () => setPlaying(false);
-      a.onended = () => {
-        setPlaying(false);
-        setPosition(0);
-      };
-      audioRef.current = a;
+    const a = audioRef.current ?? (audioRef.current = createMediaTrack({ group: VOICE_GROUP }));
+    if (a.sourceUrl() !== url) {
+      a.load(url, {
+        label: 'chat_voice',
+        onTime: (ms) => setPosition(ms / 1000),
+        onPlay: () => setPlaying(true),
+        onPause: () => setPlaying(false),
+        onEnded: () => {
+          setPlaying(false);
+          setPosition(0);
+        },
+      });
+      a.setRate(speed);
     }
-    return audioRef.current;
+    return a;
   };
 
   const play = () => {
@@ -90,9 +86,9 @@ export function VoiceBubble({
       setWantPlay(true);
       return;
     }
-    if (current && current !== a) current.pause();
-    current = a;
-    a.play().catch(() => setPlaying(false));
+    void a.play().then((ok) => {
+      if (!ok) setPlaying(false);
+    });
   };
 
   // Tapped ▶ before the bytes arrived: start as soon as they do.
@@ -114,7 +110,7 @@ export function VoiceBubble({
     e.stopPropagation();
     const next = nextVoiceSpeed(speed);
     setSpeed(next);
-    if (audioRef.current) audioRef.current.playbackRate = next;
+    audioRef.current?.setRate(next);
   };
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -123,7 +119,7 @@ export function VoiceBubble({
     if (!a) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)) * total;
-    a.currentTime = t;
+    a.seek(t * 1000);
     setPosition(t);
   };
 
