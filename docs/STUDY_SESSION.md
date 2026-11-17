@@ -1731,7 +1731,38 @@ before). While no sentence has been played on the card, tapping it asks first, i
 browser dialog): **"Try the sentences first? Hearing the word in context helps."** —
 [Play the word anyway] [Play a sentence]. Once any sentence was heard (or "anyway" was chosen) the
 word plays at once. The answer box / multiple choice / voice-first controls below are unchanged; the
-old "Use in Sentence" button is gone from this card. The answer side's sentence list is unchanged.
+old "Use in Sentence" button is gone from this card. The answer side's sentence list **starts with the rows this
+question showed, in the same order** (below).
+
+### The answer side keeps the question's order
+
+Jerome, Nov 2026 (the Lab app, 结婚): *"When I do the sentence cards now with the adjusted order, I struggle to
+find the sentence in the answer side of a card. Do you think we could preserve the order between those two views
+each time I view the card … Every time there's a new [order], the answer should match the question side."*
+
+The question side shows sentences in an order made for the showing — **Listen in context** (fresh first,
+shuffled per showing) and the **Sentence round**'s exercises (between question and answer, Hard mode) — while the
+answer side's "Example sentences" used to be in the canonical order (the card's own sentence, then the set). Now:
+
+- **The sentences the question side showed come first, in exactly the order shown**: Listen in context's rows
+  (rows "+ More sentences" added included), then the round's sentences it hadn't shown (opened and labelled
+  "In the round · ✓ Right" as before). Then the rest in their usual order (natural before contrived).
+- **"From the card"** keeps its badge and goes with its row: where it was on the question side when it was shown,
+  else first of the rest (its usual place) — no row is ever pinned above what he just worked on.
+- **Nothing reorders on the answer side**; the order is the showing's: a peek back at the question, the round,
+  ⋯ → Sentence coach and back, leaving Study and resuming (`listen_shown` on the resume point, beside `round_log`)
+  all show the same rows in the same order. A new showing of the card (it comes back later) picks and shuffles
+  afresh, and the answer follows that.
+- Before this, a peek back at the question (web) and coming back from the coach / Home (both apps) picked Listen in
+  context **again** — and, with that set as "previous", a different one; the showing's rows are now kept with the
+  card (web `StudyPage` `listenShown` → `ListenContext shownKeys` / `onShown`; Lab `CardStartState.listenShown` →
+  `ListenState`, `StudyActions.onCardListen`), and a kept set none of whose sentences is still there is picked anew.
+- Result markers: the round's rows keep their "In the round · ✓ / ≈ / ✗" labels; Listen in context's rows get no
+  extra marker (there is nothing to judge — he only heard them), their place at the top is the marker.
+- Rule: `answerSentenceOrder(keys, shown)` + `questionSentenceKeys(listenShown, roundKeys)`
+  (`shared/study/answerOrder.ts`; `orderKeysForRound` is now this rule; Lab core `AnswerOrder`, parity-tested by
+  `parity/fixtures/answer-order.ts`); web `SentenceSet` `questionOrder`, Lab `SentenceList` / `PassSentences`
+  `questionOrder`. The homework pass's calm list shows what the question showed before "+ N more".
 
 ### Fresh sentences every showing
 
@@ -2047,7 +2078,9 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   words, never colour alone, and **never an outline or a box** (nor does the card around them change colour) — so he
   can find them and tap "What's going on here?" / Ask Claude about
   them. Rule: `roundRowMarks` / `orderKeysForRound` (`shared/study/sentenceRound.ts`, Lab `SentenceRound.rowMarks` /
-  `orderKeys`, parity-tested); web `SentenceSet` `roundRows`, Lab `SentenceList` `roundMarks`.
+  `orderKeys`, parity-tested; the order is `answerSentenceOrder`, "The answer side keeps the question's order"); web
+  `SentenceSet` `roundRows`, Lab `SentenceList` `roundMarks`. On a listening card Listen in context's rows come
+  first, then the round's.
 - Today is the session: the resume point carries `round_open`, `sentences_right` and `round_log` (the exercises as
   shown + each one's last result: `exercisesFromLog` brings the same ones back), so leaving and coming back shows the
   round (or the answer, with its marked rows) with what was already right; Undo / a new showing starts afresh.

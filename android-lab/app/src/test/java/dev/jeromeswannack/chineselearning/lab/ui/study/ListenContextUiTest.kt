@@ -9,6 +9,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
@@ -209,4 +211,54 @@ class ListenContextUiTest : LabScreenshotTest() {
         shot("study-listen-05-dark")
     }
 
+    /** The hanzi of the sentence rows on the answer side, top to bottom (after Show all). */
+    private fun answerRowHanzi(v: CardView): List<String> {
+        val known = listenRows(v).map { it.hanzi } + v.sentences.map { it.hanzi }
+        return compose.onAllNodesWithTag(SENTENCE_ROW_TAG).fetchSemanticsNodes()
+            .sortedBy { it.boundsInRoot.top }
+            .mapNotNull { node ->
+                val text = node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text }.orEmpty()
+                known.firstOrNull { text.contains(it) }
+            }
+    }
+
+    /**
+     * The answer keeps the question's order (core AnswerOrder; docs/STUDY_SESSION.md): the answer side's
+     * example sentences start with the rows Listen in context showed, in exactly that order — the card's
+     * own sentence where it was, with its badge — then the rest (the contrived one last, as always).
+     */
+    @Test fun answerSideKeepsTheQuestionsOrder() {
+        screen(dark = true)
+        val question = order().map { it.hanzi }
+        shot("study-listen-10-question-order")
+        compose.onNodeWithText("Show answer", substring = true, ignoreCase = true).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithText("Show all").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(600)
+        val answer = answerRowHanzi(view())
+        assertEquals(question, answer.take(question.size))
+        assertEquals("他算了算钱，打算买那辆车。", answer.last())
+        shot("study-listen-11-answer-matches")
+    }
+
+    /** The same showing again (back from the coach / Home, a resume): the question's rows as they were, and the answer follows them. */
+    @Test fun aResumedShowingKeepsItsRows() {
+        val kept = listOf("s2", clueKey, "s1")
+        val base = view()
+        val v = base.copy(start = CardStartState(listenShown = kept))
+        val reported = ArrayList<List<String>>()
+        val ui = StudyUi(StudyPhase.Showing(v), Samples.counts, SessionStats(), online = true)
+        val acts = StudyActions(onPlay = { key, text -> played += key to text }, onCardListen = { _, keys -> reported += keys })
+        compose.setContent { LabTheme { StudyScreen(ui, playingKey = null, actions = acts, autoplay = false) } }
+        compose.mainClock.advanceTimeBy(600)
+        // Not re-picked: "Sentence 1" is s2's row (its EN shows s2's English).
+        compose.onAllNodesWithTag(LISTEN_EN_TAG)[0].performClick()
+        compose.onNodeWithText("When do you plan to go home?").assertExists()
+        assertEquals(kept, reported.last())
+        compose.onNodeWithText("Show answer", substring = true, ignoreCase = true).performClick()
+        compose.mainClock.advanceTimeBy(800)
+        compose.onNodeWithText("Show all").performScrollTo().performClick()
+        compose.mainClock.advanceTimeBy(600)
+        assertEquals(listOf("你打算什么时候回家？", "你周末打算做什么？", "我打算学中文。"), answerRowHanzi(v).take(3))
+    }
 }

@@ -60,7 +60,7 @@ const onPlayWord = vi.fn();
 const onAutoplayWord = vi.fn();
 let stats: ListenContextStats | null = null;
 
-async function render(props: { online?: boolean; autoplay?: boolean; clue?: { hanzi: string; translation?: string; audio_url?: string | null } | null } = {}) {
+async function render(props: { online?: boolean; autoplay?: boolean; clue?: { hanzi: string; translation?: string; audio_url?: string | null } | null; shownKeys?: string[]; onShown?: (keys: string[]) => void } = {}) {
   await act(async () => {
     root.render(
       <ListenContext
@@ -74,6 +74,8 @@ async function render(props: { online?: boolean; autoplay?: boolean; clue?: { ha
         onAutoplayWord={onAutoplayWord}
         autoplay={props.autoplay ?? false}
         onStats={(s) => { stats = s; }}
+        shownKeys={props.shownKeys}
+        onShown={props.onShown}
       />,
     );
   });
@@ -256,5 +258,30 @@ describe('ListenContext', () => {
   it('a showing leaving fewer than four unheard asks for more (the fresh buffer)', async () => {
     await render();
     expect(practice.requestMoreSentences).toHaveBeenCalledWith('n1', { reason: 'fresh', count: 8 });
+  });
+
+  it('reports the rows it shows (the answer side follows them) and shows a kept pick again as it was', async () => {
+    const onShown = vi.fn();
+    await render({ onShown });
+    expect(onShown).toHaveBeenLastCalledWith(order());
+    // The same showing again (a peek back, the resume point): its rows in its order — not re-picked,
+    // nothing remembered or tracked twice, even with a different seed and that set as "previous".
+    act(() => root.unmount());
+    root = createRoot(container);
+    analytics.track.mockReset();
+    shown.rememberShownListenKeys.mockReset();
+    shown.newListenSeed.mockReturnValue('seed-2');
+    shown.previous = order();
+    const kept = [...order()].reverse();
+    await render({ shownKeys: kept, onShown });
+    expect(all('listen-row').map((r) => r.getAttribute('data-key'))).toEqual(kept);
+    expect(shown.rememberShownListenKeys).not.toHaveBeenCalled();
+    expect(analytics.track).not.toHaveBeenCalledWith('study.listen_context_shown', expect.anything());
+    // A kept pick none of whose sentences is still there: picked afresh.
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render({ shownKeys: ['gone'], onShown });
+    expect(all('listen-row')).toHaveLength(3);
+    expect(shown.rememberShownListenKeys).toHaveBeenCalled();
   });
 });
