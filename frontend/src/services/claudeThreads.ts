@@ -16,7 +16,7 @@
  */
 import type { ClaudeThreadMessage, ClaudeThreadSummary, ClaudeTurnEvent } from '@shared/claude/api';
 import { contextBadge, previewOf, titleFor, type ClaudeContextSnapshot, type ClaudeIntent, type ClaudeThreadContext } from '@shared/claude/context';
-import { applyTurnFrame, mergeMessage, mergeThreadMessages, sortMessages } from '@shared/claude/threadCache';
+import { applyTurnFrame, mergeMessage as mergeCachedMessage, mergeThreadMessages, sortMessages } from '@shared/claude/threadCache';
 import { db } from '../db/database';
 import {
   createClaudeThread,
@@ -99,7 +99,12 @@ export async function getLocalMessages(threadId: string): Promise<LocalClaudeMes
   return sortMessages(rows);
 }
 
-export { mergeMessage, sortMessages };
+export { sortMessages };
+
+/** A server row over the device's copy (shared/claude/threadCache.ts: a streamed reply keeps its longer text). */
+export function mergeMessage(local: LocalClaudeMessage | undefined, server: ClaudeThreadMessage): LocalClaudeMessage {
+  return mergeCachedMessage<LocalClaudeMessage>(local, server);
+}
 
 // ---------- Writing the cache ----------
 
