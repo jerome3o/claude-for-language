@@ -71,6 +71,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -320,9 +321,19 @@ fun YouSaidBox(
     checking: Boolean = false,
     /** Claude's verdict on such a take: ✓ Right / ≈ Close / ✗ Didn't match + its one-line reason (and a ✗'s tip). */
     claude: ReadTakeClaude? = null,
+    /**
+     * The card's hanzi: a take that isn't a match shows the slim answer diff (docs/STUDY_SESSION.md "Answer feedback:
+     * one line and a diff") — what was said marked against it and ONE line that says what differs (never Claude's
+     * tip; its reason only when the take is too different for a count).
+     */
+    expected: String? = null,
 ) {
     val device = if (r.isMatch) "match" else if (r.containsExpected) "contains" else if (r.tonesOff) "close" else "miss"
     val state = claude?.state ?: device
+    val diff = remember(r.transcribedHanzi, expected, state) {
+        if (expected != null && r.transcribedHanzi.isNotBlank() && (state == "close" || state == "miss")) AnswerDiff.of(r.transcribedHanzi, expected).takeIf { !it.empty } else null
+    }
+    val diffLine = diff?.let { AnswerDiff.line(it, accepted = claude?.state == "match", headline = claude?.reason?.reason) }
     val waiting = checking && claude == null
     // Close — tones off is partly right: the same yellow as Contains (never orange — red / green colour-blind).
     val tone = if (waiting) YouSaidTone.PENDING else when (state) { "match" -> YouSaidTone.MATCH; "contains", "close" -> YouSaidTone.CONTAINS; else -> YouSaidTone.MISS }
@@ -336,16 +347,18 @@ fun YouSaidBox(
         if (waiting) YouSaidHead(tone, "checking", label = ReadTakeCheck.CHECKING)
         else YouSaidHead(tone, state, label = claude?.let { ReadTakeCheck.CHIP[it.state] })
         Spacer(Modifier.size(4.dp))
-        Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        if (diff != null && diffLine != null) {
+            DiffMarkedText(diff.cells(), 22.sp, Modifier.semantics { contentDescription = AnswerDiff.label(diff, diffLine, AnswerDiff.YOU_SAID) }, tag = YOU_SAID_DIFF_TAG)
+        } else {
+            Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
+        }
         if (r.transcribedPinyin.isNotBlank()) {
             Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
-        if (claude != null && claude.reason.reason.isNotBlank()) {
+        // ONE line: what differs (the slim diff), else Claude's one-line reason — never its tip.
+        (diffLine ?: claude?.reason?.reason?.takeIf { it.isNotBlank() })?.let { line ->
             Spacer(Modifier.size(6.dp))
-            Text(claude.reason.reason, fontSize = 14.sp, lineHeight = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, modifier = Modifier.testTag(YOU_SAID_REASON_TAG))
-            claude.reason.tip?.let { tip ->
-                Text(tip, fontSize = 13.sp, lineHeight = 18.sp, color = Lab.colors.muted, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 2.dp).testTag(YOU_SAID_TIP_TAG))
-            }
+            Text(line, fontSize = 14.sp, lineHeight = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, modifier = Modifier.testTag(YOU_SAID_REASON_TAG))
         }
     }
 }
@@ -355,6 +368,7 @@ data class ReadTakeClaude(val state: String, val reason: ReadTakeCheck.Reason)
 
 const val YOU_SAID_REASON_TAG = "you-said-reason"
 const val YOU_SAID_TIP_TAG = "you-said-tip"
+const val YOU_SAID_DIFF_TAG = "you-said-diff"
 
 /** "Transcribing…" in the result's shell (no jump when the result arrives). */
 @Composable

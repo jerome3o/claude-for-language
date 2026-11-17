@@ -887,6 +887,7 @@ fun CardStage(
                     onTypeInstead = if (sentenceCheck != null && answerIsSpoken(answer) && questionResult != "right") ({ hardTypeInstead() }) else null,
                     onPlay = { text -> actions.onPlay(null, text) },
                     sentenceView = sentenceView,
+                    diffOnQuestion = !typing,
                     answer = Triple(note.hanzi, note.pinyin, note.english),
                     onPlayAnswer = { actions.onPlayWord(true) },
                     onMoveOn = { sentenceMoveOn() },
@@ -2349,7 +2350,7 @@ private fun TranscriptionLine(
                 transcribedHanzi = AnswerKey.tidySpokenTranscript(t.result.transcribedHanzi, answer),
                 transcribedPinyin = AnswerKey.tidySpokenTranscript(t.result.transcribedPinyin, answer),
             )
-            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay, checking = checking, claude = claude)
+            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay, checking = checking, claude = claude, expected = answer)
         }
     }
 }

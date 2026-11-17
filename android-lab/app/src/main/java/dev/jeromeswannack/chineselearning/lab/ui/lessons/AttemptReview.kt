@@ -176,12 +176,12 @@ private fun CheckRows(a: dev.jeromeswannack.chineselearning.lab.core.ExerciseAns
     if (!final) {
         a.tries.orEmpty().forEachIndexed { i, t ->
             AttRow("Try ${i + 1}", t.text)
-            t.check?.let { AnswerCheckBody(it, t.text, compact = true) }
+            t.check?.let { AnswerCheckBody(it, t.text, compact = true, detail = true) }
         }
     } else {
         val c = a.check
         val text = a.text
-        if (c != null && text != null) AnswerCheckBody(c, text, compact = true)
+        if (c != null && text != null) AnswerCheckBody(c, text, compact = true, detail = true)
     }
 }
 
@@ -197,7 +197,7 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
             // An order the lesson didn't list, checked by Claude (core ScrambleCheck).
             val orderCheck = a?.check
             val built = a?.order?.takeIf { it.isNotEmpty() }
-            if (orderCheck != null && built != null) AnswerCheckBody(orderCheck, built.joinToString(""), compact = true)
+            if (orderCheck != null && built != null) AnswerCheckBody(orderCheck, built.joinToString(""), compact = true, detail = true)
             if (attempt.correct != true || orderCheck != null) AttRow(if (attempt.correct == true) "Expected" else "Answer", exercise.correctOrder.joinToString(" "))
             if (a?.hintUsed == true) AttRow("Hint", "looked at the English")
         }

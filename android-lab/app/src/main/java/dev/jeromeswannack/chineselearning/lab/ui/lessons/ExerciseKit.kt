@@ -305,20 +305,13 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
         if (exact || model.isNullOrBlank()) {
             Text(text, fontSize = 20.sp, color = Lab.colors.ink)
         } else {
-            // The device's own diff, at once: the characters the model answer doesn't have, wavy-underlined.
-            Text(
-                androidx.compose.ui.text.buildAnnotatedString {
-                    for (m in dev.jeromeswannack.chineselearning.lab.core.LessonFeedback.markedChars(text, model, "answer")) {
-                        if (m.hit) append(m.ch) else {
-                            pushStyle(androidx.compose.ui.text.SpanStyle(color = Palette.Again, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline))
-                            append(m.ch)
-                            pop()
-                        }
-                    }
-                },
-                fontSize = 20.sp, color = Lab.colors.ink,
-                modifier = Modifier.testTag("lesson-marked-answer"),
-            )
+            // The slim answer diff, at once (core AnswerDiff; docs/STUDY_SESSION.md "Answer feedback: one line and a
+            // diff"): his answer lined up with the model answer — wrong rose, extra yellow struck through, missing muted in
+            // a dashed slot, tone off wavy — and ONE line under it that says what differs.
+            val diff = androidx.compose.runtime.remember(text, model) { dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(text, model) }
+            val line = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(diff)
+            dev.jeromeswannack.chineselearning.lab.ui.study.DiffMarkedText(diff.parts.map { dev.jeromeswannack.chineselearning.lab.ui.study.DiffCell(it.text, it.kind) }, 20.sp, tag = "lesson-marked-answer")
+            Text(line, fontSize = 13.sp, color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp).testTag("lesson-answer-diff-line"))
         }
         // A neutral line (core LessonFeedback.answerMarks): e.g. the model answer's characters in another order.
         if (!note.isNullOrBlank()) Text(note, fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.padding(top = 4.dp).testTag("lesson-answer-note"))

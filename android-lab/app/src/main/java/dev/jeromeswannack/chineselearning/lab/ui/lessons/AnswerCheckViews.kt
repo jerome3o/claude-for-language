@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+
 import dev.jeromeswannack.chineselearning.lab.core.LessonFeedback
 
 import androidx.compose.animation.AnimatedVisibility
@@ -279,9 +281,47 @@ fun AnswerCheckBody(
      * fix is at most a small labelled line there — core SentenceAnswerCheck.view).
      */
     hideFix: Boolean = false,
+    /**
+     * The whole check — tips, the red-pen fix, the alternative, each part's note (the attempt review, a record the
+     * tutor reads). Off everywhere he answers (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the
+     * verdict chip and ONE line — the headline's first sentence —, a speaking check's parts as marks only, and the
+     * actions (🔁 Try again, 💬 Ask Claude for the why). The web's `AnswerCheckBody` `detail`.
+     */
+    detail: Boolean = false,
 ) {
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
+    if (!detail) {
+        // Slim: no box — the chip + ONE line, the parts as small marks, the actions.
+        Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("answer-check"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    chip.label, color = tone, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(tone.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+                Text(AnswerDiff.firstSentence(check.headline), Modifier.testTag("answer-check-headline"), color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+            }
+            afterHead?.invoke()
+            check.parts?.takeIf { it.isNotEmpty() }?.let { parts ->
+                FlowRow(Modifier.testTag("answer-check-parts"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    for (p in parts) {
+                        val mark = LessonAnswerCheck.partMark(p.status)
+                        Text(
+                            "${mark.icon} ${p.label}${if (p.status == "missing") " missing" else ""}",
+                            color = toneColor(mark.tone), fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+            if (onRetry != null || onAsk != null) {
+                FlowRow(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onRetry?.let { CheckAction("🔁 Try again", it) }
+                    onAsk?.let { CheckAction(askLabel ?: "💬 Ask about this", it) }
+                }
+            }
+        }
+        return
+    }
     val shape = RoundedCornerShape(14.dp)
     Row(Modifier.fillMaxWidth().padding(top = 8.dp).clip(shape).background(Lab.colors.card).border(1.dp, Lab.colors.cardBorder, shape)) {
         Box(Modifier.width(4.dp).heightIn(min = 40.dp).background(tone))
