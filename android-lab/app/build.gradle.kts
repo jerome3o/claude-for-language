@@ -140,6 +140,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging) // chat notifications (data/chat/), initialised by hand when configured
+    implementation(libs.mlkit.text.chinese) // ＋ Add tab: photo → Chinese on the device, offline (data/add/DeviceOcr.kt; the model comes from Play services)
     implementation(libs.kotlinx.coroutines.android)
     debugImplementation(libs.compose.ui.tooling)
 

@@ -186,7 +186,8 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
      * The box → Claude: a new general thread with that intent (offline: kept here and queued), then
      * [onStarted] with its id (the thread screen opens it; the reply streams there).
      */
-    fun sendToClaude(text: String, intent: String, spoken: Boolean, onStarted: (String) -> Unit) {
+    /** [chip] = one of the box's suggestion chips (its question; the draft is kept). */
+    fun sendToClaude(text: String, intent: String, spoken: Boolean, chip: Boolean = false, onStarted: (String) -> Unit) {
         val msg = text.trim()
         if (msg.isEmpty() || local.value.sending) return
         local.update { it.copy(sending = true, sendError = null) }
@@ -194,11 +195,11 @@ class ChatsViewModel(private val app: LabApp) : ViewModel() {
         viewModelScope.launch {
             try {
                 val res = ClaudeThreads.of(app).start(ClaudeContextDto(ClaudeChats.GENERAL), msg, intent, language, app.online.value)
-                app.analytics.track("chats.compose_send", mapOf("intent" to intent, "offline" to res.queued, "spoken" to spoken))
-                app.analytics.track("claude.message_send", mapOf("context_kind" to ClaudeChats.GENERAL, "intent" to intent, "offline" to res.queued, "chip" to false, "spoken" to spoken))
+                app.analytics.track("chats.compose_send", mapOf("intent" to intent, "offline" to res.queued, "spoken" to spoken, "chip" to chip))
+                app.analytics.track("claude.message_send", mapOf("context_kind" to ClaudeChats.GENERAL, "intent" to intent, "offline" to res.queued, "chip" to chip, "spoken" to spoken))
                 if (res.queued) app.scheduleBackgroundUpload()
                 app.haptics.tick()
-                local.update { it.copy(sending = false, draft = "") }
+                local.update { if (chip) it.copy(sending = false) else it.copy(sending = false, draft = "") }
                 onStarted(res.threadId)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e

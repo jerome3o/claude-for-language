@@ -46,6 +46,8 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.Lab">
+        <!-- ＋ Add tab (data/add/DeviceOcr.kt): Play services downloads the Chinese text model at install. -->
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="ocr_chinese" />
 
         <!-- LabApp is a WorkManager Configuration.Provider (on-demand init), so the default
              startup initializer must go (release lint: RemoveWorkManagerInitializer). -->

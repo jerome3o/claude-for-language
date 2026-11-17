@@ -3,6 +3,8 @@ import oneChatRoutes, { mountMergedConversations } from './routes/one-chat';
 import coachRoutes from './routes/coach';
 import idiomsRoutes from './routes/idioms';
 import phoneRoutes from './routes/phone';
+import addWordsRoutes from './routes/add-words';
+import { runLessonRequest, type LessonRequestQueueMessage } from './services/lesson-requests';
 import memeReviewRoutes from './routes/meme-review';
 import clipsRoutes from './routes/clips';
 import { handleClipMessage, type ClipQueueMessage } from './services/clips/job';
@@ -651,6 +653,7 @@ app.route('/api', mediaRoutes);
 app.route('/api', feedbackRoutes);
 app.route('/api', idiomsRoutes); // 成语 Idioms (beta): GET|POST /api/idioms, GET /api/idioms/:hanzi
 app.route('/api', clipsRoutes); // 🎬 Clips (experimental): GET|POST /api/clips, /generate, /events, /:id/learn-more
+app.route('/api', addWordsRoutes); // ＋ Add tab (docs/ADD_TAB.md): POST /api/ocr/words (photo → Chinese lines), POST /api/ai/english-words
 app.route('/api', phoneRoutes); // 📱 Phone practice (docs/PHONE_PRACTICE.md): POST /api/phone/persona-reply
 app.route('/api', memeReviewRoutes); // 梗 Meme review (prototype): GET /api/meme-review[/:month], POST …/generate (admin), …/:month/lesson
 app.route('/api', messageTranslateRoutes);
@@ -6983,6 +6986,17 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
         // Claude thread replies (services/claude-agent/thread-turn.ts): the watchdog of a reply started
         // inline, or a second go after a busy model. 'busy' = the runner still holds the lease.
         const turn = message.body as Partial<ClaudeTurnQueueMessage>;
+        // ＋ Add tab → 🎯 Mini lesson (services/lesson-requests.ts): the row records a failure, so it is acked.
+        const lessonRequest = message.body as Partial<LessonRequestQueueMessage>;
+        if (lessonRequest.kind === 'lesson_request' && lessonRequest.jobId) {
+          try {
+            console.log('[Queue] lesson request', lessonRequest.jobId, await runLessonRequest(env, lessonRequest.jobId));
+          } catch (err) {
+            console.error('[Queue] lesson request crashed:', lessonRequest.jobId, err);
+          }
+          message.ack();
+          continue;
+        }
         if (turn.kind === 'claude_turn' && turn.messageId) {
           try {
             const outcome = await runThreadTurn(env, turn.messageId, { inline: false });
