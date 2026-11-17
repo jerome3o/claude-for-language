@@ -9,8 +9,6 @@ import {
   DeckWithNotes,
   NoteWithCards,
   CardWithNote,
-  StudySession,
-  SessionWithReviews,
   Rating,
   OverviewStats,
   DeckStats,
@@ -826,40 +824,6 @@ export async function submitReview(data: {
   });
 }
 
-// ============ Study Sessions ============
-
-export async function startSession(deckId?: string): Promise<StudySession> {
-  return fetchJSON<StudySession>('/study/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ deck_id: deckId }),
-  });
-}
-
-export async function getSession(id: string): Promise<SessionWithReviews> {
-  return fetchJSON<SessionWithReviews>(`/study/sessions/${id}`);
-}
-
-export async function recordReview(
-  sessionId: string,
-  data: {
-    card_id: string;
-    rating: Rating;
-    time_spent_ms?: number;
-    user_answer?: string;
-  }
-): Promise<{ review: { id: string }; next_review_at: string; interval: number }> {
-  return fetchJSON(`/study/sessions/${sessionId}/reviews`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-}
-
-export async function completeSession(id: string): Promise<StudySession> {
-  return fetchJSON<StudySession>(`/study/sessions/${id}/complete`, {
-    method: 'PUT',
-  });
-}
-
 // ============ Note Audio Recordings ============
 
 export async function getNoteAudioRecordings(noteId: string): Promise<NoteAudioRecording[]> {
@@ -1620,11 +1584,6 @@ export async function sendCoachMessage(id: string, message: string, opts: { lang
     method: 'POST',
     body: JSON.stringify({ message, background: true, ...(opts.language ? { language: opts.language } : {}) }),
   });
-}
-
-/** "💬 Ask Claude": a new chat — 202 with my message and Claude's pending reply. */
-export async function startCoachAsk(message: string, language?: 'zh' | 'en'): Promise<{ conversation: CoachConversation; messages: CoachMessage[] }> {
-  return fetchJSON('/coach/ask', { method: 'POST', body: JSON.stringify({ message, ...(language ? { language } : {}) }) });
 }
 
 /** The English of one Chinese message of a coach conversation (kept on the server). */

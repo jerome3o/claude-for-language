@@ -39,6 +39,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
+import dev.jeromeswannack.chineselearning.lab.core.QuestionThread
 import dev.jeromeswannack.chineselearning.lab.data.api.ActivityDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
@@ -295,29 +296,8 @@ fun FlagRow(flag: TeachFlagDto, actions: FlagActions, now: Instant = Instant.now
 
 // ---------------- Asked Claude ----------------
 
-/** One conversation: a card's questions within 30 min of each other (port of groupQuestionThreads). */
-data class ClaudeThread(val id: String, val noteId: String, val questions: List<ClaudeQuestionDto>, val lastAt: String)
-
-const val THREAD_GAP_MS = 30 * 60 * 1000L
-
-/** Port of groupQuestionThreads() (shared/chats/threads.ts): newest thread first, questions oldest first. */
-fun groupQuestionThreads(rows: List<ClaudeQuestionDto>, gapMs: Long = THREAD_GAP_MS): List<ClaudeThread> {
-    fun time(iso: String) = TeachingFormat.parse(iso)?.toEpochMilli() ?: 0L
-    val sorted = rows.sortedBy { time(it.asked_at) }
-    val open = HashMap<String, Int>()
-    val threads = mutableListOf<ClaudeThread>()
-    for (row in sorted) {
-        val idx = open[row.note_id]
-        if (idx != null && time(row.asked_at) - time(threads[idx].lastAt) <= gapMs) {
-            val t = threads[idx]
-            threads[idx] = t.copy(questions = t.questions + row, lastAt = row.asked_at)
-            continue
-        }
-        open[row.note_id] = threads.size
-        threads += ClaudeThread(row.id, row.note_id, listOf(row), row.asked_at)
-    }
-    return threads.sortedByDescending { time(it.lastAt) }
-}
+/** One conversation: a card's questions within 30 min of each other (core [QuestionThreads.group], parity-tested). */
+typealias ClaudeThread = QuestionThread<ClaudeQuestionDto>
 
 @Composable
 fun ClaudeThreadRow(thread: ClaudeThread, onOpenCard: (String) -> Unit, now: Instant = Instant.now(), initiallyOpen: Boolean = false, showCard: Boolean = true) {

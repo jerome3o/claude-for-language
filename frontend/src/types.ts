@@ -233,26 +233,6 @@ export interface Card {
   updated_at: string;
 }
 
-export interface StudySession {
-  id: string;
-  user_id: string | null;
-  deck_id: string | null;
-  started_at: string;
-  completed_at: string | null;
-  cards_studied: number;
-}
-
-export interface CardReview {
-  id: string;
-  session_id: string;
-  card_id: string;
-  rating: Rating;
-  time_spent_ms: number | null;
-  user_answer: string | null;
-  recording_url: string | null;
-  reviewed_at: string;
-}
-
 export interface NoteAudioRecording {
   id: string;
   note_id: string;
@@ -275,10 +255,6 @@ export interface DeckWithNotes extends Deck {
 
 export interface CardWithNote extends Card {
   note: Note;
-}
-
-export interface SessionWithReviews extends StudySession {
-  reviews: (CardReview & { card: CardWithNote })[];
 }
 
 // AI generation types
