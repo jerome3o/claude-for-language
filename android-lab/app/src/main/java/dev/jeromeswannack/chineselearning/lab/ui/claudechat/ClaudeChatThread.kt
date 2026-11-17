@@ -75,6 +75,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.NoticeKind
 import dev.jeromeswannack.chineselearning.lab.ui.kit.SecondaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.readers.MarkedChars
+import dev.jeromeswannack.chineselearning.lab.ui.readers.markedLabel
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudHandle
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudMic
 import dev.jeromeswannack.chineselearning.lab.ui.readers.ReadAloudPanel
@@ -504,7 +505,7 @@ private fun Claude(
         ) {
             when {
                 markdown -> MarkdownText(m.text, style = MaterialTheme.typography.bodyMedium.copy(color = c.onTheirs))
-                result != null -> MarkedChars(result.chars, result.extraAtEnd, fontSize = 18.sp, lineHeight = 30.sp)
+                result != null -> MarkedChars(result.chars, result.extraAtEnd, fontSize = 18.sp, lineHeight = 30.sp, label = markedLabel(result.chars))
                 else -> ChineseWords(text = m.text, words = words, isMe = false, color = c.onTheirs, showPinyin = pinyin, known = known, onChip = onChipOf(m.text, words, false, actions), fontSize = 18.sp, onLongPress = long)
             }
             if (translateOn) TranslationLine(translation ?: "Translating…", false)

@@ -1,7 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.ui.readers
 
-import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -10,7 +8,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,12 +16,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,29 +32,25 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.Stable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -66,19 +59,20 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.BaselineShift
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.fx.Sounds
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
 import dev.jeromeswannack.chineselearning.lab.core.CoachPractise
 import dev.jeromeswannack.chineselearning.lab.core.ReadAloud
 import dev.jeromeswannack.chineselearning.lab.core.ReaderWords
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerStack
+import dev.jeromeswannack.chineselearning.lab.fx.Sounds
 import dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
@@ -87,6 +81,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.study.YouSaidFailed
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.LabColors
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+
 
 /** Test tags of 🎤 Read it aloud. */
 object ReadAloudTags {
@@ -397,15 +392,9 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
         }
         // The per-word rows wait behind "You said ▸" (collapsed): the marked page IS the diff.
         if (open) {
-            // The transcript with what differs marked like the page (a homophone unmarked; extra words solid).
+            // The transcript with what differs marked like the page, colour only (a homophone unmarked; extra words violet).
             val heard = result.heard
-            if (heard.isNotEmpty()) MarkedChars(
-                heard.map { h ->
-                    ReadAloud.Char(h.char, when (h.mark) { "close" -> ReadAloud.Mark.CLOSE; "wrong", "extra" -> ReadAloud.Mark.WRONG; "plain" -> ReadAloud.Mark.PLAIN; else -> ReadAloud.Mark.OK }, "", "")
-                },
-                fontSize = 16.sp,
-                modifier = Modifier.padding(top = 10.dp).testTag(ReadAloudTags.SAID),
-            )
+            if (heard.isNotEmpty()) HeardMarkedChars(heard, Modifier.padding(top = 10.dp).testTag(ReadAloudTags.SAID))
             else Text(said, color = Lab.colors.muted, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp).testTag(ReadAloudTags.SAID))
             differences()
         }
@@ -527,12 +516,12 @@ private fun DiffSide(label: String, zh: String, py: String, onOpen: (() -> Unit)
 // --- the page's own Chinese, marked in place -------------------------------------------------------
 
 /**
- * The page's characters with their read-aloud marks (web: ReaderWords.tsx `MarkedChars` +
- * ReadAloud.css). Jerome reads them in dark mode and is red / green colour-blind, so the characters
- * keep the body ink whatever their mark and the mark is a SHAPE drawn under the character over a soft
- * tint ([LabColors.markTone] / [LabColors.markWrong]): read right (ok, a homophone) = no mark — a page
- * read well reads clean —, tone off = a wavy lemon underline, wrong = a solid thick rose one, missed =
- * a dashed rose one; a small rose ‸ where extra words were said.
+ * The page's characters with their read-aloud marks (web: ReaderWords.tsx `MarkedChars` + ReadAloud.css) — the slim
+ * answer diff's language, COLOUR ONLY (Jerome, Nov 2026: "we don't need the outlines and the color and the
+ * underlines"): read right (ok, a homophone) = no mark — a page read well reads clean —, tone off = the character in
+ * [LabColors.markTone] (amber), wrong = [LabColors.markWrong] (rose), missed = [LabColors.markMissing] (grey); a small
+ * violet ‸ ([LabColors.markExtra]) where extra words were said. No tint, no underline. [label] = the node's content
+ * description (null = the caller's own semantics, e.g. a word chip's [markedLabel]).
  */
 @Composable
 fun MarkedChars(
@@ -541,70 +530,57 @@ fun MarkedChars(
     fontSize: TextUnit = 26.sp,
     lineHeight: TextUnit = TextUnit.Unspecified,
     modifier: Modifier = Modifier,
+    label: String? = null,
 ) {
     val colors = Lab.colors
-    val (text, marks) = remember(chars, extraAtEnd, colors.markWrong) {
-        val at = mutableListOf<Pair<Int, ReadAloud.Mark>>()
-        val s = buildAnnotatedString {
+    val text = remember(chars, extraAtEnd, colors) {
+        buildAnnotatedString {
             for (c in chars) {
-                if (c.extraBefore.isNotEmpty()) caret(this, colors.markWrong)
-                if (c.mark == ReadAloud.Mark.CLOSE || c.mark == ReadAloud.Mark.WRONG || c.mark == ReadAloud.Mark.MISSED) at += length to c.mark
-                append(c.char)
+                if (c.extraBefore.isNotEmpty()) caret(this, colors.markExtra)
+                val color = readAloudMarkColor(c.mark, colors)
+                if (color != null) withStyle(SpanStyle(color = color)) { append(c.char) } else append(c.char)
             }
-            if (extraAtEnd.isNotEmpty()) caret(this, colors.markWrong)
+            if (extraAtEnd.isNotEmpty()) caret(this, colors.markExtra)
         }
-        s to at
     }
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text,
         fontSize = fontSize,
         lineHeight = lineHeight,
         color = colors.ink,
-        onTextLayout = { layout = it },
-        modifier = modifier.drawBehind {
-            val l = layout ?: return@drawBehind
-            if (l.layoutInput.text != text) return@drawBehind
-            val em = fontSize.toPx()
-            for ((offset, mark) in marks) {
-                val box = l.getBoundingBox(offset)
-                val base = l.getLineBaseline(l.getLineForOffset(offset))
-                drawReadAloudMark(mark, box.left, box.right, base - em * 0.92f, base + em * 0.24f, base + em * 0.17f, colors)
-            }
-        },
+        modifier = if (label == null) modifier else modifier.semantics { contentDescription = label },
     )
 }
 
-/** One character's mark between [left] and [right]: the tint from [top] to [bottom], the underline centred on [lineY]. */
-fun DrawScope.drawReadAloudMark(mark: ReadAloud.Mark, left: Float, right: Float, top: Float, bottom: Float, lineY: Float, colors: LabColors) {
-    val wrong = mark == ReadAloud.Mark.WRONG || mark == ReadAloud.Mark.MISSED
-    val tint = if (wrong) colors.markWrongTint else colors.markToneTint
-    val ink = if (wrong) colors.markWrong else colors.markTone
-    drawRoundRect(tint, Offset(left, top), Size(right - left, bottom - top), CornerRadius(3.dp.toPx()))
-    when (mark) {
-        ReadAloud.Mark.CLOSE -> {
-            val amp = 1.7.dp.toPx()
-            val half = 3.dp.toPx()
-            val path = Path().apply {
-                moveTo(left, lineY)
-                var x = left
-                var up = true
-                while (x < right) {
-                    val nx = minOf(x + half, right)
-                    quadraticTo((x + nx) / 2, lineY + if (up) -amp * 2 else amp * 2, nx, lineY)
-                    x = nx
-                    up = !up
+/** A read-aloud mark's colour (null = body ink: read right / not read / punctuation). */
+fun readAloudMarkColor(mark: ReadAloud.Mark, colors: LabColors): Color? = when (mark) {
+    ReadAloud.Mark.CLOSE -> colors.markTone
+    ReadAloud.Mark.WRONG -> colors.markWrong
+    ReadAloud.Mark.MISSED -> colors.markMissing
+    else -> null
+}
+
+/**
+ * "You said ▸": the transcript marked like the page, colour only (web `HeardChars`): tone off amber, not what the page
+ * says rose, words he added violet; a homophone unmarked (it was right).
+ */
+@Composable
+private fun HeardMarkedChars(heard: List<ReadAloud.HeardChar>, modifier: Modifier = Modifier) {
+    val colors = Lab.colors
+    val text = remember(heard, colors) {
+        buildAnnotatedString {
+            for (h in heard) {
+                val color = when (h.mark) {
+                    "close" -> colors.markTone
+                    "wrong" -> colors.markWrong
+                    "extra" -> colors.markExtra
+                    else -> null
                 }
+                if (color != null) withStyle(SpanStyle(color = color)) { append(h.char) } else append(h.char)
             }
-            drawPath(path, ink, style = Stroke(width = 1.6.dp.toPx(), cap = StrokeCap.Round))
         }
-        ReadAloud.Mark.WRONG -> drawLine(ink, Offset(left, lineY), Offset(right, lineY), strokeWidth = 3.dp.toPx())
-        ReadAloud.Mark.MISSED -> drawLine(
-            ink, Offset(left, lineY), Offset(right, lineY), strokeWidth = 3.dp.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 2.5.dp.toPx())),
-        )
-        else -> Unit
     }
+    Text(text, fontSize = 16.sp, color = colors.ink, modifier = modifier)
 }
 
 private fun caret(b: AnnotatedString.Builder, color: Color) {
@@ -613,7 +589,7 @@ private fun caret(b: AnnotatedString.Builder, color: Color) {
     b.pop()
 }
 
-/** The tiny legend under the line: a sample of each mark this page shows (core [ReadAloud.legend]). */
+/** The tiny legend under the line: a sample character of each mark this page shows, in its colour (core [ReadAloud.legend]). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ReadAloudLegend(keys: List<String>) {
@@ -622,25 +598,13 @@ fun ReadAloudLegend(keys: List<String>) {
     FlowRow(Modifier.testTag(ReadAloudTags.LEGEND), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         for (k in keys) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Canvas(Modifier.size(width = 22.dp, height = 14.dp)) {
-                    if (k == "extra") {
-                        // The page's ‸, drawn: a small rose caret.
-                        val w = 3.5.dp.toPx()
-                        val path = Path().apply {
-                            moveTo(size.width / 2 - w, size.height * 0.62f)
-                            lineTo(size.width / 2, size.height * 0.18f)
-                            lineTo(size.width / 2 + w, size.height * 0.62f)
-                        }
-                        drawPath(path, colors.markWrong, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
-                        return@Canvas
-                    }
-                    val mark = when (k) {
-                        "close" -> ReadAloud.Mark.CLOSE
-                        "wrong" -> ReadAloud.Mark.WRONG
-                        else -> ReadAloud.Mark.MISSED
-                    }
-                    drawReadAloudMark(mark, 0f, size.width, 0f, size.height - 3.dp.toPx(), size.height - 3.dp.toPx(), colors)
+                val (sample, color) = when (k) {
+                    "extra" -> "‸" to colors.markExtra
+                    "close" -> "字" to colors.markTone
+                    "wrong" -> "字" to colors.markWrong
+                    else -> "字" to colors.markMissing
                 }
+                Text(sample, color = color, fontSize = 14.sp, fontWeight = if (k == "extra") FontWeight.Bold else FontWeight.Medium)
                 Text(ReadAloud.legendLabel(k), color = colors.muted, fontSize = 12.sp)
             }
         }

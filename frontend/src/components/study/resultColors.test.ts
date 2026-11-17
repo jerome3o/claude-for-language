@@ -11,6 +11,7 @@ const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.met
  * UX"). They use the result tokens. Lab twin: ResultColorsGuardTest.
  */
 const FILES = [
+  './AnswerDiff.css',
   './YouSaid.css',
   './HardModeFeedback.css',
   './SentenceRound.css',
@@ -36,6 +37,10 @@ describe('result components use the one state colours', () => {
     for (const state of ['right', 'close', 'wrong', 'pending']) {
       expect(css.match(new RegExp(`--result-${state}:`, 'g'))?.length).toBe(2);
       expect(css.match(new RegExp(`--result-${state}-ink:`, 'g'))?.length).toBe(2);
+    }
+    // The answer diff's marks (colour only; theme/answerMarks.test.ts checks their contrast).
+    for (const mark of ['wrong', 'tone', 'extra', 'missing']) {
+      expect(css.match(new RegExp(`--mark-${mark}:`, 'g'))?.length).toBe(2);
     }
   });
 });

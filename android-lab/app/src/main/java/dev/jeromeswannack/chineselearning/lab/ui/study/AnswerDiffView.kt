@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,46 +10,29 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.background
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+import dev.jeromeswannack.chineselearning.lab.core.ResultState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
-import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 /** Test tags of the slim answer feedback. */
 object AnswerDiffTags {
@@ -62,27 +46,46 @@ object AnswerDiffTags {
 
 /**
  * One marked cell: [kind] = the answer diff's (ok · sound · tone · wrong · extra · missing · plain) or the "You said"
- * row's "differs" (written differently: the yellow highlight + dotted underline).
+ * row's "differs" (written differently — sounded right) / "muted" (the words around a contained answer).
  */
 data class DiffCell(val text: String, val kind: String)
 
 /** The answer diff's parts as cells. */
 fun AnswerDiff.Diff.cells(): List<DiffCell> = parts.map { DiffCell(it.text, it.kind) }
 
-/** The tone's ink (✓ green / ≈ lemon / ✕ rose), from the marks' own palette so it reads in dark mode. */
+/** The tone's ink (✓ green / ≈ amber / ✕ rose) — the result state's "right" ink, the marks' own tone / wrong colours. */
 @Composable
 fun answerDiffToneInk(tone: String): Color = when (tone) {
-    "right" -> if (Lab.colors.card.luminance() < 0.5f) Color(0xFF4ADE80) else Color(0xFF15803D)
+    "right" -> ResultColors.ink(ResultState.RIGHT)
     "close" -> Lab.colors.markTone
     else -> Lab.colors.markWrong
 }
 
+/** A marked cell's words for a screen reader ("测 — wrong", "院 — missing"); null = not marked. */
+fun diffCellLabel(c: DiffCell): String? = when (c.kind) {
+    "wrong" -> "${c.text} — wrong"
+    "tone" -> "${c.text} — tone off"
+    "extra" -> "${c.text} — extra"
+    "missing" -> "missing ${c.text}"
+    "sound", "differs" -> "${c.text} — sounded right, written differently"
+    else -> null
+}
+
+/** The whole marked text for a screen reader: what was said, then each marked character by name. */
+fun diffCellsLabel(cells: List<DiffCell>): String {
+    val said = cells.filter { it.kind != "missing" }.joinToString("") { it.text }.ifEmpty { "…" }
+    val marked = cells.mapNotNull(::diffCellLabel)
+    return if (marked.isEmpty()) said else "$said. ${marked.joinToString("; ")}."
+}
+
 /**
- * His answer's characters, marked (the web's `AnswerDiffChars`; shared/cards/answer-diff.ts) — a SHAPE per kind as
- * well as a colour (Jerome is red / green colour-blind): wrong = rose + tint + thick solid underline, tone off = lemon
- * wavy underline over a tint (body ink), extra = yellow highlight in a solid amber box, missing = the expected character,
- * muted, in a dashed box, a homophone = a faint dotted underline, "differs" = the yellow highlight + dotted underline.
- * [accepted] = right in other words: every difference only a quiet dotted underline.
+ * His answer's characters, marked (the web's `AnswerDiffChars`; shared/cards/answer-diff.ts) — COLOUR ONLY (Jerome,
+ * Nov 2026: "we don't need the outlines and the color and the underlines"): the character itself in its mark's colour
+ * ([LabColors.markWrong] rose, [LabColors.markTone] amber = tone off, [LabColors.markExtra] violet, [LabColors.markMissing]
+ * grey = the expected character he left out); a homophone ("sound" / "differs") counts as right and has no mark. No box,
+ * tint or underline. Colour is never the only signal: the node's content description names each marked character
+ * ([diffCellsLabel], or [label]; a parent's `clearAndSetSemantics` replaces it with the whole diff's sentence) and the
+ * line above says it in words. [accepted] = right in other words: every difference in body ink.
  */
 @Composable
 fun DiffMarkedText(
@@ -92,99 +95,35 @@ fun DiffMarkedText(
     tag: String = AnswerDiffTags.CHARS,
     accepted: Boolean = false,
     fontWeight: FontWeight = FontWeight.Medium,
+    /** The node's content description (default: [diffCellsLabel]; "" = none — a parent row that merges says it all). */
+    label: String? = null,
 ) {
     val colors = Lab.colors
-    val dark = colors.card.luminance() < 0.5f
-    val extraBg = if (dark) Palette.PartialStrong.copy(alpha = 0.28f) else Color(0xFFFDE68A)
-    val extraInk = if (dark) Palette.PartialStrong else Palette.PartialInk
-    val differsBg = if (dark) Palette.PartialStrong.copy(alpha = 0.22f) else Palette.PartialStrong
-    val differsInk = if (dark) Palette.PartialStrong else Palette.PartialInk
-    val ranges = remember(cells, accepted) { mutableListOf<Pair<IntRange, String>>() }
-    val text = remember(cells, accepted, dark) {
-        ranges.clear()
+    val text = remember(cells, accepted, colors) {
         buildAnnotatedString {
             if (cells.isEmpty()) append("…")
             for (c in cells) {
-                val start = length
-                val kind = if (accepted && c.kind in setOf("wrong", "extra", "tone", "differs")) "quiet" else c.kind
-                val style = when (kind) {
-                    "wrong" -> SpanStyle(color = colors.markWrong)
-                    "extra" -> SpanStyle(color = extraInk, background = extraBg)
-                    "missing" -> SpanStyle(color = colors.muted)
-                    "plain" -> SpanStyle(color = colors.ink)
-                    "muted" -> SpanStyle(color = colors.muted)
-                    "differs" -> SpanStyle(color = differsInk, background = differsBg)
-                    else -> SpanStyle(color = colors.ink)
+                val kind = if (accepted && c.kind in setOf("wrong", "extra", "tone")) "ok" else c.kind
+                val color = when (kind) {
+                    "wrong" -> colors.markWrong
+                    "tone" -> colors.markTone
+                    "extra" -> colors.markExtra
+                    "missing" -> colors.markMissing
+                    "muted" -> colors.muted
+                    else -> colors.ink
                 }
-                withStyle(style) { append(c.text) }
-                if (length > start && kind != "ok" && kind != "plain" && kind != "muted") ranges += (start until length) to kind
+                withStyle(SpanStyle(color = color)) { append(c.text) }
             }
         }
     }
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val density = LocalDensity.current
+    val description = label ?: remember(cells) { diffCellsLabel(cells) }
     Text(
         text,
         fontSize = fontSize,
         lineHeight = fontSize * 1.45f,
         fontWeight = fontWeight,
-        onTextLayout = { layout = it },
-        modifier = modifier.testTag(tag).drawBehind {
-            val l = layout ?: return@drawBehind
-            if (l.layoutInput.text != text) return@drawBehind
-            val em = fontSize.toPx()
-            for ((range, kind) in ranges) {
-                for (offset in range) {
-                    if (offset >= text.length || text[offset].isLowSurrogate()) continue
-                    val box = l.getBoundingBox(offset)
-                    val base = l.getLineBaseline(l.getLineForOffset(offset))
-                    drawDiffMark(kind, box.left, box.right, base - em * 0.92f, base + em * 0.24f, base + em * 0.18f, colors.markWrong, colors.markWrongTint, colors.markTone, colors.markToneTint, colors.muted, differsInk, density.density)
-                }
-            }
-        },
+        modifier = (if (description.isEmpty()) modifier else modifier.semantics { contentDescription = description }).testTag(tag),
     )
-}
-
-private fun DrawScope.drawDiffMark(
-    kind: String, left: Float, right: Float, top: Float, bottom: Float, lineY: Float,
-    wrong: Color, wrongTint: Color, tone: Color, toneTint: Color, muted: Color, differs: Color, dp: Float,
-) {
-    when (kind) {
-        "wrong" -> {
-            drawRoundRect(wrongTint, Offset(left, top), Size(right - left, bottom - top), CornerRadius(3 * dp))
-            drawLine(wrong, Offset(left, lineY), Offset(right, lineY), strokeWidth = 3 * dp)
-        }
-        "tone" -> {
-            drawRoundRect(toneTint, Offset(left, top), Size(right - left, bottom - top), CornerRadius(3 * dp))
-            val amp = 1.7f * dp
-            val half = 3f * dp
-            val path = Path().apply {
-                moveTo(left, lineY)
-                var x = left
-                var up = true
-                while (x < right) {
-                    val nx = minOf(x + half, right)
-                    quadraticTo((x + nx) / 2, lineY + if (up) -amp * 2 else amp * 2, nx, lineY)
-                    x = nx
-                    up = !up
-                }
-            }
-            drawPath(path, tone, style = Stroke(width = 1.6f * dp, cap = StrokeCap.Round))
-        }
-        "missing" -> drawRoundRect(
-            muted, Offset(left + dp, top + dp), Size(right - left - 2 * dp, bottom - top - 2 * dp), CornerRadius(3 * dp),
-            style = Stroke(width = 1.5f * dp, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.5f * dp, 2.5f * dp))),
-        )
-        // An extra is a solid amber box (never a strike: a line through 了 reads as 子).
-        "extra" -> drawRoundRect(
-            differs, Offset(left + dp * 0.5f, top + dp * 0.5f), Size(right - left - dp, bottom - top - dp), CornerRadius(3 * dp),
-            style = Stroke(width = 1.5f * dp),
-        )
-        "sound", "quiet", "differs" -> drawLine(
-            if (kind == "differs") differs else muted, Offset(left, lineY), Offset(right, lineY), strokeWidth = 1.6f * dp, cap = StrokeCap.Round,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, 3.6f * dp)),
-        )
-    }
 }
 
 /**

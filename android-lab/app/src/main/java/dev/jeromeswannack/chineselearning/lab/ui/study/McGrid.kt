@@ -156,8 +156,8 @@ fun McGrid(
 
 /**
  * The answer side for a multiple-choice answer that isn't fully right (StudyPage.tsx
- * `McAnswerDiff`): each row's pick in green / red + underlined, a skipped row as a "?" with a
- * dashed underline ([AnswerMarks]),
+ * `McAnswerDiff`): each row's pick in the right ink / the wrong rose, a skipped row as a grey "?"
+ * (colour only, [AnswerMarks]),
  * "N of M left blank", then the answer with the missed rows marked. Characters are tappable.
  */
 @Composable
@@ -167,7 +167,7 @@ fun McAnswerDiff(slots: List<MultipleChoice.Slot>, size: TextUnit, onChar: (Stri
     val skipped = slots.count { it.status == MultipleChoice.SlotStatus.SKIPPED }
     val muted = Lab.colors.muted
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        // Each row's pick: green when right, red + underlined when wrong, a "?" with a dashed underline when blank.
+        // Each row's pick, colour only: the right ink when right, rose when wrong, a grey "?" when blank.
         MarkedAnswerRow(slots.map(AnswerMarks::forSlot), size * 0.8f, onChar)
         if (picked.isNotEmpty()) Text(Pinyin.of(picked), style = MaterialTheme.typography.bodyMedium, color = muted, textAlign = TextAlign.Center)
         if (skipped > 0) Text("$skipped of $choiceRows left blank", style = MaterialTheme.typography.labelMedium, color = muted)

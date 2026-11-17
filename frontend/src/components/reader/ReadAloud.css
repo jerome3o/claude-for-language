@@ -107,56 +107,33 @@
   padding: 0.25rem 0 0;
 }
 
-/* The page's own Chinese, marked in place (ReaderWordsText `marks`).
-   Jerome reads the marks in dark mode and is red / green colour-blind, so:
-   - the characters keep the body ink whatever their mark (never recoloured text);
+/* The page's own Chinese, marked in place (ReaderWordsText `marks`) — the slim answer diff's language
+   (components/study/AnswerDiff.css): COLOUR ONLY (Jerome, Nov 2026: "we don't need the outlines and the color and
+   the underlines"):
    - a read-right character (ok / a homophone) has NO mark — a page read well reads clean;
-   - the mark is a SHAPE under the character: wavy = tone off, solid thick = wrong, dashed = missed,
-     plus a soft tint behind the character; ‸ = extra words;
-   - tone off is lemon (never orange — it reads as red to him), wrong / missed rose.
-   Underlines ≥ 3:1 against the page card, ink on a tint ≥ 4.5:1 (ReadAloud.test.tsx). Lab twin:
+   - a marked character is drawn in its mark's colour, nothing else (no tint, no underline): tone off amber, wrong
+     rose, missed grey (the answer diff's "missing"); ‸ = extra words, in violet;
+   - the line under the page says what differs in words, each marked character has a title, and the chip's
+     aria-label names its marks.
+   Tokens: index.css `--mark-*` (≥ 4.5:1 on the card and a result surface, theme/answerMarks.test.ts). Lab twin:
    LabColors.mark* (ui/theme/Theme.kt) + ui/readers/ReadAloudViews.kt `MarkedChars`. */
 :root {
-  --ra-tone: #a16207;
-  --ra-tone-tint: rgba(250, 204, 21, 0.18);
-  --ra-wrong: #be123c;
-  --ra-wrong-tint: rgba(244, 63, 94, 0.14);
-}
-:root[data-theme='dark'] {
-  --ra-tone: #fde047;
-  --ra-tone-tint: rgba(253, 224, 71, 0.12);
-  --ra-wrong: #fb7185;
-  --ra-wrong-tint: rgba(251, 113, 133, 0.2);
+  --ra-tone: var(--mark-tone);
+  --ra-wrong: var(--mark-wrong);
+  --ra-missed: var(--mark-missing);
+  --ra-extra: var(--mark-extra);
+  /* A pressed word chip while marks show (not a mark). */
+  --ra-tone-tint: color-mix(in srgb, var(--mark-tone) 16%, transparent);
 }
 
-.ra-char.ra-close,
-.ra-char.ra-wrong,
-.ra-char.ra-missed {
-  color: inherit;
-  border-radius: 3px;
-  text-underline-offset: 0.3em;
-  text-decoration-skip-ink: none;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-.ra-char.ra-close {
-  background: var(--ra-tone-tint);
-  text-decoration: underline wavy var(--ra-tone);
-  text-decoration-thickness: 1.5px;
-}
-.ra-char.ra-wrong {
-  background: var(--ra-wrong-tint);
-  text-decoration: underline solid var(--ra-wrong);
-  text-decoration-thickness: 3px;
-}
-.ra-char.ra-missed {
-  background: var(--ra-wrong-tint);
-  text-decoration: underline dashed var(--ra-wrong);
-  text-decoration-thickness: 3px;
-}
+.ra-char.ra-close { color: var(--ra-tone); }
+.ra-char.ra-wrong { color: var(--ra-wrong); }
+.ra-char.ra-missed { color: var(--ra-missed); }
+/* "You said ▸": words he added that the page hasn't. */
+.ra-char.ra-added { color: var(--ra-extra); }
 .ra-extra {
   display: inline-block;
-  color: var(--ra-wrong);
+  color: var(--ra-extra);
   font-size: 0.55em;
   font-weight: 700;
   vertical-align: top;
@@ -193,15 +170,11 @@
   align-items: center;
   gap: 0.3rem;
 }
-/* A sample of the mark: three non-breaking spaces carrying the same tint + underline. */
+/* A sample of the mark: a character in the mark's colour. */
 .ra-swatch {
   display: inline-block;
   font-size: 0.875rem;
   line-height: 1;
-  padding-bottom: 0.2em;
-}
-.ra-swatch.ra-char {
-  text-underline-offset: 0.12em;
 }
 .ra-swatch.ra-extra {
   font-size: 1rem;
