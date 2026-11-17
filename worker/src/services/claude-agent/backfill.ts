@@ -22,6 +22,7 @@
  */
 import { groupQuestionThreads, sqliteToIso, THREAD_GAP_MS } from '@shared/chats/threads';
 import { previewOf, titleFor, type ClaudeThreadContext, type ClaudeContextSnapshot } from '@shared/claude/context';
+import { legacyPracticeThreadId } from '@shared/claude/practice';
 import type { Note } from '../../types';
 import { insertMessageStatement, insertThreadStatement, latestCardThread, NOW_ISO, touchThreadStatement, type NewMessage } from './store';
 
@@ -86,11 +87,6 @@ export async function ensureClaudeThreadsBackfilled(db: D1Database, userId: stri
   if (!row || row.at) return false;
   await backfillClaudeThreads(db, userId);
   return true;
-}
-
-/** The Claude thread an old Claude practice chat (`conversations.is_ai_conversation`) was copied into. */
-export function legacyPracticeThreadId(conversationId: string): string {
-  return `pc-${conversationId}`;
 }
 
 /** Is `conversationId` one of this user's old Claude practice chats? */
@@ -207,7 +203,7 @@ export async function backfillClaudeThreads(db: D1Database, userId: string): Pro
     byConversation.set(m.conversation_id, list);
   }
   for (const c of rows<PracticeRow>(practice)) {
-    const threadId = `pc-${c.id}`;
+    const threadId = legacyPracticeThreadId(c.id);
     if (dead.has(threadId)) continue;
     const context: ClaudeThreadContext = {
       kind: 'practice',

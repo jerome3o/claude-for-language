@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { LiveCallBanner } from '../components/calls/CallBanner';
 import { useParams, Link, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { chatBackTarget } from '../components/chat/chatBack';
-import { base64ToBlob, getTTSWithCache } from '../services/ttsCache';
+import { getTTSWithCache } from '../services/ttsCache';
 import { speakWithBrowserTTS } from '../services/audioCache';
 import { readConversationVoices } from '../services/conversationVoices';
 import { chatReadAloudSpeed, chatReadAloudVoice, parseVoiceGender } from '@shared/chats/voice';
@@ -12,9 +12,7 @@ import {
   getRelationship,
   generateResponseOptions,
   createNote,
-  getAIResponse,
   checkMessage,
-  updateConversationVoiceSettings,
   getConversation,
   getConversations,
   markNotificationsReadByConversation,
@@ -22,18 +20,14 @@ import {
   translateMessage,
   coachSentence,
 } from '../api/client';
-import type { VocabularyDefinition } from '../api/client';
 import {
   MessageWithSender,
   getOtherUserInRelationship,
   getMyRoleInRelationship,
-  MINIMAX_VOICES,
   GeneratedNoteWithContext,
   CheckMessageResponse,
-  CLAUDE_AI_USER_ID,
   isClaudeUser,
 } from '../types';
-import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { DiscussClaudeSheet } from '../components/claude/DiscussClaudeSheet';
 import { readClaudeReturn, withoutClaudeReturn } from '../components/claude/ResultLink';
@@ -280,8 +274,7 @@ export function ChatPage() {
   const [idkIntendedMeaning, setIdkIntendedMeaning] = useState('');
   const [idkGuess, setIdkGuess] = useState('');
 
-  // AI conversation state
-  const [isWaitingForAI, setIsWaitingForAI] = useState(false);
+  // Read aloud
   const [playingAudioMessageId, setPlayingAudioMessageId] = useState<string | null>(null);
   const playerRef = useRef(createAudioPlayer());
 
@@ -312,19 +305,6 @@ export function ChatPage() {
   // "✨ How to say it better" (docs/CHAT.md "Auto-check").
   const [sayBetterFor, setSayBetterFor] = useState<MessageWithSender | null>(null);
 
-  // Translate + flashcard state
-
-  // Word-by-word (segmented) translation, per message
-  const [wordByWord, setWordByWord] = useState<Set<string>>(new Set());
-
-  // Interactive translation word save state
-  const [wordToSave, setWordToSave] = useState<VocabularyDefinition | null>(null);
-  const [showWordSaveModal, setShowWordSaveModal] = useState(false);
-  const [isSavingWord, setIsSavingWord] = useState(false);
-
-  // Voice settings state
-  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
-
   // Header ⋯ menu
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
 
@@ -348,7 +328,6 @@ export function ChatPage() {
     setForwarding(null);
     setInfoFor(null);
     setCheckResults(new Map());
-    setWordByWord(new Set());
     setDisplayPrefs(loadDisplayPrefs(convId || ''));
     setFetchedTranslations(new Map());
     setSelecting(false);
@@ -448,7 +427,6 @@ export function ChatPage() {
       cancelled = true;
     };
   }, [wantsNew, convId, relId, listedIds, navigate, location.search, location.state]);
-  const isAIConversation = conversation?.is_ai_conversation ?? false;
 
   const me = useMemo(
     () => (user ? { id: user.id, name: user.name ?? null, picture_url: user.picture_url ?? null } : null),
@@ -456,30 +434,8 @@ export function ChatPage() {
   );
   const myId = user?.id ?? '';
 
-  // Claude's practice chat answers each message of mine once the server has it.
-  const askAI = async () => {
-    setIsWaitingForAI(true);
-    try {
-      const response = await getAIResponse(convId!);
-      thread.applyMessage(response.message);
-      if (response.audio_base64 && response.audio_content_type) {
-        playBase64Audio(response.audio_base64, response.audio_content_type, response.message.id);
-      }
-    } catch (error) {
-      console.error('Failed to get AI response:', error);
-      showError("Claude couldn't reply. Your message was sent — try sending another to retry.", error);
-    } finally {
-      setIsWaitingForAI(false);
-    }
-  };
-  const askAIRef = useRef(askAI);
-  askAIRef.current = askAI;
-
-  const thread = useChatThread(wantsNew ? undefined : convId, me, {
-    onDelivered: () => {
-      if (isAIConversation) void askAIRef.current();
-    },
-  });
+  // Old Claude practice chats never reach this page: ChatRoute sends them to their Claude thread.
+  const thread = useChatThread(wantsNew ? undefined : convId, me);
   const messages = thread.messages;
   const discussReturnId = discussReturn?.ref ?? null;
   useEffect(() => {
@@ -494,15 +450,13 @@ export function ChatPage() {
 
   const otherUserForTyping = relationshipQuery.data && user ? getOtherUserInRelationship(relationshipQuery.data, user.id) : null;
   const dividerId = useMemo(
-    () => (isAIConversation ? null : firstUnreadId(serverMessages, myId, thread.readMarkerAtOpen)),
+    () => firstUnreadId(serverMessages, myId, thread.readMarkerAtOpen),
     // The divider stays where it was when the chat opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [thread.openedAt, isAIConversation, myId, thread.readMarkerAtOpen, serverMessages.length > 0],
+    [thread.openedAt, myId, thread.readMarkerAtOpen, serverMessages.length > 0],
   );
   // ----- Listening mode (docs/CHAT.md "Listening mode") -----
-  // Chats with a person only: Claude role-play replies are spoken already (as in the Lab app).
-  const listeningRaw = useChatListening(wantsNew ? undefined : convId);
-  const listening = isAIConversation ? { ...listeningRaw, setting: { on: false, since: null } } : listeningRaw;
+  const listening = useChatListening(wantsNew ? undefined : convId);
   const revealed = useRevealed(wantsNew ? undefined : convId);
   const listenPlayer = useListeningPlayer((m) => setNotice({ kind: 'error', text: m }));
   const readAloudParamsRef = useRef(readAloudParams);
@@ -523,7 +477,7 @@ export function ChatPage() {
   }, [convId, wantsNew, listening.setting.on, listening.decided, thread.openedAt, thread.readMarkerAtOpen]);
   useEffect(() => {
     // Clips ready before a tap: on open, and as messages arrive.
-    if (!myId || serverMessages.length === 0 || isAIConversation) return;
+    if (!myId || serverMessages.length === 0) return;
     // A little later than the send, so the server's pre-generated clip is usually there already.
     const t = window.setTimeout(() => void prefetchMessageClips(serverMessages, myId, readAloudParamsRef.current), 2500);
     return () => window.clearTimeout(t);
@@ -546,7 +500,7 @@ export function ChatPage() {
     window.setTimeout(() => setRevealingId((id) => (id === msg.id ? null : id)), 420);
   };
 
-  const showTyping = thread.otherTyping && !isAIConversation;
+  const showTyping = thread.otherTyping;
 
   // Analytics: chat.open once per conversation, when the first load has the read marker.
   const openTrackedRef = useRef<string | null>(null);
@@ -555,18 +509,19 @@ export function ChatPage() {
     openTrackedRef.current = convId;
     const marker = thread.readMarkerAtOpen;
     const unread = serverMessages.filter((m) => m.sender_id !== myId && (!marker || m.created_at > marker)).length;
-    track('chat.open', { is_ai: isAIConversation, unread });
+    track('chat.open', { unread });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [convId, thread.openedAt, conversation]);
   const trackSend = (kind: 'text' | 'image' | 'voice' | 'file' | 'video') =>
-    track('chat.send', { kind, is_ai: isAIConversation, reply: !!replyingTo, offline: !isOnline });
+    track('chat.send', { kind, reply: !!replyingTo, offline: !isOnline });
   const scroll = useChatScroll({
     messages,
     myId,
     ready: thread.openedAt !== null,
     dividerId,
     resetKey: convId,
-    followKey: `${showTyping}-${isWaitingForAI}`,
+    followKey: `${showTyping}`,
+
   });
 
   // Search inside the chat (shared rules: shared/chats/search.ts).
@@ -652,7 +607,6 @@ export function ChatPage() {
   // Typing frames: at most every 2.5 s while the box is non-empty and changing.
   const lastTypingSent = useRef(0);
   const noteTyping = (text: string) => {
-    if (isAIConversation) return;
     const now = Date.now();
     if (shouldSendTyping(text, lastTypingSent.current, now)) {
       lastTypingSent.current = now;
@@ -694,14 +648,14 @@ export function ChatPage() {
 
   const handleSend = (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (isWaitingForAI || !convId) return;
+    if (!convId) return;
     // The typed box, or the dictated text on review: both land in sendText via the voice box.
     voice.submit();
   };
 
   const sendText = (raw: string) => {
     const text = raw.trim();
-    if (!text || isWaitingForAI || !convId) return;
+    if (!text || !convId) return;
     setNotice(null);
     setDraftCheck(null);
     trackSend('text');
@@ -891,27 +845,17 @@ export function ChatPage() {
     }
   };
 
-  // Audio playback functions
-  const playBase64Audio = (base64: string, contentType: string, messageId: string) => {
-    setPlayingAudioMessageId(messageId);
-    playerRef.current.play(base64ToBlob(base64, contentType), {
-      onEnded: () => setPlayingAudioMessageId(null),
-      onError: () => setPlayingAudioMessageId(null),
-    });
-  };
-
   /**
    * The voice a message is read in (shared/chats/voice.ts): the sender's voice_gender over MY
-   * conversation voices; Claude's lines in a role-play keep the persona voice. Cache-first by
-   * (text, voice, speed), so a message plays offline once heard. Read aloud and listening mode's tap.
+   * conversation voices. Cache-first by (text, voice, speed), so a message plays offline once heard.
+   * Read aloud and listening mode's tap.
    */
   function readAloudParams(msg: Pick<MessageWithSender, 'sender_id'>) {
-    const fromAi = isAIConversation && msg.sender_id === CLAUDE_AI_USER_ID;
     const rel = relationshipQuery.data;
     const sender = msg.sender_id === user?.id ? user : rel && user ? getOtherUserInRelationship(rel, user.id) : null;
-    const senderGender = fromAi ? null : parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
-    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices(), fromAi, personaVoice: conversation?.voice_id });
-    const speed = chatReadAloudSpeed({ fromAi, personaSpeed: conversation?.voice_speed });
+    const senderGender = parseVoiceGender(sender && sender.id === msg.sender_id ? sender.voice_gender : null);
+    const voice = chatReadAloudVoice({ senderGender, enabled: readConversationVoices() });
+    const speed = chatReadAloudSpeed({});
     return { voice, speed, senderGender };
   }
 
@@ -1192,59 +1136,6 @@ export function ChatPage() {
     }
   };
 
-  // Interactive translation word save handlers
-  const handleSaveWordFromChat = (definition: VocabularyDefinition) => {
-    setWordToSave(definition);
-    setModalNotice(null);
-    setShowWordSaveModal(true);
-  };
-
-  const handleSaveWord = async (deckId: string) => {
-    if (!wordToSave) return;
-    setIsSavingWord(true);
-    setModalNotice(null);
-    try {
-      const made = await createNote(deckId, {
-        hanzi: wordToSave.hanzi,
-        pinyin: wordToSave.pinyin,
-        english: wordToSave.english,
-        fun_facts: wordToSave.fun_facts,
-      });
-      setShowWordSaveModal(false);
-      setWordToSave(null);
-      announceAdded([made], deckId, `Saved ${wordToSave.hanzi} to ${deckNameFor(deckId) || 'your deck'}.`);
-    } catch (error) {
-      console.error('Failed to save word:', error);
-      showModalError("Couldn't save the word.", error);
-    } finally {
-      setIsSavingWord(false);
-    }
-  };
-
-  // Voice settings handlers
-  const handleVoiceChange = async (voiceId: string) => {
-    if (!convId) return;
-    setModalNotice(null);
-    try {
-      await updateConversationVoiceSettings(convId, voiceId, undefined);
-      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-    } catch (error) {
-      console.error('Failed to update voice:', error);
-      showModalError("Couldn't change the voice.", error);
-    }
-  };
-
-  const handleSpeedChange = async (speed: number) => {
-    if (!convId) return;
-    setModalNotice(null);
-    try {
-      await updateConversationVoiceSettings(convId, undefined, speed);
-      queryClient.invalidateQueries({ queryKey: ['conversations', relId] });
-    } catch (error) {
-      console.error('Failed to update speed:', error);
-      showModalError("Couldn't change the speed.", error);
-    }
-  };
 
   const handleCopy = async (msg: MessageWithSender) => {
     try {
@@ -1405,14 +1296,7 @@ export function ChatPage() {
       case 'view_corrections':
         openCheckResult(msg);
         break;
-      case 'word_by_word':
-        setWordByWord((prev) => {
-          const next = new Set(prev);
-          if (next.has(msg.id)) next.delete(msg.id);
-          else next.add(msg.id);
-          return next;
-        });
-        break;
+
       case 'discuss':
         setDiscussingMessage(msg);
         break;
@@ -1565,7 +1449,7 @@ export function ChatPage() {
   const otherUser = getOtherUserInRelationship(relationship, user!.id);
   const viewerRole = getMyRoleInRelationship(relationship, user!.id);
   // The person's page and its parts, from the chat (the learner's Tutor tab went, Nov 2026).
-  const personIsAi = isAIConversation || isClaudeUser(otherUser.id);
+  const personIsAi = isClaudeUser(otherUser.id);
   const personPath = chatPersonPath(relId, personIsAi);
   const personLinks = chatPersonLinks({ relationshipId: relId, otherName: otherUser.name, viewerRole, isAi: personIsAi });
   const otherFirstName = (otherUserForTyping?.name || 'They').split(' ')[0];
@@ -1606,7 +1490,7 @@ export function ChatPage() {
       system_kind: m.system_kind ?? null,
     })),
     myId,
-    isAIConversation ? null : thread.readState.other,
+    thread.readState.other,
     offsetMinutes,
   );
   const messageById = new Map(messages.map((m) => [m.id, m] as const));
@@ -1689,13 +1573,13 @@ export function ChatPage() {
         system_kind: msg.deleted_at ? null : msg.system_kind ?? null,
       },
       viewerRole,
-      isAIConversation,
+      false,
       user!.id,
       { pinyinOn: isShown(displayPrefs, 'pinyin', msg.id), translateOn: isShown(displayPrefs, 'translate', msg.id) },
     );
   };
 
-  const isLearner = viewerRole === 'student' || isAIConversation;
+  const isLearner = viewerRole === 'student';
   const otherFirst = (otherUser.name || 'Your tutor').split(' ')[0];
   const suppressWordTap = () => selecting || Date.now() - pressFiredAt.current < 800 || !!swipe.current?.locked;
 
@@ -1733,7 +1617,7 @@ export function ChatPage() {
     return m.content.length > 80 ? m.content.slice(0, 80) + '…' : m.content;
   };
 
-  const renderBody = (msg: ChatMessage, isMe: boolean, hasChinese: boolean, pinyinOn: boolean, translateOn: boolean) => {
+  const renderBody = (msg: ChatMessage, isMe: boolean, pinyinOn: boolean, translateOn: boolean) => {
     if (msg.deleted_at) {
       return <span className="chat-deleted-text">🚫 Message deleted</span>;
     }
@@ -1792,17 +1676,7 @@ export function ChatPage() {
         />
       );
     }
-    // The Claude practice chat keeps its word-by-word view.
-    if (isAIConversation && !isMe && hasChinese && wordByWord.has(msg.id)) {
-      return (
-        <InteractiveMessage
-          message={msg}
-          showTranslation
-          onSaveWord={handleSaveWordFromChat}
-          onError={(text) => setNotice({ kind: 'error', text })}
-        />
-      );
-    }
+
     const checkStatus = msg.check_status;
     // A video-call invite ("join here: …/calls/<id>") shows a Join button instead of the raw link.
     const callId = /https?:\/\/\S+\/calls\/([A-Za-z0-9_-]{8,})/.exec(msg.content)?.[1];
@@ -2029,7 +1903,7 @@ export function ChatPage() {
                     onToggleSlow={listenPlayer.toggleSlow}
                   />
                 ) : (
-                  album ? renderAlbumBody(album, pinyinOn) : renderBody(msg, isMe, hasZh, pinyinOn, translateOn)
+                  album ? renderAlbumBody(album, pinyinOn) : renderBody(msg, isMe, pinyinOn, translateOn)
                 )}
                 {showMeta && (
                   <span className="chat-bubble-meta" data-testid="chat-bubble-meta">
@@ -2115,7 +1989,7 @@ export function ChatPage() {
                 original={msg.content}
                 correction={msg.correction}
                 tutorName={isMe ? otherFirst : 'Your correction'}
-                canEdit={viewerRole === 'tutor' && !isMe && !isAIConversation && !selecting}
+                canEdit={viewerRole === 'tutor' && !isMe && !selecting}
                 canMakeCard={isMe && !selecting}
                 onEdit={() => {
                   setCorrectError(null);
@@ -2155,7 +2029,6 @@ export function ChatPage() {
     <div className="chat-header-text">
       <span className="chat-header-name">
         {otherUser.name || 'Unknown'}
-        {isAIConversation && <span className="ai-badge">AI</span>}
       </span>
       {showTyping ? (
         <span className="chat-header-title chat-header-typing">typing…</span>
@@ -2165,9 +2038,7 @@ export function ChatPage() {
         <span className="chat-header-title chat-header-listening" data-testid="chat-listening-status">
           🎧 Listening mode{conversation?.title ? ` · ${conversation.title}` : ''}
         </span>
-      ) : (
-        isAIConversation && conversation?.title && <span className="chat-header-title">{conversation.title}</span>
-      )}
+      ) : null}
     </div>
   );
 
@@ -2181,7 +2052,7 @@ export function ChatPage() {
             <img src={otherUser.picture_url} alt="" className="chat-avatar" />
           ) : (
             <div className="chat-avatar placeholder">
-              {isAIConversation ? '🤖' : (otherUser.name || otherUser.email || '?')[0].toUpperCase()}
+              {(otherUser.name || otherUser.email || '?')[0].toUpperCase()}
             </div>
           )}
           {headerText}
@@ -2201,18 +2072,16 @@ export function ChatPage() {
           >
             🔍
           </button>
-          {!isAIConversation && (
-            <button
-              type="button"
-              className="chat-header-icon"
-              onClick={() => void handleVideoCall()}
-              disabled={!isOnline || callBusy}
-              aria-label="Video call"
-              title={isOnline ? 'Video call' : 'Calls need internet'}
-            >
-              📹
-            </button>
-          )}
+          <button
+            type="button"
+            className="chat-header-icon"
+            onClick={() => void handleVideoCall()}
+            disabled={!isOnline || callBusy}
+            aria-label="Video call"
+            title={isOnline ? 'Video call' : 'Calls need internet'}
+          >
+            📹
+          </button>
           <button
             type="button"
             className="chat-header-icon chat-menu-btn"
@@ -2253,7 +2122,7 @@ export function ChatPage() {
         !searchOpen && <PinnedBar pinned={pinned} onJump={(id) => scroll.jumpTo(id)} />
       )}
 
-      {!isAIConversation && <ChatNotifyNudge />}
+      <ChatNotifyNudge />
 
       {relId && (
         <div className="chat-call-banner">
@@ -2274,7 +2143,6 @@ export function ChatPage() {
               <span aria-hidden="true">🃏</span> Make flashcards
               {!isOnline && <span className="msg-sheet-action-hint">Needs internet</span>}
             </button>
-            {!isAIConversation && (
             <button
               type="button"
               role="menuitemcheckbox"
@@ -2289,7 +2157,6 @@ export function ChatPage() {
               <span aria-hidden="true">🎧</span> Listening mode
               <span className={`chat-menu-switch${listening.setting.on ? ' on' : ''}`} aria-hidden="true" />
             </button>
-            )}
             {listening.setting.on && (
               <button
                 type="button"
@@ -2330,25 +2197,7 @@ export function ChatPage() {
             >
               <span aria-hidden="true">EN</span> {displayPrefs.translateAll ? 'Hide translations for all' : 'Show translations for all'}
             </button>
-            {isAIConversation && (
-              <button
-                type="button"
-                role="menuitem"
-                className="chat-header-menu-item"
-                onClick={() => {
-                  setShowHeaderMenu(false);
-                  setModalNotice(null);
-                  setShowVoiceSettings(true);
-                }}
-              >
-                <span aria-hidden="true">🔊</span> Voice settings
-              </button>
-            )}
-            {isAIConversation && (
-              <Link role="menuitem" className="chat-header-menu-item" to={`/connections/${relId}`}>
-                <span aria-hidden="true">☰</span> All practice chats
-              </Link>
-            )}
+
             {/* The person's page and its parts (shared/chats/personLinks.ts) — what the learner's
                 Tutor tab offered, from the chat with them. */}
             <ChatPersonMenuLinks links={personLinks} onPick={() => setShowHeaderMenu(false)} />
@@ -2356,21 +2205,14 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* Scenario info for AI conversations */}
-      {isAIConversation && conversation?.scenario && (
-        <div className="chat-scenario-banner">
-          <strong>Scenario:</strong> {conversation.scenario}
-          {conversation.user_role && <span> | You: {conversation.user_role}</span>}
-          {conversation.ai_role && <span> | AI: {conversation.ai_role}</span>}
-        </div>
-      )}
 
       {/* Messages */}
       <div className="chat-messages-wrap">
         <div className="chat-messages" ref={scroll.containerRef} onScroll={scroll.onScroll}>
           {messages.length === 0 ? (
             <div className="chat-empty">
-              <p>{isAIConversation ? 'Start practicing Chinese!' : 'Start the conversation!'}</p>
+              <p>Start the conversation!</p>
+
             </div>
           ) : (
             layouts.map((l) => {
@@ -2384,17 +2226,6 @@ export function ChatPage() {
             })
           )}
           {showTyping && <TypingIndicator name={otherFirstName} />}
-          {isWaitingForAI && (
-            <div className="chat-message received group-first group-last">
-              <div className="chat-message-content">
-                <div className="chat-bubble typing">
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                  <span className="dot"></span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
         {(scroll.pillCount > 0 || !scroll.atBottom) && <NewMessagesPill count={scroll.pillCount} onClick={() => scroll.scrollToBottom(true)} />}
       </div>
@@ -2437,16 +2268,14 @@ export function ChatPage() {
             <button type="button" className="btn btn-secondary" disabled={selectedIds.size === 0} onClick={() => void copySelected()}>
               Copy
             </button>
-            {!isAIConversation && (
-              <button
-                type="button"
-                className="btn btn-secondary"
-                disabled={selectedIds.size === 0 || !isOnline}
-                onClick={() => setForwarding(serverMessages.filter((m) => selectedIds.has(m.id)).map((m) => m.id))}
-              >
-                Forward
-              </button>
-            )}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={selectedIds.size === 0 || !isOnline}
+              onClick={() => setForwarding(serverMessages.filter((m) => selectedIds.has(m.id)).map((m) => m.id))}
+            >
+              Forward
+            </button>
             <button
               type="button"
               className="btn btn-primary"
@@ -2569,8 +2398,7 @@ export function ChatPage() {
               attach={attachButton}
               onCheck={canCheckReview ? () => void runDraftCheck(voice.finalText.trim()) : null}
               checkBusy={draftCheck?.kind === 'loading'}
-              sendDisabled={isWaitingForAI}
-              listeningPlaceholder={isAIConversation ? 'Listening… say it in Chinese' : 'Listening… say your message'}
+              listeningPlaceholder="Listening… say your message"
             />
           ) : (
             <>
@@ -2606,7 +2434,7 @@ export function ChatPage() {
                       handleSend(e);
                     }
                   }}
-                  placeholder={isAIConversation ? 'Type in Chinese…' : 'Message'}
+                  placeholder="Message"
                   className="chat-input"
                   rows={1}
                   aria-label="Message"
@@ -2642,7 +2470,7 @@ export function ChatPage() {
             </>
           )}
           {/* ONE call site for the voice-message button, so a hold survives the row turning into the recorder. */}
-          {recording === 'locked' || (dictating && voice.state.phase !== 'idle') ? null : (composerEmpty || dictating) && !isAIConversation ? (
+          {recording === 'locked' || (dictating && voice.state.phase !== 'idle') ? null : (composerEmpty || dictating) ? (
             <button
               type="button"
               className={`chat-round-btn chat-mic-btn chat-voice-msg-btn${recording === 'held' ? ' recording' : ''}`}
@@ -2669,7 +2497,7 @@ export function ChatPage() {
             <SpinnerButton
               type="submit"
               className="chat-round-btn chat-send"
-              busy={isWaitingForAI}
+              busy={false}
               disabled={composerEmpty}
               aria-label="Send"
             >
@@ -2682,22 +2510,18 @@ export function ChatPage() {
         )}
         {attachOpen && !recording && (
           <div className="chat-attach-menu" role="menu" data-testid="chat-attach-menu">
-            {!isAIConversation && (
-              <>
-                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); cameraInputRef.current?.click(); }}>
-                  <span className="chat-attach-icon" aria-hidden="true">📷</span> Camera
-                </button>
-                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); fileInputRef.current?.click(); }}>
-                  <span className="chat-attach-icon" aria-hidden="true">🖼️</span> Photos
-                </button>
-                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); videoInputRef.current?.click(); }}>
-                  <span className="chat-attach-icon" aria-hidden="true">🎬</span> Video
-                </button>
-                <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); docInputRef.current?.click(); }}>
-                  <span className="chat-attach-icon" aria-hidden="true">📄</span> File
-                </button>
-              </>
-            )}
+            <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); cameraInputRef.current?.click(); }}>
+              <span className="chat-attach-icon" aria-hidden="true">📷</span> Camera
+            </button>
+            <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); fileInputRef.current?.click(); }}>
+              <span className="chat-attach-icon" aria-hidden="true">🖼️</span> Photos
+            </button>
+            <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); videoInputRef.current?.click(); }}>
+              <span className="chat-attach-icon" aria-hidden="true">🎬</span> Video
+            </button>
+            <button type="button" role="menuitem" className="chat-attach-item" onClick={() => { setAttachOpen(false); docInputRef.current?.click(); }}>
+              <span className="chat-attach-icon" aria-hidden="true">📄</span> File
+            </button>
             <button
               type="button"
               role="menuitem"
@@ -2754,7 +2578,8 @@ export function ChatPage() {
               caption={captionMsg?.content ?? null}
               actions={[
                 { id: 'save', label: 'Save photo', icon: '⬇️' },
-                { id: 'forward', label: 'Forward this photo', icon: '↪️', show: !isAIConversation },
+                { id: 'forward', label: 'Forward this photo', icon: '↪️', show: true },
+
                 { id: 'delete', label: 'Delete this photo', icon: '🗑️', show: shown.some((m) => m.sender_id === myId) },
               ]}
               onAction={(id, photo) => void albumPhotoAction(id, photo, shown)}
@@ -3012,72 +2837,6 @@ export function ChatPage() {
           conversationId={convId}
           onClose={closeDiscuss}
         />
-      )}
-
-      {/* Word Save Modal from Interactive Translation */}
-      {showWordSaveModal && wordToSave && (
-        <div className="modal-overlay" onClick={() => { setShowWordSaveModal(false); setModalNotice(null); }}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Save Word to Flashcards</h3>
-            <div className="generated-card-preview">
-              <div className="preview-hanzi">{wordToSave.hanzi}</div>
-              <div className="preview-pinyin">{wordToSave.pinyin}</div>
-              <div className="preview-english">{wordToSave.english}</div>
-              {wordToSave.fun_facts && (
-                <div className="preview-funfacts">{wordToSave.fun_facts}</div>
-              )}
-            </div>
-            <DeckSelectorWithCreate
-                sourceDeck="chats"
-              onSelect={(deckId) => handleSaveWord(deckId)}
-              isSaving={isSavingWord}
-              selectedCount={1}
-            />
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => { setShowWordSaveModal(false); setModalNotice(null); }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Voice Settings Modal */}
-      {showVoiceSettings && (
-        <div className="modal-overlay" onClick={() => { setShowVoiceSettings(false); setModalNotice(null); }}>
-          <div className="modal voice-settings-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Voice Settings</h3>
-            <div className="voice-setting-group">
-              <label>Voice:</label>
-              <select
-                value={conversation?.voice_id || 'Chinese (Mandarin)_Gentleman'}
-                onChange={(e) => handleVoiceChange(e.target.value)}
-              >
-                {MINIMAX_VOICES.map((voice) => (
-                  <option key={voice.id} value={voice.id}>{voice.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="voice-setting-group">
-              <label>Speed: {conversation?.voice_speed || 0.8}x</label>
-              <input
-                type="range"
-                min="0.3"
-                max="1.0"
-                step="0.1"
-                value={conversation?.voice_speed || 0.8}
-                onChange={(e) => handleSpeedChange(parseFloat(e.target.value))}
-              />
-            </div>
-            <InlineNotice notice={modalNotice} onDismiss={clearModalNotice} className="chat-modal-notice" />
-            <div className="modal-actions">
-              <button className="btn btn-primary" onClick={() => { setShowVoiceSettings(false); setModalNotice(null); }}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

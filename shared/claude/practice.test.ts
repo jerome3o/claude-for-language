@@ -4,6 +4,9 @@ import {
   DEFAULT_PRACTICE_LEVEL,
   PRACTICE_SCENARIOS,
   isPracticeHelpRequest,
+  legacyPracticeThreadId,
+  legacyPracticeThreadPath,
+  practiceChatRedirect,
   practiceContext,
   practiceFromCard,
   practiceReplyLanguage,
@@ -43,5 +46,27 @@ describe('Practice with Claude', () => {
     for (const t of ['我要一碗米饭。', 'Can I have the menu?', '']) expect(isPracticeHelpRequest(t), t).toBe(false);
     expect(practiceReplyLanguage('💡 Give me a hint', 'en')).toBe('en');
     expect(practiceReplyLanguage('我要一碗米饭。', 'en')).toBe('zh');
+  });
+});
+
+describe('old practice chats → their Claude thread', () => {
+  it('pc-<id>, opened in the Claude thread view', () => {
+    expect(legacyPracticeThreadId('c-1')).toBe('pc-c-1');
+    expect(legacyPracticeThreadPath('c-1')).toBe('/chats/claude/pc-c-1');
+  });
+
+  it('a chat route redirects only an old practice chat it knows about', () => {
+    const list = [
+      { id: 'c-ai', is_ai_conversation: true },
+      { id: 'c-home', is_ai_conversation: false },
+      { id: 'c-old' },
+    ];
+    expect(practiceChatRedirect('c-ai', list)).toBe('/chats/claude/pc-c-ai');
+    expect(practiceChatRedirect('c-home', list)).toBeNull();
+    expect(practiceChatRedirect('c-old', list)).toBeNull();
+    expect(practiceChatRedirect('c-unknown', list)).toBeNull();
+    // Not loaded yet / no id (the one chat): the chat page decides.
+    expect(practiceChatRedirect('c-ai', undefined)).toBeNull();
+    expect(practiceChatRedirect(undefined, list)).toBeNull();
   });
 });

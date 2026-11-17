@@ -678,7 +678,12 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         {state.loading && <p className="claude-chat-empty">Loading…</p>}
         {offlineNoCache && (
           <div className="coach-error claude-chat-error" data-testid="claude-thread-load-error">
-            {isOnline ? "Couldn't load this chat." : "You're offline and this chat isn't on this device yet."}
+            {!isOnline
+              ? "You're offline and this chat isn't on this device yet."
+              : state.notFound && routeId?.startsWith('pc-')
+                ? // An old practice chat with Claude (shared/claude/practice.ts legacyPracticeThreadPath) that couldn't be copied: deleted, or not yours.
+                  'This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation.'
+                : "Couldn't load this chat."}
           </div>
         )}
         {!isOnline && thread && <p className="claude-thread-offline" data-testid="claude-thread-offline">You're offline — this is the copy on this device. New messages send when you're back.</p>}
