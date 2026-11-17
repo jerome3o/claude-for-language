@@ -237,7 +237,7 @@ fun CardClaudeSheet(
             app.analytics.track("claude.thread_action", mapOf("action" to "new", "context_kind" to ClaudeChats.CARD))
         },
     )
-    val openResult: ((CardTools.Link) -> Unit)? = onOpenResult?.let { f -> { link -> f(id.takeIf { it != CardClaudeState.NEW }, link) } }
+    val openResult: ((CardTools.Link) -> Unit)? = onOpenResult?.let { f -> { link: CardTools.Link -> f(id.takeIf { it != CardClaudeState.NEW }, link) } }
     LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(CardClaudeTags.SHEET)) {
       androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.claude.LocalResultOpen provides openResult) {
         ClaudeThreadContent(
