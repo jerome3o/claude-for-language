@@ -72,6 +72,7 @@ import androidx.compose.ui.text.withStyle
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+import dev.jeromeswannack.chineselearning.lab.core.AnswerWhy
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -309,10 +310,19 @@ fun YouSaidBox(
         if (r.transcribedPinyin.isNotBlank()) {
             Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
-        // ONE line: what differs (the slim diff), else Claude's one-line reason — never its tip.
+        // ONE line: what differs (the slim diff), else Claude's one-line reason.
         (diffLine ?: claude?.reason?.reason?.takeIf { it.isNotBlank() })?.let { line ->
             Spacer(Modifier.size(6.dp))
             Text(line, fontSize = 14.sp, lineHeight = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, modifier = Modifier.testTag(YOU_SAID_REASON_TAG))
+        }
+        // Then ONE why sentence (Claude's reason under the diff, else the device's own for a homophone) + "Explain more ›"
+        // for its tip (core AnswerWhy; the web's YouSaid).
+        val whyCheck = claude?.let { AnswerWhy.Check(headline = it.reason.reason, tips = listOfNotNull(it.reason.tip?.takeIf { t -> t.isNotBlank() })) }
+        val why = diff?.let { AnswerWhy.why(it, whyCheck, diffLine) }
+        val more = AnswerWhy.more(whyCheck, why ?: claude?.reason?.reason, r.transcribedHanzi, expected ?: "")
+        if (why != null || more != null) {
+            Spacer(Modifier.size(2.dp))
+            AnswerWhyLine(why, more, surface = "read_take")
         }
     }
 }

@@ -22,6 +22,9 @@ object AnswerWhy {
         val alternative: String? = null,
     )
 
+    /** A lesson / sentence answer check as the why's input. */
+    fun of(c: AnswerCheck?): Check? = c?.let { Check(it.headline, it.tips.map { t -> t.text }, it.corrected, it.alternative?.hanzi) }
+
     /** `AnswerMore`. */
     data class More(val tips: List<String>, val corrected: String?, val alternative: String?)
 

@@ -193,7 +193,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           </div>
           {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
           <div className="you-said-reason" data-testid="you-said-reason">{diffLine}</div>
-          <AnswerWhy why={why} more={answerMore(whyCheck, why, hanzi, expected ?? "")} surface="read_take" />
+          <AnswerWhy why={why} more={answerMore(whyCheck, why ?? claude?.reason ?? null, hanzi, expected ?? '')} surface="read_take" />
         </>
       ) : (
         <>
@@ -202,7 +202,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           {claude && claude.reason && (
             <div className="you-said-reason" data-testid="you-said-reason"><span lang="zh-CN">{claude.reason}</span></div>
           )}
-          {claude && <AnswerWhy why={null} more={answerMore(whyCheck, claude.reason, hanzi)} surface="read_take" />}
+          {claude && <AnswerWhy why={null} more={answerMore(whyCheck, claude.reason, hanzi, expected ?? '')} surface="read_take" />}
         </>
       )}
     </Shell>

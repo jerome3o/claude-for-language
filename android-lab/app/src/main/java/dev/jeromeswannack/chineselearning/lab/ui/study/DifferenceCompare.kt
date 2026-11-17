@@ -61,6 +61,8 @@ fun DifferenceCompare(
     /** Claude's / Hard mode's verdict as the line's chip (core AnswerDiff.verdict). */
     verdict: Pair<String, String>? = null,
     headline: String? = null,
+    /** The check that judged it: the one why sentence + "Explain more ›" (core AnswerWhy). */
+    check: dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.Check? = null,
     hideLine: Boolean = false,
     content: @Composable () -> Unit = {},
 ) {
@@ -68,6 +70,7 @@ fun DifferenceCompare(
         said, model, modifier.padding(vertical = 2.dp),
         expectedPinyin = modelPinyin, expectedEnglish = answerFirstEnglish, expectedLabel = modelLabel,
         onPlayExpected = onPlayModel, accepted = accepted, headline = headline, verdict = verdict, hideLine = hideLine,
+        check = check, whySurface = "sentence_round",
         tag = DifferenceTags.COMPARE, expectedTag = DifferenceTags.MODEL, saidTag = DifferenceTags.SAID, playTag = DifferenceTags.PLAY_MODEL,
         content = content,
     )

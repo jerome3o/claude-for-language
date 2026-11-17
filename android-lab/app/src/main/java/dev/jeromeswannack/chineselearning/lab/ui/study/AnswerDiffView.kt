@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+import dev.jeromeswannack.chineselearning.lab.core.AnswerWhy
 import dev.jeromeswannack.chineselearning.lab.core.ResultState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
@@ -152,6 +153,16 @@ fun AnswerDiffView(
     expectedTag: String = AnswerDiffTags.EXPECTED,
     saidTag: String = AnswerDiffTags.SAID,
     playTag: String = AnswerDiffTags.PLAY,
+    /**
+     * The check that judged it (Claude's answer / sentence check, the read-take check's reason): its headline / first
+     * tip is the ONE why sentence under the diff, its tips / fix / alternative what "Explain more ›" opens (core
+     * [AnswerWhy]). None: the device's own reason where it has one (a homophone); [headline] alone works too.
+     */
+    check: AnswerWhy.Check? = null,
+    /** "Explain more ›" with nothing on hand: Ask Claude about this answer. */
+    onExplainMore: (() -> Unit)? = null,
+    /** Analytics: the surface (study.answer_why_more). */
+    whySurface: String = "answer_diff",
     /** Under the diff (🎤 Read it again …). */
     content: @Composable () -> Unit = {},
 ) {
@@ -163,6 +174,9 @@ fun AnswerDiffView(
     val pinyin = remember(expected, expectedPinyin, showExpected) {
         expectedPinyin?.trim()?.ifEmpty { null } ?: if (showExpected) tidyYouSaidPinyin(devicePinyinLine(expected)) else ""
     }
+    val whyCheck = check ?: headline?.takeIf { it.isNotBlank() }?.let { AnswerWhy.Check(headline = it) }
+    val why = remember(diff, whyCheck, text) { AnswerWhy.why(diff, whyCheck, text) }
+    val more = remember(whyCheck, why, said, expected, showExpected) { AnswerWhy.more(whyCheck, why, said, if (showExpected) expected else "") }
     Column(modifier.fillMaxWidth().testTag(tag), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!hideLine) {
             val ink = answerDiffToneInk(tone)
@@ -208,6 +222,7 @@ fun AnswerDiffView(
                 DiffLabel(saidLabel)
                 DiffMarkedText(diff.cells(), 22.sp, Modifier.weight(1f), accepted = accepted)
             }
+            AnswerWhyLine(why, more, onExplainMore, whySurface)
         }
         content()
     }
