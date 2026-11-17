@@ -390,6 +390,29 @@ Check is pressed:
   when it arrives. A tap on Play still uses the device voice meanwhile; offline nothing changes.
 - **Lab**: `NoteAudioFixer` does the same (`queued` is pending, not a failure).
 
+## Playing audio on the web (one module)
+
+Every clip the web app plays goes through `frontend/src/utils/audioPlayback.ts` (Nov 2026: the reader's scrubber, chat
+voice / listening bubbles, the voice take's preview, clips and the admin voice samples each made their own
+`new Audio()` before):
+
+- **`createAudioPlayer()`** — a clip start to end (study cards, sentences, lessons, Read aloud). In the Android hybrid
+  app it goes to the native bridge (`window.AndroidAudio`, v1 play/stop · v2 cache + tuning · v3 `setRate`; see
+  `native/README.md`), elsewhere one managed `<audio>` element per player.
+- **`createMediaTrack({ ambient?, group?, loop?, volume? })`** — a clip that pauses, seeks, shows its progress, loops or
+  plays under another one: the reader scrubber's phrase blocks, chat voice messages (`group: 'chat-voice'` = one at a
+  time) and listening bubbles, the voice take's preview, a clip's voice lines and its music bed (`ambient`: never
+  counted as "playing", so background caching doesn't wait on the loop). Element-only on purpose: no bridge version
+  has pause / seek / position / duration or a second output, so these played through the WebView's `<audio>` before
+  too — nothing changes for any bridge version. One element per track, every object URL revoked, the speed with the
+  pitch kept (`applyPlaybackRate`), the live-player count and the clip diagnostics, and playback activity
+  (`isAudioPlaying` / `whenAudioIdle`) while sound plays. Tests: `utils/audioTrack.test.ts`.
+- **`speakFallback(text, { gender, lang, onStart })`** (`services/audioCache.ts`) — THE device voice when no clip can
+  play (offline and never downloaded): cancels what the device was saying, a Chinese voice from `pickChineseVoiceFrom`
+  (zh-CN, on-device first, the speaker's gender when recognisable), `DEVICE_SPEECH_RATE`; rejects where there is no
+  speech synthesis (the Android WebView). `useAudio` / `useTTS`, chat Read aloud (`speakWithBrowserTTS` = it with a
+  gender) and the VR room all use it.
+
 ## Private media (who may fetch an R2 object)
 
 `GET /api/audio/<key>` (`worker/src/routes/media.ts`) serves the whole bucket by an ALLOWLIST,
