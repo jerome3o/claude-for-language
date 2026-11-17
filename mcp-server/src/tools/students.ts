@@ -277,7 +277,7 @@ export function registerStudentTools(ctx: ToolContext): void {
 
   server.tool(
     'get_student_daily_progress',
-    `Day-by-day study activity for the last 30 days (reviews, unique cards, accuracy %, time) plus the student's headline stats (total cards, due today, studied today / this week, average accuracy) and per-deck counts (notes, due, mastered). Good for "how consistent have they been?" and for spotting the days to drill into with get_student_day. Days are UTC calendar days.`,
+    `Day-by-day study activity for the last 30 days (reviews, unique cards, accuracy %, time) plus the student's headline stats (total cards; due_today = their study queue today — reviews due + the new cards their daily budget allows, what their Home shows; reviews_due = reviews only; studied today / this week, average accuracy) and per-deck counts (notes; cards_due = that deck's session today; reviews_due; cards_mastered = Review cards with stability > 21 days). Good for "how consistent have they been?" and for spotting the days to drill into with get_student_day. Days are UTC calendar days.`,
     {
       relationship_id: RELATIONSHIP_ID,
       days: z.number().int().min(1).max(30).optional().describe('Keep only the most recent N days with activity (default 30 = everything the API has).'),

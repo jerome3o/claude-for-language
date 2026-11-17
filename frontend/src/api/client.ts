@@ -1067,8 +1067,9 @@ export async function getOverviewStats(): Promise<OverviewStats> {
   return fetchJSON<OverviewStats>('/stats/overview');
 }
 
-export async function getDeckStats(deckId: string): Promise<DeckStats> {
-  return fetchJSON<DeckStats>(`/stats/deck/${deckId}`);
+/** `due: false` skips today's queue (cards_due / reviews_due null) — the Decks list only shows mastery. */
+export async function getDeckStats(deckId: string, opts: { due?: boolean } = {}): Promise<DeckStats> {
+  return fetchJSON<DeckStats>(`/stats/deck/${deckId}${opts.due === false ? '?due=0' : ''}`);
 }
 
 // ============ Relationships (Tutor-Student) ============

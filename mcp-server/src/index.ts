@@ -8,7 +8,6 @@ import { pinyinFixesText, type PinyinFix } from '../../shared/pinyin/fixes';
 import { kindCondition, shapeFeatureRequestForMcp } from './tools/feedback.js';
 import { signMediaUrls } from './tools/media.js';
 import type { CustomLessonSpec } from '../../shared/lesson/types';
-import { accountStudyDay, inStudyDaySql, inStudyDaySqlParams, studyDaySql, type StudyDaySql } from '../../shared/study/studyDay';
 
 /** Soft spoiler-intro warnings appended to a lesson tool's reply (the lesson is saved anyway). */
 /** The API's automatic pinyin corrections, as a paragraph after the reply ('' when none). */
@@ -57,7 +56,9 @@ import { registerPinyinScanTools } from './tools/pinyin-scan.js';
 import { registerMaterialTools } from './tools/materials.js';
 import { registerPreparedActivityTools } from './tools/prepared-activities.js';
 import { registerTutorApps } from './tools/apps.js';
-import { registerStudyTools } from './tools/study.js';
+import { registerStudyTools, type ApiStudyQueue } from './tools/study.js';
+import { MASTERED_CARD_SQL } from '../../shared/progress/cardSql';
+import { masteryLevel } from '../../shared/progress/mastery';
 
 interface Deck {
   id: string;
@@ -137,15 +138,6 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
   async init() {
     const userId = this.props!.userId;
-    // The user's "today" of study for SQL: their zone and "New day starts at" — never
-    // date('now'), the UTC date (shared/study/studyDay.ts studyDaySql).
-    const studyToday = async (): Promise<StudyDaySql> => {
-      const account = await this.env.DB.prepare('SELECT time_zone, day_rollover_hour FROM users WHERE id = ?')
-        .bind(userId).first<{ time_zone: string | null; day_rollover_hour: number | null }>().catch(() => null);
-      const now = Date.now();
-      return studyDaySql(accountStudyDay(account, now), now);
-    };
-
     // Every write to decks / notes / cards goes through the main API as this
     // user (the worker's content service owns card generation, tombstones,
     // TTS and the sentence-set queue). The legacy tools below and the tutor
@@ -164,7 +156,7 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
 
     this.server.tool(
       "list_decks",
-      "List all vocabulary decks with their stats and folder (folder_id + folder name; null = Unfiled). Pass folder_id to list one folder's decks ('unfiled' for decks in no folder).",
+      "List all vocabulary decks with their stats and folder (folder_id + folder name; null = Unfiled). Per deck: cards_due = that deck's study session today (reviews due + the new cards today's budget gives it — what pressing Study on it shows), reviews_due = its learning + review cards due today (no new cards), cards_mastered = Review cards with stability > 21 days. Pass folder_id to list one folder's decks ('unfiled' for decks in no folder).",
       {
         folder_id: z.string().optional().describe("Only this folder's decks (from list_folders), or 'unfiled'"),
       },
@@ -191,27 +183,27 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
             .map((d) => ({ ...d, folder_id: folderById.has(d.folder_id ?? '') ? d.folder_id : null, folder: folderName(d.folder_id) })),
         };
 
-        const today = await studyToday();
+        // Due = each deck's own session today from the API's study queue (reviews due + the new
+        // cards the daily budget gives that deck) — never "every NEW card".
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { per_deck: 1 }).catch(() => null);
+        const dueByDeck = new Map((queue?.decks ?? []).map((d) => [d.deck_id, d]));
         const decksWithStats = await Promise.all(
           decks.results.map(async (deck) => {
-            const [noteCount, cardsDue, cardsMastered] = await Promise.all([
+            const [noteCount, cardsMastered] = await Promise.all([
               this.env.DB.prepare('SELECT COUNT(*) as count FROM notes WHERE deck_id = ?')
                 .bind(deck.id).first<{ count: number }>(),
               this.env.DB.prepare(
                 `SELECT COUNT(*) as count FROM cards c
                  JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now')) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`
-              ).bind(deck.id, today.key).first<{ count: number }>(),
-              this.env.DB.prepare(
-                `SELECT COUNT(*) as count FROM cards c
-                 JOIN notes n ON c.note_id = n.id
-                 WHERE n.deck_id = ? AND c.interval > 21`
+                 WHERE n.deck_id = ? AND ${MASTERED_CARD_SQL}`
               ).bind(deck.id).first<{ count: number }>(),
             ]);
+            const due = dueByDeck.get(deck.id);
             return {
               ...deck,
               note_count: noteCount?.count || 0,
-              cards_due: cardsDue?.count || 0,
+              cards_due: due?.due_today ?? null,
+              reviews_due: due?.reviews_due ?? null,
               cards_mastered: cardsMastered?.count || 0,
             };
           })
@@ -305,15 +297,20 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           .bind(deck_id)
           .all();
 
+        // Levels = the deck page's (shared/progress/mastery.ts); due = this deck's session today.
+        const levels = { new: 0, learning: 0, familiar: 0, mastered: 0 };
+        for (const c of cards.results as Array<{ queue: number | null; stability: number | null }>) {
+          levels[masteryLevel(c.queue ?? 0, c.stability ?? 0)]++;
+        }
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { deck_id }).catch(() => null);
         const stats = {
           total_cards: cards.results.length,
-          new_cards: cards.results.filter((c: any) => c.next_review_at === null).length,
-          learning: cards.results.filter((c: any) => c.next_review_at !== null && c.interval <= 1).length,
-          reviewing: cards.results.filter((c: any) => c.interval > 1 && c.interval <= 21).length,
-          mastered: cards.results.filter((c: any) => c.interval > 21).length,
-          due_now: cards.results.filter((c: any) =>
-            c.next_review_at === null || new Date(c.next_review_at) <= new Date()
-          ).length,
+          new_cards: levels.new,
+          learning: levels.learning,
+          familiar: levels.familiar,
+          mastered: levels.mastered,
+          due_today: queue?.due_today ?? null,
+          reviews_due: queue?.reviews_due ?? null,
         };
 
         const noteProgress: Record<string, any> = {};
@@ -328,7 +325,8 @@ export class ChineseLearningMCPv2 extends McpAgent<Env, Record<string, never>, P
           }
           noteProgress[card.note_id].cards.push({
             card_type: card.card_type,
-            ease_factor: card.ease_factor,
+            level: masteryLevel(card.queue ?? 0, card.stability ?? 0),
+            stability: card.stability,
             interval: card.interval,
             repetitions: card.repetitions,
             next_review_at: card.next_review_at,
@@ -1037,101 +1035,72 @@ Optional \`unlock\` makes the lesson wait LOCKED (never offered, not even in tod
 
     this.server.tool(
       "get_due_cards",
-      "Get cards that are due for review",
+      "Get the cards of today's study session (all decks, or one deck's session), in session order: learning / review cards due by the end of the learner's study day plus the new cards today's daily budget allows — exactly what the app's Study button would show. due_today = that total, reviews_due = the reviews alone (no new cards).",
       {
-        deck_id: z.string().optional().describe("Filter by deck ID (optional)"),
-        limit: z.number().optional().describe("Maximum number of cards (default 20)"),
+        deck_id: z.string().optional().describe("One deck's session (optional; default: all decks)"),
+        limit: z.number().optional().describe("Maximum number of cards (default 20, at most 200)"),
       },
-      async ({ deck_id, limit = 20 }) => {
-        let query = `
-          SELECT c.*, n.hanzi, n.pinyin, n.english, n.fun_facts, n.deck_id
-          FROM cards c
-          JOIN notes n ON c.note_id = n.id
-          JOIN decks d ON n.deck_id = d.id
-          WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-            AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-        `;
+      async ({ deck_id, limit = 20 }) => guard(async () => {
+        const queue = await api.get<ApiStudyQueue>('/api/me/study-queue', { deck_id, limit: Math.max(1, Math.min(200, limit)) });
+        const ids = (queue.cards ?? []).map((c) => c.id);
+        const rows = ids.length
+          ? (await this.env.DB
+            .prepare(`
+              SELECT c.id, c.card_type, c.queue, c.stability, c.interval, c.repetitions, c.next_review_at,
+                     n.hanzi, n.pinyin, n.english, n.fun_facts, n.deck_id
+              FROM cards c
+              JOIN notes n ON c.note_id = n.id
+              JOIN decks d ON n.deck_id = d.id
+              WHERE d.user_id = ? AND c.id IN (${ids.map(() => '?').join(',')})
+            `)
+            .bind(userId, ...ids)
+            .all<Record<string, unknown> & { id: string }>()).results
+          : [];
+        const at = new Map(ids.map((id, i) => [id, i]));
+        const queueNames = ['new', 'learning', 'review', 'relearning'];
+        const cards = [...rows]
+          .sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0))
+          .map((row) => ({
+            card_id: row.id,
+            card_type: row.card_type,
+            state: queueNames[(row.queue as number) ?? 0] ?? 'new',
+            hanzi: row.hanzi,
+            pinyin: row.pinyin,
+            english: row.english,
+            fun_facts: row.fun_facts,
+            stability: row.stability,
+            interval: row.interval,
+            repetitions: row.repetitions,
+            next_review_at: row.next_review_at,
+          }));
 
-        const params: (string | number)[] = [userId, (await studyToday()).key];
-
-        if (deck_id) {
-          query += ' AND n.deck_id = ?';
-          params.push(deck_id);
-        }
-
-        query += ' ORDER BY c.next_review_at ASC NULLS LAST LIMIT ?';
-        params.push(limit);
-
-        const result = await this.env.DB
-          .prepare(query)
-          .bind(...params)
-          .all();
-
-        const cards = result.results.map((row: any) => ({
-          card_id: row.id,
-          card_type: row.card_type,
-          hanzi: row.hanzi,
-          pinyin: row.pinyin,
-          english: row.english,
-          fun_facts: row.fun_facts,
-          ease_factor: row.ease_factor,
-          interval: row.interval,
-          repetitions: row.repetitions,
-          next_review_at: row.next_review_at,
-        }));
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              count: cards.length,
-              cards,
-            }, null, 2),
-          }],
-        };
-      }
+        return textResult(JSON.stringify({
+          due_today: queue.due_today,
+          reviews_due: queue.reviews_due,
+          new_today: queue.new_today,
+          new_cards_paused: queue.new_cards_paused,
+          count: cards.length,
+          cards,
+        }, null, 2));
+      })
     );
 
     this.server.tool(
       "get_overall_stats",
-      "Get overall study statistics",
+      "Get overall study statistics: total decks / cards, due_today (what the app's Home shows: reviews due + the new cards today's budget allows), reviews_due (learning + review cards due today, no new cards), cards studied today.",
       {},
-      async () => {
-        const today = await studyToday();
-        const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ?
-          `).bind(userId).first<{ count: number }>(),
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM cards c
-            JOIN notes n ON c.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ? AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-              AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-          `).bind(userId, today.key).first<{ count: number }>(),
-          this.env.DB.prepare(`
-            SELECT COUNT(*) as count FROM review_events
-            WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
-          `).bind(userId, ...inStudyDaySqlParams(today)).first<{ count: number }>(),
-          this.env.DB.prepare('SELECT COUNT(*) as count FROM decks WHERE user_id = ?')
-            .bind(userId).first<{ count: number }>(),
-        ]);
-
-        return {
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({
-              total_decks: totalDecks?.count || 0,
-              total_cards: totalCards?.count || 0,
-              cards_due_today: cardsDue?.count || 0,
-              cards_studied_today: studiedToday?.count || 0,
-            }, null, 2),
-          }],
-        };
-      }
+      async () => guard(async () => {
+        // The worker's one definition (GET /api/stats/overview → services/study-queue.ts).
+        const stats = await api.get<Record<string, unknown>>('/api/stats/overview');
+        return textResult(JSON.stringify({
+          total_decks: stats.total_decks,
+          total_cards: stats.total_cards,
+          due_today: stats.due_today,
+          reviews_due: stats.reviews_due,
+          new_cards_paused: stats.new_cards_paused,
+          cards_studied_today: stats.cards_studied_today,
+        }, null, 2));
+      })
     );
 
     // ============ Study MCP App Tools ============

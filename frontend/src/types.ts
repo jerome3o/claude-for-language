@@ -304,10 +304,10 @@ export interface OverviewStats {
 export interface DeckStats {
   total_notes: number;
   total_cards: number;
-  /** This deck's session today: reviews due + the new cards the budget gives it. */
-  cards_due: number;
+  /** This deck's session today: reviews due + the new cards the budget gives it (null when asked without). */
+  cards_due: number | null;
   /** This deck's learning + review cards due today. */
-  reviews_due?: number;
+  reviews_due?: number | null;
   /** Review with stability > 21 days (shared/progress/mastery.ts). */
   cards_mastered: number;
   cards_learning: number;

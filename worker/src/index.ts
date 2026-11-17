@@ -4897,7 +4897,7 @@ app.get('/api/stats/overview', async (c) => {
 app.get('/api/stats/deck/:id', async (c) => {
   const userId = c.get('user').id;
   const id = c.req.param('id');
-  const stats = await db.getDeckStats(c.env.DB, id, userId);
+  const stats = await db.getDeckStats(c.env.DB, id, userId, { due: c.req.query('due') !== '0' });
   if (!stats) {
     return c.json({ error: 'Deck not found' }, 404);
   }

@@ -1601,14 +1601,16 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
 export async function getDeckStats(
   db: D1Database,
   deckId: string,
-  userId: string
+  userId: string,
+  /** false = skip the study queue (the Decks list only shows mastery; the queue reads every card). */
+  opts: { due?: boolean } = {}
 ): Promise<{
   total_notes: number;
   total_cards: number;
-  /** This deck's session today: reviews due + the new cards the budget gives it (the deck page's "Study · N due"). */
-  cards_due: number;
-  /** learning + review cards of this deck due today (no new cards). */
-  reviews_due: number;
+  /** This deck's session today: reviews due + the new cards the budget gives it (the deck page's "Study · N due"); null with `due: false`. */
+  cards_due: number | null;
+  /** learning + review cards of this deck due today (no new cards); null with `due: false`. */
+  reviews_due: number | null;
   /** Review with stability > 21 days (shared/progress/mastery.ts). */
   cards_mastered: number;
   /** Seen (past NEW) but not mastered yet. */
@@ -1628,7 +1630,7 @@ export async function getDeckStats(
       )
       .bind(deckId)
       .first<{ count: number }>(),
-    serverStudyQueue(db, userId, { deckId }),
+    opts.due === false ? Promise.resolve(null) : serverStudyQueue(db, userId, { deckId }),
     db
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
@@ -1650,8 +1652,8 @@ export async function getDeckStats(
   return {
     total_notes: totalNotes?.count || 0,
     total_cards: totalCards?.count || 0,
-    cards_due: queue.due_today,
-    reviews_due: queue.reviews_due,
+    cards_due: queue ? queue.due_today : null,
+    reviews_due: queue ? queue.reviews_due : null,
     cards_mastered: cardsMastered?.count || 0,
     cards_learning: cardsLearning?.count || 0,
   };
