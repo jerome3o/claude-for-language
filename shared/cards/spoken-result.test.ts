@@ -58,9 +58,9 @@ describe('spokenResult', () => {
 
   it('reads the whole row as one sentence', () => {
     const close = spokenResult('朗', '狼', 'close');
-    expect(spokenResultLabel(close, '狼', 'lǎng')).toBe('You said 朗 (lǎng). Close. Tone off on 狼.');
+    expect(spokenResultLabel(close, '狼', 'lǎng')).toBe('You said 朗 (lǎng). Close. Tone off on 狼. Tone off: 朗.');
     expect(spokenResultLabel(spokenResult('我明天去北', '我明天去北京', 'wrong'), '我明天去北京'))
-      .toBe('You said 我明天去北. Didn’t match. Missing 京 at the end.');
+      .toBe('You said 我明天去北. Didn’t match. Missing 京 at the end. Missing: 京.');
     expect(spokenResultLabel(spokenResult('油', '由', 'sound'), ' 由 ', 'yóu'))
       .toBe('You said 油 (yóu). Sounded right — written differently (油); the card writes 由.');
     expect(spokenResultLabel(spokenResult('曾经', '曾经', 'exact'), '曾经')).toBe('You said 曾经. Match.');

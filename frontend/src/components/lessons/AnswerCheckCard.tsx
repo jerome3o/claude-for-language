@@ -20,6 +20,8 @@ import type { ReactNode } from 'react';
 import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
 import { answerCheckChip, cleanerVersion, correctedDisplay, speakingPartMark, tipSegments, wordsPinyinLine, type AnswerCheck } from '@shared/lesson/answerCheck';
 import { firstSentence } from '@shared/cards/answer-diff';
+import { answerMore, answerWhy } from '@shared/cards/answer-why';
+import { AnswerWhy } from '../study/AnswerWhy';
 import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
@@ -72,12 +74,17 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel
 }) {
   const chip = answerCheckChip(check.verdict, !!check.cleaned);
   if (!detail) {
+    // ONE why sentence (the headline, else the first tip when the headline is a stock line) + "Explain more ›" for the
+    // tips / fix / alternative the check already returned (shared/cards/answer-why.ts).
+    const why = answerWhy({ check }) ?? firstSentence(check.headline);
+    const more = compact ? null : answerMore(check, why, answer);
     return (
       <div className={`answer-check slim ${chip.tone}${compact ? ' compact' : ''}`} data-testid="answer-check" data-verdict={check.verdict}>
         <div className="answer-check-head">
           <span className={`answer-check-chip ${chip.tone}`}>{chip.label}</span>
-          <span className="answer-check-headline" data-testid="answer-check-headline">{firstSentence(check.headline)}</span>
+          <span className="answer-check-headline" data-testid="answer-check-headline">{why}</span>
         </div>
+        {more && <AnswerWhy why={null} more={more} surface="lesson_answer_check" />}
         {afterHead}
         {check.parts && check.parts.length > 0 && (
           <ul className="answer-check-parts slim" data-testid="answer-check-parts">

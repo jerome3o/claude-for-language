@@ -63,16 +63,19 @@ data class LabColors(
     /** The label on an [accent] fill (PrimaryPill, a selected chip), ≥ 4.5:1 on it. */
     val onAccent: Color,
     /**
-     * 🎤 Read it aloud's marks under the page's characters (ui/readers/ReadAloudViews.kt `MarkedChars`;
-     * web components/reader/ReadAloud.css `--ra-*`). The characters keep [ink]; a mark is a SHAPE —
-     * [markTone] wavy = tone off (lemon, never orange: Jerome is red / green colour-blind),
-     * [markWrong] solid = wrong / dashed = missed — over a soft tint. Each mark ≥ 3:1 on [card], [ink]
-     * on each tint ≥ 4.5:1 (`ThemeContrastTest`).
+     * The answer diff's marks (ui/study/AnswerDiffView.kt `DiffMarkedText`, the typed answer's `MarkedChar`, 🎤 Read it
+     * aloud's `MarkedChars` in ui/readers/ReadAloudViews.kt; web index.css `--mark-*`). COLOUR ONLY — Jerome, Nov 2026:
+     * "we don't need the outlines and the color and the underlines … make the colors a little bit more subtle": the
+     * character itself in its mark's colour, no box, tint or underline. Toned down from the old fluorescent rose / lemon;
+     * each ≥ 4.5:1 on [card], [background] and a result surface's tint (`ThemeContrastTest`), each its own hue + lightness:
+     * [markWrong] rose, [markTone] amber (tone off — the "close" yellow family, never orange: Jerome is red / green
+     * colour-blind), [markExtra] violet, [markMissing] the expected character in a cool grey. The one-line summary says
+     * it in words and every mark has a content description.
      */
-    val markTone: Color,
-    val markToneTint: Color,
     val markWrong: Color,
-    val markWrongTint: Color,
+    val markTone: Color,
+    val markExtra: Color,
+    val markMissing: Color,
 )
 
 private val Light = LabColors(
@@ -87,10 +90,10 @@ private val Light = LabColors(
     outline = Color(0xFF857F74),
     accentOutline = Color(0xFFC2410C),
     onAccent = Color.White,
-    markTone = Color(0xFFA16207),
-    markToneTint = Color(0xFFFACC15).copy(alpha = 0.18f),
-    markWrong = Color(0xFFBE123C),
-    markWrongTint = Color(0xFFF43F5E).copy(alpha = 0.14f),
+    markWrong = Color(0xFFA82540),
+    markTone = Color(0xFF8C6700),
+    markExtra = Color(0xFF6B4FC4),
+    markMissing = Color(0xFF62666F),
 )
 
 private val Dark = LabColors(
@@ -105,10 +108,10 @@ private val Dark = LabColors(
     outline = Color(0xFF7C7C86),
     accentOutline = Color(0xFFC4743A),
     onAccent = Color(0xFF1C1209),
-    markTone = Color(0xFFFDE047),
-    markToneTint = Color(0xFFFDE047).copy(alpha = 0.12f),
-    markWrong = Color(0xFFFB7185),
-    markWrongTint = Color(0xFFFB7185).copy(alpha = 0.2f),
+    markWrong = Color(0xFFE98594),
+    markTone = Color(0xFFDCC16E),
+    markExtra = Color(0xFFAC9DEA),
+    markMissing = Color(0xFF9A978F),
 )
 
 /** The two token sets, for the contrast test (`ThemeContrastTest`). */

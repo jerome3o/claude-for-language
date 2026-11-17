@@ -297,6 +297,11 @@ fun AnswerCheckBody(
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
     if (!detail) {
+        // ONE why sentence (the headline, else the first tip when the headline is a stock line) + "Explain more ›" for the
+        // tips / fix / alternative the check already returned (core AnswerWhy; the web's AnswerCheckBody).
+        val whyCheck = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(check)
+        val why = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.why(check = whyCheck) ?: AnswerDiff.firstSentence(check.headline)
+        val more = if (compact) null else dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.more(whyCheck, why, answer)
         // Slim: the one result surface (the same as every verdict) — the chip + ONE line, the parts as small marks, the actions.
         Column(
             Modifier.fillMaxWidth().padding(top = 6.dp)
@@ -310,8 +315,9 @@ fun AnswerCheckBody(
                     chip.label, color = tone, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                     modifier = Modifier.clip(RoundedCornerShape(50)).background(dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.chip(toneState(chip.tone))).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
-                Text(AnswerDiff.firstSentence(check.headline), Modifier.testTag("answer-check-headline"), color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = 15.sp)
+                Text(why, Modifier.testTag("answer-check-headline"), color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
+            if (more != null) dev.jeromeswannack.chineselearning.lab.ui.study.AnswerWhyLine(null, more, surface = "lesson_answer_check")
             afterHead?.invoke()
             check.parts?.takeIf { it.isNotEmpty() }?.let { parts ->
                 FlowRow(Modifier.testTag("answer-check-parts"), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
