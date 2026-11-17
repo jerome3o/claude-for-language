@@ -107,7 +107,16 @@ fun DiscussClaudeSheet(
         key = "discuss-claude-$messageId-$id",
         factory = ClaudeThreadViewModel.Factory(app, id, if (id == ClaudeThreadViewModel.NEW) newContext else null, "chat_message", false),
     )
+    // A line under a reply opens what it made (docs/CHAT.md "Tool lines you can tap") WITHOUT closing the sheet:
+    // the chat keeps it (its ViewModel lives with the screen) and [chosen] is saved with it, so back shows the
+    // sheet open again on this very thread — as the card's sheet does.
+    val nav = dev.jeromeswannack.chineselearning.lab.ui.nav.LocalLabNav.current
+    val openResult: (dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.Link) -> Unit = { link ->
+        if (id != ClaudeThreadViewModel.NEW) chosen = id
+        if (nav != null) nav.open(link.path) else openPath(link.path)
+    }
     LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(DiscussClaudeTags.SHEET)) {
+      androidx.compose.runtime.CompositionLocalProvider(LocalResultOpen provides openResult) {
         run {
             ClaudeThreadContent(
                 app, vm,
@@ -121,6 +130,7 @@ fun DiscussClaudeSheet(
                 toolResults = { reply -> proposedCardsOf(reply.tool_results)?.takeIf { it.isNotEmpty() }?.let { proposed(it, reply.id) } },
             )
         }
+      }
     }
 }
 

@@ -276,7 +276,7 @@ fun IdiomScreen(ui: IdiomUi, actions: IdiomActions, list: androidx.compose.found
             ui.card?.takeIf { it.noteId.isNotEmpty() }?.let { c ->
                 Text("📚 You have this card in ${c.deckName.ifBlank { "your decks" }}", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, modifier = Modifier.padding(bottom = 6.dp))
             }
-            ui.bumped?.let { InlineNotice(it, kind = NoticeKind.Success, modifier = Modifier.padding(bottom = 6.dp)) }
+            ui.bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "idioms", Modifier.padding(bottom = 6.dp)) }
             if (ui.added) Text("✓ Added — it’s in your deck.", style = MaterialTheme.typography.bodyMedium, color = Palette.Good, modifier = Modifier.padding(bottom = 6.dp))
         }) {
             val card = ui.card

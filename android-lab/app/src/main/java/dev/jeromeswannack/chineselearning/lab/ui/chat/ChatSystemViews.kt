@@ -105,7 +105,7 @@ fun SystemMessageView(
             view.action?.let { a ->
                 Row(
                     Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(20.dp)).background(c.mine)
-                        .bouncyClickable { onAction(a.path) }.padding(horizontal = 18.dp, vertical = 9.dp).testTag("chat-system-action"),
+                        .bouncyClickable { onAction(a.section?.let { sec -> a.path + (if ('?' in a.path) "&" else "?") + "section=" + android.net.Uri.encode(sec) } ?: a.path) }.padding(horizontal = 18.dp, vertical = 9.dp).testTag("chat-system-action"),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(a.label, color = c.onMine, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.labelLarge)

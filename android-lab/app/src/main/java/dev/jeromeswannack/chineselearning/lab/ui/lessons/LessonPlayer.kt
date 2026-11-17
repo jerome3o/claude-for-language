@@ -194,6 +194,9 @@ fun LessonPlayer(
 ) {
     val preview = context is PlayerContext.Preview
     val claudeState = remember { ExerciseClaudeState() }
+    // Back from something a line under Claude's reply opened (docs/CHAT.md "Tool lines you can tap"): saved with the
+    // screen as "<exercise key>|<thread>", so the exercise's sheet is open again on that thread.
+    var claudeReturn by androidx.compose.runtime.saveable.rememberSaveable(lessonId) { mutableStateOf<String?>(null) }
     // The take lock (core TakeLock, ui/kit/TakeLock.kt): while any 🎤 take records, the exercise's primary action is
     // "■ Stop recording" and can never advance; ✕ / back stop the take first.
     val takeLock = remember { dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockState(if (preview) "lesson_preview" else "lesson") }
@@ -229,6 +232,11 @@ fun LessonPlayer(
     // 💬 Ask Claude about the exercise on screen: a real run of one of his stored lessons only.
     val claudeTarget = if (!preview && !done && !lessonId.isNullOrBlank()) current?.step?.let { st -> ExerciseClaudeTarget(lessonId, title, st.key, st.type) } else null
     val bar = LessonRun.retryBar(state, steps)
+    androidx.compose.runtime.LaunchedEffect(claudeTarget?.exerciseKey, claudeReturn) {
+        val r = claudeReturn ?: return@LaunchedEffect
+        val t = claudeTarget ?: return@LaunchedEffect
+        if (claudeState.open == null && r.substringBefore('|') == t.exerciseKey) claudeState.open = Triple(t, "toolbar", null)
+    }
 
     LaunchedEffect(done) { if (done) onCelebrate() }
     // Usage analytics: a real run (previews record nothing — not even this).
@@ -435,7 +443,12 @@ fun LessonPlayer(
                 }
             }
         }
-        ExerciseClaudeSheet(claudeState)
+        ExerciseClaudeSheet(
+            claudeState,
+            initialThread = claudeReturn?.substringAfter('|', "")?.ifEmpty { null },
+            onLeaveForResult = { key, thread -> claudeReturn = key + "|" + thread.orEmpty() },
+            onClosed = { claudeReturn = null },
+        )
     }
     }
 }

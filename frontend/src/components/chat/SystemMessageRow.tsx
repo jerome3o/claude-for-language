@@ -6,7 +6,7 @@
  * listening-mode hiding, read-aloud or word chips. Long-press / right-click = Copy.
  */
 import { useRef, useState } from 'react';
-import type { SystemMessageView } from '@shared/chats/system';
+import { systemActionHref, type SystemMessageView } from '@shared/chats/system';
 
 const LONG_PRESS_MS = 500;
 
@@ -87,7 +87,7 @@ export function SystemMessageRow({ view, time, onAction, onMenu }: SystemMessage
             onClick={(e) => {
               e.stopPropagation();
               if (Date.now() - fired.current < 800) return;
-              onAction(view.action!.path);
+              onAction(systemActionHref(view.action!));
             }}
           >
             {view.action.label}

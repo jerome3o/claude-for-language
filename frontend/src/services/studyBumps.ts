@@ -19,6 +19,7 @@
  * only those card types of the note go in the pocket. A row that changes
  * gets a NEW client id, so an upload already on its way never marks the newer row sent.
  */
+import { studyTodayOpenLink, type ToastOpenLink } from '@shared/decks/open-links';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   allCharactersKnown, bumpedCardsForNote, deckInDailyReview, DEFAULT_DECK_SETTINGS, knownCharactersFrom, knownNoteIdsFrom,
@@ -74,6 +75,8 @@ export interface BumpOutcome {
   added: string[];
   already: string[];
   message: string;
+  /** The toast's "Open ›": the card (one word) or Up next (several) — shared/decks/open-links.ts. */
+  link: ToastOpenLink | null;
   results: StudyTodayNoteResult[];
 }
 
@@ -205,7 +208,9 @@ export async function bumpNotes(
   const cardLevel = results.filter((r) => r.added && r.cardTypes).length;
   track('study.bump_added', { source, count: added.length, already: already.length, card_types: cardLevel });
   if (added.length && online()) void flushPendingBumps().catch(() => undefined);
-  return { added, already, results, message: studyTodayMessage(shown.map((x) => ({ hanzi: x.hanzi, kind: x.r.kind })), already.length) };
+  const named = results.map((r, i) => ({ noteId: r.noteId, hanzi: hanziById?.get(r.noteId) ?? notes[i]?.hanzi ?? '', added: r.added }));
+  const link = studyTodayOpenLink(named.some((x) => x.added) ? named.filter((x) => x.added) : named);
+  return { added, already, results, link, message: studyTodayMessage(shown.map((x) => ({ hanzi: x.hanzi, kind: x.r.kind })), already.length) };
 }
 
 /** Card review times of one note (local events; refused ones left out). */

@@ -74,7 +74,8 @@ export function LearnMoreSheet({ clip, onClose, onClipUpdate, onMoreClips }: {
         for (const w of spec.words) for (const hit of await findExistingNotes(w.hanzi)) ids.push(hit.note.id);
         if (ids.length) {
           const out = await bumpNotes(ids, 'other');
-          setNote({ kind: 'info', text: out.message });
+          // "Open ›" (shared/decks/open-links.ts): the word's card, or Up next for several.
+          setNote({ kind: 'info', text: out.message, ...(out.link ? { link: { to: out.link.path, label: `${out.link.label} ›` } } : {}) });
         } else {
           setNote({ kind: 'info', text: 'None of these words are in your decks yet — add them below.' });
         }

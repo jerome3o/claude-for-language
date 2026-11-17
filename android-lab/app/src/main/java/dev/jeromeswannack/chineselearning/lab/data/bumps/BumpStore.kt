@@ -8,6 +8,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CardQueue
 import dev.jeromeswannack.chineselearning.lab.core.LeadCard
 import dev.jeromeswannack.chineselearning.lab.core.LongTerm
 import dev.jeromeswannack.chineselearning.lab.core.StudyToday
+import dev.jeromeswannack.chineselearning.lab.core.OpenLinks
 import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueBump
@@ -71,7 +72,14 @@ object BumpStore {
         val kinds: List<String> = emptyList(),
         val addedNoteIds: List<String> = emptyList(),
         val longTermBefore: Map<String, Int?> = emptyMap(),
+        /** The notes of [already] (aligned). */
+        val alreadyNoteIds: List<String> = emptyList(),
     ) {
+        /** The toast's "Open ›" (core OpenLinks.studyToday): the card (one word) or Up next (several). */
+        val link: OpenLinks.Link? get() =
+            if (addedNoteIds.isNotEmpty()) OpenLinks.studyToday(addedNoteIds.mapIndexed { i, id -> id to added.getOrNull(i) })
+            else OpenLinks.studyToday(alreadyNoteIds.mapIndexed { i, id -> id to already.getOrNull(i) })
+
         val message: String get() = if (added.isEmpty() && already.isEmpty() && notFound > 0) "Not in your decks yet"
         else StudyToday.message(added.mapIndexed { i, h -> h to (kinds.getOrNull(i) ?: StudyToday.WHOLE) }, already.size)
     }
@@ -216,6 +224,7 @@ object BumpStore {
         val addedIds = ArrayList<String>()
         val kinds = ArrayList<String>()
         val already = ArrayList<String>()
+        val alreadyIds = ArrayList<String>()
         val items = ArrayList<BumpItemBody>()
         val rows = ArrayList<StudyBumpEntity>()
         val longTerms = LinkedHashMap<String, Int?>()
@@ -233,11 +242,11 @@ object BumpStore {
             val planned = plan.cardTypes
             if (planned != null) {
                 val merge = cardLevelMerge(dao, id, row, cards, planned, nowMs, zone)
-                if (merge.action == "already") { already += hanzi; continue }
+                if (merge.action == "already") { already += hanzi; alreadyIds += id; continue }
                 types = merge.cardTypes
             } else {
                 // A card-level bump of the word becomes a whole-note bump (Bumps.mergeBumpCardTypes).
-                if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += hanzi; continue }
+                if (row != null && row.pending != PENDING_CLEAR && id in open && parseCardTypes(row.cardTypes) == null) { already += hanzi; alreadyIds += id; continue }
                 types = null
             }
             val clientId = UUID.randomUUID().toString()
@@ -262,8 +271,9 @@ object BumpStore {
             app.repo.notifyLocalChange()
             send(app)
         }
-        val result = Result(added, already, ids.count { it !in notes && it !in justCreated }, kinds, addedIds, longTermBefore)
+        val result = Result(added, already, ids.count { it !in notes && it !in justCreated }, kinds, addedIds, longTermBefore, alreadyIds)
         if (track) track(app, src, result)
+        BumpToasts.remember(result.message, result.link)
         return result
     }
 

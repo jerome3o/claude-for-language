@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -41,6 +45,11 @@ fun InlineNotice(
     kind: NoticeKind = NoticeKind.Info,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
+    /** A second action after the first ("Open ›" on a toast — docs/STUDY_SESSION.md "Open ›"), a 48dp target. */
+    secondLabel: String? = null,
+    onSecond: (() -> Unit)? = null,
+    secondDescription: String? = null,
+    secondTag: String? = null,
 ) {
     val (icon, tint) = when (kind) {
         NoticeKind.Info -> "ℹ️" to Palette.Easy
@@ -57,8 +66,10 @@ fun InlineNotice(
             )
         }
     }
+    val second = secondLabel != null && onSecond != null
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(tint.copy(alpha = 0.12f)).padding(horizontal = 14.dp, vertical = 12.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(tint.copy(alpha = 0.12f))
+            .padding(start = 14.dp, end = if (second) 4.dp else 14.dp, top = if (second) 4.dp else 12.dp, bottom = if (second) 4.dp else 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(icon, fontSize = 15.sp, color = tint)
@@ -72,6 +83,17 @@ fun InlineNotice(
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = onAction).padding(horizontal = 8.dp, vertical = 10.dp),
             )
+        }
+        if (second) {
+            androidx.compose.foundation.layout.Box(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onSecond!!)
+                    .then(if (secondDescription != null) Modifier.semantics { contentDescription = secondDescription } else Modifier)
+                    .then(if (secondTag != null) Modifier.testTag(secondTag) else Modifier)
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("$secondLabel ›", color = Lab.colors.accent, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
         }
     }
 }

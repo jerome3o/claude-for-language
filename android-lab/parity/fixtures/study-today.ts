@@ -11,6 +11,7 @@ import {
   studyTodayHint, studyTodayKindOfRow, studyTodayLabel, studyTodayMessage, studyTodayPlan, type StudyTodayKind,
 } from '../../../shared/decks/study-today';
 import type { LongTermPref } from '../../../shared/decks/long-term';
+import { addedToDeckOpenLink, studyTodayOpenLink } from '../../../shared/decks/open-links';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: study-today <out-dir>');
@@ -64,5 +65,20 @@ for (let i = 0; i < 150; i++) {
   messages.push({ added, already, message: studyTodayMessage(added, already) });
 }
 
-writeFileSync(join(OUT, 'study-today.json'), JSON.stringify({ plans, copy, rows, messages }));
+// "Open ›" on the toasts (shared/decks/open-links.ts → core OpenLinks.kt).
+const IDS = ['n1', 'n2', 'n 3', '', ' ', 'n1'];
+const links: unknown[] = [];
+for (let i = 0; i < 120; i++) {
+  const n = Math.floor(rand() * 4);
+  const notes = Array.from({ length: n }, () => ({ noteId: rand() < 0.1 ? null : pick(IDS), hanzi: rand() < 0.2 ? null : pick(WORDS) }));
+  const deckId = rand() < 0.2 ? null : pick(['d1', 'd 2', '']);
+  const deckName = rand() < 0.2 ? null : pick(['From readers', '', 'HSK 2']);
+  links.push({
+    notes, deckId, deckName,
+    added: addedToDeckOpenLink({ noteIds: notes.map(x => x.noteId), deckId, deckName, hanzi: notes[0]?.hanzi ?? null }),
+    bumped: studyTodayOpenLink(notes),
+  });
+}
+
+writeFileSync(join(OUT, 'study-today.json'), JSON.stringify({ plans, copy, rows, messages, links }));
 console.log(`study-today: ${plans.length} plans, ${messages.length} messages`);

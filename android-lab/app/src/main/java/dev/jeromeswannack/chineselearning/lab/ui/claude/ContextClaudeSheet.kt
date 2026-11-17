@@ -49,6 +49,14 @@ fun ContextClaudeSheet(
     onDismiss: () -> Unit,
     /** Once the threads are known: whether it resumed one (the entry point's analytics). */
     onResolved: (resumed: Boolean) -> Unit = {},
+    /** Open on this thread (back from something a line under a reply opened). */
+    initialThread: String? = null,
+    /**
+     * A line under a reply is opening what it made (docs/CHAT.md "Tool lines you can tap"): the host remembers
+     * the sheet ON THIS THREAD (saved with its screen), so back shows it open again — as the card's sheet does.
+     * Null = the plain navigation.
+     */
+    onLeaveForResult: ((threadId: String?) -> Unit)? = null,
 ) {
     val app = LocalContext.current.applicationContext as LabApp
     val nav = LocalLabNav.current
@@ -57,7 +65,7 @@ fun ContextClaudeSheet(
     val flow = remember(context.kind, ref) { store.observeContextThreads(context.kind, ref) }
     val threads by flow.collectAsState(initial = null)
     val openedAt = remember { System.currentTimeMillis() }
-    var chosen by remember { mutableStateOf<String?>(null) }
+    var chosen by remember { mutableStateOf(initialThread) }
     var fresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(ref) {
         if (app.online.value) runCatching { store.refreshContextThreads(context.kind, ref) }
@@ -92,7 +100,14 @@ fun ContextClaudeSheet(
             app.analytics.track("claude.thread_action", mapOf("action" to "new", "context_kind" to context.kind))
         },
     ) else emptyList()
+    val openResult: ((dev.jeromeswannack.chineselearning.lab.core.claude.CardTools.Link) -> Unit)? = onLeaveForResult?.let { leave ->
+        { link ->
+            leave(id.takeIf { it != ClaudeThreadViewModel.NEW })
+            nav?.open(link.path)
+        }
+    }
     LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(ContextClaudeTags.SHEET)) {
+      androidx.compose.runtime.CompositionLocalProvider(LocalResultOpen provides openResult) {
         ClaudeThreadContent(
             app, vm,
             open = { path -> onDismiss(); nav?.open(path) },
@@ -103,5 +118,6 @@ fun ContextClaudeSheet(
             explorerSource = explorerSource,
             menuItems = menuItems,
         )
+      }
     }
 }

@@ -83,4 +83,33 @@ class StudyTodayParityTest {
             assertEquals(c["message"]!!.jsonPrimitive.content, StudyToday.message(added, c["already"]!!.jsonPrimitive.int), "$n")
         }
     }
+
+    private fun strOrNull(e: JsonElement?): String? = if (e == null || e is JsonNull) null else e.jsonPrimitive.content
+
+    private fun assertLink(want: JsonElement?, got: OpenLinks.Link?, what: String) {
+        if (want == null || want is JsonNull) {
+            assertEquals(null, got, what)
+            return
+        }
+        val o = want.jsonObject
+        assertEquals(OpenLinks.Link(
+            o["kind"]!!.jsonPrimitive.content, o["target"]!!.jsonPrimitive.content, strOrNull(o["id"]),
+            o["path"]!!.jsonPrimitive.content, o["label"]!!.jsonPrimitive.content, o["aria"]!!.jsonPrimitive.content,
+        ), got, what)
+    }
+
+    @Test
+    fun toastOpenLinksMatchTypeScript() {
+        val cases = fixture["links"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.size >= 100)
+        var seen = 0
+        for ((n, c) in cases.withIndex()) {
+            val notes = c["notes"]!!.jsonArray.map { it.jsonObject }.map { strOrNull(it["noteId"]) to strOrNull(it["hanzi"]) }
+            val added = OpenLinks.addedToDeck(notes.map { it.first }, strOrNull(c["deckId"]), strOrNull(c["deckName"]), notes.firstOrNull()?.second)
+            assertLink(c["added"], added, "$n added")
+            assertLink(c["bumped"], OpenLinks.studyToday(notes), "$n bumped")
+            if (added != null) seen++
+        }
+        assertTrue(seen > 10)
+    }
 }

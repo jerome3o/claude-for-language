@@ -33,6 +33,8 @@ export interface ContextClaudeSheetProps {
   /** The thread it resumed (or null for a new one), once known — the entry point's analytics. */
   onResolved?: (resumed: boolean) => void;
   onClose: () => void;
+  /** Open on this thread (back from something a tool line under it opened — docs/CHAT.md "Tool lines you can tap"). */
+  initialThreadId?: string | null;
 }
 
 export function ContextClaudeSheet(props: ContextClaudeSheetProps) {
@@ -40,7 +42,7 @@ export function ContextClaudeSheet(props: ContextClaudeSheetProps) {
   const { isOnline } = useNetwork();
   const threads = useContextThreads(context);
   const openedAt = useRef(Date.now());
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(props.initialThreadId ?? null);
 
   useEffect(() => {
     if (isOnline) void refreshContextThreads(context).catch(() => undefined);

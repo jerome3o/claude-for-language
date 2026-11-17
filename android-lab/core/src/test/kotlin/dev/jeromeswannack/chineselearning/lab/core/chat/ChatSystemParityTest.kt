@@ -56,7 +56,7 @@ class ChatSystemParityTest {
                     text = v.str("text")!!,
                     quote = v.str("quote"),
                     body = v.str("body"),
-                    action = v.el("action")?.jsonObject?.let { a -> SystemMessages.Action(a.str("label")!!, a.str("path")!!) },
+                    action = v.el("action")?.jsonObject?.let { a -> SystemMessages.Action(a.str("label")!!, a.str("path")!!, a.str("section")) },
                     quiet = v.bool("quiet"),
                 )
             }

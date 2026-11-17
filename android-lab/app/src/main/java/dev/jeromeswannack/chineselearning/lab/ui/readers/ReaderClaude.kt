@@ -67,7 +67,10 @@ private suspend fun pageWords(app: LabApp, readerId: String, index: Int): Claude
 
 /** The page's Claude thread in a sheet over the reading view. */
 @Composable
-internal fun ReaderClaudeSheet(reader: GradedReaderDto, page: ReaderPageDto, index: Int, onDismiss: () -> Unit) {
+internal fun ReaderClaudeSheet(
+    reader: GradedReaderDto, page: ReaderPageDto, index: Int, onDismiss: () -> Unit,
+    initialThread: String? = null, onLeaveForResult: ((String?) -> Unit)? = null,
+) {
     val app = LocalContext.current.applicationContext as? LabApp ?: return
     val words by produceState<ClaudeChats.PageWords?>(null, reader.id, index) { value = pageWords(app, reader.id, index) }
     val w = words ?: return
@@ -87,6 +90,8 @@ internal fun ReaderClaudeSheet(reader: GradedReaderDto, page: ReaderPageDto, ind
         source = "reader",
         explorerSource = "reader",
         onDismiss = onDismiss,
+        initialThread = initialThread,
+        onLeaveForResult = onLeaveForResult,
         onResolved = { resumed -> app.analytics.track("reader.ask_claude", mapOf("from" to "toolbar", "resumed" to resumed, "words" to (w.lookedUp.size + w.saidWrong.size))) },
     )
 }
