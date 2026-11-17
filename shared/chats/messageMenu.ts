@@ -12,8 +12,8 @@ import { autoCheckText, openInCoachRequest, sayBetterState } from './autoCheck';
  * Open in Coach right after it, Reply, Copy, Forward, Translate,
  * Pinyin, Explain, Save as flashcard, Open in Coach (any message with Chinese: mine is
  * checked, theirs explained — docs/CHAT.md "Chat ↔ Coach"), Make flashcards from selection, Check my
- * Chinese, Correct, Read aloud, Word by word (Claude practice chat), Discuss with
- * Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
+ * Chinese, Correct, Read aloud, Discuss with Claude,
+ * Pin, Info, Edit, Delete, Select. A reaction bar sits on top (`reactions`).
  */
 
 type RelationshipRole = 'tutor' | 'student';
@@ -35,7 +35,6 @@ export type MenuActionId =
   | 'remove_correction'
   | 'correction_card'
   | 'play'
-  | 'word_by_word'
   | 'discuss'
   | 'pin'
   | 'unpin'
@@ -116,7 +115,6 @@ export function menuText(msg: Pick<MenuMessage, 'content' | 'attachment'>): stri
 export function messageMenu(
   msg: MenuMessage,
   viewerRole: RelationshipRole,
-  isAiConversation: boolean,
   viewerId: string,
   state: MenuState = { pinyinOn: false, translateOn: false },
 ): MessageMenu {
@@ -129,7 +127,7 @@ export function messageMenu(
     return { reactions: false, items: text ? [ITEM.copy()] : [] };
   }
   const isMine = msg.sender_id === viewerId;
-  const isLearner = viewerRole === 'student' || isAiConversation;
+  const isLearner = viewerRole === 'student';
   const zh = !!text && looksLikeChinese(text);
   const translated = kind === 'voice' ? !!msg.attachment?.translation : !!msg.translation;
   const items: MenuItem[] = [];
@@ -145,7 +143,7 @@ export function messageMenu(
   const autoChecked = !!msg.auto_check && msg.auto_check.text === autoCheckText({ ...msg, attachment: kind ? msg.attachment : null });
   items.push({ id: 'reply', label: 'Reply', icon: '↩️', needsInternet: false });
   if (text) items.push(ITEM.copy());
-  if (!isAiConversation) items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
+  items.push({ id: 'forward', label: 'Forward', icon: '↪️', needsInternet: true });
   if (zh && (kind !== 'voice' || translated)) {
     items.push(ITEM.translate(translated, state.translateOn));
   }
@@ -158,17 +156,14 @@ export function messageMenu(
     if (msg.check_status === 'needs_improvement') items.push({ id: 'view_corrections', label: 'View corrections', icon: '📝', needsInternet: false });
     else if (msg.check_status !== 'correct') items.push({ id: 'check', label: 'Check my Chinese', icon: '✅', needsInternet: true });
   }
-  if (!isAiConversation && msg.correction && isMine) {
+  if (msg.correction && isMine) {
     items.push({ id: 'correction_card', label: 'Make a card from the correction', icon: '✏️', needsInternet: true });
   }
-  if (!isAiConversation && viewerRole === 'tutor' && !isMine && !kind && msg.content.trim()) {
+  if (viewerRole === 'tutor' && !isMine && !kind && msg.content.trim()) {
     items.push({ id: 'correct', label: msg.correction ? 'Edit correction' : 'Correct', icon: '✏️', needsInternet: true });
     if (msg.correction) items.push({ id: 'remove_correction', label: 'Remove correction', icon: '✖️', needsInternet: true });
   }
   if (zh && kind !== 'voice') items.push(ITEM.play());
-  if (isAiConversation && !isMine && zh && isLearner && !kind) {
-    items.push({ id: 'word_by_word', label: 'Word by word', icon: '🈯', needsInternet: true });
-  }
   if (text) {
     items.push({
       id: 'discuss',
@@ -177,12 +172,10 @@ export function messageMenu(
       needsInternet: true,
     });
   }
-  if (!isAiConversation) {
-    items.push(msg.pinned_at ? { id: 'unpin', label: 'Unpin', icon: '📌', needsInternet: true } : { id: 'pin', label: 'Pin', icon: '📌', needsInternet: true });
-    items.push({ id: 'info', label: 'Info', icon: 'ℹ️', needsInternet: false });
-    if (isMine && kind !== 'voice') items.push({ id: 'edit', label: kind === 'image' ? 'Edit caption' : 'Edit', icon: '✏️', needsInternet: true });
-    if (isMine) items.push({ id: 'delete', label: 'Delete', icon: '🗑️', needsInternet: true, danger: true });
-  }
+  items.push(msg.pinned_at ? { id: 'unpin', label: 'Unpin', icon: '📌', needsInternet: true } : { id: 'pin', label: 'Pin', icon: '📌', needsInternet: true });
+  items.push({ id: 'info', label: 'Info', icon: 'ℹ️', needsInternet: false });
+  if (isMine && kind !== 'voice') items.push({ id: 'edit', label: kind === 'image' ? 'Edit caption' : 'Edit', icon: '✏️', needsInternet: true });
+  if (isMine) items.push({ id: 'delete', label: 'Delete', icon: '🗑️', needsInternet: true, danger: true });
   items.push({ id: 'select', label: 'Select', icon: '☑️', needsInternet: false });
   return { reactions: true, items };
 }

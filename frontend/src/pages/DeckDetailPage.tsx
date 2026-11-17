@@ -16,7 +16,7 @@ import { NoteImage } from '../components/noteImage/NoteImage';
 import { syncService } from '../services/sync';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, getNoteQuestions, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck, apiErrorStatus } from '../api/client';
+import { getDeck, createNote, updateNote, deleteDeck, getDeckStats, getDeckProgress, getNoteHistory, generateNoteAudio, regenerateNoteAudio, getAudioUrl, updateDeckSettings, updateDeck, getMyRelationships, getDeckTutorShares, studentShareDeck, unshareStudentDeck, apiErrorStatus } from '../api/client';
 import { Loading, ErrorMessage, EmptyState } from '../components/Loading';
 import { Note, Deck, CardQueue, NoteWithCards, CardType, CardWithNote, getOtherUserInRelationship, DeckProgress } from '../types';
 import { DeckProgressSummary } from '../components/DeckProgress';
@@ -190,11 +190,6 @@ function NoteHistoryModal({
     queryFn: () => getNoteHistory(note.id),
   });
 
-  const questionsQuery = useQuery({
-    queryKey: ['noteQuestions', note.id],
-    queryFn: () => getNoteQuestions(note.id),
-  });
-
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
@@ -205,10 +200,10 @@ function NoteHistoryModal({
           </button>
         </div>
 
-        {(historyQuery.isLoading || questionsQuery.isLoading) && <Loading />}
-        {(historyQuery.error || questionsQuery.error) && <ErrorMessage message="Failed to load history" />}
+        {historyQuery.isLoading && <Loading />}
+        {historyQuery.error && <ErrorMessage message="Failed to load history" />}
 
-        {historyQuery.data && historyQuery.data.length === 0 && questionsQuery.data && questionsQuery.data.length === 0 && (
+        {historyQuery.data && historyQuery.data.length === 0 && (
           <p className="text-light">No history yet. Study this card to see history.</p>
         )}
 
@@ -298,52 +293,6 @@ function NoteHistoryModal({
           <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>💬 Claude conversations</h3>
           <CardClaudeThreads noteId={note.id} hanzi={note.hanzi} emptyText="No conversations with Claude about this card yet." />
         </div>
-
-        {/* Questions & Answers */}
-        {questionsQuery.data && questionsQuery.data.length > 0 && (
-          <div style={{ marginTop: '1.5rem' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>
-              Questions Asked ({questionsQuery.data.length})
-            </h3>
-            <div className="flex flex-col gap-3">
-              {questionsQuery.data.map((qa) => (
-                <div
-                  key={qa.id}
-                  className="card"
-                  style={{ padding: '0.75rem', background: 'var(--bg-elevated)' }}
-                >
-                  <div className="text-light" style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>
-                    {formatDate(qa.asked_at)}
-                  </div>
-                  <div
-                    style={{
-                      backgroundColor: 'var(--color-primary)',
-                      color: 'white',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '8px',
-                      marginBottom: '0.5rem',
-                      fontSize: '0.875rem',
-                    }}
-                  >
-                    {qa.question}
-                  </div>
-                  <div
-                    style={{
-                      backgroundColor: 'white',
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '8px',
-                      fontSize: '0.875rem',
-                      whiteSpace: 'pre-wrap',
-                      border: '1px solid #e5e7eb',
-                    }}
-                  >
-                    {qa.answer}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="modal-actions sheet-footer" style={{ marginTop: '1rem' }}>
           <BumpButton noteIds={[note.id]} source="deck" removable />

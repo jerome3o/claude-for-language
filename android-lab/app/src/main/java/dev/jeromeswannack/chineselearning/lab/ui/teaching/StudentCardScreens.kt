@@ -18,8 +18,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteHubDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
@@ -55,11 +53,14 @@ fun hubFlags(hub: NoteHubDto): List<TeachFlagDto> = hub.flags.map { f ->
     TeachFlagDto(f.id, f.note_id, f.message, f.status, f.tutor_reply, f.replied_at, f.created_at, hub.note.hanzi, hub.note.pinyin, hub.note.english, hub.deck.name, f.student_name, f.tutor_name)
 }
 
-fun hubQuestions(hub: NoteHubDto): List<ClaudeQuestionDto> = hub.questions.map { q ->
-    ClaudeQuestionDto(q.id, q.note_id, q.question, q.answer, q.asked_at, hub.note.hanzi, hub.note.pinyin, hub.note.english, hub.deck.name)
-}
-
-data class StudentHubUi(val relId: String, val studentName: String, val hub: Loadable<NoteHubDto> = Loadable(loading = true), val playingKey: String? = null)
+data class StudentHubUi(
+    val relId: String,
+    val studentName: String,
+    val hub: Loadable<NoteHubDto> = Loadable(loading = true),
+    val playingKey: String? = null,
+    /** The card's Claude threads the student lets her read (`…/claude-threads?note_id=`). */
+    val threads: Loadable<dev.jeromeswannack.chineselearning.lab.data.api.TutorClaudeThreadsDto> = Loadable(loading = true),
+)
 
 data class StudentHubActions(
     val back: () -> Unit = {},
@@ -72,7 +73,7 @@ data class StudentHubActions(
 /**
  * The tutor's view of one of the student's cards (web: CardHubPage at
  * `/connections/:relId/cards/:noteId`): the note, how each card is going, the flags with the
- * reply box, every Ask-Claude conversation about it and the recent reviews. No editing.
+ * reply box, the card's Claude threads the student lets her read and the recent reviews. No editing.
  */
 @Composable
 fun StudentCardHubScreen(ui: StudentHubUi, actions: StudentHubActions, now: Instant = Instant.now()) {
@@ -129,10 +130,19 @@ fun StudentCardHubScreen(ui: StudentHubUi, actions: StudentHubActions, now: Inst
                 }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TeachSectionTitle("💬 Asked Claude" + if (hub.questions.isNotEmpty()) " (${TeachingFormat.plural(hub.questions.size, "question")})" else "")
-                        val threads = QuestionThreads.group(hubQuestions(hub))
-                        if (threads.isEmpty()) TeachCard { MutedLine("${ui.studentName} has not asked Claude about this card.") }
-                        threads.forEach { ClaudeThreadRow(it, {}, now, initiallyOpen = true, showCard = false) }
+                        val chats = ui.threads.data
+                        TeachSectionTitle("💬 Asked Claude" + if (!chats?.threads.isNullOrEmpty()) " (${TeachingFormat.plural(chats!!.threads.size, "chat")})" else "")
+                        when {
+                            chats == null && ui.threads.loading -> LoadingState()
+                            chats == null -> TeachCard { MutedLine(ui.threads.error ?: "Conversations load when you're online.") }
+                            chats.threads.isEmpty() -> TeachCard {
+                                MutedLine(
+                                    if (chats.visibility == "none") dev.jeromeswannack.chineselearning.lab.core.claude.TutorVisibility.tutorEmptyText(ui.studentName, chats.visibility)
+                                    else "${ui.studentName} has not asked Claude about this card.",
+                                )
+                            }
+                            else -> chats.threads.forEach { StudentClaudeThreadRow(ui.relId, it, actions.open, "card_hub", now) }
+                        }
                         InlineButton("All conversations with Claude ›") { actions.open(Routes.studentClaudeChats(ui.relId)) }
                     }
                 }

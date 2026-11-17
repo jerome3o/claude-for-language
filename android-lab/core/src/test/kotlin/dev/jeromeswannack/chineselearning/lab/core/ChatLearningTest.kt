@@ -8,11 +8,10 @@ import kotlin.test.assertTrue
 /** docs/CHAT.md PR 3 — the chat's learning-tool rules (ChatLearning, FlashcardReview). */
 class ChatLearningTest {
     @Test fun checkButtonFollowsTheLearnerRule() {
-        assertTrue(ChatLearning.canCheckDraft("我想去北京", "student", isAi = false))
-        assertTrue(ChatLearning.canCheckDraft("我想去北京", "tutor", isAi = true), "the Claude chat: always the learner")
-        assertFalse(ChatLearning.canCheckDraft("我想去北京", "tutor", isAi = false), "a tutor never checks")
-        assertFalse(ChatLearning.canCheckDraft("see you tomorrow", "student", false), "no Chinese")
-        assertFalse(ChatLearning.canCheckDraft("我想去北京", "student", false, editing = true), "not while editing")
+        assertTrue(ChatLearning.canCheckDraft("我想去北京", "student"))
+        assertFalse(ChatLearning.canCheckDraft("我想去北京", "tutor"), "a tutor never checks")
+        assertFalse(ChatLearning.canCheckDraft("see you tomorrow", "student"), "no Chinese")
+        assertFalse(ChatLearning.canCheckDraft("我想去北京", "student", editing = true), "not while editing")
     }
 
     @Test fun wordsTextAndWhenToAskForWords() {

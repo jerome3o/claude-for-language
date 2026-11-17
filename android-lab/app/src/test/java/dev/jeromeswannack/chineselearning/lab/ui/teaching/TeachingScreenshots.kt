@@ -224,7 +224,10 @@ class TeachingScreenshots : LabScreenshotTest() {
 
     @Config(qualifiers = TALL)
     @Test fun studentCardHub() = shoot("teaching-32-card-hub") {
-        StudentCardHubScreen(StudentHubUi("rel-jerome", "Jerome", S.loaded(G.hub)), StudentHubActions(), S.now)
+        StudentCardHubScreen(
+            StudentHubUi("rel-jerome", "Jerome", S.loaded(G.hub), threads = S.loaded(S.claude.copy(threads = S.claude.threads.take(1), total = 1))),
+            StudentHubActions(), S.now,
+        )
     }
 
     @Test fun studentChats() = shoot("teaching-33-claude-chats") {

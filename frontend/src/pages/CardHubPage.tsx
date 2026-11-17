@@ -15,7 +15,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { CardFlagsList } from '../components/cardFlags/CardFlagsList';
-import { ClaudeThreadList, toThreads } from '../components/cardFlags/ClaudeThreads';
+import { StudentClaudeThreadList, emptyClaudeText } from '../components/tutor/StudentClaudeThreads';
+import { listStudentClaudeThreads } from '../api/claudeThreads';
 import { CardClaudeThreads } from '../components/claude/CardClaudeThreads';
 import { claudeChatsPath } from '../components/cardFlags/paths';
 import { humanTutors, queueCardFlag, type RememberedTutor } from '../services/cardFlags';
@@ -70,6 +71,12 @@ export function CardHubPage() {
     queryKey: ['relationship', relId],
     queryFn: () => getRelationship(relId!),
     enabled: tutorView,
+  });
+  // The tutor's view: the card's Claude threads the student lets her read (my own card lists its threads below).
+  const tutorThreadsQuery = useQuery({
+    queryKey: ['student-claude-threads', relId, 'note', noteId],
+    queryFn: () => listStudentClaudeThreads(relId!, { noteId: noteId!, limit: 50 }),
+    enabled: tutorView && !!noteId,
   });
   // `/cards/:noteId#card-meaning_to_hanzi` (the study card's ⋯ → an other card → Open card details).
   useScrollToHash(!!hubQuery.data);
@@ -141,15 +148,22 @@ export function CardHubPage() {
         </section>
 
         <section className="detail-section">
-          <h2>💬 Asked Claude{hub.questions.length > 0 ? ` (${plural(hub.questions.length, 'question')})` : ''}</h2>
+          <h2>💬 Asked Claude{tutorView && tutorThreadsQuery.data && tutorThreadsQuery.data.threads.length > 0 ? ` (${plural(tutorThreadsQuery.data.threads.length, 'chat')})` : ''}</h2>
           {tutorView ? (
-            <ClaudeThreadList
-              threads={toThreads(hub.questions)}
-              relId={relId}
-              showCard={false}
-              emptyText={`${studentName || 'The student'} has not asked Claude about this card.`}
-              initiallyOpen
-            />
+            tutorThreadsQuery.data ? (
+              <StudentClaudeThreadList
+                threads={tutorThreadsQuery.data.threads}
+                relId={relId!}
+                from="card_hub"
+                emptyText={
+                  tutorThreadsQuery.data.visibility === 'none'
+                    ? emptyClaudeText(studentName, tutorThreadsQuery.data.visibility)
+                    : `${studentName || 'The student'} has not asked Claude about this card.`
+                }
+              />
+            ) : tutorThreadsQuery.isLoading ? null : (
+              <div className="cf-empty">Couldn’t load the conversations.</div>
+            )
           ) : (
             // My own card: its Claude threads, each opening the conversation (and continuing it).
             <CardClaudeThreads noteId={hub.note.id} hanzi={hub.note.hanzi} emptyText="You have not asked Claude about this card yet. Use Ask Claude on the card during study." />

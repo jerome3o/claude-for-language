@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { listMyClaudeChats } from '../api/cardFlags';
 import { getRelationship } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { Loading, ErrorMessage } from '../components/Loading';
-import { ClaudeThreadList, toThreads } from '../components/cardFlags/ClaudeThreads';
+import { AllCardClaudeThreads } from '../components/claude/CardClaudeThreads';
 import { getOtherUserInRelationship } from '../types';
-import type { ClaudeChatQuestion } from '../types/cardFlags';
 import { plural } from '../components/tutor/format';
 import { listStudentClaudeThreads } from '../api/claudeThreads';
 import { StudentClaudeThreadList, emptyClaudeText } from '../components/tutor/StudentClaudeThreads';
@@ -17,7 +15,7 @@ import '../components/cardFlags/cardFlags.css';
 const PAGE = 100;
 
 /**
- *   /claude-chats                       my Ask-Claude questions, grouped per card
+ *   /claude-chats                       my conversations with Claude about my cards (their card threads)
  *   /connections/:relId/claude-chats    the tutor's view: the student's chats with Claude he lets her read
  */
 export function ClaudeChatsPage() {
@@ -27,50 +25,19 @@ export function ClaudeChatsPage() {
   return <MyClaudeChatsPage />;
 }
 
-/** `/claude-chats`: every Ask-Claude question I asked on a card, grouped per card. */
+/**
+ * `/claude-chats`: every conversation I had with Claude about a card — its card threads, the one
+ * store (offline from the device's thread cache) — each opening the conversation itself.
+ */
 function MyClaudeChatsPage() {
-  const [extra, setExtra] = useState<ClaudeChatQuestion[]>([]);
-  const [cursor, setCursor] = useState<string | null | undefined>(undefined);
-  const [loadingMore, setLoadingMore] = useState(false);
-
-  const firstPage = useQuery({ queryKey: ['claude-chats', 'me'], queryFn: () => listMyClaudeChats({ limit: PAGE }) });
-
-  if (firstPage.isLoading) return <Loading />;
-  if (firstPage.error || !firstPage.data) {
-    return (
-      <div className="page"><div className="container"><ErrorMessage message={firstPage.error instanceof Error ? firstPage.error.message : 'Could not load the conversations'} /></div></div>
-    );
-  }
-  const data = firstPage.data;
-  const nextCursor = cursor === undefined ? data.next_cursor : cursor;
-  const threads = toThreads([...data.questions, ...extra]);
-
-  const loadMore = async () => {
-    if (!nextCursor || loadingMore) return;
-    setLoadingMore(true);
-    try {
-      const page = await listMyClaudeChats({ limit: PAGE, before: nextCursor });
-      setExtra((prev) => [...prev, ...page.questions]);
-      setCursor(page.next_cursor);
-    } finally {
-      setLoadingMore(false);
-    }
-  };
-
   return (
     <div className="page">
       <div className="container">
         <Link to="/more" className="back-link">‹ More</Link>
         <div className="ct-page-head">
           <h1>Claude conversations</h1>
-          <span className="ct-page-count">{plural(data.total, 'question')} · {plural(threads.length, 'conversation')}{nextCursor ? ' so far' : ''}</span>
         </div>
-        <ClaudeThreadList threads={threads} emptyText="Nothing yet. During study, tap Ask Claude on the back of a card — every question you ask is kept here." />
-        {nextCursor && (
-          <div className="ct-load-more">
-            <button type="button" className="btn btn-secondary" onClick={loadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load older'}</button>
-          </div>
-        )}
+        <AllCardClaudeThreads emptyText="Nothing yet. During study, tap Ask Claude on the back of a card — every conversation is kept here." />
       </div>
     </div>
   );

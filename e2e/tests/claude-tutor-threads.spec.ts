@@ -62,9 +62,21 @@ test('card questions are visible by default; the learner shares a plain chat; th
   await expect(section.getByTestId('student-claude-thread')).toHaveCount(1, { timeout: 15000 });
   await expect(section.getByTestId('student-claude-chip')).toHaveText('📇 Asked on card · 银行');
   await expect(section).not.toContainText('成都有什么好吃的');
+  // Her view of the card lists the same card thread (no regrouped Q&A rows any more).
+  await page.goto(`/connections/${relId}/cards/${note.id}`);
+  await expect(page.getByTestId('card-hub')).toContainText('银行', { timeout: 30000 });
+  await expect(page.getByTestId('student-claude-thread')).toHaveCount(1, { timeout: 15000 });
+  await expect(page.getByTestId('student-claude-thread')).toContainText('行在这里怎么读？');
   // The plain chat is "not found" for her.
   const hidden = await request.fetch(`${API}/api/relationships/${relId}/claude-threads/${general.thread.id}`, { headers: { Authorization: `Bearer ${tutor.token}` } });
   expect(hidden.status()).toBe(404);
+
+  // ---- The student's "Claude conversations": every card thread, the card on its row → the thread.
+  await page.goto(`/claude-chats?session_token=${student.token}`);
+  const mine = page.getByTestId('card-claude-thread-row');
+  await expect(mine).toHaveCount(1, { timeout: 30000 });
+  await expect(mine).toContainText('银行');
+  await expect(page.getByTestId('card-claude-threads')).not.toContainText('成都有什么好吃的');
 
   // ---- The student shares the plain chat from its ⋯.
   await page.goto(`/chats/claude/${general.thread.id}?session_token=${student.token}`);

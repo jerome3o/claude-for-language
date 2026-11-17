@@ -111,7 +111,7 @@ class ChatSystemParityTest {
             val m = o["message"]!!.jsonObject
             val got = MessageMenu.messageMenu(
                 MessageMenu.Message(senderId = m.str("sender_id")!!, content = m.str("content")!!, deletedAt = m.str("deleted_at"), systemKind = m.str("system_kind")),
-                o.str("role")!!, false, "me",
+                o.str("role")!!, "me",
             )
             val r = o["result"]!!.jsonObject
             val want = MessageMenu.Menu(r.bool("reactions"), r["items"]!!.jsonArray.map { e ->

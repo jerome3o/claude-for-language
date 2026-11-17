@@ -39,11 +39,9 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
-import dev.jeromeswannack.chineselearning.lab.core.QuestionThread
 import dev.jeromeswannack.chineselearning.lab.data.api.ActivityDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.AssignmentDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TeachFlagDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HomeworkDeckDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NeedsAttentionDto
@@ -290,41 +288,6 @@ fun FlagRow(flag: TeachFlagDto, actions: FlagActions, now: Instant = Instant.now
                     actions.toggleResolved(flag) { e -> busy = false; error = e }
                 }
             }
-        }
-    }
-}
-
-// ---------------- Asked Claude ----------------
-
-/** One conversation: a card's questions within 30 min of each other (core [QuestionThreads.group], parity-tested). */
-typealias ClaudeThread = QuestionThread<ClaudeQuestionDto>
-
-@Composable
-fun ClaudeThreadRow(thread: ClaudeThread, onOpenCard: (String) -> Unit, now: Instant = Instant.now(), initiallyOpen: Boolean = false, showCard: Boolean = true) {
-    var open by remember { mutableStateOf(initiallyOpen) }
-    val first = thread.questions.first()
-    TeachCard(Modifier.animateContentSize()) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).bouncyClickable(pressedScale = 0.98f) { open = !open }, verticalAlignment = Alignment.CenterVertically) {
-            if (showCard) {
-                Text(first.hanzi, fontSize = 22.sp, color = Lab.colors.ink)
-                Spacer(Modifier.width(12.dp))
-            }
-            Column(Modifier.weight(1f)) {
-                if (showCard) Text("${first.pinyin} · ${first.english}", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                MutedLine("${TeachingFormat.relativeDay(thread.lastAt, now)} · ${TeachingFormat.plural(thread.questions.size, "question")}")
-                if (!open) Text(first.question, style = MaterialTheme.typography.bodySmall, color = Lab.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Text(if (open) "▾" else "▸", color = Lab.colors.muted, fontSize = 18.sp)
-        }
-        if (open) {
-            thread.questions.forEach { q ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = Lab.colors.accent)) { append("Asked  ") }; append(q.question) }, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-                    Text(buildAnnotatedString { withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = Palette.Secondary)) { append("Claude  ") }; append(q.answer) }, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-                    MutedLine(TeachingFormat.shortDateTime(q.asked_at, now))
-                }
-            }
-            if (showCard) InlineButton("Open this card ›") { onOpenCard(thread.noteId) }
         }
     }
 }

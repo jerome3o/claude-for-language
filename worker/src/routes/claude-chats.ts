@@ -7,38 +7,24 @@
  *   GET /notes/:noteId/hub                                       one of my cards: note, cards, recent reviews, questions, flags
  *   GET /relationships/:relId/notes/:noteId/hub                  the same for one of the student's cards (tutor only)
  *
- * Questions are one row per Q&A; the client groups them into threads with
- * `groupQuestionThreads` (shared/chats). Paging is keyset on asked_at: pass the
- * response's `next_cursor` back as `before`. The learner's own come from
- * `note_questions`; the TUTOR's (`/relationships/:relId/claude-chats` and her card
- * hub's `questions`) come from the student's card threads she may read
- * (services/claude-agent/tutor-view.ts `tutorCardQuestions`, the student's
- * "Your tutor can see" choice — shared/claude/visibility.ts), in the same row
- * shape, so older apps keep working and a hidden chat never reaches them. Newer
- * apps read `/relationships/:relId/claude-threads` (routes/claude-tutor-view.ts).
+ * LEGACY row shapes for installed builds from before the thread view: one row per Q&A, paged
+ * keyset on asked_at (`next_cursor` back as `before`). All of it is served from the card threads
+ * (services/claude-agent/card-questions.ts) — `note_questions` is frozen. The tutor's
+ * (`/relationships/:relId/claude-chats` and her card hub's `questions`) only from the threads the
+ * student lets her read (shared/claude/visibility.ts). Current apps read the threads themselves:
+ * `/api/claude/threads?context_kind=card[&note_id=]` and `/relationships/:relId/claude-threads`.
  */
 
 import { Hono } from 'hono';
-import { sqliteToIso } from '@shared/chats';
 import type { Env, Note } from '../types';
 import { verifyRelationshipAccess, getMyRole, getOtherUserId } from '../services/relationships';
 import { listCardFlagsForNote, type CardFlag } from '../services/card-flags';
-import { tutorCardQuestions } from '../services/claude-agent/tutor-view';
+import { listCardQuestions, tutorCardQuestions, type CardQuestion } from '../services/claude-agent/card-questions';
 
 const claudeChats = new Hono<{ Bindings: Env }>();
 
-export interface ClaudeChatQuestion {
-  id: string;
-  note_id: string;
-  question: string;
-  answer: string;
-  asked_at: string;
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  deck_id: string;
-  deck_name: string;
-}
+/** One Q&A on a card (older apps' row shape). */
+export type ClaudeChatQuestion = CardQuestion;
 
 export interface ClaudeChatsResponse {
   questions: ClaudeChatQuestion[];
@@ -106,53 +92,17 @@ async function studentOf(db: D1Database, relId: string, userId: string): Promise
   return getOtherUserId(rel, userId);
 }
 
-const QUESTION_SELECT = `
-  SELECT nq.id, nq.note_id, nq.question, nq.answer, nq.asked_at,
-         n.hanzi, n.pinyin, n.english, d.id AS deck_id, d.name AS deck_name
-  FROM note_questions nq
-  JOIN notes n ON n.id = nq.note_id
-  JOIN decks d ON d.id = n.deck_id`;
-
-function normalizeQuestion(q: ClaudeChatQuestion): ClaudeChatQuestion {
-  return { ...q, asked_at: sqliteToIso(q.asked_at) };
-}
-
-export async function listClaudeChats(
+/** My questions (older apps' "Claude conversations" page), from my card threads. */
+export function listClaudeChats(
   db: D1Database,
   ownerId: string,
-  opts: { limit?: number; before?: string | null; noteId?: string | null }
+  opts: { limit?: number; before?: string | null; noteId?: string | null },
 ): Promise<ClaudeChatsResponse> {
-  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
-  const conditions = ['d.user_id = ?'];
-  const params: unknown[] = [ownerId];
-  if (opts.noteId) {
-    conditions.push('nq.note_id = ?');
-    params.push(opts.noteId);
-  }
-  if (opts.before) {
-    // Cursor is ISO; rows are stored as datetime('now') text. Compare in the stored format.
-    conditions.push('nq.asked_at < ?');
-    params.push(opts.before.replace('T', ' ').replace(/(\.\d+)?Z$/, ''));
-  }
-  const res = await db
-    .prepare(`${QUESTION_SELECT} WHERE ${conditions.join(' AND ')} ORDER BY nq.asked_at DESC, nq.id DESC LIMIT ?`)
-    .bind(...params, limit + 1)
-    .all<ClaudeChatQuestion>();
-  const rows = (res.results || []).map(normalizeQuestion);
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-  const totalRow = await db
-    .prepare(`SELECT COUNT(*) AS n FROM note_questions nq JOIN notes n ON n.id = nq.note_id JOIN decks d ON d.id = n.deck_id WHERE d.user_id = ?`)
-    .bind(ownerId)
-    .first<{ n: number }>();
-  return {
-    questions: page,
-    next_cursor: hasMore ? page[page.length - 1].asked_at : null,
-    total: totalRow?.n ?? page.length,
-  };
+  return listCardQuestions(db, ownerId, opts);
 }
 
-export async function loadNoteHub(db: D1Database, ownerId: string, noteId: string): Promise<NoteHub | null> {
+/** One card's hub; `tutor` = the student's tutor asking (only the Claude questions he lets her read). */
+export async function loadNoteHub(db: D1Database, ownerId: string, noteId: string, opts: { tutor?: boolean } = {}): Promise<NoteHub | null> {
   const note = await db
     .prepare('SELECT n.*, d.name AS deck_name FROM notes n JOIN decks d ON d.id = n.deck_id WHERE n.id = ? AND d.user_id = ?')
     .bind(noteId, ownerId)
@@ -179,7 +129,8 @@ export async function loadNoteHub(db: D1Database, ownerId: string, noteId: strin
       .prepare('SELECT COUNT(*) AS n FROM review_events re JOIN cards c ON c.id = re.card_id WHERE c.note_id = ? AND re.user_id = ?')
       .bind(noteId, ownerId)
       .first<{ n: number }>(),
-    db.prepare(`${QUESTION_SELECT} WHERE nq.note_id = ? ORDER BY nq.asked_at DESC LIMIT 200`).bind(noteId).all<ClaudeChatQuestion>(),
+    // Older apps' "Asked Claude" (current apps list the card's threads).
+    (opts.tutor ? tutorCardQuestions : listCardQuestions)(db, ownerId, { noteId, limit: 200 }),
     listCardFlagsForNote(db, noteId, ownerId),
     db
       .prepare(
@@ -199,7 +150,7 @@ export async function loadNoteHub(db: D1Database, ownerId: string, noteId: strin
     recent_reviews: reviews.results || [],
     forgets: forgets.results || [],
     review_count: reviewCount?.n ?? 0,
-    questions: (questions.results || []).map(normalizeQuestion),
+    questions: questions.questions,
     flags,
   };
 }
@@ -243,12 +194,11 @@ claudeChats.get('/notes/:noteId/hub', async (c) => {
 claudeChats.get('/relationships/:relId/notes/:noteId/hub', async (c) => {
   try {
     const studentId = await studentOf(c.env.DB, c.req.param('relId'), c.get('user').id);
-    const hub = await loadNoteHub(c.env.DB, studentId, c.req.param('noteId'));
+    // The tutor sees the flags on this card (scoped to the relationship's parties already) and only the
+    // Claude questions the student lets her read.
+    const hub = await loadNoteHub(c.env.DB, studentId, c.req.param('noteId'), { tutor: true });
     if (!hub) return c.json({ error: 'Card not found' }, 404);
-    // The tutor sees the flags on this card; they are scoped to the relationship's parties already.
-    // Its Claude questions: only the ones the student lets her read.
-    const visible = await tutorCardQuestions(c.env.DB, studentId, { noteId: hub.note.id, limit: 200 });
-    return c.json({ ...hub, questions: visible.questions });
+    return c.json(hub);
   } catch (error) {
     return errorResponse(c, error, "Failed to load the student's card");
   }

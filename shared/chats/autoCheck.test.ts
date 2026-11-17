@@ -45,19 +45,19 @@ describe('sayBetterState', () => {
   });
 
   it('the menu starts with "How to say it better" and drops Check my Chinese once checked', () => {
-    const items = messageMenu(mine, 'student', false, 'me').items.map((i) => i.id);
+    const items = messageMenu(mine, 'student', 'me').items.map((i) => i.id);
     expect(items[0]).toBe('say_better');
     expect(items).not.toContain('check');
     expect(items).not.toContain('view_corrections');
-    const ok = messageMenu({ ...mine, auto_check: { status: 'ok', text: S } }, 'student', false, 'me').items.map((i) => i.id);
+    const ok = messageMenu({ ...mine, auto_check: { status: 'ok', text: S } }, 'student', 'me').items.map((i) => i.id);
     expect(ok[0]).toBe('reply');
     expect(ok).not.toContain('check');
     // Stale after an edit: Check my Chinese is back.
-    expect(messageMenu({ ...mine, content: '我改了一下' }, 'student', false, 'me').items.map((i) => i.id)).toContain('check');
+    expect(messageMenu({ ...mine, content: '我改了一下' }, 'student', 'me').items.map((i) => i.id)).toContain('check');
     // Corrected by the tutor: first item too.
-    expect(messageMenu({ sender_id: 'me', content: S, correction: { text: '我去了' } }, 'student', false, 'me').items[0].id).toBe('say_better');
+    expect(messageMenu({ sender_id: 'me', content: S, correction: { text: '我去了' } }, 'student', 'me').items[0].id).toBe('say_better');
     // The tutor looking at the student's message never gets it.
-    expect(messageMenu({ ...mine, sender_id: 'stu' }, 'tutor', false, 'me').items[0].id).toBe('reply');
+    expect(messageMenu({ ...mine, sender_id: 'stu' }, 'tutor', 'me').items[0].id).toBe('reply');
   });
 });
 

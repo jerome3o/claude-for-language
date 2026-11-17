@@ -23,7 +23,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.NoteProgressDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteRefDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ProgressDayDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ProgressSummaryDto
-import dev.jeromeswannack.chineselearning.lab.data.api.QuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RecentRatingsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SharedDeckProgressDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TypeBreakdownDto
@@ -49,7 +48,6 @@ object ProgressSamples {
             HubReviewDto("r2", "c1", "hanzi_to_meaning", 1, "2026-09-26T21:00:00Z", 5200, recording_url = "recordings/e7.webm"),
         ),
         review_count = 7,
-        questions = listOf(QuestionDto("q9", "n2", "Is 站 here the same as in 站起来?", "Yes — the same character. As a noun it's a stop or station; as a verb, to stand.", "2026-09-26T21:02:00Z")),
         flags = listOf(CardFlagDto("f1", "rel-jerome", "n2", message = "Is 站 here the same as in 站起来? The audio sounds different to me.", created_at = "2026-09-26T21:05:00Z", student_name = "Jerome")),
     )
 

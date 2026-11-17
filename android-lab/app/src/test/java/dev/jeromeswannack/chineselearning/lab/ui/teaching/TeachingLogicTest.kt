@@ -1,7 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.teaching
 
 import dev.jeromeswannack.chineselearning.lab.core.HomeworkPlan
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.PillsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyStatusDto
 import dev.jeromeswannack.chineselearning.lab.data.api.TodayStatsDto
@@ -48,21 +47,6 @@ class TeachingLogicTest {
         assertEquals("1 word", TeachingFormat.plural(1, "word"))
         assertEquals("J", TeachingFormat.initial("jerome", null))
         assertEquals("?", TeachingFormat.initial(null, ""))
-    }
-
-    private fun q(id: String, note: String, at: String) = ClaudeQuestionDto(id, note, "q$id", "a$id", at)
-
-    @Test fun questionsGroupIntoThreadsLikeSharedChats() {
-        val rows = listOf(
-            q("1", "n1", "2026-09-26T10:00:00Z"),
-            q("2", "n1", "2026-09-26T10:20:00Z"), // 20 min later → same thread
-            q("3", "n1", "2026-09-26T11:00:00Z"), // 40 min after the last → new thread
-            q("4", "n2", "2026-09-26T10:05:00Z"),
-        )
-        val threads = dev.jeromeswannack.chineselearning.lab.core.QuestionThreads.group(rows.shuffled(java.util.Random(4)))
-        assertEquals(listOf("3", "1", "4"), threads.map { it.id })
-        assertEquals(listOf("1", "2"), threads[1].questions.map { it.id })
-        assertEquals("2026-09-26T10:20:00Z", threads[1].lastAt)
     }
 
     @Test fun statusLines() {

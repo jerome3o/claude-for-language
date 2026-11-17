@@ -12,6 +12,7 @@ import { loadUserStudyDaySql } from '../../study-day';
 import { serverStudyQueue } from '../../study-queue';
 import { masteryLevel } from '@shared/progress/mastery';
 import { executeReadChat, executeSearchMyChats } from './memory';
+import { listCardQuestions } from '../card-questions';
 
 /**
  * "⚡ Study it today" for the in-app agents: bump words the learner ALREADY has to the front of
@@ -94,36 +95,16 @@ export async function executeReadTool(
       case 'list_conversations': {
         const noteId = input.note_id as string | undefined;
         const limit = Math.min((input.limit as number) || 10, 20);
-        let results;
-        if (noteId) {
-          results = await ctx.db.prepare(`
-            SELECT nq.id, nq.note_id, nq.question, nq.answer, nq.asked_at, n.hanzi, n.pinyin
-            FROM note_questions nq
-            JOIN notes n ON nq.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE nq.note_id = ? AND d.user_id = ?
-            ORDER BY nq.asked_at DESC
-            LIMIT ?
-          `).bind(noteId, ctx.userId, limit).all();
-        } else {
-          results = await ctx.db.prepare(`
-            SELECT nq.id, nq.note_id, nq.question, nq.answer, nq.asked_at, n.hanzi, n.pinyin
-            FROM note_questions nq
-            JOIN notes n ON nq.note_id = n.id
-            JOIN decks d ON n.deck_id = d.id
-            WHERE d.user_id = ?
-            ORDER BY nq.asked_at DESC
-            LIMIT ?
-          `).bind(ctx.userId, limit).all();
-        }
+        // The card threads' questions (the one store; note_questions is frozen).
+        const { questions } = await listCardQuestions(ctx.db, ctx.userId, { noteId: noteId || null, limit });
         // Truncate answers for the listing
-        const conversations = (results.results || []).map((r: Record<string, unknown>) => ({
+        const conversations = questions.map((r) => ({
           id: r.id,
           note_id: r.note_id,
           hanzi: r.hanzi,
           pinyin: r.pinyin,
           question: r.question,
-          answer_preview: (r.answer as string || '').substring(0, 200),
+          answer_preview: r.answer.substring(0, 200),
           asked_at: r.asked_at,
         }));
         return { conversations, count: conversations.length };

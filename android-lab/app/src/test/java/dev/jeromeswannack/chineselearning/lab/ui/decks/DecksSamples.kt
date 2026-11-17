@@ -4,7 +4,6 @@ import dev.jeromeswannack.chineselearning.lab.core.QueueCounts
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubReviewDto
-import dev.jeromeswannack.chineselearning.lab.data.api.QuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SearchHitDto
 import dev.jeromeswannack.chineselearning.lab.data.decks.NoteFields
 import dev.jeromeswannack.chineselearning.lab.ui.cards.CardHubUi
@@ -102,12 +101,6 @@ object DecksSamples {
         ),
         flags = listOf(
             CardFlagDto("f1", "rel1", "n1", null, "Is it dǎsuàn or dǎsuan? The audio sounds neutral.", "resolved", "Both are heard — in speech 算 is often light. The card's dǎsuàn is the dictionary form.", "2026-09-24T10:00:00Z", "2026-09-23T19:00:00Z", "2026-09-24T10:00:00Z", "王老师"),
-        ),
-        threads = listOf(
-            listOf(
-                QuestionDto("q1", "n1", "What's the difference between 打算 and 计划?", "**打算** is everyday — what you intend to do.\n**计划** is a plan you've laid out, often formal: 旅行计划.", "2026-09-25 09:00:00"),
-                QuestionDto("q2", "n1", "Can I say 我打算了?", "Not on its own — 打算 needs what you plan: 我打算去北京。", "2026-09-25 09:03:00"),
-            ),
         ),
         reviews = listOf(
             HubReviewDto("r1", "c2", M, 0, "2026-09-27T08:00:00Z", 12000, "打算", null),

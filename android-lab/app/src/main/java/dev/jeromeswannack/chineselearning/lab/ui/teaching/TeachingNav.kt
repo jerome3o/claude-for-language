@@ -532,15 +532,16 @@ private fun SessionNotesRoute(nav: LabNav, relId: String, name: String) {
 private fun StudentHubRoute(nav: LabNav, relId: String, noteId: String, name: String) {
     val vm: StudentHubViewModel = viewModel(key = "hub-$relId-$noteId", factory = StudentHubViewModel.Factory(nav.app, relId, noteId))
     val hub by vm.hub.state.collectAsStateWithLifecycle()
+    val threads by vm.threads.state.collectAsStateWithLifecycle()
     val playing by nav.app.audio.playingKey.collectAsStateWithLifecycle()
     val online by nav.app.online.collectAsStateWithLifecycle()
     StudentCardHubScreen(
-        StudentHubUi(relId, name, hub, playing),
+        StudentHubUi(relId, name, hub, playing, threads),
         StudentHubActions(
             back = nav::back, open = nav::open,
             play = { url, text -> if (playing == url) nav.app.audio.stop() else nav.app.audio.play(url, text, online) },
             flags = FlagActions(reply = { f, t, done -> vm.reply(f, t, done) }, toggleResolved = { f, done -> vm.toggle(f, done) }),
-            retry = { vm.hub.refresh() },
+            retry = { vm.hub.refresh(); vm.threads.refresh() },
         ),
     )
 }

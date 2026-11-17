@@ -3,14 +3,12 @@ package dev.jeromeswannack.chineselearning.lab.ui.cards
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubReviewDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NotePaths
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteHubDto
-import dev.jeromeswannack.chineselearning.lab.data.api.QuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.noteHub
 import dev.jeromeswannack.chineselearning.lab.data.api.send
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
@@ -49,13 +47,11 @@ data class CardHubUi(
     val note: HubNoteUi? = null,
     val cards: List<HubCardDto> = emptyList(),
     val flags: List<CardFlagDto> = emptyList(),
-    /** Ask-Claude conversations, newest first; each oldest question first. */
-    val threads: List<List<QuestionDto>> = emptyList(),
     val reviews: List<HubReviewDto> = emptyList(),
     val reviewCount: Int = 0,
     /** "Forget this card" resets on this phone: (card type, forgotten at ISO), newest first. */
     val forgets: List<Pair<String, String>> = emptyList(),
-    /** Flags and Claude chats come from the server: false when only Room could answer. */
+    /** Flags come from the server: false when only Room could answer. (Claude chats: the card's threads, CardClaudeThreads.kt.) */
     val fromServer: Boolean = false,
     val loadable: Loadable<NoteHubDto> = Loadable(),
     val tutors: List<HubTutor> = emptyList(),
@@ -73,8 +69,8 @@ data class CardHubUi(
 
 /**
  * The card hub (web: pages/CardHubPage.tsx, `/cards/:noteId`): the note, how each of its
- * three cards is doing, the flags on it (with the tutor's reply / a flag form), every
- * Ask-Claude conversation about it and the recent reviews. The server's hub is cached for
+ * three cards is doing, the flags on it (with the tutor's reply / a flag form), its Claude
+ * threads (the screen's `claudeThreads` slot) and the recent reviews. The server's hub is cached for
  * offline; before it has ever loaded, Room answers the note, the cards and the reviews.
  */
 class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : ViewModel() {
@@ -145,7 +141,7 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
     private fun build(state: Loadable<NoteHubDto>, local: LocalHub?): CardHubUi {
         val server = state.data
         // The phone's own copy of the note wins (an edit made offline shows at once); the
-        // server supplies what the phone doesn't hold: flags, Claude chats, recordings.
+        // server supplies what the phone doesn't hold: flags, recordings.
         val note = local?.note ?: server?.let { h ->
             val n = h.note
             HubNoteUi(n.hanzi, n.pinyin, n.english, n.fun_facts, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.audio_url, h.deck.id, h.deck.name)
@@ -156,7 +152,6 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
             note = note,
             cards = local?.cards ?: server?.cards.orEmpty(),
             flags = server?.flags.orEmpty(),
-            threads = groupThreads(server?.questions.orEmpty()),
             // Server reviews carry recordings; fall back to Room's when the server hasn't answered.
             reviews = server?.recent_reviews ?: local?.reviews.orEmpty(),
             reviewCount = maxOf(server?.review_count ?: 0, local?.count ?: 0),
@@ -242,20 +237,6 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
 
     companion object {
         const val RECENT = 20
-
-        /** Two questions on the same card closer than this read as one conversation (shared/chats/threads.ts). */
-        const val THREAD_GAP_MS = 30 * 60 * 1000L
-
-        /** `groupQuestionThreads` for one note's rows: newest thread first, each oldest question first. */
-        fun groupThreads(rows: List<QuestionDto>, gapMs: Long = THREAD_GAP_MS): List<List<QuestionDto>> {
-            fun t(q: QuestionDto) = runCatching { Js.parseDate(sqliteToIso(q.asked_at)) }.getOrDefault(0L)
-            val threads = ArrayList<MutableList<QuestionDto>>()
-            for (row in rows.sortedBy(::t)) {
-                val cur = threads.lastOrNull()
-                if (cur != null && t(row) - t(cur.last()) <= gapMs) cur += row else threads += mutableListOf(row)
-            }
-            return threads.sortedByDescending { t(it.last()) }
-        }
 
         /** SQLite's datetime('now') as ISO (the web's sqliteToIso). */
         fun sqliteToIso(v: String): String = if (v.isEmpty() || v.contains('T')) v else v.replace(' ', 'T') + if (v.endsWith("Z")) "" else "Z"
