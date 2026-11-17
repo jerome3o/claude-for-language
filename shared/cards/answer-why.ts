@@ -31,7 +31,8 @@ export interface AnswerWhyCheck {
   headline?: string | null;
   tips?: readonly { text: string }[] | null;
   corrected?: string | null;
-  alternative?: string | null;
+  /** A natural alternative (the answer check's `{ hanzi }`, or its text). */
+  alternative?: string | { hanzi: string } | null;
 }
 
 /** Stock lines that carry no reason (the answer check's plain / neutral / exact headlines). */
@@ -89,16 +90,17 @@ export interface AnswerMore {
 
 /**
  * The details a check already returned, minus the why sentence itself (`null` = nothing to open in place). `said` =
- * his answer (a corrected line equal to it is no correction).
+ * his answer (a corrected line equal to it is no correction), `expected` = the answer already on screen (a corrected
+ * line equal to it isn't shown twice).
  */
-export function answerMore(check: AnswerWhyCheck | null | undefined, why: string | null, said = ''): AnswerMore | null {
+export function answerMore(check: AnswerWhyCheck | null | undefined, why: string | null, said = '', expected = ''): AnswerMore | null {
   if (!check) return null;
   const whyKey = why ? norm(why) : '';
   const tips = (check.tips ?? []).map((t) => t.text.replace(/\s+/g, ' ').trim()).filter((t) => t && norm(t) !== whyKey && norm(firstSentence(t, ANSWER_WHY_MAX)) !== whyKey).slice(0, 4);
   const corrected = (check.corrected ?? '').trim();
-  const alternative = (check.alternative ?? '').trim();
-  const fixed = corrected && corrected !== said.trim() ? corrected : null;
-  const alt = alternative && alternative !== said.trim() && alternative !== corrected ? alternative : null;
+  const alternative = (typeof check.alternative === 'string' ? check.alternative : check.alternative?.hanzi ?? '').trim();
+  const fixed = corrected && corrected !== said.trim() && corrected !== expected.trim() ? corrected : null;
+  const alt = alternative && alternative !== said.trim() && alternative !== corrected && alternative !== expected.trim() ? alternative : null;
   // The headline beyond the why (the rest after its first sentence, or all of it when the why had to be cut short).
   const head = (check.headline ?? '').replace(/\s+/g, ' ').trim();
   let rest = '';

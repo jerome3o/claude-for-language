@@ -7,10 +7,11 @@
 import type { ReactNode } from 'react';
 import { DIFFERENCE_MODEL } from '@shared/study/answerDifference';
 import type { AnswerDiffTone } from '@shared/cards/answer-diff';
+import type { AnswerWhyCheck } from '@shared/cards/answer-why';
 import { AnswerDiff } from './AnswerDiff';
 import './DifferenceCompare.css';
 
-export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLabel = DIFFERENCE_MODEL, onPlayModel, answerFirst, verdict, headline, hideLine, children }: {
+export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLabel = DIFFERENCE_MODEL, onPlayModel, answerFirst, verdict, headline, check, hideLine, children }: {
   said: string;
   model: string;
   /** The model's own pinyin (else the device's). */
@@ -24,6 +25,8 @@ export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLab
   /** Claude's verdict as the line's chip. */
   verdict?: { tone: AnswerDiffTone; label: string } | null;
   headline?: string | null;
+  /** The check that judged it: the one why sentence + "Explain more ›" (shared/cards/answer-why.ts). */
+  check?: AnswerWhyCheck | null;
   hideLine?: boolean;
   children?: ReactNode;
 }) {
@@ -38,6 +41,8 @@ export function DifferenceCompare({ said, model, modelPinyin, accepted, modelLab
       accepted={accepted}
       verdict={verdict}
       headline={headline}
+      check={check}
+      whySurface="sentence_round"
       hideLine={hideLine}
       testId="difference-compare"
       expectedTestId="difference-model"

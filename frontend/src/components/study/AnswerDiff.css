@@ -128,3 +128,35 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* The ONE why sentence under the diff (components/study/AnswerWhy.tsx, shared/cards/answer-why.ts): muted text, no box;
+   "Explain more ›" a small text button (a 44px target by its padding) that opens the check's tips / fix in place. */
+.adiff-why-box { text-align: left; }
+.adiff-why {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+}
+.adiff-why-more {
+  display: inline-block;
+  margin: -0.65rem 0;
+  padding: 0.65rem 0.25rem;
+  border: none;
+  background: none;
+  color: var(--color-text-light);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.adiff-why-more:hover { color: var(--color-text); }
+.adiff-why-detail { margin-top: 0.3rem; }
+.adiff-why-tip {
+  margin: 0.2rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+}
+.adiff-why-label { font-weight: 600; }
+.adiff-why-tip [lang='zh-CN'] { color: var(--color-text); }

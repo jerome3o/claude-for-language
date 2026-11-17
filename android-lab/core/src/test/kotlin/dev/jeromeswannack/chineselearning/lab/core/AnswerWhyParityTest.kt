@@ -57,6 +57,7 @@ class AnswerWhyParityTest {
             assertEquals(o["device"]!!.str, AnswerWhy.device(d), ctx)
             assertEquals(more(o["more"]), AnswerWhy.more(c, why, said), ctx)
             assertEquals(more(o["moreNoWhy"]), AnswerWhy.more(c, null), ctx)
+            assertEquals(more(o["moreExpected"]), AnswerWhy.more(c, why, said, o["expected"]!!.str!!), ctx)
         }
     }
 

@@ -20,7 +20,9 @@ import {
   answerDiff, answerDiffLabel, answerDiffLine, answerDiffPartLabel, answerDiffTone, ANSWER_DIFF_ICON, ANSWER_DIFF_YOU_SAID,
   type AnswerDiffPart, type AnswerDiffTone,
 } from '@shared/cards/answer-diff';
+import { answerMore, answerWhy, type AnswerWhyCheck } from '@shared/cards/answer-why';
 import { devicePinyinLine } from '../../utils/autoPinyin';
+import { AnswerWhy } from './AnswerWhy';
 import './AnswerDiff.css';
 
 const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -61,6 +63,18 @@ export interface AnswerDiffProps {
   expectedTestId?: string;
   saidTestId?: string;
   playTestId?: string;
+  /**
+   * The check that judged it (Claude's answer check, the sentence check, the read-take check's reason): its headline /
+   * first tip is the ONE why sentence under the diff, its tips / fix / alternative what "Explain more ›" opens
+   * (shared/cards/answer-why.ts). No check: the device's own reason where it has one (a homophone).
+   */
+  check?: AnswerWhyCheck | null;
+  /** The why, given (else from `check` / the diff); `null` = none. */
+  why?: string | null;
+  /** "Explain more ›" with nothing on hand: Ask Claude about this answer. */
+  onExplainMore?: () => void;
+  /** Analytics: the surface (study.answer_why_more). */
+  whySurface?: string;
   /** Under the diff (🎤 Read it again …). */
   children?: ReactNode;
   testId?: string;
@@ -68,7 +82,8 @@ export interface AnswerDiffProps {
 
 export function AnswerDiff({
   said, expected, expectedPinyin, expectedEnglish, expectedLabel = 'Answer', showExpected = true, onPlayExpected,
-  accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, children, testId = 'answer-diff',
+  accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, check, why, onExplainMore, whySurface,
+  children, testId = 'answer-diff',
   expectedTestId = 'answer-diff-expected', saidTestId = 'answer-diff-said', playTestId = 'answer-diff-play',
 }: AnswerDiffProps) {
   const diff = useMemo(() => answerDiff(said, expected), [said, expected]);
@@ -79,6 +94,8 @@ export function AnswerDiff({
   const ownPinyin = expectedPinyin?.trim() || '';
   const derived = useMemo(() => (ownPinyin || !showExpected ? '' : devicePinyinLine(expected).trim()), [ownPinyin, showExpected, expected]);
   const pinyin = ownPinyin || derived;
+  const whyText = why !== undefined ? why : answerWhy({ diff, check: check ?? (headline ? { headline } : null), line: text });
+  const more = answerMore(check ?? null, whyText, said, showExpected ? expected : '');
   return (
     <div className={`adiff-box${accepted ? ' adiff-box--accepted' : ''}`} data-testid={testId} data-tone={tone}>
       {hideLine ? null : line ?? (
@@ -121,6 +138,7 @@ export function AnswerDiff({
           </span>
         </div>
       )}
+      {!diff.empty && <AnswerWhy why={whyText} more={more} onAsk={onExplainMore} surface={whySurface} />}
       {children}
     </div>
   );

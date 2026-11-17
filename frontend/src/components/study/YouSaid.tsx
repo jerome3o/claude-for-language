@@ -28,6 +28,8 @@ import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck';
 import { answerDiff, answerDiffLabel, answerDiffLine } from '@shared/cards/answer-diff';
 import { AnswerDiffChars } from './AnswerDiff';
+import { AnswerWhy } from './AnswerWhy';
+import { answerMore, answerWhy } from '@shared/cards/answer-why';
 import './YouSaid.css';
 import { RightMoment } from './RightMoment';
 import './AnswerDiff.css';
@@ -156,6 +158,10 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
   const diffLine = diff && !diff.empty ? answerDiffLine({ diff, accepted: claude?.state === 'match', headline: claude?.reason }) : null;
   const coach = state === 'contains' && onCoach;
   const waiting = checking && !claude;
+  // ONE why sentence under the diff (Claude's reason, else the device's own for a homophone) + "Explain more ›" for
+  // its tip (shared/cards/answer-why.ts).
+  const whyCheck = claude ? { headline: claude.reason, tips: claude.tip ? [{ text: claude.tip }] : [] } : null;
+  const why = diff ? answerWhy({ diff, check: whyCheck, line: diffLine }) : null;
   return (
     <Shell
       tone={waiting ? 'pending' : state}
@@ -187,6 +193,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           </div>
           {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
           <div className="you-said-reason" data-testid="you-said-reason">{diffLine}</div>
+          <AnswerWhy why={why} more={answerMore(whyCheck, why, hanzi, expected ?? "")} surface="read_take" />
         </>
       ) : (
         <>
@@ -195,6 +202,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           {claude && claude.reason && (
             <div className="you-said-reason" data-testid="you-said-reason"><span lang="zh-CN">{claude.reason}</span></div>
           )}
+          {claude && <AnswerWhy why={null} more={answerMore(whyCheck, claude.reason, hanzi)} surface="read_take" />}
         </>
       )}
     </Shell>

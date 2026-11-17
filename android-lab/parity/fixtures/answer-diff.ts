@@ -107,7 +107,7 @@ const whys = WHY_PAIRS.flatMap(([said, expected]) => CHECKS.map((check) => {
   const line = answerDiffLine({ diff, accepted: false, headline: check?.headline });
   const why = answerWhy({ diff, check, line });
   const whyNoLine = answerWhy({ diff, check });
-  return { said, expected, check, line, why, whyNoLine, device: deviceWhy(diff), more: answerMore(check, why, said), moreNoWhy: answerMore(check, null) };
+  return { said, expected, check, line, why, whyNoLine, device: deviceWhy(diff), more: answerMore(check, why, said), moreNoWhy: answerMore(check, null), moreExpected: answerMore(check, why, said, expected) };
 }));
 
 writeFileSync(join(OUT, 'answer-diff.json'), JSON.stringify({

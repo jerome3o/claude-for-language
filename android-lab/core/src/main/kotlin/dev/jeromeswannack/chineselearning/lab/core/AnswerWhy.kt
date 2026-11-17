@@ -71,7 +71,7 @@ object AnswerWhy {
     }
 
     /** `answerMore`. */
-    fun more(check: Check?, why: String?, said: String = ""): More? {
+    fun more(check: Check?, why: String?, said: String = "", expected: String = ""): More? {
         if (check == null) return null
         val whyKey = why?.let { norm(it) } ?: ""
         val tips = check.tips.map { squash(it) }
@@ -80,8 +80,9 @@ object AnswerWhy {
         val corrected = AnswerKey.jsTrim(check.corrected ?: "")
         val alternative = AnswerKey.jsTrim(check.alternative ?: "")
         val s = AnswerKey.jsTrim(said)
-        val fixed = if (corrected.isNotEmpty() && corrected != s) corrected else null
-        val alt = if (alternative.isNotEmpty() && alternative != s && alternative != corrected) alternative else null
+        val e = AnswerKey.jsTrim(expected)
+        val fixed = if (corrected.isNotEmpty() && corrected != s && corrected != e) corrected else null
+        val alt = if (alternative.isNotEmpty() && alternative != s && alternative != corrected && alternative != e) alternative else null
         val head = squash(check.headline ?: "")
         var rest = ""
         if (why != null && why.isNotEmpty() && head.isNotEmpty() && head != why) {
