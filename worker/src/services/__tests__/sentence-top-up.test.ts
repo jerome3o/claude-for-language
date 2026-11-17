@@ -1,18 +1,19 @@
 /**
  * Listening cards' sentence top-up (shared/study/listenContext.ts) against real SQLite with
  * every migration: which notes may be topped up (fewer than five in total — the card's own
- * sentence counted unless the set repeats it —, the caller's own, at most one job a day,
+ * sentence is one of the rows, a set row repeating it merged —, the caller's own, at most one job a day,
  * never one given up on) and appending rows that keeps the set's rows (ids, clips) and
  * touches them all, so `/api/sentences/changes` still hands the set out whole.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { appendNoteSentences, getNotesForRoundTopUp, getNotesForSentenceTopUp } from '../../db/queries';
+import { syncCardSentences } from '../../db/card-sentence';
 
 let db: SqliteD1;
 
 /** A sentence is its hanzi, or `[hanzi, focus]`. */
-function addNote(id: string, user: string, clue: string | null, sentences: Array<string | [string, string]>) {
+async function addNote(id: string, user: string, clue: string | null, sentences: Array<string | [string, string]>) {
   db.raw.run('INSERT OR IGNORE INTO decks (id, user_id, name) VALUES (?, ?, ?)', [`d-${user}`, user, 'Deck']);
   db.raw.run('INSERT INTO notes (id, deck_id, hanzi, pinyin, english, sentence_clue) VALUES (?, ?, ?, ?, ?, ?)', [id, `d-${user}`, '银行', 'yínháng', 'bank', clue]);
   sentences.forEach((entry, i) => {
@@ -23,6 +24,8 @@ function addNote(id: string, user: string, clue: string | null, sentences: Array
       [`${id}-s${i}`, id, i, hanzi, `generated/${id}-${i}.mp3`, focus],
     );
   });
+  // The card's own sentence is a row (migration 0152): made as every note write makes it.
+  await syncCardSentences(db as unknown as D1Database, [id]);
 }
 
 beforeEach(async () => {
@@ -32,27 +35,27 @@ beforeEach(async () => {
 
 describe('getNotesForSentenceTopUp', () => {
   it('picks the caller\'s notes with fewer than five sentences in total', async () => {
-    addNote('few', 'u1', '这是银行。', ['我去银行。', '银行在哪儿？']); // 3
-    addNote('repeat', 'u1', '我去银行。', ['我去银行。', 'a', 'b', 'c']); // clue repeated → 4
-    addNote('enough', 'u1', '这是银行。', ['a', 'b', 'c', 'd']); // 5
-    addNote('bare', 'u1', null, []); // 0
-    addNote('theirs', 'u2', null, []);
+    await addNote('few', 'u1', '这是银行。', ['我去银行。', '银行在哪儿？']); // 3
+    await addNote('repeat', 'u1', '我去银行。', ['我去银行。', 'a', 'b', 'c']); // clue repeated → 4
+    await addNote('enough', 'u1', '这是银行。', ['a', 'b', 'c', 'd']); // 5
+    await addNote('bare', 'u1', null, []); // 0
+    await addNote('theirs', 'u2', null, []);
     const got = await getNotesForSentenceTopUp(db, 'u1', ['few', 'repeat', 'enough', 'bare', 'theirs'], 5);
     expect(Object.fromEntries(got.map((r) => [r.id, r.total]))).toEqual({ few: 3, repeat: 4, bare: 0 });
   });
 
   // Sentences once written around a look-alike (shared/study/sentenceFocus.ts) never count as "enough".
   it('counts natural sentences only', async () => {
-    addNote('contrived', 'u1', '这是银行。', ['a', ['b', 'shared_character'], ['c', 'contrast'], ['d', 'collocation'], ['e', 'core']]); // 6 rows, 4 natural
-    addNote('natural', 'u1', '这是银行。', ['a', ['b', 'complex'], ['c', 'collocation'], ['d', 'core']]); // 5 natural
+    await addNote('contrived', 'u1', '这是银行。', ['a', ['b', 'shared_character'], ['c', 'contrast'], ['d', 'collocation'], ['e', 'core']]); // 6 rows, 4 natural
+    await addNote('natural', 'u1', '这是银行。', ['a', ['b', 'complex'], ['c', 'collocation'], ['d', 'core']]); // 5 natural
     const got = await getNotesForSentenceTopUp(db, 'u1', ['contrived', 'natural'], 5);
     expect(Object.fromEntries(got.map((r) => [r.id, r.total]))).toEqual({ contrived: 4 });
   });
 
   it('skips a note with a job in the last day or one given up on', async () => {
-    addNote('recent', 'u1', null, []);
-    addNote('old', 'u1', null, []);
-    addNote('failed', 'u1', null, []);
+    await addNote('recent', 'u1', null, []);
+    await addNote('old', 'u1', null, []);
+    await addNote('failed', 'u1', null, []);
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('recent', 'done', 1, datetime('now', '-2 hours'))");
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('old', 'done', 1, datetime('now', '-3 days'))");
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('failed', 'error', 3, datetime('now', '-3 days'))");
@@ -63,12 +66,12 @@ describe('getNotesForSentenceTopUp', () => {
 
 describe('getNotesForRoundTopUp (the Sentence round\'s fresh buffer)', () => {
   it('any total, the caller\'s own, no daily rule — only a job already in flight or given up on today is skipped', async () => {
-    addNote('big', 'u1', '这是银行。', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']); // 9: a listening top-up would skip it
-    addNote('done-today', 'u1', null, ['a', 'b', 'c', 'd', 'e', 'f']);
-    addNote('in-flight', 'u1', null, ['a']);
-    addNote('stale-queued', 'u1', null, ['a']);
-    addNote('failed', 'u1', null, ['a']);
-    addNote('theirs', 'u2', null, []);
+    await addNote('big', 'u1', '这是银行。', ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']); // 9: a listening top-up would skip it
+    await addNote('done-today', 'u1', null, ['a', 'b', 'c', 'd', 'e', 'f']);
+    await addNote('in-flight', 'u1', null, ['a']);
+    await addNote('stale-queued', 'u1', null, ['a']);
+    await addNote('failed', 'u1', null, ['a']);
+    await addNote('theirs', 'u2', null, []);
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('done-today', 'done', 4, datetime('now', '-20 minutes'))");
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('in-flight', 'queued', 1, datetime('now', '-2 minutes'))");
     db.raw.run("INSERT INTO note_sentence_jobs (note_id, status, attempts, updated_at) VALUES ('stale-queued', 'queued', 1, datetime('now', '-1 hour'))");
@@ -80,7 +83,7 @@ describe('getNotesForRoundTopUp (the Sentence round\'s fresh buffer)', () => {
 
 describe('appendNoteSentences', () => {
   it('adds after the set, keeping its rows and touching them all', async () => {
-    addNote('n', 'u1', null, ['我去银行。', '银行在哪儿？']);
+    await addNote('n', 'u1', null, ['我去银行。', '银行在哪儿？']);
     const rows = await appendNoteSentences(db, 'n', [
       { hanzi: '银行几点开门？', pinyin: 'yínháng jǐ diǎn kāimén?', translation: 'When does the bank open?', audioUrl: null, focus: 'core', focusNote: null },
     ]);

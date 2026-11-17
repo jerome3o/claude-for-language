@@ -305,7 +305,7 @@ fun SentenceList(
         if (practise != null) Modifier.bringIntoViewRequester(practise.bringIntoView) else Modifier,
     ),
 ) {
-    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl) { sentenceRows(note, sentences) }
     fun isHidden(key: String) = history?.stats?.get(SentenceHistory.key(key))?.hidden != null
     var showHidden by remember(presentation) { mutableStateOf(false) }
     var hiding by remember(presentation) { mutableStateOf<SentenceRow?>(null) }
@@ -324,7 +324,8 @@ fun SentenceList(
     var error by remember(presentation) { mutableStateOf<String?>(null) }
     var adding by remember(presentation) { mutableStateOf<Chunk?>(null) }
     val scope = rememberCoroutineScope()
-    val hasSet = sentences.isNotEmpty()
+    // A generated set (the card's own sentence row isn't one).
+    val hasSet = sentences.any { !it.isCard }
     // ▶ on a set row whose clip isn't made yet: asking (spinner) / queued ("Audio coming…").
     val asking = remember(presentation) { mutableStateMapOf<String, Boolean>() }
     val coming = remember(presentation) { mutableStateMapOf<String, Boolean>() }
