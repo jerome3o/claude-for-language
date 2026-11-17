@@ -10,7 +10,7 @@
  *
  * No explanations, tips or reasons. Each mark has a SHAPE as well as a colour (Jerome is red / green
  * colour-blind; the same language as the reader's read-aloud marks): wrong = red tint + thick solid underline,
- * tone off = a lemon wavy underline (the character in body ink), extra = yellow highlight struck through,
+ * tone off = a lemon wavy underline (the character in body ink), extra = yellow highlight in a solid amber box (never a strike: 了 struck reads as 子),
  * missing = the expected character, muted, in a dashed box, a homophone = a faint dotted underline (right).
  * Screen readers get the whole diff as one sentence (`answerDiffLabel`). Lab twin: ui/study/AnswerDiffView.kt.
  */

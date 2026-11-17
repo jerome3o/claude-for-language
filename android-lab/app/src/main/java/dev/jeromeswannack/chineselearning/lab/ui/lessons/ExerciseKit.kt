@@ -306,7 +306,7 @@ fun YourAnswer(text: String, exact: Boolean, label: String = "Your answer", badg
             Text(text, fontSize = 20.sp, color = Lab.colors.ink)
         } else {
             // The slim answer diff, at once (core AnswerDiff; docs/STUDY_SESSION.md "Answer feedback: one line and a
-            // diff"): his answer lined up with the model answer — wrong rose, extra yellow struck through, missing muted in
+            // diff"): his answer lined up with the model answer — wrong rose, extra yellow in a solid box, missing muted in
             // a dashed slot, tone off wavy — and ONE line under it that says what differs.
             val diff = androidx.compose.runtime.remember(text, model) { dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(text, model) }
             val line = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(diff)

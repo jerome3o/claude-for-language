@@ -80,7 +80,7 @@ fun answerDiffToneInk(tone: String): Color = when (tone) {
 /**
  * His answer's characters, marked (the web's `AnswerDiffChars`; shared/cards/answer-diff.ts) — a SHAPE per kind as
  * well as a colour (Jerome is red / green colour-blind): wrong = rose + tint + thick solid underline, tone off = lemon
- * wavy underline over a tint (body ink), extra = yellow highlight struck through, missing = the expected character,
+ * wavy underline over a tint (body ink), extra = yellow highlight in a solid amber box, missing = the expected character,
  * muted, in a dashed box, a homophone = a faint dotted underline, "differs" = the yellow highlight + dotted underline.
  * [accepted] = right in other words: every difference only a quiet dotted underline.
  */
@@ -109,7 +109,7 @@ fun DiffMarkedText(
                 val kind = if (accepted && c.kind in setOf("wrong", "extra", "tone", "differs")) "quiet" else c.kind
                 val style = when (kind) {
                     "wrong" -> SpanStyle(color = colors.markWrong)
-                    "extra" -> SpanStyle(color = extraInk, background = extraBg, textDecoration = TextDecoration.LineThrough)
+                    "extra" -> SpanStyle(color = extraInk, background = extraBg)
                     "missing" -> SpanStyle(color = colors.muted)
                     "plain" -> SpanStyle(color = colors.ink)
                     "muted" -> SpanStyle(color = colors.muted)
@@ -117,7 +117,7 @@ fun DiffMarkedText(
                     else -> SpanStyle(color = colors.ink)
                 }
                 withStyle(style) { append(c.text) }
-                if (length > start && kind != "ok" && kind != "plain" && kind != "muted" && kind != "extra") ranges += (start until length) to kind
+                if (length > start && kind != "ok" && kind != "plain" && kind != "muted") ranges += (start until length) to kind
             }
         }
     }
@@ -174,6 +174,11 @@ private fun DrawScope.drawDiffMark(
         "missing" -> drawRoundRect(
             muted, Offset(left + dp, top + dp), Size(right - left - 2 * dp, bottom - top - 2 * dp), CornerRadius(3 * dp),
             style = Stroke(width = 1.5f * dp, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3.5f * dp, 2.5f * dp))),
+        )
+        // An extra is a solid amber box (never a strike: a line through 了 reads as 子).
+        "extra" -> drawRoundRect(
+            differs, Offset(left + dp * 0.5f, top + dp * 0.5f), Size(right - left - dp, bottom - top - dp), CornerRadius(3 * dp),
+            style = Stroke(width = 1.5f * dp),
         )
         "sound", "quiet", "differs" -> drawLine(
             if (kind == "differs") differs else muted, Offset(left, lineY), Offset(right, lineY), strokeWidth = 1.6f * dp, cap = StrokeCap.Round,

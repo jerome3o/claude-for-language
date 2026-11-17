@@ -9,7 +9,7 @@
  * - `SayItAgain` — 🎤 Say it again: the coach's "Practise saying it" (live transcription, the "You said"
  *   row) over the exercise's answer / example / Claude's fix. Practice only: nothing is scored or stored.
  * - `MarkedAnswer` — his answer lined up with the model answer (the slim answer diff, shared/cards/answer-diff.ts:
- *   wrong red, extra yellow struck through, missing in a dashed slot, tone off wavy) under ONE line that says what
+ *   wrong red, extra yellow in a solid box, missing in a dashed slot, tone off wavy) under ONE line that says what
  *   differs (docs/STUDY_SESSION.md "Answer feedback: one line and a diff").
  * - `FeedbackSentence` — the answer screen's Chinese sentence: every word tappable into the language explorer (the
  *   device segmenter) with a ▶ that plays the exercise's own clip again (the lesson's cache-first speak — offline once

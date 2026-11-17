@@ -351,7 +351,7 @@ button.you-said-round:focus-visible {
 
 
 /* The slim answer diff's marks on the "You said" row (shared/cards/answer-diff.ts; AnswerDiff.css has the tokens):
-   wrong = rose + thick solid underline, tone off = lemon wavy underline, extra = yellow highlight struck through,
+   wrong = rose + thick solid underline, tone off = lemon wavy underline, extra = yellow highlight in a solid box,
    missing = the answer's character, muted, in a dashed slot. */
 .spoken-mark--wrong {
   color: var(--adiff-wrong, #be123c);
@@ -374,7 +374,9 @@ button.you-said-round:focus-visible {
   border-radius: 3px;
   color: var(--adiff-extra-ink, #713f12);
   background: var(--adiff-extra-bg, #fde68a);
-  text-decoration: line-through 2px;
+  border-radius: 3px;
+  /* A solid box, never a strike: a line through 了 reads as 子. */
+  box-shadow: inset 0 0 0 1.5px var(--adiff-extra-ink, #713f12);
 }
 .spoken-mark--missing {
   display: inline-block;

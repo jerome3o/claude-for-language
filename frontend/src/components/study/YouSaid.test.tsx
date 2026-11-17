@@ -165,7 +165,7 @@ describe('YouSaidRow', () => {
     expect(el.querySelectorAll('.spoken-result-side')).toHaveLength(0);
   });
 
-  it('didn’t match: ✕, the slim diff — wrong red, extra struck through, missing in a slot — and one short line', () => {
+  it('didn’t match: ✕, the slim diff — wrong red, extra in a solid box, missing in a slot — and one short line', () => {
     const el = render(<YouSaidRow transcript="我很好。" correct="你好" verdict="wrong" />);
     expect(q(el, 'spoken-result')!.dataset.state).toBe('wrong');
     expect(chip(el).textContent).toBe('1 wrong character, 1 extra');

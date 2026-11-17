@@ -441,7 +441,7 @@ private fun spokenCellKind(mark: SpokenAnswerResult.Mark): String = when (mark) 
 /**
  * What was said with each character marked (`shared/cards/spoken-result.ts`): written differently = yellow highlight
  * + a DOTTED underline; close / didn't match = the slim answer diff (docs/STUDY_SESSION.md "Answer feedback: one line
- * and a diff") — wrong rose + solid, tone off lemon wavy, extra yellow struck through, missing muted in a dashed box;
+ * and a diff") — wrong rose + solid, tone off lemon wavy, extra yellow in a solid box, missing muted in a dashed box;
  * the words around a contained answer muted. Drawn by [DiffMarkedText].
  */
 @Composable

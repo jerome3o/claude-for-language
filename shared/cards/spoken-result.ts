@@ -20,7 +20,7 @@
  *
  * Close / didn't match (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the row is the slim
  * answer diff (shared/cards/answer-diff.ts) — his characters lined up with the answer: `wrong` red + solid,
- * `tone` (same syllable, other tone) a wavy lemon underline, `extra` (he added it) yellow + struck through,
+ * `tone` (same syllable, other tone) a wavy lemon underline, `extra` (he added it) yellow in a solid box,
  * `missing` (the answer's character he left out) muted in a dashed slot — and the chip is the diff's ONE short
  * sentence ("Tone off on 狼", "Extra 了 at the end", "2 wrong characters, 1 missing").
  */

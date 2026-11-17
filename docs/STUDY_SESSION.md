@@ -2015,7 +2015,7 @@ typed or spoken — differs from the expected one is now the same two things, an
    — numbers as hanzi, so a 3 IS 三; 两 = 二; simplified; each character's syllable in context), drawn in the reader's
    mark language, a SHAPE per kind as well as a colour (Jerome is red / green colour-blind):
    - **wrong** (another character): rose ink on a rose tint, a thick SOLID underline;
-   - **extra** (he added it): a yellow highlight, STRUCK THROUGH ("take this out");
+   - **extra** (he added it): a yellow highlight in a solid amber box ("take this out") — never a strike: a line through 了 reads as 子;
    - **missing** (the answer has it, he left it out): the expected character, muted, in a DASHED box — its slot;
    - **tone off** (the right syllable, another tone — 都 dū said dù): the character in body ink over a lemon tint, a
      WAVY lemon underline (quiet: it's nearly right);
@@ -2082,7 +2082,7 @@ answer that is **accepted but not the model / expected answer** never goes on by
   from the model" is that line), the model answer once (**The card** on the question) with ▶, and his answer lined up
   with it, the differences only quietly dotted (it counts as right). No tips, no fix, no "Also natural". In the round
   the comparison carries the model sentence (it isn't shown twice); a ≈ Almost / ✗ Wrong translate take shows the same
-  diff with Claude's chip on the line (his wrong characters red, extra struck through, missing in a dashed slot) and
+  diff with Claude's chip on the line (his wrong characters red, extra in a solid amber box, missing in a dashed slot) and
   keeps 🔁 Try again.
 - **Holding**: the round finished by such a take stays on it — "Have a look at the difference, then go on." and
   **Continue →** (the cheer and confetti still come; Good / Easy, or Got it, are unlocked: it counts as right); the
@@ -2863,7 +2863,7 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   words around it quiet; punctuation is never marked. A screen reader hears the whole row as one
   sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." (Since Nov 2026 — "Answer
   feedback: one line and a diff" — close / didn't match are the slim diff: 朗 marked tone off (wavy), wrong red,
-  extra struck through, missing in a dashed slot, and the chip is the one line: "≈ Tone off on 狼", "✕ 2 wrong
+  extra in a solid amber box, missing in a dashed slot, and the chip is the one line: "≈ Tone off on 狼", "✕ 2 wrong
   characters, 1 extra", "✓ Sounded right — written 友"; the sentence "You said 朗 (lǎng). Close. Tone off on 狼.") Space: Jerome's
   狼 / 朗 card's answer block went from 499 to 305 px above the Play row on the web (412 px wide) and
   from 552 to 384 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its

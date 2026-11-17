@@ -327,6 +327,12 @@ class HardModeUiTest : LabScreenshotTest() {
         shot("hard-mode-03-wrong-try-again")
     }
 
+    /** The slim miss in the dark theme: one line, then 圆 in red and the extra 了 in amber. */
+    @Test fun shotWrongDark() {
+        card(start = CardStartState(feedbackOpen = true), take = heard("圆子了", match = false), dark = true)
+        shot("hard-mode-03b-wrong-dark")
+    }
+
     @Test fun shotRight() {
         card(start = CardStartState(feedbackOpen = true), take = heard("院子", match = true))
         shot("hard-mode-04-right-next")
