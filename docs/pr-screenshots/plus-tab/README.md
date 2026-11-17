@@ -1,7 +1,7 @@
 # ＋ Add tab (and the Claude box on Chats)
 
-Phone viewport 412×915 @2×. Web (light) from `e2e/tests/add-tab.spec.ts` (`ADD_TAB_SHOTS`); Lab app (dark + light)
-from Roborazzi (`AddScreenTest`). The photo is a synthetic fixture (`e2e/tests/fixtures/images/subtitle-photo.png`:
+Phone viewport 412×915 @2×. Web (light) from `e2e/tests/add-tab.spec.ts` (`ADD_TAB_SHOTS`); the Lab app's
+Roborazzi shots are not in this PR (see the note at the end). The photo is a synthetic fixture (`e2e/tests/fixtures/images/subtitle-photo.png`:
 plain shapes, no real people).
 
 ## Before — the ✦ Claude tab
@@ -40,23 +40,9 @@ The old Claude tab's box — with its chips — is the Chats tab's low bar.
 
 ## Lab app
 
-![Lab: Add tab (light)](lab-add-01-tab.png)
-![Lab: Add tab (dark)](lab-add-02-tab-dark.png)
-![Lab: reading the photo](lab-add-03-photo-reading-dark.png)
-Reading: the photo at once, skeleton lines.
-
-![Lab: photo → word chips (dark)](lab-add-04-photo-words-dark.png)
-![Lab: photo → word chips (light)](lab-add-05-photo-words.png)
-![Lab: in English → candidates](lab-add-06-say-english-candidates-dark.png)
-🗣 In English → the Chinese words that say it.
-
-![Lab: listening](lab-add-07-say-listening-dark.png)
-![Lab: a typed sentence → its words](lab-add-08-typed-sentence-dark.png)
-![Lab: the reader tile's box](lab-add-09-reader-sheet-dark.png)
-![Lab: the audio tile's box](lab-add-10-audio-sheet-dark.png)
-![Lab: results](lab-add-11-results-dark.png)
-"✓ Making your reader… Open ›", "✓ Your mini lesson is ready Open ›".
-
-![Lab: Chats with the Claude box (dark)](lab-add-12-chats-claude-box-dark.png)
-![Lab: Chats with the Claude box (light)](lab-add-13-chats-claude-box.png)
-The chips over the box, the list above it.
+The Lab app's Roborazzi shots (`AddScreenTest`: `add-01…13`, light + dark — the tab, reading, photo words,
+English candidates, listening, a typed sentence, the reader / audio boxes, results, the Chats box) could not be
+recorded in this session: every local `:app` compile was killed for memory while several builds shared the
+machine. The tests themselves run (and pass) in CI's Android Lab Build. Record them with
+`./gradlew :app:recordRoborazziDebug --tests '*AddScreenTest*'` (they land in `android-lab/app/screenshots/`).
+The Lab screen mirrors the web layout above (same words, same order, `ui/add/AddScreen.kt`).
