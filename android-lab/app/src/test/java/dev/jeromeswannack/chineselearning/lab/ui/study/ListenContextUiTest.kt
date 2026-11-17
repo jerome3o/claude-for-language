@@ -227,6 +227,8 @@ class ListenContextUiTest : LabScreenshotTest() {
     @Test fun answerSideKeepsTheQuestionsOrder() {
         screen(dark = true)
         val question = order().map { it.hanzi }
+        // EN on every row, so the screenshot says which sentence is where.
+        for (i in 0 until question.size) compose.onAllNodesWithTag(LISTEN_EN_TAG)[i].performClick()
         shot("study-listen-10-question-order")
         compose.onNodeWithText("Show answer", substring = true, ignoreCase = true).performClick()
         compose.mainClock.advanceTimeBy(800)
