@@ -129,12 +129,13 @@ function writeStatement(db: D1Database, userId: string, cardId: string, s: Compu
       `UPDATE cards SET queue = ?, stability = ?, difficulty = ?, lapses = ?, ease_factor = ?, interval = ?,
          repetitions = ?, next_review_at = ?, due_timestamp = ?, learning_step = ?, updated_at = datetime('now')
        WHERE id = ?
+         AND EXISTS (SELECT 1 FROM notes n JOIN decks d ON d.id = n.deck_id WHERE n.id = cards.note_id AND d.user_id = ?)
          AND (SELECT COUNT(*) FROM review_events WHERE card_id = ? AND user_id = ?) = ?
-         AND (SELECT COUNT(*) FROM card_forgets WHERE card_id = ? AND undone_at IS NULL) = ?`,
+         AND (SELECT COUNT(*) FROM card_forgets WHERE card_id = ? AND user_id = ? AND undone_at IS NULL) = ?`,
     )
     .bind(
       s.queue, s.stability, s.difficulty, s.lapses, s.ease_factor, s.interval, s.repetitions, s.next_review_at, s.due_timestamp, s.learning_step ?? 0,
-      cardId, cardId, userId, eventCount, cardId, forgetCount,
+      cardId, userId, cardId, userId, eventCount, cardId, userId, forgetCount,
     );
 }
 

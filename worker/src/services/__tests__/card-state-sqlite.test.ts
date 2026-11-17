@@ -121,6 +121,15 @@ describe('cached card state = replay of the events', () => {
     expectCacheEqualsReplay();
   });
 
+  it("never writes another account's card", async () => {
+    db.raw.run("INSERT INTO users (id, email, name) VALUES ('u2', 'o@x.test', 'Other')");
+    db.raw.run("INSERT INTO decks (id, user_id, name) VALUES ('dX', 'u2', 'Theirs')");
+    note('dX', 'nx');
+    db.raw.run("UPDATE cards SET queue = 2, stability = 9, next_review_at = '2026-12-01T00:00:00.000Z' WHERE id = 'nx-hanzi_to_meaning'");
+    expect(await recomputeCards(d1(), ME, ['nx-hanzi_to_meaning'])).toBe(0);
+    expect(db.rows<{ queue: number }>("SELECT queue FROM cards WHERE id = 'nx-hanzi_to_meaning'")[0].queue).toBe(2);
+  });
+
   it('a run stopped part-way resumes from its cursor', async () => {
     const first = await repairUserCardStates(d1(), ME, { maxCards: 5 });
     expect(first).toMatchObject({ scanned: 5, done: false });
