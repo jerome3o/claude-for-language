@@ -89,4 +89,69 @@ class ListenContextParityTest {
         assertTrue(sentenceAutoplays > 10, "sentence auto-play is exercised")
         assertTrue(contrivedCases > 10, "contrived rows are exercised")
     }
+    private fun keys(e: JsonElement?): List<String>? = if (e == null || e is JsonNull) null else e.jsonArray.map { it.jsonPrimitive.content }
+
+    @Test
+    fun freshPicksShuffleAndTopUpsMatchTypeScript() {
+        val picks = fixture["picks"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(picks.size >= 100)
+        var changedByPrevious = 0
+        var withHeard = 0
+        var wants = 0
+        for (c in picks) {
+            val noteId = c["noteId"]!!.jsonPrimitive.content
+            val clue = (c["clue"] as? JsonObject)?.let { ListenContext.Clue(str(it["hanzi"])) }
+            val sentences = c["sentences"]!!.jsonArray.map { it.jsonObject }.map {
+                ListenContext.Sentence(it["id"]!!.jsonPrimitive.content, it["hanzi"]!!.jsonPrimitive.content, str(it["translation"]), null, int(it["position"]), str(it["focus"]))
+            }
+            val events = c["events"]!!.jsonArray.map { it.jsonObject }.map {
+                SentenceHistory.Event(it["id"]!!.jsonPrimitive.content, it["note_id"]!!.jsonPrimitive.content, it["sentence_key"]!!.jsonPrimitive.content, it["kind"]!!.jsonPrimitive.content, str(it["mode"]), str(it["result"]), str(it["reason"]), it["at"]!!.jsonPrimitive.content)
+            }
+            val stats = SentenceHistory.stats(events, noteId)
+            if (stats.values.any { it.heard.count > 0 }) withHeard++
+            val rows = ListenContext.rows(noteId, clue, sentences)
+            val seed = c["seed"]!!.jsonPrimitive.content
+            val previous = keys(c["previous"])
+            val count = int(c["count"])
+            val pick = if (count == null) ListenContext.pick(rows, stats, seed, str(c["word"]), previous)
+                else ListenContext.pick(rows, stats, seed, str(c["word"]), previous, count)
+            val what = "pick $noteId"
+            assertEquals(keys(c["keys"]), pick.rows.map { it.key }, what)
+            assertEquals(c["fresh"]!!.jsonPrimitive.int, pick.fresh, what)
+            assertEquals(c["heardBefore"]!!.jsonPrimitive.int, pick.heardBefore, what)
+            assertEquals(c["unheardLeft"]!!.jsonPrimitive.int, pick.unheardLeft, what)
+            val want = c["want"]
+            val got = ListenContext.topUpWant(pick.unheardLeft)
+            if (want == null || want is JsonNull) assertEquals(null, got, what) else {
+                wants++
+                assertEquals(want.jsonObject["reason"]!!.jsonPrimitive.content, got?.reason, what)
+                assertEquals(want.jsonObject["count"]!!.jsonPrimitive.int, got?.count, what)
+            }
+            val props = c["props"]!!.jsonObject
+            assertEquals(props.mapValues { it.value.jsonPrimitive.int }, ListenContext.shownProps(pick), what)
+            if (previous != null && previous.size == pick.rows.size && pick.rows.any { it.key !in previous }) changedByPrevious++
+            assertEquals(keys(c["shown"]), ListenContext.shownRows(rows, pick.rows.map { it.key }.reversed(), keys(c["added"])!!).map { it.key }, what)
+        }
+        assertTrue(withHeard > 50, "heard history is exercised")
+        assertTrue(wants > 20, "top-ups are exercised")
+        assertTrue(changedByPrevious > 5, "the previous set is exercised")
+    }
+
+    @Test
+    fun simplicityHashAndShuffleMatchTypeScript() {
+        for (x in fixture["simple"]!!.jsonArray.map { it.jsonObject }) {
+            val text = x["text"]!!.jsonPrimitive.content
+            val word = str(x["word"])
+            assertEquals(x["han"]!!.jsonPrimitive.int, SentenceSimplicity.hanCount(text), text)
+            assertEquals(x["breaks"]!!.jsonPrimitive.int, SentenceSimplicity.clauseBreaks(text), text)
+            assertEquals(x["max"]!!.jsonPrimitive.int, SentenceSimplicity.maxHan(word), text)
+            assertEquals(keys(x["problems"]), SentenceSimplicity.problems(text, word), "$text / $word")
+        }
+        for (x in fixture["hashes"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(x["hash"]!!.jsonPrimitive.content.toLong(), ListenContext.hash(x["text"]!!.jsonPrimitive.content))
+        }
+        for (x in fixture["shuffles"]!!.jsonArray.map { it.jsonObject }) {
+            assertEquals(keys(x["out"]), ListenContext.shuffle(keys(x["items"])!!, x["seed"]!!.jsonPrimitive.content))
+        }
+    }
 }

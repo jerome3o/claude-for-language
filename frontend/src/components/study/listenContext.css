@@ -93,6 +93,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A sentence never heard in context before (until it is played): a small accent dot by its number. */
+.listen-row-new {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 50%;
+  background: var(--color-primary, #2563eb);
+  flex: none;
+}
+
 .listen-row-status {
   margin-left: auto;
   font-size: 0.8125rem;

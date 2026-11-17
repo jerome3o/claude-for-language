@@ -1,6 +1,13 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { structuredCall } from './structured-call';
 import { isContrivedSentence } from '@shared/study/sentenceFocus';
+import { SIMPLE_SENTENCE_MAX_HAN, simpleSentenceMaxHan, simpleSentenceProblems } from '@shared/study/sentenceSimplicity';
+import { fakeSentenceSet } from './sentence-set-fake';
+import {
+  structureUsedBy,
+  structuresPromptBlock,
+  type LearnerStructure,
+} from '@shared/lesson/learnerStructures';
 
 /**
  * Sentence sets: a graded list of example sentences for a single vocabulary
@@ -16,6 +23,14 @@ import { isContrivedSentence } from '@shared/study/sentenceFocus';
  * word"). New sets never ask for them; the old rows (focus shared_character /
  * contrast) stay stored, listed last and kept out of the Sentence round
  * (shared/study/sentenceFocus.ts).
+ *
+ * Simple sentences (Nov 2026, Jerome: "some of the sentences are too complicated — relatively simple
+ * sentences … use these sentence structures, so that doing these cards I also learn the structures"):
+ * every sentence is short (≈ 6–14 characters, never over SIMPLE_SENTENCE_MAX_HAN — more for a long word),
+ * one clause (two short halves at most), everyday words — preferring words the learner already has — and,
+ * where natural, one of the grammar structures from his done mini lessons (shared/lesson/learnerStructures.ts),
+ * tagged on the row (`structure`). A NEW sentence over the limits is dropped (`simpleSentenceProblems`,
+ * shared/study/sentenceSimplicity.ts); stored sentences are never touched.
  *
  * Sonnet is used here (rather than Opus) because the set is generated
  * interactively while studying and speed matters more than prose quality.
@@ -47,6 +62,8 @@ export interface GeneratedSentence {
   translation: string;
   focus: SentenceFocus;
   focusNote: string | null;
+  /** The learner's structure it uses (its name, "除了…还…"), checked against the sentence; null = none. */
+  structure?: string | null;
 }
 
 export interface SentenceSetInput {
@@ -57,8 +74,12 @@ export interface SentenceSetInput {
   existing?: string[];
   /** Free-text bio so examples can land in the learner's actual life. */
   bio?: string | null;
-  /** Extra instructions typed by the learner. */
+  /** Extra instructions typed by the learner (they win over the length limits). */
   customPrompt?: string | null;
+  /** Words the learner has started — the sentences lean on them (claude-agent/learner.ts sampleKnownWords). */
+  knownWords?: string[];
+  /** Grammar structures from his done mini lessons to use where natural (≤ ~10, structuresForPrompt). */
+  structures?: LearnerStructure[];
 }
 
 export const SENTENCE_SET_SYSTEM_PROMPT = `You are an expert Mandarin teacher building a graded "sentence set" for a single vocabulary item.
@@ -68,20 +89,22 @@ The learner wants to see the word used several different ways in one sitting, in
 HARD REQUIREMENTS
 1. Every sentence must contain the target word exactly as written, unchanged.
 2. Order the sentences by increasing difficulty. Sentence 1 is the easiest; the last sentence is the hardest.
-3. Each entry is ONE sentence. Internal Chinese commas (，) are fine in the harder sentences; never use line breaks, never return two sentences in one entry, and never use English punctuation in the Chinese.
+3. Each entry is ONE short sentence. At most one internal Chinese comma (，); never use line breaks, never return two sentences in one entry, and never use English punctuation in the Chinese.
 4. Pinyin uses tone marks (nǐ hǎo), never tone numbers. Multi-syllable words stay together (zhège, not zhè ge).
 5. The English translation is natural English, not a gloss.
 6. Every sentence is something a native speaker would naturally say or write in real life. Use the word in its most common meaning(s) and its usual collocations. Never build a sentence to show off another word: no sentence exists to squeeze in a look-alike, a homophone, a similar-sounding word, a near-synonym or another word sharing a character with the target. If a sentence sounds like a textbook exercise rather than something people say, replace it.
 
-DIFFICULTY RAMP
-- First 1-2 sentences: 4-8 characters. Basic subject-verb-object, 是 / 有 / adjective predicates. Only very common vocabulary. No subordinate clauses.
-- Middle sentences: everyday spoken structures — time and place words, 在 / 给 / 跟 / 对, modal verbs (想 / 要 / 会 / 可以), 了 / 过 aspect, simple 的 modifiers.
-- Last 1-2 sentences: 12-25 characters with genuinely more complex grammar — connectives (虽然…但是, 不但…而且, 如果…就, 因为…所以), 把 or 被, resultative/directional complements, or a relative clause with 的.
+KEEP THEM SIMPLE
+- Every sentence is short and easy to follow by ear: about 6-14 Chinese characters, never more than ${SIMPLE_SENTENCE_MAX_HAN} (a long target word may add its own length).
+- One clause. At most one comma, only for two short halves of one familiar pattern (因为…所以…, 如果…就…). No relative clauses stacked on relative clauses, no lists, no sentences inside sentences.
+- Everyday vocabulary only. Prefer words the learner already knows (listed below when known); any other word should be very common.
+- Order them from easiest to slightly less easy, but even the last one stays short and simple.
 
 VARIETY
 - Spread the sentences over different everyday situations (home, work, shopping, travel, friends, plans, feelings …) rather than one scene repeated.
 - At least one sentence shows the most common collocation, set phrase or grammatical pattern this word normally appears in — tag it "collocation" and name the pattern in focus_note.
-- Tag the other sentences "core" (plain natural usage), or "complex" for the hardest ones at the end.
+- Tag the other sentences "core" (plain natural usage), or "complex" for the last, slightly harder ones.
+- When the learner's grammar structures are listed, use one of them in some sentences WHERE IT FITS THE WORD NATURALLY, and put that structure's name in "structure". Never force a structure onto a word it doesn't suit; leave "structure" empty then.
 
 focus_note is a short learner-facing English note (under 90 characters). It is REQUIRED for collocation and optional otherwise.
 
@@ -99,6 +122,18 @@ function buildUserPrompt(input: SentenceSetInput, count: number): string {
       `The learner has already seen these sentences — write different ones:\n${existing
         .map((s) => `- ${s}`)
         .join('\n')}`
+    );
+  }
+
+  const known = (input.knownWords || []).filter(Boolean).slice(0, 80);
+  if (known.length > 0) {
+    parts.push(`Words the learner already knows — build the sentences mostly from these and other very common words:\n${known.join('、')}`);
+  }
+
+  const structures = structuresPromptBlock(input.structures || []);
+  if (structures) {
+    parts.push(
+      `Grammar structures the learner is learning in their lessons. Where one fits this word naturally, use it in a sentence (still short and simple) and give its name in "structure"; never force one:\n${structures}`
     );
   }
 
@@ -138,6 +173,7 @@ export interface RawGeneratedSentence {
   translation?: string;
   focus?: string;
   focus_note?: string;
+  structure?: string;
 }
 
 /**
@@ -195,8 +231,36 @@ export function normalizeGeneratedSentences(
       translation: typeof s.translation === 'string' ? s.translation.trim() : '',
       focus: coerceFocus(s.focus),
       focusNote: typeof s.focus_note === 'string' && s.focus_note.trim() ? s.focus_note.trim() : null,
+      structure: typeof s.structure === 'string' && s.structure.trim() ? s.structure.trim() : null,
     }))
     .slice(0, count);
+}
+
+/** Letters only (no spaces / punctuation), for "contains the word". */
+function bare(text: string): string {
+  return text.replace(/[\s\p{P}\p{S}]/gu, '');
+}
+
+/**
+ * The new sentences worth keeping: the word in it (as written), simple enough (`simpleSentenceProblems` —
+ * skipped when the learner typed his own instructions), and a `structure` only when it is one of the listed
+ * ones AND the sentence really has its fixed words (else the one the sentence does use, else null).
+ * Exported for tests.
+ */
+export function keepSimpleSentences(
+  sentences: GeneratedSentence[],
+  input: Pick<SentenceSetInput, 'hanzi' | 'customPrompt' | 'structures'>
+): GeneratedSentence[] {
+  const word = bare(input.hanzi);
+  const structures = input.structures || [];
+  return sentences
+    .filter((s) => !word || bare(s.hanzi).includes(word))
+    .filter((s) => !!input.customPrompt || simpleSentenceProblems(s.hanzi, input.hanzi).length === 0)
+    .map((s) => {
+      const listed = s.structure ? structures.find((x) => x.name === s.structure) : undefined;
+      const used = listed && structureUsedBy(s.hanzi, [listed]) ? listed.name : structureUsedBy(s.hanzi, structures);
+      return { ...s, structure: used ?? null };
+    });
 }
 
 /**
@@ -210,9 +274,15 @@ export async function generateSentenceSet(
   apiKey: string,
   input: SentenceSetInput,
   requestedCount?: number,
-  options: { client?: Pick<Anthropic, 'messages'>; sleep?: (ms: number) => Promise<void> } = {}
+  options: {
+    client?: Pick<Anthropic, 'messages'>;
+    sleep?: (ms: number) => Promise<void>;
+    /** E2E_TEST_MODE: the deterministic stand-in (sentence-set-fake.ts), no model call. */
+    fake?: boolean;
+  } = {}
 ): Promise<GeneratedSentence[]> {
   const count = clampSentenceCount(requestedCount);
+  if (options.fake) return keepSimpleSentences(fakeSentenceSet(input, count), input);
   const userPrompt = buildUserPrompt(input, count);
 
   const tool = {
@@ -250,6 +320,11 @@ export async function generateSentenceSet(
                 description:
                   'Short English note (<90 chars) naming the pattern. Required for collocation.',
               },
+              structure: {
+                type: 'string',
+                description:
+                  "The name of the learner's listed grammar structure this sentence uses, exactly as listed; empty when none.",
+              },
             },
             required: ['hanzi', 'pinyin', 'translation', 'focus'],
           },
@@ -269,9 +344,17 @@ export async function generateSentenceSet(
     // A set is ~1-2k output tokens; give a slow reply room before giving up.
     timeoutMs: 90_000,
     validate: (raw) => {
-      const sentences = normalizeGeneratedSentences(raw, count);
-      if (sentences.length === 0) {
+      const all = normalizeGeneratedSentences(raw, count);
+      if (all.length === 0) {
         throw new Error('AI returned an empty sentence set');
+      }
+      const sentences = keepSimpleSentences(all, input);
+      if (sentences.length === 0) {
+        // Every one too long / without the word: ask again (structuredCall retries).
+        throw new Error(`AI returned no simple sentences (max ${simpleSentenceMaxHan(input.hanzi)} characters, one clause)`);
+      }
+      if (sentences.length < all.length) {
+        console.log('[sentence-set] dropped', all.length - sentences.length, 'of', all.length, 'sentences (too long / no word)');
       }
       return sentences;
     },

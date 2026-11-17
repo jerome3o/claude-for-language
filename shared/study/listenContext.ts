@@ -13,11 +13,26 @@
  * Contrived set rows (written around a look-alike / homophone, `isContrivedSentence` in sentenceFocus.ts)
  * come after the natural ones and never count toward the top-up's "enough sentences".
  *
+ * Fresh every showing (Jerome, Nov 2026: "I'm just memorising the sentence as a clue to the word … new
+ * sentences, new things, as much as possible"): each showing offers LISTEN_CONTEXT_SHOWN sentences picked by
+ * `pickListenRows` — never heard in context first, then the least heard / longest ago, simple ones before
+ * long ones among equals, never the same set twice in a row — in an order shuffled afresh every showing
+ * (seeded per showing: stable while the card is up). Every sentence played is recorded once per showing
+ * (a `heard` event, sentenceHistory.ts), and when a showing leaves fewer than LISTEN_CONTEXT_FRESH_LOW unheard
+ * sentences the word asks the sentence top-up for more (`listenTopUpWant`).
+ *
  * Pure rules, shared by the web (`components/study/ListenContext.tsx`) and the
  * Lab app (`core/…/ListenContext.kt`, parity-tested by
  * android-lab/parity/fixtures/listen-context.ts).
  */
 import { isContrivedSentence } from './sentenceFocus';
+import {
+  SENTENCE_TOPUP_MAX,
+  SENTENCE_TOPUP_MIN,
+  sentenceHistoryKey,
+  type SentenceStats,
+} from './sentenceHistory';
+import { isSimpleSentence } from './sentenceSimplicity';
 
 /** Fewer sentences than this (card sentence + set) → the background top-up asks for more. */
 export const LISTEN_CONTEXT_MIN_SENTENCES = 5;
@@ -180,6 +195,148 @@ function clampCount(n: number): number {
   return Math.min(SENTENCE_GENERATE_MAX, Math.max(SENTENCE_GENERATE_MIN, Math.round(n)));
 }
 
+// --- Fresh sentences every showing --------------------------------------------------------------
+
+/** How many sentences one showing offers. */
+export const LISTEN_CONTEXT_SHOWN = 4;
+/** A showing that leaves fewer unheard sentences than this (besides the ones it shows) asks for more. */
+export const LISTEN_CONTEXT_FRESH_LOW = 4;
+/** …enough to get back to about this many unheard. */
+export const LISTEN_CONTEXT_FRESH_BUFFER = 8;
+
+/** FNV-1a (32-bit) over the UTF-16 code units — the same number in the Lab port. */
+export function listenHash(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** mulberry32 over a 32-bit seed: unsigned 32-bit integers (no floats, so both apps agree exactly). */
+function prng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (t ^ (t >>> 14)) >>> 0;
+  };
+}
+
+/** The items in a seeded random order (Fisher–Yates). */
+export function seededShuffle<T>(items: readonly T[], seed: string): T[] {
+  const out = items.slice();
+  const next = prng(listenHash(seed));
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = next() % (i + 1);
+    const t = out[i];
+    out[i] = out[j];
+    out[j] = t;
+  }
+  return out;
+}
+
+export interface ListenPick {
+  /** The rows of this showing, in their shuffled order. */
+  rows: ListenRow[];
+  /** Of them, never heard in context before. */
+  fresh: number;
+  /** Of them, heard before. */
+  heardBefore: number;
+  /** Natural, visible sentences never heard in context that this showing leaves for later. */
+  unheardLeft: number;
+}
+
+/**
+ * The sentences of one showing:
+ * 1. candidates = the natural sentences not hidden (contrived / hidden ones never come — contrived ones only
+ *    when there is nothing else);
+ * 2. ranked: never heard in context first, then fewest times heard; among equals simple before long
+ *    (`isSimpleSentence` for this word), then heard longest ago, then a seeded tie-break (variety);
+ * 3. the first `count`; when that is exactly the previous showing's set and there are more candidates,
+ *    the last one is swapped for the next best — never the same set twice in a row;
+ * 4. shuffled with the showing's seed: a new order every showing, the same while the card is up.
+ */
+export function pickListenRows(
+  rows: readonly ListenRow[],
+  stats: ReadonlyMap<string, SentenceStats>,
+  opts: { seed: string; word?: string | null; previous?: readonly string[] | null; count?: number },
+): ListenPick {
+  const count = Math.max(0, opts.count ?? LISTEN_CONTEXT_SHOWN);
+  const statOf = (r: ListenRow) => stats.get(sentenceHistoryKey(r.key));
+  const visible = rows.filter((r) => !statOf(r)?.hidden);
+  const natural = visible.filter((r) => !r.contrived);
+  const candidates = natural.length > 0 ? natural : visible;
+  const heardCount = (r: ListenRow) => statOf(r)?.heard?.count ?? 0;
+  const ranked = candidates
+    .map((row) => ({
+      row,
+      heard: heardCount(row),
+      long: isSimpleSentence(row.hanzi, opts.word) ? 0 : 1,
+      last: statOf(row)?.heard?.last_at ?? '',
+      tie: listenHash(`${opts.seed}|${row.key}`),
+    }))
+    .sort((a, b) =>
+      a.heard - b.heard
+      || a.long - b.long
+      || (a.last < b.last ? -1 : a.last > b.last ? 1 : 0)
+      || a.tie - b.tie
+      || (a.row.key < b.row.key ? -1 : a.row.key > b.row.key ? 1 : 0))
+    .map((x) => x.row);
+  const chosen = ranked.slice(0, count);
+  const previous = opts.previous ?? [];
+  if (
+    ranked.length > chosen.length
+    && chosen.length > 0
+    && previous.length === chosen.length
+    && chosen.every((r) => previous.includes(r.key))
+  ) {
+    chosen[chosen.length - 1] = ranked[chosen.length];
+  }
+  const shown = seededShuffle(chosen, opts.seed);
+  const fresh = shown.filter((r) => heardCount(r) === 0).length;
+  const shownKeys = new Set(shown.map((r) => r.key));
+  const unheardLeft = natural.filter((r) => heardCount(r) === 0 && !shownKeys.has(r.key)).length;
+  return { rows: shown, fresh, heardBefore: shown.length - fresh, unheardLeft };
+}
+
+/**
+ * Ask the sentence top-up for more (reason 'fresh', ADDED to the set with their clips, sentenceHistory.ts):
+ * the showing left fewer than LISTEN_CONTEXT_FRESH_LOW unheard sentences — enough to get back to
+ * LISTEN_CONTEXT_FRESH_BUFFER, 3–8 at a time. null = enough waiting.
+ */
+export function listenTopUpWant(pick: Pick<ListenPick, 'unheardLeft'>): { reason: 'fresh'; count: number } | null {
+  if (pick.unheardLeft >= LISTEN_CONTEXT_FRESH_LOW) return null;
+  const count = Math.min(SENTENCE_TOPUP_MAX, Math.max(SENTENCE_TOPUP_MIN, LISTEN_CONTEXT_FRESH_BUFFER - Math.max(0, pick.unheardLeft)));
+  return { reason: 'fresh', count };
+}
+
+/** The analytics props of `study.listen_context_shown` (counts only). */
+export function listenShownProps(pick: Pick<ListenPick, 'rows' | 'fresh' | 'heardBefore'>): { shown: number; fresh: number; heard_before: number } {
+  return { shown: pick.rows.length, fresh: pick.fresh, heard_before: pick.heardBefore };
+}
+
+/**
+ * The rows on screen once a showing's pick is made: the picked keys in their order (current data — a clip
+ * that arrived meanwhile), then rows added during the showing ("+ More sentences") after them.
+ */
+export function listenShownRows(rows: readonly ListenRow[], shownKeys: readonly string[], added: readonly string[] = []): ListenRow[] {
+  const byKey = new Map(rows.map((r) => [r.key, r] as const));
+  const out: ListenRow[] = [];
+  const seen = new Set<string>();
+  for (const k of [...shownKeys, ...added]) {
+    const r = byKey.get(k);
+    if (r && !seen.has(k)) {
+      out.push(r);
+      seen.add(k);
+    }
+  }
+  return out;
+}
+
 /** The analytics props of `study.listen_context` (counts / booleans only). */
 export function listenContextProps(state: {
   sentencesPlayed: number;
@@ -206,6 +363,8 @@ export const LISTEN_CONTEXT_COPY = {
   promptAnyway: 'Play the word anyway',
   promptSentence: 'Play a sentence',
   noSentences: 'No example sentences yet.',
+  /** The dot on a sentence never heard in context before (until it is played). */
+  newSentence: 'New sentence',
   /** EN on the card's own sentence when the note has no English and it can't be fetched now. */
   translationOffline: 'Translation needs a connection',
 } as const;

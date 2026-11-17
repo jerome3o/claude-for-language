@@ -1,10 +1,12 @@
 /**
  * Practice per example sentence (migration 0138 `sentence_practice_events`, shared/study/sentenceHistory.ts;
- * docs/STUDY_SESSION.md "Sentence practice history"): 🎤 attempts on a sentence + hide / unhide, as events.
+ * docs/STUDY_SESSION.md "Sentence practice history"): 🎤 attempts on a sentence + hide / unhide, and `heard`
+ * (played on a listening card's "Listen in context" question — mode `listen_context`, no column CHECK so no
+ * migration), as events.
  * Idempotent by client id; only notes in the user's own decks; events after the cursor come back to every
  * device, which folds them with `sentenceStats`. Pure-ish D1; no model calls.
  */
-import { SENTENCE_HIDE_REASONS, type SentencePracticeEvent } from '../../../shared/study/sentenceHistory';
+import { LISTEN_CONTEXT_MODE, SENTENCE_HIDE_REASONS, type SentencePracticeEvent } from '../../../shared/study/sentenceHistory';
 
 export const MAX_SENTENCE_EVENTS_PER_REQUEST = 200;
 export const SENTENCE_EVENTS_PAGE = 1000;
@@ -47,6 +49,11 @@ export function cleanSentenceEvent(raw: unknown): SentencePracticeEvent | null {
     return { id, note_id, sentence_key, kind: 'hide', mode: null, result: null, reason, at };
   }
   if (e.kind === 'unhide') return { id, note_id, sentence_key, kind: 'unhide', mode: null, result: null, reason: null, at };
+  // Played on a listening card's "Listen in context" question (sentenceHistory.ts; no result).
+  if (e.kind === 'heard') {
+    if (e.mode != null && e.mode !== LISTEN_CONTEXT_MODE) return null;
+    return { id, note_id, sentence_key, kind: 'heard', mode: LISTEN_CONTEXT_MODE, result: null, reason: null, at };
+  }
   return null;
 }
 

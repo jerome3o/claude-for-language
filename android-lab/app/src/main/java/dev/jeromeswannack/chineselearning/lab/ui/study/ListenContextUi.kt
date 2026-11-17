@@ -69,9 +69,32 @@ import kotlinx.coroutines.launch
  * then "▶ The word", which asks "Try the sentences first?" while no sentence has been heard.
  */
 
-/** Per card presentation (CardStage remembers one): what was heard, the ask, EN rows, generating. */
+/**
+ * The seed of a showing: a new order every time a listening card comes up, the same while it is up (core
+ * [ListenContext.pick]). Tests pin [fixed] to get a known order.
+ */
+object ListenSeeds {
+    @Volatile var fixed: String? = null
+    fun next(): String = fixed ?: java.util.UUID.randomUUID().toString()
+}
+
+/** Per card presentation (CardStage remembers one): the showing's sentences, what was heard, the ask, EN rows, generating. */
 @Stable
-class ListenState {
+class ListenState(val seed: String = ListenSeeds.next()) {
+    /**
+     * This showing's sentences (core [ListenContext.pick]: fresh first, shuffled), picked once the heard
+     * history is known ([freezeListenPick]) and then frozen — a sentence played now stays in the list. null
+     * until then (no rows yet).
+     */
+    var shownKeys by mutableStateOf<List<String>?>(null)
+    /** Of [shownKeys], never heard in context before (the "new" dot until played). */
+    var freshKeys by mutableStateOf<Set<String>>(emptySet())
+    /** "+ More sentences" was pressed: the rows there were then — newer natural ones join this showing. */
+    var moreBaseline by mutableStateOf<Set<String>?>(null)
+    /** Rows recorded as heard on this showing (once each). */
+    val heardKeys = HashSet<String>()
+    /** Records a sentence heard (CardStage: SentencePracticeStore.recordHeard). */
+    var onHeard: ((rowKey: String) -> Unit)? = null
     /** Heard on this card — by the sentence's text, so a regenerated set keeps its ✓s. */
     val played = mutableStateMapOf<String, Boolean>()
     val english = mutableStateMapOf<String, Boolean>()
@@ -102,13 +125,46 @@ const val LISTEN_ROW_TAG = "listen-row"
 const val LISTEN_EN_TAG = "listen-en"
 const val LISTEN_PROMPT_TAG = "listen-prompt"
 const val LISTEN_MORE_TAG = "listen-more"
+const val LISTEN_NEW_TAG = "listen-new"
 
-/** The rows of [view] (the card's own sentence first, then the set). */
+/** All the rows of [view] (the card's own sentence first, then the set) — the showing offers a few of them. */
 fun listenRows(view: CardView): List<ListenContext.Row> = ListenContext.rows(
     view.note.id,
     ListenContext.Clue(view.note.sentenceClue, view.note.sentenceClueTranslation, view.note.sentenceClueAudioUrl),
     view.sentences.map { ListenContext.Sentence(it.id, it.hanzi, it.translation, it.audioUrl, it.position, it.focus) },
 )
+
+/** Rows added during the showing ("+ More sentences"): natural ones not there when it was pressed. */
+private fun listenAdded(all: List<ListenContext.Row>, listen: ListenState): List<String> {
+    val base = listen.moreBaseline ?: return emptyList()
+    return all.filter { it.key !in base && !it.contrived }.map { it.key }
+}
+
+/** The rows on screen: the showing's pick (current data), then rows added during it. Empty until picked. */
+fun listenShown(view: CardView, listen: ListenState): List<ListenContext.Row> {
+    val keys = listen.shownKeys ?: return emptyList()
+    val all = listenRows(view)
+    return ListenContext.shownRows(all, keys, listenAdded(all, listen))
+}
+
+/**
+ * Pick this showing's sentences (core [ListenContext.pick] with the heard history, the showing's seed and the
+ * previous showing's set) and freeze them on [listen]; [onPicked] gets the pick (remember the set, analytics,
+ * the fresh-buffer top-up).
+ */
+fun freezeListenPick(
+    view: CardView,
+    listen: ListenState,
+    stats: Map<String, dev.jeromeswannack.chineselearning.lab.core.SentenceHistory.Stats>,
+    previous: List<String>,
+    onPicked: (ListenContext.Pick) -> Unit = {},
+) {
+    if (listen.shownKeys != null) return
+    val pick = ListenContext.pick(listenRows(view), stats, listen.seed, view.note.hanzi, previous)
+    listen.freshKeys = pick.rows.filter { (stats[dev.jeromeswannack.chineselearning.lab.core.SentenceHistory.key(it.key)]?.heard?.count ?: 0) == 0 }.map { it.key }.toSet()
+    listen.shownKeys = pick.rows.map { it.key }
+    onPicked(pick)
+}
 
 fun listenStates(rows: List<ListenContext.Row>, view: CardView, online: Boolean): List<ListenContext.RowState> =
     rows.map { ListenContext.rowState(it.audioUrl, it.sentenceId, online, it.audioUrl != null && it.audioUrl in view.cachedClips) }
@@ -128,6 +184,7 @@ fun listenPlay(
     if (state == ListenContext.RowState.UNAVAILABLE) return
     listen.prompt = false
     listen.played[row.hanzi] = true
+    if (listen.heardKeys.add(row.key)) listen.onHeard?.invoke(row.key)
     val ensure = actions.sentences.ensureAudio
     val id = row.sentenceId
     if (state == ListenContext.RowState.FETCH && id != null && ensure != null) {
@@ -165,7 +222,9 @@ fun ListenContextPanel(
     /** Under the word button: the voices hint, offline / "Audio coming…" lines. */
     wordFooter: @Composable () -> Unit = {},
 ) {
-    val rows = listenRows(view)
+    val all = listenRows(view)
+    val rows = listenShown(view, listen)
+    val added = listenAdded(all, listen)
     val states = listenStates(rows, view, ui.aiAvailable)
     val playable = states.count(ListenContext::isPlayable)
     Column(
@@ -187,6 +246,7 @@ fun ListenContextPanel(
                     row = row,
                     state = state,
                     heard = listen.played[row.hanzi] == true,
+                    isNew = listen.played[row.hanzi] != true && (row.key in listen.freshKeys || row.key in added),
                     playing = playingKey != null && (playingKey == row.audioUrl || playingKey == "tts:${row.hanzi}"),
                     coming = listen.coming[row.key] == true || listen.asking[row.key] == true,
                     english = listen.english[row.key] == true,
@@ -212,7 +272,7 @@ fun ListenContextPanel(
                     },
                 )
             }
-        } else {
+        } else if (listen.shownKeys != null) {
             Text(ListenContext.Copy.NO_SENTENCES, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
         if (ui.aiAvailable) {
@@ -222,9 +282,11 @@ fun ListenContextPanel(
                     val before = rows.size
                     listen.generating = true
                     listen.error = null
+                    // The new sentences join this showing after the ones up (they are all unheard).
+                    if (listen.moreBaseline == null) listen.moreBaseline = all.map { it.key }.toSet()
                     scope.launch {
                         try {
-                            actions.sentences.generate(ListenContext.moreCount(ListenContext.naturalCount(rows)), true, null)
+                            actions.sentences.generate(ListenContext.moreCount(ListenContext.naturalCount(all)), true, null)
                             actions.onListenMore(before)
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
@@ -310,6 +372,7 @@ private fun ListenRowView(
     row: ListenContext.Row,
     state: ListenContext.RowState,
     heard: Boolean,
+    isNew: Boolean,
     playing: Boolean,
     coming: Boolean,
     english: Boolean,
@@ -354,6 +417,15 @@ private fun ListenRowView(
                 }
                 Spacer(Modifier.width(12.dp))
                 Text("${index + 1}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = if (unavailable) Lab.colors.muted else Lab.colors.ink)
+                if (isNew) {
+                    // Never heard in context before (until it is played): a small accent dot.
+                    Spacer(Modifier.width(10.dp))
+                    Box(
+                        Modifier.size(7.dp).clip(CircleShape).background(Lab.colors.accent)
+                            .testTag(LISTEN_NEW_TAG)
+                            .semantics { contentDescription = ListenContext.Copy.NEW_SENTENCE },
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 when {
                     coming -> Text(SentenceAudioWait.LABEL, style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
