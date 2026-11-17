@@ -8,7 +8,7 @@ for new content." The Claude box that tab had now lives on the Chats tab (docs/C
 - Web: `/add` — `frontend/src/pages/AddPage.tsx` (+ `AddPage.css`), API client `frontend/src/api/add.ts`.
 - Lab: `/add` — `ui/add/AddNav.kt`, `AddScreen.kt`, `AddViewModel.kt`; `data/add/DeviceOcr.kt`; `data/api/AddApi.kt`.
 - Rules: `shared/add/add.ts`, Lab core `core/…/add/AddTab.kt` (parity-tested, `parity/fixtures/add-tab.ts`).
-- Worker: `routes/add-words.ts`, `services/add-words.ts`, `services/lesson-requests.ts` (migration 0153).
+- Worker: `routes/add-words.ts`, `services/add-words.ts`, `services/lesson-requests.ts` (migration 0152).
 - Only the learner tab set has it; tutor accounts and accounts with students keep their tabs (a ＋ for them is a
   possible follow-up).
 
