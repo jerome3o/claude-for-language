@@ -86,17 +86,17 @@ test('word order: drag to rearrange, drag in, drag out, arrow keys — and Check
   // 1. Tapped in the order he thought of them — 他 工作了 十五年 的 公司 离开了 — then 离开了 dragged to after 他.
   await tap(page, ['他', '工作了', '十五年', '的', '公司', '离开了']);
   await expect(placed(page)).toHaveText(['他', '工作了', '十五年', '的', '公司', '离开了']);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/01-placed.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-01-placed.png` });
   const target = await center(placedTile(page, '工作了'));
   await dragTo(page, placedTile(page, '离开了'), target.b.x + 6, target.y, async () => {
     // Mid-drag: a copy follows the pointer and the answer shows the gap where it will land.
     await expect(page.getByTestId('scramble-floating-tile')).toHaveText('离开了');
     await expect(page.getByTestId('scramble-gap')).toHaveCount(1);
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/02-mid-drag.png` });
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-mid-drag.png` });
   });
   await expect(page.getByTestId('scramble-floating-tile')).toHaveCount(0);
   await expect(placed(page)).toHaveText(['他', '离开了', '工作了', '十五年', '的', '公司']);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/03-dropped.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-dropped.png` });
   // A plain tap still takes a tile out (and only that one).
   await placedTile(page, '公司').click();
   await expect(placed(page)).toHaveText(['他', '离开了', '工作了', '十五年', '的']);
@@ -112,7 +112,7 @@ test('word order: drag to rearrange, drag in, drag out, arrow keys — and Check
   const jiu = await center(placedTile(page, '就'));
   await dragTo(page, poolTile(page, '一到家'), jiu.b.x + 4, jiu.y, async () => {
     await expect(page.getByTestId('scramble-gap')).toHaveCount(1);
-    if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-drag-in-from-pool.png` });
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-04-drag-in-from-pool.png` });
   });
   await expect(placed(page)).toHaveText(['他', '一到家', '就', '睡觉了']);
   // Drag OUT: 睡觉了 back down to the pool, then tapped back in at the end.
