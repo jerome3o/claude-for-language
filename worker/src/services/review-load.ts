@@ -71,7 +71,7 @@ export async function fetchReviewLoad(db: D1Database, userId: string, dayStartMs
          AND (
            t.card_id IS NOT NULL
            OR (c.queue IN (1, 3) AND COALESCE(c.due_timestamp, CAST((julianday(c.next_review_at) - 2440587.5) * 86400000 AS INTEGER), 0) <= ?3)
-           OR (c.queue NOT IN (1, 3) AND (c.next_review_at IS NULL OR c.next_review_at <= ?4))
+           OR (c.queue NOT IN (1, 3) AND COALESCE(c.next_review_at, '') <= ?4)
          )
          AND (t.card_id IS NULL OR EXISTS (SELECT 1 FROM review_events p WHERE p.card_id = c.id AND p.reviewed_at < ?2))`
     )

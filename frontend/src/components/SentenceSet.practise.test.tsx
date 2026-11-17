@@ -259,4 +259,25 @@ describe('SentenceSet practice history', () => {
     expect(rows()[0].dataset.round).toBeUndefined();
     expect(rows()[0].querySelector('.sentence-set-hanzi')).toBeNull();
   });
+
+  it("keeps the question's order: Listen in context's rows first (the card's sentence where it was), then the rest", async () => {
+    const { SentenceSet } = await import('./SentenceSet');
+    const clue = { hanzi: '他在银行工作。', pinyin: null, translation: 'He works at a bank.', audio_url: null };
+    const showAll = async () => {
+      act(() => (host.querySelector('.sentence-set-action--text') as HTMLElement).click());
+      await flush();
+    };
+    await act(async () => root.render(<SentenceSet noteId="n1" cardSentence={clue} compact practise showingKey="c1" questionOrder={['s2', 'clue:n1', 'gone']} />));
+    await flush();
+    await showAll();
+    expect(rows().map((r) => r.querySelector('.sentence-set-hanzi')!.textContent)).toEqual(['银行在哪儿？', '他在银行工作。', '我去银行。']);
+    // "From the card" goes with its row.
+    expect(rows()[1].className).toContain('is-from-card');
+    // Then the round's sentences that Listen in context didn't show.
+    const { roundRowMarks } = await import('@shared/study/sentenceRound');
+    await act(async () => root.render(<SentenceSet noteId="n1" cardSentence={clue} compact practise showingKey="c1" questionOrder={['s2']} roundRows={roundRowMarks([{ id: 'translate:s1', result: 'right' }], [])} />));
+    await flush();
+    expect(rows().map((r) => r.querySelector('.sentence-set-hanzi')!.textContent)).toEqual(['银行在哪儿？', '我去银行。', '他在银行工作。']);
+    expect(rows()[1].dataset.round).toBe('right');
+  });
 });

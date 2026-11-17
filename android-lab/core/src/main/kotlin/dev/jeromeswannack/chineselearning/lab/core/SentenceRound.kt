@@ -285,12 +285,7 @@ object SentenceRound {
     }
 
     /** `orderKeysForRound` */
-    fun orderKeys(keys: List<String>, marks: List<RowMark>): List<String> {
-        val present = keys.toSet()
-        val first = marks.map { it.key }.filter { it in present }
-        val firstSet = first.toSet()
-        return first + keys.filter { it !in firstSet }
-    }
+    fun orderKeys(keys: List<String>, marks: List<RowMark>): List<String> = AnswerOrder.order(keys, marks.map { it.key })
 
     /** `exercisesFromLog`: null = none left (pick afresh). */
     fun exercisesFromLog(sentences: List<Sentence>, ids: List<String>, hidden: (String) -> Boolean = { false }): List<Exercise>? {

@@ -14,8 +14,9 @@
  *    - `ok` his character is the expected one; `sound` another character with the same toned syllable (a
  *      homophone: counts as RIGHT, "written X" at most);
  *    - `tone` the same syllable in another tone (都 dū said dù);
- *    - `wrong` another character (red); `extra` a character he added (yellow); `missing` an expected character
- *      he left out (shown as the expected character in a muted dashed slot);
+ *    - `wrong` another character (rose); `extra` a character he added (violet); `missing` an expected character
+ *      he left out (shown as the expected character in grey) — the apps draw marks as colour only (no box,
+ *      tint or underline; index.css `--mark-*`, Lab `LabColors.mark*`);
  *    - `plain` punctuation / spaces of the expected answer.
  * 2. `answerDiffSummary(diff)` — ONE short sentence from the diff, no explanations: "Right", "Sounded right —
  *    written 由", "Tone off on 都", "Extra 了 at the end", "Missing 了", "得 instead of 的", "Right words,

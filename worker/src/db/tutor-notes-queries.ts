@@ -1,3 +1,4 @@
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 /**
  * SQL for the session-notes agent (tutor_note_jobs, migration 0072) and the
  * read-only lookups its tools make on the student's account. Writes to decks /
@@ -353,7 +354,7 @@ export async function listStudentDecks(db: D1Database, studentId: string): Promi
       `SELECT d.id, d.name,
               (SELECT COUNT(*) FROM notes n WHERE n.deck_id = d.id) AS note_count,
               (SELECT COUNT(DISTINCT n.id) FROM notes n JOIN cards c ON c.note_id = n.id WHERE n.deck_id = d.id AND c.queue > 0) AS started,
-              (SELECT COUNT(DISTINCT n.id) FROM notes n JOIN cards c ON c.note_id = n.id WHERE n.deck_id = d.id AND c.interval >= 21) AS mastered,
+              (SELECT COUNT(DISTINCT n.id) FROM notes n JOIN cards c ON c.note_id = n.id WHERE n.deck_id = d.id AND ${MASTERED_CARD_SQL}) AS mastered,
               EXISTS(SELECT 1 FROM shared_decks s WHERE s.target_deck_id = d.id) AS from_tutor
        FROM decks d WHERE d.user_id = ? ORDER BY d.study_priority DESC, d.created_at DESC`
     )

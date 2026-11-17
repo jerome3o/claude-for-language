@@ -429,8 +429,12 @@ object StudyQueue {
         leadCards: Map<String, String> = emptyMap(),
         /** "Start new words by ear" (BuiltQueue.newWordsByEar): a started word's listening card before its other new cards. */
         newWordsByEar: Boolean = false,
+        /** New words bumped DURING this session (core BumpNext): their lead card comes next, in the order bumped. */
+        nextUpIds: List<String> = emptyList(),
     ): QueueCard? {
         if (queue.isEmpty()) return null
+        // A new word he just put in today (⚡ during the session) — next, before anything else.
+        BumpNext.pickNextUp(queue, nextUpIds) { it.id }?.let { return it }
         val available = queue.filter { CardQueue.isLearning(it.queue) || it.noteId !in recentNoteIds }
         val choose = available.ifEmpty { queue }
         val learningDue = choose.filter { CardQueue.isLearning(it.queue) && it.state.dueTimestamp != null && it.state.dueTimestamp <= nowMs }

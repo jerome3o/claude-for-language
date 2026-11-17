@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -354,6 +355,29 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Example sentences").performScrollTo()
         compose.mainClock.advanceTimeBy(800)
         shot("hard-mode-07-answer-round-sentences")
+    }
+
+    /**
+     * The answer keeps the question's order (core AnswerOrder): the round's sentences (s1, s2, s3 — the card's own
+     * sentence wasn't in it) lead the answer side in the round's order, the card's own sentence after them with
+     * its badge. Dark, like Jerome's phone: the round, then the answer.
+     */
+    private val orderLog = listOf(SentenceRound.LogEntry("translate:s1", "right"), SentenceRound.LogEntry("read:s2", "close"), SentenceRound.LogEntry("translate:s3"))
+
+    @Test fun shotRoundQuestionOrder() {
+        card(start = CardStartState(roundOpen = true, roundLog = orderLog), dark = true)
+        shot("answer-order-03-round-question-dark")
+    }
+
+    @Test fun shotRoundAnswerInTheSameOrder() {
+        card(start = CardStartState(flipped = true, roundLog = orderLog, sentencesRight = listOf("translate:s1")), practise = previewSentencePractise(rightKeys = listOf("translate:s1")), dark = true)
+        compose.onNodeWithText("Example sentences").performScrollTo()
+        compose.mainClock.advanceTimeBy(800)
+        val tops = listOf("我家有一个小院子。", "院子里种了很多花。", "奶奶每天早上在院子里打太极拳。").map { h ->
+            compose.onAllNodesWithText(h, useUnmergedTree = true).fetchSemanticsNodes().maxOf { it.positionInRoot.y }
+        }
+        assertEquals(tops.sorted(), tops)
+        shot("answer-order-04-round-answer-dark")
     }
 
     @Test fun shotRevealedInPlace() {

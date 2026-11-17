@@ -72,6 +72,7 @@ import androidx.compose.ui.text.withStyle
 import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
 import dev.jeromeswannack.chineselearning.lab.core.SpokenAnswerResult
 import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+import dev.jeromeswannack.chineselearning.lab.core.AnswerWhy
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
@@ -302,17 +303,26 @@ fun YouSaidBox(
         else YouSaidHead(tone, state, label = claude?.let { ReadTakeCheck.CHIP[it.state] })
         Spacer(Modifier.size(4.dp))
         if (diff != null && diffLine != null) {
-            DiffMarkedText(diff.cells(), 22.sp, Modifier.semantics { contentDescription = AnswerDiff.label(diff, diffLine, AnswerDiff.YOU_SAID) }, tag = YOU_SAID_DIFF_TAG)
+            DiffMarkedText(diff.cells(), 22.sp, tag = YOU_SAID_DIFF_TAG, label = AnswerDiff.label(diff, diffLine, AnswerDiff.YOU_SAID))
         } else {
             Text(r.transcribedHanzi.ifEmpty { "…" }, fontSize = 22.sp, lineHeight = 29.sp, fontWeight = FontWeight.Medium, color = Lab.colors.ink, textAlign = TextAlign.Center)
         }
         if (r.transcribedPinyin.isNotBlank()) {
             Text(tidyYouSaidPinyin(r.transcribedPinyin), fontSize = 14.sp, lineHeight = 19.sp, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
-        // ONE line: what differs (the slim diff), else Claude's one-line reason — never its tip.
+        // ONE line: what differs (the slim diff), else Claude's one-line reason.
         (diffLine ?: claude?.reason?.reason?.takeIf { it.isNotBlank() })?.let { line ->
             Spacer(Modifier.size(6.dp))
             Text(line, fontSize = 14.sp, lineHeight = 20.sp, color = Lab.colors.ink, textAlign = TextAlign.Center, modifier = Modifier.testTag(YOU_SAID_REASON_TAG))
+        }
+        // Then ONE why sentence (Claude's reason under the diff, else the device's own for a homophone) + "Explain more ›"
+        // for its tip (core AnswerWhy; the web's YouSaid).
+        val whyCheck = claude?.let { AnswerWhy.Check(headline = it.reason.reason, tips = listOfNotNull(it.reason.tip?.takeIf { t -> t.isNotBlank() })) }
+        val why = diff?.let { AnswerWhy.why(it, whyCheck, diffLine) }
+        val more = AnswerWhy.more(whyCheck, why ?: claude?.reason?.reason, r.transcribedHanzi, expected ?: "")
+        if (why != null || more != null) {
+            Spacer(Modifier.size(2.dp))
+            AnswerWhyLine(why, more, surface = "read_take")
         }
     }
 }
@@ -400,10 +410,10 @@ private fun spokenCellKind(mark: SpokenAnswerResult.Mark): String = when (mark) 
 }
 
 /**
- * What was said with each character marked (`shared/cards/spoken-result.ts`): written differently = yellow highlight
- * + a DOTTED underline; close / didn't match = the slim answer diff (docs/STUDY_SESSION.md "Answer feedback: one line
- * and a diff") — wrong rose + solid, tone off lemon wavy, extra yellow in a solid box, missing muted in a dashed box;
- * the words around a contained answer muted. Drawn by [DiffMarkedText].
+ * What was said with each character marked (`shared/cards/spoken-result.ts`), COLOUR ONLY: written differently
+ * ("Sounded right") = no mark (it counts as right; the chip says it); close / didn't match = the slim answer diff
+ * (docs/STUDY_SESSION.md "Answer feedback: one line and a diff") — wrong rose, tone off amber, extra violet, missing =
+ * the answer's character in grey; the words around a contained answer muted. Drawn by [DiffMarkedText].
  */
 @Composable
 private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.compose.ui.unit.TextUnit) =
@@ -411,7 +421,8 @@ private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.co
 
 @Composable
 internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: androidx.compose.ui.unit.TextUnit, tag: String = SPOKEN_RESULT_HANZI_TAG) =
-    DiffMarkedText(chars.map { DiffCell(it.char, spokenCellKind(it.mark)) }, fontSize, tag = tag)
+    // The row merges its parts under ONE sentence that names every mark (core SpokenAnswerResult.label).
+    DiffMarkedText(chars.map { DiffCell(it.char, spokenCellKind(it.mark)) }, fontSize, tag = tag, label = "")
 
 /** Test tags inside the spoken result row (the row itself is one node for a screen reader). */
 const val SPOKEN_RESULT_HANZI_TAG = "spoken-result-hanzi"

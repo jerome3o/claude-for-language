@@ -11,6 +11,10 @@ import {
   readAloudResultLine,
 } from '../../../shared/cards/answer-diff';
 import { judgeReadAloud } from '../../../shared/reader/readAloud';
+import {
+  answerMore, answerWhy, deviceWhy, ANSWER_WHY_ALTERNATIVE, ANSWER_WHY_CORRECTED, ANSWER_WHY_LESS, ANSWER_WHY_MAX, ANSWER_WHY_MORE,
+  ANSWER_WHY_STOCK, type AnswerWhyCheck,
+} from '../../../shared/cards/answer-why';
 
 const OUT = process.argv[2];
 if (!OUT) throw new Error('usage: answer-diff <out-dir>');
@@ -77,8 +81,39 @@ const READINGS: [string, string][] = [
 ];
 const readings = READINGS.map(([page, said]) => ({ page, said, line: readAloudResultLine(judgeReadAloud(page, said)) }));
 
+// The one "why" sentence + what "Explain more" opens (shared/cards/answer-why.ts).
+const CHECKS: (AnswerWhyCheck | null)[] = [
+  null,
+  { headline: 'Correct — 一个 is optional here. Both are natural.', tips: [] },
+  { headline: 'Exactly right — nice!', tips: [] },
+  { headline: 'Nearly — compare with the corrected version.', tips: [{ text: '得 needs a complement after the verb; 好 alone isn’t enough.' }, { text: 'Say 说得很好.' }], corrected: '他说得很好。' },
+  { headline: 'Not quite — have another go.', tips: [] },
+  { headline: '  ', tips: [{ text: '  ' }], corrected: '我们都去北京了吗', alternative: '我们都去过北京吗' },
+  { headline: `Tone: 买 mǎi is third tone, you said mài (sell) — ${'and that changes the meaning completely, which matters a lot here '.repeat(2)}`, tips: [{ text: 'Practise 买 vs 卖.' }] },
+  { headline: 'Use 她, not 他.', tips: [{ text: 'Use 她, not 他.' }, { text: 'The story is about a woman.' }, { text: 'a' }, { text: 'b' }, { text: 'c' }], alternative: '她很高' },
+  { headline: 'Different wording, same meaning — that works', tips: [{ text: '' }], corrected: '这是一个真实的故事。' },
+];
+const WHY_PAIRS: [string, string][] = [
+  ['这是一个真实的故事。', '这是真实的故事。'],
+  ['由', '油'],
+  ['我有3本书', '我有三本书'],
+  ['他说的很好', '他说得很好'],
+  ['他们豆去北京很了', '我们都去北京了吗'],
+  ['我们都去北京了吗', '我们都去北京了吗'],
+  ['妈骂妈马', '马麻马麻'],
+  ['我们都去北京了', '我们都去过北京吗。'],
+];
+const whys = WHY_PAIRS.flatMap(([said, expected]) => CHECKS.map((check) => {
+  const diff = answerDiff(said, expected);
+  const line = answerDiffLine({ diff, accepted: false, headline: check?.headline });
+  const why = answerWhy({ diff, check, line });
+  const whyNoLine = answerWhy({ diff, check });
+  return { said, expected, check, line, why, whyNoLine, device: deviceWhy(diff), more: answerMore(check, why, said), moreNoWhy: answerMore(check, null), moreExpected: answerMore(check, why, said, expected) };
+}));
+
 writeFileSync(join(OUT, 'answer-diff.json'), JSON.stringify({
-  cases, sentences, readings, verdicts: ANSWER_DIFF_VERDICT,
+  cases, sentences, readings, verdicts: ANSWER_DIFF_VERDICT, whys,
+  whyCopy: { max: ANSWER_WHY_MAX, more: ANSWER_WHY_MORE, less: ANSWER_WHY_LESS, corrected: ANSWER_WHY_CORRECTED, alternative: ANSWER_WHY_ALTERNATIVE, stock: ANSWER_WHY_STOCK },
   copy: {
     right: ANSWER_DIFF_RIGHT, worded: ANSWER_DIFF_WORDED, order: ANSWER_DIFF_ORDER, far: ANSWER_DIFF_FAR, empty: ANSWER_DIFF_EMPTY,
     youSaid: ANSWER_DIFF_YOU_SAID, yourAnswer: ANSWER_DIFF_YOUR_ANSWER,

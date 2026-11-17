@@ -18,6 +18,20 @@ describe('studyTodayPlan — what ONE ⚡ tap puts in today, from anywhere', () 
     expect(studyTodayPlan(input({ hasAudio: false, knownCharactersLead: () => true })).cardTypes).toEqual(['meaning_to_hanzi']);
   });
 
+  it('"Start new words by ear": a word just added (its clip not made yet) still starts with its listening card', () => {
+    // Regression (Nov 2026): a word added from an example sentence's "What's going on here?" breakdown was
+    // bumped with its reading card — its clip is made in the background a few seconds after the add.
+    expect(studyTodayPlan(input({ hasAudio: false, newWordsByEar: true }))).toEqual({ kind: 'listening', cardTypes: ['audio_to_hanzi'], longTerm: undefined });
+    expect(studyTodayPlan(input({ cards: [], hasAudio: false, newWordsByEar: true })).cardTypes).toEqual(['audio_to_hanzi']);
+    expect(studyTodayPlan(input({ hasAudio: false, newWordsByEar: true, knownCharactersLead: () => true })).cardTypes).toEqual(['audio_to_hanzi']);
+    // The switch off keeps the old rule: no clip → the lead card.
+    expect(studyTodayPlan(input({ hasAudio: false, newWordsByEar: false })).cardTypes).toEqual(['hanzi_to_meaning']);
+    // A listening card already reviewed / missing: the lead card as before.
+    expect(studyTodayPlan(input({ cards: [c('hanzi_to_meaning'), c('meaning_to_hanzi')], hasAudio: false, newWordsByEar: true })).cardTypes).toEqual(['hanzi_to_meaning']);
+    // A started word without audio is unchanged (the whole note).
+    expect(studyTodayPlan(input({ cards: [c('hanzi_to_meaning', 2), c('audio_to_hanzi', 0)], started: true, hasAudio: false, newWordsByEar: true })).kind).toBe('whole');
+  });
+
   it('an unstarted word in a one-off deck goes into long-term review so its other cards come later', () => {
     expect(studyTodayPlan(input({ deckInReview: false })).longTerm).toBe(1);
   });

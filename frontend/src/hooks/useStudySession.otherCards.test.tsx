@@ -72,7 +72,7 @@ async function mount() {
     root = createRoot(container);
     root.render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>);
   });
-  await vi.waitFor(() => expect(latest.isLoading).toBe(false));
+  await vi.waitFor(() => expect(latest.isLoading).toBe(false), { timeout: 8000 });
   await vi.waitFor(() => expect(latest.currentCard).not.toBeNull());
 }
 

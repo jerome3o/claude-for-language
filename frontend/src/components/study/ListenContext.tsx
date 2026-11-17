@@ -92,6 +92,13 @@ export interface ListenContextProps {
   onAutoplayed?: () => void;
   /** The current numbers, for `study.listen_context` when the card is answered. */
   onStats?: (stats: ListenContextStats) => void;
+  /**
+   * This showing's rows as already picked (the resume point, a peek back from the answer side, back from the
+   * round): shown again as they were — never re-picked, re-recorded or re-tracked. null / [] = pick afresh.
+   */
+  shownKeys?: readonly string[] | null;
+  /** The rows on screen, in order, once picked (and as "+ More sentences" adds some): the answer side follows them. */
+  onShown?: (keys: string[]) => void;
 }
 
 export function ListenContext({
@@ -108,6 +115,8 @@ export function ListenContext({
   autoplay,
   onAutoplayed,
   onStats,
+  shownKeys,
+  onShown,
 }: ListenContextProps) {
   const [sentences, setSentences] = useState<LocalNoteSentence[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -180,6 +189,13 @@ export function ListenContext({
   // numbers go out as study.listen_context_shown, and a showing leaving fewer than four unheard asks for more.
   useEffect(() => {
     if (pick || !settled || stats === null) return;
+    const heardBefore = (key: string) => stats.get(sentenceHistoryKey(key))?.heard?.count ?? 0;
+    // The same showing again: its rows as they were (nothing recorded or tracked twice).
+    const again = (shownKeys ?? []).filter((k) => allRows.some((r) => r.key === k));
+    if (again.length > 0) {
+      setPick({ keys: again, fresh: new Set(again.filter((k) => heardBefore(k) === 0)) });
+      return;
+    }
     const p = pickListenRows(allRows, stats, { seed, word, previous: lastShownListenKeys(noteId) });
     const keys = p.rows.map((r) => r.key);
     const heardCount = (key: string) => stats.get(sentenceHistoryKey(key))?.heard?.count ?? 0;
@@ -188,9 +204,18 @@ export function ListenContext({
     track('study.listen_context_shown', listenShownProps(p));
     const want = listenTopUpWant(p);
     if (want) requestMoreSentences(noteId, want);
-  }, [pick, settled, stats, allRows, seed, word, noteId]);
+  }, [pick, settled, stats, allRows, seed, word, noteId, shownKeys]);
 
   const rows = useMemo(() => (pick ? listenShownRows(allRows, pick.keys, added) : []), [pick, allRows, added]);
+  // The answer side shows these first, in this order (shared/study/answerOrder.ts).
+  const shownList = useMemo(() => rows.map((r) => r.key), [rows]);
+  const shownSignature = JSON.stringify(shownList);
+  const onShownRef = useRef(onShown);
+  onShownRef.current = onShown;
+  useEffect(() => {
+    if (pick && shownList.length > 0) onShownRef.current?.(shownList);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pick, shownSignature]);
 
   // Which clips this device holds (offline they are the only ones that play).
   const urlsKey = rows.map((r) => r.audioUrl ?? '').join('|');
