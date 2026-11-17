@@ -50,7 +50,7 @@ class SpokenResultRowTest : LabScreenshotTest() {
         compose.onNodeWithText("Tone off on 狼", useUnmergedTree = true).assertIsDisplayed()
         assertEquals(1, count("$YOU_SAID_VERDICT_TAG-approx"))
         compose.onNodeWithTag(SPOKEN_RESULT_HANZI_TAG, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithContentDescription("You said 朗 (lǎng). Close. Tone off on 狼.").assertExists()
+        compose.onNodeWithContentDescription("You said 朗 (lǎng). Close. Tone off on 狼. Tone off: 朗.").assertExists()
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).performClick()
         assertEquals(listOf("coach"), calls)
     }

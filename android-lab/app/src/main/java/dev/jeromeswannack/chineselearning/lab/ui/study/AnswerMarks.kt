@@ -14,28 +14,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import dev.jeromeswannack.chineselearning.lab.core.ResultState
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
-import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 
 /**
  * How each character of an answer is marked on the back of the card — port of
- * `frontend/src/utils/answerDiff.ts`. Colour alone isn't enough to read it, so every mark
- * also has a shape: [Mark.CORRECT] green, no underline; [Mark.WRONG] red + a solid underline
- * (a wrong character, or an extra one past the end); [Mark.MISSING] a muted "?" + a dashed
- * underline (a character not typed / a multiple-choice row left blank).
+ * `frontend/src/utils/answerDiff.ts`. COLOUR ONLY, like the slim answer diff (Jerome, Nov 2026: no outlines, no
+ * underlines, subtler colours): [Mark.CORRECT] the "right" ink; [Mark.WRONG] the wrong mark's rose (a wrong character,
+ * or an extra one past the end); [Mark.MISSING] a "?" in the missing grey (a character not typed / a multiple-choice
+ * row left blank). The one-line summary above says it in words; every cell has a content description.
  */
 object AnswerMarks {
     enum class Mark { CORRECT, WRONG, MISSING }
@@ -91,13 +87,7 @@ object AnswerMarks {
     private fun codePoints(s: String): List<String> = s.codePoints().toArray().map { String(Character.toChars(it)) }
 }
 
-/** Underline thickness: thick enough to read at a glance on the Fold, next to CJK strokes. */
-private val UnderlineThickness = 3.dp
-
-/** Room under the glyph for the underline, so it never touches the character or the pinyin below. */
-private val UnderlineRoom = 8.dp
-
-/** A row of marked characters (wraps for long answers); every cell keeps the same underline room so glyphs line up. */
+/** A row of marked characters (wraps for long answers). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MarkedAnswerRow(cells: List<AnswerMarks.Cell>, size: TextUnit, onChar: (String) -> Unit) {
@@ -114,11 +104,12 @@ const val EXPECTED_CHAR_TAG = "answer-expected-char"
 /**
  * The correct answer under the "↓": every character, wrapping onto as many lines as it needs
  * (closing punctuation kept with the character before it; a plain Row clipped long sentences at the card's edge — "…聊了两个小" for "…聊了两个小时。").
- * [matched] characters are green, the rest in [other]; each one is tappable (lookup).
+ * [matched] characters in the "right" ink, the rest in [other]; each one is tappable (lookup).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUnit, other: Color, onChar: (String) -> Unit, newChars: Set<String> = emptySet()) {
+    val right = ResultColors.ink(ResultState.RIGHT)
     FlowRow(horizontalArrangement = Arrangement.Center) {
         for (group in AnswerMarks.wrapGroups(chars)) {
             Row {
@@ -131,7 +122,7 @@ fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUni
                         isNew = ch in newChars,
                         fontSize = size,
                         lineHeight = size * 1.15f,
-                        color = if (matched.getOrElse(i) { false }) Palette.Good else other,
+                        color = if (matched.getOrElse(i) { false }) right else other,
                         fontWeight = FontWeight.Medium,
                         index = i,
                         modifier = Modifier.testTag(EXPECTED_CHAR_TAG).clickable(interactionSource = source, indication = null) { onChar(ch) },
@@ -143,19 +134,19 @@ fun ExpectedAnswerRow(chars: List<String>, matched: List<Boolean>, size: TextUni
 }
 
 /**
- * One character with its mark: green when right; red with a solid underline when wrong;
- * a muted "?" with a dashed underline when missing. Characters are tappable (lookup).
+ * One character with its mark, colour only: the "right" ink when right; rose when wrong; a "?" in the missing grey when
+ * missing. Characters are tappable (lookup).
  */
 @Composable
 fun MarkedChar(cell: AnswerMarks.Cell, size: TextUnit, onChar: (String) -> Unit) {
-    val muted = Lab.colors.muted
+    val colors = Lab.colors
     val source = remember { MutableInteractionSource() }
-    // A missing "?" takes a full character's width, so its dashed underline reads as a slot.
+    // A missing "?" takes a full character's width, so it reads as a slot.
     val minWidth = if (cell.mark == AnswerMarks.Mark.MISSING) with(LocalDensity.current) { size.toDp() } else 28.dp
     val (text, color) = when (cell.mark) {
-        AnswerMarks.Mark.CORRECT -> cell.char to Palette.Good
-        AnswerMarks.Mark.WRONG -> cell.char to Palette.Again
-        AnswerMarks.Mark.MISSING -> "?" to muted
+        AnswerMarks.Mark.CORRECT -> cell.char to ResultColors.ink(ResultState.RIGHT)
+        AnswerMarks.Mark.WRONG -> cell.char to colors.markWrong
+        AnswerMarks.Mark.MISSING -> "?" to colors.markMissing
     }
     val description = when (cell.mark) {
         AnswerMarks.Mark.CORRECT -> cell.char
@@ -165,22 +156,7 @@ fun MarkedChar(cell: AnswerMarks.Cell, size: TextUnit, onChar: (String) -> Unit)
     var modifier = Modifier
         .semantics { contentDescription = description }
         .widthIn(min = minWidth)
-        .drawBehind {
-            if (cell.mark == AnswerMarks.Mark.CORRECT) return@drawBehind
-            val stroke = UnderlineThickness.toPx()
-            val dashed = cell.mark == AnswerMarks.Mark.MISSING
-            val inset = this.size.width * (if (dashed) 0.08f else 0.12f) + stroke / 2
-            val y = this.size.height - UnderlineRoom.toPx() / 2
-            drawLine(
-                color = if (dashed) muted else Palette.Again,
-                start = Offset(inset, y),
-                end = Offset(this.size.width - inset, y),
-                strokeWidth = stroke,
-                cap = if (dashed) StrokeCap.Butt else StrokeCap.Round,
-                pathEffect = if (dashed) PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx())) else null,
-            )
-        }
-        .padding(start = 3.dp, end = 3.dp, bottom = UnderlineRoom)
+        .padding(horizontal = 3.dp)
     if (cell.mark != AnswerMarks.Mark.MISSING) {
         modifier = modifier.clickable(interactionSource = source, indication = null) { onChar(cell.char) }
     }

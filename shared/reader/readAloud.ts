@@ -582,7 +582,7 @@ export function readAloudNeedsLook(chars: readonly ReadAloudChar[]): boolean {
 /** A mark the legend explains (`ok` / `sound` carry no mark: read right). */
 export type ReadAloudLegendKey = 'close' | 'wrong' | 'missed' | 'extra';
 
-/** The legend's words, beside a sample of each mark (wavy = tone off, solid = wrong, dashed = missed, ‸ = extra). */
+/** The legend's words, beside a sample of each mark (a 字 in its colour: amber = tone off, rose = wrong, grey = missed; a violet ‸ = extra). */
 export const READ_ALOUD_LEGEND: Record<ReadAloudLegendKey, string> = {
   close: 'tone off',
   wrong: 'wrong',

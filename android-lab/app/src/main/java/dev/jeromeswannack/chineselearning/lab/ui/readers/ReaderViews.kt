@@ -263,7 +263,7 @@ private fun RevealedChinese(
     val reportList by androidx.compose.runtime.rememberUpdatedState(onWordList)
     LaunchedEffect(w) { report(w?.map { it.text }); reportList(w) }
     if (w == null) {
-        if (marked != null) MarkedChars(marked, extraAtEnd, lineHeight = 38.sp, modifier = box.testTag("reader-read-aloud-marked"))
+        if (marked != null) MarkedChars(marked, extraAtEnd, lineHeight = 38.sp, modifier = box.testTag("reader-read-aloud-marked"), label = markedLabel(marked))
         else Text(page.contentChinese, fontSize = 26.sp, lineHeight = 38.sp, color = Lab.colors.ink, modifier = box)
         return
     }
