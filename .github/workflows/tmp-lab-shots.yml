@@ -45,6 +45,7 @@ jobs:
         run: |
           cp android-lab/app/src/test/java/dev/jeromeswannack/chineselearning/lab/ui/study/AnswerDiffColourScreenshots.kt /tmp/
           git checkout origin/main -- android-lab
+          rm -f android-lab/app/src/test/java/dev/jeromeswannack/chineselearning/lab/ui/study/AnswerWhyScreenshots.kt
           cp /tmp/AnswerDiffColourScreenshots.kt android-lab/app/src/test/java/dev/jeromeswannack/chineselearning/lab/ui/study/
           rm -rf android-lab/app/screenshots
           cd android-lab
