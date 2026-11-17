@@ -37,7 +37,16 @@ export const SENTENCE_HIDE_REASON_LABEL: Record<SentenceHideReason, string> = {
 };
 
 export type SentencePracticeResult = 'right' | 'close' | 'wrong';
-export type SentencePracticeKind = 'attempt' | 'hide' | 'unhide';
+/**
+ * attempt = a judged 🎤 take; hide / unhide = "Stop showing this sentence" / "Show again"; heard = played on a
+ * listening card's "Listen in context" question (mode `listen_context`, no result; once per sentence per
+ * showing) — so every device knows how often and how lately each sentence was heard there, and the next showing
+ * picks fresh ones (listenContext.ts `pickListenRows`). A heard sentence is NOT "practised": the Sentence round's
+ * freshness (`isFreshSentence`) only counts takes.
+ */
+export type SentencePracticeKind = 'attempt' | 'hide' | 'unhide' | 'heard';
+/** The mode of a `heard` event. */
+export const LISTEN_CONTEXT_MODE = 'listen_context';
 
 export interface SentencePracticeEvent {
   /** Client id (idempotent upload). */
@@ -45,8 +54,8 @@ export interface SentencePracticeEvent {
   note_id: string;
   sentence_key: string;
   kind: SentencePracticeKind;
-  /** attempt only */
-  mode?: SentencePracticeMode | null;
+  /** attempt: read | translate | listen; heard: `listen_context` */
+  mode?: SentencePracticeMode | typeof LISTEN_CONTEXT_MODE | null;
   /** attempt only */
   result?: SentencePracticeResult | null;
   /** hide only */
@@ -71,10 +80,18 @@ export interface SentenceStats {
   listen: ModeStats;
   /** Out of rotation (the last hide / unhide event decides). */
   hidden: { at: string; reason: SentenceHideReason | null } | null;
+  /** Played on a listening card's "Listen in context" question: how many showings, the last (ISO). */
+  heard?: HeardStats;
+}
+
+export interface HeardStats {
+  count: number;
+  last_at: string | null;
 }
 
 const emptyMode = (): ModeStats => ({ attempts: 0, rights: 0, misses: 0, last_at: null });
-export const emptySentenceStats = (): SentenceStats => ({ read: emptyMode(), translate: emptyMode(), listen: emptyMode(), hidden: null });
+export const emptyHeard = (): HeardStats => ({ count: 0, last_at: null });
+export const emptySentenceStats = (): SentenceStats => ({ read: emptyMode(), translate: emptyMode(), listen: emptyMode(), hidden: null, heard: emptyHeard() });
 
 /** The key a row of the card's list has in the history (`clue:<noteId>` → `clue`). */
 export function sentenceHistoryKey(rowKey: string): string {
@@ -117,6 +134,11 @@ export function sentenceStats(events: readonly SentencePracticeEvent[], noteId: 
     } else if (e.kind === 'unhide') {
       if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
       s.hidden = null;
+    } else if (e.kind === 'heard') {
+      if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
+      const h = (s.heard ??= emptyHeard());
+      h.count++;
+      if (h.last_at == null || e.at > h.last_at) h.last_at = e.at;
     }
   }
   return out;
