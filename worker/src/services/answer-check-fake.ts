@@ -64,6 +64,19 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
     },
   },
   {
+    // 他 for 她 (shared/lesson/heardCheck.ts): what the model says — right for a translate he READ, but in a
+    // "Listen and translate" he only heard tā, so `forgiveUnheard` turns it into "correct".
+    english: 'She blamed me.',
+    model: '她责怪我。',
+    answer: '他责怪我。',
+    result: {
+      verdict: 'almost',
+      headline: 'Use 她, not 他.',
+      corrected: '她责怪我。',
+      tips: [{ text: '他 is "he"; 她 is "she".', quote: '他' }],
+    },
+  },
+  {
     // The SELF-CONTRADICTORY check Jerome got (Nov 2026, v3), as the model returned it: the headline forbids "both" 块 and 钱
     // while the corrected line uses both, and the tip offers his own 块多元 as a fix. The coherence rules
     // (normalizeAnswerCheck) give a neutral headline and drop the tip; the "You said" marks read 3 as 三.

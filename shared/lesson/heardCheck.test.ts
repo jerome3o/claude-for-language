@@ -14,7 +14,7 @@ const JEROME_RAW = {
   corrected: '',
   tips: [{ text: '她 (tā) means "she"; 他 (tā) is "he" — same sound, different character.', quote: '她' }],
 };
-const meaning = (answer: string, row = ROW, input: 'spoken' | 'typed' = 'spoken'): AnswerCheckInput => listenCheckInput(row, answer, input);
+const meaning = (answer: string, row: { hanzi: string; pinyin?: string; translation: string } = ROW, input: 'spoken' | 'typed' = 'spoken'): AnswerCheckInput => listenCheckInput(row, answer, input);
 const check = (raw: Record<string, unknown>, input: AnswerCheckInput): AnswerCheck =>
   forgiveUnheard(normalizeAnswerCheck(raw, input.answer, input.model_answer), input);
 
