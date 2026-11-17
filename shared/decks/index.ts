@@ -10,6 +10,7 @@ export * from './long-term';
 export * from './tutor-budget';
 export * from './bumps';
 export * from './other-card-types';
+export * from './sibling-status';
 export * from './study-today';
 export * from './frequency';
 export * from './new-card-order';

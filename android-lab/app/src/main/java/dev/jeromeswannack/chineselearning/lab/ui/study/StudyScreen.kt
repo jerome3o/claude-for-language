@@ -190,8 +190,8 @@ class StudyActions(
     /** Ask Claude: the card's Claude thread (CardClaudeSheet.kt). */
     val claude: CardClaudeActions = CardClaudeActions(),
     val sentences: SentenceActions = SentenceActions(),
-    /** ⋯ → "Practise this word other ways…": other card types of the word into today (a card-level ⚡ bump). */
-    val otherCards: OtherCardsActions = OtherCardsActions(),
+    /** The ⋯ sheet's top row: the word's other cards → ⚡ Study it today · holds · Forget · details (core SiblingStatus). */
+    val siblings: SiblingActions = SiblingActions(),
     // tap a character on the back → the character sheet (ui/chars)
     val chars: dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions = dev.jeromeswannack.chineselearning.lab.ui.chars.CharSheetActions(),
     // ---- Package B: mini lessons in the session ----
@@ -356,7 +356,17 @@ fun StudyRoute(
             onSpokenChecked = vm::onSpokenAnswerChecked,
             recordingLevel = vm.level,
             sendFlag = vm::flag,
-            otherCards = OtherCardsActions(open = vm::openOtherCards, toggle = vm::toggleOtherCard, add = vm::addOtherCards, close = vm::closeOtherCards),
+            siblings = SiblingActions(
+                refresh = vm::refreshSiblings,
+                open = vm::openSibling,
+                bump = vm::bumpSibling,
+                release = vm::releaseSibling,
+                hold = vm::holdSibling,
+                forget = vm::forgetSibling,
+                details = { cardId -> vm.trackSibling(cardId, "details"); vm.currentNoteId()?.let { onOpen(dev.jeromeswannack.chineselearning.lab.ui.nav.Routes.cardHub(it)) } },
+                track = vm::trackSibling,
+                close = vm::closeSibling,
+            ),
             edit = EditCardActions(
                 save = vm::saveEdit,
                 delete = { vm.deleteCurrentNote() },

@@ -2,20 +2,23 @@ import { test, expect, APIRequestContext, Page } from '@playwright/test';
 import { skipFirstCardExplainer } from './fixtures/explainer';
 
 test.beforeEach(async ({ context }) => skipFirstCardExplainer(context));
+// The PR screenshots at the phone's 2× density.
+test.use({ deviceScaleFactor: 2 });
 
 /**
- * ⋯ → "Practise this word other ways…" (shared/decks/other-card-types.ts; docs/STUDY_SESSION.md
- * "Other card types"): on a read card, the sheet lists the word's other card types, English → 汉字
- * is ticked, Add makes a CARD-LEVEL ⚡ bump, and that card comes up later in the SAME session with
- * the ⚡ badge — a few cards after its sibling, not straight after. The server has the bump with
- * its card types.
+ * ⋯ → the word's other cards (shared/decks/sibling-status.ts; docs/STUDY_SESSION.md "The word's other
+ * cards in ⋯"): on a read card's answer side the ⋯ menu's top row has one tile per other card type with
+ * its status (写 Write · Not started, 听 Listen · Not started); a tap opens that card's sheet, ⚡ Study it
+ * today makes a CARD-LEVEL ⚡ bump, the tile then says it is in today's queue, and the card comes up later
+ * in the SAME session with the ⚡ badge — a few cards after its sibling, not straight after. The server has
+ * the bump with its card types.
  *
  * Self-contained: one deck of six new words (budget 6 new, 0 extra), no AI calls.
  * SHOTS=1 also writes the PR screenshots.
  */
 
 const API = process.env.E2E_API_URL || 'http://localhost:8787';
-const SHOTS = process.env.SHOTS ? '../docs/pr-screenshots/study-other-card-types' : null;
+const SHOTS = process.env.SHOTS ? '../docs/pr-screenshots/sibling-cards-in-menu' : null;
 
 async function api<T = unknown>(
   request: APIRequestContext,
@@ -51,10 +54,10 @@ async function revealCard(page: Page) {
   await page.getByTestId('study-action-row').waitFor({ timeout: 15000 });
 }
 
-test('a read card sends its English → 汉字 card into the same session, a few cards later', async ({ page, request }) => {
+test('⋯ shows the other cards; ⚡ on the Write tile sends it into the same session, a few cards later', async ({ page, request }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 412, height: 915 });
-  const email = `othercards-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
+  const email = `siblings-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.e2e`;
   const auth = await api<{ session_token: string }>(request, '/api/test/auth', { method: 'POST', data: { email, name: 'Other ways learner' } });
   const token = auth.session_token;
   await api(request, '/api/profile/study-budget', { method: 'PUT', token, data: { new_cards_per_day: 6, secondary_cards_per_day: 0 } });
@@ -81,18 +84,35 @@ test('a read card sends its English → 汉字 card into the same session, a few
   expect(first).toBeTruthy();
 
   await page.getByRole('button', { name: 'More actions' }).click();
-  await page.getByRole('menuitem', { name: /Practise this word other ways/ }).click();
-  const sheet = page.getByTestId('other-card-types-sheet');
-  await expect(sheet).toContainText(`Practise ${first.hanzi} other ways`);
-  await expect(page.getByTestId('other-card-row-hanzi_to_meaning')).toContainText('this card');
-  await expect(page.getByTestId('other-card-row-meaning_to_hanzi')).toContainText('new');
-  await expect(page.getByTestId('other-card-row-meaning_to_hanzi').locator('input')).toBeChecked();
-  await expect(page.getByTestId('other-card-types-add')).toHaveText('⚡ Add 1 to today');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-01-sheet.png` });
-  await page.getByTestId('other-card-types-add').click();
-  await expect(page.getByTestId('other-card-types-done')).toHaveText('⚡ English → 汉字 comes up in a few cards');
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-added.png` });
+  const tiles = page.getByTestId('sibling-tiles');
+  await expect(tiles).toBeVisible();
+  // Two tiles: the word's other card types, not the one on screen; none is in today's study yet.
+  await expect(page.getByTestId('sibling-tile-hanzi_to_meaning')).toHaveCount(0);
+  await expect(page.getByTestId('sibling-tile-meaning_to_hanzi')).toContainText('写');
+  await expect(page.getByTestId('sibling-tile-meaning_to_hanzi')).toContainText('Not started');
+  await expect(page.getByTestId('sibling-tile-audio_to_hanzi')).toContainText('听');
+  await expect(page.getByTestId('sibling-tile-audio_to_hanzi')).toContainText('Not started');
+  // "Practise this word other ways…" is folded into the tiles.
+  await expect(page.getByRole('menuitem', { name: /Practise this word other ways/ })).toHaveCount(0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-01-menu.png` });
+
+  await page.getByTestId('sibling-tile-meaning_to_hanzi').click();
+  const sheet = page.getByTestId('sibling-sheet');
+  await expect(sheet).toContainText(`English → 汉字 · ${first.hanzi}`);
+  await expect(page.getByTestId('sibling-sheet-status')).toContainText('Not started');
+  await expect(page.getByTestId('sibling-action-forget')).toHaveCount(0); // a NEW card has nothing to forget
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-02-sheet.png` });
+  await page.getByTestId('sibling-action-bump').click();
+  await expect(page.getByTestId('sibling-sheet-done')).toHaveText('✓ English → 汉字 comes up in a few cards');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-added.png` });
   await expect(sheet).toHaveCount(0, { timeout: 5000 });
+
+  // Back in ⋯: the Write tile now says it is in today's queue.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByTestId('sibling-tile-meaning_to_hanzi')).toContainText('New · in today’s queue');
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-04-menu-after.png` });
+  await page.keyboard.press('Escape');
+  await expect(tiles).toHaveCount(0);
 
   // The server has a card-level bump of that word.
   await expect(async () => {
@@ -111,5 +131,5 @@ test('a read card sends its English → 汉字 card into the same session, a few
   expect(shownAfter).toBeGreaterThanOrEqual(3);
   await expect(page.getByTestId('study-bump-badge')).toBeVisible();
   await expect(fullscreen).toContainText(first.english);
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-03-in-session.png` });
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/web-05-in-session.png` });
 });
