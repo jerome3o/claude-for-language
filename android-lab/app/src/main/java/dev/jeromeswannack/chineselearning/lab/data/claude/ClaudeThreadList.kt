@@ -61,7 +61,7 @@ object ClaudeThreadList {
 
     /** Pure: the rows + deletions over what the phone has (core [ClaudeThreadCache.mergeThreadList]; a row replaces its old copy). */
     fun apply(prev: List<ClaudeThreadDto>, rows: List<ClaudeThreadDto>, deleted: Collection<String>): List<ClaudeThreadDto> =
-        ClaudeThreadCache.mergeThreadList(prev, rows, deleted, ClaudeThreads.ThreadLens).threads
+        ClaudeThreadCache.mergeThreadList(prev, rows, deleted, ClaudeThreads.Companion.ThreadLens).threads
 
     /**
      * Pure: the rows as the core inbox rule takes them. A thread started offline that the server
@@ -69,7 +69,7 @@ object ClaudeThreadList {
      */
     fun inboxThreads(rows: List<ClaudeThreadDto>, locals: List<ClaudeThreadDto>): List<ClaudeInbox.Thread> {
         val localIds = locals.mapTo(HashSet()) { it.id }
-        val lens = object : ClaudeThreadCache.ThreadLens<ClaudeThreadDto> by ClaudeThreads.ThreadLens {
+        val lens = object : ClaudeThreadCache.ThreadLens<ClaudeThreadDto> by ClaudeThreads.Companion.ThreadLens {
             override fun local(t: ClaudeThreadDto) = t.id in localIds
         }
         return ClaudeThreadCache.mergeThreadList(rows, locals, emptyList(), lens).threads.map { toInbox(it, local = it.id in localIds) }
