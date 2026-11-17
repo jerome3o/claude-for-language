@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { getAudioWithCache, getCachedAudio, pickChineseVoice } from '../services/audioCache';
+import { cancelSpeakFallback, getAudioWithCache, getCachedAudio, speakFallback } from '../services/audioCache';
 import { isEffectivelyOffline } from '../services/offlineMode';
 import { createAudioPlayer } from '../utils/audioPlayback';
-import { DEVICE_SPEECH_RATE } from '@shared/tts';
 import { withMediaCredential } from '../api/mediaToken';
 
 /**
@@ -226,35 +225,19 @@ export function useTTS() {
       setError('Text-to-speech not supported in this browser');
       return;
     }
-
     setError(null);
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = DEVICE_SPEECH_RATE;
-
-    // Try to find a Chinese voice (prefer on-device voices)
-    const chineseVoice = pickChineseVoice();
-    if (chineseVoice) {
-      utterance.voice = chineseVoice;
-    }
-
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => {
-      setIsSpeaking(false);
-      setError('Speech synthesis failed');
-    };
-
-    window.speechSynthesis.speak(utterance);
+    speakFallback(text, { lang, onStart: () => setIsSpeaking(true) }).then(
+      () => setIsSpeaking(false),
+      () => {
+        setIsSpeaking(false);
+        setError('Speech synthesis failed');
+      },
+    );
   }, []);
 
   const stop = useCallback(() => {
-    // Not available in Android WebView (the native app)
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    // Not available in Android WebView (the native app): a no-op there
+    cancelSpeakFallback();
     setIsSpeaking(false);
   }, []);
 
@@ -302,10 +285,7 @@ export function useNoteAudio(label: string = 'note', options: { onBroken?: (audi
 
   const cleanupAudio = useCallback(() => {
     playerRef.current.stop();
-    // Not available in Android WebView (the native app)
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    cancelSpeakFallback();
   }, []);
 
   useEffect(() => {
@@ -382,35 +362,17 @@ export function useNoteAudio(label: string = 'note', options: { onBroken?: (audi
   return { isPlaying, play, stop };
 }
 
+/** The device voice (`speakFallback`) for a play request, while it is still the current one. */
 function speakWithBrowserTTS(
   text: string,
   setIsPlaying: (playing: boolean) => void,
   playId: number,
   playIdRef: { current: number }
 ) {
-  if (!('speechSynthesis' in window)) return;
-
   // Don't speak if this play request has been superseded
   if (playIdRef.current !== playId) return;
-
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'zh-CN';
-  utterance.rate = DEVICE_SPEECH_RATE;
-
-  const chineseVoice = pickChineseVoice();
-  if (chineseVoice) {
-    utterance.voice = chineseVoice;
-  }
-
-  utterance.onstart = () => {
-    if (playIdRef.current === playId) setIsPlaying(true);
-  };
-  utterance.onend = () => {
+  const done = () => {
     if (playIdRef.current === playId) setIsPlaying(false);
   };
-  utterance.onerror = () => {
-    if (playIdRef.current === playId) setIsPlaying(false);
-  };
-
-  window.speechSynthesis.speak(utterance);
+  speakFallback(text, { onStart: () => { if (playIdRef.current === playId) setIsPlaying(true); } }).then(done, done);
 }

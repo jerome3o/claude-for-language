@@ -31,6 +31,7 @@ import {
   type ClipUtterance,
 } from '@shared/clips';
 import { clipLineAudio, clipPicture, type ClipCaptionPrefs } from '../../services/clips';
+import { createMediaTrack, type MediaTrack } from '../../utils/audioPlayback';
 import { SceneView, Zh, type SceneCtx } from './ClipScenes';
 import { KaraokeLine, type SpeechClock } from './Karaoke';
 import { clipFeedback } from './clipFeedback';
@@ -91,7 +92,10 @@ export function ClipPlayer(props: ClipPlayerProps) {
   const [hearts, setHearts] = useState<Array<{ id: number; x: number; y: number }>>([]);
   const [picture, setPicture] = useState<string | null>(null);
   const speakingRef = useRef(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The voice lines: a media track (utils/audioPlayback.ts) — it pauses with the clip and gives the karaoke its clock.
+  const audioRef = useRef<MediaTrack | null>(null);
+  // Settles the line waiting to finish when another replaces it.
+  const lineDone = useRef<(() => void) | null>(null);
   const speechToken = useRef(0);
   const startedAt = useRef(0);
   const reported = useRef<number>(-1);
@@ -188,30 +192,31 @@ export function ClipPlayer(props: ClipPlayerProps) {
       const blob = await withTimeout(clipLineAudio(line.text, line.voice_id), LINE_FETCH_TIMEOUT_MS);
       if (token !== speechToken.current) return;
       if (!blob) continue;
-      const url = URL.createObjectURL(blob);
-      const el = audioRef.current ?? new Audio();
-      audioRef.current = el;
-      el.src = url;
+      const el = audioRef.current ?? (audioRef.current = createMediaTrack());
       setSpokenLine(line.line);
       setClock({
         scene: line.scene,
         line: line.line,
         text: line.text,
         lang: line.lang,
-        positionMs: () => el.currentTime * 1000,
-        durationMs: () => (Number.isFinite(el.duration) && el.duration > 0 ? el.duration * 1000 : null),
+        positionMs: () => el.positionMs(),
+        durationMs: () => el.durationMs() || null,
       });
+      lineDone.current?.();
       await new Promise<void>((resolve) => {
+        let settled = false;
         const done = () => {
-          el.removeEventListener('ended', done);
-          el.removeEventListener('error', done);
+          if (settled) return;
+          settled = true;
+          if (lineDone.current === done) lineDone.current = null;
           resolve();
         };
-        el.addEventListener('ended', done);
-        el.addEventListener('error', done);
-        el.play().catch(done);
+        lineDone.current = done;
+        el.load(blob, { label: 'clip_line', onEnded: done, onError: done });
+        void el.play().then((ok) => {
+          if (!ok) done();
+        });
       });
-      URL.revokeObjectURL(url);
       if (token !== speechToken.current) return;
       await new Promise((r) => setTimeout(r, CLIP_LINE_GAP_MS));
     }
@@ -245,14 +250,16 @@ export function ClipPlayer(props: ClipPlayerProps) {
     const el = audioRef.current;
     if (!el) return;
     if (running) {
-      if (el.paused && el.src && !el.ended && speakingRef.current) el.play().catch(() => {});
+      if (el.isPaused() && el.hasSource() && !el.isEnded() && speakingRef.current) void el.play();
     } else el.pause();
   }, [running]);
 
   useEffect(
     () => () => {
       speechToken.current++;
-      audioRef.current?.pause();
+      audioRef.current?.dispose();
+      audioRef.current = null;
+      lineDone.current?.();
       latest.current.onSpeaking?.(false);
     },
     [],

@@ -834,7 +834,7 @@ For manual state adjustments (e.g., admin resetting a card), we may add a `set_c
 - `frontend/src/services/review-events.ts` - Review event creation and state computation
 - `frontend/src/contexts/NetworkContext.tsx` - Online/offline detection
 - `shared/scheduler/compute-state.ts` - Pure function to compute card state from events
-- `frontend/src/utils/audioPlayback.ts` - The one audio player: native bridge in the Android app (`window.AndroidAudio`, see `native/README.md`), one `<audio>` element elsewhere
+- `frontend/src/utils/audioPlayback.ts` - The one audio player: native bridge in the Android app (`window.AndroidAudio`, see `native/README.md`), one `<audio>` element elsewhere; `createMediaTrack` for clips that pause / seek / show progress / loop / mix (reader scrubber, chat voice + listening, clips, a take's preview — element-only, no bridge can seek); never `new Audio()` elsewhere. The device-voice fallback is `speakFallback` (`services/audioCache.ts`). docs/AUDIO.md "Playing audio on the web"
 - `frontend/src/services/nativeAudioPrefs.ts` - Android-app playback tuning (compressor, keep-awake), toggled in Settings
 - `frontend/src/utils/audioDiagnostics.ts` - Per-clip playback measurement behind Settings → "Copy Audio Report"
 

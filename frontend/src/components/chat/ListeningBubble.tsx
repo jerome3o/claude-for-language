@@ -7,6 +7,7 @@ import { track } from '../../services/analytics';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { estimateSpeechSeconds, formatListeningDuration, listeningBars } from '@shared/chats/listening';
 import { getMessageClip, loadSlowPlayback, saveSlowPlayback, type ReadAloudParams } from '../../services/chatListening';
+import { createMediaTrack, type MediaTrack } from '../../utils/audioPlayback';
 
 export const SLOW_RATE = 0.75;
 
@@ -81,8 +82,8 @@ export function useListeningPlayer(onError?: (message: string) => void, opts: { 
   const [durations, setDurations] = useState<Record<string, number>>({});
   const [slow, setSlow] = useState(loadSlowPlayback);
   const [error, setError] = useState<string | null>(null);
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const url = useRef<string | null>(null);
+  // The clip shows its progress, so a media track (utils/audioPlayback.ts), made on first play.
+  const audio = useRef<MediaTrack | null>(null);
   const token = useRef(0);
   const slowRef = useRef(slow);
   slowRef.current = slow;
@@ -92,16 +93,7 @@ export function useListeningPlayer(onError?: (message: string) => void, opts: { 
   onPlayRef.current = opts.onPlay;
 
   const release = useCallback(() => {
-    if (audio.current) {
-      audio.current.onended = null;
-      audio.current.ontimeupdate = null;
-      audio.current.pause();
-      audio.current = null;
-    }
-    if (url.current) {
-      URL.revokeObjectURL(url.current);
-      url.current = null;
-    }
+    audio.current?.unload();
   }, []);
 
   const stop = useCallback(() => {
@@ -112,7 +104,11 @@ export function useListeningPlayer(onError?: (message: string) => void, opts: { 
     setProgress(0);
   }, [release]);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => () => {
+    stop();
+    audio.current?.dispose();
+    audio.current = null;
+  }, [stop]);
 
   const play = useCallback(
     (msg: { id: string; content: string }, params: ReadAloudParams) => {
@@ -144,25 +140,25 @@ export function useListeningPlayer(onError?: (message: string) => void, opts: { 
           onErrorRef.current?.('Audio not downloaded yet — connect to the internet to listen.');
           return;
         }
-        const src = URL.createObjectURL(blob);
-        url.current = src;
-        const a = new Audio(src);
-        audio.current = a;
-        a.playbackRate = slowRef.current ? SLOW_RATE : 1;
-        a.onloadedmetadata = () => {
-          if (Number.isFinite(a.duration) && a.duration > 0) setDurations((d) => ({ ...d, [msg.id]: a.duration }));
-        };
-        a.ontimeupdate = () => {
-          if (a.duration > 0) setProgress(Math.min(1, a.currentTime / a.duration));
-        };
-        a.onended = () => {
-          if (mine !== token.current) return;
-          setPlayingId(null);
-          setProgress(0);
-        };
+        const a = audio.current ?? (audio.current = createMediaTrack());
+        a.load(blob, {
+          label: 'chat_listening',
+          onLoaded: (ms) => {
+            if (ms > 0) setDurations((d) => ({ ...d, [msg.id]: ms / 1000 }));
+          },
+          onTime: (pos, dur) => {
+            if (dur > 0) setProgress(Math.min(1, pos / dur));
+          },
+          onEnded: () => {
+            if (mine !== token.current) return;
+            setPlayingId(null);
+            setProgress(0);
+          },
+        });
+        a.setRate(slowRef.current ? SLOW_RATE : 1);
         setPlayingId(msg.id);
-        a.play().catch(() => {
-          if (mine !== token.current) return;
+        void a.play().then((ok) => {
+          if (ok || mine !== token.current) return;
           setPlayingId(null);
         });
       })();
@@ -174,7 +170,7 @@ export function useListeningPlayer(onError?: (message: string) => void, opts: { 
     setSlow((v) => {
       const next = !v;
       saveSlowPlayback(next);
-      if (audio.current) audio.current.playbackRate = next ? SLOW_RATE : 1;
+      audio.current?.setRate(next ? SLOW_RATE : 1);
       return next;
     });
   }, []);
