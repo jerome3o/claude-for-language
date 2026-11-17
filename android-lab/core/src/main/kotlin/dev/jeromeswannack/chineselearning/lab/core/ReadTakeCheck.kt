@@ -49,7 +49,7 @@ object ReadTakeCheck {
             promptEn = (english ?: "").trim().ifEmpty { h },
             modelAnswer = h,
             modelPinyin = pinyin?.trim()?.ifEmpty { null },
-            answer = AnswerKey.tidySpokenTranscript(transcript, h),
+            answer = AnswerKey.scrubSpokenTranscript(transcript),
             exerciseType = CHECK_TYPE,
             input = "spoken",
         )

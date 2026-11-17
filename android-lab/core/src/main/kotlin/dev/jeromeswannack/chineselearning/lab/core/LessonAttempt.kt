@@ -29,12 +29,23 @@ data class HandwritingAnswer(
 
 @Serializable
 data class SentenceFeedback(
-    /** correct | minor | incorrect */
+    /** Legacy: correct | minor | incorrect (older apps). */
     val verdict: String = "incorrect",
     @SerialName("uses_all_words") val usesAllWords: Boolean = false,
+    /** v1 only: the corrected sentence (now on tap: ✨ Show a fixed version). */
     val corrected: LessonSentence? = null,
     val comment: String = "",
+    /** right | needs_work | wrong (null on a v1 check — [SentenceCheck.view] derives it). */
+    val grade: String? = null,
+    val headline: String? = null,
+    val reason: String? = null,
+    val more: String? = null,
+    val fixable: Boolean? = null,
 )
+
+/** ✨ Show a fixed version: his sentence minimally fixed (shared/lesson/sentenceCheck.ts `SentenceFix`). */
+@Serializable
+data class SentenceFix(val hanzi: String, val pinyin: String? = null, val english: String? = null)
 
 @Serializable
 data class AttemptRecording(

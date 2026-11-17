@@ -296,6 +296,15 @@ function cleanAnswer(v: unknown): ExerciseAnswer | undefined {
           ? { hanzi: f.corrected.hanzi.slice(0, 300), pinyin: str(f.corrected.pinyin, 500), english: str(f.corrected.english, 500) }
           : undefined,
       };
+      // v2 (shared/lesson/sentenceCheck.ts): the grade and its lines.
+      if (f.grade === 'right' || f.grade === 'needs_work' || f.grade === 'wrong') out.feedback.grade = f.grade;
+      const headline = str(f.headline, 200);
+      const reason = str(f.reason, 400);
+      const more = str(f.more, 1000);
+      if (headline) out.feedback.headline = headline;
+      if (reason) out.feedback.reason = reason;
+      if (more) out.feedback.more = more;
+      if (typeof f.fixable === 'boolean') out.feedback.fixable = f.fixable;
     }
   }
   // A word order Claude checked (shared/lesson/scrambleCheck.ts) carries its check with the order, no text.

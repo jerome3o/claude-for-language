@@ -95,10 +95,13 @@ data class CompletionUpload(
 data class CompletionUploadBody(val events: List<CompletionUpload>)
 
 @Serializable
-data class SentenceFeedbackBody(val words: List<String>, val task: String?, val sentence: String)
+data class SentenceFeedbackBody(val words: List<String>, val task: String?, val sentence: String, val input: String? = null)
 
 @Serializable
-data class SentenceFeedbackDto(val feedback: SentenceFeedback)
+data class SentenceFeedbackDto(val feedback: SentenceFeedback, val cached: Boolean = false)
+
+@Serializable
+data class SentenceFixDto(val fix: dev.jeromeswannack.chineselearning.lab.core.SentenceFix, val cached: Boolean = false)
 
 @Serializable
 data class PracticeTtsBody(val text: String, val speed: Double? = null, @SerialName("voice_id") val voiceId: String? = null)
@@ -153,8 +156,13 @@ suspend fun Api.customLessons(): CustomLessonsDto = get("/api/custom-lessons")
 
 suspend fun Api.deleteCustomLesson(id: String): Unit = delete("/api/custom-lessons/${enc(id)}")
 
-suspend fun Api.sentenceFeedback(words: List<String>, task: String?, sentence: String): SentenceFeedback =
-    post<SentenceFeedbackBody, SentenceFeedbackDto>("/api/lessons/sentence-feedback", SentenceFeedbackBody(words, task, sentence)).feedback
+/** Claude's grade of a made sentence (shared/lesson/sentenceCheck.ts); a spoken one is sent with [input] (scrubbed by the server). */
+suspend fun Api.sentenceFeedback(words: List<String>, task: String?, sentence: String, input: String? = null): SentenceFeedback =
+    post<SentenceFeedbackBody, SentenceFeedbackDto>("/api/lessons/sentence-feedback", SentenceFeedbackBody(words, task, sentence, input)).feedback
+
+/** ✨ Show a fixed version: his sentence minimally fixed (cached on the server per exercise + sentence). */
+suspend fun Api.sentenceFix(words: List<String>, task: String?, sentence: String, input: String? = null): dev.jeromeswannack.chineselearning.lab.core.SentenceFix =
+    post<SentenceFeedbackBody, SentenceFixDto>("/api/lessons/sentence-fix", SentenceFeedbackBody(words, task, sentence, input)).fix
 
 suspend fun Api.practiceTts(text: String, speed: Double?, voiceId: String?): PracticeTtsDto =
     post("/api/practice/tts", PracticeTtsBody(text, speed, voiceId))

@@ -127,7 +127,7 @@ class LessonAnswerCheckState(
             return
         }
         val next = AnswerCheckInput(
-            promptEn, modelAnswer, modelPinyin?.ifBlank { null }, text.trim(), exerciseType, source ?: "typed", focus?.ifBlank { null },
+            promptEn, modelAnswer, modelPinyin?.ifBlank { null }, dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(text, source), exerciseType, source ?: "typed", focus?.ifBlank { null },
             hints = hints?.filter { it.isNotBlank() }?.ifEmpty { null }, questionAudio = question?.ifBlank { null },
         )
         input = next
@@ -408,12 +408,12 @@ fun AnswerCheckBody(
 }
 
 @Composable
-private fun CheckAction(label: String, onClick: () -> Unit) {
+internal fun CheckAction(label: String, onClick: () -> Unit, tag: String = "answer-check-action") {
     Text(
         label, color = Color(0xFF6B21A8), fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
         modifier = Modifier.heightIn(min = 44.dp).bouncyClickable(onClick = onClick).clip(RoundedCornerShape(50))
             .background(Violet.copy(alpha = 0.10f)).border(1.dp, Violet.copy(alpha = 0.25f), RoundedCornerShape(50))
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp).testTag(tag),
     )
 }
 

@@ -13,6 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.core.SessionItem
 import dev.jeromeswannack.chineselearning.lab.core.SessionMix
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.data.api.sentenceFeedback
+import dev.jeromeswannack.chineselearning.lab.data.api.sentenceFix
 import dev.jeromeswannack.chineselearning.lab.data.api.checkLessonAnswer
 import dev.jeromeswannack.chineselearning.lab.data.api.askAboutLessonAnswer
 import dev.jeromeswannack.chineselearning.lab.data.lessons.LessonRuntime
@@ -150,9 +151,15 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
         image = { key -> runtime.media.image(key, app.online.value) },
         cachedImage = { key -> runtime.media.cachedImage(key) },
         picture = { key, prompt -> runtime.store.pictures.picture(key, prompt, app.online) },
-        sentenceFeedback = { words, task, sentence ->
+        sentenceFeedback = { words, task, sentence, input ->
             if (!app.online.value) throw java.io.IOException("offline")
-            app.repo.api.sentenceFeedback(words, task, sentence)
+            app.repo.api.sentenceFeedback(words, task, sentence, input)
+        },
+        sentenceFix = { words, task, sentence, input ->
+            if (!app.online.value) throw java.io.IOException("offline")
+            dev.jeromeswannack.chineselearning.lab.data.lessons.SentenceFixCache.get(words, task, sentence, input) {
+                app.repo.api.sentenceFix(words, task, sentence, input)
+            }
         },
         answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },
         askAboutAnswer = { input, check, history, question ->

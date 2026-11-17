@@ -338,7 +338,7 @@ object SentenceRound {
     fun listenCheckInput(hanzi: String, pinyin: String?, translation: String?, said: String, input: String): AnswerCheckInput {
         val p = NoteSearch.jsTrim(pinyin ?: "")
         val chinese = LessonAnswerCheck.hasHan(said)
-        val answer = if (chinese && input != "typed") AnswerKey.tidySpokenTranscript(said, hanzi) else NoteSearch.jsTrim(said)
+        val answer = if (chinese && input != "typed") AnswerKey.scrubSpokenTranscript(said) else NoteSearch.jsTrim(said)
         return AnswerCheckInput(
             promptEn = if (chinese) NoteSearch.jsTrim(translation ?: "") else NoteSearch.jsTrim(hanzi),
             modelAnswer = if (chinese) NoteSearch.jsTrim(hanzi) else NoteSearch.jsTrim(translation ?: ""),

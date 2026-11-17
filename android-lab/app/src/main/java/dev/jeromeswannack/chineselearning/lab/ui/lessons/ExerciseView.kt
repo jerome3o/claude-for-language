@@ -71,8 +71,10 @@ class ExerciseEnv(
      * is drawn (data/lessons/LessonPictures). Null: only [image] / [cachedImage] by key.
      */
     val picture: ((key: String?, prompt: String) -> kotlinx.coroutines.flow.Flow<dev.jeromeswannack.chineselearning.lab.data.lessons.LessonPicture>)? = null,
-    /** Claude's check of a made sentence; throws when it can't (offline, busy). */
-    val sentenceFeedback: suspend (words: List<String>, task: String?, sentence: String) -> SentenceFeedback = { _, _, _ -> throw java.io.IOException("offline") },
+    /** Claude's grade of a made sentence (input = spoken | edited | typed); throws when it can't (offline: IOException, busy). */
+    val sentenceFeedback: suspend (words: List<String>, task: String?, sentence: String, input: String?) -> SentenceFeedback = { _, _, _, _ -> throw java.io.IOException("offline") },
+    /** ✨ Show a fixed version of a made sentence; throws when it can't (offline: IOException). */
+    val sentenceFix: suspend (words: List<String>, task: String?, sentence: String, input: String?) -> dev.jeromeswannack.chineselearning.lab.core.SentenceFix = { _, _, _, _ -> throw java.io.IOException("offline") },
     /** Claude's check of a self-assessed answer (device cache, then the API); throws when there is none (AnswerCheckViews.kt). */
     val answerCheck: AnswerCheckFn = { throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true) },
     /** 💬 Ask about this: one follow-up reply about a checked answer; throws offline / busy. */

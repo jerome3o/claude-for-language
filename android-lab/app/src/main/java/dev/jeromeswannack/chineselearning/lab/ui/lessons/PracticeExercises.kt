@@ -70,6 +70,9 @@ import dev.jeromeswannack.chineselearning.lab.core.OralExpressionExercise
 import dev.jeromeswannack.chineselearning.lab.core.QuestionAnswer
 import dev.jeromeswannack.chineselearning.lab.core.SentenceFeedback
 import dev.jeromeswannack.chineselearning.lab.core.SentenceMakingExercise
+import dev.jeromeswannack.chineselearning.lab.core.SentenceCheck
+import dev.jeromeswannack.chineselearning.lab.core.AnswerKey
+import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.core.WriteHandwritingExercise
 import dev.jeromeswannack.chineselearning.lab.core.WriteTypedExercise
 import dev.jeromeswannack.chineselearning.lab.core.WritingCue
@@ -104,17 +107,31 @@ import java.io.File
 
 // ============ Sentence making ============
 
+/**
+ * Make your own sentence with the target words (web SentenceMakingExercise). Claude grades it (core SentenceCheck: right ·
+ * needs work · wrong, one headline, at most one reason); needs work / wrong offer 🎤 Try again and ✨ Show a fixed version
+ * ([SentenceCheckPanel]) — practice only, the first grade counts. The example stays folded under "Example sentence ▸"
+ * while Claude grades; handwritten / offline it shows at once with the self-check. A spoken sentence is shown and
+ * checked without the recogniser's punctuation (a pause is never grammar). [preview] = a fixed state (screenshots).
+ */
 @Composable
-fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
+fun SentenceMakingView(
+    ex: SentenceMakingExercise,
+    env: ExerciseEnv,
+    onNext: (Boolean, ExerciseAnswer?) -> Unit,
+    preview: SentenceMakingPreview? = null,
+) {
     val typed = ex.typed
-    var text by remember { mutableStateOf("") }
-    var source by remember { mutableStateOf<String?>(null) }
+    val words = remember(ex) { ex.words.map { it.hanzi } }
+    var text by remember { mutableStateOf(preview?.text ?: "") }
+    var source by remember { mutableStateOf(preview?.source) }
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
-    var phase by remember { mutableStateOf("answer") }
-    var feedback by remember { mutableStateOf<SentenceFeedback?>(null) }
+    var phase by remember { mutableStateOf(if (preview != null) "result" else "answer") }
+    var feedback by remember { mutableStateOf(preview?.feedback) }
     var offlineNote by remember { mutableStateOf<String?>(null) }
+    var exampleOpen by remember { mutableStateOf(preview?.exampleOpen ?: false) }
     // Claude's check runs behind the result (no loading state; core LessonFeedback).
-    var checking by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(preview?.checking ?: false) }
     val scope = rememberCoroutineScope()
     val canCheck = if (typed) text.isNotBlank() else hasStrokes(hw)
     val marks = if (typed && phase == "result") ex.words.map { LessonAnswers.sentenceUsesWord(text, it.hanzi) } else null
@@ -126,16 +143,22 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         selfAssessed = feedback == null,
         input = if (typed) source else null,
     )
-    fun checkTyped(sentence: String) {
+    fun checkTyped(sentence: String, given: String?) {
         phase = "result"
-        ex.example?.let { env.speak(it.hanzi) }
         checking = true
+        val started = System.currentTimeMillis()
         scope.launch {
             try {
-                feedback = env.sentenceFeedback(ex.words.map { it.hanzi }, ex.task, sentence)
+                val f = env.sentenceFeedback(words, ex.task, sentence, given)
+                feedback = f
+                val v = SentenceCheck.view(f, words)
+                Analytics.track("lesson.sentence_verdict", mapOf("verdict" to v.grade, "downgraded" to v.downgraded, "ms" to System.currentTimeMillis() - started, "cached" to false, "input" to (given ?: "typed")))
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                val offline = e is java.io.IOException
                 offlineNote = "Claude can’t check it right now — compare with the example."
+                exampleOpen = true
+                Analytics.track("lesson.sentence_verdict", mapOf("verdict" to if (offline) "offline" else "error", "downgraded" to false, "ms" to System.currentTimeMillis() - started, "cached" to false, "input" to (given ?: "typed")))
             }
             checking = false
         }
@@ -149,58 +172,64 @@ fun SentenceMakingView(ex: SentenceMakingExercise, env: ExerciseEnv, onNext: (Bo
         when {
             typed -> VoiceTextField(
                 value = text, onValueChange = { text = it },
-                onSubmit = { a -> text = a.text; source = a.source; checkTyped(a.text) },
+                onSubmit = { a ->
+                    val said = AnswerKey.spokenCheckAnswer(a.text, a.source)
+                    text = said
+                    source = a.source
+                    checkTyped(said, a.source)
+                },
                 surface = "lesson_sentence_making", submitLabel = "Check", placeholder = "Type your sentence in Chinese…", multiline = true,
             )
             else -> {
                 SketchPad(null, { hw = it })
-                ActionRow { Primary("Done", enabled = canCheck) { phase = "result" } }
+                ActionRow {
+                    Primary("Done", enabled = canCheck) {
+                        phase = "result"
+                        exampleOpen = true
+                        ex.example?.let { env.speak(it.hanzi) }
+                    }
+                }
             }
         }
     } else {
-        // At once: his sentence (the target words ticked above), the example + 🎤 Say it again; Claude's check
-        // lands LAST, below the buttons, so nothing he is reading moves.
         if (typed) YourAnswer(text.trim(), exact = false, label = if (source == "spoken" || source == "edited") "🎤 Your sentence" else "Your sentence")
         else hw?.strokes?.let { StrokesView(it, "Your sentence") }
-        ex.example?.let { Reference(it, env, label = LessonFeedback.EXAMPLE_LABEL, exerciseType = ex.type) }
-        ex.example?.let { SayItAgainRow(it.hanzi, ex.type, "example", env) }
+        ex.example?.let { example ->
+            if (exampleOpen) {
+                Reference(example, env, label = LessonFeedback.EXAMPLE_LABEL, exerciseType = ex.type)
+                SayItAgainRow(example.hanzi, ex.type, "example", env)
+            } else {
+                Text(
+                    "${SentenceCheck.EXAMPLE_TOGGLE} ▸", color = Lab.colors.muted, fontSize = 15.sp,
+                    modifier = Modifier.heightIn(min = 44.dp).bouncyClickable(onClick = { exampleOpen = true }).padding(vertical = 12.dp).testTag(SentenceCheckTags.EXAMPLE_TOGGLE),
+                )
+            }
+        }
         val f = feedback
         if (f != null) {
-            // The same line as before the verdict: only the buttons change, in place.
-            Explanation(if (typed) "Is your sentence grammatical, and does it use every word?" else "Compare with the example — is your sentence right, and does it use every word?")
-            ActionRow { Primary("Continue") { onNext(f.verdict != "incorrect" && f.usesAllWords, answer()) } }
+            SentenceCheckPanel(
+                feedback = f, sentence = text.trim(), input = source ?: "typed", words = words, task = ex.task, env = env,
+                onExample = { exampleOpen = true }, preview = preview?.panel,
+            )
+            // Only "right" counts as right first time (needs work comes back in the retry round, like "almost").
+            ActionRow { Primary("Continue") { onNext(SentenceCheck.view(f, words).right, answer()) } }
         } else {
-            SelfAssess(
-                if (typed) "Is your sentence grammatical, and does it use every word?" else "Compare with the example — is your sentence right, and does it use every word?",
-            ) { ok -> onNext(ok, answer()) }
+            SelfAssess(if (typed) SentenceCheck.SELF_CHECK else SentenceCheck.SELF_CHECK_HANDWRITTEN) { ok -> onNext(ok, answer()) }
         }
         if (checking) ClaudeCheckingRow()
         offlineNote?.let { Explanation(it) }
-        f?.let { fb ->
-            val right = fb.verdict != "incorrect" && fb.usesAllWords
-            FeelBox(if (right) LessonFeedback.CLAUDE_RIGHT else null, env, key = fb.verdict) { FeedbackCard(fb, env) }
-            LessonFeedback.sayAgainFix(fb.corrected?.hanzi, text, ex.example?.hanzi)?.let { SayItAgainRow(it, ex.type, "fix", env) }
-        }
     }
 }
 
-@Composable
-private fun FeedbackCard(f: SentenceFeedback, env: ExerciseEnv) {
-    val color = when (f.verdict) { "correct" -> Palette.Good; "minor" -> Palette.Hard; else -> Palette.Again }
-    Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.10f)).border(1.5.dp, color.copy(alpha = 0.4f), RoundedCornerShape(16.dp)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Text(
-            when (f.verdict) { "correct" -> "✓ Natural and correct"; "minor" -> "≈ Almost — one small fix"; else -> "✗ Not quite" },
-            color = color, fontWeight = FontWeight.Bold, fontSize = 17.sp,
-        )
-        if (!f.usesAllWords) Text("Use every target word.", color = Palette.Again, style = MaterialTheme.typography.bodyMedium)
-        // Claude's corrected sentence: words to explore + ▶ to hear it (web FeedbackSentence).
-        f.corrected?.let { c -> Reference(c, env, exerciseType = "sentence_making", tag = "sentence-feedback-corrected") }
-        Text(f.comment, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink)
-    }
-}
+/** Screenshots: the answer screen in a fixed state. */
+data class SentenceMakingPreview(
+    val text: String,
+    val source: String? = "spoken",
+    val feedback: SentenceFeedback? = null,
+    val checking: Boolean = false,
+    val exampleOpen: Boolean = false,
+    val panel: SentenceCheckPreview? = null,
+)
 
 // ============ Writing: cues ============
 
