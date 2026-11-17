@@ -1,9 +1,8 @@
-import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useNavigate } from 'react-router-dom';
 import type { ResultLink } from '@shared/claude/cardTools';
 import { db } from '../../db/database';
-import { useNetwork } from '../../contexts/NetworkContext';
 import { track } from '../../services/analytics';
 import './result-link.css';
 
@@ -81,7 +80,7 @@ export function useOpenResult(context = 'coach'): OpenResult {
  * destination ("This lesson was deleted" / "This card was deleted").
  */
 export function useResultAvailability(link: ResultLink | null | undefined): 'ok' | 'offline' {
-  const { isOnline } = useNetwork();
+  const isOnline = useOnline();
   const here = useLiveQuery(async () => {
     if (!link?.id) return true;
     if (link.target === 'lesson') return !!(await db.customLessons.get(link.id));
@@ -91,6 +90,22 @@ export function useResultAvailability(link: ResultLink | null | undefined): 'ok'
   }, [link?.target, link?.id]);
   if (!link || isOnline || here !== false) return 'ok';
   return 'offline';
+}
+
+/** The browser's connection (kept light: no app context, so any screen can draw a line). */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+    };
+  }, []);
+  return online;
 }
 
 const OFFLINE_NOTE = 'Not on this device yet — needs a connection';
