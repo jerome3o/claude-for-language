@@ -290,7 +290,8 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE.getValue("acceptable"), useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("哪儿 is shorter and more spoken", substring = true, useUnmergedTree = true).assertExists()
+        // Slim: the round's title is the one line — Claude's tips are not shown.
+        compose.onNodeWithText("哪儿 is shorter and more spoken", substring = true, useUnmergedTree = true).assertDoesNotExist()
         // The model sentence is in the comparison, not twice.
         assertEquals(2, count(SentenceRoundTags.CHINESE))
         compose.onNodeWithText("Continue →", useUnmergedTree = true).performClick()

@@ -76,9 +76,11 @@ describe('SpeakingAnswer', () => {
     }));
     const statuses = Array.from(host.querySelectorAll('.answer-check-part')).map((li) => li.getAttribute('data-status'));
     expect(statuses).toEqual(['used', 'used_with_issue', 'missing']);
-    expect(host.querySelector('[data-testid="answer-check-cleaner"]')?.textContent).toContain('A cleaner version');
-    expect(host.querySelector('.chat-diff-ins')?.textContent).toBe('的');
-    expect(host.querySelector('.answer-check-tip-fix')?.textContent).toContain('huódòng de');
+    // Slim (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the chip, one line and the parts' marks —
+    // no tips or explanations; the cleaner version is the 🎤 "Say the corrected version" practice target.
+    expect(host.querySelector('[data-testid="answer-check-cleaner"]')).toBeNull();
+    expect(host.querySelector('.answer-check-tip-fix')).toBeNull();
+    expect(host.querySelector('[data-testid="lesson-say-fix"]')).not.toBeNull();
     expect(host.textContent).toContain('Another way to say it');
     expect(host.querySelector('[data-testid="lesson-got-it"]')!.className).toContain('suggested');
     await act(async () => (host.querySelector('[data-testid="lesson-got-it"]') as HTMLButtonElement).click());

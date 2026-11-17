@@ -71,7 +71,8 @@ class ReadTakeCheckUiTest : LabScreenshotTest() {
         compose.onNodeWithTag("$YOU_SAID_TAG-close", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Close", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag(YOU_SAID_REASON_TAG, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText(close.headline, useUnmergedTree = true).assertIsDisplayed()
+        // ONE line from the diff against the card — never Claude's explanation.
+        compose.onNodeWithText("语 instead of 文", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test fun onlyTheQuotesDifferIsAMatchWithNoCall() {

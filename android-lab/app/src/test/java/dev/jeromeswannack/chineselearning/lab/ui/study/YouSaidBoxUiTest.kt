@@ -58,7 +58,7 @@ class YouSaidBoxUiTest : LabScreenshotTest() {
     @Test fun closeIsAYellowRowWithTheApproxIcon() {
         compose.setContent { LabTheme { SpokenResultRow("朗", "狼", dev.jeromeswannack.chineselearning.lab.core.AnswerKey.Verdict.CLOSE, onPlay = {}, onCoach = {}) } }
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-close", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Close — tones off", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Tone off on 狼", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithTag("$YOU_SAID_VERDICT_TAG-approx", useUnmergedTree = true).assertIsDisplayed()
     }
 }

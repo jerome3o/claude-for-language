@@ -61,6 +61,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
 import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceDictation
 import dev.jeromeswannack.chineselearning.lab.ui.kit.rememberVoiceFirstActions
 import dev.jeromeswannack.chineselearning.lab.ui.lessons.AnswerCheckBody
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
 import kotlinx.coroutines.launch
@@ -347,26 +348,23 @@ fun SentencePractiseOutcome(
         if (claude is SentenceClaude.Done && full) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
                 val verdict = claude.check.verdict
-                AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak, afterHead = if (view?.compare == true) {
-                    {
-                        DifferenceCompare(
-                            t.take.practised.said, row.hanzi, row.pinyin,
-                            accepted = verdict == "correct" || verdict == "acceptable", onPlayModel = onPlayModel,
-                        )
-                    }
-                } else null)
+                val accepted = verdict == "correct" || verdict == "acceptable"
+                // The slim answer diff: one line (Claude's verdict as its chip), the model once, his take marked; right in
+                // other words, the round's own "✓ Right — worded differently" title is the line.
+                if (view?.compare == true) DifferenceCompare(
+                    t.take.practised.said, row.hanzi, row.pinyin, accepted = accepted, onPlayModel = onPlayModel,
+                    verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline, hideLine = accepted,
+                ) else AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak)
             }
         } else if (claude is SentenceClaude.Done) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
-                Text(
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(color = Lab.colors.muted, fontSize = 12.sp)) { append("You said  ") }
-                        append(t.take.practised.said)
-                    },
-                    color = Lab.colors.ink, fontSize = 17.sp,
+                // Slim: one line with Claude's chip and his take marked against the sentence — no tips, no fix.
+                val verdict = claude.check.verdict
+                AnswerDiffView(
+                    t.take.practised.said, row.hanzi, showExpected = false,
+                    accepted = verdict == "correct" || verdict == "acceptable",
+                    verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline,
                 )
-                // Compact: the chip, the headline and the fix of what was said (no tips / alternatives).
-                AnswerCheckBody(claude.check.copy(tips = emptyList(), alternative = null), t.take.practised.said, compact = true)
             }
         } else {
             SpokenResultRow(t.take.practised.said, row.hanzi, t.take.practised.verdict, compact = view)

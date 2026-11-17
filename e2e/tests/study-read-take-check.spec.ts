@@ -115,7 +115,9 @@ test('英语 for 英文: Checking… instead of ✗, then ≈ Close with Claude\
   release();
   await expect(box).toHaveAttribute('data-state', 'close', { timeout: 15000 });
   await expect(page.getByTestId('you-said-verdict')).toHaveText('Close');
-  await expect(page.getByTestId('you-said-reason')).toContainText('You said 英语 — the card has 英文 (same meaning).');
+  // ONE short line from the diff against the card (docs/STUDY_SESSION.md "Answer feedback: one line and a diff").
+  await expect(page.getByTestId('you-said-reason')).toHaveText('语 instead of 文');
+  await expect(page.getByTestId('you-said-diff').locator('[data-kind="wrong"]')).toHaveText('语');
   await shot(page, 'read-take-03-close');
 });
 
@@ -128,8 +130,10 @@ test('Hard mode: the read take is checking on the question, then ≈ Nearly with
   await shot(page, 'read-take-04-hard-checking');
   release();
   await expect(feedback).toHaveAttribute('data-result', 'close', { timeout: 15000 });
-  await expect(page.getByTestId('answer-check')).toHaveAttribute('data-verdict', 'almost');
-  await expect(feedback).toContainText('You said 英语 — the card has 英文 (same meaning).');
+  // Slim: Claude's verdict as the line's chip, what differs, his take marked — no explanation.
+  await expect(page.getByTestId('hard-sentence-check')).toBeVisible();
+  await expect(page.getByTestId('answer-diff-line')).toHaveText('≈ Almost · 语 instead of 文');
+  await expect(feedback).not.toContainText('same meaning');
   await expect(page.getByTestId('hard-try-again')).toBeVisible();
   await shot(page, 'read-take-05-hard-close');
 });

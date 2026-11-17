@@ -282,3 +282,21 @@ mark.answer-check-quote,
 }
 .oral-recorder .speak-transcript { width: 100%; align-self: stretch; text-align: left; }
 .answer-check-tip-fix .answer-check-pinyin { display: block; }
+
+/* The slim check (AnswerCheckBody without `detail`; docs/STUDY_SESSION.md "Answer feedback: one line and a diff"):
+   no box — the chip + ONE line, a speaking check's parts as small marks on one line, the actions. */
+.answer-check.slim {
+  border: 0;
+  background: transparent;
+  padding: 0.25rem 0;
+}
+.answer-check.slim .answer-check-headline { font-weight: 500; }
+.answer-check-parts.slim {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.answer-check-parts.slim .answer-check-part { display: inline-flex; gap: 0.25rem; margin: 0; }

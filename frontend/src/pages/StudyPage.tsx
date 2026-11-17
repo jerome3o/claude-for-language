@@ -148,6 +148,8 @@ import { useHardMode } from '../services/hardModePrefs';
 import { HardModeChip } from '../components/study/HardModeChip';
 import { useTopbarFit } from '../components/study/useTopbarFit';
 import { HardModeFeedback } from '../components/study/HardModeFeedback';
+import { answerDiff as answerDiffOf, answerDiffSummary } from '@shared/cards/answer-diff';
+import '../components/study/AnswerDiff.css';
 import {
   hardModeApplies, goodEasyGate, hardModeQuestionResult, hardModeRoundFollows, hardModeGiveUpInPlace,
   hardModeGaveUpCheer, hardModeRevealedNextLabel, HARD_MODE_RIGHT_BEAT_MS, type HardMode, type HardModeTake,
@@ -256,6 +258,8 @@ function AnswerDiffBody({ userAnswer, correctAnswer, onCharacterClick, verdict, 
   const diff = typedAnswerDiff(userAnswer, correctAnswer);
   return (
     <div className="answer-diff" data-testid="typed-answer-diff" data-verdict={verdict}>
+      {/* ONE line that says what differs (shared/cards/answer-diff.ts; docs/STUDY_SESSION.md "Answer feedback"). */}
+      <p className="adiff-line adiff-line--wrong typed-answer-line" data-testid="typed-answer-line">{answerDiffSummary(answerDiffOf(userAnswer, correctAnswer))}</p>
       <div className="answer-diff-row">
         {diff.typed.map((c, i) => <DiffCellView key={i} cell={c} clickable={clickable} onCharacterClick={onCharacterClick} />)}
       </div>
@@ -1713,6 +1717,7 @@ export function StudyCard({
           tonesOff={!!tonesOff}
           checking={readCheck.checking}
           claude={readCheck.claude}
+          expected={card.note.hanzi}
           onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
           onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
         />
@@ -3413,6 +3418,7 @@ export function StudyCard({
                     onTypeInstead={sentenceCheck.check && answerWasSpoken && questionResult !== 'right' ? hardTypeInstead : undefined}
                     speak={(text) => playAudio(null, text, API_BASE)}
                     sentenceView={sentenceCheck.view}
+                    diffOnQuestion={isSpeakingCard}
                     answer={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, english: card.note.english }}
                     onPlayAnswer={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
                     onMoveOn={sentenceMoveOn}

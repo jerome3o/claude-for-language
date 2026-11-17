@@ -81,9 +81,10 @@ test('record → "You said" → Done → Claude marks the parts, a cleaner versi
   const parts = page.getByTestId('answer-check-parts').locator('li');
   await expect(parts).toHaveCount(4);
   await expect(parts.nth(2)).toHaveAttribute('data-status', 'used_with_issue');
-  await expect(page.getByTestId('answer-check-cleaner')).toContainText('是关于下个月的活动的');
-  await expect(page.getByTestId('answer-check-cleaner')).not.toContainText('sorry');
-  await expect(check.locator('.answer-check-tip-fix').first()).toContainText('是关于下个月的活动的');
+  // Slim: the chip, one line and the parts' marks — the cleaner version is the 🎤 practice target, no tips.
+  await expect(page.getByTestId('answer-check-cleaner')).toHaveCount(0);
+  await expect(check.locator('.answer-check-tip-fix')).toHaveCount(0);
+  await expect(page.getByTestId('lesson-say-fix')).toContainText('Say the corrected version');
   await expect(page.getByText('Another way to say it:')).toBeVisible();
   await expect(page.getByTestId('lesson-got-it')).toHaveClass(/suggested/);
   if (process.env.PR_SHOTS) {

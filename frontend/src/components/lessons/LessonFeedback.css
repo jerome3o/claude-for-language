@@ -92,3 +92,12 @@
 .scramble-row .tile.tile-done {
   cursor: default;
 }
+
+/* The slim answer diff's ONE line under his marked answer (MarkedAnswer). */
+.lesson-answer-diff-line {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-light);
+}

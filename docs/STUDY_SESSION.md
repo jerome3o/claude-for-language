@@ -1054,6 +1054,9 @@ but a learner can't always tell whether their own wording is right. So the momen
 typed) the app asks Claude (`POST /api/lessons/answer-check`, Haiku via `structuredCall`, forced tool,
 thinking off; `worker/src/services/answer-check.ts`) while the reveal is read:
 
+- (Since Nov 2026 — "Answer feedback: one line and a diff" — where he answers the card is SLIM: the chip, the
+  headline's first sentence, a speaking check's parts as marks, 🔁 Try again · 💬 Ask Claude; his "You said" above is
+  the diff against the model answer with its one line. The full card below stays for the attempt review.)
 - under "🎤 You said" a slim **Checking…** row (it never blocks the buttons), then the card: the verdict
   chip (**✓ Correct** · **✓ Also right** · **~ Almost** · **✗ Not quite**), a one-line headline, the
   learner's OWN sentence minimally fixed as a red-pen diff (+ the app's pinyin for it — pinyin-pro +
@@ -1404,8 +1407,9 @@ Readers list, Today's story):
   differently (the page's word chips; without them each run of differing characters) — the page's word + its
   pinyin in context vs what was heard + its pinyin (the judge's syllables: automatic pinyin + 一 / 不), the kind in
   words (Tone · Another word · Missed · Extra words · Sounded right), ▶ the page's word (practice TTS at the reader's
-  speed), and one reason per character: "都 dū → you said dù (4th tone instead of 1st)", "成 chéng — sounded right
-  (written 程)", "missed 的 de", "extra 了 le" — tones named in words, never colour alone. A homophone-only word
+  speed). (Since Nov 2026 — "Answer feedback: one line and a diff" — the rows sit behind **You said ▸**, collapsed,
+  with NO reason lines: the marked page is the diff, and the result line says what differs, "✓ 96% — Tone off on 都".
+  The old reasons were one per character: "都 dū → you said dù (4th tone instead of 1st)".) A homophone-only word
   is a quieter "Sounded right" row and is NOT to check (the score already counts it right). First 6 rows, then
   "Show N more". The row's Chinese is tappable (a quiet dotted underline): the page's word — what he meant to say —
   opens the language explorer with its sentence, and what was heard (when Chinese) opens too (`explorer.open`
@@ -2035,6 +2039,74 @@ translate / listen-said-back, the answer side's 🎤 rows, the Coach's "Practise
   content word, the meaning, a negation, word order) still count. `ANSWER_CHECK_VERSION` / `MEANING_CHECK_VERSION` = 2, so
   no older, harsher cached verdict is served.
 
+### Answer feedback: one line and a diff (every "how your answer differs" surface)
+
+Jerome (Nov 2026, Pixel Fold, dark theme): "When I am on a hard mode card and I get it wrong, it pops up with the little
+'how I said it wrong' display. This is way too much information. In all of the different UIs where we have this style of
+UI, it's a bit much. Slim it down: no explanations, just one short sentence that summarises what the differences were.
+Then a diff view where it's clear what the issues with my answer were." So every surface that shows how his answer —
+typed or spoken — differs from the expected one is now the same two things, and nothing else:
+
+1. **ONE short line** that says what differs, built from the diff (`answerDiffSummary`, `shared/cards/answer-diff.ts`):
+   "Right", "Sounded right — written 由", "Tone off on 都", "Tones off on 马 and 麻", "Extra 了 at the end", "Missing 京
+   at the end", "得 instead of 的", "Right words, different order", "2 wrong characters, 1 missing", "Quite different
+   from the answer". An answer accepted in other words (Claude correct / acceptable, a listed alternative) says "Right —
+   worded differently". Where Claude checked it, its verdict is the line's small chip in front ("≈ Almost · 1 wrong
+   character", "✓ Also right · Worded differently") — and its headline's **first sentence** stands in only when the
+   answer is too different for a count to say anything (`answerDiffLine`). Never Claude's tips, its explanations, a
+   red-pen fix of his wording, "Also natural", per-character reasons or a "Your wording, fixed" line. Icon + words, so
+   it never relies on colour: ✓ right · ≈ only tones / only the order · ✕ the rest (`answerDiffTone`).
+2. **His answer lined up with the expected one, character by character** (`answerDiff`: the reader's read-aloud judge
+   — numbers as hanzi, so a 3 IS 三; 两 = 二; simplified; each character's syllable in context), drawn in the reader's
+   mark language, a SHAPE per kind as well as a colour (Jerome is red / green colour-blind):
+   - **wrong** (another character): rose ink on a rose tint, a thick SOLID underline;
+   - **extra** (he added it): a yellow highlight in a solid amber box ("take this out") — never a strike: a line through 了 reads as 子;
+   - **missing** (the answer has it, he left it out): the expected character, muted, in a DASHED box — its slot;
+   - **tone off** (the right syllable, another tone — 都 dū said dù): the character in body ink over a lemon tint, a
+     WAVY lemon underline (quiet: it's nearly right);
+   - **a homophone** (other characters, the same toned syllable — 由 for 油): counts as RIGHT; at most a faint dotted
+     underline and "written 由" in the line;
+   - right characters in normal ink. Right in other words: every difference only a quiet dotted underline, never red.
+   Screen readers hear the whole thing as one sentence (`answerDiffLabel`: "Your answer: 他的书. 1 wrong character,
+   1 missing. 他 — wrong, the answer has 我; missing 呢.").
+3. The **expected answer once**, clearly (hanzi, pinyin, ▶ where it already had one) — where it isn't already on screen
+   (the read card's hanzi is the question; a Sentence round row shows its sentence).
+
+Calm, not boxed: no bordered tinted panel around Hard mode's check any more — the line carries the verdict. Every
+action stays (🔁 Try again, ✏️ Type it, 👁 Show answer / Continue, 🎤 Say it again / Read it again, 💬 Ask Claude — the
+way to ask "why?"). Only the explanatory text went: verdicts, the Good / Easy gate, retry rounds, analytics and the stored
+attempt data are unchanged. **The surfaces**:
+
+- **Hard mode's check on the question** (`HardModeFeedback` / Lab `HardModeFeedbackPanel`): a miss on the **read card**
+  (its hanzi is on screen) is the line + his take marked against it (`diffOnQuestion`); a typing card's miss stays
+  "✗ Not quite · You said: …" with no diff (the diff would give the answer away before 🔁 Try again); right in other
+  characters → the line + the card + his answer; **👁 Show answer** after an answer → the answer + his answer lined up.
+- **The sentence check** (`SentenceAnswerFirst`): the card's answer + his answer at once under the device's line, the
+  slim "Checking your sentence…" row, then Claude's verdict becomes the line's chip.
+- **The read take** ("You said" box on the read card, `YouSaid` `expected` / Lab `YouSaidBox(expected)`): a take that
+  isn't a match is marked against the card, the reason line is the diff's one line (never Claude's tip).
+- **"You said" rows** (`YouSaidRow` / Lab `SpokenResultRow`: Say the answer, 🎤 Say it practice, the Coach's Practise
+  saying it, clips, 🎤 Read it again, the Sentence round's read takes, the sentence rows): close / didn't match show
+  the diff's marks and the chip IS the one line ("Tone off on 狼"); "Sounded right — written 油" names the characters.
+  Rules `shared/cards/spoken-result.ts` (marks `tone` / `extra` / `missing` added).
+- **The Sentence round + sentence rows' translate takes** (`SentencePractiseOutcome`): the model + his take under the
+  line with Claude's chip (no tips); a held "✓ Right — worded differently" round keeps its title as the line.
+- **The typed answer on the back** (meaning → hanzi typed wrong): the one line above the Anki-style typed ↓ expected rows.
+- **A mini lesson's answer check** (`AnswerCheckBody` / Lab `AnswerCheckBody`, translate / listen-translate / speaking):
+  the chip + the headline's first sentence, a speaking check's parts as small marks, 🔁 Try again · 💬 Ask Claude. The
+  translate exercise's "You said" is the diff against the model answer with its one line; the model answer is shown
+  once, unmarked. The attempt review (`detail`, a record the tutor reads) keeps the whole check.
+- **A reader's 🎤 Read it aloud**: the page marked in place stays the diff; its line says what differs ("≈ 85% — 1
+  character missing, 1 extra, 1 tone off", `readAloudResultLine`); the per-word rows ("what it heard vs the page") are
+  behind **You said ▸**, collapsed, and have no reason lines.
+- The homework pass and the Coach go through the same components.
+
+Rules: `shared/cards/answer-diff.ts` (Lab `core/…/AnswerDiff.kt`, parity-tested `parity/fixtures/answer-diff.ts` →
+`AnswerDiffParityTest`; the spoken row's port `SpokenAnswerResult.kt` follows it, `SpokenAnswerParityTest`). Web
+`components/study/AnswerDiff.tsx` (+ `AnswerDiffChars`, `AnswerDiff.css`); Lab `ui/study/AnswerDiffView.kt`
+(`AnswerDiffView`, `DiffMarkedText`). `DifferenceCompare` (both apps) is now a thin wrapper over it. Tests:
+`shared/cards/answer-diff.test.ts`, `spoken-result.test.ts`, the components' tests, Lab `AnswerDiffParityTest` + the UI tests.
+
 ### Right, but said differently (Hard mode holds it and shows the difference)
 
 Jerome: "If I submit my spoken version of a translation from English, sometimes I word it differently. It loads for a
@@ -2050,14 +2122,13 @@ answer that is **accepted but not the model / expected answer** never goes on by
   take (he read the sentence on screen — other characters are the recogniser's), the answer said inside a longer
   sentence (`contains`), exact / punctuation-only / equivalent answers — those keep the quick ✓ and go on by
   themselves as before.
-- **What it shows**: the line "✓ Right — worded differently" / "✓ Right — said differently from the model" / "✓ Sounded
-  right — written differently" / "✓ Right — the card writes it differently" (icon + words), then **You said** vs
-  **Model answer** (the question: **The card**) — two lines, the characters each has that the other hasn't marked
-  like the "You said" row (yellow + dotted underline = differs; red + solid = not in the answer), the pinyin of both
-  (the model's own, else the device's), ▶ on the model; under them Claude's check whole — the verdict chip and
-  headline, the minimal fix, the tips (quoted Chinese tappable) and "Also natural:" with 🔊. In the round the
-  comparison carries the model sentence (it isn't shown twice) and Claude's whole check shows for EVERY judged
-  translate take (≈ Almost / ✗ Wrong too: his differing characters in red — they keep 🔁 Try again).
+- **What it shows** (since Nov 2026 the slim answer feedback — "Answer feedback: one line and a diff" above): ONE line
+  ("✓ Right — worded differently", "✓ Sounded right — written 由"; in the round the title "✓ Right — said differently
+  from the model" is that line), the model answer once (**The card** on the question) with ▶, and his answer lined up
+  with it, the differences only quietly dotted (it counts as right). No tips, no fix, no "Also natural". In the round
+  the comparison carries the model sentence (it isn't shown twice); a ≈ Almost / ✗ Wrong translate take shows the same
+  diff with Claude's chip on the line (his wrong characters red, extra in a solid amber box, missing in a dashed slot) and
+  keeps 🔁 Try again.
 - **Holding**: the round finished by such a take stays on it — "Have a look at the difference, then go on." and
   **Continue →** (the cheer and confetti still come; Good / Easy, or Got it, are unlocked: it counts as right); the
   question's ✓ stays up with **Next: harder questions →**. A difference on the first of two never holds anything —
@@ -2099,10 +2170,9 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
   wait, the question shows **the card's answer** — "The answer", the hanzi big with ▶, its pinyin and English — and
   **"You said" against it, character by character** (`DifferenceCompare` answer-first; the "You said" marks: red
   where his isn't in the answer, yellow once Claude accepts it). Under them one slim **"Checking your sentence…"**
-  row (no spinner, no blocking panel); Claude's verdict then lands in its place — chip, headline, tips, "Also
-  natural". Claude's **fix of his own wording is never the answer**: the red-pen line is gone from this view; a fix
-  shows only as a small labelled line "Your wording, fixed: …" for ≈ Nearly, and only when it is neither the card's
-  answer nor what he said. Since the answer is already on screen, 👁 Show answer becomes **Continue to the
+  row (no spinner, no blocking panel); Claude's verdict then lands as the chip of the ONE line above the diff ("≈ Almost
+  · 3 wrong characters, 1 missing" — "Answer feedback: one line and a diff"): no tips, no "Also natural", and Claude's
+  **fix of his own wording is never shown** (`sentenceCheckView().corrected` is no longer drawn). Since the answer is already on screen, 👁 Show answer becomes **Continue to the
   sentences ›** (or See the full answer) — the same give-up (a miss: Good / Easy greyed, Got it locked), straight on
   to the round with no second "👁 The answer" panel. Offline / failed: the same answer + diff with the device's
   ✗ Not quite / ≈ Nearly. **🎤 Read it again** (#722's practice, `HardModeReadAgain`) sits right under "You said"
@@ -2114,9 +2184,8 @@ check-if-my-answer-is-okay logic, give me some advice, but then also allow me to
   **correct / acceptable** → right (the card's verdict becomes `equivalent`: Hard mode's ✓, the Sentence round, Good /
   Easy open; the pass suggests **Got it**), held first with "You said" vs the card under Claude's chip and headline
   ("Right, but said differently", reason acceptable / reworded) and **Next: harder questions →**; **almost** → ≈ Nearly
-  (like a device `close`); **wrong** → ✗ Not quite. A miss shows Claude's card **on the question**, under the card's answer
-  and the diff (below) — the verdict chip and headline, ≤ 3 tips (quoted Chinese tappable), "Also natural:" with
-  🔊 — then **🔁 Try again** (a new take / answer replaces the old one and is checked afresh — as often as he likes),
+  (like a device `close`); **wrong** → ✗ Not quite. A miss shows Claude's verdict **on the question**, as the chip of the one line over
+  the card's answer and the diff — then **🔁 Try again** (a new take / answer replaces the old one and is checked afresh — as often as he likes),
   **✏️ Type it** (a spoken answer: the box holding what was said, to fix by hand; checked as typed) and **👁 Show answer**
   (giving up exactly as before: the answer in place, Good / Easy greyed, Got it locked).
 - **Offline / no check** (no key, declined, failed): the device's verdict, as before. The answer side keeps Claude's
@@ -2837,7 +2906,10 @@ The typing cards (meaning → hanzi, audio → hanzi) have a **🎤** beside the
   (`sound`: 友 said for 有) = YELLOW highlight + dotted underline; **not in the answer** (close / didn't
   match: 朗 for 狼) = red + solid underline; in `contains` the answer's characters stay ink and the
   words around it quiet; punctuation is never marked. A screen reader hears the whole row as one
-  sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." Space: Jerome's
+  sentence: "You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗." (Since Nov 2026 — "Answer
+  feedback: one line and a diff" — close / didn't match are the slim diff: 朗 marked tone off (wavy), wrong red,
+  extra in a solid amber box, missing in a dashed slot, and the chip is the one line: "≈ Tone off on 狼", "✕ 2 wrong
+  characters, 1 extra", "✓ Sounded right — written 友"; the sentence "You said 朗 (lǎng). Close. Tone off on 狼.") Space: Jerome's
   狼 / 朗 card's answer block went from 499 to 305 px above the Play row on the web (412 px wide) and
   from 552 to 384 dp in the Lab app. Typed answers keep the character diff (`AnswerDiff`), minus its
   own pinyin line under an exact answer — the card's pinyin follows right under it, so it was shown

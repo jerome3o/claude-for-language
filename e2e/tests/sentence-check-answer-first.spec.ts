@@ -174,8 +174,10 @@ test('a sentence answer: the card answer and the diff at once, Claude\'s verdict
   await expect(page.getByTestId('difference-model')).toContainText(MODEL);
   await expect(page.getByTestId('difference-model')).toContainText(PINYIN);
   await expect(page.getByTestId('difference-model-english')).toHaveText(ENGLISH);
-  await expect(page.getByTestId('difference-said')).toContainText(SAID);
-  await expect(page.locator('[data-testid="difference-said"] [data-mark="wrong"]').first()).toBeVisible();
+  await expect(page.getByTestId('difference-said')).toContainText('我早上喝咖啡因为工作');
+  await expect(page.locator('[data-testid="difference-said"] [data-kind="wrong"]').first()).toBeVisible();
+  // ONE line that says what differs, from the device, before Claude answers.
+  await expect(page.getByTestId('answer-diff-line')).toHaveText('✕ 3 wrong characters, 1 missing');
   await expect(page.getByTestId('hard-sentence-checking')).toContainText('Checking your sentence…');
   await expect(feedback.locator('.spinner')).toHaveCount(0);
   expect(checks).toHaveLength(1);
@@ -186,7 +188,9 @@ test('a sentence answer: the card answer and the diff at once, Claude\'s verdict
   await expect(feedback).toHaveAttribute('data-result', 'close', { timeout: 15000 });
   await expect(page.getByTestId('answer-check')).toHaveAttribute('data-verdict', 'almost');
   await expect(page.getByTestId('difference-model')).toContainText(MODEL);
-  await expect(page.getByTestId('hard-sentence-your-fix')).toContainText('Your wording, fixed:');
+  await expect(page.getByTestId('answer-diff-line')).toHaveText('≈ Almost · 3 wrong characters, 1 missing');
+  // Slim: no fix of his wording, no tips — the card's answer is THE answer.
+  await expect(page.getByTestId('hard-sentence-your-fix')).toHaveCount(0);
   await expect(page.getByTestId('hard-sentence-checking')).toHaveCount(0);
   await expect(page.getByTestId('hard-try-again')).toBeVisible();
   await expect(page.getByTestId('hard-show-answer')).toContainText('Continue to the sentences');

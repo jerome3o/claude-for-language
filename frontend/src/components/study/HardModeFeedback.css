@@ -179,3 +179,20 @@
   font-size: 0.8rem;
   color: var(--color-text-light);
 }
+
+/*
+ * Calm, not boxed (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): no bordered, tinted panel
+ * around the check — its ONE line carries the verdict (icon + words), the slim diff shows what differs.
+ */
+.hard-feedback,
+.hard-feedback--right,
+.hard-feedback--wrong,
+.hard-feedback--close,
+.hard-feedback--revealed {
+  border: 0;
+  background: transparent;
+  padding: 0.5rem 0.25rem;
+}
+.hard-feedback-check { max-height: none; }
+.hard-feedback--answer-first .hard-feedback-check { max-height: none; }
+.hard-feedback-check .adiff-box { margin-top: 0; }

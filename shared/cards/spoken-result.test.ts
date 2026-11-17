@@ -25,25 +25,29 @@ describe('spokenResult', () => {
 
   it('sounded right: the characters written differently are `differs` (yellow), the chip still ✓', () => {
     const r = spokenResult('油', '由', checkSpokenAnswer('油', '由'));
-    expect(r).toMatchObject({ state: 'sound', accepted: true, chip: 'Sounded right — written differently', icon: 'check', coach: true });
+    // The chip is the answer diff's one sentence: it names the characters written differently.
+    expect(r).toMatchObject({ state: 'sound', accepted: true, chip: 'Sounded right — written 油', icon: 'check', coach: true });
     expect(marks('油', '由')).toBe('油:differs');
     expect(marks('银航', '银行')).toBe('银:right 航:differs');
   });
 
-  it('close (Jerome’s 狼 said 朗): the wrong character marked, ≈ Close — tones off, not accepted', () => {
+  it('close (Jerome’s 狼 said 朗): the slipped tone marked, the chip one short sentence, not accepted', () => {
     const r = spokenResult('朗', '狼', checkSpokenAnswer('朗', '狼'));
-    expect(r).toMatchObject({ state: 'close', accepted: false, chip: 'Close — tones off', icon: 'approx', coach: true });
-    expect(marks('朗', '狼')).toBe('朗:wrong');
+    expect(r).toMatchObject({ state: 'close', accepted: false, chip: 'Tone off on 狼', icon: 'approx', coach: true });
+    expect(marks('朗', '狼')).toBe('朗:tone');
   });
 
-  it('didn’t match: only the characters not in the answer are wrong; punctuation stays plain', () => {
+  it('didn’t match: the slim diff — wrong, extra, missing, tone off; the chip says what differs', () => {
     const r = spokenResult('猫。', '狗', 'wrong');
-    expect(r).toMatchObject({ state: 'wrong', accepted: false, chip: 'Didn’t match', icon: 'close' });
-    expect(r.chars.map((c) => `${c.char}:${c.mark}`).join(' ')).toBe('猫:wrong 。:plain');
-    expect(spokenResult('我很好', '你好', 'wrong').chars.map((c) => c.mark)).toEqual(['wrong', 'wrong', 'right']);
+    expect(r).toMatchObject({ state: 'wrong', accepted: false, chip: '猫 instead of 狗', icon: 'close' });
+    expect(r.chars.map((c) => `${c.char}:${c.mark}`).join(' ')).toBe('猫:wrong');
+    expect(spokenResult('我很好', '你好', 'wrong').chars.map((c) => c.mark)).toEqual(['wrong', 'extra', 'right']);
     // Lined up, not positional: no offset makes everything red (长 is right in 他长的很高 for 长得).
     expect(spokenResult('他长的很高', '长得', 'wrong').chars.map((c) => `${c.char}:${c.mark}`))
-      .toEqual(['他:wrong', '长:right', '的:wrong', '很:wrong', '高:wrong']);
+      .toEqual(['他:extra', '长:right', '的:tone', '很:extra', '高:extra']);
+    // A character he left out is shown in its slot (muted, dashed).
+    expect(spokenResult('我明天去北', '我明天去北京', 'wrong').chars.map((c) => `${c.char}:${c.mark}`).slice(-1)).toEqual(['京:missing']);
+    expect(spokenResult('我明天去北', '我明天去北京', 'wrong').chip).toBe('Missing 京 at the end');
   });
 
   it('contains: the answer’s characters right, the words around it plain', () => {
@@ -54,7 +58,9 @@ describe('spokenResult', () => {
 
   it('reads the whole row as one sentence', () => {
     const close = spokenResult('朗', '狼', 'close');
-    expect(spokenResultLabel(close, '狼', 'lǎng')).toBe('You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.');
+    expect(spokenResultLabel(close, '狼', 'lǎng')).toBe('You said 朗 (lǎng). Close. Tone off on 狼.');
+    expect(spokenResultLabel(spokenResult('我明天去北', '我明天去北京', 'wrong'), '我明天去北京'))
+      .toBe('You said 我明天去北. Didn’t match. Missing 京 at the end.');
     expect(spokenResultLabel(spokenResult('油', '由', 'sound'), ' 由 ', 'yóu'))
       .toBe('You said 油 (yóu). Sounded right — written differently (油); the card writes 由.');
     expect(spokenResultLabel(spokenResult('曾经', '曾经', 'exact'), '曾经')).toBe('You said 曾经. Match.');

@@ -113,7 +113,7 @@ test('🎤 Read it aloud with the Chinese hidden: it stays hidden; revealed, the
   await page.waitForTimeout(1200);
   await mic.click();
 
-  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('≈ 85% — 3 to check', { timeout: 20_000 });
+  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('≈ 85% — 1 character missing, 1 extra, 1 tone off', { timeout: 20_000 });
   expect(transcribed).toBe(1);
   // Still hidden: the line + "You said ▸" only — the differences (which print the page) wait behind it.
   await expect(revealBox).toBeVisible();
@@ -140,7 +140,8 @@ test('🎤 Read it aloud with the Chinese hidden: it stays hidden; revealed, the
   await expect(words.locator('[data-mark="missed"]')).toHaveText('很');
   await expect(words.locator('.ra-extra')).toHaveCount(1);
   await expect(page.getByTestId('reader-read-aloud-said')).toHaveCount(0);
-  await expect(page.getByTestId('reader-read-aloud-diffs')).toBeVisible();
+  // The marked page IS the diff: the per-word rows stay behind "You said ▸".
+  await expect(page.getByTestId('reader-read-aloud-diffs')).toHaveCount(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-revealed-marked.png` });
 
   await page.getByTestId('reader-read-aloud-said-toggle').click();
@@ -225,13 +226,14 @@ test("🎤 what it heard vs the page: Jerome's 成都 → 程度, one row with b
   await page.getByTestId('reader-read-aloud').click();
   await page.waitForTimeout(1200);
   await page.getByTestId('reader-read-aloud-stop-footer').click();
-  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('✓ 96% — 1 to check', { timeout: 20_000 });
+  await expect(page.getByTestId('reader-read-aloud-line')).toHaveText('✓ 96% — Tone off on 都', { timeout: 20_000 });
   await expect(page.getByTestId('reader-words')).toBeVisible();
+  await page.getByTestId('reader-read-aloud-said-toggle').click();
   const row = page.getByTestId('reader-read-aloud-diff');
   await expect(row).toHaveCount(1);
   await expect(row.locator('.ra-diff-zh')).toHaveText(['成都', '程度']);
-  await expect(row.locator('.ra-diff-reasons li')).toHaveText(['成 chéng — sounded right (written 程)', '都 dū → you said dù (4th tone instead of 1st)']);
-  await page.getByTestId('reader-read-aloud-said-toggle').click();
+  // No reason lines (Jerome, Nov 2026: "way too much information").
+  await expect(row.locator('.ra-diff-reasons')).toHaveCount(0);
   await expect(page.getByTestId('reader-read-aloud-said').locator('[data-mark="close"]')).toHaveText('度');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/09-differences.png` });
 });

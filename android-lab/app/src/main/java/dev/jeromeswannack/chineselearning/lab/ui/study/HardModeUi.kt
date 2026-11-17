@@ -48,7 +48,7 @@ import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.HardMode
 import dev.jeromeswannack.chineselearning.lab.core.SentenceAnswerCheck
-import dev.jeromeswannack.chineselearning.lab.ui.lessons.AnswerCheckBody
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import dev.jeromeswannack.chineselearning.lab.core.PassAngles
@@ -80,6 +80,7 @@ object HardModeTags {
     const val SENTENCE_CHECK = "hard-sentence-check"
     const val SENTENCE_CHECKING = "hard-sentence-checking"
     const val SENTENCE_YOUR_FIX = "hard-sentence-your-fix"
+    const val SAID_DIFF = "hard-said-diff"
     const val ANSWER_FIRST = "hard-answer-first"
 }
 
@@ -261,6 +262,12 @@ fun HardModeFeedbackPanel(
     readAgain: ReadAgainInfo? = null,
     /** Screenshot tests: the read-again block drawn in this state (no microphone). */
     readAgainPreview: (@Composable () -> Unit)? = null,
+    /**
+     * The answer is already on screen (the read card shows its hanzi): a miss shows his take against it at once — one
+     * line + the slim diff (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"). Off on the typing cards,
+     * where the diff would give the answer away before 🔁 Try again.
+     */
+    diffOnQuestion: Boolean = false,
 ) {
     // The check's result you can FEEL (fx/StudyFeel; core HardMode.questionFeel): ✓ Right = Haptics.success +
     // the correct chime; ✗ / ≈ a short one; checking / unknown / revealed none. Once per result.
@@ -273,7 +280,7 @@ fun HardModeFeedbackPanel(
     if (sentenceView?.answerFirst == true && answer != null && said != null) {
         SentenceAnswerFirst(
             result, sentenceView, answer, said, difference?.reason, check, checkingLabel ?: SentenceAnswerCheck.CHECKING, roundFollows,
-            moveOnLabel ?: HardMode.SHOW_ANSWER, onPlayAnswer, onTryAgain, onMoveOn ?: onShowAnswer, onNext, onTypeInstead, onPlay,
+            moveOnLabel ?: HardMode.SHOW_ANSWER, onPlayAnswer, onTryAgain, onMoveOn ?: onShowAnswer, onNext, onTypeInstead,
             readAgain = if (!sentenceView.readAgain) null else readAgainPreview ?: readAgain?.let { info -> { ReadAgainBlock(info) } },
         )
         return
@@ -286,6 +293,7 @@ fun HardModeFeedbackPanel(
     }
     val pop = remember(result) { Animatable(0.92f) }
     LaunchedEffect(result) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)) }
+    // Calm, not boxed: the one line carries the verdict (icon + words), the slim diff what differs.
     Column(
         Modifier
             .fillMaxWidth()
@@ -303,19 +311,26 @@ fun HardModeFeedbackPanel(
                 Text(checkingLabel ?: HardMode.CHECKING, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             }
             "unknown" -> Text(HardMode.UNKNOWN, color = Lab.colors.muted, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            // Claude checked a sentence answer: its card IS the verdict (chip + headline), then the fix, tips, alternative.
-            else -> if (check != null && said != null) SentenceCheckBlock(check, said, difference.takeIf { result == "right" }, showSaid = result != "right" && check.corrected.isEmpty(), spoken = spoken, onPlay = onPlay) else Text(
-                difference?.let { dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE[it.reason] } ?: HardMode.RESULT.getValue(result),
-                Modifier.then(if (difference != null) Modifier.testTag(DifferenceTags.HELD) else Modifier),
-                color = ink, fontSize = if (difference != null) 18.sp else 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-            )
-        }
-        if (check != null && said != null && result != "checking" && result != "unknown") {
-            // (said / the comparison are inside the check block)
-        } else if (difference != null && result == "right") {
-            DifferenceCompare(difference.said, difference.model, difference.modelPinyin, accepted = true, modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD)
-        } else if (said != null && result != "checking" && result != "unknown") {
-            Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
+            // The slim diff (one line + his answer marked) wherever the answer may be seen: a right answer written
+            // differently (vs the card), a miss on the read card (the hanzi is the question), or one Claude checked.
+            "right" -> if (difference != null) DifferenceCompare(
+                difference.said, difference.model, difference.modelPinyin, accepted = true,
+                modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD,
+                verdict = check?.let { AnswerDiff.verdict(it.verdict) },
+                modifier = Modifier.testTag(DifferenceTags.HELD),
+            ) else {
+                Text(HardMode.RESULT.getValue(result), color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
+            else -> if (said != null && answer != null && (diffOnQuestion || check != null)) AnswerDiffView(
+                said, answer.first, Modifier.testTag(if (check != null) HardModeTags.SENTENCE_CHECK else HardModeTags.SAID_DIFF),
+                showExpected = false, headline = check?.headline,
+                verdict = check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
+                saidLabel = if (spoken) AnswerDiff.YOU_SAID else AnswerDiff.YOUR_ANSWER,
+            ) else {
+                Text(HardMode.RESULT.getValue(result), color = ink, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
+            }
         }
         // While 🎤 Read it again records, the buttons give way to ONE ■ Stop recording (the take lock).
         TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -347,26 +362,6 @@ fun HardModeFeedbackPanel(
     }
 }
 
-/**
- * Claude's check of a sentence answer on the question (core SentenceAnswerCheck; the web's `hard-sentence-check`):
- * "You said" (only when there is no red-pen fix — the fix shows his words), then the lesson check's card with
- * You said vs the card under its headline when it was right in other words. Scrolls on its own when long, so the
- * buttons stay on screen.
- */
-@Composable
-private fun SentenceCheckBlock(check: AnswerCheck, said: String, difference: HardModeDifference?, showSaid: Boolean, spoken: Boolean, onPlay: ((String) -> Unit)?) {
-    Column(
-        Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()).testTag(HardModeTags.SENTENCE_CHECK),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (showSaid) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
-        AnswerCheckBody(
-            check, said, onPlay = onPlay,
-            afterHead = difference?.let { d -> { DifferenceCompare(d.said, d.model, d.modelPinyin, accepted = true, modelLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD) } },
-        )
-    }
-}
-
 /** 👁 Show answer before a right answer (core [HardMode.giveUpInPlace]): the answer on the question, then on to the sentences. */
 @Composable
 private fun RevealedInPlace(
@@ -389,7 +384,14 @@ private fun RevealedInPlace(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(HardMode.REVEALED_TITLE, color = tone, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-        if (answer != null) {
+        if (answer != null && said != null) {
+            // He answered first: the answer once, his answer lined up with it, one line on top.
+            AnswerDiffView(
+                said, answer.first, Modifier.testTag(HardModeTags.REVEALED_ANSWER),
+                expectedPinyin = answer.second, expectedEnglish = answer.third, onPlayExpected = onPlayAnswer,
+                playTag = "hard-revealed-play", saidLabel = if (spoken) AnswerDiff.YOU_SAID else AnswerDiff.YOUR_ANSWER,
+            )
+        } else if (answer != null) {
             Column(Modifier.testTag(HardModeTags.REVEALED_ANSWER), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(answer.first, color = Lab.colors.ink, fontSize = 30.sp, fontWeight = FontWeight.SemiBold)
@@ -401,7 +403,7 @@ private fun RevealedInPlace(
                 Text(answer.third, color = Lab.colors.ink, fontSize = 16.sp, textAlign = TextAlign.Center)
             }
         }
-        if (said != null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 15.sp, textAlign = TextAlign.Center)
+        if (said != null && answer == null) Text(HardMode.saidLine(said, spoken), Modifier.testTag(HardModeTags.SAID), color = Lab.colors.ink, fontSize = 15.sp, textAlign = TextAlign.Center)
         // 🎤 Read it again: practice only — Continue stays the way on.
         readAgain?.invoke()
         TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { PrimaryPill("${HardMode.revealedNextLabel(roundFollows)} ›", Modifier.fillMaxWidth().height(54.dp).testTag(HardModeTags.CONTINUE), onClick = onNext) }
@@ -433,16 +435,9 @@ private fun SentenceAnswerFirst(
     onMoveOn: () -> Unit,
     onNext: () -> Unit,
     onTypeInstead: (() -> Unit)?,
-    onPlay: ((String) -> Unit)?,
     /** 🎤 Read it again under "You said" (core SentenceAnswerCheck.View.readAgain): practice only, the card stays a miss. */
     readAgain: (@Composable () -> Unit)? = null,
 ) {
-    val border = when (result) {
-        "right" -> Palette.Good
-        "close" -> Palette.Gold
-        "wrong" -> Palette.Again
-        else -> Lab.colors.cardBorder
-    }
     val miss = result == "wrong" || result == "close"
     Column(
         Modifier
@@ -457,11 +452,15 @@ private fun SentenceAnswerFirst(
             Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState()).testTag(HardModeTags.ANSWER_FIRST),
         ) {
             DifferenceCompare(
-                said, answer.first, answer.second, accepted = view.accepted, modelLabel = SentenceAnswerCheck.ANSWER,
-                onPlayModel = onPlayAnswer, answerFirst = true, answerFirstEnglish = answer.third,
-            )
-            // Right under "You said", so the verdict landing below never moves it.
-            readAgain?.invoke()
+                said, answer.first, answer.second,
+                accepted = view.accepted || (check == null && result == "right" && difference != null),
+                modelLabel = SentenceAnswerCheck.ANSWER, onPlayModel = onPlayAnswer, answerFirst = true, answerFirstEnglish = answer.third,
+                headline = check?.headline,
+                verdict = if (view.checking) null else check?.let { AnswerDiff.verdict(it.verdict) } ?: AnswerDiff.verdict(result),
+            ) {
+                // Right under "You said", so the verdict landing below never moves it.
+                readAgain?.invoke()
+            }
             when {
                 view.checking -> Row(
                     Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp)).background(Lab.colors.card)
@@ -472,30 +471,8 @@ private fun SentenceAnswerFirst(
                     Spacer(Modifier.width(8.dp))
                     Text(checkingLabel, color = Lab.colors.muted, fontSize = 14.sp)
                 }
-                check != null -> Column(Modifier.testTag(HardModeTags.SENTENCE_CHECK)) {
-                    AnswerCheckBody(check, said, onPlay = onPlay, hideFix = true)
-                    view.corrected?.let { fix ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(top = 6.dp).testTag(HardModeTags.SENTENCE_YOUR_FIX)
-                                .then(if (onPlay != null) Modifier.bouncyClickable(pressedScale = 0.98f) { onPlay(fix) } else Modifier),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(SentenceAnswerCheck.YOUR_FIX, color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.width(6.dp))
-                            Text(fix, Modifier.weight(1f, fill = false), color = Lab.colors.ink, fontSize = 15.sp)
-                            if (onPlay != null) Text(" 🔊", fontSize = 13.sp)
-                        }
-                    }
-                }
-                else -> Text(
-                    when {
-                        result == "unknown" -> HardMode.UNKNOWN
-                        result == "right" && difference != null -> dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE[difference] ?: HardMode.RESULT.getValue("right")
-                        else -> HardMode.RESULT[result] ?: ""
-                    },
-                    Modifier.fillMaxWidth().padding(top = 8.dp),
-                    color = if (result == "unknown") Lab.colors.muted else border, fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center,
-                )
+                check != null -> Box(Modifier.size(0.dp).testTag(HardModeTags.SENTENCE_CHECK))
+                result == "unknown" -> Text(HardMode.UNKNOWN, Modifier.fillMaxWidth().padding(top = 6.dp), color = Lab.colors.muted, fontSize = 13.sp, textAlign = TextAlign.Center)
             }
         }
         TakeLockedActions(stopTag = HardModeTags.TAKE_STOP) { when (result) {

@@ -17,12 +17,19 @@
  *   YELLOW (the partial token) with a dotted underline, the chip still ✓;
  * - `wrong`: close / didn't match — a character not in the answer: red, solid underline;
  * - `plain`: punctuation and spaces, and in "Contains the answer" the words around the answer.
+ *
+ * Close / didn't match (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the row is the slim
+ * answer diff (shared/cards/answer-diff.ts) — his characters lined up with the answer: `wrong` red + solid,
+ * `tone` (same syllable, other tone) a wavy lemon underline, `extra` (he added it) yellow in a solid box,
+ * `missing` (the answer's character he left out) muted in a dashed slot — and the chip is the diff's ONE short
+ * sentence ("Tone off on 狼", "Extra 了 at the end", "2 wrong characters, 1 missing").
  */
 import type { AnswerVerdict } from './answer';
+import { answerDiff, answerDiffSummary, type AnswerDiffKind } from './answer-diff';
 
 export type SpokenResultState = 'match' | 'sound' | 'contains' | 'close' | 'wrong';
 export type SpokenResultIcon = 'check' | 'approx' | 'close';
-export type SpokenCharMark = 'right' | 'differs' | 'wrong' | 'plain';
+export type SpokenCharMark = 'right' | 'differs' | 'wrong' | 'plain' | 'tone' | 'extra' | 'missing';
 
 export interface SpokenResultChar {
   char: string;
@@ -108,16 +115,31 @@ export function spokenResultMarks(transcript: string, correct: string, state: Sp
   });
 }
 
+/** An answer-diff part's kind → the row's mark. */
+const DIFF_MARK: Record<AnswerDiffKind, SpokenCharMark> = {
+  ok: 'right', sound: 'differs', tone: 'tone', wrong: 'wrong', extra: 'extra', missing: 'missing', plain: 'plain',
+};
+
 /** Everything the "You said" row shows for a spoken answer with this verdict. */
 export function spokenResult(transcript: string, correct: string, verdict: AnswerVerdict): SpokenResult {
   const state = spokenResultState(verdict);
+  let chip = SPOKEN_RESULT_CHIP[state];
+  let chars = spokenResultMarks(transcript, correct, state);
+  if (state === 'close' || state === 'wrong' || state === 'sound') {
+    const diff = answerDiff(transcript, correct);
+    // "Sounded right" keeps its own marks unless the diff agrees it is all right (then the chip names the characters).
+    if (!diff.empty && (state !== 'sound' || diff.right)) {
+      chip = answerDiffSummary(diff);
+      chars = diff.parts.flatMap((p) => [...p.text].map((char) => ({ char, mark: DIFF_MARK[p.kind] })));
+    }
+  }
   return {
     state,
     accepted: verdict !== 'wrong' && verdict !== 'close',
-    chip: SPOKEN_RESULT_CHIP[state],
+    chip,
     icon: SPOKEN_RESULT_ICON[state],
     coach: state !== 'match',
-    chars: spokenResultMarks(transcript, correct, state),
+    chars,
   };
 }
 
@@ -127,7 +149,7 @@ export function spokenResult(transcript: string, correct: string, verdict: Answe
  * Not in the answer: 朗."
  */
 export function spokenResultLabel(result: SpokenResult, correct: string, pinyin = ''): string {
-  const said = result.chars.map((c) => c.char).join('') || '…';
+  const said = result.chars.filter((c) => c.mark !== 'missing').map((c) => c.char).join('') || '…';
   const py = pinyin.trim();
   const head = `You said ${said}${py ? ` (${py})` : ''}.`;
   const marked = (mark: SpokenCharMark) => result.chars.filter((c) => c.mark === mark).map((c) => c.char).join('');
@@ -141,9 +163,9 @@ export function spokenResultLabel(result: SpokenResult, correct: string, pinyin 
     }
     case 'close':
     case 'wrong': {
-      const wrong = marked('wrong');
-      const verdict = result.state === 'close' ? 'Close — the tones are off.' : 'Didn’t match.';
-      return `${head} ${verdict}${wrong ? ` Not in the answer: ${wrong}.` : ''}`;
+      // The chip is the diff's one sentence ("Tone off on 狼"); say which way the verdict went too.
+      const verdict = result.state === 'close' ? 'Close.' : 'Didn’t match.';
+      return `${head} ${verdict}${result.chip !== SPOKEN_RESULT_CHIP[result.state] ? ` ${result.chip}.` : ''}`;
     }
   }
 }

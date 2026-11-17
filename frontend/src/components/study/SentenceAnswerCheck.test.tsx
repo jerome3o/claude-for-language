@@ -133,8 +133,10 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('difference-model')!.textContent).toContain(MODEL);
     expect(q('difference-model')!.textContent).toContain('shàngbān');
     expect(q('difference-model-english')!.textContent).toBe(ENGLISH);
-    expect(q('difference-said')!.textContent).toContain(SAID);
-    expect(q('difference-said')!.querySelector('[data-mark="wrong"]')).not.toBeNull();
+    expect(q('difference-said')!.textContent).toContain(SAID.replace(/[，。]/g, ''));
+    expect(q('difference-said')!.querySelector('[data-kind="wrong"]')).not.toBeNull();
+    // ONE line that says what differs, from the device, while Claude reads it.
+    expect(q('answer-diff-line')!.textContent).toBe('✕ 3 wrong characters, 1 missing');
     expect(q('hard-sentence-checking')!.textContent).toContain(SENTENCE_CHECKING);
     expect(host.querySelector('.spinner')).toBeNull();
     expect(q('hard-try-again')).toBeNull();
@@ -146,11 +148,11 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('hard-feedback')!.dataset.result).toBe('right');
     expect(q('hard-feedback')!.dataset.held).toBe('true');
     expect(q('answer-check')!.dataset.verdict).toBe('acceptable');
-    expect(host.textContent).toContain('✓ Also right');
+    expect(q('answer-diff-line')!.textContent).toBe('✓ Also right · Worded differently');
     expect(q('hard-sentence-checking')).toBeNull();
     expect(q('difference-model')!.textContent).toContain(MODEL);
     // Accepted: his differences turn yellow, nothing red.
-    expect(q('difference-said')!.querySelector('[data-mark="wrong"]')).toBeNull();
+    expect(host.querySelector('.adiff-box--accepted')).not.toBeNull();
     expect(q('hard-next')).not.toBeNull();
     expect(q('hard-try-again')).toBeNull();
     // Right per Claude: no reading-again practice.
@@ -167,8 +169,10 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     await flush();
     expect(q('hard-feedback')!.dataset.result).toBe('close');
     expect(q('answer-check')!.dataset.verdict).toBe('almost');
-    expect(host.textContent).toContain('因为 gives a reason');
-    expect(host.textContent).toContain('Also natural');
+    // Slim: Claude's verdict is the line's chip; no tips, no alternative, no explanation.
+    expect(q('answer-diff-line')!.textContent).toBe('≈ Almost · 3 wrong characters, 1 missing');
+    expect(host.textContent).not.toContain('因为 gives a reason');
+    expect(host.textContent).not.toContain('Also natural');
     // The card's answer stays THE answer: Claude's fix (here the card's own sentence) is not shown again.
     expect(q('difference-model')!.textContent).toContain(MODEL);
     expect(host.querySelector('.answer-check-fix')).toBeNull();
@@ -210,10 +214,10 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(checker).not.toHaveBeenCalled();
     expect(q('hard-feedback')!.dataset.result).toBe('wrong');
     expect(q('answer-check')).toBeNull();
-    expect(host.textContent).toContain('✗ Not quite');
+    expect(q('answer-diff-line')!.textContent).toBe('✕ Not quite · 3 wrong characters, 1 missing');
     // The answer and the diff all the same.
     expect(q('difference-model')!.textContent).toContain(MODEL);
-    expect(q('difference-said')!.textContent).toContain(SAID);
+    expect(q('difference-said')!.textContent).toContain(SAID.replace(/[，。]/g, ''));
     expect(q('hard-sentence-checking')).toBeNull();
     expect(q('hard-read-again-mic')).not.toBeNull();
   });
@@ -239,14 +243,14 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(track).toHaveBeenCalledWith('study.hard_mode_read_again', expect.objectContaining({ result: 'right', where: 'homework' }));
   });
 
-  it('almost with a fix of HIS wording: a small labelled line under the verdict, never in place of the card answer', async () => {
+  it('almost with a fix of HIS wording: never shown — the card answer is THE answer, one line + the diff', async () => {
     const fix = '我早上喝咖啡，所以上班不困。';
     const checker = vi.fn(async () => ({ check: { ...ALMOST, corrected: fix }, cached: false }));
     await mount(checker);
     await flush();
     expect(q('difference-model')!.textContent).toContain(MODEL);
-    expect(q('hard-sentence-your-fix')!.textContent).toContain('Your wording, fixed:');
-    expect(q('hard-sentence-your-fix')!.textContent).toContain(fix);
+    expect(q('hard-sentence-your-fix')).toBeNull();
+    expect(host.textContent).not.toContain(fix);
     expect(host.querySelector('.answer-check-fix')).toBeNull();
   });
 

@@ -352,7 +352,8 @@ fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, Exe
                 model = ex.referenceHanzi.takeIf { marks.marks }, note = marks.note.takeIf { !matched },
             )
         }
-        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env, missedBy = typed.takeIf { it.isNotEmpty() && !matched && marks.marks }, exerciseType = ex.type)
+        // The model answer once, unmarked: the diff is on HIS answer above (core AnswerDiff).
+        Reference(LessonSentence(ex.referenceHanzi, ex.referencePinyin), env, exerciseType = ex.type)
         SayItAgainRow(ex.referenceHanzi, ex.type, "answer", env)
         SelfAssess(
             ex.note?.takeIf { it.isNotBlank() } ?: "Did yours match the meaning? (Different wording is fine.)",

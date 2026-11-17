@@ -6,14 +6,14 @@ import {
 import { HardModeReadAgain, type HardModeReadAgainProps } from './HardModeReadAgain';
 import { useEffect, type ReactNode } from 'react';
 import { studyFeel } from '../../services/studyFeel';
-import { DIFFERENCE_CARD, DIFFERENCE_TITLE, type DifferenceReason } from '@shared/study/answerDifference';
-import { DifferenceCompare } from './DifferenceCompare';
+import { DIFFERENCE_CARD, type DifferenceReason } from '@shared/study/answerDifference';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
 import {
-  SENTENCE_CHECK_ANSWER, SENTENCE_CHECK_MOVE_ON_NOTE, SENTENCE_CHECK_TYPE_INSTEAD, SENTENCE_CHECK_YOUR_FIX, SENTENCE_CHECKING,
+  SENTENCE_CHECK_ANSWER, SENTENCE_CHECK_MOVE_ON_NOTE, SENTENCE_CHECK_TYPE_INSTEAD, SENTENCE_CHECKING,
   type SentenceCheckView,
 } from '@shared/study/sentenceAnswerCheck';
-import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
+import { ANSWER_DIFF_VERDICT, ANSWER_DIFF_YOUR_ANSWER, ANSWER_DIFF_YOU_SAID } from '@shared/cards/answer-diff';
+import { AnswerDiff } from './AnswerDiff';
 import '../lessons/AnswerCheckCard.css';
 import './HardModeFeedback.css';
 import { takeTap } from '../../services/takeLock';
@@ -63,7 +63,16 @@ export interface HardModeFeedbackProps {
    * (practice only, the card stays a miss; `HardModeReadAgain`). Omitted = no 🎤.
    */
   readAgain?: HardModeReadAgainProps;
+  /**
+   * The answer is already on screen (the read card shows its hanzi): a miss shows his take against it at once —
+   * one line + the diff (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"). Off on the typing cards,
+   * where the diff would give the answer away before 🔁 Try again.
+   */
+  diffOnQuestion?: boolean;
 }
+
+/** Claude's verdict as the slim line's chip ("≈ Almost · Tone off on 都"). */
+const checkVerdict = (check: AnswerCheck | null | undefined) => (check ? ANSWER_DIFF_VERDICT[check.verdict] : null);
 
 /**
  * Hard mode's check of the question's own answer, on the question (docs/STUDY_SESSION.md "Hard mode"):
@@ -71,7 +80,7 @@ export interface HardModeFeedbackProps {
  * characters: then it holds with "You said" vs the card, `difference`); ✗ Not quite / ≈ Nearly →
  * 🔁 Try again, or 👁 Show answer (a miss: Again or Hard). Nothing here gives the answer away.
  */
-export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, speak, sentenceView, onMoveOn, moveOnLabel, readAgain }: HardModeFeedbackProps) {
+export function HardModeFeedback({ result, said, spoken, roundFollows, difference, answer, onPlayAnswer, onTryAgain, onShowAnswer, onNext, check, checkingLabel, onTypeInstead, sentenceView, onMoveOn, moveOnLabel, readAgain, diffOnQuestion }: HardModeFeedbackProps) {
   // The check's result you can FEEL (Jerome: "when I get it right on the very first page there's no
   // satisfying haptics … I find myself quite dependent on it"): ✓ Right = a firm double buzz + chime,
   // ✗ / ≈ a short one; checking / unknown / revealed none. Once per result (a Try again remounts it).
@@ -86,7 +95,20 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
     return (
       <div className="hard-feedback hard-feedback--revealed" data-testid="hard-feedback" data-result="revealed" aria-live="polite">
         <p className="hard-feedback-title">{HARD_MODE_REVEALED_TITLE}</p>
-        {answer && (
+        {answer && said ? (
+          // He answered first: the answer once, his answer lined up with it, one line on top.
+          <div data-testid="hard-revealed-answer" onClick={(e) => e.stopPropagation()}>
+            <AnswerDiff
+              said={said}
+              expected={answer.hanzi}
+              expectedPinyin={answer.pinyin}
+              expectedEnglish={answer.english}
+              onPlayExpected={onPlayAnswer}
+              playTestId="hard-revealed-play"
+              saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
+            />
+          </div>
+        ) : answer ? (
           <div className="hard-feedback-answer" data-testid="hard-revealed-answer">
             <p className="hard-feedback-answer-zh" lang="zh-CN">
               {answer.hanzi}
@@ -97,8 +119,7 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
             {answer.pinyin && <p className="hard-feedback-answer-pinyin">{answer.pinyin}</p>}
             <p className="hard-feedback-answer-en">{answer.english}</p>
           </div>
-        )}
-        {saidLine}
+        ) : saidLine}
         {readAgain && hardModeReadAgainOffered(readAgain.hanzi) && <HardModeReadAgain {...readAgain} />}
         <FeedbackRow>
           <button type="button" className="btn btn-primary hard-feedback-main" onClick={stop(onNext)} data-testid="hard-continue" autoFocus>
@@ -126,7 +147,6 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
         onMoveOn={onMoveOn ?? onShowAnswer}
         onNext={onNext}
         onTypeInstead={onTypeInstead}
-        speak={speak}
         readAgain={readAgain}
       />
     );
@@ -143,22 +163,30 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
       </div>
     );
   }
-  // Claude checked a sentence answer: its card IS the verdict (chip + headline), then the fix, tips and alternative.
-  const checkBody = (afterHead?: React.ReactNode) => check && said ? (
-    <div className="hard-feedback-check" data-testid="hard-sentence-check" onClick={(e) => e.stopPropagation()}>
-      <AnswerCheckBody check={check} answer={said} speak={speak} afterHead={afterHead} />
-    </div>
-  ) : null;
+  // The slim diff (one line + his answer marked) wherever the answer may be seen: a right answer written
+  // differently (vs the card), a miss on the read card (the hanzi is the question), or one Claude checked.
+  const verdict = checkVerdict(check);
   if (result === 'right') {
-    const compare = difference ? (
-      <DifferenceCompare said={difference.said} model={difference.model} modelPinyin={difference.modelPinyin} accepted modelLabel={DIFFERENCE_CARD} />
+    const held = difference ? (
+      <AnswerDiff
+        said={difference.said}
+        expected={difference.model}
+        expectedPinyin={difference.modelPinyin}
+        expectedLabel={DIFFERENCE_CARD}
+        accepted
+        verdict={verdict}
+        saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
+        expectedTestId="difference-model"
+        saidTestId="difference-said"
+        testId="difference-compare"
+      />
     ) : null;
     return (
       <div className="hard-feedback hard-feedback--right" data-testid="hard-feedback" data-result="right" data-held={difference ? 'true' : undefined} aria-live="polite">
-        {check && said ? checkBody(compare) : (
+        {held ?? (
           <>
-            <p className="hard-feedback-title">{difference ? DIFFERENCE_TITLE[difference.reason] : HARD_MODE_RESULT.right}</p>
-            {compare ?? saidLine}
+            <p className="hard-feedback-title">{HARD_MODE_RESULT.right}</p>
+            {saidLine}
           </>
         )}
         <FeedbackRow>
@@ -186,12 +214,17 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
   }
   return (
     <div className={`hard-feedback hard-feedback--${result}`} data-testid="hard-feedback" data-result={result} aria-live="polite">
-      {check && said ? (
-        <>
-          {/* His own words once: the red-pen fix shows them when there is one. */}
-          {!check.corrected && saidLine}
-          {checkBody()}
-        </>
+      {said && answer && (diffOnQuestion || check) ? (
+        <div className="hard-feedback-check" data-testid={check ? 'hard-sentence-check' : 'hard-said-diff'} onClick={(e) => e.stopPropagation()}>
+          <AnswerDiff
+            said={said}
+            expected={answer.hanzi}
+            showExpected={false}
+            headline={check?.headline}
+            verdict={verdict ?? ANSWER_DIFF_VERDICT[result]}
+            saidLabel={spoken ? ANSWER_DIFF_YOU_SAID : ANSWER_DIFF_YOUR_ANSWER}
+          />
+        </div>
       ) : (
         <>
           <p className="hard-feedback-title">{HARD_MODE_RESULT[result]}</p>
@@ -219,12 +252,13 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
 /**
  * A sentence answer Claude checks (shared/study/sentenceAnswerCheck.ts `sentenceCheckView`; docs/STUDY_SESSION.md
  * "Sentence answers checked by Claude"): the card's answer first — hanzi big with ▶, pinyin, English — and
- * "You said" against it, character by character, AT ONCE; Claude's verdict loads in under them (a slim
- * "Checking your sentence…" row, then its chip, headline and tips), and its fix of his own wording is at most a
- * small labelled line. 🎤 Read it again (#722) sits under "You said" until Claude says it was right — practice only.
- * Offline / failed: the device's verdict under the same answer + diff.
+ * "You said" against it, character by character, AT ONCE, under ONE line that says what differs; Claude's verdict
+ * loads in below as a slim "Checking your sentence…" row, then becomes that line's chip ("≈ Almost · 1 wrong
+ * character") — never its tips, explanations or a fix of his wording (docs/STUDY_SESSION.md "Answer feedback: one
+ * line and a diff"). 🎤 Read it again (#722) sits under "You said" until Claude says it was right — practice only.
+ * Offline / failed: the device's verdict on the same line.
  */
-function SentenceAnswerFirst({ result, view, answer, said, difference, check, checkingLabel, roundFollows, moveOnLabel, onPlayAnswer, onTryAgain, onMoveOn, onNext, onTypeInstead, speak, readAgain }: {
+function SentenceAnswerFirst({ result, view, answer, said, difference, check, checkingLabel, roundFollows, moveOnLabel, onPlayAnswer, onTryAgain, onMoveOn, onNext, onTypeInstead, readAgain }: {
   result: HardModeQuestionResult;
   view: SentenceCheckView;
   answer: { hanzi: string; pinyin: string | null; english: string };
@@ -239,7 +273,6 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
   onMoveOn: () => void;
   onNext: () => void;
   onTypeInstead?: () => void;
-  speak?: (text: string) => void;
   /** 🎤 Read it again under the answer (`view.readAgain`): practice only, the card stays a miss. */
   readAgain?: HardModeReadAgainProps;
 }) {
@@ -256,39 +289,32 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
       aria-live="polite"
     >
       <div className="hard-feedback-check" onClick={(e) => e.stopPropagation()}>
-        <DifferenceCompare
+        <AnswerDiff
           said={said}
-          model={answer.hanzi}
-          modelPinyin={answer.pinyin}
-          accepted={view.accepted}
-          modelLabel={SENTENCE_CHECK_ANSWER}
-          onPlayModel={onPlayAnswer}
-          answerFirst={{ english: answer.english }}
-        />
-        {/* Right under "You said", so the verdict landing below never moves it. */}
-        {readAgain && view.readAgain && <HardModeReadAgain {...readAgain} />}
+          expected={answer.hanzi}
+          expectedPinyin={answer.pinyin}
+          expectedEnglish={answer.english}
+          expectedLabel={SENTENCE_CHECK_ANSWER}
+          onPlayExpected={onPlayAnswer}
+          accepted={view.accepted || (!check && result === 'right' && !!difference)}
+          headline={check?.headline}
+          verdict={view.checking ? null : checkVerdict(check) ?? (result === 'right' || result === 'close' || result === 'wrong' ? ANSWER_DIFF_VERDICT[result] : null)}
+          expectedTestId="difference-model"
+          saidTestId="difference-said"
+          playTestId="difference-play-model"
+        >
+          {/* Right under "You said", so the verdict landing below never moves it. */}
+          {readAgain && view.readAgain && <HardModeReadAgain {...readAgain} />}
+        </AnswerDiff>
         {view.checking ? (
           <div className="answer-check checking hard-feedback-checking-row" role="status" data-testid="hard-sentence-checking">
             <span className="answer-check-dot" aria-hidden="true" /> {checkingLabel}
           </div>
         ) : check ? (
-          <div data-testid="hard-sentence-check">
-            <AnswerCheckBody check={check} answer={said} speak={speak} hideFix />
-            {view.corrected && (
-              <p className="hard-feedback-your-fix" data-testid="hard-sentence-your-fix">
-                <span className="hard-feedback-your-fix-label">{SENTENCE_CHECK_YOUR_FIX}</span>{' '}
-                <span lang="zh-CN">{view.corrected}</span>
-                {speak && (
-                  <button type="button" className="answer-check-icon" onClick={stop(() => speak(view.corrected!))} aria-label="Play your wording, fixed">🔊</button>
-                )}
-              </p>
-            )}
-          </div>
-        ) : (
-          <p className="hard-feedback-title hard-feedback-verdict-line">
-            {result === 'unknown' ? HARD_MODE_UNKNOWN : result === 'right' && difference ? DIFFERENCE_TITLE[difference] : HARD_MODE_RESULT[result as 'right' | 'close' | 'wrong']}
-          </p>
-        )}
+          <div hidden data-testid="hard-sentence-check"><span data-testid="answer-check" data-verdict={check.verdict} /></div>
+        ) : result === 'unknown' ? (
+          <p className="hard-feedback-note">{HARD_MODE_UNKNOWN}</p>
+        ) : null}
       </div>
       <FeedbackRow>
         {result === 'right' ? (

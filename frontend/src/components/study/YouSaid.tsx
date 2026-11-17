@@ -26,7 +26,10 @@ import { compareTranscription } from '@shared/recordings/transcript';
 import type { AnswerVerdict } from '@shared/cards/answer';
 import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck';
+import { answerDiff, answerDiffLabel, answerDiffLine } from '@shared/cards/answer-diff';
+import { AnswerDiffChars } from './AnswerDiff';
 import './YouSaid.css';
+import './AnswerDiff.css';
 
 export type YouSaidState = 'match' | 'contains' | 'close' | 'miss';
 
@@ -58,6 +61,12 @@ export interface YouSaidProps {
   checking?: boolean;
   /** Claude's verdict on such a take: the chip (✓ Right / ≈ Close / ✗ Didn't match) and its one-line reason (+ tip). */
   claude?: { state: 'match' | 'close' | 'miss'; reason: string; tip?: string | null } | null;
+  /**
+   * The card's hanzi: a take that isn't a match shows the slim answer diff (docs/STUDY_SESSION.md "Answer feedback:
+   * one line and a diff") — what was said marked against it, and ONE line that says what differs (never Claude's
+   * tip; its reason only when the take is too different for a count).
+   */
+  expected?: string;
 }
 
 /** The pinyin line under the hanzi: no space before punctuation ("zhōng guó 。" → "zhōng guó。"). Lab: `tidyYouSaidPinyin`. */
@@ -131,9 +140,11 @@ function RoundButton({ icon, label, onClick, testId }: { icon: string; label: st
   );
 }
 
-export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay, checking = false, claude = null }: YouSaidProps) {
+export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = false, onCoach, onPlay, checking = false, claude = null, expected }: YouSaidProps) {
   const device: YouSaidState = isMatch ? 'match' : containsExpected ? 'contains' : tonesOff ? 'close' : 'miss';
   const state: YouSaidState = claude ? claude.state : device;
+  const diff = expected && hanzi && (state === 'close' || state === 'miss') ? answerDiff(hanzi, expected) : null;
+  const diffLine = diff && !diff.empty ? answerDiffLine({ diff, accepted: claude?.state === 'match', headline: claude?.reason }) : null;
   const coach = state === 'contains' && onCoach;
   const waiting = checking && !claude;
   return (
@@ -157,13 +168,22 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           </span>
         )}
       </div>
-      <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi">{hanzi || '…'}</div>
-      {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
-      {claude && claude.reason && (
-        <div className="you-said-reason" data-testid="you-said-reason">
-          <span lang="zh-CN">{claude.reason}</span>
-          {claude.tip && <span className="you-said-tip" data-testid="you-said-tip">{claude.tip}</span>}
-        </div>
+      {diff && diffLine ? (
+        <>
+          <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi" aria-label={answerDiffLabel(diff, diffLine, 'You said')}>
+            <AnswerDiffChars parts={diff.parts} testId="you-said-diff" />
+          </div>
+          {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
+          <div className="you-said-reason" data-testid="you-said-reason">{diffLine}</div>
+        </>
+      ) : (
+        <>
+          <div className="you-said-hanzi" lang="zh-CN" data-testid="you-said-hanzi">{hanzi || '…'}</div>
+          {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
+          {claude && claude.reason && (
+            <div className="you-said-reason" data-testid="you-said-reason"><span lang="zh-CN">{claude.reason}</span></div>
+          )}
+        </>
       )}
     </Shell>
   );

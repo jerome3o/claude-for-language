@@ -8,7 +8,7 @@ package dev.jeromeswannack.chineselearning.lab.core
  */
 object AnswerKey {
     /** JS `\s` / String.prototype.trim whitespace (WhiteSpace + LineTerminator). */
-    private const val JS_WS = "\\t\\n\\u000B\\f\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF"
+    const val JS_WS = "\\t\\n\\u000B\\f\\r \\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF"
     private val TRIM = Regex("^[$JS_WS]+|[$JS_WS]+$")
     private const val W = "A-Za-z0-9_"
     private const val B_START = "(?<![$W])"

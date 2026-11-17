@@ -61,6 +61,7 @@ async function mount(said: string, checker: (input: AnswerCheckInput) => Promise
           tonesOff={!!raw.tonesOff}
           checking={rc.checking}
           claude={rc.claude}
+          expected={CARD}
         />
       </div>
     );
@@ -77,7 +78,9 @@ describe('a read card\'s take checked by Claude', () => {
     expect(q('you-said-verdict')!.textContent).toContain('Checking…');
     expect(host.textContent).not.toContain('Didn’t match');
     expect(q('card')!.dataset.question).toBe('checking');
+    // The slim diff against the card: 语 for 文 marked, the card's own punctuation.
     expect(q('you-said-hanzi')!.textContent).toBe('我越学中文，越觉得英语很繁琐。');
+    expect(q('you-said-hanzi')!.querySelector('[data-kind="wrong"]')!.textContent).toBe('语');
     expect(q('you-said-pinyin')!.textContent).not.toContain('"');
     expect(checker).toHaveBeenCalledTimes(1);
     expect(checker.mock.calls[0][0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文，越觉得英语很繁琐。', prompt_en: ENGLISH });
@@ -85,7 +88,8 @@ describe('a read card\'s take checked by Claude', () => {
     expect(q('you-said')!.dataset.state).toBe('close');
     expect(q('you-said-verdict')!.textContent).toBe('Close');
     expect(q('you-said-verdict')!.dataset.icon).toBe('approx');
-    expect(q('you-said-reason')!.textContent).toContain('You said 英语 — the card has 英文 (same meaning).');
+    // ONE short line from the diff — not Claude's explanation.
+    expect(q('you-said-reason')!.textContent).toBe('语 instead of 文');
     expect(q('card')!.dataset.question).toBe('close');
     expect(track).toHaveBeenCalledWith('study.read_take_check', expect.objectContaining({ verdict: 'almost', input: 'spoken', card_type: 'hanzi_to_meaning', where: 'session' }));
   });
@@ -100,13 +104,13 @@ describe('a read card\'s take checked by Claude', () => {
     expect(q('card')!.dataset.question).toBe('right');
   });
 
-  it('wrong → ✗ Didn\'t match with Claude\'s reason and tip', async () => {
+  it('wrong → ✗ Didn\'t match with ONE line (Claude\'s first sentence when the take is far off), never the tip', async () => {
     const checker = vi.fn(async () => ({ check: { ...CLOSE, verdict: 'wrong' as const, headline: 'That isn’t what the card says.', tips: [{ text: 'Read 繁琐 again slowly.' }] }, cached: false }));
     await mount('我今天不想去学校。', checker);
     expect(q('you-said')!.dataset.state).toBe('miss');
     expect(q('you-said-verdict')!.textContent).toBe('Didn’t match');
     expect(q('you-said-reason')!.textContent).toContain('That isn’t what the card says.');
-    expect(q('you-said-tip')!.textContent).toBe('Read 繁琐 again slowly.');
+    expect(q('you-said-tip')).toBeNull();
     expect(q('card')!.dataset.question).toBe('wrong');
   });
 
@@ -115,6 +119,7 @@ describe('a read card\'s take checked by Claude', () => {
     await mount('我越学中文，越觉得英语很"繁琐"。', checker, false);
     expect(checker).not.toHaveBeenCalled();
     expect(q('you-said')!.dataset.state).toBe('miss');
-    expect(q('you-said-reason')).toBeNull();
+    // The device's own one line (no Claude): what differs.
+    expect(q('you-said-reason')!.textContent).toBe('语 instead of 文');
   });
 });

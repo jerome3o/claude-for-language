@@ -19,6 +19,7 @@
 import type { ReactNode } from 'react';
 import { CLAUDE_CHECKING_LINE } from '@shared/lesson/feedback';
 import { answerCheckChip, cleanerVersion, correctedDisplay, speakingPartMark, tipSegments, wordsPinyinLine, type AnswerCheck } from '@shared/lesson/answerCheck';
+import { firstSentence } from '@shared/cards/answer-diff';
 import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { CorrectionDiffLine } from '../chat/ChatCorrection';
@@ -45,7 +46,7 @@ export function AnswerCheckCard({ state, answer, speak, onRetry, onAsk, askLabel
   return <AnswerCheckBody check={state.check} answer={answer} speak={speak} onRetry={onRetry} onAsk={onAsk} askLabel={askLabel} />;
 }
 
-export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel, compact, afterHead, hideFix }: {
+export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel, compact, afterHead, hideFix, detail = false }: {
   check: AnswerCheck;
   answer: string;
   speak?: (text: string) => void;
@@ -61,8 +62,46 @@ export function AnswerCheckBody({ check, answer, speak, onRetry, onAsk, askLabel
    * the fix is at most a small labelled line there — shared/study/sentenceAnswerCheck.ts `sentenceCheckView`).
    */
   hideFix?: boolean;
+  /**
+   * The whole check — tips, the red-pen fix, the alternative, each part's note (the attempt review, a record the
+   * tutor reads). Off everywhere he answers (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): the
+   * verdict chip and ONE line — the headline's first sentence —, a speaking check's parts as marks only, and the
+   * actions (🔁 Try again, 💬 Ask Claude for the why). The diff of his answer is the exercise's own, above.
+   */
+  detail?: boolean;
 }) {
   const chip = answerCheckChip(check.verdict, !!check.cleaned);
+  if (!detail) {
+    return (
+      <div className={`answer-check slim ${chip.tone}${compact ? ' compact' : ''}`} data-testid="answer-check" data-verdict={check.verdict}>
+        <div className="answer-check-head">
+          <span className={`answer-check-chip ${chip.tone}`}>{chip.label}</span>
+          <span className="answer-check-headline" data-testid="answer-check-headline">{firstSentence(check.headline)}</span>
+        </div>
+        {afterHead}
+        {check.parts && check.parts.length > 0 && (
+          <ul className="answer-check-parts slim" data-testid="answer-check-parts">
+            {check.parts.map((p, i) => {
+              const mark = speakingPartMark(p.status);
+              return (
+                <li key={i} className={`answer-check-part ${mark.tone}`} data-status={p.status}>
+                  <span className={`answer-check-part-mark ${mark.tone}`} aria-hidden="true">{mark.icon}</span>
+                  <span className="answer-check-part-label" lang="zh-CN">{p.label}</span>
+                  {p.status === 'missing' && <span className="answer-check-part-missing"> missing</span>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {(onRetry || onAsk) && (
+          <div className="answer-check-actions">
+            {onRetry && <button type="button" className="answer-check-action" onClick={onRetry} data-testid="answer-check-retry">🔁 Try again</button>}
+            {onAsk && <button type="button" className="answer-check-action" onClick={onAsk} data-testid="answer-check-ask">{askLabel ?? '💬 Ask about this'}</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={`answer-check ${chip.tone}${compact ? ' compact' : ''}`} data-testid="answer-check" data-verdict={check.verdict}>
       <div className="answer-check-head">

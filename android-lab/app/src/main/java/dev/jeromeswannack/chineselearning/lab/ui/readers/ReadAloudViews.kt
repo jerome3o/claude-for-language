@@ -1,5 +1,7 @@
 package dev.jeromeswannack.chineselearning.lab.ui.readers
 
+import dev.jeromeswannack.chineselearning.lab.core.AnswerDiff
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -375,8 +377,9 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
     var open by remember(result) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag(ReadAloudTags.RESULT)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // Small and muted: the icon (✓ ≈ ✕) and the words carry it, never a red / green colour.
-            Text(ReadAloud.line(result), color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.LINE))
+            // Small and muted: the icon (✓ ≈ ✕) and the words carry it, never a red / green colour. ONE line that says what
+            // differs ("≈ 85% — Tone off on 徐"; core AnswerDiff.readingLine, docs/STUDY_SESSION.md "Answer feedback").
+            Text(AnswerDiff.readingLine(result), color = Lab.colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.testTag(ReadAloudTags.LINE))
             Text(
                 "${ReadAloud.YOU_SAID} ${if (open) "▾" else "▸"}",
                 color = Lab.colors.muted,
@@ -392,7 +395,7 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
         val differences: @Composable () -> Unit = {
             ReadAloudDifferences(diffs, diffEnv.onSpeak, diffEnv.pageText.ifEmpty { result.chars.joinToString("") { it.char } })
         }
-        if (!diffEnv.pageHidden) differences()
+        // The per-word rows wait behind "You said ▸" (collapsed): the marked page IS the diff.
         if (open) {
             // The transcript with what differs marked like the page (a homophone unmarked; extra words solid).
             val heard = result.heard
@@ -404,8 +407,7 @@ private fun ReadAloudResultLine(result: ReadAloud.Result, said: String, diffEnv:
                 modifier = Modifier.padding(top = 10.dp).testTag(ReadAloudTags.SAID),
             )
             else Text(said, color = Lab.colors.muted, fontSize = 15.sp, modifier = Modifier.padding(top = 2.dp).testTag(ReadAloudTags.SAID))
-            // The page hidden: the rows (which print it) only behind "You said ▸".
-            if (diffEnv.pageHidden) differences()
+            differences()
         }
     }
 }
@@ -481,7 +483,6 @@ fun ReadAloudDifferences(diffs: List<ReadAloud.Difference>, onSpeak: ((String) -
                         ) { Text("▶", color = colors.ink, fontSize = 14.sp) }
                     }
                 }
-                for (r in d.reasons) Text(r, color = colors.ink, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 3.dp))
             }
         }
         if (!showAll && diffs.size > DIFFS_SHOWN) {

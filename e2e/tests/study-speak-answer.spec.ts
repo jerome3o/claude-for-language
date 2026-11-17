@@ -224,7 +224,7 @@ test('say the answer: live text, then the review (no keyboard), Submit — a hom
   await expect(said).toHaveAttribute('data-state', 'sound');
   await expect(said.getByTestId('spoken-result-hanzi')).toHaveText('油');
   await expect(said.getByTestId('spoken-result-pinyin')).toHaveText('yóu');
-  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Sounded right — written differently');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Sounded right — written 油');
   await expect(said.locator('[data-mark="differs"]')).toHaveText('油');
   await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 油 (yóu). Sounded right — written differently (油); the card writes 由.');
   // Nothing said twice: no diff, no second copy of the answer.
@@ -281,10 +281,10 @@ test('Jerome\'s 狼 said 朗 (tones off): the answer once with its pinyin and me
   await expect(answer).toHaveAttribute('data-verdict', 'close');
   const said = page.getByTestId('spoken-result');
   await expect(said).toHaveAttribute('data-state', 'close');
-  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Close — tones off');
+  await expect(said.getByTestId('spoken-result-chip')).toHaveText('Tone off on 狼');
   await expect(said.getByTestId('spoken-result-chip')).toHaveAttribute('data-icon', 'approx');
-  await expect(said.locator('[data-mark="wrong"]')).toHaveText('朗');
-  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.');
+  await expect(said.locator('[data-mark="tone"]')).toHaveText('朗');
+  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 朗 (lǎng). Close. Tone off on 狼.');
   // Said once, the answer once, the card's pinyin straight under the answer: no diff, no ↓, no pill.
   await expect(back.locator('.answer-diff, .answer-diff-arrow, .you-said')).toHaveCount(0);
   await expect(back.getByText('朗', { exact: true })).toHaveCount(1);
@@ -557,7 +557,7 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   await page.getByTestId('rerecord-stop').click();
   await page.getByTestId('spoken-review-submit').click();
   await expect(page.getByTestId('practice-you-said')).toHaveAttribute('data-state', 'close', { timeout: 8000 });
-  await expect(page.getByTestId('practice-you-said').locator('[data-mark="wrong"]')).toHaveText('有');
+  await expect(page.getByTestId('practice-you-said').locator('[data-mark="tone"]')).toHaveText('有');
   await expect(page.locator('.answer-diff')).toHaveCount(0);
 
   // He rates himself as usual: no answer on the review, the practice take kept as its recording.

@@ -137,11 +137,12 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         assertEquals(note.english, asked[0].promptEn)
         first.complete(AnswerCheckResult(almost, cached = false))
         compose.mainClock.advanceTimeBy(800)
-        // ≈ Nearly on the question: the check, the fix, the tips, the alternative; never the card's back.
+        // ≈ Nearly on the question, slim: Claude's verdict as the one line's chip + what differs — no tips, no
+        // alternative, no explanation (docs/STUDY_SESSION.md "Answer feedback: one line and a diff").
         compose.onNodeWithTag(HardModeTags.SENTENCE_CHECK, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("~ Almost", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(almost.headline, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("Also natural: ", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Almost", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(AnswerDiffTags.LINE, useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Also natural: ", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText(SentenceAnswerCheck.MOVE_ON_NOTE, useUnmergedTree = true).assertExists()
         // The card's answer stays THE answer; Claude's fix (the card's sentence again) isn't shown as a second answer.
         compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
@@ -163,14 +164,14 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         assertEquals(2, asked.size)
         assertEquals("我早上喝咖啡是为了工作不困。", asked[1].answer)
         assertEquals("typed", asked[1].input)
-        compose.onNodeWithText("✓ Correct", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Correct", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(HardModeTags.NEXT, useUnmergedTree = true).assertExists()
         assertEquals(0, count(HardModeTags.TRY_AGAIN))
     }
 
     @Test fun acceptableCountsAsRightAndGotItIsSuggested() {
         card { AnswerCheckResult(acceptable, cached = true) }
-        compose.onNodeWithText("✓ Also right", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Also right", useUnmergedTree = true).assertExists()
         // Right per Claude: no reading-again practice.
         assertEquals(0, count(ReadAgainTags.BLOCK))
         // Held (right but other words): You said vs the card, then Next — never Try again, never a give-up.
@@ -196,7 +197,7 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
     @Test fun noCheckToBeHadIsTheDevicesVerdict() {
         val fail: suspend (AnswerCheckInput) -> AnswerCheckResult = { throw AnswerCheckUnavailable("HTTP 502") }
         card(reply = fail)
-        compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Not quite", useUnmergedTree = true).assertExists()
         // The answer and the diff stay.
         compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
@@ -204,11 +205,11 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
         assertEquals(0, count(HardModeTags.TYPE_INSTEAD))
     }
 
-    @Test fun aFixOfHisOwnWordingIsASmallLabelledLine() {
+    @Test fun aFixOfHisOwnWordingIsNeverShown() {
         val fix = "我早上喝咖啡，所以上班不困。"
         card { AnswerCheckResult(almost.copy(corrected = fix), cached = false) }
-        compose.onNodeWithTag(HardModeTags.SENTENCE_YOUR_FIX, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(SentenceAnswerCheck.YOUR_FIX, useUnmergedTree = true).assertExists()
+        assertEquals(0, count(HardModeTags.SENTENCE_YOUR_FIX))
+        compose.onNodeWithText(SentenceAnswerCheck.YOUR_FIX, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag(DifferenceTags.MODEL, useUnmergedTree = true).assertExists()
     }
 
@@ -223,7 +224,7 @@ class SentenceAnswerCheckUiTest : LabScreenshotTest() {
 
     @Test fun offlineNeverAsks() {
         card(online = false) { AnswerCheckResult(almost, cached = false) }
-        compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Not quite", useUnmergedTree = true).assertExists()
         assertEquals(0, asked.size)
     }
 

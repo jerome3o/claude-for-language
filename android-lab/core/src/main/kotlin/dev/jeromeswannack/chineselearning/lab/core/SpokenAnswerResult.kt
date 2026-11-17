@@ -12,7 +12,7 @@ import java.util.Locale
  */
 object SpokenAnswerResult {
     enum class State { MATCH, SOUND, CONTAINS, CLOSE, WRONG }
-    enum class Mark { RIGHT, DIFFERS, WRONG, PLAIN }
+    enum class Mark { RIGHT, DIFFERS, WRONG, PLAIN, TONE, EXTRA, MISSING }
 
     data class Cell(val char: String, val mark: Mark)
 
@@ -100,15 +100,41 @@ object SpokenAnswerResult {
         }
     }
 
-    /** Everything the "You said" row shows for a spoken answer with this verdict (`spokenResult`). */
+    /** An answer-diff part's kind → the row's mark (`DIFF_MARK`). */
+    private fun diffMark(kind: String): Mark = when (kind) {
+        "ok" -> Mark.RIGHT
+        "sound" -> Mark.DIFFERS
+        "tone" -> Mark.TONE
+        "wrong" -> Mark.WRONG
+        "extra" -> Mark.EXTRA
+        "missing" -> Mark.MISSING
+        else -> Mark.PLAIN
+    }
+
+    /**
+     * Everything the "You said" row shows for a spoken answer with this verdict (`spokenResult`): close / didn't
+     * match (and a "sounded right" the diff agrees with) are the slim answer diff ([AnswerDiff]) — its marks and
+     * its one sentence as the chip.
+     */
     fun of(transcript: String, correct: String, verdict: AnswerKey.Verdict): Result {
         val s = state(verdict)
-        return Result(s, AnswerKey.isAccepted(verdict), chip(s), icon(s), s != State.MATCH, marks(transcript, correct, s))
+        var chip = chip(s)
+        var chars = marks(transcript, correct, s)
+        if (s == State.CLOSE || s == State.WRONG || s == State.SOUND) {
+            val diff = AnswerDiff.of(transcript, correct)
+            if (!diff.empty && (s != State.SOUND || diff.right)) {
+                chip = AnswerDiff.summary(diff)
+                chars = diff.parts.flatMap { p ->
+                    p.text.codePoints().toArray().map { Cell(String(Character.toChars(it)), diffMark(p.kind)) }
+                }
+            }
+        }
+        return Result(s, AnswerKey.isAccepted(verdict), chip, icon(s), s != State.MATCH, chars)
     }
 
     /** The whole row as one sentence for a screen reader (`spokenResultLabel`). */
     fun label(result: Result, correct: String, pinyin: String = ""): String {
-        val said = result.chars.joinToString("") { it.char }.ifEmpty { "…" }
+        val said = result.chars.filter { it.mark != Mark.MISSING }.joinToString("") { it.char }.ifEmpty { "…" }
         val py = AnswerKey.jsTrim(pinyin)
         val head = "You said $said${if (py.isNotEmpty()) " ($py)" else ""}."
         fun marked(m: Mark) = result.chars.filter { it.mark == m }.joinToString("") { it.char }
@@ -121,9 +147,8 @@ object SpokenAnswerResult {
                 "$head Sounded right — written differently${if (differs.isNotEmpty()) " ($differs)" else ""}; the card writes $answer."
             }
             State.CLOSE, State.WRONG -> {
-                val wrong = marked(Mark.WRONG)
-                val verdict = if (result.state == State.CLOSE) "Close — the tones are off." else "Didn’t match."
-                "$head $verdict${if (wrong.isNotEmpty()) " Not in the answer: $wrong." else ""}"
+                val verdict = if (result.state == State.CLOSE) "Close." else "Didn’t match."
+                "$head $verdict${if (result.chip != chip(result.state)) " ${result.chip}." else ""}"
             }
         }
     }

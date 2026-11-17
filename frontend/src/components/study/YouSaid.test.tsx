@@ -140,22 +140,22 @@ describe('YouSaidRow', () => {
     const el = render(<YouSaidRow transcript="友" correct="有" verdict="sound" onCoach={() => {}} />);
     expect(q(el, 'spoken-result')!.dataset.state).toBe('sound');
     expect(q(el, 'spoken-result')!.className).toContain('spoken-result--sound');
-    expect(chip(el).textContent).toBe('Sounded right — written differently');
+    expect(chip(el).textContent).toBe('Sounded right — written 友');
     expect(chip(el).dataset.icon).toBe('check');
     expect(marks(el)).toEqual(['友:differs']);
     expect(el.querySelector('.spoken-mark--differs')).not.toBeNull();
   });
 
-  it('close (Jerome’s 狼 said 朗): ≈ Close — tones off, 朗 marked wrong, ✎ Open in Coach', () => {
+  it('close (Jerome’s 狼 said 朗): ≈ one short line, 朗 marked tone off, ✎ Open in Coach', () => {
     const coach = vi.fn();
     const el = render(<YouSaidRow transcript="朗" correct="狼" verdict="close" onPlay={() => {}} onCoach={coach} />);
     expect(q(el, 'spoken-result')!.dataset.state).toBe('close');
-    expect(chip(el).textContent).toBe('Close — tones off');
+    expect(chip(el).textContent).toBe('Tone off on 狼');
     expect(chip(el).dataset.icon).toBe('approx');
     expect(chip(el).querySelector('svg')).not.toBeNull();
-    expect(marks(el)).toEqual(['朗:wrong']);
+    expect(marks(el)).toEqual(['朗:tone']);
     expect(q(el, 'spoken-result-pinyin')!.textContent).toBe('lǎng');
-    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.');
+    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 朗 (lǎng). Close. Tone off on 狼.');
     // Said once: the transcript appears in exactly one visible place.
     expect(q(el, 'spoken-result-hanzi')!.textContent).toBe('朗');
     const btn = q(el, 'you-said-coach')!;
@@ -165,12 +165,15 @@ describe('YouSaidRow', () => {
     expect(el.querySelectorAll('.spoken-result-side')).toHaveLength(0);
   });
 
-  it('didn’t match: ✕, only the characters not in the answer marked; punctuation plain', () => {
+  it('didn’t match: ✕, the slim diff — wrong red, extra in a solid box, missing in a slot — and one short line', () => {
     const el = render(<YouSaidRow transcript="我很好。" correct="你好" verdict="wrong" />);
     expect(q(el, 'spoken-result')!.dataset.state).toBe('wrong');
-    expect(chip(el).textContent).toBe('Didn’t match');
+    expect(chip(el).textContent).toBe('1 wrong character, 1 extra');
     expect(chip(el).dataset.icon).toBe('close');
-    expect(marks(el)).toEqual(['我:wrong', '很:wrong', '好:right', '。:plain']);
+    expect(marks(el)).toEqual(['我:wrong', '很:extra', '好:right']);
+    const missing = render(<YouSaidRow transcript="我明天去北" correct="我明天去北京" verdict="wrong" />);
+    expect(chip(missing).textContent).toBe('Missing 京 at the end');
+    expect(missing.querySelector('.spoken-mark--missing')?.textContent).toBe('京');
     expect(q(el, 'you-said-play')).toBeNull();
   });
 
@@ -185,6 +188,6 @@ describe('YouSaidRow', () => {
     const el = render(<YouSaidRow transcript="猫" correct="狼" verdict="wrong" />);
     expect(el.querySelector('.spoken-result-said')!.getAttribute('aria-hidden')).toBe('true');
     expect(chip(el).getAttribute('aria-hidden')).toBe('true');
-    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 猫 (māo). Didn’t match. Not in the answer: 猫.');
+    expect(q(el, 'spoken-result-label')!.textContent).toBe('You said 猫 (māo). Didn’t match. 猫 instead of 狼.');
   });
 });
