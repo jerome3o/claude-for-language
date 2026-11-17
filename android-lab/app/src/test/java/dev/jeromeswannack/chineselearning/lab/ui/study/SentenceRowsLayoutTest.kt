@@ -132,13 +132,13 @@ class SentenceRowsLayoutTest : LabScreenshotTest() {
         compose.onRoot().captureRoboImage("screenshots/study-e02-sentences-expanded-dark-1.3.png")
         scrollToEnd()
         compose.onRoot().captureRoboImage("screenshots/study-e03-sentences-expanded-end-dark-1.3.png")
-        // Row 1 is the note's own sentence, badged as such by a tab on the row's top edge above the text —
-        // never where the English goes (it used to sit under the hanzi where the English belonged).
+        // Row 1 is the note's own sentence, labelled as such by a small inline "From the card" in the quiet line UNDER
+        // its text (no tab on a border) — never between the hanzi and the English.
         val clue = node(note.sentenceClue!!)
         val badge = node("From the card")
         val english = node(note.sentenceClueTranslation!!)
         val firstSet = node(set[0].hanzi)
-        assertTrue(badge.bottom() <= clue.top() && clue.bottom() <= english.top() && english.bottom() <= firstSet.top())
+        assertTrue(clue.bottom() <= english.top() && english.bottom() <= badge.top() && badge.bottom() <= firstSet.top())
         assertStacked(1, note.sentenceClue!!)
         assertTrue(node(set.last().hanzi).bottom() < node("+ 5 more sentences").top())
     }
@@ -183,7 +183,7 @@ class SentenceRowsLayoutTest : LabScreenshotTest() {
             "Tap to reveal at the same height in row 1 as in row 2",
             placeholders[1].top - rows[1].top, placeholders[0].top - rows[0].top, px1dp,
         )
-        assertEquals("centred between EN and ▶", rows[0].center.y, placeholders[0].center.y, px1dp)
+        assertTrue("Tap to reveal inside its row", rows[0].top <= placeholders[0].top && placeholders[0].bottom <= rows[0].bottom + px1dp)
         assertFalse("badge clear of Tap to reveal", tagged(SENTENCE_CARD_BADGE_TAG).single().rect().overlaps(placeholders[0]))
     }
 

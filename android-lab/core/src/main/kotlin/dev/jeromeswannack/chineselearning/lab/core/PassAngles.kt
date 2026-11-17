@@ -232,8 +232,8 @@ object PassAngles {
 
     /** `passRoundDoneCheer`: the round's cheer once enough are right, in the pass. */
     fun roundDoneCheer(got: Int, needed: Int): String = "🎉 $got / $needed — Got it unlocked"
-    /** `PASS_GAVE_UP_LINE`: Got it greyed, never locked. */
-    const val GAVE_UP_LINE = "👁 You looked at the answer — Not yet suggested"
+    /** `PASS_GAVE_UP_LINE`: why Got it is greyed (never locked) — the buttons' accessibility label only, never shown. */
+    const val GAVE_UP_LINE = "You looked at the answer — Not yet suggested"
     /** `PASS_GOT_IT_OVERRIDE`: the first tap on the greyed Got it ([HardMode.overrideTap]). */
     const val GOT_IT_OVERRIDE = "Tap again to say Got it anyway"
 }

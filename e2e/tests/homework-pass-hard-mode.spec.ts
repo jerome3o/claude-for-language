@@ -196,13 +196,17 @@ test('hard mode in the pass: check first, the round, a give-up locks Got it, a s
   const giveUp = async () => {
     await page.getByTestId('skip-recording').click();
     const cont = page.getByTestId('hard-continue');
-    await expect(cont.or(page.getByTestId('hw-pass-locked'))).toBeVisible({ timeout: 15000 });
+    const locked = page.locator('[data-testid="hw-pass-rate"][data-locked="true"]');
+    await expect(cont.or(locked)).toBeVisible({ timeout: 15000 });
     if (await cont.isVisible()) {
       await cont.click();
       await page.getByTestId('sentence-round-skip').click();
       await page.getByTestId('sentence-round-skip-yes').click();
     }
-    await expect(page.getByTestId('hw-pass-locked')).toBeVisible();
+    await expect(locked).toBeVisible();
+    // No line above Not yet / Got it: the reason is the buttons' accessible label.
+    await expect(page.getByText('You looked at the answer')).toHaveCount(0);
+    await expect(page.getByTestId('hw-gotit')).toHaveAttribute('aria-label', /You looked at the answer — Not yet suggested/);
     await expect(page.getByTestId('hw-gotit')).toHaveAttribute('data-locked', 'true');
     await expect(page.getByTestId('hw-pass-rate')).toHaveAttribute('data-suggested', 'wrong');
   };
@@ -212,7 +216,7 @@ test('hard mode in the pass: check first, the round, a give-up locks Got it, a s
     await shot(page, 'hwhard-03-gave-up-locked');
     shotGaveUp = true;
     await page.getByTestId('hw-gotit').click();
-    await expect(page.getByTestId('hw-pass-locked')).toContainText('Tap again to say Got it anyway');
+    await expect(page.getByTestId('hw-gotit')).toHaveAttribute('aria-label', /Tap again to say Got it anyway/);
     await page.getByTestId('hw-notyet').click();
     await expect(front).toHaveText('银行');
   }

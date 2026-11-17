@@ -127,12 +127,14 @@ class SentencePractiseUiTest : LabScreenshotTest() {
     @Test fun gateGreysGoodAndEasyAgainRates() {
         val rated = mutableListOf<Int>()
         card(previewSentencePractise(), StudyActions(onRate = { r, _, _ -> rated += r }))
-        compose.onNodeWithTag(SentencePractiseTags.GATE, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("🎤 Try the sentences first · 0/2 right", useUnmergedTree = true).assertExists()
+        // No bar above the ratings (Jerome, Nov 2026): why Good is greyed is its TalkBack state, never shown.
+        assertEquals(0, compose.onAllNodesWithTag(SentencePractiseTags.GATE, useUnmergedTree = true).fetchSemanticsNodes().size)
+        compose.onNodeWithText("Try the sentences first", substring = true, useUnmergedTree = true).assertDoesNotExist()
+        assertEquals("Try the sentences first · 0/2 right; tap twice to rate anyway", compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
-        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.HardMode.overridePrompt(2), useUnmergedTree = true).assertExists()
+        assertEquals(dev.jeromeswannack.chineselearning.lab.core.HardMode.overridePrompt(2), compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("rating-again", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf(0), rated)
@@ -141,7 +143,8 @@ class SentencePractiseUiTest : LabScreenshotTest() {
     @Test fun twoRightUnlocks() {
         val rated = mutableListOf<Int>()
         card(previewSentencePractise(rightKeys = listOf(clueKey, "s1")), StudyActions(onRate = { r, _, _ -> rated += r }))
-        compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
+        // Unlocked says nothing: no "Good and Easy unlocked" banner.
+        compose.onNodeWithText("unlocked", substring = true, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf(2), rated)

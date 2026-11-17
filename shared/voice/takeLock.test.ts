@@ -7,6 +7,7 @@ import {
   takeLockFooter,
   takeLockLeave,
   takeLockMayProceed,
+  takeLockRow,
   takePhase,
 } from './takeLock';
 import { sentenceStopBar, SENTENCE_PRACTISE_CHECKING_TAKE, SENTENCE_PRACTISE_STOP_RECORDING } from '../study/sentencePractise';
@@ -31,6 +32,19 @@ describe('the take lock', () => {
     expect(takeLockFooter('recording')).toBe('stop');
     expect(takeLockFooter('checking')).toBe('checking');
     expect(TAKE_PHASES.filter(takeLockMayProceed)).toEqual(['idle']);
+  });
+
+  it('a row of buttons shows ONE stop: its own, or none when the screen pins a stop bar for the take', () => {
+    // No pinned bar: the row becomes the stop (as before).
+    expect(takeLockRow('recording', false)).toBe('stop');
+    expect(takeLockRow('checking', false)).toBe('checking');
+    expect(takeLockRow('idle', false)).toBe('proceed');
+    // The pinned "■ Stop recording" is up (the Sentence round, the answer side's sentence rows): the row is held —
+    // greyed, untappable, no second stop button.
+    expect(takeLockRow('recording', true)).toBe('held');
+    expect(takeLockRow('checking', true)).toBe('held');
+    // Nothing under way: the row itself, pinned bar or not.
+    expect(takeLockRow('idle', true)).toBe('proceed');
   });
 
   it('back / ✕ stop a recording take first, and leave otherwise', () => {

@@ -290,10 +290,7 @@ fun HardModeFeedbackPanel(
         Modifier
             .fillMaxWidth()
             .scale(pop.value)
-            .clip(RoundedCornerShape(18.dp))
-            .background(border.copy(alpha = 0.08f))
-            .border(2.dp, border, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(vertical = 6.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(HardModeTags.FEEDBACK),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -385,10 +382,7 @@ private fun RevealedInPlace(
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(tone.copy(alpha = 0.08f))
-            .border(2.dp, tone, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(vertical = 6.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(HardModeTags.FEEDBACK),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -453,10 +447,7 @@ private fun SentenceAnswerFirst(
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(border.copy(alpha = 0.08f))
-            .border(2.dp, border, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(vertical = 6.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(HardModeTags.FEEDBACK),
         horizontalAlignment = Alignment.CenterHorizontally,

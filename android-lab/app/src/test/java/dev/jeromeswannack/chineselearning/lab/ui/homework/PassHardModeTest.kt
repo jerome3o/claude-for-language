@@ -147,12 +147,13 @@ class PassHardModeTest {
                 )
             }
         }
-        compose.onNodeWithText(PassAngles.GAVE_UP_LINE).assertExists()
+        compose.onNodeWithText(PassAngles.GAVE_UP_LINE).assertDoesNotExist()
+        assertEquals(PassAngles.GAVE_UP_LINE + "; tap twice to say it anyway", compose.onNodeWithTag("hw-gotit", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithContentDescription("Hard mode in homework: All words").assertExists()
         compose.onNodeWithTag("hw-gotit").performClick()
         compose.waitForIdle()
         assertTrue("a greyed Got it answers nothing on the first tap", answers.isEmpty())
-        compose.onNodeWithText(PassAngles.GOT_IT_OVERRIDE).assertExists()
+        assertEquals(PassAngles.GOT_IT_OVERRIDE, compose.onNodeWithTag("hw-gotit", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("hw-notyet").performClick()
         compose.waitForIdle()
         assertEquals(listOf(listOf(false, "none", "wrong", true)), answers)

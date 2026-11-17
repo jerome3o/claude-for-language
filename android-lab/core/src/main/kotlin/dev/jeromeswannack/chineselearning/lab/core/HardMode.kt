@@ -63,7 +63,10 @@ object HardMode {
 
     const val RIGHT_BEAT_MS = 1500L
 
-    /** `GoodEasyGate`: state "open" | "suggest_lower"; reason "gave_up" | "sentences" | null. */
+    /**
+     * `GoodEasyGate`: state "open" | "suggest_lower"; reason "gave_up" | "sentences" | null. [label] = why Good / Easy
+     * are greyed — the rating buttons' accessibility label ONLY (null when open): nothing is shown above the ratings.
+     */
     data class GoodEasy(val state: String, val reason: String?, val label: String?, val gaveUp: Boolean) {
         val suggestLower: Boolean get() = state == SUGGEST_LOWER
     }
@@ -73,7 +76,7 @@ object HardMode {
     /** `goodEasyGate`: gave up → greyed whatever the sentences say; else the sentence gate. Never locked. */
     fun goodEasy(gate: SentencePractise.Gate, gaveUp: Boolean, gateLabel: String?): GoodEasy =
         if (gaveUp) GoodEasy(SUGGEST_LOWER, "gave_up", GAVE_UP_LINE, true)
-        else GoodEasy(if (gate.locked) SUGGEST_LOWER else OPEN, if (gate.locked) "sentences" else null, gateLabel, false)
+        else GoodEasy(if (gate.locked) SUGGEST_LOWER else OPEN, if (gate.locked) "sentences" else null, if (gate.locked) gateLabel else null, false)
 
     /** `ratingNeedsOverride`: a greyed Good (2) / Easy (3) needs a second tap. */
     fun needsOverride(rating: Int, g: GoodEasy): Boolean = g.suggestLower && rating >= 2
@@ -154,7 +157,8 @@ object HardMode {
     const val MISS_NOTE = "Showing the answer counts as a miss — Again or Hard suggested."
     fun nextLabel(roundFollows: Boolean) = if (roundFollows) "Next: harder questions" else "See the answer"
     fun saidLine(said: String, spoken: Boolean) = "${if (spoken) "You said" else "Your answer"}: $said"
-    const val GAVE_UP_LINE = "👁 You looked at the answer — Again or Hard suggested"
+    /** Why Good / Easy are greyed after 👁 Show answer — the buttons' accessibility label ([GoodEasy.label]), never shown. */
+    const val GAVE_UP_LINE = "You looked at the answer — Again or Hard suggested"
     const val REVEALED_TITLE = "👁 The answer"
     const val REVEALED_NOTE = "You looked, so this one counts as a miss — the sentences are still worth doing."
     /** `hardModeRevealedNextLabel` */

@@ -322,7 +322,10 @@ export function passAngleLine(showing: Pick<PassShowing, 'angle' | 'cardType'>):
 export function passRoundDoneCheer(got: number, needed: number): string {
   return `🎉 ${got} / ${needed} — Got it unlocked`;
 }
-/** Above Not yet / Got it after giving up in Hard mode (Got it greyed, never locked). */
-export const PASS_GAVE_UP_LINE = '👁 You looked at the answer — Not yet suggested';
+/**
+ * Why Got it is greyed after giving up in Hard mode (never locked) — the buttons' accessible label only; nothing is
+ * shown above Not yet / Got it (the greyed Got it, "tap twice" and the ringed Not yet say it on screen).
+ */
+export const PASS_GAVE_UP_LINE = 'You looked at the answer — Not yet suggested';
 /** Said on a first tap of the greyed Got it: a second tap within 3 s (`overrideTap`) still says Got it. */
 export const PASS_GOT_IT_OVERRIDE = 'Tap again to say Got it anyway';
