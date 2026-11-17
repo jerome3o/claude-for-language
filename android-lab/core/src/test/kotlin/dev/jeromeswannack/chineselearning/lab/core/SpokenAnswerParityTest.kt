@@ -112,7 +112,7 @@ class SpokenAnswerParityTest {
             r.chars.forEach { marks += SpokenAnswerResult.markName(it.mark) }
         }
         assertEquals(setOf("match", "sound", "contains", "close", "wrong"), states)
-        assertEquals(setOf("right", "differs", "wrong", "plain"), marks)
+        assertEquals(setOf("right", "differs", "wrong", "plain", "tone", "extra", "missing"), marks)
         for (el in fixture["results_by_verdict"]!!.jsonArray) {
             val o = el.jsonObject
             val verdict = AnswerKey.Verdict.valueOf(o["verdict"]!!.jsonPrimitive.content.uppercase())

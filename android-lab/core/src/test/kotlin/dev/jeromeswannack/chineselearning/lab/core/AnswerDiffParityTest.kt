@@ -78,7 +78,7 @@ class AnswerDiffParityTest {
     fun verdicts() {
         for ((key, v) in fixture()["verdicts"]!!.jsonObject) {
             val o = v.jsonObject
-            assertEquals(o["tone"]!!.str to o["label"]!!.str, AnswerDiff.verdict(key), key)
+            assertEquals<Pair<String, String>?>(o["tone"]!!.str!! to o["label"]!!.str!!, AnswerDiff.verdict(key), key)
         }
     }
 

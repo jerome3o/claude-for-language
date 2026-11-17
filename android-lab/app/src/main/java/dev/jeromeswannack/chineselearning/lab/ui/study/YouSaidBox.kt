@@ -416,80 +416,30 @@ const val SPOKEN_RESULT_TAG = "spoken-result"
 @Composable
 fun spokenAnswerColor(accepted: Boolean): Color = if (accepted) toneInk(YouSaidTone.MATCH) else Lab.colors.ink
 
-/** One mark's look (the web's `.spoken-mark--*`): the colour, the yellow highlight, the underline. */
-private data class SpokenMarkStyle(val color: Color, val background: Color, val underline: Color?, val dotted: Boolean)
-
-@Composable
-private fun spokenMarkStyle(mark: SpokenAnswerResult.Mark): SpokenMarkStyle {
-    val dark = isDarkCard()
-    return when (mark) {
-        SpokenAnswerResult.Mark.RIGHT -> SpokenMarkStyle(Lab.colors.ink, Color.Transparent, null, false)
-        SpokenAnswerResult.Mark.PLAIN -> SpokenMarkStyle(Lab.colors.muted, Color.Transparent, null, false)
-        SpokenAnswerResult.Mark.DIFFERS -> if (dark) {
-            SpokenMarkStyle(Palette.PartialStrong, Palette.PartialStrong.copy(alpha = 0.22f), Palette.PartialStrong, dotted = true)
-        } else {
-            SpokenMarkStyle(Palette.PartialInk, Palette.PartialStrong, Palette.PartialInk, dotted = true)
-        }
-        SpokenAnswerResult.Mark.WRONG -> {
-            val red = toneInk(YouSaidTone.MISS)
-            SpokenMarkStyle(red, Color.Transparent, red, dotted = false)
-        }
-    }
+/** A "You said" mark → the slim answer diff's cell kind ([DiffMarkedText]). */
+private fun spokenCellKind(mark: SpokenAnswerResult.Mark): String = when (mark) {
+    SpokenAnswerResult.Mark.RIGHT -> "ok"
+    SpokenAnswerResult.Mark.PLAIN -> "muted"
+    SpokenAnswerResult.Mark.DIFFERS -> "differs"
+    SpokenAnswerResult.Mark.WRONG -> "wrong"
+    SpokenAnswerResult.Mark.TONE -> "tone"
+    SpokenAnswerResult.Mark.EXTRA -> "extra"
+    SpokenAnswerResult.Mark.MISSING -> "missing"
 }
 
 /**
- * What was said with each character marked (`shared/cards/spoken-result.ts`): written differently =
- * yellow highlight + a DOTTED underline, not in the answer = red + a SOLID underline, the words around
- * a contained answer muted. Compose has no dotted underline, so both underlines are drawn under the
- * glyphs from the text layout.
+ * What was said with each character marked (`shared/cards/spoken-result.ts`): written differently = yellow highlight
+ * + a DOTTED underline; close / didn't match = the slim answer diff (docs/STUDY_SESSION.md "Answer feedback: one line
+ * and a diff") — wrong rose + solid, tone off lemon wavy, extra yellow struck through, missing muted in a dashed box;
+ * the words around a contained answer muted. Drawn by [DiffMarkedText].
  */
 @Composable
 private fun SpokenMarkedText(r: SpokenAnswerResult.Result, fontSize: androidx.compose.ui.unit.TextUnit) =
     SpokenMarkedCells(r.chars, fontSize)
 
-/** Marked characters (the "You said" row's marks: shape + colour) — also Hard mode's "You said" vs the model ([DifferenceCompare]). */
 @Composable
-internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: androidx.compose.ui.unit.TextUnit, tag: String = SPOKEN_RESULT_HANZI_TAG) {
-    val styles = SpokenAnswerResult.Mark.entries.associateWith { spokenMarkStyle(it) }
-    // UTF-16 ranges of each cell, for the underlines.
-    val ranges = mutableListOf<Pair<IntRange, SpokenMarkStyle>>()
-    val text = buildAnnotatedString {
-        if (chars.isEmpty()) append("…")
-        for (cell in chars) {
-            val st = styles.getValue(cell.mark)
-            val start = length
-            withStyle(SpanStyle(color = st.color, background = st.background)) { append(cell.char) }
-            if (st.underline != null) ranges += (start until length) to st
-        }
-    }
-    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
-    val density = LocalDensity.current
-    Text(
-        text,
-        fontSize = fontSize,
-        lineHeight = fontSize * 1.3f,
-        fontWeight = FontWeight.Medium,
-        onTextLayout = { layout = it },
-        modifier = Modifier.testTag(tag).drawBehind {
-            val l = layout ?: return@drawBehind
-            val stroke = with(density) { 2.dp.toPx() }
-            for ((range, st) in ranges) {
-                val first = l.getBoundingBox(range.first)
-                val last = l.getBoundingBox(range.last)
-                val y = first.bottom - stroke
-                val inset = (last.right - first.left) * 0.08f
-                drawLine(
-                    st.underline!!,
-                    Offset(first.left + inset, y),
-                    Offset(last.right - inset, y),
-                    strokeWidth = stroke,
-                    cap = if (st.dotted) StrokeCap.Round else StrokeCap.Butt,
-                    pathEffect = if (st.dotted) PathEffect.dashPathEffect(floatArrayOf(0.1f, stroke * 2f)) else null,
-                )
-            }
-        },
-    )
-}
+internal fun SpokenMarkedCells(chars: List<SpokenAnswerResult.Cell>, fontSize: androidx.compose.ui.unit.TextUnit, tag: String = SPOKEN_RESULT_HANZI_TAG) =
+    DiffMarkedText(chars.map { DiffCell(it.char, spokenCellKind(it.mark)) }, fontSize, tag = tag)
 
 /** Test tags inside the spoken result row (the row itself is one node for a screen reader). */
 const val SPOKEN_RESULT_HANZI_TAG = "spoken-result-hanzi"
