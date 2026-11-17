@@ -11,6 +11,7 @@
  */
 import type { SentencePractiseMode } from './sentencePractise';
 import { isContrivedSentence } from './sentenceFocus';
+import { canonicalSentenceKey, cardSentenceId } from './cardSentence';
 
 /**
  * The modes a take on a sentence is recorded in: read (the Chinese up, read aloud) and translate (the
@@ -20,8 +21,10 @@ import { isContrivedSentence } from './sentenceFocus';
 export type SentencePracticeMode = SentencePractiseMode | 'listen';
 export const SENTENCE_PRACTICE_MODES: readonly SentencePracticeMode[] = ['read', 'translate', 'listen'];
 
-/** A sentence's key within its note: the set row's id, or `clue` for the note's own sentence. */
-export const CLUE_SENTENCE_KEY = 'clue';
+/**
+ * A sentence's key within its note = its row id; the card's own sentence is the row `<note>-card`
+ * (cardSentence.ts). Events written before migration 0152 carry `clue` for it: folded as the card row.
+ */
 
 /** Right this many times in a mode = known in that mode. */
 export const SENTENCE_KNOWN_RIGHTS = 3;
@@ -93,9 +96,9 @@ const emptyMode = (): ModeStats => ({ attempts: 0, rights: 0, misses: 0, last_at
 export const emptyHeard = (): HeardStats => ({ count: 0, last_at: null });
 export const emptySentenceStats = (): SentenceStats => ({ read: emptyMode(), translate: emptyMode(), listen: emptyMode(), hidden: null, heard: emptyHeard() });
 
-/** The key a row of the card's list has in the history (`clue:<noteId>` → `clue`). */
+/** The key a row of the card's list has in the history: its id (an older build's `clue:<noteId>` → `<noteId>-card`). */
 export function sentenceHistoryKey(rowKey: string): string {
-  return rowKey.startsWith('clue:') ? CLUE_SENTENCE_KEY : rowKey;
+  return rowKey.startsWith('clue:') ? cardSentenceId(rowKey.slice('clue:'.length)) : rowKey;
 }
 
 const isValidMode = (m: unknown): m is SentencePracticeMode => m === 'read' || m === 'translate' || m === 'listen';
@@ -118,24 +121,26 @@ export function sentenceStats(events: readonly SentencePracticeEvent[], noteId: 
   for (const e of mine) {
     if (seen.has(e.id)) continue;
     seen.add(e.id);
-    let s = out.get(e.sentence_key);
+    // An older event's `clue` key is the card row's (cardSentence.ts).
+    const key = canonicalSentenceKey(e.sentence_key, noteId);
+    let s = out.get(key);
     if (e.kind === 'attempt') {
       if (!isValidMode(e.mode) || !isValidResult(e.result)) continue;
-      if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
+      if (!s) out.set(key, (s = emptySentenceStats()));
       const m = s[e.mode];
       m.attempts++;
       if (e.result === 'right') m.rights++;
       else m.misses++;
       if (m.last_at == null || e.at > m.last_at) m.last_at = e.at;
     } else if (e.kind === 'hide') {
-      if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
+      if (!s) out.set(key, (s = emptySentenceStats()));
       const reason = (SENTENCE_HIDE_REASONS as readonly string[]).includes(e.reason ?? '') ? (e.reason as SentenceHideReason) : null;
       s.hidden = { at: e.at, reason };
     } else if (e.kind === 'unhide') {
-      if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
+      if (!s) out.set(key, (s = emptySentenceStats()));
       s.hidden = null;
     } else if (e.kind === 'heard') {
-      if (!s) out.set(e.sentence_key, (s = emptySentenceStats()));
+      if (!s) out.set(key, (s = emptySentenceStats()));
       const h = (s.heard ??= emptyHeard());
       h.count++;
       if (h.last_at == null || e.at > h.last_at) h.last_at = e.at;

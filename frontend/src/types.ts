@@ -194,6 +194,8 @@ export interface NoteSentence {
   focus_note: string | null;
   /** JSON SentenceBriefExplanation, filled in the first time it's asked for */
   explanation: string | null;
+  /** 1 = the card's own example sentence (`<note>-card`, shared/study/cardSentence.ts; migration 0152). */
+  is_card?: number;
   created_at: string;
   updated_at: string;
 }

@@ -14,12 +14,9 @@ const s = (key: string, translation: string | null = `${key} en`): RoundSentence
 const brief = (ex: ReturnType<typeof pickRoundExercises>) => ex.map((e) => e.id);
 
 describe('roundSentences', () => {
-  it('puts the card sentence first unless the set has it', () => {
-    const set = [s('a'), s('b')];
-    expect(roundSentences({ clue: { key: 'clue:n', hanzi: '我去银行。', translation: null }, set }).map((r) => r.key)).toEqual(['clue:n', 'a', 'b']);
-    expect(roundSentences({ clue: { key: 'clue:n', hanzi: 'a汉字', translation: null }, set }).map((r) => r.key)).toEqual(['a', 'b']);
-    expect(roundSentences({ clue: null, set: [] })).toEqual([]);
-    expect(roundSentences({ clue: { key: 'clue:n', hanzi: '  ', translation: 'x' }, set: [] })).toEqual([]);
+  it('keeps the rows in their order (the card row first)', () => {
+    expect(roundSentences([s('n-card'), s('a'), s('b')]).map((r) => r.key)).toEqual(['n-card', 'a', 'b']);
+    expect(roundSentences([])).toEqual([]);
   });
 });
 

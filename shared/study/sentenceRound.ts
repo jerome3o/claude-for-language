@@ -22,6 +22,7 @@
  */
 import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, isLocalRight, type SentencePractiseMode } from './sentencePractise';
 import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
+import { isCardSentenceKey } from './cardSentence';
 import { isContrivedSentence, naturalSentencesFirst } from './sentenceFocus';
 import { hasHan, type AnswerCheck, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
 import { scrubSpokenTranscript } from '../cards/answer';
@@ -35,7 +36,7 @@ export type RoundMode = SentencePractiseMode | 'listen';
 
 /** One of the card's sentences, in the list's order (the card's own first, then the set easiest → hardest). */
 export interface RoundSentence {
-  /** The row key (`clue:<noteId>` or the set row's id). */
+  /** The row's id (the card's own sentence: `<note>-card`, cardSentence.ts). */
   key: string;
   hanzi: string;
   /** The English ('' / null = none: that sentence can't be a translate exercise). */
@@ -49,28 +50,15 @@ export interface RoundSentence {
   focus?: string | null;
 }
 
-export interface RoundSentenceSource {
-  /** The note's own sentence (sentence_clue), if any. */
-  clue: { key: string; hanzi: string; translation: string | null | undefined } | null;
-  /** The generated set, in its order (easiest → hardest). */
-  set: readonly RoundSentence[];
-}
-
 /**
- * The card's sentences as one list — exactly the answer side's list: the card's own sentence
- * first unless a set row says the same thing, then the set — its natural sentences first, the
+ * The card's sentences as one list — exactly the answer side's list: the note's rows in their order (the
+ * card's own sentence row first, cardSentence.ts `withCardSentence`), its natural sentences first, the
  * contrived ones last (`naturalSentencesFirst`, sentenceFocus.ts).
  */
-export function roundSentences(source: RoundSentenceSource): RoundSentence[] {
-  const out: RoundSentence[] = [];
-  const clue = source.clue;
-  if (clue && clue.hanzi.trim() && !source.set.some((s) => s.hanzi === clue.hanzi)) {
-    out.push({ key: clue.key, hanzi: clue.hanzi, translation: clue.translation });
-  }
-  for (const s of naturalSentencesFirst(source.set)) {
-    out.push({ key: s.key, hanzi: s.hanzi, translation: s.translation, ...(s.focus != null ? { focus: s.focus } : {}) });
-  }
-  return out;
+export function roundSentences(rows: readonly RoundSentence[]): RoundSentence[] {
+  return naturalSentencesFirst(rows).map((s) => ({
+    key: s.key, hanzi: s.hanzi, translation: s.translation, ...(s.focus != null ? { focus: s.focus } : {}),
+  }));
 }
 
 /**
@@ -247,10 +235,8 @@ export function pickRoundExercises(
 /** How many exercises the listening card's round offers at most. */
 export const LISTEN_ROUND_SIZE = 3;
 
-/** The card's own sentence (`clue:<noteId>`, the key both lists use). */
-export function isCardSentenceKey(key: string): boolean {
-  return key.startsWith('clue:');
-}
+/** The card's own sentence (`<note>-card`, cardSentence.ts). */
+export { isCardSentenceKey };
 
 /** Spaces (ASCII and the ideographic one) never count when looking for the word in a sentence. */
 function squeeze(text: string): string {

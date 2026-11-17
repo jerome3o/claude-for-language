@@ -83,11 +83,13 @@ import { fetchNoteSentences, API_BASE } from '../../api/client';
 import {
   cacheSentenceAudio,
   ensureSentenceAudio,
-  getCachedClueTranslation,
-  getClueTranslation,
-  getLocalNoteSentences,
+  cachedSentenceTranslation,
+  getNoteSentenceRows,
+  getSentenceTranslation,
   putLocalNoteSentences,
 } from '../../services/sentence-sets';
+import type { LocalNoteSentence } from '../../db/database';
+import { isContrivedSentence } from '@shared/study/sentenceFocus';
 import { devicePinyinLine } from '../../utils/autoPinyin';
 import { useNoteAudio } from '../../hooks/useAudio';
 import { track } from '../../services/analytics';
@@ -112,28 +114,39 @@ export interface RoundSentenceRow {
 type NoteSentenceFields = Pick<Note, 'id' | 'sentence_clue' | 'sentence_clue_pinyin' | 'sentence_clue_translation' | 'sentence_clue_audio_url'>;
 
 /**
- * The card's sentences (the answer side's list: the card's own first, then the set), read from the
- * device — and from the server once when the device has no set yet. null while loading; off → [].
+ * The card's sentences (the answer side's list: the card's own sentence row first, then the set — one model,
+ * shared/study/cardSentence.ts), read from the device — and from the server once when the device has none
+ * yet. null while loading; off → []. `fetchMissingEnglish`: a row without English (many card sentences) gets
+ * its line fetched once online (the listening card's round asks for English sentences).
  */
-export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, opts: { fetchClueEnglish?: boolean } = {}): RoundSentenceRow[] | null {
-  const fetchClueEnglish = !!opts.fetchClueEnglish;
+export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, opts: { fetchMissingEnglish?: boolean } = {}): RoundSentenceRow[] | null {
+  const fetchMissingEnglish = !!opts.fetchMissingEnglish;
   const [set, setSet] = useState<RoundSentenceRow[] | null>(null);
-  const [clueEnglish, setClueEnglish] = useState<string | null>(null);
-  const clue = note.sentence_clue?.trim() ? note.sentence_clue : null;
+  const [english, setEnglish] = useState<Record<string, string>>({});
   useEffect(() => {
     setSet(null);
+    setEnglish({});
     if (!enabled) return;
     let live = true;
-    const toRows = (rows: Array<{ id: string; hanzi: string; pinyin: string | null; translation: string | null; audio_url: string | null; focus?: string | null }>) =>
-      rows.map((s) => ({ key: s.id, hanzi: s.hanzi, pinyin: s.pinyin, translation: s.translation, audio_url: s.audio_url, focus: s.focus ?? null }));
+    const toRows = (rows: LocalNoteSentence[]) =>
+      rows.map((s) => ({
+        key: s.id,
+        hanzi: s.hanzi,
+        // A row written without pinyin (card sentences from MCP / older notes) gets the device's own.
+        pinyin: s.pinyin?.trim() ? s.pinyin : devicePinyinLine(s.hanzi) || null,
+        translation: cachedSentenceTranslation(s),
+        audio_url: s.audio_url,
+        focus: s.focus ?? null,
+      }));
     void (async () => {
-      const local = await getLocalNoteSentences(note.id);
+      const local = await getNoteSentenceRows(note.id, note);
       if (!live) return;
       if (local.length === 0 && navigator.onLine) {
         try {
           const remote = await fetchNoteSentences(note.id);
           if (remote.length > 0) {
-            const stored = await putLocalNoteSentences(note.id, remote);
+            await putLocalNoteSentences(note.id, remote);
+            const stored = await getNoteSentenceRows(note.id, note);
             cacheSentenceAudio(stored);
             if (live) setSet(toRows(stored));
             return;
@@ -147,40 +160,29 @@ export function useRoundSentences(note: NoteSentenceFields, enabled: boolean, op
     return () => {
       live = false;
     };
-  }, [note.id, enabled]);
+  }, [note.id, enabled, note.sentence_clue, note.sentence_clue_translation, note.sentence_clue_audio_url]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    setClueEnglish(null);
-    if (!enabled || !clue || note.sentence_clue_translation?.trim()) return;
+    if (!enabled || !fetchMissingEnglish || !set || navigator.onLine === false) return;
     let live = true;
-    // The listening card's round asks for English sentences: the card's own one, when its English isn't on
-    // the device yet, is fetched once online (cached by text, like the rows').
-    void getCachedClueTranslation(clue)
-      .then((t) => t ?? (fetchClueEnglish && navigator.onLine !== false ? getClueTranslation({ hanzi: clue, pinyin: note.sentence_clue_pinyin ?? null }) : null))
-      .then((t) => {
-        if (live && t) setClueEnglish(t);
-      })
-      .catch(() => {});
+    for (const row of set) {
+      if (row.translation?.trim() || isContrivedSentence(row.focus)) continue;
+      void getSentenceTranslation({ id: row.key, translation: row.translation })
+        .then((t) => { if (live) setEnglish((p) => ({ ...p, [row.key]: t })); })
+        .catch(() => {});
+    }
     return () => {
       live = false;
     };
-  }, [clue, note.sentence_clue_translation, enabled, fetchClueEnglish]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [set, enabled, fetchMissingEnglish]);
 
   return useMemo(() => {
     if (!enabled) return [];
     if (!set) return null;
-    const clueRow: RoundSentenceRow | null = clue
-      ? {
-          key: `clue:${note.id}`,
-          hanzi: clue,
-          pinyin: note.sentence_clue_pinyin?.trim() ? note.sentence_clue_pinyin : devicePinyinLine(clue) || null,
-          translation: note.sentence_clue_translation?.trim() || clueEnglish,
-          audio_url: note.sentence_clue_audio_url ?? null,
-        }
-      : null;
-    const keys = roundSentences({ clue: clueRow, set }).map((s) => s.key);
-    const byKey = new Map([...(clueRow ? [clueRow] : []), ...set].map((r) => [r.key, r]));
+    const rows = set.map((r) => (r.translation || !english[r.key] ? r : { ...r, translation: english[r.key] }));
+    const keys = roundSentences(rows).map((s) => s.key);
+    const byKey = new Map(rows.map((r) => [r.key, r]));
     return keys.map((k) => byKey.get(k)!);
-  }, [enabled, set, clue, clueEnglish, note.id, note.sentence_clue_pinyin, note.sentence_clue_translation, note.sentence_clue_audio_url]);
+  }, [enabled, set, english]);
 }
 
 interface SentenceRoundProps {
@@ -245,7 +247,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   useEffect(() => {
     if (!byEar || !isOnline || !sentences) return;
     for (const s of sentences) {
-      if (s.audio_url || s.key.startsWith('clue:') || askedClips.has(s.key)) continue;
+      if (s.audio_url || askedClips.has(s.key)) continue;
       askedClips.add(s.key);
       void Promise.resolve().then(() => ensureSentenceAudio(s.key)).catch(() => {});
     }
@@ -295,8 +297,8 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
   const { isPlaying, play } = useNoteAudio('sentence-round');
   const [playing, setPlaying] = useState<string | null>(null);
   const [english, setEnglish] = useState<Record<string, boolean>>({});
-  // A sentence with no English on the note (the card's own, MCP-added / older notes): fetched once it
-  // is shown (the rows' `getClueTranslation`, cached by text — offline once fetched).
+  // A row with no English (a card sentence from MCP / an older note): fetched once it is shown, through
+  // its breakdown (`getSentenceTranslation`, cached on the row — offline once fetched).
   const [fetched, setFetched] = useState<Record<string, string>>({});
   const [fetchFailed, setFetchFailed] = useState<Record<string, boolean>>({});
   const fetching = useRef(new Set<string>());
@@ -304,8 +306,7 @@ export function SentenceRound({ showingKey, noteId, question, questionIsChinese,
     const row = rows.get(key);
     if (!row || row.translation?.trim() || fetched[key] || fetchFailed[key] || fetching.current.has(key)) return;
     fetching.current.add(key);
-    void getCachedClueTranslation(row.hanzi)
-      .then((cached) => cached ?? (navigator.onLine === false ? null : getClueTranslation({ hanzi: row.hanzi, pinyin: row.pinyin })))
+    void (navigator.onLine === false ? Promise.resolve(null) : getSentenceTranslation({ id: row.key, translation: row.translation }))
       .then((t) => { if (t) setFetched((p) => ({ ...p, [key]: t })); })
       .catch(() => setFetchFailed((p) => ({ ...p, [key]: true })))
       .finally(() => fetching.current.delete(key));
