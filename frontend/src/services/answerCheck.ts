@@ -3,11 +3,13 @@
  * the device cache first (localStorage, keyed by `answerCheckCacheText` — a check seen once works
  * offline), then `POST /api/lessons/answer-check` (one retry on a busy 503). Throws
  * `AnswerCheckUnavailable` when there is no check to be had (offline, no key, declined): the
- * exercise is then self-assessed exactly as before.
+ * exercise is then self-assessed exactly as before. Every check of a heard-only answer goes through
+ * `forgiveUnheard` (shared/lesson/heardCheck.ts: he / she / it, an unmarked tense are never faults by ear).
  */
 import {
   answerCheckCacheText, exactAnswerCheck, parseAnswerCheck, type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
+import { forgiveUnheard } from '@shared/lesson/heardCheck';
 import { API_BASE, getAuthHeaders } from '../api/client';
 
 const API_PATH = `${API_BASE}/api`;
@@ -48,7 +50,8 @@ function writeCache(key: string, check: AnswerCheck): void {
 
 export function cachedAnswerCheck(input: AnswerCheckInput): AnswerCheck | null {
   const hit = readCache()[answerCheckCacheText(input)];
-  return hit ? parseAnswerCheck(hit.check, input.answer, input.model_answer) : null;
+  const check = hit ? parseAnswerCheck(hit.check, input.answer, input.model_answer) : null;
+  return check ? forgiveUnheard(check, input) : null;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -86,8 +89,9 @@ export async function checkLessonAnswer(input: AnswerCheckInput): Promise<Answer
   const local = cachedAnswerCheck(input);
   if (local) return { check: local, cached: true };
   const r = await postJson<{ check: unknown; cached?: boolean }>('/lessons/answer-check', input);
-  const check = parseAnswerCheck(r.check, input.answer, input.model_answer);
-  if (!check) throw new AnswerCheckUnavailable('bad reply');
+  const parsed = parseAnswerCheck(r.check, input.answer, input.model_answer);
+  if (!parsed) throw new AnswerCheckUnavailable('bad reply');
+  const check = forgiveUnheard(parsed, input);
   writeCache(answerCheckCacheText(input), check);
   return { check, cached: r.cached === true };
 }

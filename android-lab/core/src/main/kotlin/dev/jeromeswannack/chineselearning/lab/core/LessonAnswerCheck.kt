@@ -75,8 +75,11 @@ data class AnswerCheckInput(
 data class AnswerTry(val text: String, val input: String? = null, val check: AnswerCheck? = null)
 
 object LessonAnswerCheck {
-    /** Port of ANSWER_CHECK_VERSION — 4: the coherence rules ([incoherentLine]) + digits as numerals ([checkKey]). */
-    const val VERSION = 4
+    /**
+     * Port of ANSWER_CHECK_VERSION — 4: the coherence rules ([incoherentLine]) + digits as numerals ([checkKey]);
+     * 5: what the ear can't tell ([HeardCheck]: 他 / 她 / 它 are one sound in a heard answer).
+     */
+    const val VERSION = 5
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
     const val READ_ALOUD_TYPE = "read_aloud"
@@ -90,8 +93,8 @@ object LessonAnswerCheck {
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
     const val SPEAKING_VERSION = 1
 
-    /** Port of MEANING_CHECK_VERSION (Sentences by ear; cache texts start `m<version>`). */
-    const val MEANING_VERSION = 2
+    /** Port of MEANING_CHECK_VERSION (Sentences by ear; cache texts start `m<version>`) — 3: [HeardCheck]. */
+    const val MEANING_VERSION = 3
     val PART_STATUSES = listOf("used", "used_with_issue", "missing")
 
     fun isSpeaking(exerciseType: String?): Boolean = exerciseType in SPEAKING_TYPES

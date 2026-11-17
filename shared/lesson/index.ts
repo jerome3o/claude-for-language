@@ -52,3 +52,6 @@ export {
 } from './judgeGap';
 export * from './handwriting';
 export * from './scrambleCheck';
+export {
+  forgiveUnheard, isHeardOnlyCheck, heardMeaningKey, marksTense, hasTaPronoun, taKey, UNHEARD_TENSE_MARKERS,
+} from './heardCheck';

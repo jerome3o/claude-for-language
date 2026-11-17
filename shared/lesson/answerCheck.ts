@@ -30,8 +30,10 @@ import { digitsToHanzi } from '../text/numberHanzi';
  * 4 (Nov 2026): the coherence rules (`recommendsWrongForm`, `forbidsCorrected`), digits read as numerals (3 = 三) and a
  * prompt that states the actual rule — a v3 check told Jerome "use 钱 or 块 alone, not both" over a fix with 块…钱 and
  * offered his own 块多元 as the alternative.
+ * 5 (Nov 2026): what the ear can't tell (shared/lesson/heardCheck.ts) — a "Listen and translate" answered in Chinese
+ * never faults 他 for 她 (one sound, tā); the prompt says so and `forgiveUnheard` makes sure.
  */
-export const ANSWER_CHECK_VERSION = 4;
+export const ANSWER_CHECK_VERSION = 5;
 
 export type AnswerCheckVerdict = 'correct' | 'acceptable' | 'almost' | 'wrong';
 export const ANSWER_CHECK_VERDICTS: readonly AnswerCheckVerdict[] = ['correct', 'acceptable', 'almost', 'wrong'];
@@ -136,8 +138,11 @@ export function isReadAloudCheck(exerciseType: string | null | undefined): boole
 /** Free speaking: the recording's transcript is checked (model answer = only "one way to say it"). */
 export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'speak'];
 
-/** Bump when the meaning-check prompt changes (Sentences by ear; its cache texts start `m<version>`). */
-export const MEANING_CHECK_VERSION = 2;
+/**
+ * Bump when the meaning-check prompt changes (Sentences by ear; its cache texts start `m<version>`).
+ * 3 (Nov 2026): he / she / it (tā), an unmarked tense and number are never faults by ear (shared/lesson/heardCheck.ts).
+ */
+export const MEANING_CHECK_VERSION = 3;
 
 /** Bump when the speaking prompt or its shape changes (its cache texts start `s<version>`). */
 export const SPEAKING_CHECK_VERSION = 1;

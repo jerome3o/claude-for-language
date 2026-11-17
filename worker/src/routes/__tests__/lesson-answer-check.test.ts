@@ -12,7 +12,7 @@ import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d
 import lessonAttempts, { checkAttemptSpeaking } from '../lesson-attempts';
 import { ANSWER_CHECK_FIXTURES, SPEAKING_FIXTURE, fakeAnswerCheckClient } from '../../services/answer-check-fake';
 import {
-  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM, SCRAMBLE_CHECK_SYSTEM,
+  answerCheckUserTurn, checkLessonAnswer, runAnswerCheck, ANSWER_CHECK_SYSTEM, MEANING_CHECK_SYSTEM, HEARD_ONLY_RULE, SPEAKING_CHECK_SYSTEM, ANSWER_CHECK_FALLBACK_MODEL, READ_ALOUD_CHECK_SYSTEM, SCRAMBLE_CHECK_SYSTEM,
 } from '../../services/answer-check';
 import { scrambleCheckInput, scrambleOutcome } from '@shared/lesson/scrambleCheck';
 import { readTakeCheckInput, readTakeClaudeState } from '@shared/study/readTakeCheck';
@@ -143,9 +143,9 @@ describe('answer check service', () => {
   });
 
   it('the rules changed: old cached checks are never served (the cache text carries the new version)', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(4);
-    expect(MEANING_CHECK_VERSION).toBe(2);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v4\|/);
+    expect(ANSWER_CHECK_VERSION).toBe(5);
+    expect(MEANING_CHECK_VERSION).toBe(3);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v5\|/);
   });
 
   it('the learner\'s answer and the model answer are tagged apart, and the prompt says which one is judged', () => {
@@ -326,6 +326,60 @@ describe('meaning check (Hard mode "Sentences by ear": the Chinese heard, his En
     const check = await runAnswerCheck(listen('a cat') as never, { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
     expect(check.verdict).toBe('wrong');
     expect(create).toHaveBeenCalled();
+  });
+});
+
+describe('what the ear can\'t tell (shared/lesson/heardCheck.ts): Jerome\'s 她责怪我', () => {
+  let db: SqliteD1;
+  let post: ReturnType<typeof client>;
+  const heard = (answer: string, extra: Record<string, unknown> = {}) => ({
+    prompt_en: '她责怪我。', model_answer: 'She blamed me.', model_pinyin: 'Tā zéguài wǒ.', answer, exercise_type: 'listen_translate', input: 'spoken', ...extra,
+  });
+
+  beforeEach(async () => {
+    db = await createSqliteD1();
+    post = client({ DB: db, E2E_TEST_MODE: 'true' } as unknown as Env);
+  });
+
+  it('"He blames me." → correct, no tip (the model said ≈ Nearly · Wrong subject); cached that way', async () => {
+    const r = await post('/lessons/answer-check', heard('He blames me.'));
+    expect(r.status).toBe(200);
+    expect(r.json.check).toMatchObject({ verdict: 'correct', suggested: 'got_it', tips: [], corrected: '' });
+    expect(r.json.check.headline).not.toMatch(/Wrong subject/);
+    expect(db.rows('SELECT verdict FROM lesson_answer_checks')).toEqual([{ verdict: 'correct' }]);
+    const again = await post('/lessons/answer-check', heard('he blames me'));
+    expect(again.json).toMatchObject({ cached: true, check: { verdict: 'correct' } });
+    for (const said of ['He blamed me', 'It blamed me', 'She blames me']) {
+      expect((await post('/lessons/answer-check', heard(said, { input: 'typed' }))).json.check.verdict, said).toBe('correct');
+    }
+  });
+
+  it('what the ear CAN tell still counts: roles swapped, a negation added, a marked tense', async () => {
+    expect((await post('/lessons/answer-check', heard('I blamed her'))).json.check.verdict).toBe('wrong');
+    expect((await post('/lessons/answer-check', heard("She didn't blame me"))).json.check.verdict).toBe('almost');
+    // 她明天会责怪我 — tense marked: a model that says "almost" for "She blamed me" keeps it.
+    const create = async () => ({ stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'tool_use', id: 'x', name: 'check_answer', input: { verdict: 'almost', headline: 'It is future — tomorrow.', corrected: '', tips: [{ text: '明天会 = will, tomorrow.', quote: '明天会' }] } }] });
+    const c = await runAnswerCheck(heard('She blamed me', { prompt_en: '她明天会责怪我。', model_answer: 'She will blame me tomorrow.' }) as never, { apiKey: 'k', client: { messages: { create } } as unknown as Pick<Anthropic, 'messages'> });
+    expect(c.verdict).toBe('almost');
+  });
+
+  it('answered in Chinese (a mini lesson\'s Listen and translate): 他 for 她 is right; a seen translate keeps it', async () => {
+    const swap = async () => ({ stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, content: [{ type: 'tool_use', id: 'x', name: 'check_answer', input: { verdict: 'almost', headline: 'Use 她, not 他.', corrected: '她责怪我。', tips: [{ text: '她 is "she", 他 is "he".', quote: '他' }] } }] });
+    const deps = { apiKey: 'k', client: { messages: { create: swap } } as unknown as Pick<Anthropic, 'messages'> };
+    const lesson = { prompt_en: 'She blamed me.', model_answer: '她责怪我。', answer: '他责怪我。', exercise_type: 'listen_translate', input: 'typed' as const };
+    expect((await runAnswerCheck(lesson, deps)).verdict).toBe('correct');
+    expect((await runAnswerCheck({ ...lesson, exercise_type: 'translate' }, deps)).verdict).toBe('almost');
+  });
+
+  it('the prompts carry the rule: the meaning system and the Chinese listen turn (never a seen translate)', () => {
+    expect(MEANING_CHECK_SYSTEM).toContain(HEARD_ONLY_RULE);
+    expect(HEARD_ONLY_RULE).toMatch(/他 \/ 她 \/ 它/);
+    expect(HEARD_ONLY_RULE).toMatch(/"He blames me" is "correct"/);
+    expect(HEARD_ONLY_RULE).toMatch(/tense the Chinese DOES mark/);
+    const zh = answerCheckUserTurn({ prompt_en: 'She blamed me.', model_answer: '她责怪我。', answer: '他责怪我。', exercise_type: 'listen_translate', input: 'typed' });
+    expect(zh).toContain(HEARD_ONLY_RULE);
+    expect(answerCheckUserTurn({ prompt_en: 'She blamed me.', model_answer: '她责怪我。', answer: '他责怪我。', exercise_type: 'translate', input: 'typed' })).not.toContain(HEARD_ONLY_RULE);
+    expect(ANSWER_CHECK_SYSTEM).not.toContain(HEARD_ONLY_RULE);
   });
 });
 

@@ -64,6 +64,19 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
     },
   },
   {
+    // 他 for 她 (shared/lesson/heardCheck.ts): what the model says — right for a translate he READ, but in a
+    // "Listen and translate" he only heard tā, so `forgiveUnheard` turns it into "correct".
+    english: 'She blamed me.',
+    model: '她责怪我。',
+    answer: '他责怪我。',
+    result: {
+      verdict: 'almost',
+      headline: 'Use 她, not 他.',
+      corrected: '她责怪我。',
+      tips: [{ text: '他 is "he"; 她 is "she".', quote: '他' }],
+    },
+  },
+  {
     // The SELF-CONTRADICTORY check Jerome got (Nov 2026, v3), as the model returned it: the headline forbids "both" 块 and 钱
     // while the corrected line uses both, and the tip offers his own 块多元 as a fix. The coherence rules
     // (normalizeAnswerCheck) give a neutral headline and drop the tip; the "You said" marks read 3 as 三.
@@ -92,6 +105,39 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
         text: '因为 (reason) typically comes before the subject, then the consequence. 因为这个问题 我睡不着觉 reads more naturally than 因为这个问题 我睡不着觉.',
         quote: '因为',
       }],
+    },
+  },
+];
+
+/**
+ * Meaning checks the real model got wrong by ear (shared/lesson/heardCheck.ts): Jerome heard 她责怪我 ("She blamed me."),
+ * said "He blames me." and got "≈ Nearly · Wrong subject" (Nov 2026). The fake answers the way the model did —
+ * `forgiveUnheard` turns it into "correct" — and the way it answers what the ear CAN tell: roles swapped (I / you),
+ * a negation added.
+ */
+export const MEANING_FIXTURES: Array<{ heard: string; respond: (said: string) => Record<string, unknown> | null }> = [
+  {
+    heard: '她责怪我。',
+    respond: (said) => {
+      const s = said.toLowerCase();
+      if (/n't|(?<![a-z])(?:not|never)(?![a-z])/.test(s)) {
+        return { verdict: 'almost', headline: 'Close — but it isn’t negative: she DID blame you.', corrected: '', tips: [] };
+      }
+      if (/^(?:i|you|we)(?![a-z])/.test(s)) {
+        return { verdict: 'wrong', headline: 'Reversed — she blamed you, not you her.', corrected: '', tips: [{ text: '我 is the one being blamed.', quote: '我' }] };
+      }
+      if (/^(?:he|it)(?![a-z])/.test(s)) {
+        return {
+          verdict: 'almost',
+          headline: 'Wrong subject: "he" instead of "she"',
+          corrected: '',
+          tips: [{ text: '她 (tā) means "she"; 他 (tā) is "he" — same sound, different character.', quote: '她' }],
+        };
+      }
+      if (/^she (?:blames|is blaming|will blame)/.test(s)) {
+        return { verdict: 'almost', headline: 'Tense: "blamed", not "blames"', corrected: '', tips: [] };
+      }
+      return null;
     },
   },
 ];
@@ -221,13 +267,14 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
           const got = words(said).filter((w) => ref.has(w)).length;
           const negated = /[没不别]/.test(heard) && !/\b(not|no|never|didn't|don't|doesn't|isn't|wasn't|won't|can't)\b|n't/i.test(said);
           const share = ref.size ? got / ref.size : 0;
-          const result = negated && share >= 0.4
+          const known = MEANING_FIXTURES.find((f) => normalizeHanziAnswer(f.heard) === normalizeHanziAnswer(heard))?.respond(said);
+          const result = known ?? (negated && share >= 0.4
             ? { verdict: 'almost', headline: 'Close — but you missed the negative.', corrected: '', tips: [{ text: `${heard.match(/[没不别]/)![0]} makes it negative.`, quote: heard.match(/[没不别]/)![0] }] }
             : share >= 0.6
               ? { verdict: 'correct', headline: 'You understood it.', corrected: '', tips: [] }
               : share >= 0.3
                 ? { verdict: 'acceptable', headline: 'You got the gist.', corrected: '', tips: [] }
-                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] };
+                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] });
           return {
             stop_reason: 'tool_use',
             usage: { input_tokens: 400 + text.length, output_tokens: 60 },
