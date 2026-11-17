@@ -20,9 +20,15 @@ export function BumpButton(props: {
   className?: string;
   /** Spellings for the "⚡ 想到 is first in today's study" line when a note isn't on the device yet. */
   hanziById?: Map<string, string>;
+  /**
+   * The notes were just made on this device ("+ Add as card") and may not be synced down yet: a tap plans
+   * them as unstarted words (their listening card with "Start new words by ear") instead of sending a
+   * whole-note bump for the server to plan.
+   */
+  justCreated?: boolean;
   onBumped?: (message: string) => void;
 }) {
-  const { noteIds, source, compact, removable, className, onBumped, hanziById } = props;
+  const { noteIds, source, compact, removable, className, onBumped, hanziById, justCreated } = props;
   const bumps = useBumps();
   const [busy, setBusy] = useState(false);
   const inPocket = noteIds.length > 0 && noteIds.every((id) => bumps.has(id));
@@ -36,7 +42,7 @@ export function BumpButton(props: {
       if (inPocket) {
         if (removable) for (const id of noteIds) await clearBump(id, source);
       } else {
-        const out = await bumpNotes(noteIds, source, hanziById);
+        const out = await bumpNotes(noteIds, source, hanziById, justCreated ? { justCreated: new Set(noteIds) } : undefined);
         onBumped?.(out.message);
       }
     } finally {
