@@ -24,7 +24,7 @@ async function addNote(id: string, user: string, clue: string | null, sentences:
       [`${id}-s${i}`, id, i, hanzi, `generated/${id}-${i}.mp3`, focus],
     );
   });
-  // The card's own sentence is a row (migration 0152): made as every note write makes it.
+  // The card's own sentence is a row (migration 0153): made as every note write makes it.
   await syncCardSentences(db as unknown as D1Database, [id]);
 }
 

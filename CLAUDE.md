@@ -304,7 +304,7 @@ route / Ask-Claude tool / coach tool / queue job / MCP (via HTTP)  →  services
 ### Data Model
 - **Note**: The source of truth. Contains hanzi, pinyin, english, audio URL, fun facts.
 - **Example sentences**: ONE model — `note_sentences` rows. The card's own sentence (the card standard's `sentence_clue`)
-  is the row `<note id>-card` (`is_card = 1`, position −1, migration 0152; `shared/study/cardSentence.ts`, Lab core
+  is the row `<note id>-card` (`is_card = 1`, position −1, migration 0153; `shared/study/cardSentence.ts`, Lab core
   `CardSentence.kt`, docs/STUDY_SESSION.md "Example sentences — one model"); the generated set follows it.
   `notes.sentence_clue*` are a DEPRECATED mirror (still how the card sentence is written; the worker keeps the row
   identical — `worker/src/db/card-sentence.ts`); readers read rows.
@@ -375,7 +375,7 @@ The app uses **FSRS (Free Spaced Repetition Scheduler)**, a modern algorithm bas
 - `podcast_subscriptions` / `podcast_feed_cache` / `podcast_episodes` / `podcast_episode_users` - 🎙 Podcasts (migration 0125, docs/PODCASTS.md; Lab app only for now): a user's subscribed RSS feeds, the parsed feeds (shared, 30 min), ONE shared transcription per episode (id = hash of feed + guid; status queued → downloading → transcribing → translating → ready | failed, the R2 copy `podcast-episodes/<id>.<ext>`, Soniox job id, `segments_json` = `{ i, start_ms, end_ms, text, speaker, lang, pinyin, english }[]`), and who asked for which episode + the mini lesson made from it
 - `podcast_feeds` - The private podcast feed of a user's audio lessons (migration 0112): one row per user, `token_hash` (SHA-256, how a feed request finds the user), `token_enc` (AES-GCM, so Settings can show the link again), created / rotated / last fetched, fetch count. Reset = new token; Turn off = row deleted
 - `card_flags` - A student flags one card for their tutor with a note (relationship, student, tutor, note, card, message, status open/resolved, tutor_reply, student_seen_reply_at). Migration 0070. See "Card flags & card hub" below
-- `note_sentences` - Every example sentence of a note (position, hanzi, pinyin, translation, audio_url, focus, explanation, `is_card`): the card's own sentence is the row `<note id>-card` (`is_card = 1`, position −1, migration 0152 — kept in step with the deprecated `notes.sentence_clue*` by `db/card-sentence.ts`), then the generated set (0..n). `/api/sentences/changes` hands out whole notes + `note_ids`; synced to IndexedDB / Room for offline study. "Has a set" = a row with `is_card = 0`.
+- `note_sentences` - Every example sentence of a note (position, hanzi, pinyin, translation, audio_url, focus, explanation, `is_card`): the card's own sentence is the row `<note id>-card` (`is_card = 1`, position −1, migration 0153 — kept in step with the deprecated `notes.sentence_clue*` by `db/card-sentence.ts`), then the generated set (0..n). `/api/sentences/changes` hands out whole notes + `note_ids`; synced to IndexedDB / Room for offline study. "Has a set" = a row with `is_card = 0`.
 - `note_sentence_jobs` - Tracks which notes have been queued for background sentence-set generation (status, attempts)
 - `clips` / `clip_events` - 🎬 Clips (migration 0137, docs/CLIPS.md): one row per clip in its owner's account (status ready/generating/failed, source agent/generated/manual, title / topic / theme, `spec` JSON per `shared/clips`, the generation `request` + progress / error / tokens, the clip's one mini lesson `lesson_status` / `lesson_id`), and the learner's events (view / complete / like / unlike / save / unsave / skip / double_tap / quiz / learn_more / interact — an interactive scene settled, value wrong 0 · right 1 · close 2 · done 3 · skipped −1; client ids, idempotent)
 - `idioms` - 成语 Idioms (migration 0115, docs/IDIOMS.md): ONE generated entry per idiom for every account, keyed by the normalised hanzi (status generating/ready/failed/not_idiom, `entry` JSON per `shared/idioms`, error, suggestion, attempts, generator_version, view_count). No user ids
@@ -1263,7 +1263,7 @@ older rows with focus `shared_character` / `contrast` stay stored but are listed
 parity-tested; docs/STUDY_SESSION.md "Natural sentences"). Each sentence gets its own TTS clip and is cached in
 IndexedDB, so the whole set works offline. Generated with Sonnet for speed.
 On the study card there is ONE sentence list: the note's rows — the card's own sentence row
-`<note>-card` first (badged "From the card" from `is_card`; migration 0152, docs/STUDY_SESSION.md "Example
+`<note>-card` first (badged "From the card" from `is_card`; migration 0153, docs/STUDY_SESSION.md "Example
 sentences — one model"; until a device has the row it is made from the note, `withCardSentence`), then the
 generated set. The list is always visible under the
 meaning and scrolls under the card's footer. Rows start blank (listen first): **▶** on the right

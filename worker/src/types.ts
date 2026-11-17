@@ -388,7 +388,7 @@ export interface NoteSentence {
   /** JSON SentenceExplanation, generated on demand and cached (see 0055) */
   explanation: string | null;
   /**
-   * 1 = the card's own example sentence (id `<note id>-card`, position -1; migration 0152,
+   * 1 = the card's own example sentence (id `<note id>-card`, position -1; migration 0153,
    * shared/study/cardSentence.ts). 0 = a generated set row.
    */
   is_card?: number;

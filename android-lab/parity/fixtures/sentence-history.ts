@@ -42,7 +42,7 @@ for (let i = 0; i < 360; i++) {
   const sentences: RoundSentence[] = [];
   if (r() < 0.7) sentences.push({ key: r() < 0.8 ? 'n1-card' : 'clue:n1', hanzi: '我去银行。', translation: r() < 0.3 ? null : 'I go to the bank.', audio: r() < 0.5 });
   for (let k = 0; k < n; k++) sentences.push({ key: `s${k}`, hanzi: `句子${k}。`, translation: r() < 0.12 ? (r() < 0.5 ? '' : null) : `Sentence ${k}.`, audio: r() < 0.75 });
-  // `clue` = an event written before migration 0152 for the card sentence (folded into `n1-card`).
+  // `clue` = an event written before migration 0153 for the card sentence (folded into `n1-card`).
   const keys = [...sentences.map((s) => sentenceHistoryKey(s.key)), 'gone', 'clue'];
   const events: SentencePracticeEvent[] = [];
   const count = long ? Math.floor(r() * 10) : Math.floor(r() * 30);

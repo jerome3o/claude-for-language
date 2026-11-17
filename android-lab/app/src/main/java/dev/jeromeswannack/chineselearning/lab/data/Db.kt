@@ -131,7 +131,7 @@ data class ReviewEventEntity(
 
 /**
  * One example sentence of a note. The card's own sentence is one of them (core CardSentence.kt, server
- * migration 0152): id `<note>-card`, [isCard], position −1 (v14).
+ * migration 0153): id `<note>-card`, [isCard], position −1 (v14).
  */
 @Entity(tableName = "sentences", indices = [Index("noteId")])
 data class SentenceEntity(

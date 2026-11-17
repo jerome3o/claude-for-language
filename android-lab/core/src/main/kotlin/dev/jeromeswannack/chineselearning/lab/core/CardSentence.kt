@@ -5,14 +5,14 @@ package dev.jeromeswannack.chineselearning.lab.core
  * docs/STUDY_SESSION.md "Example sentences — one model".
  *
  * The card's own example sentence is ONE OF the note's example sentence rows: id `<note id>-card`, `is_card`,
- * position −1 (migration 0152). Every reader treats it like any other row; "From the card" is a badge from
+ * position −1 (migration 0153). Every reader treats it like any other row; "From the card" is a badge from
  * [isCardRow]. While a device holds a note newer than its rows (it synced notes before the migration, or the
  * learner just edited the sentence), [withCardSentence] makes the card row from the note's deprecated
  * `sentence_clue*` fields — the ONLY place the app reads them for display.
  */
 object CardSentence {
     const val SUFFIX = "-card"
-    /** The legacy practice-history key of the card sentence (events written before migration 0152). */
+    /** The legacy practice-history key of the card sentence (events written before migration 0153). */
     const val LEGACY_KEY = "clue"
     private const val LEGACY_ROW_PREFIX = "clue:"
 

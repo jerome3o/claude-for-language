@@ -1,6 +1,6 @@
 /**
  * The card's own example sentence is ONE OF the note's example sentences (docs/STUDY_SESSION.md "Example
- * sentences — one model", migration 0152): a `note_sentences` row flagged `is_card`, with a deterministic id
+ * sentences — one model", migration 0153): a `note_sentences` row flagged `is_card`, with a deterministic id
  * `<note id>-card`, sorted first (position −1). Every reader — the answer side's list, the Sentence round,
  * "Listen in context", the practice history, explain / translation caches, ▶ audio, exports — treats it like
  * any other row; "From the card" is just a badge drawn from `is_card`.
@@ -23,7 +23,7 @@ export function cardSentenceId(noteId: string): string {
   return `${noteId}${CARD_SENTENCE_SUFFIX}`;
 }
 
-/** The legacy practice-history key of the card sentence (events written before migration 0152). */
+/** The legacy practice-history key of the card sentence (events written before migration 0153). */
 export const LEGACY_CARD_SENTENCE_KEY = 'clue';
 /** The legacy row-key prefix (`clue:<noteId>`) older builds used for the card sentence in lists. */
 const LEGACY_ROW_PREFIX = 'clue:';
@@ -55,7 +55,7 @@ export interface SentenceRowLike {
   focus: string | null;
   focus_note: string | null;
   explanation: string | null;
-  /** 1 / true = the card's own sentence. Absent on rows synced before migration 0152. */
+  /** 1 / true = the card's own sentence. Absent on rows synced before migration 0153. */
   is_card?: number | boolean | null;
   created_at?: string;
   updated_at?: string;

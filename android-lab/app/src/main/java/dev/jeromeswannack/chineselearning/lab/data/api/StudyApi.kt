@@ -218,7 +218,7 @@ data class SentenceDto(
     val focus: String? = null,
     val focus_note: String? = null,
     val explanation: String? = null,
-    /** 1 = the card's own sentence row (`<note>-card`, migration 0152). */
+    /** 1 = the card's own sentence row (`<note>-card`, migration 0153). */
     val is_card: Int? = 0,
 )
 

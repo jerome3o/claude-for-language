@@ -1,5 +1,5 @@
 /**
- * The card's own example sentence as a note_sentences row (migration 0152, shared/study/cardSentence.ts):
+ * The card's own example sentence as a note_sentences row (migration 0153, shared/study/cardSentence.ts):
  * `<note id>-card`, `is_card = 1`, position −1.
  *
  * Transition: the deprecated `notes.sentence_clue*` columns are still how the card sentence is WRITTEN (the

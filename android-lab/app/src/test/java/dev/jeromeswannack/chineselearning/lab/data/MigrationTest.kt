@@ -386,7 +386,7 @@ class MigrationTest {
 
     /**
      * v14 adds sentences.isCard (the card's own example sentence is one of the note's rows — core CardSentence,
-     * server migration 0152): every old row is a set row; the card row arrives with the next sync and is told apart.
+     * server migration 0153): every old row is a set row; the card row arrives with the next sync and is told apart.
      */
     @Test fun v13ToV14MarksTheCardSentenceRowAndKeepsEverything() {
         createFromExportedSchema(13).use { db ->

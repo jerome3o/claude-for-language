@@ -184,7 +184,7 @@ data class SentenceDto(
     val audio_url: String? = null,
     val focus: String? = null,
     val focus_note: String? = null,
-    /** 1 = the card's own sentence row (`<note>-card`, migration 0152). */
+    /** 1 = the card's own sentence row (`<note>-card`, migration 0153). */
     val is_card: Int? = 0,
 )
 
