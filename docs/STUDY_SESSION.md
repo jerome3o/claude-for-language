@@ -2267,6 +2267,35 @@ know about the transcription issues, or we should just scrub out the grammar". B
 
 ### Answer feedback: one line and a diff (every "how your answer differs" surface)
 
+**Since Nov 2026 (second round): verdict line + diff + ONE why sentence + "Explain more ›".** Jerome, on the Sentence
+round's "✓ Right — said differently from the model" for 这是一个真实的故事 (the model 这是真实的故事) with no reason: "I
+actually did like having the little explainer, one sentence as to why my answer is also okay or why it's wrong. So just
+like one sentence. Maybe have a little button that's like explain more or something." So under the diff of every judged
+answer there is now one short muted sentence (≤ 110 characters, English) and a small **Explain more ›**
+(`shared/cards/answer-why.ts`, Lab `core/…/AnswerWhy.kt`, parity-tested in `parity/fixtures/answer-diff.ts` →
+`AnswerWhyParityTest`):
+- **the why** (`answerWhy`) = what the check already returned — its headline's first sentence ("Correct — 一个 is
+  optional here."), else its first tip when the headline is a stock line that says nothing ("Nearly — compare with the
+  corrected version.", `ANSWER_WHY_STOCK`) — never a repeat of the line above. No new model call, no new field: the
+  answer check (`POST /api/lessons/answer-check`), the sentence check, the read-take check (its reason + tip) and the
+  word-order check already write that sentence, so cached `lesson_answer_checks` rows give one too. With no check, the
+  device's own reason where it has one: a homophone counted right → "Same sounds — written differently: 由 vs 油"
+  (`deviceWhy`). An exact match has no why.
+- **Explain more ›** (`answerMore`) opens IN PLACE what the check already returned: the headline's rest, its tips (≤ 4),
+  "Corrected: …" (never when it equals his answer or the answer already on screen), "Also natural: …". Nothing on hand →
+  the button asks Claude about the answer where the surface has that path (`onExplainMore`), else it isn't shown.
+  Collapsed by default, open for that showing only. Analytics `study.answer_why_more { surface, action: open | close |
+  ask }`.
+- Calm: muted text, no box, no list until he asks; the result-state colour stays on the verdict chip.
+- Where: every `AnswerDiff` / Lab `AnswerDiffView` (Hard mode's question check + 👁 Show answer, the sentence check, the
+  Sentence round incl. "Say it in Chinese" and listen exercises, the sentence rows' translate takes, the homework pass —
+  its `check` prop; with only a `headline`, that is the why), the read take's "You said" box (`YouSaid` / Lab
+  `YouSaidBox`), and a mini lesson's answer check (`AnswerCheckBody`: the chip + the why, then Explain more — translate,
+  listen_translate, speaking; the word-order check and sentence making already end in one line of Claude's). Web
+  `components/study/AnswerWhy.tsx`, Lab `ui/study/AnswerWhyLine.kt`.
+
+The first round, below, took the explanations out; the rest of it stands.
+
 Jerome (Nov 2026, Pixel Fold, dark theme): "When I am on a hard mode card and I get it wrong, it pops up with the little
 'how I said it wrong' display. This is way too much information. In all of the different UIs where we have this style of
 UI, it's a bit much. Slim it down: no explanations, just one short sentence that summarises what the differences were.
