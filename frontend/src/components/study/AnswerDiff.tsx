@@ -78,15 +78,20 @@ export interface AnswerDiffProps {
   /** Under the diff (🎤 Read it again …). */
   children?: ReactNode;
   testId?: string;
+  /**
+   * A WRITTEN answer (typed / handwritten characters): judged by the characters, so a homophone is a wrong
+   * character (`answerDiff(…, { written: true })`).
+   */
+  written?: boolean;
 }
 
 export function AnswerDiff({
   said, expected, expectedPinyin, expectedEnglish, expectedLabel = 'Answer', showExpected = true, onPlayExpected,
   accepted = false, headline, verdict, line, hideLine = false, saidLabel = ANSWER_DIFF_YOU_SAID, check, why, onExplainMore, whySurface,
-  children, testId = 'answer-diff',
+  children, testId = 'answer-diff', written = false,
   expectedTestId = 'answer-diff-expected', saidTestId = 'answer-diff-said', playTestId = 'answer-diff-play',
 }: AnswerDiffProps) {
-  const diff = useMemo(() => answerDiff(said, expected), [said, expected]);
+  const diff = useMemo(() => answerDiff(said, expected, { written }), [said, expected, written]);
   const full = answerDiffLine({ diff, accepted, headline });
   // Under a "✓ Also right" chip, "Right — worded differently" says "right" twice: just "Worded differently".
   const text = verdict?.tone === 'right' && full.startsWith('Right — ') ? capitalize(full.slice('Right — '.length)) : full;

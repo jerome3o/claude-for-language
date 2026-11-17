@@ -424,9 +424,7 @@
   border-radius: 3px;
 }
 
-.tutor-diff-correct { color: #15803d; }
-.tutor-diff-wrong { color: #b91c1c; background: #fee2e2; text-decoration: line-through; }
-.tutor-diff-expected { color: #1d4ed8; background: #dbeafe; }
+.tutor-diff-correct { color: var(--result-right-ink); }
 .tutor-diff-arrow { color: var(--color-text-light); font-size: 0.875rem; margin: 0 0.25rem; }
 
 /* Attempts list (inline expansion + history rows) */

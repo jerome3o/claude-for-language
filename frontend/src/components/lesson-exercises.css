@@ -364,51 +364,16 @@
   color: #374151;
 }
 
-/* Typed answer vs the expected characters */
+/* Typed answer vs the expected characters: the slim answer diff (components/study/AnswerDiff.tsx) in a quiet box. */
 .char-diff {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.6rem 0.75rem;
+  padding: 0.35rem 0.75rem;
   border-radius: 8px;
-  background: #f9fafb;
-}
-
-.char-diff-row {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-}
-
-.char-diff-label {
-  flex: 0 0 4.5rem;
-  font-size: 0.75rem;
-  color: #6b7280;
-}
-
-.char-diff-chars {
-  font-size: 1.4rem;
-  letter-spacing: 0.08em;
-  word-break: break-all;
-}
-
-/* Colour only, like the slim answer diff (index.css `--mark-*`; Jerome, Nov 2026: no strikes, fills or underlines):
-   a typed character that isn't in the answer, and an answer character he missed, in the wrong mark's rose. */
-.char-diff-chars .hit {
-  color: var(--result-right-ink);
-}
-
-.char-diff-chars .extra {
-  color: var(--mark-wrong);
-}
-
-.char-diff-chars .miss {
-  color: var(--mark-wrong);
+  background: var(--color-background);
 }
 
 .char-diff-empty {
   font-size: 0.9rem;
-  color: #9ca3af;
+  color: var(--color-text-light);
 }
 
 /* Handwriting next to the model characters */

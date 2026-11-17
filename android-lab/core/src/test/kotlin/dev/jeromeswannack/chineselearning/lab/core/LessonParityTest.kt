@@ -45,6 +45,7 @@ class LessonParityTest {
             assertEquals(c["correct"]!!.jsonPrimitive.boolean, LessonAnswers.isHanziCorrect(answer, expected, alts), "$where correct")
             assertEquals(c["uses"]!!.jsonPrimitive.boolean, LessonAnswers.sentenceUsesWord(answer, LessonAnswers.chars(expected).take(2).joinToString("")), "$where uses")
             assertEquals(c["exact"]!!.jsonPrimitive.boolean, LessonAnswers.isExactHanziMatch(answer, expected), "$where exact")
+            assertEquals(c["form"]!!.str, LessonAnswers.answerForm(answer, expected, alts), "$where form")
             val d = c["diff"]!!.jsonObject
             val k = LessonAnswers.diffHanzi(answer, expected, alts)
             assertEquals(d["correct"]!!.jsonPrimitive.boolean, k.correct, "$where diff.correct")

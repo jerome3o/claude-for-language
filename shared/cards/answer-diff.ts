@@ -58,13 +58,23 @@ export interface AnswerDiff {
 
 const cps = (s: string) => [...s];
 
+export interface AnswerDiffOptions {
+  /**
+   * The answer was WRITTEN (typed / handwritten characters — the typed card back, a lesson's write / dictation, a
+   * call's dictation): judged by the characters, not by sound — a homophone (`sound`) or the same syllable in another
+   * tone (`tone`) is a `wrong` character ("官 instead of 馆"), as the typed answer's own verdict (`checkTypedAnswer`)
+   * says. Numbers / 两 / simplified-traditional still line up as the same character.
+   */
+  written?: boolean;
+}
+
 /** His answer against the expected one, character by character (see the file comment). */
-export function answerDiff(said: string, expected: string): AnswerDiff {
-  return diffOfJudged(judgeReadAloud(expected, said), said, expected, false);
+export function answerDiff(said: string, expected: string, opts: AnswerDiffOptions = {}): AnswerDiff {
+  return diffOfJudged(judgeReadAloud(expected, said), said, expected, false, opts.written === true);
 }
 
 /** The diff of a judged reading; `reading` = a page read aloud: the part after where he stopped is skipped, not missing. */
-function diffOfJudged(r: ReadAloudResult, said: string, expected: string, reading: boolean): AnswerDiff {
+function diffOfJudged(r: ReadAloudResult, said: string, expected: string, reading: boolean, written = false): AnswerDiff {
   const parts: AnswerDiffPart[] = [];
   const push = (p: AnswerDiffPart) => {
     if (p.kind !== 'extra') { parts.push(p); return; }
@@ -91,8 +101,12 @@ function diffOfJudged(r: ReadAloudResult, said: string, expected: string, readin
     switch (c.mark) {
       case 'plain': push({ text: c.char, kind: 'plain', expected: '' }); break;
       case 'ok': push({ text: c.heard || unit, kind: 'ok', expected: unit }); break;
-      case 'sound': push({ text: c.heard, kind: 'sound', expected: unit }); count.sound++; break;
-      case 'close': push({ text: c.heard, kind: 'tone', expected: unit }); count.tone++; break;
+      case 'sound':
+      case 'close':
+        // Written: another character is wrong, whatever it sounds like.
+        if (written) { push({ text: c.heard, kind: 'wrong', expected: unit }); count.wrong++; break; }
+        if (c.mark === 'sound') { push({ text: c.heard, kind: 'sound', expected: unit }); count.sound++; break; }
+        push({ text: c.heard, kind: 'tone', expected: unit }); count.tone++; break;
       case 'wrong': push({ text: c.heard, kind: 'wrong', expected: unit }); count.wrong++; break;
       default: // missed / unread — a page read aloud: unread = he stopped before here, not missing
         if (reading && c.mark === 'unread') break;

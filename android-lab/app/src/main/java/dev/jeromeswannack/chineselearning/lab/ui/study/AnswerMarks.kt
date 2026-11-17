@@ -27,40 +27,16 @@ import dev.jeromeswannack.chineselearning.lab.core.ResultState
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 
 /**
- * How each character of an answer is marked on the back of the card — port of
- * `frontend/src/utils/answerDiff.ts`. COLOUR ONLY, like the slim answer diff (Jerome, Nov 2026: no outlines, no
- * underlines, subtler colours): [Mark.CORRECT] the "right" ink; [Mark.WRONG] the wrong mark's rose (a wrong character,
- * or an extra one past the end); [Mark.MISSING] a "?" in the missing grey (a character not typed / a multiple-choice
- * row left blank). The one-line summary above says it in words; every cell has a content description.
+ * How each multiple-choice row's pick is marked on the back of the card (the web's `McAnswerDiff`). COLOUR ONLY, like
+ * the slim answer diff (Jerome, Nov 2026: no outlines, no underlines, subtler colours): [Mark.CORRECT] the "right" ink;
+ * [Mark.WRONG] the wrong mark's rose; [Mark.MISSING] a "?" in the missing grey (a row left blank). Every cell has a
+ * content description. A TYPED answer is the slim answer diff ([AnswerDiffView], core AnswerDiff).
  */
 object AnswerMarks {
     enum class Mark { CORRECT, WRONG, MISSING }
 
-    /** One character as typed / picked ("" for a missing one — drawn as "?"). */
+    /** One character as picked ("" for a missing one — drawn as "?"). */
     data class Cell(val char: String, val mark: Mark)
-
-    data class Expected(val char: String, val matched: Boolean)
-
-    data class TypedDiff(val typed: List<Cell>, val expected: List<Expected>)
-
-    /**
-     * Port of `typedAnswerDiff()`: position by position, by code point. Characters past the
-     * end of the expected answer are WRONG (extra); positions the answer didn't reach are MISSING.
-     */
-    fun typedDiff(userAnswer: String, correctAnswer: String): TypedDiff {
-        val user = codePoints(userAnswer)
-        val target = codePoints(correctAnswer)
-        val typed = ArrayList<Cell>()
-        val expected = ArrayList<Expected>()
-        for (i in 0 until maxOf(user.size, target.size)) {
-            val u = user.getOrNull(i)
-            val c = target.getOrNull(i)
-            val matched = u != null && u == c
-            typed += if (u != null) Cell(u, if (matched) Mark.CORRECT else Mark.WRONG) else Cell("", Mark.MISSING)
-            if (c != null) expected += Expected(c, matched)
-        }
-        return TypedDiff(typed, expected)
-    }
 
     /** A multiple-choice row's pick as a cell (the web's `McAnswerDiff`). */
     fun forSlot(slot: MultipleChoice.Slot): Cell {
@@ -83,8 +59,6 @@ object AnswerMarks {
         }
         return groups
     }
-
-    private fun codePoints(s: String): List<String> = s.codePoints().toArray().map { String(Character.toChars(it)) }
 }
 
 /** A row of marked characters (wraps for long answers). */

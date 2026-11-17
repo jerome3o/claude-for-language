@@ -1701,9 +1701,8 @@ private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
 }
 
 /**
- * The web's AnswerDiff, for a TYPED answer: accepted answers in green; otherwise a
- * character-by-character diff with the pinyin of what was typed — wrong characters red and
- * underlined, missing ones a "?" with a dashed underline ([AnswerMarks]). Characters are tappable.
+ * The web's AnswerDiff, for a TYPED answer: accepted answers in green; otherwise the slim answer diff
+ * ([AnswerDiffView], judged by the characters — a homophone is wrong) and then the card's answer, tappable.
  * The card's own pinyin follows right under it, so an exact answer has no second pinyin line.
  * A SPOKEN answer never comes here: the back shows the card's answer once and one compact
  * "You said" row ([SpokenResultRow], core SpokenAnswerResult).
@@ -1722,23 +1721,21 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
         }
         AnswerKey.Verdict.ALTERNATIVE, AnswerKey.Verdict.EQUIVALENT -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             RightAnswerBox(typed, celebrated) { TappableHanzi(typed, size, Lab.colors.ink, onChar, newChars = newChars) }
-            Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            // The app's auto-pinyin (一 / 不 tone changes applied).
+            Text(devicePinyinLine(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("Also accepted — canonical answer:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar, newChars = newChars)
-            Text(Pinyin.of(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
+            Text(devicePinyinLine(correct), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
         }
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
-            val diff = AnswerMarks.typedDiff(typed, correct)
-            // ONE line that says what differs (core AnswerDiff; docs/STUDY_SESSION.md "Answer feedback").
-            Text(
-                dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(typed, correct)),
-                Modifier.testTag("typed-answer-line"), color = Lab.colors.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            // The slim answer diff (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): ONE line that says
+            // what differs and his answer marked, judged by the characters; then the card's answer, tappable.
+            AnswerDiffView(
+                typed, correct, tag = TYPED_DIFF_TAG, written = true, showExpected = false,
+                saidLabel = dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.YOUR_ANSWER, whySurface = "typed_answer",
             )
-            MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
-            Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
-            Text("↓", color = Lab.colors.muted)
-            ExpectedAnswerRow(diff.expected.map { it.char }, diff.expected.map { it.matched }, size, Lab.colors.ink, onChar, newChars)
+            val chars = remember(correct) { dev.jeromeswannack.chineselearning.lab.core.LessonAnswers.chars(correct) }
+            ExpectedAnswerRow(chars, chars.map { false }, size, Lab.colors.ink, onChar, newChars)
         }
     }
 }
@@ -1758,6 +1755,9 @@ private fun RightAnswerBox(key: String, celebrated: Boolean, content: @Composabl
 
 /** A typed / spoken answer judged right on the back (its green result surface). */
 const val TYPED_RIGHT_TAG = "typed-answer-right"
+
+/** A typed answer judged wrong on the back: the slim answer diff (the web's `typed-answer-diff`). */
+const val TYPED_DIFF_TAG = "typed-answer-diff"
 
 @Composable
 fun RatingBar(

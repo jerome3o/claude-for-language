@@ -98,13 +98,13 @@ class PeekFlipTest : LabScreenshotTest() {
         compose.onNode(hasSetTextAction()).performTextInput("打蒜")
         compose.onNodeWithText("Check").performClick()
         assertEquals(listOf<AnswerKey.Verdict?>(AnswerKey.Verdict.WRONG), reveals)
-        compose.onNodeWithContentDescription("蒜, wrong", useUnmergedTree = true).assertExists() // the answer diff
+        compose.onNodeWithTag(TYPED_DIFF_TAG, useUnmergedTree = true).assertExists() // the slim answer diff
 
         tapEmptyBack()
         assertQuestionSide()
         compose.onNodeWithText(PEEK_HINT).performClick()
         assertAnswerSide()
-        compose.onNodeWithContentDescription("蒜, wrong", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(TYPED_DIFF_TAG, useUnmergedTree = true).assertExists()
 
         assertEquals("no re-check", 1, reveals.size)
         compose.onNodeWithText("Hard").performClick()

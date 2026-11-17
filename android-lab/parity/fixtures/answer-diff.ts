@@ -111,8 +111,22 @@ const whys = WHY_PAIRS.flatMap(([said, expected]) => CHECKS.map((check) => {
   return { said, expected, check, line, why, whyNoLine, device: deviceWhy(diff), more: answerMore(check, why, said), moreNoWhy: answerMore(check, null), moreExpected: answerMore(check, why, said, expected) };
 }));
 
+// A WRITTEN answer (typed / handwritten): judged by the characters — a homophone or another tone is wrong.
+const WRITTEN_PAIRS: [string, string][] = [
+  ...PAIRS,
+  ['图书官', '图书馆'],
+  ['打蒜', '打算'],
+  ['你好', '你好吗'],
+  ['谢谢你', '谢谢'],
+  ['我是读书', '我是都书'],
+];
+const written = WRITTEN_PAIRS.map(([said, expected]) => {
+  const d = answerDiff(said, expected, { written: true });
+  return { said, expected, diff: d, summary: answerDiffSummary(d), tone: answerDiffTone(d) };
+});
+
 writeFileSync(join(OUT, 'answer-diff.json'), JSON.stringify({
-  cases, sentences, readings, verdicts: ANSWER_DIFF_VERDICT, whys,
+  cases, written, sentences, readings, verdicts: ANSWER_DIFF_VERDICT, whys,
   whyCopy: { max: ANSWER_WHY_MAX, more: ANSWER_WHY_MORE, less: ANSWER_WHY_LESS, corrected: ANSWER_WHY_CORRECTED, alternative: ANSWER_WHY_ALTERNATIVE, stock: ANSWER_WHY_STOCK },
   copy: {
     right: ANSWER_DIFF_RIGHT, worded: ANSWER_DIFF_WORDED, order: ANSWER_DIFF_ORDER, far: ANSWER_DIFF_FAR, empty: ANSWER_DIFF_EMPTY,

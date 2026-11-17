@@ -32,6 +32,16 @@ export function isExactHanziMatch(answer: string, reference: string): boolean {
   return a.length > 0 && a === normalize(reference);
 }
 
+/**
+ * The accepted form an answer is shown against: the alternative it IS (punctuation / spaces aside), else the
+ * expected text — so a right alternative isn't drawn as a wrong answer to the main form. Lab `LessonAnswers.answerForm`.
+ */
+export function answerForm(answer: string, expected: string, alternatives: readonly string[] = []): string {
+  const a = normalizeHanziAnswer(answer);
+  if (!a || normalizeHanziAnswer(expected) === a) return expected;
+  return alternatives.find((alt) => normalizeHanziAnswer(alt) === a) ?? expected;
+}
+
 export interface CharMark {
   ch: string;
   /** In the other string at this aligned position. */

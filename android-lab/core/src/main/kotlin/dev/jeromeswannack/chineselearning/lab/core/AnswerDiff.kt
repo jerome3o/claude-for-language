@@ -43,11 +43,16 @@ object AnswerDiff {
 
     private fun cpLen(s: String): Int = s.codePointCount(0, s.length)
 
-    /** `answerDiff`: his answer against the expected one. */
-    fun of(said: String, expected: String): Diff = ofJudged(ReadAloud.judge(expected, said), said, expected, false)
+    /**
+     * `answerDiff`: his answer against the expected one. [written] = typed / handwritten characters (the typed card
+     * back, a lesson's write / dictation, a call's dictation): judged by the characters — a homophone or another tone is
+     * a `wrong` character, as the typed answer's own verdict says (`AnswerDiffOptions.written`).
+     */
+    fun of(said: String, expected: String, written: Boolean = false): Diff =
+        ofJudged(ReadAloud.judge(expected, said), said, expected, false, written)
 
     /** `diffOfJudged`: a judged reading; [reading] = a page read aloud (after where he stopped is skipped, not missing). */
-    private fun ofJudged(r: ReadAloud.Result, said: String, expected: String, reading: Boolean): Diff {
+    private fun ofJudged(r: ReadAloud.Result, said: String, expected: String, reading: Boolean, written: Boolean = false): Diff {
         val parts = ArrayList<Part>()
         fun push(p: Part) {
             if (p.kind != "extra") { parts.add(p); return }
@@ -77,8 +82,12 @@ object AnswerDiff {
             when (c.mark) {
                 ReadAloud.Mark.PLAIN -> push(Part(c.char, "plain", ""))
                 ReadAloud.Mark.OK -> push(Part(c.heard.ifEmpty { unit }, "ok", unit))
-                ReadAloud.Mark.SOUND -> { push(Part(c.heard, "sound", unit)); sound++ }
-                ReadAloud.Mark.CLOSE -> { push(Part(c.heard, "tone", unit)); tone++ }
+                // Written: another character is wrong, whatever it sounds like.
+                ReadAloud.Mark.SOUND, ReadAloud.Mark.CLOSE -> when {
+                    written -> { push(Part(c.heard, "wrong", unit)); wrong++ }
+                    c.mark == ReadAloud.Mark.SOUND -> { push(Part(c.heard, "sound", unit)); sound++ }
+                    else -> { push(Part(c.heard, "tone", unit)); tone++ }
+                }
                 ReadAloud.Mark.WRONG -> { push(Part(c.heard, "wrong", unit)); wrong++ }
                 else -> if (!(reading && c.mark == ReadAloud.Mark.UNREAD)) { push(Part(unit, "missing", unit)); missing++ }
             }

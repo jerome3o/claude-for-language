@@ -162,8 +162,6 @@
 .act-live-label { font-size: 0.8rem; color: #6b7280; }
 .act-live-text { font-size: 2rem; min-height: 1.3em; }
 .act-diff { font-size: 2rem; letter-spacing: 0.06em; }
-.act-diff .hit { color: #166534; }
-.act-diff .miss { color: #dc2626; text-decoration: underline wavy; }
 
 /* done */
 .act-done { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; max-width: 640px; margin: 0 auto; text-align: center; }

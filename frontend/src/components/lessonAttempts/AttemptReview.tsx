@@ -9,8 +9,9 @@
 
 import { answerInputLabel } from '@shared/lesson/spoken-check';
 import {
-  diffHanzi,
+  answerForm,
   exerciseTypeInfo,
+  isHanziAnswerCorrect,
   fillGap,
   formatDuration,
   sectionTimes,
@@ -26,6 +27,8 @@ import { RecordingButton } from '../../pages/tutor/tutor-shared';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import { SentenceVerdictLine } from '../lessons/SentenceCheck';
 import type { ExerciseAnswer } from '@shared/lesson';
+import { answerDiff, answerDiffLabel, answerDiffSummary } from '@shared/cards/answer-diff';
+import { AnswerDiffChars } from '../study/AnswerDiff';
 import './attempts.css';
 
 type ExerciseAnswerInput = 'spoken' | 'edited' | 'typed';
@@ -51,21 +54,23 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
+/** A typed answer, marked against the expected text — the slim answer diff, judged by the characters. */
 function TypedDiff({ text, expected, alternatives, input }: { text: string | undefined; expected: string; alternatives?: string[]; input?: ExerciseAnswerInput }) {
   if (!text) return <Row label="Answered">(nothing typed)</Row>;
-  const d = diffHanzi(text, expected, alternatives);
+  const form = answerForm(text, expected, alternatives);
+  const diff = answerDiff(text, form, { written: true });
+  const line = answerDiffSummary(diff);
   return (
     <>
       <Row label={answerInputLabel(input)}>
-        <span className="att-chars" lang="zh-CN">
-          {d.typed.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>)}
+        <span className="att-chars" lang="zh-CN" aria-label={answerDiffLabel(diff, line)} data-testid="att-typed-diff">
+          <AnswerDiffChars parts={diff.parts} />
         </span>
       </Row>
-      {!d.correct && (
+      {!isHanziAnswerCorrect(text, expected, alternatives) && (
         <Row label="Answer">
-          <span className="att-chars" lang="zh-CN">
-            {d.expected.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'miss'}>{m.ch}</span>)}
-          </span>
+          <span className="att-chars" lang="zh-CN">{form}</span>
+          <span className="att-diff-line" data-testid="att-diff-line"> · {line}</span>
         </Row>
       )}
     </>

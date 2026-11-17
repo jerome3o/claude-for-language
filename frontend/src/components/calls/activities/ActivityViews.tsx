@@ -24,7 +24,8 @@ import {
 } from '@shared/call-activities';
 import { AddChunkModal } from '../../AddChunkModal';
 import { track } from '../../../services/analytics';
-import { diffHanzi } from '@shared/lesson/answer-check';
+import { answerDiff } from '@shared/cards/answer-diff';
+import { AnswerDiffChars } from '../../study/AnswerDiff';
 import { ReviewView } from './ReviewView';
 
 export interface BodyProps {
@@ -492,13 +493,14 @@ function DictationView({ session: s, role, act, can, speak, spec }: BodyProps & 
     );
   }
   if (s.phase === 'reveal') {
-    const diff = diffHanzi(draft, item.hanzi);
+    // The slim answer diff, judged by the characters (a homophone is wrong — this is writing).
+    const diff = answerDiff(draft, item.hanzi, { written: true });
     return (
       <div className="act-center">
         <div className="act-hanzi">{item.hanzi}</div>
         <div className="act-pinyin">{item.pinyin} · {item.english}</div>
         <div className="act-diff" data-testid="dictation-diff" aria-label={`Written: ${draft || 'nothing'}`}>
-          {diff.typed.length === 0 ? <span className="act-muted">(nothing written)</span> : diff.typed.map((m, i) => <span key={i} className={m.hit ? 'hit' : 'miss'}>{m.ch}</span>)}
+          {diff.empty ? <span className="act-muted">(nothing written)</span> : <AnswerDiffChars parts={diff.parts} testId="dictation-diff-chars" />}
         </div>
         <div className={`act-verdict ${s.data.mark ? 'right' : 'wrong'}`} data-testid="activity-verdict">{s.data.mark ? '✓ Right' : '✗ Not quite'}</div>
         <div className="act-actions">

@@ -108,5 +108,5 @@ test('✏️ Edit puts what was heard in the box — changed, it is checked stri
   await expect(page.getByTestId('lesson-voice-mic')).toBeVisible();
   await box.fill('图书官');
   await page.getByTestId('lesson-voice-submit').click();
-  await expect(page.locator('.char-diff .extra')).toHaveText('官');
+  await expect(page.locator('[data-testid="char-diff"] [data-kind="wrong"]')).toHaveText('官');
 });
