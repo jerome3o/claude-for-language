@@ -40,11 +40,11 @@ async function decode(file: Blob): Promise<{ source: CanvasImageSource; width: n
   }
 }
 
-/** Shrink a photo for sending: longest side ≤ 1600 px, JPEG q 0.8 (white behind transparency). */
-export async function compressPhoto(file: Blob): Promise<{ blob: Blob; width: number; height: number }> {
+/** Shrink a photo for sending: longest side ≤ 1600 px, JPEG q 0.8 (white behind transparency). The ＋ Add tab's photo → OCR uses 1280 px (shared/add/add.ts OCR_MAX_EDGE). */
+export async function compressPhoto(file: Blob, maxSide = PHOTO_MAX_SIDE, quality = PHOTO_QUALITY): Promise<{ blob: Blob; width: number; height: number }> {
   const img = await decode(file);
   try {
-    const { width, height } = scaleToFit(img.width, img.height, PHOTO_MAX_SIDE);
+    const { width, height } = scaleToFit(img.width, img.height, maxSide);
     if (!width || !height) throw new Error("Couldn't read that picture");
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -55,7 +55,7 @@ export async function compressPhoto(file: Blob): Promise<{ blob: Blob; width: nu
     ctx.fillRect(0, 0, width, height);
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img.source, 0, 0, width, height);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', PHOTO_QUALITY));
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
     if (!blob) throw new Error("Couldn't prepare the picture");
     return { blob, width, height };
   } finally {

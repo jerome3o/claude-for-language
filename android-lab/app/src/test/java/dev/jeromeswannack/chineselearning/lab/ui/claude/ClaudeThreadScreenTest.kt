@@ -320,13 +320,4 @@ class ClaudeThreadScreenTest : LabScreenshotTest() {
     @Test fun shotQueuedDark() = shoot("claude-thread-08-queued-offline-dark", dark = true) { ClaudeThreadScreen(S.queuedOffline, ClaudeThreadActions()) }
     @Test fun shotNewChat() = shoot("claude-thread-09-new-chat-composer") { ClaudeThreadScreen(S.newChinese, ClaudeThreadActions(), voicePreview = typing) }
     @Test fun shotTool() = shoot("claude-thread-10-tool-status", settleMs = 600) { ClaudeThreadScreen(S.generalTool, ClaudeThreadActions()) }
-
-    /** The ✦ Claude tab: a new chat, the tab bar under it, 🎤 listening at once. */
-    private val listeningNow = VoiceDictationUi(phase = "listening", finalText = "“了”和“过”", partialText = "有什么不一样")
-    @Test fun shotClaudeTab() = shootInShell("claude-thread-11-claude-tab-listening", dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.CLAUDE) {
-        ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), voicePreview = listeningNow, showBack = false)
-    }
-    @Test fun shotClaudeTabDark() = shootInShell("claude-thread-12-claude-tab-listening-dark", dev.jeromeswannack.chineselearning.lab.ui.nav.TabId.CLAUDE, dark = true) {
-        ClaudeThreadScreen(ClaudeThreadUi(isNew = true), ClaudeThreadActions(), voicePreview = listeningNow, showBack = false)
-    }
 }

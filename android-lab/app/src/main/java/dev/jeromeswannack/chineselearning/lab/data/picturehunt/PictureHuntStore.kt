@@ -182,9 +182,12 @@ object PhotoPrep {
         return encode(bitmap)
     }
 
-    /** Scale to [LONG_SIDE] and JPEG-encode on a white background (transparent PNGs). */
-    fun encode(source: Bitmap): ByteArray {
-        val scale = minOf(1.0, LONG_SIDE.toDouble() / maxOf(source.width, source.height))
+    /** The ＋ Add tab's photo → OCR (docs/ADD_TAB.md): decoded, EXIF orientation applied, sampled down from huge camera photos. */
+    fun decodeForOcr(context: Context, uri: Uri): Bitmap? = decode(context, uri)
+
+    /** Scale to [longSide] and JPEG-encode on a white background (transparent PNGs). */
+    fun encode(source: Bitmap, longSide: Int = LONG_SIDE, quality: Int = 85): ByteArray {
+        val scale = minOf(1.0, longSide.toDouble() / maxOf(source.width, source.height))
         val w = maxOf(1, Math.round(source.width * scale).toInt())
         val h = maxOf(1, Math.round(source.height * scale).toInt())
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -192,7 +195,7 @@ object PhotoPrep {
         canvas.drawColor(android.graphics.Color.WHITE)
         canvas.drawBitmap(source, null, android.graphics.Rect(0, 0, w, h), android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG))
         return ByteArrayOutputStream().use { bytes ->
-            out.compress(Bitmap.CompressFormat.JPEG, 85, bytes)
+            out.compress(Bitmap.CompressFormat.JPEG, quality, bytes)
             bytes.toByteArray()
         }
     }

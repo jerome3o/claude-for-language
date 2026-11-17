@@ -33,6 +33,7 @@ export type AnalyticsArea =
   | 'lessons'
   | 'coach'
   | 'decks'
+  | 'add'
   | 'settings'
   | 'feedback'
   | 'notifications'
@@ -395,11 +396,16 @@ export const ANALYTICS_EVENTS = {
   'claude.practice_start': e('chat', 'Started a role-play with Claude — a practice thread, Claude speaks first (source = chats: ✏️ → Practice a situation | card: 🎭 Roleplay this word | claude_page: the Claude page\'s New practice chat | chat_link: an old "new chat with Claude" link; preset = the situation picked (restaurant, taxi…) | custom | card; level = beginner | intermediate | advanced).', ['source', 'preset', 'level']),
   'claude.discuss_open': e('chat', 'Discuss with Claude on a chat message: the message\'s Claude thread opened as a sheet over the chat (resumed = its earlier thread continued rather than a new one).', ['resumed']),
   'claude.share_with_tutor': e('chat', 'Shared a Claude chat with the tutor or hid it (on = she can read it now; scope = thread: the thread ⋯ → Share with my tutor / Hide from my tutor | account: Settings → Chat → "Your tutor can see", visibility = card_only | all | none).', ['on', 'scope', 'visibility', 'context_kind']),
-  'claude.tab_open': e('chat', 'Opened the learner\'s ✦ Claude tab (a new chat with Claude, docs/CHAT.md "The Claude tab"): listening = 🎤 started dictating at once | false = it stayed on typing (offline, no microphone; a refused permission shows as voice_input.used blocked = denied).', ['listening']),
+  'claude.tab_open': e('chat', 'Opened the learner\'s ✦ Claude tab (a new chat with Claude, docs/CHAT.md "The Claude tab"): listening = 🎤 started dictating at once | false = it stayed on typing (offline, no microphone; a refused permission shows as voice_input.used blocked = denied) — apps before Nov 2026 (the tab became ＋ Add; the Claude box is on the Chats tab).', ['listening'], { replacedBy: 'add.open' }),
+  'add.open': e('add', 'Opened the learner\'s ＋ Add tab (docs/ADD_TAB.md).', []),
+  'add.word_input': e('add', 'Looked up a word from the ＋ Add tab\'s "Add a word" card (method = photo | type | say_zh | say_en; kind = chinese: straight to the explorer | other: English / pinyin → candidate words).', ['method', 'kind']),
+  'add.word_added': e('add', 'A word looked up from the ＋ Add tab became a card or joined today\'s study (via = card: + Add as card | bump: ⚡ Study it today), from the explorer opened there.', ['via']),
+  'add.content_request': e('add', 'Asked for new content from a ＋ Add tab tile (kind = reader | lesson | audio | clips | picture_hunt | deck | ask; format = an audio lesson\'s dialogue | sleep | story; ok = the request was accepted; spoken = said with 🎤).', ['kind', 'format', 'ok', 'spoken']),
+  'ocr.words': e('add', 'Read the Chinese on a photo for the ＋ Add tab (found_count = lines found; via = server: POST /api/ocr/words | device: the Lab app\'s on-device recognizer; ms = how long it took; ok = false when reading failed).', ['found_count', 'via', 'ms', 'ok']),
   'chats.open': e('chat', 'Opened a row of the unified Chats tab (kind = tutor | student | claude).', ['kind']),
   'chats.filter': e('chat', 'Picked a filter chip on the Chats tab (filter = all | people | claude) — apps before Nov 2026 (the chips are gone: people first, a divider, then Claude).', ['filter'], { replacedBy: 'chats.open' }),
   'chats.context_info': e('chat', 'Tapped a Claude row\'s context emoji on the Chats tab (action = show: the popover with the full text | open: its "Open card / story / lesson ›"; context_kind).', ['context_kind', 'action']),
-  'chats.compose_send': e('chat', 'Sent from the Chats tab\'s bottom box to Claude — a new thread (intent = ask | check | explain | translate; offline = queued until a connection; spoken = said with 🎤).', ['intent', 'offline', 'spoken']),
+  'chats.compose_send': e('chat', 'Sent from the Chats tab\'s bottom box to Claude — a new thread (intent = ask | check | explain | translate; offline = queued until a connection; spoken = said with 🎤; chip = one of the box\'s suggestion chips, A useful phrase / Quiz me / A short story).', ['intent', 'offline', 'spoken', 'chip']),
   'chats.compose_to_person': e('chat', 'The Chats tab\'s bottom box switched "To:" from Claude to a tutor: that chat opened with the text as its draft — apps before Nov 2026 (the box always goes to Claude; ✏️ New chat reaches a person).', ['had_text'], { replacedBy: 'chats.open' }),
   'chat.open_in_coach': e('chat', 'Opened a chat message in the Sentence Coach (menu item, the bubble chip or the How-to-say-it-better sheet).', ['source', 'action']),
 

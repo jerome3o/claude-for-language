@@ -268,21 +268,14 @@ class NavStackTest {
             .forEach { assertFalse(it, NavResume.isResumable(it)) }
     }
 
-    // ---------------- the ✦ Claude tab (docs/CHAT.md "The Claude tab") ----------------
+    // ---------------- the ＋ Add tab (docs/ADD_TAB.md) ----------------
 
-    @Test fun theClaudeTabOpensANewChatAndItsThreadTakesItsPlace() {
-        val claude = tab(studentTabs, TabId.CLAUDE)
-        nav.openTab(claude)
-        assertEquals("/claude", nav.currentFullPath())
-        assertEquals(TabId.CLAUDE, NavRules.activeTab(studentTabs, nav.currentPath()))
+    @Test fun theAddTabIsATabPageWithTheBar() {
+        val add = tab(studentTabs, TabId.ADD)
+        nav.openTab(add)
+        assertEquals("/add", nav.currentFullPath())
+        assertEquals(TabId.ADD, NavRules.activeTab(studentTabs, nav.currentPath()))
         assertFalse(NavRules.isImmersiveRoute(nav.currentPath())) // the tab bar stays
-        // The first message: the thread replaces the tab's new chat (ClaudeThreadRoute's started).
-        nav.back()
-        nav.open("/chats/claude/t1")
-        assertEquals(listOf("/", "/chats/claude/t1"), stack())
-        // Back on the tab later: a new chat again, not the old thread.
-        nav.openTab(claude)
-        assertEquals("/claude", nav.currentFullPath())
     }
 
     // ---------------- the Chats tab's box (docs/CHAT.md "Chats tab — one list for people and Claude") ----------------
