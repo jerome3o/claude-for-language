@@ -170,7 +170,7 @@ object BumpStore {
         val first = StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview, newWordsByEar = byEar)
         if (first.kind != StudyToday.LEAD) return first
         val lead = LeadCard.allCharactersKnown(note.hanzi, known?.invoke() ?: knownCharacters(app))
-        return StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview, { lead }, byEar)
+        return StudyToday.plan(noteCards, started, hasAudio, note.longTerm, inReview, byEar) { lead }
     }
 
     /**
@@ -183,7 +183,7 @@ object BumpStore {
         val first = StudyToday.plan(emptyList(), started = false, hasAudio = false, longTermPref = null, deckInReview = true, newWordsByEar = byEar)
         if (first.kind != StudyToday.LEAD) return first
         val lead = LeadCard.allCharactersKnown(hanzi, known())
-        return StudyToday.plan(emptyList(), false, false, null, true, { lead }, byEar)
+        return StudyToday.plan(emptyList(), false, false, null, true, byEar) { lead }
     }
 
     /**

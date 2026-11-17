@@ -37,9 +37,9 @@ object StudyToday {
         hasAudio: Boolean,
         longTermPref: Int?,
         deckInReview: Boolean,
-        knownCharactersLead: (() -> Boolean)? = null,
         /** "Start new words by ear" is on: an unstarted word's listening card leads even before its clip exists. */
         newWordsByEar: Boolean = false,
+        knownCharactersLead: (() -> Boolean)? = null,
     ): Plan {
         if (started) {
             val types = if (cards.isEmpty()) Bumps.BUMP_CARD_TYPE_ORDER.toSet() else cards.mapTo(HashSet()) { it.cardType }

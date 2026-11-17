@@ -19,9 +19,9 @@ object PassBump {
         hasAudio: Boolean,
         longTermPref: Int?,
         deckInReview: Boolean,
-        knownCharactersLead: (() -> Boolean)? = null,
         newWordsByEar: Boolean = false,
-    ): StudyToday.Plan = StudyToday.plan(cards.map { StudyToday.NoteCard(it.cardType, it.queue) }, started, hasAudio, longTermPref, deckInReview, knownCharactersLead, newWordsByEar)
+        knownCharactersLead: (() -> Boolean)? = null,
+    ): StudyToday.Plan = StudyToday.plan(cards.map { StudyToday.NoteCard(it.cardType, it.queue) }, started, hasAudio, longTermPref, deckInReview, newWordsByEar, knownCharactersLead)
 
     fun label(kind: String, on: Boolean): String = StudyToday.label(kind, on)
 
