@@ -10,8 +10,6 @@ import dev.jeromeswannack.chineselearning.lab.data.api.addNotesToSourceDeck
 import dev.jeromeswannack.chineselearning.lab.data.api.moveNotesTo
 import dev.jeromeswannack.chineselearning.lab.data.NoteEntity
 import dev.jeromeswannack.chineselearning.lab.data.SentenceEntity
-import dev.jeromeswannack.chineselearning.lab.data.api.AskAnswer
-import dev.jeromeswannack.chineselearning.lab.data.api.AskBody
 import dev.jeromeswannack.chineselearning.lab.data.api.CARD_FLAGS_PATH
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagBody
 import dev.jeromeswannack.chineselearning.lab.data.api.ExplainTextBody
@@ -27,12 +25,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.SentenceClueOptions
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceDto
 import dev.jeromeswannack.chineselearning.lab.data.api.SentenceExplanation
 import dev.jeromeswannack.chineselearning.lab.data.api.StudyNoteDto
-import dev.jeromeswannack.chineselearning.lab.data.api.askAboutNote
-import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestion
-import dev.jeromeswannack.chineselearning.lab.data.api.noteQuestionWords
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeLanguage
 import dev.jeromeswannack.chineselearning.lab.data.api.setAskClaudeListening
-import dev.jeromeswannack.chineselearning.lab.data.api.translateNoteQuestion
 import dev.jeromeswannack.chineselearning.lab.data.api.createNote
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteNote
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteSentenceSet
@@ -361,16 +355,6 @@ class CardTools(private val app: LabApp) {
         runCatching { (kotlinx.serialization.json.Json.parseToJsonElement(body) as kotlinx.serialization.json.JsonObject)["error"]!!.let { (it as kotlinx.serialization.json.JsonPrimitive).content } }.getOrDefault(body)
 
     // ---------------- Ask Claude ----------------
-
-    suspend fun ask(noteId: String, body: AskBody): AskAnswer = api.askAboutNote(noteId, body)
-
-    /** Ask Claude, immersion: word chips of the answer / my question ([part]), made on request. */
-
-    /** The answer / my question in English (the long-press menu's Translate). */
-    suspend fun askTranslation(id: String, part: String) = api.translateNoteQuestion(id, part).translation
-
-    /** One Q&A as stored (the question's check once it has landed). */
-    suspend fun noteQuestion(id: String) = api.noteQuestion(id)
 
     /** "Ask Claude answers in" on the account. */
     suspend fun setAskLanguage(language: String) = api.setAskClaudeLanguage(language)

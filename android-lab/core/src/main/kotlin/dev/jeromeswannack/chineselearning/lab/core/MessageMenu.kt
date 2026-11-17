@@ -7,8 +7,7 @@ package dev.jeromeswannack.chineselearning.lab.core
  * lives here, in this order: How to say it better (first, on my own message the auto-check flagged
  * or the tutor corrected — [SayBetter]) and Open in Coach right after it, Reply, Copy, Forward, Translate, Pinyin, Explain, Save as flashcard, Open in Coach (any
  * message with Chinese: mine is checked, theirs explained — when not already second), Make
- * flashcards from selection, Check my Chinese, Correct, Read aloud, Word by word (Claude practice
- * chat), Discuss with Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
+ * flashcards from selection, Check my Chinese, Correct, Read aloud, Discuss with Claude, Pin, Info, Edit, Delete, Select. A reaction bar sits on top ([Menu.reactions]).
  */
 object MessageMenu {
     /** `MenuMessage`: what the menu reads off a message. */
@@ -70,7 +69,6 @@ object MessageMenu {
     const val REMOVE_CORRECTION = "remove_correction"
     const val CORRECTION_CARD = "correction_card"
     const val PLAY = "play"
-    const val WORD_BY_WORD = "word_by_word"
     const val DISCUSS = "discuss"
     const val PIN = "pin"
     const val UNPIN = "unpin"
@@ -94,7 +92,6 @@ object MessageMenu {
     fun messageMenu(
         msg: Message,
         viewerRole: String,
-        isAiConversation: Boolean,
         viewerId: String,
         pinyinOn: Boolean = false,
         translateOn: Boolean = false,
@@ -107,7 +104,7 @@ object MessageMenu {
         val noKind = kind.isNullOrEmpty()
         if (msg.pending) return Menu(false, if (text.isNotEmpty()) listOf(Item(COPY, "Copy", "📋", false)) else emptyList())
         val isMine = msg.senderId == viewerId
-        val isLearner = viewerRole == "student" || isAiConversation
+        val isLearner = viewerRole == "student"
         val zh = text.isNotEmpty() && MessageTools.looksLikeChinese(text)
         val translated = if (kind == "voice") truthy(msg.attachmentTranslation) else truthy(msg.translation)
         val items = mutableListOf<Item>()
@@ -128,7 +125,7 @@ object MessageMenu {
             msg.autoCheckText == SayBetter.autoCheckText(msg.content, k, msg.transcript, msg.transcriptStatus)
         items += Item(REPLY, "Reply", "↩️", false)
         if (text.isNotEmpty()) items += Item(COPY, "Copy", "📋", false)
-        if (!isAiConversation) items += Item(FORWARD, "Forward", "↪️", true)
+        items += Item(FORWARD, "Forward", "↪️", true)
         if (zh && (kind != "voice" || translated)) {
             items += Item(TRANSLATE, if (translateOn) "Hide translation" else "Translate", "🌐", !translated && !translateOn, active = translateOn)
         }
@@ -143,20 +140,17 @@ object MessageMenu {
             if (msg.checkStatus == "needs_improvement") items += Item(VIEW_CORRECTIONS, "View corrections", "📝", false)
             else if (msg.checkStatus != "correct") items += Item(CHECK, "Check my Chinese", "✅", true)
         }
-        if (!isAiConversation && msg.hasCorrection && isMine) items += Item(CORRECTION_CARD, "Make a card from the correction", "✏️", true)
-        if (!isAiConversation && viewerRole == "tutor" && !isMine && noKind && NoteSearch.jsTrim(msg.content).isNotEmpty()) {
+        if (msg.hasCorrection && isMine) items += Item(CORRECTION_CARD, "Make a card from the correction", "✏️", true)
+        if (viewerRole == "tutor" && !isMine && noKind && NoteSearch.jsTrim(msg.content).isNotEmpty()) {
             items += Item(CORRECT, if (msg.hasCorrection) "Edit correction" else "Correct", "✏️", true)
             if (msg.hasCorrection) items += Item(REMOVE_CORRECTION, "Remove correction", "✖️", true)
         }
         if (zh && kind != "voice") items += Item(PLAY, "Read aloud", "🔊", true)
-        if (isAiConversation && !isMine && zh && isLearner && noKind) items += Item(WORD_BY_WORD, "Word by word", "🈯", true)
         if (text.isNotEmpty()) items += Item(DISCUSS, if (msg.hasDiscussion) "Continue with Claude" else "Discuss with Claude", "💬", true)
-        if (!isAiConversation) {
-            items += if (truthy(msg.pinnedAt)) Item(UNPIN, "Unpin", "📌", true) else Item(PIN, "Pin", "📌", true)
-            items += Item(INFO, "Info", "ℹ️", false)
-            if (isMine && kind != "voice") items += Item(EDIT, if (kind == "image") "Edit caption" else "Edit", "✏️", true)
-            if (isMine) items += Item(DELETE, "Delete", "🗑️", true, danger = true)
-        }
+        items += if (truthy(msg.pinnedAt)) Item(UNPIN, "Unpin", "📌", true) else Item(PIN, "Pin", "📌", true)
+        items += Item(INFO, "Info", "ℹ️", false)
+        if (isMine && kind != "voice") items += Item(EDIT, if (kind == "image") "Edit caption" else "Edit", "✏️", true)
+        if (isMine) items += Item(DELETE, "Delete", "🗑️", true, danger = true)
         items += Item(SELECT, "Select", "☑️", false)
         return Menu(true, items)
     }

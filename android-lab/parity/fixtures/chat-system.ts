@@ -129,7 +129,7 @@ const menus = (['tutor', 'student'] as const).flatMap((role) =>
   [true, false].flatMap((mine) =>
     [false, true].map((deleted) => {
       const message = { sender_id: mine ? 'me' : 'them', content: '🚩 Jerome flagged 银行 for you', system_kind: 'card_flag', deleted_at: deleted ? at(1) : null };
-      return { message, role, result: messageMenu(message, role, false, 'me') };
+      return { message, role, result: messageMenu(message, role, 'me') };
     }),
   ),
 );

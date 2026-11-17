@@ -1,9 +1,10 @@
 package dev.jeromeswannack.chineselearning.lab.ui.connections
 
-import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
+import dev.jeromeswannack.chineselearning.lab.core.claude.ClaudeChats
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeContextDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteFileDto
@@ -57,10 +58,10 @@ class ConnectionsScreenshots : LabScreenshotTest() {
             sharedDecks = Loadable(listOf(SharedDeckDto("s1", "rel1", "d1", "d9", ago(48), "第三周作业：天气"), SharedDeckDto("s2", "rel1", "d2", "d8", ago(24 * 20), "Starter Chinese"))),
             studentSharedDecks = listOf(StudentSharedDeckDto("x1", "My restaurant words", 24, ago(24 * 6))),
         )
-        val questions = listOf(
-            ClaudeChatQuestionDto("q1", "n1", "Why 了 here?", "**了** marks a completed action. At the end of a sentence it signals a *change of state*.", ago(3), "我吃饭了", "wǒ chī fàn le", "I have eaten", "d1", "Week 3"),
-            ClaudeChatQuestionDto("q2", "n1", "Can I say 我吃了饭?", "Yes — but it sounds unfinished on its own; add what comes next: 我吃了饭就走。", now.minusSeconds(3 * 3600 - 300).toString(), "我吃饭了", "wǒ chī fàn le", "I have eaten", "d1", "Week 3"),
-            ClaudeChatQuestionDto("q3", "n2", "Mnemonic for 晴?", "日 (sun) + 青 (blue-green): the sun in a clear blue sky.", ago(30), "晴天", "qíngtiān", "sunny day", "d2", "天气"),
+        val cardThreads = listOf(
+            ClaudeThreadDto("t1", title = "Why 了 here?", context_kind = ClaudeChats.CARD, context = ClaudeContextDto(ClaudeChats.CARD, note_id = "n1", label = "我吃饭了", sublabel = "Week 3"), preview = "了 marks a completed action — here a change of state.", last_message_at = ago(3), created_at = ago(3), unread = 1),
+            ClaudeThreadDto("t2", title = "Mnemonic for 晴?", context_kind = ClaudeChats.CARD, context = ClaudeContextDto(ClaudeChats.CARD, note_id = "n2", label = "晴天", sublabel = "天气"), preview = "日 (sun) + 青 (blue-green): the sun in a clear blue sky.", last_message_at = ago(30), created_at = ago(30)),
+            ClaudeThreadDto("t3", title = "行怎么读？", context_kind = ClaudeChats.CARD, context = ClaudeContextDto(ClaudeChats.CARD, note_id = "n3", label = "银行", sublabel = "HSK 2"), preview = "这里读 háng，银行的行。", last_message_at = ago(24 * 5), created_at = ago(24 * 5)),
         )
     }
 
@@ -79,7 +80,7 @@ class ConnectionsScreenshots : LabScreenshotTest() {
     }
 
     @Test fun claudeChats() = shoot("connections-05-claude-chats") {
-        ClaudeChatsScreen(ClaudeChatsUi(Loadable(QuestionThreads.group(questions)), total = 3), onBack = {}, onOpenCard = {}, onLoadMore = {}, onRetry = {})
+        ClaudeChatsScreen(ClaudeChatsUi(Loadable(cardThreads)), onBack = {}, onOpenThread = {}, onRetry = {})
     }
 
     @Test fun lessonNotes() = shoot("connections-06-lesson-notes") {

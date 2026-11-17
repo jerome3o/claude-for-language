@@ -167,7 +167,7 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                         DictationRow(
                             v, voiceActions, Modifier.weight(1f),
                             onAttach = { emojiOpen = false; actions.onOpenSheet(ChatSheet.Attach) },
-                            canCheck = reviewing && ChatLearning.canCheckDraft(v.finalText, ui.viewerRole, false, false),
+                            canCheck = reviewing && ChatLearning.canCheckDraft(v.finalText, ui.viewerRole),
                             checkBusy = ui.draftCheck?.loading == true,
                             onCheck = { actions.onDraft(v.finalText); actions.onCheckDraft() },
                             sendEnabled = !ui.sending,
@@ -285,7 +285,7 @@ private fun Field(
             ) { Text("🎤", fontSize = 19.sp) }
         }
         // ✓ Check my Chinese before sending (the learner's draft has Chinese).
-        if (ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, false, ui.editing != null)) {
+        if (ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, ui.editing != null)) {
 
             CheckDraftButton(busy = ui.draftCheck?.loading == true, enabled = ui.online, onClick = actions.onCheckDraft)
         } else Spacer(Modifier.width(12.dp))

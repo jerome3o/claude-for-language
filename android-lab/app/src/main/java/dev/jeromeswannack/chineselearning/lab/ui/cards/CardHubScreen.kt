@@ -35,7 +35,6 @@ import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.api.CardFlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubCardDto
-import dev.jeromeswannack.chineselearning.lab.data.api.QuestionDto
 import dev.jeromeswannack.chineselearning.lab.ui.decks.DeckStats
 import dev.jeromeswannack.chineselearning.lab.ui.kit.EmptyState
 import dev.jeromeswannack.chineselearning.lab.ui.kit.InlineNotice
@@ -85,6 +84,8 @@ fun CardHubScreen(
     picture: (@Composable () -> Unit)? = null,
     /** Suspend & snooze per card (ui/cardcontrols/HubCardControls.kt); null = none. */
     controls: (@Composable () -> Unit)? = null,
+    /** The card's Claude threads (ui/claude/CardClaudeThreads.kt, from the phone's thread cache); null = none. */
+    claudeThreads: (@Composable () -> Unit)? = null,
 ) {
     val note = ui.note
     LabScreen(
@@ -153,14 +154,9 @@ fun CardHubScreen(
         }
         if (ui.tutors.isNotEmpty()) item { FlagForm(ui, actions) }
 
-        item { SectionHeader("💬 Asked Claude" + ui.threads.sumOf { it.size }.let { if (it > 0) " (${plural(it, "question")})" else "" }) }
-        if (!ui.fromServer) {
-            item { Muted("Conversations load when you're online.") }
-        } else if (ui.threads.isEmpty()) {
-            item { Muted("You have not asked Claude about this card yet. Use Ask Claude on the card during study.") }
-        } else {
-            for ((i, t) in ui.threads.withIndex()) item(key = "thread-$i") { ThreadCard(t, nowMs) }
-        }
+        item { SectionHeader("💬 Asked Claude") }
+        // The card's threads — each opens the conversation (and continues it); offline from the phone's cache.
+        if (claudeThreads != null) item(key = "claude-threads") { claudeThreads() }
         item {
             Text("All conversations with Claude ›", color = Lab.colors.accent, style = MaterialTheme.typography.labelLarge, modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable(onClick = actions.onAllChats).padding(vertical = 10.dp, horizontal = 4.dp))
         }
@@ -295,26 +291,6 @@ private fun FlagForm(ui: CardHubUi, actions: CardHubActions) {
             SecondaryPill("Cancel", Modifier.weight(1f), enabled = !ui.flagBusy) { open = false }
             PrimaryPill(if (ui.flagBusy) "Sending…" else "Send to ${tutor.name}", Modifier.weight(1.4f).height(52.dp), enabled = !ui.flagBusy && message.isNotBlank()) {
                 actions.onSendFlag(tutor, message) { message = ""; open = false }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ThreadCard(thread: List<QuestionDto>, nowMs: Long) {
-    var expanded by remember { mutableStateOf(true) }
-    LabCard {
-        Column(Modifier.clickable { expanded = !expanded }.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(relativeDay(thread.first().asked_at, nowMs) + " · " + plural(thread.size, "question"), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
-            if (!expanded) {
-                Text(thread.first().question, color = Lab.colors.ink, maxLines = 1)
-                return@Column
-            }
-            for (q in thread) {
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                    Text(q.question, color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.clip(RoundedCornerShape(14.dp)).background(Lab.colors.accent).padding(horizontal = 12.dp, vertical = 8.dp))
-                }
-                MarkdownText(q.answer, Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Lab.colors.faint).padding(12.dp))
             }
         }
     }

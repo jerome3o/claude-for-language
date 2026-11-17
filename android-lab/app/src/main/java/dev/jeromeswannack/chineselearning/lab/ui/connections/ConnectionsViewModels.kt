@@ -11,11 +11,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import dev.jeromeswannack.chineselearning.lab.LabApp
-import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagDto
 import dev.jeromeswannack.chineselearning.lab.data.api.FlagsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
-import dev.jeromeswannack.chineselearning.lab.data.api.MyClaudeChatsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.ChatConversationDto
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.api.MyRelationshipsDto
@@ -32,7 +29,8 @@ import dev.jeromeswannack.chineselearning.lab.data.api.createRelationship
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteCardFlag
 import dev.jeromeswannack.chineselearning.lab.data.api.deleteLessonNote
 import dev.jeromeswannack.chineselearning.lab.data.api.lessonNotes
-import dev.jeromeswannack.chineselearning.lab.data.api.myClaudeChats
+import dev.jeromeswannack.chineselearning.lab.data.claude.ClaudeThreadList
+import dev.jeromeswannack.chineselearning.lab.ui.claude.cardThreadsOf
 import dev.jeromeswannack.chineselearning.lab.data.api.myRelationships
 import dev.jeromeswannack.chineselearning.lab.data.chat.ChatPair
 import dev.jeromeswannack.chineselearning.lab.data.api.relationship
@@ -207,42 +205,29 @@ class TutorPageViewModel(private val app: LabApp, private val relId: String) : V
     }
 }
 
-/** `/claude-chats`: the first page cached for offline; older pages on demand. */
+/**
+ * `/claude-chats`: every conversation with Claude about a card — its card threads, the one store —
+ * from the phone's thread list (the Chats tab's cache, offline), brought up to date on open.
+ */
 class ClaudeChatsViewModel(private val app: LabApp) : ViewModel() {
-    private val first = app.cachedResource<MyClaudeChatsDto>(viewModelScope, ConnectionsKeys.CLAUDE_CHATS, ConnectionsKeys.KIND) { myClaudeChats(PAGE) }
-    private val extra = MutableStateFlow<List<ClaudeChatQuestionDto>>(emptyList())
-    private val cursor = MutableStateFlow<String?>(null)
-    private val cursorSet = MutableStateFlow(false)
-    private val loadingMore = MutableStateFlow(false)
+    private val syncing = MutableStateFlow(true)
+    private val error = MutableStateFlow<String?>(null)
 
-    val ui: StateFlow<ClaudeChatsUi> = combine(first.state, extra, cursor, cursorSet, loadingMore) { f, more, cur, set, loading ->
-        val data = f.data
-        val next = if (set) cur else data?.next_cursor
-        ClaudeChatsUi(
-            threads = Loadable(data?.let { QuestionThreads.group(it.questions + more) }, f.loading, f.error, f.offline, f.updatedAt),
-            total = data?.total ?: 0,
-            hasMore = next != null,
-            loadingMore = loading,
-        )
+    val ui: StateFlow<ClaudeChatsUi> = combine(ClaudeThreadList.observe(app.cache), syncing, error) { list, busy, err ->
+        val rows = list?.threads?.let { cardThreadsOf(it) }
+        ClaudeChatsUi(Loadable(rows, loading = busy && rows == null, error = if (rows == null && !busy) err else null, offline = !app.online.value))
     }.stateIn(viewModelScope, SharingStarted.Eagerly, ClaudeChatsUi())
 
-    fun loadMore() {
-        val next = if (cursorSet.value) cursor.value else first.state.value.data?.next_cursor
-        if (next == null || loadingMore.value) return
-        loadingMore.value = true
+    init { retry() }
+
+    fun retry() {
         viewModelScope.launch {
-            runCatching { app.repo.api.myClaudeChats(PAGE, next) }.onSuccess { page ->
-                extra.value = extra.value + page.questions
-                cursor.value = page.next_cursor
-                cursorSet.value = true
-            }
-            loadingMore.value = false
+            syncing.value = true
+            error.value = null
+            runCatching { ClaudeThreadList.sync(app.repo.api, app.cache) }.onFailure { error.value = it.userMessage() }
+            syncing.value = false
         }
     }
-
-    fun retry() { first.refresh() }
-
-    companion object { const val PAGE = 100 }
 }
 
 /** `/lesson-notes`: list cached; save (+ attached files) needs a connection, like the web. */

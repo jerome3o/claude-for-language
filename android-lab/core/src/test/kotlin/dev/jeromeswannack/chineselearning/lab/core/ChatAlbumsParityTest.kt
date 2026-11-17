@@ -84,7 +84,7 @@ class ChatAlbumsParityTest {
                 val it = e.jsonObject
                 MessageMenu.Item(it.str("id")!!, it.str("label")!!, it.str("icon")!!, it.bool("needsInternet"), it.bool("active"), it.bool("danger"))
             })
-            val got = MessageMenu.albumMenu(MessageMenu.messageMenu(msg, o.str("role")!!, o.bool("ai"), "me"), o["count"]!!.jsonPrimitive.int)
+            val got = MessageMenu.albumMenu(MessageMenu.messageMenu(msg, o.str("role")!!, "me"), o["count"]!!.jsonPrimitive.int)
             assertEquals(want, got, "albumMenu $o")
         }
     }

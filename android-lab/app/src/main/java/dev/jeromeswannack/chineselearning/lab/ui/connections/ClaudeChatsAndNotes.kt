@@ -29,8 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.jeromeswannack.chineselearning.lab.core.QuestionThread
-import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeChatQuestionDto
+import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeThreadDto
+import dev.jeromeswannack.chineselearning.lab.ui.claude.CardThreadRows
 import dev.jeromeswannack.chineselearning.lab.data.api.LessonNoteDto
 import dev.jeromeswannack.chineselearning.lab.data.platform.Loadable
 import dev.jeromeswannack.chineselearning.lab.ui.kit.ConfirmDialog
@@ -49,74 +49,30 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 // ---------------- /claude-chats ----------------
 
 data class ClaudeChatsUi(
-    val threads: Loadable<List<QuestionThread<ClaudeChatQuestionDto>>> = Loadable(loading = true),
-    val total: Int = 0,
-    val hasMore: Boolean = false,
-    val loadingMore: Boolean = false,
+    /** Every card thread, newest activity first (null until the thread list was fetched once). */
+    val threads: Loadable<List<ClaudeThreadDto>> = Loadable(loading = true),
 )
 
 /**
- * Every Ask-Claude conversation, newest first, grouped into threads per card (web:
- * ClaudeChatsPage, the student's own). Cached for offline; "Load older" pages further back.
+ * Every conversation with Claude about a card, newest first (web: ClaudeChatsPage, the learner's
+ * own): one row per card thread with its card, each opening the conversation itself.
  */
 @Composable
-fun ClaudeChatsScreen(ui: ClaudeChatsUi, onBack: () -> Unit, onOpenCard: (String) -> Unit, onLoadMore: () -> Unit, onRetry: () -> Unit) {
-    val count = ui.threads.data?.size ?: 0
+fun ClaudeChatsScreen(ui: ClaudeChatsUi, onBack: () -> Unit, onOpenThread: (String) -> Unit, onRetry: () -> Unit) {
     LabScreen(
         "Claude conversations",
         onBack = onBack,
-        subtitle = if (ui.threads.data != null) "${Fmt.plural(ui.total, "question")} · ${Fmt.plural(count, "conversation")}${if (ui.hasMore) " so far" else ""}" else null,
+        subtitle = ui.threads.data?.let { Fmt.plural(it.size, "conversation") },
     ) {
         item {
             LoadableContent(ui.threads, onRetry = onRetry, isEmpty = { it.isEmpty() }, empty = {
-                Text("Nothing yet. During study, tap Ask Claude on the back of a card — every question you ask is kept here.", color = Lab.colors.muted, modifier = Modifier.padding(vertical = 24.dp))
+                Text("Nothing yet. During study, tap Ask Claude on the back of a card — every conversation is kept here.", color = Lab.colors.muted, modifier = Modifier.padding(vertical = 24.dp))
             }) { threads ->
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    threads.forEach { ThreadCard(it, onOpenCard) }
-                    if (ui.hasMore) SecondaryPill(if (ui.loadingMore) "Loading…" else "Load older", Modifier.fillMaxWidth(), enabled = !ui.loadingMore, onClick = onLoadMore)
-                }
+                CardThreadRows(threads, emptyText = "", showCard = true, open = onOpenThread)
             }
         }
     }
 }
-
-@Composable
-private fun ThreadCard(thread: QuestionThread<ClaudeChatQuestionDto>, onOpenCard: (String) -> Unit) {
-    var open by rememberSaveable(thread.id) { mutableStateOf(false) }
-    val first = thread.questions.first()
-    LabCard(Modifier.animateContentSize().testTag("claude-thread")) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 64.dp).bouncyClickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(first.hanzi, fontSize = 26.sp, color = Lab.colors.ink)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("${first.pinyin} · ${first.english}", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${Fmt.relativeDay(thread.lastAt)} · ${Fmt.plural(thread.questions.size, "question")}", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
-                if (!open) Text(first.question, style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(if (open) "▾" else "▸", color = Lab.colors.muted)
-        }
-        if (open) {
-            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                thread.questions.forEach { q ->
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Label("Asked")
-                        Text(q.question, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
-                        Label("Claude")
-                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.background).padding(12.dp)) { MarkdownText(q.answer) }
-                        Text(Fmt.shortDateTime(q.asked_at), style = MaterialTheme.typography.labelSmall, color = Lab.colors.muted)
-                    }
-                }
-                Text("Open this card ›", color = Lab.colors.accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.bouncyClickable { onOpenCard(thread.noteId) }.padding(vertical = 8.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun Label(text: String) = Text(text.uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Lab.colors.muted)
 
 // ---------------- /lesson-notes ----------------
 

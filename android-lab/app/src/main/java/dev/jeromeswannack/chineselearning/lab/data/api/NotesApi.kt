@@ -3,7 +3,6 @@ package dev.jeromeswannack.chineselearning.lab.data.api
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.NoteDto
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 
 // Note endpoints behind the deck page, the card editor, the search and the card hub.
@@ -69,15 +68,6 @@ data class HubReviewDto(
 )
 
 @Serializable
-data class QuestionDto(
-    val id: String,
-    val note_id: String = "",
-    val question: String = "",
-    val answer: String = "",
-    val asked_at: String = "",
-)
-
-@Serializable
 data class CardFlagDto(
     val id: String,
     val relationship_id: String = "",
@@ -102,7 +92,7 @@ data class NoteHubDto(
     val cards: List<HubCardDto> = emptyList(),
     val recent_reviews: List<HubReviewDto> = emptyList(),
     val review_count: Int = 0,
-    val questions: List<QuestionDto> = emptyList(),
+    // (`questions` is still sent for older builds; the hub lists the card's Claude threads.)
     val flags: List<CardFlagDto> = emptyList(),
 )
 
@@ -130,8 +120,6 @@ suspend fun Api.searchNotes(q: String, limit: Int = 50): NoteSearchDto = get("/a
 
 suspend fun Api.noteHub(noteId: String): NoteHubDto = get("/api/notes/${enc(noteId)}/hub")
 
-suspend fun Api.noteQuestions(noteId: String): List<QuestionDto> =
-    exchange("GET", "/api/notes/${enc(noteId)}/questions", null, ListSerializer(QuestionDto.serializer()))
 
 
 object NotePaths {

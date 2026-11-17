@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.data.api
 
-import dev.jeromeswannack.chineselearning.lab.core.QuestionRowLike
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -122,28 +121,6 @@ data class FlagsDto(val flags: List<FlagDto> = emptyList(), val open: Int = 0)
 suspend fun Api.myCardFlags(relId: String, status: String = "all"): FlagsDto = get("/api/relationships/${enc(relId)}/card-flags?status=${enc(status)}")
 
 suspend fun Api.deleteCardFlag(id: String): Unit = exchange("DELETE", "/api/card-flags/${enc(id)}", null, Unit.serializer())
-
-// ---------------- Ask-Claude conversations ----------------
-
-@Serializable
-data class ClaudeChatQuestionDto(
-    override val id: String,
-    override val note_id: String = "",
-    val question: String = "",
-    val answer: String = "",
-    override val asked_at: String = "",
-    val hanzi: String = "",
-    val pinyin: String = "",
-    val english: String = "",
-    val deck_id: String = "",
-    val deck_name: String = "",
-) : QuestionRowLike
-
-@Serializable
-data class MyClaudeChatsDto(val questions: List<ClaudeChatQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)
-
-suspend fun Api.myClaudeChats(limit: Int = 100, before: String? = null): MyClaudeChatsDto =
-    get("/api/me/claude-chats?limit=$limit" + (before?.let { "&before=${enc(it)}" } ?: ""))
 
 // ---------------- the student's own lesson notes (/lesson-notes) ----------------
 

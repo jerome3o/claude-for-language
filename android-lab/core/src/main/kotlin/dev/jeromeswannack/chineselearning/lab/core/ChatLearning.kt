@@ -13,12 +13,9 @@ object ChatLearning {
     /** `POST /api/messages/:id/words` refuses longer texts (400). */
     const val WORDS_MAX_CHARS = 1500
 
-    /** Learner = a student, or anyone in the Claude practice chat (MessageTools' `isLearner`). */
-    fun isLearner(viewerRole: String, isAi: Boolean): Boolean = viewerRole == "student" || isAi
-
-    /** The ✓ "Check my Chinese" in the composer: the learner's draft has Chinese (MessageTools' "check"). */
-    fun canCheckDraft(draft: String, viewerRole: String, isAi: Boolean, editing: Boolean = false): Boolean =
-        !editing && isLearner(viewerRole, isAi) && MessageTools.looksLikeChinese(draft)
+    /** The ✓ "Check my Chinese" in the composer: the learner's (the student's) draft has Chinese. */
+    fun canCheckDraft(draft: String, viewerRole: String, editing: Boolean = false): Boolean =
+        !editing && viewerRole == "student" && MessageTools.looksLikeChinese(draft)
 
     /**
      * The text a message's words split: `content`, or the voice transcript when

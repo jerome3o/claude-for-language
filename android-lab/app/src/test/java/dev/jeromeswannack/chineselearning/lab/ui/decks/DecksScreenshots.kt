@@ -116,11 +116,25 @@ class DecksScreenshots : LabScreenshotTest() {
     @Config(qualifiers = LabScreenshotTest.UNFOLDED)
     @Test fun tryUnfolded() = shoot("decks-38-try-it-unfolded") { DeckTryScreen(DecksSamples.tryUi, DeckTryActions(), initialMode = TryMode.MEANING_TO_HANZI) }
 
-    @Test fun hub() = shoot("cards-01-hub") { CardHubScreen(DecksSamples.hub, CardHubActions(), nowMs = now) }
+    @Test fun hub() = shoot("cards-01-hub") {
+        CardHubScreen(DecksSamples.hub, CardHubActions(), nowMs = now, claudeThreads = {
+            dev.jeromeswannack.chineselearning.lab.ui.claude.CardThreadRows(
+                dev.jeromeswannack.chineselearning.lab.ui.study.CardClaudeSamples.earlier, emptyText = "", showCard = false, open = {},
+            )
+        })
+    }
+
+    @Test fun hubDark() = shoot("cards-03-hub-dark", dark = true) {
+        CardHubScreen(DecksSamples.hub, CardHubActions(), nowMs = now, claudeThreads = {
+            dev.jeromeswannack.chineselearning.lab.ui.claude.CardThreadRows(
+                dev.jeromeswannack.chineselearning.lab.ui.study.CardClaudeSamples.earlier, emptyText = "", showCard = false, open = {},
+            )
+        })
+    }
 
     @Test fun hubOffline() = shoot("cards-02-hub-offline-from-phone") {
         CardHubScreen(
-            DecksSamples.hub.copy(fromServer = false, flags = emptyList(), threads = emptyList(), loadable = dev.jeromeswannack.chineselearning.lab.data.platform.Loadable(offline = true)),
+            DecksSamples.hub.copy(fromServer = false, flags = emptyList(), loadable = dev.jeromeswannack.chineselearning.lab.data.platform.Loadable(offline = true)),
             CardHubActions(),
             nowMs = now,
         )

@@ -67,11 +67,10 @@ class ChatRound2ParityTest {
             val msg = menuMessage(o.obj("message")!!)
             val state = o.obj("state")!!
             val role = o.str("role")!!
-            val ai = o.bool("ai")
             assertEquals(o.str("text"), MessageMenu.menuText(msg), "menuText $o")
             val r = o.obj("result")!!
             val expected = MessageMenu.Menu(r.bool("reactions"), r["items"]!!.jsonArray.map(::item))
-            assertEquals(expected, MessageMenu.messageMenu(msg, role, ai, "me", state.bool("pinyinOn"), state.bool("translateOn")), "messageMenu ${o["message"]} $role ai=$ai $state")
+            assertEquals(expected, MessageMenu.messageMenu(msg, role, "me", state.bool("pinyinOn"), state.bool("translateOn")), "messageMenu ${o["message"]} $role $state")
         }
     }
 
@@ -218,13 +217,13 @@ class ChatRound2ParityTest {
     @Test
     fun openInCoachIsSecondAfterSayBetter() {
         val photo = MessageMenu.Message("me", "我昨天去了商店买东西了", attachmentKind = "image", autoCheckStatus = "improvable", autoCheckText = "我昨天去了商店买东西了")
-        assertEquals(listOf("say_better", "open_coach", "reply"), MessageMenu.messageMenu(photo, "student", false, "me").items.take(3).map { it.id })
+        assertEquals(listOf("say_better", "open_coach", "reply"), MessageMenu.messageMenu(photo, "student", "me").items.take(3).map { it.id })
         // A tutor's own message: no Open in Coach; the student's message for the tutor: explained, after Save as flashcard.
-        assertTrue(MessageMenu.messageMenu(photo.copy(autoCheckStatus = null), "tutor", false, "me").items.none { it.id == "open_coach" })
-        val ids = MessageMenu.messageMenu(photo.copy(senderId = "them"), "tutor", false, "me").items.map { it.id }
+        assertTrue(MessageMenu.messageMenu(photo.copy(autoCheckStatus = null), "tutor", "me").items.none { it.id == "open_coach" })
+        val ids = MessageMenu.messageMenu(photo.copy(senderId = "them"), "tutor", "me").items.map { it.id }
         assertEquals(ids.indexOf("save_card") + 1, ids.indexOf("open_coach"))
         // English: nothing to open.
-        assertTrue(MessageMenu.messageMenu(MessageMenu.Message("them", "See you"), "student", false, "me").items.none { it.id == "open_coach" })
+        assertTrue(MessageMenu.messageMenu(MessageMenu.Message("them", "See you"), "student", "me").items.none { it.id == "open_coach" })
     }
 
     @Test
@@ -233,9 +232,9 @@ class ChatRound2ParityTest {
         val base = MessageMenu.Message("them", "你好，今天怎么样？")
         assertEquals(
             listOf("reply", "copy", "forward", "translate", "pinyin", "explain", "save_card", "open_coach", "select_cards", "play", "discuss", "pin", "info", "select"),
-            MessageMenu.messageMenu(base, "student", false, "me").items.map { it.id },
+            MessageMenu.messageMenu(base, "student", "me").items.map { it.id },
         )
         assertEquals("https://example.com", ChatBubbles.firstLink("see https://example.com."))
-        assertTrue(MessageMenu.messageMenu(base.copy(senderId = "me"), "student", false, "me").items.first { it.id == "delete" }.danger)
+        assertTrue(MessageMenu.messageMenu(base.copy(senderId = "me"), "student", "me").items.first { it.id == "delete" }.danger)
     }
 }

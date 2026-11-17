@@ -1573,7 +1573,6 @@ export function ChatPage() {
         system_kind: msg.deleted_at ? null : msg.system_kind ?? null,
       },
       viewerRole,
-      false,
       user!.id,
       { pinyinOn: isShown(displayPrefs, 'pinyin', msg.id), translateOn: isShown(displayPrefs, 'translate', msg.id) },
     );
