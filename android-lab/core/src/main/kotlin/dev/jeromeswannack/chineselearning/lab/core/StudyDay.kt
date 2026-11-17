@@ -95,6 +95,8 @@ object StudyResume {
         val gaveUp: Boolean = false,
         /** `round_log`: the round's exercises as shown + each one's last result (core SentenceRound.LogEntry). */
         val roundLog: List<SentenceRound.LogEntry> = emptyList(),
+        /** `listen_shown`: a listening card's "Listen in context" rows as this showing offered them (core AnswerOrder). */
+        val listenShown: List<String> = emptyList(),
     )
 
     /** `RESUME_MAX_ELAPSED_MS` */
