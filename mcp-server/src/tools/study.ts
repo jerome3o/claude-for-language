@@ -27,7 +27,6 @@ import {
   type ReviewEvent,
   type Rating,
 } from '../../../shared/scheduler';
-import { accountStudyDay, studyDaySql } from '../../../shared/study/studyDay';
 import { STUDY_APP_HTML } from '../app-html.js';
 import { apiBaseUrl } from '../types.js';
 import { appServer } from './apps.js';
@@ -81,19 +80,29 @@ function chunks<T>(ids: T[], size = 90): T[][] {
   return out;
 }
 
-const HELD_SQL = `NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`;
+/** GET /api/me/study-queue (worker services/study-queue.ts — the shared queue, what Home shows). */
+export interface ApiStudyQueue {
+  day_key: string;
+  /** reviews_due + today's new cards (the budget's): Home's Study button. */
+  due_today: number;
+  /** learning + review cards due today — no new cards. */
+  reviews_due: number;
+  new_today: number;
+  counts: { new: number; extra_new: number; learning: number; review: number };
+  new_cards_paused: boolean;
+  decks?: Array<{ deck_id: string; due_today: number; reviews_due: number; new_today: number; counts: ApiStudyQueue['counts'] }>;
+  cards?: Array<{ id: string; note_id: string; deck_id: string; card_type: string; queue: number }>;
+}
+
+/** The study UI's three numbers: new (blue + purple), learning, review. Pure. */
+export function studyCounts(q: Pick<ApiStudyQueue, 'counts'>): { new: number; learning: number; review: number } {
+  return { new: q.counts.new + q.counts.extra_new, learning: q.counts.learning, review: q.counts.review };
+}
 
 export function registerStudyTools(ctx: ToolContext): void {
   const { env, userId, api } = ctx;
   const server = appServer(ctx.server);
   const apiBase = apiBaseUrl(env);
-
-  const studyTodayKey = async (): Promise<string> => {
-    const account = await env.DB.prepare('SELECT time_zone, day_rollover_hour FROM users WHERE id = ?')
-      .bind(userId).first<{ time_zone: string | null; day_rollover_hour: number | null }>().catch(() => null);
-    const now = Date.now();
-    return studyDaySql(accountStudyDay(account, now), now).key;
-  };
 
   /** Each card's review events + live forgets (read only). */
   const historyOf = async (cardIds: string[]) => {
@@ -114,22 +123,8 @@ export function registerStudyTools(ctx: ToolContext): void {
     return { events, forgets };
   };
 
-  /** The deck's new / learning / review counts from the API-recomputed card state (held cards left out). */
-  const deckCounts = async (deckId: string, todayKey: string) => {
-    const row = await env.DB
-      .prepare(`
-        SELECT
-          SUM(CASE WHEN c.queue = 0 THEN 1 ELSE 0 END) as new_count,
-          SUM(CASE WHEN c.queue IN (1, 3) AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as learning_count,
-          SUM(CASE WHEN c.queue = 2 AND c.next_review_at <= datetime('now') THEN 1 ELSE 0 END) as review_count
-        FROM cards c
-        JOIN notes n ON c.note_id = n.id
-        WHERE n.deck_id = ? AND ${HELD_SQL}
-      `)
-      .bind(deckId, todayKey)
-      .first<{ new_count: number | null; learning_count: number | null; review_count: number | null }>();
-    return { new: row?.new_count || 0, learning: row?.learning_count || 0, review: row?.review_count || 0 };
-  };
+  /** This deck's session today, as the API's study queue sees it (the first `limit` cards in session order). */
+  const deckQueue = (deckId: string, limit = 0) => api.get<ApiStudyQueue>('/api/me/study-queue', { deck_id: deckId, limit: limit || undefined });
 
   // Study tool — opens the interactive flashcard UI.
   registerAppTool(
@@ -148,25 +143,22 @@ export function registerStudyTools(ctx: ToolContext): void {
         .first<{ id: string; name: string }>();
       if (!deck) return errorResult(`Deck not found: ${deck_id}`);
 
-      const todayKey = await studyTodayKey();
-      const rows = await env.DB
-        .prepare(`
-          SELECT c.id, c.card_type, n.id as note_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts
-          FROM cards c
-          JOIN notes n ON c.note_id = n.id
-          WHERE n.deck_id = ?
-            AND (c.next_review_at IS NULL OR c.next_review_at <= datetime('now'))
-            AND ${HELD_SQL}
-          ORDER BY
-            CASE WHEN c.queue IN (1, 3) THEN 0 ELSE 1 END,
-            c.due_timestamp ASC NULLS LAST,
-            c.next_review_at ASC NULLS LAST
-          LIMIT 50
-        `)
-        .bind(deck_id, todayKey)
-        .all<{ id: string; card_type: string; note_id: string; hanzi: string; pinyin: string; english: string; audio_url: string | null; fun_facts: string | null }>();
-
-      const list = rows.results ?? [];
+      // The deck's session today = the shared study queue (reviews due + the budget's new cards), in order.
+      const queue = await deckQueue(deck_id, 50);
+      const ids = (queue.cards ?? []).map((c) => c.id);
+      const rows = ids.length
+        ? await env.DB
+          .prepare(`
+            SELECT c.id, c.card_type, n.id as note_id, n.hanzi, n.pinyin, n.english, n.audio_url, n.fun_facts
+            FROM cards c
+            JOIN notes n ON c.note_id = n.id
+            WHERE n.deck_id = ? AND c.id IN (${ids.map(() => '?').join(',')})
+          `)
+          .bind(deck_id, ...ids)
+          .all<{ id: string; card_type: string; note_id: string; hanzi: string; pinyin: string; english: string; audio_url: string | null; fun_facts: string | null }>()
+        : { results: [] };
+      const at = new Map(ids.map((id, i) => [id, i]));
+      const list = [...(rows.results ?? [])].sort((a, b) => (at.get(a.id) ?? 0) - (at.get(b.id) ?? 0));
       const { events, forgets } = await historyOf(list.map((r) => r.id));
       const now = new Date();
       const cards = list.map((r) => {
@@ -190,7 +182,7 @@ export function registerStudyTools(ctx: ToolContext): void {
       return textResult(`Opening study session for "${deck.name}" with ${cards.length} cards due.`, {
         deck: { id: deck.id, name: deck.name },
         cards,
-        counts: await deckCounts(deck_id, todayKey),
+        counts: studyCounts(queue),
       });
     },
   );
@@ -229,7 +221,7 @@ export function registerStudyTools(ctx: ToolContext): void {
         .prepare('SELECT n.deck_id FROM cards c JOIN notes n ON c.note_id = n.id JOIN decks d ON n.deck_id = d.id WHERE c.id = ? AND d.user_id = ?')
         .bind(card_id, userId)
         .first<{ deck_id: string }>();
-      const counts = card ? await deckCounts(card.deck_id, await studyTodayKey()) : undefined;
+      const counts = card ? studyCounts(await deckQueue(card.deck_id)) : undefined;
       return textResult('Review recorded', counts ? { counts } : {});
     }),
   );

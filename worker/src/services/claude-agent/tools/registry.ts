@@ -330,7 +330,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
     contexts: ['card'],
     schema: {
       name: 'get_due_cards',
-      description: 'Get cards that are currently due for review in the current deck or across all decks.',
+      description: "Get the cards of today's study session in the current deck (or all decks), in session order: reviews due today plus the new cards today's budget allows — due_today / reviews_due say how many.",
       input_schema: {
         type: 'object' as const,
         properties: {
@@ -344,7 +344,7 @@ export const TOOL_REGISTRY: Record<ToolName, ToolEntry> = {
     contexts: ['card', 'coach'],
     schema: {
       name: 'get_overall_stats',
-      description: 'Get overall study statistics: total decks, total cards, cards due today, cards studied today.',
+      description: "Get overall study statistics: total decks, total cards, due_today (what the learner's Home shows: reviews due + today's new cards), reviews_due (reviews only), cards studied today.",
       input_schema: {
         type: 'object' as const,
         properties: {},
