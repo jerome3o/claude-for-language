@@ -73,8 +73,9 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   await page.getByTestId('lesson-voice-type').click();
   await page.getByTestId('lesson-voice-text').fill('图书官');
   await page.getByRole('button', { name: 'Check', exact: true }).click();
-  await expect(page.locator('.char-diff .extra')).toHaveText('官');
-  await expect(page.locator('.char-diff .miss')).toHaveText('馆');
+  // The slim answer diff, judged by the characters (官 sounds like 馆 but is the wrong character).
+  await expect(page.locator('[data-testid="char-diff"] [data-kind="wrong"]')).toHaveText('官');
+  await expect(page.getByText('官 instead of 馆')).toBeVisible();
   await page.getByRole('button', { name: 'Continue' }).click();
 
   // Dictation (typed): punctuation doesn't count
@@ -117,7 +118,7 @@ test('student writes typed answers in a lesson; the tutor reviews the attempt', 
   await page.goto(`/connections/${relId}/lesson-attempts/${list.attempts[0].id}?session_token=${tutor.token}`);
   await expect(page.getByText('Lesson answers')).toBeVisible({ timeout: 30000 });
   await expect(page.locator('.att-card').first()).toContainText('Writing — typed');
-  await expect(page.locator('.att-chars .extra').first()).toHaveText('官');
+  await expect(page.getByTestId('att-typed-diff').first().locator('[data-kind="wrong"]')).toHaveText('官');
 });
 
 test('tutor catalogue lists every type; a sample lesson runs as a trial', async ({ page, request }) => {

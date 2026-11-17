@@ -10,6 +10,7 @@ import {
   normalizeHanziAnswer,
   isHanziAnswerCorrect,
   diffHanzi,
+  answerForm,
   sentenceUsesWord,
 } from '../../../shared/lesson/answer-check';
 import {
@@ -101,6 +102,7 @@ function row(a: string, e: string, alts: string[]) {
     normalized: normalizeHanziAnswer(a),
     correct: isHanziAnswerCorrect(a, e, alts),
     diff: diffHanzi(a, e, alts),
+    form: answerForm(a, e, alts),
     uses: sentenceUsesWord(a, Array.from(e).slice(0, 2).join('')),
     exact: isExactHanziMatch(a, e),
   };

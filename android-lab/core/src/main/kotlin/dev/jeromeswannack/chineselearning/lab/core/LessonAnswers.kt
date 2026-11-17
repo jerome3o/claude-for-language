@@ -25,6 +25,13 @@ object LessonAnswers {
         return (listOf(expected) + alternatives).any { normalizeHanzi(it) == a }
     }
 
+    /** `answerForm`: the alternative the answer IS (punctuation / spaces aside), else the expected text. */
+    fun answerForm(answer: String, expected: String, alternatives: List<String> = emptyList()): String {
+        val a = normalizeHanzi(answer)
+        if (a.isEmpty() || normalizeHanzi(expected) == a) return expected
+        return alternatives.firstOrNull { normalizeHanzi(it) == a } ?: expected
+    }
+
     data class CharMark(val ch: String, val hit: Boolean)
 
     data class HanziDiff(val correct: Boolean, val accuracy: Double, val expected: List<CharMark>, val typed: List<CharMark>)

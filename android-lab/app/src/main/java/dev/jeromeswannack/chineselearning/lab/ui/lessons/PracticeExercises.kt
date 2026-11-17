@@ -249,13 +249,13 @@ private fun WritingCues(answer: LessonSentence, cues: List<String>, prompt: Stri
 fun WriteTypedView(ex: WriteTypedExercise, env: ExerciseEnv, onNext: (Boolean, ExerciseAnswer?) -> Unit) {
     var text by remember { mutableStateOf("") }
     var source by remember { mutableStateOf<String?>(null) }
-    var diff by remember { mutableStateOf<LessonAnswers.HanziDiff?>(null) }
+    var diff by remember { mutableStateOf<WrittenCheck?>(null) }
     var spoken by remember { mutableStateOf<LessonSpokenCheck.Result?>(null) }
     // A spoken answer the recogniser wrote (unchanged): right by sound, or said inside a sentence (#584).
     fun check(given: DictatedAnswer) {
         text = given.text
         source = given.source
-        val d = LessonAnswers.diffHanzi(given.text, ex.answer.hanzi, ex.alternatives.orEmpty())
+        val d = writtenCheck(given.text, ex.answer.hanzi, ex.alternatives.orEmpty())
         val s = LessonSpokenCheck.check(given.text, ex.answer.hanzi, ex.alternatives.orEmpty(), given.source)
         diff = d
         spoken = s
@@ -270,7 +270,7 @@ fun WriteTypedView(ex: WriteTypedExercise, env: ExerciseEnv, onNext: (Boolean, E
     } else {
         val s = spoken ?: LessonSpokenCheck.check("", "")
         val ok = LessonSpokenCheck.correct(d.correct, s)
-        ResultBanner(ok, if (d.correct) "✓ Correct" else if (ok) "✓ Correct (spoken)" else "✗ Not quite — ${Math.round(d.accuracy * 100)}% of the characters")
+        ResultBanner(ok, if (d.correct) "✓ Correct" else if (ok) "✓ Correct (spoken)" else "✗ Not quite — ${d.summary}")
         s.note?.let { Explanation(it) }
         if (!(ok && !d.correct)) CharDiffView(d)
         Reference(ex.answer, env, exerciseType = ex.type)
@@ -397,7 +397,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
     val strokes = !typed && pad == "strokes"
     var text by remember { mutableStateOf("") }
     var hw by remember { mutableStateOf<HandwritingAnswer?>(null) }
-    var diff by remember { mutableStateOf<LessonAnswers.HanziDiff?>(null) }
+    var diff by remember { mutableStateOf<WrittenCheck?>(null) }
     var source by remember { mutableStateOf<String?>(null) }
     var spoken by remember { mutableStateOf<LessonSpokenCheck.Result?>(null) }
     var revealed by remember { mutableStateOf(false) }
@@ -407,7 +407,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         if (typed && given != null) {
             text = given.text
             source = given.source
-            val d = LessonAnswers.diffHanzi(given.text, ex.audio.hanzi, ex.alternatives.orEmpty())
+            val d = writtenCheck(given.text, ex.audio.hanzi, ex.alternatives.orEmpty())
             // Said back and unchanged: the recogniser chose the characters — right by sound (#584).
             val s = LessonSpokenCheck.check(given.text, ex.audio.hanzi, ex.alternatives.orEmpty(), given.source)
             diff = d
@@ -449,7 +449,7 @@ fun DictationView(ex: DictationExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         val d = diff
         if (d != null) {
             val ok = typedCorrect == true
-            ResultBanner(ok, if (d.correct) "✓ Every character right" else if (ok) "✓ Right (spoken)" else "${Math.round(d.accuracy * 100)}% of the characters")
+            ResultBanner(ok, if (d.correct) "✓ Every character right" else if (ok) "✓ Right (spoken)" else "✗ ${d.summary}")
             spoken?.note?.let { Explanation(it) }
             if (!(ok && !d.correct)) CharDiffView(d)
         }

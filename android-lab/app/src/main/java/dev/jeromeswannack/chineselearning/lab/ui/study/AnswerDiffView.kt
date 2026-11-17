@@ -163,10 +163,12 @@ fun AnswerDiffView(
     onExplainMore: (() -> Unit)? = null,
     /** Analytics: the surface (study.answer_why_more). */
     whySurface: String = "answer_diff",
+    /** A WRITTEN answer (typed / handwritten characters): judged by the characters — a homophone is wrong. */
+    written: Boolean = false,
     /** Under the diff (🎤 Read it again …). */
     content: @Composable () -> Unit = {},
 ) {
-    val diff = remember(said, expected) { AnswerDiff.of(said, expected) }
+    val diff = remember(said, expected, written) { AnswerDiff.of(said, expected, written) }
     val full = AnswerDiff.line(diff, accepted, headline)
     // Under a "✓ Also right" chip, "Right — worded differently" says "right" twice: just "Worded differently".
     val text = if (verdict?.first == "right" && full.startsWith("Right — ")) full.removePrefix("Right — ").replaceFirstChar { it.uppercase() } else full

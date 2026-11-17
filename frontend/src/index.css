@@ -768,7 +768,7 @@ html:has(.study-page-fullscreen) .header {
 }
 
 /*
- * The typed / multiple-choice answer's marks (utils/answerDiff.ts): COLOUR ONLY, like the slim answer diff
+ * The multiple-choice answer's marks (StudyPage `McAnswerDiff`): COLOUR ONLY, like the slim answer diff
  * (AnswerDiff.css; Jerome, Nov 2026: no boxes, no fills, no underlines) — a right character in the "right" ink, a
  * wrong (or extra) one in the wrong mark's colour, a missing one a "?" in the missing grey; the answer under the ↓
  * in body ink with the characters he got in the "right" ink. Each wrong / missing cell carries an aria-label. The

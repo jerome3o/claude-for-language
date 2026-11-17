@@ -35,6 +35,19 @@ describe('answerDiff', () => {
     expect(answerDiff('我明天去北京', '我明天去北京').reordered).toBe(false);
   });
 
+  it('judges a WRITTEN answer by its characters: a homophone or another tone is wrong', () => {
+    const written = (said: string, expected: string) => answerDiff(said, expected, { written: true });
+    expect(written('图书官', '图书馆').parts.map((p) => p.kind)).toEqual(['ok', 'ok', 'wrong']);
+    expect(answerDiffSummary(written('图书官', '图书馆'))).toBe('官 instead of 馆');
+    expect(written('由', '油').right).toBe(false);
+    expect(written('我去成读', '我去成都').wrong).toBe(1);
+    expect(written('我去成读', '我去成都').tone).toBe(0);
+    // Numbers and missing / extra characters line up as before.
+    expect(written('我有3本书', '我有三本书').right).toBe(true);
+    expect(answerDiffSummary(written('你好', '你好吗'))).toBe('Missing 吗 at the end');
+    expect(answerDiffSummary(written('谢谢你', '谢谢'))).toBe('Extra 你 at the end');
+  });
+
   it('says when nothing was said', () => {
     expect(answerDiff('', '你好').empty).toBe(true);
     expect(answerDiff('', '你好').right).toBe(false);

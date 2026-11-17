@@ -3574,13 +3574,20 @@ both apps clean every row when they read cached options (`parseMcOptions`, Lab
 `MultipleChoice.parse` → `core/McOptions.kt`, parity-tested by `parity/fixtures/multiple-choice.ts`),
 so notes generated before the fix are clean on the device too.
 
-**Marks: colour only.** On the answer side of a typed or multiple-choice answer, every wrong
-character (or extra one past the end) is in the wrong mark's rose; a character not typed / a row left
-blank is a "?" in the missing grey; correct characters are in the "right" ink — no fills, boxes or
-underlines since Nov 2026 (the slim answer diff's language, "Answer feedback: one line and a diff").
-The one line above says what differs in words and each wrong / missing cell has an accessible label
-(`utils/answerDiff.ts` `typedAnswerDiff`, `DiffCellView` in StudyPage, `.diff-*` in index.css; Lab:
-`ui/study/AnswerMarks.kt`).
+**Marks: colour only.** A wrong TYPED answer on the answer side is the slim answer diff ("Answer feedback: one line
+and a diff"): ONE line that says what differs ("官 instead of 馆", "Missing 吗 at the end"), his answer marked under
+"Your answer" — judged by the CHARACTERS (`answerDiff(…, { written: true })`: a homophone or another tone is a wrong
+character, as the card's own verdict `checkTypedAnswer` says) —, then the card's answer, tappable, and its pinyin. Every
+written answer uses the same diff (Nov 2026: the positional `typedAnswerDiff` / Lab `AnswerMarks.typedDiff` were removed):
+the typed card back, a lesson's write / dictation (`CharDiffView` in practice-exercises.tsx, Lab `ExerciseKit.kt`), the
+attempt review, the tutor's history / insights / card hub (`tutor-shared.tsx` `AnswerDiff`), a call's dictation and the
+recordings' "Heard" line (`heardChars`, Lab `RecordingQueueRules.heardMarks`). A multiple-choice answer is row by row: a
+wrong pick in the wrong mark's rose, a row left blank a "?" in the missing grey, a right one in the "right" ink — no
+fills, boxes or underlines (`McAnswerDiff` / `DiffCellView` in StudyPage, `.diff-*` in index.css; Lab:
+`ui/study/AnswerMarks.kt`). Any pinyin shown there is the app's auto-pinyin with the 一 / 不 tone changes
+(`devicePinyinLine`). `diffHanzi` (LCS) stays only where a different thing is drawn: a tutor's correction of a chat
+message (every changed character, homophones included, as strike-out + insert) and the model sentence's highlight of
+what a lesson answer missed (`markedChars`).
 
 ## Tutor notes on recordings
 

@@ -217,6 +217,11 @@ export interface DiffPart {
  * ('ins', only in the correction). Characters are compared with `diffHanzi`
  * (punctuation and spaces don't count); the correction's own punctuation is
  * kept in place as 'punct'.
+ *
+ * Deliberately NOT the answer diff (shared/cards/answer-diff.ts): a correction is the tutor's rewrite of a message,
+ * not an answer judged against a key — every changed character must show (的 → 得, 在 → 再 are homophones the
+ * answer diff would let through as "sounded right"), both sides are the learner's / tutor's own text, and the view is
+ * a strike-out + insert (two texts merged), not one answer marked.
  */
 export function correctionDiff(original: string, corrected: string): DiffPart[] {
   const d = diffHanzi(original, corrected);
