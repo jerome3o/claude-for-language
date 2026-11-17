@@ -787,7 +787,10 @@ session** (Jerome: "go all in on homework/assignments"). They are done from **Ho
 card** and the **Mini Lessons page** (`/lessons`); `/lessons/:id/play?from=&mode=revision` plays one
 (web `pages/LessonReplayPage.tsx`, Lab `ui/lessons/LessonReplay.kt`). The old lesson mix
 (`LESSON_MIX_INTERVAL`, `pickTodaysLessons`), "New lessons a day" and the Settings → "Lessons &
-readers" section are gone (the server still accepts their old settings / events from older apps).
+readers" section are gone, and so is their code (Nov 2026: `shared/study/revisit.ts`, Lab `Revisit.kt`'s
+schedule). The server still answers older apps: `PUT /api/profile/revisit-settings` is a no-op and
+`revisit_settings` on `/api/auth/me` / `/api/sync/changes` is fixed to the old defaults; the old Done-for-good
+marks (`revisit_events`) are still stored and read by the revision rule.
 
 ### Structure cards (`shared/lesson/pattern.ts`; Lab `core/…/LessonPatterns.kt`, parity-tested)
 
@@ -1364,8 +1367,7 @@ his recording, the model answer and Not quite / I said it well. Now the take is 
 Jerome (Oct 2026): after a dialogue podcast he loved, he wanted a mini lesson drilling its characters,
 sentences and meanings — queued, but LOCKED until he has listened to the podcast (or done some other
 real thing: "Watch episode 3 of …", "Go to a restaurant and order 打包"). `shared/lesson/unlock.ts`
-(Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts` + the `locked` /
-`unlocked` sets in `parity/fixtures/revisit.ts`, legacy).
+(Lab `core/…/LessonUnlock.kt`, parity-tested by `parity/fixtures/lesson-unlock.ts`).
 
 - **The condition**: `unlock: { kind: 'audio_lesson', audio_lesson_id } | { kind: 'manual', prompt }` on
   the lesson (columns `custom_lessons.unlock_kind / unlock_ref / unlock_prompt`, migration 0119);

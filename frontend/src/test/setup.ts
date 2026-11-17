@@ -35,7 +35,6 @@ beforeEach(async () => {
   await db.lessonUnlocks.clear();
   await db.lessonRuns.clear();
   try { localStorage.removeItem('audio-lessons-listened-v1'); } catch { /* no storage */ }
-  try { localStorage.removeItem('revisitSettings'); } catch { /* no storage */ }
 });
 
 // Clean up after each test

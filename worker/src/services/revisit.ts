@@ -1,20 +1,24 @@
 /**
- * "Revisit later" for mini lessons and graded readers (shared/study/revisit.ts):
- * the account's gap settings (users.revisit_settings) and the retire / restore
- * events ("Done for good" / "Bring back", table revisit_events). The ratings
- * themselves stay where they were (custom_lesson_completions.rating,
- * reader_review_events.rating); every device derives the schedule from both.
+ * The legacy "Done for good" / "Bring back" marks on mini lessons (table revisit_events), still
+ * read by the revision rule (shared/study/lessonRevision.ts: a retire = done forever; services/
+ * lesson-revision.ts). The "revisit later" schedule and its settings (users.revisit_settings) are
+ * gone (Oct 2026); older apps still read the settings, so they get the fixed defaults below.
  */
-import {
-  applyRevisitSettingsUpdate,
-  computeRevisitState,
-  parseRevisitSettings,
-  revisitSettingsInfo,
-  type RevisitEvent,
-  type RevisitSettings,
-  type RevisitSettingsInfo,
-  type RevisitSettingsUpdate,
-} from '@shared/study/revisit';
+
+/**
+ * What an older app reads as `revisit_settings` (on /api/auth/me, /api/sync/changes,
+ * GET /api/me/revisit and the PUT /api/profile/revisit-settings answer): the old defaults, always.
+ * Nothing schedules with them any more; the column users.revisit_settings is no longer read.
+ */
+export const LEGACY_REVISIT_SETTINGS = Object.freeze({
+  hard_days: 2,
+  good_days: 14,
+  easy_days: 42,
+  growth: 2,
+  cap_days: 180,
+  new_lessons_per_day: 1,
+  is_default: true,
+});
 
 export type RevisitItemKind = 'lesson' | 'reader';
 export type RevisitAction = 'retire' | 'restore';
@@ -25,27 +29,6 @@ export interface RevisitEventRow {
   item_id: string;
   action: RevisitAction;
   created_at: string;
-}
-
-export async function getRevisitSettings(db: D1Database, userId: string): Promise<RevisitSettings> {
-  const row = await db.prepare('SELECT revisit_settings FROM users WHERE id = ?').bind(userId).first<{ revisit_settings: string | null }>();
-  return parseRevisitSettings(row?.revisit_settings ?? null);
-}
-
-export async function getRevisitSettingsInfo(db: D1Database, userId: string): Promise<RevisitSettingsInfo> {
-  return revisitSettingsInfo(await getRevisitSettings(db, userId));
-}
-
-/** Apply a validated update; stores NULL when the result is the defaults. */
-export async function setRevisitSettings(db: D1Database, userId: string, update: RevisitSettingsUpdate): Promise<RevisitSettingsInfo> {
-  const next = applyRevisitSettingsUpdate(await getRevisitSettings(db, userId), update);
-  const info = revisitSettingsInfo(next);
-  const { is_default: _isDefault, ...stored } = info;
-  await db
-    .prepare('UPDATE users SET revisit_settings = ? WHERE id = ?')
-    .bind(info.is_default ? null : JSON.stringify(stored), userId)
-    .run();
-  return info;
 }
 
 export async function listRevisitEvents(db: D1Database, userId: string): Promise<RevisitEventRow[]> {
@@ -122,65 +105,4 @@ export async function addRevisitEvents(
   }
   if (stmts.length) await db.batch(stmts);
   return { accepted, orphans, invalid };
-}
-
-/**
- * The schedule of some of a user's items, server-side (the tutor's views show
- * "next revisit <date>"). `ratings` = per item its finishes (rating + when).
- */
-export async function revisitStatesFor(
-  db: D1Database,
-  userId: string,
-  kind: RevisitItemKind,
-  ratings: Map<string, Array<{ id: string; at: string; rating: number | null }>>,
-): Promise<Map<string, ReturnType<typeof computeRevisitState>>> {
-  const out = new Map<string, ReturnType<typeof computeRevisitState>>();
-  if (ratings.size === 0) return out;
-  const [settings, events] = await Promise.all([getRevisitSettings(db, userId), listRevisitEvents(db, userId)]);
-  for (const [itemId, finishes] of ratings) {
-    const history: RevisitEvent[] = finishes.map(f => ({ id: f.id, at: f.at, kind: 'rating' as const, rating: f.rating }));
-    for (const e of events) {
-      if (e.item_kind === kind && e.item_id === itemId) history.push({ id: e.id, at: e.created_at, kind: e.action });
-    }
-    out.set(itemId, computeRevisitState(history, settings));
-  }
-  return out;
-}
-
-export interface RevisitSummary {
-  /** When it comes back (ISO); null when never finished or done for good. */
-  next_revisit_at: string | null;
-  /** "Done for good": never scheduled again. */
-  retired: boolean;
-}
-
-/** next_revisit_at / retired for some of a user's lessons or readers (their own settings + history). */
-export async function revisitSummaries(
-  db: D1Database,
-  userId: string,
-  kind: RevisitItemKind,
-  itemIds: string[],
-): Promise<Map<string, RevisitSummary>> {
-  const out = new Map<string, RevisitSummary>();
-  const ids = [...new Set(itemIds)];
-  if (ids.length === 0) return out;
-  const finishes = new Map<string, Array<{ id: string; at: string; rating: number | null }>>();
-  for (const id of ids) finishes.set(id, []);
-  for (let i = 0; i < ids.length; i += 90) {
-    const chunk = ids.slice(i, i + 90);
-    const marks = chunk.map(() => '?').join(',');
-    const sql = kind === 'lesson'
-      ? `SELECT id, lesson_id AS item_id, completed_at AS at, rating FROM custom_lesson_completions WHERE lesson_id IN (${marks})`
-      : `SELECT id, reader_id AS item_id, reviewed_at AS at, rating FROM reader_review_events WHERE reader_id IN (${marks})`;
-    const rows = await db.prepare(sql).bind(...chunk).all<{ id: string; item_id: string; at: string; rating: number | null }>();
-    for (const r of rows.results ?? []) finishes.get(r.item_id)?.push({ id: r.id, at: r.at, rating: r.rating });
-  }
-  const states = await revisitStatesFor(db, userId, kind, finishes);
-  for (const [id, s] of states) {
-    out.set(id, {
-      next_revisit_at: s.status === 'scheduled' && s.due_ms !== null ? new Date(s.due_ms).toISOString() : null,
-      retired: s.status === 'retired',
-    });
-  }
-  return out;
 }

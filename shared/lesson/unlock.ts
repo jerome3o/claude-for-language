@@ -4,10 +4,10 @@
  * podcast's companion mini lesson) or something they do themselves ("Watch episode 3 of …",
  * "Go to a restaurant and order 打包").
  *
- * - A locked lesson is never offered: not in the study session, not in today's lessons, and
- *   it never takes the daily new-lesson place (`pickTodaysLessons`' `locked`).
- * - Unlocking means "I want this now": an unlocked lesson that is still NEW comes today ON TOP
- *   of the daily place, like a homework lesson (`pickTodaysLessons`' `unlocked`).
+ * - A locked lesson is never offered: not on Home's homework card, not in the Mini Lessons
+ *   page's To do (`lockSets`' `locked`).
+ * - Unlocking means "I want this now": an unlocked lesson that is still NEW is offered like any
+ *   new lesson (`lockSets`' `unlocked`).
  * - Unlocking is an offline-first event (the earliest `unlocked_at` wins, idempotent): by hand
  *   ("✓ I've listened — unlock" / "✓ Done — unlock"), automatically when the linked audio lesson
  *   is listened to (`audioLessonListened`), or from the player's "Mini lesson ready" card.
@@ -106,7 +106,7 @@ export function lessonsUnlockedByListen<T extends { id: string; unlock?: LessonU
     .map(l => l.id);
 }
 
-/** The ids `pickTodaysLessons` takes: lessons still locked, and lessons with a condition that is met. */
+/** Lessons still locked, and lessons with a condition that is met. */
 export function lockSets<T extends { id: string; unlock?: LessonUnlock | null; unlocked_at?: string | null }>(
   lessons: T[],
 ): { locked: Set<string>; unlocked: Set<string> } {
