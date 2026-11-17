@@ -29,6 +29,8 @@ import { parseReaderWords } from '@shared/reader/words';
 import { CONTRIVED_SENTENCE_FOCUSES } from '@shared/study/sentenceFocus';
 import { inStudyDaySql, inStudyDaySqlParams } from '@shared/study/studyDay';
 import { loadUserStudyDaySql } from '../services/study-day';
+import { serverStudyQueue } from '../services/study-queue';
+import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
 import { DECK_SETTING_KEYS, DEFAULT_STUDY_BUDGET, moveInOrder, sortDecksForQueue, studyBudgetInfo, type DeckSettings as DeckSettingsRow, type QueueMove, type StudyBudget, type StudyBudgetInfo, type StudyBudgetRow, type StudyBudgetUpdate } from '@shared/decks';
 import { DeckSettings, DEFAULT_DECK_SETTINGS, parseLearningSteps, SchedulerResult } from '../services/anki-scheduler';
 import type { GrammarPoint } from '../services/practice';
@@ -1154,39 +1156,29 @@ export async function getDueCards(
   includeNew: boolean = true,
   limit: number = 20
 ): Promise<CardWithNote[]> {
-  // "Due today" = due by the end of the user's STUDY day (their zone, "New day starts at"), and a
-  // snooze ends on a study date — never the UTC date (services/study-day.ts).
-  const today = await loadUserStudyDaySql(db, userId);
-  let query = `
+  // "Due today" = the shared study queue (services/study-queue.ts): learning / review cards due by
+  // the end of the user's STUDY day + — with includeNew — the new cards the daily budget gives
+  // today, in session order. Held (suspended / snoozed) cards leave study either way.
+  const queue = await serverStudyQueue(db, userId, { deckId: deckId ?? null });
+  const ids = queue.due.filter((c) => includeNew || c.queue !== 0).slice(0, Math.max(0, limit)).map((c) => c.id);
+  if (ids.length === 0) return [];
+  const query = `
     SELECT c.*, n.hanzi, n.pinyin, n.english, n.audio_url, n.audio_provider, n.fun_facts, n.deck_id, n.sentence_clue, n.sentence_clue_pinyin, n.sentence_clue_translation, n.sentence_clue_audio_url, n.multiple_choice_options, n.pinyin_only, n.alternatives
     FROM cards c
     JOIN notes n ON c.note_id = n.id
     JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?)
-      -- Suspended / snoozed cards (card_holds, shared/decks/holds.ts) leave study.
-      AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
+    WHERE d.user_id = ? AND c.id IN (${ids.map(() => '?').join(',')})
   `;
-
-  const params: (string | number)[] = [userId, today.cutoffSql, today.key];
-
-  if (!includeNew) {
-    query += ' AND c.next_review_at IS NOT NULL';
-  }
-
-  if (deckId) {
-    query += ' AND n.deck_id = ?';
-    params.push(deckId);
-  }
-
-  query += ' ORDER BY c.next_review_at ASC NULLS LAST LIMIT ?';
-  params.push(limit);
+  const params: (string | number)[] = [userId, ...ids];
+  const order = new Map(ids.map((id, i) => [id, i]));
 
   const result = await db
     .prepare(query)
     .bind(...params)
     .all();
 
-  return result.results.map((row: Record<string, unknown>) => ({
+  const rows = [...result.results].sort((a, b) => (order.get(a.id as string) ?? 0) - (order.get(b.id as string) ?? 0));
+  return rows.map((row: Record<string, unknown>) => ({
     id: row.id as string,
     note_id: row.note_id as string,
     card_type: row.card_type as Card['card_type'],
@@ -1567,25 +1559,26 @@ export async function getNoteQuestions(
 
 export async function getOverviewStats(db: D1Database, userId: string): Promise<{
   total_cards: number;
+  /** learning + review cards due today (no new cards). */
+  reviews_due: number;
+  /** reviews_due + today's new cards as the daily budget allocates them — what Home's Study button counts. */
+  due_today: number;
+  /** = due_today (kept for older readers; before Nov 2026 it counted every NEW card). */
   cards_due_today: number;
+  new_cards_paused: boolean;
   cards_studied_today: number;
   total_decks: number;
 }> {
   // "Today" = the user's STUDY day (their zone, "New day starts at"), not the UTC date.
   const today = await loadUserStudyDaySql(db, userId);
-  const [totalCards, cardsDue, studiedToday, totalDecks] = await Promise.all([
+  const [totalCards, queue, studiedToday, totalDecks] = await Promise.all([
     db.prepare(`
       SELECT COUNT(*) as count FROM cards c
       JOIN notes n ON c.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ?
     `).bind(userId).first<{ count: number }>(),
-    db.prepare(`
-      SELECT COUNT(*) as count FROM cards c
-      JOIN notes n ON c.note_id = n.id
-      JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))
-    `).bind(userId, today.cutoffSql, today.key).first<{ count: number }>(),
+    serverStudyQueue(db, userId),
     db.prepare(`
       SELECT COUNT(*) as count FROM review_events
       WHERE user_id = ? AND ${inStudyDaySql('reviewed_at')}
@@ -1596,7 +1589,10 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
 
   return {
     total_cards: totalCards?.count || 0,
-    cards_due_today: cardsDue?.count || 0,
+    reviews_due: queue.reviews_due,
+    due_today: queue.due_today,
+    cards_due_today: queue.due_today,
+    new_cards_paused: queue.new_cards_paused,
     cards_studied_today: studiedToday?.count || 0,
     total_decks: totalDecks?.count || 0,
   };
@@ -1605,19 +1601,25 @@ export async function getOverviewStats(db: D1Database, userId: string): Promise<
 export async function getDeckStats(
   db: D1Database,
   deckId: string,
-  userId: string
+  userId: string,
+  /** false = skip the study queue (the Decks list only shows mastery; the queue reads every card). */
+  opts: { due?: boolean } = {}
 ): Promise<{
   total_notes: number;
   total_cards: number;
-  cards_due: number;
+  /** This deck's session today: reviews due + the new cards the budget gives it (the deck page's "Study · N due"); null with `due: false`. */
+  cards_due: number | null;
+  /** learning + review cards of this deck due today (no new cards); null with `due: false`. */
+  reviews_due: number | null;
+  /** Review with stability > 21 days (shared/progress/mastery.ts). */
   cards_mastered: number;
+  /** Seen (past NEW) but not mastered yet. */
   cards_learning: number;
 } | null> {
   const deck = await getDeckById(db, deckId, userId);
   if (!deck) return null;
-  const today = await loadUserStudyDaySql(db, userId);
 
-  const [totalNotes, totalCards, cardsDue, cardsMastered, cardsLearning] = await Promise.all([
+  const [totalNotes, totalCards, queue, cardsMastered, cardsLearning] = await Promise.all([
     db
       .prepare('SELECT COUNT(*) as count FROM notes WHERE deck_id = ?')
       .bind(deckId)
@@ -1628,19 +1630,12 @@ export async function getDeckStats(
       )
       .bind(deckId)
       .first<{ count: number }>(),
+    opts.due === false ? Promise.resolve(null) : serverStudyQueue(db, userId, { deckId }),
     db
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
          JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND (c.next_review_at IS NULL OR datetime(c.next_review_at) <= ?) AND NOT EXISTS (SELECT 1 FROM card_holds h WHERE h.card_id = c.id AND h.cleared_at IS NULL AND (h.kind = 'suspend' OR h.until > ?))`
-      )
-      .bind(deckId, today.cutoffSql, today.key)
-      .first<{ count: number }>(),
-    db
-      .prepare(
-        `SELECT COUNT(*) as count FROM cards c
-         JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND c.interval > 21`
+         WHERE n.deck_id = ? AND ${MASTERED_CARD_SQL}`
       )
       .bind(deckId)
       .first<{ count: number }>(),
@@ -1648,7 +1643,7 @@ export async function getDeckStats(
       .prepare(
         `SELECT COUNT(*) as count FROM cards c
          JOIN notes n ON c.note_id = n.id
-         WHERE n.deck_id = ? AND c.interval > 0 AND c.interval <= 21`
+         WHERE n.deck_id = ? AND COALESCE(c.queue, 0) != 0 AND NOT ${MASTERED_CARD_SQL}`
       )
       .bind(deckId)
       .first<{ count: number }>(),
@@ -1657,7 +1652,8 @@ export async function getDeckStats(
   return {
     total_notes: totalNotes?.count || 0,
     total_cards: totalCards?.count || 0,
-    cards_due: cardsDue?.count || 0,
+    cards_due: queue ? queue.due_today : null,
+    reviews_due: queue ? queue.reviews_due : null,
     cards_mastered: cardsMastered?.count || 0,
     cards_learning: cardsLearning?.count || 0,
   };
