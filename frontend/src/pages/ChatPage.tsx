@@ -36,6 +36,7 @@ import {
 import { InteractiveMessage } from '../components/InteractiveMessage';
 import { Loading, ErrorMessage } from '../components/Loading';
 import { DiscussClaudeSheet } from '../components/claude/DiscussClaudeSheet';
+import { readClaudeReturn, withoutClaudeReturn } from '../components/claude/ResultLink';
 import { MessageMenu, type MenuAnchor } from '../components/chat/MessageMenu';
 import { looksLikeChinese } from '../components/chat/messageTools';
 import { albumMenu, messageMenu, menuText, type MenuActionId } from '@shared/chats/messageMenu';
@@ -295,6 +296,19 @@ export function ChatPage() {
 
   // Message discussion state
   const [discussingMessage, setDiscussingMessage] = useState<MessageWithSender | null>(null);
+  // Back from something a line under Claude's reply opened (docs/CHAT.md "Tool lines you can tap"):
+  // the Discuss sheet on that message again, once the message is on screen.
+  const [discussReturn, setDiscussReturn] = useState(() => {
+    const r = readClaudeReturn(location.state);
+    return r && r.source === 'chat_message' && r.ref ? r : null;
+  });
+  const closeDiscuss = () => {
+    setDiscussingMessage(null);
+    if (discussReturn || readClaudeReturn(location.state)) {
+      setDiscussReturn(null);
+      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: withoutClaudeReturn(location.state) });
+    }
+  };
   // "✨ How to say it better" (docs/CHAT.md "Auto-check").
   const [sayBetterFor, setSayBetterFor] = useState<MessageWithSender | null>(null);
 
@@ -467,6 +481,12 @@ export function ChatPage() {
     },
   });
   const messages = thread.messages;
+  const discussReturnId = discussReturn?.ref ?? null;
+  useEffect(() => {
+    if (!discussReturnId || discussingMessage) return;
+    const msg = messages.find((m) => m.id === discussReturnId);
+    if (msg) setDiscussingMessage(msg);
+  }, [discussReturnId, messages, discussingMessage]);
   const serverMessages = thread.serverMessages;
 
   // Open + visible: close this chat's notifications and move the read marker (docs/CHAT.md).
@@ -2990,7 +3010,7 @@ export function ChatPage() {
         <DiscussClaudeSheet
           message={discussingMessage}
           conversationId={convId}
-          onClose={() => setDiscussingMessage(null)}
+          onClose={closeDiscuss}
         />
       )}
 

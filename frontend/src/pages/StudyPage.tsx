@@ -18,6 +18,7 @@ import {
   analyzeSentence,
 } from '../api/client';
 import { CardClaudeSheet } from '../components/claude/CardClaudeSheet';
+import { readClaudeReturn, withoutClaudeReturn } from '../components/claude/ResultLink';
 import { cardToolEffects, undoEditFields, type CardToolResult, type EditedNote } from '@shared/claude/cardTools';
 import { practiceFromCard } from '@shared/claude/practice';
 import { startPracticeThread } from '../services/claudeThreads';
@@ -491,7 +492,23 @@ export function StudyCard({
   // Ask Claude = the card's Claude thread in a sheet (components/claude/CardClaudeSheet.tsx). Once
   // opened it stays mounted with the card (hidden while closed), so a reply still being written lands
   // and Claude's card tools reach the device.
-  const [showAskClaude, setShowAskClaude] = useState(false);
+  // Back from something a line under Claude's reply opened (a mini lesson, a card…; docs/CHAT.md
+  // "Tool lines you can tap"): the same card (today is the session) with its sheet open on that thread.
+  const studyLocation = useLocation();
+  const studyNavigate = useNavigate();
+  const [claudeReturn, setClaudeReturn] = useState(() => {
+    const r = readClaudeReturn(studyLocation.state);
+    return r && r.source === 'study_card' && r.ref === card.note.id ? r : null;
+  });
+  const [showAskClaude, setShowAskClaude] = useState(() => !!claudeReturn);
+  const closeAskClaude = () => {
+    setShowAskClaude(false);
+    // Closed again: a later back to this entry must not reopen it.
+    if (claudeReturn) {
+      setClaudeReturn(null);
+      studyNavigate(`${studyLocation.pathname}${studyLocation.search}${studyLocation.hash}`, { replace: true, state: withoutClaudeReturn(studyLocation.state) });
+    }
+  };
   const [askMounted, setAskMounted] = useState(false);
   const [askAuto, setAskAuto] = useState<{ text: string; key: string } | null>(null);
   const [cardDeleted, setCardDeleted] = useState(false);
@@ -2524,8 +2541,9 @@ export function StudyCard({
         hasSentence={!!card.note.sentence_clue}
         cardDeleted={cardDeleted}
         autoAsk={askAuto}
-        onClose={() => setShowAskClaude(false)}
+        onClose={closeAskClaude}
         onToolResults={processToolResults}
+        initialThreadId={claudeReturn?.thread_id ?? null}
         canUndo={(replyId) => editBeforeRef.current.has(replyId)}
         onUndoEdit={undoClaudeEdit}
       />
@@ -2645,7 +2663,7 @@ export function StudyCard({
 
     return (
       <StudyActionRow
-        onAskClaude={() => setShowAskClaude(!showAskClaude)}
+        onAskClaude={() => (showAskClaude ? closeAskClaude() : setShowAskClaude(true))}
         askClaudeOpen={showAskClaude}
         onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
         menuItems={menuItems}

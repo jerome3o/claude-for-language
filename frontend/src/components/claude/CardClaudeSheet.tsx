@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { resumeThreadFor } from '@shared/claude/contexts';
 import { AddedCardChips } from './AddedCardChips';
+import { ResultLinkGo, ResultLinkLine } from './ResultLink';
 import { cardToolLines, earlierCardThreads, earlierCardThreadsLabel, parseCardToolResults, type CardToolResult } from '@shared/claude/cardTools';
 import { chatRelativeTime } from '@shared/chats/inbox';
 import type { ClaudeThreadContext, ClaudeContextSnapshot } from '@shared/claude/context';
@@ -51,6 +52,8 @@ export interface CardClaudeSheetProps {
   canUndo: (replyId: string) => boolean;
   /** Undo the reply's edit (a normal note update); throws on failure. */
   onUndoEdit: (replyId: string) => Promise<void>;
+  /** Back from something a tool line opened: this thread again (the study card reopens the sheet on it). */
+  initialThreadId?: string | null;
 }
 
 type UndoState = { state: 'busy' | 'done' } | { state: 'error'; message: string };
@@ -60,7 +63,7 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
   const { isOnline } = useNetwork();
   const threads = useCardThreads(noteId);
   const openedAt = useRef(Date.now());
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(props.initialThreadId ?? null);
   const [earlierOpen, setEarlierOpen] = useState(false);
   const [undo, setUndo] = useState<Record<string, UndoState>>({});
 
@@ -106,7 +109,17 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
     const u = undo[reply.id];
     return (
       <div className="card-claude-tools" data-testid="card-claude-tools">
-        {lines.map((line, i) => (
+        {lines.map((line, i) => {
+          const undoable = line.undo && props.canUndo(reply.id) && u?.state !== 'done';
+          // A line with nothing else on it is one tap target: "🎓 Mini lesson made: … · Start ›" (docs/CHAT.md "Tool lines you can tap").
+          if (line.link && !(line.cards && line.cards.length > 0) && !undoable && !(line.undo && u?.state === 'done')) {
+            return (
+              <ResultLinkLine key={i} link={line.link} className={`card-claude-tool ${line.kind}`} testId={`card-claude-tool-${line.kind}`} context="card">
+                {line.text}
+              </ResultLinkLine>
+            );
+          }
+          return (
           <div key={i} className={`card-claude-tool ${line.kind}`} data-testid={`card-claude-tool-${line.kind}`}>
             {line.cards && line.cards.length > 0 ? (
               // "✓ Added 2 cards" + a chip per card → the language explorer (⚡ Study it today there).
@@ -129,9 +142,11 @@ export function CardClaudeSheet(props: CardClaudeSheetProps) {
                 {u?.state === 'busy' ? 'Undoing…' : 'Undo'}
               </button>
             )}
+            {line.link && <ResultLinkGo link={line.link} context="card" />}
             {line.undo && u?.state === 'error' && <span className="card-claude-undo-error" role="alert">{u.message}</span>}
           </div>
-        ))}
+          );
+        })}
       </div>
     );
   };

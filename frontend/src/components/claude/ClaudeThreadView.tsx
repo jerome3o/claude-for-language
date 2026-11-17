@@ -28,8 +28,10 @@
  *   Claude", `/connections/:relId/claude/:id` — pages/tutor/StudentClaudeThreadPage.tsx): the thread
  *   she was given, no composer, chips, 🎧 / 中文 | EN or ⋯; the card chip opens her card hub view.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { contextRefOf, readClaudeReturn, ResultOpenProvider, type ClaudeReturn } from './ResultLink';
+import type { ResultLink } from '@shared/claude/cardTools';
 import { askCardChecked, recapCountLabel, recapFocusWords, COACH_ASK_EMPTY_EN, COACH_ASK_HINT, COACH_ASK_ICON, COACH_ASK_LABEL, COACH_ASK_THINKING_EN, COACH_ASK_THINKING_ZH } from '@shared/coach/askChat';
 import { revealedWhenListeningOn } from '@shared/study/askClaude';
 import { coachDeepLink, openInCoachRequest } from '@shared/chats/autoCheck';
@@ -242,6 +244,13 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const recapCount = useChatRecapCount(threadId ?? 'new');
   const bottomRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLElement>(null);
+  const location = useLocation();
+  // Back from something a tool line opened (docs/CHAT.md "Tool lines you can tap"): the same thread
+  // at the same scroll — read once, when the screen mounts on that history entry.
+  const [returnTo] = useState<ClaudeReturn | null>(() => {
+    const r = readClaudeReturn(location.state);
+    return r && r.scroll !== null && r.thread_id && r.thread_id === (routeId === 'new' ? null : routeId) && r.source === source ? r : null;
+  });
 
   useEffect(() => {
     wireClaudeOutbox();
@@ -296,7 +305,34 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   // never pull them down once they scrolled up themselves; my own new message follows again.
   const lastRow = rows[rows.length - 1];
   const mineCount = rows.filter((r) => r.role === 'user').length + (sending ? 1 : 0);
-  useFollowEnd(bodyRef, bottomRef, `${rows.length}:${lastRow?.content.length ?? 0}:${lastRow?.tool_results ?? ''}`, mineCount, rows.length > 1);
+  useFollowEnd(bodyRef, bottomRef, `${rows.length}:${lastRow?.content.length ?? 0}:${lastRow?.tool_results ?? ''}`, mineCount, rows.length > 1, !returnTo);
+  // Back on this thread: where he was scrolled to, once the messages are on screen.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (!returnTo || restored.current || rows.length === 0 || returnTo.scroll === null) return;
+    restored.current = true;
+    const top = returnTo.scroll;
+    requestAnimationFrame(() => {
+      if (variant === 'sheet') {
+        if (bodyRef.current) bodyRef.current.scrollTop = top;
+      } else {
+        window.scrollTo(0, top);
+      }
+    });
+  }, [returnTo, rows.length, variant]);
+
+  // A tool line's link: remember where he was on THIS history entry, then open it — back lands here.
+  const openResult = useCallback(
+    (link: ResultLink) => {
+      track('claude.tool_result_open', { kind: link.kind, context: ctx.kind });
+      const scroll = variant === 'sheet' ? bodyRef.current?.scrollTop ?? null : window.scrollY;
+      const ret: ClaudeReturn = { thread_id: threadId ?? null, source, ref: contextRefOf(ctx as { kind: string }), page: ctx.kind === 'reader' && typeof ctx.page === 'number' ? ctx.page : null, scroll, at: Date.now() };
+      const here = location.state && typeof location.state === 'object' ? (location.state as Record<string, unknown>) : {};
+      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: { ...here, claudeReturn: ret } });
+      navigate(link.path);
+    },
+    [ctx, variant, threadId, source, location, navigate],
+  );
 
   const send = async (text: string, spoken: boolean, intent: ClaudeIntent = 'ask', fromChip?: string) => {
     const msg = text.trim();
@@ -537,6 +573,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
   const sheet = variant === 'sheet';
 
   return (
+    <ResultOpenProvider value={openResult}>
     <div className={sheet ? 'claude-thread-sheet' : 'claude-chat-page'} data-testid="claude-thread" data-context={ctx.kind}>
       {sheet && <SheetHandle onClose={props.onClose} />}
       <header className="claude-chat-header">
@@ -810,6 +847,7 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
         />
       )}
     </div>
+    </ResultOpenProvider>
   );
 }
 

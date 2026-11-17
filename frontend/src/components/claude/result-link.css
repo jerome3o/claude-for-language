@@ -1,0 +1,78 @@
+/* A line under a Claude reply that opens what it made (components/claude/ResultLink.tsx). */
+button.claude-result-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  min-height: 44px;
+  width: fit-content;
+  max-width: 100%;
+  border: 0;
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+  padding: 0.35rem 0.75rem;
+  -webkit-tap-highlight-color: transparent;
+}
+button.claude-result-line:active {
+  filter: brightness(0.94);
+}
+button.claude-result-line:focus-visible,
+.claude-result-go:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.claude-result-text {
+  min-width: 0;
+}
+.claude-result-go-label {
+  flex: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.claude-result-line.is-off {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-height: 0;
+}
+.claude-result-off {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+.claude-result-go {
+  min-height: 44px;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.claude-result-go:disabled {
+  opacity: 0.6;
+  cursor: default;
+  font-weight: 500;
+}
+/* The Coach's chips are pill-shaped; a tappable one keeps the shape but gets the 44px target. */
+.coach-tool-chip.claude-result-line {
+  border-radius: 14px;
+}
+.coach-tool-chip-bumped {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+}
+:root[data-theme='dark'] .coach-tool-chip-bumped {
+  color: #fcd34d;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .coach-tool-chip-bumped {
+    color: #fcd34d;
+  }
+}
