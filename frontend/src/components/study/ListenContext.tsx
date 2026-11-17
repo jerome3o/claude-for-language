@@ -34,7 +34,7 @@ import {
   type ListenRowState,
 } from '@shared/study/listenContext';
 import { sentenceHistoryKey } from '@shared/study/sentenceHistory';
-import { isCardSentenceRow, type NoteCardSentenceFields } from '@shared/study/cardSentence';
+import { canonicalSentenceKey, isCardSentenceRow, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 
 /**
  * "Listen in context" — the question side of a listening card (audio → hanzi;
@@ -191,12 +191,13 @@ export function ListenContext({
     if (pick || !settled || stats === null) return;
     const heardBefore = (key: string) => stats.get(sentenceHistoryKey(key))?.heard?.count ?? 0;
     // The same showing again: its rows as they were (nothing recorded or tracked twice).
-    const again = (shownKeys ?? []).filter((k) => allRows.some((r) => r.key === k));
+    // (A key saved before the card's sentence was a row — `clue:<note>` — is that row's id now.)
+    const again = (shownKeys ?? []).map((k) => canonicalSentenceKey(k, noteId)).filter((k) => allRows.some((r) => r.key === k));
     if (again.length > 0) {
       setPick({ keys: again, fresh: new Set(again.filter((k) => heardBefore(k) === 0)) });
       return;
     }
-    const p = pickListenRows(allRows, stats, { seed, word, previous: lastShownListenKeys(noteId) });
+    const p = pickListenRows(allRows, stats, { seed, word, previous: lastShownListenKeys(noteId).map((k) => canonicalSentenceKey(k, noteId)) });
     const keys = p.rows.map((r) => r.key);
     const heardCount = (key: string) => stats.get(sentenceHistoryKey(key))?.heard?.count ?? 0;
     setPick({ keys, fresh: new Set(keys.filter((k) => heardCount(k) === 0)) });

@@ -452,7 +452,9 @@ class StudyViewModel(
             val id = dev.jeromeswannack.chineselearning.lab.core.StudyResume.cardId(point, today(), scope, queue.map { it.id })
             val card = id?.let { i -> queue.firstOrNull { it.id == i } }
             if (point != null && card != null) {
-                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight, feedbackOpen = point.feedbackOpen && !point.revealed, gaveUp = point.gaveUp, roundLog = point.roundLog, listenShown = point.listenShown))
+                present(card, CardStartState(flipped = point.revealed, answer = point.answer, elapsedMs = dev.jeromeswannack.chineselearning.lab.core.StudyResume.elapsedMs(point), roundOpen = point.roundOpen && !point.revealed, sentencesRight = point.sentencesRight, feedbackOpen = point.feedbackOpen && !point.revealed, gaveUp = point.gaveUp, roundLog = point.roundLog,
+                    // A key saved before the card's sentence was a row (`clue:<note>`) is that row's id now.
+                    listenShown = point.listenShown.map { dev.jeromeswannack.chineselearning.lab.core.CardSentence.canonicalKey(it, card.noteId) }))
                 return
             }
         }

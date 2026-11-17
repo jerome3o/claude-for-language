@@ -341,7 +341,7 @@ fun CardStage(
         if (listen.shownKeys != null && listenShown(currentView, listen).isEmpty() && listenRows(currentView).isNotEmpty()) listen.shownKeys = null
         if (listen.shownKeys != null) return@LaunchedEffect
         val shownStore = dev.jeromeswannack.chineselearning.lab.data.sentences.ListenShownStore
-        freezeListenPick(currentView, listen, stats, shownStore.last(labApp, note.id)) { pick ->
+        freezeListenPick(currentView, listen, stats, shownStore.last(labApp, note.id).map { dev.jeromeswannack.chineselearning.lab.core.CardSentence.canonicalKey(it, note.id) }) { pick ->
             if (pick.rows.isNotEmpty()) shownStore.remember(labApp, note.id, pick.rows.map { it.key })
             dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.listen_context_shown", ListenContext.shownProps(pick))
             val want = ListenContext.topUpWant(pick.unheardLeft)

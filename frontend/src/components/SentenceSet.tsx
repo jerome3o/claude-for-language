@@ -41,7 +41,7 @@ import { useLongPress } from './chat/useLongPress';
 import { UndoToast } from './upNext/UpNextBoard';
 import { SentenceHideSheet } from './study/SentenceHideSheet';
 import { naturalSentencesFirst } from '@shared/study/sentenceFocus';
-import { isCardSentenceRow, withCardSentence, type NoteCardSentenceFields } from '@shared/study/cardSentence';
+import { canonicalSentenceKey, isCardSentenceRow, withCardSentence, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -193,7 +193,10 @@ export function SentenceSet({
   roundRows,
   questionOrder,
 }: SentenceSetProps) {
-  const roundMark = new Map((roundRows ?? []).map((m) => [m.key, m]));
+  // Keys saved before the card's sentence was a row (a resume point's round / Listen-in-context keys: `clue`,
+  // `clue:<note>`) are that row's id now.
+  const canonKey = (k: string) => canonicalSentenceKey(k, noteId);
+  const roundMark = new Map((roundRows ?? []).map((m) => [canonKey(m.key), m]));
   const pass = variant === 'pass';
   const historyOn = history ?? (practiseOn && !pass);
   const stats = useSentenceStats(noteId);
@@ -686,7 +689,7 @@ export function SentenceSet({
   const shownRows = rows.filter((r) => !isHidden(r.key) || showHidden);
   // The answer keeps the question's order: what the question side showed first, in the order shown — Listen in
   // context's rows, then the round's sentences (opened, outlined) — then the rest as they were.
-  const firstKeys = questionSentenceKeys(questionOrder, roundRows?.map((m) => m.key));
+  const firstKeys = questionSentenceKeys(questionOrder?.map(canonKey), roundRows?.map((m) => canonKey(m.key)));
   const listRows = firstKeys.length
     ? answerSentenceOrder(shownRows.map((r) => r.key), firstKeys).map((k) => shownRows.find((r) => r.key === k)!)
     : shownRows;
