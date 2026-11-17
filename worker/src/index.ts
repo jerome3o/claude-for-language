@@ -185,7 +185,7 @@ import studyQueueRoutes from './routes/study-queue';
 import sentencePracticeRoutes from './routes/sentence-practice';
 import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
 import revisitRoutes from './routes/revisit';
-import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
+import { LEGACY_REVISIT_SETTINGS, listRevisitEvents } from './services/revisit';
 import { backfillCompletionOutcomes, outcomeForUpload, setCompletionOutcome } from './services/lesson-revision';
 import { parseRunOutcome } from '@shared/study/lessonRevision';
 import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
@@ -599,8 +599,8 @@ app.get('/api/auth/me', async (c) => {
     skip_handwriting: await getSkipHandwriting(c.env.DB, user.id).catch(() => false),
     // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — cached on the device.
     day_rollover_hour: await getDayRolloverHour(c.env.DB, user.id).catch(() => null),
-    // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
-    revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
+    // Legacy "revisit later" settings (gone Oct 2026): fixed defaults for older app builds that still read them.
+    revisit_settings: LEGACY_REVISIT_SETTINGS,
     // The voices this account's conversation exercises use (its own selection,
     // else the admin's, else the shipped defaults) — cached on the device.
     conversation_voices: (await getConversationVoiceSettings(c.env.DB, user.id).catch(() => null))?.enabled ?? null,
@@ -731,7 +731,7 @@ app.route('/api', homeworkDraftRoutes);
 app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
-app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', revisitRoutes); // legacy Done-for-good marks — GET /api/me/revisit, POST /api/me/revisit-events; PUT /api/profile/revisit-settings = no-op for old builds
 app.route('/api', sentencePracticeRoutes); // Practice per example sentence — GET/POST /api/me/sentence-practice
 app.route('/api', studyQueueRoutes); // GET /api/me/study-queue — today's queue (due_today / reviews_due), services/study-queue.ts
 app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
@@ -5592,9 +5592,9 @@ app.get('/api/sync/changes', async (c) => {
     // "Forget this card": every live forget (a short list, sent whole; the device keeps its own
     // not-yet-uploaded ones on top and replays the cards whose forgets changed). shared/scheduler.
     card_forgets: await listForgets(c.env.DB, userId).catch(() => null),
-    // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
-    // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
-    revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),
+    // Every legacy Done-for-good / Bring-back mark on a lesson (a short list, sent whole; the device
+    // keeps its own not-yet-uploaded ones on top). revisit_settings = fixed defaults for older builds.
+    revisit_settings: LEGACY_REVISIT_SETTINGS,
     revisit_events: await listRevisitEvents(c.env.DB, userId).catch(() => null),
   });
 });

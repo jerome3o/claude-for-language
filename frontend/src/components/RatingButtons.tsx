@@ -4,7 +4,7 @@ import { HARD_MODE_SUGGESTED, HARD_MODE_TAP_AGAIN, HARD_MODE_TAP_TWICE } from '@
 /**
  * Again/Hard/Good/Easy buttons with the interval each gives. For a finished
  * mini lesson or graded reader, `onDoneForGood` adds a "Done for good" button
- * under them: finished, and never scheduled again (shared/study/revisit.ts).
+ * under them: finished, and never offered again (a legacy `revisit_events` retire).
  */
 export function RatingButtons({
   intervalPreviews,
