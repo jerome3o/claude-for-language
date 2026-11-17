@@ -13,6 +13,7 @@ import dev.jeromeswannack.chineselearning.lab.core.CardQueue
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.QueueCard
+import dev.jeromeswannack.chineselearning.lab.core.SiblingStatus
 import dev.jeromeswannack.chineselearning.lab.core.StudyCutoff
 import dev.jeromeswannack.chineselearning.lab.core.StudyQueue
 import dev.jeromeswannack.chineselearning.lab.data.api.generateMultipleChoice
@@ -720,11 +721,9 @@ class StudyViewModel(
             // Practising from the notes page: the tutor's note stays on the back even though it was seen.
             val pinned = pinnedNotes.filter { n -> (if (n.kind == "recording") n.cardId == view.card.id else n.noteId == view.note.id) && unseen.none { it.id == n.id } }
             val notes = unseen + pinned
-            // ⋯ → "Practise this word other ways…": the flashcard session only, when the note has another card.
-            val otherTypes = pass == null && practice == null && withContext(Dispatchers.IO) {
-                dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.hasOtherCardTypes(repo.dao.cardsOfNotes(listOf(view.note.id)).map { it.id }, view.card.id)
-            }
-            updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel), hasOtherCardTypes = otherTypes) }
+            updateExtras(view) { it.copy(tutorNotes = notes, flagTutors = CardExtrasLogic.humanTutors(rel), roleplayRelId = CardExtrasLogic.claudeRelationshipId(rel)) }
+            // The ⋯ sheet's top row: the word's other cards (core SiblingStatus), ready before ⋯ opens.
+            refreshSiblings()
             setUpMc(view)
             // Auto-audio: a missing or 404ing clip is made now (queued while offline).
             app.noteAudio.checkCard(view.note)
@@ -1000,20 +999,25 @@ class StudyViewModel(
         val card = currentView()?.card ?: return
         viewModelScope.launch {
             val ids = if (wholeWord) withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(card.noteId)).map { it.id } }.ifEmpty { listOf(card.id) } else listOf(card.id)
-            val outcome = dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.forget(app, ids, if (ids.size > 1) "note" else "card", "study")
-            lastForget = outcome
-            val gone = ids.toSet()
-            val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
-            queue.removeAll { it.id in gone }
-            bumpedCardIds.removeAll(gone)
-            if (undo?.card?.id in gone) { undo = null; _ui.update { it.copy(canUndo = false) } }
-            _ui.update { it.copy(toast = outcome.message, forgetUndoable = true, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
-            toastJob?.cancel()
-            toastJob = viewModelScope.launch { kotlinx.coroutines.delay(6000); _ui.update { it.copy(toast = null, forgetUndoable = false) }; lastForget = null }
-            if (onScreen != null && onScreen in gone) {
-                dayStore.clearResumePoint(onScreen)
-                presentAfterRemoval()
-            }
+            forgetCards(ids)
+        }
+    }
+
+    /** Forget [ids] (this card or the word's other cards from ⋯): NEW again, out of this session, Undo on the toast. */
+    suspend fun forgetCards(ids: List<String>) {
+        val outcome = dev.jeromeswannack.chineselearning.lab.data.forgets.ForgetStore.forget(app, ids, if (ids.size > 1) "note" else "card", "study")
+        lastForget = outcome
+        val gone = ids.toSet()
+        val onScreen = (_ui.value.phase as? StudyPhase.Showing)?.view?.card?.id
+        queue.removeAll { it.id in gone }
+        bumpedCardIds.removeAll(gone)
+        if (undo?.card?.id in gone) { undo = null; _ui.update { it.copy(canUndo = false) } }
+        _ui.update { it.copy(toast = outcome.message, forgetUndoable = true, counts = StudyQueue.counts(queue, reviewedNoteIds)) }
+        toastJob?.cancel()
+        toastJob = viewModelScope.launch { kotlinx.coroutines.delay(6000); _ui.update { it.copy(toast = null, forgetUndoable = false) }; lastForget = null }
+        if (onScreen != null && onScreen in gone) {
+            dayStore.clearResumePoint(onScreen)
+            presentAfterRemoval()
         }
     }
 
@@ -1756,70 +1760,124 @@ class StudyViewModel(
         return tools.flag(tutor, v.note.id, v.card.id, message).also { app.haptics.correct(); app.analytics.track("study.flag_card") }
     }
 
-    // ---------------- ⋯ → "Practise this word other ways…" (core OtherCardTypes) ----------------
+    // ---------------- ⋯ → the word's other cards (core SiblingStatus) ----------------
 
-    /** The sheet opens: the note's card types with their state, the first NEW sibling ticked. */
-    fun openOtherCards() {
+    /** The note id of the card on screen (Open card details → the card hub). */
+    fun currentNoteId(): String? = currentView()?.note?.id
+
+    /**
+     * The ⋯ sheet's top row: every OTHER card of the note with its status from the replayed state,
+     * the holds, and whether it is already in today's study (this session's queue + the ⚡ pocket).
+     */
+    fun refreshSiblings() {
         val v = currentView() ?: return
-        app.analytics.track("study.other_card_types_open", mapOf("from_type" to v.card.cardType))
-        updateExtras(v) { it.copy(otherCards = OtherCardsUi()) }
+        val inToday = queue.mapTo(HashSet()) { it.id }.apply { addAll(bumpedCardIds) }
+        val cutoffMs = cutoff.ts
         viewModelScope.launch {
-            val rows = withContext(Dispatchers.IO) {
-                val cards = repo.dao.cardsOfNotes(listOf(v.note.id)).map { it.toQueueCard() }
-                val bump = dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.active(repo.dao).firstOrNull { it.noteId == v.note.id }
-                // A whole-note bump still open today (some of its cards in this session's pocket) covers the word.
-                val wholeNote = bump != null && dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.parseCardTypes(bump.cardTypes) == null &&
-                    cards.any { it.id in bumpedCardIds }
-                dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.rows(cards, v.card.id, cutoff.ts, bumpedCardIds.toSet(), wholeNote)
-            }
-            updateExtras(v) { it.copy(otherCards = OtherCardsUi(rows, dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.defaultPicks(rows).toSet(), loading = false)) }
+            val siblings = app.safely("study.siblings") {
+                withContext(Dispatchers.IO) {
+                    val cards = repo.dao.cardsOfNotes(listOf(v.note.id)).map { it.toQueueCard() }
+                    val ctx = SiblingStatus.Context(
+                        cutoffMs = cutoffMs,
+                        today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
+                        holds = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.activeByCard(repo.dao),
+                        inToday = inToday,
+                        canBump = pass == null,
+                    )
+                    SiblingsUi(
+                        SiblingStatus.tiles(cards.map(SiblingStatus::card), v.card.id, ctx),
+                        SiblingStatus.missingTypes(cards.map { it.cardType }, v.card.cardType),
+                    )
+                }
+            } ?: return@launch
+            updateExtras(v) { it.copy(siblings = siblings) }
         }
     }
 
-    fun toggleOtherCard(cardId: String) {
+    /** A tile was tapped: its small sheet opens. */
+    fun openSibling(cardId: String) {
         val v = currentView() ?: return
+        val tile = _ui.value.extras.siblings?.tiles?.firstOrNull { it.cardId == cardId } ?: return
         app.haptics.tick()
-        updateExtras(v) { e ->
-            val o = e.otherCards ?: return@updateExtras e
-            e.copy(otherCards = o.copy(picked = if (cardId in o.picked) o.picked - cardId else o.picked + cardId))
-        }
+        app.analytics.track("study.sibling_open", mapOf("card_type" to tile.cardType, "status" to tile.status))
+        updateExtras(v) { it.copy(siblingSheet = SiblingSheetUi(cardId)) }
     }
 
-    /** "⚡ Add N to today": a card-level bump of the ticked types; the cards join this session a few cards later. */
-    fun addOtherCards() {
+    fun trackSibling(cardId: String, action: String) {
+        val tile = _ui.value.extras.siblings?.tiles?.firstOrNull { it.cardId == cardId } ?: return
+        app.analytics.track("study.sibling_action", mapOf("card_type" to tile.cardType, "action" to action))
+    }
+
+    /**
+     * ⚡ Study it today: a card-level bump of exactly that card type (the path "Practise this word other
+     * ways…" used); in the session the card joins at once, a few cards after its sibling.
+     */
+    fun bumpSibling() {
         val v = currentView() ?: return
-        val o = _ui.value.extras.otherCards ?: return
-        val chosen = o.chosen
-        if (chosen.isEmpty() || o.busy) return
-        updateExtras(v) { it.copy(otherCards = o.copy(busy = true, error = null)) }
+        val sheet = _ui.value.extras.siblingSheet ?: return
+        val tile = _ui.value.extras.siblings?.tiles?.firstOrNull { it.cardId == sheet.cardId } ?: return
+        if (sheet.busy || tile.bump == null) return
+        updateExtras(v) { it.copy(siblingSheet = sheet.copy(busy = true, error = null)) }
         viewModelScope.launch {
             try {
-                val types = chosen.map { it.cardType }
-                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpCardTypes(app, v.note.id, types, "study_card")
-                addBumpedCards(chosen.map { it.cardId })
-                app.analytics.track(
-                    "study.other_card_types",
-                    mapOf(
-                        "types" to dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.typesProp(types),
-                        "from_type" to v.card.cardType,
-                        "count" to chosen.size,
-                        "early" to chosen.count { it.action == dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.ACTION_EARLY },
-                    ),
-                )
+                dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpCardTypes(app, v.note.id, listOf(tile.cardType), "study_card")
+                val inSession = practice == null && pass == null
+                if (inSession) addBumpedCards(listOf(tile.cardId))
+                trackSibling(tile.cardId, "bump")
                 app.haptics.correct()
-                val message = dev.jeromeswannack.chineselearning.lab.core.OtherCardTypes.addedMessage(chosen.map { it.label })
-                updateExtras(v) { it.copy(otherCards = it.otherCards?.copy(busy = false, done = message)) }
+                val message = SiblingStatus.bumpedMessage(tile.detail, inSession)
+                updateExtras(v) { it.copy(siblingSheet = it.siblingSheet?.copy(busy = false, done = message)) }
+                refreshSiblings()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateExtras(v) { it.copy(otherCards = it.otherCards?.copy(busy = false, error = e.message ?: "Could not add the card")) }
+                updateExtras(v) { it.copy(siblingSheet = it.siblingSheet?.copy(busy = false, error = e.message ?: "Could not add the card")) }
             }
         }
     }
 
-    fun closeOtherCards() {
+    /** Unsuspend / Wake now: the hold is cleared (Outbox), a due card comes back into today's queue. */
+    fun releaseSibling() {
         val v = currentView() ?: return
-        updateExtras(v) { it.copy(otherCards = null) }
+        val sheet = _ui.value.extras.siblingSheet ?: return
+        val tile = _ui.value.extras.siblings?.tiles?.firstOrNull { it.cardId == sheet.cardId } ?: return
+        trackSibling(tile.cardId, if (tile.release == "unsuspend") "unsuspend" else "wake")
+        updateExtras(v) { it.copy(siblingSheet = null) }
+        viewModelScope.launch {
+            val message = dev.jeromeswannack.chineselearning.lab.data.holds.HoldStore.release(app, listOf(tile.cardId), "study")
+            _ui.update { it.copy(toast = message) }
+            toastJob?.cancel()
+            toastJob = viewModelScope.launch { kotlinx.coroutines.delay(3500); _ui.update { it.copy(toast = null) } }
+            refreshKeepingCard()
+            refreshSiblings()
+        }
+    }
+
+    /** Snooze… / Suspend… of that card (or every card type of the word). */
+    fun holdSibling(cardId: String, kind: String, length: String?, wholeWord: Boolean) {
+        val v = currentView() ?: return
+        updateExtras(v) { it.copy(siblingSheet = null) }
+        viewModelScope.launch {
+            val ids = if (wholeWord) withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(v.note.id)).map { it.id } }.ifEmpty { listOf(cardId) } else listOf(cardId)
+            holdCards(ids, kind, length, if (ids.size > 1) "word" else "card")
+            refreshSiblings()
+        }
+    }
+
+    /** "Forget this card…" of that card (or every card type of the word); the toast offers Undo. */
+    fun forgetSibling(cardId: String, wholeWord: Boolean) {
+        val v = currentView() ?: return
+        updateExtras(v) { it.copy(siblingSheet = null) }
+        viewModelScope.launch {
+            val ids = if (wholeWord) withContext(Dispatchers.IO) { repo.dao.cardsOfNotes(listOf(v.note.id)).map { it.id } }.ifEmpty { listOf(cardId) } else listOf(cardId)
+            forgetCards(ids)
+            refreshSiblings()
+        }
+    }
+
+    fun closeSibling() {
+        val v = currentView() ?: return
+        updateExtras(v) { it.copy(siblingSheet = null) }
     }
 
     /**
