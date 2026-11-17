@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { StudyMoreMenu, StudyMenuItem } from './StudyMoreMenu';
 
 export const NEEDS_INTERNET = 'Needs internet';
@@ -18,6 +18,7 @@ export function StudyActionRow({
   aiDisabled,
   menuItems,
   menuFooter,
+  menuTop,
 }: {
   onAskClaude: () => void;
   askClaudeOpen: boolean;
@@ -26,6 +27,8 @@ export function StudyActionRow({
   aiDisabled?: boolean;
   menuItems: StudyMenuItem[];
   menuFooter?: string | null;
+  /** The ⋯ sheet's top row (the word's other cards). */
+  menuTop?: (close: () => void) => ReactNode;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -58,7 +61,7 @@ export function StudyActionRow({
       >
         ⋯
       </button>
-      <StudyMoreMenu open={menuOpen} items={menuItems} footer={menuFooter} onClose={() => setMenuOpen(false)} />
+      <StudyMoreMenu open={menuOpen} items={menuItems} footer={menuFooter} top={menuTop} onClose={() => setMenuOpen(false)} />
     </div>
   );
 }
