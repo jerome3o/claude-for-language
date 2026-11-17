@@ -124,6 +124,7 @@ class DecksScreenshots : LabScreenshotTest() {
         })
     }
 
+    @Config(qualifiers = "w412dp-h2600dp-xxhdpi")
     @Test fun hubDark() = shoot("cards-03-hub-dark", dark = true) {
         CardHubScreen(DecksSamples.hub, CardHubActions(), nowMs = now, claudeThreads = {
             dev.jeromeswannack.chineselearning.lab.ui.claude.CardThreadRows(
