@@ -4,7 +4,7 @@ import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 
-// The tutor-student / Claude chat (package E; web: pages/ChatPage.tsx, InteractiveMessage,
+// The tutor-student / Claude chat (package E; web: pages/ChatPage.tsx,
 // MessageDiscussionModal, api/client.ts). Sending needs a connection — like the web, nothing is queued.
 
 @Serializable

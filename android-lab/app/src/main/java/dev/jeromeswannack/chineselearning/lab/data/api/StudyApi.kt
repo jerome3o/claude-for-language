@@ -11,7 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 
 // The study card's online extras (package A) — the same endpoints frontend/src/api/client.ts
-// calls from StudyPage.tsx, SentenceSet.tsx, WordDefinitionPopup.tsx, CardEditModal.tsx,
+// calls from StudyPage.tsx, SentenceSet.tsx, CardEditModal.tsx,
 // services/recording-notes.ts and services/cardFlags.ts.
 
 /** A note as the notes endpoints return it (`Note` in frontend/src/types.ts), only what the card uses. */
