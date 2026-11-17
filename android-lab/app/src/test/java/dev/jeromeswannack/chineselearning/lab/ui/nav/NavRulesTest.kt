@@ -43,7 +43,7 @@ class NavRulesTest {
     }
 
     @Test fun tabSets() {
-        assertEquals(listOf("Study", "Chats", "Claude", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
+        assertEquals(listOf("Study", "Chats", "Add", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Study", "More"), labels(NavRole(hasStudents = true, isTutorOnly = true)))
         assertEquals(listOf("Students", "Chats", "Study", "Progress", "More"), labels(NavRole(hasStudents = true, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Decks", "Library", "More"), labels(NavRole(hasStudents = true, isTutorAccount = true)))
@@ -76,7 +76,7 @@ class NavRulesTest {
 
     @Test fun learnerTabsHaveNoTutorTab() {
         // Jerome, Nov 2026: the Tutor tab was a dud — the tutor is in Chats, connections in More.
-        assertEquals(listOf("Study", "Chats", "Claude", "Progress", "More"), NavRules.tabsFor(NavRole()).map { it.label })
+        assertEquals(listOf("Study", "Chats", "Add", "Progress", "More"), NavRules.tabsFor(NavRole()).map { it.label })
         assertEquals(NavRules.LEARNER_TABS, NavRules.tabsFor(NavRole()))
         // Accounts with students keep the Students tab on /connections.
         val withStudents = NavRules.deriveNavRole(rels(students = listOf(rel("active"))), 2, 5)
