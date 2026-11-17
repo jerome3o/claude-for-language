@@ -1716,6 +1716,7 @@ export function StudyCard({
           tonesOff={!!tonesOff}
           checking={readCheck.checking}
           claude={readCheck.claude}
+          expected={card.note.hanzi}
           onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
           onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
         />
@@ -3416,6 +3417,7 @@ export function StudyCard({
                     onTypeInstead={sentenceCheck.check && answerWasSpoken && questionResult !== 'right' ? hardTypeInstead : undefined}
                     speak={(text) => playAudio(null, text, API_BASE)}
                     sentenceView={sentenceCheck.view}
+                    diffOnQuestion={isSpeakingCard}
                     answer={{ hanzi: card.note.hanzi, pinyin: card.note.pinyin, english: card.note.english }}
                     onPlayAnswer={() => playAudio(card.note.audio_url || null, card.note.hanzi, API_BASE)}
                     onMoveOn={sentenceMoveOn}

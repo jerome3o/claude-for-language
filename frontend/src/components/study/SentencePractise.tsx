@@ -35,16 +35,17 @@ import {
   type SentencePractiseResult,
   type SentenceTake,
 } from '@shared/study/sentencePractise';
-import { answerCheckChip, type AnswerCheck } from '@shared/lesson/answerCheck';
+import { type AnswerCheck } from '@shared/lesson/answerCheck';
 import { useVoiceDictation } from '../../hooks/useVoiceDictation';
 import { checkLessonAnswer } from '../../services/answerCheck';
 import { track } from '../../services/analytics';
 import { studyFeel } from '../../services/studyFeel';
 import { roundTakeFeel } from '@shared/study/hardMode';
 import { YouSaidFailed, YouSaidRow } from './YouSaid';
-import { CorrectionDiffLine } from '../chat/ChatCorrection';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
 import { DifferenceCompare } from './DifferenceCompare';
+import { AnswerDiff } from './AnswerDiff';
+import { ANSWER_DIFF_VERDICT } from '@shared/cards/answer-diff';
 import { StopRecordingFooter } from '../reader/StopRecordingFooter';
 import { roundTakeView } from '@shared/study/answerDifference';
 import '../lessons/AnswerCheckCard.css';
@@ -296,22 +297,24 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
     <div className="sentence-practise-result" data-testid="sentence-practise-result" data-mode={take.mode}
       data-result={sentencePractiseResult(practised, claude?.status === 'done' ? claude.check.verdict : null)}>
       {claude?.status === 'done' && full ? (
-        <AnswerCheckBody
-          check={claude.check}
-          answer={practised.said}
-          speak={speak}
-          afterHead={view?.compare ? (
-            <DifferenceCompare
-              said={practised.said}
-              model={row.hanzi}
-              modelPinyin={row.pinyin}
-              accepted={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
-              onPlayModel={onPlayModel}
-            />
-          ) : undefined}
-        />
+        view?.compare ? (
+          // The slim answer diff: one line (Claude's verdict as its chip), the model once, his take marked.
+          <DifferenceCompare
+            said={practised.said}
+            model={row.hanzi}
+            modelPinyin={row.pinyin}
+            accepted={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
+            verdict={ANSWER_DIFF_VERDICT[claude.check.verdict]}
+            headline={claude.check.headline}
+            onPlayModel={onPlayModel}
+            // Right in other words: the round's own "✓ Right — worded differently" title is the line.
+            hideLine={claude.check.verdict === 'correct' || claude.check.verdict === 'acceptable'}
+          />
+        ) : (
+          <AnswerCheckBody check={claude.check} answer={practised.said} speak={speak} />
+        )
       ) : claude?.status === 'done' ? (
-        <TranslateVerdict check={claude.check} said={practised.said} />
+        <TranslateVerdict check={claude.check} said={practised.said} model={row.hanzi} />
       ) : (
         <YouSaidRow
           transcript={practised.said}
@@ -333,24 +336,21 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
   );
 }
 
-/** Claude's verdict on a translate take, compact: chip + headline, what was said, the fix. */
-function TranslateVerdict({ check, said }: { check: AnswerCheck; said: string }) {
-  const chip = answerCheckChip(check.verdict);
+/**
+ * Claude's verdict on a translate take, slim (docs/STUDY_SESSION.md "Answer feedback: one line and a diff"): one
+ * line with its chip and his take marked against the sentence — no headline paragraph, no tips, no fix.
+ */
+function TranslateVerdict({ check, said, model }: { check: AnswerCheck; said: string; model: string }) {
   return (
-    <div className={`answer-check compact ${chip.tone} sentence-practise-verdict`} data-testid="sentence-practise-verdict" data-verdict={check.verdict}>
-      <div className="answer-check-head">
-        <span className={`answer-check-chip ${chip.tone}`}>{chip.label}</span>
-        <span className="answer-check-headline">{check.headline}</span>
-      </div>
-      <div className="sentence-practise-said">
-        <span className="sentence-practise-said-label">You said</span> <span lang="zh-CN">{said}</span>
-      </div>
-      {check.corrected && (
-        <div className="answer-check-fix">
-          <div className="answer-check-fix-line" lang="zh-CN"><CorrectionDiffLine original={said} corrected={check.corrected} /></div>
-          {check.corrected_pinyin && <div className="answer-check-pinyin">{check.corrected_pinyin}</div>}
-        </div>
-      )}
+    <div className="sentence-practise-verdict" data-testid="sentence-practise-verdict" data-verdict={check.verdict}>
+      <AnswerDiff
+        said={said}
+        expected={model}
+        showExpected={false}
+        accepted={check.verdict === 'correct' || check.verdict === 'acceptable'}
+        verdict={ANSWER_DIFF_VERDICT[check.verdict]}
+        headline={check.headline}
+      />
     </div>
   );
 }

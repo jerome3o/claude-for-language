@@ -91,7 +91,7 @@ function CheckRows({ a }: { a: ExerciseAnswer }) {
       {a.tries?.map((t, i) => (
         <Row key={i} label={`Try ${i + 1}`}>
           <span lang="zh-CN">{t.text}</span>
-          {t.check && <AnswerCheckBody check={t.check} answer={t.text} compact />}
+          {t.check && <AnswerCheckBody check={t.check} answer={t.text} compact detail />}
         </Row>
       ))}
     </>
@@ -110,7 +110,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           <Row label="Task">{exercise.english}</Row>
           <Row label="Built">{a.order?.length ? a.order.join(' ') : '—'}</Row>
           {/* An order the lesson didn't list, checked by Claude (shared/lesson/scrambleCheck.ts). */}
-          {a.check && a.order?.length ? <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.order.join('')} compact /></Row> : null}
+          {a.check && a.order?.length ? <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.order.join('')} compact detail /></Row> : null}
           {(!attempt.correct || a.check) && <Row label={attempt.correct ? 'Expected' : 'Answer'}>{exercise.correct_order.join(' ')}</Row>}
           {a.hint_used && <Row label="Hint">looked at the English</Row>}
         </>
@@ -134,7 +134,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           <CheckRows a={a} />
           <Row label={answerInputLabel(a.input)}>{a.text ? <span lang="zh-CN">{a.text}</span> : '(said it / no text)'}</Row>
           <Row label="Reference"><span lang="zh-CN">{exercise.reference_hanzi}</span></Row>
-          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact detail /></Row>}
         </>
       );
     case 'listen_translate':
@@ -143,7 +143,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           <Row label="Played"><Sentence s={exercise.audio} /></Row>
           <CheckRows a={a} />
           <Row label={answerInputLabel(a.input, 'Their answer')}>{a.text || '(in their head)'}</Row>
-          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact detail /></Row>}
           {a.plays !== undefined && <Row label="Listened">{a.plays}×</Row>}
         </>
       );
@@ -157,7 +157,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           <Row label="Prompt">{exercise.prompt}</Row>
           <CheckRows a={a} />
           {a.text && <Row label="🎤 Said"><span lang="zh-CN">{a.text}</span></Row>}
-          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact detail /></Row>}
         </>
       );
     case 'sentence_making':
@@ -227,7 +227,7 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           )}
           <CheckRows a={a} />
           {a.text && <Row label="🎤 Said"><span lang="zh-CN">{a.text}</span></Row>}
-          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact /></Row>}
+          {a.check && a.text && <Row label="Claude"><AnswerCheckBody check={a.check} answer={a.text} compact detail /></Row>}
           {!a.text && media?.transcript && (
             <div className="att-transcript">
               <span lang="zh-CN">{media.transcript}</span>

@@ -349,3 +349,40 @@ button.you-said-round:focus-visible {
   border: 0;
 }
 
+
+/* The slim answer diff's marks on the "You said" row (shared/cards/answer-diff.ts; AnswerDiff.css has the tokens):
+   wrong = rose + thick solid underline, tone off = lemon wavy underline, extra = yellow highlight struck through,
+   missing = the answer's character, muted, in a dashed slot. */
+.spoken-mark--wrong {
+  color: var(--adiff-wrong, #be123c);
+  background: var(--adiff-wrong-tint, rgba(244, 63, 94, 0.14));
+  border-radius: 3px;
+  text-decoration: underline solid var(--adiff-wrong, #be123c);
+  text-decoration-thickness: 3px;
+}
+:root[data-theme='dark'] .spoken-mark--wrong { color: var(--adiff-wrong, #fb7185); }
+.spoken-mark--tone {
+  border-radius: 3px;
+  background: var(--adiff-tone-tint, rgba(250, 204, 21, 0.18));
+  text-decoration: underline wavy var(--adiff-tone, #a16207);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.22em;
+  text-decoration-skip-ink: none;
+}
+.spoken-mark--extra {
+  padding: 0 0.06em;
+  border-radius: 3px;
+  color: var(--adiff-extra-ink, #713f12);
+  background: var(--adiff-extra-bg, #fde68a);
+  text-decoration: line-through 2px;
+}
+.spoken-mark--missing {
+  display: inline-block;
+  margin: 0 0.06em;
+  padding: 0 0.08em;
+  line-height: 1.15;
+  color: var(--color-text-light);
+  opacity: 0.85;
+  border: 1.5px dashed currentColor;
+  border-radius: 3px;
+}

@@ -367,7 +367,7 @@ export function TranslateExercise(props: {
           <FeedbackSentence
             hanzi={referenceHanzi}
             pinyin={referencePinyin}
-            answer={answer.trim() && !matched && marks.marks ? answer.trim() : null}
+            // The model answer once, unmarked: the diff is on HIS answer above (shared/cards/answer-diff.ts).
             speak={speak}
             exerciseType="translate"
           />

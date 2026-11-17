@@ -8,7 +8,9 @@
  * - `ResultBanner` — the "✓ Correct" / "✗ Not quite" banner, felt when right;
  * - `SayItAgain` — 🎤 Say it again: the coach's "Practise saying it" (live transcription, the "You said"
  *   row) over the exercise's answer / example / Claude's fix. Practice only: nothing is scored or stored.
- * - `MarkedAnswer` — his answer with the characters the model answer doesn't have marked (the device's diff).
+ * - `MarkedAnswer` — his answer lined up with the model answer (the slim answer diff, shared/cards/answer-diff.ts:
+ *   wrong red, extra yellow struck through, missing in a dashed slot, tone off wavy) under ONE line that says what
+ *   differs (docs/STUDY_SESSION.md "Answer feedback: one line and a diff").
  * - `FeedbackSentence` — the answer screen's Chinese sentence: every word tappable into the language explorer (the
  *   device segmenter) with a ▶ that plays the exercise's own clip again (the lesson's cache-first speak — offline once
  *   prefetched), never while a take records. Jerome: "it doesn't allow me to click on letters after I've submitted my
@@ -25,6 +27,9 @@ import { track } from '../../services/analytics';
 import { ExplorableText } from '../explorer/ExplorableText';
 import { useSegmentedWords } from '../../services/chineseSegmenter';
 import { useTakeLock } from '../voice/TakeLock';
+import { answerDiff, answerDiffLabel, answerDiffSummary } from '@shared/cards/answer-diff';
+import { AnswerDiffChars } from '../study/AnswerDiff';
+import '../study/AnswerDiff.css';
 import './LessonFeedback.css';
 
 /** Plays a moment's feel once, when mounted, and shows its burst (inside a position: relative parent). */
@@ -82,12 +87,20 @@ export function SayItAgain({ hanzi, exerciseType, kind = 'answer', testId = 'les
   );
 }
 
-/** His answer, each character marked: in the model answer (plain) or not (underlined) — the device's own diff. */
+/**
+ * His answer lined up with the model answer, character by character (the slim answer diff), and ONE line under it
+ * that says what differs ("1 wrong character, 1 missing") — no explanation.
+ */
 export function MarkedAnswer({ answer, model }: { answer: string; model: string }) {
+  const diff = answerDiff(answer, model);
+  const line = answerDiffSummary(diff);
   return (
-    <span className="char-diff-chars lesson-marked-answer" lang="zh-CN" data-testid="lesson-marked-answer">
-      {markedChars(answer, model, 'answer').map((m, i) => <span key={i} className={m.hit ? 'hit' : 'extra'}>{m.ch}</span>)}
-    </span>
+    <>
+      <span className="lesson-marked-answer" data-testid="lesson-marked-answer" aria-label={answerDiffLabel(diff, line)}>
+        <AnswerDiffChars parts={diff.parts} />
+      </span>
+      <span className="lesson-answer-diff-line" data-testid="lesson-answer-diff-line">{line}</span>
+    </>
   );
 }
 

@@ -1,0 +1,174 @@
+/* The slim answer feedback (components/study/AnswerDiff.tsx, shared/cards/answer-diff.ts).
+   Calm, not boxed: a small line, the answer once, his answer marked. Every mark is a SHAPE as well as a colour
+   (Jerome is red / green colour-blind and reads it in dark mode), the reader's read-aloud language:
+   - wrong:   rose tint + thick solid underline (the character in rose);
+   - tone:    a lemon wavy underline, the character in body ink;
+   - extra:   a yellow highlight, struck through ("take this out");
+   - missing: the expected character, muted, in a dashed box ("this goes here");
+   - sound:   a faint dotted underline (a homophone — right).
+   Lab twin: LabColors.mark* (ui/theme/Theme.kt) + ui/study/AnswerDiffView.kt. */
+:root {
+  --adiff-wrong: #be123c;
+  --adiff-wrong-tint: rgba(244, 63, 94, 0.14);
+  --adiff-tone: #a16207;
+  --adiff-tone-tint: rgba(250, 204, 21, 0.18);
+  --adiff-extra-bg: #fde68a;
+  --adiff-extra-ink: #713f12;
+  --adiff-right: #15803d;
+}
+:root[data-theme='dark'] {
+  --adiff-wrong: #fb7185;
+  --adiff-wrong-tint: rgba(251, 113, 133, 0.2);
+  --adiff-tone: #fde047;
+  --adiff-tone-tint: rgba(253, 224, 71, 0.12);
+  --adiff-extra-bg: rgba(253, 224, 71, 0.28);
+  --adiff-extra-ink: #fde047;
+  --adiff-right: #4ade80;
+}
+
+.adiff-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.4rem 0 0.2rem;
+  text-align: left;
+}
+
+/* The ONE line: icon + words (never colour alone). */
+.adiff-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text);
+}
+.adiff-line-icon { font-weight: 700; }
+.adiff-line--right .adiff-line-icon,
+.adiff-line--right .adiff-line-verdict { color: var(--adiff-right); }
+.adiff-line--close .adiff-line-icon,
+.adiff-line--close .adiff-line-verdict { color: var(--adiff-tone); }
+.adiff-line--wrong .adiff-line-icon,
+.adiff-line--wrong .adiff-line-verdict { color: var(--adiff-wrong); }
+.adiff-line-sep { color: var(--color-text-light); font-weight: 400; }
+.adiff-line-text { font-weight: 500; }
+
+/* A row: a small label, then the Chinese. */
+.adiff-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.adiff-label {
+  flex: 0 0 4.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-light);
+}
+.adiff-expected {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.adiff-expected-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.adiff-expected-zh {
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.adiff-expected-py { font-size: 0.85rem; color: var(--color-text-light); }
+.adiff-expected-en { font-size: 0.85rem; color: var(--color-text); }
+.adiff-play {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  margin: -6px 0;
+  border-radius: 50%;
+  border: 1px solid var(--btn-outline, var(--color-border));
+  background: transparent;
+  color: var(--color-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.adiff-said {
+  min-width: 0;
+  flex: 1;
+  font-size: 1.35rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+/* The marks. */
+.adiff-chars { letter-spacing: 0.02em; }
+.adiff {
+  border-radius: 3px;
+  text-underline-offset: 0.28em;
+  text-decoration-skip-ink: none;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.adiff--wrong {
+  color: var(--adiff-wrong);
+  background: var(--adiff-wrong-tint);
+  text-decoration: underline solid var(--adiff-wrong);
+  text-decoration-thickness: 3px;
+}
+.adiff--tone {
+  background: var(--adiff-tone-tint);
+  text-decoration: underline wavy var(--adiff-tone);
+  text-decoration-thickness: 1.5px;
+}
+.adiff--extra {
+  padding: 0 0.06em;
+  color: var(--adiff-extra-ink);
+  background: var(--adiff-extra-bg);
+  text-decoration: line-through 2px;
+}
+.adiff--missing {
+  display: inline-block;
+  margin: 0 0.06em;
+  padding: 0 0.08em;
+  line-height: 1.15;
+  color: var(--color-text-light);
+  opacity: 0.85;
+  border: 1.5px dashed currentColor;
+}
+.adiff--sound {
+  text-decoration: underline dotted var(--color-text-light);
+  text-decoration-thickness: 1.5px;
+}
+/* Right in other words: the differences are only "written / worded differently" — quiet, never red. */
+.adiff-box--accepted .adiff--wrong,
+.adiff-box--accepted .adiff--extra,
+.adiff-box--accepted .adiff--tone {
+  color: inherit;
+  background: none;
+  text-decoration: underline dotted var(--color-text-light);
+  text-decoration-thickness: 1.5px;
+}
+.adiff-box--accepted .adiff--missing { opacity: 0.6; }
+
+.adiff-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

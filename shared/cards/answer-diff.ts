@@ -208,6 +208,34 @@ export function answerDiffLine(args: { diff: AnswerDiff; accepted?: boolean; hea
   return summary === ANSWER_DIFF_FAR && headline ? headline : summary;
 }
 
+/**
+ * The line's tone (its icon + colour, never colour alone): `right` ✓ (accepted, or nothing to fix), `close` ≈ (only
+ * tones slipped, or the right characters in another order), `wrong` ✕.
+ */
+export type AnswerDiffTone = 'right' | 'close' | 'wrong';
+export function answerDiffTone(diff: AnswerDiff, accepted = false): AnswerDiffTone {
+  if (accepted || diff.right) return 'right';
+  if (diff.empty) return 'wrong';
+  if (diff.reordered || (diff.wrong + diff.missing + diff.extra === 0)) return 'close';
+  return 'wrong';
+}
+/** The tone's icon: ✓ · ≈ · ✕. */
+export const ANSWER_DIFF_ICON: Record<AnswerDiffTone, string> = { right: '✓', close: '≈', wrong: '✕' };
+
+/**
+ * A verdict that isn't the diff's own, as the line's small chip: Claude's check (correct · acceptable · almost ·
+ * wrong) or Hard mode's question result (right · close · wrong) — "≈ Almost · Tone off on 都".
+ */
+export type AnswerDiffVerdictKey = 'correct' | 'acceptable' | 'almost' | 'wrong' | 'right' | 'close';
+export const ANSWER_DIFF_VERDICT: Record<AnswerDiffVerdictKey, { tone: AnswerDiffTone; label: string }> = {
+  correct: { tone: 'right', label: 'Correct' },
+  acceptable: { tone: 'right', label: 'Also right' },
+  almost: { tone: 'close', label: 'Almost' },
+  wrong: { tone: 'wrong', label: 'Not quite' },
+  right: { tone: 'right', label: 'Right' },
+  close: { tone: 'close', label: 'Nearly' },
+};
+
 /** One part for a screen reader ("得 — wrong, the answer has 的"; the marks are never colour alone). */
 export function answerDiffPartLabel(p: AnswerDiffPart): string {
   switch (p.kind) {

@@ -134,6 +134,9 @@ object ReadAloud {
         return keys
     }
 
+    /** `readAloudKeys`: a text's comparison keys, one per letter / digit (what the judge compares). */
+    fun keys(text: String): List<String> = transcriptKeys(text).keys.toList()
+
     /** `syllablesOf`: each key's syllable in context (null for a non-Han key or a run that doesn't line up). */
     private fun syllablesOf(k: Keys): List<String?> {
         val out = MutableList<String?>(k.keys.size) { null }
