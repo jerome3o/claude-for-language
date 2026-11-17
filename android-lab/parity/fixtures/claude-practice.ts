@@ -7,7 +7,8 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEFAULT_PRACTICE_LEVEL, PRACTICE_LEVELS, PRACTICE_SCENARIOS, PRACTICE_TEXT_MAX, PRACTICE_VOICE_SPEED,
-  isPracticeHelpRequest, parsePracticeLevel, practiceContext, practiceFromCard, practiceReplyLanguage, practiceVoiceFor,
+  isPracticeHelpRequest, legacyPracticeThreadPath, parsePracticeLevel, practiceChatRedirect, practiceContext, practiceFromCard,
+  practiceReplyLanguage, practiceVoiceFor,
 } from '../../../shared/claude/practice';
 
 const OUT = process.argv[2];
@@ -51,11 +52,24 @@ const HELP = [
 ];
 const help = HELP.flatMap((text) => (['zh', 'en'] as const).map((language) => ({ text, language, help: isPracticeHelpRequest(text), reply: practiceReplyLanguage(text, language) })));
 
+// Old practice chats → their Claude thread (practiceChatRedirect / legacyPracticeThreadPath).
+const LIST = [
+  { id: 'c-ai', is_ai_conversation: true },
+  { id: 'c-home', is_ai_conversation: false },
+  { id: '7f3a9c1e-0b2d-4e5f-8a6b-9c0d1e2f3a4b', is_ai_conversation: true },
+];
+const redirects = [
+  ...['c-ai', 'c-home', 'c-unknown', '7f3a9c1e-0b2d-4e5f-8a6b-9c0d1e2f3a4b', '', null].map((id) => ({ id, list: LIST, out: practiceChatRedirect(id, LIST) })),
+  { id: 'c-ai', list: null, out: practiceChatRedirect('c-ai', null) },
+  { id: 'c-ai', list: [], out: practiceChatRedirect('c-ai', []) },
+];
+const legacyPaths = ['c-1', 'abc'].map((id) => ({ id, out: legacyPracticeThreadPath(id) }));
+
 writeFileSync(
   join(OUT, 'claude-practice.json'),
   JSON.stringify({
     levels: PRACTICE_LEVELS, defaultLevel: DEFAULT_PRACTICE_LEVEL, scenarios: PRACTICE_SCENARIOS, textMax: PRACTICE_TEXT_MAX, voiceSpeed: PRACTICE_VOICE_SPEED,
     parseLevel: ['beginner', 'intermediate', 'advanced', 'Beginner', '', null].map((v) => ({ in: v, out: parsePracticeLevel(v) })),
-    contexts, fromCard, voices, help,
+    contexts, fromCard, voices, help, redirects, legacyPaths,
   }, null, 1),
 );

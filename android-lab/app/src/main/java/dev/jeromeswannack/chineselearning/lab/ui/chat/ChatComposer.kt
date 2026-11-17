@@ -122,7 +122,7 @@ fun insertAtCaret(text: String, start: Int, end: Int, insert: String): Pair<Stri
 
 @Composable
 fun Composer(ui: ChatUi, actions: ChatActions) {
-    val rich = !ui.isAi
+
     var emojiOpen by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf(0) }
     var field by remember { mutableStateOf(TextFieldValue(ui.draft, TextRange(ui.draft.length))) }
@@ -145,7 +145,7 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
     val onSendAsIs: () -> Unit = { if (reviewing) { actions.onDismissCheck(); voiceActions.submit() } else actions.onSendAsIs() }
     Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!ui.online) Text(
-            if (rich) "Offline — messages send when you're back" else "You're offline. Messages to Claude can't be sent until you're back online.",
+            "Offline — messages send when you're back",
             style = MaterialTheme.typography.bodySmall, color = Lab.colors.muted, modifier = Modifier.padding(horizontal = 8.dp),
         )
         ui.notice?.let { n ->
@@ -167,10 +167,10 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                         DictationRow(
                             v, voiceActions, Modifier.weight(1f),
                             onAttach = { emojiOpen = false; actions.onOpenSheet(ChatSheet.Attach) },
-                            canCheck = reviewing && ChatLearning.canCheckDraft(v.finalText, ui.viewerRole, ui.isAi, false),
+                            canCheck = reviewing && ChatLearning.canCheckDraft(v.finalText, ui.viewerRole, false, false),
                             checkBusy = ui.draftCheck?.loading == true,
                             onCheck = { actions.onDraft(v.finalText); actions.onCheckDraft() },
-                            sendEnabled = !ui.sending && !ui.waitingForAi && (ui.online || rich),
+                            sendEnabled = !ui.sending,
                         )
                     } else {
                         if (ui.editing == null) {
@@ -191,7 +191,7 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                 }
                 Spacer(Modifier.width(6.dp))
                 // ONE call site for the mic, so a hold survives the composer turning into the recording bar.
-                val micIdle = rec is RecorderUi.Idle && rich && ui.editing == null && (if (voiceMode) v.phase == "idle" else ui.draft.isBlank())
+                val micIdle = rec is RecorderUi.Idle && ui.editing == null && (if (voiceMode) v.phase == "idle" else ui.draft.isBlank())
                 val mic = micIdle || (rec is RecorderUi.Recording && !rec.locked)
                 when {
                     mic -> MicButton(rec, actions) { hint++ }
@@ -201,8 +201,8 @@ fun Composer(ui: ChatUi, actions: ChatActions) {
                     else -> SendCircle(
                         if (ui.editing != null) "Save the edit" else "Send",
                         Modifier.testTag("chat-send"),
-                        label = if (ui.sending || ui.waitingForAi) "…" else if (ui.editing != null) "✓" else "➤",
-                        enabled = ui.draft.isNotBlank() && !ui.sending && !ui.waitingForAi && (ui.online || rich && ui.editing == null),
+                        label = if (ui.sending) "…" else if (ui.editing != null) "✓" else "➤",
+                        enabled = ui.draft.isNotBlank() && !ui.sending && (ui.online || ui.editing == null),
                         onClick = actions.onSend,
                     )
                 }
@@ -267,7 +267,7 @@ private fun Field(
         ) { Text(if (emojiOpen) "⌨️" else "😊", fontSize = 20.sp, modifier = Modifier.alpha(0.8f)) }
         Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(vertical = 13.dp), contentAlignment = Alignment.CenterStart) {
             if (value.text.isEmpty()) Text(
-                if (ui.isAi) "Type in Chinese..." else if (ui.editing != null) "Edit your message" else "Message",
+                if (ui.editing != null) "Edit your message" else "Message",
                 color = Lab.colors.ink.copy(alpha = 0.45f), fontSize = 17.sp,
             )
             BasicTextField(
@@ -285,7 +285,8 @@ private fun Field(
             ) { Text("🎤", fontSize = 19.sp) }
         }
         // ✓ Check my Chinese before sending (the learner's draft has Chinese).
-        if (ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, ui.isAi, ui.editing != null)) {
+        if (ChatLearning.canCheckDraft(ui.draft, ui.viewerRole, false, ui.editing != null)) {
+
             CheckDraftButton(busy = ui.draftCheck?.loading == true, enabled = ui.online, onClick = actions.onCheckDraft)
         } else Spacer(Modifier.width(12.dp))
     }

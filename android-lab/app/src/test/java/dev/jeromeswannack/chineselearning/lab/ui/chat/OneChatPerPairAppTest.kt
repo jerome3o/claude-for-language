@@ -39,6 +39,9 @@ class OneChatPerPairAppTest {
 
     private val rel = """{"id":"rel1","requester_id":"me","recipient_id":"t1","requester_role":"student","status":"active","recipient":{"id":"t1","name":"Minghui"}}"""
     private val primaryList = """[{"id":"c1","relationship_id":"rel1","created_at":"2026-09-01T00:00:00Z","is_ai_conversation":false}]"""
+    private val claudeRel = """{"id":"rel-ai","requester_id":"me","recipient_id":"claude-ai","requester_role":"student","status":"active","recipient":{"id":"claude-ai","name":"Claude"}}"""
+    private val practiceList = """[{"id":"c-ai","relationship_id":"rel-ai","title":"Café","created_at":"2026-09-01T00:00:00Z","is_ai_conversation":true}]"""
+
     private val page = """{"messages":[{"id":"m1","conversation_id":"c1","sender_id":"t1","content":"你好！","created_at":"2026-10-02T09:00:00.000Z","sender":{"id":"t1","name":"Minghui"}}],"latest_timestamp":"2026-10-02T09:00:00.000Z"}"""
 
     private fun idle(what: String, check: () -> Boolean) {
@@ -62,6 +65,8 @@ class OneChatPerPairAppTest {
                 return when {
                     path == "/api/relationships/rel1" -> ok(rel)
                     path == "/api/relationships/rel1/conversations" -> ok(primaryList)
+                    path == "/api/relationships/rel-ai" -> ok(claudeRel)
+                    path == "/api/relationships/rel-ai/conversations" -> ok(practiceList)
                     // The server serves an old id's messages as the primary's (X-Conversation-Id).
                     path.startsWith("/api/conversations/old/messages") -> ok(page).setHeader("X-Conversation-Id", "c1")
                     path.startsWith("/api/conversations/c1/messages") -> ok(page)
@@ -107,11 +112,18 @@ class OneChatPerPairAppTest {
         val vm = ChatViewModel(app, "rel1", "c1")
         idle("the page") { !vm.ui.value.loading && vm.ui.value.messages.isNotEmpty() }
         assertNull(vm.ui.value.mergedInto)
-        // The person's chat: no title, rename refused locally (the server answers 410).
-        assertEquals(false, vm.ui.value.isAi)
-        vm.rename("Homework")
-        idle("nothing") { true }
-        assertTrue(paths.none { it.startsWith("PATCH /api/conversations") }, paths.toString())
+        assertNull(vm.ui.value.movedToThread)
+    }
+
+    /** An old Claude practice chat opens its Claude thread (docs/CHAT.md "Practice with Claude"): its messages never load here. */
+    @Test fun anOldPracticeChatMovesToItsClaudeThread() {
+        val vm = ChatViewModel(app, "rel-ai", "c-ai")
+        idle("the swap") { vm.ui.value.movedToThread != null }
+        assertEquals("/chats/claude/pc-c-ai", vm.ui.value.movedToThread)
+        assertTrue(paths.none { it.startsWith("GET /api/conversations/c-ai/messages") }, paths.toString())
+        // Next time the phone's list already knows: the route opens the thread before any request.
+        runBlocking { assertEquals("/chats/claude/pc-c-ai", ChatPair.cachedPracticeThreadPath(app, "rel-ai", "c-ai")) }
+        runBlocking { assertNull(ChatPair.cachedPracticeThreadPath(app, "rel1", "c1")) }
     }
 
     @Test fun theChatOfAPairIsTheServersThenCachedFirst() = runBlocking {

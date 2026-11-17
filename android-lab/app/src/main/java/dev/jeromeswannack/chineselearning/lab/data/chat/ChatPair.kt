@@ -52,6 +52,20 @@ object ChatPair {
 
     // ---------------- pure rules (ChatPairTest) ----------------
 
+    /**
+     * An OLD Claude practice chat (`is_ai_conversation`) opens its Claude thread instead
+     * (`/chats/claude/pc-<id>`, core ClaudePractice.chatRedirect — the server copies it on demand);
+     * null = a chat with a person, or [convId] isn't in [conversations] (yet).
+     */
+    fun practiceThreadPath(convId: String, conversations: List<ChatConversationDto>?): String? =
+        dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.chatRedirect(
+            convId, conversations?.map { dev.jeromeswannack.chineselearning.lab.core.claude.ClaudePractice.ListedConversation(it.id, it.is_ai_conversation) },
+        )
+
+    /** [practiceThreadPath] from the relationship's conversation list on the phone (instant, offline too). */
+    suspend fun cachedPracticeThreadPath(app: LabApp, relId: String, convId: String): String? =
+        practiceThreadPath(convId, runCatching { app.cache.get<List<ChatConversationDto>>(ConnectionsKeys.conversations(relId)) }.getOrNull())
+
     /** Follows the alias chain (a → b → c) to the primary; stops on a cycle. */
     fun follow(map: Map<String, String>, id: String): String {
         var cur = id

@@ -85,4 +85,17 @@ class ClaudePracticeParityTest {
             assertEquals(o["reply"].str, ClaudePractice.replyLanguage(text, o["language"].str!!), text)
         }
     }
+
+    @Test
+    fun oldPracticeChatsOpenTheirThread() {
+        for (c in f["legacyPaths"]!!.jsonArray) assertEquals(c.jsonObject["out"].str, ClaudePractice.legacyThreadPath(c.jsonObject["id"].str!!), c.toString())
+        for (c in f["redirects"]!!.jsonArray) {
+            val o = c.jsonObject
+            val list = o["list"].let { l ->
+                if (l == null || l is JsonNull) null
+                else l.jsonArray.map { it.jsonObject.let { x -> ClaudePractice.ListedConversation(x["id"].str!!, x["is_ai_conversation"]!!.jsonPrimitive.boolean) } }
+            }
+            assertEquals(o["out"].str, ClaudePractice.chatRedirect(o["id"].str, list), c.toString())
+        }
+    }
 }
