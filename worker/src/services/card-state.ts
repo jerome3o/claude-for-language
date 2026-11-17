@@ -286,7 +286,7 @@ export async function repairUserCardStates(
   return out;
 }
 
-/** The per-user repair bookkeeping on `users` (migration 0152). */
+/** The per-user repair bookkeeping on `users` (migration 0153). */
 export interface CardStateRepairStatus {
   version: number | null;
   cursor: string | null;
