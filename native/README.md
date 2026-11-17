@@ -52,6 +52,11 @@ Capacitor config, app icon, etc.).
   plays a slowed clip through an `<audio>` element (`playbackRate` +
   `preservesPitch`) instead, so the speed still holds.
   The page feature-detects `playClip` and still works with the v1 bridge.
+  Clips that pause, seek, show their progress, loop or play under another
+  (the reader's scrubber, chat voice / listening messages, a take's preview,
+  🎬 Clips) are media tracks (`createMediaTrack` in `utils/audioPlayback.ts`):
+  no bridge version can seek or report a position, so they always play
+  through the page's `<audio>` element, whatever the bridge version.
 - **Homework notifications**: an hourly background check (WorkManager) posts a
   notification when a review card is due — hanzi on the front, **Show answer**
   reveals pinyin/English, and **Again / Good / Easy** record the review through
