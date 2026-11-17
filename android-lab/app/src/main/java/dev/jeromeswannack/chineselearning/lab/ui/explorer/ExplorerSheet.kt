@@ -70,6 +70,11 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.runtime.snapshotFlow
+import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAdd
 
 /*
  * The explorer sheet (docs/LANGUAGE_EXPLORER.md): ONE bottom sheet over the app showing the top
@@ -91,7 +96,7 @@ const val EXPLORER_ADDED_TAG = "explorer-added"
 /** Placed once in the app shell: the sheet while the stack isn't empty (+ the add-card / writing sheets it opens). */
 @Composable
 fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
-    var adding by remember { mutableStateOf<Chunk?>(null) }
+    var adding by remember { mutableStateOf<AddRequest?>(null) }
     var writing by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     // Words added from this sheet (hanzi → deck): the new note only reaches Room with the sync the
@@ -112,7 +117,8 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
             )
         }
     }
-    adding?.let { chunk ->
+    adding?.let { request ->
+        val chunk = request.chunk
         AddChunkSheet(
             chunk,
             preferredDeck = "",
@@ -133,6 +139,9 @@ fun ExplorerHost(controller: ExplorerController, env: ExplorerEnv) {
                 )
             },
             onAddedTo = { added -> justAdded = justAdded + (added.hanzi to added) },
+            // No meaning to save yet, or offline: the meaning to type first (core ExplorerAdd).
+            fill = request.fill,
+            online = env.online,
         )
     }
     writing?.let { text -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(text, onClose = { writing = null }) }
@@ -145,7 +154,7 @@ fun ExplorerStackView(
     env: ExplorerEnv,
     refresh: Int = 0,
     justAdded: Map<String, AddedTo> = emptyMap(),
-    onAdd: (Chunk) -> Unit = {},
+    onAdd: (AddRequest) -> Unit = {},
     onWrite: (String) -> Unit = {},
 ) {
     val item = controller.current ?: return
@@ -247,10 +256,12 @@ private fun CharacterViewHost(
     env: ExplorerEnv,
     refresh: Int,
     onWrite: (String) -> Unit,
-    onAdd: (Chunk) -> Unit,
+    onAdd: (AddRequest) -> Unit,
     addedTo: AddedTo? = null,
 ) {
     val actions = env.chars
+    // "+ Add 字 as a card" tapped: waiting for the lookup / the gloss ("Adding…").
+    var addingNow by remember { mutableStateOf(false) }
     var lookup by remember { mutableStateOf<CharDict.Lookup?>(null) }
     var rows by remember { mutableStateOf<List<CharWordRow<CharWordDto>>?>(null) }
     var more by remember { mutableStateOf<CharMore>(CharMore.Idle) }
@@ -306,7 +317,7 @@ private fun CharacterViewHost(
         onRow = { row -> ExplorerStack.itemForText(row.word.hanzi, row.word.pinyin, row.word.english)?.let(controller::push) },
         onWrite = { onWrite(char) },
         onDrill = { t, pool -> controller.startDrill(t, pool) },
-        ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null, addedTo = addedTo),
+        ownCard = OwnCardUi(own, bumped, bumping, canOpenCard = env.openCard != null, canBump = env.bump != null, addedTo = addedTo, adding = addingNow),
         onOpenCard = { own?.noteIds?.firstOrNull()?.let { id -> env.openCard?.invoke(id) } },
         onBump = {
             val bump = env.bump ?: return@CharacterView
@@ -326,8 +337,19 @@ private fun CharacterViewHost(
             }
         },
         onAdd = {
-            val r = (lookup as? CharDict.Lookup.Ok)?.record
-            onAdd(Chunk(char, r?.readings?.firstOrNull()?.pinyin.orEmpty(), r?.meaning.orEmpty(), null))
+            if (addingNow) return@CharacterView
+            addingNow = true
+            scope.launch {
+                try {
+                    // Tapped before the dictionary answered: wait for it (≤ 8 s) — never a card without its meaning.
+                    val found = lookup ?: withTimeoutOrNull(ExplorerAdd.WAIT_MS) { snapshotFlow { lookup }.filterNotNull().first() }
+                    val r = (found as? CharDict.Lookup.Ok)?.record
+                    val chunk = Chunk(char, r?.readings?.firstOrNull()?.pinyin.orEmpty(), r?.meaning.orEmpty(), null)
+                    onAdd(resolveExplorerAdd(chunk, env.online, env.gloss, controller::record, "char"))
+                } finally {
+                    addingNow = false
+                }
+            }
         },
     )
 }
@@ -341,6 +363,8 @@ data class OwnCardUi(
     val canBump: Boolean = true,
     /** Added from this sheet a moment ago, not in Room yet: "✓ Added to <deck>" + ⚡ Study it today. */
     val addedTo: AddedTo? = null,
+    /** "+ Add 字 as a card" tapped: waiting for the lookup / the gloss — the pill says "Adding…". */
+    val adding: Boolean = false,
 )
 
 /** After "+ Add as card": Room is read again every 1.5 s, up to 20 times, until the synced card is there. */
@@ -388,11 +412,13 @@ fun CharacterView(
 // ── Word view ──────────────────────────────────────────────────────────────
 
 @Composable
-private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController, env: ExplorerEnv, refresh: Int, onAdd: (Chunk) -> Unit, addedTo: AddedTo? = null) {
+private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController, env: ExplorerEnv, refresh: Int, onAdd: (AddRequest) -> Unit, addedTo: AddedTo? = null) {
     val hanzi = item.hanzi
     val chars = remember(hanzi) { hanzi.codePoints().toArray().map { String(Character.toChars(it)) }.distinct() }
     var ui by remember { mutableStateOf(WordViewUi(item, rank = env.rank(hanzi), online = env.online(), rankOf = env.rank, decalOf = env.decal)) }
     var bumping by remember { mutableStateOf(false) }
+    // "+ Add as card" tapped: waiting for the lookups / the gloss ("Adding…").
+    var addingNow by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Every load below runs on its own and finishes in any order: each one FIRST awaits its value,
     // then applies it to the state as it is NOW. (`ui = ui.copy(x = suspendCall())` read `ui`
@@ -411,7 +437,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
         runCatching { env.prefetchChars(chars) }
         val records = LinkedHashMap<String, CharRecordDto>()
         for (c in chars) (runCatching { env.chars.lookup(c) }.getOrNull() as? CharDict.Lookup.Ok)?.let { records[c] = it.record }
-        update { it.copy(charRecords = records) }
+        update { it.copy(charRecords = records, charsLoaded = true) }
         // … the related words' ✓ Known / 📚 In your decks from Room.
         val related = RelatedWords.relatedWords(hanzi, chars.mapNotNull { c -> records[c]?.let { dev.jeromeswannack.chineselearning.lab.core.explorer.CharWordList(c, it.words) } }, { it.hanzi }, env.rank)
         if (related.isNotEmpty()) {
@@ -475,6 +501,7 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
         canOpenCard = env.openCard != null,
         canBump = env.bump != null,
         bumping = bumping,
+        adding = addingNow,
         addedTo = addedTo,
         onBack = controller::pop,
         onCrumb = controller::popTo,
@@ -508,9 +535,21 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             }
         },
         onAdd = {
-            val r = ui.resolved
-            val funFacts = (ui.more as? WordMore.Done)?.value?.funFacts?.ifBlank { null }
-            onAdd(Chunk(hanzi, r.pinyin, r.english, funFacts))
+            if (addingNow) return@WordView
+            addingNow = true
+            scope.launch {
+                try {
+                    // Tapped before the word / its characters were looked up: wait for them (≤ 8 s),
+                    // then resolve again — never a card without its meaning ("english is required").
+                    withTimeoutOrNull(ExplorerAdd.WAIT_MS) { snapshotFlow { ui.lookup != null && ui.charsLoaded }.first { it } }
+                    val r = ui.resolved
+                    val done = (ui.more as? WordMore.Done)?.value
+                    val chunk = Chunk(hanzi, done?.pinyin?.ifBlank { null } ?: r.pinyin, done?.english?.ifBlank { null } ?: r.english, done?.funFacts?.ifBlank { null })
+                    onAdd(resolveExplorerAdd(chunk, env.online, env.gloss, controller::record, "word"))
+                } finally {
+                    addingNow = false
+                }
+            }
         },
     )
 }
@@ -524,6 +563,8 @@ fun WordView(
     canBump: Boolean,
     actions: WordViewActions = WordViewActions(),
     bumping: Boolean = false,
+    /** "+ Add as card" tapped and waiting for the lookups / the gloss: the pill says "Adding…". */
+    adding: Boolean = false,
     /** Added from this sheet a moment ago and not in Room yet. */
     addedTo: AddedTo? = null,
     onBack: () -> Unit = {},
@@ -567,7 +608,7 @@ fun WordView(
                 )
             }
         }
-        else -> { { PrimaryPill("+ Add as card", Modifier.weight(1f).height(52.dp).testTag("explorer-add"), onClick = onAdd) } }
+        else -> { { PrimaryPill(if (adding) "Adding…" else "+ Add as card", Modifier.weight(1f).height(52.dp).testTag("explorer-add"), enabled = !adding, onClick = onAdd) } }
     }
     val addedLine: (@Composable ColumnScope.() -> Unit)? = if (card == null && addedTo != null) {
         {

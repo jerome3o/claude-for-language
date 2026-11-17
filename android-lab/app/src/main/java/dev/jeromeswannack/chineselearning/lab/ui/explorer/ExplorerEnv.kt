@@ -6,7 +6,9 @@ import dev.jeromeswannack.chineselearning.lab.LabApp
 import dev.jeromeswannack.chineselearning.lab.core.Known
 import dev.jeromeswannack.chineselearning.lab.core.WordListParser
 import dev.jeromeswannack.chineselearning.lab.core.WordFrequency
+import dev.jeromeswannack.chineselearning.lab.data.api.GlossWordIn
 import dev.jeromeswannack.chineselearning.lab.data.api.ReaderWordExplanationDto
+import dev.jeromeswannack.chineselearning.lab.data.api.glossWords
 import dev.jeromeswannack.chineselearning.lab.data.chars.CharDict
 import dev.jeromeswannack.chineselearning.lab.data.chars.OwnCardInfo
 import dev.jeromeswannack.chineselearning.lab.data.chars.WordDict
@@ -74,6 +76,11 @@ class ExplorerEnv(
     val play: (String) -> Unit = {},
     /** "+ Add as card" (the add-chunk sheet: decks in queue order, the top one picked). */
     val addActions: SentenceActions = SentenceActions(),
+    /**
+     * A meaning for "+ Add as card" when the phone has none (`POST /api/ai/gloss-words`):
+     * pinyin to english, null = nothing (previews, failures).
+     */
+    val gloss: suspend (hanzi: String, pinyin: String?) -> Pair<String, String>? = { _, _ -> null },
     /** "⚡ Study it today" (null = previews). */
     val bump: BumpHanzi? = null,
     /**
@@ -208,6 +215,9 @@ fun rememberExplorerEnv(app: LabApp, nav: LabNav?, close: () -> Unit): ExplorerE
             explain = { w, s, p, g -> readers.explainWord(w, s, p, g) },
             play = { speech.speak(it) },
             addActions = passSentenceActions(app),
+            gloss = { h, p ->
+                app.repo.api.glossWords(listOf(GlossWordIn(h, p))).let { out -> out.firstOrNull { it.hanzi == h } ?: out.firstOrNull() }?.let { it.pinyin to it.english }
+            },
             bump = { hanzi, deck ->
                 app.haptics.tick()
                 dev.jeromeswannack.chineselearning.lab.data.bumps.BumpStore.bumpHanzi(app, hanzi, "explorer", deck).message

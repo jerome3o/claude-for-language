@@ -109,6 +109,8 @@ data class WordViewUi(
     val lookup: WordDict.Lookup? = null,
     /** The character records on the device, by character. */
     val charRecords: Map<String, CharRecordDto> = emptyMap(),
+    /** The character records were read (from the phone, after one batched fetch); "+ Add" waits for it. */
+    val charsLoaded: Boolean = false,
     /** The learner's own card / notes (null = not read yet). */
     val mine: MyWord? = null,
     /** Rank in the shipped word-freq list. */
