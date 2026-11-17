@@ -96,6 +96,39 @@ export const ANSWER_CHECK_FIXTURES: Array<{ answer: string; model: string; engli
   },
 ];
 
+/**
+ * Meaning checks the real model got wrong by ear (shared/lesson/heardCheck.ts): Jerome heard 她责怪我 ("She blamed me."),
+ * said "He blames me." and got "≈ Nearly · Wrong subject" (Nov 2026). The fake answers the way the model did —
+ * `forgiveUnheard` turns it into "correct" — and the way it answers what the ear CAN tell: roles swapped (I / you),
+ * a negation added.
+ */
+export const MEANING_FIXTURES: Array<{ heard: string; respond: (said: string) => Record<string, unknown> | null }> = [
+  {
+    heard: '她责怪我。',
+    respond: (said) => {
+      const s = said.toLowerCase();
+      if (/n't|(?<![a-z])(?:not|never)(?![a-z])/.test(s)) {
+        return { verdict: 'almost', headline: 'Close — but it isn’t negative: she DID blame you.', corrected: '', tips: [] };
+      }
+      if (/^(?:i|you|we)(?![a-z])/.test(s)) {
+        return { verdict: 'wrong', headline: 'Reversed — she blamed you, not you her.', corrected: '', tips: [{ text: '我 is the one being blamed.', quote: '我' }] };
+      }
+      if (/^(?:he|it)(?![a-z])/.test(s)) {
+        return {
+          verdict: 'almost',
+          headline: 'Wrong subject: "he" instead of "she"',
+          corrected: '',
+          tips: [{ text: '她 (tā) means "she"; 他 (tā) is "he" — same sound, different character.', quote: '她' }],
+        };
+      }
+      if (/^she (?:blames|is blaming|will blame)/.test(s)) {
+        return { verdict: 'almost', headline: 'Tense: "blamed", not "blames"', corrected: '', tips: [] };
+      }
+      return null;
+    },
+  },
+];
+
 /** A read card's take checked by Claude (shared/study/readTakeCheck.ts): Jerome's real 英语 / 英文 reading. */
 export const READ_ALOUD_FIXTURES: Array<{ card: string; said: string; result: Record<string, unknown> }> = [
   {
@@ -221,13 +254,14 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
           const got = words(said).filter((w) => ref.has(w)).length;
           const negated = /[没不别]/.test(heard) && !/\b(not|no|never|didn't|don't|doesn't|isn't|wasn't|won't|can't)\b|n't/i.test(said);
           const share = ref.size ? got / ref.size : 0;
-          const result = negated && share >= 0.4
+          const known = MEANING_FIXTURES.find((f) => normalizeHanziAnswer(f.heard) === normalizeHanziAnswer(heard))?.respond(said);
+          const result = known ?? (negated && share >= 0.4
             ? { verdict: 'almost', headline: 'Close — but you missed the negative.', corrected: '', tips: [{ text: `${heard.match(/[没不别]/)![0]} makes it negative.`, quote: heard.match(/[没不别]/)![0] }] }
             : share >= 0.6
               ? { verdict: 'correct', headline: 'You understood it.', corrected: '', tips: [] }
               : share >= 0.3
                 ? { verdict: 'acceptable', headline: 'You got the gist.', corrected: '', tips: [] }
-                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] };
+                : { verdict: 'wrong', headline: 'Listen again with the text in front of you.', corrected: '', tips: [] });
           return {
             stop_reason: 'tool_use',
             usage: { input_tokens: 400 + text.length, output_tokens: 60 },

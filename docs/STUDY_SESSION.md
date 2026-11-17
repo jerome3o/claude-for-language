@@ -1931,7 +1931,7 @@ the sentence can be heard. Settings → Study → **"Sentences by ear in Hard mo
   with `exercise_type: 'listen_translate'`, `prompt_en` = the Chinese heard, `model_answer` = the sentence's English,
   `answer` = his English (`listenCheckInput`; `isMeaningCheck` in shared/lesson/answerCheck.ts: listen_translate with
   English on both sides; its own Haiku prompt `MEANING_CHECK_SYSTEM`, judged on meaning only, tips quoting the Chinese
-  he missed; cached for everyone, device cache too, key `m2|…`). His English = the sentence's English (case /
+  he missed; cached for everyone, device cache too, key `m3|…`). His English = the sentence's English (case /
   punctuation aside) → right on the device with no call (`exactAnswerCheck`). correct / acceptable = **✓ Right**
   (counts), almost = **≈ Nearly**, wrong = **✗ Not quite** (`listenVerdictResult`). Offline, no English, no check to be
   had, or 👁 Show the answer → **self-check**: "Did you understand it?" **✗ Missed it** / **✓ Got it**.
@@ -1966,6 +1966,38 @@ the sentence can be heard. Settings → Study → **"Sentences by ear in Hard mo
   `PlaybackParams`). Tests: `sentenceRound.test.ts` / `sentenceHistory.test.ts` / `answerCheck.test.ts`,
   `SentenceRound.test.tsx` ("Sentences by ear"), worker `lesson-answer-check.test.ts` (meaning check),
   E2E `study-sentences-by-ear.spec.ts`, Lab `SentenceListenUiTest` + the parity fixtures.
+
+### What the ear can't tell
+
+Jerome (Nov 2026) heard 她责怪我 (tā zéguài wǒ, "She blamed me.") in "👂 What does it mean?", answered "He blames me."
+and got "≈ Nearly · Wrong subject: "he" instead of "she"" with a tip about 她 vs 他: "The gender of this is impossible
+for me to know if I'm just listening to it, so I think it should be more gracious with that." A check where he only
+HEARD the Chinese (`isHeardOnlyCheck`: `listen_translate` — this listen slot, said in English or back in Chinese, and a
+mini lesson's "Listen and translate") never counts against him what the audio can't carry:
+- **he / she / it** (him / her, his / her / its) wherever the Chinese has 他 / 她 / 它 (他们 / 她们 / 它们): one sound, tā;
+  answered in Chinese, 他 / 她 / 它 are interchangeable;
+- **a tense or aspect the Chinese doesn't mark** — no 了 / 过 / 着 / 在 / 会 / 将 / 要 / 没 / 已 / 刚 / 正 or time word
+  (`UNHEARD_TENSE_MARKERS`, conservative: 在 as "at", 为了 count too): "blames" = "blamed" = "is blaming" = "will blame";
+- **singular vs plural** ("a book" = "books").
+
+Still counted: I / you / we vs he / she, who did what to whom ("I blamed her" for 她责怪我 stays ✗), a wrong verb or
+object, a negation ("She didn't blame me" stays ≈), and a tense the Chinese DOES mark (她明天会责怪我 answered "She
+blamed me" stays ≈). A check where he SAW the hanzi (translate, a read take) is as strict as before.
+
+How: the rule is in every heard-only prompt (`HEARD_ONLY_RULE` in worker services/answer-check.ts — in
+`MEANING_CHECK_SYSTEM`, in the Chinese listen turn, in 💬 Ask about this), and **`forgiveUnheard`**
+(shared/lesson/heardCheck.ts; Lab core `HeardCheck.kt`, parity-tested by `parity/fixtures/heard-check.ts`) makes sure
+of it after the model — run by the worker before a check is returned or cached and by both apps on every check they
+receive or read from their device cache (web `services/answerCheck.ts`, Lab `data/api/AnswerCheckApi.kt`). Right
+verdicts lose the tips / headline that only complain about it; almost / wrong become **correct with no tip** ("Right —
+by ear, tā can be he, she or it.") when (A) his answer IS the reference once those differences are set aside
+(`heardMeaningKey`: articles and plural -s dropped, he / she / it one word, tense auxiliaries dropped and words stemmed
+— blames / blamed / blaming → blam; negation and the other persons kept; in Chinese `taKey`), or (B, almost only) every
+line of the check is only about gender (`unheardPronounLine`) or an unmarked tense (`unheardTenseLine`) and his answer
+has the same negations and persons as the reference (`sameRolesAndPolarity`) — in Chinese, the correction only swaps
+他 / 她 / 它 and every tip is about that. `ANSWER_CHECK_VERSION` 5 / `MEANING_CHECK_VERSION` 3, so no older verdict is
+served. Tests: `heardCheck.test.ts`, worker `lesson-answer-check.test.ts` ("what the ear can't tell", the E2E stand-in's
+`MEANING_FIXTURES` answers 她责怪我 the way the model did).
 
 ### Spoken sentences are judged leniently (a pause is never grammar)
 

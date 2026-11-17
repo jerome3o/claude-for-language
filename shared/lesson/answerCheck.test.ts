@@ -158,7 +158,7 @@ describe('meaning check (Hard mode "Sentences by ear")', () => {
     const picked = pickAnswerCheckInput({ ...heard, answer: 'I went to the bank', input: 'spoken' });
     expect('input' in picked).toBe(true);
     const text = answerCheckCacheText({ ...heard, answer: 'I went to the BANK.', input: 'spoken' });
-    expect(text).toBe('m2|listen_translate|spoken|我昨天没去银行|i didn t go to the bank yesterday|i went to the bank');
+    expect(text).toBe('m3|listen_translate|spoken|我昨天没去银行|i didn t go to the bank yesterday|i went to the bank');
     expect(answerCheckCacheText({ ...heard, answer: 'i went to the bank', input: 'spoken' })).toBe(text);
     expect('problems' in pickAnswerCheckInput({ ...heard, model_answer: '我去银行。', answer: 'I go' })).toBe(true);
   });
@@ -353,7 +353,7 @@ describe('sanity rules (Jerome, Nov 2026: "因为 clause should come before the 
   });
 
   it('the cache text carries the new version, so the bad v2 / v3 checks are never served again', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(4);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v4\|/);
+    expect(ANSWER_CHECK_VERSION).toBe(5);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: model, answer, exercise_type: 'translate', input: 'spoken' })).toMatch(/^v5\|/);
   });
 });

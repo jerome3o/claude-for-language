@@ -2,6 +2,7 @@ package dev.jeromeswannack.chineselearning.lab.data.api
 
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput
+import dev.jeromeswannack.chineselearning.lab.core.HeardCheck
 import dev.jeromeswannack.chineselearning.lab.core.LessonAnswerCheck
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.HttpException
@@ -79,10 +80,12 @@ suspend fun Api.checkLessonAnswer(input: AnswerCheckInput, cache: JsonCache, onl
     // The model answer itself: no call (LessonAnswerCheckState shows it before ever getting here).
     LessonAnswerCheck.exact(input)?.let { return AnswerCheckResult(it, cached = false) }
     val key = cacheKey(input)
-    runCatching { cache.get<AnswerCheck>(key) }.getOrNull()?.let { return AnswerCheckResult(it, cached = true) }
+    // Heard only (listen_translate): he / she / it, an unmarked tense are never faults by ear (core HeardCheck).
+    runCatching { cache.get<AnswerCheck>(key) }.getOrNull()?.let { return AnswerCheckResult(HeardCheck.forgive(it, input), cached = true) }
     if (!online) throw AnswerCheckUnavailable("offline", offline = true)
     val reply = retryBusy { post<AnswerCheckInput, AnswerCheckReply>("/api/lessons/answer-check", input) }
-    val check = LessonAnswerCheck.parse(reply.check, input.answer, input.modelAnswer) ?: throw AnswerCheckUnavailable("bad reply")
+    val parsed = LessonAnswerCheck.parse(reply.check, input.answer, input.modelAnswer) ?: throw AnswerCheckUnavailable("bad reply")
+    val check = HeardCheck.forgive(parsed, input)
     runCatching { cache.put(key, "lesson_answer_check", check) }
     return AnswerCheckResult(check, reply.cached)
 }

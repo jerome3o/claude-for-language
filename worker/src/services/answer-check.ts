@@ -22,6 +22,7 @@ import {
   ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION, SCRAMBLE_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
+import { forgiveUnheard } from '@shared/lesson/heardCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { digitsToHanzi } from '@shared/text/numberHanzi';
 import { tidySpokenTranscript } from '@shared/cards/answer';
@@ -95,16 +96,29 @@ const TOOL = {
 
 // ============ Meaning (Hard mode's "Sentences by ear") ============
 
+/**
+ * What the ear can't tell (shared/lesson/heardCheck.ts, Jerome Nov 2026: 她责怪我 answered "He blames me" came back
+ * "≈ Nearly · Wrong subject"): every check of an answer to Chinese the learner only HEARD (listen_translate — the
+ * Sentence round's listen slot, a mini lesson's "Listen and translate"; answered in English or Chinese) carries it.
+ * `forgiveUnheard` enforces it after the model.
+ */
+export const HEARD_ONLY_RULE = `- They only HEARD the Chinese — never count against them what the ear can't tell, and don't mention it (no tip, no "but"):
+  - 他 / 她 / 它 (and 他们 / 她们 / 它们) all sound tā(men): he, she or it (him / her, his / her / its) are the SAME answer wherever the Chinese has one of them, and in Chinese 他 / 她 / 它 are interchangeable. E.g. heard 她责怪我 → "He blames me" is "correct"; 他责怪我 is "correct".
+  - A tense or aspect the Chinese doesn't mark: with no 了 / 过 / 着 / 在 / 正在 / 会 / 将 / 要 / 没 / 已经 / 刚 or time word (昨天, 明天, 以前…) fixing it, "blames", "blamed", "is blaming" and "will blame" are all right. E.g. 她责怪我 → "She blamed me" = "She blames me".
+  - Singular vs plural the Chinese doesn't mark (no number, 几 / 些 / 们): "a book" = "books".
+  - Still count what the ear CAN tell: I / you / we vs he / she (我 / 你 / 我们 sound different), who did what to whom, a wrong verb or object, a missed or added negation, and a tense the Chinese DOES mark (她明天会责怪我 answered "She blamed me" is wrong on the time).`;
+
 export const MEANING_CHECK_SYSTEM = `You check whether a learner of Chinese UNDERSTOOD a Chinese sentence they only HEARD (no text). They said or typed what it means in English. You get the Chinese sentence, its reference English translation (only ONE way to put it) and their English.
 
 Verdicts:
 - "correct": they got the meaning — every part that matters (who, what, when, negation, the key word) is there. Wording, word order, tense nuance, articles and synonyms never matter ("I'm going to the bank" = "I go to the bank").
 - "acceptable": the meaning is clearly understood with a small slip that doesn't change it (a missed 也 / 都 / 就, a vaguer word for the same thing, a slightly wrong time word that doesn't matter).
-- "almost": the gist is there but a part that matters is missing or wrong (missed the negation, the wrong person, the wrong place / time, the main verb misheard).
+- "almost": the gist is there but a part that matters is missing or wrong (missed the negation, the wrong person — I / you / we vs he / she, never he vs she —, the wrong place / time, the main verb misheard).
 - "wrong": they didn't understand it — a different meaning, or only a word or two.
 
 Rules:
 - Judge the MEANING, never their English grammar or spelling. A spoken answer is a speech-recognition transcript: ignore punctuation, sentence breaks (a pause is nothing), dropped little words and obvious recognition slips.
+${HEARD_ONLY_RULE}
 - headline: one short line in English (≤ 12 words) saying what they got or missed.
 - tips: 0–2 short lines in English about what they misheard or missed. Quote the exact Chinese words in "quote" (copied from the sentence) and say what they mean, e.g. "没 makes it negative — they did NOT go." No tips when the meaning is right; never pad.
 - corrected: always empty.
@@ -297,7 +311,7 @@ export function answerCheckUserTurn(input: AnswerCheckInput): string {
   return [
     input.focus ? `Lesson focus: ${input.focus}` : null,
     input.exercise_type === 'listen_translate'
-      ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey ${spoken ? 'said back' : 'wrote down'} what they heard / understood, in Chinese.`
+      ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey ${spoken ? 'said back' : 'wrote down'} what they heard / understood, in Chinese.\n${HEARD_ONLY_RULE}`
       : `English to say in Chinese: ${input.prompt_en}`,
     `Model answer (a reference written by someone else — NOT the learner's answer):\n<model_answer>${input.model_answer}</model_answer>${input.model_pinyin ? `\nModel answer pinyin: ${input.model_pinyin}` : ''}`,
     `The learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'} — the only text you judge:\n<learner_answer>${answer}</learner_answer>`,
@@ -374,7 +388,9 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     client: deps.client,
   });
   if (isScrambleCheck(input.exercise_type)) return withPinyin(scrambleVerdict(check));
-  return withPinyin(isReadAloudCheck(input.exercise_type) ? readAloudVerdict(check) : check);
+  if (isReadAloudCheck(input.exercise_type)) return withPinyin(readAloudVerdict(check));
+  // Heard only (listen_translate): he / she / it, an unmarked tense or number are never faults by ear.
+  return withPinyin(forgiveUnheard(check, input));
 }
 
 /** A free-speaking answer: the longer judgement on the larger model, the smaller one as the last attempt. */
@@ -410,7 +426,7 @@ export async function checkLessonAnswer(
   try {
     const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?')
       .bind(hash, checkVersionFor(input.exercise_type)).first<{ check_json: string }>();
-    if (row) return { check: normalizeAnswerCheck(JSON.parse(row.check_json), input.answer, input.model_answer), cached: true };
+    if (row) return { check: forgiveUnheard(normalizeAnswerCheck(JSON.parse(row.check_json), input.answer, input.model_answer), input), cached: true };
   } catch (error) {
     console.warn('[answer-check] cache read failed:', error instanceof Error ? error.message : error);
   }
@@ -447,6 +463,8 @@ const ASK_TOOL = {
 export function askContext(input: AnswerCheckInput, check: AnswerCheck | null): string {
   return [
     answerCheckUserTurn(input),
+    // The Chinese-answer turn carries it already; a meaning check's lives in its system prompt.
+    isMeaningCheck(input) ? HEARD_ONLY_RULE : null,
     check
       ? `The check said: ${check.verdict} — ${check.headline}${check.corrected ? `\nCorrected: ${check.corrected}` : ''}${check.tips.length ? `\nTips: ${check.tips.map((t) => t.text).join(' / ')}` : ''}${check.alternative ? `\nAlternative: ${check.alternative.hanzi}` : ''}`
       : null,
