@@ -6,8 +6,8 @@ package dev.jeromeswannack.chineselearning.lab.core
  *
  * A lesson can wait LOCKED until the learner has done something real: listened to an audio
  * lesson (the podcast's companion mini lesson) or a task they do themselves ("Watch episode 3 of
- * …"). A locked lesson is never offered ([LessonSchedule.todaysLessons]' `locked`); once unlocked
- * a NEW one comes today on top of the daily new-lesson place (`unlocked`). Unlocking is an
+ * …"). A locked lesson is never offered ([lockSets]' `locked`); once unlocked
+ * a NEW one is offered like any new lesson (`unlocked`). Unlocking is an
  * offline-first event: the earliest `unlocked_at` wins.
  */
 data class LessonUnlock(

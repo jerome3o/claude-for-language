@@ -8,14 +8,12 @@
  * recomputes the cached state of the cards it touches, from their events + live forgets.
  */
 import {
-  computeCardState,
-  DEFAULT_DECK_SETTINGS,
   withForgetEvents,
   type CardForget,
-  type Rating,
   type ReviewEvent,
 } from '../../../shared/scheduler';
 import { ownedCards } from './card-holds';
+import { recomputeCards } from './card-state';
 
 export const MAX_FORGETS_PER_REQUEST = 200;
 
@@ -96,31 +94,8 @@ export function mergeForgets(eventsByCard: Map<string, ReviewEvent[]>, forgets: 
   return out;
 }
 
-/** Recompute the cached state of these cards from their review events + live forgets. */
-export async function recomputeCards(db: D1Database, userId: string, cardIds: string[]): Promise<number> {
-  const ids = [...new Set(cardIds)];
-  if (ids.length === 0) return 0;
-  const events = new Map<string, ReviewEvent[]>(ids.map(id => [id, []]));
-  for (const chunk of chunks(ids, 50)) {
-    const rows = await db
-      .prepare(`SELECT id, card_id, rating, reviewed_at FROM review_events WHERE user_id = ? AND card_id IN (${chunk.map(() => '?').join(',')}) ORDER BY reviewed_at ASC`)
-      .bind(userId, ...chunk)
-      .all<{ id: string; card_id: string; rating: number; reviewed_at: string }>();
-    for (const e of rows.results ?? []) events.get(e.card_id)?.push({ id: e.id, card_id: e.card_id, rating: e.rating as Rating, reviewed_at: e.reviewed_at });
-  }
-  const merged = mergeForgets(events, await forgetsByCard(db, userId, ids));
-  const update = db.prepare(`
-    UPDATE cards SET queue = ?, stability = ?, difficulty = ?, lapses = ?, ease_factor = ?, interval = ?,
-      repetitions = ?, next_review_at = ?, due_timestamp = ?, updated_at = datetime('now')
-    WHERE id = ?`);
-  const statements: D1PreparedStatement[] = [];
-  for (const [cardId, list] of merged) {
-    const s = computeCardState(list, DEFAULT_DECK_SETTINGS);
-    statements.push(update.bind(s.queue, s.stability, s.difficulty, s.lapses, s.ease_factor, s.interval, s.repetitions, s.next_review_at, s.due_timestamp, cardId));
-  }
-  for (let i = 0; i < statements.length; i += 100) await db.batch(statements.slice(i, i + 100));
-  return statements.length;
-}
+/** Recompute the cached state of these cards from their review events + live forgets (services/card-state.ts). */
+export { recomputeCards };
 
 /** Forget cards (each must be the user's), then recompute them. */
 export async function addForgets(db: D1Database, userId: string, items: ForgetInputItem[]): Promise<ForgetResult> {

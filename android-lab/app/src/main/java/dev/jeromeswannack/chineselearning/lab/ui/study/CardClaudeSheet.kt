@@ -205,6 +205,11 @@ fun CardClaudeSheet(
     cardDeleted: Boolean,
     actions: CardClaudeActions,
     onDismiss: () -> Unit,
+    /**
+     * A line under a reply opened (docs/CHAT.md "Tool lines you can tap"): the card remembers its sheet
+     * and this thread (so back from the lesson / card shows it open again), then opens [link]'s path.
+     */
+    onOpenResult: ((threadId: String?, link: CardTools.Link) -> Unit)? = null,
 ) {
     val app = LocalContext.current.applicationContext as LabApp
     LaunchedEffect(state.noteId) {
@@ -232,7 +237,9 @@ fun CardClaudeSheet(
             app.analytics.track("claude.thread_action", mapOf("action" to "new", "context_kind" to ClaudeChats.CARD))
         },
     )
+    val openResult: ((CardTools.Link) -> Unit)? = onOpenResult?.let { f -> { link: CardTools.Link -> f(id.takeIf { it != CardClaudeState.NEW }, link) } }
     LabTallSheet(onDismiss = onDismiss, modifier = Modifier.testTag(CardClaudeTags.SHEET)) {
+      androidx.compose.runtime.CompositionLocalProvider(dev.jeromeswannack.chineselearning.lab.ui.claude.LocalResultOpen provides openResult) {
         ClaudeThreadContent(
             app, vm,
             open = { path -> onDismiss(); actions.openPath(path) },
@@ -263,6 +270,7 @@ fun CardClaudeSheet(
             },
             closedNote = if (cardDeleted) "This card was deleted — moving on to the next one." else null,
         )
+      }
     }
 }
 
@@ -319,6 +327,14 @@ fun CardToolLines(reply: ClaudeMessageDto, actions: CardClaudeActions, online: B
                 line.kind == "bumped" -> Color(0xFFB45309)
                 else -> Palette.Good
             }
+            val undoable = line.undo && (undo == "done" || actions.canUndo(reply.id))
+            // A line with nothing else on it is ONE tap target: "🎓 Mini lesson made: … · Start ›" (docs/CHAT.md "Tool lines you can tap").
+            if (line.link != null && line.cards.isEmpty() && !undoable) {
+                Box(Modifier.testTag(CardClaudeTags.tool(line.kind))) {
+                    dev.jeromeswannack.chineselearning.lab.ui.claude.ResultLinkLine(line.link!!, line.text, color)
+                }
+                continue
+            }
             Row(
                 Modifier.widthIn(max = 360.dp).clip(RoundedCornerShape(12.dp)).background(color.copy(alpha = 0.12f)).padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
                     .testTag(CardClaudeTags.tool(line.kind)),
@@ -335,6 +351,7 @@ fun CardToolLines(reply: ClaudeMessageDto, actions: CardClaudeActions, online: B
                 } else {
                     Text(if (done) "↺ Undone — the card is back as it was" else line.text, color = color, fontSize = 13.sp, modifier = Modifier.weight(1f, fill = false))
                 }
+                line.link?.let { dev.jeromeswannack.chineselearning.lab.ui.claude.ResultLinkGo(it, color) }
                 if (line.undo && !done && actions.canUndo(reply.id)) {
                     val busy = undo == "busy"
                     Box(

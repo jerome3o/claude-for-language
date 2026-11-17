@@ -1,4 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { readClaudeReturn, withoutClaudeReturn } from '../claude/ResultLink';
 import { track } from '../../services/analytics';
 import type { LocalReader, LocalReaderPage } from '../../db/database';
 import { cacheReaderNarration, updateLocalReaderPageImage } from '../../services/readerSync';
@@ -265,7 +267,17 @@ export function ReaderView({
   /** Read: Finish was pressed, or the whole story was listened to the end. */
   onFinish: (timeSpentMs: number, how: ReaderFinishHow) => void;
 }) {
-  const [currentPage, setCurrentPage] = useState(() => Math.min(Math.max(0, initialPage), Math.max(0, reader.pages.length - 1)));
+  // Back from something a line under Claude's reply opened (docs/CHAT.md "Tool lines you can tap"):
+  // the same page with "Ask Claude about this page" open again.
+  const readerLocation = useLocation();
+  const readerNavigate = useNavigate();
+  const [claudeReturn, setClaudeReturn] = useState(() => {
+    const r = readClaudeReturn(readerLocation.state);
+    return r && r.source === 'reader' && r.ref === reader.id ? r : null;
+  });
+  const [currentPage, setCurrentPage] = useState(() =>
+    Math.min(Math.max(0, claudeReturn?.page ? claudeReturn.page - 1 : initialPage), Math.max(0, reader.pages.length - 1)),
+  );
   const [startTime] = useState(Date.now());
   // 📖 Ask Claude about this page: the page's Claude thread in a sheet (its context + the words he
   // looked up / misread on it in this reading, from the word recap's run).
@@ -391,6 +403,14 @@ export function ReaderView({
     });
   };
 
+  const reopenAsk = useRef(!!claudeReturn);
+  useEffect(() => {
+    if (!reopenAsk.current) return;
+    reopenAsk.current = false;
+    void askClaude();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="study-fullscreen" data-testid="reader-view">
       {/* While a take is under way a tap on the top bar (✕ / ← / Edit…) stops the take first —
@@ -472,7 +492,13 @@ export function ReaderView({
           label="Ask Claude about this page"
           source="reader"
           onResolved={(resumed) => track('reader.ask_claude', { from: 'toolbar', resumed, words: asking.words })}
-          onClose={() => setAsking(null)}
+          onClose={() => {
+            setAsking(null);
+            if (claudeReturn) {
+              setClaudeReturn(null);
+              readerNavigate(`${readerLocation.pathname}${readerLocation.search}${readerLocation.hash}`, { replace: true, state: withoutClaudeReturn(readerLocation.state) });
+            }
+          }}
         />
         </Suspense>
       )}

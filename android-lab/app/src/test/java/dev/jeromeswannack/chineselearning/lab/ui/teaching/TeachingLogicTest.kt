@@ -59,7 +59,7 @@ class TeachingLogicTest {
             q("3", "n1", "2026-09-26T11:00:00Z"), // 40 min after the last → new thread
             q("4", "n2", "2026-09-26T10:05:00Z"),
         )
-        val threads = groupQuestionThreads(rows.shuffled(java.util.Random(4)))
+        val threads = dev.jeromeswannack.chineselearning.lab.core.QuestionThreads.group(rows.shuffled(java.util.Random(4)))
         assertEquals(listOf("3", "1", "4"), threads.map { it.id })
         assertEquals(listOf("1", "2"), threads[1].questions.map { it.id })
         assertEquals("2026-09-26T10:20:00Z", threads[1].lastAt)

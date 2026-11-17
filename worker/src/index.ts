@@ -183,9 +183,11 @@ import dayRolloverRoutes from './routes/day-rollover';
 import cardForgetsRoutes from './routes/card-forgets';
 import studyQueueRoutes from './routes/study-queue';
 import sentencePracticeRoutes from './routes/sentence-practice';
-import { forgetsByCard, listForgets, mergeForgets, recomputeCards } from './services/card-forgets';
+import { listForgets } from './services/card-forgets';
+import { checkCardStatesIfDue, recomputeCards } from './services/card-state';
+import reviewEventRoutes from './routes/review-events';
 import revisitRoutes from './routes/revisit';
-import { getRevisitSettingsInfo, listRevisitEvents } from './services/revisit';
+import { LEGACY_REVISIT_SETTINGS, listRevisitEvents } from './services/revisit';
 import { backfillCompletionOutcomes, outcomeForUpload, setCompletionOutcome } from './services/lesson-revision';
 import { parseRunOutcome } from '@shared/study/lessonRevision';
 import { getNewCardOrderInfo, setNewCardOrder } from './services/new-card-order';
@@ -259,12 +261,6 @@ import cspReportRoutes from './routes/csp-report';
 import feedbackRoutes from './routes/feedback';
 import { shapeFeatureRequest } from './services/feedback';
 import { CreateRelationshipRequest, ShareDeckRequest, StudentShareDeckRequest, GenerateFlashcardRequest, LandingPage, LANDING_PAGES } from './types';
-import {
-  computeCardState,
-  initialCardState,
-  DEFAULT_DECK_SETTINGS as FSRS_DEFAULT_SETTINGS,
-  type ReviewEvent as SchedulerReviewEvent,
-} from '../../shared/scheduler';
 
 // Extend Hono context to include user
 declare module 'hono' {
@@ -599,8 +595,8 @@ app.get('/api/auth/me', async (c) => {
     skip_handwriting: await getSkipHandwriting(c.env.DB, user.id).catch(() => false),
     // "New day starts at" (0–6, default 4 am; shared/study/studyDay.ts) — cached on the device.
     day_rollover_hour: await getDayRolloverHour(c.env.DB, user.id).catch(() => null),
-    // When finished lessons come back + new lessons a day (shared/study/revisit.ts; Settings → "Lessons & readers"). Readers are read once.
-    revisit_settings: await getRevisitSettingsInfo(c.env.DB, user.id).catch(() => null),
+    // Legacy "revisit later" settings (gone Oct 2026): fixed defaults for older app builds that still read them.
+    revisit_settings: LEGACY_REVISIT_SETTINGS,
     // The voices this account's conversation exercises use (its own selection,
     // else the admin's, else the shipped defaults) — cached on the device.
     conversation_voices: (await getConversationVoiceSettings(c.env.DB, user.id).catch(() => null))?.enabled ?? null,
@@ -643,6 +639,7 @@ app.use('/api/*', costGuard);
 // One chat per pair: merged-away conversation ids answer as the chat they became,
 // and the conversation get / create / rename routes (routes/one-chat.ts).
 mountMergedConversations(app);
+app.route('/api', reviewEventRoutes); // review events + the card-state replay (services/card-state.ts)
 app.route('/api', oneChatRoutes);
 app.route('/api', coachRoutes);
 app.route('/api', claudeThreadsRoutes); // Claude threads (docs/CHAT.md "Claude threads"): /api/claude/threads*
@@ -731,7 +728,7 @@ app.route('/api', homeworkDraftRoutes);
 app.route('/api', adminRoutes);
 // Folders for decks / library lessons / readers (organisation only; routes/folders.ts).
 app.route('/api', foldersRoutes);
-app.route('/api', revisitRoutes); // "Revisit later" for lessons — GET /api/me/revisit, PUT /api/profile/revisit-settings, POST /api/me/revisit-events
+app.route('/api', revisitRoutes); // legacy Done-for-good marks — GET /api/me/revisit, POST /api/me/revisit-events; PUT /api/profile/revisit-settings = no-op for old builds
 app.route('/api', sentencePracticeRoutes); // Practice per example sentence — GET/POST /api/me/sentence-practice
 app.route('/api', studyQueueRoutes); // GET /api/me/study-queue — today's queue (due_today / reviews_due), services/study-queue.ts
 app.route('/api', cardForgetsRoutes); // Forget this card — GET/POST /api/me/card-forgets, POST /api/me/card-forgets/undo
@@ -1181,21 +1178,9 @@ app.post('/api/decks/import', async (c) => {
             { audio: 'queue', sentences: false }
           );
 
-          // Set card progress if provided
-          if (noteData.progress && noteData.progress.interval > 0) {
-            const noteWithCards = await db.getNoteWithCards(c.env.DB, note.id, userId);
-            if (noteWithCards?.cards) {
-              for (const card of noteWithCards.cards) {
-                await db.setCardProgress(
-                  c.env.DB,
-                  card.id,
-                  noteData.progress.interval,
-                  noteData.progress.ease_factor || 2.5,
-                  noteData.progress.repetitions || 1
-                );
-              }
-            }
-          }
+          // `progress` is not written onto the cards: a card's state is the replay of its review
+          // events (services/card-state.ts), and an imported card has none — it is NEW on every
+          // device, so a scheduled state here only made the server disagree with them.
 
           successCount++;
         } catch (err) {
@@ -2490,9 +2475,6 @@ app.post('/api/study/review', async (c) => {
     );
   }
 
-  // Update card with new values
-  await db.updateCardSchedule(c.env.DB, card_id, result);
-
   // Create review event (source of truth for sync)
   const actualReviewedAt = reviewed_at || new Date().toISOString();
   await db.createReviewEvent(
@@ -2511,6 +2493,8 @@ app.post('/api/study/review', async (c) => {
       next_review_at: result.next_review_at?.toISOString() || null,
     }
   );
+  // The cached state = the replay of the card's events (never the client's / scheduler's result).
+  await recomputeCards(c.env.DB, userId, [card_id]);
 
   // Get updated queue counts
   const counts = await db.getQueueCounts(c.env.DB, userId, card.note.deck_id, local_date);
@@ -2590,16 +2574,6 @@ app.post('/api/study/sessions/:id/reviews', async (c) => {
     card.repetitions
   );
 
-  // Update card with new SM-2 values
-  await db.updateCardSM2(
-    c.env.DB,
-    card_id,
-    sm2Result.easeFactor,
-    sm2Result.interval,
-    sm2Result.repetitions,
-    sm2Result.nextReviewAt
-  );
-
   // Create review event (source of truth)
   const reviewedAt = new Date().toISOString();
   await db.createReviewEvent(
@@ -2618,6 +2592,8 @@ app.post('/api/study/sessions/:id/reviews', async (c) => {
       next_review_at: sm2Result.nextReviewAt.toISOString(),
     }
   );
+  // The cached state = the replay of the card's events (services/card-state.ts).
+  await recomputeCards(c.env.DB, userId, [card_id]);
 
   return c.json({
     success: true,
@@ -5115,354 +5091,8 @@ app.post('/api/admin/backfill-events', async (c) => {
   }
 });
 
-// Upload batch of review events (from offline sync)
-app.post('/api/reviews', async (c) => {
-  const userId = c.get('user').id;
-  const { events } = await c.req.json<{
-    events: Array<{
-      id: string;
-      card_id: string;
-      rating: Rating;
-      reviewed_at: string;
-      time_spent_ms?: number;
-      user_answer?: string;
-    }>;
-  }>();
-
-  if (!events || !Array.isArray(events)) {
-    return c.json({ error: 'events array is required' }, 400);
-  }
-
-  if (events.length === 0) {
-    return c.json({ created: 0, skipped: 0 });
-  }
-
-  // Validate all events have required fields
-  for (const event of events) {
-    if (!event.id || !event.card_id || event.rating === undefined || !event.reviewed_at) {
-      return c.json({ error: 'Each event must have id, card_id, rating, and reviewed_at' }, 400);
-    }
-  }
-
-  // Verify which cards belong to this user — chunked IN queries instead of
-  // one query per card, so large reconcile uploads stay under the Workers
-  // subrequest cap.
-  const cardIds = [...new Set(events.map(e => e.card_id))];
-  const validCardIds = new Set<string>();
-  const CARD_CHECK_CHUNK = 90;
-  for (let i = 0; i < cardIds.length; i += CARD_CHECK_CHUNK) {
-    const chunk = cardIds.slice(i, i + CARD_CHECK_CHUNK);
-    const rows = await c.env.DB.prepare(`
-      SELECT c.id FROM cards c
-      JOIN notes n ON c.note_id = n.id
-      JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND c.id IN (${chunk.map(() => '?').join(',')})
-    `).bind(userId, ...chunk).all<{ id: string }>();
-    for (const row of rows.results) {
-      validCardIds.add(row.id);
-    }
-  }
-
-  // Filter events to only include valid cards, skip orphaned events
-  const validEvents = events.filter(e => validCardIds.has(e.card_id));
-  const skippedOrphans = events.length - validEvents.length;
-
-  if (skippedOrphans > 0) {
-    console.log(`[API reviews] Skipping ${skippedOrphans} events for deleted/missing cards`);
-  }
-
-  // Create events with user_id added. A recording is only ever stored at the key the server
-  // derives from the event id (POST /api/audio/upload); any other key an event carries is dropped
-  // — it made the media check treat the caller as an owner of someone else's recording.
-  const eventsWithUser = validEvents.map(e => ({
-    ...e,
-    recording_url: ownRecordingKey(e.id, (e as { recording_url?: unknown }).recording_url) ?? undefined,
-    user_id: userId,
-  }));
-
-  const result = eventsWithUser.length > 0
-    ? await db.createReviewEventsBatch(c.env.DB, eventsWithUser)
-    : { created: 0, skipped: 0 };
-
-  // Update sync metadata with the latest event timestamp
-  if (events.length > 0) {
-    const latestEvent = events.reduce((latest, e) =>
-      e.reviewed_at > latest.reviewed_at ? e : latest
-    );
-    await db.updateSyncMetadata(c.env.DB, userId, latestEvent.reviewed_at);
-  }
-
-  // Recompute card state for all affected cards
-  // This ensures the cards table reflects the latest state after sync.
-  // Bulk reads + batched writes, like /api/cards/recompute-states — the old
-  // 2-queries-per-card loop broke large reconcile uploads.
-  if (result.created > 0) {
-    const affectedCardIds = [...new Set(validEvents.map(e => e.card_id))];
-    console.log(`[API reviews] Recomputing state for ${affectedCardIds.length} cards`);
-
-    // Fetch full event history for the affected cards in chunked IN queries
-    const eventsByCard = new Map<string, SchedulerReviewEvent[]>();
-    const EVENT_FETCH_CHUNK = 50;
-    for (let i = 0; i < affectedCardIds.length; i += EVENT_FETCH_CHUNK) {
-      const chunk = affectedCardIds.slice(i, i + EVENT_FETCH_CHUNK);
-      const rows = await c.env.DB.prepare(`
-        SELECT id, card_id, rating, reviewed_at FROM review_events
-        WHERE user_id = ? AND card_id IN (${chunk.map(() => '?').join(',')})
-        ORDER BY reviewed_at ASC
-      `).bind(userId, ...chunk).all<{ id: string; card_id: string; rating: number; reviewed_at: string }>();
-      for (const e of rows.results) {
-        let list = eventsByCard.get(e.card_id);
-        if (!list) {
-          list = [];
-          eventsByCard.set(e.card_id, list);
-        }
-        list.push({ id: e.id, card_id: e.card_id, rating: e.rating as 0 | 1 | 2 | 3, reviewed_at: e.reviewed_at });
-      }
-    }
-
-    // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
-    // but not all FSRS columns (scheduled_days, reps). Map accordingly.
-    const updateStmt = c.env.DB.prepare(`
-      UPDATE cards SET
-        queue = ?,
-        stability = ?,
-        difficulty = ?,
-        lapses = ?,
-        ease_factor = ?,
-        interval = ?,
-        repetitions = ?,
-        next_review_at = ?,
-        due_timestamp = ?,
-        updated_at = datetime('now')
-      WHERE id = ?
-    `);
-
-    // "Forget this card": the cards' forgets replay with their reviews (a forget = back to NEW).
-    const replayByCard = mergeForgets(eventsByCard, await forgetsByCard(c.env.DB, userId, [...eventsByCard.keys()]).catch(() => new Map()));
-    const statements: D1PreparedStatement[] = [];
-    for (const [cardId, cardEvents] of replayByCard) {
-      try {
-        const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
-        statements.push(updateStmt.bind(
-          newState.queue,
-          newState.stability,
-          newState.difficulty,
-          newState.lapses,
-          newState.ease_factor,
-          newState.interval,        // same as scheduled_days
-          newState.repetitions,     // same as reps
-          newState.next_review_at,
-          newState.due_timestamp,
-          cardId
-        ));
-      } catch (err) {
-        console.error(`[API reviews] Failed to recompute state for card ${cardId}:`, err);
-        // Continue with other cards even if one fails
-      }
-    }
-
-    const UPDATE_BATCH = 100;
-    for (let i = 0; i < statements.length; i += UPDATE_BATCH) {
-      try {
-        await c.env.DB.batch(statements.slice(i, i + UPDATE_BATCH));
-      } catch (err) {
-        console.error(`[API reviews] Card state batch update failed at offset ${i}:`, err);
-      }
-    }
-  }
-
-  // Events for cards this account doesn't have are refused. The client marks
-  // the accepted ones synced and these as rejected (`_synced = -1`), instead of
-  // pretending the server holds them.
-  const validIds = new Set(validEvents.map(e => e.id));
-  return c.json({
-    ...result,
-    skipped_orphans: skippedOrphans,
-    orphan_event_ids: events.filter(e => !validIds.has(e.id)).map(e => e.id),
-  });
-});
-
-// Get review events since a timestamp (for sync)
-app.get('/api/reviews', async (c) => {
-  const userId = c.get('user').id;
-  const since = c.req.query('since');
-  const afterId = c.req.query('after_id') || '';
-  const limit = parseInt(c.req.query('limit') || '1000', 10);
-
-  if (!since) {
-    return c.json({ error: 'since parameter is required (ISO timestamp)' }, 400);
-  }
-
-  const events = await db.getReviewEventsSince(c.env.DB, userId, since, limit, afterId);
-
-  // Get sync metadata
-  const metadata = await db.getSyncMetadata(c.env.DB, userId);
-
-  return c.json({
-    events,
-    has_more: events.length >= limit,
-    server_time: new Date().toISOString(),
-    last_sync_at: metadata?.last_sync_at || null,
-  });
-});
-
-// Delete a single review event (Undo on the study page). Events are normally
-// append-only; undo is the deliberate exception. The client deletes the event
-// locally and calls this so a later download/full sync can't resurrect it.
-// The card's state is recomputed from the remaining events.
-app.delete('/api/reviews/:id', async (c) => {
-  const userId = c.get('user').id;
-  const eventId = c.req.param('id');
-
-  const event = await c.env.DB.prepare(
-    'SELECT id, card_id FROM review_events WHERE id = ? AND user_id = ?'
-  ).bind(eventId, userId).first<{ id: string; card_id: string }>();
-
-  if (!event) {
-    // Already gone or never uploaded — report success so the client can clear
-    // its pending-deletion queue.
-    return c.json({ deleted: false });
-  }
-
-  await c.env.DB.prepare('DELETE FROM review_events WHERE id = ? AND user_id = ?')
-    .bind(eventId, userId).run();
-
-  // The card's state from its remaining reviews + live forgets (a card with neither is NEW).
-  await recomputeCards(c.env.DB, userId, [event.card_id]);
-
-  return c.json({ deleted: true });
-});
-
-// Get review events for a specific card
-app.get('/api/cards/:id/events', async (c) => {
-  const userId = c.get('user').id;
-  const cardId = c.req.param('id');
-
-  // Verify card ownership
-  const card = await db.getCardById(c.env.DB, cardId, userId);
-  if (!card) {
-    return c.json({ error: 'Card not found' }, 404);
-  }
-
-  const events = await db.getCardReviewEvents(c.env.DB, cardId, userId);
-
-  return c.json({ events });
-});
-
-// Recompute all card states from review events (for fixing stale card data)
-app.post('/api/cards/recompute-states', async (c) => {
-  const userId = c.get('user').id;
-
-  // Workers cap subrequests (each D1 call counts) at ~1000 per request, so
-  // this must NOT query per card — with thousands of reviewed cards the old
-  // per-card loop got the request canceled mid-flight. Instead: page all
-  // events in a handful of SELECTs, group in memory, write in batches.
-
-  // 1. Page through every review event for the user (only the columns the
-  //    scheduler needs), grouping by card.
-  const eventsByCard = new Map<string, SchedulerReviewEvent[]>();
-  const PAGE_SIZE = 5000;
-  let cursorId = '';
-  for (;;) {
-    const page = await c.env.DB.prepare(`
-      SELECT id, card_id, rating, reviewed_at FROM review_events
-      WHERE user_id = ? AND id > ?
-      ORDER BY id ASC
-      LIMIT ?
-    `).bind(userId, cursorId, PAGE_SIZE).all<{
-      id: string;
-      card_id: string;
-      rating: number;
-      reviewed_at: string;
-    }>();
-
-    for (const e of page.results) {
-      let list = eventsByCard.get(e.card_id);
-      if (!list) {
-        list = [];
-        eventsByCard.set(e.card_id, list);
-      }
-      list.push({
-        id: e.id,
-        card_id: e.card_id,
-        rating: e.rating as 0 | 1 | 2 | 3,
-        reviewed_at: e.reviewed_at,
-      });
-    }
-
-    if (page.results.length < PAGE_SIZE) break;
-    cursorId = page.results[page.results.length - 1].id;
-  }
-
-  console.log(`[API recompute-states] Recomputing state for ${eventsByCard.size} cards for user ${userId}`);
-
-  // 2. Compute new state per card (pure CPU, no queries)
-  const updateStmt = c.env.DB.prepare(`
-    UPDATE cards SET
-      queue = ?,
-      stability = ?,
-      difficulty = ?,
-      lapses = ?,
-      ease_factor = ?,
-      interval = ?,
-      repetitions = ?,
-      next_review_at = ?,
-      due_timestamp = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `);
-
-  let updated = 0;
-  let errors = 0;
-  const statements: D1PreparedStatement[] = [];
-
-  // "Forget this card": forgets replay with the reviews (withForgetEvents sorts each card's list).
-  const replayByCard = mergeForgets(eventsByCard, await forgetsByCard(c.env.DB, userId).catch(() => new Map()));
-  for (const [cardId, cardEvents] of replayByCard) {
-    try {
-      // computeCardState expects events sorted by reviewed_at ascending
-      cardEvents.sort((a, b) => (a.reviewed_at < b.reviewed_at ? -1 : a.reviewed_at > b.reviewed_at ? 1 : (a.kind === 'forget' ? 1 : 0) - (b.kind === 'forget' ? 1 : 0)));
-      const newState = computeCardState(cardEvents, FSRS_DEFAULT_SETTINGS);
-
-      // Note: The cards table has legacy columns (ease_factor, interval, repetitions)
-      // but not all FSRS columns (scheduled_days, reps). Map accordingly.
-      statements.push(updateStmt.bind(
-        newState.queue,
-        newState.stability,
-        newState.difficulty,
-        newState.lapses,
-        newState.ease_factor,
-        newState.interval,        // same as scheduled_days
-        newState.repetitions,     // same as reps
-        newState.next_review_at,
-        newState.due_timestamp,
-        cardId
-      ));
-    } catch (err) {
-      console.error(`[API recompute-states] Failed to recompute state for card ${cardId}:`, err);
-      errors++;
-    }
-  }
-
-  // 3. Apply updates in batches (each batch is a single D1 call)
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < statements.length; i += BATCH_SIZE) {
-    const chunk = statements.slice(i, i + BATCH_SIZE);
-    try {
-      await c.env.DB.batch(chunk);
-      updated += chunk.length;
-    } catch (err) {
-      console.error(`[API recompute-states] Batch update failed at offset ${i}:`, err);
-      errors += chunk.length;
-    }
-  }
-
-  return c.json({
-    total_cards: eventsByCard.size,
-    updated,
-    errors,
-  });
-});
+// Review events: POST / GET /api/reviews, DELETE /api/reviews/:id, GET /api/cards/:id/events,
+// POST /api/cards/recompute-states — routes/review-events.ts (mounted with the other /api routes).
 
 // ============ Sync (for offline PWA) ============
 
@@ -5479,6 +5109,14 @@ app.get('/api/sync/changes', async (c) => {
   const since = parseInt(sinceParam, 10);
   if (isNaN(since)) {
     return c.json({ error: 'since must be a valid timestamp' }, 400);
+  }
+
+  // The daily check that the server's cached card state still equals the replay of the events
+  // (services/card-state.ts) — in the background, at most once a day per account.
+  try {
+    c.executionCtx.waitUntil(checkCardStatesIfDue(c.env.DB, userId));
+  } catch {
+    // no execution context (tests)
   }
 
   // Convert to SQLite datetime format (YYYY-MM-DD HH:MM:SS) to match datetime('now') values
@@ -5592,9 +5230,9 @@ app.get('/api/sync/changes', async (c) => {
     // "Forget this card": every live forget (a short list, sent whole; the device keeps its own
     // not-yet-uploaded ones on top and replays the cards whose forgets changed). shared/scheduler.
     card_forgets: await listForgets(c.env.DB, userId).catch(() => null),
-    // "Revisit later" for lessons: the gaps + new lessons a day, and every Done-for-good / Bring-back
-    // event (a short list, sent whole; the device keeps its own not-yet-uploaded ones on top).
-    revisit_settings: await getRevisitSettingsInfo(c.env.DB, userId).catch(() => null),
+    // Every legacy Done-for-good / Bring-back mark on a lesson (a short list, sent whole; the device
+    // keeps its own not-yet-uploaded ones on top). revisit_settings = fixed defaults for older builds.
+    revisit_settings: LEGACY_REVISIT_SETTINGS,
     revisit_events: await listRevisitEvents(c.env.DB, userId).catch(() => null),
   });
 });

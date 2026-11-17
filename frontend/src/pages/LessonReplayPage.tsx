@@ -18,11 +18,19 @@ import { StudyCustomLesson } from '../components/StudyCustomLesson';
 import { completeCustomLesson, syncCustomLessons } from '../services/custom-lesson-study';
 import { learnOf, revisionKeysFor } from '../services/lessonLearn';
 import { track } from '../services/analytics';
+import { useNetwork } from '../contexts/NetworkContext';
 import { lockedLessonLine, unlockButtonLabel } from '@shared/lesson';
 import { lockStatusOf, unlockLesson } from '../services/lessonUnlock';
 import './StudyPage.css';
 
 const FROM = new Set(['lessons_page', 'homework', 'today', 'player', 'coach', 'home', 'claude']);
+
+/** What the player says about a lesson that isn't on this device. */
+export function missingLessonLine(fetching: 'idle' | 'busy' | 'done', online: boolean): string {
+  if (fetching === 'busy') return 'Getting the lesson…';
+  if (fetching === 'done') return 'This lesson isn’t there any more — it may have been deleted.';
+  return online ? 'Getting the lesson…' : 'This lesson isn’t on this device yet — it needs a connection.';
+}
 
 export function LessonReplayPage() {
   const { id = '' } = useParams();
@@ -45,6 +53,18 @@ export function LessonReplayPage() {
 
   const exit = () => navigate(-1);
 
+  // Not on this device (Claude made it a moment ago; opened from a link): fetch it once when online,
+  // then say so plainly — "being fetched", "needs a connection" or "deleted" — never an empty player.
+  const { isOnline } = useNetwork();
+  const [fetching, setFetching] = useState<'idle' | 'busy' | 'done'>('idle');
+  useEffect(() => {
+    if (lesson !== null || fetching !== 'idle' || !isOnline) return;
+    setFetching('busy');
+    void syncCustomLessons()
+      .catch(() => undefined)
+      .finally(() => setFetching('done'));
+  }, [lesson, fetching, isOnline]);
+
   if (lesson === undefined || (lesson && !plan)) return <div className="study-fullscreen" />;
   if (!lesson || !plan) {
     return (
@@ -56,7 +76,7 @@ export function LessonReplayPage() {
           </div>
         </div>
         <div className="study-card-content" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
-          <p>This lesson isn&rsquo;t on this device yet — it comes with the next sync.</p>
+          <p data-testid="lesson-missing">{missingLessonLine(fetching, isOnline)}</p>
           <button className="btn btn-primary" onClick={exit}>Back</button>
         </div>
       </div>

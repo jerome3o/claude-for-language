@@ -140,12 +140,91 @@ object CardTools {
         return out
     }
 
+    // ---------- Where a line goes (docs/CHAT.md "Tool lines you can tap") ----------
+
+    /**
+     * `ResultLink`: what a tool-result line opens. [kind] lesson | card | cards | bumped | edited
+     * (analytics), [target] lesson | card | deck | up_next, [id] the lesson / note / deck id (null for
+     * Up next), [path] the app path (the Lab navigates by the web's paths), [label] the affordance's
+     * words ("Start" / "Open card" / "Open deck" / "See today"), [aria] the line's accessible name.
+     */
+    data class Link(val kind: String, val target: String, val id: String?, val path: String, val label: String, val aria: String)
+
+    data class BumpedNote(val noteId: String, val hanzi: String)
+
+    /** `bumpedNotes`: the notes ONE bump_cards result put first today — `bumped_notes`, else its hanzi matched in `pocket`. */
+    fun bumpedNotes(data: JsonObject?): List<BumpedNote> {
+        val out = ArrayList<BumpedNote>()
+        val seen = HashSet<String>()
+        fun push(id: String?, hanzi: String?) {
+            val i = id?.trim()
+            val h = hanzi?.trim()
+            if (i.isNullOrEmpty() || h.isNullOrEmpty() || !seen.add(i)) return
+            out += BumpedNote(i, h)
+        }
+        val list = data?.get("bumped_notes") as? JsonArray
+        if (list != null) {
+            for (b in list) (b as? JsonObject)?.let { push(str(it["note_id"]), str(it["hanzi"])) }
+            return out
+        }
+        val words = strings(data?.get("bumped")).ifEmpty { strings(data?.get("already_bumped")) }
+        val pocket = (data?.get("pocket") as? JsonArray).orEmpty()
+        for (h in words) {
+            for (p in pocket) {
+                val o = p as? JsonObject ?: continue
+                if (str(o["hanzi"])?.trim() == h.trim()) {
+                    push(str(o["note_id"]), h)
+                    break
+                }
+            }
+        }
+        return out
+    }
+
+    private fun enc(s: String) = dev.jeromeswannack.chineselearning.lab.core.Js.encodeURIComponent(s)
+
+    /** `toolResultLink`: the link of one result (null = a plain line); [all] = the reply's results (a card it deleted gets none). */
+    fun resultLink(r: Result, all: List<Result> = listOf(r)): Link? {
+        if (!r.success) return null
+        val deleted = all.filter { it.success && it.tool == "delete_current_card" }.mapNotNull { str(it.data?.get("deletedNoteId"))?.trim()?.ifEmpty { null } }.toSet()
+        fun card(kind: String, id: String, what: String): Link? =
+            if (id in deleted) null else Link(kind, "card", id, "/cards/${enc(id)}", "Open card", "Open the card $what")
+        return when (r.tool) {
+            "create_custom_lesson" -> {
+                val id = str(r.data?.get("lesson_id"))?.trim()?.ifEmpty { null } ?: return null
+                val title = str(r.data?.get("title"))?.trim()?.ifEmpty { null }
+                Link("lesson", "lesson", id, "/lessons/${enc(id)}/play?from=claude", "Start", "Start the mini lesson${title?.let { " $it" }.orEmpty()}")
+            }
+            "create_flashcards" -> {
+                val cards = addedCards(r.data)
+                if (cards.size == 1) return card("card", cards[0].noteId, cards[0].hanzi)
+                val deckId = str(r.data?.get("deck_id"))?.trim()?.ifEmpty { null } ?: str(r.data?.get("targetDeckId"))?.trim()?.ifEmpty { null } ?: return null
+                val deckName = str(r.data?.get("deck_name"))?.trim()?.ifEmpty { null }
+                Link("cards", "deck", deckId, "/decks/${enc(deckId)}", "Open deck", "Open the deck${deckName?.let { " $it" }.orEmpty()} with the new cards")
+            }
+            "bump_cards" -> {
+                val words = strings(r.data?.get("bumped")).ifEmpty { strings(r.data?.get("already_bumped")) }
+                if (words.isEmpty()) return null
+                val notes = bumpedNotes(r.data).filter { n -> words.any { it.trim() == n.hanzi } }
+                if (words.size == 1 && notes.size == 1) card("bumped", notes[0].noteId, notes[0].hanzi)
+                else Link("bumped", "up_next", null, "/up-next", "See today", "See today’s study list")
+            }
+            "edit_current_card" -> {
+                val note = r.data?.get("note") as? JsonObject
+                val id = str(note?.get("id"))?.trim()?.ifEmpty { null } ?: return null
+                card("edited", id, str(note?.get("hanzi"))?.trim().orEmpty())
+            }
+            else -> null
+        }
+    }
+
     /**
      * One line under the reply; [undo] = it offers Undo (an edit). [kind]: edited | added | deleted |
      * lesson | bumped | failed. An added line also has [head] ("✓ Added 2 cards") and [cards] (with
      * note ids; empty for an old row): shown as [head] + a tappable chip per card, else [text].
+     * [link] = where a tap on the line goes ([resultLink]; null = plain).
      */
-    data class Line(val kind: String, val text: String, val undo: Boolean, val head: String? = null, val cards: List<AddedCard> = emptyList())
+    data class Line(val kind: String, val text: String, val undo: Boolean, val head: String? = null, val cards: List<AddedCard> = emptyList(), val link: Link? = null)
 
     private val FAILED_LABELS = mapOf(
         "edit_current_card" to "Couldn’t edit this card",
@@ -162,6 +241,7 @@ object CardTools {
                 FAILED_LABELS[r.tool]?.let { label -> out += Line("failed", "✗ $label${r.error?.takeIf { it.isNotEmpty() }?.let { ": $it" } ?: ""}", false) }
                 continue
             }
+            val before = out.size
             when (r.tool) {
                 "edit_current_card" -> {
                     val fields = editedFields(r.data).map { FIELD_LABELS.getValue(it) }.distinct()
@@ -175,7 +255,9 @@ object CardTools {
                 }
                 "create_custom_lesson" -> {
                     val title = str(r.data?.get("title"))?.trim()
-                    out += Line("lesson", "🎓 Mini lesson made${if (!title.isNullOrEmpty()) ": $title" else ""} — it’s on your Mini Lessons page", false)
+                    // With its id the line opens the lesson; an old row without one points at the page.
+                    val page = if (str(r.data?.get("lesson_id"))?.trim().isNullOrEmpty()) " — it’s on your Mini Lessons page" else ""
+                    out += Line("lesson", "🎓 Mini lesson made${if (!title.isNullOrEmpty()) ": $title" else ""}$page", false)
                 }
                 "bump_cards" -> {
                     val bumped = strings(r.data?.get("bumped"))
@@ -184,6 +266,8 @@ object CardTools {
                     else if (already.isNotEmpty()) out += Line("bumped", "⚡ Already in today’s study: ${already.joinToString("、")}", false)
                 }
             }
+            // The line this result drew (if any) links to what it made.
+            if (out.size > before) resultLink(r, results)?.let { out[out.size - 1] = out.last().copy(link = it) }
         }
         return out
     }

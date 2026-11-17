@@ -119,8 +119,8 @@ fun SettingsScreen(
     feedback: @Composable () -> Unit = {},
     /** Advanced → "Share usage data" (AnalyticsSettings.kt). */
     shareUsage: @Composable () -> Unit = {},
-    /** Study extras: Ask Claude language, spoken answers (the old "Lessons & readers" gaps are gone, Oct 2026). */
-    revisitSettings: @Composable () -> Unit = {},
+    /** Study settings: New day starts at, Ask Claude language, spoken answers, held cards, skip handwriting. */
+    studySettings: @Composable () -> Unit = {},
     /** "Order new cards by": which new words come first (NewCardOrderSettings.kt). */
     newCardOrder: @Composable () -> Unit = {},
     /** "Audio lessons · Podcast feed" (ui/audiolessons/PodcastFeed.kt). */
@@ -149,7 +149,7 @@ fun SettingsScreen(
         item { BackupSection(ui, actions, env) }
         if (!role.isTutorOnly) item { BudgetSection(ui, env, actions) }
         if (!role.isTutorOnly) item { newCardOrder() }
-        if (!role.isTutorOnly) item { revisitSettings() }
+        if (!role.isTutorOnly) item { studySettings() }
         item { podcastFeed() }
         item { StartOnSection(ui, role, actions) }
         item { callAlerts() }

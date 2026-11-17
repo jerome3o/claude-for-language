@@ -11,6 +11,7 @@ import { adminMiddleware } from '../middleware/auth';
 import { inspectUser, inspectUserDecks, resolveUserRef, setUserRole, USER_ROLES } from '../services/admin/inspect';
 import { pickVoiceGender } from '@shared/chats';
 import { AccountDeletionError, deleteUserAccount, previewUserDeletion } from '../services/admin/delete-user';
+import { cardStateRepairStatus, repairUserCardStates, runCardStateRepair } from '../services/card-state';
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -58,6 +59,27 @@ admin.put('/admin/users/:user/voice-gender', async (c) => {
   await c.env.DB.prepare('UPDATE users SET voice_gender = ? WHERE id = ?').bind(picked.value, ref.id).run();
   console.log('[admin] voice_gender', ref.id, '→', picked.value, 'by', c.get('user').id);
   return c.json({ id: ref.id, email: ref.email, name: ref.name, voice_gender: picked.value });
+});
+
+// The server's cached card state vs the replay of the review events (services/card-state.ts).
+// GET = the repair bookkeeping + a DRY RUN over every card (what differs; nothing written).
+admin.get('/admin/users/:user/card-state', async (c) => {
+  const ref = await target(c);
+  if (!ref) return c.json({ error: 'User not found' }, 404);
+  const [status, check] = await Promise.all([
+    cardStateRepairStatus(c.env.DB, ref.id),
+    repairUserCardStates(c.env.DB, ref.id, { dryRun: true }),
+  ]);
+  return c.json({ user: ref, status, check });
+});
+
+// POST = replay every card now and rewrite the rows that differ (cache columns only, never events).
+admin.post('/admin/users/:user/card-state/repair', async (c) => {
+  const ref = await target(c);
+  if (!ref) return c.json({ error: 'User not found' }, 404);
+  const result = await runCardStateRepair(c.env.DB, ref.id, { restart: true });
+  console.log('[admin] card-state repair', ref.id, 'differing', result.differing, 'written', result.written, 'by', c.get('user').id);
+  return c.json({ user: ref, result, status: await cardStateRepairStatus(c.env.DB, ref.id) });
 });
 
 admin.get('/admin/users/:user/deletion-preview', async (c) => {

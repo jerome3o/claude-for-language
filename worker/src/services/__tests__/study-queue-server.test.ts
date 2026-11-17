@@ -10,6 +10,7 @@ import { getDeckStats, getDueCards, getOverviewStats } from '../../db/queries';
 import { countQueue, introducedToday, selectStudyQueue, DEFAULT_STUDY_BUDGET, type QueueCardInput, type QueueDeckInput } from '@shared/decks';
 import { studyCutoffMs, studyDayAt } from '../../../../shared/study/studyDay';
 import { MASTERED_CARD_SQL } from '@shared/progress/cardSql';
+import { CARD_STATE_REPAIR_VERSION } from '../card-state';
 
 const NOW = Date.parse('2026-11-17T12:00:00.000Z'); // London, 12:00 — study day 2026-11-17
 const DAY = 86_400_000;
@@ -33,7 +34,9 @@ function review(id: string, cardId: string, at: number) {
 
 beforeEach(async () => {
   db = await createSqliteD1();
-  db.raw.run("INSERT INTO users (id, email, name, role, time_zone) VALUES ('u1', 'learner@example.com', 'Learner', 'student', 'Europe/London')");
+  // card_state_version: these rows are hand-written queue states (not the replay of the events below),
+  // so the one-time replay (services/card-state.ts, tested in card-state-sqlite.test.ts) is marked done.
+  db.raw.run("INSERT INTO users (id, email, name, role, time_zone, card_state_version) VALUES ('u1', 'learner@example.com', 'Learner', 'student', 'Europe/London', ?)", [CARD_STATE_REPAIR_VERSION]);
   db.raw.run("INSERT INTO decks (id, user_id, name, new_cards_per_day, secondary_cards_per_day, study_priority, created_at) VALUES ('dA', 'u1', 'A', 3, 6, 2, '2026-10-01T00:00:00Z')");
   db.raw.run("INSERT INTO decks (id, user_id, name, new_cards_per_day, secondary_cards_per_day, study_priority, created_at) VALUES ('dB', 'u1', 'B', 3, 6, 1, '2026-10-02T00:00:00Z')");
   for (const n of ['n1', 'n2', 'n3', 'n4', 'n5']) note('dA', n);
