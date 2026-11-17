@@ -39,7 +39,7 @@ describe('admin tools', () => {
     const { ctx, tools } = fakeContext({});
     registerAdminTools(ctx);
     expect([...tools.keys()].sort()).toEqual([
-      'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
+      'admin_card_state', 'admin_delete_user', 'admin_get_user', 'admin_handle_access_request', 'admin_inspect_user_decks', 'admin_list_access_requests',
       'admin_list_users', 'admin_preview_delete_user', 'admin_set_can_invite', 'admin_set_role', 'admin_set_user_voice_gender',
       'audio_backfill_run', 'audio_backfill_status', 'audio_lessons_rerender', 'audio_retry_failed', 'audio_settings_get', 'audio_settings_update', 'audio_tts_compare',
     ]);
@@ -62,6 +62,20 @@ describe('admin tools', () => {
       { method: 'GET', path: '/api/admin/audio/settings?azure_voices=1', body: undefined },
       { method: 'PUT', path: '/api/admin/audio/settings', body: { stored_order: ['minimax', 'azure'], providers: { azure: { max_rpm: 12 } } } },
       { method: 'PUT', path: '/api/admin/audio/settings', body: { reset: true } },
+    ]);
+  });
+
+  it('card state: check is a read-only GET (the dry run); repair POSTs', async () => {
+    const { ctx, tools, calls } = fakeContext({
+      'GET /api/admin/users/me%40x.test/card-state': () => ({ check: { scanned: 10, differing: 2 } }),
+      'POST /api/admin/users/me%40x.test/card-state/repair': () => ({ result: { written: 2 } }),
+    });
+    registerAdminTools(ctx);
+    expect(text(await tools.get('admin_card_state')!({ user: 'me@x.test' }))).toContain('"differing": 2');
+    expect(text(await tools.get('admin_card_state')!({ user: 'me@x.test', action: 'repair' }))).toContain('"written": 2');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET /api/admin/users/me%40x.test/card-state',
+      'POST /api/admin/users/me%40x.test/card-state/repair',
     ]);
   });
 
