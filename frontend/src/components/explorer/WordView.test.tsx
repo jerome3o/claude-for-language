@@ -20,6 +20,8 @@ const added = vi.hoisted(() => ({
   moveNotesApi: vi.fn(async (ids: string[], deckId: string) => ({ moved: ids.length, note_ids: ids, deck_id: deckId })),
   bumpNotes: vi.fn(async () => ({ added: ['new-note'], already: [], message: '⚡ 学习 is first in today’s study' })),
   sync: vi.fn(async () => undefined),
+  glossWords: vi.fn(async (w: Array<{ hanzi: string; pinyin?: string }>) => w.map((x) => ({ hanzi: x.hanzi, pinyin: x.pinyin ?? '', english: '' }))),
+  lookupWord: vi.fn(async (): Promise<unknown> => ({ status: 'offline' })),
 }));
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn(), trackError: vi.fn() }));
@@ -33,9 +35,10 @@ vi.mock('../../api/client', async (importOriginal) => ({
   getDecks: vi.fn(async () => [{ id: 'd2', name: 'HSK 2', study_priority: 1, created_at: '2026-01-01' }]),
   createNote: added.createNote,
   moveNotesApi: added.moveNotesApi,
+  glossWords: added.glossWords,
 }));
 vi.mock('../../services/sync', () => ({ syncService: { syncInBackground: added.sync } }));
-vi.mock('../../services/wordDict', () => ({ lookupWord: vi.fn(async () => ({ status: 'offline' })) }));
+vi.mock('../../services/wordDict', () => ({ lookupWord: added.lookupWord }));
 vi.mock('../../services/charDict', () => ({
   lookupChar: vi.fn(async () => ({ status: 'missing' })),
   prefetchChars: vi.fn(async () => 0),
@@ -59,18 +62,29 @@ let container: HTMLDivElement | null = null;
 
 afterEach(() => {
   for (const k of Object.keys(ownCards)) delete ownCards[k];
+  added.lookupWord.mockImplementation(async () => ({ status: 'offline' }));
+  added.createNote.mockClear();
+  added.glossWords.mockClear();
+  setOnline(true);
   act(() => root?.unmount());
   container?.remove();
   root = null;
 });
 
-async function render(api?: ExplorerApi) {
+function setOnline(on: boolean) {
+  Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => on });
+}
+
+type Item = { kind: 'word'; hanzi: string; pinyin?: string; gloss?: string; sentence?: string };
+const XUEXI: Item = { kind: 'word', hanzi: '学习', pinyin: 'xuéxí', gloss: 'to study', sentence: '我们一起学习中文。' };
+
+async function render(api?: ExplorerApi, item: Item = XUEXI) {
   container = document.createElement('div');
   const footer = document.createElement('div');
   document.body.append(container, footer);
   await act(async () => {
     root = createRoot(container!);
-    const view = <WordView item={{ kind: 'word', hanzi: '学习', pinyin: 'xuéxí', gloss: 'to study', sentence: '我们一起学习中文。' }} onClose={() => {}} footer={footer} />;
+    const view = <WordView item={item} onClose={() => {}} footer={footer} />;
     root.render(<MemoryRouter>{api ? <ExplorerInside api={api}>{view}</ExplorerInside> : view}</MemoryRouter>);
   });
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
@@ -209,5 +223,111 @@ describe('WordView card tie-in', () => {
     await vi.waitFor(() => expect(added.moveNotesApi).toHaveBeenCalledWith(['new-note'], 'd2'));
     await vi.waitFor(() => expect(document.body.querySelector('[data-testid="move-to-deck"]')).toBeNull());
     expect(footer.querySelector('[data-testid="added-to-deck"]')?.textContent).toContain('✓ Moved to HSK 2');
+  });
+});
+
+/**
+ * "+ Add as card" before the meaning has loaded (shared/explorer/addCard.ts): the tap waits for the
+ * lookup ("Adding…"), asks the gloss path when the dictionary has no meaning, and opens the fill
+ * sheet — never the server's "english is required" — offline or when nothing gave a meaning.
+ */
+describe('WordView: + Add as card before the meaning has loaded', () => {
+  const BARE: Item = { kind: 'word', hanzi: '银行' };
+  const tapAdd = async (footer: HTMLElement) => {
+    await act(async () => {
+      resolveExisting([]);
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    await act(async () => {
+      (footer.querySelector('[data-testid="explorer-add-card"]') as HTMLButtonElement).click();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+  };
+  const type = async (input: HTMLInputElement, value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+
+  it('waits for the dictionary lookup ("Adding…"), then saves the card WITH its meaning', async () => {
+    let answer: (v: unknown) => void = () => {};
+    added.lookupWord.mockImplementation(() => new Promise((r) => { answer = r; }));
+    const footer = await render(undefined, BARE);
+    await tapAdd(footer);
+    // Still looking it up: no request yet, the button says so.
+    expect(added.createNote).not.toHaveBeenCalled();
+    const btn = footer.querySelector('[data-testid="explorer-add-card"]') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Adding…');
+    expect(btn.disabled).toBe(true);
+    await act(async () => {
+      answer({ status: 'ok', record: { hanzi: '银行', pinyin: 'yínháng', english: 'bank', senses: ['bank'], syllables: ['yín', 'háng'], rank: 900 } });
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(added.createNote).toHaveBeenCalledWith('source:explorer', expect.objectContaining({ hanzi: '银行', pinyin: 'yínháng', english: 'bank' }));
+    expect(added.glossWords).not.toHaveBeenCalled();
+    expect(footer.querySelector('[data-testid="xp-added"]')).not.toBeNull();
+  });
+
+  it('a word the dictionary lacks: the gloss path fills the meaning, pinyin from the device', async () => {
+    added.lookupWord.mockImplementation(async () => ({ status: 'missing' }));
+    added.glossWords.mockImplementationOnce(async (w) => w.map((x) => ({ hanzi: x.hanzi, pinyin: 'wrong', english: 'bank' })));
+    const footer = await render(undefined, BARE);
+    await tapAdd(footer);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(added.glossWords).toHaveBeenCalledWith([{ hanzi: '银行', pinyin: 'yínháng' }]);
+    expect(added.createNote).toHaveBeenCalledWith('source:explorer', expect.objectContaining({ hanzi: '银行', pinyin: 'yínháng', english: 'bank' }));
+  });
+
+  it('no meaning anywhere: the fill sheet asks for it, then adds what he types', async () => {
+    added.lookupWord.mockImplementation(async () => ({ status: 'missing' }));
+    const footer = await render(undefined, BARE);
+    await tapAdd(footer);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(added.createNote).not.toHaveBeenCalled();
+    const fill = footer.querySelector('[data-testid="explorer-add-fill"]');
+    expect(fill?.textContent).toContain('What does 银行 mean?');
+    expect(fill?.getAttribute('data-reason')).toBe('no_meaning');
+    expect((footer.querySelector('[data-testid="explorer-add-fill-pinyin"]') as HTMLInputElement).value).toBe('yínháng');
+    const save = footer.querySelector('[data-testid="explorer-add-fill-save"]') as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    await type(footer.querySelector('[data-testid="explorer-add-fill-english"]') as HTMLInputElement, 'bank');
+    expect(save.disabled).toBe(false);
+    await act(async () => {
+      save.click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(added.createNote).toHaveBeenCalledWith('source:explorer', expect.objectContaining({ hanzi: '银行', pinyin: 'yínháng', english: 'bank' }));
+    expect(footer.querySelector('[data-testid="xp-added"]')).not.toBeNull();
+  });
+
+  it('offline: the fill sheet opens with English empty and a clear prompt — no raw error, no request', async () => {
+    setOnline(false);
+    const footer = await render(undefined, BARE);
+    await tapAdd(footer);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(added.createNote).not.toHaveBeenCalled();
+    expect(added.glossWords).not.toHaveBeenCalled();
+    const fill = footer.querySelector('[data-testid="explorer-add-fill"]');
+    expect(fill?.getAttribute('data-reason')).toBe('offline');
+    expect(fill?.textContent).toContain('What does 银行 mean?');
+    expect(footer.querySelector('[data-testid="explorer-add-fill-hint"]')?.textContent).toContain('offline');
+    expect((footer.querySelector('[data-testid="explorer-add-fill-english"]') as HTMLInputElement).value).toBe('');
+    expect(footer.textContent).not.toContain('english is required');
+    const save = footer.querySelector('[data-testid="explorer-add-fill-save"]') as HTMLButtonElement;
+    await type(footer.querySelector('[data-testid="explorer-add-fill-english"]') as HTMLInputElement, 'bank');
+    // Typed, but Add waits for a connection — then it works.
+    expect(save.disabled).toBe(true);
+    expect(save.textContent).toBe('Waiting for a connection…');
+    await act(async () => {
+      setOnline(true);
+      window.dispatchEvent(new Event('online'));
+    });
+    expect(save.disabled).toBe(false);
+    await act(async () => {
+      save.click();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(added.createNote).toHaveBeenCalledWith('source:explorer', expect.objectContaining({ hanzi: '银行', english: 'bank' }));
   });
 });

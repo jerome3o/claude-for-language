@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { CharWordStatus } from '@shared/chars';
 import { sourceDeckForExplorer } from '@shared/decks/source-decks';
 import { normalizeHanzi } from '@shared/import/parse';
+import { explorerAddHint, explorerAddProblem, explorerAddPrompt, explorerAddStep, type ExplorerAddFillReason } from '@shared/explorer/addCard';
+import { glossWords } from '../../api/client';
+import { autoPinyin } from '../../utils/autoPinyin';
 import { track, trackError } from '../../services/analytics';
 import { invalidateKnownHanzi } from '../../services/readerWords';
 import { addCardToSourceDeck, type AddedToDeck } from '../../services/sourceDecks';
@@ -42,8 +45,11 @@ export function CardTieIn({
   hanzi?: string;
   have: CardTieInHave | null;
   addLabel: string;
-  /** What "+ Add" pre-fills (built when tapped, so it has the latest pinyin / meaning). */
-  chunk: () => Chunk;
+  /**
+   * What "+ Add" saves — built when tapped, and may WAIT for the view's in-flight lookups (the
+   * button says "Adding…" meanwhile), so a fast tap never saves a card without its meaning.
+   */
+  chunk: () => Chunk | Promise<Chunk>;
   /** Close the explorer (Open card navigates away). */
   onClose: () => void;
   testIds: { root: string; checking: string; add: string };
@@ -64,8 +70,12 @@ export function CardTieIn({
   const made = hanziKey && have && have.noteIds.length === 0 ? explorer.justAdded?.find((n) => normalizeHanzi(n.hanzi) === hanziKey) : undefined;
   const shownAdded = added ?? (made ? { key: sourceDeckForExplorer(explorer.source), noteIds: [made.noteId], deckId: made.deckId, deckName: made.deckName, noteId: made.noteId, hanzi: made.hanzi } : null);
 
-  async function add() {
-    const c: Chunk = chunk();
+  // The fill sheet (shared/explorer/addCard.ts): no meaning after the lookups + the gloss, or
+  // offline — the meaning to type, never a raw "english is required".
+  const [fill, setFill] = useState<{ chunk: Chunk; reason: ExplorerAddFillReason } | null>(null);
+  const isOnline = useOnline();
+
+  async function save(c: Chunk) {
     const key = sourceDeckForExplorer(explorer.source);
     setAdding(true);
     setAddError(null);
@@ -74,6 +84,7 @@ export function CardTieIn({
       track('explorer.add_card', { kind, source_deck: true, deck_key: key });
       if (explorer.source === 'add') track('add.word_added', { via: 'card' });
       invalidateKnownHanzi();
+      setFill(null);
       setAdded({ ...out, hanzi: c.hanzi });
     } catch (e) {
       trackError('add_card', e);
@@ -81,6 +92,36 @@ export function CardTieIn({
     } finally {
       setAdding(false);
     }
+  }
+
+  async function add() {
+    setAdding(true);
+    setAddError(null);
+    let c: Chunk;
+    try {
+      c = await chunk();
+    } catch {
+      c = { hanzi: hanzi ?? '', pinyin: '', english: '' };
+    }
+    const input = { hanzi: c.hanzi, pinyin: c.pinyin, english: c.english, devicePinyin: deviceWordPinyin(c.hanzi), online: isOnlineNow(), glossed: false };
+    let step = explorerAddStep(input);
+    if (step.kind === 'gloss') {
+      // No meaning on the device (a word outside the 60k list): the gloss path fills it.
+      const want = step.hanzi;
+      const glossed = await glossWords([{ hanzi: want, ...(step.pinyin ? { pinyin: step.pinyin } : {}) }])
+        .then((r) => r.find((w) => w.hanzi === want) ?? r[0] ?? null)
+        .catch(() => null);
+      track('explorer.add_gloss', { kind, found: !!glossed?.english?.trim() });
+      step = explorerAddStep({ ...input, pinyin: step.pinyin || glossed?.pinyin || '', english: glossed?.english ?? '', online: isOnlineNow(), glossed: true });
+    }
+    if (step.kind === 'fill') {
+      track('explorer.add_fill', { kind, reason: step.reason });
+      setFill({ chunk: { ...c, hanzi: step.hanzi, pinyin: step.pinyin, english: step.english }, reason: step.reason });
+      setAdding(false);
+      return;
+    }
+    if (step.kind === 'add') await save({ ...c, hanzi: step.hanzi, pinyin: step.pinyin, english: step.english });
+    else setAdding(false);
   }
 
   return (
@@ -146,13 +187,127 @@ export function CardTieIn({
           </div>
         </div>
       ) : (
-        <>
-          {addError && <div className="xp-have-line xp-add-error" role="alert">{addError}</div>}
-          <button type="button" className="btn btn-primary xp-add" onClick={() => void add()} disabled={adding} data-testid={testIds.add}>
-            {adding ? 'Adding…' : addError ? 'Try again' : addLabel}
-          </button>
-        </>
+        fill ? (
+          <MeaningFill
+            chunk={fill.chunk}
+            reason={fill.reason}
+            online={isOnline}
+            adding={adding}
+            error={addError}
+            onCancel={() => {
+              setFill(null);
+              setAddError(null);
+            }}
+            onSave={(c) => void save(c)}
+          />
+        ) : (
+          <>
+            {addError && <div className="xp-have-line xp-add-error" role="alert">{addError}</div>}
+            <button type="button" className="btn btn-primary xp-add" onClick={() => void add()} disabled={adding} aria-busy={adding} data-testid={testIds.add}>
+              {adding ? 'Adding…' : addError ? 'Try again' : addLabel}
+            </button>
+          </>
+        )
       )}
     </div>
+  );
+}
+
+const isOnlineNow = () => typeof navigator === 'undefined' || navigator.onLine !== false;
+
+/** The device's reading of a word (auto-pinyin + 一 / 不), one word = no spaces (zhège). */
+function deviceWordPinyin(hanzi: string): string {
+  try {
+    return autoPinyin(hanzi).replace(/\s+/g, '');
+  } catch {
+    return '';
+  }
+}
+
+/** navigator.onLine, kept current (the fill sheet's Add waits for a connection). */
+function useOnline(): boolean {
+  const [online, setOnline] = useState(isOnlineNow);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  return online;
+}
+
+/**
+ * The fill sheet in the explorer's footer (shared/explorer/addCard.ts): "What does 吴侬软语 mean?",
+ * why it asks, the pinyin (the device's reading when the view had none) and the meaning to type.
+ * Add waits for a connection — never a raw "english is required" / network error.
+ */
+function MeaningFill({
+  chunk,
+  reason,
+  online,
+  adding,
+  error,
+  onCancel,
+  onSave,
+}: {
+  chunk: Chunk;
+  reason: ExplorerAddFillReason;
+  online: boolean;
+  adding: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onSave: (c: Chunk) => void;
+}) {
+  const [pinyin, setPinyin] = useState(chunk.pinyin);
+  const [english, setEnglish] = useState(chunk.english);
+  const englishRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!chunk.english) englishRef.current?.focus();
+  }, [chunk.english]);
+  const problem = explorerAddProblem(english, online);
+  const hint = online ? (reason === 'offline' ? 'You’re back online.' : explorerAddHint('no_meaning', false)) : explorerAddHint('offline', !!chunk.english);
+  return (
+    <form
+      className="xp-fill"
+      data-testid="explorer-add-fill"
+      data-reason={reason}
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (problem || adding) return;
+        onSave({ ...chunk, pinyin: pinyin.trim(), english: english.trim() });
+      }}
+    >
+      <div className="xp-fill-q">{explorerAddPrompt(chunk.hanzi)}</div>
+      <div className="xp-fill-hint" role="status" data-testid="explorer-add-fill-hint">{hint}</div>
+      <label className="xp-fill-field">
+        <span>Pinyin</span>
+        <input value={pinyin} onChange={(e) => setPinyin(e.target.value)} autoComplete="off" autoCapitalize="off" data-testid="explorer-add-fill-pinyin" />
+      </label>
+      <label className="xp-fill-field">
+        <span>Meaning</span>
+        <input
+          ref={englishRef}
+          value={english}
+          onChange={(e) => setEnglish(e.target.value)}
+          placeholder="In English"
+          autoComplete="off"
+          enterKeyHint="done"
+          data-testid="explorer-add-fill-english"
+        />
+      </label>
+      {error && <div className="xp-have-line xp-add-error" role="alert">{error}</div>}
+      <div className="xp-footer-row">
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={!!problem || adding} data-testid="explorer-add-fill-save">
+          {adding ? 'Adding…' : !online ? 'Waiting for a connection…' : 'Add as card'}
+        </button>
+      </div>
+    </form>
   );
 }

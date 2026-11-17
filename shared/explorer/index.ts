@@ -4,3 +4,4 @@ export * from './related';
 export * from './segments';
 export * from './drill';
 export * from './frequency-tier';
+export * from './addCard';
