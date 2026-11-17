@@ -4,6 +4,7 @@
  * validated live with mergeTtsConfig and saved with PUT /api/admin/audio/settings.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createAudioPlayer, type AudioPlayer } from '../utils/audioPlayback';
 import { Link } from 'react-router-dom';
 import {
   DEFAULT_TTS_CONFIG,
@@ -316,19 +317,21 @@ function ProviderCard({
   const [sampleBusy, setSampleBusy] = useState<TtsVoiceRole | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [checkingAzure, setCheckingAzure] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The one audio player (utils/audioPlayback.ts).
+  const audioRef = useRef<AudioPlayer | null>(null);
 
-  useEffect(() => () => { audioRef.current?.pause(); }, []);
+  useEffect(() => () => { audioRef.current?.dispose(); audioRef.current = null; }, []);
 
   const playSample = async (role: TtsVoiceRole) => {
     setSampleBusy(role);
     setNotice(null);
     try {
       const s = await getAudioSample({ provider: id, voice: p.voices[role], role });
-      audioRef.current?.pause();
-      const audio = new Audio(`data:${s.content_type};base64,${s.audio_base64}`);
-      audioRef.current = audio;
-      await audio.play();
+      const player = audioRef.current ?? (audioRef.current = createAudioPlayer());
+      player.play(`data:${s.content_type};base64,${s.audio_base64}`, {
+        label: 'admin_voice_sample',
+        onError: () => setNotice({ kind: 'error', text: "Couldn't play the sample." }),
+      });
     } catch (err) {
       const busy = err instanceof AudioAdminError && err.rateLimited;
       setNotice({ kind: 'error', text: busy ? `${TTS_PROVIDER_NAMES[id]} is busy — try again in a minute.` : errorText(err) });

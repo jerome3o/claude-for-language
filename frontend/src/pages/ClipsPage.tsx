@@ -5,6 +5,7 @@
  * the Learn more sheet. Works offline for clips already on the device.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createMediaTrack, type MediaTrack } from '../utils/audioPlayback';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { clipInteractValue, clipMusicFor, clipMusicShouldPlay, clipMusicStep, clipMusicTarget, CLIP_MUSIC_VOLUME, type ClipRecord } from '@shared/clips';
 import { ClipPlayer, type ClipPrefToggle, type LearnMoreVia } from '../components/clips/ClipPlayer';
@@ -43,7 +44,8 @@ export function ClipsPage() {
   const feedRef = useRef<HTMLDivElement>(null);
   const viewed = useRef(new Set<string>());
   const completed = useRef(new Set<string>());
-  const music = useRef<HTMLAudioElement | null>(null);
+  // The music bed: an ambient media track (utils/audioPlayback.ts) — loops, ducks, plays under the voice.
+  const music = useRef<MediaTrack | null>(null);
   const speaking = useRef(false);
   const positioned = useRef(false);
   const opened = useRef(false);
@@ -121,18 +123,9 @@ export function ClipsPage() {
   // music on, ducked under every voice line.
   const musicTrack = clipMusicFor(current?.spec?.style.theme);
   useEffect(() => {
-    if (!music.current) {
-      const el = new Audio();
-      el.loop = true;
-      el.volume = CLIP_MUSIC_VOLUME;
-      music.current = el;
-    }
-    const el = music.current;
-    if (!el.src.endsWith(musicTrack.path)) {
-      el.src = musicTrack.path;
-      el.currentTime = 0;
-    }
-    if (clipMusicShouldPlay({ playing, muted: prefs.muted, music: prefs.music })) el.play().catch(() => {});
+    const el = music.current ?? (music.current = createMediaTrack({ ambient: true, loop: true, volume: CLIP_MUSIC_VOLUME }));
+    if (el.sourceUrl() !== musicTrack.path) el.load(musicTrack.path, { label: 'clip_music' });
+    if (clipMusicShouldPlay({ playing, muted: prefs.muted, music: prefs.music })) void el.play();
     else el.pause();
   }, [playing, prefs.muted, prefs.music, musicTrack.path]);
   useEffect(() => {
@@ -140,12 +133,15 @@ export function ClipsPage() {
     const id = window.setInterval(() => {
       const now = performance.now();
       const el = music.current;
-      if (el) el.volume = clipMusicStep(el.volume, clipMusicTarget({ speaking: speaking.current }), now - last);
+      if (el) el.setVolume(clipMusicStep(el.volume(), clipMusicTarget({ speaking: speaking.current }), now - last));
       last = now;
     }, 50);
     return () => window.clearInterval(id);
   }, []);
-  useEffect(() => () => music.current?.pause(), []);
+  useEffect(() => () => {
+    music.current?.dispose();
+    music.current = null;
+  }, []);
 
   const onScroll = () => {
     const el = feedRef.current;

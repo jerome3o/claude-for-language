@@ -17,6 +17,13 @@
  *
  * Callers keep one player for their lifetime and must `dispose()` it on
  * unmount.
+ *
+ * A clip that pauses, seeks, shows its progress, loops or plays under another
+ * one (the reader's scrubber, chat voice / listening bubbles, a recording's
+ * preview, clips' voice + music) is a MediaTrack (`createMediaTrack`, below):
+ * the same managed element, element-only because no bridge version can seek.
+ * Every <audio> the app plays goes through this module; the device voice
+ * (speech synthesis) through `speakFallback` (services/audioCache.ts).
  */
 
 import { trackClip, trackNativeClip, ClipTracker, NativeClipStats } from './audioDiagnostics';
@@ -593,4 +600,252 @@ export function createAudioPlayer(): AudioPlayer {
       }
     },
   };
+}
+
+// ---- Media tracks: clips that pause, seek, show progress, loop or mix ----
+//
+// `createAudioPlayer` plays a clip start to end (through the native bridge in the Android app). The
+// bridge — every version, v1 to v3 — has no pause / resume, seek, position or duration, and one
+// output: a clip that is scrubbed (the reader's phrase blocks), shows its progress (chat voice and
+// listening bubbles), pauses with its screen (clips), loops under a voice (the clips' music bed) or
+// is a recording being previewed can't go through it. Those play through a MediaTrack: the same
+// managed <audio> element (one per track, at most one object URL, released before the next source),
+// the same pitch-kept speed (`applyPlaybackRate`), the live-player count and the clip diagnostics,
+// and — unless `ambient` — the playback activity that background caching yields to. In the Android
+// app these played through the WebView's <audio> before too; nothing changes for the bridge.
+
+export interface TrackHandlers {
+  /** Which feature is playing, for diagnostics. Defaults to 'unknown'. */
+  label?: string;
+  /** The clip's length is known (ms). */
+  onLoaded?: (durationMs: number) => void;
+  onPlay?: () => void;
+  /** Paused (by `pause()`, the system, or the end). */
+  onPause?: () => void;
+  /** While playing, a few times a second: where it is (ms) and how long it is (ms, 0 = unknown). */
+  onTime?: (positionMs: number, durationMs: number) => void;
+  onEnded?: () => void;
+  onError?: () => void;
+}
+
+export interface TrackOptions {
+  /**
+   * Background sound (the clips' music bed): never counted as "playing" — background caching
+   * doesn't wait for it — and not filed in the clip diagnostics.
+   */
+  ambient?: boolean;
+  /** Tracks of one group play one at a time: starting one pauses the others (chat voice messages). */
+  group?: string;
+  loop?: boolean;
+  /** 0–1. */
+  volume?: number;
+}
+
+export interface MediaTrack {
+  /** Take a new source (a Blob → a managed object URL, or a URL), replacing the last; does not play. Speed / volume / loop stay. */
+  load(source: Blob | string, handlers?: TrackHandlers): void;
+  /** Play from where it is; false when there is no source or the browser refused. */
+  play(): Promise<boolean>;
+  pause(): void;
+  /** Jump to `ms` (playing or not). */
+  seek(ms: number): void;
+  positionMs(): number;
+  /** The clip's length in ms (0 until known). */
+  durationMs(): number;
+  isPaused(): boolean;
+  /** Played to its end (and not restarted). */
+  isEnded(): boolean;
+  /** The source last loaded, as given (a URL), or null for a blob / none. */
+  sourceUrl(): string | null;
+  hasSource(): boolean;
+  /** Playback speed, pitch kept (1 = normal). */
+  setRate(rate: number): void;
+  setVolume(volume: number): void;
+  volume(): number;
+  setLoop(on: boolean): void;
+  /** Pause and drop the source (frees the decoder and the object URL). */
+  unload(): void;
+  /** Unload and drop the element. Call on unmount. */
+  dispose(): void;
+}
+/** Playing tracks per group (one at a time). */
+const groupPlaying = new Map<string, MediaTrack>();
+
+function clampVolume(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1;
+}
+
+export function createMediaTrack(options: TrackOptions = {}): MediaTrack {
+  let element: HTMLAudioElement | null = null;
+  let objectUrl: string | null = null;
+  let url: string | null = null;
+  let source: Blob | string | null = null;
+  let handlers: TrackHandlers = {};
+  let tracker: ClipTracker | null = null;
+  let active = false;
+  let rate = 1;
+  let vol = clampVolume(options.volume ?? 1);
+  let loop = options.loop ?? false;
+
+  const setActive = (on: boolean) => {
+    if (options.ambient || active === on) return;
+    active = on;
+    if (on) clipStarted();
+    else clipStopped();
+  };
+  const finishTracker = (outcome: { ended?: boolean; error?: string | null }) => {
+    if (!tracker) return;
+    tracker.finish(outcome);
+    tracker = null;
+  };
+  const durationOf = (el: HTMLAudioElement) => (Number.isFinite(el.duration) && el.duration > 0 ? Math.round(el.duration * 1000) : 0);
+  const leaveGroup = () => {
+    if (options.group && groupPlaying.get(options.group) === track) groupPlaying.delete(options.group);
+  };
+
+  function ensureElement(): HTMLAudioElement {
+    if (element) return element;
+    const el = new Audio();
+    livePlayers++;
+    el.preload = 'auto';
+    el.onloadedmetadata = () => handlers.onLoaded?.(durationOf(el));
+    el.onplay = () => {
+      setActive(true);
+      if (!options.ambient && !tracker && source !== null) tracker = trackClip(el, source, handlers.label ?? 'unknown');
+      handlers.onPlay?.();
+    };
+    el.onpause = () => {
+      // The end pauses too: onended files that one.
+      if (!el.ended) {
+        finishTracker({ ended: false });
+        setActive(false);
+        leaveGroup();
+      }
+      handlers.onPause?.();
+    };
+    el.ontimeupdate = () => handlers.onTime?.(Math.round(el.currentTime * 1000), durationOf(el));
+    el.onended = () => {
+      finishTracker({ ended: true });
+      setActive(false);
+      leaveGroup();
+      handlers.onEnded?.();
+    };
+    el.onerror = () => {
+      if (source === null) return; // unload() clearing the source
+      finishTracker({ error: describeMediaError(el) });
+      setActive(false);
+      leaveGroup();
+      handlers.onError?.();
+    };
+    element = el;
+    return el;
+  }
+
+  function releaseSource() {
+    finishTracker({ ended: false });
+    setActive(false);
+    leaveGroup();
+    source = null;
+    url = null;
+    if (element) {
+      element.pause();
+      element.removeAttribute('src');
+      try {
+        element.load();
+      } catch {
+        // No media stack (tests, old WebViews)
+      }
+    }
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+    }
+  }
+
+  const track: MediaTrack = {
+    load(next, nextHandlers = {}) {
+      releaseSource();
+      handlers = nextHandlers;
+      const el = ensureElement();
+      source = next;
+      if (typeof next === 'string') {
+        url = next;
+        el.src = next;
+      } else {
+        objectUrl = URL.createObjectURL(next);
+        el.src = objectUrl;
+      }
+      el.loop = loop;
+      el.volume = vol;
+      applyPlaybackRate(el, rate);
+    },
+    async play() {
+      const el = element;
+      if (!el || source === null) return false;
+      if (options.group) {
+        const other = groupPlaying.get(options.group);
+        if (other && other !== track) other.pause();
+        groupPlaying.set(options.group, track);
+      }
+      applyPlaybackRate(el, rate);
+      try {
+        const started = el.play();
+        // Older WebViews return undefined instead of a promise.
+        if (started && typeof started.then === 'function') await started;
+        return true;
+      } catch {
+        leaveGroup();
+        return false;
+      }
+    },
+    pause() {
+      element?.pause();
+    },
+    seek(ms) {
+      if (!element || source === null) return;
+      try {
+        element.currentTime = Math.max(0, ms) / 1000;
+      } catch {
+        // Not seekable yet
+      }
+    },
+    positionMs: () => (element && source !== null ? Math.round(element.currentTime * 1000) : 0),
+    durationMs: () => (element && source !== null ? durationOf(element) : 0),
+    isPaused: () => !element || element.paused,
+    isEnded: () => !!element && source !== null && element.ended,
+    sourceUrl: () => url,
+    hasSource: () => source !== null,
+    setRate(next) {
+      rate = Number.isFinite(next) && next > 0 ? next : 1;
+      if (element) applyPlaybackRate(element, rate);
+    },
+    setVolume(next) {
+      vol = clampVolume(next);
+      if (element) element.volume = vol;
+    },
+    volume: () => vol,
+    setLoop(on) {
+      loop = on;
+      if (element) element.loop = on;
+    },
+    unload() {
+      releaseSource();
+    },
+    dispose() {
+      releaseSource();
+      handlers = {};
+      if (element) {
+        const el = element;
+        el.onloadedmetadata = null;
+        el.onplay = null;
+        el.onpause = null;
+        el.ontimeupdate = null;
+        el.onended = null;
+        el.onerror = null;
+        element = null;
+        livePlayers--;
+      }
+    },
+  };
+  return track;
 }

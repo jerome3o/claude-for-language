@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { baseMime, pickRecorderMime } from '../../services/chatMedia';
 import { formatDuration } from '../../services/chatThread';
+import { createMediaTrack, type MediaTrack } from '../../utils/audioPlayback';
 
 const MAX_MS = 5 * 60 * 1000;
 
@@ -39,7 +40,8 @@ export function VoiceComposer({
   const chunks = useRef<Blob[]>([]);
   const startedAt = useRef(0);
   const after = useRef<'send' | 'preview' | 'cancel'>('cancel');
-  const audio = useRef<HTMLAudioElement | null>(null);
+  // The take's preview: a media track (utils/audioPlayback.ts) — it pauses mid-take. The object URL stays ours.
+  const audio = useRef<MediaTrack | null>(null);
   const earlyStop = useRef(false);
   const callbacks = useRef({ onSend, onCancel, onError });
   callbacks.current = { onSend, onCancel, onError };
@@ -103,7 +105,8 @@ export function VoiceComposer({
         /* ignore */
       }
       stream.current?.getTracks().forEach((t) => t.stop());
-      audio.current?.pause();
+      audio.current?.dispose();
+      audio.current = null;
     };
   }, []);
 
@@ -119,7 +122,9 @@ export function VoiceComposer({
   }, [phase]);
 
   useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview.url);
+    if (!preview) return;
+    if (audio.current?.sourceUrl() === preview.url) audio.current.unload();
+    URL.revokeObjectURL(preview.url);
   }, [preview]);
 
   const stop = (next: 'send' | 'preview' | 'cancel') => {
@@ -145,14 +150,19 @@ export function VoiceComposer({
 
   const togglePreview = () => {
     if (!preview) return;
-    if (!audio.current) {
-      audio.current = new Audio(preview.url);
-      audio.current.onended = () => setPlaying(false);
-      audio.current.onpause = () => setPlaying(false);
-      audio.current.onplay = () => setPlaying(true);
+    const a = audio.current ?? (audio.current = createMediaTrack());
+    if (a.sourceUrl() !== preview.url) {
+      a.load(preview.url, {
+        label: 'chat_voice_preview',
+        onEnded: () => setPlaying(false),
+        onPause: () => setPlaying(false),
+        onPlay: () => setPlaying(true),
+      });
     }
-    if (playing) audio.current.pause();
-    else audio.current.play().catch(() => setPlaying(false));
+    if (playing) a.pause();
+    else void a.play().then((ok) => {
+      if (!ok) setPlaying(false);
+    });
   };
 
   if (mode === 'held') {

@@ -226,6 +226,10 @@ test('hold the mic to record: a quick tap explains, slide left cancels, release 
   await expect(page.getByTestId('chat-voice-speed')).toHaveText('1×');
   await page.getByTestId('chat-voice-speed').click();
   await expect(page.getByTestId('chat-voice-speed')).toHaveText('1.5×');
+  // ▶ plays it through the app's media track (utils/audioPlayback.ts) and it plays to its end.
+  await page.getByRole('button', { name: 'Play voice message' }).click();
+  await expect(page.getByRole('button', { name: 'Pause voice message' })).toBeVisible({ timeout: 10000 });
+  await expect(page.getByRole('button', { name: 'Play voice message' })).toBeVisible({ timeout: 15000 });
 
   // Hold and slide up → locked: the recorder stays with its own Send.
   await mic.dispatchEvent('pointerdown', at());
