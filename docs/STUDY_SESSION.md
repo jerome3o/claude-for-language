@@ -1679,7 +1679,7 @@ sentence as a clue to the word … Variety and amount is key."*
   structure's fixed words in order (`structureUsedBy`) — in `note_sentences.structure` (migration 0151), so
   the apps can later show "uses 本来…后来…". The learner's own rows only (never a tutor's private profile).
   E2E: a deterministic stand-in (`services/sentence-set-fake.ts`) writes short template sentences, one with
-  the first structure.
+  the first structure, for top-ups and "+ More sentences" (a note's first set is left to the specs' stubs).
 
 - **Auto-play** (the card used to read the word as it showed): the **first sentence whose clip is
   ready** plays instead (it counts as heard, ✓); only when no sentence has a clip does the word play,

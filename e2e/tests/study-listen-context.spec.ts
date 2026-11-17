@@ -167,7 +167,8 @@ test('a listening card shown twice: fresh sentences, a new set and order the sec
       sentence_clue: CLUE, sentence_clue_pinyin: 'Nǐ zhōumò dǎsuàn zuò shénme?', sentence_clue_translation: 'What are you planning to do this weekend?',
     },
   });
-  // Eight sentences (the card's own + seven in the set) — two showings' worth.
+  // Eight sentences (the card's own + seven in the set) — two showings' worth (unless the E2E worker's own
+  // stand-in set reaches the device first: seven then).
   await page.route(`**/api/notes/${note.id}/sentences`, async (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     const now = new Date().toISOString();
@@ -199,6 +200,19 @@ test('a listening card shown twice: fresh sentences, a new set and order the sec
     await expect(play).toHaveAttribute('aria-label', /played/);
   }
   await expect(page.getByTestId('listen-row-new')).toHaveCount(0);
+  // The four "heard" events are on the device (IndexedDB sentence-practice) before the card comes back.
+  await expect.poll(() => page.evaluate(() => new Promise<number>((resolve) => {
+    const open = indexedDB.open('sentence-practice');
+    open.onerror = () => resolve(-1);
+    open.onsuccess = () => {
+      const req = open.result.transaction('events', 'readonly').objectStore('events').getAll();
+      req.onsuccess = () => {
+        resolve((req.result as Array<{ kind: string }>).filter((e) => e.kind === 'heard').length);
+        open.result.close();
+      };
+      req.onerror = () => resolve(-1);
+    };
+  })), { timeout: 10000 }).toBe(4);
 
   // Answer it Again: the card comes straight back (after anything else due).
   const shown = await page.getByTestId('listen-context').elementHandle();
@@ -207,10 +221,13 @@ test('a listening card shown twice: fresh sentences, a new set and order the sec
   await page.waitForFunction((el) => !el || !el.isConnected, shown, { timeout: 15000 });
   await untilListeningCard(page);
 
-  // The second showing: the four sentences not heard yet — a different set, all new again.
+  // The second showing: the sentences not heard yet first — a different set, a dot on each new one. (The
+  // E2E worker may also have written the note's own set by now — at least seven sentences either way — so at
+  // most one of the four heard ones comes back, last in line.)
   await expect(rows).toHaveCount(4);
   const second = await keysNow();
-  expect(second.filter((k) => first.includes(k))).toEqual([]);
-  expect(new Set([...first, ...second]).size).toBe(8);
-  await expect(page.getByTestId('listen-row-new')).toHaveCount(4);
+  const fresh = second.filter((k) => !first.includes(k));
+  expect(fresh.length).toBeGreaterThanOrEqual(3);
+  await expect(page.getByTestId('listen-row-new')).toHaveCount(fresh.length);
+  for (const key of fresh) await expect(page.locator(`[data-testid="listen-row"][data-key="${key}"]`)).toHaveAttribute('data-fresh', 'true');
 });

@@ -81,7 +81,7 @@ class ListenContextUiTest : LabScreenshotTest() {
         // none of the Chinese, pinyin or English on screen; all three new.
         assertEquals(3, compose.onAllNodesWithTag(LISTEN_ROW_TAG).fetchSemanticsNodes().size)
         assertEquals(setOf(clueKey, "s1", "s2"), order().map { it.key }.toSet())
-        assertEquals(3, compose.onAllNodesWithTag(LISTEN_NEW_TAG).fetchSemanticsNodes().size)
+        assertEquals(3, compose.onAllNodesWithTag(LISTEN_NEW_TAG, useUnmergedTree = true).fetchSemanticsNodes().size)
         compose.onNodeWithText(ListenContext.Copy.HEADING.uppercase()).assertExists()
         compose.onNodeWithText("你周末打算做什么？", substring = true).assertDoesNotExist()
         compose.onNodeWithText("我打算学中文。", substring = true).assertDoesNotExist()
@@ -92,7 +92,7 @@ class ListenContextUiTest : LabScreenshotTest() {
         compose.onNodeWithContentDescription("Sentence $clue").performClick()
         assertEquals(clueClip to "你周末打算做什么？", played.single())
         compose.onNodeWithContentDescription("Sentence $clue, played").assertExists()
-        assertEquals(2, compose.onAllNodesWithTag(LISTEN_NEW_TAG).fetchSemanticsNodes().size)
+        assertEquals(2, compose.onAllNodesWithTag(LISTEN_NEW_TAG, useUnmergedTree = true).fetchSemanticsNodes().size)
         // EN on s1's row: just its English.
         compose.onAllNodesWithTag(LISTEN_EN_TAG)[indexOf("s1")].performClick()
         compose.onNodeWithText("I plan to study Chinese.").assertExists()

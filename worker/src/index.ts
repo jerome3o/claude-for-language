@@ -7162,8 +7162,9 @@ async function handleQueueBatch(batch: MessageBatch<StoryGenerationMessage | Ima
               knownWords: learner.knownWords,
               structures: learner.structures,
             },
-            count,
-            { fake: env.E2E_TEST_MODE === 'true' }
+            count
+            // No E2E stand-in for a note's first set: specs stub GET /api/notes/:id/sentences and expect the
+            // device to have none (top-ups and the generate route use the stand-in).
           );
 
           const stored = await db.replaceNoteSentences(

@@ -1,6 +1,7 @@
 /**
  * The E2E stand-in for sentence-set generation (E2E_TEST_MODE: no model call — CLAUDE.md "E2E is
- * hermetic"). Deterministic SHORT sentences around the word, each new one not already in `existing`, so a
+ * hermetic"): top-ups and the generate route ("+ More sentences"); a note's first background set is not made
+ * in E2E (specs stub GET /api/notes/:id/sentences and expect the device to have none). Deterministic SHORT sentences around the word, each new one not already in `existing`, so a
  * top-up really adds sentences; with a structure listed, one sentence uses the first one (除了…还…-style:
  * its fixed words around the word) and is tagged with it.
  */
