@@ -79,8 +79,8 @@ const SET = [
 vi.mock('../services/sentence-sets', () => ({
   getLocalNoteSentences: vi.fn(async () => SET),
   generateAndStoreSentenceSet: vi.fn(), putLocalNoteSentences: vi.fn(), clearLocalNoteSentences: vi.fn(), cacheSentenceAudio: vi.fn(),
-  resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getTextExplanation: vi.fn(),
-  getCachedTextExplanation: vi.fn(async () => null), getClueTranslation: vi.fn(), getCachedClueTranslation: vi.fn(async () => null),
+  resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getSentenceTranslation: vi.fn(),
+  cachedSentenceTranslation: (r: { translation?: string | null }) => r.translation?.trim() || null,
   awaitSentenceAudio: vi.fn(), ensureSentenceAudio: vi.fn(), SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
 }));
 

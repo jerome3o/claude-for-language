@@ -13,15 +13,14 @@ import { createRoot, type Root } from 'react-dom/client';
 
 const sets = vi.hoisted(() => ({
   local: [] as Array<Record<string, unknown>>,
-  getLocalNoteSentences: vi.fn(),
+  getNoteSentenceRows: vi.fn(),
   putLocalNoteSentences: vi.fn(),
   cacheSentenceAudio: vi.fn(),
   generateAndStoreSentenceSet: vi.fn(),
   awaitSentenceAudio: vi.fn(),
   ensureSentenceAudio: vi.fn(),
   topUpListeningSentences: vi.fn(),
-  getCachedClueTranslation: vi.fn(),
-  getClueTranslation: vi.fn(),
+  getSentenceTranslation: vi.fn(),
   SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
 }));
 vi.mock('../../services/sentence-sets', () => sets);
@@ -47,6 +46,7 @@ vi.mock('../../services/listenShown', () => shown);
 
 import { ListenContext, type ListenContextStats } from './ListenContext';
 import { listenContextRows, pickListenRows } from '@shared/study/listenContext';
+import { withCardSentence, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 
 const SET = [
   { id: 's1', note_id: 'n1', position: 0, hanzi: '银行在哪儿？', pinyin: 'yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: 'generated/s1.mp3' },
@@ -66,7 +66,7 @@ async function render(props: { online?: boolean; autoplay?: boolean; clue?: { ha
       <ListenContext
         noteId="n1"
         word="银行"
-        cardSentence={props.clue === undefined ? CLUE : props.clue}
+        note={noteOf(props.clue === undefined ? CLUE : props.clue)}
         online={props.online ?? true}
         playAudio={playAudio}
         isPlaying={false}
@@ -81,8 +81,12 @@ async function render(props: { online?: boolean; autoplay?: boolean; clue?: { ha
 }
 
 const CLUE = { hanzi: '这是银行。', translation: 'This is a bank.', audio_url: 'generated/clue.mp3' };
+/** The note as the study card passes it: its card sentence becomes the row `n1-card` (cardSentence.ts). */
+function noteOf(clue: { hanzi: string; translation?: string; audio_url?: string | null } | null): NoteCardSentenceFields {
+  return { id: 'n1', sentence_clue: clue?.hanzi ?? null, sentence_clue_translation: clue?.translation ?? null, sentence_clue_audio_url: clue?.audio_url ?? null };
+}
 /** The showing's order with the pinned seed and nothing heard. */
-const order = (clue: { hanzi: string } | null = CLUE) => pickListenRows(listenContextRows('n1', clue, SET), new Map(), { seed: 'seed-1', word: '银行' }).rows.map((r) => r.key);
+const order = (clue: { hanzi: string } | null = CLUE) => pickListenRows(listenContextRows(withCardSentence(noteOf(clue), SET)), new Map(), { seed: 'seed-1', word: '银行' }).rows.map((r) => r.key);
 const rowOf = (key: string) => container.querySelector(`[data-testid="listen-row"][data-key="${key}"]`) as HTMLElement;
 const inRow = (key: string, id: string) => rowOf(key).querySelector(`[data-testid="${id}"]`) as HTMLElement;
 
@@ -98,11 +102,10 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   sets.local = SET;
-  sets.getLocalNoteSentences.mockImplementation(async () => sets.local);
+  sets.getNoteSentenceRows.mockImplementation(async (_id: string, note: NoteCardSentenceFields) => withCardSentence(note, sets.local as never));
   sets.topUpListeningSentences.mockResolvedValue(0);
   sets.generateAndStoreSentenceSet.mockReset();
-  sets.getCachedClueTranslation.mockReset().mockResolvedValue(null);
-  sets.getClueTranslation.mockReset();
+  sets.getSentenceTranslation.mockReset();
   cache.cached = new Set();
   cache.isAudioCached.mockImplementation(async (u: string) => cache.cached.has(u));
   playAudio.mockReset();
@@ -143,22 +146,22 @@ describe('ListenContext', () => {
     expect(container.textContent).not.toContain('银行');
   });
 
-  it('the card sentence without English on the note still has EN: the line is fetched, then shown', async () => {
-    sets.getClueTranslation.mockResolvedValue('This is a bank.');
+  it('the card sentence row without English still has EN: the line is fetched, then shown', async () => {
+    sets.getSentenceTranslation.mockResolvedValue('This is a bank.');
     await render({ clue: { hanzi: '这是银行。', audio_url: 'generated/clue.mp3' } });
     expect(all('listen-row-en')).toHaveLength(3);
-    await click(inRow('clue:n1', 'listen-row-en'));
+    await click(inRow('n1-card', 'listen-row-en'));
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    expect(sets.getClueTranslation).toHaveBeenCalledWith({ hanzi: '这是银行。', pinyin: null });
+    expect(sets.getSentenceTranslation).toHaveBeenCalledWith({ id: 'n1-card', translation: null, explanation: null });
     expect(q('listen-row-translation')?.textContent).toBe('This is a bank.');
     expect(container.textContent).not.toContain('银行');
   });
 
   it('offline and never fetched, the card sentence says the translation needs a connection', async () => {
     await render({ online: false, clue: { hanzi: '这是银行。', audio_url: 'generated/clue.mp3' } });
-    await click(inRow('clue:n1', 'listen-row-en'));
+    await click(inRow('n1-card', 'listen-row-en'));
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    expect(sets.getClueTranslation).not.toHaveBeenCalled();
+    expect(sets.getSentenceTranslation).not.toHaveBeenCalled();
     expect(q('listen-row-translation')?.textContent).toBe('Translation needs a connection');
   });
 
@@ -206,20 +209,20 @@ describe('ListenContext', () => {
 
   it('records each sentence heard once per showing, and its dot goes', async () => {
     await render();
-    await click(inRow('clue:n1', 'listen-row-play'));
-    await click(inRow('clue:n1', 'listen-row-play'));
+    await click(inRow('n1-card', 'listen-row-play'));
+    await click(inRow('n1-card', 'listen-row-play'));
     expect(practice.recordSentenceHeard).toHaveBeenCalledTimes(1);
-    expect(practice.recordSentenceHeard).toHaveBeenCalledWith('n1', 'clue:n1');
+    expect(practice.recordSentenceHeard).toHaveBeenCalledWith('n1', 'n1-card');
     expect(all('listen-row-new')).toHaveLength(2);
   });
 
   it('fresh sentences first: heard ones wait while unheard ones are left', async () => {
     const heard = (n: number) => ({ heard: { count: n, last_at: '2026-11-01T00:00:00Z' }, hidden: null });
-    practice.stats = new Map([['clue', heard(2)], ['s1', heard(1)]]);
+    practice.stats = new Map([['n1-card', heard(2)], ['s1', heard(1)]]);
     await render();
     const keys = all('listen-row').map((r) => r.getAttribute('data-key'));
     // All three still fit (four a showing), but the never-heard one is the only "new".
-    expect(new Set(keys)).toEqual(new Set(['clue:n1', 's1', 's2']));
+    expect(new Set(keys)).toEqual(new Set(['n1-card', 's1', 's2']));
     expect(all('listen-row-new').map((d) => d.closest('[data-testid="listen-row"]')?.getAttribute('data-key'))).toEqual(['s2']);
     expect(analytics.track).toHaveBeenCalledWith('study.listen_context_shown', { shown: 3, fresh: 1, heard_before: 2 });
   });
@@ -228,8 +231,8 @@ describe('ListenContext', () => {
     cache.cached = new Set(['generated/s1.mp3']);
     await render({ online: false });
     const play = (key: string) => inRow(key, 'listen-row-play') as HTMLButtonElement;
-    expect(play('clue:n1').disabled).toBe(true);
-    expect(play('clue:n1').textContent).toContain('Not downloaded');
+    expect(play('n1-card').disabled).toBe(true);
+    expect(play('n1-card').textContent).toContain('Not downloaded');
     expect(play('s1').disabled).toBe(false);
     expect(play('s2').disabled).toBe(true);
     expect(q('listen-more')).toBeNull();
@@ -238,10 +241,14 @@ describe('ListenContext', () => {
   });
 
   it('+ More sentences adds to the set (keepExisting) and shows the new rows', async () => {
-    sets.generateAndStoreSentenceSet.mockResolvedValue([
-      ...SET,
-      { id: 's3', note_id: 'n1', position: 2, hanzi: '银行几点开门？', pinyin: '', translation: 'When does the bank open?', audio_url: null },
-    ]);
+    // The new rows land on the device (the list then reads them, the card's own row included).
+    sets.generateAndStoreSentenceSet.mockImplementation(async () => {
+      sets.local = [
+        ...SET,
+        { id: 's3', note_id: 'n1', position: 2, hanzi: '银行几点开门？', pinyin: '', translation: 'When does the bank open?', audio_url: null },
+      ];
+      return sets.local;
+    });
     await render();
     await click(q('listen-more'));
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });

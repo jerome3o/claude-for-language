@@ -9,9 +9,9 @@ import {
   topUpSentenceSets,
   getSentenceExplanation,
   getTextExplanation,
-  getClueTranslation,
-  getCachedClueTranslation,
-  clueTranslationKey,
+  getSentenceTranslation,
+  cachedSentenceTranslation,
+  getNoteSentenceRows,
   ensureSentenceSetForNote,
   getLocalSentenceSetStats,
   awaitSentenceAudio,
@@ -62,13 +62,13 @@ function makeNote(id: string): LocalNote {
   } as LocalNote;
 }
 
-function mockChanges(sentences: NoteSentence[], serverTime = '2026-08-02T00:00:00.000Z') {
+function mockChanges(sentences: NoteSentence[], serverTime = '2026-08-02T00:00:00.000Z', noteIds?: string[]) {
   return vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/sentences/changes')) {
-        return new Response(JSON.stringify({ sentences, server_time: serverTime }), {
+        return new Response(JSON.stringify({ sentences, server_time: serverTime, ...(noteIds ? { note_ids: noteIds } : {}) }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
@@ -198,11 +198,40 @@ describe('syncSentenceSets', () => {
   it('only touches notes present in the response', async () => {
     await db.notes.bulkPut([makeNote('note-1'), makeNote('note-2')]);
     await putLocalNoteSentences('note-2', [makeSentence({ id: 'keep', note_id: 'note-2' })]);
+    localStorage.setItem('sentenceSetsLastSync', '2026-08-01T00:00:00.000Z');
 
     mockChanges([makeSentence({ id: 'fresh', note_id: 'note-1' })]);
     await syncSentenceSets();
 
     expect((await getLocalNoteSentences('note-2')).map((r) => r.id)).toEqual(['keep']);
+  });
+
+  it('a full dump replaces everything this device held', async () => {
+    await db.notes.bulkPut([makeNote('note-1'), makeNote('note-2')]);
+    await putLocalNoteSentences('note-2', [makeSentence({ id: 'stale', note_id: 'note-2' })]);
+    mockChanges([makeSentence({ id: 'fresh', note_id: 'note-1' })]);
+    await syncSentenceSets();
+    expect(await getLocalNoteSentences('note-2')).toEqual([]);
+    expect((await getLocalNoteSentences('note-1')).map((r) => r.id)).toEqual(['fresh']);
+  });
+
+  it('replaces every note the server lists, one left with no rows included (a removed card sentence)', async () => {
+    await db.notes.bulkPut([makeNote('note-1'), makeNote('note-2')]);
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', is_card: 1, position: -1 }), makeSentence({ id: 's1' })]);
+    await putLocalNoteSentences('note-2', [makeSentence({ id: 'note-2-card', note_id: 'note-2', is_card: 1, position: -1 })]);
+    localStorage.setItem('sentenceSetsLastSync', '2026-08-01T00:00:00.000Z');
+    mockChanges([makeSentence({ id: 's1' })], '2026-08-03T00:00:00.000Z', ['note-1', 'note-2']);
+    await syncSentenceSets();
+    expect((await getLocalNoteSentences('note-1')).map((r) => r.id)).toEqual(['s1']);
+    expect(await getLocalNoteSentences('note-2')).toEqual([]);
+  });
+
+  it('keeps the card row flag', async () => {
+    await db.notes.put(makeNote('note-1'));
+    mockChanges([makeSentence({ id: 'note-1-card', is_card: 1, position: -1, hanzi: '我去银行。' }), makeSentence({ id: 's1' })]);
+    await syncSentenceSets();
+    const rows = await getLocalNoteSentences('note-1');
+    expect(rows.map((r) => [r.id, r.is_card])).toEqual([['note-1-card', 1], ['s1', 0]]);
   });
 
   it('prunes sentences whose note no longer exists locally', async () => {
@@ -446,69 +475,66 @@ describe('getTextExplanation', () => {
   });
 });
 
-describe('getClueTranslation', () => {
-  const clue = { hanzi: '服务员，我们要点菜。', pinyin: null };
+describe('the card sentence as a row', () => {
+  it('is made from the cached note while the device has no row for it (synced before the migration)', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 's1', hanzi: '他明白了。' })]);
+    const rows = await getNoteSentenceRows('note-1', {
+      id: 'note-1', sentence_clue: '我明白了。', sentence_clue_pinyin: 'Wǒ míngbai le.', sentence_clue_translation: null, sentence_clue_audio_url: 'generated/c.mp3',
+    });
+    expect(rows.map((r) => [r.id, r.hanzi, r.is_card])).toEqual([['note-1-card', '我明白了。', 1], ['s1', '他明白了。', 0]]);
+    expect(rows[0].audio_url).toBe('generated/c.mp3');
+  });
+
+  it('clearing the set on the device keeps the card row', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', is_card: 1, position: -1 }), makeSentence({ id: 's1' })]);
+    await clearLocalNoteSentences('note-1');
+    expect((await getLocalNoteSentences('note-1')).map((r) => r.id)).toEqual(['note-1-card']);
+  });
+});
+
+describe('getSentenceTranslation', () => {
   const breakdown = {
     words: [{ hanzi: '服务员', pinyin: 'fúwùyuán', gloss: 'waiter' }],
     construction: '要 + verb: want to.',
     translation: "Waiter, we'd like to order.",
   };
 
-  beforeEach(async () => {
-    await db.sentenceTextExplanations.clear();
-  });
-
-  function mockExplainText(body: object = { explanation: breakdown }) {
+  function mockExplain(body: object = { explanation: breakdown }) {
     return vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        if (String(input).includes('/api/sentences/explain-text')) {
+        if (/\/api\/sentences\/[^/]+\/explain/.test(String(input))) {
           return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         throw new Error(`Unexpected fetch: ${input}`);
       })
     );
   }
+  const fetchCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
 
-  function fetchCalls(): number {
-    return (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
-  }
-
-  it('fetches the English once and keeps only the line, by text', async () => {
-    mockExplainText();
-    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
-    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+  it('a row without English gets it through its breakdown, once, kept on the row', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', is_card: 1, translation: null, hanzi: '服务员，我们要点菜。' })]);
+    mockExplain();
+    expect(await getSentenceTranslation({ id: 'note-1-card', translation: null })).toBe("Waiter, we'd like to order.");
     expect(fetchCalls()).toBe(1);
-    // Offline later: still there.
-    expect(await getCachedClueTranslation(clue.hanzi)).toBe("Waiter, we'd like to order.");
-    // Only the line is kept: opening the row later must not unfold a breakdown nobody asked for.
-    expect(await db.sentenceTextExplanations.get(clue.hanzi)).toBeUndefined();
-    expect(await db.sentenceTextExplanations.get(clueTranslationKey(clue.hanzi))).toBeDefined();
+    // Offline later: it is on the row.
+    const row = (await getLocalNoteSentences('note-1'))[0];
+    expect(row.translation).toBe("Waiter, we'd like to order.");
+    expect(cachedSentenceTranslation(row)).toBe("Waiter, we'd like to order.");
+    expect(await getSentenceTranslation(row)).toBe("Waiter, we'd like to order.");
+    expect(fetchCalls()).toBe(1);
   });
 
-  it('uses a breakdown this device already holds, without a request', async () => {
-    mockExplainText();
-    await db.sentenceTextExplanations.put({ key: clue.hanzi, explanation: JSON.stringify(breakdown), cached_at: Date.now() });
-    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
+  it('uses a breakdown the row already holds, without a request', async () => {
+    mockExplain();
+    expect(await getSentenceTranslation({ id: 'x', translation: null, explanation: JSON.stringify(breakdown) })).toBe("Waiter, we'd like to order.");
     expect(fetchCalls()).toBe(0);
   });
 
-  it('asks again when the cached breakdown is an old one without a translation', async () => {
-    mockExplainText();
-    await db.sentenceTextExplanations.put({
-      key: clue.hanzi,
-      explanation: JSON.stringify({ words: breakdown.words, construction: breakdown.construction }),
-      cached_at: Date.now(),
-    });
-    expect(await getCachedClueTranslation(clue.hanzi)).toBeNull();
-    expect(await getClueTranslation(clue)).toBe("Waiter, we'd like to order.");
-    expect(fetchCalls()).toBe(1);
-  });
-
-  it('fails, caching nothing, when the answer has no translation', async () => {
-    mockExplainText({ explanation: { words: breakdown.words, construction: '' } });
-    await expect(getClueTranslation(clue)).rejects.toThrow();
-    expect(await getCachedClueTranslation(clue.hanzi)).toBeNull();
+  it('fails when the answer has no translation', async () => {
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 'r1', translation: null })]);
+    mockExplain({ explanation: { words: breakdown.words, construction: '' } });
+    await expect(getSentenceTranslation({ id: 'r1', translation: null })).rejects.toThrow();
   });
 });
 

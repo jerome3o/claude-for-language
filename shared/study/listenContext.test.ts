@@ -32,11 +32,11 @@ describe('listenContextRows', () => {
 
 describe('listenRowState', () => {
   it('plays a clip online or cached, waits for a missing clip (the card sentence row too)', () => {
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: true, cached: false })).toBe('ready');
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: false, cached: true })).toBe('ready');
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: false, cached: false })).toBe('unavailable');
-    expect(listenRowState({ audioUrl: null, sentenceId: 's' }, { online: true, cached: false })).toBe('fetch');
-    expect(listenRowState({ audioUrl: null, sentenceId: 's' }, { online: false, cached: false })).toBe('unavailable');
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: true, cached: false })).toBe('ready');
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: false, cached: true })).toBe('ready');
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: false, cached: false })).toBe('unavailable');
+    expect(listenRowState({ audioUrl: null }, { online: true, cached: false })).toBe('fetch');
+    expect(listenRowState({ audioUrl: null }, { online: false, cached: false })).toBe('unavailable');
   });
 });
 

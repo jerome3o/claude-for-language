@@ -109,8 +109,9 @@ export async function putLocalNoteSentences(
   return rows.sort((a, b) => a.position - b.position);
 }
 
+/** Drop a note's generated set on the device (its card sentence row stays, as on the server). */
 export async function clearLocalNoteSentences(noteId: string): Promise<void> {
-  const existing = await db.noteSentences.where('note_id').equals(noteId).primaryKeys();
+  const existing = await db.noteSentences.where('note_id').equals(noteId).filter((r) => !r.is_card).primaryKeys();
   if (existing.length > 0) await db.noteSentences.bulkDelete(existing);
 }
 

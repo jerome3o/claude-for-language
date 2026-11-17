@@ -3485,16 +3485,7 @@ export function StudyCard({
                 <div className="study-sentences" data-testid="study-sentences">
                   <SentenceSet
                     noteId={card.note.id}
-                    cardSentence={
-                      card.note.sentence_clue
-                        ? {
-                            hanzi: card.note.sentence_clue,
-                            pinyin: card.note.sentence_clue_pinyin,
-                            translation: card.note.sentence_clue_translation,
-                            audio_url: card.note.sentence_clue_audio_url,
-                          }
-                        : null
-                    }
+                    note={card.note}
                     {...(pass ? { variant: 'pass' as const } : { compact: true })}
                     practise
                     showingKey={card.id}
