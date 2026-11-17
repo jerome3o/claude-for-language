@@ -4,7 +4,7 @@
  */
 
 import { API_BASE, getAuthHeaders, authEvents } from './client';
-import type { CardFlag, CardFlagStatus, ClaudeChatsResponse, NoteHub } from '../types/cardFlags';
+import type { CardFlag, CardFlagStatus, NoteHub } from '../types/cardFlags';
 
 const API_PATH = `${API_BASE}/api`;
 
@@ -57,26 +57,6 @@ export async function reopenCardFlag(flagId: string): Promise<{ flag: CardFlag }
 
 export async function deleteCardFlag(flagId: string): Promise<void> {
   await request(`/card-flags/${flagId}`, { method: 'DELETE' });
-}
-
-function chatsQuery(opts: { limit?: number; before?: string | null; noteId?: string | null }): string {
-  const p = new URLSearchParams();
-  if (opts.limit) p.set('limit', String(opts.limit));
-  if (opts.before) p.set('before', opts.before);
-  if (opts.noteId) p.set('note_id', opts.noteId);
-  const s = p.toString();
-  return s ? `?${s}` : '';
-}
-
-export async function listMyClaudeChats(opts: { limit?: number; before?: string | null; noteId?: string | null } = {}): Promise<ClaudeChatsResponse> {
-  return request(`/me/claude-chats${chatsQuery(opts)}`);
-}
-
-export async function listStudentClaudeChats(
-  relId: string,
-  opts: { limit?: number; before?: string | null; noteId?: string | null } = {}
-): Promise<ClaudeChatsResponse> {
-  return request(`/relationships/${relId}/claude-chats${chatsQuery(opts)}`);
 }
 
 export async function getMyNoteHub(noteId: string): Promise<NoteHub> {

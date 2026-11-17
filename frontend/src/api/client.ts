@@ -1,6 +1,5 @@
 import type { NewCardOrderInfo, NewCardOrderUpdate, StudyBudget, StudyBudgetInfo, StudyBudgetUpdate } from '@shared/decks';
 import type { AskLanguage } from '@shared/study/askClaude';
-import type { AutoCheckResult } from '@shared/chats/autoCheck';
 import {
   Deck,
   LandingPage,
@@ -50,7 +49,6 @@ import {
   ReaderPage,
   AppNotification,
   NoteSentence,
-  ChatWord,
   SentenceBriefExplanation,
 } from '../types';
 import type { Quest, QuestSummary } from '@shared/quest';
@@ -721,30 +719,9 @@ export async function getNoteHistory(noteId: string): Promise<NoteReviewHistory[
   return fetchJSON<NoteReviewHistory[]>(`/notes/${noteId}/history`);
 }
 
-export interface NoteQuestion {
-  id: string;
-  note_id: string;
-  question: string;
-  answer: string;
-  asked_at: string;
-  // Ask Claude, immersion (worker services/ask-claude.ts; migration 0116) — absent from older servers.
-  /** 'zh' = plain Chinese text (word chips), 'en' = Markdown; null = an answer from before (English Markdown). */
-  answer_lang?: AskLanguage | null;
-  answer_words?: ChatWord[] | null;
-  answer_translation?: string | null;
-  question_words?: ChatWord[] | null;
-  question_translation?: string | null;
-  /** The chat's background "Check my Chinese" of the question (shared/chats/autoCheck.ts). */
-  question_check?: AutoCheckResult | null;
-}
-
 /** Server-side search of my notes (the fallback when this device has no matching notes). */
 export async function searchNotesOnServer(q: string, limit = 50): Promise<{ notes: Array<Note & { deck_name: string }>; total_notes: number }> {
   return fetchJSON(`/notes/search?q=${encodeURIComponent(q)}&limit=${limit}`);
-}
-
-export async function getNoteQuestions(noteId: string): Promise<NoteQuestion[]> {
-  return fetchJSON<NoteQuestion[]>(`/notes/${noteId}/questions`);
 }
 
 /** "Ask Claude answers in": 'zh' | 'en', null = back to the default (Chinese). */

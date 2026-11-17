@@ -472,6 +472,34 @@ ported to Lab `core/…/SourceDecks.kt` and parity-tested (`parity/fixtures/sour
 - Analytics: `deck.source_add { deck_key, surface, count, source_deck, existing }`,
   `deck.source_change { deck_key, surface, count }`. `explorer.add_card` also carries `source_deck` and `deck_key`.
 
+## "Open ›": one tap to what just happened
+
+Jerome (Nov 2026): moving around the app should be easy — when something happens, one tap takes you to it,
+and back returns you. The toasts say what happened AND end in **Open ›** (the lines under a Claude reply do
+the same, docs/CHAT.md "Tool lines you can tap"). ONE rule, `shared/decks/open-links.ts` (Lab
+`core/…/OpenLinks.kt`, parity-tested in `parity/fixtures/study-today.ts`):
+
+| Toast | Open › goes to |
+|---|---|
+| ✓ Added to From readers · Change (one card) | that card's hub `/cards/:noteId` |
+| ✓ 3 cards added to From chats · Change | the deck `/decks/:deckId` |
+| ⚡ Listening card of 银行 added to today (one word) | its card hub |
+| ⚡ 银行 and 学生 added to today (several) | Up next `/up-next` (its "⚡ Today" list) |
+
+- The toast stays calm: "Open ›" is quiet bold text at the end of the line, a ≥ 44px (web) / 48dp (Lab)
+  target, its accessible name says what it opens ("Open the card 银行"). Offline with the target not on the
+  device, there is no Open ›.
+- A plain navigation: back returns to the screen he was on (the chat, the reader, the study card — today is
+  the session, so the card comes back as it was). A sheet over the page closes itself first.
+- Not where the host already has its own "Open card →" (the explorer's footer, the idiom / meme pages) or a
+  Claude tool line's link (the Coach's "✓ Added" line).
+- Web: `components/nav/ToastOpen.tsx` (`ToastOpen`) — on `AddedToDeckLine` (add sheets,
+  chat flashcards, Discuss, call review), the clips' Learn more "⚡ Study the words"; `bumpNotes` returns the
+  toast's `link`. Lab: `ui/kit/ToastOpen.kt` (`rememberToastOpen`, `BumpedNotice`) — on `AddedToDeckRow` and
+  the ⚡ lines of the word / add sheets, chat cards, idioms, meme review; a bump's line travels as text, so
+  `data/bumps/BumpToasts.kt` keeps the link of the last few lines.
+- Analytics `nav.toast_open { kind: added | bumped, target: card | deck | up_next, surface }`.
+
 ## "⚡ Study it today" — the bump pocket
 
 Jerome often tries to add a card he already has (Coach → Explain → add → "already in this deck").
@@ -3096,7 +3124,7 @@ the device, "Earlier about 银行"), `shared/study/askClaude.ts` + `askClaudeMen
   of ≤ 150 hanzi of started notes goes into the prompt — no pinyin / English, plain text: meaning, each
   character, usage, one or two examples). An explicit "in English please" / 用英文 (`asksForEnglish`) answers
   that turn in English. A Chinese answer is stored as plain text (`plainAnswerText` strips stray Markdown) with
-  `note_questions.answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
+  the reply's `answer_lang = 'zh'`; English answers stay Markdown. The quick chips ask in Chinese in 中文
   mode (`cardChips`) and are not checked (`quick: true`). Tools (edit card, add cards, ⚡ bump, delete,
   mini lesson) work in both.
 - **Bubbles.** The tutor chat's bubbles (`chat-signal.css`): mine blue on the right, Claude's grey on the left.

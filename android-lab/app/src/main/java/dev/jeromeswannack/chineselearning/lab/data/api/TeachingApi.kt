@@ -1,6 +1,5 @@
 package dev.jeromeswannack.chineselearning.lab.data.api
 
-import dev.jeromeswannack.chineselearning.lab.core.QuestionRowLike
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
@@ -481,31 +480,6 @@ suspend fun Api.resolveCardFlag(flagId: String) = post<Unit>("/api/card-flags/${
 
 suspend fun Api.reopenCardFlag(flagId: String) = post<Unit>("/api/card-flags/${enc(flagId)}/reopen")
 
-@Serializable
-data class ClaudeQuestionDto(
-    override val id: String,
-    override val note_id: String,
-    val question: String = "",
-    val answer: String = "",
-    override val asked_at: String = "",
-    val hanzi: String = "",
-    val pinyin: String = "",
-    val english: String = "",
-    val deck_name: String = "",
-) : QuestionRowLike
-
-@Serializable
-data class ClaudeChatsDto(val questions: List<ClaudeQuestionDto> = emptyList(), val next_cursor: String? = null, val total: Int = 0)
-
-suspend fun Api.studentClaudeChats(relId: String, limit: Int = 40, before: String? = null, noteId: String? = null): ClaudeChatsDto {
-    val q = buildList {
-        add("limit=$limit")
-        if (before != null) add("before=${enc(before)}")
-        if (noteId != null) add("note_id=${enc(noteId)}")
-    }.joinToString("&")
-    return get("${rel(relId)}/claude-chats?$q")
-}
-
 /**
  * The student's chats with Claude his tutor may read (`GET /api/relationships/:relId/claude-threads`,
  * shared/claude/api.ts `TutorClaudeThread*`; core claude.TutorVisibility): trimmed, read-only.
@@ -551,10 +525,11 @@ data class TutorClaudeThreadsDto(
 @Serializable
 data class TutorClaudeThreadDetailDto(val thread: TutorClaudeThreadDto, val messages: List<TutorClaudeMessageDto> = emptyList())
 
-suspend fun Api.studentClaudeThreads(relId: String, limit: Int = 4, before: String? = null): TutorClaudeThreadsDto {
+suspend fun Api.studentClaudeThreads(relId: String, limit: Int = 4, before: String? = null, noteId: String? = null): TutorClaudeThreadsDto {
     val q = buildList {
         add("limit=$limit")
         if (before != null) add("before=${enc(before)}")
+        if (noteId != null) add("note_id=${enc(noteId)}")
     }.joinToString("&")
     return get("${rel(relId)}/claude-threads?$q")
 }

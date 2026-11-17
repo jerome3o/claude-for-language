@@ -294,6 +294,7 @@ export function ToolResultChips({ results, surface = 'thread' }: { results: Coac
                 <AddedToDeckLine
                   added={{ key: isSourceDeckKey(data?.deck_source_key) ? data!.deck_source_key! : 'claude', noteIds, deckId, deckName: data?.deck_name || 'your deck' }}
                   surface="coach"
+                  open={false}
                 />
                 <AddedCardChips cards={cards} surface={surface} />
                 {link && <ResultLinkGo link={link} context={surface === 'coach' ? 'coach' : undefined} />}

@@ -5,8 +5,10 @@
  * `users.claude_threads_backfilled_at`:
  *
  *   note_questions        → `card` threads, grouped like the apps always showed them
- *                           (`groupQuestionThreads`: one note's questions, each ≤ 30 min after the
- *                           previous); thread `nq-<first question id>`, messages `nq-<id>-q|a`
+ *                           (`groupQuestions`: one note's questions, each ≤ 30 min after the
+ *                           previous); thread `nq-<first question id>`, messages `nq-<id>-q|a`.
+ *                           The table is FROZEN since Nov 2026 (nothing writes it): this copy is
+ *                           how its rows reach the one store
  *   Claude practice chats → `practice` threads (conversations.is_ai_conversation; READ-ONLY until the
  *                           practice provider lands); thread `pc-<conversation id>`, messages `pc-<id>`
  *   Discuss with Claude   → `chat_message` threads (message_discussions); thread `md-<discussion id>`,
@@ -16,11 +18,11 @@
  * Idempotent: fixed ids + INSERT OR IGNORE + the legacy keys (`legacy_id`), so a re-run never
  * duplicates; a thread the learner deleted (a tombstone) is never brought back; a Q&A already copied
  * (by the dual-write) is found by its legacy id and its group's missing ones join THAT thread.
- * The old tables are untouched (older apps read them). After the backfill, new Q&As reach the threads
- * through the dual-writes: `appendCardQuestion` (POST /api/notes/:id/ask) and `syncDiscussionThread`
- * (PUT /api/messages/:id/discussion).
+ * The old tables are never changed. After the backfill, older apps' writes reach the threads through
+ * `appendCardQuestion` (the legacy POST /api/notes/:id/ask — the thread is the Q&A's only store) and
+ * `syncDiscussionThread` (PUT /api/messages/:id/discussion).
  */
-import { groupQuestionThreads, sqliteToIso, THREAD_GAP_MS } from '@shared/chats/threads';
+import { sqliteToIso, THREAD_GAP_MS } from '@shared/chats/threads';
 import { previewOf, titleFor, type ClaudeThreadContext, type ClaudeContextSnapshot } from '@shared/claude/context';
 import { legacyPracticeThreadId } from '@shared/claude/practice';
 import type { Note } from '../../types';
@@ -80,6 +82,34 @@ interface DiscussionRow {
 }
 
 const lang = (v: string | null | undefined): 'zh' | 'en' | null => (v === 'zh' || v === 'en' ? v : null);
+
+const time = (iso: string): number => {
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? 0 : t;
+};
+
+/**
+ * The old rows grouped as the apps always showed them: one note's questions, each within
+ * THREAD_GAP_MS of the previous, oldest first.
+ */
+export function groupQuestions<T extends { note_id: string; asked_at: string }>(rows: T[]): T[][] {
+  const open = new Map<string, T[]>();
+  const groups: T[][] = [];
+  for (const row of [...rows].sort((a, b) => time(a.asked_at) - time(b.asked_at))) {
+    const current = open.get(row.note_id);
+    if (current && time(row.asked_at) - time(current[current.length - 1].asked_at) <= THREAD_GAP_MS) {
+      current.push(row);
+      continue;
+    }
+    const group = [row];
+    open.set(row.note_id, group);
+    groups.push(group);
+  }
+  return groups;
+}
+
+/** The learner message of a Q&A copied / written with the old row id `id`. */
+export const questionMessageId = (id: string): string => `nq-${id}-q`;
 
 /** Runs the backfill once per user (true = it ran now). */
 export async function ensureClaudeThreadsBackfilled(db: D1Database, userId: string): Promise<boolean> {
@@ -177,14 +207,14 @@ export async function backfillClaudeThreads(db: D1Database, userId: string): Pro
   // ---- note_questions → card threads ----
   const threadOf = new Map(rows<{ legacy_id: string; conversation_id: string }>(copied).map((r) => [r.legacy_id, r.conversation_id]));
   const qs = rows<QuestionRow>(questions).map((q) => ({ ...q, asked_at: sqliteToIso(q.asked_at || '') }));
-  for (const group of groupQuestionThreads(qs)) {
-    const missing = group.questions.filter((q) => !threadOf.has(q.id));
+  for (const group of groupQuestions(qs)) {
+    const missing = group.filter((q) => !threadOf.has(q.id));
     if (missing.length === 0) continue;
-    const already = group.questions.map((q) => threadOf.get(q.id)).find((id): id is string => !!id);
-    const threadId = already ?? `nq-${group.id}`;
+    const already = group.map((q) => threadOf.get(q.id)).find((id): id is string => !!id);
+    const threadId = already ?? `nq-${group[0].id}`;
     if (dead.has(threadId)) continue;
     if (!already) {
-      const first = group.questions[0];
+      const first = group[0];
       statements.push(insertThreadStatement(db, cardThread(userId, threadId, first)));
       counts.card_threads++;
     }
@@ -278,7 +308,7 @@ function cardThread(userId: string, threadId: string, first: QuestionRow) {
 
 function questionStatements(db: D1Database, threadId: string, q: QuestionRow): D1PreparedStatement[] {
   const user: NewMessage & { id: string } = {
-    id: `nq-${q.id}-q`,
+    id: questionMessageId(q.id),
     threadId,
     role: 'user',
     content: q.question,
@@ -351,12 +381,13 @@ function discussionStatements(
   return { threadId, statements, messages };
 }
 
-// ---------- The dual-writes (older apps keep the old routes) ----------
+// ---------- Older apps' writes (they keep the old routes) ----------
 
 /**
- * A Q&A just stored by `POST /api/notes/:id/ask` → the card's thread: the latest thread about the
- * note when its last message is ≤ 30 min old (the grouping rule), else a new `nq-<id>` thread.
- * Before the user's backfill has run, the backfill copies it (with everything before it).
+ * A Q&A answered by the legacy `POST /api/notes/:id/ask` → the card's thread, its only store: the
+ * latest thread about the note when its last message is ≤ 30 min old (the grouping rule), else a new
+ * `nq-<id>` thread; both messages keep `q.id` as their legacy id (what the old app asks for again).
+ * The user's backfill runs first, so the older rows land before it. Idempotent by `q.id`.
  */
 export async function appendCardQuestion(
   db: D1Database,
@@ -364,7 +395,7 @@ export async function appendCardQuestion(
   note: Pick<Note, 'id' | 'hanzi'>,
   q: { id: string; question: string; answer: string; asked_at?: string | null; answer_lang?: string | null; question_check?: string | null },
 ): Promise<string | null> {
-  if (await ensureClaudeThreadsBackfilled(db, userId)) return null;
+  await ensureClaudeThreadsBackfilled(db, userId);
   const present = await db
     .prepare(
       `SELECT m.conversation_id FROM coach_messages m JOIN coach_conversations c ON c.id = m.conversation_id

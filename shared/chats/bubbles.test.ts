@@ -116,7 +116,7 @@ describe('photo albums', () => {
   });
 
   it('the album menu: whole-album actions only, relabelled', () => {
-    const mine = albumMenu(messageMenu({ sender_id: 'me', content: '我们的猫', attachment: { kind: 'image' } }, 'student', false, 'me'), 3);
+    const mine = albumMenu(messageMenu({ sender_id: 'me', content: '我们的猫', attachment: { kind: 'image' } }, 'student', 'me'), 3);
     expect(mine.reactions).toBe(true);
     expect(mine.items.map((i) => [i.id, i.label])).toEqual([
       ['reply', 'Reply'],
@@ -129,7 +129,7 @@ describe('photo albums', () => {
       ['edit', 'Edit caption'],
       ['delete', 'Delete all 3'],
     ]);
-    const theirs = albumMenu(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'tutor', false, 'me'), 2);
+    const theirs = albumMenu(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'tutor', 'me'), 2);
     expect(theirs.items.map((i) => i.id)).toEqual(['reply', 'forward', 'pin', 'info']);
   });
 

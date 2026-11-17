@@ -7,85 +7,80 @@ const base = { sender_id: 'them', content: '你好，今天怎么样？' };
 
 describe('messageMenu', () => {
   it('a Chinese message from the tutor, seen by the student: every learning tool, in order', () => {
-    expect(ids(messageMenu(base, 'student', false, 'me'))).toEqual([
+    expect(ids(messageMenu(base, 'student', 'me'))).toEqual([
       'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'play', 'discuss', 'pin', 'info', 'select',
     ]);
   });
 
   it('my own Chinese message as the learner: Check my Chinese, Edit, Delete', () => {
-    const m = messageMenu({ ...base, sender_id: 'me' }, 'student', false, 'me');
+    const m = messageMenu({ ...base, sender_id: 'me' }, 'student', 'me');
     expect(ids(m)).toEqual([
       'reply', 'copy', 'forward', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'check', 'play', 'discuss', 'pin', 'info', 'edit', 'delete', 'select',
     ]);
     expect(m.items.find((i) => i.id === 'delete')?.danger).toBe(true);
-    expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'needs_improvement' }, 'student', false, 'me'))).toContain('view_corrections');
-    expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'correct' }, 'student', false, 'me'))).not.toContain('check');
+    expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'needs_improvement' }, 'student', 'me'))).toContain('view_corrections');
+    expect(ids(messageMenu({ ...base, sender_id: 'me', check_status: 'correct' }, 'student', 'me'))).not.toContain('check');
   });
 
   it('the tutor on the student message: Correct; with a correction Edit + Remove; the student gets a card from it', () => {
-    expect(ids(messageMenu(base, 'tutor', false, 'me'))).toContain('correct');
+    expect(ids(messageMenu(base, 'tutor', 'me'))).toContain('correct');
     const corrected = { ...base, correction: { text: '你好！' } };
-    const t = messageMenu(corrected, 'tutor', false, 'me');
+    const t = messageMenu(corrected, 'tutor', 'me');
     expect(t.items.find((i) => i.id === 'correct')?.label).toBe('Edit correction');
     expect(ids(t)).toContain('remove_correction');
-    expect(ids(messageMenu({ ...corrected, sender_id: 'me' }, 'student', false, 'me'))).toContain('correction_card');
-    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', false, 'me'))).not.toContain('check');
+    expect(ids(messageMenu({ ...corrected, sender_id: 'me' }, 'student', 'me'))).toContain('correction_card');
+    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', 'me'))).not.toContain('check');
   });
 
   it('English text: no translate / pinyin / explain / save card / read aloud', () => {
-    expect(ids(messageMenu({ sender_id: 'them', content: 'See you tomorrow' }, 'student', false, 'me'))).toEqual([
+    expect(ids(messageMenu({ sender_id: 'them', content: 'See you tomorrow' }, 'student', 'me'))).toEqual([
       'reply', 'copy', 'forward', 'select_cards', 'discuss', 'pin', 'info', 'select',
     ]);
   });
 
   it('toggles say Hide when on and need no internet once translated', () => {
-    const m = messageMenu({ ...base, translation: 'Hi, how are you today?' }, 'student', false, 'me', { pinyinOn: true, translateOn: true });
+    const m = messageMenu({ ...base, translation: 'Hi, how are you today?' }, 'student', 'me', { pinyinOn: true, translateOn: true });
     expect(m.items.find((i) => i.id === 'translate')).toEqual({ id: 'translate', label: 'Hide translation', icon: '🌐', needsInternet: false, active: true });
     expect(m.items.find((i) => i.id === 'pinyin')?.label).toBe('Hide pinyin');
-    expect(messageMenu(base, 'student', false, 'me').items.find((i) => i.id === 'translate')?.needsInternet).toBe(true);
+    expect(messageMenu(base, 'student', 'me').items.find((i) => i.id === 'translate')?.needsInternet).toBe(true);
   });
 
   it('voice: tools work on the transcript; translate only when the transcript was translated; no read aloud / edit', () => {
     const v = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我很好', translation: null } };
     expect(menuText(v)).toBe('我很好');
-    expect(ids(messageMenu(v, 'student', false, 'me'))).toEqual(['reply', 'copy', 'forward', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'discuss', 'pin', 'info', 'delete', 'select']);
-    expect(ids(messageMenu({ ...v, attachment: { ...v.attachment, translation: "I'm fine" } }, 'student', false, 'me'))).toContain('translate');
-    expect(ids(messageMenu({ ...v, attachment: { kind: 'voice', transcript: null } }, 'student', false, 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'delete', 'select']);
+    expect(ids(messageMenu(v, 'student', 'me'))).toEqual(['reply', 'copy', 'forward', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'discuss', 'pin', 'info', 'delete', 'select']);
+    expect(ids(messageMenu({ ...v, attachment: { ...v.attachment, translation: "I'm fine" } }, 'student', 'me'))).toContain('translate');
+    expect(ids(messageMenu({ ...v, attachment: { kind: 'voice', transcript: null } }, 'student', 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'delete', 'select']);
   });
 
   it('a photo: caption tools, Edit caption, no Check / Correct', () => {
     const p = { sender_id: 'me', content: '我的猫', attachment: { kind: 'image' } };
-    const m = messageMenu(p, 'student', false, 'me');
+    const m = messageMenu(p, 'student', 'me');
     expect(m.items.find((i) => i.id === 'edit')?.label).toBe('Edit caption');
     expect(ids(m)).not.toContain('check');
-    expect(ids(messageMenu({ ...p, sender_id: 'them' }, 'tutor', false, 'me'))).not.toContain('correct');
-    expect(ids(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'student', false, 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'select']);
+    expect(ids(messageMenu({ ...p, sender_id: 'them' }, 'tutor', 'me'))).not.toContain('correct');
+    expect(ids(messageMenu({ sender_id: 'them', content: '', attachment: { kind: 'image' } }, 'student', 'me'))).toEqual(['reply', 'forward', 'pin', 'info', 'select']);
   });
 
   it('deleted: nothing; pending: Copy only, no reactions', () => {
-    expect(messageMenu({ ...base, deleted_at: 'x' }, 'student', false, 'me')).toEqual({ reactions: false, items: [] });
-    expect(messageMenu({ ...base, pending: true }, 'student', false, 'me')).toEqual({ reactions: false, items: [{ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false }] });
-  });
-
-  it('the Claude practice chat: Word by word, no pin / edit / delete / corrections', () => {
-    expect(ids(messageMenu(base, 'tutor', true, 'me'))).toEqual(['reply', 'copy', 'translate', 'pinyin', 'explain', 'save_card', 'open_coach', 'select_cards', 'play', 'word_by_word', 'discuss', 'select']);
-    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', true, 'me'))).toContain('check');
+    expect(messageMenu({ ...base, deleted_at: 'x' }, 'student', 'me')).toEqual({ reactions: false, items: [] });
+    expect(messageMenu({ ...base, pending: true }, 'student', 'me')).toEqual({ reactions: false, items: [{ id: 'copy', label: 'Copy', icon: '📋', needsInternet: false }] });
   });
 });
 
 describe('Open in Coach', () => {
   it('my own Chinese message checks it; theirs explains it; English and the tutor\'s own message have none', () => {
-    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'student', false, 'me'))).toContain('open_coach');
-    expect(ids(messageMenu(base, 'student', false, 'me'))).toContain('open_coach');
-    expect(ids(messageMenu({ sender_id: 'me', content: 'See you' }, 'student', false, 'me'))).not.toContain('open_coach');
-    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', false, 'me'))).not.toContain('open_coach');
+    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'student', 'me'))).toContain('open_coach');
+    expect(ids(messageMenu(base, 'student', 'me'))).toContain('open_coach');
+    expect(ids(messageMenu({ sender_id: 'me', content: 'See you' }, 'student', 'me'))).not.toContain('open_coach');
+    expect(ids(messageMenu({ ...base, sender_id: 'me' }, 'tutor', 'me'))).not.toContain('open_coach');
   });
 
   it('second, right after How to say it better, when the auto-check found something (a photo caption too)', () => {
     const photo = { sender_id: 'me', content: '我昨天去了商店买东西了', attachment: { kind: 'image' }, auto_check: { status: 'improvable' as const, text: '我昨天去了商店买东西了' } };
-    expect(ids(messageMenu(photo, 'student', false, 'me')).slice(0, 3)).toEqual(['say_better', 'open_coach', 'reply']);
+    expect(ids(messageMenu(photo, 'student', 'me')).slice(0, 3)).toEqual(['say_better', 'open_coach', 'reply']);
     const voice = { sender_id: 'me', content: '', attachment: { kind: 'voice', transcript: '我去了商店了', transcript_status: 'done' }, auto_check: { status: 'improvable' as const, text: '我去了商店了' } };
-    expect(ids(messageMenu(voice, 'student', false, 'me')).slice(0, 2)).toEqual(['say_better', 'open_coach']);
+    expect(ids(messageMenu(voice, 'student', 'me')).slice(0, 2)).toEqual(['say_better', 'open_coach']);
   });
 });
 
@@ -135,9 +130,9 @@ describe('bubbles', () => {
 
 describe('messageMenu — system messages', () => {
   it('only Copy, no reactions (docs/CHAT.md "System messages")', () => {
-    const m = messageMenu({ sender_id: 'them', content: '🚩 Jerome flagged 银行 for you', system_kind: 'card_flag' }, 'tutor', false, 'me');
+    const m = messageMenu({ sender_id: 'them', content: '🚩 Jerome flagged 银行 for you', system_kind: 'card_flag' }, 'tutor', 'me');
     expect(m.reactions).toBe(false);
     expect(ids(m)).toEqual(['copy']);
-    expect(ids(messageMenu({ sender_id: 'me', content: '📚 …', system_kind: 'study_budget' }, 'tutor', false, 'me'))).toEqual(['copy']);
+    expect(ids(messageMenu({ sender_id: 'me', content: '📚 …', system_kind: 'study_budget' }, 'tutor', 'me'))).toEqual(['copy']);
   });
 });

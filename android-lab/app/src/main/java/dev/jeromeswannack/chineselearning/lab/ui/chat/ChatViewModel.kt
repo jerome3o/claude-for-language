@@ -377,7 +377,7 @@ data class ChatUi(
             hasDiscussion = m.has_discussion, pinnedAt = m.pinned_at,
             systemKind = m.system_kind.takeIf { m.isSystem },
         ),
-        viewerRole, false, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
+        viewerRole, myId ?: "", pinyinOn = aids.pinyin(m.id), translateOn = aids.translation(m.id),
     )
 
     /**

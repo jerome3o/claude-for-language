@@ -369,6 +369,8 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
     // Always shown once loaded, like the web: the budget row must stay reachable before any deck is sent.
     if (o != null) {
         item(key = "long-term") {
+            // The tutor's "📚 You set Jerome's new cards …" chat line lands here (`?section=long-term`).
+            FlashSection(flash?.takeIf { it.section == "long-term" }) {
             Column(Modifier.testTag("long-term-learning"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 TeachSectionTitle("Long-term learning")
                 MutedLine(longTermIntro(name))
@@ -382,6 +384,7 @@ private fun LazyListScope.workColumn(ui: StudentPageUi, actions: StudentPageActi
                     )
                 }
                 if (longTermDecks.isEmpty()) MutedLine("No long-term decks yet — a deck sent as Long-term or Both lands here.")
+            }
             }
         }
         longTermDecks.forEach { d -> item(key = "deck-${d.shared_deck_id}") { DeckRowFor(ui, actions, now, name, d, quiet = true) } }

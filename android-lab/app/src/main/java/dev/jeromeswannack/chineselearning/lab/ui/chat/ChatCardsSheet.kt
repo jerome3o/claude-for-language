@@ -144,7 +144,7 @@ fun ReviewPanel(
                 AnimatedVisibility(r.sourceKey == null && r.newDeck != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                     OutlinedTextField(r.newDeck.orEmpty(), { actions.onNewDeck(it) }, label = { Text("New deck name") }, placeholder = { Text("e.g. From my chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("chat-review-new-deck"))
                 }
-                bumpNote?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                bumpNote?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "chat_flashcards") }
                 r.error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 if (!online) InlineNotice("You're offline — adding cards needs a connection. Your picks stay here.", kind = NoticeKind.Offline)
             }

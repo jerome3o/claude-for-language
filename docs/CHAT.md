@@ -484,7 +484,7 @@ CREATE INDEX idx_messages_system ON messages(system_kind) WHERE system_kind IS N
 
 | kind | posted by | data | the recipient reads | the sender reads |
 |---|---|---|---|---|
-| `study_budget` | the tutor's "Daily new cards" change (`PUT …/student-study-budget`) | `new_cards_per_day`, `secondary_cards_per_day`, `is_default` | 📚 Minghui set your new cards to 2 a day (+5 extra) | 📚 You set Jerome's new cards to 2 a day (+5 extra) |
+| `study_budget` | the tutor's "Daily new cards" change (`PUT …/student-study-budget`) | `new_cards_per_day`, `secondary_cards_per_day`, `is_default` | 📚 Minghui set your new cards to 2 a day (+5 extra) · **See in Settings** | 📚 You set Jerome's new cards to 2 a day (+5 extra) · **See their daily cards** (his page's Long-term learning section, where the Daily new cards row is: web `#long-term`, Lab `?section=long-term` — `SystemAction.section`, `systemActionHref`) |
 | `call_started` | `POST /api/calls` (the Join link) | `call_id`, `ended?`, `missed?` | 📹 Minghui started a video call · **Join** → Video call ended / Missed video call from Minghui | 📹 You started a video call · **Join** → Video call ended / Video call · Jerome didn't join |
 | `card_flag` | the student's Flag for tutor (`POST /api/card-flags`) | `flag_id`, `note_id`, `hanzi`, `pinyin`, `english`, `message` | 🚩 Jerome flagged 银行 for you + “their note” · **Open card** (her view of his card) | 🚩 You flagged 银行 for Minghui + the note · **Open card** |
 | `flag_reply` | the tutor's reply to a flag | `flag_id`, `note_id`, `hanzi`, `reply` | 🚩 Minghui replied about 银行 + “her reply” · **Open card** | 🚩 You replied about 银行 + the reply |
@@ -989,15 +989,17 @@ thread). This part is worker + shared types only; the screens come later.
   text cleared — the next `?since=` list reports it in `deleted_ids`). The Coach page lists only general threads.
 - **The older chats, copied in lazily** (`claude-agent/backfill.ts`): on a user's first `GET /api/claude/threads`
   (stamped in `users.claude_threads_backfilled_at`), note_questions → `card` threads grouped like the apps
-  always showed them (`groupQuestionThreads`: one card's questions ≤ 30 min apart; `nq-<first id>`), the
+  always showed them (`groupQuestions`: one card's questions ≤ 30 min apart; `nq-<first id>`), the
   practice chats → `practice` threads (`pc-<conversation id>`, read-only), message_discussions → `chat_message`
   threads (`md-<id>`). Fixed ids + `INSERT OR IGNORE` + `legacy_id`: a re-run (admin
   `POST /api/admin/claude-threads/backfill`) never duplicates, never brings back a deleted thread. The old tables
-  stay as they are. Dual-writes keep both sides complete while old apps exist: `POST /api/notes/:id/ask` appends
-  its Q&A to the card's thread (same 30-minute rule), `PUT /api/messages/:id/discussion` adds the new messages to
-  its thread, and a card turn through the new API also writes `note_questions` (so the note history, the learner's
-  card hub and `/api/me/claude-chats` — which read `note_questions` — see it). The TUTOR's views read the threads
-  (see "What your tutor sees" below).
+  stay as they are, and **`note_questions` is frozen** (Nov 2026): nothing writes it — a card's questions live only
+  in its threads. Older apps keep working: the legacy `POST /api/notes/:id/ask` writes its Q&A straight into the
+  card's thread (same 30-minute rule; the id it returns is the messages' `legacy_id`), `PUT /api/messages/:id/discussion`
+  adds the new messages to its thread, and every row-shaped read — `/api/me/claude-chats`, the card hub's `questions`,
+  `/api/notes/:id/questions`, `/api/note-questions/:id[/words|/translate]` — is served from the card threads
+  (`claude-agent/card-questions.ts`). The apps list the threads themselves (card hub, History modal, Claude
+  conversations) and regroup nothing. The TUTOR's views read the threads (see "What your tutor sees" below).
 - **A reply is never lost** (`claude-agent/thread-turn.ts`): the POST stores my message + a pending reply in one
   batch and answers 202; in the same request a watchdog `{ kind: 'claude_turn', messageId }` goes on
   `coach-reply-queue` (45 s) and the reply starts inline (waitUntil — no queue hop). The runner claims the row with a
@@ -1091,8 +1093,9 @@ rule in SQL, `tutorVisibleSql`), routes `routes/claude-tutor-view.ts`.
   (finished text / analysis messages only: no client ids, leases, meta, the check of his own Chinese, unread counts;
   the context without chat / message ids or the persona's voice). A private, deleted or missing chat is the same 404.
 - **Older apps**: the tutor's `GET /api/relationships/:relId/claude-chats` and her card hub's `questions` are served
-  from the VISIBLE card threads in the old row shape (`tutorCardQuestions`: each question + the reply after it, the old
-  `note_questions` id where it came from there) — a hidden chat never reaches an old build either.
+  from the VISIBLE card threads in the old row shape (`tutorCardQuestions` in `card-questions.ts`: each question + the
+  reply after it, the old `note_questions` id where it came from there) — a hidden chat never reaches an old build
+  either. Her card hub (web + Lab) lists the card's visible threads (`…/claude-threads?note_id=`).
 - **Tutor UI** (web + Lab): the student page's **✦ Asked Claude** (web `components/tutor/ClaudeChatsSection.tsx` +
   `StudentClaudeThreads.tsx`, Lab `ui/teaching/StudentClaudeThreads.kt`): the four newest visible chats — title, last
   line, when · N messages, "👁 shared with you" — with the context chip (📇 card → her card hub view of the note; 🎭 practice,
@@ -1224,12 +1227,25 @@ routes), `data/claude/ClaudeThreads.kt` (JsonCache `claude/t/<id>` + Outbox kind
   (`history.state.usr.claudeReturn`, web `ClaudeThreadView` `openResult`) before opening the path; back lands on that
   entry — the thread page restores its scroll (no pull to the end, `useFollowEnd(…, startFollowing = false)`), the
   study card (`StudyPage`) reopens its Ask Claude sheet on the same thread (today is the session: the same card comes
-  back, `shared/study/resume.ts`), the chat reopens Discuss on that message, a reader its page's sheet; the host
+  back, `shared/study/resume.ts`), the chat reopens Discuss on that message, a reader its page's sheet, a mini
+  lesson its exercise's sheet (`ExerciseClaudeProvider`, once an exercise of that lesson is on screen); the host
   clears it once the sheet is closed by hand. The player's ✕ / Done is `navigate(-1)`. Lab: the nav back stack — the
-  study card keeps `askReturn` (the thread) in saved state (`CardStage`), so back shows its sheet open again, and
+  study card keeps `askReturn` (the thread) in saved state (`CardStage`), so back shows its sheet open again; the
+  reader (`askReturn` = "<page>|<thread>", `ReaderScreens`) and the lesson player (`claudeReturn` = "<exercise
+  key>|<thread>", `LessonPlayer`) do the same through `ContextClaudeSheet(initialThread, onLeaveForResult)`, and
+  Discuss keeps its sheet in the chat's ViewModel with the thread pinned (`DiscussClaudeSheet`); and
   `FollowThreadEnd` keeps "scrolled up" in saved state. Analytics `claude.tool_result_open { kind: lesson | card | cards
   | bumped | edited, context }`. E2E: the stand-in makes `FAKE_LESSON` when asked for a "mini lesson"
   (`e2e/tests/claude-result-links.spec.ts`); Lab `ui/claude/ResultLinksTest.kt`.
+- **Notifications open the thing** (audit, Nov 2026): every push kind deep-links to what it is about and back
+  works — a chat message / a correction (`chat_message`, `chat_correction`; Web Push + FCM) → that chat
+  (`/connections/:relId/chat/:convId`; a cold start's ← goes to the Chats tab, the Lab's back to Home); a call
+  (`call`) → `/calls/:id`; a missed call (`call_missed`) → the person's page (📹 calls back from there); a card
+  flag / a flag reply → the chat, where the system line's **Open card** opens the card (flags are posted as chat
+  system messages, so they ride the chat push). Not pushed at all (e-mail / the Home line only, so nothing to
+  deep-link): new homework and "due tomorrow" (e-mails, docs/HOMEWORK.md §12 — the e-mail links to the pass `/homework/:id`, or `/homework` for several),
+  and a tutor's note on a recording (Home's "🗒 N new notes", the card back). The app's own toasts end in
+  **Open ›** (docs/STUDY_SESSION.md "Open ›").
 - **Suggestion chips** (`chipsFor`): card = Ask Claude's quick questions (`cardChips`, was `askQuickActions` —
   still exported under that name), general = A useful phrase · Quiz me · A short story, chat message = What does
   it mean · Is it natural · How to reply · Make flashcards, practice = 💡 hint · 🆘 How do I say… (`fill`: into the

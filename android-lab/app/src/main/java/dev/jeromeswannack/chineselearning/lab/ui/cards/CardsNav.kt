@@ -10,6 +10,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.decks.DecksEnv
 import dev.jeromeswannack.chineselearning.lab.ui.decks.NoteEditorSheets
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
+import dev.jeromeswannack.chineselearning.lab.ui.claude.claudeThread
 
 /** Package C — the student's card hub, `/cards/:noteId` (the study card's "open" goes here too). */
 fun NavGraphBuilder.cardsGraph(nav: LabNav) {
@@ -38,6 +39,13 @@ fun NavGraphBuilder.cardsGraph(nav: LabNav) {
             ),
             picture = { NotePictureSection(nav.app, noteId, "hub") },
             controls = { dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.HubCardControls(nav.app, noteId, ui.note?.hanzi.orEmpty()) },
+            claudeThreads = {
+                dev.jeromeswannack.chineselearning.lab.ui.claude.CardClaudeThreadRows(
+                    nav.app, noteId,
+                    emptyText = "You have not asked Claude about this card yet. Use Ask Claude on the card during study.",
+                    open = { nav.open(Routes.claudeThread(it)) },
+                )
+            },
         )
         NoteEditorSheets(vm.editor, nav)
     }

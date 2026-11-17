@@ -12,8 +12,8 @@
  *      for the apps that poll.
  *   5. The answer + its tool actions are CHECKPOINTED before any action runs (`applyCheckpointed`), so
  *      a resume never asks Claude again nor makes a card twice; then the row is finished, the thread
- *      touched (+1 unread), `claude_turn {done}` pushed; a card turn also writes `note_questions`
- *      (the older apps' history, card hub, tutor view read it).
+ *      touched (+1 unread), `claude_turn {done}` pushed. (The thread is the only store of a card's
+ *      questions: `note_questions` is frozen — older apps' endpoints read the threads, card-questions.ts.)
  *   6. After the reply (still in the inline run's waitUntil / the queue delivery — never in its way): Claude
  *      memory writes the thread's summary and, when due, the learner digest (memory.ts, `rememberReply`).
  *   7. The watchdog delivery finds the row done (ack), still leased (`busy` → again in 45 s) or
@@ -280,7 +280,6 @@ export async function runThreadTurn(env: ThreadTurnEnv, messageId: string, opts:
     if (!finished) return 'skipped';
     await live.done(cp.answer);
 
-    if (prepared.mode === 'card' && prepared.question) await dualWriteNoteQuestion(env.DB, row, { ...prepared, language: answerLang ?? prepared.language }, cp.answer, messageId);
     if (prepared.mode === 'practice' && answerLang === 'zh') {
       // A role-play line is meant to be heard: its clip in the persona's voice, made now in the
       // background (never awaited) so ▶ / 🎧 play at once — the same R2 `tts-cache/` key
@@ -366,21 +365,6 @@ function applierFor(env: ThreadTurnEnv, prepared: PreparedThreadTurn, userId: st
     return async (action) => (action.tool === 'create_flashcards' ? apply(userId, action) : { tool: action.tool, success: false, error: 'Unsupported tool' });
   }
   return async (action) => ({ tool: action.tool, success: false, error: 'Unsupported tool' });
-}
-
-/**
- * A card turn → `note_questions` too (the older apps' note history, card hub, tutor's "Asked
- * Claude", MCP read it), its id kept as both messages' `legacy_id` so the backfill never copies it
- * back. Never throws.
- */
-async function dualWriteNoteQuestion(database: D1Database, row: store.TurnRow, prepared: PreparedThreadTurn, answer: string, replyId: string): Promise<void> {
-  try {
-    const noteId = (prepared.ctx as { note_id: string }).note_id;
-    const q = await db.createNoteQuestion(database, noteId, prepared.question!.content, answer, prepared.language ?? null);
-    await store.setMessageLegacyId(database, [prepared.question!.id, replyId], q.id);
-  } catch (err) {
-    console.error('[claude-turn] note_questions dual-write failed', row.id, err instanceof Error ? err.message : err);
-  }
 }
 
 // ---------- Memory after a reply ----------

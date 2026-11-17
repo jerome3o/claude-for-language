@@ -23,6 +23,8 @@ import kotlinx.coroutines.launch
 
 class StudentHubViewModel(private val app: LabApp, private val relId: String, noteId: String) : ViewModel() {
     val hub: CachedResource<NoteHubDto> = app.cachedResource(viewModelScope, "teaching/hub/$relId/$noteId", TeachingKeys.KIND) { studentNoteHub(relId, noteId) }
+    /** The card's Claude threads the student lets her read (web: CardHubPage, tutor view). */
+    val threads: CachedResource<TutorClaudeThreadsDto> = app.cachedResource(viewModelScope, "teaching/hub-threads/$relId/$noteId", TeachingKeys.KIND) { studentClaudeThreads(relId, 50, noteId = noteId) }
 
     fun reply(f: TeachFlagDto, text: String, done: (String?) -> Unit) = viewModelScope.launch {
         attempt { app.repo.api.replyToCardFlag(f.id, text) }

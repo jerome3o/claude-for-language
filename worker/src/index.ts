@@ -79,7 +79,8 @@ import askClaudeRoutes from './routes/ask-claude';
 import claudeThreadsRoutes from './routes/claude-threads';
 import claudeTutorViewRoutes from './routes/claude-tutor-view';
 import { parseTutorVisibility } from '@shared/claude/visibility';
-import { shapeNoteQuestion, type NoteQuestionRow } from './services/ask-claude';
+import { shapeNoteQuestion } from './services/ask-claude';
+import { noteQuestionRows } from './services/claude-agent/card-questions';
 import { parseAskLanguage, parseAskListening } from '@shared/study/askClaude';
 import { runStorageCleanup, DEFAULT_MIN_AGE_DAYS } from './services/admin/storage-cleanup';
 import { handleLessonImageMessage, lessonImageHash, normalizeImagePrompt, LESSON_IMAGE_PREFIX, type LessonImageMessage } from './services/lesson-images';
@@ -1391,11 +1392,11 @@ app.get('/api/notes/:id/history', async (c) => {
 
 // POST /api/notes/:id/ask lives in routes/ask-claude.ts (Ask Claude, immersion: Chinese answers, word chips, the auto-check).
 
+// LEGACY (installed builds from before the card's Claude threads): the note's Q&As, served from its
+// card threads (services/claude-agent/card-questions.ts — note_questions is frozen).
 app.get('/api/notes/:id/questions', async (c) => {
-  const userId = c.get('user').id;
-  const id = c.req.param('id');
-  const questions = await db.getNoteQuestions(c.env.DB, id, userId);
-  return c.json(questions.map((q) => shapeNoteQuestion(q as unknown as NoteQuestionRow)));
+  const questions = await noteQuestionRows(c.env.DB, c.get('user').id, c.req.param('id'));
+  return c.json(questions.map(shapeNoteQuestion));
 });
 
 app.post('/api/notes/:id/generate-audio', async (c) => {

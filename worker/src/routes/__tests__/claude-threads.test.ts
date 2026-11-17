@@ -6,7 +6,7 @@
  * (unread cleared), follow-ups (409 while a reply is pending, idempotent by client id), read-only
  * practice threads, the Coach's check intent on its own queue, PATCH and DELETE.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { ClaudeThreadMessage, ClaudeThreadSummary } from '@shared/claude/api';
 import { createSqliteD1, type SqliteD1 } from '../../services/__tests__/sqlite-d1';
@@ -15,6 +15,7 @@ import { FAKE_FUN_FACT, FAKE_PRACTICE_CHUNKS, FAKE_STREAM_CHUNKS } from '../../s
 import { LESSON_VOICE_IDS } from '@shared/lesson/voices';
 import type { Env } from '../../types';
 import { seedReaderAndLesson } from '../../services/claude-agent/__tests__/context-seed';
+import { listCardQuestions } from '../../services/claude-agent/card-questions';
 
 const U = 'u1';
 
@@ -106,8 +107,12 @@ describe('/api/claude/threads', () => {
     const card = await w.call<ThreadBody>('POST', '/api/claude/threads', { context: { kind: 'card', note_id: 'n1' }, text: 'Why háng?', language: 'en' });
     expect(card.status).toBe(202);
     expect(card.body.thread).toMatchObject({ context_kind: 'card', context: { note_id: 'n1', label: '银行', sublabel: 'HSK 2' }, badge: { text: 'Asked on card · 银行' } });
-    // The card turn also landed in note_questions (older apps' history).
-    expect(db.rows("SELECT question FROM note_questions WHERE note_id = 'n1' ORDER BY asked_at")).toEqual([{ question: '行怎么读？' }, { question: 'Why háng?' }]);
+    // note_questions is frozen (only the row from before); older apps' history reads the card threads.
+    expect(db.rows("SELECT question FROM note_questions WHERE note_id = 'n1' ORDER BY asked_at")).toEqual([{ question: '行怎么读？' }]);
+    await vi.waitFor(async () => {
+      const { questions } = await listCardQuestions(db, U, { noteId: 'n1' });
+      expect(questions.map((q) => q.question)).toEqual(['Why háng?', '行怎么读？']);
+    });
   });
 
   it('a card thread: my Chinese question is checked (not a chip), the typed answer follows the card, the fun-fact tool edits the card', async () => {

@@ -159,7 +159,7 @@ export function CardTieIn({
         </div>
       ) : shownAdded ? (
         <div className="xp-have" data-testid="xp-added">
-          <AddedToDeckLine added={shownAdded} surface="explorer" onMoved={(now) => setAdded({ ...shownAdded, ...now })} className="xp-added-line" />
+          <AddedToDeckLine added={shownAdded} surface="explorer" onMoved={(now) => setAdded({ ...shownAdded, ...now })} className="xp-added-line" open={false} />
           {bumpMsg && <div className="bump-hint" role="status">{bumpMsg}</div>}
           <div className="xp-footer-row">
             <button

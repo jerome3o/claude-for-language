@@ -79,7 +79,7 @@ export function useOpenResult(context = 'coach'): OpenResult {
  * line says so instead of opening an empty page). A target that turns out deleted is said by the
  * destination ("This lesson was deleted" / "This card was deleted").
  */
-export function useResultAvailability(link: ResultLink | null | undefined): 'ok' | 'offline' {
+export function useResultAvailability(link: Pick<ResultLink, 'target' | 'id'> | null | undefined): 'ok' | 'offline' {
   const isOnline = useOnline();
   const here = useLiveQuery(async () => {
     if (!link?.id) return true;

@@ -50,7 +50,7 @@ fun NavGraphBuilder.connectionsGraph(nav: LabNav) {
     composable(Routes.route(Routes.claudeChats())) {
         val vm: ClaudeChatsViewModel = viewModel(factory = factory { ClaudeChatsViewModel(nav.app) })
         val ui by vm.ui.collectAsStateWithLifecycle()
-        ClaudeChatsScreen(ui, onBack = nav::back, onOpenCard = { nav.openOrHandoff(Routes.cardHub(it)) }, onLoadMore = vm::loadMore, onRetry = vm::retry)
+        ClaudeChatsScreen(ui, onBack = nav::back, onOpenThread = { nav.open(Routes.claudeThread(it)) }, onRetry = vm::retry)
     }
 
     composable(Routes.route(Routes.lessonNotes())) {

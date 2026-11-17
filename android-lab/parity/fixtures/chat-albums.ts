@@ -91,11 +91,10 @@ const albumMenus: unknown[] = [];
 for (const content of ['', '我们的猫', 'look!', '  '])
   for (const mine of [true, false])
     for (const role of ['student', 'tutor'] as const)
-      for (const ai of [false, true])
-        for (const pinned of [null, '2026-10-08T09:00:00.000Z'])
+      for (const pinned of [null, '2026-10-08T09:00:00.000Z'])
           for (const count of [2, 3, 7]) {
             const message: MenuMessage = { sender_id: mine ? 'me' : 'them', content, attachment: { kind: 'image' }, pinned_at: pinned };
-            albumMenus.push({ message, role, ai, count, result: albumMenu(messageMenu(message, role, ai, 'me'), count) });
+            albumMenus.push({ message, role, count, result: albumMenu(messageMenu(message, role, 'me'), count) });
           }
 
 writeFileSync(

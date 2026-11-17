@@ -4,7 +4,7 @@
  * seq growing, the whole text each time) and into the pending row (the poll fallback), the row is
  * finished with meta and the thread's inbox fields; the lease keeps a second runner out until it
  * expires (the watchdog then resumes); a busy model is retried then failed with a readable reason; a
- * checkpoint is never re-asked; a card turn also lands in note_questions; practice threads are
+ * checkpoint is never re-asked; a card turn lives only in its thread (note_questions is frozen); practice threads are
  * read-only; E2E_TEST_MODE takes the stand-in first; startThreadTurn schedules the watchdog.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ import { FAKE_STREAM_CHUNKS, fakeStreamingClient } from '../fake';
 import { runThreadTurn, startThreadTurn, WATCHDOG_DELAY_SECONDS } from '../thread-turn';
 import * as store from '../store';
 import { backfillClaudeThreads } from '../backfill';
+import { findCardQuestion, noteQuestionRows } from '../card-questions';
 import { seedReaderAndLesson } from './context-seed';
 import { cardToolLines, parseCardToolResults } from '@shared/claude/cardTools';
 import { toolRecord } from '../tool-record';
@@ -156,7 +157,8 @@ describe('a Claude thread reply', () => {
     expect(reply(db, replyId)).toMatchObject({ status: null, answer_lang: 'zh' });
     expect(clip).toHaveBeenCalledTimes(1);
     expect((clip.mock.calls[0] as unknown[])[1]).toBe(zh);
-    expect(db.rows<{ answer_lang: string }>('SELECT answer_lang FROM note_questions')).toEqual([{ answer_lang: 'zh' }]);
+    // note_questions is frozen: the thread is the question's only store.
+    expect(db.rows('SELECT id FROM note_questions')).toEqual([]);
     // An English answer to an English turn stays 'en', no clip.
     const en = await newTurn(db, { kind: 'card', note_id: 'n1' }, 'In English please', 'en');
     const clip2 = vi.fn(async () => true);
@@ -165,7 +167,7 @@ describe('a Claude thread reply', () => {
     expect(clip2).not.toHaveBeenCalled();
   });
 
-  it('a card turn answers with the card in the first message, and lands in note_questions (no double copy later)', async () => {
+  it('a card turn answers with the card in the first message; it lives only in its thread (note_questions is frozen) and the older endpoints read it there', async () => {
     const { replyId, userMessageId } = await newTurn(db, { kind: 'card', note_id: 'n1' }, '行 has two readings?', 'en');
     const seen: Anthropic.MessageCreateParamsNonStreaming[] = [];
     const base = fakeStreamingClient('en', 0);
@@ -173,10 +175,12 @@ describe('a Claude thread reply', () => {
     expect(await runThreadTurn(envOf(db), replyId, { client, live: recorder().live, clip: null })).toBe('done');
     const first = seen[0].messages[0].content;
     expect(typeof first === 'string' ? first : JSON.stringify(first)).toContain('银行');
-    const qs = db.rows<{ id: string; question: string; answer: string; answer_lang: string }>('SELECT id, question, answer, answer_lang FROM note_questions');
-    expect(qs).toEqual([{ id: expect.any(String), question: '行 has two readings?', answer: FAKE_STREAM_CHUNKS.en.join(''), answer_lang: 'en' }]);
-    expect(db.rows('SELECT legacy_id FROM coach_messages WHERE id IN (?, ?)', [userMessageId, replyId]).map((r) => (r as { legacy_id: string }).legacy_id)).toEqual([qs[0].id, qs[0].id]);
-    // The backfill sees it is there already.
+    expect(db.rows('SELECT id FROM note_questions')).toEqual([]);
+    // The older apps' rows come from the thread: the question's id is its message id.
+    const rows = await noteQuestionRows(db, U, 'n1');
+    expect(rows).toEqual([expect.objectContaining({ id: userMessageId, question: '行 has two readings?', answer: FAKE_STREAM_CHUNKS.en.join(''), answer_lang: 'en', answer_message_id: replyId })]);
+    expect(await findCardQuestion(db, U, userMessageId)).toMatchObject({ answer_message_id: replyId });
+    // A re-run of the backfill copies nothing.
     const before = db.rows('SELECT COUNT(*) AS n FROM coach_messages')[0];
     await backfillClaudeThreads(db, U);
     expect(db.rows('SELECT COUNT(*) AS n FROM coach_messages')[0]).toEqual(before);

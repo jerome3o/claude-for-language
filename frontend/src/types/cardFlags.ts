@@ -31,25 +31,6 @@ export interface CardFlag {
   tutor_name: string | null;
 }
 
-export interface ClaudeChatQuestion {
-  id: string;
-  note_id: string;
-  question: string;
-  answer: string;
-  asked_at: string;
-  hanzi: string;
-  pinyin: string;
-  english: string;
-  deck_id: string;
-  deck_name: string;
-}
-
-export interface ClaudeChatsResponse {
-  questions: ClaudeChatQuestion[];
-  next_cursor: string | null;
-  total: number;
-}
-
 export interface NoteHubCard {
   id: string;
   card_type: CardType;
@@ -81,6 +62,6 @@ export interface NoteHub {
   /** "Forget this card": when a card of the note was reset to New (newest first; absent from older servers). */
   forgets?: Array<{ id: string; card_id: string; card_type: string; forgotten_at: string }>;
   review_count: number;
-  questions: ClaudeChatQuestion[];
+  // (`questions` is still sent for older app builds; this app lists the card's Claude threads.)
   flags: CardFlag[];
 }

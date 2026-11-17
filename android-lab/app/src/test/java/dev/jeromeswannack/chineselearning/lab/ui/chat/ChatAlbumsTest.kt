@@ -120,7 +120,7 @@ class ChatAlbumsTest {
 
     @Test fun theAlbumMenuKeepsWholeAlbumActions() {
         val m = MessageMenu.Message(senderId = "me", content = "我们的猫", attachmentKind = "image")
-        val menu = MessageMenu.albumMenu(MessageMenu.messageMenu(m, "student", false, "me"), 3)
+        val menu = MessageMenu.albumMenu(MessageMenu.messageMenu(m, "student", "me"), 3)
         assertEquals(listOf("reply", "copy", "forward", "explain", "save_card", "pin", "info", "edit", "delete"), menu.items.map { it.id })
         assertEquals("Forward all 3", menu.items.first { it.id == MessageMenu.FORWARD }.label)
         assertEquals("Delete all 3", menu.items.first { it.id == MessageMenu.DELETE }.label)

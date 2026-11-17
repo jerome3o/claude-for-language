@@ -270,25 +270,7 @@ suspend fun Api.explainSentenceText(body: ExplainTextBody): SentenceExplanation 
     post<ExplainTextBody, ExplanationAnswer>("/api/sentences/explain-text", body).explanation
 
 // ---------------- Ask Claude ----------------
-
-@Serializable
-data class AskContext(val userAnswer: String? = null, val correctAnswer: String? = null, val cardType: String? = null)
-
-@Serializable
-data class AskHistoryItem(val question: String, val answer: String)
-
-@Serializable
-data class AskBody(
-    val question: String,
-    val context: AskContext? = null,
-    val conversationHistory: List<AskHistoryItem>? = null,
-    /** The sheet's 中 / EN (core AskClaude); the account's choice when null. */
-    val language: String? = null,
-    /** A quick-question chip (the app wrote it): not checked. */
-    val quick: Boolean? = null,
-    /** The sheet's 🎧 Listen first: the server makes the answer's clip before answering. */
-    val listening: Boolean? = null,
-)
+// (A card's questions go through its Claude thread, ClaudeThreadsApi.kt; AskAnswer is the 🎧 Listen-first entry.)
 
 @Serializable
 data class AskToolResult(val tool: String, val success: Boolean = false, val data: JsonObject? = null, val error: String? = null)
@@ -317,26 +299,6 @@ data class AskAnswer(
     /** 🎧 Listen first: the answer's read-aloud clip was made before the answer came back. */
     val answer_clip_ready: Boolean = false,
 )
-
-suspend fun Api.askAboutNote(noteId: String, body: AskBody): AskAnswer = post("/api/notes/${enc(noteId)}/ask", body)
-
-/** One Ask Claude Q&A as stored (word chips, translations, the question's check). */
-suspend fun Api.noteQuestion(id: String): AskAnswer = get("/api/note-questions/${enc(id)}")
-
-@Serializable
-data class AskPartBody(val part: String)
-
-@Serializable
-data class AskWordsAnswer(val words: List<ReaderWordDto>? = null, val cached: Boolean = false)
-
-@Serializable
-data class AskTranslationAnswer(val translation: String = "", val cached: Boolean = false)
-
-/** Word chips of the answer / the question ([part] = answer | question), made on request and cached on the row. */
-suspend fun Api.noteQuestionWords(id: String, part: String): AskWordsAnswer = post("/api/note-questions/${enc(id)}/words", AskPartBody(part))
-
-/** The answer / the question in English (the long-press menu's Translate), cached on the row. */
-suspend fun Api.translateNoteQuestion(id: String, part: String): AskTranslationAnswer = post("/api/note-questions/${enc(id)}/translate", AskPartBody(part))
 
 @Serializable
 data class AskLanguageBody(val ask_claude_language: String?)

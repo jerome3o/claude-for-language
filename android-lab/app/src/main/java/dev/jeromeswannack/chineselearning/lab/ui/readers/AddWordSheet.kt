@@ -106,7 +106,7 @@ fun AddWordSheet(
             {
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
                 if (done) InlineNotice("Added — it arrives with the next sync.", kind = NoticeKind.Success)
-                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "add_word", before = onDismiss) }
             }
         },
         footer = if (done) null else if (duplicate && bump != null) {
@@ -190,7 +190,7 @@ private fun SourceAddWordSheet(
         footerAbove = if (error == null && bumped == null) null else {
             {
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "add_word", before = onDismiss) }
             }
         },
         footer = when {
@@ -225,7 +225,7 @@ private fun SourceAddWordSheet(
             chunk.note?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, textAlign = TextAlign.Center) }
             val a = added
             when {
-                a != null -> AddedToDeckRow(a, actions.move, onMoved = { added = it })
+                a != null -> AddedToDeckRow(a, actions.move, onMoved = { added = it }, hanzi = chunk.hanzi, surface = "add_word", beforeOpen = onDismiss)
                 have == true && bumped == null -> InlineNotice("You already have ${chunk.hanzi} as a card. Study it today instead of adding it again?", kind = NoticeKind.Warning)
                 error == null -> Text("Adding to ${SourceDecks.name(key)}…", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted, modifier = Modifier.fillMaxWidth())
             }

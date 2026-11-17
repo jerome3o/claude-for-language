@@ -632,6 +632,14 @@ button.claude-thread-chip::after {
   color: inherit;
   text-decoration: none;
 }
+/* "Claude conversations": the card each thread is about. */
+.card-claude-thread-card {
+  flex-shrink: 0;
+  min-width: 2.75rem;
+  font-size: 1.375rem;
+  font-weight: 600;
+  text-align: center;
+}
 .card-claude-thread-main {
   flex: 1;
   min-width: 0;

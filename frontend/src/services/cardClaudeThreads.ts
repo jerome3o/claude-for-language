@@ -3,7 +3,8 @@
  * Claude"): the threads about one note from the same Dexie table the Chats tab and the thread view
  * read (`claudeThreads`), brought up to date from `GET /api/claude/threads?context_kind=card&note_id=`
  * when online, so the sheet resumes the card's recent thread (`resumeThreadFor`, 30 minutes) and lists
- * the earlier ones — offline too.
+ * the earlier ones — offline too. The card hub, the History modal and "Claude conversations" list
+ * the same rows (components/claude/CardClaudeThreads.tsx).
  *
  * Also which replies' card tools this device already applied (`markCardEffectsApplied`), so reopening
  * a thread never applies an edit twice.
@@ -27,6 +28,22 @@ export async function localCardThreads(noteId: string): Promise<LocalClaudeThrea
 /** Live: the note's threads on this device (undefined while loading). */
 export function useCardThreads(noteId: string): LocalClaudeThread[] | undefined {
   return useLiveQuery(() => localCardThreads(noteId), [noteId]);
+}
+
+/** Every card thread on this device ("Claude conversations"; archived included — the list leaves them out). */
+export async function localAllCardThreads(): Promise<LocalClaudeThread[]> {
+  const all = await db.claudeThreads.toArray();
+  return all.filter((t) => t.context_kind === 'card' && t.context.kind === 'card');
+}
+
+export function useAllCardThreads(): LocalClaudeThread[] | undefined {
+  return useLiveQuery(() => localAllCardThreads(), []);
+}
+
+/** The server's card threads (newest first, up to `limit`) into the cache. Throws on a network / server error. */
+export async function refreshAllCardThreads(limit = 200): Promise<void> {
+  const res = await listClaudeThreads({ contextKind: 'card', limit });
+  await applyThreadList(res.threads, []);
 }
 
 /** The server's threads about the note into the cache. Throws on a network / server error. */

@@ -121,7 +121,10 @@ fun StudyReaderView(
     val reader = session.reader
     var page by rememberSaveable(session.key) { mutableIntStateOf(startPage.coerceIn(0, (session.reader.pages.size - 1).coerceAtLeast(0))) }
     // 📖 Ask Claude about this page: the page's Claude thread in a sheet (ui/claude/ContextClaudeSheet.kt).
-    var asking by remember(session.key) { mutableStateOf<Int?>(null) }
+    // Back from something a line under Claude's reply opened (docs/CHAT.md "Tool lines you can tap"): saved with
+    // the screen as "<page>|<thread>", so the reader comes back on that page with its sheet open on that thread.
+    var askReturn by rememberSaveable(session.key) { mutableStateOf<String?>(null) }
+    var asking by remember(session.key) { mutableStateOf(askReturn?.substringBefore('|')?.toIntOrNull()) }
     val started = remember(session.key) { System.currentTimeMillis() }
     var finished by remember(session.key) { mutableStateOf(false) }
     var storyPlaying by rememberSaveable(session.key) { mutableStateOf(false) }
@@ -232,7 +235,12 @@ fun StudyReaderView(
         }
         asking?.let { index ->
             reader.pages.getOrNull(index)?.let { p ->
-                ReaderClaudeSheet(reader, p, index, onDismiss = { asking = null })
+                ReaderClaudeSheet(
+                    reader, p, index,
+                    onDismiss = { asking = null; askReturn = null },
+                    initialThread = askReturn?.substringAfter('|', "")?.ifEmpty { null },
+                    onLeaveForResult = { thread -> askReturn = "$index|${thread.orEmpty()}" },
+                )
             }
         }
         // The whole page read right: one burst over the reading view per perfect take.

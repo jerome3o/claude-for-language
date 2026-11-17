@@ -580,7 +580,7 @@ export function ConnectionDetailPage() {
 
           {/* Long-term learning: decks in the student's queue — their pace, not homework with an end */}
           {overview && (
-            <section className="detail-section td-long-term" data-testid="long-term-learning">
+            <section className="detail-section td-long-term" id="long-term" data-testid="long-term-learning">
               <h2>Long-term learning</h2>
               <p className="td-muted td-long-term-intro">Decks in {otherName.split(' ')[0] || 'their'}’s daily review, introduced at their daily new-card budget. Not counted as homework.</p>
               {/* The student's ONE daily new-card budget — what decides how fast these decks are introduced */}

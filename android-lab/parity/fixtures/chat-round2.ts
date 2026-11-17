@@ -48,8 +48,7 @@ for (const content of contents)
   for (const attachment of attachments)
     for (const mine of [true, false])
       for (const role of ['student', 'tutor'] as const)
-        for (const ai of [false, true])
-          for (const variant of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) {
+        for (const variant of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) {
             const msg: MenuMessage = { sender_id: mine ? 'me' : 'them', content, attachment: attachment ? { ...attachment } : attachment };
             // Spread the other fields over the variants (every field is covered at least once per combination of the above).
             if (variant === 1) msg.deleted_at = '2026-10-01T10:00:00.000Z';
@@ -72,7 +71,7 @@ for (const content of contents)
             for (const state of [{ pinyinOn: false, translateOn: false }, { pinyinOn: true, translateOn: false }, { pinyinOn: false, translateOn: true }, { pinyinOn: true, translateOn: true }]) {
               // Every toggle state only for the plain variants (keeps the file small).
               if (variant > 3 && (state.pinyinOn || state.translateOn)) continue;
-              menus.push({ message: msg, role, ai, state, text: menuText(msg), result: messageMenu(msg, role, ai, 'me', state) });
+              menus.push({ message: msg, role, state, text: menuText(msg), result: messageMenu(msg, role, 'me', state) });
             }
           }
 

@@ -207,7 +207,7 @@ class DecksViewModelTest {
         assertFalse(ui.fromServer)
     }
 
-    @Test fun cardHubShowsFlagsAndThreadsFromTheServer() {
+    @Test fun cardHubShowsFlagsFromTheServer() {
         f.server.enqueue(
             MockResponse().setResponseCode(200).setBody(
                 """{"note":{"id":"n1","deck_id":"d1","hanzi":"打算"},"deck":{"id":"d1","name":"HSK 3"},"cards":[],"recent_reviews":[],"review_count":3,
@@ -218,7 +218,6 @@ class DecksViewModelTest {
         val vm = CardHubViewModel(f.env, "n1")
         await("server hub") { vm.ui.value.fromServer }
         val ui = vm.ui.value
-        assertEquals(listOf(listOf("q3"), listOf("q1", "q2")), ui.threads.map { t -> t.map { it.id } })
         assertEquals("tone?", ui.flags.single().message)
         assertEquals("/api/notes/n1/hub", f.server.takeRequest().path)
     }

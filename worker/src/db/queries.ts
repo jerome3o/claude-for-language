@@ -4,7 +4,6 @@ import {
   Card,
   StudySession,
   CardReview,
-  NoteQuestion,
   NoteWithCards,
   DeckWithNotes,
   CardWithNote,
@@ -1462,49 +1461,6 @@ export async function getNoteReviewHistory(
       card_stats: cardStats[card_type],
       reviews: byCardType[card_type] || [],
     }));
-}
-
-// ============ Note Questions ============
-
-export async function createNoteQuestion(
-  db: D1Database,
-  noteId: string,
-  question: string,
-  answer: string,
-  /** 'zh' = a plain-text Chinese answer (word chips), 'en' = Markdown (migration 0116). */
-  answerLang: 'zh' | 'en' | null = null
-): Promise<NoteQuestion> {
-  const id = generateId();
-  await db
-    .prepare(
-      'INSERT INTO note_questions (id, note_id, question, answer, answer_lang) VALUES (?, ?, ?, ?, ?)'
-    )
-    .bind(id, noteId, question, answer, answerLang)
-    .run();
-
-  const noteQuestion = await db
-    .prepare('SELECT * FROM note_questions WHERE id = ?')
-    .bind(id)
-    .first<NoteQuestion>();
-
-  if (!noteQuestion) throw new Error('Failed to create note question');
-  return noteQuestion;
-}
-
-export async function getNoteQuestions(
-  db: D1Database,
-  noteId: string,
-  userId: string
-): Promise<NoteQuestion[]> {
-  // Verify note belongs to user first
-  const note = await getNoteById(db, noteId, userId);
-  if (!note) return [];
-
-  const result = await db
-    .prepare('SELECT * FROM note_questions WHERE note_id = ? ORDER BY asked_at DESC')
-    .bind(noteId)
-    .all<NoteQuestion>();
-  return result.results;
 }
 
 // ============ Statistics ============
