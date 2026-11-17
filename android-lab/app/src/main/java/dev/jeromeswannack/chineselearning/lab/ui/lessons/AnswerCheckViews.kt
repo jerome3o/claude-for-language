@@ -170,7 +170,7 @@ class LessonAnswerCheckState(
         val c = check
         val i = input
         return answer.copy(
-            check = if (c != null && i != null && answer.text?.trim() == i.answer) c else null,
+            check = if (c != null && i != null && answer.text?.let { t -> dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(t, i.input) } == i.answer) c else null,
             tries = tries.toList().ifEmpty { null },
         )
     }

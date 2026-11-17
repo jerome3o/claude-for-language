@@ -81,7 +81,7 @@ export function useLessonAnswerCheck(ctx: {
 
   function report(answer: ExerciseAnswer): ExerciseAnswer {
     const out: ExerciseAnswer = { ...answer };
-    if (check && input && answer.text?.trim() === input.answer) out.check = check;
+    if (check && input && answer.text && spokenCheckAnswer(answer.text, input.input) === input.answer) out.check = check;
     if (tries.length) out.tries = tries;
     return out;
   }

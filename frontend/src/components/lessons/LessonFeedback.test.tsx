@@ -4,7 +4,7 @@
  * a right answer felt (once), 🎤 Say it again (practice only — never the scored answer), and the coordinator's
  * sentence_making case: an honest grade (needs work in orange), 🎤 Try again in place, ✨ the fix on tap with its own 🎤.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
@@ -45,6 +45,11 @@ const CHECK: AnswerCheck = {
 };
 
 describe('lesson answer feedback', () => {
+  // The exercise views are heavy to import: load them once, with room, so a busy machine never times a test out.
+  beforeAll(async () => {
+    await import('../lesson-exercises');
+    await import('../practice-exercises');
+  }, 60_000);
   let host: HTMLDivElement;
   let root: Root;
   beforeEach(() => {
