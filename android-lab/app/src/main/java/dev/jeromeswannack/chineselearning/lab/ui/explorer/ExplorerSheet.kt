@@ -314,7 +314,9 @@ private fun CharacterViewHost(
             scope.launch {
                 try {
                     val justAddedNow = own?.status == CharWordStatus.None && addedTo != null
-                    bumped = bump(listOf(char), addedTo?.deckId)
+                    val freshId = addedTo?.noteId?.takeIf { justAddedNow }
+                    val bumpFresh = env.bumpJustAdded
+                    bumped = if (freshId != null && bumpFresh != null) bumpFresh(char, freshId, addedTo?.deckId) else bump(listOf(char), addedTo?.deckId)
                     controller.record("explorer.bump", mapOf("kind" to "char", "just_added" to justAddedNow))
                 } catch (e: CancellationException) {
                     throw e
@@ -492,7 +494,10 @@ private fun WordViewHost(item: ExplorerItem.Word, controller: ExplorerController
             scope.launch {
                 try {
                     val justAddedNow = ui.mine?.card == null && addedTo != null
-                    val message = bump(listOf(hanzi), addedTo?.deckId)
+                    // A word "+ Add as card" just made: bumped as an unstarted word even before the sync brings it.
+                    val freshId = addedTo?.noteId?.takeIf { justAddedNow }
+                    val bumpFresh = env.bumpJustAdded
+                    val message = if (freshId != null && bumpFresh != null) bumpFresh(hanzi, freshId, addedTo?.deckId) else bump(listOf(hanzi), addedTo?.deckId)
                     update { it.copy(bumped = message) }
                     controller.record("explorer.bump", mapOf("kind" to "word", "just_added" to justAddedNow))
                 } catch (e: CancellationException) {

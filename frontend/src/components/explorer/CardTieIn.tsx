@@ -136,6 +136,7 @@ export function CardTieIn({
               source="explorer"
               label="⚡ Study it today"
               hanziById={new Map([[shownAdded.noteId, shownAdded.hanzi]])}
+              justCreated
               onBumped={(m) => {
                 track('explorer.bump', { kind, just_added: true });
                 if (explorer.source === 'add') track('add.word_added', { via: 'bump' });

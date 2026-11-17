@@ -94,13 +94,27 @@ describe('PassBumpButton', () => {
     expect((await db.notes.get('n1'))?.long_term ?? null).toBeNull(); // already in long-term review
   });
 
-  it('no audio: one card, the lead card', async () => {
+  it('no audio yet, "Start new words by ear" on (the default): still its listening card — the clip is on its way', async () => {
     await seed(null);
     await show();
-    expect(button().textContent).toBe('⚡ Study it today · 1 card');
+    expect(button().textContent).toBe('⚡ Study it today · listening card');
     await act(async () => button().click());
-    await waitFor(() => button().textContent === '⚡ 1 card today ✓');
-    expect((await db.studyBumps.where('note_id').equals('n1').first())?.card_types).toEqual(['hanzi_to_meaning']);
-    expect((await getStudyQueue()).dueCards.map((c) => c.id)).toEqual(['c-h']);
+    await waitFor(() => button().textContent === '⚡ Listening card today ✓');
+    expect((await db.studyBumps.where('note_id').equals('n1').first())?.card_types).toEqual(['audio_to_hanzi']);
+  });
+
+  it('no audio, "Start new words by ear" off: one card, the lead card', async () => {
+    localStorage.setItem('newCardOrder', JSON.stringify({ new_words_by_ear: false }));
+    try {
+      await seed(null);
+      await show();
+      expect(button().textContent).toBe('⚡ Study it today · 1 card');
+      await act(async () => button().click());
+      await waitFor(() => button().textContent === '⚡ 1 card today ✓');
+      expect((await db.studyBumps.where('note_id').equals('n1').first())?.card_types).toEqual(['hanzi_to_meaning']);
+      expect((await getStudyQueue()).dueCards.map((c) => c.id)).toEqual(['c-h']);
+    } finally {
+      localStorage.removeItem('newCardOrder');
+    }
   });
 });

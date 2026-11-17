@@ -153,7 +153,7 @@ interface ServerPlan {
 
 /**
  * Plan bumps that arrived without one: every note's cards, audio, long-term choice and deck caps from D1,
- * then the shared rule. "English → Chinese" (a no-audio unstarted word of known characters leads with
+ * then the shared rule (with the account's "Start new words by ear" for a note whose clip isn't made yet). "English → Chinese" (a no-audio unstarted word of known characters leads with
  * meaning_to_hanzi) is looked up only when a plan needs it.
  */
 async function planServerBumps(db: D1Database, userId: string, noteIds: string[]): Promise<Map<string, ServerPlan>> {
@@ -181,12 +181,20 @@ async function planServerBumps(db: D1Database, userId: string, noteIds: string[]
     list.push(cardInput(c));
     byNote.set(c.note_id, list);
   }
+  // The account's "Order new cards by" switches, read once when a plan needs them ("Start new words by ear":
+  // an unstarted word with no clip yet — just added, its clip still being made — leads with its listening card).
+  let orderOnce: Promise<ReturnType<typeof parseNewCardOrder>> | null = null;
+  const newCardOrder = () =>
+    (orderOnce ??= db
+      .prepare('SELECT new_card_order FROM users WHERE id = ?')
+      .bind(userId)
+      .first<{ new_card_order: string | null }>()
+      .then((r) => parseNewCardOrder(r?.new_card_order ?? null)));
   let known: Set<string> | null = null;
   const knownCharacters = async (): Promise<Set<string>> => {
     if (known) return known;
     known = new Set();
-    const order = await db.prepare('SELECT new_card_order FROM users WHERE id = ?').bind(userId).first<{ new_card_order: string | null }>();
-    if (!parseNewCardOrder(order?.new_card_order ?? null).known_characters_english_first) return known;
+    if (!(await newCardOrder()).known_characters_english_first) return known;
     const mature = (
       await db
         .prepare(
@@ -205,6 +213,7 @@ async function planServerBumps(db: D1Database, userId: string, noteIds: string[]
       cards: noteCards,
       started: noteCards.some((c) => c.queue !== 0),
       hasAudio: !!n.audio_url,
+      newWordsByEar: n.audio_url ? false : (await newCardOrder()).new_words_by_ear,
       longTermPref: toLongTermPref(n.long_term),
       deckInReview: deckInDailyReview(n.new_cards_per_day ?? DEFAULT_DECK_SETTINGS.new_cards_per_day, n.secondary_cards_per_day ?? DEFAULT_DECK_SETTINGS.secondary_cards_per_day),
     };
