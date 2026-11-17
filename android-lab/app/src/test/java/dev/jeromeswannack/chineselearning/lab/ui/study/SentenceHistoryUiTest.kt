@@ -125,7 +125,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(800)
         compose.onNodeWithTag("${SentenceHideTags.REASON}-weird", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
-        assertEquals(listOf(clueRowKey("n1") to "weird"), hidden)
+        assertEquals(listOf(cardRowKey("n1") to "weird"), hidden)
         compose.onNodeWithTag(SentenceHideTags.UNDO, useUnmergedTree = true).assertExists()
     }
 

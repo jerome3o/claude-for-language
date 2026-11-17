@@ -503,8 +503,9 @@ describe('getSentenceTranslation', () => {
     return vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
-        if (/\/api\/sentences\/[^/]+\/explain/.test(String(input))) {
-          return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        if (/\/api\/sentences\/[^/]+\/translate/.test(String(input))) {
+          const translation = (body as { explanation?: { translation?: string } }).explanation?.translation;
+          return new Response(JSON.stringify({ translation: translation ?? '' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
         }
         throw new Error(`Unexpected fetch: ${input}`);
       })
@@ -512,7 +513,7 @@ describe('getSentenceTranslation', () => {
   }
   const fetchCalls = () => (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.length;
 
-  it('a row without English gets it through its breakdown, once, kept on the row', async () => {
+  it('a row without English gets its line once, kept on the row (not the breakdown)', async () => {
     await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', is_card: 1, translation: null, hanzi: '服务员，我们要点菜。' })]);
     mockExplain();
     expect(await getSentenceTranslation({ id: 'note-1-card', translation: null })).toBe("Waiter, we'd like to order.");
@@ -520,6 +521,7 @@ describe('getSentenceTranslation', () => {
     // Offline later: it is on the row.
     const row = (await getLocalNoteSentences('note-1'))[0];
     expect(row.translation).toBe("Waiter, we'd like to order.");
+    expect(row.explanation).toBeNull();
     expect(cachedSentenceTranslation(row)).toBe("Waiter, we'd like to order.");
     expect(await getSentenceTranslation(row)).toBe("Waiter, we'd like to order.");
     expect(fetchCalls()).toBe(1);

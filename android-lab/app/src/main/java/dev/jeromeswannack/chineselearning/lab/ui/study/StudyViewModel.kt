@@ -733,7 +733,7 @@ class StudyViewModel(
             liveKeys.prefetch(viewModelScope)
             runCatching { tools.voices(view.note.id) }.getOrNull()?.let { v -> updateExtras(view) { it.copy(voices = v) } }
             // Nothing cached but online: the set may exist server-side and not have synced yet.
-            if (view.sentences.isEmpty()) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
+            if (view.sentences.none { !it.isCard }) runCatching { tools.fetchSetIfMissing(view.note.id) }.getOrNull()?.let { showSentences(view.note.id, it) }
             // "Listen in context": this listening card and the next ones in the queue with fewer than
             // five sentences get more queued in the background (POST /api/sentences/top-up).
             if (view.card.cardType == dev.jeromeswannack.chineselearning.lab.core.CardTypes.AUDIO_TO_HANZI) {

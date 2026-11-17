@@ -1,6 +1,7 @@
 /**
- * "Listen in context" (shared/study/listenContext.ts): row order (the card's sentence first
- * unless the set repeats it, then the set by position), row states, the auto-play choice, the
+ * "Listen in context" (shared/study/listenContext.ts): row order (the note's rows as one list —
+ * shared/study/cardSentence.ts `withCardSentence`: the card's own row first, a stored one or one made from the
+ * note —, then the set by position), row states, the auto-play choice, the
  * word-first ask, the top-up / "+ More" counts (natural sentences only — contrived set rows come last
  * and never count, shared/study/sentenceFocus.ts) and the labels, over seeded random notes.
  * Writes listen-context.json; core ListenContextParityTest asserts ListenContext.kt matches.
@@ -26,6 +27,7 @@ import {
   type ListenRowState,
 } from '../../../shared/study/listenContext';
 import { sentenceStats, type SentencePracticeEvent } from '../../../shared/study/sentenceHistory';
+import { withCardSentence, type NoteCardSentenceFields, type SentenceRowLike } from '../../../shared/study/cardSentence';
 import { clauseBreaks, hanCount, simpleSentenceMaxHan, simpleSentenceProblems } from '../../../shared/study/sentenceSimplicity';
 
 const OUT = process.argv[2];
@@ -51,19 +53,49 @@ const SENTENCES = [
 const TRANSLATIONS = ['I go to the bank.', '', '  ', 'Where is it?', null];
 const FOCUSES = ['core', 'collocation', 'complex', 'shared_character', 'contrast', null, undefined];
 
+/**
+ * A note's stored rows (sometimes with its card row `<note>-card`) and the note's card-sentence fields (none,
+ * removed, or a text — the same as the stored card row or not), as `withCardSentence` gets them.
+ */
+function noteAndRows(c: number, n: number, opts: { audio: boolean }): { note: NoteCardSentenceFields | null; stored: SentenceRowLike[] } {
+  const noteId = `n${c}`;
+  const stored: SentenceRowLike[] = Array.from({ length: n }, (_, i) => ({
+    id: `s${c}-${i}`,
+    note_id: noteId,
+    hanzi: pick(SENTENCES),
+    pinyin: null,
+    translation: pick(TRANSLATIONS),
+    audio_url: opts.audio && r() < 0.6 ? `generated/s${c}-${i}.mp3` : null,
+    position: Math.floor(r() * 10),
+    focus: pick(FOCUSES) ?? null,
+    focus_note: null,
+    explanation: null,
+    is_card: 0,
+  }));
+  if (r() < 0.4) {
+    stored.push({
+      id: `${noteId}-card`, note_id: noteId, hanzi: pick(SENTENCES), pinyin: null, translation: pick(TRANSLATIONS),
+      audio_url: opts.audio && r() < 0.5 ? 'generated/card.mp3' : null, position: -1, focus: null, focus_note: null, explanation: null, is_card: 1,
+    });
+  }
+  const mode = r();
+  const note: NoteCardSentenceFields | null = mode < 0.2
+    ? null
+    : mode < 0.3
+      ? { id: noteId, sentence_clue: r() < 0.5 ? null : '  ' }
+      : {
+          id: noteId,
+          sentence_clue: r() < 0.3 && stored.some((s) => s.is_card) ? stored.find((s) => s.is_card)!.hanzi : pick(SENTENCES),
+          sentence_clue_translation: pick(TRANSLATIONS),
+          sentence_clue_audio_url: opts.audio && r() < 0.5 ? 'generated/clue.mp3' : null,
+        };
+  return { note, stored };
+}
+
 const cases = [] as unknown[];
 for (let c = 0; c < 200; c++) {
-  const n = Math.floor(r() * 7);
-  const sentences = Array.from({ length: n }, (_, i) => ({
-    id: `s${c}-${i}`,
-    hanzi: pick(SENTENCES),
-    translation: pick(TRANSLATIONS),
-    audio_url: r() < 0.6 ? `generated/s${c}-${i}.mp3` : null,
-    position: r() < 0.9 ? Math.floor(r() * 10) : null,
-    focus: pick(FOCUSES),
-  }));
-  const clue = r() < 0.2 ? null : { hanzi: r() < 0.1 ? '  ' : pick(SENTENCES), translation: pick(TRANSLATIONS), audio_url: r() < 0.5 ? 'generated/clue.mp3' : null };
-  const rows = listenContextRows(`n${c}`, clue, sentences);
+  const { note, stored: sentences } = noteAndRows(c, Math.floor(r() * 7), { audio: true });
+  const rows = listenContextRows(withCardSentence(note, sentences));
   const online = r() < 0.5;
   const cachedFlags = rows.map(() => r() < 0.5);
   const states: ListenRowState[] = rows.map((row, i) => listenRowState(row, { online, cached: cachedFlags[i] }));
@@ -72,7 +104,7 @@ for (let c = 0; c < 200; c++) {
   const playable = states.filter((s) => s !== 'unavailable').length;
   cases.push({
     noteId: `n${c}`,
-    clue,
+    note,
     sentences,
     rows,
     online,
@@ -94,21 +126,26 @@ for (let c = 0; c < 200; c++) {
 
 // Fresh sentences every showing: picks over the same kind of rows with a heard / hidden history, seeds and
 // the previous showing's set (pickListenRows, listenTopUpWant, listenShownRows).
+// `clue` = an event written before migration 0152 for the card sentence (folded into `<note>-card`).
 const KEYS_EXTRA = ['clue', 'gone'];
 const picks = [] as unknown[];
 for (let c = 0; c < 300; c++) {
   const n = Math.floor(r() * 12);
-  const sentences = Array.from({ length: n }, (_, i) => ({
+  const sentences: SentenceRowLike[] = Array.from({ length: n }, (_, i) => ({
     id: `p${c}-${i}`,
+    note_id: `n${c}`,
     hanzi: r() < 0.5 ? pick(SENTENCES) : `${pick(SENTENCES)}${i}`,
+    pinyin: null,
     translation: pick(TRANSLATIONS),
     audio_url: null,
     position: i,
     focus: r() < 0.15 ? pick(['shared_character', 'contrast']) : 'core',
+    focus_note: null,
+    explanation: null,
   }));
-  const clue = r() < 0.3 ? null : { hanzi: pick(SENTENCES) };
-  const rows = listenContextRows(`n${c}`, clue, sentences);
-  const keys = [...rows.map((row) => (row.fromCard ? 'clue' : row.key)), ...KEYS_EXTRA];
+  const note: NoteCardSentenceFields | null = r() < 0.3 ? null : { id: `n${c}`, sentence_clue: pick(SENTENCES) };
+  const rows = listenContextRows(withCardSentence(note, sentences));
+  const keys = [...rows.map((row) => row.key), ...KEYS_EXTRA];
   const events: SentencePracticeEvent[] = [];
   const count = Math.floor(r() * 20);
   for (let e = 0; e < count; e++) {
@@ -133,7 +170,7 @@ for (let c = 0; c < 300; c++) {
   const result = pickListenRows(rows, stats, { seed, word, previous: prev, count: showCount });
   const added = r() < 0.3 ? [pick(keys), ...result.rows.slice(0, 1).map((x) => x.key)] : [];
   picks.push({
-    noteId: `n${c}`, clue, sentences, events, seed, word, previous: prev, count: showCount ?? null,
+    noteId: `n${c}`, note, sentences, events, seed, word, previous: prev, count: showCount ?? null,
     keys: result.rows.map((x) => x.key), fresh: result.fresh, heardBefore: result.heardBefore, unheardLeft: result.unheardLeft,
     want: listenTopUpWant(result), props: listenShownProps(result),
     added, shown: listenShownRows(rows, [...result.rows.map((x) => x.key)].reverse(), added).map((x) => x.key),

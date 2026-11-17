@@ -2033,6 +2033,48 @@ app.post('/api/sentences/explain-text', async (c) => {
 });
 
 /**
+ * The English line of a row written without one (many card sentences — MCP-added / older notes): the same
+ * Haiku breakdown's one-line translation, kept on the row (and, for the card's own sentence, on its note's
+ * deprecated sentence_clue_translation) — the breakdown itself is NOT stored, so opening the row later never
+ * unfolds a breakdown nobody asked for. A row with English (or a cached breakdown carrying one) answers at once.
+ */
+app.post('/api/sentences/:id/translate', async (c) => {
+  const userId = c.get('user').id;
+  const id = c.req.param('id');
+  const sentence = await db.getNoteSentenceById(c.env.DB, id, userId);
+  if (!sentence) return c.json({ error: 'Sentence not found' }, 404);
+  const have = sentence.translation?.trim();
+  if (have) return c.json({ translation: have, cached: true });
+  if (sentence.explanation) {
+    try {
+      const cached = (JSON.parse(sentence.explanation) as SentenceBriefExplanation).translation?.trim();
+      if (cached) {
+        await db.setNoteSentenceTranslation(c.env.DB, sentence, cached);
+        return c.json({ translation: cached, cached: true });
+      }
+    } catch {
+      // A corrupt cache: ask again below.
+    }
+  }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'AI service is not configured', retryable: true }, 503);
+  try {
+    const explanation = await explainSentenceBriefly(c.env.ANTHROPIC_API_KEY, {
+      hanzi: sentence.hanzi,
+      pinyin: sentence.pinyin,
+      translation: null,
+    });
+    const translation = explanation.translation?.trim();
+    if (!translation) return c.json({ error: 'No translation came back', retryable: true }, 503);
+    await db.setNoteSentenceTranslation(c.env.DB, sentence, translation);
+    return c.json({ translation, cached: false });
+  } catch (error) {
+    console.error('Sentence translation error:', error);
+    const retryable = !(error instanceof StructuredCallError) || error.retryable;
+    return c.json({ error: 'Failed to translate sentence', retryable }, retryable ? 503 : 502);
+  }
+});
+
+/**
  * A brief breakdown of one sentence — what each word is doing and how the
  * sentence is built. Generated on demand with Haiku (this is a mid-study tap,
  * so speed wins), then cached on the row so it is instant and offline after.

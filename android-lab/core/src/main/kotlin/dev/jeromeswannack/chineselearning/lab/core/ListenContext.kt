@@ -14,13 +14,12 @@ object ListenContext {
     const val GENERATE_MIN = 3
     const val GENERATE_MAX = 10
 
-    data class Clue(val hanzi: String?, val translation: String? = null, val audioUrl: String? = null)
-    data class Sentence(val id: String, val hanzi: String, val translation: String? = null, val audioUrl: String? = null, val position: Int? = null, val focus: String? = null)
+    data class Sentence(val id: String, val hanzi: String, val translation: String? = null, val audioUrl: String? = null, val position: Int? = null, val focus: String? = null, val isCard: Boolean = false)
 
     /** One row. The hanzi is carried for the device voice — NEVER shown on the question. */
     data class Row(
         val key: String,
-        val sentenceId: String?,
+        val sentenceId: String,
         val hanzi: String,
         val translation: String?,
         val audioUrl: String?,
@@ -29,7 +28,7 @@ object ListenContext {
         val contrived: Boolean = false,
     )
 
-    enum class RowState(val wire: String) { READY("ready"), FETCH("fetch"), DEVICE("device"), UNAVAILABLE("unavailable") }
+    enum class RowState(val wire: String) { READY("ready"), FETCH("fetch"), UNAVAILABLE("unavailable") }
 
     sealed interface Autoplay {
         data class Sentence(val index: Int) : Autoplay
@@ -39,35 +38,33 @@ object ListenContext {
 
     enum class WordTap { PLAY, PROMPT }
 
-    /** Port of clueRowKey. */
-    fun clueRowKey(noteId: String) = "clue:$noteId"
-
     private fun blankToNull(s: String?): String? = s?.let { AnswerKey.jsTrim(it) }?.takeIf { it.isNotEmpty() }
 
-    /** Port of listenContextRows: the card's sentence first (unless the set repeats it), then the set by position — natural ones first. */
-    fun rows(noteId: String, clue: Clue?, sentences: List<Sentence>): List<Row> {
-        val out = ArrayList<Row>()
-        val clueHanzi = clue?.hanzi?.takeIf { AnswerKey.jsTrim(it).isNotEmpty() }
-        if (clueHanzi != null && sentences.none { it.hanzi == clueHanzi }) {
-            out += Row(clueRowKey(noteId), null, clueHanzi, blankToNull(clue.translation), clue.audioUrl?.takeIf { it.isNotEmpty() }, fromCard = true)
-        }
+    private fun isCard(s: Sentence) = s.isCard || s.id.endsWith(CardSentence.SUFFIX)
+
+    /**
+     * Port of listenContextRows: the note's rows (the card's own one included, [CardSentence.withCardSentence]) —
+     * the card's sentence first, then the set by position, natural ones first.
+     */
+    fun rows(sentences: List<Sentence>): List<Row> =
         sentences.withIndex()
             .sortedWith(
-                compareBy<IndexedValue<Sentence>> { if (SentenceFocus.isContrived(it.value.focus)) 1 else 0 }
+                compareBy<IndexedValue<Sentence>> { if (isCard(it.value)) 0 else 1 }
+                    .thenBy { if (SentenceFocus.isContrived(it.value.focus)) 1 else 0 }
                     .thenBy { it.value.position ?: it.index }.thenBy { it.index },
             )
-            .forEach { (_, s) ->
-                out += Row(s.id, s.id, s.hanzi, blankToNull(s.translation), s.audioUrl?.takeIf { it.isNotEmpty() }, fromCard = false, contrived = SentenceFocus.isContrived(s.focus))
+            .map { (_, s) ->
+                Row(
+                    s.id, s.id, s.hanzi, blankToNull(s.translation), s.audioUrl?.takeIf { it.isNotEmpty() },
+                    fromCard = isCard(s), contrived = !isCard(s) && SentenceFocus.isContrived(s.focus),
+                )
             }
-        return out
-    }
 
     /** Port of listenRowState. */
-    fun rowState(audioUrl: String?, sentenceId: String?, online: Boolean, cached: Boolean): RowState = when {
+    fun rowState(audioUrl: String?, online: Boolean, cached: Boolean): RowState = when {
         !audioUrl.isNullOrEmpty() -> if (online || cached) RowState.READY else RowState.UNAVAILABLE
         !online -> RowState.UNAVAILABLE
-        sentenceId != null -> RowState.FETCH
-        else -> RowState.DEVICE
+        else -> RowState.FETCH
     }
 
     fun isPlayable(state: RowState) = state != RowState.UNAVAILABLE

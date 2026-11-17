@@ -184,10 +184,16 @@ data class SentenceDto(
     val audio_url: String? = null,
     val focus: String? = null,
     val focus_note: String? = null,
+    /** 1 = the card's own sentence row (`<note>-card`, migration 0152). */
+    val is_card: Int? = 0,
 )
 
+/**
+ * [note_ids] = every note whose rows these are, one left with no row included (a removed card sentence) —
+ * replace them whole. Null on a full dump (no cursor) and from an older server.
+ */
 @Serializable
-data class SentencesPageDto(val sentences: List<SentenceDto> = emptyList(), val server_time: String? = null)
+data class SentencesPageDto(val sentences: List<SentenceDto> = emptyList(), val note_ids: List<String>? = null, val server_time: String? = null)
 
 class UnauthorizedException : IOException("Signed out")
 /** A non-2xx answer. [body] is the full response body when known (see data/api/Http.kt `serverMessage()`). */

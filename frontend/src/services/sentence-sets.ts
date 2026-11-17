@@ -7,6 +7,7 @@ import {
   prefetchSentenceSets,
   explainNoteSentence,
   explainSentenceText,
+  translateNoteSentence,
   ensureSentenceAudio as ensureSentenceAudioApi,
   topUpSentenceSetsApi,
   GenerateSentenceSetOptions,
@@ -485,10 +486,9 @@ export function cachedSentenceTranslation(row: { translation?: string | null; ex
 }
 
 /**
- * The English line of a row that has none (many card sentences were written without one): its breakdown
- * (`/api/sentences/:id/explain`, the same one "What's going on here?" shows) carries a one-line translation,
- * which the server also keeps on the row. Cached on the local row, so it is instant and offline after the
- * first time. One request per row at a time.
+ * The English line of a row that has none (many card sentences were written without one):
+ * `POST /api/sentences/:id/translate` (the breakdown's one-line translation, kept on the row server-side).
+ * Cached on the local row, so it is instant and offline after the first time. One request per row at a time.
  */
 export function getSentenceTranslation(row: { id: string; translation?: string | null; explanation?: string | null }): Promise<string> {
   const have = cachedSentenceTranslation(row);
@@ -506,8 +506,9 @@ async function fetchSentenceTranslation(sentenceId: string): Promise<string> {
   const local = await db.noteSentences.get(sentenceId).catch(() => undefined);
   const cached = local ? cachedSentenceTranslation(local) : null;
   if (cached) return cached;
-  const explanation = await getSentenceExplanation(sentenceId);
-  const translation = explanation.translation?.trim();
+  // Only the line is kept (here and on the server): opening the row later must not unfold a breakdown
+  // nobody asked for.
+  const translation = (await translateNoteSentence(sentenceId))?.trim();
   if (!translation) throw new Error('No translation came back');
   await db.noteSentences.update(sentenceId, { translation }).catch(() => 0);
   return translation;

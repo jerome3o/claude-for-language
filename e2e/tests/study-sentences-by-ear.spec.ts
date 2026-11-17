@@ -194,7 +194,7 @@ test('sentences by ear: the clip plays with no text, the meaning in English is c
   await first.getByTestId('sentence-listen-tap').click();
   await expect(first.getByTestId('sentence-listen-play')).toHaveClass(/is-playing/, { timeout: 10000 });
   const key = (await first.getAttribute('data-exercise'))!.replace('listen:', '');
-  const sentence = key.startsWith('clue:') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
+  const sentence = key.endsWith('-card') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
   // No text before the answer: no Chinese, no English.
   await expect(first).not.toContainText(sentence.hanzi);
   await expect(first).not.toContainText(sentence.translation);
@@ -235,7 +235,7 @@ test('sentences by ear: the clip plays with no text, the meaning in English is c
     await second.getByTestId('sentence-listen-retry').click();
     await second.getByTestId('sentence-listen-input-type').click();
     const key2 = (await second.getAttribute('data-exercise'))!.replace('listen:', '');
-    const sentence2 = key2.startsWith('clue:') ? CLUE : SET[Number(key2.replace('e2e-s', ''))];
+    const sentence2 = key2.endsWith('-card') ? CLUE : SET[Number(key2.replace('e2e-s', ''))];
     await second.getByTestId('sentence-listen-input-text').fill(sentence2.translation.replace(/[.?]$/, '').toLowerCase());
     await second.getByTestId('sentence-listen-input-submit').click();
     await expect(second).toHaveAttribute('data-status', 'right', { timeout: 15000 });
@@ -263,7 +263,7 @@ test('said back in Chinese with a pause: the recogniser\'s 。 is nothing — ri
   await expect(first).toBeVisible({ timeout: 15000 });
   await first.getByTestId('sentence-listen-tap').click();
   const key = (await first.getAttribute('data-exercise'))!.replace('listen:', '');
-  const sentence = key.startsWith('clue:') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
+  const sentence = key.endsWith('-card') ? CLUE : SET[Number(key.replace('e2e-s', ''))];
   // Jerome's 虾饺 take: a pause in the middle → the recogniser writes 。 and starts a new "sentence".
   const chars = [...sentence.hanzi.replace(/[。？！?.!]$/, '')];
   const mid = Math.floor(chars.length / 2);

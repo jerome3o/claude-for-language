@@ -48,7 +48,7 @@ class HardModeUiTest : LabScreenshotTest() {
         SentenceEntity("s2", "n1", 1, "院子里种了很多花。", "Yuànzi li zhòngle hěn duō huā.", "Lots of flowers are planted in the yard.", null, "core", null),
         SentenceEntity("s3", "n1", 2, "奶奶每天早上在院子里打太极拳。", "Nǎinai měi tiān zǎoshang zài yuànzi li dǎ tàijíquán.", "Grandma does tai chi in the yard every morning.", null, "complex", null),
     )
-    private val clueKey = clueRowKey("n1")
+    private val clueKey = cardRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
 
     @After fun off() = prefs.setHardMode(HardMode.OFF)

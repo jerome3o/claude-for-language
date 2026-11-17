@@ -218,6 +218,8 @@ data class SentenceDto(
     val focus: String? = null,
     val focus_note: String? = null,
     val explanation: String? = null,
+    /** 1 = the card's own sentence row (`<note>-card`, migration 0152). */
+    val is_card: Int? = 0,
 )
 
 @Serializable
@@ -272,6 +274,13 @@ suspend fun Api.ensureSentenceAudio(sentenceId: String): SentenceAudioAnswer =
 
 suspend fun Api.explainSentence(sentenceId: String): SentenceExplanation =
     post<ExplanationAnswer>("/api/sentences/${enc(sentenceId)}/explain").explanation
+
+@Serializable
+data class SentenceTranslationAnswer(val translation: String = "")
+
+/** A row written without English (many card sentences): its breakdown's one-line translation, kept on the row server-side. */
+suspend fun Api.translateSentence(sentenceId: String): String =
+    post<SentenceTranslationAnswer>("/api/sentences/${enc(sentenceId)}/translate").translation
 
 suspend fun Api.explainSentenceText(body: ExplainTextBody): SentenceExplanation =
     post<ExplainTextBody, ExplanationAnswer>("/api/sentences/explain-text", body).explanation
