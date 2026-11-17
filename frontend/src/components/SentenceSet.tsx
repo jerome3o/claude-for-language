@@ -8,10 +8,9 @@ import {
   cacheSentenceAudio,
   resetSentenceSetSyncCursor,
   getSentenceExplanation,
-  getTextExplanation,
   getCachedTextExplanation,
-  getClueTranslation,
-  getCachedClueTranslation,
+  getSentenceTranslation,
+  cachedSentenceTranslation,
   awaitSentenceAudio,
   ensureSentenceAudio,
   SENTENCE_AUDIO_COMING_LABEL,
@@ -42,6 +41,7 @@ import { useLongPress } from './chat/useLongPress';
 import { UndoToast } from './upNext/UpNextBoard';
 import { SentenceHideSheet } from './study/SentenceHideSheet';
 import { naturalSentencesFirst } from '@shared/study/sentenceFocus';
+import { canonicalSentenceKey, isCardSentenceRow, withCardSentence, type NoteCardSentenceFields } from '@shared/study/cardSentence';
 
 /**
  * A note's sentence set: several example sentences for one word, ordered from
@@ -95,8 +95,8 @@ function revealSteps(
 ): RevealStep[] {
   const steps: RevealStep[] = ['hanzi'];
   if (row.pinyin) steps.push('pinyin');
-  // The card's own sentence always has an English step: when the note carries
-  // no translation it is fetched as the row opens (see getClueTranslation).
+  // Every row has an English step: a row without one (many card sentences) has it fetched as the row
+  // opens (getSentenceTranslation, through its breakdown).
   if ((row.translation || row.fetchTranslation) && !englishFirst) steps.push('translation');
   return steps;
 }
@@ -111,20 +111,11 @@ function parseCachedExplanation(raw: string | null): SentenceBriefExplanation | 
   }
 }
 
-/** The card's own example sentence, which lives on the note, not in the set. */
-export interface CardSentence {
-  hanzi: string;
-  pinyin: string | null;
-  translation: string | null;
-  audio_url: string | null;
-}
-
-/** A row in the rendered list — either the card's sentence or a set row. */
+/** A row in the rendered list: one of the note's sentence rows (the card's own one is a row like the rest). */
 interface DisplayRow {
-  /** Set-row id, or `clue:<noteId>` for the card's own sentence */
+  /** The row id (the card's own sentence: `<note>-card`, shared/study/cardSentence.ts) */
   key: string;
-  /** null for the card's own sentence: it has no row to cache against */
-  sentenceId: string | null;
+  sentenceId: string;
   hanzi: string;
   pinyin: string | null;
   translation: string | null;
@@ -132,18 +123,20 @@ interface DisplayRow {
   focus: string | null;
   focus_note: string | null;
   explanation: string | null;
+  /** The card's own sentence (the "From the card" badge). */
   fromCard: boolean;
-  /** The card's sentence with no translation on the note: the English is fetched on demand. */
+  /** No English on the row: it is fetched on demand. */
   fetchTranslation: boolean;
 }
 
 interface SentenceSetProps {
   noteId: string;
   /**
-   * The card's own example sentence. It leads the list, so there is one place
-   * to look for sentences rather than two stacked panels.
+   * The note (its card sentence fields). The card's own example sentence is one of the note's rows and leads
+   * the list; while this device has no row for it yet (or holds an older text than the note — an edit not
+   * synced yet, the editor's unsaved text) it is made from these (shared/study/cardSentence.ts).
    */
-  cardSentence?: CardSentence | null;
+  note?: NoteCardSentenceFields | null;
   /** Rendered inside the study card: always open, tighter spacing. */
   compact?: boolean;
   /** Start with the list expanded (non-compact only; the study card is always open). */
@@ -188,7 +181,7 @@ interface SentenceSetProps {
 
 export function SentenceSet({
   noteId,
-  cardSentence,
+  note,
   compact = false,
   defaultOpen = true,
   variant = 'card',
@@ -200,7 +193,10 @@ export function SentenceSet({
   roundRows,
   questionOrder,
 }: SentenceSetProps) {
-  const roundMark = new Map((roundRows ?? []).map((m) => [m.key, m]));
+  // Keys saved before the card's sentence was a row (a resume point's round / Listen-in-context keys: `clue`,
+  // `clue:<note>`) are that row's id now.
+  const canonKey = (k: string) => canonicalSentenceKey(k, noteId);
+  const roundMark = new Map((roundRows ?? []).map((m) => [canonKey(m.key), m]));
   const pass = variant === 'pass';
   const historyOn = history ?? (practiseOn && !pass);
   const stats = useSentenceStats(noteId);
@@ -249,14 +245,11 @@ export function SentenceSet({
   const [addingChunk, setAddingChunk] = useState<Chunk | null>(null);
   // The pass: the generated set folded away under the card's own sentence.
   const [showMore, setShowMore] = useState(false);
-  // The card's own sentence has no row to cache its breakdown on: the one this
-  // device already holds (study card, Coach) shows at once, offline too.
-  const [cachedClue, setCachedClue] = useState<SentenceBriefExplanation | null>(null);
-  // Many card sentences were written without an English line: the one fetched
-  // (or cached on this device) for it, and how that is going.
-  const [clueTranslation, setClueTranslation] = useState<string | null>(null);
-  const [clueTranslating, setClueTranslating] = useState(false);
-  const [clueTranslateFailed, setClueTranslateFailed] = useState(false);
+  // Many card sentences were written without an English line: the one fetched for a row (through its
+  // breakdown, cached on the row), and the rows whose fetch failed.
+  const [fetchedEnglish, setFetchedEnglish] = useState<Record<string, string>>({});
+  const [englishFailed, setEnglishFailed] = useState<Record<string, boolean>>({});
+  const englishFetching = useRef(new Set<string>());
 
   // 🎤 on the rows: one microphone for the list; a translate take reveals the row's Chinese.
   const practise = useSentencePractise({
@@ -280,9 +273,9 @@ export function SentenceSet({
     setSentences(local);
     setLoading(false);
 
-    // Nothing cached yet but we're online: the set may exist server-side
-    // (generated on another device) and simply not have synced down yet.
-    if (local.length === 0 && navigator.onLine) {
+    // No set cached yet (the card's own row alone doesn't count) but we're online: the set may exist
+    // server-side (generated on another device) and simply not have synced down yet.
+    if (!local.some((r) => !isCardSentenceRow(r)) && navigator.onLine) {
       try {
         const remote = await fetchNoteSentences(noteId);
         if (noteIdRef.current !== noteId || remote.length === 0) return;
@@ -307,36 +300,15 @@ export function SentenceSet({
     setError(null);
     setShowMore(false);
     setShowHidden(false);
+    setFetchedEnglish({});
+    setEnglishFailed({});
+    englishFetching.current = new Set();
     setOpen(compact || defaultOpen);
     void load();
   }, [noteId, compact, defaultOpen, load]);
 
-  const clueHanzi = cardSentence?.hanzi ?? null;
-  useEffect(() => {
-    setCachedClue(null);
-    setClueTranslation(null);
-    setClueTranslating(false);
-    setClueTranslateFailed(false);
-    if (!clueHanzi) return;
-    let live = true;
-    void getCachedTextExplanation(clueHanzi).then((cached) => {
-      if (live) setCachedClue(cached);
-    });
-    void getCachedClueTranslation(clueHanzi).then((cached) => {
-      if (live && cached) setClueTranslation(cached);
-    });
-    return () => {
-      live = false;
-    };
-  }, [clueHanzi]);
-
-  // A card sentence written without pinyin gets the device's own (like every
-  // automatic pinyin), so it reveals hanzi → pinyin → English like the set rows.
-  const cluePinyin = useMemo(() => {
-    if (!clueHanzi) return null;
-    if (cardSentence?.pinyin?.trim()) return cardSentence.pinyin;
-    return devicePinyinLine(clueHanzi) || null;
-  }, [clueHanzi, cardSentence?.pinyin]);
+  // The note's rows as one list (the card's own sentence first, cardSentence.ts).
+  const noteRows = useMemo(() => withCardSentence(note ?? null, sentences), [note, sentences]);
 
   const handleGenerate = useCallback(
     async (options: { count?: number; keepExisting?: boolean; customPrompt?: string } = {}) => {
@@ -437,15 +409,8 @@ export function SentenceSet({
   const handleExplain = useCallback(async (row: DisplayRow) => {
     setExplaining((prev) => new Set(prev).add(row.key));
     try {
-      // Set rows cache their breakdown server-side; the card's own sentence
-      // has no row, so it goes through the by-text path instead.
-      const explanation = row.sentenceId
-        ? await getSentenceExplanation(row.sentenceId)
-        : await getTextExplanation({
-            hanzi: row.hanzi,
-            pinyin: row.pinyin,
-            translation: row.translation,
-          });
+      // Every row (the card's own sentence too) caches its breakdown on the row, server-side and here.
+      const explanation = await getSentenceExplanation(row.sentenceId, row.hanzi);
       setExplanations((prev) => ({ ...prev, [row.key]: explanation }));
       track('study.sentence_explain');
     } catch (err) {
@@ -466,7 +431,7 @@ export function SentenceSet({
    * and works offline.
    */
   const renderExplanation = (row: DisplayRow) => {
-    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
     if (!state || state === 'error') return null;
     return (
       <SentenceWordBreakdown explanation={state} sentence={row.hanzi} />
@@ -485,13 +450,13 @@ export function SentenceSet({
 
   /** The row's quiet tools line: breakdown · add as card. */
   const renderTools = (row: DisplayRow) => {
-    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
+    const state = explanations[row.key] ?? parseCachedExplanation(row.explanation);
     const isLoading = explaining.has(row.key);
-    const retryEnglish = row.fetchTranslation && !row.translation && clueTranslateFailed && isOnline;
+    const retryEnglish = row.fetchTranslation && !row.translation && !!englishFailed[row.key] && isOnline;
     return (
       <div className="sentence-set-tools">
         {retryEnglish && (
-          <button className="sentence-set-tool" onClick={() => setClueTranslateFailed(false)}>
+          <button className="sentence-set-tool" onClick={() => setEnglishFailed((p) => ({ ...p, [row.key]: false }))}>
             Retry English
           </button>
         )}
@@ -540,72 +505,84 @@ export function SentenceSet({
   };
 
   /**
-   * One list for the learner: the card's own example sentence first, then the
-   * generated set. The card's sentence is rendered from the note rather than
-   * copied into the set, so editing it stays reflected here and there is only
-   * ever one copy of it.
+   * One list for the learner: the note's rows — the card's own example sentence first (a row like every
+   * other, shared/study/cardSentence.ts), then the set, its natural sentences before the ones written around
+   * a look-alike / homophone (shared/study/sentenceFocus.ts — kept, never in the Sentence round).
    */
-  const rows: DisplayRow[] = [];
-  const ownTranslation = cardSentence?.translation?.trim() || null;
-  if (cardSentence?.hanzi && !sentences.some((s) => s.hanzi === cardSentence.hanzi)) {
-    rows.push({
-      key: `clue:${noteId}`,
-      sentenceId: null,
-      hanzi: cardSentence.hanzi,
-      pinyin: cluePinyin,
-      translation: ownTranslation || cachedClue?.translation?.trim() || clueTranslation,
-      audio_url: cardSentence.audio_url,
-      focus: 'from_card',
-      focus_note: null,
-      explanation: null,
-      fromCard: true,
-      fetchTranslation: !ownTranslation,
-    });
-  }
-  // Natural sentences first; the ones once written around a look-alike / homophone after them
-  // (shared/study/sentenceFocus.ts — kept, never in the Sentence round).
-  for (const sentence of naturalSentencesFirst(sentences)) {
-    rows.push({
+  const rows: DisplayRow[] = noteRows.map((sentence) => {
+    const fromCard = isCardSentenceRow(sentence);
+    const translation = cachedSentenceTranslation(sentence) ?? fetchedEnglish[sentence.id] ?? null;
+    return {
       key: sentence.id,
       sentenceId: sentence.id,
       hanzi: sentence.hanzi,
-      pinyin: sentence.pinyin,
-      translation: sentence.translation,
+      // A row written without pinyin (card sentences from MCP / older notes) gets the device's own, so it
+      // reveals hanzi → pinyin → English like every row.
+      pinyin: sentence.pinyin?.trim() ? sentence.pinyin : devicePinyinLine(sentence.hanzi) || null,
+      translation,
       audio_url: sentence.audio_url,
-      focus: sentence.focus,
+      focus: fromCard ? 'from_card' : sentence.focus,
       focus_note: sentence.focus_note,
       explanation: sentence.explanation,
-      fromCard: false,
-      fetchTranslation: false,
-    });
-  }
+      fromCard,
+      fetchTranslation: !cachedSentenceTranslation(sentence),
+    };
+  });
+  const cardFirst = rows.length > 0 && rows[0].fromCard ? [rows[0]] : [];
+  rows.splice(0, rows.length, ...cardFirst, ...naturalSentencesFirst(rows.slice(cardFirst.length)));
 
-  // The card's sentence has no English yet: fetch it as soon as the row starts
-  // opening, so it is there by the time the learner taps through to it.
-  const clueRow = rows[0]?.fromCard ? rows[0] : null;
-  const clueStage = clueRow ? (showAll ? Infinity : revealed[clueRow.key] ?? (roundMark.has(clueRow.key) ? Infinity : startStage)) : 0;
-  const clueNeedsFetch = !!clueRow && clueRow.fetchTranslation && !clueRow.translation;
+  // A row with no English: fetched as soon as it starts opening, so it is there by the time the learner
+  // taps through to it (online; cached on the row afterwards).
+  const stageOf = (row: DisplayRow) => (showAll ? Infinity : revealed[row.key] ?? (roundMark.has(row.key) ? Infinity : startStage));
+  const wantEnglish = rows.filter((r) => r.fetchTranslation && !r.translation && !englishFailed[r.key] && stageOf(r) >= 1).map((r) => r.key);
+  const wantEnglishKey = wantEnglish.join('|');
   useEffect(() => {
-    if (!clueNeedsFetch || !clueHanzi || clueStage < 1 || !isOnline || clueTranslating || clueTranslateFailed) return;
+    if (!isOnline || wantEnglish.length === 0) return;
+    for (const key of wantEnglish) {
+      if (englishFetching.current.has(key)) continue;
+      englishFetching.current.add(key);
+      const forNote = noteId;
+      const local = sentences.find((s) => s.id === key);
+      getSentenceTranslation({ id: key, translation: null, explanation: local?.explanation ?? null })
+        .then((t) => {
+          if (noteIdRef.current === forNote) setFetchedEnglish((p) => ({ ...p, [key]: t }));
+        })
+        .catch((err) => {
+          console.warn('[SentenceSet] Could not get the English for a sentence:', err);
+          if (noteIdRef.current === forNote) setEnglishFailed((p) => ({ ...p, [key]: true }));
+        })
+        .finally(() => englishFetching.current.delete(key));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantEnglishKey, isOnline]);
+
+  // A row with no breakdown of its own whose text was explained on this device before (the card's own sentence
+  // before it was a row, the Coach's Explain): that breakdown, offline too — as if the row had it.
+  const unexplainedKey = rows.filter((r) => !r.explanation).map((r) => `${r.key}\u0000${r.hanzi}`).join('|');
+  useEffect(() => {
+    if (!unexplainedKey) return;
     let live = true;
-    setClueTranslating(true);
-    getClueTranslation({ hanzi: clueHanzi, pinyin: cluePinyin })
-      .then((translation) => {
-        if (live) setClueTranslation(translation);
-      })
-      .catch((err) => {
-        console.warn('[SentenceSet] Could not get the English for the card sentence:', err);
-        if (live) setClueTranslateFailed(true);
-      })
-      .finally(() => {
-        if (live) setClueTranslating(false);
-      });
+    const forNote = noteId;
+    void (async () => {
+      const found: Record<string, SentenceBriefExplanation> = {};
+      for (const pair of unexplainedKey.split('|')) {
+        const [key, hanzi] = pair.split('\u0000');
+        const cached = hanzi ? await getCachedTextExplanation(hanzi) : null;
+        if (cached) found[key] = cached;
+      }
+      if (live && noteIdRef.current === forNote && Object.keys(found).length > 0) {
+        setExplanations((prev) => {
+          const next = { ...prev };
+          for (const [k, e] of Object.entries(found)) if (!next[k]) next[k] = e;
+          return next;
+        });
+      }
+    })();
     return () => {
       live = false;
-      setClueTranslating(false);
     };
-    // clueTranslating is set here; re-running on it would cancel the request it started.
-  }, [clueNeedsFetch, clueHanzi, clueStage >= 1, isOnline, clueTranslateFailed, cluePinyin]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unexplainedKey]);
 
   // The gate counts the sentences there are (fewer than two → as many as exist); hidden ones don't count.
   const hiddenRows = rows.filter((r) => isHidden(r.key));
@@ -616,7 +593,8 @@ export function SentenceSet({
     onRowCountRef.current?.(rowCount);
   }, [rowCount]);
 
-  const hasSet = sentences.length > 0;
+  // A generated set (the card's own sentence row isn't one).
+  const hasSet = sentences.some((s) => !isCardSentenceRow(s));
   const rootClass = `sentence-set${compact ? ' sentence-set--compact' : ''}`;
 
   if (loading && rows.length === 0) {
@@ -711,7 +689,7 @@ export function SentenceSet({
   const shownRows = rows.filter((r) => !isHidden(r.key) || showHidden);
   // The answer keeps the question's order: what the question side showed first, in the order shown — Listen in
   // context's rows, then the round's sentences (opened, outlined) — then the rest as they were.
-  const firstKeys = questionSentenceKeys(questionOrder, roundRows?.map((m) => m.key));
+  const firstKeys = questionSentenceKeys(questionOrder?.map(canonKey), roundRows?.map((m) => canonKey(m.key)));
   const listRows = firstKeys.length
     ? answerSentenceOrder(shownRows.map((r) => r.key), firstKeys).map((k) => shownRows.find((r) => r.key === k)!)
     : shownRows;
@@ -899,7 +877,7 @@ export function SentenceSet({
                         <span className="sentence-set-translation is-pending" data-testid="sentence-set-translation-pending">
                           {!isOnline
                             ? 'Translation needs a connection'
-                            : clueTranslateFailed
+                            : englishFailed[row.key]
                               ? 'Couldn’t get the English'
                               : 'Translating…'}
                         </span>

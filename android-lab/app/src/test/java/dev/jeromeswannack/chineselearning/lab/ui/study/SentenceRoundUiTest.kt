@@ -44,7 +44,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         SentenceEntity("s2", "n1", 1, "这家银行几点开门？", "Zhè jiā yínháng jǐ diǎn kāimén?", "What time does this bank open?", null, "core", null),
         SentenceEntity("s3", "n1", 2, "我哥哥在银行工作了十年。", "Wǒ gēge zài yínháng gōngzuòle shí nián.", "My older brother has worked at a bank for ten years.", null, "complex", null),
     )
-    private val clueKey = clueRowKey("n1")
+    private val clueKey = cardRowKey("n1")
     private val prefs get() = StudyPrefs.get(ApplicationProvider.getApplicationContext())
 
     @After fun gateOff() = prefs.setHardMode("off")

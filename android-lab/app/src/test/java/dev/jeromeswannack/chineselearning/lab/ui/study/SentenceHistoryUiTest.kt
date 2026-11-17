@@ -75,7 +75,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
         val wanted = mutableListOf<Pair<String, Int>>()
         // The clue was read right 3×; s3 is hidden → three left: s1 / s2, never practised, take the first
         // slots (s1 read, s2 translate); the clue, no longer fresh, is read last.
-        round(mapOf("clue" to read(3), "s3" to hiddenS3), onWantMore = { r, n -> wanted += r to n })
+        round(mapOf(cardRowKey("n1") to read(3), "s3" to hiddenS3), onWantMore = { r, n -> wanted += r to n })
         compose.onNodeWithText("我哥哥在银行工作了十年。", useUnmergedTree = true).assertDoesNotExist()
         assertEquals(1, count("${SentenceRoundTags.EXERCISE}-0-read-open"))
         assertEquals(1, count("${SentenceRoundTags.EXERCISE}-1-read-open"))
@@ -94,7 +94,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
     @Test fun asksOnlyFreshSentencesAndQuietlyRefillsTheBuffer() {
         val wanted = mutableListOf<Pair<String, Int>>()
         // The card's sentence was read, m0 translated (wrong), m1 read: five of the eight are fresh.
-        round(mapOf("clue" to used("read"), "m0" to used("translate"), "m1" to used("read")), onWantMore = { r, n -> wanted += r to n }, roundRows = sentenceRows(note, many))
+        round(mapOf(cardRowKey("n1") to used("read"), "m0" to used("translate"), "m1" to used("read")), onWantMore = { r, n -> wanted += r to n }, roundRows = sentenceRows(note, many))
         for (old in listOf("我去银行取钱。", "I go to the bank to get money.", "我在银行工作。", "Sentence 0.", "银行几点开门？", "Sentence 1.")) {
             assertEquals(0, compose.onAllNodesWithText(old, substring = true, useUnmergedTree = true).fetchSemanticsNodes().size, old)
         }
@@ -106,7 +106,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
 
     @Test fun aTakeThatUsesUpTheBufferAsksAgainSilently() {
         val wanted = mutableListOf<Pair<String, Int>>()
-        val stats = mutableStateOf(mapOf<String, SentenceHistory.Stats>("clue" to used("read")))
+        val stats = mutableStateOf(mapOf<String, SentenceHistory.Stats>(cardRowKey("n1") to used("read")))
         // Seven fresh of eight: enough, nothing asked.
         roundWith(stats, onWantMore = { r, n -> wanted += r to n }, roundRows = sentenceRows(note, many))
         assertEquals(emptyList(), wanted)
@@ -125,7 +125,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(800)
         compose.onNodeWithTag("${SentenceHideTags.REASON}-weird", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
-        assertEquals(listOf(clueRowKey("n1") to "weird"), hidden)
+        assertEquals(listOf(cardRowKey("n1") to "weird"), hidden)
         compose.onNodeWithTag(SentenceHideTags.UNDO, useUnmergedTree = true).assertExists()
     }
 
@@ -155,7 +155,7 @@ class SentenceHistoryUiTest : LabScreenshotTest() {
     // ---- screenshots
 
     @Test fun shotComing() {
-        round(mapOf("clue" to read(3), "s3" to hiddenS3))
+        round(mapOf(cardRowKey("n1") to read(3), "s3" to hiddenS3))
         compose.onRoot().captureRoboImage("screenshots/sentence-history-01-coming.png")
     }
 

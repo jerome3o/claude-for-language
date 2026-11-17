@@ -10,7 +10,9 @@
 import { SENTENCE_ROUND_MIN_VISIBLE, freshTopUpCount } from '@shared/study/sentenceHistory';
 import { prefetchSentenceSets } from '../api/client';
 import { db } from '../db/database';
-import { getLocalSentenceCounts } from './sentence-sets';
+import { getNoteSentenceRows } from './sentence-sets';
+import { isCardSentenceRow } from '@shared/study/cardSentence';
+import { isContrivedSentence } from '@shared/study/sentenceFocus';
 import { requestMoreSentences } from './sentencePractice';
 import { isEffectivelyOffline } from './offlineMode';
 
@@ -21,16 +23,18 @@ export async function ensurePassSentences(assignmentId: string, noteIds: readonl
   if (asked.has(assignmentId) || noteIds.length === 0) return { queued: 0, topUps: 0 };
   asked.add(assignmentId);
   const ids = Array.from(new Set(noteIds));
-  const [counts, notes] = await Promise.all([getLocalSentenceCounts(ids), db.notes.bulkGet(ids)]);
+  const notes = await db.notes.bulkGet(ids);
   const none: string[] = [];
   const few: { id: string; total: number }[] = [];
-  ids.forEach((id, i) => {
-    const set = counts.get(id) ?? { total: 0, natural: 0 };
-    const clue = notes[i]?.sentence_clue?.trim() ? 1 : 0;
-    if (set.total === 0) none.push(id);
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    // The note's rows, its card sentence row included (shared/study/cardSentence.ts).
+    const rows = await getNoteSentenceRows(id, notes[i] ?? null);
     // Natural sentences only: the round never uses a contrived one (sentenceFocus.ts).
-    else if (set.natural + clue < SENTENCE_ROUND_MIN_VISIBLE) few.push({ id, total: set.natural + clue });
-  });
+    const natural = rows.filter((r) => !isContrivedSentence(r.focus)).length;
+    if (!rows.some((r) => !isCardSentenceRow(r))) none.push(id);
+    else if (natural < SENTENCE_ROUND_MIN_VISIBLE) few.push({ id, total: natural });
+  }
   for (const { id, total } of few) requestMoreSentences(id, { reason: 'few', count: freshTopUpCount(total) });
   let queued = 0;
   if (none.length > 0 && typeof navigator !== 'undefined' && navigator.onLine && !isEffectivelyOffline()) {

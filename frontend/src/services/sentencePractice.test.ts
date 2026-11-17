@@ -42,7 +42,7 @@ describe('sentencePractice', () => {
     await m.hideSentence('n1', 's2', 'weird', 'list');
     await m.uploadPendingSentencePractice();
     const posted = calls.filter((c) => c.body?.events).flatMap((c) => c.body.events);
-    expect(posted.map((e: any) => `${e.kind}:${e.sentence_key}`).sort()).toEqual(['attempt:clue', 'hide:s2']);
+    expect(posted.map((e: any) => `${e.kind}:${e.sentence_key}`).sort()).toEqual(['attempt:n1-card', 'hide:s2']);
     serverEvents = [{ id: 'other-device', note_id: 'n1', sentence_key: 'clue', kind: 'attempt', mode: 'translate', result: 'close', at: '2026-10-24T09:00:00.000Z' }];
     await m.syncSentencePractice();
     expect(calls.some((c) => c.path === '/me/sentence-practice')).toBe(true);

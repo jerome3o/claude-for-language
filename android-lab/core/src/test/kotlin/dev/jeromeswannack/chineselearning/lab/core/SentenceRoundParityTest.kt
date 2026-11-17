@@ -39,7 +39,7 @@ class SentenceRoundParityTest {
         for (l in lists) {
             val o = l.jsonObject
             val what = o.toString()
-            val sentences = SentenceRound.sentences(sentence(o["clue"]), o["set"]!!.jsonArray.map { sentence(it)!! })
+            val sentences = SentenceRound.sentences(o["input"]!!.jsonArray.map { sentence(it)!! })
             assertEquals(o["sentences"]!!.jsonArray.map { sentence(it)!! }, sentences, what)
             val exercises = SentenceRound.pick(sentences)
             val expected = o["exercises"]!!.jsonArray.map {
@@ -267,8 +267,7 @@ class SentenceRoundParityTest {
         for (x in n["lists"]!!.jsonArray) {
             val o = x.jsonObject
             val what = o.toString()
-            val set = o["set"]!!.jsonArray.map { sentence(it)!! }
-            val sentences = SentenceRound.sentences(sentence(o["clue"]), set)
+            val sentences = SentenceRound.sentences(o["input"]!!.jsonArray.map { sentence(it)!! })
             assertEquals(o["sentences"]!!.jsonArray.map { sentence(it)!! }, sentences, what)
             assertEquals(o["exercises"]!!.jsonArray.map { exercise(it) }, SentenceRound.pick(sentences), what)
             assertEquals(o["count"]!!.jsonPrimitive.int, SentenceRound.roundSentenceCount(sentences), what)
@@ -280,7 +279,7 @@ class SentenceRoundParityTest {
             val ids = o["ids"]!!.jsonArray.map { it.str!! }
             val fromLog = o["fromLog"]!!.let { if (it is JsonNull) null else it.jsonArray.map { e -> exercise(e) } }
             assertEquals(fromLog, SentenceRound.exercisesFromLog(sentences, ids), what)
-            if (set.any { SentenceFocus.isContrived(it.focus) }) withContrived++
+            if (sentences.any { SentenceFocus.isContrived(it.focus) }) withContrived++
             assertTrue(sentences.none { SentenceFocus.isContrived(it.focus) } || SentenceRound.pick(sentences).none { e -> SentenceFocus.isContrived(sentences[e.index].focus) }, what)
         }
         assertTrue(withContrived > 30, "lists with contrived rows")

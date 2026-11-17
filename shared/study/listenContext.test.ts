@@ -17,39 +17,33 @@ const set = [
 ];
 
 describe('listenContextRows', () => {
-  it('puts the card sentence first, then the set by position', () => {
-    const rows = listenContextRows('n1', { hanzi: '这是银行。', translation: ' ', audio_url: 'generated/c.mp3' }, set);
-    expect(rows.map((r) => r.key)).toEqual(['clue:n1', 's1', 's2']);
-    expect(rows[0]).toMatchObject({ fromCard: true, sentenceId: null, translation: null, audioUrl: 'generated/c.mp3' });
+  it('puts the card sentence row first, then the set by position', () => {
+    const card = { id: 'n1-card', hanzi: '这是银行。', translation: ' ', audio_url: 'generated/c.mp3', position: -1, is_card: 1 };
+    const rows = listenContextRows([...set, card]);
+    expect(rows.map((r) => r.key)).toEqual(['n1-card', 's1', 's2']);
+    expect(rows[0]).toMatchObject({ fromCard: true, sentenceId: 'n1-card', translation: null, audioUrl: 'generated/c.mp3' });
     expect(rows[1]).toMatchObject({ fromCard: false, sentenceId: 's1', audioUrl: null });
   });
 
-  it('shows a card sentence the set repeats only once', () => {
-    const rows = listenContextRows('n1', { hanzi: '银行在哪儿？' }, set);
-    expect(rows.map((r) => r.key)).toEqual(['s1', 's2']);
-  });
-
-  it('works with no card sentence and no set', () => {
-    expect(listenContextRows('n1', null, [])).toEqual([]);
-    expect(listenContextRows('n1', { hanzi: '  ' }, [])).toEqual([]);
+  it('works with no sentences', () => {
+    expect(listenContextRows([])).toEqual([]);
   });
 });
 
 describe('listenRowState', () => {
-  it('plays a clip online or cached, waits for a missing set clip, uses the device voice for the card sentence', () => {
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: true, cached: false })).toBe('ready');
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: false, cached: true })).toBe('ready');
-    expect(listenRowState({ audioUrl: 'a.mp3', sentenceId: 's' }, { online: false, cached: false })).toBe('unavailable');
-    expect(listenRowState({ audioUrl: null, sentenceId: 's' }, { online: true, cached: false })).toBe('fetch');
-    expect(listenRowState({ audioUrl: null, sentenceId: null }, { online: true, cached: false })).toBe('device');
-    expect(listenRowState({ audioUrl: null, sentenceId: 's' }, { online: false, cached: false })).toBe('unavailable');
+  it('plays a clip online or cached, waits for a missing clip (the card sentence row too)', () => {
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: true, cached: false })).toBe('ready');
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: false, cached: true })).toBe('ready');
+    expect(listenRowState({ audioUrl: 'a.mp3' }, { online: false, cached: false })).toBe('unavailable');
+    expect(listenRowState({ audioUrl: null }, { online: true, cached: false })).toBe('fetch');
+    expect(listenRowState({ audioUrl: null }, { online: false, cached: false })).toBe('unavailable');
   });
 });
 
 describe('listenAutoplay', () => {
   it('plays the first ready sentence, else the word', () => {
     expect(listenAutoplay(true, ['fetch', 'ready', 'ready'])).toEqual({ kind: 'sentence', index: 1 });
-    expect(listenAutoplay(true, ['fetch', 'device', 'unavailable'])).toEqual({ kind: 'word' });
+    expect(listenAutoplay(true, ['fetch', 'unavailable'])).toEqual({ kind: 'word' });
     expect(listenAutoplay(true, [])).toEqual({ kind: 'word' });
     expect(listenAutoplay(false, ['ready'])).toEqual({ kind: 'none' });
   });

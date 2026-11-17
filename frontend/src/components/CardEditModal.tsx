@@ -432,16 +432,14 @@ export default function CardEditModal({ card, onClose, onSave, onDeleteCard, onP
             <h3>Sentence Set</h3>
             <SentenceSet
               noteId={card.note.id}
-              cardSentence={
-                sentenceClue
-                  ? {
-                      hanzi: sentenceClue,
-                      pinyin: sentenceCluePinyin || null,
-                      translation: sentenceClueTranslation || null,
-                      audio_url: sentenceClueAudioUrl,
-                    }
-                  : null
-              }
+              note={{
+                id: card.note.id,
+                // The card sentence being edited (unsaved) leads the list as the note's own row.
+                sentence_clue: sentenceClue,
+                sentence_clue_pinyin: sentenceCluePinyin || null,
+                sentence_clue_translation: sentenceClueTranslation || null,
+                sentence_clue_audio_url: sentenceClueAudioUrl,
+              }}
               defaultOpen
             />
           </div>

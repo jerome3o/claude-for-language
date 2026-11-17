@@ -100,13 +100,19 @@ const SET = [
   { id: 's1', note_id: 'n1', position: 0, hanzi: '我去银行。', pinyin: 'Wǒ qù yínháng.', translation: 'I go to the bank.', audio_url: null, focus: 'core', focus_note: null, explanation: null },
   { id: 's2', note_id: 'n1', position: 1, hanzi: '银行在哪儿？', pinyin: 'Yínháng zài nǎr?', translation: 'Where is the bank?', audio_url: null, focus: 'core', focus_note: null, explanation: null },
 ];
-vi.mock('../../services/sentence-sets', () => ({
-  getLocalNoteSentences: vi.fn(async () => rows.set ?? SET),
-  generateAndStoreSentenceSet: vi.fn(), putLocalNoteSentences: vi.fn(), clearLocalNoteSentences: vi.fn(), cacheSentenceAudio: vi.fn(),
-  resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(), getTextExplanation: vi.fn(),
-  getCachedTextExplanation: vi.fn(async () => null), getClueTranslation: vi.fn(), getCachedClueTranslation: vi.fn(async () => null),
-  awaitSentenceAudio: vi.fn(), ensureSentenceAudio: vi.fn(), SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
-}));
+vi.mock('../../services/sentence-sets', async () => {
+  // The card's own sentence is the note's row `n1-card` (shared/study/cardSentence.ts), made from the note here.
+  const { withCardSentence } = await import('@shared/study/cardSentence');
+  return {
+    getLocalNoteSentences: vi.fn(async () => rows.set ?? SET),
+    getNoteSentenceRows: vi.fn(async (_id: string, note: never) => withCardSentence(note, (rows.set ?? SET) as never)),
+    generateAndStoreSentenceSet: vi.fn(), putLocalNoteSentences: vi.fn(), clearLocalNoteSentences: vi.fn(), cacheSentenceAudio: vi.fn(),
+    resetSentenceSetSyncCursor: vi.fn(), getSentenceExplanation: vi.fn(),
+    cachedSentenceTranslation: (r: { translation?: string | null }) => r.translation?.trim() || null,
+    getSentenceTranslation: vi.fn(),
+    awaitSentenceAudio: vi.fn(), ensureSentenceAudio: vi.fn(), SENTENCE_AUDIO_COMING_LABEL: 'Audio coming…',
+  };
+});
 
 
 // The language explorer (an answered row's words open it) and the device segmenter's words.
@@ -189,7 +195,7 @@ describe('SentenceRound', () => {
     // The card IS the clue sentence: "Read it aloud" of the question he just answered would be a free point.
     await render({ word: '我去银行取钱', onPicked });
     const ids = onPicked.mock.calls[0][0] as string[];
-    expect(ids.some((id) => id.endsWith(':clue:n1'))).toBe(false);
+    expect(ids.some((id) => id.endsWith(':n1-card'))).toBe(false);
     expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['read', 'translate']);
     expect(host.textContent).not.toContain('我去银行取钱。');
     expect(host.textContent).toContain('Get any 2 of these 2 right');
@@ -198,7 +204,7 @@ describe('SentenceRound', () => {
     root = createRoot(host);
     onPicked.mockClear();
     await render({ word: '银行', onPicked });
-    expect((onPicked.mock.calls[0][0] as string[])[0]).toBe('read:clue:n1');
+    expect((onPicked.mock.calls[0][0] as string[])[0]).toBe('read:n1-card');
   });
 
   it('shows the question small, three sentences → three exercises (one each), translate Chinese hidden', async () => {
@@ -321,9 +327,9 @@ describe('SentenceRound', () => {
     expect(said.querySelector('[data-testid="spoken-result-pinyin"]')!.textContent).toContain('xué xiào');
   });
 
-  it('a card sentence with no English on the note fetches it once shown; offline says it needs a connection', async () => {
+  it('a card sentence row with no English fetches it once shown; offline says it needs a connection', async () => {
     const sets = await import('../../services/sentence-sets');
-    const fetchEn = vi.mocked(sets.getClueTranslation);
+    const fetchEn = vi.mocked(sets.getSentenceTranslation);
     fetchEn.mockReset();
     fetchEn.mockResolvedValue('I go to the bank to take out money.');
     const note = { ...NOTE, sentence_clue_translation: null as unknown as string };
@@ -332,13 +338,13 @@ describe('SentenceRound', () => {
     act(() => inEx(0, 'sentence-round-english-toggle')!.click());
     await flush();
     await flush();
-    expect(fetchEn).toHaveBeenCalledWith({ hanzi: '我去银行取钱。', pinyin: 'Wǒ qù yínháng qǔ qián.' });
+    expect(fetchEn).toHaveBeenCalledWith({ id: 'n1-card', translation: null });
     expect(inEx(0, 'sentence-round-read-english')!.textContent).toBe('I go to the bank to take out money.');
   });
 
   it('offline and never fetched: "Translation needs a connection"', async () => {
     const sets = await import('../../services/sentence-sets');
-    const fetchEn = vi.mocked(sets.getClueTranslation);
+    const fetchEn = vi.mocked(sets.getSentenceTranslation);
     fetchEn.mockReset();
     net.online = false;
     const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
@@ -359,12 +365,12 @@ describe('SentenceRound', () => {
     await render();
     act(() => inEx(0, 'sentence-practise-mic')!.click());
     act(() => dictation().land('我去学校'));
-    expect(history.record[0]).toEqual(['n1', 'clue:n1', 'read', expect.stringMatching(/close|wrong/)]);
+    expect(history.record[0]).toEqual(['n1', 'n1-card', 'read', expect.stringMatching(/close|wrong/)]);
   });
 
   it('prefers what he knows least and leaves hidden sentences out; ⋯ hides one', async () => {
     const st = (read: number) => ({ read: { attempts: read, rights: read, misses: 0, last_at: read ? '2026-10-01' : null }, translate: { attempts: 0, rights: 0, misses: 0, last_at: null }, hidden: null });
-    history.stats = new Map<string, unknown>([['clue', st(3)], ['s2', { ...st(0), hidden: { at: '2026-10-02', reason: 'weird' } }]]);
+    history.stats = new Map<string, unknown>([['n1-card', st(3)], ['s2', { ...st(0), hidden: { at: '2026-10-02', reason: 'weird' } }]]);
     await render();
     // Two sentences left in rotation: s1 never read → read; the clue (read 3×) → translate. Two exercises, no reuse.
     expect(all('sentence-round-exercise').map((e) => `${e.dataset.mode}`)).toEqual(['translate', 'read']);
@@ -374,22 +380,21 @@ describe('SentenceRound', () => {
     expect(history.more).toEqual([['n1', { reason: 'few', count: 7 }]]);
     act(() => inEx(0, 'sentence-round-more')!.click());
     act(() => (host.querySelector('[data-testid="sentence-hide-wrong"]') as HTMLElement).click());
-    expect(history.hidden[0]).toEqual(['n1', 'clue:n1', 'wrong', 'round']);
+    expect(history.hidden[0]).toEqual(['n1', 'n1-card', 'wrong', 'round']);
     expect(host.textContent).toContain('Sentence hidden');
   });
 
   it('asks only sentences he has never practised, and quietly refills the buffer before it runs out', async () => {
-    const { getLocalNoteSentences } = await import('../../services/sentence-sets');
     const many = ['我在银行工作。', '银行几点开门？', '这家银行很大。', '你去哪个银行？', '银行旁边有超市。', '我把钱存在银行。', '银行今天关门。']
       .map((hanzi, i) => ({ ...SET[0], id: `m${i}`, position: i, hanzi, translation: `Sentence ${i}.` }));
-    vi.mocked(getLocalNoteSentences).mockResolvedValue(many as never);
+    rows.set = many;
     const used = (mode: 'read' | 'translate') => ({
       read: { attempts: mode === 'read' ? 1 : 0, rights: mode === 'read' ? 1 : 0, misses: 0, last_at: mode === 'read' ? '2026-11-01' : null },
       translate: { attempts: mode === 'translate' ? 1 : 0, rights: 0, misses: mode === 'translate' ? 1 : 0, last_at: mode === 'translate' ? '2026-11-01' : null },
       hidden: null,
     });
     // The card's sentence was read, m0 translated (wrong), m1 read: five of the eight are fresh.
-    history.stats = new Map<string, unknown>([['clue', used('read')], ['m0', used('translate')], ['m1', used('read')]]);
+    history.stats = new Map<string, unknown>([['n1-card', used('read')], ['m0', used('translate')], ['m1', used('read')]]);
     try {
       await render();
       const shown = all('sentence-round-exercise').map((e) => e.textContent ?? '');
@@ -401,7 +406,7 @@ describe('SentenceRound', () => {
       expect(history.more).toEqual([['n1', { reason: 'fresh', count: 3 }]]);
       expect(host.querySelector('[data-testid="sentences-coming"]')).toBeNull();
     } finally {
-      vi.mocked(getLocalNoteSentences).mockImplementation(async () => (rows.set ?? SET) as never);
+      rows.set = null;
     }
   });
 
@@ -450,10 +455,10 @@ describe('SentenceRound', () => {
     const onPicked = vi.fn();
     const onResult = vi.fn();
     await render({ onPicked, onResult });
-    expect(onPicked).toHaveBeenCalledWith(['read:clue:n1', 'translate:s1', 'read:s2']);
+    expect(onPicked).toHaveBeenCalledWith(['read:n1-card', 'translate:s1', 'read:s2']);
     act(() => inEx(0, 'sentence-practise-mic')!.click());
     act(() => dictation().land('我去学校'));
-    expect(onResult).toHaveBeenCalledWith('read:clue:n1', expect.stringMatching(/close|wrong/));
+    expect(onResult).toHaveBeenCalledWith('read:n1-card', expect.stringMatching(/close|wrong/));
     act(() => root.unmount());
     root = createRoot(host);
     const again = vi.fn();
@@ -661,7 +666,7 @@ describe("the listening card's round", () => {
     expect(inEx(0, 'sentence-round-chinese')!.textContent).toBe('我去银行取钱。');
     act(() => inEx(0, 'listen-round-self-right')!.click());
     expect(ex(0).dataset.status).toBe('right');
-    expect(history.record.at(-1)).toEqual(['n1', 'clue:n1', 'translate', 'right']);
+    expect(history.record.at(-1)).toEqual(['n1', 'n1-card', 'translate', 'right']);
     expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
   });
 
@@ -671,7 +676,7 @@ describe("the listening card's round", () => {
     act(() => inEx(0, 'listen-round-show-chinese')!.click());
     act(() => inEx(0, 'listen-round-self-wrong')!.click());
     expect(ex(0).dataset.status).toBe('wrong');
-    expect(history.record).toEqual([['n1', 'clue:n1', 'translate', 'wrong']]);
+    expect(history.record).toEqual([['n1', 'n1-card', 'translate', 'wrong']]);
     expect(inEx(0, 'listen-round-self-right')).toBeNull();
     act(() => inEx(0, 'sentence-round-retry')!.click());
     expect(track).toHaveBeenCalledWith('study.sentence_round', expect.objectContaining({ action: 'retry', index: 0, after_reveal: true }));
@@ -682,7 +687,7 @@ describe("the listening card's round", () => {
     expect(ex(0).dataset.status).toBe('right');
     expect(all('sentence-round-counter')[0].textContent).toContain('1 / 2');
     // The right after the Chinese was shown counts for the round, but the history keeps only the honest first try.
-    expect(history.record).toEqual([['n1', 'clue:n1', 'translate', 'wrong']]);
+    expect(history.record).toEqual([['n1', 'n1-card', 'translate', 'wrong']]);
   });
 });
 
@@ -900,7 +905,7 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
     act(() => player.plays[0].handlers.onError?.());
     await flush();
     expect(all('sentence-round-exercise').map((e) => e.dataset.mode)).toEqual(['translate', 'read', 'listen']);
-    expect(picked.at(-1)).toEqual(['translate:clue:n1', 'read:s1', 'listen:s2']);
+    expect(picked.at(-1)).toEqual(['translate:n1-card', 'read:s1', 'listen:s2']);
     expect(track).toHaveBeenCalledWith('study.sentence_listen', expect.objectContaining({ fallback: true }));
   });
 

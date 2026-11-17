@@ -170,7 +170,7 @@ test('the pass sentence: reveal, breakdown, add a word — and nothing is record
 /**
  * A third of the card sentences were written without pinyin or English (MCP-added / older notes).
  * The row must still reveal like the set rows: Chinese → the device's pinyin → the English, fetched
- * once from explain-text (only the line is kept), with "From the card" out of the English's way.
+ * once for the row (`/api/sentences/:id/translate`, only the line is kept), with "From the card" out of the English's way.
  */
 test('a card sentence with no pinyin or English still reveals both', async ({ page, request }) => {
   test.setTimeout(120_000);
@@ -194,19 +194,15 @@ test('a card sentence with no pinyin or English still reveals both', async ({ pa
   });
   const mine = await api<{ assignments: Array<{ id: string }> }>(request, '/api/me/homework', { token: student.token });
 
+  // The card sentence is the note's row `<note>-card` (migration 0152): its English line comes from the row's
+  // translate endpoint, and only the line is kept.
   let explainCalls = 0;
-  await page.route('**/api/sentences/explain-text', async (route) => {
+  await page.route('**/api/sentences/*/translate', async (route) => {
     explainCalls++;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        explanation: {
-          words: [{ hanzi: '服务员', pinyin: 'fúwùyuán', gloss: 'waiter' }],
-          construction: '要 + verb: want to.',
-          translation: "Waiter, we'd like to order.",
-        },
-      }),
+      body: JSON.stringify({ translation: "Waiter, we'd like to order.", cached: false }),
     });
   });
 

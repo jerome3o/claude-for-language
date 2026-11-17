@@ -644,8 +644,17 @@ export async function explainNoteSentence(
 }
 
 /**
- * Breakdown of a sentence that isn't a stored set row (the card's own example
- * sentence). Not cached server-side — there's no row to hang it on.
+ * The English line of a row written without one (`POST /api/sentences/:id/translate`): kept on the row
+ * server-side; the breakdown it comes from is not stored.
+ */
+export async function translateNoteSentence(sentenceId: string): Promise<string> {
+  const data = await fetchJSON<{ translation: string }>(`/sentences/${sentenceId}/translate`, { method: 'POST' });
+  return data.translation;
+}
+
+/**
+ * Breakdown of a sentence that isn't a stored row (a chat message, the Coach's Explain). Not cached
+ * server-side — there's no row to hang it on.
  */
 export async function explainSentenceText(sentence: {
   hanzi: string;

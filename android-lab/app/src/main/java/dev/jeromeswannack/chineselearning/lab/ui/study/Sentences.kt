@@ -2,6 +2,7 @@
 
 package dev.jeromeswannack.chineselearning.lab.ui.study
 
+import dev.jeromeswannack.chineselearning.lab.core.CardSentence
 import dev.jeromeswannack.chineselearning.lab.ui.kit.buttonBorder
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -83,10 +84,10 @@ import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAdd
 import dev.jeromeswannack.chineselearning.lab.core.explorer.ExplorerAddFillReason
 import kotlinx.coroutines.launch
 
-/** A sentence row: the card's own clue first, then the generated graded set. */
+/** A sentence row: one of the note's rows — the card's own sentence first (core CardSentence), then the set. */
 data class SentenceRow(
     val key: String,
-    /** The set row's id; null for the card's own sentence (explained by its text). */
+    /** The row's id (the card's own sentence: `<note>-card`); null only for a row with no server row (previews). */
     val sentenceId: String?,
     val hanzi: String,
     val pinyin: String?,
@@ -123,27 +124,43 @@ private val FOCUS_LABELS = mapOf(
 
 fun sentenceRows(view: CardView): List<SentenceRow> = sentenceRows(view.note, view.sentences)
 
+/** The note's card-sentence fields (the deprecated mirror) as core [CardSentence] reads them. */
+fun cardSentenceFields(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity) = CardSentence.NoteFields(
+    note.id, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl,
+)
+
+/**
+ * The note's sentence rows as ONE list (core [CardSentence.withCardSentence]): the card's own sentence row first —
+ * the stored one, or one made from the note while this phone has none yet / an older text — then the set.
+ */
+fun noteSentenceRows(
+    note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity,
+    sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>,
+): List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity> =
+    CardSentence.withCardSentence(
+        cardSentenceFields(note),
+        sentences.map { CardSentence.Row(it.id, it.noteId, it.position, it.hanzi, it.pinyin, it.translation, it.audioUrl, it.focus, it.focusNote, isCard = it.isCard) },
+    ).map { dev.jeromeswannack.chineselearning.lab.data.SentenceEntity(it.id, it.noteId, it.position, it.hanzi, it.pinyin, it.translation, it.audioUrl, it.focus, it.focusNote, isCard = CardSentence.isCardRow(it)) }
+
 fun sentenceRows(note: dev.jeromeswannack.chineselearning.lab.data.NoteEntity, sentences: List<dev.jeromeswannack.chineselearning.lab.data.SentenceEntity>): List<SentenceRow> {
-    val rows = ArrayList<SentenceRow>()
-    val clue = note.sentenceClue?.takeIf { it.isNotBlank() }
-    if (clue != null && sentences.none { it.hanzi == clue }) {
-        // A clue written without pinyin gets the device's own (the app's one automatic pinyin), so
-        // it reveals hanzi → pinyin → English like every other row.
-        val pinyin = note.sentenceCluePinyin?.takeIf { it.isNotBlank() } ?: devicePinyinLine(clue).takeIf { it.isNotEmpty() }
-        val translation = note.sentenceClueTranslation?.takeIf { it.isNotBlank() }
-        rows += SentenceRow(
-            clueRowKey(note.id), null, clue, pinyin, translation, note.sentenceClueAudioUrl, "From the card",
-            fromCard = true, fetchTranslation = translation == null,
-        )
+    val all = noteSentenceRows(note, sentences)
+    val card = all.firstOrNull()?.takeIf { it.isCard }
+    // The card's own row first; then natural sentences, the ones once written around a look-alike / homophone after them (core SentenceFocus).
+    val ordered = listOfNotNull(card) + dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalFirst(all.drop(if (card != null) 1 else 0)) { it.focus }
+    return ordered.map { s ->
+        // A row written without pinyin (card sentences from MCP / older notes) gets the device's own (the app's one
+        // automatic pinyin), so it reveals hanzi → pinyin → English like every other row.
+        val pinyin = s.pinyin?.takeIf { it.isNotBlank() } ?: devicePinyinLine(s.hanzi).takeIf { it.isNotEmpty() }
+        val translation = s.translation?.takeIf { it.isNotBlank() }
+        if (s.isCard) {
+            SentenceRow(s.id, s.id, s.hanzi, pinyin, translation, s.audioUrl, "From the card", fromCard = true, fetchTranslation = translation == null)
+        } else {
+            SentenceRow(
+                s.id, s.id, s.hanzi, pinyin, translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote,
+                fetchTranslation = translation == null, focus = s.focus,
+            )
+        }
     }
-    // Natural sentences first; the ones once written around a look-alike / homophone after them (core SentenceFocus).
-    dev.jeromeswannack.chineselearning.lab.core.SentenceFocus.naturalFirst(sentences.sortedBy { it.position }) { it.focus }.forEach { s ->
-        rows += SentenceRow(
-            s.id, s.id, s.hanzi, s.pinyin, s.translation, s.audioUrl, s.focus?.let { FOCUS_LABELS[it] ?: it.takeIf { f -> f != "core" }?.replace('_', ' ') }, s.focusNote,
-            focus = s.focus,
-        )
-    }
-    return rows
 }
 
 private val HAN_RUN = Regex("\\p{IsHan}+")
@@ -209,9 +226,9 @@ class SentenceActions(
     val ensureAudio: (suspend (sentenceId: String) -> String?)? = null,
     val cachedExplanation: suspend (SentenceRow) -> SentenceExplanation? = { null },
     val explain: suspend (SentenceRow) -> SentenceExplanation = { error("offline") },
-    /** The English this device holds for a card sentence without one (offline), or null. */
+    /** The English this device holds for a row without one (offline), or null. */
     val cachedTranslation: suspend (SentenceRow) -> String? = { null },
-    /** The English for a card sentence without one (`/api/sentences/explain-text`'s translation line). */
+    /** The English for a row without one (its breakdown's translation line, `/api/sentences/:id/explain`). */
     val translate: suspend (SentenceRow) -> String = { error("offline") },
     /** Decks (current note's deck first) and whether one already has this hanzi. */
     val decks: suspend () -> List<Pair<String, String>> = { emptyList() },
@@ -236,7 +253,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
-        audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(clueRowKey(view.note.id)) else emptySet(),
+        audioBusy = if (ui.cardAudio.sentence == ClipState.GENERATING) setOf(cardRowKey(view.note.id)) else emptySet(),
         practise = practise,
         history = history,
         roundMarks = roundMarks,
@@ -250,8 +267,8 @@ data class SentenceListHistory(
     val onUnhide: (rowKey: String) -> Unit,
 )
 
-/** The key of the row that is the card's own sentence (row 1). */
-fun clueRowKey(noteId: String) = "clue:" + noteId
+/** The key of the row that is the card's own sentence (row 1): its id `<note>-card` (core [CardSentence]). */
+fun cardRowKey(noteId: String) = CardSentence.id(noteId)
 
 /**
  * The same list for any note (the card editor's "Sentence Set" section): [presentation]
@@ -296,7 +313,7 @@ fun SentenceList(
         if (practise != null) Modifier.bringIntoViewRequester(practise.bringIntoView) else Modifier,
     ),
 ) {
-    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation) { sentenceRows(note, sentences) }
+    val allRows = remember(presentation, sentences, note.sentenceClue, note.sentenceCluePinyin, note.sentenceClueTranslation, note.sentenceClueAudioUrl) { sentenceRows(note, sentences) }
     fun isHidden(key: String) = history?.stats?.get(SentenceHistory.key(key))?.hidden != null
     var showHidden by remember(presentation) { mutableStateOf(false) }
     var hiding by remember(presentation) { mutableStateOf<SentenceRow?>(null) }
@@ -317,7 +334,8 @@ fun SentenceList(
     var error by remember(presentation) { mutableStateOf<String?>(null) }
     var adding by remember(presentation) { mutableStateOf<Chunk?>(null) }
     val scope = rememberCoroutineScope()
-    val hasSet = sentences.isNotEmpty()
+    // A generated set (the card's own sentence row isn't one).
+    val hasSet = sentences.any { !it.isCard }
     // ▶ on a set row whose clip isn't made yet: asking (spinner) / queued ("Audio coming…").
     val asking = remember(presentation) { mutableStateMapOf<String, Boolean>() }
     val coming = remember(presentation) { mutableStateMapOf<String, Boolean>() }

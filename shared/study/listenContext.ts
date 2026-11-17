@@ -26,6 +26,7 @@
  * android-lab/parity/fixtures/listen-context.ts).
  */
 import { isContrivedSentence } from './sentenceFocus';
+import { isCardSentenceRow } from './cardSentence';
 import {
   SENTENCE_TOPUP_MAX,
   SENTENCE_TOPUP_MIN,
@@ -42,12 +43,6 @@ export const LISTEN_CONTEXT_MORE_TARGET = 8;
 export const SENTENCE_GENERATE_MIN = 3;
 export const SENTENCE_GENERATE_MAX = 10;
 
-export interface ListenClueInput {
-  hanzi?: string | null;
-  translation?: string | null;
-  audio_url?: string | null;
-}
-
 export interface ListenSentenceInput {
   id: string;
   hanzi: string;
@@ -56,14 +51,16 @@ export interface ListenSentenceInput {
   position?: number | null;
   /** The set row's focus (a contrived one comes last and isn't counted, sentenceFocus.ts). */
   focus?: string | null;
+  /** The card's own sentence row (`<note>-card`, cardSentence.ts). */
+  is_card?: number | boolean | null;
 }
 
 /** One row of the list. The hanzi is carried for the device voice — NEVER shown on the question. */
 export interface ListenRow {
-  /** Set-row id, or `clue:<noteId>` for the card's own sentence. */
+  /** The row's id (the card's own sentence: `<note>-card`). */
   key: string;
-  /** null for the card's own sentence (it lives on the note). */
-  sentenceId: string | null;
+  /** The row's id (for ensure-audio). */
+  sentenceId: string;
   hanzi: string;
   translation: string | null;
   audioUrl: string | null;
@@ -72,72 +69,45 @@ export interface ListenRow {
   contrived: boolean;
 }
 
-/** The key of the card's own sentence row (the card-back list uses the same one). */
-export function clueRowKey(noteId: string): string {
-  return `clue:${noteId}`;
-}
-
 /**
- * The rows in order: the card's own sentence first (unless the set already
- * holds the same sentence — it is then shown once, as the set row), then the
- * set by position, its natural sentences before the contrived ones. Same
- * order as the card-back SentenceSet.
+ * The rows in order — the note's sentence rows (the card's own one included, cardSentence.ts
+ * `withCardSentence`): the card's own sentence first, then the set by position, its natural sentences
+ * before the contrived ones. Same order as the card-back SentenceSet.
  */
-export function listenContextRows(
-  noteId: string,
-  clue: ListenClueInput | null | undefined,
-  sentences: readonly ListenSentenceInput[],
-): ListenRow[] {
-  const rows: ListenRow[] = [];
-  const clueHanzi = clue?.hanzi?.trim() ? clue.hanzi : null;
-  if (clueHanzi && !sentences.some((s) => s.hanzi === clueHanzi)) {
-    rows.push({
-      key: clueRowKey(noteId),
-      sentenceId: null,
-      hanzi: clueHanzi,
-      translation: clue?.translation?.trim() || null,
-      audioUrl: clue?.audio_url || null,
-      fromCard: true,
-      contrived: false,
-    });
-  }
-  const sorted = sentences
+export function listenContextRows(sentences: readonly ListenSentenceInput[]): ListenRow[] {
+  const card = (s: ListenSentenceInput) => (isCardSentenceRow(s) ? 0 : 1);
+  return sentences
     .map((s, i) => ({ s, i }))
     .sort((a, b) =>
-      Number(isContrivedSentence(a.s.focus)) - Number(isContrivedSentence(b.s.focus))
+      card(a.s) - card(b.s)
+      || Number(isContrivedSentence(a.s.focus)) - Number(isContrivedSentence(b.s.focus))
       || (a.s.position ?? a.i) - (b.s.position ?? b.i) || a.i - b.i)
-    .map(({ s }) => s);
-  for (const s of sorted) {
-    rows.push({
+    .map(({ s }) => ({
       key: s.id,
       sentenceId: s.id,
       hanzi: s.hanzi,
       translation: s.translation?.trim() || null,
       audioUrl: s.audio_url || null,
-      fromCard: false,
-      contrived: isContrivedSentence(s.focus),
-    });
-  }
-  return rows;
+      fromCard: isCardSentenceRow(s),
+      contrived: !isCardSentenceRow(s) && isContrivedSentence(s.focus),
+    }));
 }
 
 /**
  * What ▶ on a row can do:
  * - `ready`: its clip plays (online, or cached on the device);
- * - `fetch`: a set row with no clip yet, online — ensure-audio ("Audio coming…");
- * - `device`: the card's own sentence with no clip yet, online — the device voice
- *   (the card's auto-audio is already making the real one);
+ * - `fetch`: a row with no clip yet, online — ensure-audio ("Audio coming…"), the card's own sentence too;
  * - `unavailable`: offline and the clip isn't on the device (or there is none).
  */
-export type ListenRowState = 'ready' | 'fetch' | 'device' | 'unavailable';
+export type ListenRowState = 'ready' | 'fetch' | 'unavailable';
 
 export function listenRowState(
-  row: Pick<ListenRow, 'audioUrl' | 'sentenceId'>,
+  row: Pick<ListenRow, 'audioUrl'>,
   opts: { online: boolean; cached: boolean },
 ): ListenRowState {
   if (row.audioUrl) return opts.online || opts.cached ? 'ready' : 'unavailable';
   if (!opts.online) return 'unavailable';
-  return row.sentenceId ? 'fetch' : 'device';
+  return 'fetch';
 }
 
 export function isPlayableRow(state: ListenRowState): boolean {
