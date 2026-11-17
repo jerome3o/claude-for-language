@@ -11,8 +11,9 @@ import './homework.css';
  * the learner always chooses. Lab: `PassAnswerBar` in ui/study/CardStage.kt.
  *
  * Hard mode in the pass (docs/HOMEWORK.md §3e): after giving up (👁 Show answer before a right answer)
- * Got it is GREYED (never locked) with a line above saying so — the first tap says "Tap again to say Got
- * it anyway", a second within 3 s (`overrideTap`) still counts it; Not yet is suggested.
+ * Got it is GREYED (never locked) — "tap twice" on it, "tap again" once armed; a second tap within 3 s
+ * (`overrideTap`) still counts it; Not yet is suggested. No line above the buttons (Jerome, Nov 2026): why
+ * ("You looked at the answer — Not yet suggested") and "Tap again to say Got it anyway" are accessible labels only.
  */
 export function PassAnswerButtons({
   suggested,
@@ -23,6 +24,7 @@ export function PassAnswerButtons({
   suggested: PassOutcome | null;
   onAnswer: (right: boolean) => void;
   disabled?: boolean;
+  /** Got it greyed after giving up: `line` = why (accessible label), `overridePrompt` = the armed button's label. */
   gotItLocked?: { line: string; overridePrompt: string };
 }) {
   const [armed, setArmed] = useState<OverrideArm | null>(null);
@@ -39,19 +41,14 @@ export function PassAnswerButtons({
     onAnswer(true);
   };
   return (
-    <>
-    {gotItLocked && (
-      <p className="sentence-gate-line is-locked is-gave-up hw-pass-locked-line" data-testid="hw-pass-locked" aria-live="polite">
-        {armed ? gotItLocked.overridePrompt : gotItLocked.line}
-      </p>
-    )}
-    <div className="hw-pass-rate" data-testid="hw-pass-rate" data-suggested={suggested ?? 'none'}>
+    <div className="hw-pass-rate" data-testid="hw-pass-rate" data-suggested={suggested ?? 'none'} data-locked={gotItLocked ? 'true' : undefined}>
       <button
         type="button"
         className={`btn hw-btn-notyet${suggested === 'wrong' || gotItLocked ? ' hw-btn--suggested' : ''}`}
         onClick={() => onAnswer(false)}
         disabled={disabled}
         data-testid="hw-notyet"
+        aria-label={gotItLocked ? `Not yet — ${gotItLocked.line}` : undefined}
       >
         Not yet
         {(suggested === 'wrong' || gotItLocked) && <span className="hw-btn-hint">suggested</span>}
@@ -64,12 +61,12 @@ export function PassAnswerButtons({
         data-testid="hw-gotit"
         data-locked={gotItLocked ? 'true' : undefined}
         data-armed={armed ? 'true' : undefined}
+        aria-label={gotItLocked ? `Got it — ${armed ? gotItLocked.overridePrompt : `${gotItLocked.line}; ${HARD_MODE_TAP_TWICE} to say it anyway`}` : undefined}
       >
         Got it
         {gotItLocked && <span className="hw-btn-hint">{armed ? HARD_MODE_TAP_AGAIN : HARD_MODE_TAP_TWICE}</span>}
         {suggested === 'right' && !gotItLocked && <span className="hw-btn-hint">✓ suggested</span>}
       </button>
     </div>
-    </>
   );
 }

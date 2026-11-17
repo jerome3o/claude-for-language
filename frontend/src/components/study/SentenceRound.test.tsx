@@ -20,6 +20,8 @@ interface FakeDictation {
 const fakes = vi.hoisted(() => ({ list: [] as FakeDictation[], blocked: null as string | null }));
 vi.mock('../../hooks/useVoiceDictation', async () => {
   const React = await import('react');
+  // The real hook reports its take to the app-wide take lock (what holds the round's footer while it records).
+  const { useReportTake } = await import('../voice/TakeLock');
   return {
     useVoiceDictation: (opts: { surface: string; onSubmit: (a: { text: string; source: string; transcript: string | null }) => void }) => {
       const [phase, setPhase] = React.useState<string>('idle');
@@ -37,6 +39,7 @@ vi.mock('../../hooks/useVoiceDictation', async () => {
         };
         fakes.list.push(fake.current);
       }
+      useReportTake(phase === 'listening' ? 'recording' : phase === 'finishing' ? 'checking' : 'idle', stop.current);
       return {
         state: { mode: 'voice', phase, failure, blocked: fakes.blocked },
         finalText: '', partialText: '', listening: phase === 'listening', busy: false, level: 0,
@@ -600,6 +603,30 @@ describe('stopping a take is intentional', () => {
     act(() => inEx(1, 'sentence-practise-mic')!.click());
     act(() => inEx(1, 'sentence-practise-mic')!.click());
     expect(dictation().stop).toHaveBeenCalledTimes(2);
+  });
+
+  it('ONE "■ Stop recording" while a take records: the pinned bar — the round\'s footer is held, never a second stop', async () => {
+    await render();
+    const stops = () => [...host.querySelectorAll('button')].filter((b) => /Stop recording/.test(b.textContent ?? ''));
+    expect(stops()).toHaveLength(0);
+    act(() => inEx(0, 'sentence-practise-mic')!.click());
+    expect(stops()).toHaveLength(1);
+    expect(stops()[0].dataset.testid).toBe('sentence-stop-recording');
+    expect(all('sentence-round-stop')).toHaveLength(0);
+    // The footer (Skip) stays where it is, greyed and untappable.
+    const held = all('take-locked-held');
+    expect(held).toHaveLength(1);
+    expect(held[0].hasAttribute('inert')).toBe(true);
+    expect(held[0].querySelector('[data-testid="sentence-round-skip"]')).not.toBeNull();
+    // Checking: still one control (the bar's "Checking…"), the footer still held.
+    act(() => all('sentence-stop-recording')[0].click());
+    expect(stops()).toHaveLength(0);
+    expect(all('sentence-stop-bar')[0].dataset.state).toBe('checking');
+    expect(all('sentence-round-stop')).toHaveLength(0);
+    // Judged: the footer is back.
+    act(() => dictation().land('我去银行取钱'));
+    expect(all('take-locked-held')).toHaveLength(0);
+    expect(all('sentence-round-skip')).toHaveLength(1);
   });
 });
 

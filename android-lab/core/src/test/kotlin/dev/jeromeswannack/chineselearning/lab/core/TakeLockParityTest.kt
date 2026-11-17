@@ -47,6 +47,8 @@ class TakeLockParityTest {
             assertEquals(o["footer"]!!.jsonPrimitive.content, TakeLock.footer(phase), phase)
             assertEquals(o["mayProceed"]!!.jsonPrimitive.boolean, TakeLock.mayProceed(phase), phase)
             assertEquals(o["leave"]!!.jsonPrimitive.content, TakeLock.leave(phase), phase)
+            assertEquals(o["row"]!!.jsonPrimitive.content, TakeLock.row(phase, false), phase)
+            assertEquals(o["rowPinned"]!!.jsonPrimitive.content, TakeLock.row(phase, true), phase)
         }
     }
 }

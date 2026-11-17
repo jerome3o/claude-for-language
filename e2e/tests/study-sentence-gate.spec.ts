@@ -4,8 +4,8 @@ import { skipFirstCardExplainer } from './fixtures/explainer';
 /**
  * 🎤 on the study card's example sentence rows + "Get two sentences right before Good / Easy"
  * (docs/STUDY_SESSION.md "Practise a sentence aloud"; shared/study/sentencePractise.ts). With the
- * setting on (per device), a reading card's answer side says what unlocks Good, Good / Easy are GREYED
- * (never locked): the first tap says "Tap again to rate Good anyway", the second rates; Again still rates. A blank row has no 🎤; an open row has
+ * setting on (per device), a reading card's answer side greys Good / Easy (never locked; no bar above the
+ * ratings — the reason is their accessible label): the first tap arms one ("tap again"), the second rates; Again still rates. A blank row has no 🎤; an open row has
  * a read 🎤 left of ▶; EN with the Chinese hidden makes it "Say it in Chinese".
  *
  * The Sentence round (docs/STUDY_SESSION.md "Sentence round"; shared/study/sentenceRound.ts): with
@@ -233,10 +233,11 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
 
   const back = page.getByTestId('study-card-back');
   await expect(back).toBeVisible();
-  const gate = page.getByTestId('sentence-gate');
-  await expect(gate).toBeVisible({ timeout: 15000 });
-  await expect(gate).toHaveAttribute('data-locked', 'true');
-  await expect(gate).toContainText('Try the sentences first · 0/2 right');
+  // No bar above the ratings (Jerome, Nov 2026): the greyed buttons say it, the reason is their accessible label.
+  const ratings = page.getByTestId('hard-mode-ratings');
+  await expect(ratings).toHaveAttribute('data-state', 'suggest_lower', { timeout: 15000 });
+  await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-label', /Try the sentences first · 0\/2 right/);
   await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
   await expect(page.getByTestId('rating-easy')).toHaveAttribute('data-greyed', 'true');
   await expect(page.getByTestId('rating-again')).not.toHaveAttribute('data-greyed', 'true');
@@ -250,12 +251,13 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
 
   // A first tap on a greyed Good rates nothing and asks for a second.
   await page.getByTestId('rating-good').click();
-  await expect(gate).toContainText('Tap again to rate Good anyway');
   await expect(page.getByTestId('rating-good')).toHaveAttribute('data-armed', 'true');
+  await expect(page.getByTestId('rating-good')).toContainText('tap again');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-label', /Tap again to rate Good anyway/);
   await shot(page, 'hard-06-tap-again');
   await expect(back).toBeVisible();
   // …it wears off after 3 s.
-  await expect(gate).toContainText('Try the sentences first', { timeout: 5000 });
+  await expect(page.getByTestId('rating-good')).not.toHaveAttribute('data-armed', 'true', { timeout: 5000 });
 
   // The card's sentence (opened: it was in the round): a read 🎤 left of ▶…
   const row = page.locator('.sentence-set-row').first();
@@ -273,7 +275,6 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   // Again is always there.
   await page.getByTestId('rating-again').click();
   await expect(page.getByTestId('study-card-back')).toHaveCount(0, { timeout: 15000 });
-  await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
 });
 
 test('sentence round: two said right open the answer with Good / Easy unlocked, the round sentences on top', async ({ page, request }) => {
@@ -303,6 +304,10 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   await page.mouse.wheel(0, 300);
   await expect(page.getByTestId('sentence-stop-bar')).toHaveAttribute('data-state', 'stop');
   await expect(ex0.getByTestId('sentence-practise-live')).toBeVisible();
+  // ONE "■ Stop recording" — the pinned bar; the round's own footer is held, never a second stop.
+  await expect(page.getByRole('button', { name: /Stop recording/ })).toHaveCount(1);
+  await expect(page.getByTestId('sentence-round-stop')).toHaveCount(0);
+  await expect(page.getByTestId('take-locked-held')).toHaveCount(1);
   await shot(page, 'hard-08-recording-stop-bar');
   await page.getByTestId('sentence-stop-recording').click();
   const first = ex0;
@@ -334,11 +339,11 @@ test('sentence round: two said right open the answer with Good / Easy unlocked, 
   await expect(second.getByTestId('sentence-round-chinese')).toHaveText(SET[0].hanzi);
   await expect(page.getByTestId('sentence-round-cheer')).toContainText('Good and Easy unlocked');
 
-  // The answer side opens by itself, unlocked.
+  // The answer side opens by itself, unlocked — and says nothing about it (no "Good and Easy unlocked" banner).
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 10000 });
-  const gate = page.getByTestId('sentence-gate');
-  await expect(gate).toHaveAttribute('data-locked', 'false', { timeout: 15000 });
-  await expect(gate).toContainText('2/2 right — Good and Easy unlocked');
+  await expect(page.getByTestId('hard-mode-ratings')).toHaveAttribute('data-state', 'open', { timeout: 15000 });
+  await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
+  await expect(page.getByText('Good and Easy unlocked')).toHaveCount(0);
   await expect(page.getByTestId('rating-good')).not.toHaveAttribute('data-greyed', 'true');
   // The round's sentences first, opened, outlined with how each went.
   const roundRows = page.locator('.sentence-set-row.is-round');
@@ -427,7 +432,7 @@ test('right, but said differently: a reworded translation that finishes the roun
   await expect(go).toHaveText('Continue →');
   await go.click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 10000 });
-  await expect(page.getByTestId('sentence-gate')).toHaveAttribute('data-locked', 'false', { timeout: 15000 });
+  await expect(page.getByTestId('hard-mode-ratings')).toHaveAttribute('data-state', 'open', { timeout: 15000 });
 });
 
 test('sentence history: hide a sentence in the round (Undo), more sentences asked for, Show hidden on the answer side', async ({ page, request }) => {
@@ -501,15 +506,17 @@ test('hard mode: Show answer before a right answer — the answer in place, then
   await page.getByTestId('sentence-round-skip').click();
   await page.getByTestId('sentence-round-skip-yes').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
-  const gate = page.getByTestId('sentence-gate');
-  await expect(gate).toHaveAttribute('data-gave-up', 'true');
-  await expect(gate).toContainText('You looked at the answer — Again or Hard suggested');
+  // No "You looked at the answer" bar: the ringed Hard and the greyed Good / Easy say it; the reason is their label.
+  await expect(page.getByTestId('hard-mode-ratings')).toHaveAttribute('data-gave-up', 'true');
+  await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
+  await expect(page.getByText('You looked at the answer')).toHaveCount(0);
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('aria-label', /You looked at the answer — Again or Hard suggested/);
   await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
   await expect(page.getByTestId('rating-hard')).toHaveAttribute('data-suggested', 'true');
   await shot(page, 'hard-07-gave-up-greyed');
   // Two taps on Good: rated anyway (on the train, he doesn't want to turn it all off).
   await page.getByTestId('rating-good').click();
-  await expect(gate).toContainText('Tap again to rate Good anyway');
+  await expect(page.getByTestId('rating-good')).toHaveAttribute('data-armed', 'true');
   await page.getByTestId('rating-good').click();
   await expect(page.getByTestId('study-card-back')).toHaveCount(0, { timeout: 15000 });
 });
@@ -587,7 +594,7 @@ test('hard mode: after Show answer, 🎤 Read it again in place — judged like 
   await page.getByTestId('sentence-round-skip').click();
   await page.getByTestId('sentence-round-skip-yes').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('sentence-gate')).toHaveAttribute('data-gave-up', 'true');
+  await expect(page.getByTestId('hard-mode-ratings')).toHaveAttribute('data-gave-up', 'true');
   await expect(page.getByTestId('rating-good')).toHaveAttribute('data-greyed', 'true');
 });
 
@@ -637,7 +644,7 @@ test('hard mode chip: Off · Red cards only · All in the header; Red cards only
   // A new card is not red: straight to the answer, no round, no lock.
   await page.getByTestId('skip-recording').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 15000 });
-  await expect(page.getByTestId('sentence-gate')).toHaveCount(0);
+  await expect(page.getByTestId('hard-mode-ratings')).toHaveAttribute('data-state', 'open');
   await expect(page.getByTestId('rating-good')).not.toHaveAttribute('data-greyed', 'true');
   await chip.click();
   await page.getByTestId('hard-mode-option-off').click();

@@ -69,7 +69,7 @@ fun PassSentences(
     val first = maxOf(1, roundMarks.size)
     val shown = if (more) ordered else ordered.take(first)
     val hidden = maxOf(0, ordered.size - first)
-    Column(modifier.fillMaxWidth().testTag("hw-pass-sentences"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.fillMaxWidth().testTag("hw-pass-sentences")) {
         for (row in shown) {
             SentenceRowView(row, state, online, playingKey, actions, onPlay, onAdd = { adding = it }, startStep = 1, englishToggle = false, practise = practise, roundMark = markOf[row.key])
         }

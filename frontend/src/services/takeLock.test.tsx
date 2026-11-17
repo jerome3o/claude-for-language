@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { guardTake, resetTakeLock, setTake, stopTakes, takeLockSnapshot, takeTap } from './takeLock';
+import { guardTake, resetTakeLock, setPinnedStop, setTake, stopTakes, takeLockSnapshot, takeTap } from './takeLock';
 import { useReportTake } from '../components/voice/TakeLock';
 import { takePhase } from '@shared/voice/takeLock';
 import { TakeLockedActions } from '../components/voice/TakeStop';
@@ -65,12 +65,12 @@ describe('registry', () => {
     const global = vi.fn();
     setTake('own', { phase: 'recording', stop: own, ownBack: true });
     setTake('global', { phase: 'recording', stop: global });
-    expect(takeLockSnapshot()).toEqual({ phase: 'recording', backPhase: 'recording' });
+    expect(takeLockSnapshot()).toEqual({ phase: 'recording', backPhase: 'recording', pinned: false });
     stopTakes({ backOnly: true });
     expect(global).toHaveBeenCalledTimes(1);
     expect(own).not.toHaveBeenCalled();
     setTake('global', null);
-    expect(takeLockSnapshot()).toEqual({ phase: 'recording', backPhase: 'idle' });
+    expect(takeLockSnapshot()).toEqual({ phase: 'recording', backPhase: 'idle', pinned: false });
   });
 });
 
@@ -115,6 +115,24 @@ describe('TakeLockedActions / the study footer', () => {
     expect(q('next')).not.toBeNull();
     click(q('good'));
     expect(onRate).toHaveBeenCalledTimes(1);
+  });
+
+  it('with a pinned "■ Stop recording" bar on screen (the sentence rows), the rows are HELD — no second stop', () => {
+    const onNext = vi.fn();
+    const onRate = vi.fn();
+    render(<Harness onNext={onNext} onRate={onRate} />);
+    act(() => setPinnedStop('bar', true));
+    click(q('mic'));
+    expect(q('row-stop')).toBeNull();
+    expect(q('study-footer-stop')).toBeNull();
+    const held = [...host!.querySelectorAll('[data-testid="take-locked-held"]')];
+    expect(held).toHaveLength(2);
+    expect(held.every((h) => h.hasAttribute('inert'))).toBe(true);
+    // Still there, greyed (nothing jumps) — and still guarded.
+    expect(q('next')).not.toBeNull();
+    expect(q('good')).not.toBeNull();
+    act(() => setPinnedStop('bar', false));
+    expect(q('row-stop')!.textContent).toContain('Stop recording');
   });
 
   it('a take that unmounts is forgotten', () => {

@@ -51,6 +51,20 @@ export function takeLockFooter(phase: TakePhase): TakeLockFooter {
   return phase === 'checking' ? 'checking' : 'proceed';
 }
 
+/**
+ * A row of advancing buttons (Next, Continue, See the answer, the ratings …) while a take is under way: 'stop' /
+ * 'checking' = the row becomes the one red "■ Stop recording" / "Checking…", 'held' = the screen already PINS its own
+ * stop bar for this take (the study sentence rows' `sentenceStopBar`), so the row stays where it is, greyed and
+ * untappable, and shows no stop of its own — ONE "■ Stop recording" on screen, never two (Jerome, Nov 2026: the
+ * Sentence round showed one inside the round's card AND the pinned one under it). 'proceed' = no take: the row itself.
+ */
+export type TakeLockRow = TakeLockFooter | 'held';
+
+export function takeLockRow(phase: TakePhase, pinnedStop: boolean): TakeLockRow {
+  const footer = takeLockFooter(phase);
+  return footer !== 'proceed' && pinnedStop ? 'held' : footer;
+}
+
 /** May the screen move on (advance, submit, skip) right now? Only with no take under way. */
 export function takeLockMayProceed(phase: TakePhase): boolean {
   return phase === 'idle';

@@ -124,7 +124,10 @@ export type GoodEasyReason = 'gave_up' | 'sentences';
 export interface GoodEasyGate {
   state: GoodEasyState;
   reason: GoodEasyReason | null;
-  /** The line above the ratings (null = none). */
+  /**
+   * Why Good / Easy are greyed — the rating buttons' ACCESSIBLE label only (null = not greyed). Nothing is shown
+   * above the ratings any more: the greyed Good / Easy ("tap twice") and the ringed Hard say it on screen.
+   */
   label: string | null;
   /** He looked at the answer: the sentences can't open it on this showing. */
   gaveUp: boolean;
@@ -138,7 +141,7 @@ export interface GoodEasyGate {
  */
 export function goodEasyGate(gate: SentenceGate, gaveUp: boolean, gateLabel: string | null): GoodEasyGate {
   if (gaveUp) return { state: 'suggest_lower', reason: 'gave_up', label: HARD_MODE_GAVE_UP_LINE, gaveUp: true };
-  return { state: gate.locked ? 'suggest_lower' : 'open', reason: gate.locked ? 'sentences' : null, label: gateLabel, gaveUp: false };
+  return { state: gate.locked ? 'suggest_lower' : 'open', reason: gate.locked ? 'sentences' : null, label: gate.locked ? gateLabel : null, gaveUp: false };
 }
 
 /** Ratings 0 Again · 1 Hard · 2 Good · 3 Easy: a greyed Good / Easy needs a second tap. */
@@ -284,7 +287,8 @@ export function hardModeNextLabel(roundFollows: boolean): string {
 export function hardModeSaidLine(said: string, spoken: boolean): string {
   return `${spoken ? 'You said' : 'Your answer'}: ${said}`;
 }
-export const HARD_MODE_GAVE_UP_LINE = '👁 You looked at the answer — Again or Hard suggested';
+/** Why Good / Easy are greyed after 👁 Show answer — the buttons' accessible label (`GoodEasyGate.label`), never shown. */
+export const HARD_MODE_GAVE_UP_LINE = 'You looked at the answer — Again or Hard suggested';
 /** The in-place reveal after 👁 Show answer (`hardModeGiveUpInPlace`). */
 export const HARD_MODE_REVEALED_TITLE = '👁 The answer';
 export const HARD_MODE_REVEALED_NOTE = 'You looked, so this one counts as a miss — the sentences are still worth doing.';
