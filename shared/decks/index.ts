@@ -12,6 +12,7 @@ export * from './bumps';
 export * from './other-card-types';
 export * from './sibling-status';
 export * from './study-today';
+export * from './bump-next';
 export * from './frequency';
 export * from './new-card-order';
 export * from './up-next';

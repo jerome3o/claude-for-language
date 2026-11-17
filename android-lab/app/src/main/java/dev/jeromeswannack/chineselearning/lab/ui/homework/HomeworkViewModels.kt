@@ -356,6 +356,7 @@ class HomeworkPassViewModel(private val app: LabApp, private val id: String) : V
     private fun bumpPlan(note: PassNote): dev.jeromeswannack.chineselearning.lab.core.StudyToday.Plan = PassBump.plan(
         note.cards, note.started, !note.audioUrl.isNullOrBlank(), note.longTerm,
         current()?.deckInReview ?: deckInReview ?: true,
+        newWordsByEar = app.prefs.newCardOrder.newWordsByEar,
     )
 
     /**

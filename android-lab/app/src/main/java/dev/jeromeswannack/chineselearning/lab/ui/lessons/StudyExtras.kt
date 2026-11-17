@@ -93,9 +93,11 @@ class StudyExtras(private val app: LabApp, private val deckId: String?) {
         leadCards: Map<String, String> = emptyMap(),
         /** "Start new words by ear" (BuiltQueue.newWordsByEar). */
         newWordsByEar: Boolean = false,
+        /** New words bumped during this session (core BumpNext): their lead card comes next. */
+        nextUpIds: List<String> = emptyList(),
     ): SessionItem? = SessionMix.next(
         queue, emptyList(), readers.map { it.item }, false,
-        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar,
+        reviewedNoteIds, recentNoteIds, lastRatedCardId, lastRatedReaderId, nowMs, cutoff, random, bumpedCardIds, leadCards, newWordsByEar, nextUpIds,
     )
 
     /** The reader for a [SessionItem.Reader]. */
