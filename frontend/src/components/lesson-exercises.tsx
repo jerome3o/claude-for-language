@@ -21,6 +21,7 @@ import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { TakeLockActions } from './voice/TakeLock';
 import { lessonSpokenCheck } from '@shared/lesson/spoken-check';
 import { isExactHanziMatch } from '@shared/lesson/answer-check';
+import { spokenCheckAnswer } from '@shared/cards/answer';
 import { answerMarks } from '@shared/lesson/feedback';
 import { useLessonAnswerCheck } from './lessons/useLessonAnswerCheck';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
@@ -309,11 +310,13 @@ export function TranslateExercise(props: {
   });
 
   function reveal(given?: DictatedAnswer) {
+    // A pause is never grammar: a spoken answer is shown and checked without the recogniser's punctuation.
+    const text = given ? spokenCheckAnswer(given.text, given.source) : answer;
     if (given) {
-      setAnswer(given.text);
+      setAnswer(text);
       setSource(given.source);
     }
-    ac.onFinal(given ? given.text : answer, given ? given.source : 'typed');
+    ac.onFinal(text, given ? given.source : 'typed');
     setRevealed(true);
     speak(referenceHanzi);
   }
@@ -727,11 +730,13 @@ export function ListenTranslateExercise(props: {
   });
   const report = () => ac.report({ text: answer.trim() || undefined, input: answer.trim() ? source ?? undefined : undefined, self_assessed: true, plays: plays.current });
   const reveal = (given?: DictatedAnswer) => {
+    // A pause is never grammar: a spoken answer is shown and checked without the recogniser's punctuation.
+    const text = given ? spokenCheckAnswer(given.text, given.source) : answer;
     if (given) {
-      setAnswer(given.text);
+      setAnswer(text);
       setSource(given.source);
     }
-    ac.onFinal(given ? given.text : answer, given ? given.source : 'typed');
+    ac.onFinal(text, given ? given.source : 'typed');
     setRevealed(true);
   };
 

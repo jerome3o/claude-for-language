@@ -18,14 +18,14 @@
 
 import type Anthropic from '@anthropic-ai/sdk';
 import {
-  answerCheckCacheText, normalizeAnswerCheck, isSpeakingCheckType, isMeaningCheck, isReadAloudCheck, isScrambleCheck, speakingTaskParts, suggestedFor,
+  answerCheckCacheText, normalizeAnswerCheck, spokenAnswerCheck, isSpeakingCheckType, isMeaningCheck, isReadAloudCheck, isScrambleCheck, speakingTaskParts, suggestedFor,
   ANSWER_CHECK_VERSION, SPEAKING_CHECK_VERSION, SCRAMBLE_CHECK_VERSION,
   type AnswerCheck, type AnswerCheckInput,
 } from '@shared/lesson/answerCheck';
 import { forgiveUnheard } from '@shared/lesson/heardCheck';
 import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { digitsToHanzi } from '@shared/text/numberHanzi';
-import { tidySpokenTranscript } from '@shared/cards/answer';
+import { scrubSpokenTranscript, spokenCheckAnswer } from '@shared/cards/answer';
 import { structuredCall } from './structured-call';
 import { pinyinProLine } from './pinyin-check';
 
@@ -53,7 +53,8 @@ Rules:
 - State the ACTUAL rule, and keep every line consistent with your own correction: never tell the learner to avoid a word or a combination that your corrected sentence still uses, and never offer the learner's wrong form (or the part of it you are correcting) as an option, a fix or an alternative. E.g. for 三块多元 (two money units stacked): "块 and 元 are both units — use one: 三块多（钱） or 三元多." — NOT "use 钱 or 块 alone, not both" (三块多钱 uses both, and 块钱 is normal) and never "…or 块多元".
 - Numbers: Arabic digits and Chinese numerals are the same (3 = 三, 10 = 十); never fault one for the other, and write numbers in your corrected sentence in Chinese numerals.
 - If the answer was SPOKEN it is a speech-recognition transcript, not their writing — never fault the learner for the recogniser:
-  - Ignore punctuation, spacing and sentence breaks COMPLETELY. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
+  - Its punctuation has already been removed: read it as ONE continuous utterance. When the learner pauses, the recogniser writes 。 or ， or starts a new sentence; a pause is nothing. Never call a spoken answer a fragment, incomplete, split, run-on or "two sentences", and never mention punctuation in the headline or tips.
+  - Fillers (嗯, 那个, 就是), a restart or a repeated word are not mistakes; when a near-sound character makes no sense but the intended word is clear from context, read the intended word.
   - Read a wrong character that sounds like the right one (在/再, 他/她, 的/得, homophones) as the right one.
   - A single short unstressed word missing or doubled (是, 的, 了, 一, 个, 着, 吧, 呢, 啊) is almost always the recogniser's slip, not the learner's: when that is the only difference, the verdict is "correct" (at worst "acceptable") with no tip about it — never "almost" or "wrong" for it.
   - Still judge honestly what the recogniser can't explain: a wrong or missing content word, a wrong meaning, a negation, wrong word order.
@@ -160,7 +161,7 @@ export function readAloudCheckUserTurn(input: AnswerCheckInput): string {
   return [
     `The card's Chinese (what they READ ALOUD): ${input.model_answer}${input.model_pinyin ? ` (${input.model_pinyin})` : ''}`,
     `It means: ${input.prompt_en}`,
-    `Transcript of their reading (speech recognition — punctuation and little words are the recogniser's): ${tidySpokenTranscript(input.answer, input.model_answer)}`,
+    `Transcript of their reading (speech recognition, punctuation removed — read it as one continuous utterance; little words are the recogniser's): ${scrubSpokenTranscript(input.answer)}`,
   ].join('\n');
 }
 
@@ -295,7 +296,7 @@ export function speakingCheckUserTurn(input: AnswerCheckInput): string {
     input.question_audio ? `Question played to them in Chinese: ${input.question_audio}` : null,
     input.hints?.length ? `Useful words shown: ${input.hints.join('、')}` : null,
     input.model_answer ? `One way to say it (a model, NOT the only right answer): ${input.model_answer}` : null,
-    `Transcript of their recording (speech recognition — punctuation is a guess): ${input.answer}`,
+    `Transcript of their recording (speech recognition, punctuation removed — pauses are not sentence breaks): ${scrubSpokenTranscript(input.answer)}`,
   ].filter(Boolean).join('\n');
 }
 
@@ -306,15 +307,15 @@ export function answerCheckUserTurn(input: AnswerCheckInput): string {
   if (isScrambleCheck(input.exercise_type)) return scrambleCheckUserTurn(input);
   if (isMeaningCheck(input)) return meaningCheckUserTurn(input);
   const spoken = input.input === 'spoken' || input.input === 'edited';
-  // A pause is never a sentence break: the recogniser's 。 / ， between two characters go before Claude sees it.
-  const answer = input.input === 'spoken' ? tidySpokenTranscript(input.answer, input.model_answer) : input.answer;
+  // A pause is never grammar: a spoken answer reaches Claude without the recogniser's punctuation (scrubSpokenTranscript).
+  const answer = spokenCheckAnswer(input.answer, input.input);
   return [
     input.focus ? `Lesson focus: ${input.focus}` : null,
     input.exercise_type === 'listen_translate'
       ? `The learner heard a Chinese sentence meaning: ${input.prompt_en}\nThey ${spoken ? 'said back' : 'wrote down'} what they heard / understood, in Chinese.\n${HEARD_ONLY_RULE}`
       : `English to say in Chinese: ${input.prompt_en}`,
     `Model answer (a reference written by someone else — NOT the learner's answer):\n<model_answer>${input.model_answer}</model_answer>${input.model_pinyin ? `\nModel answer pinyin: ${input.model_pinyin}` : ''}`,
-    `The learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'} — the only text you judge:\n<learner_answer>${answer}</learner_answer>`,
+    `The learner's answer${spoken ? input.input === 'edited' ? ' (spoken, then edited by hand)' : ' (SPOKEN — speech-recognition transcript with the recogniser\'s punctuation removed: one continuous utterance; pauses and little words are the recogniser\'s, not the learner\'s)' : ' (typed)'} — the only text you judge:\n<learner_answer>${answer}</learner_answer>`,
   ].filter(Boolean).join('\n');
 }
 
@@ -383,7 +384,7 @@ export async function runAnswerCheck(input: AnswerCheckInput, deps: AnswerCheckD
     maxTokens: 700,
     attempts: 2,
     timeoutMs: 15_000,
-    validate: (raw) => normalizeAnswerCheck(raw, input.answer, input.model_answer),
+    validate: (raw) => normalizeAnswerCheck(raw, input.answer, input.model_answer, spokenAnswerCheck(input)),
     onUsage: deps.onUsage,
     client: deps.client,
   });
@@ -406,7 +407,7 @@ export async function runSpeakingCheck(input: AnswerCheckInput, deps: AnswerChec
     attempts: 2,
     timeoutMs: 40_000,
     validate: (raw) => {
-      const c = normalizeAnswerCheck(raw, input.answer, input.model_answer);
+      const c = normalizeAnswerCheck(raw, input.answer, input.model_answer, spokenAnswerCheck(input));
       if (!c.cleaned) throw new Error('Speaking check without the cleaned text');
       return c;
     },
@@ -426,7 +427,7 @@ export async function checkLessonAnswer(
   try {
     const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?')
       .bind(hash, checkVersionFor(input.exercise_type)).first<{ check_json: string }>();
-    if (row) return { check: forgiveUnheard(normalizeAnswerCheck(JSON.parse(row.check_json), input.answer, input.model_answer), input), cached: true };
+    if (row) return { check: forgiveUnheard(normalizeAnswerCheck(JSON.parse(row.check_json), input.answer, input.model_answer, spokenAnswerCheck(input)), input), cached: true };
   } catch (error) {
     console.warn('[answer-check] cache read failed:', error instanceof Error ? error.message : error);
   }

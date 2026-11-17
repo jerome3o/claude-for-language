@@ -45,7 +45,7 @@ describe('read takes checked by Claude', () => {
       prompt_en: 'The more I study Chinese…',
       model_answer: CARD,
       model_pinyin: 'wǒ yuè xué',
-      answer: '我越学中文，越觉得英语很繁琐。',
+      answer: '我越学中文越觉得英语很繁琐',
       exercise_type: 'read_aloud',
       input: 'spoken',
     });

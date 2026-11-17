@@ -230,7 +230,7 @@ export function sentenceCheckView(f: SentenceFeedback, words: readonly string[])
   const downgraded = grade !== given;
   let headline = headline0;
   let reason = reason0;
-  if (!f.uses_all_words && given !== 'wrong') {
+  if (!f.uses_all_words && (given !== 'wrong' || !headline0)) {
     headline = SENTENCE_MISSING_WORD_HEADLINE;
   } else if (downgraded || !headline) {
     if (grade === 'right') headline = SENTENCE_RIGHT_HEADLINE;

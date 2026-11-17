@@ -261,7 +261,7 @@ describe('Sentences by ear (listen exercises in the read slots)', () => {
     // the Chinese as the model answer), the transcript tidied so a pause is never a sentence break.
     expect(listenCheckInput(row, '虾饺不是我最喜欢的。 点心。', 'spoken')).toEqual({
       prompt_en: 'Shrimp dumplings are my favourite dim sum.', model_answer: '虾饺是我最喜欢的点心。', model_pinyin: row.pinyin,
-      answer: '虾饺不是我最喜欢的点心。', exercise_type: 'listen_translate', input: 'spoken',
+      answer: '虾饺不是我最喜欢的点心', exercise_type: 'listen_translate', input: 'spoken',
     });
     expect(listenCheckInput(row, '虾饺我最喜欢的。点心', 'typed').answer).toBe('虾饺我最喜欢的。点心');
   });

@@ -24,7 +24,7 @@ import { SENTENCE_GATE_CARD_TYPES, SENTENCE_GATE_TARGET, isLocalRight, type Sent
 import { compareLeastKnown, isFreshSentence, sentenceHistoryKey, type SentenceStats } from './sentenceHistory';
 import { isContrivedSentence, naturalSentencesFirst } from './sentenceFocus';
 import { hasHan, type AnswerCheck, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
-import { tidySpokenTranscript } from '../cards/answer';
+import { scrubSpokenTranscript } from '../cards/answer';
 import { practiseSentence } from '../coach/practise';
 
 /** How many exercises a round offers at most (2 read / listen + 2 translate, one sentence each). */
@@ -551,8 +551,8 @@ export function listenCheckInput(
 ): AnswerCheckInput {
   // Said back in CHINESE (he repeated what he heard): checked as "what they heard" against the sentence
   // — the lesson's listen_translate (the English as what it means, the Chinese as the model answer), the
-  // transcript tidied first so a pause is never a sentence break.
-  const answer = hasHan(said) ? (input === 'typed' ? said.trim() : tidySpokenTranscript(said, row.hanzi)) : said.trim();
+  // transcript scrubbed of the recogniser's punctuation first (a pause is never grammar).
+  const answer = hasHan(said) ? (input === 'typed' ? said.trim() : scrubSpokenTranscript(said)) : said.trim();
   const out: AnswerCheckInput = hasHan(said)
     ? { prompt_en: (row.translation ?? '').trim(), model_answer: row.hanzi.trim(), answer, exercise_type: 'listen_translate', input }
     : { prompt_en: row.hanzi.trim(), model_answer: (row.translation ?? '').trim(), answer, exercise_type: 'listen_translate', input };

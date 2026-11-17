@@ -22,6 +22,7 @@
  */
 import { isExactHanziMatch, normalizeHanziAnswer } from './answer-check';
 import { digitsToHanzi } from '../text/numberHanzi';
+import { scrubSpokenTranscript } from '../cards/answer';
 
 /**
  * Bump when the prompt or the shape changes: cached checks (server + device) are keyed by it.
@@ -32,8 +33,11 @@ import { digitsToHanzi } from '../text/numberHanzi';
  * offered his own 块多元 as the alternative.
  * 5 (Nov 2026): what the ear can't tell (shared/lesson/heardCheck.ts) — a "Listen and translate" answered in Chinese
  * never faults 他 for 她 (one sound, tā); the prompt says so and `forgiveUnheard` makes sure.
+ * 6 (Nov 2026): a SPOKEN answer is scrubbed of the recogniser's punctuation before it is checked (`scrubSpokenTranscript`)
+ * and a line that only blames punctuation / "split into sentences" on it is dropped (`punctuationComplaint`) — a pause
+ * in 我不知道。 我妹妹有，不有新电脑。 was judged as two sentences.
  */
-export const ANSWER_CHECK_VERSION = 5;
+export const ANSWER_CHECK_VERSION = 6;
 
 export type AnswerCheckVerdict = 'correct' | 'acceptable' | 'almost' | 'wrong';
 export const ANSWER_CHECK_VERDICTS: readonly AnswerCheckVerdict[] = ['correct', 'acceptable', 'almost', 'wrong'];
@@ -145,7 +149,7 @@ export const SPEAKING_CHECK_TYPES: readonly string[] = ['oral_expression', 'spea
 export const MEANING_CHECK_VERSION = 3;
 
 /** Bump when the speaking prompt or its shape changes (its cache texts start `s<version>`). */
-export const SPEAKING_CHECK_VERSION = 1;
+export const SPEAKING_CHECK_VERSION = 2; // 2: the transcript scrubbed of the recogniser's punctuation
 
 export function isSpeakingCheckType(exerciseType: string | null | undefined): boolean {
   return SPEAKING_CHECK_TYPES.includes(exerciseType ?? '');
@@ -409,6 +413,29 @@ export function forbidsCorrected(text: string, corrected: string): boolean {
   return chineseSpans(text).some((s) => corrected.includes(s.norm) && AVOID_BEFORE.test(text.slice(0, s.start)));
 }
 
+// ============ A pause is never grammar (Nov 2026) ============
+//
+// Jerome said 我不知道我妹妹有没有新电脑 with pauses; the transcript was 我不知道。 我妹妹有，不有新电脑。 and the check blamed
+// "splitting into separate sentences" — the recogniser's 。, not his. On a spoken answer, a line about punctuation or
+// sentence breaks is dropped (a headline becomes the neutral / plain one).
+
+/** A line about punctuation or sentence breaks ("split into two sentences", "a run-on", "the comma"). */
+const PUNCTUATION_COMPLAINT = new RegExp(W([
+  'punctuation', 'punctuated', 'comma', 'commas', 'full stop', 'full stops', 'period', 'periods', 'question mark',
+  'split', 'splits', 'splitting', 'separate sentences', 'two sentences', 'sentence break', 'sentence breaks',
+  'run-on', 'run on', 'fragment', 'fragments', 'incomplete sentence',
+].join('|')), 'i');
+
+/** Does this line complain about punctuation / a sentence split (never the learner's on a transcript)? */
+export function punctuationComplaint(text: string): boolean {
+  return PUNCTUATION_COMPLAINT.test(text) || /[。，、]\s*(?:→|->|⇒)|(?:→|->|⇒)\s*[。，、]/u.test(text);
+}
+
+/** Is this check about a SPOKEN answer (its punctuation is the recogniser's): spoken / edited, a free-speaking or read-aloud take. */
+export function spokenAnswerCheck(input: Pick<AnswerCheckInput, 'exercise_type' | 'input'>): boolean {
+  return input.input === 'spoken' || input.input === 'edited' || isSpeakingCheckType(input.exercise_type) || isReadAloudCheck(input.exercise_type);
+}
+
 /** A line of an almost / wrong check that contradicts the check itself. */
 export function incoherentLine(text: string, mine: string, corrected: string, model: string): boolean {
   return recommendsWrongForm(text, mine, corrected, model) || forbidsCorrected(text, corrected);
@@ -435,6 +462,9 @@ export function pickAnswerCheckInput(raw: unknown): { input: AnswerCheckInput } 
     const questionAudio = str(r.question_audio, L.question);
     if (questionAudio) input.question_audio = questionAudio;
   }
+  // A pause is never grammar: a spoken answer (and every read-aloud / free-speaking take) is checked — and cached —
+  // without the recogniser's punctuation (shared/cards/answer.ts `scrubSpokenTranscript`); typed answers keep theirs.
+  if (spokenAnswerCheck(input) && !isMeaningCheck(input)) input.answer = scrubSpokenTranscript(input.answer);
   const problems: string[] = [];
   if (!input.prompt_en) problems.push('prompt_en is required');
   if (!input.model_answer && !speaking) problems.push('model_answer is required');
@@ -495,7 +525,7 @@ export function answerCheckChip(verdict: AnswerCheckVerdict, speaking = false): 
  *   already said, no tips on a right answer that IS the model answer (`model`, when given), no "but" headline left
  *   with nothing behind it.
  */
-export function normalizeAnswerCheck(raw: unknown, answer: string, model?: string | null): AnswerCheck {
+export function normalizeAnswerCheck(raw: unknown, answer: string, model?: string | null, spoken = false): AnswerCheck {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const L = ANSWER_CHECK_LIMITS;
   const verdict = (ANSWER_CHECK_VERDICTS as readonly unknown[]).includes(r.verdict) ? r.verdict as AnswerCheckVerdict : null;
@@ -507,6 +537,8 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
   const cleanedRaw = str(r.cleaned, L.speech);
   const speaking = !!cleanedRaw && hasHan(cleanedRaw);
   const meant = speaking ? checkKey(cleanedRaw) : mine;
+  // A transcript: a line that only blames punctuation or a "split" is about the recogniser, never the learner.
+  const blamesPauses = (line: string) => (spoken || speaking) && punctuationComplaint(line);
   const noFix = verdict === 'correct' || (verdict === 'acceptable' && !speaking);
   let corrected = noFix ? '' : str(r.corrected, speaking ? L.speech : L.answer * 2);
   if (corrected && (!hasHan(corrected) || checkKey(corrected) === mine || checkKey(corrected) === meant)) corrected = '';
@@ -524,7 +556,7 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
     const o = (t && typeof t === 'object' ? t : { text: t }) as Record<string, unknown>;
     const text = str(o.text, L.tip);
     if (!text) continue;
-    if (insaneTip({ text, fix: str(o.fix, L.alternative) }, good, mine, sameAsModel) || incoherent(text)) {
+    if (insaneTip({ text, fix: str(o.fix, L.alternative) }, good, mine, sameAsModel) || incoherent(text) || blamesPauses(text)) {
       dropped++;
       continue;
     }
@@ -552,7 +584,9 @@ export function normalizeAnswerCheck(raw: unknown, answer: string, model?: strin
       if (e) alternative.english = e;
     }
   }
-  const saneHead = incoherent(headline) ? neutralHeadline(verdict, !!corrected) : saneHeadline(headline, verdict, mine, dropped, tips.length, speaking);
+  const saneHead = blamesPauses(headline)
+    ? (good ? (verdict === 'correct' || speaking ? PLAIN_CORRECT_HEADLINE : PLAIN_ACCEPTABLE_HEADLINE) : neutralHeadline(verdict, !!corrected))
+    : incoherent(headline) ? neutralHeadline(verdict, !!corrected) : saneHeadline(headline, verdict, mine, dropped, tips.length, speaking);
   const out: AnswerCheck = { verdict, headline: saneHead, corrected, corrected_pinyin: correctedPinyin, tips, suggested: suggestedFor(verdict) };
   if (alternative) out.alternative = alternative;
   if (speaking) {
@@ -648,9 +682,9 @@ export function speakingTaskParts(prompt: string | null | undefined): SpeakingTa
 }
 
 /** Lenient parse of a stored / cached / received check: null when it isn't one. */
-export function parseAnswerCheck(raw: unknown, answer: string, model?: string | null): AnswerCheck | null {
+export function parseAnswerCheck(raw: unknown, answer: string, model?: string | null, spoken = false): AnswerCheck | null {
   try {
-    return normalizeAnswerCheck(raw, answer, model);
+    return normalizeAnswerCheck(raw, answer, model, spoken);
   } catch {
     return null;
   }
