@@ -94,7 +94,7 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         val inRow = androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-sound"))
         compose.onNode(androidx.compose.ui.test.hasText("油") and inRow, useUnmergedTree = true).assertExists()
         compose.onNode(androidx.compose.ui.test.hasText("yóu") and inRow, useUnmergedTree = true).assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("Sounded right — written differently") and inRow, useUnmergedTree = true).assertExists()
+        compose.onNode(androidx.compose.ui.test.hasText("Sounded right — written 油") and inRow, useUnmergedTree = true).assertExists()
         // Nothing said twice: no "You said" box, no diff.
         assertEquals(0, compose.onAllNodes(hasTestTag("$YOU_SAID_TAG-match"), useUnmergedTree = true).fetchSemanticsNodes().size)
         assertEquals(0, compose.onAllNodes(hasTestTag(EXPECTED_CHAR_TAG), useUnmergedTree = true).fetchSemanticsNodes().size)
@@ -138,9 +138,9 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(listOf(AnswerKey.Verdict.WRONG), reveals)
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-wrong").assertExists()
-        compose.onNode(androidx.compose.ui.test.hasText("Didn’t match") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-wrong")), useUnmergedTree = true).assertExists()
-        // Lined up with the answer, not positional: only 他 / 很 / 高 are "not in the answer".
-        compose.onNodeWithContentDescription("You said 他很高 (tā hěn gāo). Didn’t match. Not in the answer: 他很高.").assertExists()
+        // The chip is the slim diff's ONE short line; the row is lined up with the answer.
+        compose.onNode(androidx.compose.ui.test.hasText("2 wrong characters, 1 extra") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-wrong")), useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("You said 他很高 (tā hěn gāo). Didn’t match. 2 wrong characters, 1 extra.").assertExists()
     }
 
     @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {

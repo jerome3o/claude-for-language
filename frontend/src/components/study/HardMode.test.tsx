@@ -105,7 +105,7 @@ describe('HardModeFeedback', () => {
     const h = await render('right', { difference: { reason: 'homophone', said: '由', model: '油', modelPinyin: 'yóu' } });
     expect(q('hard-feedback')!.dataset.held).toBe('true');
     // The slim diff: one line, the card once, his answer marked (a homophone: a quiet dotted mark).
-    expect(q('answer-diff-line')!.textContent).toBe('✓Sounded right — written 由');
+    expect(q('answer-diff-line')!.textContent).toBe('✓ Sounded right — written 由');
     expect(q('difference-said')!.querySelector('[data-kind="sound"]')!.textContent).toBe('由');
     expect(q('difference-model')!.textContent).toContain('The card');
     expect(q('difference-model')!.textContent).toContain('yóu');

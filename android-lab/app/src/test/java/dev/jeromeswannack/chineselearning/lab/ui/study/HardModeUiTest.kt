@@ -97,8 +97,10 @@ class HardModeUiTest : LabScreenshotTest() {
         var cleared = 0
         card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false), actions = StudyActions(onClearRecording = { cleared++ }))
         compose.onNodeWithTag(HardModeTags.FEEDBACK, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("You said: 圆子", useUnmergedTree = true).assertExists()
+        // The read card's hanzi is on the question: one line + his take marked against it (the slim diff).
+        compose.onNodeWithText("Not quite", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(HardModeTags.SAID_DIFF, useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag(AnswerDiffTags.LINE, useUnmergedTree = true).assertExists()
         compose.onNodeWithText(HardMode.MISS_NOTE, useUnmergedTree = true).assertExists()
         assertEquals(0, count(CARD_BACK_TAG))
         assertEquals(0, count(SentenceRoundTags.ROUND))
@@ -116,7 +118,7 @@ class HardModeUiTest : LabScreenshotTest() {
         )
         compose.mainClock.advanceTimeBy(4_000)
         compose.onNodeWithTag(HardModeTags.FEEDBACK, useUnmergedTree = true).assertExists()
-        compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.TITLE.getValue("homophone"), useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Sounded right — written", substring = true, useUnmergedTree = true).assertExists()
         compose.onNodeWithTag(DifferenceTags.SAID, useUnmergedTree = true).assertExists()
         compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.AnswerDifference.CARD.uppercase(), useUnmergedTree = true).assertExists()
         assertEquals(0, count(SentenceRoundTags.ROUND))
@@ -139,7 +141,7 @@ class HardModeUiTest : LabScreenshotTest() {
     @Test fun noSentenceClueUnderTheCheck() {
         // Not while ✗ Not quite is up (the web hides it too).
         card(start = CardStartState(feedbackOpen = true), take = heard("圆子", match = false))
-        compose.onNodeWithText("✗ Not quite", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Not quite", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Use in a sentence", useUnmergedTree = true).assertDoesNotExist()
     }
 

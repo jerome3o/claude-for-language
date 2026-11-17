@@ -194,8 +194,10 @@ test('hard mode: a wrong answer → Try again → right → the round; Skip → 
   await takeRead(page, '音乐');
   const feedback = page.getByTestId('hard-feedback');
   await expect(feedback).toHaveAttribute('data-result', 'wrong', { timeout: 15000 });
-  await expect(feedback).toContainText('✗ Not quite');
-  await expect(page.getByTestId('hard-said')).toContainText('音乐');
+  // The read card's hanzi is on the question: one line + his take marked against it (the slim diff).
+  await expect(feedback).toContainText('Not quite');
+  await expect(feedback.getByTestId('answer-diff-line')).toBeVisible();
+  await expect(feedback).toContainText('音乐');
   await expect(page.getByTestId('study-card-back')).toHaveCount(0);
   await expect(page.getByTestId('sentence-round')).toHaveCount(0);
   await shot(page, 'hard-02-wrong-try-again');
@@ -399,8 +401,9 @@ test('right, but said differently: a reworded translation that finishes the roun
   await expect(second.getByTestId('difference-said')).toContainText('银行几点开始营业');
   await expect(second.getByTestId('difference-model')).toContainText(SET[0].hanzi);
   await expect(second.getByTestId('difference-model')).toContainText(SET[0].pinyin);
-  await expect(second.locator('[data-testid="difference-said"] [data-mark="differs"]').first()).toBeVisible();
-  await expect(second).toContainText('sounds like a notice on the door');
+  await expect(second.locator('[data-testid="difference-said"] [data-kind]').first()).toBeVisible();
+  // Slim: the round's title is the one line — Claude's tips are not shown.
+  await expect(second).not.toContainText('sounds like a notice on the door');
   await page.waitForTimeout(3000);
   await expect(page.getByTestId('study-card-back')).toHaveCount(0);
   await second.scrollIntoViewIfNeeded();
@@ -541,7 +544,9 @@ test('hard mode: after Show answer, 🎤 Read it again in place — judged like 
   await expect(feedback).toHaveAttribute('data-result', 'wrong', { timeout: 15000 });
   await page.getByTestId('hard-show-answer').click();
   await expect(feedback).toHaveAttribute('data-result', 'revealed', { timeout: 15000 });
-  await expect(page.getByTestId('hard-said')).toContainText('他这么拔');
+  // The answer once, his take lined up with it (the slim diff).
+  await expect(page.getByTestId('hard-revealed-answer')).toContainText('他这么');
+  await expect(page.getByTestId('hard-revealed-answer').getByTestId('answer-diff-line')).toBeVisible();
   const readAgain = page.getByTestId('hard-read-again');
   await expect(readAgain).toBeVisible();
   const mic = page.getByTestId('hard-read-again-mic');

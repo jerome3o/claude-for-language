@@ -82,7 +82,7 @@ export function AnswerDiff({
     <div className={`adiff-box${accepted ? ' adiff-box--accepted' : ''}`} data-testid={testId} data-tone={tone}>
       {hideLine ? null : line ?? (
         <p className={`adiff-line adiff-line--${tone}`} data-testid="answer-diff-line" role="status">
-          <span className="adiff-line-icon" aria-hidden="true">{ANSWER_DIFF_ICON[tone]}</span>
+          <span className="adiff-line-icon" aria-hidden="true">{ANSWER_DIFF_ICON[tone]}</span>{' '}
           {verdict && <span className="adiff-line-verdict" data-testid="answer-diff-verdict">{verdict.label}</span>}
           {verdict && <span className="adiff-line-sep" aria-hidden="true"> · </span>}
           <span className="adiff-line-text" data-testid="answer-diff-text">{text}</span>

@@ -136,7 +136,7 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('difference-said')!.textContent).toContain(SAID.replace(/[，。]/g, ''));
     expect(q('difference-said')!.querySelector('[data-kind="wrong"]')).not.toBeNull();
     // ONE line that says what differs, from the device, while Claude reads it.
-    expect(q('answer-diff-line')!.textContent).toBe('✕3 wrong characters, 1 missing');
+    expect(q('answer-diff-line')!.textContent).toBe('✕ 3 wrong characters, 1 missing');
     expect(q('hard-sentence-checking')!.textContent).toContain(SENTENCE_CHECKING);
     expect(host.querySelector('.spinner')).toBeNull();
     expect(q('hard-try-again')).toBeNull();
@@ -148,7 +148,7 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('hard-feedback')!.dataset.result).toBe('right');
     expect(q('hard-feedback')!.dataset.held).toBe('true');
     expect(q('answer-check')!.dataset.verdict).toBe('acceptable');
-    expect(q('answer-diff-line')!.textContent).toBe('✓Also right · Worded differently');
+    expect(q('answer-diff-line')!.textContent).toBe('✓ Also right · Worded differently');
     expect(q('hard-sentence-checking')).toBeNull();
     expect(q('difference-model')!.textContent).toContain(MODEL);
     // Accepted: his differences turn yellow, nothing red.
@@ -170,7 +170,7 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(q('hard-feedback')!.dataset.result).toBe('close');
     expect(q('answer-check')!.dataset.verdict).toBe('almost');
     // Slim: Claude's verdict is the line's chip; no tips, no alternative, no explanation.
-    expect(q('answer-diff-line')!.textContent).toBe('≈Almost · 3 wrong characters, 1 missing');
+    expect(q('answer-diff-line')!.textContent).toBe('≈ Almost · 3 wrong characters, 1 missing');
     expect(host.textContent).not.toContain('因为 gives a reason');
     expect(host.textContent).not.toContain('Also natural');
     // The card's answer stays THE answer: Claude's fix (here the card's own sentence) is not shown again.
@@ -214,7 +214,7 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     expect(checker).not.toHaveBeenCalled();
     expect(q('hard-feedback')!.dataset.result).toBe('wrong');
     expect(q('answer-check')).toBeNull();
-    expect(q('answer-diff-line')!.textContent).toBe('✕Not quite · 3 wrong characters, 1 missing');
+    expect(q('answer-diff-line')!.textContent).toBe('✕ Not quite · 3 wrong characters, 1 missing');
     // The answer and the diff all the same.
     expect(q('difference-model')!.textContent).toContain(MODEL);
     expect(q('difference-said')!.textContent).toContain(SAID.replace(/[，。]/g, ''));

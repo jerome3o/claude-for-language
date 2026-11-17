@@ -38,7 +38,7 @@ class SpokenResultRowTest : LabScreenshotTest() {
     @Test fun soundIsStillATick() {
         row("友", "有", AnswerKey.Verdict.SOUND)
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-sound", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Sounded right — written differently", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Sounded right — written 友", useUnmergedTree = true).assertIsDisplayed()
         assertEquals(1, count("$YOU_SAID_VERDICT_TAG-check"))
         compose.onNodeWithContentDescription("You said 友 (yǒu). Sounded right — written differently (友); the card writes 有.").assertExists()
     }
@@ -47,10 +47,10 @@ class SpokenResultRowTest : LabScreenshotTest() {
         val calls = mutableListOf<String>()
         row("朗", "狼", AnswerKey.Verdict.CLOSE, calls)
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-close", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Close — tones off", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Tone off on 狼", useUnmergedTree = true).assertIsDisplayed()
         assertEquals(1, count("$YOU_SAID_VERDICT_TAG-approx"))
         compose.onNodeWithTag(SPOKEN_RESULT_HANZI_TAG, useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithContentDescription("You said 朗 (lǎng). Close — the tones are off. Not in the answer: 朗.").assertExists()
+        compose.onNodeWithContentDescription("You said 朗 (lǎng). Close. Tone off on 狼.").assertExists()
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).performClick()
         assertEquals(listOf("coach"), calls)
     }
@@ -58,7 +58,7 @@ class SpokenResultRowTest : LabScreenshotTest() {
     @Test fun wrongSaysDidntMatch() {
         row("猫", "狼", AnswerKey.Verdict.WRONG)
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-wrong", useUnmergedTree = true).assertIsDisplayed()
-        compose.onNodeWithText("Didn’t match", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("猫 instead of 狼", useUnmergedTree = true).assertIsDisplayed()
         assertEquals(1, count("$YOU_SAID_VERDICT_TAG-close"))
     }
 

@@ -38,7 +38,7 @@ import kotlin.test.assertEquals
 /**
  * 🎤 Read it aloud on a reader page: 🎤 beside the speed chip → listening (the reveal untouched, the live
  * transcript under the audio) → stop → the page's OWN Chinese marked in place (no second copy), one
- * line "✕ 42% — 4 to check", the transcript behind "You said ▸", 🎤 = Say it again; a long press on a
+ * line "✕ 42% — 3 characters missing, 1 tone off", the transcript behind "You said ▸", 🎤 = Say it again; a long press on a
  * marked word says it; failed / empty / offline states. Plus the screenshots.
  */
 class ReadAloudTest : LabScreenshotTest() {
@@ -106,7 +106,7 @@ class ReadAloudTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_500)
         compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").assertIsDisplayed()
         compose.onNodeWithContentDescription("早 — missed, 上 — missed").assertIsDisplayed()
-        compose.onNodeWithTag(ReadAloudTags.LINE).assertTextEquals("✕ 42% — 4 to check")
+        compose.onNodeWithTag(ReadAloudTags.LINE).assertTextEquals("✕ 42% — 3 characters missing, 1 tone off")
         // A tiny legend of the marks this page shows: tone off (徐) and missed (早上好).
         compose.onNodeWithTag(ReadAloudTags.LEGEND).assertIsDisplayed()
         compose.onNodeWithText("tone off").assertIsDisplayed()
@@ -241,11 +241,14 @@ class ReadAloudTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(800)
         assertEquals(0, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
 
-        // Tap to reveal: the page's own Chinese, marked in place; the differences under the line again.
+        // Tap to reveal: the page's own Chinese, marked in place; the rows still wait behind "You said ▸".
         compose.onNodeWithText("Tap to reveal Chinese").performClick()
         compose.mainClock.advanceTimeBy(1_500)
         compose.onNodeWithTag("reader-words").assertIsDisplayed()
         compose.onNodeWithContentDescription("小, 徐 — tone off (heard 许)").assertIsDisplayed()
+        assertEquals(0, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
+        compose.mainClock.advanceTimeBy(800)
         assertEquals(1, compose.onAllNodesWithTagCount(ReadAloudTags.DIFF))
         compose.onRoot().captureRoboImage("screenshots/readers-50-read-aloud-hidden-revealed.png")
     }

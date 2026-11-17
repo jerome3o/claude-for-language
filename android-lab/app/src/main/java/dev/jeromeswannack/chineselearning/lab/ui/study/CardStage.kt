@@ -1588,6 +1588,11 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
         AnswerKey.Verdict.CLOSE, AnswerKey.Verdict.WRONG -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // Wrong characters red + underlined, missing ones a "?" with a dashed underline (AnswerMarks).
             val diff = AnswerMarks.typedDiff(typed, correct)
+            // ONE line that says what differs (core AnswerDiff; docs/STUDY_SESSION.md "Answer feedback").
+            Text(
+                dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.summary(dev.jeromeswannack.chineselearning.lab.core.AnswerDiff.of(typed, correct)),
+                Modifier.testTag("typed-answer-line"), color = Lab.colors.ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            )
             MarkedAnswerRow(diff.typed, size * 0.8f, onChar)
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("↓", color = Lab.colors.muted)

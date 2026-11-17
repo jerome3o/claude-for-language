@@ -46,24 +46,20 @@ test('the croissant: a coherent "Almost" — neutral headline, no tip offering �
   await page.getByTestId('lesson-voice-text').fill('这个牛角包 3块多元。');
   await page.getByTestId('lesson-voice-submit').click();
 
-  // "You said": the 3 is 三 — only 元 is marked; on the model answer only 钱.
+  // "You said": the 3 is 三 — only 元 is marked (wrong, the answer has 钱), under one short line.
   const said = page.getByTestId('lesson-marked-answer');
   await expect(said).toBeVisible();
-  await expect(said.locator('.extra')).toHaveText(['元']);
+  await expect(said.locator('[data-kind]')).toHaveText(['元']);
+  await expect(page.getByTestId('lesson-answer-diff-line')).toHaveText('元 instead of 钱');
 
   const card = page.getByTestId('answer-check');
   await expect(card).toHaveAttribute('data-verdict', 'almost', { timeout: 15_000 });
   await expect(card).toContainText('Nearly — compare with the corrected version.');
   await expect(card).not.toContainText('not both');
   await expect(card).not.toContainText('(块多元)');
-  // The fix shows numerals, its pinyin reads them (word by word on the device).
-  // The red-pen diff: only 元 → 钱 changes (3 and 三 are the same number).
-  const fix = card.locator('.answer-check-fix-line');
-  await expect(fix).toContainText('这个牛角包三块多');
-  await expect(fix).not.toContainText('3');
-  await expect(fix.locator('.chat-diff-del')).toHaveText(['元']);
-  await expect(fix.locator('.chat-diff-ins')).toHaveText(['钱']);
-  await expect(page.getByTestId('answer-check-pinyin')).toContainText('sān');
+  // Slim: the chip + ONE line — no red-pen fix, tips or alternative (the diff above already says 元 → 钱).
+  await expect(card.locator('.answer-check-fix-line')).toHaveCount(0);
+  await expect(card.locator('.answer-check-tips')).toHaveCount(0);
   // The fix IS the model answer once 3 = 三: no "Say the corrected version" to practise.
   await expect(page.getByTestId('lesson-say-fix')).toHaveCount(0);
   await page.mouse.move(0, 0);

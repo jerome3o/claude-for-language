@@ -74,9 +74,11 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
         val opened = mutableListOf<String>()
         compose.setContent { LabTheme { Page(ReaderEnv(speak = { spoken += it }, onWord = { word, _ -> opened += word.text })) } }
         compose.onNodeWithTag(ReadAloudTags.LINE).assertIsDisplayed()
+        // The rows wait behind "You said ▸" (the marked page IS the diff) and carry no reason lines.
+        assertEquals(0, compose.onAllNodes(hasTestTag(ReadAloudTags.DIFF)).fetchSemanticsNodes().size)
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
         assertEquals(1, compose.onAllNodes(hasTestTag(ReadAloudTags.DIFF)).fetchSemanticsNodes().size)
-        compose.onNodeWithText("都 dū → you said dù (4th tone instead of 1st)").assertIsDisplayed()
-        compose.onNodeWithText("成 chéng — sounded right (written 程)").assertIsDisplayed()
+        compose.onNodeWithText("都 dū → you said dù (4th tone instead of 1st)").assertDoesNotExist()
         compose.onNodeWithText("chéngdū").assertIsDisplayed()
         compose.onNodeWithText("chéngdù").assertIsDisplayed()
         compose.onNodeWithText("Tone").assertIsDisplayed()
@@ -98,7 +100,8 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
         compose.setContent {
             LabTheme { CompositionLocalProvider(LocalExplorer provides explorer) { Page(env) } }
         }
-        // The page's word (what he meant to say), with its sentence.
+        // The page's word (what he meant to say), with its sentence — behind "You said ▸".
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
         compose.onNodeWithTag(ReadAloudTags.DIFF_PAGE).performClick()
         assertEquals(ExplorerItem.Word("成都", "chéngdū", null, text), explorer.current)
         assertEquals("explorer.open" to mapOf("source" to "read_aloud", "kind" to "word"), events.last())
@@ -114,8 +117,9 @@ class ReadAloudDifferencesTest : LabScreenshotTest() {
         compose.setContent {
             LabTheme { ReadAloudPanel(ReadAloudUi(result = r, said = "最有名的是李子吧站轻轨直接从一栋"), ReadAloudActions()) }
         }
-        compose.onNodeWithText("✓ 93% — 1 to check · stopped early").assertIsDisplayed()
+        compose.onNodeWithText("✓ 93% — Tone off on 坝 · stopped early").assertIsDisplayed()
         // Only the slip he made is listed — nothing for the part he never reached.
+        compose.onNodeWithTag(ReadAloudTags.SAID_TOGGLE).performClick()
         assertEquals(1, compose.onAllNodes(hasTestTag(ReadAloudTags.DIFF)).fetchSemanticsNodes().size)
         compose.onNodeWithText("Tone").assertIsDisplayed()
         compose.onNodeWithText("Missed").assertDoesNotExist()
