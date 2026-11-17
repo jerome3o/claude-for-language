@@ -9,12 +9,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
 import { getDueCards, getOverviewStats } from '../../db/queries';
 import { accountStudyDay, studyDaySql } from '../../../../shared/study/studyDay';
+import { CARD_STATE_REPAIR_VERSION } from '../card-state';
 
 const T = (iso: string) => Date.parse(iso);
 
 async function seed(db: SqliteD1) {
   const run = (sql: string, ...p: (string | number | null)[]) => db.raw.run(sql, p);
-  run("INSERT INTO users (id, email, name, role, time_zone) VALUES ('u1', 'u1@example.com', 'Learner', 'student', 'Europe/London')");
+  // Hand-written cached states (no events): the one-time replay (services/card-state.ts) is marked done.
+  run("INSERT INTO users (id, email, name, role, time_zone, card_state_version) VALUES ('u1', 'u1@example.com', 'Learner', 'student', 'Europe/London', ?)", CARD_STATE_REPAIR_VERSION);
   run("INSERT INTO decks (id, user_id, name) VALUES ('d1', 'u1', 'Words')");
   const cards: Array<[string, string | null]> = [
     ['r1', '2026-11-21T10:00:00.000Z'],

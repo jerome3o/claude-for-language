@@ -14,7 +14,7 @@
  *     never overwrite a newer one.
  *   - `repairUserCardStates` replays EVERY card of a user (a card with no events is NEW) and
  *     rewrites only the rows that differ — the server twin of the web's `repairCardStatesIfDue`.
- *     Before it, ~3k cards of the first (Anki-imported) deck still carried the import's state
+ *     Before it, cards of the first (Anki-imported) deck still carried the import's state
  *     ("review, due Feb 2026") with no event behind them: nothing ever reset a card without
  *     events, and a retried upload whose events were already stored skipped the recompute.
  *   - `ensureCardStatesRepaired` runs that repair once per user per `CARD_STATE_REPAIR_VERSION`,
