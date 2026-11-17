@@ -225,6 +225,19 @@ object LessonValidator {
             "choice" -> {
                 if (!nonEmpty(ex["question"])) errors += "$where: choice needs \"question\""
                 checkOptions(ex, where, errors)
+                if (ex.containsKey("correction")) {
+                    // A "which one is wrong?" choice: the right version of the wrong option (core ChoiceMistake).
+                    val fix = ex["correction"]
+                    checkSentence(fix, "$where.correction", errors)
+                    val options = ex["options"] as? JsonArray
+                    val correct = (ex["correct"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toDoubleOrNull()
+                    val wrong = if (options != null && correct != null && correct == Math.floor(correct) && correct >= 0 && correct < options.size) options[correct.toInt()] as? JsonObject else null
+                    val fixHanzi = (fix as? JsonObject)?.let { str(it["hanzi"]) }
+                    val wrongHanzi = wrong?.let { str(it["hanzi"]) }
+                    if (fixHanzi != null && wrongHanzi != null && JsJson.trim(fixHanzi).isNotEmpty() && LessonAnswers.normalizeHanzi(fixHanzi) == LessonAnswers.normalizeHanzi(wrongHanzi)) {
+                        errors += "$where: \"correction\" must fix the wrong option (options[${correct!!.toInt()}]), not repeat it"
+                    }
+                }
             }
             "translate" -> {
                 if (!nonEmpty(ex["english"])) errors += "$where: translate needs \"english\""

@@ -860,6 +860,36 @@ The attempt keeps each sentence (`answer.items`: `judged` / `pick` + `correct`),
 any miss makes the exercise owed in the retry round (and part of the next revision). The tutor's / learner's
 attempt review lists each sentence with what was said. Analytics `lesson.items_checked { exercise_type, items, right }`.
 
+### Which sentence is wrong? (`shared/lesson/choiceMistake.ts`; Lab `core/…/ChoiceMistake.kt`, parity-tested)
+
+Jerome (Nov 2026): "Some of the questions have multi-choice, pick which answer is wrong questions … it reads out the
+audio of the incorrect version of the sentence. I think it should actually read out the correct version instead." In a
+`choice` that asks for the WRONG sentence, the option marked as the answer IS the mistake — and the pick, ▶, 🎤 Say it
+again, the lesson audio prefetch and the server's pre-generation all used to speak it. Now the mistake is never read
+aloud:
+
+- **Detection** (`choiceAsksForWrong`): the spec's own `correction` is the explicit marker; otherwise the question,
+  clause by clause, English or Chinese — "Which sentence is wrong / incorrect / not correct / has a mistake / uses 了
+  incorrectly?", "Find / spot / pick the error", "哪个句子是错的", "哪句话有语病", "找出病句", "错的是哪个". Conservative:
+  "which has NO mistake", "Which sentence is correct?", "Choose the correct sentence (one has a mistake)", "不错",
+  comprehension ("…according to the dialogue", 根据对话) are not.
+- **The reveal**: the wrong option is struck through with "✗ This sentence has the mistake" (words, never colour
+  alone) and has NO ▶; under the banner "✓ Correct:" shows the correction with pinyin, English and ▶. Picking the
+  mistake speaks the correction; 🎤 Say it again practises it. The other options (right sentences) keep their ▶.
+- **Authoring**: a "which is wrong?" choice carries `correction: { hanzi, pinyin?, english? }` (LESSON_SPEC_DOC
+  `CHOICE_CORRECTION_RULE`, the editor's "Correct version of the wrong sentence" field; the validator refuses a
+  correction that repeats the wrong option; a soft warning — `lessonSoftWarnings` in the editor and the MCP tools — names
+  one without it). `judge` stays the preferred type.
+- **Older lessons without a correction**: the device asks `POST /api/lessons/choice-correction { question, sentence,
+  others?, explanation? }` as the exercise shows (cost guard `ai`; the answer check's small model through
+  structuredCall, thinking off, the smallest edit; app pinyin; cached for everyone in `lesson_answer_checks`,
+  `exercise_type = 'choice_correction'`, by SHA-256 of `choiceCorrectionCacheText` = question + sentence) and keeps it
+  on the device (web localStorage `lesson-choice-corrections-v1`, Lab JsonCache `lessons/choice-correction/…`). It plays
+  when it arrives if the mistake was picked meanwhile. `unchanged` (nothing wrong after all) = an ordinary sentence
+  again. Offline with nothing cached: "The correct version needs a connection.", no ▶ and nothing spoken for it.
+- Prefetch / pre-generation (`exerciseTtsTexts` → `choiceTtsTexts`), Anki export and the vocabulary list leave the
+  mistake out and include the correction. Analytics `lesson.choice_correction { cached, unchanged }`.
+
 ### A run is never lost (`shared/study/lessonRun.ts`; Lab `core/…/LessonRun.kt`, parity-tested)
 
 Jerome (Oct 2026): "Make sure homework progress isn't lost over multiple days." He half-did a homework

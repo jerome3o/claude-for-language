@@ -31,6 +31,7 @@ import type {
   WritingInput,
 } from '@shared/lesson';
 import { EXERCISE_TYPE_LIST, defaultExercise as sharedDefaultExercise, fillGap, gapCount, GAP_MARKER } from '@shared/lesson';
+import { choiceAsksForWrong } from '@shared/lesson/choiceMistake';
 import { useLessonImage } from '../../hooks/useLessonImage';
 import { PatternsField } from './PatternsField';
 import { Field, TextInput, TextArea, HanziInput, SentenceEditor, RowControls, moveItem, toPinyin, Speak } from './fields';
@@ -221,6 +222,19 @@ function ChoiceForm({ exercise, onChange, speak }: FormProps<ChoiceExerciseSpec>
       <Field label="Explanation" hint="shown after answering">
         <TextInput value={exercise.explanation} onChange={v => onChange({ ...exercise, explanation: clean(v) })} />
       </Field>
+      {(choiceAsksForWrong(exercise) || exercise.correction) && (
+        <Field label="Correct version of the wrong sentence" hint="“which one is wrong?” — what the learner hears instead of the mistake">
+          <SentenceEditor
+            value={exercise.correction ?? { hanzi: '' }}
+            onChange={v => {
+              const { correction: _c, ...rest } = exercise;
+              onChange(v.hanzi.trim() || v.pinyin || v.english ? { ...exercise, correction: v } : rest);
+            }}
+            speak={speak}
+            compact
+          />
+        </Field>
+      )}
     </>
   );
 }
@@ -913,7 +927,7 @@ export function fillMissingPinyin(ex: LessonExercise): LessonExercise {
         ...(ex.patterns ? { patterns: ex.patterns.map(p => ({ ...p, ...(p.examples ? { examples: p.examples.map(e => ({ ...e, ...fillSentence(e) })) } : {}) })) } : {}),
       };
     case 'choice':
-      return { ...ex, options: ex.options.map(fillSentence) };
+      return { ...ex, options: ex.options.map(fillSentence), ...(ex.correction ? { correction: fillSentence(ex.correction) } : {}) };
     case 'translate':
       return ex.reference_pinyin || !ex.reference_hanzi.trim() ? ex : { ...ex, reference_pinyin: toPinyin(ex.reference_hanzi) };
     case 'match':

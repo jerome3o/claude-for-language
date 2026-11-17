@@ -1,5 +1,6 @@
 package dev.jeromeswannack.chineselearning.lab.ui.lessons
 
+import dev.jeromeswannack.chineselearning.lab.data.api.choiceCorrection
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -155,6 +156,7 @@ fun rememberExerciseEnv(app: LabApp, preview: Boolean = false, prefetch: Boolean
             app.repo.api.sentenceFeedback(words, task, sentence)
         },
         answerCheck = { input -> app.repo.api.checkLessonAnswer(input, app.cache, app.online.value) },
+        choiceCorrection = { input -> app.repo.api.choiceCorrection(input, app.cache, app.online.value) },
         askAboutAnswer = { input, check, history, question ->
             if (!app.online.value) throw dev.jeromeswannack.chineselearning.lab.data.api.AnswerCheckUnavailable("offline", offline = true)
             app.repo.api.askAboutLessonAnswer(input, check, history, question)

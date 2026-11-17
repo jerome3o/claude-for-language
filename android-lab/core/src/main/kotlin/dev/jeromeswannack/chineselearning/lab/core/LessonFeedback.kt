@@ -58,7 +58,8 @@ object LessonFeedback {
     /** Port of `sayAgainTarget`. */
     fun sayAgainTarget(ex: LessonExercise): Target? = when (ex) {
         is ScrambleExercise -> target(ex.correctOrder.joinToString(""), null, "answer")
-        is ChoiceExercise -> ex.options.getOrNull(ex.correct)?.let { target(it.hanzi, it.pinyin, "answer") }
+        // A "which is wrong?" choice practises its correction, never the mistake (ChoiceMistake).
+        is ChoiceExercise -> ChoiceMistake.sayAgainSentence(ex)?.let { target(it.hanzi, it.pinyin, "answer") }
         is TranslateExercise -> target(ex.referenceHanzi, ex.referencePinyin, "answer")
         is ListenChoiceExercise -> target(ex.audio.hanzi, ex.audio.pinyin, "answer")
         is ListenTranslateExercise -> target(ex.audio.hanzi, ex.audio.pinyin, "answer")

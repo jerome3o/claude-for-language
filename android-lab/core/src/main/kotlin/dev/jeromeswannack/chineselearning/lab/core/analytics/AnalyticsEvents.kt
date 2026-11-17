@@ -293,6 +293,7 @@ object AnalyticsEvents {
         ev("lesson.say_again", "lessons", listOf("exercise_type", "target", "result")),
         ev("lesson.answer_retry", "lessons", listOf("verdict", "exercise_type", "try")),
         ev("lesson.scramble_checked", "lessons", listOf("verdict", "cached", "ms")),
+        ev("lesson.choice_correction", "lessons", listOf("cached", "unchanged")),
         ev("lesson.scramble_reorder", "lessons", listOf("how", "from_pool", "change")),
         ev("lesson.answer_ask", "lessons", listOf("verdict", "exercise_type", "turn"), replacedBy = "lesson.exercise_ask"),
         ev("lesson.exercise_ask", "lessons", listOf("from", "exercise_type", "verdict", "resumed")),

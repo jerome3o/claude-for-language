@@ -43,7 +43,7 @@ export function ExerciseView({ exercise, speak, onDone, mediaKey, focus }: {
     case 'scramble':
       return <ScrambleExercise english={exercise.english} tiles={exercise.tiles} correctOrder={exercise.correct_order} altOrders={exercise.alt_orders} focus={focus} speak={speak} onNext={onNext} />;
     case 'choice':
-      return <ChoiceExercise question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} speak={speak} onNext={onNext} />;
+      return <ChoiceExercise question={exercise.question} options={exercise.options} correctIndex={exercise.correct} explanation={exercise.explanation} correction={exercise.correction} speak={speak} onNext={onNext} />;
     case 'translate':
       return <TranslateExercise english={exercise.english} referenceHanzi={exercise.reference_hanzi} referencePinyin={exercise.reference_pinyin} note={exercise.note} focus={focus} speak={speak} onNext={onNext} />;
     case 'match':

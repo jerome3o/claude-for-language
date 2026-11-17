@@ -189,6 +189,15 @@ function checkExercise(ex: unknown, where: string, errors: string[]): void {
           errors.push(`${where}: "correct" must be an option index (0-${options.length - 1})`);
         }
       }
+      if (ex.correction !== undefined) {
+        // A "which one is wrong?" choice: the right version of the wrong option (shared/lesson/choiceMistake.ts).
+        checkSentence(ex.correction, `${where}.correction`, errors);
+        const wrong = Array.isArray(options) && typeof ex.correct === 'number' ? (options[ex.correct] as { hanzi?: unknown } | undefined) : undefined;
+        const fix = isRecord(ex.correction) ? ex.correction.hanzi : undefined;
+        if (typeof fix === 'string' && typeof wrong?.hanzi === 'string' && fix.trim() && normalizeHanziAnswer(fix) === normalizeHanziAnswer(wrong.hanzi)) {
+          errors.push(`${where}: "correction" must fix the wrong option (options[${ex.correct}]), not repeat it`);
+        }
+      }
       break;
     }
     case 'translate': {

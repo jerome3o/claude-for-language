@@ -134,6 +134,21 @@ const addValidate = (spec: unknown) => lessonValidate.push({ spec, errors: valid
 for (const sample of SAMPLE_LESSONS) addValidate(sample.spec);
 for (const d of Object.values(catalogue.defaults)) addValidate({ title: 'T', sections: [{ exercises: [d] }] });
 for (const v of [null, 1, 'x', [], {}, { title: 'x' }, { title: 'x', sections: [] }, { title: 'x', sections: [{}] }, { title: 'x', sections: [{ exercises: [] }] }, { title: 'x', sections: [[1]] }, { title: 'x', icon: 5, sections: [{ exercises: [1, null, 'a', { type: 7 }, { type: 'nope' }, { }] }] }]) addValidate(v);
+// "Which sentence is wrong?" choices (shared/lesson/choiceMistake.ts): the correction's checks.
+const WRONG_CHOICE = { type: 'choice', question: 'Which sentence is wrong?', options: [{ hanzi: '我吃了饭。' }, { hanzi: '他了去北京。', english: 'He went.' }], correct: 1, explanation: '了 after the verb.' };
+const WRONG_CHOICES: unknown[] = [
+  WRONG_CHOICE,
+  { ...WRONG_CHOICE, correction: { hanzi: ' 他去北京了。 ', pinyin: ' Tā qù Běijīng le. ', english: 'He went to Beijing.' } },
+  { ...WRONG_CHOICE, question: 'Look.', correction: { hanzi: '他去北京了。' } },
+  { ...WRONG_CHOICE, correction: { hanzi: '他了去北京' } },
+  { ...WRONG_CHOICE, correction: { hanzi: '' } },
+  { ...WRONG_CHOICE, correction: null },
+  { ...WRONG_CHOICE, correction: 'x' },
+  { ...WRONG_CHOICE, correct: 1.5, correction: { hanzi: '他了去北京。' } },
+  { ...WRONG_CHOICE, correct: 0, correction: { hanzi: '我吃了饭' } },
+  { ...WRONG_CHOICE, question: '哪个句子是错的？' },
+];
+for (const ex of WRONG_CHOICES) addValidate({ title: 'Wrong', sections: [{ exercises: [ex] }] });
 addValidate({ title: 'Many', sections: Array.from({ length: 21 }, () => ({ exercises: [{ type: 'note', body: 'b' }, { type: 'note', body: 'b' }, { type: 'note', body: 'b' }] })) });
 for (let i = 0; i < 2500; i++) {
   const spec = clone(pick(SAMPLE_LESSONS).spec) as any;
@@ -180,6 +195,8 @@ const pushExport = (spec: any) => {
   } catch { /* skip */ }
 };
 for (const s of SAMPLE_LESSONS) pushExport(s.spec);
+// (a fractional "correct" is a validation error; the exporters never agreed on one)
+for (const ex of WRONG_CHOICES.filter((e) => Number.isInteger((e as { correct: number }).correct))) pushExport({ title: 'Wrong', sections: [{ exercises: [ex] }] });
 for (let i = 0; i < 800; i++) pushExport(structuralEdit(pick(SAMPLE_LESSONS).spec));
 
 writeFileSync(join(out, 'lesson-spec.json'), JSON.stringify({ validate: lessonValidate, diff: lessonDiff, primary, export: lessonExport }));

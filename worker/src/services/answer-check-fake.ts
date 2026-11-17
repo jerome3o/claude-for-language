@@ -199,6 +199,12 @@ function lineValue(text: string, label: RegExp): string {
 }
 
 /** A fake Anthropic client for the check_answer and reply tools. */
+/** "Which is wrong?" choices the E2E specs and screenshots use (services/choice-correction.ts). */
+export const CHOICE_CORRECTION_FIXTURES: Array<{ wrong: string; fixed: string; english: string }> = [
+  { wrong: '他了去北京。', fixed: '他去北京了。', english: 'He went to Beijing.' },
+  { wrong: '我昨天了买一本书。', fixed: '我昨天买了一本书。', english: 'I bought a book yesterday.' },
+];
+
 export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
   return {
     messages: {
@@ -209,6 +215,20 @@ export function fakeAnswerCheckClient(): Pick<Anthropic, 'messages'> {
             stop_reason: 'tool_use',
             usage: { input_tokens: 300 + text.length, output_tokens: 40 },
             content: [{ type: 'tool_use', id: 'fake', name: 'reply', input: { text: '别 makes it a command ("don\'t…"); 不 only describes. So 也别着急 tells them not to worry, while 也不着急 says they aren\'t worried.' } }],
+          };
+        }
+        if (params.tool_choice?.name === 'give_correction') {
+          // A "which is wrong?" choice's correction (services/choice-correction.ts).
+          const wrong = lineValue(text, /<wrong>([^<]+)<\/wrong>/);
+          const fixture = CHOICE_CORRECTION_FIXTURES.find((f) => normalizeHanziAnswer(f.wrong) === normalizeHanziAnswer(wrong));
+          const fixed = fixture?.fixed ?? wrong.replace('了', '');
+          const input = fixed === wrong
+            ? { hanzi: wrong, english: '', already_correct: true }
+            : { hanzi: fixed, english: fixture?.english ?? '', already_correct: false };
+          return {
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 200 + text.length, output_tokens: 30 },
+            content: [{ type: 'tool_use', id: 'fake', name: 'give_correction', input }],
           };
         }
         if (params.tool_choice?.name === 'check_speaking') {

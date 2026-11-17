@@ -10,6 +10,7 @@
 
 import { structureNoteView } from './pattern';
 import { patternIntroTexts } from './patternIntro';
+import { choiceTtsTexts } from './choiceMistake';
 
 /** A Chinese sentence with optional pinyin and translation. */
 export interface LessonSentence {
@@ -117,6 +118,12 @@ export interface ChoiceExerciseSpec {
   /** Index into options. */
   correct: number;
   explanation?: string;
+  /**
+   * A "which sentence is wrong?" choice (the answer option IS the mistake): the right version of that sentence. It is
+   * what the reveal shows as "✓ Correct:" and what ▶ / autoplay speak — the wrong sentence is never read aloud
+   * (shared/lesson/choiceMistake.ts; doc.ts prefers a `judge` exercise for this).
+   */
+  correction?: LessonSentence;
 }
 
 /** Translate the English into Chinese — self-assessed against a reference. */
@@ -450,7 +457,8 @@ export function exerciseTtsTexts(ex: LessonExercise): string[] {
       texts.push(ex.correct_order.join(''));
       break;
     case 'choice':
-      for (const o of ex.options) texts.push(o.hanzi);
+      // Every option but a "which is wrong?" choice's mistake, then its correction (shared/lesson/choiceMistake.ts).
+      texts.push(...choiceTtsTexts(ex));
       break;
     case 'translate':
       texts.push(ex.reference_hanzi);
