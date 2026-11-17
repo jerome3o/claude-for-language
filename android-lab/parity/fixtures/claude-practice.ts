@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEFAULT_PRACTICE_LEVEL, PRACTICE_LEVELS, PRACTICE_SCENARIOS, PRACTICE_TEXT_MAX, PRACTICE_VOICE_SPEED,
-  isPracticeHelpRequest, legacyPracticeThreadPath, parsePracticeLevel, practiceChatRedirect, practiceContext, practiceFromCard,
+  LEGACY_PRACTICE_THREAD_GONE, isPracticeHelpRequest, legacyPracticeThreadPath, parsePracticeLevel, practiceChatRedirect, practiceContext, practiceFromCard,
   practiceReplyLanguage, practiceVoiceFor,
 } from '../../../shared/claude/practice';
 
@@ -70,6 +70,6 @@ writeFileSync(
   JSON.stringify({
     levels: PRACTICE_LEVELS, defaultLevel: DEFAULT_PRACTICE_LEVEL, scenarios: PRACTICE_SCENARIOS, textMax: PRACTICE_TEXT_MAX, voiceSpeed: PRACTICE_VOICE_SPEED,
     parseLevel: ['beginner', 'intermediate', 'advanced', 'Beginner', '', null].map((v) => ({ in: v, out: parsePracticeLevel(v) })),
-    contexts, fromCard, voices, help, redirects, legacyPaths,
+    contexts, fromCard, voices, help, redirects, legacyPaths, legacyGone: LEGACY_PRACTICE_THREAD_GONE,
   }, null, 1),
 );

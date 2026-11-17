@@ -40,7 +40,7 @@ import type { ClaudeContextSnapshot, ClaudeIntent, ClaudeThreadContext, StoredCl
 import type { TutorClaudeMessage, TutorClaudeThread } from '@shared/claude/api';
 import { nextTutorVisible, parseTutorVisibility, sharedLine, shareMenuLabel, tutorCanSee, tutorReadOnlyLine } from '@shared/claude/visibility';
 import { useOptionalAuth } from '../../contexts/AuthContext';
-import { PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
+import { LEGACY_PRACTICE_THREAD_GONE, PRACTICE_VOICE_SPEED, practiceVoiceFor } from '@shared/claude/practice';
 import {
   coachMistakeLessonOffered,
   conversationAction,
@@ -681,8 +681,8 @@ export function ClaudeThreadView(props: ClaudeThreadViewProps) {
             {!isOnline
               ? "You're offline and this chat isn't on this device yet."
               : state.notFound && routeId?.startsWith('pc-')
-                ? // An old practice chat with Claude (shared/claude/practice.ts legacyPracticeThreadPath) that couldn't be copied: deleted, or not yours.
-                  'This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation.'
+                ? // An old practice chat with Claude (legacyPracticeThreadPath) that couldn't be copied: deleted, or not yours.
+                  LEGACY_PRACTICE_THREAD_GONE
                 : "Couldn't load this chat."}
           </div>
         )}

@@ -88,6 +88,7 @@ class ClaudePracticeParityTest {
 
     @Test
     fun oldPracticeChatsOpenTheirThread() {
+        assertEquals(f["legacyGone"].str, ClaudePractice.LEGACY_THREAD_GONE)
         for (c in f["legacyPaths"]!!.jsonArray) assertEquals(c.jsonObject["out"].str, ClaudePractice.legacyThreadPath(c.jsonObject["id"].str!!), c.toString())
         for (c in f["redirects"]!!.jsonArray) {
             val o = c.jsonObject

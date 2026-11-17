@@ -162,6 +162,10 @@ export function legacyPracticeThreadId(conversationId: string): string {
   return `pc-${conversationId}`;
 }
 
+/** The thread view's line when an old practice chat's thread can't be had (deleted, not yours). */
+export const LEGACY_PRACTICE_THREAD_GONE =
+  'This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation.';
+
 /** The app path of an old practice chat's thread (the Claude thread view). */
 export function legacyPracticeThreadPath(conversationId: string): string {
   return `/chats/claude/${legacyPracticeThreadId(conversationId)}`;

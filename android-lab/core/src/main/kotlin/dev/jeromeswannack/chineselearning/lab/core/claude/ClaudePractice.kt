@@ -156,6 +156,10 @@ object ClaudePractice {
      */
     fun legacyThreadId(conversationId: String): String = "pc-$conversationId"
 
+    /** Port of LEGACY_PRACTICE_THREAD_GONE: the thread view's line when an old practice chat's thread can't be had. */
+    const val LEGACY_THREAD_GONE =
+        "This old practice chat with Claude isn’t available any more. Start a new one from the Chats tab: ✏️ → 🎭 Practice a situation."
+
     /** Port of legacyPracticeThreadPath: the thread's app path (the Claude thread view). */
     fun legacyThreadPath(conversationId: String): String = "/chats/claude/${legacyThreadId(conversationId)}"
 
