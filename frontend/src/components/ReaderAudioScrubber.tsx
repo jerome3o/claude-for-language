@@ -19,7 +19,7 @@
  * prefetched); blocks are computed once per clip and cached in IndexedDB.
  *
  * Speed (the chip under the waveform, 1× · 0.75× · 0.5×, services/readerSpeed)
- * is the element's playbackRate with the pitch preserved — the clip is never
+ * is the media track's speed (utils/audioPlayback.ts) with the pitch preserved — the clip is never
  * regenerated. Blocks and positions stay in media time; only the 1 s grace is
  * scaled (`blockGraceMsAt`): it is a wall-clock reaction, so at 0.5× it covers
  * 500 ms of the clip.
@@ -40,7 +40,7 @@ import {
 import { blockGraceMsAt } from '@shared/reader/speed';
 import { track } from '../services/analytics';
 import { useReaderSpeed } from '../services/readerSpeed';
-import { applyPlaybackRate } from '../utils/audioPlayback';
+import { createMediaTrack, type MediaTrack } from '../utils/audioPlayback';
 import { ReaderSpeedChip } from './reader/ReaderSpeedChip';
 import './ReaderAudioScrubber.css';
 
@@ -75,8 +75,9 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
   const [play, setPlay] = useState<BlockPlayState>(INITIAL_BLOCK_PLAY_STATE);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const objectUrlRef = useRef<string | null>(null);
+  // The clip: a media track (utils/audioPlayback.ts) — it seeks, so never the native bridge.
+  const clipRef = useRef<MediaTrack | null>(null);
+  if (!clipRef.current) clipRef.current = createMediaTrack();
   const trackRef = useRef<HTMLDivElement>(null);
   const playheadRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -112,13 +113,12 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
     if (playheadRef.current) playheadRef.current.style.left = `${fractionOf(ms) * 100}%`;
   }, [fractionOf]);
 
-  const positionMs = useCallback(() => Math.round((audioRef.current?.currentTime ?? 0) * 1000), []);
+  const positionMs = useCallback(() => clipRef.current?.positionMs() ?? 0, []);
 
   /** Feed the state machine one event and carry out what it says. */
   const dispatch = useCallback((event: BlockPlayEvent) => {
     const { state, seekToMs } = blockPlayback(playRef.current, event, blocksRef.current, blockGraceMsAt(speedRef.current));
-    const audio = audioRef.current;
-    if (seekToMs !== null && audio) audio.currentTime = seekToMs / 1000;
+    if (seekToMs !== null) clipRef.current?.seek(seekToMs);
     const prev = playRef.current;
     playRef.current = state;
     if (state.anchorMs !== prev.anchorMs || state.manual !== prev.manual || state.playing !== prev.playing || state.crossedFromMs !== prev.crossedFromMs) {
@@ -137,9 +137,9 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
     stopRaf();
     let lastIdx = -1;
     const tick = () => {
-      const audio = audioRef.current;
-      if (audio && !audio.paused) {
-        const pos = Math.round(audio.currentTime * 1000);
+      const track = clipRef.current;
+      if (track && !track.isPaused()) {
+        const pos = track.positionMs();
         movePlayhead(pos);
         const idx = blockIndexAt(blocksRef.current, pos);
         if (idx !== lastIdx) {
@@ -154,27 +154,24 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
 
   // Swap in a (new) clip: rebuild the audio element, then analyse it (cache-first)
   const adoptBlob = useCallback((blob: Blob) => {
-    if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
-    audioRef.current?.pause();
-
-    const url = URL.createObjectURL(blob);
-    objectUrlRef.current = url;
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    applyPlaybackRate(audio, speedRef.current);
-    audio.onloadedmetadata = () => {
-      if (isFinite(audio.duration)) setMediaDurationMs(Math.round(audio.duration * 1000));
-    };
-    audio.onended = () => {
-      stopRaf();
-      dispatch({ type: 'ended' });
-      callbacksRef.current.onPlaybackEnded?.();
-    };
-    audio.onerror = () => {
-      stopRaf();
-      if (playRef.current.playing) dispatch({ type: 'pause', posMs: 0 });
-    };
-    audioRef.current = audio;
+    // (Re)made after an unmount's dispose — React's dev double-mount runs the cleanup once.
+    const track = clipRef.current ?? (clipRef.current = createMediaTrack());
+    track.load(blob, {
+      label: 'reader_page',
+      onLoaded: (ms) => {
+        if (ms > 0) setMediaDurationMs(ms);
+      },
+      onEnded: () => {
+        stopRaf();
+        dispatch({ type: 'ended' });
+        callbacksRef.current.onPlaybackEnded?.();
+      },
+      onError: () => {
+        stopRaf();
+        if (playRef.current.playing) dispatch({ type: 'pause', posMs: 0 });
+      },
+    });
+    track.setRate(speedRef.current);
     setStatus('ready');
     void analyzeReaderClip(readerTtsKey(page), blob).then(setAnalysis);
   }, [dispatch, page, stopRaf]);
@@ -192,8 +189,8 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
     return () => {
       cancelled = true;
       cancelAnimationFrame(rafRef.current);
-      audioRef.current?.pause();
-      if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
+      clipRef.current?.dispose();
+      clipRef.current = null;
     };
     // The component is keyed by page id — mount-only is intentional.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,7 +198,7 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
 
   // The speed chip: applied to the clip as it plays (no restart, pitch kept)
   useEffect(() => {
-    if (audioRef.current) applyPlaybackRate(audioRef.current, speed);
+    clipRef.current?.setRate(speed);
   }, [speed]);
 
   // Park the playhead on the anchor whenever the clip's length becomes known
@@ -302,25 +299,19 @@ export function ReaderAudioScrubber({ page, autoPlay = false, onPlaybackEnded, o
   }, [status, dispatch, msAt]);
 
   const start = useCallback(async () => {
-    const audio = audioRef.current;
-    if (!audio) return false;
-    const from = playRef.current.anchorMs;
-    audio.currentTime = from / 1000;
-    try {
-      await audio.play();
-      dispatch({ type: 'play' });
-      startRaf();
-      return true;
-    } catch {
-      // Autoplay refused / decode error: stay stopped
-      return false;
-    }
+    const track = clipRef.current;
+    if (!track?.hasSource()) return false;
+    track.seek(playRef.current.anchorMs);
+    // Autoplay refused / decode error: stay stopped
+    if (!(await track.play())) return false;
+    dispatch({ type: 'play' });
+    startRaf();
+    return true;
   }, [dispatch, startRaf]);
 
   const stop = useCallback(() => {
-    const audio = audioRef.current;
     const pos = positionMs();
-    audio?.pause();
+    clipRef.current?.pause();
     stopRaf();
     if (playRef.current.playing) dispatch({ type: 'pause', posMs: pos });
   }, [dispatch, stopRaf, positionMs]);
