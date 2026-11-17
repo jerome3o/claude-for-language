@@ -440,6 +440,7 @@
 }
 a.home-bumped-link {
   display: flex;
+  gap: 0.3rem;
   align-items: center;
   justify-content: center;
   min-height: 44px;
