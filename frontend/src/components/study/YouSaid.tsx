@@ -269,9 +269,10 @@ export interface YouSaidRowProps {
  *
  *   ( ▶ )  You said 朗 lǎng  [≈ Close — tones off]  ( ✎ )
  *
- * What was said is marked character by character (shared/cards/spoken-result.ts): "Sounded right"
- * marks the characters written differently in yellow with a dotted underline (the chip stays ✓);
- * close / didn't match mark the characters not in the answer red with a solid underline. The chip
+ * What was said is marked character by character (shared/cards/spoken-result.ts), colour only (the slim
+ * answer diff's `--mark-*` tokens, no underline or box): "Sounded right" leaves the characters written
+ * differently unmarked (it counts; the chip says so); close / didn't match is the slim diff — wrong rose,
+ * tone off amber, extra violet, missing grey. The chip
  * has its own icon and words; a screen reader hears the whole row as one sentence
  * (`spokenResultLabel`). Lab: `SpokenResultRow` in ui/study/YouSaidBox.kt.
  */
