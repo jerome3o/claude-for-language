@@ -18,25 +18,25 @@ interface Note {
   fun_facts: string | null;
 }
 
+/** One rating button's FSRS preview (shared/scheduler getIntervalPreviews, computed by the server). */
+interface IntervalPreview {
+  intervalText: string;
+  queue: number;
+}
+
 interface Card {
   id: string;
   card_type: 'hanzi_to_meaning' | 'meaning_to_hanzi' | 'audio_to_hanzi';
   note: Note;
   queue: number;
-  ease_factor: number;
-  interval: number;
-}
-
-interface IntervalPreview {
-  intervalText: string;
-  queue: number;
+  /** Again / Hard / Good / Easy (0–3) → the interval this card would get. */
+  previews: Record<number, IntervalPreview>;
 }
 
 interface StudyData {
   deck: { id: string; name: string };
   cards: Card[];
   counts: { new: number; learning: number; review: number };
-  intervalPreviews: Record<number, IntervalPreview>;
 }
 
 // Card type display info
@@ -90,6 +90,20 @@ let currentCardIndex = 0;
 let startTime = 0;
 let cardsStudied = 0;
 let isSubmitting = false;
+
+// The word's own clip (the app's TTS) when it has one, else the device's Chinese voice.
+let audioEl: HTMLAudioElement | null = null;
+function playWord(note: Note) {
+  if (!note.audio_url) {
+    speakChinese(note.hanzi);
+    return;
+  }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  if (!audioEl) audioEl = new Audio();
+  audioEl.pause();
+  audioEl.src = note.audio_url;
+  audioEl.play().catch(() => speakChinese(note.hanzi));
+}
 
 // Speech synthesis for audio
 function speakChinese(text: string) {
@@ -215,7 +229,7 @@ function showCardFront() {
     case 'audio_to_hanzi':
       elements.cardContent.textContent = '🔊';
       // Auto-play audio
-      setTimeout(() => speakChinese(card.note.hanzi), 100);
+      setTimeout(() => playWord(card.note), 100);
       break;
   }
 
@@ -224,15 +238,10 @@ function showCardFront() {
     setTimeout(() => elements.typeInput.focus(), 100);
   }
 
-  // Update interval previews
-  if (studyData.intervalPreviews) {
-    for (let i = 0; i < 4; i++) {
-      const preview = studyData.intervalPreviews[i];
-      const el = document.getElementById(`interval-${i}`);
-      if (el && preview) {
-        el.textContent = preview.intervalText;
-      }
-    }
+  // This card's own interval previews
+  for (let i = 0; i < 4; i++) {
+    const el = document.getElementById(`interval-${i}`);
+    if (el) el.textContent = card.previews?.[i]?.intervalText ?? '';
   }
 }
 
@@ -272,7 +281,7 @@ function showCardBack() {
   }
 
   // Play audio on reveal
-  speakChinese(card.note.hanzi);
+  playWord(card.note);
 }
 
 // Handle rating submission
@@ -302,15 +311,12 @@ async function submitRating(rating: number) {
 
     // Update counts from response
     if (result.structuredContent) {
-      const response = result.structuredContent as { counts?: StudyData['counts']; intervalPreviews?: Record<number, IntervalPreview> };
+      const response = result.structuredContent as { counts?: StudyData['counts'] };
       if (response.counts) {
         updateQueueCounts(response.counts);
         if (studyData) {
           studyData.counts = response.counts;
         }
-      }
-      if (response.intervalPreviews && studyData) {
-        studyData.intervalPreviews = response.intervalPreviews;
       }
     }
 
@@ -426,14 +432,14 @@ elements.typeInput.addEventListener('keydown', (e) => {
 elements.playAudioBtn.addEventListener('click', () => {
   if (studyData) {
     const card = studyData.cards[currentCardIndex];
-    speakChinese(card.note.hanzi);
+    playWord(card.note);
   }
 });
 
 elements.playAudioBackBtn.addEventListener('click', () => {
   if (studyData) {
     const card = studyData.cards[currentCardIndex];
-    speakChinese(card.note.hanzi);
+    playWord(card.note);
   }
 });
 
