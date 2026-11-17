@@ -599,6 +599,13 @@ export function StudyCard({
   // The round's exercises as shown + each one's last result: the answer side outlines those sentences,
   // opened, at the top (docs/STUDY_SESSION.md "Sentence round"); a resumed round shows the same ones.
   const [roundLog, setRoundLog] = useState<RoundLogEntry[]>(() => restored.point?.round_log ?? []);
+  // A listening card's "Listen in context" rows as this showing offered them (shared/study/listenContext.ts):
+  // kept here so a peek back, the round and a resume show the same ones, and the answer side's list starts
+  // with them in the same order (shared/study/answerOrder.ts, docs/STUDY_SESSION.md).
+  const [listenShown, setListenShown] = useState<string[] | null>(() => restored.point?.listen_shown ?? null);
+  const onListenShown = useCallback((keys: string[]) => {
+    setListenShown((prev) => (prev && prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys));
+  }, []);
   const onRoundPicked = useCallback((ids: string[]) => {
     setRoundLog((prev) => ids.map((id) => prev.find((e) => e.id === id) ?? { id }));
   }, []);
@@ -799,8 +806,9 @@ export function StudyCard({
       ...(feedbackOpen ? { feedback_open: true } : {}),
       ...(gaveUp ? { gave_up: true } : {}),
       ...(roundLog.length ? { round_log: roundLog } : {}),
+      ...(listenShown?.length ? { listen_shown: listenShown } : {}),
     });
-  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys, feedbackOpen, gaveUp, roundLog]);
+  }, [scope, card.id, flipped, userAnswer, startTime, roundOpen, gateKeys, feedbackOpen, gaveUp, roundLog, listenShown]);
   const savePointRef = useRef(savePoint);
   savePointRef.current = savePoint;
   useEffect(() => { savePoint(); }, [savePoint]);
@@ -1709,6 +1717,8 @@ export function StudyCard({
               autoplay={!flipped && playedAudioForRef.current !== card.id}
               onAutoplayed={() => { playedAudioForRef.current = card.id; }}
               onStats={onListenStats}
+              shownKeys={listenShown}
+              onShown={onListenShown}
               wordNote={
                 <>
                   {wordAudioComing && recordings.length === 0 && (
@@ -3541,6 +3551,7 @@ export function StudyCard({
                     onPractiseRight={onSentenceRight}
                     onRowCount={setSentenceCount}
                     roundRows={roundMarks}
+                    questionOrder={listenShown ?? undefined}
                   />
                 </div>
               </div>

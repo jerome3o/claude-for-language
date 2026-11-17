@@ -48,20 +48,38 @@ class ThemeContrastTest {
         top.blue * top.alpha + under.blue * (1 - top.alpha),
     )
 
-    /** 🎤 Read it aloud's marks (Jerome, dark mode: "pretty scuffed and hard to read"): visible marks, readable ink. */
-    private fun checkMarks(name: String, c: LabColors) {
-        for ((mark, tint) in listOf("tone" to (c.markTone to c.markToneTint), "wrong" to (c.markWrong to c.markWrongTint))) {
-            val bg = over(tint.second, c.card)
-            assertTrue("$name $mark mark on the card", ratio(tint.first, c.card) >= 3.0)
-            assertTrue("$name $mark mark on its tint", ratio(tint.first, bg) >= 3.0)
-            val ink = ratio(c.ink, bg)
-            assertTrue("$name ink on the $mark tint = ${"%.2f".format(ink)}:1 (needs ≥ 4.5)", ink >= 4.5)
+    /**
+     * The answer diff's marks — COLOUR ONLY since Nov 2026 (Jerome: "we don't need the outlines and the color and the
+     * underlines … make the colors a little bit more subtle as well. Not too subtle"): each mark is the character's own
+     * colour, so it must read as text (≥ 4.5:1) on the card, the page and a result surface's tint ("You said" sits on
+     * one), stay apart from the body ink, and the four stay apart from each other. Web twin: theme/answerMarks.test.ts.
+     */
+    private fun checkMarks(name: String, c: LabColors, wrongTone: Color, closeTone: Color) {
+        val marks = listOf("wrong" to c.markWrong, "tone" to c.markTone, "extra" to c.markExtra, "missing" to c.markMissing)
+        val surfaces = listOf(
+            "card" to c.card, "background" to c.background,
+            "wrong surface" to over(wrongTone.copy(alpha = 0.08f), c.card), "close surface" to over(closeTone.copy(alpha = 0.08f), c.card),
+        )
+        for ((mark, color) in marks) {
+            for ((s, bg) in surfaces) {
+                val r = ratio(color, bg)
+                assertTrue("$name $mark on the $s = ${"%.2f".format(r)}:1 (needs ≥ 4.5)", r >= 4.5)
+            }
+            assertTrue("$name $mark vs the ink", ratio(color, c.ink) >= 1.5)
+        }
+        for ((i, a) in marks.withIndex()) for (b in marks.drop(i + 1)) {
+            val d = kotlin.math.sqrt(
+                ((a.second.red - b.second.red) * 255).toDouble().pow(2) + ((a.second.green - b.second.green) * 255).toDouble().pow(2) +
+                    ((a.second.blue - b.second.blue) * 255).toDouble().pow(2),
+            )
+            assertTrue("$name ${a.first} vs ${b.first} too alike", d > 60)
         }
     }
 
-    @Test fun readAloudMarksReadInBothThemes() {
-        checkMarks("dark", LabDarkColors)
-        checkMarks("light", LabLightColors)
+    @Test fun answerDiffMarksReadInBothThemes() {
+        // The result surfaces' colours (ResultColors.tone(WRONG / CLOSE)).
+        checkMarks("dark", LabDarkColors, Color(0xFFEF4444), Color(0xFFFACC15))
+        checkMarks("light", LabLightColors, Color(0xFFDC2626), Color(0xFFEAB308))
     }
 
     @Test fun darkButtonsHaveVisibleOutlines() = check("dark", LabDarkColors)

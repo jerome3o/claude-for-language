@@ -140,7 +140,7 @@ class SpokenAnswerUiTest : LabScreenshotTest() {
         compose.onNodeWithTag("$SPOKEN_RESULT_TAG-wrong").assertExists()
         // The chip is the slim diff's ONE short line; the row is lined up with the answer.
         compose.onNode(androidx.compose.ui.test.hasText("2 wrong characters, 1 extra") and androidx.compose.ui.test.hasAnyAncestor(hasTestTag("$SPOKEN_RESULT_TAG-wrong")), useUnmergedTree = true).assertExists()
-        compose.onNodeWithContentDescription("You said 他很高 (tā hěn gāo). Didn’t match. 2 wrong characters, 1 extra.").assertExists()
+        compose.onNodeWithContentDescription("You said 他很高 (tā hěn gāo). Didn’t match. 2 wrong characters, 1 extra. Wrong: 他很. Extra: 高.").assertExists()
     }
 
     @Test fun theReviewShowsWhatWasSaidReadOnlyWithRetryEditSubmit() {

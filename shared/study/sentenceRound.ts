@@ -26,6 +26,7 @@ import { isContrivedSentence, naturalSentencesFirst } from './sentenceFocus';
 import { hasHan, type AnswerCheck, type AnswerCheckInput, type AnswerCheckVerdict } from '../lesson/answerCheck';
 import { scrubSpokenTranscript } from '../cards/answer';
 import { practiseSentence } from '../coach/practise';
+import { answerSentenceOrder } from './answerOrder';
 
 /** How many exercises a round offers at most (2 read / listen + 2 translate, one sentence each). */
 export const SENTENCE_ROUND_SIZE = 4;
@@ -487,10 +488,7 @@ export function roundRowMarks(log: readonly RoundLogEntry[], rightIds: readonly 
 
 /** The answer side's order: the round's sentences first (in the round's order), then the rest as they were. */
 export function orderKeysForRound(keys: readonly string[], marks: readonly RoundRowMark[]): string[] {
-  const present = new Set(keys);
-  const first = marks.map((m) => m.key).filter((k) => present.has(k));
-  const firstSet = new Set(first);
-  return [...first, ...keys.filter((k) => !firstSet.has(k))];
+  return answerSentenceOrder(keys, marks.map((m) => m.key));
 }
 
 /**

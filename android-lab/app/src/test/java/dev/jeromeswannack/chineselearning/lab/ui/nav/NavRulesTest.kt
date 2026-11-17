@@ -43,7 +43,7 @@ class NavRulesTest {
     }
 
     @Test fun tabSets() {
-        assertEquals(listOf("Study", "Chats", "Claude", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
+        assertEquals(listOf("Study", "Chats", "Add", "Progress", "More"), labels(NavRole(hasStudents = false, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Study", "More"), labels(NavRole(hasStudents = true, isTutorOnly = true)))
         assertEquals(listOf("Students", "Chats", "Study", "Progress", "More"), labels(NavRole(hasStudents = true, isTutorOnly = false)))
         assertEquals(listOf("Students", "Chats", "Decks", "Library", "More"), labels(NavRole(hasStudents = true, isTutorAccount = true)))
@@ -58,7 +58,7 @@ class NavRulesTest {
             "/generate" to TabId.MORE, "/search" to TabId.MORE, "/connections" to TabId.MORE, "/connections/1" to TabId.MORE, "/connections/1/insights" to TabId.MORE, "/progress/day/2026-01-01" to TabId.PROGRESS,
             "/more" to TabId.MORE, "/settings/sentences" to TabId.MORE, "/coach" to TabId.MORE, "/lesson-notes" to TabId.MORE,
             "/decks?q=打算" to TabId.MORE, "/audio-lessons" to TabId.MORE, "/podcasts" to TabId.MORE, "/podcasts/feed?url=x" to TabId.MORE, "/chats" to TabId.CHATS, "/chats?q=x" to TabId.CHATS,
-            "/claude" to TabId.CLAUDE, "/chats/claude/new" to TabId.CHATS,
+            "/add" to TabId.ADD, "/chats/claude/new" to TabId.CHATS,
         ).forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
         assertNull(NavRules.activeTab(tabs, "/join/xyz"))
     }
@@ -76,19 +76,20 @@ class NavRulesTest {
 
     @Test fun learnerTabsHaveNoTutorTab() {
         // Jerome, Nov 2026: the Tutor tab was a dud — the tutor is in Chats, connections in More.
-        assertEquals(listOf("Study", "Chats", "Claude", "Progress", "More"), NavRules.tabsFor(NavRole()).map { it.label })
+        assertEquals(listOf("Study", "Chats", "Add", "Progress", "More"), NavRules.tabsFor(NavRole()).map { it.label })
         assertEquals(NavRules.LEARNER_TABS, NavRules.tabsFor(NavRole()))
         // Accounts with students keep the Students tab on /connections.
         val withStudents = NavRules.deriveNavRole(rels(students = listOf(rel("active"))), 2, 5)
         assertEquals(TabId.STUDENTS, NavRules.activeTab(NavRules.tabsFor(withStudents), "/connections/1"))
     }
 
-    /** The learner's ✦ Claude tab (Jerome, Nov 2026): /claude, between Chats and Progress; learners only. */
-    @Test fun claudeTabIsTheLearnersOnly() {
-        assertEquals(NavRules.CLAUDE, NavRules.tabsFor(NavRole())[2])
-        assertEquals("/claude", NavRules.CLAUDE.to)
+    /** The learner's ＋ Add tab (docs/ADD_TAB.md): /add, between Chats and Progress; learners only. */
+    @Test fun addTabIsTheLearnersOnly() {
+        assertEquals(NavRules.ADD, NavRules.tabsFor(NavRole())[2])
+        assertEquals("/add", NavRules.ADD.to)
+        assertEquals("Add", NavRules.ADD.label)
         listOf(NavRole(hasStudents = true), NavRole(hasStudents = true, isTutorOnly = true), NavRole(isTutorAccount = true)).forEach { role ->
-            assertFalse(role.toString(), NavRules.tabsFor(role).any { it.id == TabId.CLAUDE })
+            assertFalse(role.toString(), NavRules.tabsFor(role).any { it.id == TabId.ADD })
         }
     }
 
@@ -104,7 +105,7 @@ class NavRulesTest {
         mapOf("/decks" to TabId.DECKS, "/decks/d1" to TabId.DECKS, "/decks?q=打算" to TabId.DECKS, "/generate" to TabId.DECKS, "/more" to TabId.MORE, "/settings" to TabId.MORE)
             .forEach { (path, id) -> assertEquals(path, id, NavRules.activeTab(tabs, path)) }
         val student = NavRules.deriveNavRole(rels(), 2, 5, accountRole = "student")
-        assertEquals(listOf(TabId.STUDY, TabId.CHATS, TabId.CLAUDE, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
+        assertEquals(listOf(TabId.STUDY, TabId.CHATS, TabId.ADD, TabId.PROGRESS, TabId.MORE), NavRules.tabsFor(student).map { it.id })
         assertTrue(NavRules.isImmersiveRoute("/decks/d1/try"))
         assertTrue(NavRules.isImmersiveRoute("/library/l1/try"))
         assertFalse(NavRules.isImmersiveRoute("/decks/d1"))

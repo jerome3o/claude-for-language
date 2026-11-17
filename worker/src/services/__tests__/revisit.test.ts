@@ -1,14 +1,8 @@
-/** "Revisit later" on the server: settings + Done-for-good events against real SQLite (every migration). */
+/** The legacy Done-for-good marks on the server against real SQLite (every migration). */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSqliteD1, type SqliteD1 } from './sqlite-d1';
-import {
-  addRevisitEvents,
-  getRevisitSettingsInfo,
-  listRevisitEvents,
-  revisitSummaries,
-  setRevisitSettings,
-} from '../revisit';
-import { DEFAULT_REVISIT_SETTINGS } from '@shared/study/revisit';
+import { addRevisitEvents, listRevisitEvents, LEGACY_REVISIT_SETTINGS } from '../revisit';
+import revisitRoutes from '../../routes/revisit';
 
 let db: SqliteD1;
 const exec = (sql: string, ...params: (string | number | null)[]) => db.raw.run(sql, params);
@@ -21,14 +15,12 @@ beforeEach(async () => {
   exec("INSERT INTO graded_readers (id, user_id, title_chinese, title_english, difficulty_level, source_deck_ids, vocabulary_used) VALUES ('r1', 'u1', '小猫', 'Kitten', 'beginner', '[]', '[]')");
 });
 
-describe('revisit settings', () => {
-  it('defaults until changed; null / reset goes back to the defaults (stored as NULL)', async () => {
-    expect(await getRevisitSettingsInfo(db, 'u1')).toEqual({ ...DEFAULT_REVISIT_SETTINGS, is_default: true });
-    const saved = await setRevisitSettings(db, 'u1', { good_days: 10, growth: 1.5 });
-    expect(saved).toMatchObject({ good_days: 10, growth: 1.5, is_default: false });
-    expect(await getRevisitSettingsInfo(db, 'u1')).toMatchObject({ good_days: 10, growth: 1.5 });
-    await setRevisitSettings(db, 'u1', { good_days: null, growth: null });
-    expect(db.rows<{ revisit_settings: string | null }>("SELECT revisit_settings FROM users WHERE id = 'u1'")[0].revisit_settings).toBeNull();
+describe('legacy settings (older app builds)', () => {
+  it('PUT /profile/revisit-settings is a harmless no-op answering the old defaults', async () => {
+    const res = await revisitRoutes.request('/profile/revisit-settings', { method: 'PUT', body: JSON.stringify({ good_days: 10 }), headers: { 'Content-Type': 'application/json' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ hard_days: 2, good_days: 14, easy_days: 42, growth: 2, cap_days: 180, new_lessons_per_day: 1, is_default: true });
+    expect(LEGACY_REVISIT_SETTINGS.is_default).toBe(true);
   });
 });
 
@@ -45,17 +37,5 @@ describe('revisit events', () => {
     await addRevisitEvents(db, 'u1', [{ id: 'e1', item_kind: 'lesson', item_id: 'l1', action: 'retire', created_at: at }]);
     expect((await listRevisitEvents(db, 'u1')).map(e => e.id)).toEqual(['e1', 'e2']);
     expect(await listRevisitEvents(db, 'u2')).toEqual([]);
-  });
-
-  it('summaries for the tutor: next revisit from the ratings, done for good from the events', async () => {
-    exec("INSERT INTO custom_lesson_completions (id, user_id, lesson_id, correct, total, completed_at, rating) VALUES ('c1', 'u1', 'l1', 1, 1, '2026-10-01T09:00:00.000Z', 2)");
-    exec("INSERT INTO reader_review_events (id, user_id, reader_id, rating, reviewed_at) VALUES ('rv1', 'u1', 'r1', 3, '2026-10-01T09:00:00.000Z')");
-    let s = await revisitSummaries(db, 'u1', 'lesson', ['l1']);
-    expect(s.get('l1')).toEqual({ next_revisit_at: '2026-10-15T09:00:00.000Z', retired: false });
-    s = await revisitSummaries(db, 'u1', 'reader', ['r1']);
-    expect(s.get('r1')).toEqual({ next_revisit_at: '2026-11-12T09:00:00.000Z', retired: false });
-    await addRevisitEvents(db, 'u1', [{ id: 'x', item_kind: 'lesson', item_id: 'l1', action: 'retire', created_at: '2026-10-02T00:00:00.000Z' }]);
-    s = await revisitSummaries(db, 'u1', 'lesson', ['l1']);
-    expect(s.get('l1')).toEqual({ next_revisit_at: null, retired: true });
   });
 });

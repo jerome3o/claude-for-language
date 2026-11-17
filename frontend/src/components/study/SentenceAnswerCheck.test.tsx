@@ -169,10 +169,17 @@ describe('Hard mode: a sentence answer checked by Claude', () => {
     await flush();
     expect(q('hard-feedback')!.dataset.result).toBe('close');
     expect(q('answer-check')!.dataset.verdict).toBe('almost');
-    // Slim: Claude's verdict is the line's chip; no tips, no alternative, no explanation.
+    // Slim: Claude's verdict is the line's chip, ONE why sentence under the diff; its tip and the alternative only
+    // behind "Explain more ›" (Jerome: "one sentence as to why my answer is also okay or why it's wrong").
     expect(q('answer-diff-line')!.textContent).toBe('≈ Almost · 3 wrong characters, 1 missing');
-    expect(host.textContent).not.toContain('因为 gives a reason');
+    expect(q('answer-why-text')!.textContent).toBe('Clear meaning — but 因为 gives a reason, not a purpose.');
+    expect(host.textContent).not.toContain('是为了 for');
     expect(host.textContent).not.toContain('Also natural');
+    act(() => q('answer-why-more')!.click());
+    expect(q('answer-why-detail')!.textContent).toContain('Use 是为了 for "so that / in order to".');
+    expect(q('answer-why-detail')!.textContent).toContain('Also natural: 我早上喝咖啡，这样上班就不困了。');
+    // Claude's fix IS the card's answer, shown above: never repeated under Explain more.
+    expect(q('answer-why-detail')!.textContent).not.toContain('Corrected');
     // The card's answer stays THE answer: Claude's fix (here the card's own sentence) is not shown again.
     expect(q('difference-model')!.textContent).toContain(MODEL);
     expect(host.querySelector('.answer-check-fix')).toBeNull();

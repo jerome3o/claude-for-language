@@ -159,6 +159,12 @@ data class CardStartState(
     val gaveUp: Boolean = false,
     /** The round's exercises as shown + each one's last result (the answer side outlines them; the round comes back the same). */
     val roundLog: List<SentenceRound.LogEntry> = emptyList(),
+    /**
+     * A listening card's "Listen in context" rows as this showing offered them (core ListenContext.pick): the
+     * question comes back with the same ones in the same order, and the answer side's list starts with them
+     * (core AnswerOrder).
+     */
+    val listenShown: List<String> = emptyList(),
 )
 
 /** Claude's check of one answer (core SentenceAnswerCheck): [key] = its cache text; [check] null + !checking = none to be had. */
@@ -268,7 +274,8 @@ fun CardStage(
 
     // A listening card's question is "Listen in context" (ListenContextUi.kt): auto-play is the
     // FIRST SENTENCE with a clip, the word only when no sentence has one (core ListenContext.autoplay).
-    val listen = remember(view.presentation) { ListenState() }
+    // The same showing again (back from the coach / Home, a resume): its rows as they were, never re-picked.
+    val listen = remember(view.presentation) { ListenState().apply { if (start.listenShown.isNotEmpty()) shownKeys = start.listenShown } }
     val currentView by rememberUpdatedState(view)
     val currentUi by rememberUpdatedState(ui)
     val isCurrent: () -> Boolean = { currentView.presentation == view.presentation }
@@ -335,7 +342,10 @@ fun CardStage(
     }
     LaunchedEffect(view.presentation, noteStats != null) {
         val stats = noteStats ?: return@LaunchedEffect
-        if (view.card.cardType != CardTypes.AUDIO_TO_HANZI || listen.shownKeys != null) return@LaunchedEffect
+        if (view.card.cardType != CardTypes.AUDIO_TO_HANZI) return@LaunchedEffect
+        // A kept pick none of whose sentences is still there (a regenerated set): pick afresh.
+        if (listen.shownKeys != null && listenShown(currentView, listen).isEmpty() && listenRows(currentView).isNotEmpty()) listen.shownKeys = null
+        if (listen.shownKeys != null) return@LaunchedEffect
         val shownStore = dev.jeromeswannack.chineselearning.lab.data.sentences.ListenShownStore
         freezeListenPick(currentView, listen, stats, shownStore.last(labApp, note.id)) { pick ->
             if (pick.rows.isNotEmpty()) shownStore.remember(labApp, note.id, pick.rows.map { it.key })
@@ -739,6 +749,10 @@ fun CardStage(
     val passGotItLocked = pass != null && gaveUp && gateEnabled
     // The round's sentences on the answer side: on top, opened, outlined with how each went.
     val roundMarks = if (roundLog.isEmpty()) emptyList() else SentenceRound.rowMarks(roundLog.toList(), practise.rightKeys.toList())
+    // Listen in context's rows as on screen (the pick + "+ More sentences"): the answer side's list starts with
+    // them in the same order (core AnswerOrder), and the resume point keeps them for this showing.
+    val listenOrder = if (view.card.cardType == CardTypes.AUDIO_TO_HANZI) listenShown(view, listen).map { it.key } else emptyList()
+    LaunchedEffect(view.presentation, listenOrder) { if (listenOrder.isNotEmpty()) actions.onCardListen(view.presentation, listenOrder) }
     // A sentence said right: the line goes back to the count.
     LaunchedEffect(gate.got) { arm = null }
     var gateWasLocked by remember(view.presentation) { mutableStateOf(gate.locked) }
@@ -867,6 +881,7 @@ fun CardStage(
                             sentenceCheck = sentenceCheck, localVerdict = localVerdict, readChecking = readChecking, readClaude = readClaude,
                             celebrated = questionResult == "right",
                             canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory, roundMarks = roundMarks,
+                            questionOrder = listenOrder,
                             onLeech = {
                                 sheet = CardSheet.Leech
                                 dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("card.leech_open", mapOf("lapses" to view.card.state.lapses, "card_type" to view.card.cardType))
@@ -1411,6 +1426,8 @@ private fun CardBack(
     listHistory: SentenceListHistory? = null,
     /** The sentences of this showing's Sentence round: on top, opened, outlined (core SentenceRound.rowMarks). */
     roundMarks: List<SentenceRound.RowMark> = emptyList(),
+    /** The rows the question side showed on this showing, in its order ("Listen in context"): the list starts with them (core AnswerOrder). */
+    questionOrder: List<String> = emptyList(),
     /** Claude's check of this sentence answer (Hard mode's question; core SentenceAnswerCheck): kept on the answer side. */
     sentenceCheck: AnswerCheck? = null,
     /** The device's own verdict of the answer: the "You said" row compares the words with the card. */
@@ -1567,10 +1584,10 @@ private fun CardBack(
                 dev.jeromeswannack.chineselearning.lab.ui.homework.PassSentences(
                     key = view.presentation, rows = sentenceRows(view), deckId = note.deckId, online = ui.aiAvailable,
                     playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps().sentencesOutline(),
-                    practise = practise, roundMarks = roundMarks,
+                    practise = practise, roundMarks = roundMarks, questionOrder = questionOrder,
                 )
             } else {
-                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps().sentencesOutline(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList())
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps().sentencesOutline(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList(), questionOrder = questionOrder)
             }
         }
     }

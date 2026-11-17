@@ -6,8 +6,8 @@
  * signed-out state); tap again to stop, and the take is judged against the page's own Chinese. The
  * result marks the page's Chinese IN PLACE (ReaderWordsText `marks`) — no second copy — with ONE small,
  * muted line under the audio that says what differs ("≈ 85% — 1 wrong character, 1 tone off"; shared/cards/answer-diff.ts
- * `readAloudResultLine`, docs/STUDY_SESSION.md "Answer feedback: one line and a diff"), a tiny legend of the marks it shows (wavy = tone
- * off, solid = wrong, dashed = missed, ‸ = extra words; ReadAloud.css) and the transcript behind
+ * `readAloudResultLine`, docs/STUDY_SESSION.md "Answer feedback: one line and a diff"), a tiny legend of the marks it shows (a sample character in
+ * each mark's colour: amber = tone off, rose = wrong, grey = missed, violet ‸ = extra words; ReadAloud.css) and the transcript behind
  * "You said ▸" (`ReadAloudPanel`). A take never reveals a hidden page: the marks wait for the reveal and the
  * difference rows for "You said ▸" (`pageHidden`). 🎤 again replaces the result. Practice only: nothing is stored or queued
  * (offline → "Needs a connection to check your reading"). Lab: ui/readers/ReadAloud.kt.
@@ -296,13 +296,13 @@ export function ReadAloudPanel({ ra, onSpeak, listeningText = READ_ALOUD_LISTENI
   );
 }
 
-/** The transcript with what differs marked like the page (a homophone unmarked — it was right; extra words solid). */
+/** The transcript with what differs marked like the page, colour only (a homophone unmarked — it was right; extra words violet). */
 function HeardChars({ chars }: { chars: readonly ReadAloudHeardChar[] }) {
   return (
     <>
       {chars.map((c, i) => {
         if (c.mark === 'plain' || c.mark === 'ok' || c.mark === 'sound') return <span key={i}>{c.char}</span>;
-        const cls = c.mark === 'close' ? 'ra-close' : 'ra-wrong';
+        const cls = c.mark === 'close' ? 'ra-close' : c.mark === 'extra' ? 'ra-added' : 'ra-wrong';
         const title = c.mark === 'extra' ? 'extra — not on the page' : c.mark === 'close' ? 'tone off' : 'not what the page says';
         return <span key={i} className={`ra-char ${cls}`} data-mark={c.mark} title={title}>{c.char}</span>;
       })}
@@ -414,7 +414,7 @@ export function ReadAloudDifferences({ diffs, pageText = '', onSpeak }: {
   );
 }
 
-/** A sample of each mark the page shows, with its word ("‿ tone off · ▁ wrong · ╌ missed · ‸ extra words"). */
+/** A sample of each mark the page shows, with its word ("字 tone off · 字 wrong · 字 missed · ‸ extra words", each 字 in its colour). */
 export function ReadAloudLegend({ keys }: { keys: readonly ReadAloudLegendKey[] }) {
   if (keys.length === 0) return null;
   return (
@@ -424,7 +424,7 @@ export function ReadAloudLegend({ keys }: { keys: readonly ReadAloudLegendKey[] 
           {k === 'extra' ? (
             <span className="ra-swatch ra-extra" aria-hidden="true">‸</span>
           ) : (
-            <span className={`ra-swatch ra-char ra-${k}`} aria-hidden="true">{'\u00a0'.repeat(6)}</span>
+            <span className={`ra-swatch ra-char ra-${k}`} aria-hidden="true" lang="zh-CN">字</span>
           )}
           {READ_ALOUD_LEGEND[k]}
         </span>

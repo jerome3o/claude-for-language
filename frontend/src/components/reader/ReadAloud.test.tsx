@@ -94,7 +94,8 @@ const click = async (el: Element | null) => {
   await act(async () => (el as HTMLElement).click());
   await flush();
 };
-const NBSP6 = '\u00a0'.repeat(6);
+/** The legend's sample: a 字 in each mark's colour (colour only, no underline). */
+const SAMPLE = '字';
 const markOf = (ch: string) => [...host.querySelectorAll<HTMLElement>('.ra-char')].find((e) => e.textContent === ch)?.dataset.mark;
 
 beforeEach(async () => {
@@ -136,7 +137,7 @@ describe('🎤 Read it aloud', () => {
     expect(q('reader-read-aloud-line')?.textContent).toBe('✕ 42% — 3 characters missing, 1 tone off');
     // A tiny legend of the marks the page shows (徐 tone off, 早上好 missed), chips stepped back.
     expect([...host.querySelectorAll<HTMLElement>('[data-legend]')].map((e) => e.dataset.legend)).toEqual(['close', 'missed']);
-    expect(q('reader-read-aloud-legend')?.textContent).toBe(`${NBSP6}tone off${NBSP6}missed`);
+    expect(q('reader-read-aloud-legend')?.textContent).toBe(`${SAMPLE}tone off${SAMPLE}missed`);
     expect(q('reader-words')?.dataset.readAloud).toBe('marked');
     expect(q('reader-read-aloud-said')).toBeNull();
     await click(q('reader-read-aloud-said-toggle'));

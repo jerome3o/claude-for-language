@@ -28,6 +28,8 @@ import { spokenResult, spokenResultLabel } from '@shared/cards/spoken-result';
 import { READ_TAKE_CHECKING, READ_TAKE_CHIP } from '@shared/study/readTakeCheck';
 import { answerDiff, answerDiffLabel, answerDiffLine } from '@shared/cards/answer-diff';
 import { AnswerDiffChars } from './AnswerDiff';
+import { AnswerWhy } from './AnswerWhy';
+import { answerMore, answerWhy } from '@shared/cards/answer-why';
 import './YouSaid.css';
 import { RightMoment } from './RightMoment';
 import './AnswerDiff.css';
@@ -156,6 +158,10 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
   const diffLine = diff && !diff.empty ? answerDiffLine({ diff, accepted: claude?.state === 'match', headline: claude?.reason }) : null;
   const coach = state === 'contains' && onCoach;
   const waiting = checking && !claude;
+  // ONE why sentence under the diff (Claude's reason, else the device's own for a homophone) + "Explain more ›" for
+  // its tip (shared/cards/answer-why.ts).
+  const whyCheck = claude ? { headline: claude.reason, tips: claude.tip ? [{ text: claude.tip }] : [] } : null;
+  const why = diff ? answerWhy({ diff, check: whyCheck, line: diffLine }) : null;
   return (
     <Shell
       tone={waiting ? 'pending' : state}
@@ -187,6 +193,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           </div>
           {pinyin && <div className="you-said-pinyin" data-testid="you-said-pinyin">{tidyPinyin(pinyin)}</div>}
           <div className="you-said-reason" data-testid="you-said-reason">{diffLine}</div>
+          <AnswerWhy why={why} more={answerMore(whyCheck, why ?? claude?.reason ?? null, hanzi, expected ?? '')} surface="read_take" />
         </>
       ) : (
         <>
@@ -195,6 +202,7 @@ export function YouSaid({ hanzi, pinyin, isMatch, containsExpected, tonesOff = f
           {claude && claude.reason && (
             <div className="you-said-reason" data-testid="you-said-reason"><span lang="zh-CN">{claude.reason}</span></div>
           )}
+          {claude && <AnswerWhy why={null} more={answerMore(whyCheck, claude.reason, hanzi, expected ?? '')} surface="read_take" />}
         </>
       )}
     </Shell>
@@ -269,9 +277,10 @@ export interface YouSaidRowProps {
  *
  *   ( ▶ )  You said 朗 lǎng  [≈ Close — tones off]  ( ✎ )
  *
- * What was said is marked character by character (shared/cards/spoken-result.ts): "Sounded right"
- * marks the characters written differently in yellow with a dotted underline (the chip stays ✓);
- * close / didn't match mark the characters not in the answer red with a solid underline. The chip
+ * What was said is marked character by character (shared/cards/spoken-result.ts), colour only (the slim
+ * answer diff's `--mark-*` tokens, no underline or box): "Sounded right" leaves the characters written
+ * differently unmarked (it counts; the chip says so); close / didn't match is the slim diff — wrong rose,
+ * tone off amber, extra violet, missing grey. The chip
  * has its own icon and words; a screen reader hears the whole row as one sentence
  * (`spokenResultLabel`). Lab: `SpokenResultRow` in ui/study/YouSaidBox.kt.
  */

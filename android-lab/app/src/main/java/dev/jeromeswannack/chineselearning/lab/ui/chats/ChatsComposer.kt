@@ -2,6 +2,8 @@ package dev.jeromeswannack.chineselearning.lab.ui.chats
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,14 @@ object ChatsCompose {
     const val OFFLINE_NOTE = "Offline — it will be sent to Claude when you're back online."
 
     /**
+     * The chips over a learner's box (web chatsComposerChips): the general chat's 实用的句子 A useful
+     * phrase · 考考我 Quiz me · 小故事 A short story — the ✦ Claude tab's, moved here when the tab became
+     * ＋ Add (docs/ADD_TAB.md). None in the compact tutor box.
+     */
+    fun chips(language: String, compact: Boolean): List<ClaudeChats.Chip> =
+        if (compact) emptyList() else ClaudeChats.chipsFor(ClaudeChats.Context(ClaudeChats.GENERAL), language)
+
+    /**
      * Port of chatsComposerFor: a new general chat's buttons (Ask + ✏️ Check / 🔍 Explain for Chinese,
      * 🔤 Translate for English); [compact] (the tutor's view) = Ask + Translate only.
      */
@@ -56,6 +66,8 @@ class ChatsComposeActions(
     val onDraft: (String) -> Unit = {},
     /** text, intent (ask · check · explain · translate), spoken. */
     val onSendToClaude: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    /** A suggestion chip (learners only): its question as a new thread. Null = no chips. */
+    val onChip: ((ClaudeChats.Chip) -> Unit)? = null,
 )
 
 object ChatsComposeTags {
@@ -63,6 +75,8 @@ object ChatsComposeTags {
     const val INTENTS = "chats-compose-intents"
     const val ERROR = "chats-compose-error"
     const val OFFLINE = "chats-compose-offline"
+    const val CHIPS = "chats-composer-chips"
+    fun chip(id: String) = "chats-chip-$id"
     fun intent(id: String) = "chats-compose-$id"
 }
 
@@ -105,6 +119,12 @@ fun ChatsComposer(ui: ChatsUi, actions: ChatsComposeActions, compact: Boolean, v
         Modifier.fillMaxWidth().background(Lab.colors.background).padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 6.dp).testTag(ChatsComposeTags.ROOT),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        val chips = if (actions.onChip != null) ChatsCompose.chips(ui.language, compact) else emptyList()
+        if (chips.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag(ChatsComposeTags.CHIPS), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (c in chips) ComposerChip(c.label, ChatsComposeTags.chip(c.id), !ui.sending) { actions.onChip?.invoke(c) }
+            }
+        }
         VoiceTextFieldContent(
             ui = voiceUi,
             value = ui.draft,
@@ -131,6 +151,16 @@ fun ChatsComposer(ui: ChatsUi, actions: ChatsComposeActions, compact: Boolean, v
         ui.sendError?.let { Text(it, fontSize = 14.sp, color = Lab.colors.ink, modifier = Modifier.testTag(ChatsComposeTags.ERROR)) }
         if (ui.offline) Text(ChatsCompose.OFFLINE_NOTE, fontSize = 13.sp, color = Lab.colors.muted, modifier = Modifier.testTag(ChatsComposeTags.OFFLINE))
     }
+}
+
+/** A suggestion chip (the thread screen's look): a quiet pill, 44 dp. */
+@Composable
+private fun ComposerChip(label: String, tag: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.heightIn(min = 44.dp).clip(RoundedCornerShape(50)).background(Lab.colors.faint).border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(50))
+            .alpha(if (enabled) 1f else 0.45f).bouncyClickable(enabled, 0.95f, onClick = onClick).padding(horizontal = 14.dp).testTag(tag),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = Lab.colors.ink, fontSize = 14.sp, maxLines = 1) }
 }
 
 /** ✏️ Check / 🔍 Explain / 🔤 Translate: quiet outlined pills (no accent colour), 44 dp. */

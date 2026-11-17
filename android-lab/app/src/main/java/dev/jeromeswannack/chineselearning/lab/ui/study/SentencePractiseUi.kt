@@ -361,16 +361,18 @@ fun SentencePractiseOutcome(
                 if (view?.compare == true) DifferenceCompare(
                     t.take.practised.said, row.hanzi, row.pinyin, accepted = accepted, onPlayModel = onPlayModel,
                     verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline, hideLine = accepted,
+                    check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(claude.check),
                 ) else AnswerCheckBody(claude.check, t.take.practised.said, onPlay = onSpeak)
             }
         } else if (claude is SentenceClaude.Done) {
             Column(Modifier.testTag(SentencePractiseTags.VERDICT)) {
-                // Slim: one line with Claude's chip and his take marked against the sentence — no tips, no fix.
+                // Slim: one line with Claude's chip, his take marked against the sentence, ONE why (tips behind Explain more).
                 val verdict = claude.check.verdict
                 AnswerDiffView(
                     t.take.practised.said, row.hanzi, showExpected = false,
                     accepted = verdict == "correct" || verdict == "acceptable",
                     verdict = AnswerDiff.verdict(verdict), headline = claude.check.headline,
+                    check = dev.jeromeswannack.chineselearning.lab.core.AnswerWhy.of(claude.check), whySurface = "sentence_translate",
                 )
             }
         } else {

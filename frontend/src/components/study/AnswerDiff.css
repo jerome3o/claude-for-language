@@ -1,28 +1,21 @@
 /* The slim answer feedback (components/study/AnswerDiff.tsx, shared/cards/answer-diff.ts).
-   Calm, not boxed: a small line, the answer once, his answer marked. Every mark is a SHAPE as well as a colour
-   (Jerome is red / green colour-blind and reads it in dark mode), the reader's read-aloud language:
-   - wrong:   rose tint + thick solid underline (the character in rose);
-   - tone:    a lemon wavy underline, the character in body ink;
-   - extra:   a yellow highlight in a solid amber box (never a strike) ("take this out");
-   - missing: the expected character, muted, in a dashed box ("this goes here");
-   - sound:   a faint dotted underline (a homophone — right).
-   Lab twin: LabColors.mark* (ui/theme/Theme.kt) + ui/study/AnswerDiffView.kt. */
+   Calm, not boxed: a small line, the answer once, his answer marked. The marks are COLOUR ONLY (Jerome, Nov 2026:
+   "the circling and the underlining as well as the color is a bit too much … just make it the color and then also
+   make the colors a little bit more subtle"): the character itself in its mark's colour — no box, no tint, no
+   underline. The one-line summary says what differs in words, and the screen-reader sentence (+ a title per mark)
+   names each marked character.
+   - wrong:   the character in rose (--mark-wrong);
+   - tone:    the character in amber (--mark-tone);
+   - extra:   the character in violet (--mark-extra) — "take this out";
+   - missing: the expected character in grey (--mark-missing) — "this goes here";
+   - sound:   a homophone counts as right — no mark, like the reader's read-aloud marks.
+   Tokens: index.css `--mark-*` (both themes). Lab twin: LabColors.mark* (ui/theme/Theme.kt) +
+   ui/study/AnswerDiffView.kt. */
 :root {
-  --adiff-wrong: #be123c;
-  --adiff-wrong-tint: rgba(244, 63, 94, 0.14);
-  --adiff-tone: #a16207;
-  --adiff-tone-tint: rgba(250, 204, 21, 0.18);
-  --adiff-extra-bg: #fde68a;
-  --adiff-extra-ink: #713f12;
-  --adiff-right: var(--result-right-ink);
-}
-:root[data-theme='dark'] {
-  --adiff-wrong: #fb7185;
-  --adiff-wrong-tint: rgba(251, 113, 133, 0.2);
-  --adiff-tone: #fde047;
-  --adiff-tone-tint: rgba(253, 224, 71, 0.12);
-  --adiff-extra-bg: rgba(253, 224, 71, 0.28);
-  --adiff-extra-ink: #fde047;
+  --adiff-wrong: var(--mark-wrong);
+  --adiff-tone: var(--mark-tone);
+  --adiff-extra: var(--mark-extra);
+  --adiff-missing: var(--mark-missing);
   --adiff-right: var(--result-right-ink);
 }
 
@@ -111,57 +104,18 @@
   overflow-wrap: anywhere;
 }
 
-/* The marks. */
+/* The marks: colour only. */
 .adiff-chars { letter-spacing: 0.02em; }
-.adiff {
-  border-radius: 3px;
-  text-underline-offset: 0.28em;
-  text-decoration-skip-ink: none;
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
-.adiff--wrong {
-  color: var(--adiff-wrong);
-  background: var(--adiff-wrong-tint);
-  text-decoration: underline solid var(--adiff-wrong);
-  text-decoration-thickness: 3px;
-}
-.adiff--tone {
-  background: var(--adiff-tone-tint);
-  text-decoration: underline wavy var(--adiff-tone);
-  text-decoration-thickness: 1.5px;
-}
-.adiff--extra {
-  padding: 0 0.06em;
-  color: var(--adiff-extra-ink);
-  background: var(--adiff-extra-bg);
-  border-radius: 3px;
-  /* A solid box, never a strike: a line through 了 reads as 子. */
-  box-shadow: inset 0 0 0 1.5px var(--adiff-extra-ink);
-}
-.adiff--missing {
-  display: inline-block;
-  margin: 0 0.06em;
-  padding: 0 0.08em;
-  line-height: 1.15;
-  color: var(--color-text-light);
-  opacity: 0.85;
-  border: 1.5px dashed currentColor;
-}
-.adiff--sound {
-  text-decoration: underline dotted var(--color-text-light);
-  text-decoration-thickness: 1.5px;
-}
-/* Right in other words: the differences are only "written / worded differently" — quiet, never red. */
+.adiff--wrong { color: var(--adiff-wrong); }
+.adiff--tone { color: var(--adiff-tone); }
+.adiff--extra { color: var(--adiff-extra); }
+.adiff--missing { color: var(--adiff-missing); }
+/* Right in other words: the differences are only "written / worded differently" — body ink, never red. */
 .adiff-box--accepted .adiff--wrong,
 .adiff-box--accepted .adiff--extra,
 .adiff-box--accepted .adiff--tone {
   color: inherit;
-  background: none;
-  text-decoration: underline dotted var(--color-text-light);
-  text-decoration-thickness: 1.5px;
 }
-.adiff-box--accepted .adiff--missing { opacity: 0.6; }
 
 .adiff-sr {
   position: absolute;
@@ -174,3 +128,35 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* The ONE why sentence under the diff (components/study/AnswerWhy.tsx, shared/cards/answer-why.ts): muted text, no box;
+   "Explain more ›" a small text button (a 44px target by its padding) that opens the check's tips / fix in place. */
+.adiff-why-box { text-align: left; }
+.adiff-why {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+}
+.adiff-why-more {
+  display: inline-block;
+  margin: -0.65rem 0;
+  padding: 0.65rem 0.25rem;
+  border: none;
+  background: none;
+  color: var(--color-text-light);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.adiff-why-more:hover { color: var(--color-text); }
+.adiff-why-detail { margin-top: 0.3rem; }
+.adiff-why-tip {
+  margin: 0.2rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--color-text-light);
+}
+.adiff-why-label { font-weight: 600; }
+.adiff-why-tip [lang='zh-CN'] { color: var(--color-text); }

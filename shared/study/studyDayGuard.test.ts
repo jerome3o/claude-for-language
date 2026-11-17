@@ -72,10 +72,8 @@ const ALLOWED: Record<string, [number, string]> = {
   'android-lab/app/src/main/java/dev/jeromeswannack/chineselearning/lab/ui/chat/ChatViewModel.kt': [1, 'chat "Today" message pick'],
   'android-lab/app/src/main/java/dev/jeromeswannack/chineselearning/lab/ui/settings/SettingsViewModel.kt': [1, 'the backup file name'],
   'android-lab/app/src/main/java/dev/jeromeswannack/chineselearning/lab/ui/cardcontrols/ForgetLeechSheets.kt': [1, 'a date label\'s year'],
-  'android-lab/core/src/main/kotlin/dev/jeromeswannack/chineselearning/lab/core/Revisit.kt': [1, 'a fixed date in a self-check'],
   'android-lab/core/src/main/kotlin/dev/jeromeswannack/chineselearning/lab/core/Homework.kt': [1, 'localDate(today) — callers pass StudyDayClock.today()'],
   'android-lab/core/src/main/kotlin/dev/jeromeswannack/chineselearning/lab/core/JsCompat.kt': [1, 'parsing a bare date string'],
-  'android-lab/core/src/main/kotlin/dev/jeromeswannack/chineselearning/lab/core/LessonSchedule.kt': [1, 'legacy lesson counters, used by no screen'],
 };
 
 const SCAN: Array<[string, RegExp, RegExp[]]> = [

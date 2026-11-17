@@ -51,12 +51,16 @@ const AI_PATHS: RegExp[] = [
   /^\/api\/lessons\/sentence-fix$/,
   /^\/api\/idioms$/,
   /^\/api\/phone\/persona-reply$/,
+  // ＋ Add tab (docs/ADD_TAB.md): photo → Chinese lines (a Gemini vision call). English → words is /api/ai/*.
+  /^\/api\/ocr\/words$/,
 ];
 
 const JOB_PATHS: RegExp[] = [
   /^\/api\/audio-lessons$/,
   /^\/api\/audio-lessons\/[^/]+\/(companion-lesson|retry)$/,
   /^\/api\/readers\/generate$/,
+  // ＋ Add tab: "🎯 Mini lesson" — Claude writes a lesson in the background (services/lesson-requests.ts).
+  /^\/api\/custom-lessons\/generate$/,
   /^\/api\/readers\/[^/]+\/retry$/,
   /^\/api\/picture-hunts$/,
   /^\/api\/picture-hunts\/upload$/,

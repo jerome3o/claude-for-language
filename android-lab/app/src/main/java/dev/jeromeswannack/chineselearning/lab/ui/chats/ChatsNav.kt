@@ -87,6 +87,7 @@ private fun ChatsRoute(nav: LabNav, entry: NavBackStackEntry) {
             compose = ChatsComposeActions(
                 onDraft = vm::setDraft,
                 onSendToClaude = { text, intent, spoken -> vm.sendToClaude(text, intent, spoken) { id -> nav.open(Routes.claudeThread(id) + "?source=chats") } },
+                onChip = { chip -> vm.sendToClaude(chip.question, "ask", false, chip = true) { id -> nav.open(Routes.claudeThread(id) + "?source=chats") } },
             ),
         ),
     )

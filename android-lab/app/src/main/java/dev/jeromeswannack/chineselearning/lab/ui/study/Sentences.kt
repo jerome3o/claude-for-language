@@ -230,7 +230,7 @@ class SentenceActions(
  * + Add as card — and the header ⋯ regenerates / extends / clears the set.
  */
 @Composable
-fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null, history: SentenceListHistory? = null, roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList()) =
+fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: StudyActions, startExplained: Map<String, SentenceExplanation> = emptyMap(), startShowAll: Boolean = false, modifier: Modifier = Modifier, practise: SentencePractiseState? = null, history: SentenceListHistory? = null, roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(), questionOrder: List<String> = emptyList()) =
     SentenceList(
         view.note, view.sentences, view.presentation, ui.aiAvailable, playingKey, actions.sentences, actions.onPlay, startExplained, startShowAll, modifier,
         // Auto-audio: the card's own sentence clip is being made.
@@ -238,6 +238,7 @@ fun SentenceList(view: CardView, ui: StudyUi, playingKey: String?, actions: Stud
         practise = practise,
         history = history,
         roundMarks = roundMarks,
+        questionOrder = questionOrder,
     )
 
 /** Practice per sentence on the answer side's list (core SentenceHistory; data/sentences/SentencePracticeStore). */
@@ -282,6 +283,11 @@ fun SentenceList(
      * order, opened (he has seen them), outlined with how each went + "In the round · ✓ Right".
      */
     roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(),
+    /**
+     * The row keys the question side showed on this showing, in its order (a listening card's "Listen in
+     * context"): the list starts with them, then the round's sentences, then the rest (core AnswerOrder).
+     */
+    questionOrder: List<String> = emptyList(),
 ) = Column(
     modifier.fillMaxWidth().then(
         @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -295,9 +301,11 @@ fun SentenceList(
     var undoKey by remember(presentation) { mutableStateOf<String?>(null) }
     val hiddenRows = allRows.filter { isHidden(it.key) }
     val shownRows = allRows.filter { !isHidden(it.key) }
-    // The round's sentences first, in its order; the rest as they were.
-    val rows = if (roundMarks.isEmpty()) shownRows
-    else dev.jeromeswannack.chineselearning.lab.core.SentenceRound.orderKeys(shownRows.map { it.key }, roundMarks).map { k -> shownRows.first { it.key == k } }
+    // The answer keeps the question's order (core AnswerOrder): Listen in context's rows, then the round's
+    // sentences, in the order shown; the rest as they were.
+    val firstKeys = dev.jeromeswannack.chineselearning.lab.core.AnswerOrder.questionKeys(questionOrder, roundMarks.map { it.key })
+    val rows = if (firstKeys.isEmpty()) shownRows
+    else dev.jeromeswannack.chineselearning.lab.core.AnswerOrder.order(shownRows.map { it.key }, firstKeys).map { k -> shownRows.first { it.key == k } }
     val markOf = roundMarks.associateBy { it.key }
     val state = rememberSentenceRowsState(presentation, startExplained, startShowAll)
     var menu by remember(presentation) { mutableStateOf(false) }

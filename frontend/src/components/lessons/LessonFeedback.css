@@ -28,9 +28,7 @@
   color: inherit;
 }
 .char-diff-chars.lesson-marked-answer .extra {
-  color: #b91c1c;
-  text-decoration: underline wavy #dc2626;
-  text-underline-offset: 4px;
+  color: var(--mark-wrong);
 }
 /* Claude's check below everything he is reading: a slim row while it is on its way. */
 .lesson-claude-slot {
@@ -39,14 +37,10 @@
 .lesson-claude-slot .answer-check {
   margin-top: 0;
 }
-/* The model answer: what his answer missed, highlighted (a shape too — not colour alone). */
+/* The model answer: what his answer missed, in the wrong mark's rose — colour only, like the slim answer diff (the
+   line above says it in words). */
 .lesson-marked-model .miss {
-  background: #fee2e2;
-  color: #b91c1c;
-  border-radius: 4px;
-  padding: 0 0.05em;
-  text-decoration: underline;
-  text-underline-offset: 4px;
+  color: var(--mark-wrong);
 }
 
 /* The answer screen's sentence (FeedbackSentence): tappable words + ▶ to hear the clip again. */

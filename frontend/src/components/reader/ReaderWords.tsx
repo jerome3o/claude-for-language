@@ -156,9 +156,9 @@ function WordChip({ text, known, marked, onOpen, onLong }: {
  * "+ Add as card" live there; it never bubbles to the "hide Chinese" tap.
  *
  * `marks` (🎤 Read it aloud, components/reader/ReadAloud.tsx): the page's own
- * characters marked in place, in the body ink — read right = no mark, tone off =
- * a wavy underline, wrong = a solid one, missed = a dashed one (each on a soft
- * tint), a caret where extra words were said; the chips drop their fill meanwhile
+ * characters marked in place, colour only — read right = no mark, tone off =
+ * amber, wrong = rose, missed = grey (no tint, no underline), a violet caret
+ * where extra words were said; the chips drop their fill meanwhile
  * (ReadAloud.css); the rest of a page he stopped before is `unread` (no mark). A tap still opens the
  * explorer; a long press on a word that needs a look plays it (`onSpeak`).
  */

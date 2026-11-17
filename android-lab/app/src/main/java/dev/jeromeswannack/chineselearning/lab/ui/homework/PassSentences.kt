@@ -58,15 +58,19 @@ fun PassSentences(
      * first, opened and outlined with how each went, before "+ N more" (the web's SentenceSet `roundRows`).
      */
     roundMarks: List<dev.jeromeswannack.chineselearning.lab.core.SentenceRound.RowMark> = emptyList(),
+    /** The rows a listening card's "Listen in context" showed, in its order: first, like the card back (core AnswerOrder). */
+    questionOrder: List<String> = emptyList(),
 ) {
     if (rows.isEmpty()) return
     val state = remember(key) { SentenceRowsState(startExplained).apply { steps.putAll(startSteps) } }
     var more by remember(key) { mutableStateOf(startMore) }
     var adding by remember(key) { mutableStateOf<Chunk?>(null) }
-    val ordered = if (roundMarks.isEmpty()) rows
-        else dev.jeromeswannack.chineselearning.lab.core.SentenceRound.orderKeys(rows.map { it.key }, roundMarks).mapNotNull { k -> rows.firstOrNull { it.key == k } }
+    val firstKeys = dev.jeromeswannack.chineselearning.lab.core.AnswerOrder.questionKeys(questionOrder, roundMarks.map { it.key })
+    val ordered = if (firstKeys.isEmpty()) rows
+        else dev.jeromeswannack.chineselearning.lab.core.AnswerOrder.order(rows.map { it.key }, firstKeys).mapNotNull { k -> rows.firstOrNull { it.key == k } }
     val markOf = roundMarks.associateBy { it.key }
-    val first = maxOf(1, roundMarks.size)
+    // What the question side showed comes before "+ N more" (nothing shown → the card's own sentence).
+    val first = maxOf(1, firstKeys.filter { k -> rows.any { it.key == k } }.toSet().size)
     val shown = if (more) ordered else ordered.take(first)
     val hidden = maxOf(0, ordered.size - first)
     Column(modifier.fillMaxWidth().testTag("hw-pass-sentences")) {

@@ -1,17 +1,12 @@
 package dev.jeromeswannack.chineselearning.lab.data.revisit
 
 import dev.jeromeswannack.chineselearning.lab.core.Js
-import dev.jeromeswannack.chineselearning.lab.core.Revisit
 import dev.jeromeswannack.chineselearning.lab.core.RevisitMark
-import dev.jeromeswannack.chineselearning.lab.core.RevisitSettings
 import dev.jeromeswannack.chineselearning.lab.data.Api
 import dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics
 import dev.jeromeswannack.chineselearning.lab.data.api.RevisitEventDto
 import dev.jeromeswannack.chineselearning.lab.data.api.RevisitEventsUpload
-import dev.jeromeswannack.chineselearning.lab.data.api.RevisitSettingsDto
 import dev.jeromeswannack.chineselearning.lab.data.api.revisit
-import dev.jeromeswannack.chineselearning.lab.data.api.revisitSettingsBody
-import dev.jeromeswannack.chineselearning.lab.data.api.saveRevisitSettings
 import dev.jeromeswannack.chineselearning.lab.data.platform.FeatureSync
 import dev.jeromeswannack.chineselearning.lab.data.platform.JsonCache
 import dev.jeromeswannack.chineselearning.lab.data.platform.Outbox
@@ -39,22 +34,15 @@ data class LocalRevisitEvent(
 }
 
 /**
- * "Revisit later" on the device — the web's services/revisit.ts on the Lab platform:
- *  - the account's gaps + "New lessons a day" (Settings → "Lessons & readers") mirrored in the JsonCache, so the
- *    schedule works offline; refreshed on every sync (`GET /api/me/revisit`);
- *  - "Done for good" / "Bring back" written here at once and sent through the Outbox
- *    (`POST /api/me/revisit-events`, idempotent by id); every sync replaces the server's
- *    events whole, keeping this phone's pending ones.
- * The schedule itself is never stored: LessonStore replays it from the completions + these
- * marks with [Revisit.computeState] whenever they're read. (Readers are read once — their
- * old marks are ignored.)
+ * The legacy "Done for good" / "Bring back" marks on mini lessons (the web's services/lessonLearn.ts):
+ * written here at once and sent through the Outbox (`POST /api/me/revisit-events`, idempotent by
+ * id); every sync replaces the server's events whole (`GET /api/me/revisit`), keeping this phone's
+ * pending ones. LessonStore hands them to the revision rule (core LessonRevision: a retire = done
+ * forever). The old "revisit later" gaps and "New lessons a day" settings are gone (Oct 2026).
+ * Readers are read once — their old marks are ignored.
  */
 class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, private val api: Api) {
     private val eventsSerializer = ListSerializer(LocalRevisitEvent.serializer())
-
-    fun observeSettings(): Flow<RevisitSettings> = cache.observe(SETTINGS, RevisitSettingsDto.serializer()).map { it?.toSettings() ?: Revisit.DEFAULT }
-
-    suspend fun settings(): RevisitSettings = cache.get(SETTINGS, RevisitSettingsDto.serializer())?.toSettings() ?: Revisit.DEFAULT
 
     fun observeMarks(): Flow<List<RevisitMark>> = cache.observe(EVENTS, eventsSerializer).map { list -> list.orEmpty().map { it.mark() } }
 
@@ -76,25 +64,9 @@ class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, pri
         event
     }
 
-    /** Store the server's settings (from GET /api/me/revisit or a save). */
-    suspend fun writeSettings(dto: RevisitSettingsDto) = cache.put(SETTINGS, KIND, dto, RevisitSettingsDto.serializer())
-
-    /**
-     * `saveRevisitSettings`: PUT the changed fields (or `{ reset: true }`), keep the answer.
-     * Throws HttpException (400 with `problems`) or IOException offline.
-     */
-    suspend fun saveSettings(changes: Map<String, Double>, reset: Boolean): RevisitSettings {
-        val saved = api.saveRevisitSettings(revisitSettingsBody(changes, reset))
-        writeSettings(saved)
-        val next = saved.toSettings()
-        Analytics.track("settings.revisit_changed", mapOf("fields" to if (reset) Revisit.KEYS.size else changes.size, "reset" to reset, "new_lessons_per_day" to next.newLessonsPerDayInt))
-        return next
-    }
-
-    /** `syncRevisit` (after the outbox drained): the gaps + the server's events, this phone's pending ones on top. */
+    /** `syncRevisit` (after the outbox drained): the server's events, this phone's pending ones on top. */
     suspend fun sync() {
         val res = api.revisit()
-        res.settings?.let { writeSettings(it) }
         lock.withLock {
             val stillQueued = outbox.all().filter { it.kind == KIND }.mapTo(HashSet()) { it.id }
             val server = res.events.map { LocalRevisitEvent(it.id, it.item_kind, it.item_id, it.action, it.created_at) }
@@ -106,7 +78,6 @@ class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, pri
 
     companion object {
         const val KIND = "revisit"
-        const val SETTINGS = "revisit/settings"
         const val EVENTS = "revisit/events"
         const val RETIRE = "retire"
         const val RESTORE = "restore"
@@ -114,7 +85,7 @@ class RevisitStore(private val cache: JsonCache, private val outbox: Outbox, pri
     }
 }
 
-/** Revisit in the sync (web: `syncRevisit`): settings + Done-for-good events, after the outbox drained. */
+/** The Done-for-good marks in the sync (web: `replaceLocalRevisitEvents`), after the outbox drained. */
 object RevisitSync : FeatureSync {
     override suspend fun sync(ctx: SyncContext) {
         RevisitStore(ctx.cache, ctx.outbox, ctx.api).sync()

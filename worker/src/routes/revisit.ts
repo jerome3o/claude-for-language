@@ -1,25 +1,23 @@
 /**
- * "Revisit later" for mini lessons and graded readers (shared/study/revisit.ts,
- * services/revisit.ts). Mounted under /api after the auth middleware.
+ * The legacy "Done for good" / "Bring back" marks on mini lessons (services/revisit.ts). Mounted
+ * under /api after the auth middleware.
  *
- *   GET  /me/revisit                         → { settings, events }
- *   PUT  /profile/revisit-settings { hard_days?, good_days?, easy_days?, growth?, cap_days? }
- *        (null = that default; { reset: true } = all defaults) → RevisitSettingsInfo  (400 + problems)
+ *   GET  /me/revisit                  → { settings, events }
+ *   PUT  /profile/revisit-settings    → the fixed legacy settings (a no-op)
  *   POST /me/revisit-events { events: [{ id, item_kind: lesson|reader, item_id, action: retire|restore, created_at }] }
  *        → { accepted, orphans, invalid }   (idempotent by id)
  *
- * `/api/auth/me` and `/api/sync/changes` carry the settings as `revisit_settings`;
- * `/api/sync/changes` also carries every event as `revisit_events` (a short list, sent whole).
+ * The "revisit later" gaps / "New lessons a day" settings are gone (Oct 2026). Older app builds
+ * still GET them and may PUT them from their Settings: both answer 200 with the old defaults
+ * (LEGACY_REVISIT_SETTINGS) so those builds keep working, and nothing is stored.
+ * `/api/sync/changes` carries every event as `revisit_events` (a short list, sent whole).
  */
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pickRevisitSettingsUpdate, DEFAULT_REVISIT_SETTINGS } from '@shared/study/revisit';
 import {
   addRevisitEvents,
-  getRevisitSettings,
-  getRevisitSettingsInfo,
   listRevisitEvents,
-  setRevisitSettings,
+  LEGACY_REVISIT_SETTINGS,
   MAX_REVISIT_EVENTS_PER_REQUEST,
   type RevisitEventInput,
 } from '../services/revisit';
@@ -27,22 +25,12 @@ import {
 const revisit = new Hono<{ Bindings: Env }>();
 
 revisit.get('/me/revisit', async (c) => {
-  const userId = c.get('user').id;
-  const [settings, events] = await Promise.all([getRevisitSettingsInfo(c.env.DB, userId), listRevisitEvents(c.env.DB, userId)]);
-  return c.json({ settings, events });
+  const events = await listRevisitEvents(c.env.DB, c.get('user').id);
+  return c.json({ settings: LEGACY_REVISIT_SETTINGS, events });
 });
 
-revisit.put('/profile/revisit-settings', async (c) => {
-  const userId = c.get('user').id;
-  const body = await c.req.json<Record<string, unknown>>().catch(() => null);
-  if (!body || typeof body !== 'object') return c.json({ error: 'Send the settings', problems: ['Send the settings'] }, 400);
-  const input = body.reset === true
-    ? Object.fromEntries(Object.keys(DEFAULT_REVISIT_SETTINGS).map(k => [k, null]))
-    : body;
-  const { update, problems } = pickRevisitSettingsUpdate(input, await getRevisitSettings(c.env.DB, userId));
-  if (problems.length) return c.json({ error: problems.join('; '), problems }, 400);
-  return c.json(await setRevisitSettings(c.env.DB, userId, update));
-});
+// Older builds' Settings → "Lessons & readers": accepted and ignored (nothing reads the gaps any more).
+revisit.put('/profile/revisit-settings', (c) => c.json(LEGACY_REVISIT_SETTINGS));
 
 revisit.post('/me/revisit-events', async (c) => {
   const userId = c.get('user').id;
