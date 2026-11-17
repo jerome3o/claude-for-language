@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -373,7 +374,7 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Example sentences").performScrollTo()
         compose.mainClock.advanceTimeBy(800)
         val tops = listOf("我家有一个小院子。", "院子里种了很多花。", "奶奶每天早上在院子里打太极拳。").map { h ->
-            compose.onAllNodesWithText(h, useUnmergedTree = true).fetchSemanticsNodes().maxOf { it.boundsInRoot.top }
+            compose.onAllNodesWithText(h, useUnmergedTree = true).fetchSemanticsNodes().maxOf { it.positionInRoot.y }
         }
         assertEquals(tops.sorted(), tops)
         shot("answer-order-04-round-answer-dark")

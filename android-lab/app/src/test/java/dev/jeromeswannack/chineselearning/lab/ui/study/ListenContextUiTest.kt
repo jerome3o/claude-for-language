@@ -9,8 +9,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.semantics.getOrNull
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
@@ -213,13 +211,12 @@ class ListenContextUiTest : LabScreenshotTest() {
 
     /** The hanzi of the sentence rows on the answer side, top to bottom (after Show all). */
     private fun answerRowHanzi(v: CardView): List<String> {
-        val known = listenRows(v).map { it.hanzi } + v.sentences.map { it.hanzi }
-        return compose.onAllNodesWithTag(SENTENCE_ROW_TAG).fetchSemanticsNodes()
-            .sortedBy { it.boundsInRoot.top }
-            .mapNotNull { node ->
-                val text = node.config.getOrNull(SemanticsProperties.Text)?.joinToString(" ") { it.text }.orEmpty()
-                known.firstOrNull { text.contains(it) }
-            }
+        val known = (listenRows(v).map { it.hanzi } + v.sentences.map { it.hanzi }).distinct()
+        // Each sentence's text node on the answer side, by its unclipped position (rows below the fold too).
+        return known.mapNotNull { h ->
+            compose.onAllNodesWithText(h, useUnmergedTree = true).fetchSemanticsNodes()
+                .minOfOrNull { it.positionInRoot.y }?.let { h to it }
+        }.sortedBy { it.second }.map { it.first }
     }
 
     /**
