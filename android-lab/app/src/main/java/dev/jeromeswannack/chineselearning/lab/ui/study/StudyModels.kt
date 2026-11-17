@@ -209,10 +209,10 @@ data class CardExtras(
     val ask: AskUi = AskUi(),
     /** Say the answer on a typing card (🎤). */
     val spoken: SpokenUi = SpokenUi(),
-    /** ⋯ → "Practise this word other ways…" is offered: the flashcard session, and the note has another card. */
-    val hasOtherCardTypes: Boolean = false,
-    /** That sheet's state while it is open (core OtherCardTypes). */
-    val otherCards: OtherCardsUi? = null,
+    /** The ⋯ sheet's top row: the word's other cards with their status (core SiblingStatus); null until worked out. */
+    val siblings: SiblingsUi? = null,
+    /** One other card's small sheet while it is open. */
+    val siblingSheet: SiblingSheetUi? = null,
 )
 
 /**

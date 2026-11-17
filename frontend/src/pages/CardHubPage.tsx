@@ -26,6 +26,7 @@ import type { NoteHub, NoteHubCard } from '../types/cardFlags';
 import '../components/cardFlags/cardFlags.css';
 import { NoteLongTermSwitch } from '../components/homework/LongTermSwitch';
 import { HubCardControls } from '../components/cardControls/HubCardControls';
+import { useScrollToHash } from '../hooks/useScrollToHash';
 
 function queueLabel(card: NoteHubCard): string {
   if (card.queue === 0) return 'New';
@@ -70,6 +71,8 @@ export function CardHubPage() {
     queryFn: () => getRelationship(relId!),
     enabled: tutorView,
   });
+  // `/cards/:noteId#card-meaning_to_hanzi` (the study card's ⋯ → an other card → Open card details).
+  useScrollToHash(!!hubQuery.data);
 
   if (hubQuery.isLoading) return <Loading />;
   if (hubQuery.error || !hubQuery.data) {
@@ -112,7 +115,7 @@ export function CardHubPage() {
           <h2>{tutorView ? 'How the cards are going' : 'Your cards'}</h2>
           <div className="hub-cards">
             {hub.cards.map((c) => (
-              <div key={c.id} className="hub-card-state" title={`${queueLabel(c)} · ${c.lapses} lapses`}>
+              <div key={c.id} id={`card-${c.card_type}`} className="hub-card-state" title={`${queueLabel(c)} · ${c.lapses} lapses`}>
                 {CARD_TYPE_SHORT[c.card_type as CardType] ?? c.card_type}
                 <strong>{queueLabel(c)}</strong>
                 {nextReview(c)}

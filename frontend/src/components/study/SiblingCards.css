@@ -1,0 +1,142 @@
+/* The word's other cards — the ⋯ menu's top row and one card's small sheet (components/study/SiblingCards.tsx).
+   Neutral theme tokens; only a KNOWN card's strength uses the result "right" colour, a leech's the "close" (needs
+   work) one — the text always says the status too (never colour alone). */
+
+.sibling-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: var(--space-gap-min, 8px);
+  padding: 0 0.25rem 0.5rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sibling-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sibling-tile:hover:not(.is-missing) {
+  background: var(--color-background);
+}
+
+.sibling-tile.is-missing {
+  cursor: default;
+  border-style: dashed;
+  color: var(--color-text-light);
+}
+
+.sibling-tile-head {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+}
+
+.sibling-tile-symbol {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.sibling-tile-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.sibling-tile-line {
+  font-size: 0.8125rem;
+  color: var(--color-text-light);
+  line-height: 1.25;
+}
+
+.sibling-tone-held .sibling-tile-line,
+.sibling-tile.sibling-tone-held .sibling-tile-symbol {
+  opacity: 0.85;
+}
+
+/* Strength: three short steps (mastery tier: learning · familiar · known). */
+.sibling-strength {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.sibling-strength-step {
+  width: 5px;
+  border-radius: 1px;
+  background: var(--color-border);
+}
+
+.sibling-strength-step:nth-child(1) { height: 6px; }
+.sibling-strength-step:nth-child(2) { height: 9px; }
+.sibling-strength-step:nth-child(3) { height: 12px; }
+
+.sibling-strength-step.is-on {
+  background: var(--color-text-light);
+}
+
+.sibling-tone-known .sibling-strength-step.is-on {
+  background: var(--result-right);
+}
+
+.sibling-tone-leech .sibling-strength-step.is-on {
+  background: var(--result-close);
+}
+
+.sibling-tone-held .sibling-strength-step.is-on {
+  opacity: 0.5;
+}
+
+/* One card's sheet. */
+.sibling-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0.75rem 0.625rem;
+}
+
+.sibling-sheet-symbol {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.sibling-sheet-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.sibling-sheet-title {
+  font-weight: 600;
+}
+
+.sibling-sheet-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text-light);
+}
+
+.sibling-sheet-done {
+  margin: 0.25rem 0.75rem 0.5rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: var(--color-background);
+  font-weight: 600;
+}

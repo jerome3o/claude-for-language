@@ -78,7 +78,8 @@ import { isDebugConsoleEnabled } from '../utils/debugConsole';
 import { getUnseenRecordingNotesForCard, markRecordingNoteSeen } from '../services/recording-notes';
 import { getRememberedTutors, humanTutors, rememberTutors, type RememberedTutor } from '../services/cardFlags';
 import { FlagCardSheet } from '../components/study/FlagCardSheet';
-import { OtherCardTypesSheet } from '../components/study/OtherCardTypesSheet';
+import { SiblingCardSheet, SiblingTilesRow, type SiblingScope } from '../components/study/SiblingCards';
+import { releaseCards } from '../services/cardHolds';
 import { WritingSheet } from '../components/strokes/WritingSheet';
 import { writableCharacters } from '@shared/strokes';
 import { useAuth } from '../contexts/AuthContext';
@@ -137,7 +138,7 @@ import { pinyin } from 'pinyin-pro';
 import { devicePinyinLine } from '../utils/autoPinyin';
 import { typedAnswerDiff, type DiffCell } from '../utils/answerDiff';
 import { NewCharsLabel, shimmerText } from '../components/study/NewCharShimmer';
-import { CardControlSheet, type CardControlMode } from '../components/cardControls/CardControlSheet';
+import { CardControlSheet, type CardControlMode, type CardControlTarget } from '../components/cardControls/CardControlSheet';
 import { ForgetSheet } from '../components/cardControls/ForgetSheet';
 import { LeechPill } from '../components/cardControls/LeechPill';
 import { memoryHookQuestion } from '@shared/cards/leech';
@@ -400,7 +401,9 @@ export function StudyCard({
   onCardsHeld,
   onCardsForgotten,
   sessionBumpedCardIds,
+  sessionQueueCardIds,
   onAddOtherCards,
+  onCardsReleased,
 }: {
   card: CardWithNote;
   cardIsSecondaryNew: boolean;
@@ -441,13 +444,18 @@ export function StudyCard({
    * the cards are NEW again; the toast offers Undo. Unset = not offered (homework pass, practice).
    */
   onCardsForgotten?: (outcome: ForgetOutcome) => void;
-  /** This session's ⚡ pocket cards ("Practise this word other ways…" shows them as already in today). */
+  /** This session's ⚡ pocket cards (the ⋯ menu's other-card tiles show them as already in today). */
   sessionBumpedCardIds?: ReadonlySet<string>;
+  /** Every card in this session's queue today (the tiles' "New · in today's queue"). */
+  sessionQueueCardIds?: ReadonlySet<string>;
   /**
-   * ⋯ → "Practise this word other ways…" (shared/decks/other-card-types.ts): the cards a card-level
-   * bump just put in the pocket, for the session to take in at once. Unset = the item is not offered.
+   * ⋯ → an other card's tile → ⚡ Study it today (shared/decks/sibling-status.ts): the cards a card-level
+   * bump just put in the pocket, for the session to take in at once. Unset = the bump still happens (it
+   * waits for the next session).
    */
   onAddOtherCards?: (cardIds: string[]) => void;
+  /** ⋯ → an other card → Unsuspend / Wake now: the released cards, for the session to take back in when due. */
+  onCardsReleased?: (cardIds: string[]) => void;
 }) {
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
@@ -549,16 +557,24 @@ export function StudyCard({
   // Flag for tutor: the sheet under ⋯. Human tutors only; the list is
   // mirrored to localStorage so the item is still there offline.
   const [showFlagSheet, setShowFlagSheet] = useState(false);
-  // Suspend… / Snooze… (components/cardControls, shared/decks/holds.ts).
+  // Suspend… / Snooze… (components/cardControls, shared/decks/holds.ts) — of this card, or of one of
+  // the word's other cards (the ⋯ menu's tiles): `controlTarget` null = this card.
   const [controlSheet, setControlSheet] = useState<CardControlMode | null>(null);
-  // Forget this card… (components/cardControls/ForgetSheet).
+  const [controlTarget, setControlTarget] = useState<CardControlTarget | null>(null);
+  // Forget this card… (components/cardControls/ForgetSheet); `forgetTarget` as above.
   const [showForget, setShowForget] = useState(false);
-  const [showOtherCards, setShowOtherCards] = useState(false);
-  // How many cards the note has: "Practise this word other ways…" needs a sibling.
-  const noteCardCount = useLiveQuery(
-    () => (onAddOtherCards && !pass ? db.cards.where('note_id').equals(card.note.id).count() : 0),
-    [card.note.id, !!onAddOtherCards, !!pass]
-  ) ?? 0;
+  const [forgetTarget, setForgetTarget] = useState<CardControlTarget | null>(null);
+  // The ⋯ menu's top row: the word's other cards (components/study/SiblingCards.tsx) → one card's sheet.
+  const [siblingSheet, setSiblingSheet] = useState<string | null>(null);
+  const siblingInToday = useMemo(() => {
+    const ids = new Set<string>(sessionQueueCardIds ?? EMPTY_IDS);
+    for (const id of sessionBumpedCardIds ?? EMPTY_IDS) ids.add(id);
+    return ids;
+  }, [sessionQueueCardIds, sessionBumpedCardIds]);
+  const siblingScope: SiblingScope = useMemo(
+    () => ({ noteId: card.note.id, currentCardId: card.id, currentCardType: card.card_type, inToday: siblingInToday, canBump: !pass }),
+    [card.note.id, card.id, card.card_type, siblingInToday, pass]
+  );
   // Handwriting practice for this card's hanzi (⋯ → Write it; preview).
   const [showWriting, setShowWriting] = useState(false);
 
@@ -2098,9 +2114,9 @@ export function StudyCard({
                     setShowAskClaude(true);
                   }
                 : undefined,
-              onSnooze: onCardsHeld ? () => setControlSheet('snooze') : undefined,
-              onSuspend: onCardsHeld ? () => setControlSheet('suspend') : undefined,
-              onForget: onCardsForgotten ? () => setShowForget(true) : undefined,
+              onSnooze: onCardsHeld ? () => { setControlTarget(null); setControlSheet('snooze'); } : undefined,
+              onSuspend: onCardsHeld ? () => { setControlTarget(null); setControlSheet('suspend'); } : undefined,
+              onForget: onCardsForgotten ? () => { setForgetTarget(null); setShowForget(true); } : undefined,
             }}
           />
         )}
@@ -2623,14 +2639,6 @@ export function StudyCard({
           navigate(`/coach?draft=${encodeURIComponent(card.note.sentence_clue || card.note.hanzi)}&focus=1`);
         },
       },
-      ...(onAddOtherCards && !pass && noteCardCount > 1
-        ? [{
-            key: 'other-cards', label: 'Practise this word other ways…', icon: '🔀', onSelect: () => {
-              track('study.other_card_types_open', { from_type: card.card_type });
-              setShowOtherCards(true);
-            },
-          }]
-        : []),
       ...(canWriteHanzi(card.note.hanzi)
         ? [{ key: 'write', label: 'Write it', icon: '✍️', hint: 'Preview', onSelect: () => { track('study.write_it'); setShowWriting(true); } }]
         : []),
@@ -2640,12 +2648,12 @@ export function StudyCard({
       // Anki's card controls (docs/STUDY_SESSION.md "Suspend & snooze") — never a review event.
       ...(onCardsHeld
         ? [
-            { key: 'snooze', label: 'Snooze…', icon: '💤', hint: 'Not today', onSelect: () => setControlSheet('snooze') },
-            { key: 'suspend', label: 'Suspend…', icon: '⏸️', onSelect: () => setControlSheet('suspend') },
+            { key: 'snooze', label: 'Snooze…', icon: '💤', hint: 'Not today', onSelect: () => { setControlTarget(null); setControlSheet('snooze'); } },
+            { key: 'suspend', label: 'Suspend…', icon: '⏸️', onSelect: () => { setControlTarget(null); setControlSheet('suspend'); } },
           ]
         : []),
       ...(onCardsForgotten
-        ? [{ key: 'forget', label: 'Forget this card…', icon: '↺', hint: 'Back to New', onSelect: () => setShowForget(true) }]
+        ? [{ key: 'forget', label: 'Forget this card…', icon: '↺', hint: 'Back to New', onSelect: () => { setForgetTarget(null); setShowForget(true); } }]
         : []),
       ...(audioBlob
         ? [{
@@ -2668,6 +2676,15 @@ export function StudyCard({
         onEditCard={() => { track('study.edit_card'); setShowEditModal(true); }}
         menuItems={menuItems}
         menuFooter={formatAddedDate(card.note.created_at)}
+        menuTop={(close) => (
+          <SiblingTilesRow
+            scope={siblingScope}
+            onOpen={(t) => {
+              close();
+              setSiblingSheet(t.card_id);
+            }}
+          />
+        )}
       />
     );
   };
@@ -3583,7 +3600,7 @@ export function StudyCard({
       {controlSheet && onCardsHeld && (
         <CardControlSheet
           mode={controlSheet}
-          card={{ id: card.id, note_id: card.note.id, card_type: card.card_type }}
+          card={controlTarget ?? { id: card.id, note_id: card.note.id, card_type: card.card_type }}
           hanzi={card.note.hanzi}
           source="study"
           onDone={(ids, message) => {
@@ -3594,14 +3611,14 @@ export function StudyCard({
             }
             onCardsHeld(ids, message);
           }}
-          onClose={() => setControlSheet(null)}
+          onClose={() => { setControlSheet(null); setControlTarget(null); }}
         />
       )}
 
       {/* Forget this card… (⋯ menu / leech sheet): the warning first, then ↺ Forget */}
       {showForget && onCardsForgotten && (
         <ForgetSheet
-          card={{ id: card.id, note_id: card.note.id, card_type: card.card_type }}
+          card={forgetTarget ?? { id: card.id, note_id: card.note.id, card_type: card.card_type }}
           hanzi={card.note.hanzi}
           source="study"
           onDone={(outcome) => {
@@ -3611,20 +3628,39 @@ export function StudyCard({
             }
             onCardsForgotten(outcome);
           }}
-          onClose={() => setShowForget(false)}
+          onClose={() => { setShowForget(false); setForgetTarget(null); }}
         />
       )}
 
-      {/* Practise this word other ways (⋯ menu): a card-level ⚡ bump into this session */}
-      {showOtherCards && onAddOtherCards && (
-        <OtherCardTypesSheet
-          noteId={card.note.id}
+      {/* One of the word's other cards (⋯ menu's top row): ⚡ Study it today · Snooze / Suspend · Forget · details */}
+      {siblingSheet && (
+        <SiblingCardSheet
+          scope={siblingScope}
+          cardId={siblingSheet}
           hanzi={card.note.hanzi}
-          currentCardId={card.id}
-          currentCardType={card.card_type}
-          inToday={sessionBumpedCardIds ?? EMPTY_IDS}
-          onAdded={onAddOtherCards}
-          onClose={() => setShowOtherCards(false)}
+          inSession={!!onAddOtherCards}
+          onBumped={onAddOtherCards}
+          onHold={onCardsHeld ? (mode, t) => {
+            setSiblingSheet(null);
+            setControlTarget({ id: t.card_id, note_id: card.note.id, card_type: t.card_type });
+            setControlSheet(mode);
+          } : undefined}
+          onRelease={onCardsHeld ? async (t) => {
+            const outcome = await releaseCards([t.card_id], 'study');
+            onCardsReleased?.([t.card_id]);
+            onCardsHeld([], outcome.message);
+          } : undefined}
+          onForget={onCardsForgotten ? (t) => {
+            setSiblingSheet(null);
+            setForgetTarget({ id: t.card_id, note_id: card.note.id, card_type: t.card_type });
+            setShowForget(true);
+          } : undefined}
+          onDetails={pass ? undefined : (t) => {
+            setSiblingSheet(null);
+            savePointRef.current();
+            navigate(`/cards/${card.note.id}#card-${t.card_type}`);
+          }}
+          onClose={() => setSiblingSheet(null)}
         />
       )}
 
@@ -3760,6 +3796,7 @@ export function StudyPage() {
     currentGrammar,
     currentCardIsSecondaryNew,
     bumpedCardIds,
+    queueCardIds,
     cardVersion,
     counts,
     dailyReaderPending,
@@ -4038,7 +4075,9 @@ export function StudyPage() {
           scope={studyScope(deckId)}
           inStudySession
           sessionBumpedCardIds={bumpedCardIds}
+          sessionQueueCardIds={queueCardIds}
           onAddOtherCards={addBumpedCards}
+          onCardsReleased={(ids) => void restoreCardsToSession(ids)}
         />
       ) : dailyReaderPending || grammarPending ? (
         // Cards are done but today's story/lesson is still being generated —

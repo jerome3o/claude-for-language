@@ -177,8 +177,10 @@ private sealed interface CardSheet {
     data object Forget : CardSheet
     /** The leech sheet ("⚠️ Missed 8×" on the answer side). */
     data object Leech : CardSheet
-    /** ⋯ → "Practise this word other ways…" (core OtherCardTypes). */
-    data object OtherCards : CardSheet
+    /** ⋯ → one of the word's other cards (core SiblingStatus): its small sheet. */
+    data class Sibling(val cardId: String) : CardSheet
+    /** That card's Snooze… / Suspend… ([kind]) / Forget… ("forget"). */
+    data class SiblingControl(val cardId: String, val kind: String) : CardSheet
     /** "✍️ Write it" from the character sheet: one character's stroke-order practice. */
     data class WriteText(val text: String) : CardSheet
     /** Tap a character on the back: the card-independent dictionary sheet (ui/chars). */
@@ -1100,12 +1102,60 @@ fun CardStage(
             items = studyMenuItems(
                 view, ui, actions, hasRecording = ui.extras.take.hasTake, onFlag = { sheet = CardSheet.Flag },
                 onWrite = { sheet = CardSheet.Write; dev.jeromeswannack.chineselearning.lab.data.analytics.Analytics.track("study.write_it") },
-                onOtherCards = { sheet = CardSheet.OtherCards; actions.otherCards.open() },
                 onHold = { kind -> sheet = if (kind == "forget") CardSheet.Forget else CardSheet.Hold(kind) },
             ),
             footer = CardExtrasLogic.formatAddedDate(note.createdAt),
             onDismiss = { if (sheet == CardSheet.More) sheet = null },
+            top = {
+                LaunchedEffect(view.card.id) { actions.siblings.refresh() }
+                SiblingTilesRow(ui.extras.siblings, onOpen = { t -> sheet = CardSheet.Sibling(t.cardId); actions.siblings.open(t.cardId) })
+            },
         )
+        is CardSheet.Sibling -> {
+            val tile = ui.extras.siblings?.tiles?.firstOrNull { it.cardId == s.cardId }
+            val sheetUi = ui.extras.siblingSheet?.takeIf { it.cardId == s.cardId } ?: SiblingSheetUi(s.cardId)
+            val controls = ui.cardControls && ui.practice == null && pass == null
+            if (tile == null) {
+                LaunchedEffect(s) { sheet = null }
+            } else {
+                SiblingCardSheet(
+                    hanzi = note.hanzi,
+                    tile = tile,
+                    ui = sheetUi,
+                    actions = actions.siblings,
+                    canBump = pass == null,
+                    holds = controls,
+                    forget = controls,
+                    details = pass == null,
+                    onHoldSheet = { kind -> sheet = CardSheet.SiblingControl(s.cardId, kind) },
+                    onForgetSheet = { sheet = CardSheet.SiblingControl(s.cardId, "forget") },
+                    onDismiss = { if (sheet == s) { sheet = null; actions.siblings.close() } },
+                )
+            }
+        }
+        is CardSheet.SiblingControl -> {
+            val tile = ui.extras.siblings?.tiles?.firstOrNull { it.cardId == s.cardId }
+            val type = tile?.cardType ?: view.card.cardType
+            if (s.kind == "forget") {
+                dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.ForgetSheet(
+                    hanzi = note.hanzi,
+                    cardType = type,
+                    wordCardTypes = view.wordCardTypes,
+                    onApply = { wholeWord -> actions.siblings.forget(s.cardId, wholeWord) },
+                    onDismiss = { if (sheet == s) { sheet = null; actions.siblings.close() } },
+                )
+            } else {
+                dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.CardControlSheet(
+                    kind = s.kind,
+                    hanzi = note.hanzi,
+                    cardType = type,
+                    wordCardTypes = view.wordCardTypes,
+                    today = dev.jeromeswannack.chineselearning.lab.data.StudyDayClock.todayKey(),
+                    onApply = { length, wholeWord -> actions.siblings.hold(s.cardId, s.kind, length, wholeWord) },
+                    onDismiss = { if (sheet == s) { sheet = null; actions.siblings.close() } },
+                )
+            }
+        }
         is CardSheet.Hold -> dev.jeromeswannack.chineselearning.lab.ui.cardcontrols.CardControlSheet(
             kind = s.kind,
             hanzi = note.hanzi,
@@ -1141,7 +1191,6 @@ fun CardStage(
             )
         }
         CardSheet.Flag -> FlagCardSheet(ui.extras.flagTutors, note.hanzi, actions.sendFlag, onDismiss = { sheet = null })
-        CardSheet.OtherCards -> OtherCardsSheet(note.hanzi, ui.extras.otherCards ?: OtherCardsUi(), actions.otherCards, onDismiss = { sheet = null; actions.otherCards.close() })
         CardSheet.Edit -> EditCardSheet(note, ui.aiAvailable, actions.edit, onDismiss = { sheet = null })
         CardSheet.Write -> dev.jeromeswannack.chineselearning.lab.ui.strokes.WritingSheet(note.hanzi, onClose = { sheet = null }, pinyin = note.pinyin, english = note.english)
         CardSheet.Ask -> CardClaudeSheet(
