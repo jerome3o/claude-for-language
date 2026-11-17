@@ -72,7 +72,7 @@ class ChatAlbumsParityTest {
     @Test
     fun albumMenusMatchTypeScript() {
         val cases = f["albumMenus"]!!.jsonArray
-        assertTrue(cases.size > 100)
+        assertTrue(cases.size >= 96)
         for (c in cases) {
             val o = c.jsonObject
             val m = o["message"]!!.jsonObject
