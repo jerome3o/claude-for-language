@@ -21,6 +21,7 @@ import {
   type DebugReport,
   type DebugReportSummary,
 } from '@shared/debug';
+import { serverStudyQueue, type DueSummary } from './study-queue';
 
 export const KEEP_PER_CLIENT = 20;
 /** Largest report accepted (decompressed). 9k cards + 40k event hashes is ~2 MB. */
@@ -239,7 +240,30 @@ export async function compareStoredReports(
   }
   const [A, B] = await Promise.all([loadDebugReport(env, userId, aId), loadDebugReport(env, userId, bId)]);
   const server = opts.withServer === false ? undefined : await loadServerTruth(env.DB, userId);
-  return compareDebugReports(A.report, B.report, { server, maxCards: opts.maxCards, ids: { a: aId, b: bId } });
+  const cmp: DebugComparison & { server_queue?: ServerQueueColumn } = compareDebugReports(A.report, B.report, { server, maxCards: opts.maxCards, ids: { a: aId, b: bId } });
+  if (opts.withServer !== false) {
+    // The third column: what the SERVER counts as due now (services/study-queue.ts, read from its
+    // cached card state = the replay of the events, services/card-state.ts).
+    try {
+      const q = await serverStudyQueue(env.DB, userId);
+      const col: ServerQueueColumn = { reviews_due: q.reviews_due, due_today: q.due_today, new_today: q.new_today, counts: q.counts, at: new Date().toISOString() };
+      cmp.server_queue = col;
+      const reviews = (r: DebugReport) => (r.home?.counts?.learning ?? 0) + (r.home?.counts?.review ?? 0);
+      const near = Math.min(Math.abs(col.reviews_due - reviews(A.report)), Math.abs(col.reviews_due - reviews(B.report)));
+      if (near > 5) {
+        cmp.hints.push(`The server counts ${col.reviews_due} reviews due now; the reports' homes show ${reviews(A.report)} (a) and ${reviews(B.report)} (b) learning + review — reviews since the reports explain some of it; a large gap means the server's cached card state differs from its events (admin_card_state).`);
+      }
+    } catch (err) {
+      console.error('[debug compare] server queue failed:', err);
+    }
+  }
+  return cmp;
+}
+
+/** The server's own queue, beside the two reports. */
+export interface ServerQueueColumn extends DueSummary {
+  /** When the server computed it (the reports were taken earlier). */
+  at: string;
 }
 
 /** Read an upload body: JSON, or gzip-compressed JSON (Content-Type application/gzip). */
