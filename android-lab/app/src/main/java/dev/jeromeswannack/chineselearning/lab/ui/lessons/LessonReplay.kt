@@ -56,6 +56,9 @@ import kotlinx.coroutines.launch
 sealed interface ReplayState {
     data object Loading : ReplayState
     data object Missing : ReplayState
+    /** Not on this phone: being fetched (opened from a link — a line under Claude's reply), or not there any more. */
+    data object Fetching : ReplayState
+    data object Gone : ReplayState
     /** [revisionKeys]: the revision's scored exercises; null = the whole lesson. */
     data class Playing(val entry: LessonEntry, val revisionKeys: List<String>?) : ReplayState
     /** A LOCKED lesson (core LessonUnlocks): what unlocks it and the button. */
@@ -82,8 +85,22 @@ class LessonReplayViewModel(private val app: LabApp, private val id: String, pri
         }
     }
 
+    private var fetched = false
+
     private suspend fun load() {
-        val entry = app.safely("lesson replay load") { LessonRuntime.of(app).store.entry(id) }
+        var entry = app.safely("lesson replay load") { LessonRuntime.of(app).store.entry(id) }
+        // Not on this phone (Claude made it a moment ago): fetch the lessons once when online, then say
+        // plainly that it isn't there any more — never an empty player (docs/CHAT.md "Tool lines you can tap").
+        if (entry == null && !fetched && app.online.value) {
+            fetched = true
+            _state.value = ReplayState.Fetching
+            app.safely("lesson replay fetch") { LessonRuntime.of(app).store.sync(prefetch = false) }
+            entry = app.safely("lesson replay load") { LessonRuntime.of(app).store.entry(id) }
+            if (entry == null) {
+                _state.value = ReplayState.Gone
+                return
+            }
+        }
         _state.value = if (entry == null) ReplayState.Missing else if (entry.locked) ReplayState.Locked(entry) else {
             // Decided once, when it opens: the finish mid-page doesn't change what is played.
             val revision = wantsRevision && entry.isRevision
@@ -147,7 +164,13 @@ private fun LessonReplayRoute(nav: LabNav, state: ReplayState, vm: LessonReplayV
         }
         is ReplayState.Locked -> LockedGate(state.entry, onUnlock = vm::unlock, onBack = nav::back)
         ReplayState.Missing -> LabScreen("Mini lesson", onBack = nav::back) {
-            item { InlineNotice("This lesson isn't on this phone yet — it comes with the next sync.") }
+            item { InlineNotice("This lesson isn't on this phone yet — it needs a connection.") }
+        }
+        ReplayState.Fetching -> LabScreen("Mini lesson", onBack = nav::back) {
+            item { InlineNotice("Getting the lesson…") }
+        }
+        ReplayState.Gone -> LabScreen("Mini lesson", onBack = nav::back) {
+            item { InlineNotice("This lesson isn't there any more — it may have been deleted.") }
         }
         ReplayState.Loading -> Box(Modifier.fillMaxSize().background(Lab.colors.background))
     }

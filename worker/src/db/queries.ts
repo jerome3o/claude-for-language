@@ -1227,62 +1227,6 @@ export async function getDueCards(
   }));
 }
 
-export async function updateCardSM2(
-  db: D1Database,
-  id: string,
-  easeFactor: number,
-  interval: number,
-  repetitions: number,
-  nextReviewAt: Date
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE cards SET
-        ease_factor = ?,
-        interval = ?,
-        repetitions = ?,
-        next_review_at = ?,
-        updated_at = datetime('now')
-      WHERE id = ?`
-    )
-    .bind(easeFactor, interval, repetitions, nextReviewAt.toISOString(), id)
-    .run();
-}
-
-/**
- * Set card progress directly (for imports)
- * Sets the card to review queue with the given SRS values
- */
-export async function setCardProgress(
-  db: D1Database,
-  cardId: string,
-  interval: number,
-  easeFactor: number,
-  repetitions: number
-): Promise<void> {
-  // Calculate next review date based on interval
-  const nextReviewAt = new Date();
-  nextReviewAt.setDate(nextReviewAt.getDate() + interval);
-
-  // Set queue to REVIEW if interval > 0, otherwise NEW
-  const queue = interval > 0 ? CardQueue.REVIEW : CardQueue.NEW;
-
-  await db
-    .prepare(
-      `UPDATE cards SET
-        queue = ?,
-        learning_step = 0,
-        ease_factor = ?,
-        interval = ?,
-        repetitions = ?,
-        next_review_at = ?,
-        updated_at = datetime('now')
-      WHERE id = ?`
-    )
-    .bind(queue, easeFactor, interval, repetitions, nextReviewAt.toISOString(), cardId)
-    .run();
-}
-
 // ============ Study Sessions ============
 
 export async function createStudySession(
@@ -1941,37 +1885,6 @@ export async function incrementDailyNewCount(
     ON CONFLICT(user_id, deck_id, date) DO UPDATE SET
       new_cards_studied = new_cards_studied + 1
   `).bind(id, userId, deckId || null, today).run();
-}
-
-/**
- * Update card with new scheduling values from Anki scheduler
- */
-export async function updateCardSchedule(
-  db: D1Database,
-  cardId: string,
-  result: SchedulerResult
-): Promise<void> {
-  await db.prepare(`
-    UPDATE cards SET
-      queue = ?,
-      learning_step = ?,
-      ease_factor = ?,
-      interval = ?,
-      repetitions = ?,
-      due_timestamp = ?,
-      next_review_at = ?,
-      updated_at = datetime('now')
-    WHERE id = ?
-  `).bind(
-    result.queue,
-    result.learning_step,
-    result.ease_factor,
-    result.interval,
-    result.repetitions,
-    result.due_timestamp,
-    result.next_review_at?.toISOString() || null,
-    cardId
-  ).run();
 }
 
 /**

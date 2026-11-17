@@ -5,10 +5,11 @@ import { nextFollow, type ScrollMetrics } from './followEnd';
  * Keeps [endRef] on screen when the thread grows ([changeKey] changes: a new message, a reply
  * streaming in), but only while the reader is at the end (rules: ./followEnd.ts). [mine] going up
  * (my own new message) follows again. The page variant scrolls the document, a sheet its body
- * ([bodyRef]); both are watched.
+ * ([bodyRef]); both are watched. [startFollowing] = false: the reader's place is being restored (back
+ * from something a tool line opened) — no pull to the end until they scroll there or send.
  */
-export function useFollowEnd(bodyRef: RefObject<HTMLElement | null>, endRef: RefObject<HTMLElement | null>, changeKey: string, mine: number, enabled = true) {
-  const follow = useRef(true);
+export function useFollowEnd(bodyRef: RefObject<HTMLElement | null>, endRef: RefObject<HTMLElement | null>, changeKey: string, mine: number, enabled = true, startFollowing = true) {
+  const follow = useRef(startFollowing);
   const prevTop = useRef(new WeakMap<object, number>());
 
   useEffect(() => {

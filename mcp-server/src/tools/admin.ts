@@ -90,6 +90,16 @@ export function registerAdminTools(ctx: ToolContext): void {
   );
 
   server.tool(
+    'admin_card_state',
+    'ADMIN ONLY. Does the server\'s cached card state (what its "due today", tutor stats and get_due_cards read) equal the replay of the account\'s review events? `check` (default, read-only): the repair version / last run, and a dry run over every card — how many cached rows differ, by transition (e.g. "review → new"), how many have no review event at all, a few samples. `repair`: replay every card now and rewrite only the rows that differ (cache columns only, never events). Each account is also repaired by itself on its first queue read and re-checked daily.',
+    { user: USER, action: z.enum(['check', 'repair']).optional() },
+    async ({ user, action }) =>
+      guard(async () =>
+        jsonResult(action === 'repair' ? await api.post(`${u(user)}/card-state/repair`, {}) : await api.get(`${u(user)}/card-state`))
+      )
+  );
+
+  server.tool(
     'admin_preview_delete_user',
     'ADMIN ONLY. What deleting this account would remove (decks, notes, cards, review events, recordings, readers, lessons, relationships, conversations, messages, calls, sessions…), what stays (the user\'s deck / reader copies already in students\' accounts, lessons assigned to others) and how many R2 objects only this user uses. `blockers` lists why it cannot be deleted (own account, admin, ADMIN_EMAIL, system user). Always show this to the human before admin_delete_user.',
     { user: USER },

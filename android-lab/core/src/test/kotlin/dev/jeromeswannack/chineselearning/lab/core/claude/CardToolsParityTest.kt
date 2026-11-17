@@ -52,11 +52,20 @@ class CardToolsParityTest {
                             val x = c.jsonObject
                             CardTools.AddedCard(x["note_id"].str!!, x["hanzi"].str!!, x["pinyin"].str, x["english"].str, x["deck_id"].str, x["deck_name"].str)
                         }.orEmpty(),
+                        link(it["link"]),
                     )
                 }
             }
             assertEquals(wantLines, CardTools.lines(parsed), o["raw"].toString())
+            val wantLinks = o["links"]!!.jsonArray.map { link(it) }
+            assertEquals(wantLinks, parsed.map { CardTools.resultLink(it, parsed) }, o["raw"].toString())
+            val wantBumped = o["bumped"]!!.jsonArray.map { l -> l.jsonArray.map { b -> CardTools.BumpedNote(b.jsonObject["note_id"].str!!, b.jsonObject["hanzi"].str!!) } }
+            assertEquals(wantBumped, parsed.map { CardTools.bumpedNotes(it.data) }, o["raw"].toString())
         }
+    }
+
+    private fun link(e: JsonElement?): CardTools.Link? = e?.takeIf { it !is JsonNull }?.jsonObject?.let {
+        CardTools.Link(it["kind"].str!!, it["target"].str!!, it["id"].str, it["path"].str!!, it["label"].str!!, it["aria"].str!!)
     }
 
     @Test

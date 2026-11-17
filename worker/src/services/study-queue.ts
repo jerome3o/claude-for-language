@@ -12,8 +12,9 @@
  * Before (Nov 2026) the server counted every card with no next review or one due by now: every NEW card in every
  * deck was "due" (Jerome's account: 8,571 "due today" of 13,902 cards).
  *
- * The server's card state is recomputed from the review events on every upload, so the inputs
- * are the same the device has once it synced. Not on the server: the device's "Study 10 more"
+ * The server's card state is the replay of the review events (services/card-state.ts: every write
+ * recomputes from events, each account is replayed whole once per repair version before its first
+ * queue read and re-checked daily), so the inputs are the same the device has once it synced. Not on the server: the device's "Study 10 more"
  * bonus and "Order new cards by" (it changes WHICH new cards, never how many).
  *
  * Used by: GET /api/me/study-queue (MCP list_decks / get_due_cards / get_overall_stats / study),
@@ -43,6 +44,7 @@ import { introducedToday } from '@shared/decks/study-queue';
 import { studyCutoffMs, type StudyDay } from '../../../shared/study/studyDay';
 import { getStudyDayUser, userStudyDay } from './study-day';
 import { parseBumpCardTypes } from './study-bumps';
+import { ensureCardStatesRepaired } from './card-state';
 
 /** Server / SQLite times are ISO or 'YYYY-MM-DD HH:MM:SS' (UTC). */
 export function timeMs(at: string | null | undefined): number | null {
@@ -189,6 +191,9 @@ export async function loadStudyQueueInputs(
   opts: { nowMs?: number; fallbackTzOffset?: number | null } = {},
 ): Promise<StudyQueueInputs> {
   const nowMs = opts.nowMs ?? Date.now();
+  // The queue reads the cached card state: replay it from the events first when this account was
+  // never repaired at the current version (once; services/card-state.ts).
+  await ensureCardStatesRepaired(db, userId);
   const dayUser = await getStudyDayUser(db, userId);
   const day = userStudyDay(dayUser, nowMs, opts.fallbackTzOffset);
   const dayStartIso = new Date(day.startMs).toISOString();

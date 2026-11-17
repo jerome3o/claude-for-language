@@ -40,7 +40,6 @@ const HeldCardsPage = lazy(() => import('./pages/HeldCardsPage').then(m => ({ de
 const StudentUpNextPage = lazy(() => import('./pages/tutor/StudentUpNextPage').then(m => ({ default: m.StudentUpNextPage })));
 const TutorNotesPracticePage = lazy(() => import('./pages/TutorNotesPracticePage').then(m => ({ default: m.TutorNotesPracticePage })));
 const HomeworkPassPage = lazy(() => import('./pages/HomeworkPassPage').then(m => ({ default: m.HomeworkPassPage })));
-const SessionReviewPage = lazy(() => import('./pages/SessionReviewPage').then(m => ({ default: m.SessionReviewPage })));
 const GeneratePage = lazy(() => import('./pages/GeneratePage').then(m => ({ default: m.GeneratePage })));
 const SentenceAnalysisPage = lazy(() => import('./pages/SentenceAnalysisPage').then(m => ({ default: m.SentenceAnalysisPage })));
 const CoachEntry = lazy(() => import('./pages/CoachEntry').then(m => ({ default: m.CoachEntry })));
@@ -294,15 +293,6 @@ function AppRoutes() {
             <ErrorBoundary fallbackTitle="Study session interrupted">
               <StudyPage />
             </ErrorBoundary>
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/study/review/:id"
-        element={
-          <ProtectedRoute>
-            <Header />
-            <SessionReviewPage />
           </ProtectedRoute>
         }
       />

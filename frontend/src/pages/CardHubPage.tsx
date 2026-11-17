@@ -7,10 +7,10 @@ import { bumpStudentCardsApi } from '../api/bumps';
 import { addUpNextApi } from '../api/upNext';
 import { UpNextButton } from '../components/upNext/UpNextButton';
 import { useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMyNoteHub, getStudentNoteHub } from '../api/cardFlags';
-import { getMyRelationships, getRelationship, API_BASE } from '../api/client';
+import { apiErrorStatus, getMyRelationships, getRelationship, API_BASE } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useNoteAudio } from '../hooks/useAudio';
 import { Loading, ErrorMessage } from '../components/Loading';
@@ -56,6 +56,10 @@ export function CardHubPage() {
   const tutorView = !!relId;
   const role = tutorView ? 'tutor' : 'student';
 
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Pushed from another screen of the app (not a fresh load of this URL): back returns there.
+  const cameFromApp = location.key !== 'default';
   const hubQuery = useQuery({
     queryKey: ['note-hub', relId ?? 'me', noteId],
     queryFn: () => (relId ? getStudentNoteHub(relId, noteId!) : getMyNoteHub(noteId!)),
@@ -72,8 +76,16 @@ export function CardHubPage() {
 
   if (hubQuery.isLoading) return <Loading />;
   if (hubQuery.error || !hubQuery.data) {
+    // Opened from a link (a line under Claude's reply, a chat's "Open card"): say what happened, and back.
+    const status = apiErrorStatus(hubQuery.error);
+    const message = status === 404 ? 'This card isn’t there any more — it may have been deleted.' : !navigator.onLine ? 'This card needs a connection to open.' : hubQuery.error instanceof Error ? hubQuery.error.message : 'Card not found';
     return (
-      <div className="page"><div className="container"><ErrorMessage message={hubQuery.error instanceof Error ? hubQuery.error.message : 'Card not found'} /></div></div>
+      <div className="page">
+        <div className="container">
+          {cameFromApp && <button type="button" className="back-link btn-link" onClick={() => navigate(-1)} data-testid="card-hub-back">‹ Back</button>}
+          <ErrorMessage message={message} />
+        </div>
+      </div>
     );
   }
   const hub = hubQuery.data;
@@ -84,7 +96,12 @@ export function CardHubPage() {
   return (
     <div className="page">
       <div className="container">
-        <Link to={backTo} className="back-link">{backLabel}</Link>
+        {/* Opened from somewhere in the app (a Claude reply's line, a chat, the explorer): back goes there. */}
+        {cameFromApp ? (
+          <button type="button" className="back-link btn-link" onClick={() => navigate(-1)} data-testid="card-hub-back">‹ Back</button>
+        ) : (
+          <Link to={backTo} className="back-link">{backLabel}</Link>
+        )}
         <HubCardBox hub={hub} relId={relId ?? null} />
 
         {/* The card's picture (shared/cards/note-image.ts): only the owner changes it. */}

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.Js
+import dev.jeromeswannack.chineselearning.lab.core.QuestionThreads
 import dev.jeromeswannack.chineselearning.lab.data.api.ClaudeQuestionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.HubCardDto
 import dev.jeromeswannack.chineselearning.lab.data.api.NoteHubDto
@@ -129,7 +130,7 @@ fun StudentCardHubScreen(ui: StudentHubUi, actions: StudentHubActions, now: Inst
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TeachSectionTitle("💬 Asked Claude" + if (hub.questions.isNotEmpty()) " (${TeachingFormat.plural(hub.questions.size, "question")})" else "")
-                        val threads = groupQuestionThreads(hubQuestions(hub))
+                        val threads = QuestionThreads.group(hubQuestions(hub))
                         if (threads.isEmpty()) TeachCard { MutedLine("${ui.studentName} has not asked Claude about this card.") }
                         threads.forEach { ClaudeThreadRow(it, {}, now, initiallyOpen = true, showCard = false) }
                         InlineButton("All conversations with Claude ›") { actions.open(Routes.studentClaudeChats(ui.relId)) }

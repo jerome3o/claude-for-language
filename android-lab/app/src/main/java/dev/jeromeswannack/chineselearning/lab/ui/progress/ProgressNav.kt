@@ -8,15 +8,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.composable
 import dev.jeromeswannack.chineselearning.lab.data.api.CardReviewsDto
-import dev.jeromeswannack.chineselearning.lab.data.api.StudySessionDto
 import dev.jeromeswannack.chineselearning.lab.data.api.myCardReviews
-import dev.jeromeswannack.chineselearning.lab.data.api.studySession
 import dev.jeromeswannack.chineselearning.lab.ui.nav.LabNav
 import dev.jeromeswannack.chineselearning.lab.ui.nav.Routes
 
 /**
  * Package D — the Progress tab and its drill-downs (web: MyProgressPage, MyDayDetailPage,
- * MyCardReviewDetailPage, SessionReviewPage). Numbers come from the phone (works offline).
+ * MyCardReviewDetailPage). Numbers come from the phone (works offline).
  */
 fun NavGraphBuilder.progressGraph(nav: LabNav) {
     composable(Routes.route(Routes.PROGRESS)) {
@@ -65,24 +63,6 @@ fun NavGraphBuilder.progressGraph(nav: LabNav) {
                     if (playing != null) app.audio.stop() else app.audio.play(d.audioUrl, d.card.hanzi, online)
                 },
                 playRecording = { url -> if (playing == url) app.audio.stop() else app.audio.play(url, "", online) },
-            ),
-        )
-    }
-
-    composable(Routes.route("/study/review/{id}")) { entry ->
-        val app = nav.app
-        val id = entry.arguments?.getString("id").orEmpty()
-        val scope = rememberCoroutineScope()
-        val res = remember(id) { app.cachedResource<StudySessionDto>(scope, "progress/session/$id", "progress") { studySession(id) } }
-        val state by res.state.collectAsStateWithLifecycle()
-        val online by app.online.collectAsStateWithLifecycle()
-        SessionReviewScreen(
-            state,
-            SessionReviewActions(
-                onBack = nav::back,
-                onRetry = { res.refresh() },
-                playWord = { key, hanzi -> app.audio.play(key, hanzi, online) },
-                playRecording = { url -> app.audio.play(url, "", online) },
             ),
         )
     }

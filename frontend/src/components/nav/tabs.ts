@@ -77,8 +77,7 @@ export function activeTab(tabs: TabSpec[], pathname: string): TabId | null {
 
 /**
  * Routes that take over the whole screen: no header, no tab bar. `/study`
- * itself is immersive (a session is running); `/study/review/:id` is a normal
- * page.
+ * itself is immersive (a session is running).
  */
 const IMMERSIVE = [
   /^\/study\/?$/,
