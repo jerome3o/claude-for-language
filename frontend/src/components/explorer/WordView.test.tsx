@@ -144,7 +144,8 @@ describe('WordView card tie-in', () => {
       bump!.click();
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(added.bumpNotes).toHaveBeenCalledWith(['new-note'], 'explorer', new Map([['new-note', '学习']]));
+    // The just-made note is planned on the device (its listening card "by ear"), not sent as a whole-note row.
+    expect(added.bumpNotes).toHaveBeenCalledWith(['new-note'], 'explorer', new Map([['new-note', '学习']]), { justCreated: new Set(['new-note']) });
     expect(block!.textContent).toContain('⚡ 学习 is first in today’s study');
   });
 
@@ -169,7 +170,7 @@ describe('WordView card tie-in', () => {
       bump!.click();
       await new Promise((r) => setTimeout(r, 10));
     });
-    expect(added.bumpNotes).toHaveBeenCalledWith(['claude-note'], 'explorer', new Map([['claude-note', '学习']]));
+    expect(added.bumpNotes).toHaveBeenCalledWith(['claude-note'], 'explorer', new Map([['claude-note', '学习']]), { justCreated: new Set(['claude-note']) });
   });
 
   it('a card Claude made for ANOTHER word does not change this one', async () => {

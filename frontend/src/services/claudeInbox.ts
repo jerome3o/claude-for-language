@@ -10,6 +10,7 @@
  */
 import type { ClaudeThreadSummary } from '@shared/claude/api';
 import { db } from '../db/database';
+import { mergeThreadList } from '@shared/claude/threadCache';
 import { listClaudeThreads } from '../api/claudeThreads';
 import type { LocalClaudeThread } from './claudeThreads';
 
@@ -31,28 +32,23 @@ function writeCursor(userId: string, value: string): void {
   }
 }
 
-/** A list row over what the device has (keeping the thread view's message cursor). */
-export function mergeListRow(prev: LocalClaudeThread | undefined, row: ClaudeThreadSummary): LocalClaudeThread {
-  return { ...prev, ...row, local: false, _cursor: prev?._cursor ?? null };
-}
-
-/** The list rows + deletions into the cache. */
+/**
+ * The list rows + deletions into the cache (the rule: `mergeThreadList`, shared/claude/threadCache.ts —
+ * a row laid over its cached copy keeps the thread view's message cursor; a thread started offline
+ * that the server lists now becomes one row, its messages moved to the server id).
+ */
 export async function applyThreadList(rows: ClaudeThreadSummary[], deletedIds: string[]): Promise<void> {
   await db.transaction('rw', db.claudeThreads, db.claudeMessages, async () => {
-    for (const row of rows) {
-      const prev = await db.claudeThreads.get(row.id);
-      await db.claudeThreads.put(mergeListRow(prev, row));
-      // A thread started offline that the server has now (sent by the outbox elsewhere): one row.
-      if (row.client_id && row.client_id !== row.id) {
-        const local = await db.claudeThreads.get(row.client_id);
-        if (local?.local) {
-          await db.claudeThreads.delete(row.client_id);
-          const moved = await db.claudeMessages.where('thread_id').equals(row.client_id).toArray();
-          for (const m of moved) await db.claudeMessages.put({ ...m, thread_id: row.id });
-        }
-      }
+    const ids = [...new Set(rows.flatMap((r) => (r.client_id ? [r.id, r.client_id] : [r.id])))];
+    const prev = (await db.claudeThreads.bulkGet(ids)).filter((t): t is LocalClaudeThread => !!t);
+    const merged = mergeThreadList<LocalClaudeThread>(prev, rows.map((r) => ({ ...r, local: false })), deletedIds);
+    for (const { from, to } of merged.moved) {
+      await db.claudeThreads.delete(from);
+      const moved = await db.claudeMessages.where('thread_id').equals(from).toArray();
+      for (const m of moved) await db.claudeMessages.put({ ...m, thread_id: to });
     }
-    for (const id of deletedIds) {
+    await db.claudeThreads.bulkPut(merged.threads.map((t) => ({ ...t, _cursor: t._cursor ?? null })));
+    for (const id of merged.removed) {
       await db.claudeThreads.delete(id);
       await db.claudeMessages.where('thread_id').equals(id).delete();
     }

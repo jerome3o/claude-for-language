@@ -1,7 +1,7 @@
 /**
  * "⚡ Study it today" golden vectors (docs/STUDY_SESSION.md "⚡ Study it today"), from the web app's own
  * TypeScript — shared/decks/study-today.ts: what ONE tap bumps from anywhere (an unstarted word's listening
- * card, else its lead card + the long-term opt-in; a started word's listening card; the whole note without
+ * card — with "Start new words by ear" even before its clip exists —, else its lead card + the long-term opt-in; a started word's listening card; the whole note without
  * one), the button labels / hint and the toast.
  * Writes study-today.json; core StudyTodayParityTest asserts StudyToday.kt matches.
  */
@@ -42,8 +42,9 @@ for (let i = 0; i < 600; i++) {
   const known = rand() < 0.4;
   const longTermPref = pick(PREFS);
   const deckInReview = rand() < 0.6;
-  const p = studyTodayPlan({ cards, started, hasAudio, knownCharactersLead: () => known, longTermPref, deckInReview });
-  plans.push({ cards, started, hasAudio, known, longTermPref, deckInReview, plan: { ...p, longTerm: p.longTerm === undefined ? 'keep' : p.longTerm } });
+  const newWordsByEar = rand() < 0.5;
+  const p = studyTodayPlan({ cards, started, hasAudio, newWordsByEar, knownCharactersLead: () => known, longTermPref, deckInReview });
+  plans.push({ cards, started, hasAudio, newWordsByEar, known, longTermPref, deckInReview, plan: { ...p, longTerm: p.longTerm === undefined ? 'keep' : p.longTerm } });
 }
 
 const copy: unknown[] = [];

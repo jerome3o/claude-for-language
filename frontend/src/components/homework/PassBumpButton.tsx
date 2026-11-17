@@ -4,6 +4,7 @@ import { passBumpHint, passBumpKindOfRow, passBumpLabel, passBumpPlan, type Pass
 import type { LocalCard, LocalNote } from '../../db/database';
 import { bumpNotes, clearBump, useBumps } from '../../services/studyBumps';
 import { setNoteLongTerm } from '../../services/longTerm';
+import { readNewCardOrder } from '../../services/newCardOrder';
 import '../bumps/bumps.css';
 
 /**
@@ -30,7 +31,7 @@ export function PassBumpButton(props: {
   const restore = useRef(new Map<string, LongTermPref>());
 
   const plan = (): PassBumpPlan => passBumpPlan({
-    cards, started, hasAudio: !!note.audio_url,
+    cards, started, hasAudio: !!note.audio_url, newWordsByEar: readNewCardOrder().new_words_by_ear,
     longTermPref: toLongTermPref(note.long_term), deckInReview: deckInReview ?? true,
   });
   const kind: PassBumpKind = row ? passBumpKindOfRow(row.card_types) : plan().kind;
