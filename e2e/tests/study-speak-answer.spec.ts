@@ -284,7 +284,7 @@ test('Jerome\'s 狼 said 朗 (tones off): the answer once with its pinyin and me
   await expect(said.getByTestId('spoken-result-chip')).toHaveText('Tone off on 狼');
   await expect(said.getByTestId('spoken-result-chip')).toHaveAttribute('data-icon', 'approx');
   await expect(said.locator('[data-mark="tone"]')).toHaveText('朗');
-  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 朗 (lǎng). Close. Tone off on 狼.');
+  await expect(said.getByTestId('spoken-result-label')).toHaveText('You said 朗 (lǎng). Close. Tone off on 狼. Tone off: 朗.');
   // Said once, the answer once, the card's pinyin straight under the answer: no diff, no ↓, no pill.
   await expect(back.locator('.answer-diff, .answer-diff-arrow, .you-said')).toHaveCount(0);
   await expect(back.getByText('朗', { exact: true })).toHaveCount(1);

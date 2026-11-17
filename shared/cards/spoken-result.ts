@@ -143,6 +143,11 @@ export function spokenResult(transcript: string, correct: string, verdict: Answe
   };
 }
 
+/** The marked characters a close / wrong row names, in this order (`spokenResultLabel`). */
+const SPOKEN_MARK_NAMES: readonly (readonly [SpokenCharMark, string])[] = [
+  ['wrong', 'Wrong'], ['tone', 'Tone off'], ['extra', 'Extra'], ['missing', 'Missing'],
+];
+
 /**
  * The whole row as one sentence for a screen reader: what was said (with its pinyin when given),
  * the full verdict and the marked characters — "You said 朗 (lǎng). Close — the tones are off.
@@ -165,7 +170,10 @@ export function spokenResultLabel(result: SpokenResult, correct: string, pinyin 
     case 'wrong': {
       // The chip is the diff's one sentence ("Tone off on 狼"); say which way the verdict went too.
       const verdict = result.state === 'close' ? 'Close.' : 'Didn’t match.';
-      return `${head} ${verdict}${result.chip !== SPOKEN_RESULT_CHIP[result.state] ? ` ${result.chip}.` : ''}`;
+      // Each marked character by name: the marks are colour only, so a screen reader hears what each colour says.
+      const named = SPOKEN_MARK_NAMES.map(([mark, name]) => [name, marked(mark)] as const).filter(([, chars]) => chars)
+        .map(([name, chars]) => ` ${name}: ${chars}.`).join('');
+      return `${head} ${verdict}${result.chip !== SPOKEN_RESULT_CHIP[result.state] ? ` ${result.chip}.` : ''}${named}`;
     }
   }
 }

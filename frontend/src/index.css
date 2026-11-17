@@ -22,6 +22,17 @@
   --result-wrong-ink: #b91c1c;
   --result-pending: #3b82f6;
   --result-pending-ink: #1d4ed8;
+  /* The answer diff's marks (shared/cards/answer-diff.ts; components/study/AnswerDiff.css, YouSaid.css, the reader's
+     🎤 Read it aloud marks in components/reader/ReadAloud.css; Lab LabColors.mark*). COLOUR ONLY — Jerome, Nov 2026:
+     "we don't need the outlines and the color and the underlines … make the colors a little bit more subtle" — so
+     the character itself is drawn in its mark's colour: no box, no tint, no underline. Toned down from the old
+     fluorescent rose / lemon, every one ≥ 4.5:1 on the card and on a result surface's tint (resultColors.test.ts),
+     and each one its own hue + lightness: wrong rose, tone off amber (the "close" yellow family), extra violet,
+     missing the expected character in a cool grey. The one-line summary says it in words too. */
+  --mark-wrong: #a82540;
+  --mark-tone: #8c6700;
+  --mark-extra: #6b4fc4;
+  --mark-missing: #62666f;
   --color-success: #22c55e;
   --color-warning: #f97316;
   --color-error: #ef4444;
@@ -75,6 +86,10 @@
   --result-wrong-ink: #f87171;
   --result-pending: #60a5fa;
   --result-pending-ink: #93c5fd;
+  --mark-wrong: #e98594;
+  --mark-tone: #dcc16e;
+  --mark-extra: #ac9dea;
+  --mark-missing: #9a978f;
   --btn-outline: #7c7c86;
   --btn-bg: #26262c;
   --btn-disabled-bg: #1c1c20;
@@ -752,62 +767,28 @@ html:has(.study-page-fullscreen) .header {
   }
 }
 
+/*
+ * The typed / multiple-choice answer's marks (utils/answerDiff.ts): COLOUR ONLY, like the slim answer diff
+ * (AnswerDiff.css; Jerome, Nov 2026: no boxes, no fills, no underlines) — a right character in the "right" ink, a
+ * wrong (or extra) one in the wrong mark's colour, a missing one a "?" in the missing grey; the answer under the ↓
+ * in body ink with the characters he got in the "right" ink. Each wrong / missing cell carries an aria-label. The
+ * one-line summary above says it in words.
+ */
 .diff-correct {
-  background-color: #166534;
-  color: white;
+  color: var(--result-right-ink);
 }
 
 .diff-wrong {
-  background-color: #991b1b;
-  color: white;
+  color: var(--mark-wrong);
 }
 
 .diff-expected {
-  background-color: #e5e7eb;
   color: var(--color-text);
 }
 
 /* A character not typed / a multiple-choice row left blank (partial answers are allowed) */
 .diff-skipped {
-  background-color: transparent;
-  color: var(--color-text-light);
-}
-
-/*
- * Marks that read without colour (utils/answerDiff.ts): a wrong or extra
- * character is red AND underlined (solid), a missing one is a "?" with a
- * dashed underline. The underline is a bar drawn under the glyph inside the
- * cell's own bottom padding, so it never touches the character or the pinyin
- * line below; correct characters stay green with no underline.
- */
-.diff-char {
-  position: relative;
-}
-
-.diff-wrong,
-.diff-skipped {
-  padding-bottom: 0.5rem;
-}
-
-.diff-wrong::after,
-.diff-skipped::after {
-  content: '';
-  position: absolute;
-  left: 14%;
-  right: 14%;
-  bottom: 0.2rem;
-  border-radius: 2px;
-  pointer-events: none;
-}
-
-.diff-wrong::after {
-  height: 3px;
-  background-color: currentColor;
-}
-
-.diff-skipped::after {
-  height: 0;
-  border-bottom: 3px dashed currentColor;
+  color: var(--mark-missing);
 }
 
 .answer-diff-alternative-label {

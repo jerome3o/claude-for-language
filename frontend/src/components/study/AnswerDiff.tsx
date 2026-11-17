@@ -6,17 +6,18 @@
  *   ✕ 1 wrong character, 1 missing
  *   ANSWER   我的书呢 ▶
  *            wǒ de shū ne
- *   YOU SAID 他̲的书[呢]          ← 他 red + solid underline, 呢 muted in a dashed slot
+ *   YOU SAID 他的书呢            ← 他 in rose, 呢 (left out) in grey
  *
- * No explanations, tips or reasons. Each mark has a SHAPE as well as a colour (Jerome is red / green
- * colour-blind; the same language as the reader's read-aloud marks): wrong = red tint + thick solid underline,
- * tone off = a lemon wavy underline (the character in body ink), extra = yellow highlight in a solid amber box (never a strike: 了 struck reads as 子),
- * missing = the expected character, muted, in a dashed box, a homophone = a faint dotted underline (right).
- * Screen readers get the whole diff as one sentence (`answerDiffLabel`). Lab twin: ui/study/AnswerDiffView.kt.
+ * No explanations, tips or reasons. The marks are COLOUR ONLY (Jerome, Nov 2026: "we don't need the outlines and
+ * the color and the underlines"; the same language as the reader's read-aloud marks): the character itself in its
+ * mark's colour (index.css `--mark-*`) — wrong rose, tone off amber, extra violet, missing = the expected character
+ * in grey; a homophone counts as right and has no mark. No box, tint or underline. Colour is never the only signal:
+ * the line says what differs in words, screen readers get the whole diff as one sentence (`answerDiffLabel`) and
+ * each marked character carries its own title (`answerDiffPartLabel`). Lab twin: ui/study/AnswerDiffView.kt.
  */
 import { useMemo, type ReactNode } from 'react';
 import {
-  answerDiff, answerDiffLabel, answerDiffLine, answerDiffTone, ANSWER_DIFF_ICON, ANSWER_DIFF_YOU_SAID,
+  answerDiff, answerDiffLabel, answerDiffLine, answerDiffPartLabel, answerDiffTone, ANSWER_DIFF_ICON, ANSWER_DIFF_YOU_SAID,
   type AnswerDiffPart, type AnswerDiffTone,
 } from '@shared/cards/answer-diff';
 import { devicePinyinLine } from '../../utils/autoPinyin';
@@ -30,7 +31,7 @@ export function AnswerDiffChars({ parts, testId = 'answer-diff-chars' }: { parts
     <span className="adiff-chars" lang="zh-CN" data-testid={testId} aria-hidden="true">
       {parts.map((p, i) => (p.kind === 'ok' || p.kind === 'plain'
         ? <span key={i}>{p.text}</span>
-        : <span key={i} className={`adiff adiff--${p.kind}`} data-kind={p.kind}>{p.text}</span>))}
+        : <span key={i} className={`adiff adiff--${p.kind}`} data-kind={p.kind} title={answerDiffPartLabel(p)}>{p.text}</span>))}
     </span>
   );
 }
