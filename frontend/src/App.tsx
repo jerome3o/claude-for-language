@@ -754,7 +754,7 @@ function AppRoutes() {
       {/* Claude threads (docs/CHAT.md "Claude thread view"): every chat with Claude, one screen. The
           Coach's "💬 Ask Claude" chats were /coach/chat/:id — the same rows, redirected. */}
       {/* The learner's ＋ Add tab (docs/ADD_TAB.md). The old ✦ Claude tab (/claude) → the Chats tab's Claude box. */}
-      <Route path="/add" element={<ProtectedRoute><AddPage /></ProtectedRoute>} />
+      <Route path="/add" element={<ProtectedRoute><Header /><AddPage /></ProtectedRoute>} />
       <Route path="/claude" element={<Navigate to="/chats?compose=1" replace />} />
       <Route path="/chats/claude/:id" element={<ProtectedRoute><ClaudeThreadPage /></ProtectedRoute>} />
       <Route path="/chats/claude/:id/recap" element={<ProtectedRoute><ClaudeChatRecapPage /></ProtectedRoute>} />

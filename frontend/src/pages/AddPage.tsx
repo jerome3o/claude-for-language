@@ -451,9 +451,11 @@ export function AddPage() {
     preloadSegmenter();
   }, []);
   useEffect(() => saveResults(results), [results]);
+  // A photo's object URL goes when another photo replaces it (or the page closes) — the photo is never kept.
+  const photoUrl = photo?.url;
   useEffect(() => () => {
-    if (photo) URL.revokeObjectURL(photo.url);
-  }, [photo]);
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+  }, [photoUrl]);
 
   const lookUp = useCallback((word: string, hint?: Partial<ReaderWord>, sentence?: string) => {
     const item = itemForText(word, { pinyin: hint?.pinyin || undefined, gloss: hint?.gloss || undefined, sentence: sentence && sentence !== word ? sentence : undefined });

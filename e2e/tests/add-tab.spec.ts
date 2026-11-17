@@ -41,9 +41,14 @@ async function openAdd(page: Page, user: Seeded) {
   await page.setViewportSize({ width: 412, height: 915 });
   await page.goto(`/?session_token=${user.token}`);
   await page.locator('.header').waitFor({ timeout: 30_000 });
-  await page.locator('.tab-bar [data-tab="add"]').click();
-  await expect(page).toHaveURL(/\/add$/);
-  await expect(page.getByTestId('add-page')).toBeVisible();
+  await page.goto('/progress');
+  await page.locator('.tab-bar [data-tab="add"]').waitFor();
+  // The tab: from another page (the first load compiles the page's chunk).
+  await expect(async () => {
+    await page.locator('.tab-bar [data-tab="add"]').click();
+    await expect(page).toHaveURL(/\/add$/, { timeout: 3_000 });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.getByTestId('add-page')).toBeVisible({ timeout: 30_000 });
 }
 
 test('the tab bar has ＋ Add after Chats; /claude lands on the Chats tab\'s Claude box', async ({ page, request }) => {
@@ -104,6 +109,8 @@ test('📷 a photo → the Chinese lines as word chips (the subtitle first) → 
   await expect(word).toBeVisible();
   const add = word.getByTestId('explorer-add-card');
   await expect(add).toBeVisible({ timeout: 15_000 });
+  // The dictionary's meaning is in (the card is made from it).
+  await expect(word.getByText(/dignity/).first()).toBeVisible({ timeout: 15_000 });
   await shot(page, '03-photo-explorer');
   await add.click();
   await expect(word.getByTestId('xp-added')).toBeVisible({ timeout: 15_000 });
@@ -112,12 +119,13 @@ test('📷 a photo → the Chinese lines as word chips (the subtitle first) → 
 test('📖 Graded reader → a topic → "✓ Making your reader… Open ›"', async ({ page, request }) => {
   test.setTimeout(120_000);
   const user = await seedUser(request, 'reader');
-  const deck = await api<{ id: string }>(request, '/api/decks', { method: 'POST', token: user.token, data: { name: 'Travel' } });
-  for (const [hanzi, pinyin, english] of [['旅行', 'lǚxíng', 'to travel'], ['北京', 'Běijīng', 'Beijing'], ['火车', 'huǒchē', 'train'], ['朋友', 'péngyou', 'friend']]) {
-    await api(request, `/api/decks/${deck.id}/notes`, { method: 'POST', token: user.token, data: { hanzi, pinyin, english } });
-  }
-  await page.goto(`/decks?session_token=${user.token}`);
-  await expect(page.getByText('Travel').first()).toBeVisible({ timeout: 30_000 });
+  // The story generator needs 5+ learned words; a fresh account has none, so the request is answered here
+  // (the endpoint itself is the existing POST /api/readers/generate, covered by the readers specs).
+  let asked: { topic?: string; difficulty?: string; deck_ids?: string[] } | null = null;
+  await page.route('**/api/readers/generate', async (route) => {
+    asked = route.request().postDataJSON();
+    await route.fulfill({ json: { id: 'reader-e2e', title_chinese: '生成中...', title_english: 'Story about: 去北京旅行', status: 'generating', pages: [] } });
+  });
   await openAdd(page, user);
 
   await page.getByTestId('add-tile-reader').click();
@@ -130,9 +138,10 @@ test('📖 Graded reader → a topic → "✓ Making your reader… Open ›"', 
   await sheet.getByTestId('add-content-input-submit').click();
   const result = page.getByTestId('add-result').first();
   await expect(result).toContainText('Making your reader', { timeout: 30_000 });
+  expect(asked).toMatchObject({ topic: '去北京旅行', difficulty: 'beginner' });
   await shot(page, '07-reader-result');
   await result.getByTestId('add-result-open').click();
-  await expect(page).toHaveURL(/\/readers\/[^/]+$/);
+  await expect(page).toHaveURL(/\/readers\/reader-e2e$/);
 });
 
 test('the Chats tab: the Claude box (chips) under the list; sending opens a thread', async ({ page, request }) => {
