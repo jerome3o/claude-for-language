@@ -23,6 +23,7 @@ import {
   CoachMessage,
   NoteSentence,
 } from '../types';
+import { syncCardSentences } from './card-sentence';
 import { generateId, CARD_TYPES } from '../services/cards';
 import { noteCopyValues } from '../services/note-copy';
 import { parseReaderWords } from '@shared/reader/words';
@@ -845,6 +846,8 @@ export async function createNote(db: D1Database, deckId: string, input: NoteRowI
     .run();
   await insertCardsForNote(db, noteId);
   await touchDeck(db, deckId);
+  // The card sentence is also the note's first example sentence row (db/card-sentence.ts).
+  if (input.sentence_clue?.trim()) await syncCardSentences(db, [noteId]);
 
   const note = await db.prepare('SELECT * FROM notes WHERE id = ?').bind(noteId).first<Note>();
   const cards = await db.prepare('SELECT * FROM cards WHERE note_id = ?').bind(noteId).all<Card>();
@@ -924,6 +927,8 @@ export async function insertNoteCopy(db: D1Database, targetDeckId: string, note:
       .run();
   }
   await insertCardsForNote(db, newNoteId);
+  // The copy's card sentence row (same text, same shared clip).
+  if (typeof note.sentence_clue === 'string' && note.sentence_clue.trim()) await syncCardSentences(db, [newNoteId]);
   return newNoteId;
 }
 
@@ -1091,6 +1096,9 @@ export async function updateNote(
     .prepare(`UPDATE notes SET ${fields.join(', ')} WHERE id = ?`)
     .bind(...values)
     .run();
+
+  // A card-sentence field changed: its row follows (db/card-sentence.ts).
+  if (fields.some((f) => f.startsWith('sentence_clue'))) await syncCardSentences(db, [id]);
 
   // Also update deck's updated_at
   const note = await getNoteById(db, id);
@@ -3625,7 +3633,7 @@ export async function getNoteSentences(db: D1Database, noteId: string): Promise<
   return result.results;
 }
 
-/** Replace a note's entire sentence set. Returns the stored rows. */
+/** Replace a note's generated set (the card's own sentence row stays). Returns every stored row. */
 export async function replaceNoteSentences(
   db: D1Database,
   noteId: string,
@@ -3633,7 +3641,10 @@ export async function replaceNoteSentences(
 ): Promise<NoteSentence[]> {
   const now = new Date().toISOString();
   const statements: D1PreparedStatement[] = [
-    db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId),
+    // The card's own sentence row (is_card, db/card-sentence.ts) is never part of a regeneration.
+    db.prepare('DELETE FROM note_sentences WHERE note_id = ? AND is_card = 0').bind(noteId),
+    // …but it travels with the new set (devices replace a note's rows with the ones a sync hands them).
+    db.prepare('UPDATE note_sentences SET updated_at = ? WHERE note_id = ? AND is_card = 1').bind(now, noteId),
   ];
 
   sentences.forEach((sentence, index) => {
@@ -3716,7 +3727,7 @@ export async function appendNoteSentences(
 /**
  * Listening cards' background top-up (shared/study/listenContext.ts): of these notes (the
  * caller's), the ones with fewer than `min` NATURAL sentences in total — the card's own sentence
- * (unless the set repeats it) plus the set's rows not written around a look-alike (focus
+ * (its own row since migration 0152) plus the set's rows not written around a look-alike (focus
  * shared_character / contrast, shared/study/sentenceFocus.ts) — that may be asked for again: no job for the
  * note in the last day (queued, done or failed — at most one top-up a day, so a model that
  * keeps returning too few never loops) and not given up on (3 failed attempts).
@@ -3735,10 +3746,7 @@ export async function getNotesForSentenceTopUp(
     .prepare(`
       SELECT n.id,
         (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id
-          AND COALESCE(ns.focus, '') NOT IN (${contrived}))
-        + CASE WHEN TRIM(COALESCE(n.sentence_clue, '')) <> ''
-            AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.hanzi = n.sentence_clue)
-          THEN 1 ELSE 0 END AS total
+          AND COALESCE(ns.focus, '') NOT IN (${contrived})) AS total
       FROM notes n
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ? AND n.id IN (${placeholders})
@@ -3770,10 +3778,7 @@ export async function getNotesForRoundTopUp(
   const rows = await db
     .prepare(`
       SELECT n.id,
-        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id)
-        + CASE WHEN TRIM(COALESCE(n.sentence_clue, '')) <> ''
-            AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.hanzi = n.sentence_clue)
-          THEN 1 ELSE 0 END AS total
+        (SELECT COUNT(*) FROM note_sentences ns WHERE ns.note_id = n.id) AS total
       FROM notes n
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ? AND n.id IN (${placeholders})
@@ -3789,8 +3794,12 @@ export async function getNotesForRoundTopUp(
   return rows.results;
 }
 
+/** Delete a note's generated set; the card's own sentence row stays (and is touched so devices drop the rest). */
 export async function deleteNoteSentences(db: D1Database, noteId: string): Promise<void> {
-  await db.prepare('DELETE FROM note_sentences WHERE note_id = ?').bind(noteId).run();
+  await db.batch([
+    db.prepare('DELETE FROM note_sentences WHERE note_id = ? AND is_card = 0').bind(noteId),
+    db.prepare('UPDATE note_sentences SET updated_at = ? WHERE note_id = ? AND is_card = 1').bind(new Date().toISOString(), noteId),
+  ]);
 }
 
 /** Attach an audio URL to one sentence (TTS is generated after the row exists). */
@@ -3811,6 +3820,7 @@ export async function setNoteSentenceAudio(
     )
     .bind(audioUrl, provider, new Date().toISOString(), sentenceId)
     .run();
+  // (Devices get the whole note's rows whenever one of them changed: getNoteSentencesForUser.)
 }
 
 // ============ Audio quality (which provider made each clip) ============
@@ -3859,7 +3869,7 @@ export async function getAudioQualityStats(db: D1Database, userId: string): Prom
       SELECT ns.audio_provider AS provider, COUNT(*) AS n FROM note_sentences ns
       JOIN notes n ON ns.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.is_card = 0
       GROUP BY ns.audio_provider
     `).bind(userId).all<{ provider: string | null; n: number }>(),
   ]);
@@ -3900,7 +3910,7 @@ export async function getUnclassifiedAudio(
       SELECT ns.id, ns.audio_url FROM note_sentences ns
       JOIN notes n ON ns.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider IS NULL
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider IS NULL AND ns.is_card = 0
       LIMIT ?
     `).bind(userId, limit).all<{ id: string; audio_url: string }>(),
   ]);
@@ -3928,6 +3938,7 @@ export async function setNoteAudioProvider(db: D1Database, noteId: string, provi
 
 export async function setClueAudioProvider(db: D1Database, noteId: string, provider: string): Promise<void> {
   await db.prepare('UPDATE notes SET sentence_clue_audio_provider = ? WHERE id = ?').bind(provider, noteId).run();
+  await db.prepare('UPDATE note_sentences SET audio_provider = ? WHERE id = ?').bind(provider, `${noteId}-card`).run();
 }
 
 export async function setSentenceAudioProvider(db: D1Database, sentenceId: string, provider: string): Promise<void> {
@@ -3966,7 +3977,7 @@ export async function getFallbackAudioTargets(
       SELECT ns.id FROM note_sentences ns
       JOIN notes n ON ns.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider = 'gtts'
+      WHERE d.user_id = ? AND ns.audio_url IS NOT NULL AND ns.audio_provider = 'gtts' AND ns.is_card = 0
       LIMIT ?
     `).bind(userId, limit).all<{ id: string }>(),
   ]);
@@ -3978,28 +3989,44 @@ export async function getFallbackAudioTargets(
 }
 
 /**
- * Every sentence the user owns that changed since `since` (ISO timestamp).
- * Pass no `since` for a full dump — sentence rows are small and text-only.
+ * The user's sentence rows that changed since `since` (ISO timestamp), as whole notes: every row of a note
+ * one of whose rows changed — or whose note changed (its card sentence may have been removed) — so a device
+ * can replace a note's rows with exactly what comes back. `note_ids` = every note touched (a note with no
+ * row left comes back in it with none). No `since` = a full dump.
  */
 export async function getNoteSentencesForUser(
   db: D1Database,
   userId: string,
   since?: string | null
-): Promise<NoteSentence[]> {
-  const base = `
-    SELECT ns.* FROM note_sentences ns
-    JOIN notes n ON ns.note_id = n.id
-    JOIN decks d ON n.deck_id = d.id
-    WHERE d.user_id = ?
-  `;
-  const result = since
-    ? await db.prepare(`${base} AND ns.updated_at > ? ORDER BY ns.note_id, ns.position`)
-        .bind(userId, since)
-        .all<NoteSentence>()
-    : await db.prepare(`${base} ORDER BY ns.note_id, ns.position`)
-        .bind(userId)
-        .all<NoteSentence>();
-  return result.results;
+): Promise<{ sentences: NoteSentence[]; noteIds: string[] | null }> {
+  if (!since) {
+    const all = await db
+      .prepare(`
+        SELECT ns.* FROM note_sentences ns
+        JOIN notes n ON ns.note_id = n.id
+        JOIN decks d ON n.deck_id = d.id
+        WHERE d.user_id = ?
+        ORDER BY ns.note_id, ns.position`)
+      .bind(userId)
+      .all<NoteSentence>();
+    return { sentences: all.results, noteIds: null };
+  }
+  // notes.updated_at is SQLite datetime, the rows' is ISO: both compared through datetime().
+  const touched = `
+    SELECT ns.note_id AS id FROM note_sentences ns
+      JOIN notes n ON ns.note_id = n.id JOIN decks d ON n.deck_id = d.id
+     WHERE d.user_id = ?1 AND ns.updated_at > ?2
+    UNION
+    SELECT n.id FROM notes n JOIN decks d ON n.deck_id = d.id
+     WHERE d.user_id = ?1 AND datetime(n.updated_at) >= datetime(?2)`;
+  const [rows, ids] = await db.batch([
+    db.prepare(`SELECT ns.* FROM note_sentences ns WHERE ns.note_id IN (${touched}) ORDER BY ns.note_id, ns.position`).bind(userId, since),
+    db.prepare(touched).bind(userId, since),
+  ]);
+  return {
+    sentences: (rows.results ?? []) as NoteSentence[],
+    noteIds: ((ids.results ?? []) as Array<{ id: string }>).map((r) => r.id),
+  };
 }
 
 // ============ Quests (tile-map mini-games) ============
@@ -4146,7 +4173,7 @@ export async function getNotesNeedingSentenceSets(
   // A job still marked 'queued' after a day never came back (lost message,
   // worker restart) — let those notes be picked up again rather than starve.
   const isEligible = `
-    NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id)
+    NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.is_card = 0)
     AND NOT EXISTS (
       SELECT 1 FROM note_sentence_jobs j
       WHERE j.note_id = n.id
@@ -4214,7 +4241,7 @@ export async function countNotesWithoutSentenceSets(
       SELECT COUNT(*) AS count FROM notes n
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ?
-        AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id)
+        AND NOT EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.is_card = 0)
     `)
     .bind(userId)
     .first<{ count: number }>();
@@ -4275,6 +4302,28 @@ export async function getNoteSentenceById(
     `)
     .bind(sentenceId, userId)
     .first<NoteSentence>();
+}
+
+/**
+ * Keep a translation on a row that had none (from its breakdown). The card sentence row also fills its
+ * note's deprecated sentence_clue_translation, so the mirror stays the same sentence (db/card-sentence.ts).
+ */
+export async function setNoteSentenceTranslation(
+  db: D1Database,
+  row: Pick<NoteSentence, 'id' | 'note_id' | 'is_card'>,
+  translation: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  const statements = [
+    db.prepare("UPDATE note_sentences SET translation = ? WHERE id = ? AND (translation IS NULL OR TRIM(translation) = '')").bind(translation, row.id),
+    db.prepare('UPDATE note_sentences SET updated_at = ? WHERE note_id = ?').bind(now, row.note_id),
+  ];
+  if (row.is_card) {
+    statements.push(
+      db.prepare("UPDATE notes SET sentence_clue_translation = ? WHERE id = ? AND (sentence_clue_translation IS NULL OR TRIM(sentence_clue_translation) = '')").bind(translation, row.note_id)
+    );
+  }
+  await db.batch(statements);
 }
 
 /**
@@ -4392,7 +4441,7 @@ export async function getSentenceCoverageStats(
       FROM notes n
       JOIN decks d ON n.deck_id = d.id
       LEFT JOIN (
-        SELECT note_id, COUNT(*) AS count FROM note_sentences GROUP BY note_id
+        SELECT note_id, COUNT(*) AS count FROM note_sentences WHERE is_card = 0 GROUP BY note_id
       ) s ON s.note_id = n.id
       WHERE d.user_id = ?
     `)
@@ -4415,7 +4464,7 @@ export async function getSentenceCoverageStats(
       FROM note_sentences ns
       JOIN notes n ON ns.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
-      WHERE d.user_id = ?
+      WHERE d.user_id = ? AND ns.is_card = 0
     `)
     .bind(userId)
     .first<{ total: number; with_audio: number; with_explanation: number }>();
@@ -4493,7 +4542,7 @@ export async function getSentenceCoverageStats(
         d.name,
         COUNT(n.id) AS notes,
         SUM(CASE WHEN n.sentence_clue IS NOT NULL AND n.sentence_clue != '' THEN 1 ELSE 0 END) AS with_clue,
-        SUM(CASE WHEN EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id) THEN 1 ELSE 0 END) AS with_set
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM note_sentences ns WHERE ns.note_id = n.id AND ns.is_card = 0) THEN 1 ELSE 0 END) AS with_set
       FROM decks d
       LEFT JOIN notes n ON n.deck_id = d.id
       WHERE d.user_id = ?
@@ -4606,7 +4655,7 @@ export async function getSentencesMissingAudio(
       JOIN decks d ON n.deck_id = d.id
       LEFT JOIN cards c ON c.note_id = n.id
       WHERE d.user_id = ?
-        AND s.hanzi IS NOT NULL AND s.hanzi != ''
+        AND s.hanzi IS NOT NULL AND s.hanzi != '' AND s.is_card = 0
         AND (s.audio_url IS NULL OR s.audio_url = '')
       GROUP BY s.id
       ORDER BY due IS NULL, due ASC
@@ -4629,7 +4678,7 @@ export async function countSentencesMissingAudio(
       JOIN notes n ON s.note_id = n.id
       JOIN decks d ON n.deck_id = d.id
       WHERE d.user_id = ?
-        AND s.hanzi IS NOT NULL AND s.hanzi != ''
+        AND s.hanzi IS NOT NULL AND s.hanzi != '' AND s.is_card = 0
         AND (s.audio_url IS NULL OR s.audio_url = '')
     `)
     .bind(userId)

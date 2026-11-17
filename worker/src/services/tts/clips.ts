@@ -19,6 +19,7 @@ import { generateTTSDetailed, type TTSOptions, type TTSOutcome, type TtsTicket }
 import type { TtsPriority } from './bucket';
 import { clipSignature, settingsHash, TTS_MODEL } from './settings';
 import { storedClipPolicy, type StoredClipPolicy } from './config';
+import { noteIdOfCardSentence, syncCardSentences } from '../../db/card-sentence';
 
 export type ClipKind = 'word' | 'clue' | 'sentence';
 export interface ClipTarget {
@@ -181,7 +182,10 @@ export async function writeClip(db: D1Database, target: ClipTarget, expectUrl: s
     )
     .bind(prov.url, prov.provider, prov.voice, prov.model, prov.signature, ...t.params, target.id, expectUrl)
     .run();
-  return (res.meta?.changes ?? 0) > 0;
+  const ok = (res.meta?.changes ?? 0) > 0;
+  // The card sentence's clip is kept on the note (deprecated columns) and on its row: the row follows.
+  if (ok && target.kind === 'clue') await syncCardSentences(db, [target.id]);
+  return ok;
 }
 
 /**
@@ -220,7 +224,18 @@ async function fillCopies(db: D1Database, kind: 'word' | 'clue', row: ClipRow, p
     )
     .bind(prov.url, prov.provider, prov.voice, prov.model, prov.signature, row.deck_id, row.hanzi.trim(), text)
     .run();
-  return res.meta?.changes ?? 0;
+  const filled = res.meta?.changes ?? 0;
+  if (filled > 0 && kind === 'clue') {
+    const copies = await db
+      .prepare(
+        `SELECT id FROM notes WHERE sentence_clue_audio_url = ?
+           AND deck_id IN (SELECT target_deck_id FROM shared_decks WHERE source_deck_id = ?)`,
+      )
+      .bind(prov.url, row.deck_id)
+      .all<{ id: string }>();
+    await syncCardSentences(db, (copies.results || []).map((r) => r.id));
+  }
+  return filled;
 }
 
 /** The tutor's note a student's copy was made from (same hanzi, via shared_decks). */
@@ -331,6 +346,10 @@ function keyIdFor(target: ClipTarget, row: ClipRow): string {
 // ---------- The one entry point ----------
 
 export async function ensureClip(env: Env, target: ClipTarget, opts: EnsureClipOptions): Promise<ClipResult> {
+  // A card sentence row (`<note>-card`) is made through its note's clip until the deprecated clue columns go
+  // (db/card-sentence.ts): one clip, written to both.
+  const cardNote = target.kind === 'sentence' ? noteIdOfCardSentence(target.id) : null;
+  if (cardNote) return ensureClip(env, { kind: 'clue', id: cardNote }, opts);
   const policy = opts.policy ?? (await storedClipPolicy(env));
   opts = { ...opts, policy };
   const row = await loadClipRow(env.DB, target);
