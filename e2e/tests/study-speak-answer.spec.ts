@@ -568,10 +568,10 @@ test('"🎤 Say it" practice after Show answer: the say-again flow, shown as "Yo
   expect(typed.recording).toBe(true);
 });
 
-test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence in the Sentence Coach (Check my sentence), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
+test('the yellow "You said" box: the round ✎ Check in Coach checks the sentence in a Claude thread (✏️ Check), and "Back to your card" brings the card back as it was', async ({ page, request }) => {
   await fakeSoniox(page, 'ok', ['它的作业由我写的。']);
-  const started: Array<{ text?: string; action?: string }> = [];
-  await page.route(/\/api\/coach\/conversations$/, (route) => {
+  const started: Array<{ text?: string; intent?: string }> = [];
+  await page.route(/\/api\/claude\/threads$/, (route) => {
     if (route.request().method() !== 'POST') return route.continue();
     started.push(route.request().postDataJSON());
     return route.fulfill({ status: 503, json: { error: 'Claude is busy — try again', retryable: true } });
@@ -600,9 +600,9 @@ test('the yellow "You said" box: the round ✎ Check in Coach opens the sentence
   expect(Math.abs((body!.x + body!.width / 2) - (box!.x + box!.width / 2))).toBeLessThan(2);
 
   await coach.click();
-  await expect(page).toHaveURL(/\/coach/);
-  await expect.poll(() => started.length, { timeout: 10000 }).toBe(1);
-  expect(started[0]).toMatchObject({ text: '它的作业由我写的', action: 'check' });
+  await expect(page).toHaveURL(/\/chats\/claude\/[^/?]+\?.*source=study_card/);
+  await expect.poll(() => started.length, { timeout: 10000 }).toBeGreaterThanOrEqual(1);
+  expect(started[0]).toMatchObject({ text: '它的作业由我写的', intent: 'check' });
 
   await page.getByTestId('coach-back-to-card').click();
   await expect(page.getByTestId('study-card-back')).toBeVisible({ timeout: 30000 });
