@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { addedToDeckLine, movedToDeckLine } from '@shared/decks/source-decks';
+import { addedToDeckOpenLink } from '@shared/decks/open-links';
 import { decksInQueueOrder } from '@shared/decks/queue';
 import { getDecks } from '../../api/client';
 import { db } from '../../db/database';
 import { trackError } from '../../services/analytics';
 import { moveAddedCards, type AddedToDeck, type SourceDeckSurface } from '../../services/sourceDecks';
+import { ToastOpen } from '../nav/ToastOpen';
 import '../../pages/RoleplayPage.css';
 import '../AddChunkModal.css';
 import './source-decks.css';
@@ -14,17 +16,28 @@ import './source-decks.css';
  * "✓ Added to From readers · Change" (docs/STUDY_SESSION.md "Source decks"): where a card added
  * from around the app went, with ONE way to put it somewhere else — Change opens the deck list and
  * moves the just-added note(s) (`POST /api/notes/move`); the line then says "Moved to HSK 2".
+ * "Open ›" goes to what was added — the card (one), the deck (several) — `addedToDeckOpenLink`
+ * (docs/STUDY_SESSION.md "Open ›"); `open={false}` where the host already has its own "Open card".
  */
 export function AddedToDeckLine({
   added,
   surface,
   onMoved,
   className = '',
+  open = true,
+  onOpen,
+  hanzi,
 }: {
   added: AddedToDeck;
   surface: SourceDeckSurface;
   onMoved?: (now: AddedToDeck) => void;
   className?: string;
+  /** Show "Open ›" (default). */
+  open?: boolean;
+  /** Before "Open ›" navigates (a sheet over the page closes itself). */
+  onOpen?: () => void;
+  /** The one card's word (the button's accessible name). */
+  hanzi?: string;
 }) {
   const [now, setNow] = useState(added);
   const [moved, setMoved] = useState(false);
@@ -51,6 +64,7 @@ export function AddedToDeckLine({
           </button>
         </>
       )}
+      {open && <ToastOpen link={addedToDeckOpenLink({ noteIds: now.noteIds, deckId: now.deckId, deckName: now.deckName, hanzi })} surface={surface} onOpen={onOpen} />}
       {changing &&
         createPortal(
           <MoveToDeckSheet

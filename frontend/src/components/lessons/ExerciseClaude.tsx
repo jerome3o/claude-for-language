@@ -9,11 +9,13 @@
  * answer, the answer check's "💬 Ask Claude" (useLessonAnswerCheck) — that one sends his answer and
  * Claude's check of it with the context, so "Why is my answer wrong?" knows what he wrote.
  */
-import { createContext, lazy, Suspense, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { ClaudeContextSnapshot, ClaudeThreadContext, ExerciseAnswerContext } from '@shared/claude/context';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
 import { exerciseTypeInfo } from '@shared/lesson/registry';
 import { track } from '../../services/analytics';
+import { readClaudeReturn, withoutClaudeReturn } from '../claude/ResultLink';
 
 // Loaded on first use: the thread view is a big chunk the reading / lesson screens rarely need.
 const ContextClaudeSheet = lazy(() => import('../claude/ContextClaudeSheet'));
@@ -55,6 +57,27 @@ export function exerciseAnswerOf(answer: string, check: AnswerCheck | null): Exe
 
 export function ExerciseClaudeProvider({ target, children }: { target: ExerciseClaudeTarget | null; children: ReactNode }) {
   const [open, setOpen] = useState<{ target: ExerciseClaudeTarget; answer: ExerciseAnswerContext | null; from: AskFrom } | null>(null);
+  // Back from something a line under Claude's reply opened (docs/CHAT.md "Tool lines you can tap"): the
+  // lesson's exercise sheet open again on that thread, once an exercise of the same lesson is on screen.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [claudeReturn, setClaudeReturn] = useState(() => {
+    const r = readClaudeReturn(location.state);
+    return r && r.source === 'lesson' ? r : null;
+  });
+  const lessonId = target?.lessonId ?? null;
+  useEffect(() => {
+    if (!claudeReturn || !target || open || claudeReturn.ref !== target.lessonId) return;
+    setOpen({ target, answer: null, from: 'toolbar' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claudeReturn, lessonId]);
+  const close = () => {
+    setOpen(null);
+    if (claudeReturn) {
+      setClaudeReturn(null);
+      navigate(`${location.pathname}${location.search}${location.hash}`, { replace: true, state: withoutClaudeReturn(location.state) });
+    }
+  };
 
   const ask = useCallback(
     (from: AskFrom, answer?: ExerciseAnswerContext | null) => {
@@ -89,7 +112,8 @@ export function ExerciseClaudeProvider({ target, children }: { target: ExerciseC
           label="Ask Claude about this exercise"
           source="lesson"
           onResolved={(resumed) => track('lesson.exercise_ask', { from: open.from, exercise_type: open.target.exerciseType, verdict: open.answer?.verdict ?? 'none', resumed })}
-          onClose={() => setOpen(null)}
+          onClose={close}
+          initialThreadId={claudeReturn && claudeReturn.ref === open.target.lessonId ? claudeReturn.thread_id : null}
         />
         </Suspense>
       )}

@@ -136,7 +136,7 @@ export function AddChunkModal(props: {
           )}
           {bumpedMsg && <div className="bump-hint" role="status">{bumpedMsg}</div>}
           {added ? (
-            <AddedToDeckLine added={added} surface="add_chunk" className="add-chunk-notice" />
+            <AddedToDeckLine added={added} surface="add_chunk" className="add-chunk-notice" hanzi={chunk.hanzi} onOpen={onClose} />
           ) : (
             !has && !err && (
               <div className="add-chunk-label add-chunk-adding" role="status" data-testid="add-chunk-adding">

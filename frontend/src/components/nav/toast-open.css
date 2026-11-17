@@ -1,0 +1,23 @@
+/* "Open ›" at the end of a toast (components/nav/ToastOpen.tsx): quiet text, a 44px tap target. */
+.toast-open {
+  flex: none;
+  min-height: 44px;
+  margin: -0.5rem -0.35rem -0.5rem auto;
+  padding: 0 0.5rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.toast-open:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.toast-open:active {
+  opacity: 0.7;
+}

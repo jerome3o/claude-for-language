@@ -6,15 +6,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a), trackError: vi.fn() }));
 vi.mock('../claude/ContextClaudeSheet', () => ({
-  default: (p: { context: unknown; fields: unknown; onResolved?: (r: boolean) => void }) => {
+  default: (p: { context: unknown; fields: unknown; onResolved?: (r: boolean) => void; initialThreadId?: string | null }) => {
     p.onResolved?.(true);
-    return <div data-testid="context-claude-sheet" data-context={JSON.stringify(p.context)} data-fields={JSON.stringify(p.fields)} />;
+    return <div data-testid="context-claude-sheet" data-context={JSON.stringify(p.context)} data-fields={JSON.stringify(p.fields)} data-thread={p.initialThreadId ?? ''} />;
   },
 }));
 
@@ -55,11 +57,15 @@ afterEach(() => {
   host.remove();
 });
 
+function R({ children, state }: { children: ReactNode; state?: unknown }) {
+  return <MemoryRouter initialEntries={[{ pathname: '/lessons/ls1/play', state }]}>{children}</MemoryRouter>;
+}
+
 const TARGET: ExerciseClaudeTarget = { lessonId: 'ls1', lessonTitle: '把字句', exerciseKey: 's0e1', exerciseType: 'translate' };
 
 describe('ExerciseClaudeProvider', () => {
   it('his checked answer rides with the exercise context (the check trimmed); analytics say where from', async () => {
-    await act(async () => root.render(<ExerciseClaudeProvider target={TARGET}><Asker answer /></ExerciseClaudeProvider>));
+    await act(async () => root.render(<R><ExerciseClaudeProvider target={TARGET}><Asker answer /></ExerciseClaudeProvider></R>));
     await act(async () => q('ask')!.click());
     for (let i = 0; i < 30 && !q('context-claude-sheet'); i++) await flush();
     const answer = { text: '我放书在桌子上。', verdict: 'almost', headline: 'Nearly — the object goes before the verb.', corrected: '我把书放在桌子上。', tips: ['放书: Use 把 here'] };
@@ -71,13 +77,27 @@ describe('ExerciseClaudeProvider', () => {
   });
 
   it('the top bar: no answer (null clears an older one); no target (a preview) → nothing offered', async () => {
-    await act(async () => root.render(<ExerciseClaudeProvider target={TARGET}><Asker /></ExerciseClaudeProvider>));
+    await act(async () => root.render(<R><ExerciseClaudeProvider target={TARGET}><Asker /></ExerciseClaudeProvider></R>));
     await act(async () => q('ask')!.click());
     for (let i = 0; i < 30 && !q('context-claude-sheet'); i++) await flush();
     expect(JSON.parse(q('context-claude-sheet')!.dataset.fields!)).toEqual({ answer: null });
     expect(JSON.parse(q('context-claude-sheet')!.dataset.context!).answer).toBeUndefined();
 
-    await act(async () => root.render(<ExerciseClaudeProvider target={null}><Asker /></ExerciseClaudeProvider>));
+    await act(async () => root.render(<R><ExerciseClaudeProvider target={null}><Asker /></ExerciseClaudeProvider></R>));
     expect(q('ask')!.dataset.available).toBe('no');
+  });
+
+  it('back from a tool line it opened: the sheet is open again on that thread (docs/CHAT.md "Tool lines you can tap")', async () => {
+    const claudeReturn = { thread_id: 't9', source: 'lesson', ref: 'ls1', scroll: 0, at: Date.now() };
+    await act(async () => root.render(<R state={{ claudeReturn }}><ExerciseClaudeProvider target={TARGET}><Asker /></ExerciseClaudeProvider></R>));
+    for (let i = 0; i < 30 && !q('context-claude-sheet'); i++) await flush();
+    expect(q('context-claude-sheet')!.dataset.thread).toBe('t9');
+  });
+
+  it('another lesson\'s return is ignored', async () => {
+    const claudeReturn = { thread_id: 't9', source: 'lesson', ref: 'other', scroll: 0, at: Date.now() };
+    await act(async () => root.render(<R state={{ claudeReturn }}><ExerciseClaudeProvider target={TARGET}><Asker /></ExerciseClaudeProvider></R>));
+    await flush();
+    expect(q('context-claude-sheet')).toBeNull();
   });
 });

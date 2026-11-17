@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { studyTodayKindOfRow, studyTodayLabel, type BumpSource } from '@shared/decks';
-import { bumpNotes, clearBump, findExistingNotes, useBumps } from '../../services/studyBumps';
+import { bumpNotes, clearBump, findExistingNotes, useBumps, type BumpOutcome } from '../../services/studyBumps';
 import './bumps.css';
 
 /**
@@ -26,7 +26,8 @@ export function BumpButton(props: {
    * whole-note bump for the server to plan.
    */
   justCreated?: boolean;
-  onBumped?: (message: string) => void;
+  /** The toast line and what the tap did (its `link` = the toast's "Open ›"). */
+  onBumped?: (message: string, outcome: BumpOutcome) => void;
 }) {
   const { noteIds, source, compact, removable, className, onBumped, hanziById, justCreated } = props;
   const bumps = useBumps();
@@ -43,7 +44,7 @@ export function BumpButton(props: {
         if (removable) for (const id of noteIds) await clearBump(id, source);
       } else {
         const out = await bumpNotes(noteIds, source, hanziById, justCreated ? { justCreated: new Set(noteIds) } : undefined);
-        onBumped?.(out.message);
+        onBumped?.(out.message, out);
       }
     } finally {
       setBusy(false);
@@ -81,7 +82,7 @@ export function BumpBadge({ fromName }: { fromName?: string | null }) {
  * "Already in your decks", Paste a list's "Already in deck"). Renders nothing when
  * the device has no note with that hanzi.
  */
-export function BumpByHanzi(props: { hanzi: string; source: BumpSource; label?: string; onBumped?: (message: string) => void }) {
+export function BumpByHanzi(props: { hanzi: string; source: BumpSource; label?: string; onBumped?: (message: string, outcome: BumpOutcome) => void }) {
   const [ids, setIds] = useState<string[]>([]);
   useEffect(() => {
     let live = true;

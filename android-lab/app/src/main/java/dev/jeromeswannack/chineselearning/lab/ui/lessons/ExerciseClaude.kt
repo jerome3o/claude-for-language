@@ -91,7 +91,15 @@ fun ExerciseClaudeHost(target: ExerciseClaudeTarget?, state: ExerciseClaudeState
 
 /** The sheet, when [state] has one open. */
 @Composable
-fun ExerciseClaudeSheet(state: ExerciseClaudeState) {
+fun ExerciseClaudeSheet(
+    state: ExerciseClaudeState,
+    /** Open on this thread (back from something a line under a reply opened). */
+    initialThread: String? = null,
+    /** A line under a reply opens what it made: the player remembers the sheet (exercise key, thread) with its screen. */
+    onLeaveForResult: ((exerciseKey: String, threadId: String?) -> Unit)? = null,
+    /** Closed by hand. */
+    onClosed: () -> Unit = {},
+) {
     val (target, from, answer) = state.open ?: return
     val app = LocalContext.current.applicationContext as? LabApp ?: return
     val context = ClaudeContextDto(
@@ -108,7 +116,9 @@ fun ExerciseClaudeSheet(state: ExerciseClaudeState) {
         fields = ContextFields(answer = answer ?: JsonNull),
         source = "lesson",
         explorerSource = "lesson",
-        onDismiss = { state.open = null },
+        onDismiss = { state.open = null; onClosed() },
+        initialThread = initialThread,
+        onLeaveForResult = onLeaveForResult?.let { leave -> { thread: String? -> leave(target.exerciseKey, thread) } },
         onResolved = { resumed ->
             app.analytics.track(
                 "lesson.exercise_ask",

@@ -443,7 +443,7 @@ private fun MemeCard(item: MemeItem, index: Int, ui: MemeIssueUi, actions: MemeI
             when {
                 deck != null -> {
                     Text("📚 In $deck", style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted)
-                    ui.bumped?.let { InlineNotice(it, kind = NoticeKind.Success, modifier = Modifier.padding(vertical = 6.dp)) }
+                    ui.bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "meme_review", Modifier.padding(vertical = 6.dp)) }
                     PrimaryPill("⚡ Study it today", Modifier.fillMaxWidth().height(48.dp)) { actions.onBump(item) }
                 }
                 item.id in ui.added -> Text("✓ Added — it’s in your deck.", style = MaterialTheme.typography.bodyMedium, color = Palette.Good)

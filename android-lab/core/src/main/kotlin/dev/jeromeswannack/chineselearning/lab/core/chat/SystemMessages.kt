@@ -27,7 +27,8 @@ object SystemMessages {
         val relationshipId: String? = null,
     )
 
-    data class Action(val label: String, val path: String)
+    /** [section] = a section of that page to scroll to (the Lab opens `?section=`, the web `#`). */
+    data class Action(val label: String, val path: String, val section: String? = null)
 
     /** `SystemMessageView`. [kind] = one of [KINDS] or "unknown". */
     data class View(
@@ -126,7 +127,12 @@ object SystemMessages {
                 if (d.number("new_cards_per_day") == null) return fallback()
                 val to = if (d.isTrue("is_default")) "back to the usual " else "to "
                 val nums = budgetNumbers(d)
-                return if (me) v("📚", "You set ${firstName(ctx.otherName, "your student")}'s new cards $to$nums")
+                // The tutor's side opens the student page's Long-term learning section (the Daily new cards row).
+                val rel = NoteSearch.jsTrim(ctx.relationshipId ?: "")
+                return if (me) v(
+                    "📚", "You set ${firstName(ctx.otherName, "your student")}'s new cards $to$nums",
+                    action = if (rel.isNotEmpty()) Action("See their daily cards", "/connections/${Js.encodeURIComponent(rel)}", "long-term") else null,
+                )
                 else v("📚", "${capitalise(firstName(ctx.otherName, "your tutor"))} set your new cards $to$nums", action = Action("See in Settings", "/settings"))
             }
             "call_started" -> {

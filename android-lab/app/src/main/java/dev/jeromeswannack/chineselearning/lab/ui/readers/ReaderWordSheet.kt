@@ -263,7 +263,7 @@ fun ReaderWordPanel(
                 }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "reader_word") }
                 when {
                     added != null -> AddedToDeckRow(added!!, actions.move, onMoved = { added = it })
                     // Already a card: "⚡ Study it today" first, adding it again second.

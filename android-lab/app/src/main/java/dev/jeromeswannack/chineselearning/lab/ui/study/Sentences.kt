@@ -918,7 +918,7 @@ private fun AddChunkFillBody(
                 val a = added
                 if (a != null) {
                     Text(english.trim(), style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink, modifier = Modifier.align(Alignment.CenterHorizontally))
-                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) })
+                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) }, hanzi = chunk.hanzi, surface = "add_chunk", beforeOpen = onDismiss)
                 } else {
                     Text(ExplorerAdd.prompt(chunk.hanzi), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
                     Text(hint, style = MaterialTheme.typography.bodyMedium, color = Lab.colors.muted, modifier = Modifier.testTag(ADD_CHUNK_FILL_HINT_TAG))
@@ -1033,10 +1033,10 @@ fun AddChunkBody(
                 Text(chunk.pinyin, style = MaterialTheme.typography.titleMedium, color = Lab.colors.accent)
                 Text(chunk.english, style = MaterialTheme.typography.bodyLarge, color = Lab.colors.ink)
                 error?.let { InlineNotice(it, kind = NoticeKind.Error) }
-                bumped?.let { InlineNotice(it, kind = NoticeKind.Success) }
+                bumped?.let { dev.jeromeswannack.chineselearning.lab.ui.kit.BumpedNotice(it, "add_chunk", before = onDismiss) }
                 val a = added
                 if (a != null) {
-                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) })
+                    AddedToDeckRow(a, actions.move, onMoved = { added = it; onAddedTo(AddedTo(chunk.hanzi, it.deckId, it.deckName, it.noteIds.firstOrNull())) }, hanzi = chunk.hanzi, surface = "add_chunk", beforeOpen = onDismiss)
                 } else if (have == true && bumped == null) {
                     val where = existing?.deckNames?.distinct()?.joinToString(", ")?.ifEmpty { null } ?: "your decks"
                     InlineNotice(

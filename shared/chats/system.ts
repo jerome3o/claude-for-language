@@ -71,6 +71,13 @@ export interface SystemAction {
   label: string;
   /** An app path (the web route; the Lab app navigates by the same paths). */
   path: string;
+  /** A section of that page to scroll to: the web adds `#<section>`, the Lab app `?section=<section>` (shared/chats/personLinks.ts). */
+  section?: string;
+}
+
+/** The web path of an action (its section as the hash). */
+export function systemActionHref(action: SystemAction): string {
+  return action.section ? `${action.path}#${encodeURIComponent(action.section)}` : action.path;
 }
 
 export interface SystemMessageView {
@@ -199,8 +206,12 @@ export function systemMessageView(msg: SystemMessageLike, ctx: SystemContext): S
       if (typeof d.new_cards_per_day !== 'number') return fallback();
       const to = d.is_default === true ? 'back to the usual ' : 'to ';
       const nums = budgetNumbers(d);
+      // The tutor's side opens the student page's Long-term learning section, where the Daily new cards row is.
+      const rel = (ctx.relationshipId ?? '').trim();
       return me
-        ? view('📚', `You set ${possessive(systemFirstName(ctx.otherName, 'your student'))} new cards ${to}${nums}`)
+        ? view('📚', `You set ${possessive(systemFirstName(ctx.otherName, 'your student'))} new cards ${to}${nums}`, {
+            action: rel ? { label: 'See their daily cards', path: `/connections/${encodeURIComponent(rel)}`, section: 'long-term' } : null,
+          })
         : // The student can see / change it where it lives (the flow audit, docs/CHAT.md "Tool lines you can tap").
           view('📚', `${capitalise(systemFirstName(ctx.otherName, 'your tutor'))} set your new cards ${to}${nums}`, { action: { label: 'See in Settings', path: '/settings' } });
     }

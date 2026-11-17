@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.jeromeswannack.chineselearning.lab.LabApp
+import dev.jeromeswannack.chineselearning.lab.core.OpenLinks
 import dev.jeromeswannack.chineselearning.lab.core.SourceDecks
 import dev.jeromeswannack.chineselearning.lab.data.api.AddedNote
 import dev.jeromeswannack.chineselearning.lab.data.api.userMessage
@@ -47,25 +48,39 @@ class SourceDeckActions(
     }
 }
 
-/** "✓ Added to From readers · Change" ("Moved to HSK 2" after a move). `actions == null` = no Change (previews). */
+/**
+ * "✓ Added to From readers · Change · Open ›" ("Moved to HSK 2" after a move). `actions == null` = no Change
+ * (previews). "Open ›" (core OpenLinks.addedToDeck) goes to the card (one) or the deck (several) — [open] false
+ * where the host has its own "Open card"; [beforeOpen] lets a sheet close itself first.
+ */
 @Composable
 fun AddedToDeckRow(
     added: AddedNote,
     actions: SourceDeckActions?,
     modifier: Modifier = Modifier,
     onMoved: (AddedNote) -> Unit = {},
+    hanzi: String? = null,
+    open: Boolean = true,
+    surface: String = "add",
+    beforeOpen: () -> Unit = {},
 ) {
     var now by remember(added.noteIds) { mutableStateOf(added) }
     var moved by remember(added.noteIds) { mutableStateOf(false) }
     var changing by remember { mutableStateOf(false) }
     val count = now.noteIds.size
     val line = if (moved) SourceDecks.movedLine(now.deckName, count) else SourceDecks.addedLine(now.deckName, count)
+    val link = if (open) OpenLinks.addedToDeck(now.noteIds, now.deckId, now.deckName, hanzi) else null
+    val openIt = rememberToastOpen(link, surface, beforeOpen)
     InlineNotice(
         line,
         modifier.fillMaxWidth().testTag("added-to-deck"),
         kind = NoticeKind.Success,
         actionLabel = if (actions != null && count > 0) "Change" else null,
         onAction = if (actions != null && count > 0) ({ changing = true }) else null,
+        secondLabel = if (openIt != null) link!!.label else null,
+        onSecond = openIt,
+        secondDescription = link?.aria,
+        secondTag = TOAST_OPEN_TAG,
     )
     if (changing && actions != null) {
         MoveToDeckSheet(
