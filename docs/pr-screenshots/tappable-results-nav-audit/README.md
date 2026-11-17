@@ -34,4 +34,16 @@ Audit fix: the player first fetches a lesson that isn't on the device. When the 
 
 ## Lab app
 
-See `lab-*.png` (Roborazzi, `ui/claude/ResultLinksTest.kt`), when present.
+Roborazzi, `ui/claude/ResultLinksTest.kt`. That test also checks that a tap opens the lesson's path and that the nav back stack brings the card's sheet back open.
+
+![Lab, dark: the card's Ask Claude sheet with "🎓 Mini lesson made: 治理 vs 这里：听力辨音 · Start ›"](lab-02-lesson-line-dark.png)
+
+Lab, dark: the "🎓 Mini lesson made" line is one tap target ending in **Start ›**.
+
+![Lab, dark: "✓ Claude edited this card" keeps Undo and gains "Open card ›"](lab-03-edit-line-dark.png)
+
+Lab, dark: "✓ Claude edited this card" keeps Undo and gains an **Open card ›** pill.
+
+![Lab, light: the same lesson line](lab-01-lesson-line-light.png)
+
+Lab, light: the same lesson line.
