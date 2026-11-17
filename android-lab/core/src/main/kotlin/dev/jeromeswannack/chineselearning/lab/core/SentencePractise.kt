@@ -45,7 +45,7 @@ object SentencePractise {
             promptEn = NoteSearch.jsTrim(translation ?: ""),
             modelAnswer = hanzi,
             modelPinyin = NoteSearch.jsTrim(pinyin ?: "").ifEmpty { null },
-            answer = said,
+            answer = AnswerKey.scrubSpokenTranscript(said),
             exerciseType = "translate",
             input = "spoken",
         )

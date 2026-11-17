@@ -138,7 +138,7 @@ fun SparkBurst(trigger: Int, colors: List<Color>, origin: Offset = Offset(0.5f, 
  * little past the area (nothing clips it). The web's components/ConfettiBurst.tsx.
  */
 @Composable
-fun ConfettiBurst(key: Any, colors: List<Color>, modifier: Modifier = Modifier.fillMaxSize(), pieces: Int = 22) {
+fun ConfettiBurst(key: Any, colors: List<Color>, modifier: Modifier = Modifier.fillMaxSize(), pieces: Int = 22, durationMs: Int = 900, reach: Float = 150f) {
     val progress = remember(key) { Animatable(0f) }
     val seeds = remember(key) {
         val rnd = Random(key.hashCode())
@@ -147,13 +147,12 @@ fun ConfettiBurst(key: Any, colors: List<Color>, modifier: Modifier = Modifier.f
             arrayOf(angle, 0.6f + rnd.nextFloat() * 0.6f, (rnd.nextFloat() - 0.5f) * 540f, colors[i % colors.size], 12f + rnd.nextFloat() * 8f)
         }
     }
-    LaunchedEffect(key) { progress.animateTo(1f, tween(900, easing = FastOutSlowInEasing)) }
+    LaunchedEffect(key) { progress.animateTo(1f, tween(durationMs, easing = FastOutSlowInEasing)) }
     Canvas(modifier) {
         val p = progress.value
         if (p >= 1f) return@Canvas
         val cx = size.width / 2
         val cy = size.height / 2
-        val reach = 150f
         for (s in seeds) {
             val angle = s[0] as Float
             val speed = s[1] as Float

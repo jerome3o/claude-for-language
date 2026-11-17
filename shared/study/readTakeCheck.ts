@@ -24,7 +24,7 @@
  * Pure; Lab port core `ReadTakeCheck.kt`, parity-tested (android-lab/parity/fixtures/read-take-check.ts).
  */
 import type { AnswerCheck, AnswerCheckInput, AnswerCheckVerdict } from '../lesson/answerCheck';
-import { tidySpokenTranscript } from '../cards/answer';
+import { scrubSpokenTranscript } from '../cards/answer';
 
 /** The exercise type of a read-aloud check (shared/lesson/answerCheck.ts `READ_ALOUD_CHECK_TYPE`). */
 export const READ_TAKE_CHECK_TYPE = 'read_aloud';
@@ -81,7 +81,7 @@ export function readTakeCheckInput(args: {
   const input: AnswerCheckInput = {
     prompt_en: (args.english ?? '').trim() || hanzi,
     model_answer: hanzi,
-    answer: tidySpokenTranscript(args.transcript, hanzi),
+    answer: scrubSpokenTranscript(args.transcript),
     exercise_type: READ_TAKE_CHECK_TYPE,
     input: 'spoken',
   };

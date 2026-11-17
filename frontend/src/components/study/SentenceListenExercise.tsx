@@ -12,6 +12,7 @@
  * A clip that won't play (gone, not on the device offline) hands the exercise back as a read one
  * (`onUnavailable` → `exerciseAsRead`).
  */
+import { RightMoment } from './RightMoment';
 import { useEffect, useRef, useState } from 'react';
 import {
   LISTEN_EX_CHECKING,
@@ -66,6 +67,8 @@ interface Props {
   onRevealed: () => void;
   /** Said right on this showing (the round's count), else this exercise's own result. */
   isRight: boolean;
+  /** This right made the round done ("2 / 2"): the slightly bigger moment. */
+  roundDone?: boolean;
   online: boolean;
   /** The round's 🎤 (a read / translate take) is on: this box waits. */
   micBusy: boolean;
@@ -89,7 +92,7 @@ type Verdict =
   | { kind: 'self_done'; result: 'right' | 'wrong' };
 
 export function SentenceListenExercise({
-  ex, index, row, active, onActivate, onRevealed, isRight, online, micBusy, onJudged, onRetry, onUnavailable, onMore, longPress, suppressTap, where,
+  ex, index, row, active, onActivate, onRevealed, isRight, roundDone = false, online, micBusy, onJudged, onRetry, onUnavailable, onMore, longPress, suppressTap, where,
 }: Props) {
   const [answer, setAnswer] = useState('');
   const [said, setSaid] = useState<{ text: string; input: 'spoken' | 'edited' | 'typed' | 'none' } | null>(null);
@@ -235,12 +238,13 @@ export function SentenceListenExercise({
     <li
       {...longPress}
       onContextMenu={(e) => { e.preventDefault(); onMore(); }}
-      className={`sentence-round-ex sentence-listen-ex${status ? ` is-${status}` : ''}${active && !answered ? ' is-turn' : ''}`}
+      className={`sentence-round-ex sentence-listen-ex${status ? ` is-${status}` : ''}${active && !answered ? ' is-turn' : ''}${isRight ? ' right-moment-host' : ''}`}
       data-testid="sentence-round-exercise"
       data-mode="listen"
       data-exercise={ex.id}
       data-status={status ?? 'open'}
     >
+      {isRight && <RightMoment where="round_exercise" roundDone={roundDone} />}
       <div className="sentence-round-ex-head">
         <span className="sentence-round-ex-num" aria-hidden="true">{status === 'right' ? '✓' : index + 1}</span>
         <span className="sentence-round-ex-prompt">{SENTENCE_ROUND_PROMPT.listen}</span>

@@ -53,9 +53,8 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         compose.onNodeWithTag(YOU_SAID_COACH_TAG, useUnmergedTree = true).performClick()
         // As shown: a word card drops the recogniser's trailing 。 (AnswerKey.tidySpokenTranscript).
         assertEquals(listOf("它的作业由我写的" to "read"), opened)
-        // ▶ plays the take it was transcribed from.
-        compose.onNodeWithTag(YOU_SAID_PLAY_TAG, useUnmergedTree = true).performClick()
-        assertEquals(1, plays)
+        // No ▶ on the box (docs/STUDY_SESSION.md "The study card's layout"): the take plays from ⋯ → Play my recording.
+        assertEquals(0, count(YOU_SAID_PLAY_TAG))
     }
 
     @Test fun onlyTheOrangeBoxHasIt() {
@@ -63,7 +62,7 @@ class YouSaidCoachUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(1, count("$YOU_SAID_TAG-match"))
         assertEquals(0, count(YOU_SAID_COACH_TAG))
-        assertEquals(1, count(YOU_SAID_PLAY_TAG))
+        assertEquals(0, count(YOU_SAID_PLAY_TAG))
     }
 
     @Test fun aSpokenAnswerSaidInASentenceOpensInTheCoach() {

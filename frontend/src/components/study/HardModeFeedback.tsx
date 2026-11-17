@@ -1,3 +1,4 @@
+import { RightMoment } from './RightMoment';
 import {
   HARD_MODE_CHECKING, HARD_MODE_MISS_NOTE, HARD_MODE_RESULT, HARD_MODE_SHOW_ANSWER, HARD_MODE_TRY_AGAIN, HARD_MODE_UNKNOWN,
   HARD_MODE_REVEALED_TITLE, HARD_MODE_REVEALED_NOTE, hardModeNextLabel, hardModeRevealedNextLabel, hardModeSaidLine,
@@ -182,7 +183,9 @@ export function HardModeFeedback({ result, said, spoken, roundFollows, differenc
       />
     ) : null;
     return (
-      <div className="hard-feedback hard-feedback--right" data-testid="hard-feedback" data-result="right" data-held={difference ? 'true' : undefined} aria-live="polite">
+      <div className="hard-feedback hard-feedback--right right-moment-host" data-testid="hard-feedback" data-result="right" data-held={difference ? 'true' : undefined} aria-live="polite">
+        {/* The "right" moment (shared/study/rightMoment.ts): wash, ✓, a small burst; the feel plays above. */}
+        <RightMoment where="question" />
         {held ?? (
           <>
             <p className="hard-feedback-title">{HARD_MODE_RESULT.right}</p>
@@ -281,13 +284,14 @@ function SentenceAnswerFirst({ result, view, answer, said, difference, check, ch
   const miss = result === 'wrong' || result === 'close';
   return (
     <div
-      className={`hard-feedback hard-feedback--${result} hard-feedback--answer-first`}
+      className={`hard-feedback hard-feedback--${result} hard-feedback--answer-first${result === 'right' ? ' right-moment-host' : ''}`}
       data-testid="hard-feedback"
       data-result={result}
       data-answer-first="true"
       data-held={result === 'right' && difference ? 'true' : undefined}
       aria-live="polite"
     >
+      {result === 'right' && <RightMoment where="question" />}
       <div className="hard-feedback-check" onClick={(e) => e.stopPropagation()}>
         <AnswerDiff
           said={said}

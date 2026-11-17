@@ -164,6 +164,8 @@ import { sentenceGate, sentenceGateLabel, SENTENCE_GATE_CARD_TYPES } from '@shar
 import { listenRoundSentenceCount, roundRowMarks, roundSentenceCount, sentenceRoundOpens, type RoundLogEntry } from '@shared/study/sentenceRound';
 import { SentenceRound, useRoundSentences } from '../components/study/SentenceRound';
 import { useSentenceStats } from '../services/sentencePractice';
+import { useFeedback } from '../components/feedback/FeedbackProvider';
+import { RightMoment } from '../components/study/RightMoment';
 
 /** A word short enough to write by hand (sentence cards are skipped). */
 function canWriteHanzi(hanzi: string): boolean {
@@ -448,6 +450,8 @@ export function StudyCard({
 }) {
   // Analytics only: the study events say when the card was a homework pass word.
   const where = pass ? ('homework' as const) : undefined;
+  // Feedback from the card's ⋯ (the floating 💬 button sat over the ratings and is hidden on the card).
+  const { openFeedback } = useFeedback();
   const { isOnline } = useNetwork();
   // Never-seen characters shimmer (shared/study/newCharacters.ts) — worked out once for this card,
   // in the flashcard session only (never the homework pass / tutor-notes practice).
@@ -1707,8 +1711,9 @@ export function StudyCard({
 
     if (transcriptionComparison) {
       const { transcribedHanzi, transcribedPinyin, isMatch, containsExpected, tonesOff } = transcriptionComparison;
-      // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry);
-      // ▶ plays the take it was transcribed from.
+      // The same box as a spoken answer on a typing card ("Record again" under the meaning covers the retry).
+      // No ▶ on it (Jerome, Nov 2026: a big ▶ pinned to the side "is weirdly placed"): the take plays from
+      // ⋯ → "Play my recording".
       return (
         <YouSaid
           hanzi={tidySpokenTranscript(transcribedHanzi, card.note.hanzi)}
@@ -1719,7 +1724,7 @@ export function StudyCard({
           checking={readCheck.checking}
           claude={readCheck.claude}
           expected={card.note.hanzi}
-          onPlay={() => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); }}
+          celebrate={{ celebrated: questionResult === 'right' }}
           onCoach={() => openYouSaidInCoach(transcribedHanzi, 'read')}
         />
       );
@@ -1986,6 +1991,13 @@ export function StudyCard({
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
 
+  // A typed answer judged right on the answer side (an exact / equivalent / alternative / punctuation-only match, or
+  // Claude's sentence check said right).
+  const typedAnswerRight = isTypingCard && !!userAnswer.trim() && !mcBackSlots && !(spokenBack?.source === 'spoken')
+    && isAcceptedVerdict(sentenceCheckedVerdict(
+      checkTypedAnswer(userAnswer.trim(), card.note.hanzi, card.note.alternatives ? JSON.parse(card.note.alternatives) : []),
+      sentenceCheck.check?.verdict,
+    ));
   const renderBackMain = () => {
     return (
       <div className="text-center">
@@ -1995,8 +2007,10 @@ export function StudyCard({
             <McAnswerDiff slots={mcBackSlots} onCharacterClick={handleCharacterClick} newChars={newChars} />
           </div>
         ) : isTypingCard && userAnswer && !(spokenBack?.source === 'spoken') ? (
-          // Show character-by-character diff for typed answers
-          <div className="mb-3">
+          // Show character-by-character diff for typed answers; a right one gets the "right" moment (wash, ✓, a small
+          // burst, the feel — once: Hard mode's check of the question already celebrated it).
+          <div className={`mb-3${typedAnswerRight ? ' right-moment-host result-surface result-surface--right study-back-right' : ''}`}>
+            {typedAnswerRight && <RightMoment where="typed_answer" celebrated={questionResult === 'right'} feel />}
             <AnswerDiff
                 userAnswer={userAnswer.trim()}
                 correctAnswer={card.note.hanzi}
@@ -2014,6 +2028,7 @@ export function StudyCard({
             data-testid={spokenBack?.source === 'spoken' ? 'spoken-answer' : undefined}
             data-verdict={spokenBack?.source === 'spoken' ? spokenBack.verdict : undefined}
           >
+
             <ExplorableText
               text={card.note.hanzi}
               source="study"
@@ -2032,14 +2047,18 @@ export function StudyCard({
         <TutorNoteLine notes={tutorNotes} where={pinnedTutorNotes?.length ? 'practice' : 'card'} />
         <div className="study-back-meaning">{card.note.english}</div>
         {spokenBack && (
+          <div className={spokenBack.source === 'spoken' && spokenAnswerAccepted ? 'right-moment-host study-back-right-row' : undefined}>
+          {spokenBack.source === 'spoken' && spokenAnswerAccepted && (
+            <RightMoment where="typed_answer" celebrated={questionResult === 'right'} feel key={spokenBack.transcript} />
+          )}
           <YouSaidRow
             transcript={spokenBack.transcript}
             correct={card.note.hanzi}
             verdict={spokenBack.verdict}
             testId={spokenBack.source === 'practice' ? 'practice-you-said' : 'spoken-result'}
-            onPlay={audioBlob ? () => { track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) }); playUserRecording(); } : undefined}
             onCoach={() => openYouSaidInCoach(spokenBack.transcript, spokenBack.source)}
           />
+          </div>
         )}
         {/* Claude's check of this sentence answer (Hard mode's question): its verdict stays on the answer side. */}
         {sentenceCheck.check && userAnswer.trim() && (
@@ -2611,8 +2630,14 @@ export function StudyCard({
         ? [{ key: 'forget', label: 'Forget this card…', icon: '↺', hint: 'Back to New', onSelect: () => setShowForget(true) }]
         : []),
       ...(audioBlob
-        ? [{ key: 'my-recording', label: 'Play my recording', icon: '🎙️', onSelect: playUserRecording }]
+        ? [{
+            key: 'my-recording', label: 'Play my recording', icon: '▶', onSelect: () => {
+              track('study.you_said_play', { card_type: card.card_type, ...(where ? { where } : {}) });
+              playUserRecording();
+            },
+          }]
         : []),
+      { key: 'feedback', label: 'Send feedback', icon: '💬', onSelect: () => { window.setTimeout(() => openFeedback('menu'), 60); } }, // after the sheet closes (it'd be in the screenshot)
       ...(isDebugConsoleEnabled()
         ? [{ key: 'debug', label: 'Debug info', icon: '🔍', onSelect: () => setShowDebug(true) }]
         : []),

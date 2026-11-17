@@ -62,6 +62,9 @@ import { naturalSentencesFirst } from '@shared/study/sentenceFocus';
  * "Show all" opens everything for the current card.
  */
 
+/** A collapsed row's words (Lab `SENTENCE_TAP_TO_REVEAL` in ui/study/Sentences.kt). */
+export const SENTENCE_TAP_TO_REVEAL = 'Tap to reveal';
+
 const FOCUS_LABELS: Record<string, string> = {
   from_card: 'From the card',
   core: 'Core',
@@ -462,6 +465,16 @@ export function SentenceSet({
     );
   };
 
+  /** The row's small marks: how it went in the round, "From the card" — small, never a box. */
+  const renderMarks = (row: DisplayRow, mark: RoundRowMark | undefined) => (
+    <span className="sentence-set-marks">
+      {mark && (
+        <span className={`sentence-set-round-label is-${mark.outcome}`} data-testid="sentence-set-round-label">{mark.label}</span>
+      )}
+      {row.fromCard && <span className="sentence-set-badge sentence-set-from-card">From the card</span>}
+    </span>
+  );
+
   /** The row's quiet tools line: breakdown · add as card. */
   const renderTools = (row: DisplayRow) => {
     const state = explanations[row.key] ?? parseCachedExplanation(row.explanation) ?? (row.fromCard ? cachedClue : null);
@@ -819,9 +832,29 @@ export function SentenceSet({
                 {...(historyOn ? longPress.bind(() => setHiding({ key: row.key, hanzi: row.hanzi, translation: row.translation })) : {})}
               >
                 <div className="sentence-set-body">
-                  {/* The sentence spans the row; only a small ▶ sits at the end of its first line (hear it — the
-                      first thing to do on a blank row). Everything else is one quiet line under it. */}
-                  <div className="sentence-set-line">
+                  {/* ONE line per row while it is collapsed (Jerome, Nov 2026: "Tap to reveal, EN, From the card — I feel
+                      like that should be on one line"): [EN] Tap to reveal · From the card … [🎤] [▶], centred on one line.
+                      Revealing grows the row downward — hanzi, pinyin, English under that same first line; the tools come
+                      once it is fully open. Every row: the same text edge, the same controls edge, the same padding. */}
+                  <div className={`sentence-set-head${stage === 0 ? ' is-collapsed' : ''}`}>
+                  {/* EN: the reverse exercise — English up alone, translate it back before revealing (not in the calm pass). */}
+                  {!pass && (
+                    <button
+                      className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
+                      onClick={() => toggleEnglishFirst(row)}
+                      disabled={!row.translation}
+                      aria-pressed={isEnglishFirst}
+                      title={
+                        !row.translation
+                          ? 'No translation for this sentence'
+                          : isEnglishFirst
+                            ? 'Back to listening first'
+                            : 'Show the English only — translate it back into Chinese'
+                      }
+                    >
+                      EN
+                    </button>
+                  )}
                   {/* A row starts blank on purpose: listen first, then uncover
                       one line per tap so each is read before the next lands. */}
                   <button
@@ -858,13 +891,16 @@ export function SentenceSet({
                               : 'Translating…'}
                         </span>
                       ))}
-                    {isBlank && <span className="sentence-set-blank" aria-hidden="true" />}
+                    {isBlank && <span className="sentence-set-blank">{SENTENCE_TAP_TO_REVEAL}</span>}
                     {pass && stage > 0 && !isFullyShown && (
                       <span className="sentence-set-next">
                         {steps[stage] === 'pinyin' ? 'Tap for pinyin' : 'Tap for English'}
                       </span>
                     )}
                   </button>
+                  {/* Collapsed, the row's small marks sit on the same line; once it opens they move under it. */}
+                  {stage === 0 && (row.fromCard || mark) && renderMarks(row, mark)}
+                  {practiseMode && <SentenceMicButton practise={practise} row={practiseRow} mode={practiseMode} />}
                   <button
                     className={`sentence-set-play${isThisPlaying ? ' is-playing' : ''}${audioWait[row.key] ? ' is-waiting' : ''}`}
                     onClick={() => playSentence(row)}
@@ -889,38 +925,14 @@ export function SentenceSet({
                       {row.focus_note && <span>{row.focus_note}</span>}
                     </div>
                   )}
-                  {/* One compact line under the sentence: EN (the reverse exercise — English up alone, translate it
-                      back before revealing; not in the calm pass), 🎤 once something is open, the tools on an open
-                      row, and the row's small marks ("From the card", how it went in the round) — never a box. */}
-                  <div className="sentence-set-actionline">
-                    {!pass && (
-                      <button
-                        className={`sentence-set-en${isEnglishFirst ? ' is-active' : ''}`}
-                        onClick={() => toggleEnglishFirst(row)}
-                        disabled={!row.translation}
-                        aria-pressed={isEnglishFirst}
-                        title={
-                          !row.translation
-                            ? 'No translation for this sentence'
-                            : isEnglishFirst
-                              ? 'Back to listening first'
-                              : 'Show the English only — translate it back into Chinese'
-                        }
-                      >
-                        EN
-                      </button>
-                    )}
-                    {practiseMode && <SentenceMicButton practise={practise} row={practiseRow} mode={practiseMode} />}
-                    {isFullyShown && renderTools(row)}
-                    {(row.fromCard || mark) && (
-                      <span className="sentence-set-marks">
-                        {mark && (
-                          <span className={`sentence-set-round-label is-${mark.outcome}`} data-testid="sentence-set-round-label">{mark.label}</span>
-                        )}
-                        {row.fromCard && <span className="sentence-set-badge sentence-set-from-card">From the card</span>}
-                      </span>
-                    )}
-                  </div>
+                  {/* Under an opened row: the tools once it is fully open, and its small marks ("From the card", how it
+                      went in the round) — never a box. */}
+                  {stage > 0 && (isFullyShown || row.fromCard || mark) && (
+                    <div className="sentence-set-actionline">
+                      {isFullyShown && renderTools(row)}
+                      {(row.fromCard || mark) && renderMarks(row, mark)}
+                    </div>
+                  )}
                   {isFullyShown && renderExplanation(row)}
                 </div>
               </li>

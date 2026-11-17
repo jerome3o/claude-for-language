@@ -122,24 +122,4 @@ class LessonFeedbackScreenshots : LabScreenshotTest() {
             SayItAgainRow(brother.referenceHanzi, "translate", "answer", ExerciseEnv(), preview = PractiseUi(result = CoachPractise.practise("你哥哥怎么突然回轮蹲了", brother.referenceHanzi)))
         }
     }
-
-    @Test
-    fun sentenceMakingFixGetsItsOwnPractice() {
-        val env = ExerciseEnv(random = Random(7), sentenceFeedback = { _, _, _ ->
-            SentenceFeedback("minor", true, LessonSentence("你怎么换工作了？", "Nǐ zěnme huàn gōngzuò le?", "How come you changed jobs?"), "变 is for things that change by themselves; you change a job: 换工作.")
-        })
-        var correct: Boolean? = null
-        exercise { ExerciseView(job, env, null) { c, _, _ -> correct = c } }
-        answerWith("你怎么变工作了？")
-        compose.mainClock.advanceTimeBy(1_000)
-        // The example equals Claude's fix here, so one practice row (the example) — no duplicate.
-        assertTrue(compose.onAllNodesWithTag(LessonFeedbackTags.sayAgain("example")).fetchSemanticsNodes().isNotEmpty())
-        assertTrue(compose.onAllNodesWithTag(LessonFeedbackTags.sayAgain("fix")).fetchSemanticsNodes().isEmpty())
-        runCatching { compose.onAllNodesWithText("Almost", substring = true).onFirst().performScrollTo() }
-        compose.mainClock.advanceTimeBy(500)
-        compose.onRoot().captureRoboImage("screenshots/lesson-feedback-05-sentence-making.png")
-        compose.onAllNodesWithText("Continue").onLast().performClick()
-        compose.mainClock.advanceTimeBy(300)
-        assertEquals(true, correct)
-    }
 }

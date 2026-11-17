@@ -847,7 +847,7 @@ describe('Sentences by ear (listen exercises in Hard mode)', () => {
     act(() => listenDictation().land('我去。 学校。'));
     await flush();
     expect(checkLessonAnswer).toHaveBeenCalledWith(expect.objectContaining({
-      exercise_type: 'listen_translate', prompt_en: 'I go to the bank.', model_answer: '我去银行。', answer: '我去学校。', input: 'spoken',
+      exercise_type: 'listen_translate', prompt_en: 'I go to the bank.', model_answer: '我去银行。', answer: '我去学校', input: 'spoken',
     }));
   });
 

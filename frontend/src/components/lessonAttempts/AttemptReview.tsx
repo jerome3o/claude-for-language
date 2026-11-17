@@ -24,6 +24,7 @@ import { StrokesView } from '../handwriting/StrokesView';
 import { StrokeRunView } from './StrokeRunView';
 import { RecordingButton } from '../../pages/tutor/tutor-shared';
 import { AnswerCheckBody } from '../lessons/AnswerCheckCard';
+import { SentenceVerdictLine } from '../lessons/SentenceCheck';
 import type { ExerciseAnswer } from '@shared/lesson';
 import './attempts.css';
 
@@ -168,12 +169,11 @@ function AnswerBody({ exercise, attempt, media }: { exercise: LessonExercise | u
           {a.text && <Row label={answerInputLabel(a.input, 'Wrote')}><span lang="zh-CN" className="att-big">{a.text}</span></Row>}
           {a.handwriting?.strokes && <StrokesView strokes={a.handwriting.strokes} label="Handwritten" maxHeight={120} />}
           {a.feedback && (
-            <div className={`att-feedback ${a.feedback.verdict}`}>
-              <strong>Claude: {a.feedback.verdict === 'correct' ? 'correct' : a.feedback.verdict === 'minor' ? 'almost' : 'not quite'}</strong>
-              {!a.feedback.uses_all_words && ' · missed a target word'}
+            <Row label="Claude">
+              {/* The grade (right · needs work · wrong) as he saw it — an older check read through the same rules. */}
+              <SentenceVerdictLine feedback={a.feedback} words={exercise.words.map(w => w.hanzi)} testId="att-sentence-feedback" compact />
               {a.feedback.corrected && <div><Sentence s={a.feedback.corrected} /></div>}
-              <div>{a.feedback.comment}</div>
-            </div>
+            </Row>
           )}
         </>
       );

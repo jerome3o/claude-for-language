@@ -115,6 +115,16 @@ test('multiple choice: one tap, partial answer, and "Show answer" with nothing p
   await openNextMultipleChoice(page);
   const submit = page.getByTestId('mc-submit');
   await expect(submit).toHaveText('Show answer');
+  // Nothing touches or overlaps the card frame (docs/STUDY_SESSION.md "The study card's layout"): the frame keeps the
+  // standard minimum gap (8px) from the screen's sides and the grid + its button sit inside it, clear of its border.
+  const frame = (await page.locator('.study-fullscreen').boundingBox())!;
+  expect(frame.x).toBeGreaterThanOrEqual(8 - 0.5);
+  expect(frame.y).toBeGreaterThanOrEqual(8 - 0.5);
+  for (const box of [await page.getByTestId('mc-grid').boundingBox(), await submit.boundingBox()]) {
+    expect(box!.y).toBeGreaterThanOrEqual(frame.y + 1);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(frame.y + frame.height - 1);
+    expect(box!.x).toBeGreaterThanOrEqual(frame.x + 1);
+  }
   await page.getByRole('button', { name: '图', exact: true }).click();
   await expect(submit).toHaveText('Submit');
   await page.getByRole('button', { name: '节', exact: true }).click();

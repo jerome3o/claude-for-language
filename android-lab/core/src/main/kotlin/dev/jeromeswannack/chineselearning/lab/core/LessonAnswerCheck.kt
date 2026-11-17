@@ -77,9 +77,11 @@ data class AnswerTry(val text: String, val input: String? = null, val check: Ans
 object LessonAnswerCheck {
     /**
      * Port of ANSWER_CHECK_VERSION — 4: the coherence rules ([incoherentLine]) + digits as numerals ([checkKey]);
-     * 5: what the ear can't tell ([HeardCheck]: 他 / 她 / 它 are one sound in a heard answer).
+     * 5: what the ear can't tell ([HeardCheck]: 他 / 她 / 它 are one sound in a heard answer);
+     * 6: a spoken answer scrubbed of the recogniser's punctuation ([AnswerKey.scrubSpokenTranscript]) and its
+     * punctuation-only lines dropped ([punctuationComplaint]).
      */
-    const val VERSION = 5
+    const val VERSION = 6
     val VERDICTS = listOf("correct", "acceptable", "almost", "wrong")
     /** Port of READ_ALOUD_CHECK_TYPE: a read card's take (shared/study/readTakeCheck.ts). */
     const val READ_ALOUD_TYPE = "read_aloud"
@@ -91,7 +93,7 @@ object LessonAnswerCheck {
 
     fun isScramble(exerciseType: String?): Boolean = exerciseType == SCRAMBLE_TYPE
     val SPEAKING_TYPES = listOf("oral_expression", "speak")
-    const val SPEAKING_VERSION = 1
+    const val SPEAKING_VERSION = 2
 
     /** Port of MEANING_CHECK_VERSION (Sentences by ear; cache texts start `m<version>`) — 3: [HeardCheck]. */
     const val MEANING_VERSION = 3
@@ -246,6 +248,25 @@ object LessonAnswerCheck {
     // ============ Sanity rules (port of the TS block: Jerome's 因为 answer, Nov 2026) ============
 
     const val PLAIN_CORRECT_HEADLINE = "Natural and right — nicely said."
+
+    // ============ A pause is never grammar (port of the TS block, Nov 2026) ============
+
+    private val PUNCTUATION_COMPLAINT = Regex(
+        "(?<![A-Za-z0-9_])(?:" + listOf(
+            "punctuation", "punctuated", "comma", "commas", "full stop", "full stops", "period", "periods", "question mark",
+            "split", "splits", "splitting", "separate sentences", "two sentences", "sentence break", "sentence breaks",
+            "run-on", "run on", "fragment", "fragments", "incomplete sentence",
+        ).joinToString("|") + ")(?![A-Za-z0-9_])",
+        RegexOption.IGNORE_CASE,
+    )
+    private val PUNCT_ARROW = Regex("[。，、]\\s*(?:→|->|⇒)|(?:→|->|⇒)\\s*[。，、]")
+
+    /** Port of punctuationComplaint(): a line about punctuation or sentence breaks (never the learner's on a transcript). */
+    fun punctuationComplaint(text: String): Boolean = PUNCTUATION_COMPLAINT.containsMatchIn(text) || PUNCT_ARROW.containsMatchIn(text)
+
+    /** Port of spokenAnswerCheck(): spoken / edited, a free-speaking or read-aloud take. */
+    fun spokenAnswer(exerciseType: String?, input: String?): Boolean =
+        input == "spoken" || input == "edited" || isSpeaking(exerciseType) || exerciseType == READ_ALOUD_TYPE
     const val PLAIN_ACCEPTABLE_HEADLINE = "Different wording, same meaning — that works."
 
     private fun w(words: String) = "(?<![A-Za-z0-9_])(?:$words)(?![A-Za-z0-9_])"
@@ -386,7 +407,7 @@ object LessonAnswerCheck {
     }
 
     /** Port of normalizeAnswerCheck(): throws when the essentials are missing. [model] = the model answer (sanity rules). */
-    fun normalize(raw: JsonElement?, answer: String, model: String? = null): AnswerCheck {
+    fun normalize(raw: JsonElement?, answer: String, model: String? = null, spoken: Boolean = false): AnswerCheck {
         val r = raw as? JsonObject ?: JsonObject(emptyMap())
         val verdictRaw = (r["verdict"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val verdict = verdictRaw?.takeIf { it in VERDICTS }
@@ -397,6 +418,8 @@ object LessonAnswerCheck {
         val cleanedRaw = str(r["cleaned"], SPEECH)
         val speaking = cleanedRaw.isNotEmpty() && hasHan(cleanedRaw)
         val meant = if (speaking) checkKey(cleanedRaw) else mine
+        // A transcript: a line that only blames punctuation or a "split" is about the recogniser, never the learner.
+        fun blamesPauses(line: String) = (spoken || speaking) && punctuationComplaint(line)
         val noFix = verdict == "correct" || (verdict == "acceptable" && !speaking)
         var corrected = if (noFix) "" else str(r["corrected"], if (speaking) SPEECH else ANSWER * 2)
         if (corrected.isNotEmpty() && (!hasHan(corrected) || checkKey(corrected).let { it == mine || it == meant })) corrected = ""
@@ -414,7 +437,7 @@ object LessonAnswerCheck {
             val o = t as? JsonObject
             val text = if (o != null) str(o["text"], TIP) else str(t, TIP)
             if (text.isEmpty()) continue
-            if (insaneTip(text, if (o != null) str(o["fix"], ALTERNATIVE) else "", good, mine, sameAsModel) || incoherent(text)) {
+            if (insaneTip(text, if (o != null) str(o["fix"], ALTERNATIVE) else "", good, mine, sameAsModel) || incoherent(text) || blamesPauses(text)) {
                 dropped++
                 continue
             }
@@ -440,7 +463,11 @@ object LessonAnswerCheck {
                 )
             }
         }
-        val head = if (incoherent(headline)) neutralHeadline(verdict, corrected.isNotEmpty()) else saneHeadline(headline, verdict, mine, dropped, tips.size, speaking)
+        val head = when {
+            blamesPauses(headline) -> if (good) (if (verdict == "correct" || speaking) PLAIN_CORRECT_HEADLINE else PLAIN_ACCEPTABLE_HEADLINE) else neutralHeadline(verdict, corrected.isNotEmpty())
+            incoherent(headline) -> neutralHeadline(verdict, corrected.isNotEmpty())
+            else -> saneHeadline(headline, verdict, mine, dropped, tips.size, speaking)
+        }
         val base = AnswerCheck(verdict, head, corrected, correctedPinyin, tips, alternative, suggestedFor(verdict))
         if (!speaking) return base
         val parts = mutableListOf<AnswerCheckPart>()

@@ -1238,6 +1238,47 @@ keyed children only moved). Analytics `lesson.scramble_reorder { how: drag | key
 the last tile is placed, so there is nothing to rearrange), the in-call "sentence building" activity (its tiles live in the
 CallRoom's shared state — a reorder would need a new room action) and the VR mini-lesson panel (tap only).
 
+### Sentence making: an honest verdict (`sentence_making`)
+
+Jerome (Nov 2026), 本来 + 要: he said 我本来要去健身馆，但是我学中文。 and got a green "✓ Natural and correct" over an
+explanation saying the second half didn't follow and 健身馆 is usually 健身房 — "this answer probably shouldn't be correct,
+or it should be orange… and then have a button that allows me to practise the corrected sentence… without the UI getting
+too cluttered, and without having to wait a long time." Rules: `shared/lesson/sentenceCheck.ts` (Lab core
+`SentenceCheck.kt`, parity-tested by `parity/fixtures/sentence-check.ts`); worker `services/sentence-making.ts`; web
+`components/lessons/SentenceCheck.tsx`; Lab `ui/lessons/SentenceCheckViews.kt`.
+
+- **Three grades** (`POST /api/lessons/sentence-feedback` → `feedback.grade`): **right** (✓ green — natural, every target
+  word used well), **needs_work** (≈ orange — the target words ARE used right, but the sentence has a real problem
+  elsewhere: it doesn't make sense or hang together, a wrong word, a grammar slip), **wrong** (✗ red — a target word
+  misused or missing). The legacy `verdict` (correct / minor / incorrect) and `comment` are still sent for older apps.
+- **Coherent** — `guardSentenceGrade`: a "right" whose headline / reason / more names a problem ("but", "should",
+  "usually", "instead", "unnatural", "doesn't follow"…; praise like "nothing to fix" excluded) is needs_work, its headline
+  "本来 and 要 used right — one thing to fix" and its reason the clause that names the problem; a typed sentence without a
+  target word is wrong. Applied by the worker AND by both apps on what they get (`sentenceCheckView`), so an older cached
+  check or a stored attempt can't show green over a correction either.
+- **Slim and fast**: ONE coloured headline (icon + colour, never colour alone; no box — #751), at most one short reason
+  line, the fuller text behind "More ▸" only when it adds something. The first call is the small model through
+  `structuredCall` (forced tool, thinking off, 500 tokens, 20 s; cached for everyone in `lesson_answer_checks` by
+  `sentenceCheckCacheText`, version `SENTENCE_CHECK_VERSION` = 2) and returns NO corrected sentence — only a `fixable` flag.
+- **Scored**: only right counts as right first time; needs_work comes back in the lesson's retry round / revision, like the
+  answer check's "almost" (it suggests Missed it). Before, "minor" counted as right.
+- **Iterate** (needs_work / wrong only; two compact actions, nothing pre-made):
+  - **🎤 Try again** — say or type a new sentence; checked the same way, in place, as often as he likes ("🎤 Try 2 …" +
+    its grade; right → felt + a small burst, the actions go). Practice only: the exercise's recorded first grade never
+    changes. Offline: "Claude can't check it offline — compare it with the example." and the example opens (the self-check).
+  - **✨ Show a fixed version** — only on tap, `POST /api/lessons/sentence-fix`: HIS sentence with the smallest edits
+    (我本来要去健身房，可是后来去学中文了。), cached per (words + task, his sentence) on the server and the device; shown as
+    "Fixed" vs "You said" with the slim answer diff (▶ + pinyin + English), then **🎤 Say it** — the fixed sentence
+    practised and checked on the device like Say it again. Offline: "A fixed version needs a connection…".
+- **Decluttered**: while Claude grades, the unrelated example stays folded under "Example sentence ▸" (shown at once for a
+  handwritten answer or offline); once Claude's grade is in, the self-check line "Is your sentence grammatical, and does
+  it use every word?" and its Got it / Not quite go — Continue stays.
+- Analytics: `lesson.sentence_verdict { verdict, downgraded, ms, cached, input }`, `lesson.sentence_fix_shown { result, ms,
+  cached }`, `lesson.sentence_retry { result, try, input }`. E2E stand-in `services/sentence-making-fake.ts` (本来…要 +
+  健身馆 → needs_work + its fix; the paused 不知道 / 有没有 take → needs_work on 有不有 only). Other exercises don't use
+  `sentence-feedback` (speak / oral_expression go through the speaking check).
+
+
 ### Claude checks your speaking (free speaking: `oral_expression`, `speak`)
 
 Jerome (Oct 2026): in "口语 · Speaking — recorded 🎙" he records a long answer to a task like "Annie
@@ -2162,6 +2203,27 @@ translate / listen-said-back, the answer side's 🎤 rows, the Coach's "Practise
   content word, the meaning, a negation, word order) still count. `ANSWER_CHECK_VERSION` / `MEANING_CHECK_VERSION` = 2, so
   no older, harsher cached verdict is served.
 
+**Scrubbed before any check (Nov 2026).** Jerome said 我不知道我妹妹有没有新电脑 with pauses; the transcript came out as
+我不知道。 我妹妹有，不有新电脑。 and the check blamed "splitting into separate sentences" — "either it should be prompted to
+know about the transcription issues, or we should just scrub out the grammar". Both, for every check of a SPOKEN answer:
+- ONE helper, `scrubSpokenTranscript` (shared/cards/answer.ts; Lab `AnswerKey.scrubSpokenTranscript`, parity-tested in
+  `sentence-check.ts`): every pause mark (。，、！？；：… and their ASCII forms; a dot between two digits kept), quote marks
+  and the spaces between Chinese characters go — 我不知道我妹妹有不有新电脑. `spokenCheckAnswer(text, input)` applies it to
+  spoken / edited answers only; typed answers keep their punctuation. It is what the model is sent, what the cache key is
+  made from, and what the lessons' "You said" shows: the lesson answer check (`pickAnswerCheckInput` scrubs every
+  spoken / edited / read-aloud / free-speaking answer on the server, whatever app sent it), sentence_making
+  (`/sentence-feedback` + `/sentence-fix` take `input`), the Sentence round's checks (`listenCheckInput`,
+  `sentenceAnswerCheckInput`), a read card's check (`readTakeCheckInput`), translate / listen & translate in lessons.
+- Every spoken-check prompt says the transcript has its punctuation removed and is ONE continuous utterance; fillers,
+  restarts and a near-sound misrecognition aren't the learner's when the meaning is clear (`SPOKEN_SENTENCE_RULE`,
+  `ANSWER_CHECK_SYSTEM`, the speaking and read-aloud user turns). A misheard target word (有没有 → 有不有) is the model's
+  call on a spoken sentence, never "Use every target word" by string match alone.
+- **Guard**: on a spoken answer a tip or headline that complains about punctuation or "split into separate sentences"
+  (`punctuationComplaint`) is dropped — the headline becomes the neutral / plain one (`normalizeAnswerCheck(…, spoken)`;
+  Lab `LessonAnswerCheck.normalize(…, spoken)`).
+- Caches: `ANSWER_CHECK_VERSION` 6, `SPEAKING_CHECK_VERSION` 2, `SENTENCE_CHECK_VERSION` 2 — no punctuation-blaming verdict
+  is served again.
+
 ### Answer feedback: one line and a diff (every "how your answer differs" surface)
 
 Jerome (Nov 2026, Pixel Fold, dark theme): "When I am on a hard mode card and I get it wrong, it pops up with the little
@@ -2416,6 +2478,75 @@ Web: `index.css` (`.study-page-fullscreen`, `.study-fullscreen`, `.sentence-set-
 `-marks`), `components/study/SentenceRound.css`, `HardModeFeedback.css`, `pages/StudyPage.css`; Lab `ui/kit/StudyCard.kt`,
 `ui/study/CardStage.kt`, `Sentences.kt` (`SentenceRowView`), `SentenceRoundUi.kt`, `SentenceListenUi.kt`, `HardModeUi.kt`,
 `YouSaidBox.kt`, `CardExtrasUi.kt` (`StudyActionRow`).
+
+
+**Second round (Nov 2026, "mostly an improvement")** — "it's how you use the space that's important … borders close to
+the edge of the screen and then using the white space to emphasise the important things":
+
+- **The standard minimum gap** (web `--space-gap-min` = 8px, Lab `Spacing.gapMin` = 8dp): the frame's side gutter (was
+  2px / 4dp — "probably too thin"), the air between the frame and anything outside it (the session bar, the footer, the
+  ratings, the multiple-choice grid / Submit) and the least space between stacked controls. **Nothing touches or
+  overlaps the frame** — the controls under the card always start a gap below it, and when there isn't room the card's
+  content scrolls (Lab `CardFrameGapTest`: the grid's top ≥ the frame's bottom + the gap; web `study-multiple-choice`
+  checks the bounding boxes).
+- **Room above the big hanzi** on the answer side and a scrolling question (web `clamp(1.75rem, 7dvh, 4rem)`, Lab 36dp):
+  the word is the focal point. A centred question stays centred.
+- **No big ▶ pinned to the side of "You said"**: it was his own take. "▶ Play my recording" is in the card's ⋯ (both
+  apps, the same `study.you_said_play` event); "You said ✓ Match" stays, centred. No round control sits against a screen
+  edge on any card side.
+- **Ask Claude · Edit card · ⋯ are light outlined buttons**: 1px muted border, small radius, no fill; the two halves equal,
+  ⋯ a 44px square of the same height; the gap between them the standard one. The ratings are unchanged.
+- **The example sentences get ONE light outline again** ("it's kind of confusing" without): one 1px muted, 10px-radius
+  box around the header and the rows — the only box inside the frame. The rows stay unboxed with hairlines; the fun fact
+  is plain text (the web's grey box went).
+- **One line per collapsed sentence row**: `[EN] Tap to reveal · From the card … [🎤] [▶]`, everything centred on that
+  line, about one touch target tall (it was two lines — "Tap to reveal" with a bare ▶ above, then EN / From the card
+  under it). The ▶ is the card's round play button (a 36px circle with a hairline, 44px target). Revealing grows the
+  row downward under the same first line (hanzi, pinyin, English); the tools and the row's marks come under an opened
+  row, at the text edge.
+- **The web's floating 💬 feedback button** sat over the Easy rating: it is hidden on the study card and "💬 Send
+  feedback" is in the card's ⋯ (`hidesFeedbackFab`). The dark circle with a rotate icon over **Again** in the Lab
+  screenshot is Android's own *rotate suggestion* (shown when the phone turns with auto-rotate off) — a system button
+  over every app, which the app can't move; it fades by itself or rotates the screen on a tap.
+
+Web: `index.css` (`--space-gap-min`, `.study-page-fullscreen`, `.sentence-set-head`), `pages/StudyPage.css`
+(`.study-action-row`, `.study-sentences .sentence-set`, `.study-card-main--back`), `components/SentenceSet.tsx`;
+Lab `ui/theme/Theme.kt` (`Spacing`), `ui/study/CardStage.kt`, `CardExtrasUi.kt`, `Sentences.kt` (`SentenceRowView`).
+
+### One look for every result (Nov 2026)
+
+Jerome, on the card 测试: "you've kept the orange border in. This is not a problem … I do mind that you've made it
+inconsistent between green and yellow … Can you go through and unify all the UX". Every judged result now has ONE state
+system (`shared/study/resultState.ts`, Lab core `ResultState` in `RightMoment.kt`, parity-tested `resultStates`):
+
+| State | Icon | Words that map to it |
+|---|---|---|
+| right | ✓ | match · exact · correct · acceptable · equivalent · alternative · sounds right … |
+| close | ≈ | contains the answer · close / tones off · almost · nearly · **needs_work** (sentence_making) |
+| wrong | ✗ | didn't match · wrong · incorrect · miss |
+| pending | … | checking · transcribing · anything unknown |
+
+Each state is ONE colour token (web `--result-right|close|wrong|pending` + `-ink`, both themes; Lab `ResultColors`) and
+ONE icon, and every state wears the SAME surface, differing only by colour: a light 1px outline in the state's colour
+(35 %) and a faint tint of it (8 %), 10px corners (`RESULT_SURFACE`; web `.result-surface`, Lab `Modifier.resultSurface`).
+Close is yellow, never orange (red / green colour-blind). The big hanzi of the card stays in normal ink — the result row
+carries the state. Result rows' ▶ / ✎ are one button: a 36px circle with a hairline in a 44px target. Pills are one style
+(the card's "Top 2,000" frequency pill lost its decal outline). Guard tests: `components/study/resultColors.test.ts` (no
+hard-coded success / amber / orange in the result stylesheets), Lab `ResultColorsGuardTest`.
+
+### A right answer you can see (Nov 2026)
+
+"When I get things right, it's not super obvious … some indication that things are green — but not as fluorescent as
+before. Mini confetti." ONE "right" moment (`shared/study/rightMoment.ts`, Lab core `RightMoment`, parity-tested
+`moments`) wherever a study-card answer is judged right — Hard mode's question (a read take, a typed / spoken answer,
+Claude's sentence check), each Sentence round exercise (listen exercises too), a 🎤 take on a sentence row, a typed or
+spoken answer judged right on the answer side, a read take that matched; the homework pass through the same card. The
+thing that was right wears the green result surface; a soft green wash flashes in over it and settles to that tint;
+its ✓ (the chip, the exercise's number, "✓ Right") is the mark; a SMALL confetti burst (a dozen pieces, ~0.7 s — the
+round's last right exercise, "2 / 2", 20 pieces / 0.85 s) flies from it; the StudyFeel haptic + sound play (web
+`navigator.vibrate`, Lab the Vibrator + the view's CONFIRM haptic). Small each time so a run of right answers isn't
+noisy; once per showing (Claude agreeing after Hard mode celebrated adds only the tint). Reduce motion: no confetti, no
+wash animation. Web `components/study/RightMoment.tsx`, Lab `ui/study/RightMomentUi.kt` (`Modifier.rightMoment`).
 
 ### The gate — Good / Easy wait (greyed) for two sentences (part of Hard mode)
 

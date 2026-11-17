@@ -17,6 +17,7 @@ import {
 import { scrambleCheckInput, scrambleOutcome } from '@shared/lesson/scrambleCheck';
 import { readTakeCheckInput, readTakeClaudeState } from '@shared/study/readTakeCheck';
 import { ANSWER_CHECK_VERSION, MEANING_CHECK_VERSION, PLAIN_ACCEPTABLE_HEADLINE, answerCheckCacheText } from '@shared/lesson/answerCheck';
+import { scrubSpokenTranscript } from '@shared/cards/answer';
 import type { Env } from '../../types';
 
 function client(env: Env) {
@@ -132,27 +133,28 @@ describe('answer check service', () => {
     // Jerome's 虾饺: "You said: 虾饺我最喜欢的。 点心。" was judged "fragments" — the 。 was his pause.
     const said = { prompt_en: 'Shrimp dumplings are my favourite dim sum.', model_answer: '虾饺是我最喜欢的点心。', answer: '虾饺我最喜欢的。 点心。', exercise_type: 'listen_translate', input: 'spoken' as const };
     const turn = answerCheckUserTurn(said);
-    expect(turn).toContain("The learner's answer (SPOKEN — speech-recognition transcript; its punctuation, pauses and little words are the recogniser's, not the learner's) — the only text you judge:\n<learner_answer>虾饺我最喜欢的点心。</learner_answer>");
+    expect(turn).toContain("The learner's answer (SPOKEN — speech-recognition transcript with the recogniser's punctuation removed: one continuous utterance; pauses and little words are the recogniser's, not the learner's) — the only text you judge:\n<learner_answer>虾饺我最喜欢的点心</learner_answer>");
     expect(turn).toContain('They said back what they heard');
     // Typed answers keep what was typed.
     expect(answerCheckUserTurn({ ...said, input: 'typed' })).toContain('(typed) — the only text you judge:\n<learner_answer>虾饺我最喜欢的。 点心。</learner_answer>');
-    expect(ANSWER_CHECK_SYSTEM).toMatch(/Ignore punctuation, spacing and sentence breaks COMPLETELY/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/read it as ONE continuous utterance/);
+    expect(ANSWER_CHECK_SYSTEM).toMatch(/never mention punctuation/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/Never call a spoken answer a fragment/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/A single short unstressed word missing or doubled \(是, 的, 了/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/never "almost" or "wrong" for it/);
   });
 
   it('the rules changed: old cached checks are never served (the cache text carries the new version)', () => {
-    expect(ANSWER_CHECK_VERSION).toBe(5);
+    expect(ANSWER_CHECK_VERSION).toBe(6);
     expect(MEANING_CHECK_VERSION).toBe(3);
-    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v5\|/);
+    expect(answerCheckCacheText({ prompt_en: 'x', model_answer: '你好', answer: '你好', exercise_type: 'translate', input: 'spoken' })).toMatch(/^v6\|/);
   });
 
   it('the learner\'s answer and the model answer are tagged apart, and the prompt says which one is judged', () => {
     const turn = answerCheckUserTurn({ prompt_en: sleep.english, model_answer: sleep.model, model_pinyin: 'Wǒ yīnwèi zhège wèntí shuì bu zháo jiào.', answer: sleep.answer, exercise_type: 'translate', input: 'spoken' });
     expect(turn).toContain('<model_answer>我因为这个问题睡不着觉。</model_answer>');
     expect(turn).toContain('Model answer pinyin: Wǒ yīnwèi');
-    expect(turn).toContain('<learner_answer>因为这个问题我睡不着觉。</learner_answer>'); // the recogniser's pause comma goes
+    expect(turn).toContain('<learner_answer>因为这个问题我睡不着觉</learner_answer>'); // the recogniser's pause comma goes
     expect(turn).toMatch(/NOT the learner's answer/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/never tell the learner to do something their answer already does/);
     expect(ANSWER_CHECK_SYSTEM).toMatch(/A different but natural word order or wording is right/);
@@ -267,7 +269,7 @@ describe('free speaking (oral_expression / speak)', () => {
     expect(await checkAttemptSpeaking(env, 'user-1', 'att-1', 'm0', SPEAKING_FIXTURE.transcript)).toBe(true);
     const row = db.rows('SELECT data FROM custom_lesson_attempts WHERE id = ?', ['att-1'])[0] as { data: string };
     const answer = JSON.parse(row.data).exercises[0].answer;
-    expect(answer.text).toBe(SPEAKING_FIXTURE.transcript);
+    expect(answer.text).toBe(scrubSpokenTranscript(SPEAKING_FIXTURE.transcript)); // a pause is never grammar
     expect(answer.input).toBe('spoken');
     expect(answer.check.parts).toHaveLength(4);
     // Already checked → nothing more.
@@ -422,7 +424,7 @@ describe('read aloud (a read card\'s take the device couldn\'t accept, shared/st
     const turn = answerCheckUserTurn(read('我越学中文，越觉得英语很"繁琐"。'));
     expect(turn).toContain("The card's Chinese (what they READ ALOUD): 我越学中文，越觉得英文很繁琐。 (wǒ yuè xué Zhōngwén, yuè juéde Yīngwén hěn fánsuǒ.)");
     expect(turn).toContain('It means: The more I study Chinese');
-    expect(turn).toContain("Transcript of their reading (speech recognition — punctuation and little words are the recogniser's): 我越学中文，越觉得英语很繁琐。");
+    expect(turn).toContain('Transcript of their reading (speech recognition, punctuation removed — read it as one continuous utterance; little words are the recogniser\'s): 我越学中文越觉得英语很繁琐');
     expect(turn).not.toContain('"');
     expect(READ_ALOUD_CHECK_SYSTEM).toMatch(/A same-meaning word is ALWAYS "almost" at worst, never "wrong"/);
     expect(READ_ALOUD_CHECK_SYSTEM).toMatch(/quote marks/);

@@ -65,9 +65,9 @@ fun FeelBox(moment: String?, env: ExerciseEnv, celebrated: Boolean = false, key:
  * kind = answer | example | fix (Claude's corrected sentence). [preview] = a fixed state (screenshots).
  */
 @Composable
-fun SayItAgainRow(hanzi: String, exerciseType: String, kind: String = "answer", env: ExerciseEnv, preview: PractiseUi? = null) {
+fun SayItAgainRow(hanzi: String, exerciseType: String, kind: String = "answer", env: ExerciseEnv, preview: PractiseUi? = null, labelOverride: String? = null) {
     var bursts by remember(hanzi) { mutableIntStateOf(0) }
-    val label = if (kind == "fix") LessonFeedback.SAY_AGAIN_FIX_LABEL else LessonFeedback.SAY_AGAIN_LABEL
+    val label = labelOverride ?: if (kind == "fix") LessonFeedback.SAY_AGAIN_FIX_LABEL else LessonFeedback.SAY_AGAIN_LABEL
     Box(Modifier.fillMaxWidth().testTag(LessonFeedbackTags.sayAgain(kind))) {
         Column(Modifier.fillMaxWidth()) {
             PractiseSentenceRow(

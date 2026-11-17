@@ -52,8 +52,8 @@
   transition: background-color 0.25s, border-color 0.25s, transform 0.25s;
 }
 .sentence-round-dot.is-on {
-  background-color: var(--color-success);
-  border-color: var(--color-success);
+  background-color: var(--result-right);
+  border-color: var(--result-right);
   animation: sentence-round-pop 0.45s ease-out;
 }
 .sentence-round-count {
@@ -72,7 +72,7 @@
   align-self: center;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  background: color-mix(in srgb, var(--result-right) 16%, transparent);
   color: var(--color-text);
   font-weight: 700;
   animation: sentence-round-pop 0.5s ease-out;
@@ -103,16 +103,31 @@
   background: var(--color-error);
   color: white;
 }
-.sentence-round-ex.is-close .sentence-round-ex-num {
-  background: var(--color-partial);
-  color: #1f2937;
+/* A judged exercise wears the one result surface (index.css .result-surface; shared/study/resultState.ts): a light
+   outline + faint tint in its state's colour, the same for ✓ / ≈ / ✗ — and its number, status words in that state.
+   (Before: ✓ green, ≈ yellow, ✗ an ORANGE warning colour — three different systems.) */
+.sentence-round-ex.is-right,
+.sentence-round-ex.is-close,
+.sentence-round-ex.is-wrong {
+  padding: 0.5rem 0.5rem 0.375rem;
+  margin: 0.25rem 0;
+  border: 1px solid color-mix(in srgb, var(--rs-tone) 35%, transparent);
+  background: color-mix(in srgb, var(--rs-tone) 8%, transparent);
+  border-radius: 10px;
 }
+.sentence-round-ex.is-right { --rs-tone: var(--result-right); --rs-ink: var(--result-right-ink); }
+.sentence-round-ex.is-close { --rs-tone: var(--result-close); --rs-ink: var(--result-close-ink); }
+.sentence-round-ex.is-wrong { --rs-tone: var(--result-wrong); --rs-ink: var(--result-wrong-ink); }
+.sentence-round-ex.is-close .sentence-round-ex-num,
 .sentence-round-ex.is-wrong .sentence-round-ex-num {
-  background: var(--color-warning);
-  color: white;
+  background: var(--rs-tone);
+  color: var(--color-surface);
 }
-.sentence-round-ex.is-right .sentence-round-ex-status {
-  color: var(--color-success);
+.sentence-round-ex.is-close .sentence-round-ex-num { color: #1f2937; }
+.sentence-round-ex.is-right .sentence-round-ex-status,
+.sentence-round-ex.is-close .sentence-round-ex-status,
+.sentence-round-ex.is-wrong .sentence-round-ex-status {
+  color: var(--rs-ink);
 }
 .sentence-round-ex-head {
   display: flex;
@@ -134,8 +149,8 @@
   font-size: 0.75rem;
 }
 .sentence-round-ex.is-right .sentence-round-ex-num {
-  background: var(--color-success);
-  color: white;
+  background: var(--rs-tone);
+  color: var(--color-surface);
 }
 .sentence-round-ex-prompt {
   flex: 1;

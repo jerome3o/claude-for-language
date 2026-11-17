@@ -96,6 +96,10 @@ test('only the recogniser\'s quote marks differ: ✓ Match on the device, quotes
   await expect(page.getByTestId('you-said-hanzi')).toHaveText(CARD);
   await expect(page.getByTestId('you-said-pinyin')).not.toContainText('"');
   await shot(page, 'read-take-01-quotes-match');
+  // No ▶ pinned to the box's side (docs/STUDY_SESSION.md "The study card's layout"): the take is in ⋯.
+  await expect(box.getByTestId('you-said-play')).toHaveCount(0);
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByRole('menuitem', { name: /Play my recording/ })).toBeVisible();
   await page.waitForTimeout(800);
   expect(checks).toHaveLength(0);
 });
@@ -110,7 +114,7 @@ test('英语 for 英文: Checking… instead of ✗, then ≈ Close with Claude\
   await expect(box).not.toContainText('Didn’t match');
   await expect(page.getByTestId('you-said-hanzi')).toHaveText('我越学中文，越觉得英语很繁琐。');
   expect(checks).toHaveLength(1);
-  expect(checks[0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文，越觉得英语很繁琐。', prompt_en: ENGLISH });
+  expect(checks[0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文越觉得英语很繁琐', prompt_en: ENGLISH });
   await shot(page, 'read-take-02-checking');
   release();
   await expect(box).toHaveAttribute('data-state', 'close', { timeout: 15000 });

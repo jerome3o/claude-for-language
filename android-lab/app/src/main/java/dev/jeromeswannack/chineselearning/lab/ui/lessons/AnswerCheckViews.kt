@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheck
+import dev.jeromeswannack.chineselearning.lab.ui.study.resultSurface
 import dev.jeromeswannack.chineselearning.lab.core.AnswerCheckInput
 import dev.jeromeswannack.chineselearning.lab.core.AnswerTry
 import dev.jeromeswannack.chineselearning.lab.core.ChatLearning
@@ -127,7 +128,7 @@ class LessonAnswerCheckState(
             return
         }
         val next = AnswerCheckInput(
-            promptEn, modelAnswer, modelPinyin?.ifBlank { null }, text.trim(), exerciseType, source ?: "typed", focus?.ifBlank { null },
+            promptEn, modelAnswer, modelPinyin?.ifBlank { null }, dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(text, source), exerciseType, source ?: "typed", focus?.ifBlank { null },
             hints = hints?.filter { it.isNotBlank() }?.ifEmpty { null }, questionAudio = question?.ifBlank { null },
         )
         input = next
@@ -170,7 +171,7 @@ class LessonAnswerCheckState(
         val c = check
         val i = input
         return answer.copy(
-            check = if (c != null && i != null && answer.text?.trim() == i.answer) c else null,
+            check = if (c != null && i != null && answer.text?.let { t -> dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(t, i.input) } == i.answer) c else null,
             tries = tries.toList().ifEmpty { null },
         )
     }
@@ -257,10 +258,14 @@ private fun CheckingRow() {
     }
 }
 
-private fun toneColor(tone: String): Color = when (tone) {
-    "good" -> Palette.Good
-    "warn" -> Color(0xFFD97706)
-    else -> Palette.Again
+/** good / warn / bad → the one result state's ink (ui/study/ResultStateUi; warn = close — yellow, never orange). */
+@Composable
+private fun toneColor(tone: String): Color = dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.ink(toneState(tone))
+
+private fun toneState(tone: String): String = when (tone) {
+    "good" -> dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT
+    "warn" -> dev.jeromeswannack.chineselearning.lab.core.ResultState.CLOSE
+    else -> dev.jeromeswannack.chineselearning.lab.core.ResultState.WRONG
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -292,12 +297,18 @@ fun AnswerCheckBody(
     val chip = LessonAnswerCheck.chip(check.verdict, !check.cleaned.isNullOrEmpty())
     val tone = toneColor(chip.tone)
     if (!detail) {
-        // Slim: no box — the chip + ONE line, the parts as small marks, the actions.
-        Column(Modifier.fillMaxWidth().padding(top = 6.dp).testTag("answer-check"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Slim: the one result surface (the same as every verdict) — the chip + ONE line, the parts as small marks, the actions.
+        Column(
+            Modifier.fillMaxWidth().padding(top = 6.dp)
+                .resultSurface(toneState(chip.tone))
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .testTag("answer-check"),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     chip.label, color = tone, fontWeight = FontWeight.Bold, fontSize = 13.sp,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).background(tone.copy(alpha = 0.14f)).padding(horizontal = 8.dp, vertical = 2.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(dev.jeromeswannack.chineselearning.lab.ui.study.ResultColors.chip(toneState(chip.tone))).padding(horizontal = 8.dp, vertical = 2.dp),
                 )
                 Text(AnswerDiff.firstSentence(check.headline), Modifier.testTag("answer-check-headline"), color = Lab.colors.ink, fontWeight = FontWeight.Medium, fontSize = 15.sp)
             }
@@ -408,12 +419,12 @@ fun AnswerCheckBody(
 }
 
 @Composable
-private fun CheckAction(label: String, onClick: () -> Unit) {
+internal fun CheckAction(label: String, onClick: () -> Unit, tag: String = "answer-check-action") {
     Text(
         label, color = Color(0xFF6B21A8), fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
         modifier = Modifier.heightIn(min = 44.dp).bouncyClickable(onClick = onClick).clip(RoundedCornerShape(50))
             .background(Violet.copy(alpha = 0.10f)).border(1.dp, Violet.copy(alpha = 0.25f), RoundedCornerShape(50))
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+            .padding(horizontal = 14.dp, vertical = 11.dp).testTag(tag),
     )
 }
 

@@ -1,0 +1,55 @@
+/* RightMoment.tsx — the "right" moment: a soft green wash that settles to a faint tint, a ✓ at the top right and a
+   small burst from the middle. A muted green from the theme (--color-success mixed down), never fluorescent, never
+   a thick outline. The host (the right thing) must be position: relative — `.right-moment-host` makes it so. */
+.right-moment-host {
+  position: relative;
+  isolation: isolate; /* the wash paints under the host's content, over its background */
+}
+.right-moment {
+  /* The wash flashes in and fades back to the host's own surface — the green result surface (index.css
+     .result-surface--right) — so a right row and a close row are the same surface, only the colour differs. */
+  --right-moment-tint: transparent;
+  --right-moment-wash: color-mix(in srgb, var(--result-right) 24%, transparent);
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--right-moment-tint);
+  pointer-events: none;
+  z-index: -1;
+}
+.right-moment.is-animated {
+  animation: right-moment-wash var(--right-moment-ms, 700ms) ease-out both;
+}
+@keyframes right-moment-wash {
+  0% { background: transparent; }
+  30% { background: var(--right-moment-wash); }
+  100% { background: var(--right-moment-tint); }
+}
+.right-moment-check {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--result-right-ink);
+}
+.right-moment.is-animated .right-moment-check {
+  animation: right-moment-check 360ms cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+@keyframes right-moment-check {
+  0% { transform: scale(0.2); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.right-moment-burst {
+  position: absolute;
+  inset: 0;
+}
+.right-moment-burst .confetti-burst-piece {
+  animation-duration: var(--right-moment-ms, 700ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .right-moment.is-animated,
+  .right-moment.is-animated .right-moment-check { animation: none; }
+  .right-moment-burst { display: none; }
+}

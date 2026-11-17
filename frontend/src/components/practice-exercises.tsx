@@ -34,7 +34,10 @@ import { WritingExercise } from './strokes/WritingExercise';
 import { getStrokeData } from '../services/strokeData';
 import { StrokesView } from './handwriting/StrokesView';
 import { ListenPlayButton, type OnNext } from './lesson-exercises';
-import { checkMadeSentence } from '../api/lessonPractice';
+import { checkMadeSentence, FeedbackUnavailable } from '../api/lessonPractice';
+import { SentenceCheckPanel } from './lessons/SentenceCheck';
+import { sentenceCheckView, SENTENCE_EXAMPLE_TOGGLE, SENTENCE_SELF_CHECK, SENTENCE_SELF_CHECK_HANDWRITTEN } from '@shared/lesson/sentenceCheck';
+import { spokenCheckAnswer } from '@shared/cards/answer';
 import { SpeakingAnswer } from './lessons/SpeakingAnswer';
 import { useLessonClips } from '../hooks/useLessonClips';
 import { shuffledIndexes } from '../utils/shuffle';
@@ -44,8 +47,8 @@ import { track } from '../services/analytics';
 import { VoiceTextInput, type DictatedAnswer } from './voice/VoiceTextInput';
 import { TakeLockActions } from './voice/TakeLock';
 import { lessonSpokenCheck, lessonAnswerCorrect, type LessonSpokenCheck } from '@shared/lesson/spoken-check';
-import { FeedbackSentence, LessonFeel, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
-import { CLAUDE_CHECKING_LINE, EXAMPLE_LABEL, lessonFeel, sayAgainFix } from '@shared/lesson/feedback';
+import { FeedbackSentence, ResultBanner, SayItAgain } from './lessons/LessonFeedback';
+import { CLAUDE_CHECKING_LINE, EXAMPLE_LABEL, lessonFeel } from '@shared/lesson/feedback';
 import { studyFeel } from '../services/studyFeel';
 import './lesson-exercises.css';
 
@@ -134,6 +137,13 @@ function HandwritingCompare({ hw, model, speak }: { hw: HandwritingAnswer | null
 
 // ============ Sentence making ============
 
+/**
+ * Make your own sentence with the target words. Claude grades it (shared/lesson/sentenceCheck.ts: right · needs work ·
+ * wrong, one headline, at most one reason); a needs work / wrong offers 🎤 Try again and ✨ Show a fixed version
+ * (SentenceCheck.tsx) — practice only, the first grade is the one that counts. The example sentence stays folded
+ * under "Example sentence ▸" while Claude grades (it is ANOTHER answer, not his); offline / handwritten it is shown at
+ * once with the self-check.
+ */
 export function SentenceMakingExercise(props: {
   words: LessonWord[];
   task?: string;
@@ -150,6 +160,7 @@ export function SentenceMakingExercise(props: {
   // Claude's check runs behind the result (no loading state): 'checking' → the feedback, or 'unavailable'.
   const [claude, setClaude] = useState<'none' | 'checking' | 'done' | 'unavailable'>('none');
   const [feedback, setFeedback] = useState<SentenceFeedback | null>(null);
+  const [exampleOpen, setExampleOpen] = useState(false);
   const live = useRef(true);
   useEffect(() => {
     live.current = true; // (StrictMode re-runs effects: set it again after the dev-only cleanup)
@@ -157,22 +168,40 @@ export function SentenceMakingExercise(props: {
   }, []);
 
   const typed = input === 'type';
+  const hanzi = words.map(w => w.hanzi);
   const canCheck = typed ? text.trim().length > 0 : hasStrokes(hw);
   const marks = typed && phase === 'result' ? words.map(w => sentenceUsesWord(text, w.hanzi)) : undefined;
 
   function check(given?: DictatedAnswer) {
     setPhase('result');
-    if (example) speak(example.hanzi);
-    if (!typed) return;
-    const sentence = given?.text ?? text;
+    // A pause is never grammar: a spoken sentence is shown and checked without the recogniser's punctuation.
+    const sentence = given ? spokenCheckAnswer(given.text, given.source) : text;
     if (given) {
-      setText(given.text);
+      setText(sentence);
       setSource(given.source);
     }
+    // Handwritten / offline: the example at once, to compare with (the self-check).
+    if (!typed || !navigator.onLine) {
+      setExampleOpen(true);
+      if (example) speak(example.hanzi);
+    }
+    if (!typed) return;
     setClaude('checking');
-    checkMadeSentence(words.map(w => w.hanzi), task, sentence).then(
-      (f) => { if (live.current) { setFeedback(f); setClaude('done'); } },
-      () => { if (live.current) setClaude('unavailable'); },
+    const started = Date.now();
+    checkMadeSentence(hanzi, task, sentence, given?.source).then(
+      (r) => {
+        if (!live.current) return;
+        setFeedback(r.feedback);
+        setClaude('done');
+        const v = sentenceCheckView(r.feedback, hanzi);
+        track('lesson.sentence_verdict', { verdict: v.grade, downgraded: v.downgraded, ms: Date.now() - started, cached: r.cached, input: given?.source ?? 'typed' });
+      },
+      (e) => {
+        if (!live.current) return;
+        setClaude('unavailable');
+        setExampleOpen(true);
+        track('lesson.sentence_verdict', { verdict: e instanceof FeedbackUnavailable && e.offline ? 'offline' : 'error', downgraded: false, ms: Date.now() - started, cached: false, input: given?.source ?? 'typed' });
+      },
     );
   }
 
@@ -183,14 +212,8 @@ export function SentenceMakingExercise(props: {
     feedback: feedback ?? undefined,
     self_assessed: !feedback,
   });
-
-  const verdictLabel: Record<SentenceFeedback['verdict'], string> = {
-    correct: '✓ Natural and correct',
-    minor: '≈ Almost — one small fix',
-    incorrect: '✗ Not quite',
-  };
-  const claudeCorrect = feedback ? feedback.verdict !== 'incorrect' && feedback.uses_all_words : null;
-  const fix = feedback?.corrected ? sayAgainFix(feedback.corrected.hanzi, text, example?.hanzi) : null;
+  // Only "right" counts as right first time (needs work comes back in the retry round, like the answer check's "almost").
+  const claudeRight = feedback ? sentenceCheckView(feedback, hanzi).right : null;
 
   return (
     <div className="exercise">
@@ -221,54 +244,57 @@ export function SentenceMakingExercise(props: {
         )
       ) : (
         <>
-          {/* At once: his sentence (the target words ticked above), the example and 🎤 Say it again; Claude's check
-              lands LAST, below the buttons, so nothing he is reading moves. */}
           {typed ? (
             <div className="speak-transcript" data-testid="lesson-your-answer">
               <div className="speak-transcript-label">{source === 'spoken' || source === 'edited' ? '🎤 Your sentence' : 'Your sentence'}</div>
               <div className="speak-transcript-text" lang="zh-CN">{text.trim()}</div>
             </div>
           ) : hw?.strokes && <StrokesView strokes={hw.strokes} label="Your sentence" />}
-          {example && <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} exerciseType="sentence_making" />}
-          {example && <SayItAgain hanzi={example.hanzi} exerciseType="sentence_making" kind="example" />}
 
-          {/* The same line before and after Claude's verdict: only the buttons below it change, in place. */}
-          <p className="result-explanation">
-            {typed ? 'Is your sentence grammatical, and does it use every word?' : 'Compare with the example — is your sentence right, and does it use every word?'}
-          </p>
-          {feedback ? (
-            <TakeLockActions>
-              <button className="practice-btn primary" onClick={() => onNext(claudeCorrect === true, answer())} data-testid="lesson-continue">Continue</button>
-            </TakeLockActions>
+          {example && (exampleOpen ? (
+            <>
+              <Reference sentence={example} speak={speak} label={EXAMPLE_LABEL} exerciseType="sentence_making" />
+              <SayItAgain hanzi={example.hanzi} exerciseType="sentence_making" kind="example" />
+            </>
           ) : (
-            <TakeLockActions>
-              <button className="practice-btn" onClick={() => onNext(false, answer())} data-testid="lesson-missed-it">✗ Not quite</button>
-              <button className="practice-btn primary" onClick={() => onNext(true, answer())} data-testid="lesson-got-it">✓ Got it</button>
-            </TakeLockActions>
+            <button type="button" className="sentence-example-toggle" onClick={() => setExampleOpen(true)} data-testid="sentence-example-toggle">
+              {SENTENCE_EXAMPLE_TOGGLE} ▸
+            </button>
+          ))}
+
+          {feedback ? (
+            <>
+              <SentenceCheckPanel
+                feedback={feedback}
+                sentence={text.trim()}
+                input={source ?? 'typed'}
+                words={hanzi}
+                task={task}
+                speak={speak}
+                onExample={() => setExampleOpen(true)}
+              />
+              <TakeLockActions>
+                <button className="practice-btn primary" onClick={() => onNext(claudeRight === true, answer())} data-testid="lesson-continue">Continue</button>
+              </TakeLockActions>
+            </>
+          ) : (
+            <>
+              <p className="result-explanation">{typed ? SENTENCE_SELF_CHECK : SENTENCE_SELF_CHECK_HANDWRITTEN}</p>
+              <TakeLockActions>
+                <button className="practice-btn" onClick={() => onNext(false, answer())} data-testid="lesson-missed-it">✗ Not quite</button>
+                <button className="practice-btn primary" onClick={() => onNext(true, answer())} data-testid="lesson-got-it">✓ Got it</button>
+              </TakeLockActions>
+            </>
           )}
 
-          {claude !== 'none' && (
-            <div className="lesson-claude-slot lesson-feel-host" data-testid="lesson-claude-slot">
+          {(claude === 'checking' || claude === 'unavailable') && (
+            <div className="lesson-claude-slot" data-testid="lesson-claude-slot">
               {claude === 'checking' && (
                 <div className="answer-check checking" role="status" aria-live="polite" data-testid="answer-check-checking">
                   <span className="answer-check-dot" aria-hidden="true" /> {CLAUDE_CHECKING_LINE}
                 </div>
               )}
               {claude === 'unavailable' && <p className="result-explanation">Claude can’t check it right now — compare with the example.</p>}
-              {feedback && (
-                <div className={`feedback-card ${feedback.verdict}`} data-testid="sentence-feedback">
-                  {claudeCorrect && <LessonFeel moment="claude_right" />}
-                  <div className="feedback-verdict">{verdictLabel[feedback.verdict]}</div>
-                  {!feedback.uses_all_words && <div className="feedback-note">Use every target word.</div>}
-                  {feedback.corrected && (
-                    <div className="feedback-corrected">
-                      <FeedbackSentence hanzi={feedback.corrected.hanzi} pinyin={feedback.corrected.pinyin} english={feedback.corrected.english} speak={speak} exerciseType="sentence_making" testId="sentence-feedback-corrected" />
-                    </div>
-                  )}
-                  <p className="feedback-comment">{feedback.comment}</p>
-                </div>
-              )}
-              {fix && <SayItAgain key={fix} hanzi={fix} exerciseType="sentence_making" kind="fix" testId="lesson-say-fix" />}
             </div>
           )}
         </>

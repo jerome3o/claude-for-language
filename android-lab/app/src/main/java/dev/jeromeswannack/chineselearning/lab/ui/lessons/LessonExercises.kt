@@ -361,7 +361,7 @@ fun TranslateView(ex: TranslateExercise, env: ExerciseEnv, onNext: (Boolean, Exe
         // Voice first (core VoiceDictation): Check reveals the reference; Show answer skips answering.
         VoiceTextField(
             value = answer, onValueChange = { answer = it },
-            onSubmit = { a -> answer = a.text; source = a.source; ac.onFinal(a.text, a.source); revealed = true; env.speak(ex.referenceHanzi) },
+            onSubmit = { a -> answer = dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(a.text, a.source); source = a.source; ac.onFinal(answer, a.source); revealed = true; env.speak(ex.referenceHanzi) },
             surface = "lesson_translate", submitLabel = "Check", placeholder = "Type it in Chinese…", multiline = true,
         )
         ActionRow { Secondary("Show answer") { ac.onFinal(answer, "typed"); revealed = true; env.speak(ex.referenceHanzi) } }
@@ -586,7 +586,7 @@ fun ListenTranslateView(ex: ListenTranslateExercise, env: ExerciseEnv, onNext: (
         // What it meant, usually in English: the transcriber hears English first here.
         VoiceTextField(
             value = answer, onValueChange = { answer = it },
-            onSubmit = { a -> answer = a.text; source = a.source; ac.onFinal(a.text, a.source); revealed = true; env.onTap() },
+            onSubmit = { a -> answer = dev.jeromeswannack.chineselearning.lab.core.AnswerKey.spokenCheckAnswer(a.text, a.source); source = a.source; ac.onFinal(answer, a.source); revealed = true; env.onTap() },
             surface = "lesson_listen_translate", submitLabel = "Check", placeholder = "What did it mean?", multiline = true, lang = "en",
         )
         ActionRow { Secondary("Show answer") { ac.onFinal(answer, "typed"); revealed = true; env.onTap() } }

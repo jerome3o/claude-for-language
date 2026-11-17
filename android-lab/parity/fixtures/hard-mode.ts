@@ -18,6 +18,8 @@ import {
   type HardModeTake, type OverrideArm,
 } from '../../../shared/study/hardMode';
 import { sentenceGate, sentenceGateLabel } from '../../../shared/study/sentencePractise';
+import { rightMoment, RIGHT_MOMENT_WHERE } from '../../../shared/study/rightMoment';
+import { resultStateOf, RESULT_STATES, RESULT_STATE_ICON, RESULT_SURFACE } from '../../../shared/study/resultState';
 import type { AnswerVerdict } from '../../../shared/cards/answer';
 
 const OUT = process.argv[2];
@@ -79,8 +81,22 @@ for (const isMatch of [false, true]) for (const containsExpected of [false, true
   });
 }
 
+// The "right" moment (shared/study/rightMoment.ts) and the one result state (shared/study/resultState.ts).
+const moments = RIGHT_MOMENT_WHERE.flatMap((where) => [false, true].flatMap((roundDone) => [false, true].flatMap((reduceMotion) =>
+  [false, true].map((celebrated) => ({ where, roundDone, reduceMotion, celebrated, moment: rightMoment(where, { roundDone, reduceMotion, celebrated }) })))));
+const RESULT_VERDICTS = [
+  'right', 'match', 'exact', 'correct', 'acceptable', 'equivalent', 'alternative', 'punctuation_only', 'sounds_right', 'sound',
+  'close', 'contains', 'almost', 'nearly', 'needs_work', 'tones_off', 'partial',
+  'wrong', 'miss', 'incorrect', 'failed', 'didnt_match',
+  'checking', 'pending', 'unknown', '', ' Match ', 'NEEDS_WORK', null,
+];
+const resultStates = {
+  states: RESULT_STATES, icons: RESULT_STATE_ICON, surface: RESULT_SURFACE,
+  verdicts: RESULT_VERDICTS.map((verdict) => ({ verdict, state: resultStateOf(verdict) })),
+};
+
 writeFileSync(join(OUT, 'hard-mode.json'), JSON.stringify({
-  parse, next, red, applies, results, locks, taps, feels, readAgain,
+  parse, next, red, applies, results, locks, taps, feels, readAgain, moments, resultStates,
   copy: {
     modes: HARD_MODES, title: HARD_MODE_TITLE, description: HARD_MODE_DESCRIPTION, option: HARD_MODE_OPTION, optionHint: HARD_MODE_OPTION_HINT,
     chip: HARD_MODE_CHIP, chipLabel: Object.fromEntries(HARD_MODES.map((m) => [m, hardModeChipLabel(m)])), result: HARD_MODE_RESULT,

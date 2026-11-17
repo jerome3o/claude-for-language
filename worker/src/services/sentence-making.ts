@@ -1,108 +1,186 @@
 /**
- * Claude's check of a sentence the learner made in a sentence_making lesson
- * exercise: is it grammatical and natural, did it use every target word, and
- * what would a native speaker write. Short and fast — the learner is mid-
- * lesson — so it rides on structuredCall (forced tool, thinking off, retries,
- * Haiku fallback). Offline the exercise is self-assessed instead.
+ * Claude's check of a sentence the learner made in a sentence_making lesson exercise (rules in
+ * shared/lesson/sentenceCheck.ts; docs/STUDY_SESSION.md "Sentence making: an honest verdict"):
+ *
+ * - `checkMadeSentence` — the grade (right · needs_work · wrong), ONE headline, at most one short reason, a
+ *   `fixable` flag. Fast (the learner is mid-lesson): the small model through structuredCall (forced tool, thinking
+ *   off, a short budget), the coherence guard applied to whatever comes back. NO corrected sentence here.
+ * - `fixMadeSentence` — ✨ Show a fixed version, only on tap: HIS sentence with the smallest edits that fix it.
+ *
+ * Both are cached for everyone in `lesson_answer_checks` by SHA-256 of `sentenceCheckCacheText` (the words, the
+ * task, his sentence without punctuation): the same sentence for the same exercise is never asked twice.
+ * A SPOKEN sentence arrives scrubbed of the recogniser's punctuation (`scrubSpokenTranscript`).
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
-import { sentenceUsesWord, type SentenceFeedback } from '@shared/lesson';
+import {
+  normalizeSentenceFeedback, normalizeSentenceFix, sentenceCheckCacheText,
+  SENTENCE_CHECK_CACHE_TYPE, SENTENCE_CHECK_VERSION, SENTENCE_FIX_CACHE_TYPE, SENTENCE_FIX_VERSION,
+  type SentenceCheckInput, type SentenceFeedback, type SentenceFix,
+} from '@shared/lesson/sentenceCheck';
+import { applyYiBuToneChanges } from '@shared/pinyin/toneChange';
 import { structuredCall } from './structured-call';
+import { HAIKU_MODEL, SONNET_MODEL } from './models';
+import { appPinyin } from './answer-check';
 
-const SYSTEM = `You check one sentence a Chinese learner wrote in a lesson exercise: they had to make their OWN sentence using the target words (in the situation given, if any).
+export { withoutPunctuation } from '@shared/lesson/sentenceCheck';
 
-Judge the LANGUAGE, generously, like an encouraging tutor. The task / situation is only a prompt to get them writing: any sentence that plausibly fits it (a desk instead of a printer, a different place, person or reason) is fine. Never lower the verdict for the content they chose — at most, add a light idea in the comment after saying it's correct.
-- If the sentence is grammatical, natural enough and uses every target word sensibly, the verdict MUST be "correct".
-- verdict "correct": grammatical and natural, uses every target word appropriately.
-- verdict "minor": understandable with a small LANGUAGE slip you can fix in "corrected" (a measure word, 了 placement, word choice, an unnatural but grammatical phrasing).
-- verdict "incorrect": ungrammatical, a target word misused or missing, or it doesn't mean what they probably meant.
+/** The transcript rule every spoken check carries (the speaking check's graciousness, short). */
+export const SPOKEN_SENTENCE_RULE = `The sentence may be SPOKEN: a speech-recognition transcript, already stripped of the recogniser's punctuation.
+- Read it as ONE continuous utterance. Punctuation and sentence breaks come from where the learner paused — never judge them, never mention punctuation, never call it split, a fragment, a run-on or "two sentences".
+- Fillers (嗯, 那个, 就是), a restart or a repeated word are not mistakes.
+- A wrong character that sounds like the right one (在/再, 他/她, 的/得/地, 有/又) is the recogniser's: read the word the learner clearly meant from the context.
+- Judge the words, grammar and word order only.`;
+
+export const SENTENCE_CHECK_SYSTEM = `You check one sentence a Chinese learner made in a lesson exercise: they had to make their OWN sentence using the target words (in the situation given, if any).
+
+Grades — pick the one that is TRUE, and make every line agree with it:
+- "right": natural and makes sense as a whole, every target word used appropriately, nothing a teacher would correct. Any topic that plausibly fits the task is fine — never lower the grade for the content they chose.
+- "needs_work": the target words ARE used correctly, but the sentence has a real problem elsewhere: it doesn't make sense or doesn't hang together (a clause that doesn't follow, a connector like 但是 / 所以 that doesn't fit what it joins), a wrong or unusual word, a grammar slip, an unnatural phrasing.
+- "wrong": a target word is misused or missing, or the sentence can't be understood.
+- If you notice ANY problem worth mentioning, the grade is NOT "right". A "right" headline and reason are plainly positive: no "but", "however", "should", "usually", "instead", "better".
+
+Lines (English, short — the learner reads them mid-lesson):
+- headline: ≤ 12 words, "<what's right> — <the one problem>" for needs_work (e.g. "本来…要 used right — the second half doesn't follow"); plain praise for right; the misused / missing word for wrong.
+- reason: optional, ONE short sentence (≤ 20 words) saying why — name the Chinese words at fault. Empty when the headline says it all.
+- more: optional, at most 2 short sentences, only when they add something the reason doesn't (a second point). Usually empty.
+- fixable: true when their sentence can be fixed with small edits that keep their idea (needs_work / wrong).
 - uses_all_words: true only if every target word appears and is used in a sense that fits.
-- corrected: the closest natural version of THEIR sentence (keep their meaning and as much wording as possible) with tone-marked pinyin and English. Omit it when the verdict is "correct".
-- comment: 1-2 short sentences in English — what's good, and the one thing to fix (name the words). No lists.
+- Do NOT write a corrected sentence.
 
-The sentence is often DICTATED: a speech-recognition transcript, so its punctuation is the recogniser's guess.
-- Ignore punctuation completely: extra, missing or odd commas and full stops are never a mistake, never lower the verdict, and are never mentioned in the comment or changed in the correction.
-- Read a wrong character that sounds like the right one (在/再, 他/她, 的/得/地) as the one they meant — never fault the learner for the recogniser.
-- Judge the words, grammar and word order only.
-Pinyin always uses tone marks (nǐ hǎo), never numbers. Answer with the check_sentence tool.`;
+${SPOKEN_SENTENCE_RULE}
+Answer with the check_sentence tool.`;
 
-const TOOL = {
+const CHECK_TOOL = {
   name: 'check_sentence',
-  description: 'Return the verdict, whether all target words were used, an optional corrected sentence and a short comment.',
+  description: 'Return the grade, a one-line headline, an optional short reason, and whether the sentence can be fixed with small edits.',
   input_schema: {
     type: 'object' as const,
     properties: {
-      verdict: { type: 'string', enum: ['correct', 'minor', 'incorrect'] },
+      grade: { type: 'string', enum: ['right', 'needs_work', 'wrong'] },
+      headline: { type: 'string', description: 'One short line in English (≤ 12 words)' },
+      reason: { type: 'string', description: 'Optional: one short sentence saying why' },
+      more: { type: 'string', description: 'Optional: a second point, only when it adds something' },
+      fixable: { type: 'boolean' },
       uses_all_words: { type: 'boolean' },
-      corrected: {
-        type: 'object',
-        properties: {
-          hanzi: { type: 'string' },
-          pinyin: { type: 'string', description: 'Tone marks, not numbers' },
-          english: { type: 'string' },
-        },
-        required: ['hanzi', 'pinyin', 'english'],
-      },
-      comment: { type: 'string', description: '1-2 sentences in English' },
     },
-    required: ['verdict', 'uses_all_words', 'comment'],
+    required: ['grade', 'headline', 'fixable', 'uses_all_words'],
   },
 };
 
-export interface SentenceMakingInput {
-  words: string[];
-  task?: string;
-  sentence: string;
+export const SENTENCE_FIX_SYSTEM = `A Chinese learner made their own sentence with some target words, and it needs a fix. Fix THEIR sentence with the SMALLEST edits that make it natural and make it hang together: keep their idea, their words and their structure wherever you can (e.g. 我本来要去健身馆，但是我学中文。 → 我本来要去健身房，可是后来去学中文了。). Keep every target word. Give the fixed sentence in simplified characters, its English, and pinyin with tone marks.
+
+${SPOKEN_SENTENCE_RULE}
+Answer with the fix_sentence tool.`;
+
+const FIX_TOOL = {
+  name: 'fix_sentence',
+  description: 'Return the learner\'s sentence with minimal edits that fix it.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      hanzi: { type: 'string' },
+      pinyin: { type: 'string', description: 'Tone marks, not numbers' },
+      english: { type: 'string' },
+    },
+    required: ['hanzi', 'english'],
+  },
+};
+
+export type SentenceMakingInput = SentenceCheckInput & { input?: 'spoken' | 'edited' | 'typed' };
+
+export interface SentenceMakingDeps {
+  apiKey: string;
+  client?: Pick<Anthropic, 'messages'>;
 }
 
-const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+function userTurn(input: SentenceMakingInput): string {
+  const spoken = input.input === 'spoken' || input.input === 'edited';
+  return [
+    `Target words: ${input.words.join('、')}`,
+    input.task ? `Task: ${input.task}` : null,
+    `The learner's sentence${spoken ? ' (SPOKEN — speech-recognition transcript, punctuation removed)' : ''}: ${input.sentence.trim()}`,
+  ].filter(Boolean).join('\n');
+}
 
-/** The sentence with every punctuation mark and space removed (dictated punctuation is noise). */
-export const withoutPunctuation = (text: string) => text.replace(/[\p{P}\p{S}\s]/gu, '');
+async function sha256(text: string): Promise<string> {
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 
-/** Shape-check the tool input; throws (→ retried) when the essentials are missing. */
-export function normalizeSentenceFeedback(raw: unknown, input: SentenceMakingInput): SentenceFeedback {
-  const r = (raw ?? {}) as Record<string, unknown>;
-  const verdict = r.verdict === 'correct' || r.verdict === 'minor' || r.verdict === 'incorrect' ? r.verdict : null;
-  const comment = str(r.comment);
-  if (!verdict || !comment) throw new Error('Invalid sentence check from AI');
-  // A word that isn't in the sentence at all is never "used", whatever the model says.
-  const allPresent = input.words.every(w => sentenceUsesWord(input.sentence, w));
-  const c = (r.corrected ?? null) as Record<string, unknown> | null;
-  // A "fix" that only moves punctuation (a dictated sentence's commas) is no fix: the sentence is right.
-  if (verdict !== 'correct' && c && str(c.hanzi) && withoutPunctuation(str(c.hanzi)) === withoutPunctuation(input.sentence)) {
-    return { verdict: 'correct', uses_all_words: r.uses_all_words === true && allPresent, comment: 'Nice — that sentence works.' };
+/** Read / write one cached JSON (`lesson_answer_checks`); a failure is only logged. */
+async function cached<T>(
+  db: D1Database | null | undefined, kind: 'check' | 'fix', input: SentenceMakingInput, make: () => Promise<T>, verdictOf: (v: T) => string,
+): Promise<{ value: T; cached: boolean; raw?: unknown }> {
+  const type = kind === 'check' ? SENTENCE_CHECK_CACHE_TYPE : SENTENCE_FIX_CACHE_TYPE;
+  const version = kind === 'check' ? SENTENCE_CHECK_VERSION : SENTENCE_FIX_VERSION;
+  const hash = await sha256(sentenceCheckCacheText(input, kind));
+  if (db) {
+    try {
+      const row = await db.prepare('SELECT check_json FROM lesson_answer_checks WHERE hash = ? AND version = ?').bind(hash, version).first<{ check_json: string }>();
+      if (row) return { value: JSON.parse(row.check_json) as T, cached: true, raw: JSON.parse(row.check_json) };
+    } catch (error) {
+      console.warn('[sentence-making] cache read failed:', error instanceof Error ? error.message : error);
+    }
   }
-  const corrected = c && str(c.hanzi) && verdict !== 'correct'
-    ? { hanzi: str(c.hanzi), pinyin: str(c.pinyin) || undefined, english: str(c.english) || undefined }
-    : undefined;
-  // "Minor" with nothing to correct is a quibble about content, not language: the sentence is right.
-  if (verdict === 'minor' && !corrected && allPresent) {
-    return { verdict: 'correct', uses_all_words: r.uses_all_words === true && allPresent, comment };
+  const value = await make();
+  if (db) {
+    try {
+      await db.prepare(
+        'INSERT OR REPLACE INTO lesson_answer_checks (hash, version, exercise_type, verdict, check_json, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).bind(hash, version, type, verdictOf(value), JSON.stringify(value), new Date().toISOString()).run();
+    } catch (error) {
+      console.warn('[sentence-making] cache write failed:', error instanceof Error ? error.message : error);
+    }
   }
-  return { verdict, uses_all_words: r.uses_all_words === true && allPresent, corrected, comment };
+  return { value, cached: false };
 }
 
 export async function checkMadeSentence(
-  apiKey: string,
+  db: D1Database | null | undefined,
   input: SentenceMakingInput,
-  client?: Pick<Anthropic, 'messages'>,
-): Promise<SentenceFeedback> {
-  const user = [
-    `Target words: ${input.words.join('、')}`,
-    input.task ? `Task: ${input.task}` : null,
-    `The learner wrote: ${input.sentence.trim()}`,
-  ].filter(Boolean).join('\n');
-  return structuredCall({
-    apiKey,
-    model: 'claude-sonnet-5',
-    system: SYSTEM,
-    user,
-    tool: TOOL,
-    maxTokens: 1200,
-    timeoutMs: 30_000,
-    validate: raw => normalizeSentenceFeedback(raw, input),
-    client,
-  });
+  deps: SentenceMakingDeps,
+): Promise<{ feedback: SentenceFeedback; cached: boolean }> {
+  const r = await cached(db, 'check', input, () => structuredCall({
+    apiKey: deps.apiKey,
+    model: HAIKU_MODEL,
+    fallbackModel: SONNET_MODEL,
+    system: SENTENCE_CHECK_SYSTEM,
+    user: userTurn(input),
+    tool: CHECK_TOOL,
+    maxTokens: 500,
+    attempts: 2,
+    timeoutMs: 20_000,
+    validate: (raw) => normalizeSentenceFeedback(raw, input),
+    client: deps.client,
+  }), (f) => f.grade ?? f.verdict);
+  // A cached check goes through the guard again (a rule added since never shows green over a correction).
+  const feedback = r.cached ? normalizeSentenceFeedback(r.value, input) : r.value;
+  return { feedback, cached: r.cached };
+}
+
+export async function fixMadeSentence(
+  db: D1Database | null | undefined,
+  input: SentenceMakingInput,
+  deps: SentenceMakingDeps,
+): Promise<{ fix: SentenceFix; cached: boolean }> {
+  const r = await cached(db, 'fix', input, async () => {
+    const fix = await structuredCall({
+      apiKey: deps.apiKey,
+      model: HAIKU_MODEL,
+      fallbackModel: SONNET_MODEL,
+      system: SENTENCE_FIX_SYSTEM,
+      user: userTurn(input),
+      tool: FIX_TOOL,
+      maxTokens: 400,
+      attempts: 2,
+      timeoutMs: 20_000,
+      validate: (raw) => normalizeSentenceFix(raw, input.sentence),
+      client: deps.client,
+    });
+    // The model's pinyin through the 一 / 不 rule; the app's own when it gave none.
+    const pinyin = fix.pinyin ? applyYiBuToneChanges(fix.hanzi, fix.pinyin) : appPinyin(fix.hanzi);
+    return pinyin ? { ...fix, pinyin } : fix;
+  }, () => 'fix');
+  return { fix: r.value, cached: r.cached };
 }

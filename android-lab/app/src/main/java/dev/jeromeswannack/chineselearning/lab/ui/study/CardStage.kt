@@ -119,6 +119,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.fx.ShakeState
 import dev.jeromeswannack.chineselearning.lab.ui.fx.SparkBurst
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Lab
 import dev.jeromeswannack.chineselearning.lab.ui.theme.Palette
+import dev.jeromeswannack.chineselearning.lab.ui.theme.Spacing
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -750,8 +751,9 @@ fun CardStage(
     val cardMin = (maxHeight * 0.26f).coerceIn(160.dp, 240.dp)
     val controlsMax = (maxHeight - cardMin).coerceAtLeast(0.dp)
     Column(Modifier.fillMaxSize()) {
-        // The card's frame sits at the screen's edge (a 4dp gutter): its content gets the width and the height.
-        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+        // The card's frame sits near the screen's edge — the standard minimum gap ([Spacing.gapMin]) on every side, so
+        // nothing above or below (the session bar, the grid, the footer, the ratings) ever touches or overlaps it.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(horizontal = Spacing.gapMin).padding(top = Spacing.gapMin / 2, bottom = Spacing.gapMin)) {
             val wide = maxWidth >= 640.dp
             val density = LocalDensity.current
             if (roundOpen && !revealed) {
@@ -813,7 +815,8 @@ fun CardStage(
                     }
                     // One thin frame; its colour tells the typed answer's verdict on the QUESTION only — the answer side's
                     // frame stays neutral (no green box around the whole card after the round).
-                    .studyCardSurface(Lab.colors.card, if (flipped) Lab.colors.cardBorder else glow, lifted = flipped, borderWidth = 1.dp),
+                    .studyCardSurface(Lab.colors.card, if (flipped) Lab.colors.cardBorder else glow, lifted = flipped, borderWidth = 1.dp)
+                    .testTag(CARD_FRAME_TAG),
             ) {
                 // Once revealed both faces stay composed (the answer side keeps its scroll
                 // position and opened sentence rows through a peek); the one turned away is
@@ -854,6 +857,7 @@ fun CardStage(
                         val explore = dev.jeromeswannack.chineselearning.lab.ui.explorer.rememberExplorerTap("study", context = note.hanzi)
                         CardBack(view, ui, typed, verdict, mcSlots, playingKey, actions, wide, canSayAgain = typing && mcSlots == null && answerIsSpoken(answer),
                             sentenceCheck = sentenceCheck, localVerdict = localVerdict, readChecking = readChecking, readClaude = readClaude,
+                            celebrated = questionResult == "right",
                             canSayPractice = typing && mcSlots == null && answer.isBlank(), practiceSaid = practiceSaid, pass = pass, practise = practise, listHistory = listHistory, roundMarks = roundMarks,
                             onLeech = {
                                 sheet = CardSheet.Leech
@@ -872,8 +876,9 @@ fun CardStage(
             Modifier
                 .fillMaxWidth()
                 .then(if (mcGridUp) Modifier.heightIn(max = controlsMax) else Modifier)
-                .padding(horizontal = 6.dp)
-                .padding(bottom = 8.dp),
+                .padding(horizontal = Spacing.gapMin)
+                .padding(bottom = Spacing.gapMin)
+                .testTag(CARD_CONTROLS_TAG),
         ) {
             if (SentencePractise.stopBar(practise.listening, practise.finishing) != null) {
                 // A sentence take under way (the round or the answer side's rows): ONE big "■ Stop recording"
@@ -1202,7 +1207,7 @@ private fun CardFront(
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lab.colors.faint).padding(10.dp).heightIn(max = 80.dp),
             )
         }
-        if (!scrolls) Spacer(Modifier.weight(1f)) else if (listening && !short) Spacer(Modifier.height(12.dp))
+        if (!scrolls) Spacer(Modifier.weight(1f)) else if (listening && !short) Spacer(Modifier.height(STUDY_TOP_ROOM))
         when (view.card.cardType) {
             CardTypes.HANZI_TO_MEANING -> FrontHanzi(note.hanzi, rememberShimmerChars(view.newChars))
             CardTypes.MEANING_TO_HANZI -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1351,6 +1356,8 @@ private fun CardBack(
     /** A read card's take Claude is checking ("Checking…" in the box), and its verdict (core ReadTakeCheck). */
     readChecking: Boolean = false,
     readClaude: ReadTakeClaude? = null,
+    /** Hard mode's check of the question already celebrated a right answer on this showing: the back's tint only. */
+    celebrated: Boolean = false,
     onCharacter: (String) -> Unit,
 ) {
     val note = view.note
@@ -1373,7 +1380,7 @@ private fun CardBack(
                 // A multiple-choice answer (possibly partial): row by row
                 KeepTaps { McAnswerDiff(mcSlots, hanziSize(note.hanzi) * 0.7f, onChar, newChars) }
             } else if (typed != null && verdict != null && !spokenAnswer) {
-                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, newChars = newChars) }
+                KeepTaps { AnswerDiff(typed, note.hanzi, verdict, onChar, newChars = newChars, celebrated = celebrated) }
             } else {
                 // The hanzi: non-typing cards, and a spoken answer — the card's answer once, green when it
                 // counts (the row under the meaning says why).
@@ -1382,7 +1389,7 @@ private fun CardBack(
                     TappableHanzi(note.hanzi, hanziSize(note.hanzi) * (if (spokenAnswer) 0.7f else 0.85f), color, onChar, newChars = newChars)
                 }
             }
-            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, onPlay = actions.onYouSaidPlay.takeIf { ui.extras.take.hasTake }, checking = readChecking, claude = readClaude) }
+            KeepTaps { TranscriptionLine(ui.extras.take.transcription, note.hanzi, actions.onRetryTranscription, onCoach = { actions.onYouSaidCoach(it, "read") }, checking = readChecking, claude = readClaude, celebrated = celebrated) }
             Spacer(Modifier.height(8.dp))
             Text(note.pinyin, style = MaterialTheme.typography.titleLarge, color = Lab.colors.accent, textAlign = TextAlign.Center)
             if (ui.extras.tutorNotes.isNotEmpty()) {
@@ -1394,9 +1401,14 @@ private fun CardBack(
             spokenRow?.let { (transcript, v, source) ->
                 Spacer(Modifier.height(10.dp))
                 KeepTaps {
-                    Box(if (source == "practice") Modifier.testTag(PRACTICE_YOU_SAID_TAG) else Modifier) {
-                        // ▶ the take (a spoken answer's / practice take is the card's take, uploaded with the review).
-                        SpokenResultRow(transcript, note.hanzi, v, onPlay = actions.onYouSaidPlay, onCoach = { actions.onYouSaidCoach(transcript, source) })
+                    Box(
+                        (if (source == "practice") Modifier.testTag(PRACTICE_YOU_SAID_TAG) else Modifier)
+                            // A spoken answer judged right: the "right" moment over its row (core RightMoment).
+                            .then(if (source == "spoken" && AnswerKey.isAccepted(v)) Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.TYPED_ANSWER, key = transcript, celebrated = celebrated) else Modifier),
+                    ) {
+                        // No ▶ here (Jerome, Nov 2026: a big ▶ pinned to the side "is weirdly placed"): the take plays from
+                        // ⋯ → "Play my recording".
+                        SpokenResultRow(transcript, note.hanzi, v, onCoach = { actions.onYouSaidCoach(transcript, source) })
                     }
                 }
             }
@@ -1492,11 +1504,11 @@ private fun CardBack(
                 // The pass keeps its calm rows: the Chinese up, the generated set behind "+ N more".
                 dev.jeromeswannack.chineselearning.lab.ui.homework.PassSentences(
                     key = view.presentation, rows = sentenceRows(view), deckId = note.deckId, online = ui.aiAvailable,
-                    playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps(),
+                    playingKey = playingKey, actions = actions.sentences, onPlay = actions.onPlay, modifier = Modifier.keepTaps().sentencesOutline(),
                     practise = practise, roundMarks = roundMarks,
                 )
             } else {
-                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList())
+                SentenceList(view, ui, playingKey, actions, modifier = Modifier.keepTaps().sentencesOutline(), practise = practise, history = listHistory, roundMarks = if (pass == null) roundMarks else emptyList())
             }
         }
     }
@@ -1507,14 +1519,31 @@ private fun CardBack(
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) { details() }
         }
     } else {
-        // Lean padding: the answer side's content gets the space (Jerome, Nov 2026: "All the padding is pretty intense").
+        // Lean side padding, but room above the big hanzi so the word is the focal point (Jerome, Nov 2026: "some more
+        // space between the big display of the character at the top of the screen … it's how you use the space").
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Spacer(Modifier.height(STUDY_TOP_ROOM))
             main()
             Spacer(Modifier.height(12.dp))
             details()
         }
     }
 }
+
+/**
+ * The example sentences' ONE light outline (Jerome, Nov 2026: "the example sentences could have an outline again,
+ * because it's kind of confusing"): the only box inside the card frame, around the header and the rows (which stay
+ * unboxed, hairlines between them). Web: `.study-sentences .sentence-set`.
+ */
+@Composable
+private fun Modifier.sentencesOutline(): Modifier =
+    border(1.dp, Lab.colors.cardBorder, RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 2.dp).testTag(SENTENCES_OUTLINE_TAG)
+
+/** The example sentences' outlined section on the answer side. */
+const val SENTENCES_OUTLINE_TAG = "study-sentences"
+
+/** The whitespace above the big hanzi on the answer side and a scrolling question (web: clamp(1.75rem, 7dvh, 4rem)). */
+private val STUDY_TOP_ROOM = 36.dp
 
 /** Below this the question side goes compact (a long multiple-choice grid is under it). */
 private val SHORT_FRONT = 330.dp
@@ -1528,6 +1557,9 @@ const val CARD_BACK_TAG = "card-back"
 
 /** Test tag of the question side (inert until revealed; then a tap turns back to the answer). */
 const val CARD_FRONT_TAG = "card-front"
+/** The card's frame (the one border) and the controls under it: nothing below may touch or overlap the frame. */
+const val CARD_FRAME_TAG = "card-frame"
+const val CARD_CONTROLS_TAG = "card-controls"
 
 /** One face of the card: the one turned away is see-through, has no semantics and sits under the other. */
 private fun Modifier.face(visible: Boolean): Modifier =
@@ -1598,7 +1630,7 @@ private fun FrontHanzi(hanzi: String, newChars: Set<String>) {
  * "You said" row ([SpokenResultRow], core SpokenAnswerResult).
  */
 @Composable
-private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, newChars: Set<String> = emptySet()) {
+private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdict, onChar: (String) -> Unit, newChars: Set<String> = emptySet(), celebrated: Boolean = false) {
     val size = hanziSize(correct) * 0.7f
     val pinyinStyle = MaterialTheme.typography.bodyMedium
     when (verdict) {
@@ -1606,10 +1638,11 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
         AnswerKey.Verdict.EXACT, AnswerKey.Verdict.PUNCTUATION_ONLY, AnswerKey.Verdict.SOUND, AnswerKey.Verdict.CONTAINS, AnswerKey.Verdict.DROPPED -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             // A punctuation-only difference shows the canonical answer (with its punctuation).
             val shown = if (verdict == AnswerKey.Verdict.EXACT) typed else correct
-            TappableHanzi(shown, size, Palette.Good, onChar, newChars = newChars)
+            // A right typed answer: the green result surface + the "right" moment; the characters in normal ink.
+            RightAnswerBox(typed, celebrated) { TappableHanzi(shown, size, Lab.colors.ink, onChar, newChars = newChars) }
         }
         AnswerKey.Verdict.ALTERNATIVE, AnswerKey.Verdict.EQUIVALENT -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            TappableHanzi(typed, size, Palette.Good, onChar, newChars = newChars)
+            RightAnswerBox(typed, celebrated) { TappableHanzi(typed, size, Lab.colors.ink, onChar, newChars = newChars) }
             Text(Pinyin.of(typed), style = pinyinStyle, color = Lab.colors.muted, textAlign = TextAlign.Center)
             Text("Also accepted — canonical answer:", style = MaterialTheme.typography.labelMedium, color = Lab.colors.muted)
             TappableHanzi(correct, size * 0.8f, Lab.colors.ink, onChar, newChars = newChars)
@@ -1630,6 +1663,22 @@ private fun AnswerDiff(typed: String, correct: String, verdict: AnswerKey.Verdic
         }
     }
 }
+
+/** A right answer on the back: the one result surface in green, the "right" moment over it (core RightMoment). */
+@Composable
+private fun RightAnswerBox(key: String, celebrated: Boolean, content: @Composable () -> Unit) {
+    Box(
+        Modifier
+            .rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.TYPED_ANSWER, key = key, celebrated = celebrated)
+            .resultSurface(dev.jeromeswannack.chineselearning.lab.core.ResultState.RIGHT)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag(TYPED_RIGHT_TAG),
+        contentAlignment = Alignment.Center,
+    ) { content() }
+}
+
+/** A typed / spoken answer judged right on the back (its green result surface). */
+const val TYPED_RIGHT_TAG = "typed-answer-right"
 
 @Composable
 fun RatingBar(
@@ -2369,6 +2418,7 @@ private fun TranscriptionLine(
     onPlay: (() -> Unit)? = null,
     checking: Boolean = false,
     claude: ReadTakeClaude? = null,
+    celebrated: Boolean = false,
 ) {
     if (t == null) return
     Spacer(Modifier.height(6.dp))
@@ -2385,7 +2435,11 @@ private fun TranscriptionLine(
                 transcribedHanzi = AnswerKey.tidySpokenTranscript(t.result.transcribedHanzi, answer),
                 transcribedPinyin = AnswerKey.tidySpokenTranscript(t.result.transcribedPinyin, answer),
             )
-            YouSaidBox(r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay, checking = checking, claude = claude, expected = answer)
+            // A match: the "right" moment over the box (core RightMoment), felt here — nothing else plays it.
+            YouSaidBox(
+                r, onCoach?.let { open -> { open(r.transcribedHanzi) } }, onPlay, checking = checking, claude = claude, expected = answer,
+                modifier = if (r.isMatch && claude == null && !checking) Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.TYPED_ANSWER, key = r.transcribedHanzi, celebrated = celebrated, feel = true) else Modifier,
+            )
         }
     }
 }

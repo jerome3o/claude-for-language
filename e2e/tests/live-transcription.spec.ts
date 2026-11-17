@@ -123,10 +123,12 @@ test.describe('Live pronunciation transcription', () => {
 
     await expect(page.getByTestId('you-said-hanzi').filter({ hasText: '是' })).toBeVisible({ timeout: 5000 });
     // What was said is the hero (hanzi, pinyin under it), the verdict a chip (whatever the starter
-    // card is — the fake always hears 是); ▶ plays the take.
+    // card is — the fake always hears 是). No ▶ on the box: the take plays from ⋯ → "Play my recording".
     await expect(page.getByTestId('you-said-pinyin')).toHaveText('shì');
     await expect(page.getByTestId('you-said-verdict')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Play my recording' })).toBeVisible();
+    await expect(page.getByTestId('you-said-play')).toHaveCount(0);
+    await page.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: /Play my recording/ })).toBeVisible();
     const stats = await page.evaluate(() => (window as unknown as { __soniox: { config: Record<string, unknown>; chunks: number; ended: boolean; protocols: string[] | null } }).__soniox);
     expect(stats.protocols).toEqual(['soniox-api-key', 'snx_temp_e2e']); // the key with the connection
     expect(stats.config).toMatchObject({ model: 'stt-rt-v5', audio_format: 'auto' });

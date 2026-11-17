@@ -285,20 +285,22 @@ fun HardModeFeedbackPanel(
         )
         return
     }
-    val (border, ink) = when (result) {
-        "right" -> Palette.Good to Palette.Good
-        "close" -> Palette.Gold to Palette.Gold
-        "wrong" -> Palette.Again to Palette.Again
-        else -> Lab.colors.cardBorder to Lab.colors.muted
-    }
+    // The one result look (core ResultState; ResultStateUi): ✓ right · ≈ close · ✗ wrong · … checking each wear the same
+    // light outline + faint tint, only the colour differs (it used to be Palette.Gold for close here, yellow elsewhere).
+    val rState = dev.jeromeswannack.chineselearning.lab.core.ResultState.of(result)
+    val ink = if (result == "right" || result == "close" || result == "wrong") ResultColors.ink(rState) else Lab.colors.muted
     val pop = remember(result) { Animatable(0.92f) }
     LaunchedEffect(result) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy)) }
-    // Calm, not boxed: the one line carries the verdict (icon + words), the slim diff what differs.
+    // A right answer: the "right" moment over the surface (its feel plays above).
+    Box(
+        Modifier.fillMaxWidth().scale(pop.value)
+            .then(if (result == "right") Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.QUESTION, key = "question-${said.orEmpty()}") else Modifier)
+            .resultSurface(rState),
+    ) {
     Column(
         Modifier
             .fillMaxWidth()
-            .scale(pop.value)
-            .padding(vertical = 6.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(HardModeTags.FEEDBACK),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -360,6 +362,7 @@ fun HardModeFeedbackPanel(
             Text(HardMode.MISS_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
         }
     }
+    }
 }
 
 /** 👁 Show answer before a right answer (core [HardMode.giveUpInPlace]): the answer on the question, then on to the sentences. */
@@ -373,7 +376,8 @@ private fun RevealedInPlace(
     onPlayAnswer: (() -> Unit)?,
     readAgain: (@Composable () -> Unit)? = null,
 ) {
-    val tone = Palette.Hard
+    // "The answer" after giving up is a heading in normal ink, not a result colour (it was the orange Hard).
+    val tone = Lab.colors.ink
     Column(
         Modifier
             .fillMaxWidth()
@@ -439,10 +443,16 @@ private fun SentenceAnswerFirst(
     readAgain: (@Composable () -> Unit)? = null,
 ) {
     val miss = result == "wrong" || result == "close"
+    // The one result look (ResultStateUi), the same surface as every other verdict; a right one gets the moment.
+    Box(
+        Modifier.fillMaxWidth()
+            .then(if (result == "right" && !view.checking) Modifier.rightMoment(dev.jeromeswannack.chineselearning.lab.core.RightMoment.QUESTION, key = "answer-first-$said") else Modifier)
+            .resultSurface(dev.jeromeswannack.chineselearning.lab.core.ResultState.of(if (view.checking) "pending" else result)),
+    ) {
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp)
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .semantics { liveRegion = LiveRegionMode.Polite }
             .testTag(HardModeTags.FEEDBACK),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -493,6 +503,7 @@ private fun SentenceAnswerFirst(
             }
         } }
         if (miss) Text(SentenceAnswerCheck.MOVE_ON_NOTE, color = Lab.colors.muted, fontSize = 12.sp, textAlign = TextAlign.Center)
+    }
     }
 }
 

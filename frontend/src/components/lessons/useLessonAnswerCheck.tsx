@@ -17,6 +17,7 @@ import {
   answerCheckApplies, type AnswerCheckInput, type AnswerTry,
 } from '@shared/lesson/answerCheck';
 import type { ExerciseAnswer } from '@shared/lesson';
+import { spokenCheckAnswer } from '@shared/cards/answer';
 import { useAnswerCheck } from '../../hooks/useAnswerCheck';
 import { AnswerCheckCard } from './AnswerCheckCard';
 import { AskAboutAnswerSheet } from './AskAboutAnswerSheet';
@@ -55,7 +56,7 @@ export function useLessonAnswerCheck(ctx: {
       prompt_en: ctx.promptEn,
       model_answer: ctx.modelAnswer,
       model_pinyin: ctx.modelPinyin ?? undefined,
-      answer: text.trim(),
+      answer: spokenCheckAnswer(text, source),
       exercise_type: ctx.exerciseType,
       input: source ?? 'typed',
       focus: ctx.focus,
@@ -80,7 +81,7 @@ export function useLessonAnswerCheck(ctx: {
 
   function report(answer: ExerciseAnswer): ExerciseAnswer {
     const out: ExerciseAnswer = { ...answer };
-    if (check && input && answer.text?.trim() === input.answer) out.check = check;
+    if (check && input && answer.text && spokenCheckAnswer(answer.text, input.input) === input.answer) out.check = check;
     if (tries.length) out.tries = tries;
     return out;
   }

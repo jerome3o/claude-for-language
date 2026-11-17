@@ -11,6 +11,7 @@
  * 🎤 again, press Enter or the pinned "■ Stop recording" bar (`SentenceStopBar`) to stop. A tap or a scroll
  * anywhere else NEVER stops it (Jerome: finishing should be an intentional action — `sentenceStopBar`). Lab: `SentencePractiseState` in ui/study/Sentences.kt.
  */
+import { RightMoment } from './RightMoment';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   COACH_PRACTISE_EMPTY,
@@ -296,9 +297,13 @@ export function SentencePractiseOutcome({ practise, row, full, onPlayModel, spea
   const view = full
     ? roundTakeView({ mode: take.mode, said: practised.said, model: row.hanzi, local: practised.result.state, claude: claude?.status === 'done' ? claude.check.verdict : null })
     : null;
+  const outcome = sentencePractiseResult(practised, claude?.status === 'done' ? claude.check.verdict : null);
+  // A sentence row's take said right (not the round's — its exercise carries the moment): the "right" moment.
+  const moment = !full && outcome === 'right';
   return (
-    <div className="sentence-practise-result" data-testid="sentence-practise-result" data-mode={take.mode}
-      data-result={sentencePractiseResult(practised, claude?.status === 'done' ? claude.check.verdict : null)}>
+    <div className={`sentence-practise-result${moment ? ' right-moment-host' : ''}`} data-testid="sentence-practise-result" data-mode={take.mode}
+      data-result={outcome}>
+      {moment && <RightMoment where="sentence_row" key={practised.said} />}
       {claude?.status === 'done' && full ? (
         view?.compare ? (
           // The slim answer diff: one line (Claude's verdict as its chip), the model once, his take marked.

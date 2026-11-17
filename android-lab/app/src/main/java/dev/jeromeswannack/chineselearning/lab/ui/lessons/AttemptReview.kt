@@ -240,10 +240,9 @@ private fun AnswerBody(exercise: LessonExercise?, attempt: ExerciseAttempt, medi
             a?.text?.takeIf { it.isNotBlank() }?.let { AttRow(dev.jeromeswannack.chineselearning.lab.core.LessonSpokenCheck.inputLabel(a?.input, "Wrote"), it) }
             a?.handwriting?.strokes?.let { StrokesView(it, "Handwritten", maxHeight = 120.dp) }
             a?.feedback?.let { f ->
-                val v = when (f.verdict) { "correct" -> "correct"; "minor" -> "almost"; else -> "not quite" }
-                Text("Claude: $v" + (if (!f.usesAllWords) " · missed a target word" else ""), fontWeight = FontWeight.SemiBold, color = Lab.colors.ink)
+                // The grade (right · needs work · wrong) as he saw it — an older check read through the same rules.
+                SentenceVerdictLine(f, exercise.words.map { it.hanzi }, tag = "att-sentence-feedback", compact = true)
                 f.corrected?.let { Text(it.line(), color = Lab.colors.ink) }
-                Text(f.comment, color = Lab.colors.muted)
             }
         }
         is WriteTypedExercise -> {

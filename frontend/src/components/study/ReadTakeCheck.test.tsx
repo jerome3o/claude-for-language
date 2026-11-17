@@ -83,7 +83,7 @@ describe('a read card\'s take checked by Claude', () => {
     expect(q('you-said-hanzi')!.querySelector('[data-kind="wrong"]')!.textContent).toBe('语');
     expect(q('you-said-pinyin')!.textContent).not.toContain('"');
     expect(checker).toHaveBeenCalledTimes(1);
-    expect(checker.mock.calls[0][0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文，越觉得英语很繁琐。', prompt_en: ENGLISH });
+    expect(checker.mock.calls[0][0]).toMatchObject({ exercise_type: 'read_aloud', input: 'spoken', model_answer: CARD, answer: '我越学中文越觉得英语很繁琐', prompt_en: ENGLISH });
     await act(async () => { resolve({ check: CLOSE, cached: false }); });
     expect(q('you-said')!.dataset.state).toBe('close');
     expect(q('you-said-verdict')!.textContent).toBe('Close');

@@ -2,9 +2,9 @@
  * The answer screen's feedback (shared/lesson/feedback.ts): the model answer + his marked answer at once,
  * "Claude is checking…" BELOW the buttons, the verdict landing in that slot without moving anything above,
  * a right answer felt (once), 🎤 Say it again (practice only — never the scored answer), and the coordinator's
- * sentence_making case: Claude's corrected sentence gets its own 🎤 practice row.
+ * sentence_making case: an honest grade (needs work in orange), 🎤 Try again in place, ✨ the fix on tap with its own 🎤.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { AnswerCheck } from '@shared/lesson/answerCheck';
@@ -18,8 +18,11 @@ vi.mock('../../services/answerCheck', () => ({
   AnswerCheckUnavailable: class extends Error {},
 }));
 let resolveSentence: ((v: unknown) => void) | null = null;
+let resolveFix: ((v: unknown) => void) | null = null;
 vi.mock('../../api/lessonPractice', () => ({
   checkMadeSentence: () => new Promise((r) => { resolveSentence = r; }),
+  fixMadeSentence: () => new Promise((r) => { resolveFix = r; }),
+  FeedbackUnavailable: class extends Error { offline = false; },
 }));
 const track = vi.fn();
 vi.mock('../../services/analytics', () => ({ track: (...a: unknown[]) => track(...a) }));
@@ -42,6 +45,11 @@ const CHECK: AnswerCheck = {
 };
 
 describe('lesson answer feedback', () => {
+  // The exercise views are heavy to import: load them once, with room, so a busy machine never times a test out.
+  beforeAll(async () => {
+    await import('../lesson-exercises');
+    await import('../practice-exercises');
+  }, 60_000);
   let host: HTMLDivElement;
   let root: Root;
   beforeEach(() => {
@@ -111,24 +119,46 @@ describe('lesson answer feedback', () => {
     expect(onNext).not.toHaveBeenCalled();
   });
 
-  it('sentence making: result at once with the example; Claude’s fix lands below with its own 🎤; Continue stays the way on', async () => {
+  it('sentence making: an honest grade — needs work is orange, not scored right; Try again re-checks in place; the fix comes on tap', async () => {
     const { SentenceMakingExercise } = await import('../practice-exercises');
-    (globalThis as { __answer?: string }).__answer = '你怎么变工作了？';
+    (globalThis as { __answer?: string }).__answer = '我本来要去健身馆，但是我学中文。';
     const onNext = vi.fn();
     await act(async () => root.render(
-      <SentenceMakingExercise words={[{ hanzi: '怎么' }, { hanzi: '了' }]} task="Ask why, surprised." example={{ hanzi: '你怎么搬家了？' }} speak={() => {}} onNext={onNext} />,
+      <SentenceMakingExercise words={[{ hanzi: '本来' }, { hanzi: '要' }]} example={{ hanzi: '我本来要买那件衣服，后来觉得太贵了。' }} speak={() => {}} onNext={onNext} />,
     ));
     await act(async () => (q('submit') as HTMLButtonElement).click());
-    expect(q('lesson-your-answer')?.textContent).toContain('你怎么变工作了');
+    // A spoken sentence is shown without the recogniser's punctuation (a pause is never grammar).
+    expect(q('lesson-your-answer')?.textContent).toContain('我本来要去健身馆但是我学中文');
     expect(q('answer-check-checking')?.textContent).toContain('Claude is checking');
     expect(q('lesson-got-it')).not.toBeNull();
-    await act(async () => resolveSentence!({ verdict: 'minor', uses_all_words: true, comment: '换 not 变.', corrected: { hanzi: '你怎么换工作了？' } }));
-    expect(q('sentence-feedback')?.textContent).toContain('你怎么换工作了');
-    const fix = host.querySelector('[data-testid="lesson-say-fix"] [data-testid="practise"]') as HTMLButtonElement;
-    expect(fix.dataset.hanzi).toBe('你怎么换工作了？');
-    await act(async () => fix.click());
-    expect(onNext).not.toHaveBeenCalled();
+    // The unrelated example is folded while Claude grades.
+    expect(q('lesson-feedback-sentence')).toBeNull();
+    expect(q('sentence-example-toggle')).not.toBeNull();
+    // A v1-shaped "correct" whose own words name a problem is needs work (the guard on the device too).
+    await act(async () => resolveSentence!({ feedback: { verdict: 'correct', uses_all_words: true, comment: 'Good use of 本来…要; but the second clause just states another plan rather than an actual interrupting event.' }, cached: false }));
+    expect(q('sentence-feedback')?.getAttribute('data-grade')).toBe('needs_work');
+    expect(q('sentence-feedback-headline')?.textContent).toBe('本来 and 要 used right — one thing to fix');
+    expect(host.textContent).not.toContain('Is your sentence grammatical');
+    expect(feel).not.toHaveBeenCalledWith('success');
+    // ✨ Show a fixed version: only on tap; his sentence lined up with the fix, then 🎤 Say it.
+    expect(q('sentence-fix')).toBeNull();
+    await act(async () => (q('sentence-show-fix') as HTMLButtonElement).click());
+    await act(async () => resolveFix!({ fix: { hanzi: '我本来要去健身房，可是后来去学中文了。', pinyin: 'wǒ běnlái …' }, cached: false }));
+    expect(q('sentence-fix-expected')?.textContent).toContain('我本来要去健身房，可是后来去学中文了。');
+    const say = host.querySelector('[data-testid="lesson-say-fix"] [data-testid="practise"]') as HTMLButtonElement;
+    expect(say.dataset.hanzi).toBe('我本来要去健身房，可是后来去学中文了。');
+    expect(say.textContent).toBe('Say it');
+    // 🎤 Try again: a new sentence, checked in place; right → felt; the first grade still counts.
+    await act(async () => (q('sentence-try-again') as HTMLButtonElement).click());
+    (globalThis as { __answer?: string }).__answer = '我本来要去健身房，可是后来下雨了。';
+    await act(async () => (host.querySelector('[data-testid="sentence-try"] [data-testid="submit"]') as HTMLButtonElement).click());
+    expect(q('sentence-retry-checking')).not.toBeNull();
+    await act(async () => resolveSentence!({ feedback: { verdict: 'correct', grade: 'right', headline: 'Natural and correct', uses_all_words: true, fixable: false, comment: '' }, cached: false }));
+    expect(q('sentence-retry-feedback')?.getAttribute('data-grade')).toBe('right');
+    expect(feel).toHaveBeenCalledWith('round_right');
+    expect(q('sentence-try-again')).toBeNull();
+    expect(track).toHaveBeenCalledWith('lesson.sentence_retry', { result: 'right', try: 1, input: 'spoken' });
     await act(async () => (q('lesson-continue') as HTMLButtonElement).click());
-    expect(onNext).toHaveBeenCalledWith(true, expect.objectContaining({ text: '你怎么变工作了？' }));
+    expect(onNext).toHaveBeenCalledWith(false, expect.objectContaining({ text: '我本来要去健身馆但是我学中文' }));
   });
 });

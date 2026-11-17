@@ -47,9 +47,6 @@ import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagExplanation
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagLexicon
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTags
 import dev.jeromeswannack.chineselearning.lab.core.cards.WordTagsAi
-import dev.jeromeswannack.chineselearning.lab.core.explorer.FrequencyDecal
-import dev.jeromeswannack.chineselearning.lab.ui.explorer.decalStyle
-import dev.jeromeswannack.chineselearning.lab.ui.explorer.frequencyDecal
 import dev.jeromeswannack.chineselearning.lab.ui.kit.LabBottomSheet
 import dev.jeromeswannack.chineselearning.lab.ui.kit.PrimaryPill
 import dev.jeromeswannack.chineselearning.lab.ui.kit.bouncyClickable
@@ -107,15 +104,15 @@ private object WordTagColors {
         "level" to (Color(0xFF113532) to Color(0xFF5EEAD4)),
     )
 
-    /** A frequency tone has no tint: the card colour with the explorer's decal outline. */
+    /** A frequency tone is a plain pill like the others (no decal outline — one pill style on the card). */
     @Composable
     fun of(tone: String): Pair<Color, Color> {
         val isDark = Lab.colors.card.luminance() < 0.4f
-        return (if (isDark) dark else light)[tone] ?: (Lab.colors.card to Lab.colors.ink)
+        val set = if (isDark) dark else light
+        return set[tone] ?: set.getValue("plain")
     }
 }
 
-private fun decalOf(tone: String): FrequencyDecal? = FrequencyDecal.entries.firstOrNull { it.wire == tone }
 
 /** One pill (also the header of the explanation sheet). */
 @Composable
@@ -132,8 +129,8 @@ fun WordTagPill(tag: WordTag, onClick: (() -> Unit)?, modifier: Modifier = Modif
         tappable
             .heightIn(min = 32.dp)
             .clip(shape)
+            // One pill style (Nov 2026): no decal outline on the card's frequency pill — a border that isn't a state.
             .background(bg)
-            .frequencyDecal(decalStyle(decalOf(tag.tone)), shape)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
