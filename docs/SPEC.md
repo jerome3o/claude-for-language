@@ -262,7 +262,7 @@ cards" sheet; MCP `set_student_study_budget`): on a day with MORE reviews due th
 today, counting the ones already reviewed today, so the number holds all day) the learner gets no new
 cards — only the reviews; ⚡ bumps, homework and lessons are unaffected, Up next waits, "Study 10 more"
 still adds. The next lighter day the configured budget comes back. Home says "⏸ New cards paused — 124
-reviews due today (limit 100)"; the tutor's student card says so too. Rules: `shared/decks/review-load.ts`;
+cards reviewed or due today (limit 100)"; the tutor's student card says so too. Rules: `shared/decks/review-load.ts`;
 details in docs/STUDY_SESSION.md "Pause new cards on heavy days".
 
 ### 19. 📱 Phone practice (手机练习)

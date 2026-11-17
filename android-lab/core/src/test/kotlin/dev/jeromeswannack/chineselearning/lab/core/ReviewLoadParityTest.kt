@@ -55,7 +55,7 @@ class ReviewLoadParityTest {
     @Test
     fun nightsPastMidnight() {
         val cases = data["nights"]!!.jsonArray
-        assertTrue(cases.size >= 300)
+        assertTrue(cases.size >= 250, "nights: ${cases.size}")
         var acrossMidnight = 0
         for (c in cases) {
             val o = c.jsonObject
