@@ -83,6 +83,10 @@ class ConnectionsScreenshots : LabScreenshotTest() {
         ClaudeChatsScreen(ClaudeChatsUi(Loadable(cardThreads)), onBack = {}, onOpenThread = {}, onRetry = {})
     }
 
+    @Test fun claudeChatsDark() = shoot("connections-05b-claude-chats-dark", dark = true) {
+        ClaudeChatsScreen(ClaudeChatsUi(Loadable(cardThreads)), onBack = {}, onOpenThread = {}, onRetry = {})
+    }
+
     @Test fun lessonNotes() = shoot("connections-06-lesson-notes") {
         LessonNotesScreen(
             LessonNotesUi(Loadable(listOf(LessonNoteDto("l1", "同学 — tóngxué — classmate\n同事 — tóngshì — colleague\n我们是同事。", "Tue lesson", "2026-09-22 10:00:00", listOf(LessonNoteFileDto("f", "whiteboard.jpg"))))), files = listOf("worksheet.pdf")),

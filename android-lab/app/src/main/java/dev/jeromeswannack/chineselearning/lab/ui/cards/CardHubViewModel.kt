@@ -238,6 +238,9 @@ class CardHubViewModel(private val env: DecksEnv, private val noteId: String) : 
     companion object {
         const val RECENT = 20
 
+        /** SQLite's datetime('now') as ISO (the web's sqliteToIso). */
+        fun sqliteToIso(v: String): String = if (v.isEmpty() || v.contains('T')) v else v.replace(' ', 'T') + if (v.endsWith("Z")) "" else "Z"
+
         const val CLAUDE_AI_USER_ID = "claude-ai"
 
         fun humanTutors(rel: MyRelationshipsDto?, env: DecksEnv): List<HubTutor> =
