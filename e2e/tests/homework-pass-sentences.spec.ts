@@ -218,7 +218,7 @@ test('a card sentence with no pinyin or English still reveals both', async ({ pa
 
   const sentences = page.locator('.sentence-set--pass');
   await expect(sentences.locator('.sentence-set-hanzi')).toHaveText(BARE);
-  await expect(sentences.locator('.sentence-set-corner')).toHaveText('From the card');
+  await expect(sentences.locator('.sentence-set-from-card')).toHaveText('From the card');
   await expect(sentences.locator('.sentence-set-next')).toHaveText('Tap for pinyin');
   await sentences.locator('.sentence-set-reveal').click();
   await expect(sentences.locator('.sentence-set-pinyin')).toContainText('cài');
@@ -226,8 +226,8 @@ test('a card sentence with no pinyin or English still reveals both', async ({ pa
   await sentences.locator('.sentence-set-reveal').click();
   await expect(sentences.locator('.sentence-set-translation')).toHaveText("Waiter, we'd like to order.");
   await expect(sentences.getByRole('button', { name: '+ Add as card' })).toBeVisible();
-  // The badge is a tab on the row's top edge: it covers none of the row's lines and not ▶.
-  const badgeBox = await sentences.locator('.sentence-set-corner').boundingBox();
+  // "From the card" is a small inline label in the line under the sentence: it covers none of the row's lines and not ▶.
+  const badgeBox = await sentences.locator('.sentence-set-from-card').boundingBox();
   expect(badgeBox).not.toBeNull();
   for (const sel of ['.sentence-set-hanzi', '.sentence-set-pinyin', '.sentence-set-translation', '.sentence-set-play']) {
     const box = await sentences.locator(sel).first().boundingBox();
