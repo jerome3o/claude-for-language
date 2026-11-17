@@ -40,7 +40,7 @@ import kotlin.test.assertTrue
  */
 class SentenceListenUiTest : LabScreenshotTest() {
     private val rows = listOf(
-        SentenceRow("clue:n1", null, "我去银行取钱。", "Wǒ qù yínháng qǔ qián.", "I go to the bank to get money.", null, "From the card", fromCard = true),
+        SentenceRow("n1-card", null, "我去银行取钱。", "Wǒ qù yínháng qǔ qián.", "I go to the bank to get money.", null, "From the card", fromCard = true),
         SentenceRow("s1", "s1", "银行在哪儿？", "Yínháng zài nǎr?", "Where is the bank?", "generated/s1.mp3", null),
         SentenceRow("s2", "s2", "我昨天没去银行。", "Wǒ zuótiān méi qù yínháng.", "I didn't go to the bank yesterday.", "generated/s2.mp3", null),
         SentenceRow("s3", "s3", "这家银行几点开门？", "Zhè jiā yínháng jǐ diǎn kāimén?", "What time does this bank open?", null, null),

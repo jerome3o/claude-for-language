@@ -399,6 +399,17 @@ describe('getSentenceExplanation', () => {
     expect(JSON.parse(row!.explanation!)).toEqual(explanation);
   });
 
+  it('uses a breakdown held for the same text (the card sentence explained before it was a row), offline', async () => {
+    const explanation = { words: [{ hanzi: '银行', pinyin: 'yínháng', gloss: 'bank' }], construction: 'Topic-comment.' };
+    await putLocalNoteSentences('note-1', [makeSentence({ id: 'note-1-card', hanzi: '我去银行。' })]);
+    await db.sentenceTextExplanations.put({ key: '我去银行。', explanation: JSON.stringify(explanation), cached_at: Date.now() });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('should not fetch'); }));
+
+    expect(await getSentenceExplanation('note-1-card', '我去银行。')).toEqual(explanation);
+    // …and it is the row's from now on.
+    expect(JSON.parse((await db.noteSentences.get('note-1-card'))!.explanation!)).toEqual(explanation);
+  });
+
   it('regenerates when the cached explanation is corrupt', async () => {
     await putLocalNoteSentences('note-1', [makeSentence({ id: 's-3', explanation: 'not json' })]);
     const explanation = { words: [{ hanzi: '好', pinyin: 'hǎo', gloss: 'good' }], construction: '.' };

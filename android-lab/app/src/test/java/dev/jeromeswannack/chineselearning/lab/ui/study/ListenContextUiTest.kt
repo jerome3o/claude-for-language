@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.github.takahirom.roborazzi.captureRoboImage
 import dev.jeromeswannack.chineselearning.lab.core.CardScheduler
+import dev.jeromeswannack.chineselearning.lab.core.CardSentence
 import dev.jeromeswannack.chineselearning.lab.core.CardTypes
 import dev.jeromeswannack.chineselearning.lab.core.Js
 import dev.jeromeswannack.chineselearning.lab.core.ListenContext
@@ -55,7 +56,7 @@ class ListenContextUiTest : LabScreenshotTest() {
     /** The showing's rows in their order (the pinned seed, nothing heard yet). */
     private fun order(v: CardView = view()): List<ListenContext.Row> = ListenContext.pick(listenRows(v), emptyMap(), "ui-test", v.note.hanzi).rows
     private fun indexOf(key: String, v: CardView = view()) = order(v).indexOfFirst { it.key == key }
-    private val clueKey = "clue:${Samples.note.id}"
+    private val clueKey = CardSentence.id(Samples.note.id)
 
     private fun actions() = StudyActions(
         onPlay = { key, text -> played += key to text },

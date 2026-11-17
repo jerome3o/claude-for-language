@@ -216,9 +216,13 @@ class CardTools(private val app: LabApp) {
 
     suspend fun cacheTextExplanation(hanzi: String, e: SentenceExplanation) = cache.put(explainTextKey(hanzi), TutorNotes.KIND, e)
 
-    /** A cached breakdown (set row or the card's own clue), or null. */
+    /**
+     * A cached breakdown, or null: the row's own, else one this device holds for the same text (the card's own
+     * sentence explained before it was a row, the Coach's Explain) — offline too.
+     */
     suspend fun cachedExplanation(sentenceId: String?, hanzi: String): SentenceExplanation? =
-        cache.get(if (sentenceId != null) explainKey(sentenceId) else explainTextKey(hanzi))
+        (if (sentenceId != null) cache.get<SentenceExplanation>(explainKey(sentenceId)) else null)
+            ?: cache.get(explainTextKey(hanzi))
 
     /** `getSentenceExplanation` / `getTextExplanation`: cached first, then the API, then cached. */
     suspend fun explain(sentenceId: String?, hanzi: String, pinyin: String?, translation: String?): SentenceExplanation {

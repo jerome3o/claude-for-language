@@ -398,7 +398,7 @@ export function SentenceSet({
     setExplaining((prev) => new Set(prev).add(row.key));
     try {
       // Every row (the card's own sentence too) caches its breakdown on the row, server-side and here.
-      const explanation = await getSentenceExplanation(row.sentenceId);
+      const explanation = await getSentenceExplanation(row.sentenceId, row.hanzi);
       setExplanations((prev) => ({ ...prev, [row.key]: explanation }));
       track('study.sentence_explain');
     } catch (err) {

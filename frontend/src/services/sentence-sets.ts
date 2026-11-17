@@ -411,7 +411,8 @@ async function getUpcomingNoteIds(limit = 120): Promise<string[]> {
  * local row, so a second tap is instant and works offline.
  */
 export async function getSentenceExplanation(
-  sentenceId: string
+  sentenceId: string,
+  hanzi?: string,
 ): Promise<SentenceBriefExplanation> {
   const local = await db.noteSentences.get(sentenceId);
   if (local?.explanation) {
@@ -420,6 +421,13 @@ export async function getSentenceExplanation(
     } catch {
       // Corrupt cache — fall through and refetch
     }
+  }
+  // The same text explained before by its text (the card's own sentence before it was a row, the Coach's Explain):
+  // that breakdown, offline too.
+  const byText = hanzi ? await getCachedTextExplanation(hanzi) : null;
+  if (byText) {
+    if (local) await db.noteSentences.update(sentenceId, { explanation: JSON.stringify(byText) });
+    return byText;
   }
 
   const explanation = await explainNoteSentence(sentenceId);
