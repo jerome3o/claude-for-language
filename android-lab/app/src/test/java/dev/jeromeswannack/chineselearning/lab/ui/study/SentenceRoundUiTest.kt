@@ -138,7 +138,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         // (The cheer's 1.4 s pause runs on the test dispatcher's virtual time: the answer is up at once here.)
         compose.mainClock.advanceTimeBy(2_500)
         assertEquals(0, count(SentenceRoundTags.ROUND))
-        compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Good and Easy unlocked", substring = true, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf(2), rated)
@@ -185,7 +185,7 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         confirmSkip()
         assertEquals(0, count(SentenceRoundTags.ROUND))
         // The round's count carries over: 1 of 2.
-        compose.onNodeWithText("🎤 Try the sentences first · 1/2 right", useUnmergedTree = true).assertExists()
+        assertEquals("Try the sentences first · 1/2 right; tap twice to rate anyway", compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
@@ -297,7 +297,8 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.onNodeWithText("Continue →", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(1_000)
         assertEquals(0, count(SentenceRoundTags.ROUND))
-        compose.onNodeWithText("✓ 2/2 right — Good and Easy unlocked", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("rating-good", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("Good and Easy unlocked", substring = true, useUnmergedTree = true).assertDoesNotExist()
     }
 
     private fun wordy() = take(
@@ -333,6 +334,24 @@ class SentenceRoundUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(2_500)
         assertEquals(0, count(SentenceRoundTags.ROUND))
         assertEquals(0, count(DifferenceTags.HELD))
+    }
+
+    /** Jerome (Nov 2026): two "■ Stop recording" while a round take recorded. ONE: the pinned bar; the round's footer is held. */
+    @Test fun oneStopWhileRecording() {
+        val practise = previewSentencePractise(
+            dictation = VoiceDictationUi(phase = "listening", finalText = "银行在", partialText = "哪儿"),
+            activeKey = "translate:s1", activeMode = SentencePractise.TRANSLATE,
+        )
+        // The live recorder reports its take to the app-wide lock (the preview has no recorder).
+        dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.set("t", dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.Entry("recording", {}))
+        try {
+            card(practise)
+            assertEquals(1, count(SentencePractiseTags.STOP_RECORDING))
+            assertEquals(0, count(SentenceRoundTags.TAKE_STOP))
+            assertEquals(1, count(dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLockTags.HELD))
+        } finally {
+            dev.jeromeswannack.chineselearning.lab.ui.kit.TakeLocks.reset()
+        }
     }
 
     // ---- screenshots

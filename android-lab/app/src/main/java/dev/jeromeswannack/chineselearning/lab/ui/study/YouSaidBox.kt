@@ -223,15 +223,12 @@ private fun YouSaidShell(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val style = toneStyle(tone)
-    val shape = RoundedCornerShape(14.dp)
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 88.dp)
-            .clip(shape)
-            .background(style.box)
-            .border(style.borderWidth.dp, style.border, shape)
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            // Not a box on the study card (Jerome, Nov 2026): the verdict chip, the hero text and the round buttons carry it.
+            .heightIn(min = 72.dp)
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -505,8 +502,8 @@ fun SpokenResultRow(
         modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(style.box)
-            .border(style.borderWidth.dp, style.border, shape)
+            // The compact row (the Sentence round / sentence rows, inside the study card) is not a box: its chip says it.
+            .then(if (compact != null) Modifier else Modifier.background(style.box).border(style.borderWidth.dp, style.border, shape))
             .padding(if (compact != null) 2.dp else 4.dp)
             .testTag("$SPOKEN_RESULT_TAG-$state"),
         verticalAlignment = Alignment.CenterVertically,

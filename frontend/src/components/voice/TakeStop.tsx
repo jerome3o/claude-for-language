@@ -49,15 +49,31 @@ export function TakeStopButton({ testId = 'take-stop', label = TAKE_LOCK_STOP, c
   );
 }
 
-/** `children` (the row's own buttons) — or, while a take is under way, the stop button in their place. */
+/**
+ * `children` (the row's own buttons) — or, while a take is under way, the stop button in their place. When the screen
+ * already pins its own "■ Stop recording" for the take (the study sentence rows' `SentenceStopBar`), the row is HELD
+ * instead: greyed and untappable where it is, no second stop (`takeLockRow`).
+ */
 export function TakeLockedActions({ children, className, testId }: { children: ReactNode; className?: string; testId?: string }) {
   const lock = useAppTakeLock();
-  if (!lock.locked) return <>{children}</>;
+  if (lock.row === 'proceed') return <>{children}</>;
+  if (lock.row === 'held') {
+    return (
+      <div className={`take-locked-held${className ? ` ${className}` : ''}`} aria-disabled="true" data-testid="take-locked-held" ref={holdInert}>
+        {children}
+      </div>
+    );
+  }
   return (
     <div className={`take-locked-actions reader-read-aloud-footer${className ? ` ${className}` : ''}`} data-testid="take-locked-actions">
       <TakeStopButton testId={testId} />
     </div>
   );
+}
+
+/** `inert` set by hand (React 18 types don't know the attribute). */
+function holdInert(el: HTMLDivElement | null) {
+  el?.setAttribute('inert', '');
 }
 
 /** Back stops a recording take (and waits while it is checked) instead of leaving. One, in App.tsx. */

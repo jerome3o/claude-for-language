@@ -7,3 +7,9 @@
 .take-locked-actions .take-stop-btn {
   width: 100%;
 }
+
+/* Held: a pinned "■ Stop recording" bar has the stop (SentenceStopBar) — the row stays put, greyed, untappable. */
+.take-locked-held {
+  opacity: 0.4;
+  pointer-events: none;
+}

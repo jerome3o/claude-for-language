@@ -1676,7 +1676,10 @@ Rules: `shared/study/sentencePractise.ts` (Lab `core/…/SentencePractise.kt`, p
 - ONE microphone per list. **Stopping is intentional** (Jerome, Nov 2026: "when I tap anywhere on the screen
   it finishes the audio recording, which is bad — e.g. I scroll down because something popped up"): a tap or a
   scroll elsewhere NEVER stops the take — only the 🎤 again (it toggles off), Enter, or ONE big red
-  **■ Stop recording** pinned at the bottom of the screen while a take is under way (then "Checking what you
+  **■ Stop recording** pinned at the bottom of the screen while a take is under way — the ONLY stop on screen: rows of
+  advancing buttons (the Sentence round's See the answer / Skip, the card's footer) are HELD (greyed, untappable, where
+  they are) instead of becoming a second stop (`takeLockRow` in shared/voice/takeLock.ts: a pinned bar → `held`; web
+  `usePinnedStop` / `TakeLockedActions`, Lab `PinnedStopBar` / `TakeLockedActions`; Jerome, Nov 2026, saw two) (then "Checking what you
   said…"; the graded reader's read-aloud footer reused — web `SentenceStopBar` → `ReadAloudStopFooter`, Lab
   `SentenceStopBar` → `ReadAloudStopFooter`, in the controls' slot; rule `sentenceStopBar`). The page keeps
   scrolling under it. There is no auto-stop on silence. A 🎤 on another row only stops the current take (its
@@ -1719,8 +1722,8 @@ once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-note
    answer on the question itself ("👁 The answer": hanzi + ▶, pinyin, meaning — an orange panel), then **Continue to the
    sentences ›** → the round (`hardModeGiveUpInPlace`; no sentences → "See the full answer ›" — known to have none,
    straight to the answer side as before). The round after giving up says so in its cheer ("🎉 2 / 2 — nice recovery"), and on the answer side **Good /
-   Easy are greyed on this showing** whatever the sentences say — "👁 You looked at the answer — Again or Hard
-   suggested". Resume: `feedback_open` + `gave_up` = the answer in place.
+   Easy are greyed on this showing** whatever the sentences say, Hard ringed as suggested (no bar above the ratings —
+   "You looked at the answer — Again or Hard suggested" is the buttons' accessible label only). Resume: `feedback_open` + `gave_up` = the answer in place.
    **🎤 Read it again in the answer in place** (Jerome, Nov 2026: "when I get it wrong and show the answer, I'd still
    like to read it here and see if I can get it right with the transcription"): under "You said", a **🎤 Read it
    aloud** (then "Read it again") records him reading the answer aloud through the question's take pipeline (live
@@ -1740,8 +1743,8 @@ once more from another angle — docs/HOMEWORK.md §3e) — never the tutor-note
    sometimes I'm just on the train … I don't like the locked answers. Maybe they should just be greyed and then need an
    extra button press — guiding me towards the lower review scores, but I can still override it"): wherever Hard mode
    used to LOCK Good / Easy (gave up, the round skipped, the gate not done), they are **greyed** (faded, "tap twice")
-   and **Hard is suggested** (ringed, "suggested"). The first tap on a greyed Good / Easy rates nothing: the line above
-   the ratings says **"Tap again to rate Good anyway"** and the button is outlined ("tap again"); a **second tap on the
+   and **Hard is suggested** (ringed, "suggested"). The first tap on a greyed Good / Easy rates nothing: the button is
+   outlined and says **"tap again"** ("Tap again to rate Good anyway" is its accessible label); a **second tap on the
    same rating within 3 s** (`HARD_MODE_OVERRIDE_MS`) rates it. The arm wears off after 3 s or when a sentence is said
    right. Again and Hard always rate at once. The homework pass's Got it after giving up the same way ("Tap again to say
    Got it anyway"). Rules `goodEasyGate` (state `open | suggest_lower`, reason `gave_up | sentences`),
@@ -1862,14 +1865,15 @@ round** before the answer — like Worldle, a ladder of harder questions about t
   parity-tested); web `SkipConfirm` in `SentenceRound.tsx`, Lab the kit's `ConfirmDialog`; analytics
   `study.sentence_round { action: skip | skip_cancel }`.
 - **On the answer side, the round's sentences lead the list** (in the round's order), **opened** (hanzi, pinyin and
-  English up — he has seen them) and **outlined in their result's style** with a label: "In the round · ✓ Right"
-  (green), "· ≈ Nearly" (yellow), "· ✗ Not quite" (red, dashed on the web), and a neutral "In the round" for ones he
-  skipped — icon + words, never colour alone — so he can find them and tap "What's going on here?" / Ask Claude about
+  English up — he has seen them) with a **small label** in the row's line of controls: "In the round · ✓ Right"
+  (green), "· ≈ Nearly" (yellow), "· ✗ Not quite" (red), and a neutral "In the round" for ones he skipped — icon +
+  words, never colour alone, and **never an outline or a box** (nor does the card around them change colour) — so he
+  can find them and tap "What's going on here?" / Ask Claude about
   them. Rule: `roundRowMarks` / `orderKeysForRound` (`shared/study/sentenceRound.ts`, Lab `SentenceRound.rowMarks` /
   `orderKeys`, parity-tested); web `SentenceSet` `roundRows`, Lab `SentenceList` `roundMarks`.
 - Today is the session: the resume point carries `round_open`, `sentences_right` and `round_log` (the exercises as
   shown + each one's last result: `exercisesFromLog` brings the same ones back), so leaving and coming back shows the
-  round (or the answer, with its outlined rows) with what was already right; Undo / a new showing starts afresh.
+  round (or the answer, with its marked rows) with what was already right; Undo / a new showing starts afresh.
   Lab: back on the round returns to the question (its count kept).
 - Practice only: no review event, no recording kept. Offline the 🎤 is off (transcription needs a
   connection) and the round says so — Skip is the way on.
@@ -2218,6 +2222,33 @@ easily-confused / similar-sounding word or near-synonym (`contrast`). Now:
     `getNotesForSentenceTopUp` / the queue's top-up check) count natural rows only — so a word that relied on them
     is topped up with natural ones. The 80-sentence cap still counts every row.
 
+### The study card's layout — one frame at the screen's edge, no boxes inside (Nov 2026)
+
+Jerome (Pixel Fold, folded): "this whole red card, hard mode experience is pretty broken … All the padding is pretty
+intense … I want lots of vertical space, no large areas taken up by borders. If you've got a border, it should be as
+close to the edge of the screen as possible … I think it's the boxes around stuff that makes things look kind of
+vibe-coded." And of the sentence rows: "the sides are way too fat, and it makes the whole thing feel crammed." So, on
+both apps, for the question, the Sentence round and the answer side (and the normal card — same component):
+
+- **ONE border level**: the card's frame sits at the screen's edge (web: a 2px gutter, 1px border, 10px radius; Lab: a
+  4dp gutter, 1dp border, 12dp radius, a light shadow). Its colour tells a typed answer's verdict on the question only —
+  the round's frame and the answer side's never change colour (no green box around the whole card after the round).
+- **No boxes inside it**: the Sentence round's exercises are separated by hairlines, their state is the small number
+  mark (✓ green when right, red while recording, amber when close / missed) plus their own controls — never a coloured
+  outline; Hard mode's check of the question (✓ Right / ✗ Not quite / 👁 The answer) is a coloured title, not a
+  panel; "You said" keeps its chip, hero text and round buttons but no tinted box; the fun fact is plain text.
+- **Sentence rows span the width**: the sentence takes the whole row with only a small ▶ at the end of its first line;
+  EN · 🎤 · What's going on here? · + Add as card · 🙈 Hide are ONE quiet line under it (glyph buttons, 44px targets,
+  no outlined circles) with the row's small marks at its end ("In the round · ✓ Right", "From the card" — an inline
+  label, no tab on a border). A hairline between rows.
+- **Lean padding** (body text ≥ 16px, targets ≥ 44px, no padding around them) and a **light footer row**: Ask Claude ·
+  Edit card · ⋯ are borderless text buttons in one slim 44px row; the rating buttons keep their size.
+
+Web: `index.css` (`.study-page-fullscreen`, `.study-fullscreen`, `.sentence-set-row` / `-line` / `-actionline` /
+`-marks`), `components/study/SentenceRound.css`, `HardModeFeedback.css`, `pages/StudyPage.css`; Lab `ui/kit/StudyCard.kt`,
+`ui/study/CardStage.kt`, `Sentences.kt` (`SentenceRowView`), `SentenceRoundUi.kt`, `SentenceListenUi.kt`, `HardModeUi.kt`,
+`YouSaidBox.kt`, `CardExtrasUi.kt` (`StudyActionRow`).
+
 ### The gate — Good / Easy wait (greyed) for two sentences (part of Hard mode)
 
 Hard mode above (Settings → Study → 🎯 Hard mode / the header chip; was the switch "Sentence round before the answer
@@ -2230,9 +2261,12 @@ sentences were said right with the rows' 🎤 on this showing of the card (the l
 at most two) — read or
 translate mode both count; "right" = the device's exact / homophone match or Claude's correct /
 acceptable; close / wrong don't count; each sentence counts once. **Again** and **Hard** are always
-there. A line above the ratings says where he stands — "🎤 Try the sentences first · 1/2 right",
-then "✓ 2/2 right — Good and Easy unlocked"; a tap on it scrolls to the sentences, and a first tap on a
-greyed Good / Easy rates nothing and says "Tap again to rate Good anyway" (a second tap within 3 s rates it). A card with fewer than two sentences
+there. **No bar above the ratings** (Jerome, Nov 2026: "I don't think we need that extra bar above the ratings at
+all" — the "✓ 2/2 right — Good and Easy unlocked" banner, "🎤 Try the sentences first · 1/2 right" and "👁 You looked at
+the answer" are gone): the greyed Good / Easy ("tap twice"), the ringed Hard and, once tapped, "tap again" say it on the
+buttons; where he stands ("Try the sentences first · 1/2 right", `sentenceGateLabel`, null once enough are right) and
+"Tap again to rate Good anyway" are the buttons' accessible labels (web `aria-label`, Lab `stateDescription`). A first
+tap on a greyed Good / Easy rates nothing (a second tap within 3 s rates it). A card with fewer than two sentences
 (the card's own + the set) asks for as many as exist; none → no gate. The count starts again on every
 showing (a new showing, Undo). Never the homework
 pass (Not yet / Got it: there only giving up greys Got it, docs/HOMEWORK.md §3e), the tutor-notes practice or the Try-it previews. Every way of rating goes

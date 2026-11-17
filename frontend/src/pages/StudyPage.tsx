@@ -661,9 +661,6 @@ export function StudyCard({
     setHardAtReveal(true);
     setFlipped(true);
   }, []);
-  const scrollToSentences = () => {
-    document.querySelector('[data-testid="study-sentences"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
   // What the writing sheet practises: the card's hanzi (⋯ → Write it) or one character (character sheet).
   const [writingText, setWritingText] = useState<string | null>(null);
   const { user } = useAuth();
@@ -3508,7 +3505,6 @@ export function StudyCard({
                   onRate={handleRate}
                   disabled={isRating}
                   resetKey={gate.got}
-                  onLineClick={scrollToSentences}
                   onArmed={() => track('study.sentence_gate', { action: 'blocked', unlocked: false, needed: gate.needed, got: gate.got, card_type: card.card_type })}
                   onOverride={(rating) => track('study.hard_mode_override', { rating: rating === 3 ? 'easy' : 'good', reason: goodEasy.reason ?? 'sentences', card_type: card.card_type })}
                 />

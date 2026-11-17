@@ -84,14 +84,12 @@ fun StudyActionRow(aiAvailable: Boolean, onAskClaude: () -> Unit, onEditCard: ()
 
 @Composable
 private fun ActionButton(icon: String?, label: String, modifier: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
-    val shape = RoundedCornerShape(14.dp)
+    val shape = RoundedCornerShape(12.dp)
     Row(
         modifier
-            .height(46.dp)
+            // A light text button, one slim row (Jerome, Nov 2026: less boxy) — the ratings under it are the main action.
+            .height(44.dp)
             .clip(shape)
-            .background(Lab.colors.faint)
-            // Outlined so it reads as a button in dark mode too (faint on the card is ~1.1:1); dashed = disabled.
-            .buttonBorder(shape, enabled)
             .bouncyClickable(enabled = enabled, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,

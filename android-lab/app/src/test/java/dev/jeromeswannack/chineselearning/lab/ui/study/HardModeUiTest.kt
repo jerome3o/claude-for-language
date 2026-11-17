@@ -29,6 +29,7 @@ import dev.jeromeswannack.chineselearning.lab.ui.theme.LabTheme
 import org.junit.After
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Hard mode (docs/STUDY_SESSION.md "Hard mode"; core HardMode): the question's own answer checked on the
@@ -163,12 +164,12 @@ class HardModeUiTest : LabScreenshotTest() {
         compose.mainClock.advanceTimeBy(300)
         compose.onNodeWithText(dev.jeromeswannack.chineselearning.lab.core.SentenceRound.SKIP_CONFIRM_YES).performClick()
         compose.mainClock.advanceTimeBy(1_000)
-        compose.onNodeWithText(HardMode.GAVE_UP_LINE, useUnmergedTree = true).assertExists()
+        assertEquals(HardMode.GAVE_UP_LINE + "; tap twice to rate anyway", compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         // Greyed, never locked: the first tap on Good asks again, the second rates.
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(emptyList(), rated)
-        compose.onNodeWithText(HardMode.overridePrompt(2), useUnmergedTree = true).assertExists()
+        assertEquals(HardMode.overridePrompt(2), compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("rating-good", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(500)
         assertEquals(listOf(2), rated)
@@ -179,7 +180,7 @@ class HardModeUiTest : LabScreenshotTest() {
         card(start = CardStartState(flipped = true, gaveUp = true), actions = StudyActions(onRate = { r, _, _ -> rated += r }))
         compose.onNodeWithTag("rating-easy", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(HardMode.OVERRIDE_MS + 500)
-        compose.onNodeWithText(HardMode.GAVE_UP_LINE, useUnmergedTree = true).assertExists()
+        assertEquals(HardMode.GAVE_UP_LINE + "; tap twice to rate anyway", compose.onNodeWithTag("rating-good", useUnmergedTree = true).fetchSemanticsNode().config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null })
         compose.onNodeWithTag("rating-easy", useUnmergedTree = true).performClick()
         compose.mainClock.advanceTimeBy(300)
         assertEquals(emptyList(), rated)
@@ -193,7 +194,8 @@ class HardModeUiTest : LabScreenshotTest() {
         card(start = CardStartState(flipped = true, gaveUp = true))
         compose.onNodeWithText(HardMode.SUGGESTED, useUnmergedTree = true).assertDoesNotExist()
         compose.onAllNodesWithTag("rating-hard", useUnmergedTree = true).fetchSemanticsNodes().single().let { node ->
-            assertEquals(HardMode.SUGGESTED, node.config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription])
+            // "suggested" + why (the gave-up line), for TalkBack — no bar above the ratings says it.
+            assertTrue(node.config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription].startsWith(HardMode.SUGGESTED))
         }
     }
 

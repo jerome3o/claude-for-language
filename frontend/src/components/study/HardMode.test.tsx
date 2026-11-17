@@ -174,7 +174,7 @@ describe('HardModeRatings: greyed, never locked', () => {
     act(() => root.render(<HardModeRatings goodEasy={goodEasy} intervalPreviews={previews} disabled={false} {...h} />));
     return h;
   };
-  const greyed = { state: 'suggest_lower', reason: 'gave_up', label: '👁 You looked at the answer — Again or Hard suggested', gaveUp: true } as const;
+  const greyed = { state: 'suggest_lower', reason: 'gave_up', label: 'You looked at the answer — Again or Hard suggested', gaveUp: true } as const;
   it('Good / Easy greyed, Hard suggested; Again and Hard rate at once', async () => {
     const h = await render(greyed);
     expect(q('rating-good')!.dataset.greyed).toBe('true');
@@ -186,13 +186,22 @@ describe('HardModeRatings: greyed, never locked', () => {
     act(() => q('rating-again')!.click());
     expect(h.onRate).toHaveBeenCalledWith(0);
   });
+  it('NO bar above the ratings — why they are greyed is the buttons\' accessible label', async () => {
+    await render(greyed);
+    expect(q('sentence-gate')).toBeNull();
+    expect(root && document.body.textContent).not.toContain('You looked at the answer');
+    expect(q('rating-good')!.getAttribute('aria-label')).toBe('Good, 10m — You looked at the answer — Again or Hard suggested; tap twice to rate anyway');
+    expect(q('rating-hard')!.getAttribute('aria-label')).toBe('Hard, 6m — suggested: You looked at the answer — Again or Hard suggested');
+    expect(q('rating-again')!.hasAttribute('aria-label')).toBe(false);
+  });
   it('the first tap on Good says "Tap again…", the second rates it (an override)', async () => {
     const h = await render(greyed);
     act(() => q('rating-good')!.click());
     expect(h.onRate).not.toHaveBeenCalled();
     expect(h.onArmed).toHaveBeenCalledWith(2);
-    expect(q('sentence-gate')!.textContent).toBe('Tap again to rate Good anyway');
     expect(q('rating-good')!.dataset.armed).toBe('true');
+    expect(q('rating-good')!.textContent).toContain('tap again');
+    expect(q('rating-good')!.getAttribute('aria-label')).toBe('Good, 10m — Tap again to rate Good anyway');
     act(() => q('rating-good')!.click());
     expect(h.onOverride).toHaveBeenCalledWith(2);
     expect(h.onRate).toHaveBeenCalledWith(2);
@@ -203,7 +212,7 @@ describe('HardModeRatings: greyed, never locked', () => {
       const h = await render(greyed);
       act(() => q('rating-easy')!.click());
       act(() => { vi.advanceTimersByTime(3100); });
-      expect(q('sentence-gate')!.textContent).toBe(greyed.label);
+      expect(q('rating-easy')!.dataset.armed).toBeUndefined();
       act(() => q('rating-easy')!.click());
       expect(h.onRate).not.toHaveBeenCalled();
     } finally {
@@ -211,8 +220,11 @@ describe('HardModeRatings: greyed, never locked', () => {
     }
   });
   it('open: every rating rates at once, nothing greyed', async () => {
-    const h = await render({ state: 'open', reason: null, label: '✓ 2/2 right — Good and Easy unlocked', gaveUp: false });
+    const h = await render({ state: 'open', reason: null, label: null, gaveUp: false });
     expect(q('rating-good')!.dataset.greyed).toBeUndefined();
+    expect(q('sentence-gate')).toBeNull();
+    expect(document.body.textContent).not.toContain('unlocked');
+    expect(q('rating-good')!.hasAttribute('aria-label')).toBe(false);
     expect(q('rating-hard')!.dataset.suggested).toBeUndefined();
     act(() => q('rating-good')!.click());
     expect(h.onRate).toHaveBeenCalledWith(2);

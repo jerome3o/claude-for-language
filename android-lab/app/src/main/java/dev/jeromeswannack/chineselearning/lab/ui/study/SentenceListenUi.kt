@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
@@ -118,7 +119,8 @@ fun ListenExerciseCard(
     val result = take?.result()
     val status = if (isRight) "right" else result
     val answered = take != null
-    val shape = RoundedCornerShape(16.dp)
+    // Not a box (Jerome, Nov 2026): no outline — the state colours the small number mark; a hairline separates exercises.
+    val divider = Lab.colors.cardBorder
     val border = when (status) {
         "right" -> Palette.Good
         "close" -> Palette.Gold
@@ -127,19 +129,18 @@ fun ListenExerciseCard(
     }
     val playing = playingKey != null && playingKey == row.audioUrl
     Column(
-        Modifier.fillMaxWidth().clip(shape)
-            .background(if (status == "right") Palette.Good.copy(alpha = 0.08f) else Lab.colors.card)
-            .border(if (status == null && !(active && !answered)) 1.dp else 2.dp, border, shape)
+        Modifier.fillMaxWidth()
             .pointerInput(ex.id) { detectTapGestures(onLongPress = { onMore() }) }
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .drawBehind { drawLine(divider, androidx.compose.ui.geometry.Offset(0f, size.height), androidx.compose.ui.geometry.Offset(size.width, size.height), 0.5.dp.toPx()) }
+            .padding(vertical = 8.dp)
             .animateContentSize()
             .testTag("${SentenceRoundTags.EXERCISE}-$index-${ex.mode}-${status ?: "open"}"),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
-                Modifier.size(24.dp).clip(CircleShape).background(if (status == "right") Palette.Good else Lab.colors.faint),
+                Modifier.size(24.dp).clip(CircleShape).background(if (border == Lab.colors.cardBorder) Lab.colors.faint else border),
                 contentAlignment = Alignment.Center,
-            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (status == "right") Color.White else Lab.colors.ink, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            ) { Text(if (status == "right") "✓" else "${index + 1}", color = if (border == Lab.colors.cardBorder) Lab.colors.ink else Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
             Text(SentenceRound.PROMPT[SentenceRound.LISTEN].orEmpty(), Modifier.weight(1f), color = Lab.colors.muted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             status?.let { Text(SentenceRound.RESULT[it].orEmpty(), color = Lab.colors.ink, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
             Box(
